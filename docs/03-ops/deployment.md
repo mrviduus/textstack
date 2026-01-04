@@ -21,7 +21,13 @@ Docker containers (localhost only)
     ├── API        (127.0.0.1:8080)
     ├── Worker     (background jobs)
     ├── Admin      (127.0.0.1:5174)
-    └── PostgreSQL (internal only)
+    ├── PostgreSQL (internal only)
+    └── Observability Stack
+        ├── Grafana     (127.0.0.1:3000)
+        ├── Prometheus  (127.0.0.1:9090)
+        ├── Loki        (internal)
+        ├── Tempo       (internal)
+        └── OTEL Collector (internal)
 ```
 
 ## Prerequisites
@@ -40,6 +46,8 @@ Docker containers (localhost only)
 | API | Public via /api/ path | Rate limiting, JWT auth |
 | Admin panel | localhost only | Not exposed to internet |
 | PostgreSQL | Docker internal | No external ports |
+| Grafana | localhost only | Password auth, not exposed |
+| Prometheus | localhost only | Not exposed to internet |
 | SSH | Port 22 | UFW firewall, key auth |
 
 ## Initial Setup
@@ -118,6 +126,10 @@ JWT_ISSUER=textstack-api
 JWT_AUDIENCE=textstack-client
 
 VITE_API_URL=/api
+
+# Observability
+GRAFANA_ADMIN_PASSWORD=<generated>
+GRAFANA_ROOT_URL=http://localhost:3000
 ```
 
 ### 6. Build Frontend
@@ -128,7 +140,15 @@ pnpm install
 VITE_API_URL=/api pnpm build
 ```
 
-### 7. Start Services
+### 7. Create Data Directories
+
+```bash
+# Observability data directories (need correct permissions)
+mkdir -p data/grafana-prod data/prometheus-prod data/tempo-prod data/loki-prod
+sudo chmod 777 data/grafana-prod data/prometheus-prod data/tempo-prod data/loki-prod
+```
+
+### 8. Start Services
 
 ```bash
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
@@ -145,6 +165,10 @@ sudo systemctl status cloudflared
 # Health checks
 curl http://localhost:8080/health
 curl http://localhost:80
+
+# Observability
+curl http://localhost:3000/api/health  # Grafana
+curl http://localhost:9090/-/healthy   # Prometheus
 
 # From phone (mobile data, not WiFi)
 # https://textstack.app
@@ -229,7 +253,18 @@ echo "Backup completed: $DATE"
 0 3 * * * /home/vasyl/scripts/backup-prod.sh >> /var/log/textstack-backup.log 2>&1
 ```
 
-## Monitoring
+## Monitoring & Observability
+
+### Grafana Dashboard
+
+Access: `http://localhost:3000` (SSH tunnel or local access)
+
+**Key dashboards:**
+- **Ingestion Overview** - Book processing health, success rates
+- **Extraction Performance** - Processing latencies by format
+- **Worker Health** - Queue depth, throughput
+
+See [Observability Guide](../../observability/README.md) for detailed usage.
 
 ### Health Endpoints
 
@@ -237,8 +272,19 @@ echo "Backup completed: $DATE"
 |----------|----------|
 | `http://localhost:8080/health` | 200 OK |
 | `https://textstack.app/api/health` | 200 OK |
+| `http://localhost:3000/api/health` | 200 OK (Grafana) |
+| `http://localhost:9090/-/healthy` | 200 OK (Prometheus) |
 
-### Log Locations
+### Logs
+
+**Centralized logs (Grafana → Explore → Loki):**
+```logql
+{service_name="onlinelib-api"}           # API logs
+{service_name="onlinelib-worker"}        # Worker logs
+{service_name="onlinelib-api"} | json | level="Error"  # Errors only
+```
+
+**Direct Docker logs:**
 
 | Service | Command |
 |---------|---------|
@@ -246,6 +292,17 @@ echo "Backup completed: $DATE"
 | Worker | `docker logs textstack_worker_prod` |
 | Nginx | `sudo tail -f /var/log/nginx/error.log` |
 | Cloudflared | `sudo journalctl -u cloudflared` |
+| Grafana | `docker logs textstack_grafana_prod` |
+| OTEL Collector | `docker logs textstack_otel_prod` |
+
+### Traces
+
+Access: **Grafana → Explore → Tempo**
+
+```traceql
+{service.name="onlinelib-worker"}              # All worker traces
+{service.name="onlinelib-worker"} | duration > 10s  # Slow traces
+```
 
 ### Resource Usage
 
@@ -264,16 +321,21 @@ free -h
 | API errors | `docker logs textstack_api_prod` | Check logs for details |
 | DNS not resolving | `dig textstack.app` | Wait for propagation / check Cloudflare |
 | Permission denied | nginx logs | `chmod 755` on directories |
+| No logs in Loki | `docker logs textstack_otel_prod` | Check OTEL collector |
+| Grafana "No data" | Check time range | Adjust time picker, verify data sources |
+| Loki permission denied | `ls -la data/loki-prod` | `sudo chmod 777 data/loki-prod` |
 
 ## Security Checklist
 
 - [ ] `.env.production` not in git (check: `git status`)
 - [ ] Strong passwords (24+ chars, generated)
 - [ ] JWT secret 32+ chars
+- [ ] Grafana admin password set (not default)
 - [ ] UFW enabled with minimal ports
 - [ ] SSH key authentication (disable password)
 - [ ] Regular backups configured
 - [ ] Cloudflare SSL mode: Full (strict)
+- [ ] Grafana/Prometheus not exposed to internet (localhost only)
 
 ## Rollback Procedure
 
@@ -306,10 +368,16 @@ docker compose -f docker-compose.prod.yml --env-file .env.production up -d --bui
 | Frontend dist | `apps/web/dist/` |
 | Storage data | `data/storage/` |
 | Database data | `data/postgres-prod/` |
+| Grafana data | `data/grafana-prod/` |
+| Prometheus data | `data/prometheus-prod/` |
+| Loki data | `data/loki-prod/` |
+| Tempo data | `data/tempo-prod/` |
 | Backups | `/home/vasyl/backups/` |
+| Observability docs | `observability/README.md` |
 
 ## See Also
 
 - [Local Development](local-dev.md)
 - [Backup & Restore](backup.md)
+- [Observability Guide](../../observability/README.md)
 - [API Documentation](../02-system/api.md)

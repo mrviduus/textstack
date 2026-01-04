@@ -3,6 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using OpenTelemetry;
+using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
@@ -66,6 +67,22 @@ public static class TelemetryExtensions
                     .SetResourceBuilder(resourceBuilder)
                     .AddMeter(TelemetryConstants.MeterName)
                     .AddRuntimeInstrumentation();
+
+                if (useConsoleExporter)
+                {
+                    builder.AddConsoleExporter();
+                }
+                else
+                {
+                    builder.AddOtlpExporter(options =>
+                    {
+                        options.Endpoint = new Uri(otlpEndpoint!);
+                    });
+                }
+            })
+            .WithLogging(builder =>
+            {
+                builder.SetResourceBuilder(resourceBuilder);
 
                 if (useConsoleExporter)
                 {

@@ -17,6 +17,8 @@ docker compose up --build
 | Web | http://localhost:5173 |
 | Admin | http://localhost:5174 |
 | Postgres | localhost:5432 |
+| Grafana | http://localhost:3000 |
+| Prometheus | http://localhost:9090 |
 
 ### Testing Sites
 
@@ -204,6 +206,7 @@ Key files:
 | [Production Deployment](docs/03-ops/deployment.md) | Server setup, Cloudflare Tunnel, nginx |
 | [CI/CD Pipeline](docs/03-ops/cicd-plan.md) | GitHub Actions, auto-deploy, backups |
 | [Backup & Recovery](docs/03-ops/backup.md) | DB backup, file recovery |
+| [Observability](observability/README.md) | Logs, metrics, traces, dashboards, alerts |
 
 ---
 

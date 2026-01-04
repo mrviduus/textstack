@@ -1,138 +1,417 @@
 # Observability Stack
 
-OpenTelemetry-based observability for OnlineLib.
+OpenTelemetry-based observability for TextStack (OnlineLib). Full observability with metrics, traces, and logs.
+
+## Architecture Overview
+
+```
+┌─────────────┐     ┌─────────────┐
+│   API       │     │   Worker    │
+│ (ASP.NET)   │     │ (ASP.NET)   │
+└──────┬──────┘     └──────┬──────┘
+       │ OTLP              │ OTLP
+       │ (gRPC:4317)       │
+       └─────────┬─────────┘
+                 ▼
+       ┌─────────────────┐
+       │ OTEL Collector  │
+       └────┬───┬───┬────┘
+            │   │   │
+     ┌──────┘   │   └──────┐
+     ▼          ▼          ▼
+┌─────────┐ ┌───────┐ ┌─────────┐
+│Prometheus│ │ Tempo │ │  Loki   │
+│(Metrics) │ │(Traces)│ │ (Logs)  │
+└────┬─────┘ └───┬───┘ └────┬────┘
+     │           │          │
+     └───────────┼──────────┘
+                 ▼
+           ┌──────────┐
+           │ Grafana  │
+           │  :3000   │
+           └──────────┘
+```
 
 ## Stack Components
 
-| Component       | Port  | URL                      |
-|-----------------|-------|--------------------------|
-| Grafana         | 3000  | http://localhost:3000    |
-| Prometheus      | 9090  | http://localhost:9090    |
-| Tempo           | 3200  | http://localhost:3200    |
-| OTEL Collector  | 4317  | gRPC                     |
-| OTEL Collector  | 4318  | HTTP                     |
+| Component       | Port  | URL                      | Purpose                |
+|-----------------|-------|--------------------------|------------------------|
+| Grafana         | 3000  | http://localhost:3000    | Visualization & alerts |
+| Prometheus      | 9090  | http://localhost:9090    | Metrics storage        |
+| Tempo           | 3200  | http://localhost:3200    | Distributed tracing    |
+| Loki            | 3100  | http://localhost:3100    | Log aggregation        |
+| OTEL Collector  | 4317  | gRPC                     | Telemetry routing      |
+| OTEL Collector  | 4318  | HTTP                     | Telemetry routing      |
 
 ## Quick Start
 
 ```bash
-# Start full stack
+# Development
 docker compose up -d
 
-# View Grafana dashboards
-open http://localhost:3000
-# Login: admin / admin
+# Production
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 
-# View Prometheus metrics
-open http://localhost:9090
+# View Grafana
+open http://localhost:3000
+# Login: admin / <your-password>
 ```
+
+---
+
+## Logs (Loki)
+
+### Accessing Logs
+
+1. Open **Grafana** → **Explore** (compass icon in left sidebar)
+2. Select **Loki** from the datasource dropdown (top)
+3. Switch to **Code** mode (top right toggle)
+
+### Basic LogQL Queries
+
+```logql
+# All logs from API
+{service_name="onlinelib-api"}
+
+# All logs from Worker
+{service_name="onlinelib-worker"}
+
+# Filter by log level
+{service_name="onlinelib-api"} | json | level="Error"
+{service_name="onlinelib-worker"} | json | level="Warning"
+
+# Search for specific text
+{service_name="onlinelib-api"} |= "Exception"
+{service_name="onlinelib-worker"} |= "ingestion"
+
+# Exclude noisy logs
+{service_name="onlinelib-api"} != "healthcheck"
+
+# Regex search
+{service_name="onlinelib-api"} |~ "book.*failed"
+
+# Parse JSON and filter
+{service_name="onlinelib-worker"} | json | attributes_commandText=~".*ingestion_jobs.*"
+```
+
+### What to Look For in Logs
+
+| Pattern | Meaning | Action |
+|---------|---------|--------|
+| `level="Error"` | Application errors | Investigate immediately |
+| `level="Warning"` | Potential issues | Monitor for patterns |
+| `Exception` | Unhandled exceptions | Check stack trace |
+| `timeout` | Operation timeouts | Check resource limits |
+| `connection refused` | Service unavailable | Check dependent services |
+| `OOM` or `memory` | Memory issues | Increase limits |
+
+### Correlating Logs with Traces
+
+Logs include `traceid` field. Click on it to jump to the corresponding trace in Tempo.
+
+```logql
+# Find logs for a specific trace
+{service_name="onlinelib-worker"} |= "traceid\":\"abc123"
+```
+
+---
+
+## Traces (Tempo)
+
+### Accessing Traces
+
+1. Open **Grafana** → **Explore**
+2. Select **Tempo** from datasource dropdown
+3. Use **Search** tab or **TraceQL** tab
+
+### Key Spans to Monitor
+
+| Span Name | Service | What It Shows |
+|-----------|---------|---------------|
+| `ingestion.job.pick` | Worker | Job selection from queue |
+| `ingestion.job.process` | Worker | Full book processing |
+| `extraction.run` | Worker | Text extraction duration |
+| `persist.result` | Worker | Database write time |
+| HTTP endpoints | API | Request handling time |
+
+### TraceQL Queries
+
+```traceql
+# All traces from worker
+{service.name="onlinelib-worker"}
+
+# Slow traces (>10s)
+{service.name="onlinelib-worker"} | duration > 10s
+
+# Failed traces
+{service.name="onlinelib-worker" && status=error}
+
+# Specific operation
+{name="ingestion.job.process"}
+
+# By book format
+{name="extraction.run" && resource.format="epub"}
+```
+
+### What to Look For in Traces
+
+1. **Long durations** - Identify bottlenecks
+2. **Error spans** - Red spans indicate failures
+3. **Large span counts** - Too many DB calls?
+4. **Gaps between spans** - Missing instrumentation or waiting
+
+---
+
+## Metrics (Prometheus)
+
+### Accessing Metrics
+
+1. **Grafana Dashboards** - Pre-built visualizations
+2. **Grafana Explore** → **Prometheus** - Ad-hoc queries
+3. **Prometheus UI** - http://localhost:9090/graph
+
+### Key Metrics
+
+#### Ingestion Counters
+```promql
+# Jobs started per minute
+rate(onlinelib_ingestion_jobs_started_total[5m])
+
+# Success rate
+sum(rate(onlinelib_ingestion_jobs_succeeded_total[5m])) /
+sum(rate(onlinelib_ingestion_jobs_started_total[5m]))
+
+# Failures by reason
+sum by (reason) (rate(onlinelib_ingestion_jobs_failed_total[5m]))
+```
+
+#### Queue Health
+```promql
+# Current queue depth
+onlinelib_ingestion_jobs_pending
+
+# Jobs in progress
+onlinelib_ingestion_jobs_in_progress
+
+# Queue lag (oldest job age)
+onlinelib_ingestion_queue_lag_ms_milliseconds
+```
+
+#### Performance
+```promql
+# p95 extraction duration
+histogram_quantile(0.95, rate(onlinelib_extraction_duration_ms_bucket[5m]))
+
+# Average job duration by format
+avg by (format) (rate(onlinelib_ingestion_job_duration_ms_sum[5m]) /
+                 rate(onlinelib_ingestion_job_duration_ms_count[5m]))
+```
+
+#### Runtime Metrics
+```promql
+# Memory usage
+onlinelib_dotnet_process_memory_working_set_bytes
+
+# GC collections
+rate(onlinelib_dotnet_gc_collections_total[5m])
+
+# Thread pool queue
+onlinelib_dotnet_thread_pool_queue_length_total
+```
+
+---
 
 ## Dashboards
 
-Pre-provisioned dashboards in Grafana:
+### Pre-provisioned Dashboards
 
-1. **Ingestion Overview** - Jobs succeeded/failed, success rate, failure reasons, OCR usage
-2. **Extraction Performance** - p50/p95 latencies by format, slow traces
-3. **Worker Health** - Queue status, backlog, throughput
+Access via **Grafana** → **Dashboards** → **Browse**
 
-## Metrics
+#### 1. Ingestion Overview
+- **Purpose**: High-level health of book processing
+- **Key panels**:
+  - Jobs started/succeeded/failed over time
+  - Success rate percentage
+  - Failure reasons breakdown
+  - OCR usage rate
+- **When to use**: Daily monitoring, incident response
 
-### Counters
-- `onlinelib_ingestion_jobs_started_total{format}` - Jobs started
-- `onlinelib_ingestion_jobs_succeeded_total{format}` - Jobs succeeded
-- `onlinelib_ingestion_jobs_failed_total{format, reason}` - Jobs failed
-- `onlinelib_extraction_ocr_used_total{format}` - OCR extractions
+#### 2. Extraction Performance
+- **Purpose**: Deep-dive into processing times
+- **Key panels**:
+  - p50/p95/p99 latency by format
+  - Slow extraction traces
+  - Format distribution
+- **When to use**: Performance optimization, SLA monitoring
 
-### Histograms
-- `onlinelib_ingestion_job_duration_ms{format}` - Total job duration
-- `onlinelib_extraction_duration_ms{format, text_source}` - Extraction duration
+#### 3. Worker Health
+- **Purpose**: Worker process health
+- **Key panels**:
+  - Queue depth and backlog
+  - Processing throughput
+  - Memory and CPU usage
+  - Active workers
+- **When to use**: Capacity planning, scaling decisions
 
-### Gauges
-- `onlinelib_ingestion_jobs_in_progress` - Currently processing
-- `onlinelib_ingestion_jobs_pending` - Waiting in queue
-- `onlinelib_ingestion_queue_lag_ms` - Age of oldest pending job
+### Reading Dashboards
 
-## Traces
+1. **Time range** (top right): Adjust to relevant period
+2. **Refresh** (top right): Set auto-refresh for live monitoring
+3. **Panel drill-down**: Click panel title → Explore for deeper analysis
+4. **Variables** (top): Filter by service, format, etc.
 
-Traces are exported to Tempo. Key spans:
-
-- `ingestion.job.pick` - Job selection from queue
-- `ingestion.job.process` - Full job processing
-- `ingestion.file.open` - File access
-- `extraction.run` - Text extraction
-- `persist.result` - Database persistence
-
-### Viewing Traces
-
-1. Open Grafana
-2. Go to Explore → Tempo
-3. Query: `{service.name="onlinelib-worker"}`
-4. Or find slow traces: `{name="ingestion.job.process"} | duration > 10s`
+---
 
 ## Alerts
 
-Provisioned alerts in Grafana:
+### Provisioned Alerts
 
-| Alert                        | Condition                    | Severity |
-|------------------------------|------------------------------|----------|
-| High Ingestion Failure Rate  | failure_rate > 5% for 15m    | Warning  |
-| Critical Failure Rate        | failure_rate > 10% for 15m   | Critical |
-| High Extraction Latency      | p95 > 60s for 15m            | Warning  |
-| Backlog Growing              | pending > 100 for 30m        | Warning  |
-| Queue Stale                  | lag > 1h for 30m             | Critical |
-| OCR Spike                    | OCR > 50% of jobs for 15m    | Info     |
+| Alert | Condition | Severity | Action |
+|-------|-----------|----------|--------|
+| High Failure Rate | >5% failures for 15m | Warning | Check logs for errors |
+| Critical Failure Rate | >10% failures for 15m | Critical | Immediate investigation |
+| High Extraction Latency | p95 >60s for 15m | Warning | Check resource usage |
+| Backlog Growing | >100 pending for 30m | Warning | Scale workers |
+| Queue Stale | lag >1h for 30m | Critical | Worker may be stuck |
+| OCR Spike | >50% OCR for 15m | Info | Expected for PDFs |
+
+### Alert Response Playbook
+
+1. **Check Grafana** - Which alert fired?
+2. **Check logs** - `{service_name="onlinelib-worker"} | json | level="Error"`
+3. **Check traces** - Find failed spans
+4. **Check metrics** - Resource exhaustion?
+5. **Check infrastructure** - Docker, DB, storage healthy?
+
+---
+
+## Common Troubleshooting
+
+### No Logs in Loki
+
+```bash
+# Check Loki is running
+docker logs textstack_loki_prod
+
+# Check OTEL collector
+docker logs textstack_otel_prod | grep -i log
+
+# Verify logs pipeline
+curl http://localhost:3100/ready
+```
+
+### No Metrics in Prometheus
+
+```bash
+# Check Prometheus targets
+curl http://localhost:9090/api/v1/targets
+
+# Check OTEL collector metrics endpoint
+curl http://localhost:8889/metrics
+
+# Verify connection
+docker logs textstack_prometheus_prod
+```
+
+### No Traces in Tempo
+
+```bash
+# Check Tempo health
+curl http://localhost:3200/ready
+
+# Check OTEL collector
+docker logs textstack_otel_prod | grep -i trace
+
+# Verify traces are being sent
+docker logs textstack_api_prod | grep -i otlp
+```
+
+### Dashboard Shows "No Data"
+
+1. Check time range (top right) - data may be outside range
+2. Check if services are running and producing telemetry
+3. Verify datasource connections in Grafana
+4. For ingestion dashboards - upload a book to generate data
+
+---
 
 ## Configuration
 
-### Enable OTLP Export
+### Environment Variables
 
-Set environment variable:
 ```bash
+# Enable OTLP export (required for observability)
 OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+
+# Grafana admin password
+GRAFANA_ADMIN_PASSWORD=your-secure-password
+
+# Optional: Grafana URL for alerts
+GRAFANA_ROOT_URL=https://grafana.yourdomain.com
 ```
 
-Already configured in docker-compose for API and Worker.
+### Data Retention
 
-### Local Development (without collector)
+| Component | Default Retention | Config Location |
+|-----------|-------------------|-----------------|
+| Prometheus | 30 days | docker-compose `--storage.tsdb.retention.time` |
+| Loki | 30 days | `observability/loki/loki-config.yaml` |
+| Tempo | 30 days | `observability/tempo/tempo.yaml` |
+| Grafana | Unlimited | Depends on disk |
 
-If `OTEL_EXPORTER_OTLP_ENDPOINT` is not set, telemetry exports to console.
+### Adding Custom Metrics
 
-## Adding New Metrics
+```csharp
+// In TelemetryConstants.cs
+public static readonly Counter<long> MyCustomCounter =
+    Meter.CreateCounter<long>("my_custom_counter", "items", "Description");
 
-1. Edit `backend/src/Infrastructure/Telemetry/TelemetryConstants.cs`
-2. Add new Counter/Histogram/Gauge to `IngestionMetrics`
-3. Record metric in relevant code path
-4. Update dashboards in `observability/grafana/dashboards/`
+// Usage
+TelemetryConstants.MyCustomCounter.Add(1, new("label", "value"));
+```
 
-## Adding New Spans
+### Adding Custom Spans
 
 ```csharp
 using Infrastructure.Telemetry;
 
-using var activity = IngestionActivitySource.Source.StartActivity("my.span.name");
+using var activity = IngestionActivitySource.Source.StartActivity("my.operation");
 activity?.SetTag("key", "value");
-// ... do work
-activity?.SetStatus(ActivityStatusCode.Ok);
+try
+{
+    // ... work
+    activity?.SetStatus(ActivityStatusCode.Ok);
+}
+catch (Exception ex)
+{
+    activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+    throw;
+}
 ```
 
-## Verifying Signals
+---
 
-1. Start stack: `docker compose up -d`
-2. Upload a test file via admin API
-3. Check Prometheus: `http://localhost:9090/graph`
-   - Query: `onlinelib_ingestion_jobs_started_total`
-4. Check Grafana dashboards
-5. Check Tempo for traces
+## Production Checklist
 
-## Troubleshooting
+- [ ] Set strong `GRAFANA_ADMIN_PASSWORD`
+- [ ] Configure alert notification channels (email, Slack, etc.)
+- [ ] Set appropriate retention periods for your storage capacity
+- [ ] Verify all datasources are connected in Grafana
+- [ ] Test alerts are firing correctly
+- [ ] Set up dashboard auto-refresh for monitoring
+- [ ] Create data directories with correct permissions
+- [ ] Configure firewall - ports should not be publicly accessible
 
-### No metrics in Prometheus
-- Check OTEL collector logs: `docker logs books_otel`
-- Verify API/Worker logs show OTLP export
+---
 
-### No traces in Tempo
-- Check Tempo logs: `docker logs books_tempo`
-- Verify collector config exports to `otlp/tempo`
+## Files Reference
 
-### Dashboards not loading
-- Check Grafana logs: `docker logs books_grafana`
-- Verify provisioning paths in docker-compose volumes
+| File | Purpose |
+|------|---------|
+| `observability/grafana/provisioning/datasources/` | Grafana datasource configs |
+| `observability/grafana/provisioning/dashboards/` | Dashboard provisioning |
+| `observability/grafana/dashboards/` | Dashboard JSON files |
+| `observability/prometheus/prometheus.yml` | Prometheus scrape config |
+| `observability/tempo/tempo.yaml` | Tempo configuration |
+| `observability/loki/loki-config.yaml` | Loki configuration |
+| `infra/otel/otel-collector-config.yaml` | OTEL Collector pipelines |

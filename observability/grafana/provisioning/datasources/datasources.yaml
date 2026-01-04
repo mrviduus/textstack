@@ -8,6 +8,18 @@ datasources:
     isDefault: true
     editable: false
 
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    editable: false
+    jsonData:
+      derivedFields:
+        - datasourceUid: tempo
+          matcherRegex: '"trace_id":"(\w+)"'
+          name: TraceID
+          url: '$${__value.raw}'
+
   - name: Tempo
     type: tempo
     access: proxy
@@ -22,4 +34,4 @@ datasources:
       nodeGraph:
         enabled: true
       lokiSearch:
-        datasourceUid: ''
+        datasourceUid: loki
