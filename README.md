@@ -2,6 +2,8 @@
 
 Free book library w/ Kindle-like reader. Upload EPUB/PDF/FB2 → parse → SEO pages + offline-first reading sync.
 
+**Live**: [textstack.app](https://textstack.app/) (general) · [textstack.dev](https://textstack.dev/) (programming)
+
 **Multisite**: Single backend serves multiple branded sites (general, programming, etc.) with shared content isolation.
 
 ## Quick Start
