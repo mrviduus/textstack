@@ -1,0 +1,110 @@
+📚 6-MONTH BOOK INGESTION PLAN (PUBLIC DOMAIN)
+Project: OnlineLib / TextStack
+
+Principles:
+– 10 books per month
+– Public Domain only
+– Each book = book page + author page + genres + SEO
+– Quality over quantity
+
+==============================
+MONTH 1 — CORE CLASSICS
+==============================
+1. Pride and Prejudice — Jane Austen (1813)
+2. Sense and Sensibility — Jane Austen (1811)
+3. Crime and Punishment — Fyodor Dostoevsky (1866)
+4. The Brothers Karamazov — Fyodor Dostoevsky (1880)
+5. Great Expectations — Charles Dickens (1861)
+6. Oliver Twist — Charles Dickens (1838)
+7. Jane Eyre — Charlotte Brontë (1847)
+8. Wuthering Heights — Emily Brontë (1847)
+9. Moby-Dick — Herman Melville (1851)
+10. The Scarlet Letter — Nathaniel Hawthorne (1850)
+
+==============================
+MONTH 2 — GOTHIC & DARK CLASSICS
+==============================
+11. Dracula — Bram Stoker (1897)
+12. Frankenstein — Mary Shelley (1818)
+13. The Strange Case of Dr Jekyll and Mr Hyde — Robert L. Stevenson (1886)
+14. The Picture of Dorian Gray — Oscar Wilde (1890)
+15. The Fall of the House of Usher — Edgar Allan Poe (1839)
+16. The Tell-Tale Heart — Edgar Allan Poe (1843)
+17. Carmilla — Sheridan Le Fanu (1872)
+18. The Turn of the Screw — Henry James (1898)
+19. The Monk — Matthew Lewis (1796)
+20. Vathek — William Beckford (1786)
+
+==============================
+MONTH 3 — ADVENTURE & POPULAR CLASSICS
+==============================
+21. The Adventures of Sherlock Holmes — Arthur Conan Doyle (1892)
+22. The Hound of the Baskervilles — Arthur Conan Doyle (1902)
+23. Treasure Island — Robert L. Stevenson (1883)
+24. The Call of the Wild — Jack London (1903)
+25. White Fang — Jack London (1906)
+26. Around the World in Eighty Days — Jules Verne (1873)
+27. Journey to the Center of the Earth — Jules Verne (1864)
+28. Robinson Crusoe — Daniel Defoe (1719)
+29. Gulliver’s Travels — Jonathan Swift (1726)
+30. The Three Musketeers — Alexandre Dumas (1844)
+
+==============================
+MONTH 4 — AMERICAN CLASSICS
+==============================
+31. The Adventures of Tom Sawyer — Mark Twain (1876)
+32. Adventures of Huckleberry Finn — Mark Twain (1884)
+33. The Last of the Mohicans — James Fenimore Cooper (1826)
+34. Little Women — Louisa May Alcott (1868)
+35. Uncle Tom’s Cabin — Harriet Beecher Stowe (1852)
+36. Walden — Henry David Thoreau (1854)
+37. The Red Badge of Courage — Stephen Crane (1895)
+38. Maggie: A Girl of the Streets — Stephen Crane (1893)
+39. My Ántonia — Willa Cather (1918)
+40. The Awakening — Kate Chopin (1899)
+
+==============================
+MONTH 5 — PHILOSOPHY & IDEAS
+==============================
+41. Meditations — Marcus Aurelius (~180)
+42. The Republic — Plato (~380 BC)
+43. Thus Spoke Zarathustra — Friedrich Nietzsche (1883)
+44. Beyond Good and Evil — Friedrich Nietzsche (1886)
+45. The Prince — Niccolò Machiavelli (1532)
+46. Leviathan — Thomas Hobbes (1651)
+47. An Essay Concerning Human Understanding — John Locke (1689)
+48. On Liberty — John Stuart Mill (1859)
+49. The Art of War — Sun Tzu (~500 BC)
+50. Confessions — Augustine of Hippo (397)
+
+==============================
+MONTH 6 — WORLD & EUROPEAN CANON
+==============================
+51. Don Quixote — Miguel de Cervantes (1605)
+52. The Divine Comedy — Dante Alighieri (1320)
+53. Faust — Johann Wolfgang von Goethe (1808)
+54. The Decameron — Giovanni Boccaccio (1353)
+55. The Aeneid — Virgil (19 BC)
+56. The Iliad — Homer (~750 BC)
+57. The Odyssey — Homer (~725 BC)
+58. Les Misérables — Victor Hugo (1862)
+59. The Hunchback of Notre-Dame — Victor Hugo (1831)
+60. The Metamorphosis — Franz Kafka (1915)
+
+==============================
+NOTES
+==============================
+– All books listed are Public Domain
+– Use Standard Ebooks / Project Gutenberg as text sources
+– Do NOT copy descriptions or editorial content
+– Each book must include:
+  • book page
+  • online reader
+  • author page
+  • genres & internal linking
+  • SEO title & description
+
+This file is intended for:
+– ingestion pipeline
+– manual uploads
+– content planning
