@@ -4,6 +4,7 @@ using Api.Middleware;
 using Api.Sites;
 using Application;
 using Application.Common.Interfaces;
+using Application.TextStack;
 using Infrastructure.Persistence;
 using Infrastructure.Services;
 using Infrastructure.Telemetry;
@@ -13,6 +14,7 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.FileProviders;
 using Npgsql;
 using OnlineLib.Search;
+using OnlineLib.Search.Abstractions;
 using OpenTelemetry.Trace;
 using Scalar.AspNetCore;
 
@@ -83,6 +85,9 @@ builder.Services.AddPostgresFtsProvider(
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<ISiteResolver, SiteResolver>();
 
+// TextStack import
+builder.Services.AddScoped<TextStackImportService>();
+
 // Host-based site resolution
 builder.Services.AddSingleton<HostSiteResolver>();
 builder.Services.AddScoped<HostSiteContext>();
@@ -152,5 +157,46 @@ app.MapAuthorsEndpoints();
 app.MapGenresEndpoints();
 app.MapSiteEndpoints();
 app.MapSeoEndpoints();
+
+// CLI: import-textstack command
+if (args.Length > 0 && args[0] == "import-textstack")
+{
+    if (args.Length < 2)
+    {
+        Console.WriteLine("Usage: dotnet run import-textstack <book-path>");
+        return;
+    }
+
+    var bookPath = args[1];
+    if (!Directory.Exists(bookPath))
+    {
+        Console.WriteLine($"Directory not found: {bookPath}");
+        return;
+    }
+
+    using var cliScope = app.Services.CreateScope();
+    var db = cliScope.ServiceProvider.GetRequiredService<IAppDbContext>();
+    var importService = cliScope.ServiceProvider.GetRequiredService<TextStackImportService>();
+
+    // Get "general" site
+    var site = await db.Sites.FirstOrDefaultAsync(s => s.Code == "general");
+    if (site == null)
+    {
+        Console.WriteLine("Site 'general' not found");
+        return;
+    }
+
+    Console.WriteLine($"Importing from: {bookPath}");
+    var result = await importService.ImportBookAsync(site.Id, bookPath, CancellationToken.None);
+
+    if (result.WasSkipped)
+        Console.WriteLine("Book already imported, skipped.");
+    else if (result.Error != null)
+        Console.WriteLine($"Error: {result.Error}");
+    else
+        Console.WriteLine($"Success! Edition: {result.EditionId}, Chapters: {result.ChapterCount}");
+
+    return;
+}
 
 app.Run();

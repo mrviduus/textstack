@@ -7,6 +7,9 @@ using Domain.Entities;
 using Domain.Enums;
 using Domain.Utilities;
 using Microsoft.EntityFrameworkCore;
+using OnlineLib.Search.Abstractions;
+using OnlineLib.Search.Contracts;
+using OnlineLib.Search.Enums;
 
 namespace Application.Admin;
 
@@ -78,7 +81,7 @@ public record IngestionJobsQuery(
 
 public record ChapterPreviewDto(int ChapterNumber, string Title, string Preview, int TotalLength);
 
-public class AdminService(IAppDbContext db, IFileStorageService storage)
+public class AdminService(IAppDbContext db, IFileStorageService storage, ISearchIndexer searchIndexer)
 {
     private static readonly string[] AllowedExtensions = [".epub", ".pdf", ".fb2", ".djvu"];
     private const long MaxFileSize = 100 * 1024 * 1024;
@@ -591,6 +594,8 @@ public class AdminService(IAppDbContext db, IFileStorageService storage)
     {
         var edition = await db.Editions
             .Include(e => e.Chapters)
+            .Include(e => e.EditionAuthors)
+                .ThenInclude(ea => ea.Author)
             .FirstOrDefaultAsync(e => e.Id == id, ct);
 
         if (edition is null)
@@ -607,7 +612,49 @@ public class AdminService(IAppDbContext db, IFileStorageService storage)
         edition.UpdatedAt = DateTimeOffset.UtcNow;
 
         await db.SaveChangesAsync(ct);
+
+        // Index chapters for search
+        await IndexChaptersAsync(edition, ct);
+
         return (true, null);
+    }
+
+    private async Task IndexChaptersAsync(Edition edition, CancellationToken ct)
+    {
+        var searchLang = edition.Language switch
+        {
+            "uk" => SearchLanguage.Uk,
+            "en" => SearchLanguage.En,
+            _ => SearchLanguage.Auto
+        };
+
+        var authors = string.Join(", ", edition.EditionAuthors.OrderBy(ea => ea.Order).Select(ea => ea.Author.Name));
+
+        var documents = edition.Chapters.Select(chapter => new IndexDocument(
+            Id: chapter.Id.ToString(),
+            Title: chapter.Title,
+            Content: chapter.PlainText,
+            Language: searchLang,
+            SiteId: edition.SiteId,
+            Metadata: new Dictionary<string, object>
+            {
+                ["chapterId"] = chapter.Id,
+                ["chapterSlug"] = chapter.Slug ?? string.Empty,
+                ["chapterTitle"] = chapter.Title,
+                ["chapterNumber"] = chapter.ChapterNumber,
+                ["editionId"] = edition.Id,
+                ["editionSlug"] = edition.Slug,
+                ["editionTitle"] = edition.Title,
+                ["language"] = edition.Language,
+                ["authors"] = authors,
+                ["coverPath"] = edition.CoverPath ?? string.Empty
+            }
+        )).ToList();
+
+        if (documents.Count > 0)
+        {
+            await searchIndexer.IndexBatchAsync(documents, ct);
+        }
     }
 
     public async Task<(bool Success, string? Error)> UnpublishEditionAsync(Guid id, CancellationToken ct)

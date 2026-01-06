@@ -26,6 +26,7 @@ public class AppDbContext : DbContext, IAppDbContext
     public DbSet<Author> Authors => Set<Author>();
     public DbSet<EditionAuthor> EditionAuthors => Set<EditionAuthor>();
     public DbSet<Genre> Genres => Set<Genre>();
+    public DbSet<TextStackImport> TextStackImports => Set<TextStackImport>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -222,6 +223,17 @@ public class AppDbContext : DbContext, IAppDbContext
             e.Property(x => x.Name).HasMaxLength(100);
             e.HasOne(x => x.Site).WithMany().HasForeignKey(x => x.SiteId).OnDelete(DeleteBehavior.Restrict);
             e.HasMany(x => x.Editions).WithMany(x => x.Genres).UsingEntity("edition_genres");
+        });
+
+        // TextStackImport
+        modelBuilder.Entity<TextStackImport>(e =>
+        {
+            e.HasIndex(x => x.SiteId);
+            e.HasIndex(x => x.EditionId);
+            e.HasIndex(x => new { x.SiteId, x.Identifier }).IsUnique();
+            e.Property(x => x.Identifier).HasMaxLength(500);
+            e.HasOne(x => x.Site).WithMany().HasForeignKey(x => x.SiteId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.Edition).WithMany().HasForeignKey(x => x.EditionId).OnDelete(DeleteBehavior.Cascade);
         });
     }
 

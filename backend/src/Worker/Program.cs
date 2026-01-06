@@ -68,5 +68,11 @@ builder.Services.AddSingleton<IExtractorRegistry, ExtractorRegistry>();
 builder.Services.AddSingleton<IngestionWorkerService>();
 builder.Services.AddHostedService<IngestionWorker>();
 
+// TextStack watcher (optional, enable via config)
+if (builder.Configuration.GetValue("TextStack:EnableWatcher", false))
+{
+    builder.Services.AddHostedService<TextStackWatcher>();
+}
+
 var host = builder.Build();
 host.Run();

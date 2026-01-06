@@ -1,8 +1,10 @@
 using Application.Admin;
 using Application.Common.Interfaces;
+using Application.TextStack;
 using Contracts.Admin;
 using Domain.Enums;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Api.Endpoints;
 
@@ -39,6 +41,11 @@ public static class AdminEndpoints
         group.MapPost("/ingestion/jobs/{id:guid}/retry", RetryIngestionJob)
             .WithName("RetryIngestionJob")
             .WithDescription("Retry a failed ingestion job (idempotent)");
+
+        // TextStack import
+        group.MapPost("/import/textstack", ImportTextStack)
+            .WithName("ImportTextStack")
+            .WithDescription("Bulk import from TextStack folder");
 
         // Editions CRUD
         group.MapGet("/editions", GetEditions)
@@ -297,4 +304,49 @@ public static class AdminEndpoints
 
         return Results.Ok(new { coverPath = relativePath });
     }
+
+    private static async Task<IResult> ImportTextStack(
+        [FromBody] ImportTextStackRequest request,
+        IServiceScopeFactory scopeFactory,
+        CancellationToken ct)
+    {
+        var path = request.Path ?? "/data/textstack";
+        if (!Directory.Exists(path))
+            return Results.BadRequest(new { error = $"Directory not found: {path}" });
+
+        var results = new List<object>();
+        var imported = 0;
+        var skipped = 0;
+
+        foreach (var bookDir in Directory.GetDirectories(path))
+        {
+            var opfPath = Path.Combine(bookDir, "src/epub/content.opf");
+            if (!File.Exists(opfPath))
+                continue;
+
+            // Create new scope for each book to get fresh DbContext
+            using var scope = scopeFactory.CreateScope();
+            var importService = scope.ServiceProvider.GetRequiredService<TextStackImportService>();
+
+            var result = await importService.ImportBookAsync(request.SiteId, bookDir, ct);
+
+            if (result.WasSkipped)
+                skipped++;
+            else if (result.Error == null)
+                imported++;
+
+            results.Add(new
+            {
+                path = Path.GetFileName(bookDir),
+                editionId = result.EditionId,
+                chapterCount = result.ChapterCount,
+                skipped = result.WasSkipped,
+                error = result.Error
+            });
+        }
+
+        return Results.Ok(new { imported, skipped, total = results.Count, results });
+    }
 }
+
+public record ImportTextStackRequest(Guid SiteId, string? Path = null);

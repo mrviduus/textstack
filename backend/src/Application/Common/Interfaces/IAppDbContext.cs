@@ -23,6 +23,7 @@ public interface IAppDbContext
     DbSet<Author> Authors { get; }
     DbSet<EditionAuthor> EditionAuthors { get; }
     DbSet<Genre> Genres { get; }
+    DbSet<TextStackImport> TextStackImports { get; }
 
     Task<int> SaveChangesAsync(CancellationToken ct = default);
 }
