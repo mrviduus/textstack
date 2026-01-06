@@ -1,0 +1,21 @@
+name: Health Check
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check textstack.app API
+        run: curl -sf --retry 3 --retry-delay 10 https://textstack.app/health
+
+      - name: Check textstack.dev API
+        run: curl -sf --retry 3 --retry-delay 10 https://textstack.dev/health
+
+      - name: Check frontends
+        run: |
+          curl -sf --retry 2 https://textstack.app/ -o /dev/null
+          curl -sf --retry 2 https://textstack.dev/ -o /dev/null
