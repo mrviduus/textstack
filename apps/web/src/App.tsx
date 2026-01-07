@@ -10,7 +10,6 @@ import { AuthorsPage } from './pages/AuthorsPage'
 import { AuthorDetailPage } from './pages/AuthorDetailPage'
 import { GenresPage } from './pages/GenresPage'
 import { GenreDetailPage } from './pages/GenreDetailPage'
-import { PublicDomainPage } from './pages/PublicDomainPage'
 import { AboutPage } from './pages/AboutPage'
 import { ContactPage } from './pages/ContactPage'
 import { NotFoundPage } from './pages/NotFoundPage'
@@ -44,7 +43,6 @@ function LanguageRoutes() {
         <Route path="/authors/:slug" element={<AuthorDetailPage />} />
         <Route path="/genres" element={<GenresPage />} />
         <Route path="/genres/:slug" element={<GenreDetailPage />} />
-        <Route path="/public-domain" element={<PublicDomainPage />} />
         <Route path="/about" element={<AboutPage />} />
         <Route path="/contact" element={<ContactPage />} />
         <Route path="*" element={<NotFoundPage />} />
