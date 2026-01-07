@@ -21,9 +21,9 @@
 
 .site-header__wordmark {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  font-size: 20px;
-  font-weight: 500;
-  letter-spacing: -0.02em;
+  font-size: 18px;
+  font-weight: 400;
+  letter-spacing: 0.01em;
   color: var(--color-text, #191919);
 }
 
