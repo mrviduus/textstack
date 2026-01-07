@@ -21,6 +21,18 @@ export function AboutPage() {
           TextStack is built as a long-term project for readers who value depth,
           clarity, and open knowledge.
         </p>
+        <h2>Public Domain</h2>
+        <p>All books available on TextStack are in the public domain.</p>
+        <p>
+          This means the works are no longer protected by copyright and are free
+          for anyone to read, share, and reuse.
+        </p>
+        <p>
+          TextStack does not sell books, require accounts, or restrict access to
+          the content. The goal of the project is to provide open,
+          distraction-free access to classic literature that belongs to
+          everyone.
+        </p>
       </div>
     </div>
   )
