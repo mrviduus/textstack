@@ -2,6 +2,7 @@
   max-width: 1200px;
   margin: 0 auto;
   padding: 0 16px;
+  overflow-x: hidden;
 }
 
 /* Hero Section - Anthropic-inspired minimal design */

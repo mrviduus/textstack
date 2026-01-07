@@ -24,6 +24,11 @@
   font-size: 18px;
   font-weight: 400;
   letter-spacing: 0.01em;
+  color: var(--color-text-secondary, #555);
+  transition: color 0.15s ease;
+}
+
+.site-header__brand:hover .site-header__wordmark {
   color: var(--color-text, #191919);
 }
 
@@ -45,7 +50,7 @@
   border-radius: 8px;
   cursor: pointer;
   color: var(--color-text-secondary, #555);
-  transition: all 0.15s ease;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .search-btn:hover {

@@ -19,6 +19,7 @@ body {
   background: var(--color-bg);
   color: var(--color-text);
   margin: 0;
+  overflow-x: hidden;
 }
 
 /* Global typography */

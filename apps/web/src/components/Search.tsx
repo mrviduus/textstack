@@ -418,56 +418,51 @@ export function MobileSearchOverlay({ onClose }: { onClose: () => void }) {
       </div>
 
       <div className="mobile-search-overlay__content">
-        {showSuggestions && (
-          <ul className="mobile-search-overlay__list">
-            {suggestions.map((s, i) => (
-              <li
-                key={s.slug}
-                className={`mobile-search-overlay__item ${i === activeIndex ? 'mobile-search-overlay__item--active' : ''}`}
-                onClick={() => navigateAndClose(s.slug)}
-              >
-                <div className="mobile-search-overlay__item-cover" style={{ backgroundColor: s.coverPath ? undefined : '#e0e0e0' }}>
-                  {s.coverPath ? <img src={getStorageUrl(s.coverPath)} alt={s.text} /> : <span>{s.text?.[0] || '?'}</span>}
-                </div>
-                <div className="mobile-search-overlay__item-info">
-                  <span className="mobile-search-overlay__item-title">{s.text}</span>
-                  {s.authors && <span className="mobile-search-overlay__item-author">{s.authors}</span>}
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-
-        {showResults && (
-          <ul className="mobile-search-overlay__list">
-            {results.map((r, i) => (
-              <li
-                key={r.chapterId}
-                className={`mobile-search-overlay__item ${i === activeIndex ? 'mobile-search-overlay__item--active' : ''}`}
-                onClick={() => navigateAndClose(r.edition.slug)}
-              >
-                <div className="mobile-search-overlay__item-cover" style={{ backgroundColor: r.edition.coverPath ? undefined : '#e0e0e0' }}>
-                  {r.edition.coverPath ? <img src={getStorageUrl(r.edition.coverPath)} alt={r.edition.title} /> : <span>{r.edition.title?.[0] || '?'}</span>}
-                </div>
-                <div className="mobile-search-overlay__item-info">
-                  <span className="mobile-search-overlay__item-title">{r.edition.title}</span>
-                  <span className="mobile-search-overlay__item-chapter">{r.chapterTitle || `Chapter ${r.chapterNumber}`}</span>
-                  {r.edition.authors && <span className="mobile-search-overlay__item-author">{r.edition.authors}</span>}
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-
         {showNoResults && <div className="mobile-search-overlay__empty">{noResultsText}</div>}
 
         {(showSuggestions || showResults) && (
-          <LocalizedLink
-            to={`/search?q=${encodeURIComponent(query)}`}
-            className="mobile-search-overlay__view-all"
-          >
-            {viewAllText}
-          </LocalizedLink>
+          <>
+            <ul className="mobile-search-overlay__list">
+              {mode === 'suggestions'
+                ? suggestions.map((s, i) => (
+                    <li
+                      key={s.slug}
+                      className={`mobile-search-overlay__item ${i === activeIndex ? 'mobile-search-overlay__item--active' : ''}`}
+                      onClick={() => navigateAndClose(s.slug)}
+                    >
+                      <div className="mobile-search-overlay__item-cover" style={{ backgroundColor: s.coverPath ? undefined : '#e0e0e0' }}>
+                        {s.coverPath ? <img src={getStorageUrl(s.coverPath)} alt={s.text} /> : <span>{s.text?.[0] || '?'}</span>}
+                      </div>
+                      <div className="mobile-search-overlay__item-info">
+                        <span className="mobile-search-overlay__item-title">{s.text}</span>
+                        {s.authors && <span className="mobile-search-overlay__item-author">{s.authors}</span>}
+                      </div>
+                    </li>
+                  ))
+                : results.map((r, i) => (
+                    <li
+                      key={r.chapterId}
+                      className={`mobile-search-overlay__item ${i === activeIndex ? 'mobile-search-overlay__item--active' : ''}`}
+                      onClick={() => navigateAndClose(r.edition.slug)}
+                    >
+                      <div className="mobile-search-overlay__item-cover" style={{ backgroundColor: r.edition.coverPath ? undefined : '#e0e0e0' }}>
+                        {r.edition.coverPath ? <img src={getStorageUrl(r.edition.coverPath)} alt={r.edition.title} /> : <span>{r.edition.title?.[0] || '?'}</span>}
+                      </div>
+                      <div className="mobile-search-overlay__item-info">
+                        <span className="mobile-search-overlay__item-title">{r.edition.title}</span>
+                        <span className="mobile-search-overlay__item-chapter">{r.chapterTitle || `Chapter ${r.chapterNumber}`}</span>
+                        {r.edition.authors && <span className="mobile-search-overlay__item-author">{r.edition.authors}</span>}
+                      </div>
+                    </li>
+                  ))}
+            </ul>
+            <LocalizedLink
+              to={`/search?q=${encodeURIComponent(query)}`}
+              className="mobile-search-overlay__view-all"
+            >
+              {viewAllText}
+            </LocalizedLink>
+          </>
         )}
       </div>
     </div>
@@ -650,48 +645,43 @@ export function Search() {
         onKeyDown={handleKeyDown}
       />
 
-      {/* Suggestions dropdown */}
-      {showSuggestions && (
+      {/* Dropdown container - single element to prevent remount scroll jump */}
+      {(showSuggestions || showResults || showNoResults) && (
         <div className="search__results-container">
-          <ul id="search-results" className="search__results" role="listbox">
-            {suggestions.map((suggestion, index) => (
-              <SuggestionItem
-                key={suggestion.slug}
-                suggestion={suggestion}
-                isActive={index === activeIndex}
-                onClick={() => {
-                  resetSearch()
-                  window.location.href = buildBookUrl(language, suggestion.slug)
-                }}
-              />
-            ))}
-          </ul>
-          <ViewAllLink query={query} language={language} onClick={resetSearch} />
+          {showNoResults ? (
+            <NoResults language={language} />
+          ) : (
+            <>
+              <ul id="search-results" className="search__results" role="listbox">
+                {mode === 'suggestions'
+                  ? suggestions.map((suggestion, index) => (
+                      <SuggestionItem
+                        key={suggestion.slug}
+                        suggestion={suggestion}
+                        isActive={index === activeIndex}
+                        onClick={() => {
+                          resetSearch()
+                          window.location.href = buildBookUrl(language, suggestion.slug)
+                        }}
+                      />
+                    ))
+                  : results.map((result, index) => (
+                      <ResultItem
+                        key={result.chapterId}
+                        result={result}
+                        isActive={index === activeIndex}
+                        onClick={() => {
+                          resetSearch()
+                          window.location.href = buildBookUrl(language, result.edition.slug)
+                        }}
+                      />
+                    ))}
+              </ul>
+              <ViewAllLink query={query} language={language} onClick={resetSearch} />
+            </>
+          )}
         </div>
       )}
-
-      {/* Search results dropdown */}
-      {showResults && (
-        <div className="search__results-container">
-          <ul id="search-results" className="search__results" role="listbox">
-            {results.map((result, index) => (
-              <ResultItem
-                key={result.chapterId}
-                result={result}
-                isActive={index === activeIndex}
-                onClick={() => {
-                  resetSearch()
-                  window.location.href = buildBookUrl(language, result.edition.slug)
-                }}
-              />
-            ))}
-          </ul>
-          <ViewAllLink query={query} language={language} onClick={resetSearch} />
-        </div>
-      )}
-
-      {/* No results message */}
-      {showNoResults && <NoResults language={language} />}
     </div>
   )
 }
