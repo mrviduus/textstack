@@ -4,6 +4,7 @@ public record AdminEditionListDto(
     Guid Id,
     string Slug,
     string Title,
+    string Language,
     string Status,
     int ChapterCount,
     DateTimeOffset CreatedAt,

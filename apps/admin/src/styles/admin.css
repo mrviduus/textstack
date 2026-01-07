@@ -331,6 +331,44 @@ body {
   color: #065f46;
 }
 
+/* Stats Cards */
+.stats-cards {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.stats-card {
+  background: #fff;
+  padding: 16px 24px;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  min-width: 140px;
+  text-align: center;
+}
+
+.stats-card__value {
+  font-size: 28px;
+  font-weight: 700;
+  color: #1a1a2e;
+  line-height: 1.2;
+}
+
+.stats-card__label {
+  font-size: 13px;
+  color: #666;
+  margin-top: 4px;
+}
+
+.stats-card--success .stats-card__value {
+  color: #059669;
+}
+
+.stats-card--draft .stats-card__value {
+  color: #d97706;
+}
+
 /* Editions Page */
 .editions-page h1 {
   margin: 0;
@@ -1188,4 +1226,24 @@ body {
   margin: 8px 0 0;
   font-size: 13px;
   color: #666;
+}
+
+/* Pagination */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 24px;
+  padding: 16px;
+}
+
+.pagination__info {
+  font-size: 14px;
+  color: #666;
+}
+
+.pagination button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }

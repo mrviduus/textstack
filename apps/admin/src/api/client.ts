@@ -23,11 +23,20 @@ export interface Edition {
   id: string
   slug: string
   title: string
+  language: string
   status: 'Draft' | 'Published' | 'Deleted'
   chapterCount: number
   createdAt: string
   publishedAt: string | null
   authors: string
+}
+
+export interface AdminStats {
+  totalEditions: number
+  publishedEditions: number
+  draftEditions: number
+  totalChapters: number
+  totalAuthors: number
 }
 
 export interface EditionDetail {
@@ -249,11 +258,20 @@ export const adminApi = {
     return fetchJson<IngestionJob>(`/admin/ingestion/jobs/${id}`)
   },
 
+  // Stats
+  getStats: async (params?: { siteId?: string }): Promise<AdminStats> => {
+    const query = new URLSearchParams()
+    if (params?.siteId) query.set('siteId', params.siteId)
+    const qs = query.toString()
+    return fetchJson<AdminStats>(`/admin/stats${qs ? `?${qs}` : ''}`)
+  },
+
   // Editions
-  getEditions: async (params?: { status?: string; search?: string; limit?: number; offset?: number }): Promise<PaginatedResult<Edition>> => {
+  getEditions: async (params?: { status?: string; search?: string; language?: string; limit?: number; offset?: number }): Promise<PaginatedResult<Edition>> => {
     const query = new URLSearchParams()
     if (params?.status) query.set('status', params.status)
     if (params?.search) query.set('search', params.search)
+    if (params?.language) query.set('language', params.language)
     if (params?.limit) query.set('limit', String(params.limit))
     if (params?.offset) query.set('offset', String(params.offset))
     const qs = query.toString()

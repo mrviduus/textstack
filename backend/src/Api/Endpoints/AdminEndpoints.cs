@@ -47,6 +47,11 @@ public static class AdminEndpoints
             .WithName("ImportTextStack")
             .WithDescription("Bulk import from TextStack folder");
 
+        // Stats
+        group.MapGet("/stats", GetStats)
+            .WithName("GetStats")
+            .WithDescription("Get admin dashboard statistics");
+
         // Editions CRUD
         group.MapGet("/editions", GetEditions)
             .WithName("GetEditions");
@@ -186,6 +191,17 @@ public static class AdminEndpoints
         CancellationToken ct)
         => ToResult(await adminService.RetryJobAsync(id, ct));
 
+    // Stats endpoint
+
+    private static async Task<IResult> GetStats(
+        AdminService adminService,
+        [FromQuery] Guid? siteId,
+        CancellationToken ct)
+    {
+        var stats = await adminService.GetStatsAsync(siteId, ct);
+        return Results.Ok(stats);
+    }
+
     // Edition endpoints
 
     private static async Task<IResult> GetEditions(
@@ -195,13 +211,14 @@ public static class AdminEndpoints
         [FromQuery] int? offset,
         [FromQuery] string? status,
         [FromQuery] string? search,
+        [FromQuery] string? language,
         CancellationToken ct)
     {
         EditionStatus? statusEnum = null;
         if (!string.IsNullOrEmpty(status) && Enum.TryParse<EditionStatus>(status, true, out var parsed))
             statusEnum = parsed;
 
-        var result = await adminService.GetEditionsAsync(siteId, offset ?? 0, limit ?? 20, statusEnum, search, ct);
+        var result = await adminService.GetEditionsAsync(siteId, offset ?? 0, limit ?? 20, statusEnum, search, language, ct);
         return Results.Ok(result);
     }
 

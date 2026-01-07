@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { adminApi, Edition } from '../api/client'
+import { adminApi, Edition, AdminStats } from '../api/client'
+
+const PAGE_SIZE = 20
 
 export function EditionsPage() {
   const [editions, setEditions] = useState<Edition[]>([])
@@ -8,7 +10,21 @@ export function EditionsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState<string>('')
+  const [languageFilter, setLanguageFilter] = useState<string>('')
   const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
+  const [stats, setStats] = useState<AdminStats | null>(null)
+
+  const totalPages = Math.ceil(total / PAGE_SIZE)
+
+  const fetchStats = async () => {
+    try {
+      const data = await adminApi.getStats()
+      setStats(data)
+    } catch (err) {
+      console.error('Failed to load stats:', err)
+    }
+  }
 
   const fetchEditions = async () => {
     setLoading(true)
@@ -16,6 +32,9 @@ export function EditionsPage() {
       const data = await adminApi.getEditions({
         status: statusFilter || undefined,
         search: search || undefined,
+        language: languageFilter || undefined,
+        limit: PAGE_SIZE,
+        offset: (page - 1) * PAGE_SIZE,
       })
       setEditions(data.items)
       setTotal(data.total)
@@ -28,12 +47,27 @@ export function EditionsPage() {
   }
 
   useEffect(() => {
+    fetchStats()
+  }, [])
+
+  useEffect(() => {
     fetchEditions()
-  }, [statusFilter])
+  }, [statusFilter, languageFilter, page])
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
+    setPage(1)
     fetchEditions()
+  }
+
+  const handleStatusChange = (newStatus: string) => {
+    setStatusFilter(newStatus)
+    setPage(1)
+  }
+
+  const handleLanguageChange = (newLanguage: string) => {
+    setLanguageFilter(newLanguage)
+    setPage(1)
   }
 
   const handlePublish = async (id: string) => {
@@ -85,6 +119,31 @@ export function EditionsPage() {
         <span className="editions-page__count">{total} total</span>
       </div>
 
+      {stats && (
+        <div className="stats-cards">
+          <div className="stats-card">
+            <div className="stats-card__value">{stats.totalEditions}</div>
+            <div className="stats-card__label">Total Editions</div>
+          </div>
+          <div className="stats-card stats-card--success">
+            <div className="stats-card__value">{stats.publishedEditions}</div>
+            <div className="stats-card__label">Published</div>
+          </div>
+          <div className="stats-card stats-card--draft">
+            <div className="stats-card__value">{stats.draftEditions}</div>
+            <div className="stats-card__label">Drafts</div>
+          </div>
+          <div className="stats-card">
+            <div className="stats-card__value">{stats.totalChapters}</div>
+            <div className="stats-card__label">Total Chapters</div>
+          </div>
+          <div className="stats-card">
+            <div className="stats-card__value">{stats.totalAuthors}</div>
+            <div className="stats-card__label">Authors</div>
+          </div>
+        </div>
+      )}
+
       <div className="editions-page__filters">
         <form onSubmit={handleSearch} className="search-form">
           <input
@@ -98,12 +157,25 @@ export function EditionsPage() {
 
         <select
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
+          onChange={(e) => handleStatusChange(e.target.value)}
           className="status-filter"
         >
           <option value="">All statuses</option>
           <option value="Draft">Draft</option>
           <option value="Published">Published</option>
+        </select>
+
+        <select
+          value={languageFilter}
+          onChange={(e) => handleLanguageChange(e.target.value)}
+          className="status-filter"
+        >
+          <option value="">All languages</option>
+          <option value="en">English</option>
+          <option value="uk">Ukrainian</option>
+          <option value="de">German</option>
+          <option value="fr">French</option>
+          <option value="es">Spanish</option>
         </select>
       </div>
 
@@ -119,6 +191,7 @@ export function EditionsPage() {
             <tr>
               <th>Title</th>
               <th>Authors</th>
+              <th>Lang</th>
               <th>Status</th>
               <th>Chapters</th>
               <th>Created</th>
@@ -132,6 +205,7 @@ export function EditionsPage() {
                   <Link to={`/editions/${edition.id}`}>{edition.title}</Link>
                 </td>
                 <td>{edition.authors || '-'}</td>
+                <td>{edition.language}</td>
                 <td>{getStatusBadge(edition.status)}</td>
                 <td>{edition.chapterCount}</td>
                 <td>{formatDate(edition.createdAt)}</td>
@@ -168,6 +242,28 @@ export function EditionsPage() {
             ))}
           </tbody>
         </table>
+      )}
+
+      {totalPages > 1 && (
+        <div className="pagination">
+          <button
+            onClick={() => setPage(p => Math.max(1, p - 1))}
+            disabled={page === 1}
+            className="btn btn--small"
+          >
+            ← Prev
+          </button>
+          <span className="pagination__info">
+            Page {page} of {totalPages}
+          </span>
+          <button
+            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+            disabled={page === totalPages}
+            className="btn btn--small"
+          >
+            Next →
+          </button>
+        </div>
       )}
     </div>
   )

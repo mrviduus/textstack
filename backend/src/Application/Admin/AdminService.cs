@@ -408,8 +408,36 @@ public class AdminService(IAppDbContext db, IFileStorageService storage, ISearch
 
     // Edition CRUD
 
+    public async Task<AdminStatsDto> GetStatsAsync(Guid? siteId, CancellationToken ct)
+    {
+        var editionQuery = db.Editions.AsQueryable();
+        var authorQuery = db.Authors.AsQueryable();
+        var chapterQuery = db.Chapters.AsQueryable();
+
+        if (siteId.HasValue)
+        {
+            editionQuery = editionQuery.Where(e => e.SiteId == siteId.Value);
+            authorQuery = authorQuery.Where(a => a.SiteId == siteId.Value);
+            chapterQuery = chapterQuery.Where(c => c.Edition.SiteId == siteId.Value);
+        }
+
+        var totalEditions = await editionQuery.CountAsync(ct);
+        var publishedEditions = await editionQuery.Where(e => e.Status == EditionStatus.Published).CountAsync(ct);
+        var draftEditions = await editionQuery.Where(e => e.Status == EditionStatus.Draft).CountAsync(ct);
+        var totalChapters = await chapterQuery.CountAsync(ct);
+        var totalAuthors = await authorQuery.CountAsync(ct);
+
+        return new AdminStatsDto(
+            TotalEditions: totalEditions,
+            PublishedEditions: publishedEditions,
+            DraftEditions: draftEditions,
+            TotalChapters: totalChapters,
+            TotalAuthors: totalAuthors
+        );
+    }
+
     public async Task<PaginatedResult<AdminEditionListDto>> GetEditionsAsync(
-        Guid? siteId, int offset, int limit, EditionStatus? status, string? search, CancellationToken ct)
+        Guid? siteId, int offset, int limit, EditionStatus? status, string? search, string? language, CancellationToken ct)
     {
         var query = db.Editions.AsQueryable();
 
@@ -422,6 +450,9 @@ public class AdminService(IAppDbContext db, IFileStorageService storage, ISearch
         if (!string.IsNullOrWhiteSpace(search))
             query = query.Where(e => e.Title.Contains(search) || e.EditionAuthors.Any(ea => ea.Author.Name.Contains(search)));
 
+        if (!string.IsNullOrWhiteSpace(language))
+            query = query.Where(e => e.Language == language);
+
         var total = await query.CountAsync(ct);
 
         var items = await query
@@ -432,6 +463,7 @@ public class AdminService(IAppDbContext db, IFileStorageService storage, ISearch
                 e.Id,
                 e.Slug,
                 e.Title,
+                e.Language,
                 e.Status.ToString(),
                 e.Chapters.Count,
                 e.CreatedAt,

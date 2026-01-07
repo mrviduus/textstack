@@ -104,7 +104,7 @@ public class TextStackImportService
                 Language = metadata.Language,
                 Slug = editionSlug,
                 Title = metadata.Title,
-                Description = metadata.LongDescription ?? metadata.Description,
+                Description = StripHtml(metadata.LongDescription ?? metadata.Description),
                 Status = EditionStatus.Draft,  // Import as draft for review
                 PublishedAt = null,
                 IsPublicDomain = true,
@@ -332,4 +332,18 @@ public class TextStackImportService
 
     private static string SanitizeText(string? text)
         => text?.Replace("\0", "") ?? "";
+
+    private static string? StripHtml(string? html)
+    {
+        if (string.IsNullOrEmpty(html))
+            return null;
+
+        // Remove HTML tags
+        var text = System.Text.RegularExpressions.Regex.Replace(html, "<[^>]+>", " ");
+        // Decode HTML entities
+        text = System.Net.WebUtility.HtmlDecode(text);
+        // Normalize whitespace
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"\s+", " ");
+        return text.Trim();
+    }
 }

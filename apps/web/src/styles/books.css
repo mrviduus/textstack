@@ -180,7 +180,7 @@
 
 .book-detail__cover {
   width: 200px;
-  aspect-ratio: 2/3;
+  height: 300px;
   border-radius: 8px;
   flex-shrink: 0;
   display: flex;
@@ -188,12 +188,14 @@
   justify-content: center;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
   overflow: hidden;
+  background: #f0f0f0;
 }
 
 .book-detail__cover img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  object-position: top center;
 }
 
 .book-detail__cover-text {
