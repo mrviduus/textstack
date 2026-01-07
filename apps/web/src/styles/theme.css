@@ -1,15 +1,28 @@
 :root {
-  /* Brand colors */
-  --color-brand: #D97706;
-  --color-brand-hover: #B45309;
-  --color-graphite: #2B2F36;
+  /* Brand colors - Anthropic-inspired warm palette */
+  --color-brand: #C4704B;
+  --color-brand-hover: #A85A3A;
+  --color-graphite: #191919;
 
-  /* Text */
-  --color-text: #111111;
-  --color-text-secondary: #666666;
+  /* Text - high contrast black */
+  --color-text: #191919;
+  --color-text-secondary: #555555;
 
-  /* Borders & Surfaces */
-  --color-border: #E5E7EB;
+  /* Borders & Surfaces - warm cream tones */
+  --color-border: #E8E2D9;
   --color-bg: #FFFFFF;
-  --color-bg-secondary: #F9FAFB;
+  --color-bg-secondary: #F5F0E8;
+  --color-bg-warm: #FAF8F5;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  margin: 0;
+}
+
+/* Global typography */
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 400;
+  letter-spacing: -0.02em;
 }

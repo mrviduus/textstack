@@ -1,24 +1,34 @@
 import { useState } from 'react'
 import { LocalizedLink } from './LocalizedLink'
-import { LanguageSwitcher } from './LanguageSwitcher'
-import { Search, MobileSearchOverlay } from './Search'
+import { MobileSearchOverlay } from './Search'
 import { useSite } from '../context/SiteContext'
-import { siteThemes, defaultTheme } from '../config/sites'
 
 export function Header() {
-  const [mobileSearchOpen, setMobileSearchOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
   const { site } = useSite()
-  const theme = site?.siteCode ? siteThemes[site.siteCode] ?? defaultTheme : defaultTheme
+  const isProgramming = site?.siteCode === 'programming'
 
   return (
     <header className="site-header">
       <LocalizedLink to="/" className="site-header__brand">
-        <img src={theme.logo} alt={theme.name} className="site-header__logo" />
+        <span className="site-header__wordmark">
+          TextStack{isProgramming && <span className="site-header__wordmark-suffix">dev</span>}
+        </span>
       </LocalizedLink>
-      <Search />
+      <nav className="site-header__nav">
+        <LocalizedLink to="/about" className="site-header__nav-link">
+          About
+        </LocalizedLink>
+        <LocalizedLink to="/public-domain" className="site-header__nav-link">
+          Public Domain
+        </LocalizedLink>
+        <LocalizedLink to="/contact" className="site-header__nav-link">
+          Contact
+        </LocalizedLink>
+      </nav>
       <button
-        className="mobile-search-btn"
-        onClick={() => setMobileSearchOpen(true)}
+        className="search-btn"
+        onClick={() => setSearchOpen(true)}
         aria-label="Search"
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -26,8 +36,7 @@ export function Header() {
           <path d="m21 21-4.35-4.35" />
         </svg>
       </button>
-      <LanguageSwitcher />
-      {mobileSearchOpen && <MobileSearchOverlay onClose={() => setMobileSearchOpen(false)} />}
+      {searchOpen && <MobileSearchOverlay onClose={() => setSearchOpen(false)} />}
     </header>
   )
 }
