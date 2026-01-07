@@ -19,9 +19,6 @@ export function Header() {
         <LocalizedLink to="/about" className="site-header__nav-link">
           About
         </LocalizedLink>
-        <LocalizedLink to="/contact" className="site-header__nav-link">
-          Contact
-        </LocalizedLink>
       </nav>
       <button
         className="search-btn"
