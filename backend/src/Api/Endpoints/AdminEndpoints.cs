@@ -212,13 +212,14 @@ public static class AdminEndpoints
         [FromQuery] string? status,
         [FromQuery] string? search,
         [FromQuery] string? language,
+        [FromQuery] bool? indexable,
         CancellationToken ct)
     {
         EditionStatus? statusEnum = null;
         if (!string.IsNullOrEmpty(status) && Enum.TryParse<EditionStatus>(status, true, out var parsed))
             statusEnum = parsed;
 
-        var result = await adminService.GetEditionsAsync(siteId, offset ?? 0, limit ?? 20, statusEnum, search, language, ct);
+        var result = await adminService.GetEditionsAsync(siteId, offset ?? 0, limit ?? 20, statusEnum, search, language, indexable, ct);
         return Results.Ok(result);
     }
 

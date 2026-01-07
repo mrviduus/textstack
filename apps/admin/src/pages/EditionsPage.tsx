@@ -11,6 +11,7 @@ export function EditionsPage() {
   const [error, setError] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState<string>('')
   const [languageFilter, setLanguageFilter] = useState<string>('')
+  const [indexableFilter, setIndexableFilter] = useState<string>('')
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [stats, setStats] = useState<AdminStats | null>(null)
@@ -33,6 +34,7 @@ export function EditionsPage() {
         status: statusFilter || undefined,
         search: search || undefined,
         language: languageFilter || undefined,
+        indexable: indexableFilter === '' ? undefined : indexableFilter === 'true',
         limit: PAGE_SIZE,
         offset: (page - 1) * PAGE_SIZE,
       })
@@ -52,7 +54,7 @@ export function EditionsPage() {
 
   useEffect(() => {
     fetchEditions()
-  }, [statusFilter, languageFilter, page])
+  }, [statusFilter, languageFilter, indexableFilter, page])
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
@@ -67,6 +69,11 @@ export function EditionsPage() {
 
   const handleLanguageChange = (newLanguage: string) => {
     setLanguageFilter(newLanguage)
+    setPage(1)
+  }
+
+  const handleIndexableChange = (value: string) => {
+    setIndexableFilter(value)
     setPage(1)
   }
 
@@ -176,6 +183,16 @@ export function EditionsPage() {
           <option value="de">German</option>
           <option value="fr">French</option>
           <option value="es">Spanish</option>
+        </select>
+
+        <select
+          value={indexableFilter}
+          onChange={(e) => handleIndexableChange(e.target.value)}
+          className="status-filter"
+        >
+          <option value="">All SEO</option>
+          <option value="true">Indexed</option>
+          <option value="false">Not indexed</option>
         </select>
       </div>
 

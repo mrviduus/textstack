@@ -267,11 +267,12 @@ export const adminApi = {
   },
 
   // Editions
-  getEditions: async (params?: { status?: string; search?: string; language?: string; limit?: number; offset?: number }): Promise<PaginatedResult<Edition>> => {
+  getEditions: async (params?: { status?: string; search?: string; language?: string; indexable?: boolean; limit?: number; offset?: number }): Promise<PaginatedResult<Edition>> => {
     const query = new URLSearchParams()
     if (params?.status) query.set('status', params.status)
     if (params?.search) query.set('search', params.search)
     if (params?.language) query.set('language', params.language)
+    if (params?.indexable !== undefined) query.set('indexable', String(params.indexable))
     if (params?.limit) query.set('limit', String(params.limit))
     if (params?.offset) query.set('offset', String(params.offset))
     const qs = query.toString()

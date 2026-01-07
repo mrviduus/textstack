@@ -267,9 +267,13 @@ export function EditEditionPage() {
                 type="checkbox"
                 checked={indexable}
                 onChange={(e) => setIndexable(e.target.checked)}
+                disabled={edition.status === 'Draft'}
               />
               Indexable by search engines
             </label>
+            {edition.status === 'Draft' && (
+              <small className="form-hint">Draft editions are never indexed. Publish to enable indexing.</small>
+            )}
           </div>
 
           <div className="form-group">

@@ -437,7 +437,7 @@ public class AdminService(IAppDbContext db, IFileStorageService storage, ISearch
     }
 
     public async Task<PaginatedResult<AdminEditionListDto>> GetEditionsAsync(
-        Guid? siteId, int offset, int limit, EditionStatus? status, string? search, string? language, CancellationToken ct)
+        Guid? siteId, int offset, int limit, EditionStatus? status, string? search, string? language, bool? indexable, CancellationToken ct)
     {
         var query = db.Editions.AsQueryable();
 
@@ -452,6 +452,16 @@ public class AdminService(IAppDbContext db, IFileStorageService storage, ISearch
 
         if (!string.IsNullOrWhiteSpace(language))
             query = query.Where(e => e.Language == language);
+
+        if (indexable.HasValue)
+        {
+            if (indexable.Value)
+                // "Indexed" = indexable AND published
+                query = query.Where(e => e.Indexable && e.Status == EditionStatus.Published);
+            else
+                // "Not indexed" = not indexable OR not published
+                query = query.Where(e => !e.Indexable || e.Status != EditionStatus.Published);
+        }
 
         var total = await query.CountAsync(ct);
 
