@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Free book library w/ Kindle-like reader. Upload EPUB/PDF/FB2 → parse → SEO pages + offline-first sync.
 
+**Live**: [textstack.app](https://textstack.app/) (general) · [textstack.dev](https://textstack.dev/) (programming)
+
 **Stack**: ASP.NET Core (API + Worker) + PostgreSQL + React + Multisite
 
 ## Commands
@@ -41,6 +43,7 @@ dotnet ef migrations add <Name> --project backend/src/Infrastructure --startup-p
 # Docker helpers
 ./scripts/docker-clean.sh    # Stop + remove project images/volumes
 ./scripts/docker-build.sh    # Fresh build + start
+./scripts/docker-nuke.sh     # NUCLEAR: removes ALL docker data system-wide
 
 # Database backup/restore
 make backup                 # Create compressed backup
@@ -53,6 +56,7 @@ make restore FILE=backups/db_xxx.sql.gz  # Restore
 | API Docs | http://localhost:8080/scalar/v1 |
 | Web | http://localhost:5173 |
 | Admin | http://localhost:5174 |
+| Postgres | localhost:5432 |
 | Grafana | http://localhost:3000 |
 | Prometheus | http://localhost:9090 |
 
@@ -97,6 +101,7 @@ Upload EPUB/PDF/FB2 → BookFile (stored) → IngestionJob (queued)
 - `GET /genres`, `GET /genres/{slug}` — genre listing + detail
 - `GET /search?q=` — full-text search
 - `GET /seo/sitemap.xml` — dynamic sitemap
+- `GET /health` — health check
 
 **Admin**:
 - `POST /admin/books/upload` — create Work + Edition + BookFile + IngestionJob
