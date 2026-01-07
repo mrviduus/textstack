@@ -11,40 +11,44 @@ export function AboutPage() {
       <h1>About</h1>
       <div className="static-page__content">
         <p className="about-intro">
-          Great books deserve a beautiful home. TextStack is an independent
-          online library built for readers who value depth, clarity, and the
-          timeless power of words.
+          TextStack is an independent online library dedicated to public domain
+          literature — books that belong to everyone.
         </p>
         <p>
-          The project focuses on clean typography, calm reading, and simple
-          access to literature without distractions. No ads, no accounts
-          required, no barriers between you and the text.
-        </p>
-
-        <h2>Public Domain</h2>
-        <p>All books available on TextStack are in the public domain.</p>
-        <p>
-          This means the works are no longer protected by copyright and are free
-          for anyone to read, share, and reuse. These are the foundational texts
-          of human culture — stories, ideas, and wisdom that have shaped
-          generations.
-        </p>
-        <p>
-          TextStack exists to make this literary heritage accessible to everyone,
-          presented with the care and attention these works deserve.
+          Every book here is free to read, share, and enjoy. No ads, no
+          accounts, no barriers. Just clean typography, calm reading, and
+          timeless stories that have shaped generations.
         </p>
 
         <h2>The Creator</h2>
+        <div className="about-creator">
+          <img
+            src="/images/vasyl-vdovychenko.png"
+            alt="Vasyl Vdovychenko"
+            className="about-creator__photo"
+          />
+          <div className="about-creator__info">
+            <h3 className="about-creator__name">
+              <a
+                href="https://vasyl.blog/"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Vasyl Vdovychenko
+              </a>
+            </h3>
+            <p className="about-creator__email">vasyl.vdov@gmail.com</p>
+          </div>
+        </div>
         <p>
-          Hi, I'm Vasyl Vdovychenko. I built TextStack because I believe in the
-          transformative power of reading — and that classic literature should
-          be available to anyone, anywhere, without friction.
+          I built TextStack because I believe in the transformative power of
+          reading — and that classic literature should be available to anyone,
+          anywhere, without friction.
         </p>
         <p>
           This is a long-term passion project. If you share this vision or want
           to connect, I'd love to hear from you.
         </p>
-
         <div className="about-contact">
           <a href="mailto:vasyl.vdov@gmail.com" className="about-contact__link">
             <svg
@@ -60,7 +64,7 @@ export function AboutPage() {
               <rect x="2" y="4" width="20" height="16" rx="2" />
               <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
             </svg>
-            <span>vasyl.vdov@gmail.com</span>
+            <span>Email</span>
           </a>
 
           <a

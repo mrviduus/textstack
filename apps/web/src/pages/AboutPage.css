@@ -5,6 +5,52 @@
   margin-bottom: 24px;
 }
 
+/* Creator section - Standard Ebooks style */
+.about-creator {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 24px 0;
+}
+
+.about-creator__photo {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.about-creator__info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.about-creator__name {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.about-creator__name a {
+  color: var(--color-text, #191919);
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.about-creator__name a:hover {
+  color: var(--color-brand, #C4704B);
+  text-decoration: underline;
+}
+
+.about-creator__email {
+  font-size: 15px;
+  color: var(--color-text-secondary, #555);
+  margin: 0;
+}
+
+/* Contact links */
 .about-contact {
   display: flex;
   flex-wrap: wrap;
@@ -43,6 +89,11 @@
 }
 
 @media (max-width: 480px) {
+  .about-creator {
+    flex-direction: column;
+    text-align: center;
+  }
+
   .about-contact {
     flex-direction: column;
   }
