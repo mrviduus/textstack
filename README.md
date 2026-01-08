@@ -1,4 +1,4 @@
-# OnlineLib
+# TextStack (OnlineLib)
 
 Free book library w/ Kindle-like reader. Upload EPUB/PDF/FB2 → parse → SEO pages + offline-first reading sync.
 
