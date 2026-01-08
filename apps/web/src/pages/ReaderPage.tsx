@@ -308,6 +308,7 @@ export function ReaderPage() {
           }
         }}
         onFullscreenClick={toggleFullscreen}
+        onHelpClick={() => setShortcutsOpen(true)}
       />
 
       <ReaderPageNav
