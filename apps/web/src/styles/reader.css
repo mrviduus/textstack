@@ -320,7 +320,7 @@ html[data-theme="high-contrast"] .reader-toc-drawer__item:hover {
 
 .reader-footer__progress-bar {
   height: 100%;
-  background: #2563eb;
+  background: var(--reader-secondary);
   transition: width 0.3s ease-out;
 }
 
