@@ -32,39 +32,58 @@
   letter-spacing: 0.01em;
   color: var(--color-text-secondary, #555);
   transition: color 0.15s ease;
-  display: flex;
-  align-items: center;
-  overflow: hidden;
+  position: relative;
+  min-width: 80px;
 }
 
 .site-header__wordmark-full {
   display: inline-block;
-  max-width: 100px;
-  opacity: 1;
-  transition: max-width 0.25s cubic-bezier(0.4, 0, 0.2, 1),
-              opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  white-space: nowrap;
 }
 
 .site-header__wordmark-short {
-  display: inline-block;
-  max-width: 0;
-  opacity: 0;
-  overflow: hidden;
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
   font-weight: 500;
-  transition: max-width 0.25s cubic-bezier(0.4, 0, 0.2, 1),
-              opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  white-space: nowrap;
+  opacity: 0;
+}
+
+/* Animations */
+@keyframes fadeOutSlide {
+  0% { opacity: 1; transform: translateX(0); }
+  100% { opacity: 0; transform: translateX(8px); }
+}
+
+@keyframes fadeInSlide {
+  0% { opacity: 0; transform: translateY(-50%) translateX(-8px); }
+  100% { opacity: 1; transform: translateY(-50%) translateX(0); }
+}
+
+@keyframes fadeOutSlideReverse {
+  0% { opacity: 1; transform: translateY(-50%) translateX(0); }
+  100% { opacity: 0; transform: translateY(-50%) translateX(8px); }
+}
+
+@keyframes fadeInSlideReverse {
+  0% { opacity: 0; transform: translateX(-8px); }
+  100% { opacity: 1; transform: translateX(0); }
 }
 
 .site-header--scrolled .site-header__wordmark-full {
-  max-width: 0;
-  opacity: 0;
+  animation: fadeOutSlide 0.3s ease forwards;
 }
 
 .site-header--scrolled .site-header__wordmark-short {
-  max-width: 20px;
-  opacity: 1;
+  animation: fadeInSlide 0.3s ease 0.1s forwards;
+}
+
+.site-header:not(.site-header--scrolled) .site-header__wordmark-full {
+  animation: fadeInSlideReverse 0.3s ease 0.1s forwards;
+}
+
+.site-header:not(.site-header--scrolled) .site-header__wordmark-short {
+  animation: fadeOutSlideReverse 0.3s ease forwards;
 }
 
 .site-header__brand:hover .site-header__wordmark {
@@ -109,23 +128,13 @@
   gap: 24px;
   margin-left: auto;
   margin-right: 16px;
-  overflow: hidden;
-  transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1),
-              margin-right 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .site-header__nav-link {
   font-size: 15px;
   color: var(--color-text-secondary, #555);
   text-decoration: none;
-  display: inline-block;
-  max-width: 80px;
-  opacity: 1;
-  overflow: hidden;
-  white-space: nowrap;
-  transition: max-width 0.25s cubic-bezier(0.4, 0, 0.2, 1),
-              opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1),
-              color 0.15s ease;
+  transition: opacity 0.3s ease, color 0.15s ease;
 }
 
 .site-header__nav-link:hover {
@@ -133,13 +142,8 @@
 }
 
 .site-header--scrolled .site-header__nav-link {
-  max-width: 0;
   opacity: 0;
-}
-
-.site-header--scrolled .site-header__nav {
-  width: 0;
-  margin-right: 0;
+  pointer-events: none;
 }
 
 /* Static pages (Public Domain, etc.) */
