@@ -10,6 +10,7 @@ import { useBookmarks } from '../hooks/useBookmarks'
 import { useInBookSearch } from '../hooks/useInBookSearch'
 import { useFullscreen } from '../hooks/useFullscreen'
 import { usePagination } from '../hooks/usePagination'
+import { useSwipe } from '../hooks/useSwipe'
 import { SeoHead } from '../components/SeoHead'
 import { ReaderTopBar } from '../components/reader/ReaderTopBar'
 import { ReaderContent } from '../components/reader/ReaderContent'
@@ -159,6 +160,14 @@ export function ReaderPage() {
       navigate(getLocalizedPath(`/books/${bookSlug}/${chapter.prev.slug}`))
     }
   }
+
+  // Swipe navigation for mobile
+  useSwipe({
+    onSwipeLeft: handleNextPage,
+    onSwipeRight: handlePrevPage,
+    threshold: 50,
+    enabled: !tocOpen && !settingsOpen && !searchOpen,
+  })
 
   if (loading) {
     return (
