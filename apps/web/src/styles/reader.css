@@ -293,8 +293,34 @@ html[data-theme="high-contrast"] .reader-toc-drawer__item:hover {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--reader-border);
+  gap: 8px;
+}
+
+.reader-toc-drawer__tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.reader-toc-drawer__tab {
+  background: none;
+  border: none;
+  color: var(--reader-secondary);
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 14px;
+  border-radius: 4px;
+}
+
+.reader-toc-drawer__tab:hover {
+  background: var(--reader-border);
+}
+
+.reader-toc-drawer__tab.active {
+  color: var(--reader-text);
+  font-weight: 600;
+  background: var(--reader-border);
 }
 
 .reader-toc-drawer__header h3 {
@@ -345,6 +371,43 @@ html[data-theme="high-contrast"] .reader-toc-drawer__item:hover {
 
 .reader-toc-drawer__title {
   font-size: 14px;
+  flex: 1;
+}
+
+.reader-toc-drawer__date {
+  font-size: 12px;
+  color: var(--reader-secondary);
+}
+
+.reader-toc-drawer__empty {
+  padding: 24px 16px;
+  color: var(--reader-secondary);
+  font-size: 14px;
+  text-align: center;
+}
+
+.reader-toc-drawer__bookmark-item {
+  display: flex;
+  align-items: center;
+}
+
+.reader-toc-drawer__bookmark-item .reader-toc-drawer__item {
+  flex: 1;
+  justify-content: space-between;
+}
+
+.reader-toc-drawer__remove {
+  background: none;
+  border: none;
+  color: var(--reader-secondary);
+  padding: 8px;
+  cursor: pointer;
+  opacity: 0.6;
+}
+
+.reader-toc-drawer__remove:hover {
+  color: var(--reader-text);
+  opacity: 1;
 }
 
 /* Settings drawer */

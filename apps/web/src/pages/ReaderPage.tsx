@@ -6,6 +6,7 @@ import type { Chapter, BookDetail } from '../types/api'
 import { useReaderSettings } from '../hooks/useReaderSettings'
 import { useAutoHideBar } from '../hooks/useAutoHideBar'
 import { useReadingProgress } from '../hooks/useReadingProgress'
+import { useBookmarks } from '../hooks/useBookmarks'
 import { SeoHead } from '../components/SeoHead'
 import { ReaderTopBar } from '../components/reader/ReaderTopBar'
 import { ReaderContent } from '../components/reader/ReaderContent'
@@ -29,6 +30,7 @@ export function ReaderPage() {
   const { settings, update } = useReaderSettings()
   const { visible, toggle } = useAutoHideBar()
   const { scrollPercent } = useReadingProgress(bookSlug || '', chapterSlug || '')
+  const { bookmarks, addBookmark, removeBookmark, isBookmarked, getBookmarkForChapter } = useBookmarks(bookSlug || '')
 
   // Fetch chapter and book data
   useEffect(() => {
@@ -103,8 +105,17 @@ export function ReaderPage() {
         title={book.title}
         chapterTitle={chapter.title}
         scrollPercent={scrollPercent}
+        isBookmarked={isBookmarked(chapterSlug!)}
         onTocClick={() => setTocOpen(true)}
         onSettingsClick={() => setSettingsOpen(true)}
+        onBookmarkClick={() => {
+          const bookmark = getBookmarkForChapter(chapterSlug!)
+          if (bookmark) {
+            removeBookmark(bookmark.id)
+          } else {
+            addBookmark(chapterSlug!, chapter.title)
+          }
+        }}
       />
 
       <main id="reader-content" className="reader-main">
@@ -124,7 +135,9 @@ export function ReaderPage() {
         bookSlug={bookSlug!}
         chapters={book.chapters}
         currentChapterSlug={chapterSlug!}
+        bookmarks={bookmarks}
         onClose={() => setTocOpen(false)}
+        onRemoveBookmark={removeBookmark}
       />
 
       <ReaderSettingsDrawer
