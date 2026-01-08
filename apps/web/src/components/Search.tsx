@@ -621,6 +621,11 @@ export function Search() {
     setMode('suggestions')
   }
 
+  /** Close dropdown without clearing query */
+  const closeDropdown = () => {
+    setIsOpen(false)
+  }
+
   // ----- Derived state -----
   const showSuggestions = isOpen && mode === 'suggestions' && suggestions.length > 0
   const showResults = isOpen && mode === 'results' && results.length > 0
@@ -677,7 +682,7 @@ export function Search() {
                       />
                     ))}
               </ul>
-              <ViewAllLink query={query} language={language} onClick={resetSearch} />
+              <ViewAllLink query={query} language={language} onClick={closeDropdown} />
             </>
           )}
         </div>
