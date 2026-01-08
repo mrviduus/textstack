@@ -79,6 +79,13 @@ html[data-theme="high-contrast"] .reader-toc-drawer__item:hover {
   background: var(--reader-bg);
   color: var(--reader-text);
   transition: background 0.3s, color 0.3s;
+  overflow: hidden; /* Prevent scroll on desktop - content uses fixed positioning */
+}
+
+@media (max-width: 899px) {
+  .reader-page {
+    overflow: auto; /* Allow scroll on mobile */
+  }
 }
 
 /* Top bar */
