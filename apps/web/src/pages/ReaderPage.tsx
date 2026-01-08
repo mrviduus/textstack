@@ -39,7 +39,7 @@ export function ReaderPage() {
 
   const { settings, update } = useReaderSettings()
   const { visible, toggle } = useAutoHideBar()
-  useReadingProgress(bookSlug || '', chapterSlug || '')
+  const { scrollPercent } = useReadingProgress(bookSlug || '', chapterSlug || '')
   const { bookmarks, addBookmark, removeBookmark, isBookmarked, getBookmarkForChapter } = useBookmarks(bookSlug || '')
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen()
 
@@ -239,6 +239,7 @@ export function ReaderPage() {
         pagesLeft={pagesLeft}
         currentPage={currentPage + 1}
         totalPages={totalPages}
+        scrollPercent={scrollPercent}
       />
 
       <ReaderTocDrawer

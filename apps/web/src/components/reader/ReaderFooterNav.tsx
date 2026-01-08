@@ -9,25 +9,40 @@ interface Props {
   pagesLeft: number
   currentPage: number
   totalPages: number
+  scrollPercent: number
 }
 
 export function ReaderFooterNav({
   chapterTitle,
   progress,
   pagesLeft,
-  currentPage,
-  totalPages,
+  scrollPercent,
 }: Props) {
-  const percent = Math.round(progress * 100)
+  const pagePercent = Math.round(progress * 100)
+  const scrollPct = Math.round(scrollPercent * 100)
 
   return (
     <footer className="reader-footer">
-      <div className="reader-footer__progress">
+      {/* Desktop: page-based progress */}
+      <div className="reader-footer__progress reader-footer__progress--desktop">
         <div
           className="reader-footer__progress-bar"
-          style={{ width: `${percent}%` }}
+          style={{ width: `${pagePercent}%` }}
           role="progressbar"
-          aria-valuenow={percent}
+          aria-valuenow={pagePercent}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-label="Reading progress"
+        />
+      </div>
+
+      {/* Mobile: scroll-based progress */}
+      <div className="reader-footer__progress reader-footer__progress--mobile">
+        <div
+          className="reader-footer__progress-bar"
+          style={{ width: `${scrollPct}%` }}
+          role="progressbar"
+          aria-valuenow={scrollPct}
           aria-valuemin={0}
           aria-valuemax={100}
           aria-label="Reading progress"
@@ -36,12 +51,17 @@ export function ReaderFooterNav({
 
       <div className="reader-footer__info">
         <span className="reader-footer__chapter">{chapterTitle}</span>
-        <span className="reader-footer__pages">
+        {/* Desktop: pages left */}
+        <span className="reader-footer__pages reader-footer__pages--desktop">
           {pagesLeft === 0
             ? 'Last page'
             : `${pagesLeft} page${pagesLeft === 1 ? '' : 's'} left`}
           {' · '}
-          {percent}%
+          {pagePercent}%
+        </span>
+        {/* Mobile: scroll percent */}
+        <span className="reader-footer__pages reader-footer__pages--mobile">
+          {scrollPct}%
         </span>
       </div>
     </footer>

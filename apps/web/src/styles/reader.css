@@ -340,6 +340,24 @@ html[data-theme="high-contrast"] .reader-toc-drawer__item:hover {
   white-space: nowrap;
 }
 
+/* Desktop/mobile variants */
+.reader-footer__progress--mobile,
+.reader-footer__pages--mobile {
+  display: none;
+}
+
+@media (max-width: 899px) {
+  .reader-footer__progress--desktop,
+  .reader-footer__pages--desktop {
+    display: none;
+  }
+
+  .reader-footer__progress--mobile,
+  .reader-footer__pages--mobile {
+    display: block;
+  }
+}
+
 /* Drawer backdrop */
 .reader-drawer-backdrop {
   position: fixed;
