@@ -7,22 +7,24 @@ interface Props {
   next: ChapterNav | null
   currentChapter: number
   totalChapters: number
+  scrollPercent: number
 }
 
-export function ReaderFooterNav({ bookSlug, prev, next, currentChapter, totalChapters }: Props) {
-  const progressPercent = totalChapters > 0 ? (currentChapter / totalChapters) * 100 : 0
+export function ReaderFooterNav({ bookSlug, prev, next, currentChapter, totalChapters, scrollPercent }: Props) {
+  // scrollPercent shows reading position within current chapter (0-1)
 
   return (
     <footer className="reader-footer">
-      {/* Progress bar at top of footer */}
+      {/* Scroll progress bar (reading position in chapter) */}
       <div className="reader-footer__progress">
         <div
           className="reader-footer__progress-bar"
-          style={{ width: `${progressPercent}%` }}
+          style={{ width: `${scrollPercent * 100}%` }}
           role="progressbar"
-          aria-valuenow={currentChapter}
-          aria-valuemin={1}
-          aria-valuemax={totalChapters}
+          aria-valuenow={Math.round(scrollPercent * 100)}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-label="Reading progress"
         />
       </div>
 

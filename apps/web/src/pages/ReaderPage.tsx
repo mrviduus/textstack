@@ -8,6 +8,7 @@ import { useAutoHideBar } from '../hooks/useAutoHideBar'
 import { useReadingProgress } from '../hooks/useReadingProgress'
 import { useBookmarks } from '../hooks/useBookmarks'
 import { useInBookSearch } from '../hooks/useInBookSearch'
+import { useFullscreen } from '../hooks/useFullscreen'
 import { SeoHead } from '../components/SeoHead'
 import { ReaderTopBar } from '../components/reader/ReaderTopBar'
 import { ReaderContent } from '../components/reader/ReaderContent'
@@ -34,6 +35,7 @@ export function ReaderPage() {
   const { visible, toggle } = useAutoHideBar()
   const { scrollPercent } = useReadingProgress(bookSlug || '', chapterSlug || '')
   const { bookmarks, addBookmark, removeBookmark, isBookmarked, getBookmarkForChapter } = useBookmarks(bookSlug || '')
+  const { isFullscreen, toggle: toggleFullscreen } = useFullscreen()
 
   // Search hook needs chapter html, use empty string until loaded
   const chapterHtml = chapter?.html || ''
@@ -126,6 +128,7 @@ export function ReaderPage() {
         chapterTitle={chapter.title}
         scrollPercent={scrollPercent}
         isBookmarked={isBookmarked(chapterSlug!)}
+        isFullscreen={isFullscreen}
         onSearchClick={() => setSearchOpen(true)}
         onTocClick={() => setTocOpen(true)}
         onSettingsClick={() => setSettingsOpen(true)}
@@ -137,6 +140,7 @@ export function ReaderPage() {
             addBookmark(chapterSlug!, chapter.title)
           }
         }}
+        onFullscreenClick={toggleFullscreen}
       />
 
       <main id="reader-content" className="reader-main">
@@ -149,6 +153,7 @@ export function ReaderPage() {
         next={chapter.next}
         currentChapter={chapter.chapterNumber}
         totalChapters={book.chapters.length}
+        scrollPercent={scrollPercent}
       />
 
       <ReaderTocDrawer
