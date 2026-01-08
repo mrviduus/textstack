@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useApi } from '../hooks/useApi'
 import { useLanguage } from '../context/LanguageContext'
@@ -43,6 +43,32 @@ export function ReaderPage() {
   const { scrollPercent } = useReadingProgress(bookSlug || '', chapterSlug || '')
   const { bookmarks, addBookmark, removeBookmark, isBookmarked, getBookmarkForChapter } = useBookmarks(bookSlug || '')
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen()
+  const [showBarsInFullscreen, setShowBarsInFullscreen] = useState(false)
+  const hideTimeoutRef = useRef<number | null>(null)
+
+  // Show bars on mouse move in fullscreen, hide after 2s
+  const handleMouseMove = useCallback(() => {
+    if (!isFullscreen) return
+    setShowBarsInFullscreen(true)
+    if (hideTimeoutRef.current) {
+      clearTimeout(hideTimeoutRef.current)
+    }
+    hideTimeoutRef.current = window.setTimeout(() => {
+      setShowBarsInFullscreen(false)
+    }, 2000)
+  }, [isFullscreen])
+
+  useEffect(() => {
+    if (isFullscreen) {
+      window.addEventListener('mousemove', handleMouseMove)
+      return () => {
+        window.removeEventListener('mousemove', handleMouseMove)
+        if (hideTimeoutRef.current) clearTimeout(hideTimeoutRef.current)
+      }
+    } else {
+      setShowBarsInFullscreen(false)
+    }
+  }, [isFullscreen, handleMouseMove])
 
   // Page-based pagination
   const {
@@ -191,8 +217,10 @@ export function ReaderPage() {
   const seoTitle = `${chapter.title} — ${book.title}`
   const seoDescription = `Read ${chapter.title} from ${book.title} online | TextStack`
 
+  const fullscreenClass = isFullscreen ? (showBarsInFullscreen ? 'fullscreen-bars-visible' : 'fullscreen-bars-hidden') : ''
+
   return (
-    <div className="reader-page">
+    <div className={`reader-page ${fullscreenClass}`}>
       <SeoHead title={seoTitle} description={seoDescription} />
       <a href="#reader-content" className="skip-link">Skip to content</a>
       <ReaderTopBar

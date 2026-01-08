@@ -176,66 +176,35 @@ html[data-theme="high-contrast"] .reader-toc-drawer__item:hover {
   bottom: 60px;
   overflow: hidden;
   padding: 24px 60px;
-}
-
-/* Aged book edge effect - dark burnt edges */
-.reader-main::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 5;
-  background:
-    /* Left edge */
-    linear-gradient(to right, rgba(30, 15, 5, 0.7) 0%, rgba(50, 30, 15, 0.3) 3%, transparent 8%),
-    /* Right edge */
-    linear-gradient(to left, rgba(30, 15, 5, 0.7) 0%, rgba(50, 30, 15, 0.3) 3%, transparent 8%),
-    /* Top edge */
-    linear-gradient(to bottom, rgba(30, 15, 5, 0.5) 0%, rgba(50, 30, 15, 0.2) 2%, transparent 6%),
-    /* Bottom edge */
-    linear-gradient(to top, rgba(30, 15, 5, 0.5) 0%, rgba(50, 30, 15, 0.2) 2%, transparent 6%),
-    /* Corner vignette */
-    radial-gradient(ellipse 100% 100% at 50% 50%, transparent 50%, rgba(40, 20, 10, 0.4) 90%, rgba(20, 10, 0, 0.7) 100%);
-}
-
-/* Remove the ::after - only need one overlay */
-.reader-main::after {
-  display: none;
+  /* Aged book edge effect */
+  box-shadow:
+    inset 80px 0 60px -60px rgba(30, 15, 5, 0.5),
+    inset -80px 0 60px -60px rgba(30, 15, 5, 0.5),
+    inset 0 50px 40px -40px rgba(30, 15, 5, 0.3),
+    inset 0 -50px 40px -40px rgba(30, 15, 5, 0.3);
 }
 
 /* Sepia theme - stronger aged edges */
-html[data-theme="sepia"] .reader-main::before {
-  background:
-    /* Left edge */
-    linear-gradient(to right, rgba(40, 20, 5, 0.8) 0%, rgba(60, 35, 15, 0.4) 4%, transparent 10%),
-    /* Right edge */
-    linear-gradient(to left, rgba(40, 20, 5, 0.8) 0%, rgba(60, 35, 15, 0.4) 4%, transparent 10%),
-    /* Top edge */
-    linear-gradient(to bottom, rgba(40, 20, 5, 0.6) 0%, rgba(60, 35, 15, 0.3) 3%, transparent 8%),
-    /* Bottom edge */
-    linear-gradient(to top, rgba(40, 20, 5, 0.6) 0%, rgba(60, 35, 15, 0.3) 3%, transparent 8%),
-    /* Corner vignette */
-    radial-gradient(ellipse 100% 100% at 50% 50%, transparent 45%, rgba(50, 25, 10, 0.5) 85%, rgba(30, 15, 5, 0.8) 100%);
+html[data-theme="sepia"] .reader-main {
+  box-shadow:
+    inset 100px 0 80px -70px rgba(50, 25, 10, 0.6),
+    inset -100px 0 80px -70px rgba(50, 25, 10, 0.6),
+    inset 0 60px 50px -45px rgba(50, 25, 10, 0.4),
+    inset 0 -60px 50px -45px rgba(50, 25, 10, 0.4);
 }
 
 /* Dark theme - dark edges */
-html[data-theme="dark"] .reader-main::before {
-  background:
-    /* Left edge */
-    linear-gradient(to right, rgba(0, 0, 0, 0.85) 0%, rgba(10, 5, 0, 0.4) 4%, transparent 10%),
-    /* Right edge */
-    linear-gradient(to left, rgba(0, 0, 0, 0.85) 0%, rgba(10, 5, 0, 0.4) 4%, transparent 10%),
-    /* Top edge */
-    linear-gradient(to bottom, rgba(0, 0, 0, 0.7) 0%, rgba(10, 5, 0, 0.3) 3%, transparent 8%),
-    /* Bottom edge */
-    linear-gradient(to top, rgba(0, 0, 0, 0.7) 0%, rgba(10, 5, 0, 0.3) 3%, transparent 8%),
-    /* Corner vignette */
-    radial-gradient(ellipse 100% 100% at 50% 50%, transparent 50%, rgba(0, 0, 0, 0.5) 90%, rgba(0, 0, 0, 0.85) 100%);
+html[data-theme="dark"] .reader-main {
+  box-shadow:
+    inset 100px 0 80px -70px rgba(0, 0, 0, 0.7),
+    inset -100px 0 80px -70px rgba(0, 0, 0, 0.7),
+    inset 0 60px 50px -45px rgba(0, 0, 0, 0.5),
+    inset 0 -60px 50px -45px rgba(0, 0, 0, 0.5);
 }
 
 /* High contrast - no effect */
-html[data-theme="high-contrast"] .reader-main::before {
-  display: none;
+html[data-theme="high-contrast"] .reader-main {
+  box-shadow: none;
 }
 
 .reader-content-wrapper {
@@ -904,4 +873,54 @@ html[data-theme="high-contrast"] .reader-search-drawer__context mark {
 
 .reader-error p {
   color: var(--reader-secondary);
+}
+
+/* Fullscreen mode - bars hidden by default */
+.fullscreen-bars-hidden .reader-top-bar {
+  transform: translateY(-100%) !important;
+  opacity: 0 !important;
+}
+
+.fullscreen-bars-hidden .reader-footer {
+  transform: translateY(100%);
+  opacity: 0;
+}
+
+.fullscreen-bars-hidden .reader-page-nav {
+  opacity: 0 !important;
+  pointer-events: none;
+}
+
+.fullscreen-bars-hidden .reader-main,
+.fullscreen-bars-visible .reader-main {
+  top: 0;
+  bottom: 0;
+  padding: 40px 80px;
+  transition: top 0.3s, bottom 0.3s, padding 0.3s;
+}
+
+/* Fullscreen mode - bars visible on mouse move */
+.fullscreen-bars-visible .reader-top-bar {
+  transform: translateY(0) !important;
+  opacity: 1 !important;
+}
+
+.fullscreen-bars-visible .reader-footer {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+.fullscreen-bars-visible .reader-page-nav {
+  pointer-events: auto;
+}
+
+.fullscreen-bars-visible .reader-main {
+  top: 56px;
+  bottom: 60px;
+  padding: 24px 60px;
+}
+
+/* Smooth transitions for fullscreen bars */
+.reader-footer {
+  transition: transform 0.3s ease, opacity 0.3s ease;
 }
