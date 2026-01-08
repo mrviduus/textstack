@@ -367,15 +367,29 @@
   .home-hero {
     padding: 60px 16px 80px;
     min-height: 50vh;
+    text-align: center;
+    align-items: center;
+  }
+
+  .home-hero__content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
   }
 
   .home-hero__title {
     font-size: 2rem;
+    max-width: 100%;
   }
 
   .home-hero__subtitle {
     font-size: 1rem;
     margin-bottom: 32px;
+    max-width: 100%;
+  }
+
+  .home-hero__description {
+    max-width: 100%;
   }
 
   .home-about__list {
@@ -389,5 +403,9 @@
   .home-books,
   .home-authors {
     padding: 48px 0;
+  }
+
+  .home-books__grid {
+    justify-content: center;
   }
 }
