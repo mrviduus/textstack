@@ -2,17 +2,22 @@ import { useState } from 'react'
 import { LocalizedLink } from './LocalizedLink'
 import { MobileSearchOverlay } from './Search'
 import { useSite } from '../context/SiteContext'
+import { useScrolled } from '../hooks/useScrolled'
 
 export function Header() {
   const [searchOpen, setSearchOpen] = useState(false)
   const { site } = useSite()
   const isProgramming = site?.siteCode === 'programming'
+  const isScrolled = useScrolled(50)
 
   return (
-    <header className="site-header">
+    <header className={`site-header ${isScrolled ? 'site-header--scrolled' : ''}`}>
       <LocalizedLink to="/" className="site-header__brand">
         <span className="site-header__wordmark">
-          TextStack{isProgramming && <span className="site-header__wordmark-suffix">dev</span>}
+          <span className="site-header__wordmark-full">
+            TextStack{isProgramming && <span className="site-header__wordmark-suffix">dev</span>}
+          </span>
+          <span className="site-header__wordmark-short">T</span>
         </span>
       </LocalizedLink>
       <nav className="site-header__nav">
