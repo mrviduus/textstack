@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 
-export type Theme = 'light' | 'sepia' | 'dark'
-export type FontFamily = 'serif' | 'sans'
+export type Theme = 'light' | 'sepia' | 'dark' | 'high-contrast'
+export type FontFamily = 'serif' | 'sans' | 'dyslexic'
 export type ColumnWidth = 'narrow' | 'normal' | 'wide'
 
 export interface ReaderSettings {

@@ -7,10 +7,16 @@ interface Props {
   onTap: () => void
 }
 
+function getFontFamily(family: ReaderSettings['fontFamily']): string {
+  switch (family) {
+    case 'serif': return 'Georgia, "Times New Roman", serif'
+    case 'sans': return '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+    case 'dyslexic': return '"OpenDyslexic", sans-serif'
+  }
+}
+
 export function ReaderContent({ html, settings, onTap }: Props) {
-  const fontFamily = settings.fontFamily === 'serif'
-    ? 'Georgia, "Times New Roman", serif'
-    : '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+  const fontFamily = getFontFamily(settings.fontFamily)
 
   return (
     <article

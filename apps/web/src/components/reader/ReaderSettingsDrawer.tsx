@@ -1,4 +1,5 @@
 import type { ReaderSettings, Theme, FontFamily, ColumnWidth } from '../../hooks/useReaderSettings'
+import { useFocusTrap } from '../../hooks/useFocusTrap'
 
 interface Props {
   open: boolean
@@ -7,15 +8,17 @@ interface Props {
   onClose: () => void
 }
 
-const themes: { value: Theme; label: string; bg: string }[] = [
+const themes: { value: Theme; label: string; bg: string; border?: string }[] = [
   { value: 'light', label: 'Light', bg: '#fff' },
   { value: 'sepia', label: 'Sepia', bg: '#f4ecd8' },
   { value: 'dark', label: 'Dark', bg: '#1a1a1a' },
+  { value: 'high-contrast', label: 'High Contrast', bg: '#000', border: '#fff' },
 ]
 
-const fonts: { value: FontFamily; label: string }[] = [
-  { value: 'serif', label: 'Serif' },
-  { value: 'sans', label: 'Sans' },
+const fonts: { value: FontFamily; label: string; fontFamily: string }[] = [
+  { value: 'serif', label: 'Serif', fontFamily: 'Georgia, serif' },
+  { value: 'sans', label: 'Sans', fontFamily: 'sans-serif' },
+  { value: 'dyslexic', label: 'Dyslexic', fontFamily: '"OpenDyslexic", sans-serif' },
 ]
 
 const widths: { value: ColumnWidth; label: string }[] = [
@@ -27,12 +30,14 @@ const widths: { value: ColumnWidth; label: string }[] = [
 const lineHeights = [1.5, 1.65, 1.8]
 
 export function ReaderSettingsDrawer({ open, settings, onUpdate, onClose }: Props) {
+  const containerRef = useFocusTrap(open)
+
   if (!open) return null
 
   return (
     <>
       <div className="reader-drawer-backdrop" onClick={onClose} />
-      <div className="reader-settings-drawer">
+      <div className="reader-settings-drawer" ref={containerRef} role="dialog" aria-modal="true" aria-label="Reading Settings">
         <div className="reader-settings-drawer__header">
           <h3>Reading Settings</h3>
           <button onClick={onClose} className="reader-settings-drawer__close">
@@ -98,7 +103,7 @@ export function ReaderSettingsDrawer({ open, settings, onUpdate, onClose }: Prop
               <button
                 key={t.value}
                 className={`reader-settings-drawer__theme ${settings.theme === t.value ? 'active' : ''}`}
-                style={{ backgroundColor: t.bg }}
+                style={{ backgroundColor: t.bg, borderColor: t.border }}
                 onClick={() => onUpdate({ theme: t.value })}
                 title={t.label}
               />
@@ -114,7 +119,7 @@ export function ReaderSettingsDrawer({ open, settings, onUpdate, onClose }: Prop
                 key={f.value}
                 className={settings.fontFamily === f.value ? 'active' : ''}
                 onClick={() => onUpdate({ fontFamily: f.value })}
-                style={{ fontFamily: f.value === 'serif' ? 'Georgia, serif' : 'sans-serif' }}
+                style={{ fontFamily: f.fontFamily }}
               >
                 {f.label}
               </button>

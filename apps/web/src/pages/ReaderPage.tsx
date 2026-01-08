@@ -54,10 +54,13 @@ export function ReaderPage() {
     return () => { cancelled = true }
   }, [bookSlug, chapterSlug, api])
 
-  // Keyboard navigation
+  // Keyboard navigation + Escape to close drawers
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowLeft' && chapter?.prev) {
+      if (e.key === 'Escape') {
+        if (tocOpen) setTocOpen(false)
+        if (settingsOpen) setSettingsOpen(false)
+      } else if (e.key === 'ArrowLeft' && chapter?.prev) {
         navigate(getLocalizedPath(`/books/${bookSlug}/${chapter.prev.slug}`))
       } else if (e.key === 'ArrowRight' && chapter?.next) {
         navigate(getLocalizedPath(`/books/${bookSlug}/${chapter.next.slug}`))
@@ -66,7 +69,7 @@ export function ReaderPage() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [bookSlug, chapter, navigate, getLocalizedPath])
+  }, [bookSlug, chapter, navigate, getLocalizedPath, tocOpen, settingsOpen])
 
   if (loading) {
     return (
@@ -93,6 +96,7 @@ export function ReaderPage() {
   return (
     <div className="reader-page">
       <SeoHead title={seoTitle} description={seoDescription} />
+      <a href="#reader-content" className="skip-link">Skip to content</a>
       <ReaderTopBar
         visible={visible}
         bookSlug={bookSlug!}
@@ -103,7 +107,7 @@ export function ReaderPage() {
         onSettingsClick={() => setSettingsOpen(true)}
       />
 
-      <main className="reader-main">
+      <main id="reader-content" className="reader-main">
         <ReaderContent html={chapter.html} settings={settings} onTap={toggle} />
       </main>
 

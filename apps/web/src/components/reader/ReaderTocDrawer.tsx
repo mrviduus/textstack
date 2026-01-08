@@ -1,5 +1,6 @@
 import { LocalizedLink } from '../LocalizedLink'
 import type { ChapterSummary } from '../../types/api'
+import { useFocusTrap } from '../../hooks/useFocusTrap'
 
 interface Props {
   open: boolean
@@ -10,12 +11,14 @@ interface Props {
 }
 
 export function ReaderTocDrawer({ open, bookSlug, chapters, currentChapterSlug, onClose }: Props) {
+  const containerRef = useFocusTrap(open)
+
   if (!open) return null
 
   return (
     <>
       <div className="reader-drawer-backdrop" onClick={onClose} />
-      <div className="reader-toc-drawer">
+      <div className="reader-toc-drawer" ref={containerRef} role="dialog" aria-modal="true" aria-label="Table of Contents">
         <div className="reader-toc-drawer__header">
           <h3>Table of Contents</h3>
           <button onClick={onClose} className="reader-toc-drawer__close">

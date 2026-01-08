@@ -1,3 +1,12 @@
+/* OpenDyslexic font */
+@font-face {
+  font-family: 'OpenDyslexic';
+  src: url('/fonts/OpenDyslexic-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* Theme variables */
 :root,
 html[data-theme="light"] {
@@ -22,6 +31,46 @@ html[data-theme="dark"] {
   --reader-secondary: #999;
   --reader-border: #333;
   --reader-bar-bg: rgba(26, 26, 26, 0.95);
+}
+
+html[data-theme="high-contrast"] {
+  --reader-bg: #000000;
+  --reader-text: #ffffff;
+  --reader-secondary: #ffff00;
+  --reader-border: #ffffff;
+  --reader-bar-bg: rgba(0, 0, 0, 0.98);
+  --reader-link: #ffff00;
+}
+
+html[data-theme="high-contrast"] .reader-content a {
+  color: var(--reader-link);
+}
+
+html[data-theme="high-contrast"] .reader-top-bar__btn:hover,
+html[data-theme="high-contrast"] .reader-footer__link:hover,
+html[data-theme="high-contrast"] .reader-toc-drawer__item:hover {
+  background: #333;
+}
+
+/* Skip link */
+.skip-link {
+  position: absolute;
+  top: -100px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--reader-text);
+  color: var(--reader-bg);
+  padding: 12px 24px;
+  border-radius: 4px;
+  font-weight: 600;
+  z-index: 1000;
+  text-decoration: none;
+}
+
+.skip-link:focus {
+  top: 16px;
+  outline: 2px solid var(--reader-text);
+  outline-offset: 2px;
 }
 
 /* Reader page */
