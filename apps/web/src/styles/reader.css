@@ -295,14 +295,15 @@ html[data-theme="high-contrast"] .reader-toc-drawer__item:hover {
     columns: 1;
   }
 
-  /* Mobile nav arrows - fixed at bottom corners */
+  /* Mobile nav arrows - centered vertically */
   .reader-page-nav {
     position: fixed;
-    top: auto;
-    bottom: 70px;
-    width: 48px;
-    height: 48px;
-    opacity: 0.8;
+    top: 50%;
+    bottom: auto;
+    transform: translateY(-50%);
+    width: 44px;
+    height: 44px;
+    opacity: 0.7;
   }
 
   .reader-page-nav:active {
@@ -310,17 +311,22 @@ html[data-theme="high-contrast"] .reader-toc-drawer__item:hover {
   }
 
   .reader-page-nav--prev {
-    left: 12px;
+    left: 8px;
   }
 
   .reader-page-nav--next {
-    right: 12px;
+    right: 8px;
   }
 
   .reader-page-nav__btn {
-    width: 44px;
-    height: 44px;
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
+    width: 40px;
+    height: 40px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  }
+
+  /* Hide progress percentage in top bar on mobile */
+  .reader-top-bar__progress {
+    display: none;
   }
 }
 
