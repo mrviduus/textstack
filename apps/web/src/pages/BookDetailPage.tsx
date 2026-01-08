@@ -9,6 +9,12 @@ import { JsonLd } from '../components/JsonLd'
 import { stringToColor } from '../utils/colors'
 import type { BookDetail } from '../types/api'
 
+// Strip HTML tags from description text
+function stripHtml(html: string): string {
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  return doc.body.textContent || ''
+}
+
 export function BookDetailPage() {
   const { bookSlug } = useParams<{ bookSlug: string }>()
   const api = useApi()
@@ -111,7 +117,7 @@ export function BookDetailPage() {
               : 'Unknown'}
           </p>
           {book.description && (
-            <p className="book-detail__description">{book.description}</p>
+            <p className="book-detail__description">{stripHtml(book.description)}</p>
           )}
           <p className="book-detail__meta">
             {book.chapters.length} chapters · {book.language.toUpperCase()}

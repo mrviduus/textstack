@@ -1,60 +1,68 @@
-import { LocalizedLink } from '../LocalizedLink'
 import type { ChapterNav } from '../../types/api'
 
 interface Props {
   bookSlug: string
+  chapterTitle: string
   prev: ChapterNav | null
   next: ChapterNav | null
-  currentChapter: number
-  totalChapters: number
+  progress: number
+  pagesLeft: number
+  currentPage: number
+  totalPages: number
+  scrollPercent: number
 }
 
-export function ReaderFooterNav({ bookSlug, prev, next, currentChapter, totalChapters }: Props) {
-  const progressPercent = totalChapters > 0 ? (currentChapter / totalChapters) * 100 : 0
+export function ReaderFooterNav({
+  chapterTitle,
+  progress,
+  pagesLeft,
+  scrollPercent,
+}: Props) {
+  const pagePercent = Math.round(progress * 100)
+  const scrollPct = Math.round(scrollPercent * 100)
 
   return (
     <footer className="reader-footer">
-      {/* Progress bar at top of footer */}
-      <div className="reader-footer__progress">
+      {/* Desktop: page-based progress */}
+      <div className="reader-footer__progress reader-footer__progress--desktop">
         <div
           className="reader-footer__progress-bar"
-          style={{ width: `${progressPercent}%` }}
+          style={{ width: `${pagePercent}%` }}
           role="progressbar"
-          aria-valuenow={currentChapter}
-          aria-valuemin={1}
-          aria-valuemax={totalChapters}
+          aria-valuenow={pagePercent}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-label="Reading progress"
         />
       </div>
 
-      <div className="reader-footer__nav">
-        {prev ? (
-          <LocalizedLink to={`/books/${bookSlug}/${prev.slug}`} className="reader-footer__link reader-footer__link--prev">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M15 18l-6-6 6-6" />
-            </svg>
-            <span>{prev.title}</span>
-          </LocalizedLink>
-        ) : (
-          <div />
-        )}
+      {/* Mobile: scroll-based progress */}
+      <div className="reader-footer__progress reader-footer__progress--mobile">
+        <div
+          className="reader-footer__progress-bar"
+          style={{ width: `${scrollPct}%` }}
+          role="progressbar"
+          aria-valuenow={scrollPct}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-label="Reading progress"
+        />
+      </div>
 
-        {/* Chapter indicator */}
-        <div className="reader-footer__chapter-info">
-          <span className="reader-footer__chapter-current">{currentChapter}</span>
-          <span className="reader-footer__chapter-separator">/</span>
-          <span className="reader-footer__chapter-total">{totalChapters}</span>
-        </div>
-
-        {next ? (
-          <LocalizedLink to={`/books/${bookSlug}/${next.slug}`} className="reader-footer__link reader-footer__link--next">
-            <span>{next.title}</span>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M9 18l6-6-6-6" />
-            </svg>
-          </LocalizedLink>
-        ) : (
-          <div />
-        )}
+      <div className="reader-footer__info">
+        <span className="reader-footer__chapter">{chapterTitle}</span>
+        {/* Desktop: pages left */}
+        <span className="reader-footer__pages reader-footer__pages--desktop">
+          {pagesLeft === 0
+            ? 'Last page'
+            : `${pagesLeft} page${pagesLeft === 1 ? '' : 's'} left`}
+          {' · '}
+          {pagePercent}%
+        </span>
+        {/* Mobile: scroll percent */}
+        <span className="reader-footer__pages reader-footer__pages--mobile">
+          {scrollPct}%
+        </span>
       </div>
     </footer>
   )

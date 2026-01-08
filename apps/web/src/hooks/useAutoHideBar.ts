@@ -33,11 +33,15 @@ export function useAutoHideBar(options: Options = {}) {
         const currentY = window.scrollY
         const delta = currentY - lastScrollY.current
 
-        if (delta < -scrollThreshold) {
+        // Always show bar when near top of page
+        if (currentY < 100) {
+          setVisible(true)
+          if (hideTimer.current) clearTimeout(hideTimer.current)
+        } else if (delta < -scrollThreshold) {
           // Scrolling up → show
           show()
-        } else if (delta > scrollThreshold && currentY > 100) {
-          // Scrolling down (past 100px) → hide
+        } else if (delta > scrollThreshold) {
+          // Scrolling down → hide
           setVisible(false)
           if (hideTimer.current) clearTimeout(hideTimer.current)
         }
