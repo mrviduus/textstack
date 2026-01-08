@@ -178,6 +178,94 @@ html[data-theme="high-contrast"] .reader-toc-drawer__item:hover {
   padding: 24px 60px;
 }
 
+/* Burnt paper edge effect */
+.reader-main::before,
+.reader-main::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 80px;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.reader-main::before {
+  left: 0;
+  background: linear-gradient(
+    to right,
+    rgba(60, 30, 10, 0.25) 0%,
+    rgba(100, 60, 30, 0.18) 15%,
+    rgba(139, 90, 43, 0.12) 30%,
+    rgba(180, 130, 70, 0.06) 50%,
+    transparent 100%
+  );
+  box-shadow: inset 15px 0 30px -10px rgba(40, 20, 5, 0.2);
+}
+
+.reader-main::after {
+  right: 0;
+  background: linear-gradient(
+    to left,
+    rgba(60, 30, 10, 0.25) 0%,
+    rgba(100, 60, 30, 0.18) 15%,
+    rgba(139, 90, 43, 0.12) 30%,
+    rgba(180, 130, 70, 0.06) 50%,
+    transparent 100%
+  );
+  box-shadow: inset -15px 0 30px -10px rgba(40, 20, 5, 0.2);
+}
+
+/* Sepia theme - warmer burnt edges */
+html[data-theme="sepia"] .reader-main::before {
+  background: linear-gradient(
+    to right,
+    rgba(101, 67, 33, 0.2) 0%,
+    rgba(139, 90, 43, 0.1) 25%,
+    rgba(160, 110, 60, 0.05) 50%,
+    transparent 100%
+  );
+  box-shadow: inset 12px 0 25px -10px rgba(60, 30, 10, 0.15);
+}
+
+html[data-theme="sepia"] .reader-main::after {
+  background: linear-gradient(
+    to left,
+    rgba(101, 67, 33, 0.2) 0%,
+    rgba(139, 90, 43, 0.1) 25%,
+    rgba(160, 110, 60, 0.05) 50%,
+    transparent 100%
+  );
+  box-shadow: inset -12px 0 25px -10px rgba(60, 30, 10, 0.15);
+}
+
+/* Dark theme - subtle charred edges */
+html[data-theme="dark"] .reader-main::before,
+html[data-theme="dark"] .reader-main::after {
+  background: linear-gradient(
+    to right,
+    rgba(0, 0, 0, 0.4) 0%,
+    rgba(20, 15, 10, 0.2) 30%,
+    transparent 100%
+  );
+  box-shadow: none;
+}
+
+html[data-theme="dark"] .reader-main::after {
+  background: linear-gradient(
+    to left,
+    rgba(0, 0, 0, 0.4) 0%,
+    rgba(20, 15, 10, 0.2) 30%,
+    transparent 100%
+  );
+}
+
+/* High contrast - no burnt effect */
+html[data-theme="high-contrast"] .reader-main::before,
+html[data-theme="high-contrast"] .reader-main::after {
+  display: none;
+}
+
 .reader-content-wrapper {
   height: 100%;
   overflow: hidden;
