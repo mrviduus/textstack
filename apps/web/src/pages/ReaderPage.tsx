@@ -140,9 +140,15 @@ export function ReaderPage() {
     return () => clearTimeout(timer)
   }, [chapterHtml, recalculate, goToPage])
 
-  // Keyboard navigation
+  // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Skip when typing in input
+      if (e.target instanceof HTMLInputElement) return
+
+      const key = e.key.toLowerCase()
+
+      // Escape - close drawers
       if (e.key === 'Escape') {
         if (tocOpen) setTocOpen(false)
         if (settingsOpen) setSettingsOpen(false)
@@ -150,24 +156,78 @@ export function ReaderPage() {
           setSearchOpen(false)
           clearSearch()
         }
-      } else if (e.key === 'ArrowLeft') {
+        return
+      }
+
+      // Arrow navigation
+      if (e.key === 'ArrowLeft') {
         if (currentPage > 0) {
           prevPage()
         } else if (chapter?.prev) {
           navigate(getLocalizedPath(`/books/${bookSlug}/${chapter.prev.slug}`))
         }
-      } else if (e.key === 'ArrowRight') {
+        return
+      }
+      if (e.key === 'ArrowRight') {
         if (currentPage < totalPages - 1) {
           nextPage()
         } else if (chapter?.next) {
           navigate(getLocalizedPath(`/books/${bookSlug}/${chapter.next.slug}`))
         }
+        return
+      }
+
+      // Feature shortcuts
+      switch (key) {
+        case 'f':
+          toggleFullscreen()
+          break
+        case 's':
+        case '/':
+          e.preventDefault()
+          setSearchOpen(true)
+          break
+        case 't':
+          setTocOpen(true)
+          break
+        case 'b':
+          if (chapterSlug) {
+            const bookmark = getBookmarkForChapter(chapterSlug)
+            if (bookmark) {
+              removeBookmark(bookmark.id)
+            } else if (chapter) {
+              addBookmark(chapterSlug, chapter.title)
+            }
+          }
+          break
+        case ',':
+          setSettingsOpen(true)
+          break
+        case '+':
+        case '=':
+          if (settings.fontSize < 28) update({ fontSize: settings.fontSize + 2 })
+          break
+        case '-':
+          if (settings.fontSize > 14) update({ fontSize: settings.fontSize - 2 })
+          break
+        case '1':
+          update({ theme: 'light' })
+          break
+        case '2':
+          update({ theme: 'sepia' })
+          break
+        case '3':
+          update({ theme: 'dark' })
+          break
+        case '4':
+          update({ theme: 'high-contrast' })
+          break
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [bookSlug, chapter, navigate, getLocalizedPath, tocOpen, settingsOpen, searchOpen, clearSearch, currentPage, totalPages, prevPage, nextPage])
+  }, [bookSlug, chapterSlug, chapter, navigate, getLocalizedPath, tocOpen, settingsOpen, searchOpen, clearSearch, currentPage, totalPages, prevPage, nextPage, toggleFullscreen, settings, update, getBookmarkForChapter, removeBookmark, addBookmark])
 
   // Handle next page click - go to next chapter if at end
   const handleNextPage = () => {
