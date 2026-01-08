@@ -185,7 +185,7 @@ html[data-theme="high-contrast"] .reader-toc-drawer__item:hover {
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 80px;
+  width: 120px;
   pointer-events: none;
   z-index: 5;
 }
@@ -194,70 +194,78 @@ html[data-theme="high-contrast"] .reader-toc-drawer__item:hover {
   left: 0;
   background: linear-gradient(
     to right,
-    rgba(60, 30, 10, 0.25) 0%,
-    rgba(100, 60, 30, 0.18) 15%,
-    rgba(139, 90, 43, 0.12) 30%,
-    rgba(180, 130, 70, 0.06) 50%,
+    rgba(45, 20, 0, 0.5) 0%,
+    rgba(80, 40, 10, 0.35) 10%,
+    rgba(120, 70, 30, 0.22) 25%,
+    rgba(160, 100, 50, 0.12) 45%,
+    rgba(200, 150, 80, 0.05) 70%,
     transparent 100%
   );
-  box-shadow: inset 15px 0 30px -10px rgba(40, 20, 5, 0.2);
+  box-shadow: inset 20px 0 40px -10px rgba(30, 10, 0, 0.35);
 }
 
 .reader-main::after {
   right: 0;
   background: linear-gradient(
     to left,
-    rgba(60, 30, 10, 0.25) 0%,
-    rgba(100, 60, 30, 0.18) 15%,
-    rgba(139, 90, 43, 0.12) 30%,
-    rgba(180, 130, 70, 0.06) 50%,
+    rgba(45, 20, 0, 0.5) 0%,
+    rgba(80, 40, 10, 0.35) 10%,
+    rgba(120, 70, 30, 0.22) 25%,
+    rgba(160, 100, 50, 0.12) 45%,
+    rgba(200, 150, 80, 0.05) 70%,
     transparent 100%
   );
-  box-shadow: inset -15px 0 30px -10px rgba(40, 20, 5, 0.2);
+  box-shadow: inset -20px 0 40px -10px rgba(30, 10, 0, 0.35);
 }
 
 /* Sepia theme - warmer burnt edges */
 html[data-theme="sepia"] .reader-main::before {
   background: linear-gradient(
     to right,
-    rgba(101, 67, 33, 0.2) 0%,
-    rgba(139, 90, 43, 0.1) 25%,
-    rgba(160, 110, 60, 0.05) 50%,
+    rgba(60, 35, 10, 0.55) 0%,
+    rgba(90, 55, 20, 0.38) 12%,
+    rgba(120, 75, 35, 0.25) 30%,
+    rgba(150, 100, 50, 0.12) 55%,
     transparent 100%
   );
-  box-shadow: inset 12px 0 25px -10px rgba(60, 30, 10, 0.15);
+  box-shadow: inset 20px 0 40px -10px rgba(40, 20, 5, 0.4);
 }
 
 html[data-theme="sepia"] .reader-main::after {
   background: linear-gradient(
     to left,
-    rgba(101, 67, 33, 0.2) 0%,
-    rgba(139, 90, 43, 0.1) 25%,
-    rgba(160, 110, 60, 0.05) 50%,
+    rgba(60, 35, 10, 0.55) 0%,
+    rgba(90, 55, 20, 0.38) 12%,
+    rgba(120, 75, 35, 0.25) 30%,
+    rgba(150, 100, 50, 0.12) 55%,
     transparent 100%
   );
-  box-shadow: inset -12px 0 25px -10px rgba(60, 30, 10, 0.15);
+  box-shadow: inset -20px 0 40px -10px rgba(40, 20, 5, 0.4);
 }
 
-/* Dark theme - subtle charred edges */
-html[data-theme="dark"] .reader-main::before,
-html[data-theme="dark"] .reader-main::after {
+/* Dark theme - charred edges */
+html[data-theme="dark"] .reader-main::before {
   background: linear-gradient(
     to right,
-    rgba(0, 0, 0, 0.4) 0%,
-    rgba(20, 15, 10, 0.2) 30%,
+    rgba(0, 0, 0, 0.7) 0%,
+    rgba(15, 10, 5, 0.5) 15%,
+    rgba(30, 20, 10, 0.3) 35%,
+    rgba(50, 35, 20, 0.15) 60%,
     transparent 100%
   );
-  box-shadow: none;
+  box-shadow: inset 15px 0 35px -10px rgba(0, 0, 0, 0.5);
 }
 
 html[data-theme="dark"] .reader-main::after {
   background: linear-gradient(
     to left,
-    rgba(0, 0, 0, 0.4) 0%,
-    rgba(20, 15, 10, 0.2) 30%,
+    rgba(0, 0, 0, 0.7) 0%,
+    rgba(15, 10, 5, 0.5) 15%,
+    rgba(30, 20, 10, 0.3) 35%,
+    rgba(50, 35, 20, 0.15) 60%,
     transparent 100%
   );
+  box-shadow: inset -15px 0 35px -10px rgba(0, 0, 0, 0.5);
 }
 
 /* High contrast - no burnt effect */
