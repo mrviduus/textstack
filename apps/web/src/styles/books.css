@@ -32,35 +32,39 @@
   letter-spacing: 0.01em;
   color: var(--color-text-secondary, #555);
   transition: color 0.15s ease;
-  position: relative;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
 }
 
 .site-header__wordmark-full {
   display: inline-block;
+  max-width: 100px;
   opacity: 1;
-  transform: translateX(0);
-  transition: opacity 0.3s ease, transform 0.3s ease;
+  transition: max-width 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  white-space: nowrap;
 }
 
 .site-header__wordmark-short {
-  position: absolute;
-  left: 0;
-  top: 0;
+  display: inline-block;
+  max-width: 0;
   opacity: 0;
-  transform: translateX(-10px);
-  transition: opacity 0.3s ease, transform 0.3s ease;
+  overflow: hidden;
   font-weight: 500;
+  transition: max-width 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  white-space: nowrap;
 }
 
 .site-header--scrolled .site-header__wordmark-full {
+  max-width: 0;
   opacity: 0;
-  transform: translateX(10px);
-  pointer-events: none;
 }
 
 .site-header--scrolled .site-header__wordmark-short {
+  max-width: 20px;
   opacity: 1;
-  transform: translateX(0);
 }
 
 .site-header__brand:hover .site-header__wordmark {
@@ -106,15 +110,22 @@
   margin-left: auto;
   margin-right: 16px;
   overflow: hidden;
+  transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+              margin-right 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .site-header__nav-link {
   font-size: 15px;
   color: var(--color-text-secondary, #555);
   text-decoration: none;
-  transition: color 0.15s ease, opacity 0.3s ease, transform 0.3s ease;
+  display: inline-block;
+  max-width: 80px;
   opacity: 1;
-  transform: translateX(0);
+  overflow: hidden;
+  white-space: nowrap;
+  transition: max-width 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+              color 0.15s ease;
 }
 
 .site-header__nav-link:hover {
@@ -122,12 +133,12 @@
 }
 
 .site-header--scrolled .site-header__nav-link {
+  max-width: 0;
   opacity: 0;
-  transform: translateX(20px);
-  pointer-events: none;
 }
 
 .site-header--scrolled .site-header__nav {
+  width: 0;
   margin-right: 0;
 }
 
