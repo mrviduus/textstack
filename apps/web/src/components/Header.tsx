@@ -14,10 +14,7 @@ export function Header() {
     <header className={`site-header ${isScrolled ? 'site-header--scrolled' : ''}`}>
       <LocalizedLink to="/" className="site-header__brand">
         <span className="site-header__wordmark">
-          <span className="site-header__wordmark-full">
-            TextStack{isProgramming && <span className="site-header__wordmark-suffix">dev</span>}
-          </span>
-          <span className="site-header__wordmark-short">T</span>
+          TextStack{isProgramming && <span className="site-header__wordmark-suffix">dev</span>}
         </span>
       </LocalizedLink>
       <nav className="site-header__nav">

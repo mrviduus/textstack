@@ -31,59 +31,11 @@
   font-weight: 400;
   letter-spacing: 0.01em;
   color: var(--color-text-secondary, #555);
-  transition: color 0.15s ease;
-  position: relative;
-  min-width: 80px;
+  transition: color 0.15s ease, font-size 0.3s ease;
 }
 
-.site-header__wordmark-full {
-  display: inline-block;
-}
-
-.site-header__wordmark-short {
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  font-weight: 500;
-  opacity: 0;
-}
-
-/* Animations */
-@keyframes fadeOutSlide {
-  0% { opacity: 1; transform: translateX(0); }
-  100% { opacity: 0; transform: translateX(8px); }
-}
-
-@keyframes fadeInSlide {
-  0% { opacity: 0; transform: translateY(-50%) translateX(-8px); }
-  100% { opacity: 1; transform: translateY(-50%) translateX(0); }
-}
-
-@keyframes fadeOutSlideReverse {
-  0% { opacity: 1; transform: translateY(-50%) translateX(0); }
-  100% { opacity: 0; transform: translateY(-50%) translateX(8px); }
-}
-
-@keyframes fadeInSlideReverse {
-  0% { opacity: 0; transform: translateX(-8px); }
-  100% { opacity: 1; transform: translateX(0); }
-}
-
-.site-header--scrolled .site-header__wordmark-full {
-  animation: fadeOutSlide 0.3s ease forwards;
-}
-
-.site-header--scrolled .site-header__wordmark-short {
-  animation: fadeInSlide 0.3s ease 0.1s forwards;
-}
-
-.site-header:not(.site-header--scrolled) .site-header__wordmark-full {
-  animation: fadeInSlideReverse 0.3s ease 0.1s forwards;
-}
-
-.site-header:not(.site-header--scrolled) .site-header__wordmark-short {
-  animation: fadeOutSlideReverse 0.3s ease forwards;
+.site-header--scrolled .site-header__wordmark {
+  font-size: 16px;
 }
 
 .site-header__brand:hover .site-header__wordmark {
@@ -139,11 +91,6 @@
 
 .site-header__nav-link:hover {
   color: var(--color-text, #191919);
-}
-
-.site-header--scrolled .site-header__nav-link {
-  opacity: 0;
-  pointer-events: none;
 }
 
 /* Static pages (Public Domain, etc.) */
