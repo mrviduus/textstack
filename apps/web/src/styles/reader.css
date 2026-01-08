@@ -295,8 +295,32 @@ html[data-theme="high-contrast"] .reader-toc-drawer__item:hover {
     columns: 1;
   }
 
+  /* Mobile nav arrows - fixed at bottom corners */
   .reader-page-nav {
-    display: none;
+    position: fixed;
+    top: auto;
+    bottom: 70px;
+    width: 48px;
+    height: 48px;
+    opacity: 0.8;
+  }
+
+  .reader-page-nav:active {
+    opacity: 1;
+  }
+
+  .reader-page-nav--prev {
+    left: 12px;
+  }
+
+  .reader-page-nav--next {
+    right: 12px;
+  }
+
+  .reader-page-nav__btn {
+    width: 44px;
+    height: 44px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
   }
 }
 
