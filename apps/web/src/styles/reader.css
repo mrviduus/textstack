@@ -178,99 +178,63 @@ html[data-theme="high-contrast"] .reader-toc-drawer__item:hover {
   padding: 24px 60px;
 }
 
-/* Burnt paper edge effect */
-.reader-main::before,
-.reader-main::after {
+/* Aged book edge effect - dark burnt edges */
+.reader-main::before {
   content: '';
   position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 120px;
+  inset: 0;
   pointer-events: none;
   z-index: 5;
+  background:
+    /* Left edge */
+    linear-gradient(to right, rgba(30, 15, 5, 0.7) 0%, rgba(50, 30, 15, 0.3) 3%, transparent 8%),
+    /* Right edge */
+    linear-gradient(to left, rgba(30, 15, 5, 0.7) 0%, rgba(50, 30, 15, 0.3) 3%, transparent 8%),
+    /* Top edge */
+    linear-gradient(to bottom, rgba(30, 15, 5, 0.5) 0%, rgba(50, 30, 15, 0.2) 2%, transparent 6%),
+    /* Bottom edge */
+    linear-gradient(to top, rgba(30, 15, 5, 0.5) 0%, rgba(50, 30, 15, 0.2) 2%, transparent 6%),
+    /* Corner vignette */
+    radial-gradient(ellipse 100% 100% at 50% 50%, transparent 50%, rgba(40, 20, 10, 0.4) 90%, rgba(20, 10, 0, 0.7) 100%);
 }
 
-.reader-main::before {
-  left: 0;
-  background: linear-gradient(
-    to right,
-    rgba(45, 20, 0, 0.5) 0%,
-    rgba(80, 40, 10, 0.35) 10%,
-    rgba(120, 70, 30, 0.22) 25%,
-    rgba(160, 100, 50, 0.12) 45%,
-    rgba(200, 150, 80, 0.05) 70%,
-    transparent 100%
-  );
-  box-shadow: inset 20px 0 40px -10px rgba(30, 10, 0, 0.35);
-}
-
+/* Remove the ::after - only need one overlay */
 .reader-main::after {
-  right: 0;
-  background: linear-gradient(
-    to left,
-    rgba(45, 20, 0, 0.5) 0%,
-    rgba(80, 40, 10, 0.35) 10%,
-    rgba(120, 70, 30, 0.22) 25%,
-    rgba(160, 100, 50, 0.12) 45%,
-    rgba(200, 150, 80, 0.05) 70%,
-    transparent 100%
-  );
-  box-shadow: inset -20px 0 40px -10px rgba(30, 10, 0, 0.35);
+  display: none;
 }
 
-/* Sepia theme - warmer burnt edges */
+/* Sepia theme - stronger aged edges */
 html[data-theme="sepia"] .reader-main::before {
-  background: linear-gradient(
-    to right,
-    rgba(60, 35, 10, 0.55) 0%,
-    rgba(90, 55, 20, 0.38) 12%,
-    rgba(120, 75, 35, 0.25) 30%,
-    rgba(150, 100, 50, 0.12) 55%,
-    transparent 100%
-  );
-  box-shadow: inset 20px 0 40px -10px rgba(40, 20, 5, 0.4);
+  background:
+    /* Left edge */
+    linear-gradient(to right, rgba(40, 20, 5, 0.8) 0%, rgba(60, 35, 15, 0.4) 4%, transparent 10%),
+    /* Right edge */
+    linear-gradient(to left, rgba(40, 20, 5, 0.8) 0%, rgba(60, 35, 15, 0.4) 4%, transparent 10%),
+    /* Top edge */
+    linear-gradient(to bottom, rgba(40, 20, 5, 0.6) 0%, rgba(60, 35, 15, 0.3) 3%, transparent 8%),
+    /* Bottom edge */
+    linear-gradient(to top, rgba(40, 20, 5, 0.6) 0%, rgba(60, 35, 15, 0.3) 3%, transparent 8%),
+    /* Corner vignette */
+    radial-gradient(ellipse 100% 100% at 50% 50%, transparent 45%, rgba(50, 25, 10, 0.5) 85%, rgba(30, 15, 5, 0.8) 100%);
 }
 
-html[data-theme="sepia"] .reader-main::after {
-  background: linear-gradient(
-    to left,
-    rgba(60, 35, 10, 0.55) 0%,
-    rgba(90, 55, 20, 0.38) 12%,
-    rgba(120, 75, 35, 0.25) 30%,
-    rgba(150, 100, 50, 0.12) 55%,
-    transparent 100%
-  );
-  box-shadow: inset -20px 0 40px -10px rgba(40, 20, 5, 0.4);
-}
-
-/* Dark theme - charred edges */
+/* Dark theme - dark edges */
 html[data-theme="dark"] .reader-main::before {
-  background: linear-gradient(
-    to right,
-    rgba(0, 0, 0, 0.7) 0%,
-    rgba(15, 10, 5, 0.5) 15%,
-    rgba(30, 20, 10, 0.3) 35%,
-    rgba(50, 35, 20, 0.15) 60%,
-    transparent 100%
-  );
-  box-shadow: inset 15px 0 35px -10px rgba(0, 0, 0, 0.5);
+  background:
+    /* Left edge */
+    linear-gradient(to right, rgba(0, 0, 0, 0.85) 0%, rgba(10, 5, 0, 0.4) 4%, transparent 10%),
+    /* Right edge */
+    linear-gradient(to left, rgba(0, 0, 0, 0.85) 0%, rgba(10, 5, 0, 0.4) 4%, transparent 10%),
+    /* Top edge */
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.7) 0%, rgba(10, 5, 0, 0.3) 3%, transparent 8%),
+    /* Bottom edge */
+    linear-gradient(to top, rgba(0, 0, 0, 0.7) 0%, rgba(10, 5, 0, 0.3) 3%, transparent 8%),
+    /* Corner vignette */
+    radial-gradient(ellipse 100% 100% at 50% 50%, transparent 50%, rgba(0, 0, 0, 0.5) 90%, rgba(0, 0, 0, 0.85) 100%);
 }
 
-html[data-theme="dark"] .reader-main::after {
-  background: linear-gradient(
-    to left,
-    rgba(0, 0, 0, 0.7) 0%,
-    rgba(15, 10, 5, 0.5) 15%,
-    rgba(30, 20, 10, 0.3) 35%,
-    rgba(50, 35, 20, 0.15) 60%,
-    transparent 100%
-  );
-  box-shadow: inset -15px 0 35px -10px rgba(0, 0, 0, 0.5);
-}
-
-/* High contrast - no burnt effect */
-html[data-theme="high-contrast"] .reader-main::before,
-html[data-theme="high-contrast"] .reader-main::after {
+/* High contrast - no effect */
+html[data-theme="high-contrast"] .reader-main::before {
   display: none;
 }
 
