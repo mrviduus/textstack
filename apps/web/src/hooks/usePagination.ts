@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, RefObject } from 'react'
+import { useState, useEffect, useCallback, RefObject } from 'react'
 
 // Legacy scroll progress tracker (keep for backwards compat)
 export function useScrollProgress() {

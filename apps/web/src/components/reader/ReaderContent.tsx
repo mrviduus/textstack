@@ -30,7 +30,7 @@ export const ReaderContent = forwardRef<HTMLElement, Props>(
     }, [onTap])
 
     return (
-      <div className="reader-content-wrapper" ref={containerRef} onClick={handleClick}>
+      <div className="reader-content-wrapper" ref={containerRef as React.RefObject<HTMLDivElement>} onClick={handleClick}>
         <article
           ref={ref as React.RefObject<HTMLElement>}
           className="reader-content"
