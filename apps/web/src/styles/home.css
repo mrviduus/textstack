@@ -365,31 +365,42 @@
 /* Responsive */
 @media (max-width: 640px) {
   .home-hero {
-    padding: 60px 16px 80px;
+    padding: 60px 20px 80px;
     min-height: 50vh;
     text-align: center;
     align-items: center;
+    box-sizing: border-box;
   }
 
   .home-hero__content {
     display: flex;
     flex-direction: column;
     align-items: center;
+    box-sizing: border-box;
+    padding: 0;
+    max-width: 100%;
   }
 
   .home-hero__title {
-    font-size: 2rem;
+    font-size: 1.75rem;
     max-width: 100%;
+    padding: 0 8px;
+    box-sizing: border-box;
   }
 
   .home-hero__subtitle {
-    font-size: 1rem;
-    margin-bottom: 32px;
+    font-size: 0.95rem;
+    margin-bottom: 20px;
     max-width: 100%;
+    padding: 0 8px;
+    box-sizing: border-box;
   }
 
   .home-hero__description {
     max-width: 100%;
+    padding: 0 8px;
+    box-sizing: border-box;
+    font-size: 0.9rem;
   }
 
   .home-about__list {
