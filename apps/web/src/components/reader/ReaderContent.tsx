@@ -1,10 +1,11 @@
+import { useCallback, forwardRef } from 'react'
 import type { ReaderSettings } from '../../hooks/useReaderSettings'
-import { getColumnMaxWidth } from '../../hooks/useReaderSettings'
 
 interface Props {
   html: string
   settings: ReaderSettings
   onTap: () => void
+  containerRef?: React.RefObject<HTMLDivElement | null>
 }
 
 function getFontFamily(family: ReaderSettings['fontFamily']): string {
@@ -15,20 +16,32 @@ function getFontFamily(family: ReaderSettings['fontFamily']): string {
   }
 }
 
-export function ReaderContent({ html, settings, onTap }: Props) {
-  const fontFamily = getFontFamily(settings.fontFamily)
+export const ReaderContent = forwardRef<HTMLElement, Props>(
+  function ReaderContent({ html, settings, onTap, containerRef }, ref) {
+    const fontFamily = getFontFamily(settings.fontFamily)
 
-  return (
-    <article
-      className="reader-content"
-      onClick={onTap}
-      style={{
-        maxWidth: getColumnMaxWidth(settings.columnWidth),
-        fontSize: `${settings.fontSize}px`,
-        lineHeight: settings.lineHeight,
-        fontFamily,
-      }}
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
-  )
-}
+    const handleClick = useCallback((e: React.MouseEvent) => {
+      // Don't toggle bar when clicking links (footnotes, etc.)
+      const target = e.target as HTMLElement
+      if (target.tagName === 'A' || target.closest('a')) {
+        return
+      }
+      onTap()
+    }, [onTap])
+
+    return (
+      <div className="reader-content-wrapper" ref={containerRef} onClick={handleClick}>
+        <article
+          ref={ref as React.RefObject<HTMLElement>}
+          className="reader-content"
+          style={{
+            fontSize: `${settings.fontSize}px`,
+            lineHeight: settings.lineHeight,
+            fontFamily,
+          }}
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+      </div>
+    )
+  }
+)

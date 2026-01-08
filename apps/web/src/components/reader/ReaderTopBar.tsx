@@ -5,7 +5,7 @@ interface Props {
   bookSlug: string
   title: string
   chapterTitle: string
-  scrollPercent: number
+  progress: number
   isBookmarked: boolean
   isFullscreen: boolean
   onSearchClick: () => void
@@ -20,7 +20,7 @@ export function ReaderTopBar({
   bookSlug,
   title,
   chapterTitle,
-  scrollPercent,
+  progress,
   isBookmarked,
   isFullscreen,
   onSearchClick,
@@ -50,7 +50,7 @@ export function ReaderTopBar({
       </div>
 
       <div className="reader-top-bar__right">
-        <span className="reader-top-bar__progress">{Math.round(scrollPercent * 100)}%</span>
+        <span className="reader-top-bar__progress">{Math.round(progress * 100)}%</span>
         <button onClick={onSearchClick} className="reader-top-bar__btn" title="Search in chapter">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <circle cx="11" cy="11" r="8" />
