@@ -7,12 +7,14 @@ import { useReaderSettings } from '../hooks/useReaderSettings'
 import { useAutoHideBar } from '../hooks/useAutoHideBar'
 import { useReadingProgress } from '../hooks/useReadingProgress'
 import { useBookmarks } from '../hooks/useBookmarks'
+import { useInBookSearch } from '../hooks/useInBookSearch'
 import { SeoHead } from '../components/SeoHead'
 import { ReaderTopBar } from '../components/reader/ReaderTopBar'
 import { ReaderContent } from '../components/reader/ReaderContent'
 import { ReaderFooterNav } from '../components/reader/ReaderFooterNav'
 import { ReaderSettingsDrawer } from '../components/reader/ReaderSettingsDrawer'
 import { ReaderTocDrawer } from '../components/reader/ReaderTocDrawer'
+import { ReaderSearchDrawer } from '../components/reader/ReaderSearchDrawer'
 
 export function ReaderPage() {
   const { bookSlug, chapterSlug } = useParams<{ bookSlug: string; chapterSlug: string }>()
@@ -26,11 +28,25 @@ export function ReaderPage() {
 
   const [tocOpen, setTocOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
 
   const { settings, update } = useReaderSettings()
   const { visible, toggle } = useAutoHideBar()
   const { scrollPercent } = useReadingProgress(bookSlug || '', chapterSlug || '')
   const { bookmarks, addBookmark, removeBookmark, isBookmarked, getBookmarkForChapter } = useBookmarks(bookSlug || '')
+
+  // Search hook needs chapter html, use empty string until loaded
+  const chapterHtml = chapter?.html || ''
+  const {
+    query: searchQuery,
+    matches: searchMatches,
+    activeMatchIndex,
+    search,
+    nextMatch,
+    prevMatch,
+    goToMatch,
+    clear: clearSearch,
+  } = useInBookSearch(chapterHtml)
 
   // Fetch chapter and book data
   useEffect(() => {
@@ -62,6 +78,10 @@ export function ReaderPage() {
       if (e.key === 'Escape') {
         if (tocOpen) setTocOpen(false)
         if (settingsOpen) setSettingsOpen(false)
+        if (searchOpen) {
+          setSearchOpen(false)
+          clearSearch()
+        }
       } else if (e.key === 'ArrowLeft' && chapter?.prev) {
         navigate(getLocalizedPath(`/books/${bookSlug}/${chapter.prev.slug}`))
       } else if (e.key === 'ArrowRight' && chapter?.next) {
@@ -71,7 +91,7 @@ export function ReaderPage() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [bookSlug, chapter, navigate, getLocalizedPath, tocOpen, settingsOpen])
+  }, [bookSlug, chapter, navigate, getLocalizedPath, tocOpen, settingsOpen, searchOpen, clearSearch])
 
   if (loading) {
     return (
@@ -106,6 +126,7 @@ export function ReaderPage() {
         chapterTitle={chapter.title}
         scrollPercent={scrollPercent}
         isBookmarked={isBookmarked(chapterSlug!)}
+        onSearchClick={() => setSearchOpen(true)}
         onTocClick={() => setTocOpen(true)}
         onSettingsClick={() => setSettingsOpen(true)}
         onBookmarkClick={() => {
@@ -145,6 +166,21 @@ export function ReaderPage() {
         settings={settings}
         onUpdate={update}
         onClose={() => setSettingsOpen(false)}
+      />
+
+      <ReaderSearchDrawer
+        open={searchOpen}
+        query={searchQuery}
+        matches={searchMatches}
+        activeMatchIndex={activeMatchIndex}
+        onSearch={search}
+        onGoToMatch={goToMatch}
+        onNextMatch={nextMatch}
+        onPrevMatch={prevMatch}
+        onClose={() => {
+          setSearchOpen(false)
+          clearSearch()
+        }}
       />
     </div>
   )
