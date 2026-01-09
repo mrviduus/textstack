@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useCallback, ReactNode } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 
-const SUPPORTED_LANGUAGES = ['en', 'uk', 'ru'] as const
+const SUPPORTED_LANGUAGES = ['en', 'uk'] as const
 export type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number]
 const DEFAULT_LANGUAGE: SupportedLanguage = 'en'
 
@@ -35,7 +35,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   }, [language])
 
   const switchLanguage = useCallback((newLang: SupportedLanguage) => {
-    const pathWithoutLang = location.pathname.replace(/^\/(en|uk|ru)/, '')
+    const pathWithoutLang = location.pathname.replace(/^\/(en|uk)/, '')
     navigate(`/${newLang}${pathWithoutLang || '/'}`)
   }, [location.pathname, navigate])
 

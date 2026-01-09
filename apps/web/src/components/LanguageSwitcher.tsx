@@ -4,7 +4,6 @@ import { useLanguage, SupportedLanguage } from '../context/LanguageContext'
 const LANGUAGE_LABELS: Record<SupportedLanguage, string> = {
   en: 'EN',
   uk: 'UA',
-  ru: 'RU',
 }
 
 export function LanguageSwitcher() {

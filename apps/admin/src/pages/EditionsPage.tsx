@@ -180,9 +180,6 @@ export function EditionsPage() {
           <option value="">All languages</option>
           <option value="en">English</option>
           <option value="uk">Ukrainian</option>
-          <option value="de">German</option>
-          <option value="fr">French</option>
-          <option value="es">Spanish</option>
         </select>
 
         <select

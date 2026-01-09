@@ -1,11 +1,10 @@
 import { useLanguage, SupportedLanguage } from '../context/LanguageContext'
 import en from '../locales/en.json'
 import uk from '../locales/uk.json'
-import ru from '../locales/ru.json'
 
 type TranslationData = typeof en
 
-const translations: Record<SupportedLanguage, TranslationData> = { en, uk, ru }
+const translations: Record<SupportedLanguage, TranslationData> = { en, uk }
 
 function getNestedValue(obj: unknown, path: string): unknown {
   const keys = path.split('.')
