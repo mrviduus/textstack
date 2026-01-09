@@ -1,0 +1,32 @@
+{
+  "home": {
+    "hero": {
+      "title": "A calm place to read books online",
+      "subtitle": "Clean reading experience. Thousands of books. No distractions.",
+      "description": "TextStack is a free online library of classic and public-domain books. Read literature by famous authors directly in your browser — no downloads, no distractions.",
+      "cta": "Browse catalog",
+      "programming": {
+        "title": "A quiet place to read great programming books",
+        "subtitle": "Classic and modern programming books. No noise. No distractions.",
+        "description": "TextStack is a free online library for programming books. Read classic and modern tech literature directly in your browser — no downloads, no distractions."
+      }
+    },
+    "recentAuthors": {
+      "title": "Recently Added Authors",
+      "viewAll": "View all authors"
+    },
+    "recentBooks": {
+      "title": "Recently Added Books",
+      "viewAll": "View all books",
+      "read": "Read"
+    },
+    "seo": {
+      "content": "Textstack is an online platform designed for comfortable reading. The current catalog features classic literature and public-domain works by authors from different eras and traditions. Each book is organized into chapters for easy navigation. The platform is built for readers who prefer a distraction-free reading experience."
+    }
+  },
+  "common": {
+    "loading": "Loading...",
+    "noBooksYet": "No books available yet.",
+    "noAuthorsYet": "No authors available yet."
+  }
+}
