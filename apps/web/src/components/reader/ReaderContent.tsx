@@ -38,6 +38,7 @@ export const ReaderContent = forwardRef<HTMLElement, Props>(
             fontSize: `${settings.fontSize}px`,
             lineHeight: settings.lineHeight,
             fontFamily,
+            textAlign: settings.textAlign,
           }}
           dangerouslySetInnerHTML={{ __html: html }}
         />

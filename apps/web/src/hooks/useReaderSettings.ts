@@ -2,12 +2,12 @@ import { useState, useEffect, useCallback } from 'react'
 
 export type Theme = 'light' | 'sepia' | 'dark' | 'high-contrast'
 export type FontFamily = 'serif' | 'sans' | 'dyslexic'
-export type ColumnWidth = 'narrow' | 'normal' | 'wide'
+export type TextAlign = 'left' | 'center' | 'justify'
 
 export interface ReaderSettings {
   fontSize: number // 16-26
   lineHeight: number // 1.5, 1.65, 1.8
-  columnWidth: ColumnWidth
+  textAlign: TextAlign
   theme: Theme
   fontFamily: FontFamily
 }
@@ -17,7 +17,7 @@ const STORAGE_KEY = 'reader.settings.v1'
 const defaults: ReaderSettings = {
   fontSize: 18,
   lineHeight: 1.65,
-  columnWidth: 'normal',
+  textAlign: 'left',
   theme: 'light',
   fontFamily: 'serif',
 }
@@ -52,12 +52,4 @@ export function useReaderSettings() {
   }, [])
 
   return { settings, update, reset }
-}
-
-export function getColumnMaxWidth(width: ColumnWidth): string {
-  switch (width) {
-    case 'narrow': return '620px'
-    case 'normal': return '720px'
-    case 'wide': return '840px'
-  }
 }

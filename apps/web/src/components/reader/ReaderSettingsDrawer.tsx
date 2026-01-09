@@ -1,4 +1,4 @@
-import type { ReaderSettings, Theme, FontFamily, ColumnWidth } from '../../hooks/useReaderSettings'
+import type { ReaderSettings, Theme, FontFamily, TextAlign } from '../../hooks/useReaderSettings'
 import { useFocusTrap } from '../../hooks/useFocusTrap'
 
 interface Props {
@@ -21,10 +21,10 @@ const fonts: { value: FontFamily; label: string; fontFamily: string }[] = [
   { value: 'dyslexic', label: 'Dyslexic', fontFamily: '"OpenDyslexic", sans-serif' },
 ]
 
-const widths: { value: ColumnWidth; label: string }[] = [
-  { value: 'narrow', label: 'Narrow' },
-  { value: 'normal', label: 'Normal' },
-  { value: 'wide', label: 'Wide' },
+const alignments: { value: TextAlign; label: string }[] = [
+  { value: 'left', label: 'Left' },
+  { value: 'center', label: 'Center' },
+  { value: 'justify', label: 'Justify' },
 ]
 
 const lineHeights = [1.5, 1.65, 1.8]
@@ -82,15 +82,15 @@ export function ReaderSettingsDrawer({ open, settings, onUpdate, onClose }: Prop
         </div>
 
         <div className="reader-settings-drawer__section">
-          <label>Column Width</label>
+          <label>Text Align</label>
           <div className="reader-settings-drawer__options">
-            {widths.map((w) => (
+            {alignments.map((a) => (
               <button
-                key={w.value}
-                className={settings.columnWidth === w.value ? 'active' : ''}
-                onClick={() => onUpdate({ columnWidth: w.value })}
+                key={a.value}
+                className={settings.textAlign === a.value ? 'active' : ''}
+                onClick={() => onUpdate({ textAlign: a.value })}
               >
-                {w.label}
+                {a.label}
               </button>
             ))}
           </div>
