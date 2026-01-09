@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { LocalizedLink } from './LocalizedLink'
 import { MobileSearchOverlay } from './Search'
+import { LanguageSwitcher } from './LanguageSwitcher'
 import { useSite } from '../context/SiteContext'
 import { useScrolled } from '../hooks/useScrolled'
 
@@ -21,6 +22,7 @@ export function Header() {
         <LocalizedLink to="/about" className="site-header__nav-link">
           About
         </LocalizedLink>
+        <LanguageSwitcher />
       </nav>
       <button
         className="search-btn"

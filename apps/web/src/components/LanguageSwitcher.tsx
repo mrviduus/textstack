@@ -1,3 +1,4 @@
+import { useState, useRef, useEffect } from 'react'
 import { useLanguage, SupportedLanguage } from '../context/LanguageContext'
 
 const LANGUAGE_LABELS: Record<SupportedLanguage, string> = {
@@ -6,32 +7,54 @@ const LANGUAGE_LABELS: Record<SupportedLanguage, string> = {
   ru: 'RU',
 }
 
-const LANGUAGE_NAMES: Record<SupportedLanguage, string> = {
-  en: 'English',
-  uk: 'Українська',
-  ru: 'Русский',
-}
-
 export function LanguageSwitcher() {
   const { language, supportedLanguages, switchLanguage } = useLanguage()
+  const [isOpen, setIsOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setIsOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  const otherLanguages = supportedLanguages.filter((l) => l !== language)
 
   return (
-    <nav className="lang-switcher" aria-label="Language selection">
-      {supportedLanguages.map((lang) => {
-        const isActive = lang === language
-        return (
-          <button
-            key={lang}
-            onClick={() => switchLanguage(lang as SupportedLanguage)}
-            className={`lang-switcher__btn ${isActive ? 'lang-switcher__btn--active' : ''}`}
-            aria-current={isActive ? 'true' : undefined}
-            aria-label={`Switch to ${LANGUAGE_NAMES[lang as SupportedLanguage]}`}
-            title={LANGUAGE_NAMES[lang as SupportedLanguage]}
-          >
-            {LANGUAGE_LABELS[lang as SupportedLanguage]}
-          </button>
-        )
-      })}
-    </nav>
+    <div className="lang-select" ref={ref}>
+      <button
+        className="lang-select__trigger"
+        onClick={() => setIsOpen(!isOpen)}
+        aria-expanded={isOpen}
+        aria-haspopup="listbox"
+      >
+        {LANGUAGE_LABELS[language]}
+        <svg className="lang-select__chevron" viewBox="0 0 12 12" fill="none">
+          <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </button>
+      {isOpen && (
+        <ul className="lang-select__menu" role="listbox">
+          {otherLanguages.map((lang) => (
+            <li key={lang}>
+              <button
+                className="lang-select__option"
+                onClick={() => {
+                  switchLanguage(lang as SupportedLanguage)
+                  setIsOpen(false)
+                }}
+                role="option"
+              >
+                {LANGUAGE_LABELS[lang as SupportedLanguage]}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   )
 }

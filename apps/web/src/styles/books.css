@@ -126,41 +126,74 @@
   color: var(--color-text, #191919);
 }
 
-/* Language switcher */
-.lang-switcher {
-  display: flex;
-  gap: 4px;
-  background: var(--color-bg-warm, #FAF8F5);
-  padding: 4px;
-  border-radius: 8px;
+/* Language selector - minimal dropdown */
+.lang-select {
+  position: relative;
 }
 
-.lang-switcher__btn {
+.lang-select__trigger {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  color: var(--color-text-secondary, #666);
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.lang-select__trigger:hover {
+  color: var(--color-text, #191919);
+}
+
+.lang-select__chevron {
+  width: 10px;
+  height: 10px;
+  opacity: 0.5;
+  transition: transform 0.15s;
+}
+
+.lang-select__trigger[aria-expanded="true"] .lang-select__chevron {
+  transform: rotate(180deg);
+}
+
+.lang-select__menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  background: var(--color-bg, #fff);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  min-width: 48px;
+  z-index: 100;
+}
+
+.lang-select__option {
+  display: block;
+  width: 100%;
   padding: 6px 12px;
   border: none;
-  background: transparent;
-  border-radius: 6px;
-  font-size: 14px;
-  font-weight: 500;
+  background: none;
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  color: var(--color-text-secondary, #666);
   cursor: pointer;
-  color: var(--color-text-secondary, #555);
-  transition: all 0.15s ease;
+  text-align: left;
+  transition: color 0.1s, background 0.1s;
 }
 
-.lang-switcher__btn:hover {
+.lang-select__option:hover {
   color: var(--color-text, #191919);
-  background: var(--color-bg-secondary, #F5F0E8);
-}
-
-.lang-switcher__btn--active {
-  background: var(--color-bg, #fff);
-  color: var(--color-text, #191919);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-}
-
-.lang-switcher__btn:focus-visible {
-  outline: 2px solid var(--color-brand, #C4704B);
-  outline-offset: 2px;
+  background: var(--color-bg-warm, #FAF8F5);
 }
 
 /* Books page */
