@@ -12,15 +12,17 @@ Free book library w/ Kindle-like reader. Upload EPUB/PDF/FB2 → parse → SEO p
 
 ## Commands
 
+**IMPORTANT**: Always use `docker compose up --build` for development builds. Do not run services locally outside Docker.
+
 ```bash
-# Full stack
+# Full stack (PREFERRED)
 docker compose up --build
 
-# Backend only
-dotnet run --project backend/src/Api
-dotnet run --project backend/src/Worker
+# Rebuild specific service
+docker compose up --build -d web
+docker compose up --build -d api
 
-# Frontend
+# Frontend only (if needed outside Docker)
 pnpm -C apps/web dev
 pnpm -C apps/admin dev
 
