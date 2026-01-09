@@ -1,13 +1,15 @@
 import { useLanguage, SupportedLanguage } from '../context/LanguageContext'
 
 const LANGUAGE_LABELS: Record<SupportedLanguage, string> = {
-  uk: 'UA',
   en: 'EN',
+  uk: 'UA',
+  ru: 'RU',
 }
 
 const LANGUAGE_NAMES: Record<SupportedLanguage, string> = {
-  uk: 'Українська',
   en: 'English',
+  uk: 'Українська',
+  ru: 'Русский',
 }
 
 export function LanguageSwitcher() {
