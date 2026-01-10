@@ -94,43 +94,12 @@
 }
 
 /* Login Button */
-.login-btn {
+.login-btn-google {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 14px;
-  border: 1px solid var(--color-border, #E8E2D9);
-  border-radius: 6px;
-  background: var(--color-bg, #fff);
-  color: var(--color-text, #191919);
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
-  white-space: nowrap;
 }
 
-.login-btn:hover {
-  background: var(--color-bg-secondary, #F5F0E8);
-  border-color: var(--color-text-secondary, #555);
-}
-
-.login-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.login-btn__icon {
-  width: 18px;
-  height: 18px;
-  flex-shrink: 0;
-}
-
-.login-btn__text {
-  font-size: 14px;
-}
-
-/* Mobile: icon-only login button */
+/* Mobile header adjustments */
 @media (max-width: 600px) {
   .site-header__nav {
     gap: 12px;
@@ -139,23 +108,6 @@
 
   .site-header__nav-link {
     display: none;
-  }
-
-  .login-btn {
-    padding: 8px;
-    border-radius: 50%;
-    width: 36px;
-    height: 36px;
-    justify-content: center;
-  }
-
-  .login-btn__text {
-    display: none;
-  }
-
-  .login-btn__icon {
-    width: 20px;
-    height: 20px;
   }
 }
 
