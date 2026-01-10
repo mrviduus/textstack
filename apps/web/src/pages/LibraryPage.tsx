@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useLibrary } from '../hooks/useLibrary'
-import { useLanguage } from '../context/LanguageContext'
 import { LocalizedLink } from '../components/LocalizedLink'
 import { SeoHead } from '../components/SeoHead'
 import { getStorageUrl } from '../api/client'
@@ -11,7 +10,6 @@ import { getAllProgress, ReadingProgressDto } from '../api/auth'
 export function LibraryPage() {
   const { isAuthenticated, user } = useAuth()
   const { items, loading, remove } = useLibrary()
-  const { t } = useLanguage()
   const [progressMap, setProgressMap] = useState<Record<string, ReadingProgressDto>>({})
 
   // Fetch all reading progress
