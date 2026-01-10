@@ -5,7 +5,6 @@ interface AuthContextValue {
   user: User | null
   isLoading: boolean
   isAuthenticated: boolean
-  login: () => void
   logout: () => Promise<void>
 }
 
@@ -13,17 +12,14 @@ const AuthContext = createContext<AuthContextValue>({
   user: null,
   isLoading: true,
   isAuthenticated: false,
-  login: () => {},
   logout: async () => {},
 })
 
-// TODO: Remove hardcoded value after fixing env var issue
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '301013894506-7ouh9ops30ubjg6s6govpeep19h26r6q.apps.googleusercontent.com'
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [googleReady, setGoogleReady] = useState(false)
   const initializedRef = useRef(false)
 
   // Google callback - stable ref to avoid stale closures
@@ -89,34 +85,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           cancel_on_tap_outside: true,
         })
         initializedRef.current = true
-        setGoogleReady(true)
-        console.log('[Auth] Google Sign-In initialized')
       }
     }
 
     initGoogle().catch(err => console.error('[Auth] Failed to init Google:', err))
   }, [handleGoogleCallback])
-
-  const login = useCallback(() => {
-    if (!googleReady || typeof google === 'undefined') {
-      console.error('Google Sign-In not loaded')
-      return
-    }
-
-    google.accounts.id.prompt((notification) => {
-      if (notification.isNotDisplayed()) {
-        // Fallback: show button-based login
-        const button = document.getElementById('google-signin-button')
-        if (button) {
-          google.accounts.id.renderButton(button, {
-            type: 'standard',
-            theme: 'outline',
-            size: 'large',
-          })
-        }
-      }
-    })
-  }, [googleReady])
 
   const logout = useCallback(async () => {
     try {
@@ -136,7 +109,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         isLoading,
         isAuthenticated: !!user,
-        login,
         logout,
       }}
     >

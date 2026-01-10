@@ -119,7 +119,7 @@ services:
       Jwt__Issuer: ${JWT_ISSUER:-textstack.app}
       Jwt__AccessTokenExpiryMinutes: ${JWT_ACCESS_TOKEN_EXPIRY_MINUTES:-15}
       Jwt__RefreshTokenExpiryDays: ${JWT_REFRESH_TOKEN_EXPIRY_DAYS:-30}
-      Google__ClientId: ${GOOGLE_CLIENT_ID:-301013894506-7ouh9ops30ubjg6s6govpeep19h26r6q.apps.googleusercontent.com}
+      Google__ClientId: ${GOOGLE_CLIENT_ID:-}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
     volumes:
       - ./data/storage:/storage
@@ -169,7 +169,7 @@ services:
     container_name: books_web
     environment:
       VITE_API_URL: ${VITE_API_URL:-http://localhost:8080}
-      VITE_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-301013894506-7ouh9ops30ubjg6s6govpeep19h26r6q.apps.googleusercontent.com}
+      VITE_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
     ports:
       - "5173:5173"
     restart: unless-stopped
