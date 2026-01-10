@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate, useParams, useLocation } from 'react-router-dom'
 import { SiteProvider, useSite } from './context/SiteContext'
+import { AuthProvider } from './context/AuthContext'
 import { LanguageProvider, isValidLanguage } from './context/LanguageContext'
 import { HomePage } from './pages/HomePage'
 import { ReaderPage } from './pages/ReaderPage'
@@ -11,6 +12,7 @@ import { AuthorDetailPage } from './pages/AuthorDetailPage'
 import { GenresPage } from './pages/GenresPage'
 import { GenreDetailPage } from './pages/GenreDetailPage'
 import { AboutPage } from './pages/AboutPage'
+import { LibraryPage } from './pages/LibraryPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { Header } from './components/Header'
 import './styles/theme.css'
@@ -43,6 +45,7 @@ function LanguageRoutes() {
         <Route path="/genres" element={<GenresPage />} />
         <Route path="/genres/:slug" element={<GenreDetailPage />} />
         <Route path="/about" element={<AboutPage />} />
+        <Route path="/library" element={<LibraryPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </LanguageProvider>
@@ -68,7 +71,9 @@ function App() {
   return (
     <BrowserRouter>
       <SiteProvider>
-        <AppRoutes />
+        <AuthProvider>
+          <AppRoutes />
+        </AuthProvider>
       </SiteProvider>
     </BrowserRouter>
   )

@@ -2,12 +2,16 @@ import { useState } from 'react'
 import { LocalizedLink } from './LocalizedLink'
 import { MobileSearchOverlay } from './Search'
 import { LanguageSwitcher } from './LanguageSwitcher'
+import { LoginButton } from './auth/LoginButton'
+import { UserMenu } from './auth/UserMenu'
 import { useSite } from '../context/SiteContext'
+import { useAuth } from '../context/AuthContext'
 import { useScrolled } from '../hooks/useScrolled'
 
 export function Header() {
   const [searchOpen, setSearchOpen] = useState(false)
   const { site } = useSite()
+  const { isAuthenticated, isLoading } = useAuth()
   const isProgramming = site?.siteCode === 'programming'
   const isScrolled = useScrolled(50)
 
@@ -23,6 +27,7 @@ export function Header() {
           About
         </LocalizedLink>
         <LanguageSwitcher />
+        {!isLoading && (isAuthenticated ? <UserMenu /> : <LoginButton />)}
       </nav>
       <button
         className="search-btn"

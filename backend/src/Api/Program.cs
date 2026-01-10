@@ -48,7 +48,9 @@ builder.Services.AddCors(options =>
                 "http://programming.localhost",
                 "http://programming.localhost:5173",
                 "http://admin.localhost",
-                "http://admin.localhost:5174"
+                "http://admin.localhost:5174",
+                "https://textstack.app",
+                "https://textstack.dev"
             )
             .AllowAnyHeader()
             .AllowAnyMethod()
@@ -60,6 +62,7 @@ builder.Services.AddOpenApi();
 
 // Application layer
 builder.Services.AddApplication();
+builder.Services.AddAuthSettings(builder.Configuration);
 
 var connectionString = builder.Configuration.GetConnectionString("Default")
     ?? "Host=localhost;Port=5432;Database=books;Username=app;Password=changeme";
@@ -157,6 +160,8 @@ app.MapAuthorsEndpoints();
 app.MapGenresEndpoints();
 app.MapSiteEndpoints();
 app.MapSeoEndpoints();
+app.MapAuthEndpoints();
+app.MapUserDataEndpoints();
 
 // CLI: import-textstack command
 if (args.Length > 0 && args[0] == "import-textstack")
