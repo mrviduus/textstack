@@ -20,6 +20,7 @@ public interface IAppDbContext
     DbSet<AdminUser> AdminUsers { get; }
     DbSet<AdminRefreshToken> AdminRefreshTokens { get; }
     DbSet<AdminAuditLog> AdminAuditLogs { get; }
+    DbSet<UserRefreshToken> UserRefreshTokens { get; }
     DbSet<Author> Authors { get; }
     DbSet<EditionAuthor> EditionAuthors { get; }
     DbSet<Genre> Genres { get; }

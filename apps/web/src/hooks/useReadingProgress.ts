@@ -1,71 +1,47 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useEffect, useCallback, useRef } from 'react'
+import { useAuth } from '../context/AuthContext'
+import { upsertProgress } from '../api/auth'
 
-interface StoredProgress {
-  chapterSlug: string
-  scrollPercent: number
-  updatedAt: number
+interface UseReadingProgressOptions {
+  editionId?: string
+  chapterId?: string
 }
 
-function getKey(bookSlug: string) {
-  return `reader.progress.${bookSlug}`
-}
+export function useReadingProgress(
+  bookSlug: string,
+  chapterSlug: string,
+  options?: UseReadingProgressOptions
+) {
+  const { isAuthenticated } = useAuth()
+  const serverSyncRef = useRef<number | null>(null)
+  const lastSyncedRef = useRef<number>(0)
+  const { editionId, chapterId } = options || {}
 
-export function useReadingProgress(bookSlug: string, chapterSlug: string) {
-  const [scrollPercent, setScrollPercent] = useState(0)
-  const throttleRef = useRef<number | null>(null)
+  // Update progress (called by reader when page changes)
+  const updateProgress = useCallback((percent: number, page?: number) => {
+    // Debounced sync to server (if authenticated)
+    if (isAuthenticated && editionId && chapterId) {
+      // Skip if same value synced recently
+      if (Math.abs(percent - lastSyncedRef.current) < 0.01) return
 
-  // Load saved progress on mount
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem(getKey(bookSlug))
-      if (stored) {
-        const data: StoredProgress = JSON.parse(stored)
-        if (data.chapterSlug === chapterSlug && data.scrollPercent > 0) {
-          // Restore scroll position after content loads
-          requestAnimationFrame(() => {
-            const maxScroll = document.documentElement.scrollHeight - window.innerHeight
-            window.scrollTo(0, maxScroll * data.scrollPercent)
-          })
-        }
-      }
-    } catch {}
-  }, [bookSlug, chapterSlug])
-
-  // Track scroll and save
-  useEffect(() => {
-    const handleScroll = () => {
-      if (throttleRef.current) return
-
-      throttleRef.current = window.setTimeout(() => {
-        throttleRef.current = null
-        const maxScroll = document.documentElement.scrollHeight - window.innerHeight
-        const percent = maxScroll > 0 ? window.scrollY / maxScroll : 0
-        setScrollPercent(percent)
-
-        // Save to localStorage
-        const data: StoredProgress = {
-          chapterSlug,
-          scrollPercent: percent,
-          updatedAt: Date.now(),
-        }
-        localStorage.setItem(getKey(bookSlug), JSON.stringify(data))
-      }, 300)
+      if (serverSyncRef.current) clearTimeout(serverSyncRef.current)
+      serverSyncRef.current = window.setTimeout(() => {
+        lastSyncedRef.current = percent
+        upsertProgress(editionId, {
+          chapterId,
+          locator: page != null ? `page:${page}` : `percent:${percent.toFixed(4)}`,
+          percent,
+        }).catch(() => {})
+      }, 2000)
     }
+  }, [bookSlug, chapterSlug, isAuthenticated, editionId, chapterId])
 
-    window.addEventListener('scroll', handleScroll, { passive: true })
+  // Cleanup
+  useEffect(() => {
     return () => {
-      window.removeEventListener('scroll', handleScroll)
-      if (throttleRef.current) clearTimeout(throttleRef.current)
+      if (serverSyncRef.current) clearTimeout(serverSyncRef.current)
     }
-  }, [bookSlug, chapterSlug])
+  }, [])
 
-  const getLastPosition = useCallback((): StoredProgress | null => {
-    try {
-      const stored = localStorage.getItem(getKey(bookSlug))
-      if (stored) return JSON.parse(stored)
-    } catch {}
-    return null
-  }, [bookSlug])
-
-  return { scrollPercent, getLastPosition }
+  return { updateProgress }
 }

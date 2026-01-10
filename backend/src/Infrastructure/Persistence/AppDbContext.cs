@@ -23,6 +23,7 @@ public class AppDbContext : DbContext, IAppDbContext
     public DbSet<AdminUser> AdminUsers => Set<AdminUser>();
     public DbSet<AdminRefreshToken> AdminRefreshTokens => Set<AdminRefreshToken>();
     public DbSet<AdminAuditLog> AdminAuditLogs => Set<AdminAuditLog>();
+    public DbSet<UserRefreshToken> UserRefreshTokens => Set<UserRefreshToken>();
     public DbSet<Author> Authors => Set<Author>();
     public DbSet<EditionAuthor> EditionAuthors => Set<EditionAuthor>();
     public DbSet<Genre> Genres => Set<Genre>();
@@ -191,6 +192,15 @@ public class AppDbContext : DbContext, IAppDbContext
             e.HasIndex(x => x.ActionType);
             e.HasIndex(x => x.CreatedAt);
             e.HasOne(x => x.AdminUser).WithMany(x => x.AuditLogs).HasForeignKey(x => x.AdminUserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // UserRefreshToken
+        modelBuilder.Entity<UserRefreshToken>(e =>
+        {
+            e.HasIndex(x => x.UserId);
+            e.HasIndex(x => x.ExpiresAt);
+            e.HasIndex(x => x.Token).IsUnique();
+            e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
         });
 
         // Author

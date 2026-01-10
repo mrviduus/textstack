@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useApi } from '../hooks/useApi'
 import { useLanguage } from '../context/LanguageContext'
@@ -41,7 +41,6 @@ export function ReaderPage() {
 
   const { settings, update } = useReaderSettings()
   const { visible, toggle } = useAutoHideBar()
-  const { scrollPercent } = useReadingProgress(bookSlug || '', chapterSlug || '')
   const { bookmarks, addBookmark, removeBookmark, isBookmarked, getBookmarkForChapter } = useBookmarks(bookSlug || '')
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen()
   const [showBarsInFullscreen, setShowBarsInFullscreen] = useState(false)
@@ -82,6 +81,44 @@ export function ReaderPage() {
     goToPage,
     recalculate,
   } = usePagination(contentRef, containerRef)
+
+  // Reading progress sync (with server when authenticated)
+  const { updateProgress } = useReadingProgress(
+    bookSlug || '',
+    chapterSlug || '',
+    { editionId: book?.id, chapterId: chapter?.id }
+  )
+
+  // Calculate overall book progress based on word counts
+  const overallProgress = useMemo(() => {
+    if (!book || !chapterSlug || totalPages === 0) return 0
+
+    const chapters = book.chapters
+    const currentChapterIndex = chapters.findIndex(c => c.slug === chapterSlug)
+    if (currentChapterIndex === -1) return 0
+
+    // Calculate using word counts for accuracy
+    const totalWords = chapters.reduce((sum, c) => sum + (c.wordCount || 0), 0)
+    if (totalWords === 0) {
+      // Fallback to chapter-based if no word counts
+      return (currentChapterIndex + progress) / chapters.length
+    }
+
+    const wordsBeforeCurrent = chapters
+      .slice(0, currentChapterIndex)
+      .reduce((sum, c) => sum + (c.wordCount || 0), 0)
+    const currentChapterWords = chapters[currentChapterIndex].wordCount || 0
+    const wordsRead = wordsBeforeCurrent + currentChapterWords * progress
+
+    return wordsRead / totalWords
+  }, [book, chapterSlug, progress, totalPages])
+
+  // Sync progress when page changes
+  useEffect(() => {
+    if (totalPages > 0 && book?.id && chapter?.id) {
+      updateProgress(overallProgress, currentPage)
+    }
+  }, [currentPage, totalPages, overallProgress, book?.id, chapter?.id, updateProgress])
 
   // Search hook needs chapter html, use empty string until loaded
   const chapterHtml = chapter?.html || ''
@@ -293,7 +330,7 @@ export function ReaderPage() {
         bookSlug={bookSlug!}
         title={book.title}
         chapterTitle={chapter.title}
-        progress={progress}
+        progress={overallProgress}
         isBookmarked={isBookmarked(chapterSlug!)}
         isFullscreen={isFullscreen}
         onSearchClick={() => setSearchOpen(true)}
@@ -342,7 +379,7 @@ export function ReaderPage() {
         pagesLeft={pagesLeft}
         currentPage={currentPage + 1}
         totalPages={totalPages}
-        scrollPercent={scrollPercent}
+        scrollPercent={progress}
       />
 
       <ReaderTocDrawer

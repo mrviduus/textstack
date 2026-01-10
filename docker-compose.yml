@@ -115,9 +115,11 @@ services:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
       ConnectionStrings__Default: "Host=db;Port=5432;Database=${POSTGRES_DB:-books};Username=${POSTGRES_USER:-app};Password=${POSTGRES_PASSWORD:-changeme}"
       Storage__RootPath: /storage
-      Jwt__Secret: ${JWT_SECRET:-dev-secret-key-min-32-characters-long}
-      Jwt__Issuer: ${JWT_ISSUER:-books-api}
-      Jwt__Audience: ${JWT_AUDIENCE:-books-client}
+      Jwt__SecretKey: ${JWT_SECRET:-dev-secret-key-min-32-characters-long-for-testing}
+      Jwt__Issuer: ${JWT_ISSUER:-textstack.app}
+      Jwt__AccessTokenExpiryMinutes: ${JWT_ACCESS_TOKEN_EXPIRY_MINUTES:-15}
+      Jwt__RefreshTokenExpiryDays: ${JWT_REFRESH_TOKEN_EXPIRY_DAYS:-30}
+      Google__ClientId: ${GOOGLE_CLIENT_ID:-}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
     volumes:
       - ./data/storage:/storage
@@ -167,6 +169,7 @@ services:
     container_name: books_web
     environment:
       VITE_API_URL: ${VITE_API_URL:-http://localhost:8080}
+      VITE_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
     ports:
       - "5173:5173"
     restart: unless-stopped

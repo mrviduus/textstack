@@ -1,7 +1,9 @@
 using Application.Admin;
+using Application.Auth;
 using Application.Books;
 using Application.Seo;
 using Application.Sites;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Application;
@@ -15,6 +17,14 @@ public static class DependencyInjection
         services.AddScoped<AdminService>();
         services.AddScoped<SiteService>();
         services.AddScoped<Ingestion.IngestionService>();
+        services.AddScoped<AuthService>();
+        return services;
+    }
+
+    public static IServiceCollection AddAuthSettings(this IServiceCollection services, IConfiguration configuration)
+    {
+        services.Configure<JwtSettings>(configuration.GetSection(JwtSettings.SectionName));
+        services.Configure<GoogleSettings>(configuration.GetSection(GoogleSettings.SectionName));
         return services;
     }
 }
