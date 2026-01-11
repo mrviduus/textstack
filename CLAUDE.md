@@ -10,12 +10,61 @@ Free book library w/ Kindle-like reader. Upload EPUB/PDF/FB2 → parse → SEO p
 
 **Stack**: ASP.NET Core (API + Worker) + PostgreSQL + React + Multisite
 
+## CRITICAL: Production Environment
+
+**This server runs PRODUCTION with real user data (~1400 books, 39k chapters). Data loss is unacceptable.**
+
+### Dev vs Prod - DO NOT CONFUSE
+
+| | Dev | Prod |
+|--|-----|------|
+| Compose file | `docker-compose.yml` | `docker-compose.prod.yml` |
+| DB container | `books_db` | `textstack_db_prod` |
+| DB volume | `data/postgres` (64MB) | `data/postgres-prod` (2.4GB) |
+| DB name | `books` | `textstack_prod` |
+| DB user | `app` | `textstack_prod` |
+
+### Rules
+
+1. **ALWAYS use prod compose:**
+   ```bash
+   docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+   ```
+
+2. **NEVER run `docker compose up` without `-f docker-compose.prod.yml`** - this starts dev with empty database!
+
+3. **Backup prod (not dev):**
+   ```bash
+   make backup-prod    # Correct - backs up textstack_db_prod
+   make backup         # WRONG - backs up empty dev database
+   ```
+
+4. **Before any docker/db operation:** verify you're targeting prod containers (`textstack_*_prod`)
+
+5. **When in doubt:** check `docker ps` - prod containers have `textstack_*_prod` names
+
 ## Commands
 
-**IMPORTANT**: Always use `docker compose up --build` for development builds. Do not run services locally outside Docker.
+### Production (THIS SERVER)
 
 ```bash
-# Full stack (PREFERRED)
+# Start/restart prod
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+
+# Rebuild and restart prod
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+
+# Full deploy (pull, build frontend, restart)
+make deploy
+
+# Backup prod database
+make backup-prod
+```
+
+### Development (local machine only)
+
+```bash
+# Full stack
 docker compose up --build
 
 # Rebuild specific service
@@ -47,9 +96,9 @@ dotnet ef migrations add <Name> --project backend/src/Infrastructure --startup-p
 ./scripts/docker-build.sh    # Fresh build + start
 ./scripts/docker-nuke.sh     # NUCLEAR: removes ALL docker data system-wide
 
-# Database backup/restore
-make backup                 # Create compressed backup
-make restore FILE=backups/db_xxx.sql.gz  # Restore
+# Database backup/restore (DEV ONLY - see Production section for prod)
+make backup                 # Backup dev database
+make restore FILE=backups/db_xxx.sql.gz  # Restore to dev
 ```
 
 | Service | URL |
