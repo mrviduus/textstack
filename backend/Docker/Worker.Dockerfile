@@ -18,6 +18,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fontconfig \
     libfreetype6 \
     fonts-dejavu-core \
+    # Skia dependencies for PDF cover rendering
+    libfontconfig1 \
+    libgl1 \
+    libice6 \
+    libsm6 \
+    libx11-6 \
+    libxext6 \
+    libxrender1 \
     && rm -rf /var/lib/apt/lists/* \
     && fc-cache -fv
 WORKDIR /app
