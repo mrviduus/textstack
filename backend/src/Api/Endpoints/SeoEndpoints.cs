@@ -110,6 +110,13 @@ public static class SeoEndpoints
         sb.AppendLine("<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\"");
         sb.AppendLine("        xmlns:xhtml=\"http://www.w3.org/1999/xhtml\">");
 
+        // Add homepage
+        sb.AppendLine("  <url>");
+        sb.AppendLine($"    <loc>{baseUrl}/{site.DefaultLanguage}</loc>");
+        sb.AppendLine("    <changefreq>daily</changefreq>");
+        sb.AppendLine("    <priority>1.0</priority>");
+        sb.AppendLine("  </url>");
+
         foreach (var book in books)
         {
             sb.AppendLine("  <url>");
@@ -196,7 +203,7 @@ public static class SeoEndpoints
         foreach (var author in authors)
         {
             sb.AppendLine("  <url>");
-            sb.AppendLine($"    <loc>{baseUrl}/authors/{author.Slug}</loc>");
+            sb.AppendLine($"    <loc>{baseUrl}/{site.DefaultLanguage}/authors/{author.Slug}</loc>");
             sb.AppendLine($"    <lastmod>{author.UpdatedAt:yyyy-MM-dd}</lastmod>");
             sb.AppendLine("    <changefreq>monthly</changefreq>");
             sb.AppendLine("  </url>");
@@ -234,7 +241,7 @@ public static class SeoEndpoints
         foreach (var genre in genres)
         {
             sb.AppendLine("  <url>");
-            sb.AppendLine($"    <loc>{baseUrl}/genres/{genre.Slug}</loc>");
+            sb.AppendLine($"    <loc>{baseUrl}/{site.DefaultLanguage}/genres/{genre.Slug}</loc>");
             sb.AppendLine($"    <lastmod>{genre.UpdatedAt:yyyy-MM-dd}</lastmod>");
             sb.AppendLine("    <changefreq>monthly</changefreq>");
             sb.AppendLine("  </url>");
