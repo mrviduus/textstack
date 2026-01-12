@@ -1,0 +1,14 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build output
+out/
+.next/
+
+# misc
+.DS_Store
+*.local
+
+# debug
+npm-debug.log*
