@@ -120,11 +120,15 @@ public class IngestionWorkerService
             }
 
             await using var fileStream = File.OpenRead(filePath);
+            // Use site's MaxWordsPerPart setting for chapter splitting
+            var maxWordsPerPart = job.Edition.Site?.MaxWordsPerPart
+                                  ?? ExtractionOptions.Default.MaxWordsPerPart;
             var request = new ExtractionRequest
             {
                 Content = fileStream,
                 FileName = job.BookFile.OriginalFileName,
-                ContentLength = fileStream.Length
+                ContentLength = fileStream.Length,
+                Options = new ExtractionOptions { MaxWordsPerPart = maxWordsPerPart }
             };
 
             // Extraction span
@@ -278,7 +282,10 @@ public class IngestionWorkerService
                 u.Title ?? $"Chapter {u.OrderIndex + 1}",
                 u.Html ?? string.Empty,
                 u.PlainText,
-                u.WordCount ?? 0))
+                u.WordCount ?? 0,
+                u.OriginalChapterNumber,
+                u.PartNumber,
+                u.TotalParts))
             .ToList();
 
         return new AppIngestion.ParsedBook(

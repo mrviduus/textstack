@@ -100,6 +100,59 @@ export interface PaginatedResult<T> {
   items: T[]
 }
 
+export interface SiteListItem {
+  id: string
+  code: string
+  primaryDomain: string
+  defaultLanguage: string
+  theme: string
+  adsEnabled: boolean
+  indexingEnabled: boolean
+  sitemapEnabled: boolean
+  maxWordsPerPart: number
+  domainCount: number
+  workCount: number
+}
+
+export interface SiteDetail {
+  id: string
+  code: string
+  primaryDomain: string
+  defaultLanguage: string
+  theme: string
+  adsEnabled: boolean
+  indexingEnabled: boolean
+  sitemapEnabled: boolean
+  featuresJson: string
+  maxWordsPerPart: number
+  createdAt: string
+  updatedAt: string
+  domains: SiteDomain[]
+}
+
+export interface SiteDomain {
+  id: string
+  domain: string
+  isPrimary: boolean
+}
+
+export interface ReprocessResult {
+  editionsProcessed: number
+  chaptersSplit: number
+  newPartsCreated: number
+  totalChaptersAfter: number
+  editions: ReprocessedEdition[]
+}
+
+export interface ReprocessedEdition {
+  editionId: string
+  title: string
+  chaptersSplit: number
+  newParts: number
+  error: string | null
+}
+
+// Legacy interface for backwards compatibility
 export interface Site {
   id: string
   code: string
@@ -321,8 +374,35 @@ export const adminApi = {
     })
   },
 
-  getSites: async (): Promise<Site[]> => {
-    return fetchJson<Site[]>('/admin/sites')
+  getSites: async (): Promise<SiteListItem[]> => {
+    return fetchJson<SiteListItem[]>('/admin/sites')
+  },
+
+  getSite: async (id: string): Promise<SiteDetail> => {
+    return fetchJson<SiteDetail>(`/admin/sites/${id}`)
+  },
+
+  updateSite: async (id: string, data: {
+    primaryDomain?: string
+    defaultLanguage?: string
+    theme?: string
+    adsEnabled?: boolean
+    indexingEnabled?: boolean
+    sitemapEnabled?: boolean
+    featuresJson?: string
+    maxWordsPerPart?: number
+  }): Promise<void> => {
+    await fetchVoid(`/admin/sites/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    })
+  },
+
+  reprocessChapters: async (siteId: string): Promise<ReprocessResult> => {
+    return fetchJson<ReprocessResult>(`/admin/reprocess/split-existing?siteId=${siteId}`, {
+      method: 'POST',
+    })
   },
 
   // Authors

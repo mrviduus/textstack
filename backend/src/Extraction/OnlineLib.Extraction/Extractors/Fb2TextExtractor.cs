@@ -2,6 +2,7 @@ using System.Text;
 using System.Xml.Linq;
 using OnlineLib.Extraction.Contracts;
 using OnlineLib.Extraction.Enums;
+using OnlineLib.Extraction.Services;
 using OnlineLib.Extraction.Utilities;
 
 namespace OnlineLib.Extraction.Extractors;
@@ -56,8 +57,12 @@ public sealed class Fb2TextExtractor : ITextExtractor
 
         ct.ThrowIfCancellationRequested();
 
+        // Split long chapters into smaller parts
+        var splitter = new ChapterSplitter(request.Options.MaxWordsPerPart);
+        var splitUnits = splitter.SplitAll(units);
+
         var diagnostics = new ExtractionDiagnostics(TextSource.NativeText, null, warnings);
-        return new ExtractionResult(SourceFormat.Fb2, metadata, units, diagnostics);
+        return new ExtractionResult(SourceFormat.Fb2, metadata, splitUnits, diagnostics);
     }
 
     private static ExtractionMetadata ExtractMetadata(XElement root, XNamespace ns)

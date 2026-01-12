@@ -8,5 +8,8 @@ public sealed record ContentUnit(
     string? Html,
     string PlainText,
     int OrderIndex,
-    int? WordCount = null
+    int? WordCount = null,
+    int? OriginalChapterNumber = null,
+    int? PartNumber = null,
+    int? TotalParts = null
 );

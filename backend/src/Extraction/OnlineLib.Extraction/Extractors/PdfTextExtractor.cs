@@ -57,7 +57,7 @@ public sealed class PdfTextExtractor : ITextExtractor
 
                     units.Add(new ContentUnit(
                         Type: ContentUnitType.Page,
-                        Title: null,
+                        Title: $"Page {i + 1}",
                         Html: html,
                         PlainText: normalized,
                         OrderIndex: i,
@@ -72,7 +72,7 @@ public sealed class PdfTextExtractor : ITextExtractor
 
                     units.Add(new ContentUnit(
                         Type: ContentUnitType.Page,
-                        Title: null,
+                        Title: $"Page {i + 1}",
                         Html: null,
                         PlainText: string.Empty,
                         OrderIndex: i,
@@ -202,7 +202,7 @@ public sealed class PdfTextExtractor : ITextExtractor
 
                 units.Add(new ContentUnit(
                     Type: ContentUnitType.Page,
-                    Title: null,
+                    Title: $"Page {i + 1}",
                     Html: html,
                     PlainText: normalized,
                     OrderIndex: i,
@@ -220,7 +220,7 @@ public sealed class PdfTextExtractor : ITextExtractor
 
                 units.Add(new ContentUnit(
                     Type: ContentUnitType.Page,
-                    Title: null,
+                    Title: $"Page {i + 1}",
                     Html: null,
                     PlainText: string.Empty,
                     OrderIndex: i,

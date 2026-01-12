@@ -12,6 +12,16 @@ public class Chapter
     public required string Html { get; set; }
     public required string PlainText { get; set; }
     public int? WordCount { get; set; }
+
+    /// <summary>Original chapter number before splitting (for TOC grouping)</summary>
+    public int? OriginalChapterNumber { get; set; }
+
+    /// <summary>Part number within original chapter (1, 2, 3... or null if not split)</summary>
+    public int? PartNumber { get; set; }
+
+    /// <summary>Total parts the original chapter was split into (for "Part 2 of 5" display)</summary>
+    public int? TotalParts { get; set; }
+
     public NpgsqlTsVector SearchVector { get; set; } = null!;
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }

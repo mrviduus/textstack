@@ -13,6 +13,7 @@ public record SiteListDto(
     bool AdsEnabled,
     bool IndexingEnabled,
     bool SitemapEnabled,
+    int MaxWordsPerPart,
     int DomainCount,
     int WorkCount
 );
@@ -27,6 +28,7 @@ public record SiteDetailDto(
     bool IndexingEnabled,
     bool SitemapEnabled,
     string FeaturesJson,
+    int MaxWordsPerPart,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
     List<SiteDomainDto> Domains
@@ -52,7 +54,8 @@ public record UpdateSiteRequest(
     bool? AdsEnabled,
     bool? IndexingEnabled,
     bool? SitemapEnabled,
-    string? FeaturesJson
+    string? FeaturesJson,
+    int? MaxWordsPerPart
 );
 
 public record AddDomainRequest(string Domain, bool IsPrimary);
@@ -72,6 +75,7 @@ public class SiteService(IAppDbContext db)
                 s.AdsEnabled,
                 s.IndexingEnabled,
                 s.SitemapEnabled,
+                s.MaxWordsPerPart,
                 s.Domains.Count,
                 s.Works.Count
             ))
@@ -92,6 +96,7 @@ public class SiteService(IAppDbContext db)
                 s.IndexingEnabled,
                 s.SitemapEnabled,
                 s.FeaturesJson,
+                s.MaxWordsPerPart,
                 s.CreatedAt,
                 s.UpdatedAt,
                 s.Domains.Select(d => new SiteDomainDto(d.Id, d.Domain, d.IsPrimary)).ToList()
@@ -169,6 +174,8 @@ public class SiteService(IAppDbContext db)
             site.SitemapEnabled = req.SitemapEnabled.Value;
         if (req.FeaturesJson is not null)
             site.FeaturesJson = req.FeaturesJson;
+        if (req.MaxWordsPerPart.HasValue)
+            site.MaxWordsPerPart = req.MaxWordsPerPart.Value;
 
         site.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);

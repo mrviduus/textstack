@@ -7,7 +7,16 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Application.Ingestion;
 
-public record ParsedChapter(int Order, string Title, string Html, string PlainText, int WordCount);
+public record ParsedChapter(
+    int Order,
+    string Title,
+    string Html,
+    string PlainText,
+    int WordCount,
+    int? OriginalChapterNumber = null,
+    int? PartNumber = null,
+    int? TotalParts = null
+);
 public record ParsedBook(string? Title, string? Authors, string? Description, List<ParsedChapter> Chapters);
 
 public record ExtractionSummary(
@@ -35,6 +44,7 @@ public class IngestionService(IAppDbContext db, IFileStorageService storage)
         return await db.IngestionJobs
             .Include(j => j.BookFile)
             .Include(j => j.Edition)
+                .ThenInclude(e => e.Site)
             .FirstOrDefaultAsync(j => j.Id == jobId, ct);
     }
 
@@ -79,6 +89,9 @@ public class IngestionService(IAppDbContext db, IFileStorageService storage)
                 Html = SanitizeText(ch.Html),
                 PlainText = SanitizeText(ch.PlainText),
                 WordCount = ch.WordCount,
+                OriginalChapterNumber = ch.OriginalChapterNumber,
+                PartNumber = ch.PartNumber,
+                TotalParts = ch.TotalParts,
                 CreatedAt = DateTimeOffset.UtcNow,
                 UpdatedAt = DateTimeOffset.UtcNow
             };

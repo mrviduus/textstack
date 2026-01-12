@@ -1,6 +1,7 @@
 using Application.Admin;
 using Application.Auth;
 using Application.Books;
+using Application.Reprocessing;
 using Application.Seo;
 using Application.Sites;
 using Microsoft.Extensions.Configuration;
@@ -18,6 +19,7 @@ public static class DependencyInjection
         services.AddScoped<SiteService>();
         services.AddScoped<Ingestion.IngestionService>();
         services.AddScoped<AuthService>();
+        services.AddScoped<ReprocessingService>();
         return services;
     }
 

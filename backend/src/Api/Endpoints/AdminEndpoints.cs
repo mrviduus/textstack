@@ -1,5 +1,6 @@
 using Application.Admin;
 using Application.Common.Interfaces;
+using Application.Reprocessing;
 using Application.TextStack;
 using Contracts.Admin;
 using Domain.Enums;
@@ -85,6 +86,23 @@ public static class AdminEndpoints
 
         group.MapDelete("/chapters/{id:guid}", DeleteChapter)
             .WithName("AdminDeleteChapter");
+
+        // Reprocessing endpoints
+        group.MapGet("/reprocess/stats", GetReprocessingStats)
+            .WithName("GetReprocessingStats")
+            .WithDescription("Get statistics about what will be reprocessed");
+
+        group.MapPost("/reprocess/{editionId:guid}", ReprocessEdition)
+            .WithName("ReprocessEdition")
+            .WithDescription("Reprocess a single edition with chapter splitting");
+
+        group.MapPost("/reprocess/all", ReprocessAllEditions)
+            .WithName("ReprocessAllEditions")
+            .WithDescription("Reprocess all published editions with chapter splitting");
+
+        group.MapPost("/reprocess/split-existing", SplitExistingChapters)
+            .WithName("SplitExistingChapters")
+            .WithDescription("Split long chapters directly in DB (no source file needed)");
     }
 
     private static async Task<IResult> UploadBook(
@@ -280,6 +298,44 @@ public static class AdminEndpoints
         AdminService adminService,
         CancellationToken ct)
         => ToResult(await adminService.DeleteChapterAsync(id, ct));
+
+    // Reprocessing handlers
+
+    private static async Task<IResult> GetReprocessingStats(
+        ReprocessingService reprocessingService,
+        [FromQuery] Guid? siteId,
+        CancellationToken ct)
+    {
+        var stats = await reprocessingService.GetReprocessingStatsAsync(siteId, ct);
+        return Results.Ok(stats);
+    }
+
+    private static async Task<IResult> ReprocessEdition(
+        Guid editionId,
+        ReprocessingService reprocessingService,
+        CancellationToken ct)
+    {
+        var result = await reprocessingService.ReprocessEditionAsync(editionId, ct);
+        return Results.Ok(result);
+    }
+
+    private static async Task<IResult> ReprocessAllEditions(
+        ReprocessingService reprocessingService,
+        [FromQuery] Guid? siteId,
+        CancellationToken ct)
+    {
+        var result = await reprocessingService.ReprocessAllEditionsAsync(siteId, ct);
+        return Results.Ok(result);
+    }
+
+    private static async Task<IResult> SplitExistingChapters(
+        ReprocessingService reprocessingService,
+        [FromQuery] Guid? siteId,
+        CancellationToken ct)
+    {
+        var result = await reprocessingService.SplitExistingChaptersAsync(siteId, ct);
+        return Results.Ok(result);
+    }
 
     private static readonly string[] AllowedCoverExtensions = [".jpg", ".jpeg", ".png", ".webp"];
     private const long MaxCoverSize = 5 * 1024 * 1024; // 5MB

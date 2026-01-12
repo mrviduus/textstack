@@ -3,6 +3,7 @@ using System;
 using Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using NpgsqlTypes;
@@ -12,9 +13,11 @@ using NpgsqlTypes;
 namespace Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260111221538_AddChapterPartFields")]
+    partial class AddChapterPartFields
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -841,10 +844,6 @@ namespace Infrastructure.Migrations
                     b.Property<bool>("IndexingEnabled")
                         .HasColumnType("boolean")
                         .HasColumnName("indexing_enabled");
-
-                    b.Property<int>("MaxWordsPerPart")
-                        .HasColumnType("integer")
-                        .HasColumnName("max_words_per_part");
 
                     b.Property<string>("PrimaryDomain")
                         .IsRequired()

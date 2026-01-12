@@ -11,6 +11,7 @@ public class Site
     public bool IndexingEnabled { get; set; }
     public bool SitemapEnabled { get; set; } = true;
     public string FeaturesJson { get; set; } = "{}";
+    public int MaxWordsPerPart { get; set; } = 2000;
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 

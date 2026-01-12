@@ -1,5 +1,6 @@
 using OnlineLib.Extraction.Contracts;
 using OnlineLib.Extraction.Enums;
+using OnlineLib.Extraction.Services;
 using OnlineLib.Extraction.Utilities;
 using VersOne.Epub;
 
@@ -75,6 +76,10 @@ public sealed class EpubTextExtractor : ITextExtractor
 
         ct.ThrowIfCancellationRequested();
 
+        // Split long chapters into smaller parts
+        var splitter = new ChapterSplitter(request.Options.MaxWordsPerPart);
+        var splitUnits = splitter.SplitAll(units);
+
         // Extract cover image
         byte[]? coverImage = null;
         string? coverMimeType = null;
@@ -96,6 +101,6 @@ public sealed class EpubTextExtractor : ITextExtractor
         var metadata = new ExtractionMetadata(title, authors, null, description, coverImage, coverMimeType);
         var diagnostics = new ExtractionDiagnostics(TextSource.NativeText, null, warnings);
 
-        return new ExtractionResult(SourceFormat.Epub, metadata, units, diagnostics);
+        return new ExtractionResult(SourceFormat.Epub, metadata, splitUnits, diagnostics);
     }
 }
