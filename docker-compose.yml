@@ -188,3 +188,24 @@ services:
     restart: unless-stopped
     depends_on:
       - api
+
+  # SSG build service (run with: docker compose --profile build run --rm web-build)
+  web-build:
+    build:
+      context: ./apps/web-next
+      dockerfile: Dockerfile
+      args:
+        API_URL: http://api:8080
+        SITE_HOST: ${SITE_HOST:-general.localhost}
+        STORAGE_URL: ${STORAGE_URL:-http://localhost:8080/storage}
+    container_name: books_web_build
+    volumes:
+      - static-web:/app/out
+    profiles:
+      - build
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  static-web:
