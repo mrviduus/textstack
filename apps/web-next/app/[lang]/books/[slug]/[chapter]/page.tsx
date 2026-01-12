@@ -1,7 +1,7 @@
-import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { Metadata } from 'next'
 import { getSsgBooks, getSsgChapters, getChapter, getBook } from '@/lib/api'
+import { ReaderWrapper } from '@/components/reader/ReaderWrapper'
 
 interface Props {
   params: Promise<{ lang: string; slug: string; chapter: string }>
@@ -70,60 +70,20 @@ export default async function ReaderPage({ params }: Props) {
   const t = translations[lang] || translations.en
 
   return (
-    <main className="reader-page">
-      <header className="reader-header">
-        <Link href={`/${lang}/books/${slug}`} className="reader-header__back">
-          {book.title}
-        </Link>
-        <h1 className="reader-header__title">{chapter.title}</h1>
-      </header>
-
-      <nav className="reader-nav reader-nav--top">
-        {chapter.prev ? (
-          <Link href={`/${lang}/books/${slug}/${chapter.prev.slug}`} className="reader-nav__link">
-            ← {chapter.prev.title}
-          </Link>
-        ) : (
-          <span />
-        )}
-        {chapter.next ? (
-          <Link href={`/${lang}/books/${slug}/${chapter.next.slug}`} className="reader-nav__link">
-            {chapter.next.title} →
-          </Link>
-        ) : (
-          <span />
-        )}
-      </nav>
-
-      <article
-        className="reader-content"
-        dangerouslySetInnerHTML={{ __html: chapter.html }}
-      />
-
-      <nav className="reader-nav reader-nav--bottom">
-        {chapter.prev ? (
-          <Link href={`/${lang}/books/${slug}/${chapter.prev.slug}`} className="reader-nav__btn">
-            ← {t.prevChapter}
-          </Link>
-        ) : (
-          <span />
-        )}
-        <Link href={`/${lang}/books/${slug}`} className="reader-nav__btn reader-nav__btn--toc">
-          {t.toc}
-        </Link>
-        {chapter.next ? (
-          <Link href={`/${lang}/books/${slug}/${chapter.next.slug}`} className="reader-nav__btn">
-            {t.nextChapter} →
-          </Link>
-        ) : (
-          <span />
-        )}
-      </nav>
-    </main>
+    <ReaderWrapper
+      lang={lang}
+      bookSlug={slug}
+      bookTitle={book.title}
+      chapterTitle={chapter.title}
+      chapterHtml={chapter.html}
+      prevChapter={chapter.prev}
+      nextChapter={chapter.next}
+      translations={t}
+    />
   )
 }
 
-const translations: Record<string, Record<string, string>> = {
+const translations: Record<string, { prevChapter: string; nextChapter: string; toc: string }> = {
   en: {
     prevChapter: 'Previous',
     nextChapter: 'Next',
