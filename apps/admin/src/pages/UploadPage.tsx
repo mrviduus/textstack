@@ -1,5 +1,5 @@
 import { useState, useEffect, FormEvent } from 'react'
-import { adminApi, Site } from '../api/client'
+import { adminApi, SiteListItem } from '../api/client'
 import { AuthorAutocomplete } from '../components/AuthorAutocomplete'
 import { AuthorList, AuthorItem } from '../components/AuthorList'
 import { CreateAuthorModal } from '../components/CreateAuthorModal'
@@ -15,7 +15,7 @@ export function UploadPage() {
   const [title, setTitle] = useState('')
   const [language, setLanguage] = useState('en')
   const [siteId, setSiteId] = useState('')
-  const [sites, setSites] = useState<Site[]>([])
+  const [sites, setSites] = useState<SiteListItem[]>([])
   const [description, setDescription] = useState('')
   const [authors, setAuthors] = useState<AuthorItem[]>([])
   const [genres, setGenres] = useState<SelectedGenre[]>([])
@@ -104,7 +104,7 @@ export function UploadPage() {
             required
           >
             {sites.map(site => (
-              <option key={site.id} value={site.id}>{site.name || site.code}</option>
+              <option key={site.id} value={site.id}>{site.code}</option>
             ))}
           </select>
         </div>
