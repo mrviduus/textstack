@@ -169,6 +169,30 @@ public class ReprocessingService(IAppDbContext db, ILogger<ReprocessingService> 
     private const int DefaultMaxWordsPerPart = 2000;
 
     /// <summary>
+    /// Split long chapters for a single edition before publishing.
+    /// Returns count of chapters split and new parts created.
+    /// </summary>
+    public async Task<(int ChaptersSplit, int NewParts)> SplitEditionChaptersIfNeededAsync(
+        Guid editionId, CancellationToken ct)
+    {
+        var edition = await db.Editions
+            .Include(e => e.Chapters)
+            .Include(e => e.Site)
+            .FirstOrDefaultAsync(e => e.Id == editionId, ct);
+
+        if (edition is null)
+            return (0, 0);
+
+        var maxWords = edition.Site?.MaxWordsPerPart ?? DefaultMaxWordsPerPart;
+
+        // Check if any chapters exceed the limit
+        if (!edition.Chapters.Any(c => c.WordCount > maxWords))
+            return (0, 0);
+
+        return await SplitEditionChaptersAsync(edition, maxWords, ct);
+    }
+
+    /// <summary>
     /// Split existing long chapters directly in DB (no source file needed)
     /// Uses site's MaxWordsPerPart setting
     /// </summary>

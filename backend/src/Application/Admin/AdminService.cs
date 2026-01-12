@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 using Application.Common.Interfaces;
+using Application.Reprocessing;
 using Contracts.Admin;
 using Contracts.Common;
 using Domain.Entities;
@@ -81,7 +82,7 @@ public record IngestionJobsQuery(
 
 public record ChapterPreviewDto(int ChapterNumber, string Title, string Preview, int TotalLength);
 
-public class AdminService(IAppDbContext db, IFileStorageService storage, ISearchIndexer searchIndexer)
+public class AdminService(IAppDbContext db, IFileStorageService storage, ISearchIndexer searchIndexer, ReprocessingService reprocessing)
 {
     private static readonly string[] AllowedExtensions = [".epub", ".pdf", ".fb2", ".djvu"];
     private const long MaxFileSize = 100 * 1024 * 1024;
@@ -648,6 +649,16 @@ public class AdminService(IAppDbContext db, IFileStorageService storage, ISearch
 
         if (edition.Chapters.Count == 0)
             return (false, "Cannot publish edition with no chapters");
+
+        // Split long chapters before publishing (uses site's MaxWordsPerPart)
+        await reprocessing.SplitEditionChaptersIfNeededAsync(id, ct);
+
+        // Reload edition after potential chapter changes
+        edition = (await db.Editions
+            .Include(e => e.Chapters)
+            .Include(e => e.EditionAuthors)
+                .ThenInclude(ea => ea.Author)
+            .FirstOrDefaultAsync(e => e.Id == id, ct))!;
 
         edition.Status = EditionStatus.Published;
         edition.PublishedAt = DateTimeOffset.UtcNow;
