@@ -34,6 +34,8 @@ docs/
 | [feat-0003](05-features/feat-0003-text-extraction-core.md) | Text Extraction Core | Implemented |
 | [feat-0004](05-features/feat-0004-site-resolver-host.md) | Site Resolver (Host-based) | Implemented |
 | [feat-0005](05-features/feat-0005-observability-opentelemetry.md) | Observability (OpenTelemetry) | Implemented |
+| [feat-0006](05-features/feat-0006-search-library.md) | Search Library | Implemented |
+| [feat-0007](05-features/feat-0007-nextjs-ssg-migration.md) | Next.js SSG Migration | Planned |
 
 ## Reading Order
 

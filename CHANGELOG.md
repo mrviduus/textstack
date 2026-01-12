@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### SEO - Chapter Splitting
+- **Chapter splitter** - long chapters auto-split at word boundaries (HTML block-aware)
+- **Site-level config** - `MaxWordsPerPart` per site (general: 1000, programming: 2000)
+- **Split-on-publish** - chapters split before publishing, reload after split
+- **Reprocessing API** - `POST /admin/reprocess/split-existing` for batch reprocess
+- **GeneratedRegex** - compiled regex patterns for performance
+
+### Reader
+- **Mobile progress** - footer shows overall book % instead of chapter %
+- **Help button** - hidden on mobile (keyboard shortcuts not applicable)
+- **Scroll tracking** - mobile progress bar reflects scroll position
+
+### Documentation
+- **feat-0007** - Next.js SSG Migration PDD (`docs/05-features/feat-0007-nextjs-ssg-migration.md`)
+
 ---
 
 ## [0.1.0] - 2025-01-09 - MVP 1
