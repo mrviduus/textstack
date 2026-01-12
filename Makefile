@@ -1,4 +1,4 @@
-.PHONY: backup restore backup-list deploy deploy-quick prod-status prod-logs prod-restart
+.PHONY: backup restore backup-list deploy deploy-quick prod-status prod-logs prod-restart ssg-build ssg-build-prod
 
 # ============================================================
 # Production Deployment
@@ -99,3 +99,18 @@ restore-prod:
 backup-list:
 	@echo "Available backups:"
 	@ls -lh backups/*.sql.gz 2>/dev/null || echo "  No backups found"
+
+# ============================================================
+# SSG Static Site Generation
+# ============================================================
+
+# Build SSG static files (dev)
+ssg-build:
+	@echo "=== Building SSG Static Files ==="
+	@./scripts/rebuild-ssg.sh
+
+# Build SSG for production
+ssg-build-prod:
+	@echo "=== Building SSG Static Files (Production) ==="
+	@docker compose -f docker-compose.prod.yml --profile build run --rm web-build
+	@echo "Done. Static files in volume."
