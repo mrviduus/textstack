@@ -3,6 +3,7 @@ using System.Text;
 using OnlineLib.Extraction.Contracts;
 using OnlineLib.Extraction.Enums;
 using OnlineLib.Extraction.Ocr;
+using OnlineLib.Extraction.Services;
 using OnlineLib.Extraction.Utilities;
 using SkiaSharp;
 
@@ -55,6 +56,10 @@ public sealed class DjvuTextExtractor : ITextExtractor
             {
                 var units = SplitIntoPages(text);
 
+                // Split long pages into smaller parts (consistent with EPUB/FB2/PDF)
+                var splitter = new ChapterSplitter(request.Options.MaxWordsPerPart);
+                var splitUnits = splitter.SplitAll(units);
+
                 // Extract cover (first page as image)
                 var (cover, mime) = await TryExtractCoverAsync(tempFile, warnings, ct);
 
@@ -62,13 +67,13 @@ public sealed class DjvuTextExtractor : ITextExtractor
                     TextProcessingUtils.ExtractTitleFromFileName(request.FileName), null, null, null, cover, mime);
                 var diagnostics = new ExtractionDiagnostics(TextSource.NativeText, null, warnings);
 
-                return new ExtractionResult(SourceFormat.Djvu, metadata, units, diagnostics);
+                return new ExtractionResult(SourceFormat.Djvu, metadata, splitUnits, diagnostics);
             }
 
             // Native extraction yielded no text - try OCR if enabled
             if (_options.EnableOcrFallback && _ocrEngine is not null)
             {
-                return await ExtractWithOcrAsync(tempFile, request.FileName, warnings, ct);
+                return await ExtractWithOcrAsync(tempFile, request.FileName, request.Options.MaxWordsPerPart, warnings, ct);
             }
 
             // No text and no OCR fallback - still try to extract cover
@@ -291,6 +296,7 @@ public sealed class DjvuTextExtractor : ITextExtractor
     private async Task<ExtractionResult> ExtractWithOcrAsync(
         string filePath,
         string fileName,
+        int maxWordsPerPart,
         List<ExtractionWarning> warnings,
         CancellationToken ct)
     {
@@ -385,10 +391,14 @@ public sealed class DjvuTextExtractor : ITextExtractor
                 "OCR could not extract any text from the DJVU"));
         }
 
+        // Split long pages into smaller parts (consistent with EPUB/FB2/PDF)
+        var splitter = new ChapterSplitter(maxWordsPerPart);
+        var splitUnits = splitter.SplitAll(units);
+
         var metadata = new ExtractionMetadata(TextProcessingUtils.ExtractTitleFromFileName(fileName), null, null, null);
         var diagnostics = new ExtractionDiagnostics(textSource, avgConfidence, warnings);
 
-        return new ExtractionResult(SourceFormat.Djvu, metadata, units, diagnostics);
+        return new ExtractionResult(SourceFormat.Djvu, metadata, splitUnits, diagnostics);
     }
 
     private async Task<int> GetPageCountAsync(string filePath, CancellationToken ct)
