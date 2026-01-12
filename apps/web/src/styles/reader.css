@@ -357,6 +357,11 @@ html[data-theme="high-contrast"] .reader-main {
   .reader-top-bar__progress {
     display: none;
   }
+
+  /* Hide keyboard shortcuts help button on mobile */
+  .reader-top-bar__btn--desktop-only {
+    display: none;
+  }
 }
 
 /* Footer nav */

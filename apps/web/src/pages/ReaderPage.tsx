@@ -42,6 +42,7 @@ export function ReaderPage() {
   const { settings, update } = useReaderSettings()
   const { visible, toggle } = useAutoHideBar()
   const { bookmarks, addBookmark, removeBookmark, isBookmarked, getBookmarkForChapter } = useBookmarks(bookSlug || '')
+  const [scrollPercent, setScrollPercent] = useState(0)
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen()
   const [showBarsInFullscreen, setShowBarsInFullscreen] = useState(false)
   const hideTimeoutRef = useRef<number | null>(null)
@@ -177,6 +178,19 @@ export function ReaderPage() {
     }, 100)
     return () => clearTimeout(timer)
   }, [chapterHtml, recalculate, goToPage])
+
+  // Track scroll position for mobile progress bar
+  useEffect(() => {
+    const handleScroll = () => {
+      const scrollTop = window.scrollY
+      const docHeight = document.documentElement.scrollHeight - window.innerHeight
+      if (docHeight > 0) {
+        setScrollPercent(scrollTop / docHeight)
+      }
+    }
+    window.addEventListener('scroll', handleScroll, { passive: true })
+    return () => window.removeEventListener('scroll', handleScroll)
+  }, [])
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -379,7 +393,7 @@ export function ReaderPage() {
         pagesLeft={pagesLeft}
         currentPage={currentPage + 1}
         totalPages={totalPages}
-        scrollPercent={progress}
+        scrollPercent={scrollPercent}
       />
 
       <ReaderTocDrawer
