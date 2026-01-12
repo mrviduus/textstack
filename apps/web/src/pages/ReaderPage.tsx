@@ -394,6 +394,7 @@ export function ReaderPage() {
         currentPage={currentPage + 1}
         totalPages={totalPages}
         scrollPercent={scrollPercent}
+        overallProgress={overallProgress}
       />
 
       <ReaderTocDrawer

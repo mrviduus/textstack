@@ -10,6 +10,7 @@ interface Props {
   currentPage: number
   totalPages: number
   scrollPercent: number
+  overallProgress: number
 }
 
 export function ReaderFooterNav({
@@ -17,9 +18,11 @@ export function ReaderFooterNav({
   progress,
   pagesLeft,
   scrollPercent,
+  overallProgress,
 }: Props) {
   const pagePercent = Math.round(progress * 100)
   const scrollPct = Math.round(scrollPercent * 100)
+  const bookPercent = Math.round(overallProgress * 100)
 
   return (
     <footer className="reader-footer">
@@ -59,9 +62,9 @@ export function ReaderFooterNav({
           {' · '}
           {pagePercent}%
         </span>
-        {/* Mobile: scroll percent */}
+        {/* Mobile: overall book progress */}
         <span className="reader-footer__pages reader-footer__pages--mobile">
-          {scrollPct}%
+          {bookPercent}%
         </span>
       </div>
     </footer>
