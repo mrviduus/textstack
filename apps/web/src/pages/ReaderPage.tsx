@@ -375,6 +375,7 @@ export function ReaderPage() {
           html={chapter.html}
           settings={settings}
           onTap={toggle}
+          onDoubleTap={toggleFullscreen}
         />
       </main>
 

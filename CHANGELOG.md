@@ -13,6 +13,11 @@
 - **Mobile progress** - footer shows overall book % instead of chapter %
 - **Help button** - hidden on mobile (keyboard shortcuts not applicable)
 - **Scroll tracking** - mobile progress bar reflects scroll position
+- **Double-tap fullscreen** - double-tap on content toggles fullscreen (mobile)
+
+### SEO
+- **Legacy URL redirects** - 301 redirect `/authors/*` → `/en/authors/*` (nginx + React Router)
+- **Google Search Console fix** - non-prefixed URLs now properly redirect to language-prefixed versions
 
 ### Documentation
 - **feat-0007** - Next.js SSG Migration PDD (`docs/05-features/feat-0007-nextjs-ssg-migration.md`)

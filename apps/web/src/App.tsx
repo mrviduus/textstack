@@ -58,10 +58,25 @@ function RootRedirect() {
   return <Navigate to={`/${defaultLang}`} replace />
 }
 
+// Redirect non-language-prefixed URLs to language-prefixed versions
+function LegacyRedirect() {
+  const { site } = useSite()
+  const location = useLocation()
+  const defaultLang = site?.defaultLanguage || 'en'
+  return <Navigate to={`/${defaultLang}${location.pathname}${location.search}`} replace />
+}
+
 function AppRoutes() {
   return (
     <Routes>
       <Route path="/" element={<RootRedirect />} />
+      {/* Redirect legacy URLs without language prefix */}
+      <Route path="/books/*" element={<LegacyRedirect />} />
+      <Route path="/authors/*" element={<LegacyRedirect />} />
+      <Route path="/genres/*" element={<LegacyRedirect />} />
+      <Route path="/search" element={<LegacyRedirect />} />
+      <Route path="/about" element={<LegacyRedirect />} />
+      <Route path="/library" element={<LegacyRedirect />} />
       <Route path="/:lang/*" element={<LanguageRoutes />} />
     </Routes>
   )
