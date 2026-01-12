@@ -22,8 +22,24 @@ public record ReprocessedEditionInfo(
     string? Error
 );
 
-public class ReprocessingService(IAppDbContext db, ILogger<ReprocessingService> logger)
+public partial class ReprocessingService(IAppDbContext db, ILogger<ReprocessingService> logger)
 {
+    // Compiled regex patterns for performance
+    [GeneratedRegex(@"(<p[^>]*>.*?</p>|<div[^>]*>.*?</div>|<tr[^>]*>.*?</tr>|<li[^>]*>.*?</li>)", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
+    private static partial Regex BlockElementPattern();
+
+    [GeneratedRegex(@"<[^>]+>")]
+    private static partial Regex HtmlTagPattern();
+
+    [GeneratedRegex(@"\s+")]
+    private static partial Regex WhitespacePattern();
+
+    [GeneratedRegex(@"\s*-\s*Part\s+\d+$", RegexOptions.IgnoreCase)]
+    private static partial Regex PartSuffixPattern();
+
+    [GeneratedRegex(@"-part-\d+$")]
+    private static partial Regex SlugPartSuffixPattern();
+
     /// <summary>
     /// Queue re-processing for a single edition
     /// </summary>
@@ -274,7 +290,7 @@ public class ReprocessingService(IAppDbContext db, ILogger<ReprocessingService> 
             // Strip existing " - Part N" suffix from title to avoid "Part 1 - Part 1" on re-split
             var baseTitle = GetBaseTitle(chapter.Title);
             // Strip existing "-part-N" suffix from slug
-            var baseSlug = Regex.Replace(chapter.Slug ?? "", @"-part-\d+$", "");
+            var baseSlug = SlugPartSuffixPattern().Replace(chapter.Slug ?? "", "");
 
             for (var i = 0; i < parts.Count; i++)
             {
@@ -304,18 +320,13 @@ public class ReprocessingService(IAppDbContext db, ILogger<ReprocessingService> 
         if (chaptersToSplit.Count == 0)
             return (0, 0);
 
-        // Delete old long chapters that were split
+        // Delete old chapters and add new parts in single transaction
         foreach (var (chapter, _) in chaptersToSplit)
-        {
             db.Chapters.Remove(chapter);
-        }
-        await db.SaveChangesAsync(ct);
 
-        // Add new parts
         foreach (var chapter in newChaptersToAdd)
-        {
             db.Chapters.Add(chapter);
-        }
+
         await db.SaveChangesAsync(ct);
 
         // Reorder all chapters sequentially
@@ -351,9 +362,7 @@ public class ReprocessingService(IAppDbContext db, ILogger<ReprocessingService> 
             return [new ChapterPart(chapter.Html ?? "", chapter.PlainText ?? "", chapter.WordCount ?? 0)];
 
         // Split by block elements (paragraphs, divs, table rows, list items)
-        var paragraphPattern = new Regex(@"(<p[^>]*>.*?</p>|<div[^>]*>.*?</div>|<tr[^>]*>.*?</tr>|<li[^>]*>.*?</li>)",
-            RegexOptions.Singleline | RegexOptions.IgnoreCase);
-        var matches = paragraphPattern.Matches(chapter.Html);
+        var matches = BlockElementPattern().Matches(chapter.Html);
 
         if (matches.Count == 0)
             return [new ChapterPart(chapter.Html, chapter.PlainText ?? "", chapter.WordCount ?? 0)];
@@ -394,9 +403,9 @@ public class ReprocessingService(IAppDbContext db, ILogger<ReprocessingService> 
     private static string StripHtml(string html)
     {
         if (string.IsNullOrEmpty(html)) return "";
-        var text = Regex.Replace(html, "<[^>]+>", " ");
+        var text = HtmlTagPattern().Replace(html, " ");
         text = System.Net.WebUtility.HtmlDecode(text);
-        return Regex.Replace(text, @"\s+", " ").Trim();
+        return WhitespacePattern().Replace(text, " ").Trim();
     }
 
     private static int CountWords(string text)
@@ -408,11 +417,8 @@ public class ReprocessingService(IAppDbContext db, ILogger<ReprocessingService> 
     /// <summary>
     /// Strip existing " - Part N" suffix to avoid "Part 1 - Part 1" on re-split
     /// </summary>
-    private static string GetBaseTitle(string title)
-    {
-        var partPattern = new Regex(@"\s*-\s*Part\s+\d+$", RegexOptions.IgnoreCase);
-        return partPattern.Replace(title, "");
-    }
+    private static string GetBaseTitle(string title) =>
+        PartSuffixPattern().Replace(title, "");
 }
 
 public record ReprocessingStats(
