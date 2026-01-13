@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 32" fill="none">
-  <g transform="translate(4, 1) scale(0.5)">
-    <rect x="16" y="14" width="38" height="10" rx="2" fill="#D97706"/>
-    <rect x="14" y="26" width="36" height="8" rx="2" fill="#2B2F36"/>
-    <rect x="10" y="38" width="36" height="8" rx="2" fill="#2B2F36"/>
-  </g>
-  <text x="38" y="24" font-family="system-ui, -apple-system, sans-serif" font-size="24" font-weight="600" fill="#111111">TextStack</text>
-</svg>
