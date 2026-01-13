@@ -131,6 +131,24 @@ services:
         reservations:
           memory: 64M
 
+  # Prerender for SEO - renders SPA for search engine bots
+  prerender:
+    image: tvanro/prerender-alpine:7.2.0
+    container_name: textstack_prerender_prod
+    environment:
+      MEMORY_CACHE: 1
+      CACHE_MAXSIZE: 1000
+      CACHE_TTL: 3600
+    ports:
+      - "127.0.0.1:3030:3000"  # Only localhost, nginx will proxy
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M
+
   # ===========================================
   # Observability Stack (optional but recommended)
   # ===========================================

@@ -168,8 +168,11 @@ services:
       dockerfile: Dockerfile
     container_name: books_web
     environment:
-      VITE_API_URL: ${VITE_API_URL:-http://localhost:8080}
+      # Use /api proxy for prerender compatibility (Vite proxies to api:8080)
+      VITE_API_URL: ${VITE_API_URL:-/api}
       VITE_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      # Canonical URL for SEO (used when site context not loaded yet)
+      VITE_CANONICAL_URL: ${VITE_CANONICAL_URL:-http://general.localhost}
     ports:
       - "5173:5173"
     restart: unless-stopped
@@ -188,3 +191,20 @@ services:
     restart: unless-stopped
     depends_on:
       - api
+
+  # Prerender for SEO - renders SPA for search engine bots
+  # https://github.com/tvanro/prerender-alpine
+  prerender:
+    image: tvanro/prerender-alpine:7.2.0
+    container_name: books_prerender
+    environment:
+      MEMORY_CACHE: 1
+      CACHE_MAXSIZE: 500
+      CACHE_TTL: 3600
+    ports:
+      - "3030:3000"
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G

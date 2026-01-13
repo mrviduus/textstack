@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useLanguage, SupportedLanguage } from '../context/LanguageContext'
+import { useSite } from '../context/SiteContext'
 
 interface SeoHeadProps {
   title?: string
@@ -13,6 +14,32 @@ interface SeoHeadProps {
 
 const HREFLANG_DATA_ATTR = 'data-hreflang-managed'
 const OG_DATA_ATTR = 'data-og-managed'
+
+// Get canonical origin - use primaryDomain from site config, env var, or fallback to window.location
+function getCanonicalOrigin(primaryDomain: string | undefined): string {
+  // 1. Use primaryDomain from site context if available
+  if (primaryDomain) {
+    return primaryDomain.startsWith('http') ? primaryDomain : `https://${primaryDomain}`
+  }
+
+  // 2. Use VITE_CANONICAL_URL env var (for prerender where site context may not load in time)
+  const envCanonical = import.meta.env.VITE_CANONICAL_URL
+  if (envCanonical) {
+    return envCanonical.startsWith('http') ? envCanonical : `https://${envCanonical}`
+  }
+
+  // 3. Detect production domain from hostname
+  const host = window.location.hostname
+  if (host === 'textstack.app' || host === 'www.textstack.app') {
+    return 'https://textstack.app'
+  }
+  if (host === 'textstack.dev' || host === 'www.textstack.dev') {
+    return 'https://textstack.dev'
+  }
+
+  // 4. Fallback to current origin (for local dev)
+  return window.location.origin
+}
 
 function setMeta(property: string, content: string, attr: string) {
   const selector = `meta[${attr}="${property}"]`
@@ -36,13 +63,16 @@ export function SeoHead({
 }: SeoHeadProps) {
   const location = useLocation()
   const { language } = useLanguage()
+  const { site } = useSite()
 
   useEffect(() => {
-    const origin = window.location.origin
+    // Wait for site context to load before setting SEO tags
+    // This ensures canonical URLs use the correct domain
+    const origin = getCanonicalOrigin(site?.primaryDomain)
     const canonicalUrl = `${origin}${location.pathname}`
     const fullTitle = title ? `${title} | TextStack` : 'TextStack'
 
-    // Set canonical URL
+    // Set canonical URL (always set, will update when site loads)
     let link = document.querySelector('link[rel="canonical"]') as HTMLLinkElement | null
     if (!link) {
       link = document.createElement('link')
@@ -130,7 +160,7 @@ export function SeoHead({
     return () => {
       document.querySelectorAll(`link[${HREFLANG_DATA_ATTR}]`).forEach((el) => el.remove())
     }
-  }, [location.pathname, title, description, image, type, availableLanguages, language, noindex])
+  }, [location.pathname, title, description, image, type, availableLanguages, language, noindex, site?.primaryDomain])
 
   return null
 }
