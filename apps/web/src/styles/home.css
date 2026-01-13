@@ -336,16 +336,25 @@
 /* Responsive */
 @media (max-width: 640px) {
   .home-hero {
-    min-height: 70vh;
-    padding: 0 16px;
+    min-height: 80vh;
+    padding: 0 20px;
+    box-sizing: border-box;
   }
 
   .home-hero__content {
-    padding: 0 8px;
+    padding: 0;
+    max-width: 100%;
   }
 
   .home-hero__title {
-    font-size: clamp(2rem, 10vw, 3rem);
+    font-size: clamp(1.5rem, 8vw, 2.25rem);
+    max-width: 100%;
+  }
+
+  .home-hero__subtitle {
+    font-size: 0.95rem;
+    margin-top: 20px;
+    max-width: 100%;
   }
 
   .home-about__list {
