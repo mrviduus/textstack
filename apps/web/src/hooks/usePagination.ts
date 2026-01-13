@@ -49,7 +49,7 @@ export function usePagination(
   containerRef: RefObject<HTMLElement | null>
 ): PaginationState & PaginationActions & { recalculate: () => void } {
   const [currentPage, setCurrentPage] = useState(0)
-  const [totalPages, setTotalPages] = useState(1)
+  const [totalPages, setTotalPages] = useState(0) // Start with 0 to indicate "not yet calculated"
   const columnGap = 48 // px between columns
 
   const recalculate = useCallback(() => {

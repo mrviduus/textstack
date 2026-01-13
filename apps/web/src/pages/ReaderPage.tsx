@@ -6,6 +6,7 @@ import type { Chapter, BookDetail } from '../types/api'
 import { useReaderSettings } from '../hooks/useReaderSettings'
 import { useAutoHideBar } from '../hooks/useAutoHideBar'
 import { useReadingProgress } from '../hooks/useReadingProgress'
+import { useRestoreProgress } from '../hooks/useRestoreProgress'
 import { useBookmarks } from '../hooks/useBookmarks'
 import { useInBookSearch } from '../hooks/useInBookSearch'
 import { useFullscreen } from '../hooks/useFullscreen'
@@ -87,8 +88,16 @@ export function ReaderPage() {
   const { updateProgress } = useReadingProgress(
     bookSlug || '',
     chapterSlug || '',
-    { editionId: book?.id, chapterId: chapter?.id }
+    { editionId: book?.id, chapterId: chapter?.id, chapterSlug: chapterSlug }
   )
+
+  // Restore progress on mount
+  const { savedProgress, shouldNavigate, targetChapterSlug, isLoading: progressLoading } =
+    useRestoreProgress(book?.id, chapterSlug)
+
+  // Refs for restore logic
+  const hasNavigatedRef = useRef(false)
+  const restoredRef = useRef(false)
 
   // Calculate overall book progress based on word counts
   const overallProgress = useMemo(() => {
@@ -121,6 +130,45 @@ export function ReaderPage() {
     }
   }, [currentPage, totalPages, overallProgress, book?.id, chapter?.id, updateProgress])
 
+  // Navigate to saved chapter if different from current
+  useEffect(() => {
+    if (shouldNavigate && targetChapterSlug && !hasNavigatedRef.current) {
+      hasNavigatedRef.current = true
+      navigate(getLocalizedPath(`/books/${bookSlug}/${targetChapterSlug}`), { replace: true })
+    }
+  }, [shouldNavigate, targetChapterSlug, bookSlug, navigate, getLocalizedPath])
+
+  // Restore page position after pagination is ready
+  useEffect(() => {
+    // Wait for: pagination ready, progress loaded, book data available
+    const bookReady = !!book?.id
+    if (restoredRef.current || totalPages === 0 || progressLoading || shouldNavigate || !bookReady) return
+
+    restoredRef.current = true
+
+    // No saved progress - go to page 0
+    if (!savedProgress) {
+      goToPage(0)
+      return
+    }
+
+    // Restore to saved position
+    const { locator } = savedProgress
+    if (locator.startsWith('page:')) {
+      const page = parseInt(locator.split(':')[1], 10)
+      if (!isNaN(page)) goToPage(Math.min(page, totalPages - 1))
+    } else if (locator.startsWith('percent:')) {
+      const pct = parseFloat(locator.split(':')[1])
+      if (!isNaN(pct)) goToPage(Math.floor(pct * (totalPages - 1)))
+    }
+  }, [totalPages, savedProgress, progressLoading, shouldNavigate, goToPage, book?.id])
+
+  // Reset restore refs on chapter change
+  useEffect(() => {
+    restoredRef.current = false
+    hasNavigatedRef.current = false
+  }, [chapterSlug])
+
   // Search hook needs chapter html, use empty string until loaded
   const chapterHtml = chapter?.html || ''
   const {
@@ -150,34 +198,32 @@ export function ReaderPage() {
         if (cancelled) return
         setChapter(ch)
         setBook(bk)
-        // Reset to first page on chapter change
-        goToPage(0)
+        // Page position handled by restore effect
       })
       .catch((err) => { if (!cancelled) setError(err.message) })
       .finally(() => { if (!cancelled) setLoading(false) })
 
     return () => { cancelled = true }
-  }, [bookSlug, chapterSlug, api, goToPage])
+  }, [bookSlug, chapterSlug, api])
 
   // Recalculate pagination when settings change
   useEffect(() => {
     recalculate()
   }, [settings, recalculate])
 
-  // Reset to first page when chapter content changes
+  // Recalculate pagination when chapter content changes
   useEffect(() => {
     if (!chapterHtml) return
     // Reset transform immediately
     if (contentRef.current) {
       contentRef.current.style.transform = 'translateX(0)'
     }
-    // Wait for CSS columns to settle, then recalculate and go to page 0
+    // Wait for CSS columns to settle, then recalculate (page position handled by restore effect)
     const timer = setTimeout(() => {
       recalculate()
-      goToPage(0)
     }, 100)
     return () => clearTimeout(timer)
-  }, [chapterHtml, recalculate, goToPage])
+  }, [chapterHtml, recalculate])
 
   // Track scroll position for mobile progress bar
   useEffect(() => {
