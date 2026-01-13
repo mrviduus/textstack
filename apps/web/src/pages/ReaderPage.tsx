@@ -12,7 +12,9 @@ import { useInBookSearch } from '../hooks/useInBookSearch'
 import { useFullscreen } from '../hooks/useFullscreen'
 import { usePagination } from '../hooks/usePagination'
 import { useSwipe } from '../hooks/useSwipe'
+import { useLibrary } from '../hooks/useLibrary'
 import { SeoHead } from '../components/SeoHead'
+import { Toast } from '../components/Toast'
 import { ReaderTopBar } from '../components/reader/ReaderTopBar'
 import { ReaderContent } from '../components/reader/ReaderContent'
 import { ReaderFooterNav } from '../components/reader/ReaderFooterNav'
@@ -43,7 +45,12 @@ export function ReaderPage() {
   const { settings, update } = useReaderSettings()
   const { visible, toggle } = useAutoHideBar()
   const { bookmarks, addBookmark, removeBookmark, isBookmarked, getBookmarkForChapter } = useBookmarks(bookSlug || '')
+  const { add: addToLibrary, isInLibrary } = useLibrary()
   const [scrollPercent, setScrollPercent] = useState(0)
+  const [toastMessage, setToastMessage] = useState<string | null>(null)
+  const [isAutoSaved, setIsAutoSaved] = useState(false)
+  const firstAutoSaveRef = useRef(false)
+  const libraryAddedRef = useRef(false)
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen()
   const [showBarsInFullscreen, setShowBarsInFullscreen] = useState(false)
   const hideTimeoutRef = useRef<number | null>(null)
@@ -84,11 +91,20 @@ export function ReaderPage() {
     recalculate,
   } = usePagination(contentRef, containerRef)
 
+  // Handle autosave visual feedback
+  const handleAutoSave = useCallback(() => {
+    setIsAutoSaved(true)
+    if (!firstAutoSaveRef.current) {
+      firstAutoSaveRef.current = true
+      setToastMessage('Auto-saved')
+    }
+  }, [])
+
   // Reading progress sync (with server when authenticated)
   const { updateProgress } = useReadingProgress(
     bookSlug || '',
     chapterSlug || '',
-    { editionId: book?.id, chapterId: chapter?.id, chapterSlug: chapterSlug }
+    { editionId: book?.id, chapterId: chapter?.id, chapterSlug: chapterSlug, onSave: handleAutoSave }
   )
 
   // Restore progress on mount
@@ -129,6 +145,20 @@ export function ReaderPage() {
       updateProgress(overallProgress, currentPage)
     }
   }, [currentPage, totalPages, overallProgress, book?.id, chapter?.id, updateProgress])
+
+  // Auto-add to library after page 2
+  useEffect(() => {
+    if (!book?.id || libraryAddedRef.current) return
+    if (currentPage < 1) return // page 2 = index 1
+    if (isInLibrary(book.id)) {
+      libraryAddedRef.current = true
+      return
+    }
+    libraryAddedRef.current = true
+    addToLibrary(book.id)
+      .then(() => setToastMessage('Added to library'))
+      .catch(() => {}) // silent fail
+  }, [currentPage, book?.id, isInLibrary, addToLibrary])
 
   // Navigate to saved chapter if different from current
   useEffect(() => {
@@ -392,6 +422,7 @@ export function ReaderPage() {
         chapterTitle={chapter.title}
         progress={overallProgress}
         isBookmarked={isBookmarked(chapterSlug!)}
+        isAutoSaved={isAutoSaved}
         isFullscreen={isFullscreen}
         onSearchClick={() => setSearchOpen(true)}
         onTocClick={() => setTocOpen(true)}
@@ -518,6 +549,10 @@ export function ReaderPage() {
             </div>
           </div>
         </>
+      )}
+
+      {toastMessage && (
+        <Toast message={toastMessage} onClose={() => setToastMessage(null)} />
       )}
     </div>
   )

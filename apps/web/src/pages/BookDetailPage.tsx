@@ -3,8 +3,6 @@ import { useParams, Link } from 'react-router-dom'
 import { useApi } from '../hooks/useApi'
 import { getStorageUrl } from '../api/client'
 import { useLanguage, SupportedLanguage } from '../context/LanguageContext'
-import { useAuth } from '../context/AuthContext'
-import { useLibrary } from '../hooks/useLibrary'
 import { LocalizedLink } from '../components/LocalizedLink'
 import { SeoHead } from '../components/SeoHead'
 import { JsonLd } from '../components/JsonLd'
@@ -21,12 +19,9 @@ export function BookDetailPage() {
   const { bookSlug } = useParams<{ bookSlug: string }>()
   const api = useApi()
   const { language } = useLanguage()
-  const { isAuthenticated } = useAuth()
-  const { toggle: toggleLibrary, isInLibrary } = useLibrary()
   const [book, setBook] = useState<BookDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [libraryLoading, setLibraryLoading] = useState(false)
 
   useEffect(() => {
     if (!bookSlug) return
@@ -136,22 +131,6 @@ export function BookDetailPage() {
               >
                 Start Reading
               </LocalizedLink>
-            )}
-            {isAuthenticated && (
-              <button
-                className={`book-detail__library-btn ${isInLibrary(book.id) ? 'in-library' : ''}`}
-                onClick={async () => {
-                  setLibraryLoading(true)
-                  try {
-                    await toggleLibrary(book.id)
-                  } finally {
-                    setLibraryLoading(false)
-                  }
-                }}
-                disabled={libraryLoading}
-              >
-                {libraryLoading ? '...' : isInLibrary(book.id) ? 'In Library' : 'Add to Library'}
-              </button>
             )}
           </div>
         </div>

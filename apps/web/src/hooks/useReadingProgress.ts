@@ -8,6 +8,7 @@ interface UseReadingProgressOptions {
   editionId?: string
   chapterId?: string
   chapterSlug?: string
+  onSave?: () => void
 }
 
 export function useReadingProgress(
@@ -18,7 +19,7 @@ export function useReadingProgress(
   const { isAuthenticated } = useAuth()
   const serverSyncRef = useRef<number | null>(null)
   const lastSyncedRef = useRef<number>(0)
-  const { editionId, chapterId, chapterSlug: optionsChapterSlug } = options || {}
+  const { editionId, chapterId, chapterSlug: optionsChapterSlug, onSave } = options || {}
   const resolvedChapterSlug = optionsChapterSlug || chapterSlug
 
   // Update progress (called by reader when page changes)
@@ -39,6 +40,7 @@ export function useReadingProgress(
         locator,
         percent,
       }))
+      onSave?.()
     } catch {
       // localStorage might be full or disabled
     }
@@ -54,7 +56,7 @@ export function useReadingProgress(
         }).catch(() => {})
       }, 2000)
     }
-  }, [bookSlug, chapterSlug, isAuthenticated, editionId, chapterId, resolvedChapterSlug])
+  }, [bookSlug, chapterSlug, isAuthenticated, editionId, chapterId, resolvedChapterSlug, onSave])
 
   // Cleanup
   useEffect(() => {

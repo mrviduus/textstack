@@ -60,9 +60,12 @@ export function LibraryPage() {
           {items.map((item) => {
             const progress = progressMap[item.editionId]
             const percent = progress?.percent ?? 0
+            const destination = progress?.chapterSlug
+              ? `/books/${item.slug}/${progress.chapterSlug}`
+              : `/books/${item.slug}`
             return (
               <div key={item.editionId} className="library-card">
-                <LocalizedLink to={`/books/${item.slug}`} className="library-card__cover" title={`Read ${item.title} online`}>
+                <LocalizedLink to={destination} className="library-card__cover" title={`Read ${item.title} online`}>
                   {item.coverPath ? (
                     <img src={getStorageUrl(item.coverPath)} alt={item.title} title={`${item.title} - Read online free`} />
                   ) : (
@@ -84,19 +87,10 @@ export function LibraryPage() {
                 </LocalizedLink>
                 <div className="library-card__info">
                   <div className="library-card__text">
-                    <LocalizedLink to={`/books/${item.slug}`} className="library-card__title" title={`Read ${item.title} online`}>
+                    <LocalizedLink to={destination} className="library-card__title" title={`Read ${item.title} online`}>
                       {item.title}
                     </LocalizedLink>
-                    {percent > 0 && progress?.chapterSlug && (
-                      <LocalizedLink
-                        to={`/books/${item.slug}/${progress.chapterSlug}`}
-                        className="library-card__continue"
-                        title={`Continue reading ${item.title}`}
-                      >
-                        Continue · {Math.round(percent * 100)}%
-                      </LocalizedLink>
-                    )}
-                    {percent > 0 && !progress?.chapterSlug && (
+                    {percent > 0 && (
                       <span className="library-card__progress-text">
                         {Math.round(percent * 100)}% read
                       </span>
