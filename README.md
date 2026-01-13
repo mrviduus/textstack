@@ -1,5 +1,9 @@
 # TextStack (OnlineLib)
 
+<p align="center">
+  <img src="docs/assets/hero.png" alt="TextStack - A calm place to read books online" width="800">
+</p>
+
 Free book library w/ Kindle-like reader. Upload EPUB/PDF/FB2 → parse → SEO pages + offline-first reading sync.
 
 **Live**: [textstack.app](https://textstack.app/) (general) · [textstack.dev](https://textstack.dev/) (programming)
