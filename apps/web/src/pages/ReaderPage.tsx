@@ -13,6 +13,7 @@ import { useFullscreen } from '../hooks/useFullscreen'
 import { usePagination } from '../hooks/usePagination'
 import { useSwipe } from '../hooks/useSwipe'
 import { useLibrary } from '../hooks/useLibrary'
+import { useIsMobile } from '../hooks/useIsMobile'
 import { SeoHead } from '../components/SeoHead'
 import { Toast } from '../components/Toast'
 import { ReaderTopBar } from '../components/reader/ReaderTopBar'
@@ -55,6 +56,11 @@ export function ReaderPage() {
   const [showBarsInFullscreen, setShowBarsInFullscreen] = useState(false)
   const hideTimeoutRef = useRef<number | null>(null)
 
+  // Mobile immersive mode
+  const isMobile = useIsMobile()
+  const [immersiveMode, setImmersiveMode] = useState(false)
+  const immersiveTimerRef = useRef<number | null>(null)
+
   // Show bars on mouse move in fullscreen, hide after 2s
   const handleMouseMove = useCallback(() => {
     if (!isFullscreen) return
@@ -78,6 +84,30 @@ export function ReaderPage() {
       setShowBarsInFullscreen(false)
     }
   }, [isFullscreen, handleMouseMove])
+
+  // Mobile immersive mode: auto-hide after 3s, show on tap
+  const startImmersiveTimer = useCallback(() => {
+    if (!isMobile) return
+    if (immersiveTimerRef.current) clearTimeout(immersiveTimerRef.current)
+    immersiveTimerRef.current = window.setTimeout(() => {
+      setImmersiveMode(true)
+    }, 3000)
+  }, [isMobile])
+
+  const showBarsTemporarily = useCallback(() => {
+    if (!isMobile) return
+    setImmersiveMode(false)
+    startImmersiveTimer()
+  }, [isMobile, startImmersiveTimer])
+
+  useEffect(() => {
+    if (isMobile && !loading) {
+      startImmersiveTimer()
+    }
+    return () => {
+      if (immersiveTimerRef.current) clearTimeout(immersiveTimerRef.current)
+    }
+  }, [isMobile, loading, startImmersiveTimer])
 
   // Page-based pagination
   const {
@@ -379,12 +409,12 @@ export function ReaderPage() {
     }
   }
 
-  // Swipe navigation for mobile
+  // Swipe navigation - disabled on mobile (use tap zones instead)
   useSwipe({
     onSwipeLeft: handleNextPage,
     onSwipeRight: handlePrevPage,
     threshold: 50,
-    enabled: !tocOpen && !settingsOpen && !searchOpen,
+    enabled: !isMobile && !tocOpen && !settingsOpen && !searchOpen,
   })
 
   if (loading) {
@@ -410,9 +440,10 @@ export function ReaderPage() {
   const seoDescription = `Read ${chapter.title} from ${book.title} online | TextStack`
 
   const fullscreenClass = isFullscreen ? (showBarsInFullscreen ? 'fullscreen-bars-visible' : 'fullscreen-bars-hidden') : ''
+  const immersiveClass = immersiveMode ? 'immersive-mode' : ''
 
   return (
-    <div className={`reader-page ${fullscreenClass}`}>
+    <div className={`reader-page ${fullscreenClass} ${immersiveClass}`}>
       <SeoHead title={seoTitle} description={seoDescription} />
       <a href="#reader-content" className="skip-link">Skip to content</a>
       <ReaderTopBar
@@ -451,8 +482,10 @@ export function ReaderPage() {
           containerRef={containerRef}
           html={chapter.html}
           settings={settings}
-          onTap={toggle}
+          onTap={() => { toggle(); showBarsTemporarily(); }}
           onDoubleTap={toggleFullscreen}
+          onLeftTap={isMobile ? handlePrevPage : undefined}
+          onRightTap={isMobile ? handleNextPage : undefined}
         />
       </main>
 

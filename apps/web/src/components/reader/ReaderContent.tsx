@@ -6,6 +6,8 @@ interface Props {
   settings: ReaderSettings
   onTap: () => void
   onDoubleTap?: () => void
+  onLeftTap?: () => void
+  onRightTap?: () => void
   containerRef?: React.RefObject<HTMLDivElement | null>
 }
 
@@ -20,7 +22,7 @@ function getFontFamily(family: ReaderSettings['fontFamily']): string {
 }
 
 export const ReaderContent = forwardRef<HTMLElement, Props>(
-  function ReaderContent({ html, settings, onTap, onDoubleTap, containerRef }, ref) {
+  function ReaderContent({ html, settings, onTap, onDoubleTap, onLeftTap, onRightTap, containerRef }, ref) {
     const fontFamily = getFontFamily(settings.fontFamily)
     const lastTapRef = useRef<number>(0)
     const tapTimeoutRef = useRef<number | null>(null)
@@ -55,12 +57,25 @@ export const ReaderContent = forwardRef<HTMLElement, Props>(
         clearTimeout(tapTimeoutRef.current)
       }
 
+      // Determine tap zone (left 25%, center 50%, right 25%)
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+      const x = e.clientX - rect.left
+      const width = rect.width
+      const leftZone = width * 0.25
+      const rightZone = width * 0.75
+
       // Delay single-tap action to distinguish from double-tap
       tapTimeoutRef.current = window.setTimeout(() => {
         tapTimeoutRef.current = null
-        onTap()
+        if (onLeftTap && x < leftZone) {
+          onLeftTap()
+        } else if (onRightTap && x > rightZone) {
+          onRightTap()
+        } else {
+          onTap()
+        }
       }, DOUBLE_TAP_DELAY)
-    }, [onTap, onDoubleTap])
+    }, [onTap, onDoubleTap, onLeftTap, onRightTap])
 
     return (
       <div className="reader-content-wrapper" ref={containerRef as React.RefObject<HTMLDivElement>} onClick={handleClick}>

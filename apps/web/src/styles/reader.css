@@ -938,6 +938,26 @@ html[data-theme="high-contrast"] .reader-search-drawer__context mark {
   }
 }
 
+/* Mobile immersive mode - auto-hide bars after 3s */
+@media (max-width: 899px) {
+  .immersive-mode .reader-top-bar {
+    transform: translateY(-100%) !important;
+    opacity: 0 !important;
+    pointer-events: none;
+  }
+
+  .immersive-mode .reader-footer {
+    transform: translateY(100%) !important;
+    opacity: 0 !important;
+    pointer-events: none;
+  }
+
+  /* Hide arrows on mobile - use tap zones instead */
+  .reader-page-nav {
+    display: none !important;
+  }
+}
+
 /* Smooth transitions for fullscreen bars */
 .reader-footer {
   transition: transform 0.3s ease, opacity 0.3s ease;
