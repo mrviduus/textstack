@@ -171,6 +171,8 @@ services:
       # Use /api proxy for prerender compatibility (Vite proxies to api:8080)
       VITE_API_URL: ${VITE_API_URL:-/api}
       VITE_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      # Canonical URL for SEO (used when site context not loaded yet)
+      VITE_CANONICAL_URL: ${VITE_CANONICAL_URL:-http://general.localhost}
     ports:
       - "5173:5173"
     restart: unless-stopped
