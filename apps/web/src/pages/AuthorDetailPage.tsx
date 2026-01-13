@@ -78,7 +78,7 @@ export function AuthorDetailPage() {
       <div className="author-detail__header">
         <div className="author-detail__photo">
           {author.photoPath ? (
-            <img src={getStorageUrl(author.photoPath)} alt={author.name} />
+            <img src={getStorageUrl(author.photoPath)} alt={author.name} title={`${author.name} - Biography and books`} />
           ) : (
             <span className="author-detail__initials">{author.name?.[0] || '?'}</span>
           )}
@@ -98,10 +98,10 @@ export function AuthorDetailPage() {
       ) : (
         <div className="books-grid">
           {author.editions.map((book) => (
-            <LocalizedLink key={book.id} to={`/books/${book.slug}`} className="book-card">
+            <LocalizedLink key={book.id} to={`/books/${book.slug}`} className="book-card" title={`Read ${book.title} online`}>
               <div className="book-card__cover" style={{ backgroundColor: book.coverPath ? undefined : '#e0e0e0' }}>
                 {book.coverPath ? (
-                  <img src={getStorageUrl(book.coverPath)} alt={book.title} />
+                  <img src={getStorageUrl(book.coverPath)} alt={book.title} title={`${book.title} - Read online free`} />
                 ) : (
                   <span className="book-card__cover-text">{book.title?.[0] || '?'}</span>
                 )}

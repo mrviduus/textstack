@@ -64,7 +64,7 @@ export function BookDetailPage() {
       <div className="book-detail">
         <h1>Error</h1>
         <p>{error || 'Book not found'}</p>
-        <LocalizedLink to="/books">Back to Books</LocalizedLink>
+        <LocalizedLink to="/books" title="Browse all books">Back to Books</LocalizedLink>
       </div>
     )
   }
@@ -102,7 +102,7 @@ export function BookDetailPage() {
           style={{ backgroundColor: book.coverPath ? undefined : stringToColor(book.title) }}
         >
           {book.coverPath ? (
-            <img src={getStorageUrl(book.coverPath)} alt={book.title} />
+            <img src={getStorageUrl(book.coverPath)} alt={book.title} title={`${book.title} - Read online free`} />
           ) : (
             <span className="book-detail__cover-text">{book.title?.[0] || '?'}</span>
           )}
@@ -114,7 +114,7 @@ export function BookDetailPage() {
               ? book.authors.map((a, i) => (
                   <span key={a.id}>
                     {i > 0 && ', '}
-                    <LocalizedLink to={`/authors/${a.slug}`} className="book-detail__author-link">
+                    <LocalizedLink to={`/authors/${a.slug}`} className="book-detail__author-link" title={`${a.name} - View biography`}>
                       {a.name}
                     </LocalizedLink>
                   </span>
@@ -132,6 +132,7 @@ export function BookDetailPage() {
               <LocalizedLink
                 to={`/books/${book.slug}/${firstChapter.slug}`}
                 className="book-detail__read-btn"
+                title={`Start reading ${book.title}`}
               >
                 Start Reading
               </LocalizedLink>
@@ -161,7 +162,7 @@ export function BookDetailPage() {
         <ul>
           {book.chapters.map((ch) => (
             <li key={ch.id}>
-              <LocalizedLink to={`/books/${book.slug}/${ch.slug}`}>
+              <LocalizedLink to={`/books/${book.slug}/${ch.slug}`} title={`Read ${ch.title}`}>
                 <span className="chapter-number">{ch.chapterNumber + 1}.</span>
                 <span className="chapter-title">{ch.title}</span>
                 {ch.wordCount && (
@@ -179,7 +180,7 @@ export function BookDetailPage() {
           <ul>
             {book.otherEditions.map((ed) => (
               <li key={ed.slug}>
-                <Link to={`/${ed.language}/books/${ed.slug}`}>
+                <Link to={`/${ed.language}/books/${ed.slug}`} title={`Read ${ed.title} in ${ed.language.toUpperCase()}`}>
                   {ed.title} ({ed.language.toUpperCase()})
                 </Link>
               </li>
@@ -188,7 +189,7 @@ export function BookDetailPage() {
         </div>
       )}
 
-      <LocalizedLink to="/books" className="book-detail__back">
+      <LocalizedLink to="/books" className="book-detail__back" title="Browse all books">
         Back to Books
       </LocalizedLink>
     </div>

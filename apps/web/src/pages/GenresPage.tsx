@@ -59,7 +59,7 @@ export function GenresPage() {
       ) : (
         <div className="genres-grid">
           {genres.map((genre) => (
-            <LocalizedLink key={genre.id} to={`/genres/${genre.slug}`} className="genre-card">
+            <LocalizedLink key={genre.id} to={`/genres/${genre.slug}`} className="genre-card" title={`${genre.name} books`}>
               <h3 className="genre-card__name">{genre.name}</h3>
               <p className="genre-card__count">
                 {genre.bookCount} {language === 'uk' ? 'книг' : 'books'}

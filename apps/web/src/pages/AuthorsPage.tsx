@@ -61,10 +61,10 @@ export function AuthorsPage() {
       ) : (
         <div className="authors-grid">
           {authors.map((author) => (
-            <LocalizedLink key={author.id} to={`/authors/${author.slug}`} className="author-card">
+            <LocalizedLink key={author.id} to={`/authors/${author.slug}`} className="author-card" title={`${author.name} - View biography`}>
               <div className="author-card__photo">
                 {author.photoPath ? (
-                  <img src={getStorageUrl(author.photoPath)} alt={author.name} />
+                  <img src={getStorageUrl(author.photoPath)} alt={author.name} title={`${author.name} - Biography and books`} />
                 ) : (
                   <span className="author-card__initials">{author.name?.[0] || '?'}</span>
                 )}

@@ -106,13 +106,14 @@ export function SearchPage() {
                 key={result.chapterId}
                 to={`/books/${result.edition.slug}`}
                 className="search-page__result"
+                title={`Read ${result.edition.title} online`}
               >
                 <div
                   className="search-page__result-cover"
                   style={{ backgroundColor: result.edition.coverPath ? undefined : '#e0e0e0' }}
                 >
                   {result.edition.coverPath ? (
-                    <img src={getStorageUrl(result.edition.coverPath)} alt={result.edition.title} />
+                    <img src={getStorageUrl(result.edition.coverPath)} alt={result.edition.title} title={`${result.edition.title} - Read online free`} />
                   ) : (
                     <span>{result.edition.title?.[0] || '?'}</span>
                   )}

@@ -156,7 +156,7 @@ function SearchInput({
 /** Book cover with fallback to first letter */
 function BookCover({ coverPath, title }: { coverPath?: string | null; title: string }) {
   if (coverPath) {
-    return <img src={getStorageUrl(coverPath)} alt={title} />
+    return <img src={getStorageUrl(coverPath)} alt={title} title={`${title} - Read online free`} />
   }
 
   // Fallback: show first letter of title
@@ -265,6 +265,7 @@ function ViewAllLink({
       to={`/search?q=${encodeURIComponent(query)}`}
       onClick={onClick}
       className="search__view-all"
+      title="View all search results"
     >
       {text}
     </LocalizedLink>
@@ -431,7 +432,7 @@ export function MobileSearchOverlay({ onClose }: { onClose: () => void }) {
                       onClick={() => navigateAndClose(s.slug)}
                     >
                       <div className="mobile-search-overlay__item-cover" style={{ backgroundColor: s.coverPath ? undefined : '#e0e0e0' }}>
-                        {s.coverPath ? <img src={getStorageUrl(s.coverPath)} alt={s.text} /> : <span>{s.text?.[0] || '?'}</span>}
+                        {s.coverPath ? <img src={getStorageUrl(s.coverPath)} alt={s.text} title={`${s.text} - Read online free`} /> : <span>{s.text?.[0] || '?'}</span>}
                       </div>
                       <div className="mobile-search-overlay__item-info">
                         <span className="mobile-search-overlay__item-title">{s.text}</span>
@@ -446,7 +447,7 @@ export function MobileSearchOverlay({ onClose }: { onClose: () => void }) {
                       onClick={() => navigateAndClose(r.edition.slug)}
                     >
                       <div className="mobile-search-overlay__item-cover" style={{ backgroundColor: r.edition.coverPath ? undefined : '#e0e0e0' }}>
-                        {r.edition.coverPath ? <img src={getStorageUrl(r.edition.coverPath)} alt={r.edition.title} /> : <span>{r.edition.title?.[0] || '?'}</span>}
+                        {r.edition.coverPath ? <img src={getStorageUrl(r.edition.coverPath)} alt={r.edition.title} title={`${r.edition.title} - Read online free`} /> : <span>{r.edition.title?.[0] || '?'}</span>}
                       </div>
                       <div className="mobile-search-overlay__item-info">
                         <span className="mobile-search-overlay__item-title">{r.edition.title}</span>
@@ -459,6 +460,7 @@ export function MobileSearchOverlay({ onClose }: { onClose: () => void }) {
             <LocalizedLink
               to={`/search?q=${encodeURIComponent(query)}`}
               className="mobile-search-overlay__view-all"
+              title="View all search results"
             >
               {viewAllText}
             </LocalizedLink>

@@ -51,7 +51,7 @@ export function LibraryPage() {
       ) : items.length === 0 ? (
         <div className="library-page__empty">
           <p>Your library is empty.</p>
-          <LocalizedLink to="/books" className="library-page__browse-btn">
+          <LocalizedLink to="/books" className="library-page__browse-btn" title="Browse all books">
             Browse Books
           </LocalizedLink>
         </div>
@@ -62,9 +62,9 @@ export function LibraryPage() {
             const percent = progress?.percent ?? 0
             return (
               <div key={item.editionId} className="library-card">
-                <LocalizedLink to={`/books/${item.slug}`} className="library-card__cover">
+                <LocalizedLink to={`/books/${item.slug}`} className="library-card__cover" title={`Read ${item.title} online`}>
                   {item.coverPath ? (
-                    <img src={getStorageUrl(item.coverPath)} alt={item.title} />
+                    <img src={getStorageUrl(item.coverPath)} alt={item.title} title={`${item.title} - Read online free`} />
                   ) : (
                     <div
                       className="library-card__cover-placeholder"
@@ -84,13 +84,14 @@ export function LibraryPage() {
                 </LocalizedLink>
                 <div className="library-card__info">
                   <div className="library-card__text">
-                    <LocalizedLink to={`/books/${item.slug}`} className="library-card__title">
+                    <LocalizedLink to={`/books/${item.slug}`} className="library-card__title" title={`Read ${item.title} online`}>
                       {item.title}
                     </LocalizedLink>
                     {percent > 0 && progress?.chapterSlug && (
                       <LocalizedLink
                         to={`/books/${item.slug}/${progress.chapterSlug}`}
                         className="library-card__continue"
+                        title={`Continue reading ${item.title}`}
                       >
                         Continue · {Math.round(percent * 100)}%
                       </LocalizedLink>

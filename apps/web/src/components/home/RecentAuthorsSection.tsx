@@ -50,10 +50,10 @@ export function RecentAuthorsSection() {
       <h2 className="home-authors__title">{t('home.recentAuthors.title')}</h2>
       <div className="home-authors__grid">
         {authors.map((author) => (
-          <LocalizedLink key={author.id} to={`/authors/${author.slug}`} className="home-author-card">
+          <LocalizedLink key={author.id} to={`/authors/${author.slug}`} className="home-author-card" title={`${author.name} - View biography`}>
             <div className="home-author-card__photo">
               {author.photoPath ? (
-                <img src={getStorageUrl(author.photoPath)} alt={author.name} />
+                <img src={getStorageUrl(author.photoPath)} alt={author.name} title={`${author.name} - Biography and books`} />
               ) : (
                 <span className="home-author-card__initials">{author.name?.[0] || '?'}</span>
               )}
@@ -62,7 +62,7 @@ export function RecentAuthorsSection() {
           </LocalizedLink>
         ))}
       </div>
-      <LocalizedLink to="/authors" className="home-authors__view-all">
+      <LocalizedLink to="/authors" className="home-authors__view-all" title="Browse all authors">
         {t('home.recentAuthors.viewAll')}
       </LocalizedLink>
     </section>

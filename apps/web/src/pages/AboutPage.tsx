@@ -25,6 +25,7 @@ export function AboutPage() {
           <img
             src="/images/vasyl-vdovychenko.png"
             alt="Vasyl Vdovychenko"
+            title="Vasyl Vdovychenko - Creator of TextStack"
             className="about-creator__photo"
           />
           <div className="about-creator__info">
@@ -33,6 +34,7 @@ export function AboutPage() {
                 href="https://vasyl.blog/"
                 target="_blank"
                 rel="noopener noreferrer"
+                title="Visit Vasyl Vdovychenko's blog"
               >
                 Vasyl Vdovychenko
               </a>
@@ -50,7 +52,7 @@ export function AboutPage() {
           to connect, I'd love to hear from you.
         </p>
         <div className="about-contact">
-          <a href="mailto:vasyl.vdov@gmail.com" className="about-contact__link">
+          <a href="mailto:vasyl.vdov@gmail.com" className="about-contact__link" title="Send email to Vasyl Vdovychenko">
             <svg
               width="20"
               height="20"
@@ -72,6 +74,7 @@ export function AboutPage() {
             target="_blank"
             rel="noopener noreferrer"
             className="about-contact__link"
+            title="Connect on LinkedIn"
           >
             <svg
               width="20"
@@ -95,6 +98,7 @@ export function AboutPage() {
             target="_blank"
             rel="noopener noreferrer"
             className="about-contact__link"
+            title="Visit personal blog"
           >
             <svg
               width="20"

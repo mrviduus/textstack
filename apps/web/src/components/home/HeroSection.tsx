@@ -19,7 +19,7 @@ export function HeroSection() {
         <h1 className="home-hero__title">{title}</h1>
         <p className="home-hero__subtitle">{subtitle}</p>
         <p className="home-hero__description">{description}</p>
-        <LocalizedLink to="/books" className="home-hero__cta">
+        <LocalizedLink to="/books" className="home-hero__cta" title="Browse all books">
           {t('home.hero.cta')}
         </LocalizedLink>
       </div>

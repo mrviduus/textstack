@@ -17,13 +17,13 @@ export function Header() {
 
   return (
     <header className={`site-header ${isScrolled ? 'site-header--scrolled' : ''}`}>
-      <LocalizedLink to="/" className="site-header__brand">
+      <LocalizedLink to="/" className="site-header__brand" title="TextStack - Free online library">
         <span className="site-header__wordmark">
           TextStack{isProgramming && <span className="site-header__wordmark-suffix">dev</span>}
         </span>
       </LocalizedLink>
       <nav className="site-header__nav">
-        <LocalizedLink to="/about" className="site-header__nav-link">
+        <LocalizedLink to="/about" className="site-header__nav-link" title="About TextStack">
           About
         </LocalizedLink>
         <LanguageSwitcher />

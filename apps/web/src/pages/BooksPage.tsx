@@ -75,13 +75,13 @@ export function BooksPage() {
         <>
           <div className="books-grid">
             {books.map((book) => (
-              <LocalizedLink key={book.id} to={`/books/${book.slug}`} className="book-card">
+              <LocalizedLink key={book.id} to={`/books/${book.slug}`} className="book-card" title={`Read ${book.title} online`}>
                 <div
                   className="book-card__cover"
                   style={{ backgroundColor: book.coverPath ? undefined : stringToColor(book.title) }}
                 >
                   {book.coverPath ? (
-                    <img src={getStorageUrl(book.coverPath)} alt={book.title} />
+                    <img src={getStorageUrl(book.coverPath)} alt={book.title} title={`${book.title} - Read online free`} />
                   ) : (
                     <span className="book-card__cover-text">{book.title?.[0] || '?'}</span>
                   )}
