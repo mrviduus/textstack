@@ -1039,6 +1039,8 @@ body {
 }
 
 .genres-page__filters {
+  display: flex;
+  gap: 16px;
   margin-bottom: 24px;
 }
 
