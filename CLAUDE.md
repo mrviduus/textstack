@@ -57,6 +57,14 @@ docker compose -f docker-compose.prod.yml --env-file .env.production up -d --bui
 # Full deploy (pull, build frontend, restart)
 make deploy
 
+# Quick restart (no rebuild)
+make deploy-quick
+
+# Status/logs/restart
+make prod-status
+make prod-logs
+make prod-restart
+
 # Backup prod database
 make backup-prod
 ```
@@ -153,6 +161,17 @@ Upload EPUB/PDF/FB2 → BookFile (stored) → IngestionJob (queued)
 - `GET /search?q=` — full-text search
 - `GET /seo/sitemap.xml` — dynamic sitemap
 - `GET /health` — health check
+
+**Auth**:
+- `POST /auth/login` — Google OAuth login
+- `POST /auth/refresh` — JWT refresh
+- `POST /auth/logout`
+
+**User** (authenticated):
+- `POST /user/library` — save book, `DELETE /user/library/{editionId}` — unsave
+- `POST /user/reading-progress` — save position
+- `POST /user/bookmarks`, `DELETE /user/bookmarks/{id}`
+- `POST /user/notes`
 
 **Admin**:
 - `POST /admin/books/upload` — create Work + Edition + BookFile + IngestionJob
