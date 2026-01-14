@@ -96,19 +96,7 @@ public static class SeoEndpoints
         sb.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
         sb.AppendLine("<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">");
 
-        // Homepage
-        sb.AppendLine("  <url>");
-        sb.AppendLine($"    <loc>{baseUrl}/{site.DefaultLanguage}</loc>");
-        sb.AppendLine($"    <lastmod>{DateTimeOffset.UtcNow:yyyy-MM-dd}</lastmod>");
-        sb.AppendLine("  </url>");
-
-        // Books list page
-        sb.AppendLine("  <url>");
-        sb.AppendLine($"    <loc>{baseUrl}/{site.DefaultLanguage}/books</loc>");
-        sb.AppendLine($"    <lastmod>{DateTimeOffset.UtcNow:yyyy-MM-dd}</lastmod>");
-        sb.AppendLine("  </url>");
-
-        // Individual books
+        // Only individual book detail pages - no homepage or list pages
         foreach (var book in books)
         {
             sb.AppendLine("  <url>");

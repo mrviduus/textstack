@@ -204,17 +204,23 @@ public class SitemapEndpointTests : IClassFixture<TestWebApplicationFactory>
             var uri = new Uri(loc);
             var path = uri.AbsolutePath;
 
-            // Allowed patterns for books.xml:
-            // - /en (homepage)
-            // - /en/books (list)
-            // - /en/books/{slug} (book detail)
-            // - /{lang}/books/{slug} for other languages
-            var isValid = path == "/en" ||
-                          path == "/en/books" ||
-                          Regex.IsMatch(path, @"^/[a-z]{2}/books/[^/]+$");
-
-            Assert.True(isValid, $"URL doesn't match allowed book patterns: {loc}");
+            // books.xml must contain ONLY book detail pages: /{lang}/books/{slug}
+            // NO homepage (/en), NO list page (/en/books), NO chapters
+            Assert.Matches(@"^/[a-z]{2}/books/[^/]+$", path);
         }
+    }
+
+    [Fact]
+    public async Task BooksSitemap_DoesNotContainHomepageOrListPage()
+    {
+        var response = await GetWithHost("/sitemaps/books.xml");
+        response.EnsureSuccessStatusCode();
+
+        var content = await response.Content.ReadAsStringAsync();
+
+        // Must NOT contain homepage or books list page
+        Assert.DoesNotContain("/en</loc>", content);
+        Assert.DoesNotContain("/en/books</loc>", content);
     }
 
     [Fact]
