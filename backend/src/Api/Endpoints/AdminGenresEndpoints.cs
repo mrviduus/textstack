@@ -128,6 +128,7 @@ public static class AdminGenresEndpoints
         [FromQuery] int? limit,
         [FromQuery] string? search,
         [FromQuery] bool? indexable,
+        [FromQuery] bool? hasPublishedBooks,
         CancellationToken ct)
     {
         if (siteId is null)
@@ -145,6 +146,14 @@ public static class AdminGenresEndpoints
         if (indexable.HasValue)
             query = query.Where(g => g.Indexable == indexable.Value);
 
+        if (hasPublishedBooks.HasValue)
+        {
+            if (hasPublishedBooks.Value)
+                query = query.Where(g => g.Editions.Any(e => e.Status == EditionStatus.Published));
+            else
+                query = query.Where(g => !g.Editions.Any(e => e.Status == EditionStatus.Published));
+        }
+
         var total = await query.CountAsync(ct);
 
         var items = await query
@@ -158,6 +167,7 @@ public static class AdminGenresEndpoints
                 g.Description,
                 g.Indexable,
                 g.Editions.Count,
+                g.Editions.Any(e => e.Status == EditionStatus.Published),
                 g.UpdatedAt
             ))
             .ToListAsync(ct);

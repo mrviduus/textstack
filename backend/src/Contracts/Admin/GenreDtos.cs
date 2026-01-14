@@ -14,6 +14,7 @@ public record AdminGenreListDto(
     string? Description,
     bool Indexable,
     int EditionCount,
+    bool HasPublishedBooks,
     DateTimeOffset UpdatedAt
 );
 

@@ -4,6 +4,8 @@ import { adminApi, AuthorListItem } from '../api/client'
 
 const DEFAULT_SITE_ID = '11111111-1111-1111-1111-111111111111'
 
+type PublishedFilter = 'all' | 'published' | 'unpublished'
+
 export function AuthorsPage() {
   const [authors, setAuthors] = useState<AuthorListItem[]>([])
   const [total, setTotal] = useState(0)
@@ -11,6 +13,7 @@ export function AuthorsPage() {
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [searchQuery, setSearchQuery] = useState('') // Applied search
+  const [publishedFilter, setPublishedFilter] = useState<PublishedFilter>('all')
   const [offset, setOffset] = useState(0)
   const [refreshKey, setRefreshKey] = useState(0)
   const limit = 20
@@ -19,9 +22,12 @@ export function AuthorsPage() {
     let cancelled = false
     setLoading(true)
 
+    const hasPublishedBooks = publishedFilter === 'all' ? undefined : publishedFilter === 'published'
+
     adminApi.getAuthors({
       siteId: DEFAULT_SITE_ID,
       search: searchQuery || undefined,
+      hasPublishedBooks,
       offset,
       limit,
     })
@@ -40,7 +46,7 @@ export function AuthorsPage() {
       })
 
     return () => { cancelled = true }
-  }, [offset, searchQuery, refreshKey])
+  }, [offset, searchQuery, publishedFilter, refreshKey])
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
@@ -83,6 +89,18 @@ export function AuthorsPage() {
           />
           <button type="submit">Search</button>
         </form>
+        <select
+          value={publishedFilter}
+          onChange={(e) => {
+            setPublishedFilter(e.target.value as PublishedFilter)
+            setOffset(0)
+          }}
+          className="filter-select"
+        >
+          <option value="all">All Authors</option>
+          <option value="published">With Published Books</option>
+          <option value="unpublished">Without Published Books</option>
+        </select>
       </div>
 
       {error && <div className="error-banner">{error}</div>}
@@ -99,6 +117,7 @@ export function AuthorsPage() {
                 <th>Photo</th>
                 <th>Name</th>
                 <th>Books</th>
+                <th>Published</th>
                 <th>Created</th>
                 <th>Actions</th>
               </tr>
@@ -121,6 +140,7 @@ export function AuthorsPage() {
                     <Link to={`/authors/${author.id}`}>{author.name}</Link>
                   </td>
                   <td>{author.bookCount}</td>
+                  <td>{author.hasPublishedBooks ? 'Yes' : 'No'}</td>
                   <td>{formatDate(author.createdAt)}</td>
                   <td className="actions-cell">
                     <Link to={`/authors/${author.id}`} className="btn btn--small">

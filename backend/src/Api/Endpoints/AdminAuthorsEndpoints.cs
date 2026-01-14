@@ -133,6 +133,7 @@ public static class AdminAuthorsEndpoints
         [FromQuery] int? offset,
         [FromQuery] int? limit,
         [FromQuery] string? search,
+        [FromQuery] bool? hasPublishedBooks,
         CancellationToken ct)
     {
         if (siteId is null)
@@ -146,6 +147,14 @@ public static class AdminAuthorsEndpoints
         if (!string.IsNullOrWhiteSpace(search))
             query = query.Where(a => EF.Functions.ILike(a.Name, $"%{search}%"));
 
+        if (hasPublishedBooks.HasValue)
+        {
+            if (hasPublishedBooks.Value)
+                query = query.Where(a => a.EditionAuthors.Any(ea => ea.Edition.Status == EditionStatus.Published));
+            else
+                query = query.Where(a => !a.EditionAuthors.Any(ea => ea.Edition.Status == EditionStatus.Published));
+        }
+
         var total = await query.CountAsync(ct);
 
         var items = await query
@@ -158,6 +167,7 @@ public static class AdminAuthorsEndpoints
                 a.Name,
                 a.PhotoPath,
                 a.EditionAuthors.Count,
+                a.EditionAuthors.Any(ea => ea.Edition.Status == EditionStatus.Published),
                 a.CreatedAt
             ))
             .ToListAsync(ct);

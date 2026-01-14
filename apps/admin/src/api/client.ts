@@ -172,6 +172,7 @@ export interface AuthorListItem {
   name: string
   photoPath: string | null
   bookCount: number
+  hasPublishedBooks: boolean
   createdAt: string
 }
 
@@ -220,6 +221,7 @@ export interface GenreListItem {
   description: string | null
   indexable: boolean
   editionCount: number
+  hasPublishedBooks: boolean
   updatedAt: string
 }
 
@@ -421,9 +423,10 @@ export const adminApi = {
     })
   },
 
-  getAuthors: async (params: { siteId: string; search?: string; offset?: number; limit?: number }): Promise<PaginatedResult<AuthorListItem>> => {
+  getAuthors: async (params: { siteId: string; search?: string; hasPublishedBooks?: boolean; offset?: number; limit?: number }): Promise<PaginatedResult<AuthorListItem>> => {
     const query = new URLSearchParams({ siteId: params.siteId })
     if (params.search) query.set('search', params.search)
+    if (params.hasPublishedBooks !== undefined) query.set('hasPublishedBooks', String(params.hasPublishedBooks))
     if (params.offset) query.set('offset', String(params.offset))
     if (params.limit) query.set('limit', String(params.limit))
     return fetchJson<PaginatedResult<AuthorListItem>>(`/admin/authors?${query}`)
@@ -476,10 +479,11 @@ export const adminApi = {
     })
   },
 
-  getGenres: async (params: { siteId: string; search?: string; indexable?: boolean; offset?: number; limit?: number }): Promise<PaginatedResult<GenreListItem>> => {
+  getGenres: async (params: { siteId: string; search?: string; indexable?: boolean; hasPublishedBooks?: boolean; offset?: number; limit?: number }): Promise<PaginatedResult<GenreListItem>> => {
     const query = new URLSearchParams({ siteId: params.siteId })
     if (params.search) query.set('search', params.search)
     if (params.indexable !== undefined) query.set('indexable', String(params.indexable))
+    if (params.hasPublishedBooks !== undefined) query.set('hasPublishedBooks', String(params.hasPublishedBooks))
     if (params.offset) query.set('offset', String(params.offset))
     if (params.limit) query.set('limit', String(params.limit))
     return fetchJson<PaginatedResult<GenreListItem>>(`/admin/genres?${query}`)

@@ -13,6 +13,7 @@ public record AdminAuthorListDto(
     string Name,
     string? PhotoPath,
     int BookCount,
+    bool HasPublishedBooks,
     DateTimeOffset CreatedAt
 );
 

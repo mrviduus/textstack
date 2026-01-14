@@ -1,6 +1,7 @@
 using Api.Sites;
 using Application.Common.Interfaces;
 using Application.Seo;
+using Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using System.Text;
 
@@ -8,16 +9,14 @@ namespace Api.Endpoints;
 
 public static class SeoEndpoints
 {
-    private const int SitemapChunkSize = 10000;
-
     public static void MapSeoEndpoints(this WebApplication app)
     {
         app.MapGet("/robots.txt", GetRobots).WithName("GetRobots").WithTags("SEO");
-        app.MapGet("/sitemap.xml", GetSitemapIndex).WithName("GetSitemapIndex").WithTags("SEO");
+        app.MapGet("/sitemap.xml", (Delegate)GetSitemapIndex).WithName("GetSitemapIndex").WithTags("SEO");
         app.MapGet("/sitemaps/books.xml", GetBooksSitemap).WithName("GetBooksSitemap").WithTags("SEO");
-        app.MapGet("/sitemaps/chapters-{page:int}.xml", GetChaptersSitemap).WithName("GetChaptersSitemap").WithTags("SEO");
         app.MapGet("/sitemaps/authors.xml", GetAuthorsSitemap).WithName("GetAuthorsSitemap").WithTags("SEO");
         app.MapGet("/sitemaps/genres.xml", GetGenresSitemap).WithName("GetGenresSitemap").WithTags("SEO");
+        // NOTE: Chapters sitemap intentionally removed - chapters should not be indexed
     }
 
     private static IResult GetRobots(HttpContext httpContext)
@@ -44,22 +43,16 @@ public static class SeoEndpoints
         return Results.Content(sb.ToString(), "text/plain");
     }
 
-    private static async Task<IResult> GetSitemapIndex(
-        HttpContext httpContext,
-        SeoService seoService,
-        CancellationToken ct)
+    private static Task<IResult> GetSitemapIndex(HttpContext httpContext)
     {
         var site = httpContext.GetSiteContext();
 
         if (!site.SitemapEnabled)
-            return Results.NotFound();
+            return Task.FromResult(Results.NotFound());
 
         var host = httpContext.Request.Host.Value;
         var scheme = httpContext.Request.Scheme;
         var baseUrl = $"{scheme}://{host}";
-
-        var chapterCount = await seoService.GetChapterCountAsync(site.SiteId, ct);
-        var chapterPages = (int)Math.Ceiling((double)chapterCount / SitemapChunkSize);
 
         var sb = new StringBuilder();
         sb.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
@@ -77,16 +70,10 @@ public static class SeoEndpoints
         sb.AppendLine($"    <loc>{baseUrl}/sitemaps/genres.xml</loc>");
         sb.AppendLine("  </sitemap>");
 
-        for (int i = 1; i <= Math.Max(1, chapterPages); i++)
-        {
-            sb.AppendLine("  <sitemap>");
-            sb.AppendLine($"    <loc>{baseUrl}/sitemaps/chapters-{i}.xml</loc>");
-            sb.AppendLine("  </sitemap>");
-        }
-
+        // NOTE: Chapters sitemap intentionally excluded - chapters are noindex
         sb.AppendLine("</sitemapindex>");
 
-        return Results.Content(sb.ToString(), "application/xml");
+        return Task.FromResult(Results.Content(sb.ToString(), "application/xml"));
     }
 
     private static async Task<IResult> GetBooksSitemap(
@@ -107,67 +94,26 @@ public static class SeoEndpoints
 
         var sb = new StringBuilder();
         sb.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
-        sb.AppendLine("<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\"");
-        sb.AppendLine("        xmlns:xhtml=\"http://www.w3.org/1999/xhtml\">");
+        sb.AppendLine("<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">");
 
-        // Add homepage
+        // Homepage
         sb.AppendLine("  <url>");
         sb.AppendLine($"    <loc>{baseUrl}/{site.DefaultLanguage}</loc>");
-        sb.AppendLine("    <changefreq>daily</changefreq>");
-        sb.AppendLine("    <priority>1.0</priority>");
+        sb.AppendLine($"    <lastmod>{DateTimeOffset.UtcNow:yyyy-MM-dd}</lastmod>");
         sb.AppendLine("  </url>");
 
+        // Books list page
+        sb.AppendLine("  <url>");
+        sb.AppendLine($"    <loc>{baseUrl}/{site.DefaultLanguage}/books</loc>");
+        sb.AppendLine($"    <lastmod>{DateTimeOffset.UtcNow:yyyy-MM-dd}</lastmod>");
+        sb.AppendLine("  </url>");
+
+        // Individual books
         foreach (var book in books)
         {
             sb.AppendLine("  <url>");
             sb.AppendLine($"    <loc>{baseUrl}/{book.Language}/books/{book.Slug}</loc>");
             sb.AppendLine($"    <lastmod>{book.UpdatedAt:yyyy-MM-dd}</lastmod>");
-            sb.AppendLine("    <changefreq>weekly</changefreq>");
-
-            // Add hreflang for available translations
-            foreach (var lang in book.AvailableLanguages)
-            {
-                sb.AppendLine($"    <xhtml:link rel=\"alternate\" hreflang=\"{lang}\" href=\"{baseUrl}/{lang}/books/{book.Slug}\" />");
-            }
-            sb.AppendLine($"    <xhtml:link rel=\"alternate\" hreflang=\"x-default\" href=\"{baseUrl}/{book.Language}/books/{book.Slug}\" />");
-
-            sb.AppendLine("  </url>");
-        }
-
-        sb.AppendLine("</urlset>");
-
-        return Results.Content(sb.ToString(), "application/xml");
-    }
-
-    private static async Task<IResult> GetChaptersSitemap(
-        int page,
-        HttpContext httpContext,
-        SeoService seoService,
-        CancellationToken ct)
-    {
-        var site = httpContext.GetSiteContext();
-
-        if (!site.SitemapEnabled)
-            return Results.NotFound();
-
-        var host = httpContext.Request.Host.Value;
-        var scheme = httpContext.Request.Scheme;
-        var baseUrl = $"{scheme}://{host}";
-
-        var chapters = await seoService.GetChaptersForSitemapAsync(site.SiteId, page, SitemapChunkSize, ct);
-
-        if (chapters.Count == 0)
-            return Results.NotFound();
-
-        var sb = new StringBuilder();
-        sb.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
-        sb.AppendLine("<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">");
-
-        foreach (var chapter in chapters)
-        {
-            sb.AppendLine("  <url>");
-            sb.AppendLine($"    <loc>{baseUrl}/{chapter.Language}/books/{chapter.BookSlug}/{chapter.Slug}</loc>");
-            sb.AppendLine($"    <lastmod>{chapter.UpdatedAt:yyyy-MM-dd}</lastmod>");
             sb.AppendLine("  </url>");
         }
 
@@ -190,8 +136,12 @@ public static class SeoEndpoints
         var scheme = httpContext.Request.Scheme;
         var baseUrl = $"{scheme}://{host}";
 
+        // Only include authors who have at least one published book
         var authors = await db.Authors
             .Where(a => a.SiteId == site.SiteId && a.Indexable)
+            .Where(a => a.EditionAuthors.Any(ea =>
+                ea.Edition.Status == EditionStatus.Published &&
+                ea.Edition.Indexable))
             .OrderBy(a => a.Name)
             .Select(a => new { a.Slug, a.UpdatedAt })
             .ToListAsync(ct);
@@ -228,8 +178,12 @@ public static class SeoEndpoints
         var scheme = httpContext.Request.Scheme;
         var baseUrl = $"{scheme}://{host}";
 
+        // Only include genres that have at least one published book
         var genres = await db.Genres
             .Where(g => g.SiteId == site.SiteId && g.Indexable)
+            .Where(g => g.Editions.Any(e =>
+                e.Status == EditionStatus.Published &&
+                e.Indexable))
             .OrderBy(g => g.Name)
             .Select(g => new { g.Slug, g.UpdatedAt })
             .ToListAsync(ct);

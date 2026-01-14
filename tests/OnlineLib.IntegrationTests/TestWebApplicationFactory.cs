@@ -1,4 +1,5 @@
 using Domain.Entities;
+using Domain.Enums;
 using Infrastructure.Persistence;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -14,6 +15,18 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
     public static readonly Guid GeneralSiteId = Guid.Parse("11111111-1111-1111-1111-111111111111");
     public static readonly Guid TestAuthorId = Guid.Parse("22222222-2222-2222-2222-222222222222");
     public static readonly Guid TestGenreId = Guid.Parse("33333333-3333-3333-3333-333333333333");
+
+    // Sitemap test data IDs
+    public static readonly Guid PublishedWorkId = Guid.Parse("44444444-4444-4444-4444-444444444444");
+    public static readonly Guid PublishedEditionId = Guid.Parse("55555555-5555-5555-5555-555555555555");
+    public static readonly Guid DraftWorkId = Guid.Parse("66666666-6666-6666-6666-666666666666");
+    public static readonly Guid DraftEditionId = Guid.Parse("77777777-7777-7777-7777-777777777777");
+    public static readonly Guid NonIndexableAuthorId = Guid.Parse("88888888-8888-8888-8888-888888888888");
+    public static readonly Guid TestChapterId = Guid.Parse("99999999-9999-9999-9999-999999999999");
+    public const string PublishedBookSlug = "sitemap-test-published-book";
+    public const string DraftBookSlug = "sitemap-test-draft-book";
+    public const string NonIndexableAuthorSlug = "sitemap-test-hidden-author";
+    public const string TestChapterSlug = "chapter-1";
 
     public TestWebApplicationFactory()
     {
@@ -92,10 +105,23 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
                     Code = "general",
                     PrimaryDomain = "general.localhost",
                     DefaultLanguage = "en",
+                    IndexingEnabled = true,
+                    SitemapEnabled = true,
                     CreatedAt = DateTimeOffset.UtcNow,
                     UpdatedAt = DateTimeOffset.UtcNow
                 });
                 db.SaveChanges();
+            }
+            else
+            {
+                // Ensure existing site has indexing enabled
+                var site = db.Sites.First(s => s.Id == GeneralSiteId);
+                if (!site.IndexingEnabled || !site.SitemapEnabled)
+                {
+                    site.IndexingEnabled = true;
+                    site.SitemapEnabled = true;
+                    db.SaveChanges();
+                }
             }
         }
         catch { db.ChangeTracker.Clear(); }
@@ -128,6 +154,123 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
                     SiteId = GeneralSiteId,
                     Slug = "test-genre",
                     Name = "Test Genre",
+                    CreatedAt = DateTimeOffset.UtcNow,
+                    UpdatedAt = DateTimeOffset.UtcNow
+                });
+                db.SaveChanges();
+            }
+        }
+        catch { db.ChangeTracker.Clear(); }
+
+        // Sitemap test data: published book with chapter (should appear in sitemap, chapter should NOT)
+        try
+        {
+            if (!db.Works.Any(w => w.Id == PublishedWorkId))
+            {
+                db.Works.Add(new Work
+                {
+                    Id = PublishedWorkId,
+                    SiteId = GeneralSiteId,
+                    Slug = PublishedBookSlug,
+                    CreatedAt = DateTimeOffset.UtcNow
+                });
+                db.Editions.Add(new Edition
+                {
+                    Id = PublishedEditionId,
+                    WorkId = PublishedWorkId,
+                    SiteId = GeneralSiteId,
+                    Language = "en",
+                    Slug = PublishedBookSlug,
+                    Title = "Sitemap Test Published Book",
+                    Status = EditionStatus.Published,
+                    Indexable = true,
+                    CreatedAt = DateTimeOffset.UtcNow,
+                    UpdatedAt = DateTimeOffset.UtcNow
+                });
+                // Add a test chapter (chapters should NEVER be in sitemap)
+                db.Chapters.Add(new Chapter
+                {
+                    Id = TestChapterId,
+                    EditionId = PublishedEditionId,
+                    ChapterNumber = 1,
+                    Slug = TestChapterSlug,
+                    Title = "Chapter 1 - Test",
+                    Html = "<p>Test chapter content</p>",
+                    PlainText = "Test chapter content",
+                    WordCount = 3,
+                    CreatedAt = DateTimeOffset.UtcNow,
+                    UpdatedAt = DateTimeOffset.UtcNow
+                });
+                // Link test-author to published edition (authors only appear if they have published books)
+                db.EditionAuthors.Add(new EditionAuthor
+                {
+                    EditionId = PublishedEditionId,
+                    AuthorId = TestAuthorId,
+                    Order = 1,
+                    Role = AuthorRole.Author
+                });
+                db.SaveChanges();
+            }
+            else
+            {
+                // Ensure EditionAuthor link exists even if work already exists
+                if (!db.EditionAuthors.Any(ea => ea.EditionId == PublishedEditionId && ea.AuthorId == TestAuthorId))
+                {
+                    db.EditionAuthors.Add(new EditionAuthor
+                    {
+                        EditionId = PublishedEditionId,
+                        AuthorId = TestAuthorId,
+                        Order = 1,
+                        Role = AuthorRole.Author
+                    });
+                    db.SaveChanges();
+                }
+            }
+        }
+        catch { db.ChangeTracker.Clear(); }
+
+        // Sitemap test data: draft book (should NOT appear)
+        try
+        {
+            if (!db.Works.Any(w => w.Id == DraftWorkId))
+            {
+                db.Works.Add(new Work
+                {
+                    Id = DraftWorkId,
+                    SiteId = GeneralSiteId,
+                    Slug = DraftBookSlug,
+                    CreatedAt = DateTimeOffset.UtcNow
+                });
+                db.Editions.Add(new Edition
+                {
+                    Id = DraftEditionId,
+                    WorkId = DraftWorkId,
+                    SiteId = GeneralSiteId,
+                    Language = "en",
+                    Slug = DraftBookSlug,
+                    Title = "Sitemap Test Draft Book",
+                    Status = EditionStatus.Draft,
+                    Indexable = true,
+                    CreatedAt = DateTimeOffset.UtcNow,
+                    UpdatedAt = DateTimeOffset.UtcNow
+                });
+                db.SaveChanges();
+            }
+        }
+        catch { db.ChangeTracker.Clear(); }
+
+        // Sitemap test data: non-indexable author (should NOT appear)
+        try
+        {
+            if (!db.Authors.Any(a => a.Id == NonIndexableAuthorId))
+            {
+                db.Authors.Add(new Author
+                {
+                    Id = NonIndexableAuthorId,
+                    SiteId = GeneralSiteId,
+                    Slug = NonIndexableAuthorSlug,
+                    Name = "Hidden Author",
+                    Indexable = false,
                     CreatedAt = DateTimeOffset.UtcNow,
                     UpdatedAt = DateTimeOffset.UtcNow
                 });
