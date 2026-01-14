@@ -241,3 +241,12 @@ Key files:
 ### Archive
 
 Historical/superseded docs in [docs/archive/](docs/archive/)
+
+---
+
+## TODO
+
+Upcoming features: [TODO.md](TODO.md)
+
+- **LLM Batch Processing** - Ollama + scheduler for auto-generating SEO descriptions for 1000 draft books
+- **Eye/Head Tracking Scroll** - Hands-free reading via MediaPipe face tracking
