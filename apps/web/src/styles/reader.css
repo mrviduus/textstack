@@ -239,6 +239,10 @@ html[data-theme="high-contrast"] .reader-main {
 
   .reader-content-wrapper {
     height: auto;
+    /* Disable text selection on tap - keep custom tap zones working */
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
   }
 
   .reader-content {
