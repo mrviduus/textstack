@@ -9,6 +9,7 @@
 | [Architecture](01-architecture/README.md) | System design |
 | [Database](02-system/database.md) | Schema, entities |
 | [API](02-system/api.md) | Endpoints |
+| [SEO Policy](02-system/seo-policy.md) | Indexing strategy, prerender rules |
 | [Local Dev](03-ops/local-dev.md) | Docker, migrations |
 | [Production Deployment](03-ops/deployment.md) | Cloudflare tunnel, nginx, Docker |
 | [CI/CD Plan](03-ops/cicd-plan.md) | GitHub Actions, automation (TODO) |
@@ -65,6 +66,7 @@ docs/
 | Endpoint added | api.md |
 | Architecture decision | New ADR |
 | Migration created | Mention if significant |
+| New page type (indexable/not) | seo-policy.md |
 
 ### When ADR Required
 
