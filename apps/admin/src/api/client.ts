@@ -206,6 +206,13 @@ export interface CreateAuthorResponse {
   isNew: boolean
 }
 
+export interface AuthorStats {
+  total: number
+  withPublishedBooks: number
+  withoutPublishedBooks: number
+  totalBooks: number
+}
+
 // Genres
 export interface GenreSearchResult {
   id: string
@@ -252,6 +259,13 @@ export interface CreateGenreResponse {
   slug: string
   name: string
   isNew: boolean
+}
+
+export interface GenreStats {
+  total: number
+  withPublishedBooks: number
+  withoutPublishedBooks: number
+  totalEditions: number
 }
 
 export interface EditionGenre {
@@ -432,6 +446,10 @@ export const adminApi = {
     return fetchJson<PaginatedResult<AuthorListItem>>(`/admin/authors?${query}`)
   },
 
+  getAuthorStats: async (siteId: string): Promise<AuthorStats> => {
+    return fetchJson<AuthorStats>(`/admin/authors/stats?siteId=${siteId}`)
+  },
+
   getAuthor: async (id: string): Promise<AuthorDetail> => {
     return fetchJson<AuthorDetail>(`/admin/authors/${id}`)
   },
@@ -487,6 +505,10 @@ export const adminApi = {
     if (params.offset) query.set('offset', String(params.offset))
     if (params.limit) query.set('limit', String(params.limit))
     return fetchJson<PaginatedResult<GenreListItem>>(`/admin/genres?${query}`)
+  },
+
+  getGenreStats: async (siteId: string): Promise<GenreStats> => {
+    return fetchJson<GenreStats>(`/admin/genres/stats?siteId=${siteId}`)
   },
 
   getGenre: async (id: string): Promise<GenreDetail> => {

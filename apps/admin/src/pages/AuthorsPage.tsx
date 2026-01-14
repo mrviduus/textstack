@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { adminApi, AuthorListItem } from '../api/client'
+import { adminApi, AuthorListItem, AuthorStats } from '../api/client'
 
 const DEFAULT_SITE_ID = '11111111-1111-1111-1111-111111111111'
 
@@ -12,11 +12,18 @@ export function AuthorsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
-  const [searchQuery, setSearchQuery] = useState('') // Applied search
+  const [searchQuery, setSearchQuery] = useState('')
   const [publishedFilter, setPublishedFilter] = useState<PublishedFilter>('all')
   const [offset, setOffset] = useState(0)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [stats, setStats] = useState<AuthorStats | null>(null)
   const limit = 20
+
+  useEffect(() => {
+    adminApi.getAuthorStats(DEFAULT_SITE_ID)
+      .then(setStats)
+      .catch(console.error)
+  }, [refreshKey])
 
   useEffect(() => {
     let cancelled = false
@@ -79,6 +86,27 @@ export function AuthorsPage() {
         </Link>
       </div>
 
+      {stats && (
+        <div className="stats-cards">
+          <div className="stats-card">
+            <div className="stats-card__value">{stats.total}</div>
+            <div className="stats-card__label">Total Authors</div>
+          </div>
+          <div className="stats-card stats-card--success">
+            <div className="stats-card__value">{stats.withPublishedBooks}</div>
+            <div className="stats-card__label">Published</div>
+          </div>
+          <div className="stats-card stats-card--draft">
+            <div className="stats-card__value">{stats.withoutPublishedBooks}</div>
+            <div className="stats-card__label">Unpublished</div>
+          </div>
+          <div className="stats-card">
+            <div className="stats-card__value">{stats.totalBooks}</div>
+            <div className="stats-card__label">Total Books</div>
+          </div>
+        </div>
+      )}
+
       <div className="authors-page__filters">
         <form onSubmit={handleSearch} className="search-form">
           <input
@@ -95,11 +123,11 @@ export function AuthorsPage() {
             setPublishedFilter(e.target.value as PublishedFilter)
             setOffset(0)
           }}
-          className="filter-select"
+          className="status-filter"
         >
-          <option value="all">All Authors</option>
-          <option value="published">With Published Books</option>
-          <option value="unpublished">Without Published Books</option>
+          <option value="all">All statuses</option>
+          <option value="published">Published</option>
+          <option value="unpublished">Unpublished</option>
         </select>
       </div>
 
@@ -117,7 +145,7 @@ export function AuthorsPage() {
                 <th>Photo</th>
                 <th>Name</th>
                 <th>Books</th>
-                <th>Published</th>
+                <th>Status</th>
                 <th>Created</th>
                 <th>Actions</th>
               </tr>
@@ -140,7 +168,11 @@ export function AuthorsPage() {
                     <Link to={`/authors/${author.id}`}>{author.name}</Link>
                   </td>
                   <td>{author.bookCount}</td>
-                  <td>{author.hasPublishedBooks ? 'Yes' : 'No'}</td>
+                  <td>
+                    <span className={author.hasPublishedBooks ? 'badge badge--success' : 'badge badge--draft'}>
+                      {author.hasPublishedBooks ? 'Published' : 'Unpublished'}
+                    </span>
+                  </td>
                   <td>{formatDate(author.createdAt)}</td>
                   <td className="actions-cell">
                     <Link to={`/authors/${author.id}`} className="btn btn--small">
@@ -167,7 +199,7 @@ export function AuthorsPage() {
                 disabled={offset === 0}
                 className="btn btn--small"
               >
-                Previous
+                ← Prev
               </button>
               <span className="pagination__info">
                 Page {currentPage} of {totalPages}
@@ -177,7 +209,7 @@ export function AuthorsPage() {
                 disabled={offset + limit >= total}
                 className="btn btn--small"
               >
-                Next
+                Next →
               </button>
             </div>
           )}

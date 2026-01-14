@@ -59,3 +59,10 @@ public record UpdateGenreRequest(
     string? SeoTitle,
     string? SeoDescription
 );
+
+public record AdminGenreStatsDto(
+    int Total,
+    int WithPublishedBooks,
+    int WithoutPublishedBooks,
+    int TotalEditions
+);

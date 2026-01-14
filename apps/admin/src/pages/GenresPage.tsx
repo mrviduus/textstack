@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { adminApi, GenreListItem } from '../api/client'
+import { adminApi, GenreListItem, GenreStats } from '../api/client'
 
 const DEFAULT_SITE_ID = '11111111-1111-1111-1111-111111111111'
 
@@ -12,11 +12,18 @@ export function GenresPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
-  const [searchQuery, setSearchQuery] = useState('') // Applied search
+  const [searchQuery, setSearchQuery] = useState('')
   const [publishedFilter, setPublishedFilter] = useState<PublishedFilter>('all')
   const [offset, setOffset] = useState(0)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [stats, setStats] = useState<GenreStats | null>(null)
   const limit = 20
+
+  useEffect(() => {
+    adminApi.getGenreStats(DEFAULT_SITE_ID)
+      .then(setStats)
+      .catch(console.error)
+  }, [refreshKey])
 
   useEffect(() => {
     let cancelled = false
@@ -79,6 +86,27 @@ export function GenresPage() {
         </Link>
       </div>
 
+      {stats && (
+        <div className="stats-cards">
+          <div className="stats-card">
+            <div className="stats-card__value">{stats.total}</div>
+            <div className="stats-card__label">Total Genres</div>
+          </div>
+          <div className="stats-card stats-card--success">
+            <div className="stats-card__value">{stats.withPublishedBooks}</div>
+            <div className="stats-card__label">Published</div>
+          </div>
+          <div className="stats-card stats-card--draft">
+            <div className="stats-card__value">{stats.withoutPublishedBooks}</div>
+            <div className="stats-card__label">Unpublished</div>
+          </div>
+          <div className="stats-card">
+            <div className="stats-card__value">{stats.totalEditions}</div>
+            <div className="stats-card__label">Total Editions</div>
+          </div>
+        </div>
+      )}
+
       <div className="genres-page__filters">
         <form onSubmit={handleSearch} className="search-form">
           <input
@@ -95,11 +123,11 @@ export function GenresPage() {
             setPublishedFilter(e.target.value as PublishedFilter)
             setOffset(0)
           }}
-          className="filter-select"
+          className="status-filter"
         >
-          <option value="all">All Genres</option>
-          <option value="published">With Published Books</option>
-          <option value="unpublished">Without Published Books</option>
+          <option value="all">All statuses</option>
+          <option value="published">Published</option>
+          <option value="unpublished">Unpublished</option>
         </select>
       </div>
 
@@ -116,9 +144,8 @@ export function GenresPage() {
               <tr>
                 <th>Name</th>
                 <th>Slug</th>
-                <th>Indexable</th>
                 <th>Editions</th>
-                <th>Published</th>
+                <th>Status</th>
                 <th>Updated</th>
                 <th>Actions</th>
               </tr>
@@ -130,9 +157,12 @@ export function GenresPage() {
                     <Link to={`/genres/${genre.id}`}>{genre.name}</Link>
                   </td>
                   <td className="slug-cell">{genre.slug}</td>
-                  <td>{genre.indexable ? 'Yes' : 'No'}</td>
                   <td>{genre.editionCount}</td>
-                  <td>{genre.hasPublishedBooks ? 'Yes' : 'No'}</td>
+                  <td>
+                    <span className={genre.hasPublishedBooks ? 'badge badge--success' : 'badge badge--draft'}>
+                      {genre.hasPublishedBooks ? 'Published' : 'Unpublished'}
+                    </span>
+                  </td>
                   <td>{formatDate(genre.updatedAt)}</td>
                   <td className="actions-cell">
                     <Link to={`/genres/${genre.id}`} className="btn btn--small">
@@ -159,7 +189,7 @@ export function GenresPage() {
                 disabled={offset === 0}
                 className="btn btn--small"
               >
-                Previous
+                ← Prev
               </button>
               <span className="pagination__info">
                 Page {currentPage} of {totalPages}
@@ -169,7 +199,7 @@ export function GenresPage() {
                 disabled={offset + limit >= total}
                 className="btn btn--small"
               >
-                Next
+                Next →
               </button>
             </div>
           )}

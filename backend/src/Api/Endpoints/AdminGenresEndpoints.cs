@@ -18,6 +18,10 @@ public static class AdminGenresEndpoints
             .WithName("AdminGetGenres")
             .WithDescription("List genres with pagination");
 
+        group.MapGet("/stats", GetGenreStats)
+            .WithName("AdminGetGenreStats")
+            .WithDescription("Get genre statistics");
+
         group.MapGet("/search", SearchGenres)
             .WithName("SearchGenres")
             .WithDescription("Search genres by name for autocomplete");
@@ -37,6 +41,32 @@ public static class AdminGenresEndpoints
         group.MapDelete("/{id:guid}", DeleteGenre)
             .WithName("AdminDeleteGenre")
             .WithDescription("Delete genre (only if no editions)");
+    }
+
+    private static async Task<IResult> GetGenreStats(
+        IAppDbContext db,
+        [FromQuery] Guid? siteId,
+        CancellationToken ct)
+    {
+        if (siteId is null)
+            return Results.BadRequest(new { error = "siteId is required" });
+
+        var genres = db.Genres.Where(g => g.SiteId == siteId.Value);
+
+        var total = await genres.CountAsync(ct);
+
+        var withPublished = await genres
+            .CountAsync(g => g.Editions.Any(e => e.Status == EditionStatus.Published), ct);
+
+        var totalEditions = await genres
+            .SumAsync(g => g.Editions.Count, ct);
+
+        return Results.Ok(new AdminGenreStatsDto(
+            Total: total,
+            WithPublishedBooks: withPublished,
+            WithoutPublishedBooks: total - withPublished,
+            TotalEditions: totalEditions
+        ));
     }
 
     private static async Task<IResult> SearchGenres(

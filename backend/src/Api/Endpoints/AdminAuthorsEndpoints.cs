@@ -19,6 +19,10 @@ public static class AdminAuthorsEndpoints
             .WithName("AdminGetAuthors")
             .WithDescription("List authors with pagination");
 
+        group.MapGet("/stats", GetAuthorStats)
+            .WithName("AdminGetAuthorStats")
+            .WithDescription("Get author statistics");
+
         group.MapGet("/search", SearchAuthors)
             .WithName("SearchAuthors")
             .WithDescription("Search authors by name for autocomplete");
@@ -43,6 +47,32 @@ public static class AdminAuthorsEndpoints
             .WithName("AdminUploadAuthorPhoto")
             .WithDescription("Upload author photo (max 2MB, JPG/PNG only)")
             .DisableAntiforgery();
+    }
+
+    private static async Task<IResult> GetAuthorStats(
+        IAppDbContext db,
+        [FromQuery] Guid? siteId,
+        CancellationToken ct)
+    {
+        if (siteId is null)
+            return Results.BadRequest(new { error = "siteId is required" });
+
+        var authors = db.Authors.Where(a => a.SiteId == siteId.Value);
+
+        var total = await authors.CountAsync(ct);
+
+        var withPublished = await authors
+            .CountAsync(a => a.EditionAuthors.Any(ea => ea.Edition.Status == EditionStatus.Published), ct);
+
+        var totalBooks = await authors
+            .SumAsync(a => a.EditionAuthors.Count, ct);
+
+        return Results.Ok(new AdminAuthorStatsDto(
+            Total: total,
+            WithPublishedBooks: withPublished,
+            WithoutPublishedBooks: total - withPublished,
+            TotalBooks: totalBooks
+        ));
     }
 
     private static async Task<IResult> SearchAuthors(

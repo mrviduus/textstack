@@ -9,6 +9,10 @@ on:
         description: 'Commit SHA to rollback to (optional)'
         required: false
 
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
 env:
   PROJECT_DIR: /home/vasyl/projects/onlinelib/onlinelib
 

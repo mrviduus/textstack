@@ -59,3 +59,10 @@ public record UpdateAuthorRequest(
     string? SeoTitle,
     string? SeoDescription
 );
+
+public record AdminAuthorStatsDto(
+    int Total,
+    int WithPublishedBooks,
+    int WithoutPublishedBooks,
+    int TotalBooks
+);
