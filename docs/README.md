@@ -5,11 +5,12 @@
 | Document | Description |
 |----------|-------------|
 | [Vision](00-vision/README.md) | Goals, principles, stack |
-| [Roadmap](00-vision/roadmap.md) | MVP phases, checklists |
+| [Roadmap](00-vision/roadmap.md) | Current focus, completed, future |
 | [Architecture](01-architecture/README.md) | System design |
 | [Database](02-system/database.md) | Schema, entities |
-| [API](02-system/api.md) | Endpoints |
+| API Docs | http://localhost:8080/scalar/v1 (live) |
 | [SEO Policy](02-system/seo-policy.md) | Indexing strategy, prerender rules |
+| [SEO Implementation](02-system/seo-implementation.md) | Technical spec (robots.txt, sitemap, etc.) |
 | [Local Dev](03-ops/local-dev.md) | Docker, migrations |
 | [Production Deployment](03-ops/deployment.md) | Cloudflare tunnel, nginx, Docker |
 | [CI/CD Plan](03-ops/cicd-plan.md) | GitHub Actions, automation (TODO) |
@@ -37,11 +38,12 @@ docs/
 | [feat-0005](05-features/feat-0005-observability-opentelemetry.md) | Observability (OpenTelemetry) | Implemented |
 | [feat-0006](05-features/feat-0006-search-library.md) | Search Library | Implemented |
 | [feat-0007](05-features/feat-0007-nextjs-ssg-migration.md) | Next.js SSG Migration | Planned |
+| [feat-seo-dashboard](05-features/feat-seo-dashboard.md) | SEO Admin Dashboard | Planning |
 
 ## Reading Order
 
 1. **New to project**: [Vision](00-vision/README.md) → [Architecture](01-architecture/README.md) → [Local Dev](03-ops/local-dev.md)
-2. **Backend work**: [Database](02-system/database.md) → [API](02-system/api.md) → [Ingestion](02-system/ingestion.md)
+2. **Backend work**: [Database](02-system/database.md) → [Ingestion](02-system/ingestion.md) → API Docs (Scalar)
 3. **Frontend work**: [Architecture](01-architecture/README.md) → [Multisite](01-architecture/multisite.md) → [Reader](02-system/reader.md)
 4. **Ops**: [Local Dev](03-ops/local-dev.md) → [Production Deployment](03-ops/deployment.md) → [Backup](03-ops/backup.md)
 
@@ -63,7 +65,7 @@ docs/
 | Event | Update |
 |-------|--------|
 | Entity added | database.md |
-| Endpoint added | api.md |
+| Endpoint added | (auto in Scalar) |
 | Architecture decision | New ADR |
 | Migration created | Mention if significant |
 | New page type (indexable/not) | seo-policy.md |

@@ -73,6 +73,65 @@
 
 ---
 
+---
+
+## SEO Follow-ups
+
+### Production Setup
+- [ ] Fill verification codes in `apps/web/index.html` (Google + Bing)
+- [ ] Submit sitemap to Google Search Console and Bing Webmaster Tools
+
+### Content Management
+- [ ] Add author bios and photos via Admin UI
+- [ ] Create genres via Admin UI (table empty)
+- [ ] Admin endpoints for Authors/Genres CRUD
+
+### Future SEO Slices
+- [ ] Slice 2: Admin SEO Control (editable slug, SEO preview, bulk indexable toggle)
+- [ ] Slice 3: Slug Change Redirects (redirect table, auto-301)
+- [ ] Slice 4: Structured Data validation (JSON-LD schema)
+
+### Technical Debt
+- [ ] Author slug transliteration (Cyrillic → Latin)
+- [ ] Replace `authorsJson` with proper Author objects in API
+
+---
+
+## Search Library Follow-ups
+
+### Database & Migrations
+- [ ] EF Core migration for `search_documents` table
+- [ ] Remove trigger-based `Chapter.SearchVector` indexing (verify new approach first)
+- [ ] Backfill existing chapters into `search_documents`
+
+### Backend
+- [ ] Re-indexing endpoint for admin API
+- [ ] Bulk re-index CLI command
+- [ ] Search analytics/tracking (query logging)
+- [ ] Faceted search (filter by author, language, year)
+- [ ] Search result caching
+
+### Frontend
+- [ ] Loading skeleton for suggestions dropdown
+- [ ] Client-side suggestions caching
+- [ ] "View all results" link
+- [ ] Keyboard shortcut (Cmd/Ctrl+K)
+- [ ] Mobile search UI
+
+### Future Providers
+- [ ] Elasticsearch provider
+- [ ] Vector/semantic search provider
+- [ ] Algolia provider (hosted)
+
+### Testing
+- [ ] Integration tests for search endpoints
+- [ ] E2E tests for search UI
+- [ ] Performance benchmarks
+
+---
+
 ## Priority
 1. **LLM Batch** - higher priority (immediate need for 1000 drafts)
-2. **Eye Tracking** - experimental/research phase
+2. **SEO Dashboard** - visibility into SEO health
+3. **Search improvements** - incremental
+4. **Eye Tracking** - experimental/research phase

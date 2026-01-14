@@ -1,7 +1,17 @@
-# SEO Module MVP — Product Design Document (PDD)
+# SEO Technical Implementation
+
+Technical implementation spec for TextStack SEO module.
+
+**Related docs:**
+- [SEO Policy](seo-policy.md) — what to index (strategy)
+- [Dynamic Rendering Article](../04-articles/dynamic-rendering-seo.md) — how prerender works
+
+**Status:** Slice 1 complete (Dec 2025)
+
+---
 
 ## 1. Purpose
-The goal of this module is to make OnlineLib **indexable, controllable, and safe for SEO at launch**.
+The goal of this module is to make TextStack **indexable, controllable, and safe for SEO at launch**.
 This MVP focuses on technical SEO foundations, not growth hacks or content scaling.
 
 Success means:
@@ -167,13 +177,14 @@ No hardcoding — config only.
 
 ## 8. Work Slices
 
-### Slice 1 — SEO Skeleton
+### Slice 1 — SEO Skeleton ✅ COMPLETE
 Includes:
 - robots.txt
 - sitemap index + entity sitemaps
 - canonical tags
 - meta title & description templates
 - verification meta tags
+- noindex for chapters/reader pages
 
 No admin UI, no redirects.
 

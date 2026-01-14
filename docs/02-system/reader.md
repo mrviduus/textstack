@@ -276,17 +276,37 @@ While loading chapter content:
 
 ---
 
-## 16. MVP Checklist
+## 16. Implementation Status
 
-- [ ] Chapter reader route exists (`/books/:bookSlug/:chapterSlug`)
-- [ ] Centered text column with typography baseline
-- [ ] Auto-hide top bar (show on scroll up / tap, hide on scroll down / timeout)
-- [ ] Settings drawer (font size, line height, width, theme, font)
-- [ ] Settings persisted in localStorage
-- [ ] TOC drawer with current chapter highlight
-- [ ] Progress indicator and persisted reading position
-- [ ] Bookmark save button + toast
-- [ ] Prev/Next chapter footer nav
-- [ ] Skeleton loading states
-- [ ] Basic a11y pass
+**MVP Complete** (Jan 2025)
+
+### Core Features ✅
+- [x] Chapter reader route (`/books/:bookSlug/:chapterSlug`)
+- [x] Centered text column with typography baseline
+- [x] Auto-hide top bar (show on scroll up / tap, hide on scroll down / timeout)
+- [x] Settings drawer (font size, line height, width, theme, font)
+- [x] Settings persisted in localStorage
+- [x] TOC drawer with current chapter highlight + bookmarks tab
+- [x] Progress indicator (chapter + overall book)
+- [x] Reading position persisted (localStorage + server sync)
+- [x] Bookmark save/remove + toast
+- [x] Prev/Next chapter footer nav
+- [x] Skeleton loading states
+- [x] Basic a11y pass (skip link, focus states)
+
+### Enhanced Features ✅
+- [x] Page-based pagination (column layout)
+- [x] Keyboard shortcuts (←/→, F, B, S, T, ?, 1-4 for themes)
+- [x] Swipe navigation (desktop)
+- [x] Mobile tap zones (left/right edges for prev/next)
+- [x] Mobile immersive mode (auto-hide bars after 3s)
+- [x] Fullscreen mode with auto-show bars on mouse move
+- [x] In-book search (chapter text only)
+- [x] Auto-add to library after page 2
+- [x] Auto-save indicator in top bar
+
+### Future Enhancements
+- [ ] Eye/head tracking scroll (see TODO.md)
+- [ ] Text selection + notes
+- [ ] Audio narration (TTS)
 
