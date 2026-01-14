@@ -465,7 +465,8 @@ export function ReaderPage() {
 
   return (
     <div className={`reader-page ${fullscreenClass} ${immersiveClass}`}>
-      <SeoHead title={seoTitle} description={seoDescription} />
+      {/* noindex: chapters are reading UX only, not search-worthy content */}
+      <SeoHead title={seoTitle} description={seoDescription} noindex />
       <a href="#reader-content" className="skip-link">Skip to content</a>
       <ReaderTopBar
         visible={visible}
