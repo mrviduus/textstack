@@ -577,6 +577,18 @@ html[data-theme="high-contrast"] .reader-main {
   opacity: 1;
 }
 
+/* Auto-save item in bookmarks */
+.reader-toc-drawer__autosave {
+  border-bottom: 1px solid var(--reader-border);
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+}
+
+.reader-toc-drawer__autosave .reader-toc-drawer__date {
+  color: var(--reader-accent, #007AFF);
+  font-weight: 500;
+}
+
 /* Search drawer */
 .reader-search-drawer {
   position: fixed;

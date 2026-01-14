@@ -21,7 +21,7 @@ import { ReaderContent } from '../components/reader/ReaderContent'
 import { ReaderFooterNav } from '../components/reader/ReaderFooterNav'
 import { ReaderPageNav } from '../components/reader/ReaderPageNav'
 import { ReaderSettingsDrawer } from '../components/reader/ReaderSettingsDrawer'
-import { ReaderTocDrawer } from '../components/reader/ReaderTocDrawer'
+import { ReaderTocDrawer, type AutoSaveInfo } from '../components/reader/ReaderTocDrawer'
 import { ReaderSearchDrawer } from '../components/reader/ReaderSearchDrawer'
 
 export function ReaderPage() {
@@ -140,6 +140,27 @@ export function ReaderPage() {
   // Restore progress on mount
   const { savedProgress, shouldNavigate, targetChapterSlug, isLoading: progressLoading } =
     useRestoreProgress(book?.id, chapterSlug)
+
+  // Auto-save info for bookmarks drawer
+  const autoSaveInfo = useMemo((): AutoSaveInfo | null => {
+    if (!book?.id || !book?.chapters) return null
+    try {
+      const stored = localStorage.getItem(`reading.progress.${book.id}`)
+      if (!stored) return null
+      const data = JSON.parse(stored) as { chapterSlug: string; locator: string; percent: number }
+      if (!data.chapterSlug) return null
+      const chapter = book.chapters.find(c => c.slug === data.chapterSlug)
+      if (!chapter) return null
+      return {
+        chapterSlug: data.chapterSlug,
+        chapterTitle: chapter.title,
+        locator: data.locator,
+        percent: data.percent,
+      }
+    } catch {
+      return null
+    }
+  }, [book?.id, book?.chapters, isAutoSaved]) // isAutoSaved triggers re-read after save
 
   // Refs for restore logic
   const hasNavigatedRef = useRef(false)
@@ -514,6 +535,7 @@ export function ReaderPage() {
         chapters={book.chapters}
         currentChapterSlug={chapterSlug!}
         bookmarks={bookmarks}
+        autoSave={autoSaveInfo}
         onClose={() => setTocOpen(false)}
         onRemoveBookmark={removeBookmark}
       />
