@@ -461,6 +461,7 @@ export function MobileSearchOverlay({ onClose }: { onClose: () => void }) {
               to={`/search?q=${encodeURIComponent(query)}`}
               className="mobile-search-overlay__view-all"
               title="View all search results"
+              onClick={onClose}
             >
               {viewAllText}
             </LocalizedLink>
