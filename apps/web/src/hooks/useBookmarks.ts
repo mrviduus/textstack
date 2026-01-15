@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { openOfflineDb } from '../lib/offlineDb'
 
 export interface Bookmark {
   id: string
@@ -8,40 +9,14 @@ export interface Bookmark {
   createdAt: number
 }
 
-const DB_NAME = 'textstack-reader'
-const DB_VERSION = 1
 const STORE_NAME = 'bookmarks'
-
-let dbPromise: Promise<IDBDatabase> | null = null
-
-function openDB(): Promise<IDBDatabase> {
-  if (dbPromise) return dbPromise
-
-  dbPromise = new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION)
-
-    request.onerror = () => reject(request.error)
-    request.onsuccess = () => resolve(request.result)
-
-    request.onupgradeneeded = (event) => {
-      const db = (event.target as IDBOpenDBRequest).result
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' })
-        store.createIndex('bookId', 'bookId', { unique: false })
-        store.createIndex('createdAt', 'createdAt', { unique: false })
-      }
-    }
-  })
-
-  return dbPromise
-}
 
 function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
 }
 
 async function getAllBookmarks(bookId: string): Promise<Bookmark[]> {
-  const db = await openDB()
+  const db = await openOfflineDb()
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readonly')
     const store = tx.objectStore(STORE_NAME)
@@ -59,7 +34,7 @@ async function getAllBookmarks(bookId: string): Promise<Bookmark[]> {
 }
 
 async function addBookmarkToDB(bookmark: Omit<Bookmark, 'id' | 'createdAt'>): Promise<Bookmark> {
-  const db = await openDB()
+  const db = await openOfflineDb()
   const newBookmark: Bookmark = {
     ...bookmark,
     id: generateId(),
@@ -77,7 +52,7 @@ async function addBookmarkToDB(bookmark: Omit<Bookmark, 'id' | 'createdAt'>): Pr
 }
 
 async function removeBookmarkFromDB(id: string): Promise<void> {
-  const db = await openDB()
+  const db = await openOfflineDb()
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite')
     const store = tx.objectStore(STORE_NAME)

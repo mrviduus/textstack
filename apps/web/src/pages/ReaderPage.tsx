@@ -14,6 +14,8 @@ import { usePagination } from '../hooks/usePagination'
 import { useSwipe } from '../hooks/useSwipe'
 import { useLibrary } from '../hooks/useLibrary'
 import { useIsMobile } from '../hooks/useIsMobile'
+import { useNetworkRecovery } from '../hooks/useNetworkRecovery'
+import { getCachedChapter, cacheChapter } from '../lib/offlineDb'
 import { SeoHead } from '../components/SeoHead'
 import { Toast } from '../components/Toast'
 import { ReaderTopBar } from '../components/reader/ReaderTopBar'
@@ -52,6 +54,8 @@ export function ReaderPage() {
   const [isAutoSaved, setIsAutoSaved] = useState(false)
   const firstAutoSaveRef = useRef(false)
   const libraryAddedRef = useRef(false)
+  const editionIdRef = useRef<string | null>(null)
+  const { markFetchStart, wasAbortedDueToWake } = useNetworkRecovery()
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen()
   const [showBarsInFullscreen, setShowBarsInFullscreen] = useState(false)
   const hideTimeoutRef = useRef<number | null>(null)
@@ -263,29 +267,74 @@ export function ReaderPage() {
     clear: clearSearch,
   } = useInBookSearch(chapterHtml)
 
-  // Fetch chapter and book data
+  // Fetch chapter and book data (cache-first)
   useEffect(() => {
     if (!bookSlug || !chapterSlug) return
     let cancelled = false
+    const signal = markFetchStart()
 
-    setLoading(true)
-    setError(null)
+    const fetchData = async () => {
+      setLoading(true)
+      setError(null)
 
-    Promise.all([
-      api.getChapter(bookSlug, chapterSlug),
-      api.getBook(bookSlug),
-    ])
-      .then(([ch, bk]) => {
+      try {
+        // Try cache first if we have editionId
+        const cachedEditionId = editionIdRef.current
+        if (cachedEditionId) {
+          const cached = await getCachedChapter(cachedEditionId, chapterSlug)
+          if (cached && !cancelled) {
+            setChapter({
+              id: cached.key,
+              chapterNumber: 0,
+              slug: cached.chapterSlug,
+              title: cached.title,
+              html: cached.html,
+              wordCount: cached.wordCount,
+              prev: cached.prev,
+              next: cached.next,
+            })
+            // Still need book for TOC - fetch it
+            try {
+              const bk = await api.getBook(bookSlug)
+              if (!cancelled) setBook(bk)
+            } catch {
+              // Book fetch failed but chapter from cache - ok
+            }
+            setLoading(false)
+            return
+          }
+        }
+
+        // Cache miss or no editionId - fetch from API
+        const [ch, bk] = await Promise.all([
+          api.getChapter(bookSlug, chapterSlug),
+          api.getBook(bookSlug),
+        ])
+
         if (cancelled) return
+
         setChapter(ch)
         setBook(bk)
-        // Page position handled by restore effect
-      })
-      .catch((err) => { if (!cancelled) setError(err.message) })
-      .finally(() => { if (!cancelled) setLoading(false) })
+        editionIdRef.current = bk.id
 
+        // Cache for offline use
+        cacheChapter(bk.id, ch).catch(() => {})
+      } catch (err) {
+        if (cancelled) return
+        // If aborted due to wake, auto-retry
+        if (wasAbortedDueToWake()) {
+          fetchData()
+          return
+        }
+        setError((err as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    fetchData()
     return () => { cancelled = true }
-  }, [bookSlug, chapterSlug, api])
+  }, [bookSlug, chapterSlug, api, markFetchStart, wasAbortedDueToWake])
 
   // Recalculate pagination when settings change
   useEffect(() => {

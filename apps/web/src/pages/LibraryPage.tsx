@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext'
 import { useLibrary } from '../hooks/useLibrary'
 import { LocalizedLink } from '../components/LocalizedLink'
 import { SeoHead } from '../components/SeoHead'
+import { OfflineBadge } from '../components/OfflineBadge'
 import { getStorageUrl } from '../api/client'
 import { stringToColor } from '../utils/colors'
 import { getAllProgress, ReadingProgressDto } from '../api/auth'
@@ -90,11 +91,14 @@ export function LibraryPage() {
                     <LocalizedLink to={destination} className="library-card__title" title={`Read ${item.title} online`}>
                       {item.title}
                     </LocalizedLink>
-                    {percent > 0 && (
-                      <span className="library-card__progress-text">
-                        {Math.round(percent * 100)}% read
-                      </span>
-                    )}
+                    <div className="library-card__meta">
+                      {percent > 0 && (
+                        <span className="library-card__progress-text">
+                          {Math.round(percent * 100)}% read
+                        </span>
+                      )}
+                      <OfflineBadge editionId={item.editionId} />
+                    </div>
                   </div>
                   <button
                     className="library-card__remove"

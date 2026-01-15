@@ -1,12 +1,15 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { getLibrary, addToLibrary, removeFromLibrary, LibraryItem } from '../api/auth'
+import { useOfflineDownload } from './useOfflineDownload'
+import { deleteAllCachedData } from '../lib/offlineDb'
 
 export function useLibrary() {
   const { isAuthenticated } = useAuth()
   const [items, setItems] = useState<LibraryItem[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const { downloadBook, cancelDownload } = useOfflineDownload()
 
   // Fetch library on mount (if authenticated)
   useEffect(() => {
@@ -36,23 +39,29 @@ export function useLibrary() {
     try {
       const item = await addToLibrary(editionId)
       setItems(prev => [item, ...prev])
+      // Start background download for offline use
+      downloadBook(editionId, item.slug).catch(() => {})
       return item
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to add to library')
       throw err
     }
-  }, [isAuthenticated])
+  }, [isAuthenticated, downloadBook])
 
   const remove = useCallback(async (editionId: string) => {
     if (!isAuthenticated) return
     try {
+      // Cancel any ongoing download
+      cancelDownload(editionId)
       await removeFromLibrary(editionId)
       setItems(prev => prev.filter(item => item.editionId !== editionId))
+      // Clean up cached data
+      deleteAllCachedData(editionId).catch(() => {})
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to remove from library')
       throw err
     }
-  }, [isAuthenticated])
+  }, [isAuthenticated, cancelDownload])
 
   const isInLibrary = useCallback((editionId: string) => {
     return items.some(item => item.editionId === editionId)
