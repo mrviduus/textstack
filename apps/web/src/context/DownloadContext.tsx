@@ -149,6 +149,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       })
 
       // Download chapters sequentially
+      let downloadedCount = currentCached
       for (let i = 0; i < chapters.length; i++) {
         if (job.aborted) {
           updateDownload(editionId, { status: 'cancelled' })
@@ -161,9 +162,6 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
           // Skip already cached chapters (resume support)
           const existing = await getCachedChapter(editionId, chapterSummary.slug)
           if (existing) {
-            const downloadedChapters = await countCachedChapters(editionId)
-            const progress = Math.round((downloadedChapters / totalChapters) * 100)
-            updateDownload(editionId, { downloadedChapters, progress })
             continue
           }
 
@@ -171,18 +169,17 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
           if (job.aborted) break
 
           await cacheChapter(editionId, chapter)
+          downloadedCount++
 
-          const downloadedChapters = await countCachedChapters(editionId)
-          const progress = Math.round((downloadedChapters / totalChapters) * 100)
-
-          updateDownload(editionId, { downloadedChapters, progress, failedChapters })
+          const progress = Math.round((downloadedCount / totalChapters) * 100)
+          updateDownload(editionId, { downloadedChapters: downloadedCount, progress, failedChapters })
 
           // Update IndexedDB meta
           await setCachedBookMeta({
             editionId,
             slug: bookSlug,
             totalChapters,
-            cachedChapters: downloadedChapters,
+            cachedChapters: downloadedCount,
             cachedAt: Date.now(),
           })
 

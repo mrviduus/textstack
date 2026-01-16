@@ -34,21 +34,26 @@ export function BookCardMenu({
   const { startDownload, cancelDownload, isDownloading: checkDownloading, getProgress } = useDownload()
   const progress = getProgress(book.editionId)
 
-  // Check offline status
+  // Check offline status (re-check when download progress changes)
   useEffect(() => {
-    getCachedBookMeta(book.editionId).then(meta => {
-      if (meta && meta.cachedChapters >= meta.totalChapters) {
-        setIsOffline(true)
-        setIsPartiallyOffline(false)
-      } else if (meta && meta.cachedChapters > 0) {
+    getCachedBookMeta(book.editionId)
+      .then(meta => {
+        if (meta && meta.cachedChapters >= meta.totalChapters) {
+          setIsOffline(true)
+          setIsPartiallyOffline(false)
+        } else if (meta && meta.cachedChapters > 0) {
+          setIsOffline(false)
+          setIsPartiallyOffline(true)
+        } else {
+          setIsOffline(false)
+          setIsPartiallyOffline(false)
+        }
+      })
+      .catch(() => {
         setIsOffline(false)
-        setIsPartiallyOffline(true)
-      } else {
-        setIsOffline(false)
         setIsPartiallyOffline(false)
-      }
-    })
-  }, [book.editionId])
+      })
+  }, [book.editionId, progress])
 
   // Check if downloading
   useEffect(() => {
@@ -147,10 +152,14 @@ export function BookCardMenu({
 
   const handleRemoveDownload = () => {
     closeMenu()
-    deleteAllCachedData(book.editionId).then(() => {
-      setIsOffline(false)
-      setIsPartiallyOffline(false)
-    })
+    deleteAllCachedData(book.editionId)
+      .then(() => {
+        setIsOffline(false)
+        setIsPartiallyOffline(false)
+      })
+      .catch(err => {
+        console.error('Failed to remove download:', err)
+      })
   }
 
   const handleRemove = () => {

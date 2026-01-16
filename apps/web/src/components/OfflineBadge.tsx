@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { getCachedBookMeta, isBookFullyCached } from '../lib/offlineDb'
+import { getCachedBookMeta } from '../lib/offlineDb'
 import { useDownload } from '../context/DownloadContext'
 
 interface OfflineBadgeProps {
@@ -17,15 +17,15 @@ export function OfflineBadge({ editionId, className = '' }: OfflineBadgeProps) {
 
     const checkStatus = async () => {
       try {
-        const isFull = await isBookFullyCached(editionId)
+        const meta = await getCachedBookMeta(editionId)
         if (!mounted) return
 
-        if (isFull) {
+        if (meta && meta.cachedChapters >= meta.totalChapters) {
           setStatus('full')
+        } else if (meta && meta.cachedChapters > 0) {
+          setStatus('partial')
         } else {
-          const meta = await getCachedBookMeta(editionId)
-          if (!mounted) return
-          setStatus(meta && meta.cachedChapters > 0 ? 'partial' : 'none')
+          setStatus('none')
         }
       } catch {
         if (mounted) setStatus('none')
@@ -60,7 +60,7 @@ export function OfflineBadge({ editionId, className = '' }: OfflineBadgeProps) {
       title={title}
     >
       {status === 'full' ? (
-        // Checkmark for fully downloaded
+        // Download icon for fully downloaded
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M12 2v10m0 0l-3-3m3 3l3-3" />
           <path d="M20 17v.8a3 3 0 01-2.82 2.99H6.82A3 3 0 014 17.8V17" />
