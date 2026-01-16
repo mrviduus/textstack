@@ -11,7 +11,7 @@ public class SiteContextMiddleware
         _resolver = resolver;
     }
 
-    private static readonly string[] SkipPaths = ["/admin", "/auth", "/me", "/health", "/openapi", "/scalar", "/debug"];
+    private static readonly string[] SkipPaths = ["/admin", "/auth", "/health", "/openapi", "/scalar", "/debug"];
 
     public async Task InvokeAsync(HttpContext context)
     {
