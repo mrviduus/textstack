@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Observability
+- **Removed Tempo** - distributed tracing service removed to save ~350MB RAM
+  - Traces still collected via OTEL but not stored
+  - To restore Tempo in future, see `docs/tempo-restore.md`
+
 ### Offline Reading (PWA)
 - **IndexedDB storage** - chapters cached locally for offline reading
 - **Download manager** - global context tracks active downloads, progress, errors

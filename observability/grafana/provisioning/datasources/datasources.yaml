@@ -13,25 +13,3 @@ datasources:
     access: proxy
     url: http://loki:3100
     editable: false
-    jsonData:
-      derivedFields:
-        - datasourceUid: tempo
-          matcherRegex: '"trace_id":"(\w+)"'
-          name: TraceID
-          url: '$${__value.raw}'
-
-  - name: Tempo
-    type: tempo
-    access: proxy
-    url: http://tempo:3200
-    editable: false
-    jsonData:
-      httpMethod: GET
-      tracesToMetrics:
-        datasourceUid: prometheus
-      serviceMap:
-        datasourceUid: prometheus
-      nodeGraph:
-        enabled: true
-      lokiSearch:
-        datasourceUid: loki

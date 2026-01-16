@@ -89,18 +89,19 @@ See [observability/slo.md](/observability/slo.md) for details.
 |---------|------|-----|
 | Grafana | 3000 | http://localhost:3000 |
 | Prometheus | 9090 | http://localhost:9090 |
-| Tempo | 3200 | http://localhost:3200 |
+
+> **Note**: Tempo (distributed tracing) was removed in Jan 2026 to reduce memory usage (~350MB). Traces are still collected but not stored.
 
 ## Files
 
 - `backend/src/Infrastructure/Telemetry/` — ActivitySource, Meter, extensions
 - `infra/otel/otel-collector-config.yaml` — Collector config
-- `observability/` — Grafana dashboards, Prometheus config, Tempo config, SLO docs
+- `observability/` — Grafana dashboards, Prometheus config, Loki config, SLO docs
 
 ## Acceptance Criteria
 - API and Worker emit traces and metrics via OTLP
 - Worker spans show ingestion pipeline stages
 - Metrics show counts + durations by format
 - Logs correlate with TraceId/SpanId
-- docker-compose includes collector + Prometheus + Grafana + Tempo
+- docker-compose includes collector + Prometheus + Grafana + Loki
 - Dashboards and alerts are provisioned
