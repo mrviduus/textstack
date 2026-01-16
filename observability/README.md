@@ -1,6 +1,6 @@
 # Observability Stack
 
-OpenTelemetry-based observability for TextStack (OnlineLib). Full observability with metrics, traces, and logs.
+OpenTelemetry-based observability for TextStack (OnlineLib). Metrics and logs monitoring.
 
 ## Architecture Overview
 
@@ -15,21 +15,21 @@ OpenTelemetry-based observability for TextStack (OnlineLib). Full observability 
                  ▼
        ┌─────────────────┐
        │ OTEL Collector  │
-       └────┬───┬───┬────┘
-            │   │   │
-     ┌──────┘   │   └──────┐
-     ▼          ▼          ▼
-┌─────────┐ ┌───────┐ ┌─────────┐
-│Prometheus│ │ Tempo │ │  Loki   │
-│(Metrics) │ │(Traces)│ │ (Logs)  │
-└────┬─────┘ └───┬───┘ └────┬────┘
-     │           │          │
-     └───────────┼──────────┘
-                 ▼
-           ┌──────────┐
-           │ Grafana  │
-           │  :3000   │
-           └──────────┘
+       └────┬───────┬────┘
+            │       │
+     ┌──────┘       └──────┐
+     ▼                     ▼
+┌─────────┐           ┌─────────┐
+│Prometheus│           │  Loki   │
+│(Metrics) │           │ (Logs)  │
+└────┬─────┘           └────┬────┘
+     │                      │
+     └──────────┬───────────┘
+                ▼
+          ┌──────────┐
+          │ Grafana  │
+          │  :3000   │
+          └──────────┘
 ```
 
 ## Stack Components
@@ -38,7 +38,6 @@ OpenTelemetry-based observability for TextStack (OnlineLib). Full observability 
 |-----------------|-------|--------------------------|------------------------|
 | Grafana         | 3000  | http://localhost:3000    | Visualization & alerts |
 | Prometheus      | 9090  | http://localhost:9090    | Metrics storage        |
-| Tempo           | 3200  | http://localhost:3200    | Distributed tracing    |
 | Loki            | 3100  | http://localhost:3100    | Log aggregation        |
 | OTEL Collector  | 4317  | gRPC                     | Telemetry routing      |
 | OTEL Collector  | 4318  | HTTP                     | Telemetry routing      |
@@ -104,61 +103,6 @@ open http://localhost:3000
 | `timeout` | Operation timeouts | Check resource limits |
 | `connection refused` | Service unavailable | Check dependent services |
 | `OOM` or `memory` | Memory issues | Increase limits |
-
-### Correlating Logs with Traces
-
-Logs include `traceid` field. Click on it to jump to the corresponding trace in Tempo.
-
-```logql
-# Find logs for a specific trace
-{service_name="onlinelib-worker"} |= "traceid\":\"abc123"
-```
-
----
-
-## Traces (Tempo)
-
-### Accessing Traces
-
-1. Open **Grafana** → **Explore**
-2. Select **Tempo** from datasource dropdown
-3. Use **Search** tab or **TraceQL** tab
-
-### Key Spans to Monitor
-
-| Span Name | Service | What It Shows |
-|-----------|---------|---------------|
-| `ingestion.job.pick` | Worker | Job selection from queue |
-| `ingestion.job.process` | Worker | Full book processing |
-| `extraction.run` | Worker | Text extraction duration |
-| `persist.result` | Worker | Database write time |
-| HTTP endpoints | API | Request handling time |
-
-### TraceQL Queries
-
-```traceql
-# All traces from worker
-{service.name="onlinelib-worker"}
-
-# Slow traces (>10s)
-{service.name="onlinelib-worker"} | duration > 10s
-
-# Failed traces
-{service.name="onlinelib-worker" && status=error}
-
-# Specific operation
-{name="ingestion.job.process"}
-
-# By book format
-{name="extraction.run" && resource.format="epub"}
-```
-
-### What to Look For in Traces
-
-1. **Long durations** - Identify bottlenecks
-2. **Error spans** - Red spans indicate failures
-3. **Large span counts** - Too many DB calls?
-4. **Gaps between spans** - Missing instrumentation or waiting
 
 ---
 
@@ -313,19 +257,6 @@ curl http://localhost:8889/metrics
 docker logs textstack_prometheus_prod
 ```
 
-### No Traces in Tempo
-
-```bash
-# Check Tempo health
-curl http://localhost:3200/ready
-
-# Check OTEL collector
-docker logs textstack_otel_prod | grep -i trace
-
-# Verify traces are being sent
-docker logs textstack_api_prod | grep -i otlp
-```
-
 ### Dashboard Shows "No Data"
 
 1. Check time range (top right) - data may be outside range
@@ -356,7 +287,6 @@ GRAFANA_ROOT_URL=https://grafana.yourdomain.com
 |-----------|-------------------|-----------------|
 | Prometheus | 30 days | docker-compose `--storage.tsdb.retention.time` |
 | Loki | 30 days | `observability/loki/loki-config.yaml` |
-| Tempo | 30 days | `observability/tempo/tempo.yaml` |
 | Grafana | Unlimited | Depends on disk |
 
 ### Adding Custom Metrics
@@ -368,25 +298,6 @@ public static readonly Counter<long> MyCustomCounter =
 
 // Usage
 TelemetryConstants.MyCustomCounter.Add(1, new("label", "value"));
-```
-
-### Adding Custom Spans
-
-```csharp
-using Infrastructure.Telemetry;
-
-using var activity = IngestionActivitySource.Source.StartActivity("my.operation");
-activity?.SetTag("key", "value");
-try
-{
-    // ... work
-    activity?.SetStatus(ActivityStatusCode.Ok);
-}
-catch (Exception ex)
-{
-    activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
-    throw;
-}
 ```
 
 ---
@@ -412,6 +323,5 @@ catch (Exception ex)
 | `observability/grafana/provisioning/dashboards/` | Dashboard provisioning |
 | `observability/grafana/dashboards/` | Dashboard JSON files |
 | `observability/prometheus/prometheus.yml` | Prometheus scrape config |
-| `observability/tempo/tempo.yaml` | Tempo configuration |
 | `observability/loki/loki-config.yaml` | Loki configuration |
 | `infra/otel/otel-collector-config.yaml` | OTEL Collector pipelines |

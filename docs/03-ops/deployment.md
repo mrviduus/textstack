@@ -26,7 +26,6 @@ Docker containers (localhost only)
         ├── Grafana     (127.0.0.1:3000)
         ├── Prometheus  (127.0.0.1:9090)
         ├── Loki        (internal)
-        ├── Tempo       (internal)
         └── OTEL Collector (internal)
 ```
 
@@ -144,8 +143,8 @@ VITE_API_URL=/api pnpm build
 
 ```bash
 # Observability data directories (need correct permissions)
-mkdir -p data/grafana-prod data/prometheus-prod data/tempo-prod data/loki-prod
-sudo chmod 777 data/grafana-prod data/prometheus-prod data/tempo-prod data/loki-prod
+mkdir -p data/grafana-prod data/prometheus-prod data/loki-prod
+sudo chmod 777 data/grafana-prod data/prometheus-prod data/loki-prod
 ```
 
 ### 8. Start Services
@@ -295,15 +294,6 @@ See [Observability Guide](../../observability/README.md) for detailed usage.
 | Grafana | `docker logs textstack_grafana_prod` |
 | OTEL Collector | `docker logs textstack_otel_prod` |
 
-### Traces
-
-Access: **Grafana → Explore → Tempo**
-
-```traceql
-{service.name="onlinelib-worker"}              # All worker traces
-{service.name="onlinelib-worker"} | duration > 10s  # Slow traces
-```
-
 ### Resource Usage
 
 ```bash
@@ -371,7 +361,6 @@ docker compose -f docker-compose.prod.yml --env-file .env.production up -d --bui
 | Grafana data | `data/grafana-prod/` |
 | Prometheus data | `data/prometheus-prod/` |
 | Loki data | `data/loki-prod/` |
-| Tempo data | `data/tempo-prod/` |
 | Backups | `/home/vasyl/backups/` |
 | Observability docs | `observability/README.md` |
 

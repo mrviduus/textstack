@@ -168,21 +168,6 @@ services:
         reservations:
           memory: 128M
 
-  tempo:
-    image: grafana/tempo:2.6.1
-    container_name: textstack_tempo_prod
-    command: ["-config.file=/etc/tempo.yaml"]
-    volumes:
-      - ./observability/tempo/tempo.yaml:/etc/tempo.yaml:ro
-      - ./data/tempo-prod:/var/tempo
-    restart: always
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-        reservations:
-          memory: 128M
-
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.116.1
     container_name: textstack_otel_prod
@@ -191,7 +176,6 @@ services:
       - ./infra/otel/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
     restart: always
     depends_on:
-      - tempo
       - loki
     deploy:
       resources:
@@ -231,7 +215,6 @@ services:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
       GF_USERS_ALLOW_SIGN_UP: "false"
-      GF_FEATURE_TOGGLES_ENABLE: "traceqlEditor"
       GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://localhost:3000}
     volumes:
       - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
@@ -242,7 +225,6 @@ services:
     restart: always
     depends_on:
       - prometheus
-      - tempo
     deploy:
       resources:
         limits:
@@ -251,5 +233,5 @@ services:
           memory: 64M
 
 # Production uses separate data directories to avoid conflicts with dev
-# Dev data: ./data/postgres, ./data/grafana, ./data/prometheus, ./data/tempo
-# Prod data: ./data/postgres-prod, ./data/grafana-prod, ./data/prometheus-prod, ./data/tempo-prod
+# Dev data: ./data/postgres, ./data/grafana, ./data/prometheus, ./data/loki
+# Prod data: ./data/postgres-prod, ./data/grafana-prod, ./data/prometheus-prod, ./data/loki-prod

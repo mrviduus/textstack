@@ -44,18 +44,6 @@ services:
     restart: "no"
 
   # Observability Stack
-  tempo:
-    image: grafana/tempo:2.6.1
-    container_name: books_tempo
-    command: ["-config.file=/etc/tempo.yaml"]
-    volumes:
-      - ./observability/tempo/tempo.yaml:/etc/tempo.yaml:ro
-      - ./data/tempo:/var/tempo
-    ports:
-      - "3200:3200"   # Tempo HTTP
-      - "9095:9095"   # Tempo gRPC
-    restart: unless-stopped
-
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.116.1
     container_name: books_otel
@@ -67,8 +55,6 @@ services:
       - "4318:4318"   # OTLP HTTP
       - "8889:8889"   # Prometheus metrics
     restart: unless-stopped
-    depends_on:
-      - tempo
 
   prometheus:
     image: prom/prometheus:v3.1.0
@@ -94,7 +80,6 @@ services:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
       GF_USERS_ALLOW_SIGN_UP: "false"
-      GF_FEATURE_TOGGLES_ENABLE: "traceqlEditor"
     volumes:
       - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
@@ -104,7 +89,6 @@ services:
     restart: unless-stopped
     depends_on:
       - prometheus
-      - tempo
 
   api:
     build:
