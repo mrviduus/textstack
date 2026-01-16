@@ -36,7 +36,6 @@ sum(rate(onlinelib_ingestion_jobs_succeeded_total[24h]))
 | Epub   | 5s         |
 | Pdf    | 30s        |
 | Txt/Md | 1s         |
-| Djvu   | 60s        |
 
 **Metrics**:
 - `onlinelib_extraction_duration_ms{format, text_source}`
@@ -75,7 +74,7 @@ onlinelib_ingestion_queue_lag_ms / 1000 / 60
 |-----------------|------------------------------------------|------------|
 | `parse_error`   | Failed to parse file contents            | Yes        |
 | `file_not_found`| Source file missing from storage         | Yes        |
-| `no_text_layer` | PDF/DJVU has no extractable text         | Yes        |
+| `no_text_layer` | PDF has no extractable text              | Yes        |
 | `unsupported`   | Format not supported                     | No         |
 | `ocr_failed`    | OCR extraction failed                    | Yes        |
 

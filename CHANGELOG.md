@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Removed
+- **DjVu format support** — unused, removed extractor, tests, Docker deps
+
 ### Offline Reading (PWA)
 - **IndexedDB storage** - chapters cached locally for offline reading
 - **Download manager** - global context tracks active downloads, progress, errors

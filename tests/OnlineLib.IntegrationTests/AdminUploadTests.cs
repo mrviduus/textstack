@@ -113,32 +113,6 @@ public class AdminUploadTests : IClassFixture<TestWebApplicationFactory>
     }
 
     [Fact]
-    public async Task UploadDjvu_HappyPath_ReturnsCreatedWithJobId()
-    {
-        // Arrange
-        var filePath = FixturePath("sample.djvu");
-        if (!File.Exists(filePath))
-            return;
-
-        using var content = new MultipartFormDataContent();
-        await using var fileStream = File.OpenRead(filePath);
-        content.Add(new StreamContent(fileStream), "file", "sample.djvu");
-        AddRequiredFields(content, $"Test DJVU Book {Guid.NewGuid():N}");
-
-        // Act
-        var response = await _client.PostAsync("/admin/books/upload", content);
-
-        // Assert
-        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-        var result = await response.Content.ReadFromJsonAsync<UploadResponse>();
-        Assert.NotNull(result);
-        Assert.NotEqual(Guid.Empty, result.JobId);
-        Assert.NotEqual(Guid.Empty, result.EditionId);
-        Assert.Equal("Queued", result.Status);
-        _factory.TrackJob(result.JobId);
-    }
-
-    [Fact]
     public async Task Upload_InvalidSiteId_ReturnsBadRequest()
     {
         // Arrange

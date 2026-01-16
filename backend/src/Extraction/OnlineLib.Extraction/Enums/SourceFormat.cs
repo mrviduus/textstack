@@ -7,6 +7,5 @@ public enum SourceFormat
     Md = 2,
     Epub = 3,
     Pdf = 4,
-    Fb2 = 5,
-    Djvu = 6
+    Fb2 = 5
 }

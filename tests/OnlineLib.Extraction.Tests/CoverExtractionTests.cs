@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using OnlineLib.Extraction.Contracts;
 using OnlineLib.Extraction.Enums;
 using OnlineLib.Extraction.Extractors;
@@ -7,32 +6,11 @@ namespace OnlineLib.Extraction.Tests;
 
 /// <summary>
 /// E2E-style tests for cover extraction using real book files.
-/// Focuses on PDF and DJVU formats with cover image extraction.
+/// Focuses on PDF format with cover image extraction.
 /// </summary>
 public class CoverExtractionTests
 {
     private static string FixturesPath => Path.Combine(AppContext.BaseDirectory, "Fixtures");
-
-    private static bool IsDjvuToolsAvailable()
-    {
-        try
-        {
-            var psi = new ProcessStartInfo("djvutxt", "--help")
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            using var process = Process.Start(psi);
-            process?.WaitForExit(1000);
-            return process?.ExitCode == 0 || process?.ExitCode == 1; // --help returns 1
-        }
-        catch
-        {
-            return false;
-        }
-    }
 
     #region PDF Cover Extraction Tests
 
@@ -117,96 +95,6 @@ public class CoverExtractionTests
         Assert.Equal((byte)'H', result.Metadata.CoverImage[13]);
         Assert.Equal((byte)'D', result.Metadata.CoverImage[14]);
         Assert.Equal((byte)'R', result.Metadata.CoverImage[15]);
-    }
-
-    #endregion
-
-    #region DJVU Cover Extraction Tests
-
-    [Fact]
-    public async Task Djvu_Sample_ExtractsCoverAsPng()
-    {
-        // Skip if djvulibre not installed
-        if (!IsDjvuToolsAvailable())
-            return;
-
-        // Arrange
-        var djvuPath = Path.Combine(FixturesPath, "sample.djvu");
-        var extractor = new DjvuTextExtractor();
-        await using var stream = File.OpenRead(djvuPath);
-        var request = new ExtractionRequest { Content = stream, FileName = "sample.djvu" };
-
-        // Act
-        var result = await extractor.ExtractAsync(request);
-
-        // Assert
-        Assert.Equal(SourceFormat.Djvu, result.SourceFormat);
-        Assert.NotNull(result.Metadata.CoverImage);
-        Assert.True(result.Metadata.CoverImage.Length > 10000, "Cover should be substantial (>10KB)");
-        Assert.Equal("image/png", result.Metadata.CoverMimeType);
-
-        // Verify PNG signature
-        Assert.Equal(0x89, result.Metadata.CoverImage[0]);
-        Assert.Equal(0x50, result.Metadata.CoverImage[1]);
-    }
-
-    [Fact]
-    public async Task Djvu_Sample_ExtractsTextContent()
-    {
-        if (!IsDjvuToolsAvailable())
-            return;
-
-        // Arrange
-        var djvuPath = Path.Combine(FixturesPath, "sample.djvu");
-        var extractor = new DjvuTextExtractor();
-        await using var stream = File.OpenRead(djvuPath);
-        var request = new ExtractionRequest { Content = stream, FileName = "sample.djvu" };
-
-        // Act
-        var result = await extractor.ExtractAsync(request);
-
-        // Assert
-        Assert.Equal(TextSource.NativeText, result.Diagnostics.TextSource);
-        Assert.NotEmpty(result.Units);
-        var totalWords = result.Units.Sum(u => u.WordCount);
-        Assert.True(totalWords > 100, $"Should have substantial text, got {totalWords} words");
-    }
-
-    [Fact]
-    public async Task Djvu_Sample_HasCorrectFormat()
-    {
-        if (!IsDjvuToolsAvailable())
-            return;
-
-        // Arrange
-        var djvuPath = Path.Combine(FixturesPath, "sample.djvu");
-        var extractor = new DjvuTextExtractor();
-        await using var stream = File.OpenRead(djvuPath);
-        var request = new ExtractionRequest { Content = stream, FileName = "sample.djvu" };
-
-        // Act
-        var result = await extractor.ExtractAsync(request);
-
-        // Assert
-        Assert.Equal(SourceFormat.Djvu, result.SourceFormat);
-        Assert.Empty(result.Diagnostics.Warnings.Where(w =>
-            w.Code == ExtractionWarningCode.ParseError));
-    }
-
-    [Fact]
-    public async Task Djvu_InvalidStream_ReturnsEmptyWithWarning()
-    {
-        // Arrange - even without djvulibre, should handle gracefully
-        var extractor = new DjvuTextExtractor();
-        using var stream = new MemoryStream("not a djvu"u8.ToArray());
-        var request = new ExtractionRequest { Content = stream, FileName = "invalid.djvu" };
-
-        // Act
-        var result = await extractor.ExtractAsync(request);
-
-        // Assert
-        Assert.Equal(SourceFormat.Djvu, result.SourceFormat);
-        // Should have warnings about extraction failure
     }
 
     #endregion
