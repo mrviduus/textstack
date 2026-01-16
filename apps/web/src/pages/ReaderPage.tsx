@@ -554,7 +554,7 @@ export function ReaderPage() {
           containerRef={containerRef}
           html={chapter.html}
           settings={settings}
-          onTap={() => { isMobile ? show() : toggle(); showBarsTemporarily(); }}
+          onTap={() => { if (isMobile) { setImmersiveMode(false); startImmersiveTimer(); } else { toggle(); } }}
           onDoubleTap={toggleFullscreen}
           onLeftTap={isMobile ? handlePrevPage : undefined}
           onRightTap={isMobile ? handleNextPage : undefined}
