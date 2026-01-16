@@ -34,7 +34,7 @@ Phase 2:
 - FB2 (XML-based)
 
 Phase 3:
-- DJVU / image-only PDFs via OCR fallback
+- Image-only PDFs via OCR fallback
 
 ## Normalized Output Model
 ExtractionResult:

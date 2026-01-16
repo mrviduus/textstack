@@ -2,8 +2,9 @@
 
 ## [Unreleased]
 
-### Observability
-- **Removed Tempo** - distributed tracing service removed to save ~350MB RAM
+### Removed
+- **DjVu format support** — unused, removed extractor, tests, Docker deps
+- **Tempo** - distributed tracing service removed to save ~350MB RAM
   - Traces still collected via OTEL but not stored
   - To restore Tempo in future, see `docs/tempo-restore.md`
 

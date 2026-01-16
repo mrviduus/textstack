@@ -61,7 +61,6 @@ builder.Services.AddSingleton<ITextExtractor, Fb2TextExtractor>();
 builder.Services.AddSingleton<ITextExtractor, TxtTextExtractor>();
 builder.Services.AddSingleton<ITextExtractor, MdTextExtractor>();
 builder.Services.AddSingleton<ITextExtractor>(new PdfTextExtractor(extractionOptions, ocrEngine));
-builder.Services.AddSingleton<ITextExtractor>(new DjvuTextExtractor(extractionOptions, ocrEngine));
 builder.Services.AddSingleton<IExtractorRegistry, ExtractorRegistry>();
 
 // Services
