@@ -23,6 +23,7 @@ export function BookCardMenu({
   const [open, setOpen] = useState(false)
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null)
   const [isOffline, setIsOffline] = useState(false)
+  const [isPartiallyOffline, setIsPartiallyOffline] = useState(false)
   const [isDownloading, setIsDownloading] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -38,6 +39,13 @@ export function BookCardMenu({
     getCachedBookMeta(book.editionId).then(meta => {
       if (meta && meta.cachedChapters >= meta.totalChapters) {
         setIsOffline(true)
+        setIsPartiallyOffline(false)
+      } else if (meta && meta.cachedChapters > 0) {
+        setIsOffline(false)
+        setIsPartiallyOffline(true)
+      } else {
+        setIsOffline(false)
+        setIsPartiallyOffline(false)
       }
     })
   }, [book.editionId])
@@ -131,14 +139,18 @@ export function BookCardMenu({
     closeMenu()
     if (isDownloading) {
       cancelDownload(book.editionId)
-    } else if (isOffline) {
-      // Remove downloaded content
-      deleteAllCachedData(book.editionId).then(() => {
-        setIsOffline(false)
-      })
     } else {
+      // Start or resume download
       startDownload(book.editionId, book.slug, book.title, language)
     }
+  }
+
+  const handleRemoveDownload = () => {
+    closeMenu()
+    deleteAllCachedData(book.editionId).then(() => {
+      setIsOffline(false)
+      setIsPartiallyOffline(false)
+    })
   }
 
   const handleRemove = () => {
@@ -218,31 +230,42 @@ export function BookCardMenu({
             {isRead ? 'Mark as unread' : 'Mark as read'}
           </button>
 
-          <button
-            className="book-card-menu__item"
-            onClick={handleDownload}
-            role="menuitem"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              {isDownloading ? (
-                <>
+          {/* Download/Resume button - hide when fully offline */}
+          {!isOffline && (
+            <button
+              className="book-card-menu__item"
+              onClick={handleDownload}
+              role="menuitem"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                {isDownloading ? (
                   <path d="M18 6L6 18M6 6l12 12" />
-                </>
-              ) : isOffline ? (
-                <>
-                  <polyline points="3 6 5 6 21 6" />
-                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                </>
-              ) : (
-                <>
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                  <polyline points="7 10 12 15 17 10" />
-                  <line x1="12" y1="15" x2="12" y2="3" />
-                </>
-              )}
-            </svg>
-            {isDownloading ? 'Cancel download' : isOffline ? 'Remove download' : 'Download for offline'}
-          </button>
+                ) : (
+                  <>
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="7 10 12 15 17 10" />
+                    <line x1="12" y1="15" x2="12" y2="3" />
+                  </>
+                )}
+              </svg>
+              {isDownloading ? 'Cancel download' : isPartiallyOffline ? 'Resume download' : 'Download for offline'}
+            </button>
+          )}
+
+          {/* Remove download button - show when offline or partial */}
+          {(isOffline || isPartiallyOffline) && !isDownloading && (
+            <button
+              className="book-card-menu__item"
+              onClick={handleRemoveDownload}
+              role="menuitem"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="3 6 5 6 21 6" />
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+              </svg>
+              Remove download
+            </button>
+          )}
 
           <div className="book-card-menu__divider" />
 
