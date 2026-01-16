@@ -15,6 +15,7 @@ Free book library with Kindle-like reader. EPUB/PDF/FB2 upload, parsing, SEO pag
 | [Database](02-system/database.md) | Schema, entities |
 | API Docs | http://localhost:8080/scalar/v1 (live) |
 | [Local Dev](03-ops/local-dev.md) | Docker, migrations |
+| [Environment Variables](03-ops/environment-variables.md) | Complete env var reference |
 | [Production Deployment](03-ops/deployment.md) | Cloudflare tunnel, nginx, Docker |
 
 ## Core Features

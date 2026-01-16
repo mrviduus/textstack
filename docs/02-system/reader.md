@@ -1,9 +1,9 @@
-# Bookmate-like Reader Spec (MVP)
+# Reader Design Spec
 
-This document defines a **Bookmate-like** reading experience for **OnlineLib**.
-Goal: a **reading-first**, “product-like” UI with minimal distractions, optimized for **SEO chapter URLs** and fast iteration.
+> **Note**: This is the original design specification. For implementation details and current features, see [Reader Feature Docs](../05-features/reader.md).
 
-> We mimic **ideas and UX patterns**, not code or pixel-perfect copying.
+This document defines a **Bookmate-like** reading experience for **TextStack**.
+Goal: a **reading-first**, "product-like" UI with minimal distractions, optimized for **SEO chapter URLs** and fast iteration.
 
 ---
 
