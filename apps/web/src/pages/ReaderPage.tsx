@@ -46,7 +46,7 @@ export function ReaderPage() {
   const containerRef = useRef<HTMLDivElement>(null)
 
   const { settings, update } = useReaderSettings()
-  const { visible, toggle } = useAutoHideBar()
+  const { visible, show, toggle } = useAutoHideBar()
   const { bookmarks, addBookmark, removeBookmark, isBookmarked, getBookmarkForChapter } = useBookmarks(bookSlug || '')
   const { add: addToLibrary, isInLibrary } = useLibrary()
   const [scrollPercent, setScrollPercent] = useState(0)
@@ -554,7 +554,7 @@ export function ReaderPage() {
           containerRef={containerRef}
           html={chapter.html}
           settings={settings}
-          onTap={() => { toggle(); showBarsTemporarily(); }}
+          onTap={() => { isMobile ? show() : toggle(); showBarsTemporarily(); }}
           onDoubleTap={toggleFullscreen}
           onLeftTap={isMobile ? handlePrevPage : undefined}
           onRightTap={isMobile ? handleNextPage : undefined}
