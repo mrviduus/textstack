@@ -3,10 +3,13 @@ import { useParams, Link } from 'react-router-dom'
 import { useApi } from '../hooks/useApi'
 import { getStorageUrl } from '../api/client'
 import { useLanguage, SupportedLanguage } from '../context/LanguageContext'
+import { useDownload } from '../context/DownloadContext'
+import { useLibrary } from '../hooks/useLibrary'
 import { LocalizedLink } from '../components/LocalizedLink'
 import { SeoHead } from '../components/SeoHead'
 import { JsonLd } from '../components/JsonLd'
 import { stringToColor } from '../utils/colors'
+import { getCachedBookMeta } from '../lib/offlineDb'
 import type { BookDetail } from '../types/api'
 
 // Strip HTML tags from description text
@@ -19,9 +22,12 @@ export function BookDetailPage() {
   const { bookSlug } = useParams<{ bookSlug: string }>()
   const api = useApi()
   const { language } = useLanguage()
+  const { isDownloading, getProgress, startDownload } = useDownload()
+  const { isInLibrary } = useLibrary()
   const [book, setBook] = useState<BookDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [isOffline, setIsOffline] = useState(false)
 
   useEffect(() => {
     if (!bookSlug) return
@@ -33,6 +39,18 @@ export function BookDetailPage() {
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [bookSlug, api])
+
+  // Check offline status when book loads
+  useEffect(() => {
+    if (!book?.id) return
+    getCachedBookMeta(book.id).then((meta) => {
+      if (meta && meta.cachedChapters >= meta.totalChapters) {
+        setIsOffline(true)
+      } else {
+        setIsOffline(false)
+      }
+    })
+  }, [book?.id])
 
   // Compute available languages for hreflang
   const availableLanguages = useMemo<SupportedLanguage[]>(() => {
@@ -131,6 +149,32 @@ export function BookDetailPage() {
               >
                 Start Reading
               </LocalizedLink>
+            )}
+            {book.id && isDownloading(book.id) && (
+              <span className="book-detail__download-status book-detail__download-status--downloading">
+                Downloading {getProgress(book.id)}%...
+              </span>
+            )}
+            {book.id && !isDownloading(book.id) && isOffline && (
+              <span className="book-detail__download-status book-detail__download-status--offline">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                Available offline
+              </span>
+            )}
+            {book.id && !isDownloading(book.id) && !isOffline && isInLibrary(book.id) && (
+              <button
+                className="book-detail__download-btn"
+                onClick={() => startDownload(book.id, book.slug, book.title, language)}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+                Download for offline
+              </button>
             )}
           </div>
         </div>

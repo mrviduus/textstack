@@ -541,6 +541,44 @@
   cursor: not-allowed;
 }
 
+.book-detail__download-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  padding: 8px 12px;
+  border-radius: 6px;
+}
+
+.book-detail__download-status--downloading {
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.book-detail__download-status--offline {
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.book-detail__download-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  color: var(--color-text-secondary, #555);
+  padding: 8px 12px;
+  border: 1px solid var(--color-border, #E8E2D9);
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.book-detail__download-btn:hover {
+  border-color: var(--color-text-secondary, #555);
+  background: var(--color-bg-secondary, #F5F0E8);
+}
+
 .book-detail__toc {
   margin-bottom: 32px;
 }
@@ -1883,4 +1921,235 @@
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+/* =============================================
+   Download Progress Bar - Global bottom bar
+   ============================================= */
+
+.download-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: #1a1a1a;
+  color: #fff;
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  z-index: 1000;
+  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.3);
+  font-size: 13px;
+}
+
+.download-bar__icon {
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.download-bar__info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex-shrink: 1;
+}
+
+.download-bar__title {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+
+.download-bar__status {
+  font-size: 11px;
+  opacity: 0.6;
+}
+
+/* Error state */
+.download-bar--error {
+  background: #7f1d1d;
+}
+
+.download-bar--error .download-bar__icon {
+  color: #fca5a5;
+  opacity: 1;
+}
+
+.download-bar--error .download-bar__status {
+  color: #fca5a5;
+  opacity: 1;
+}
+
+/* Complete state */
+.download-bar--complete {
+  background: #14532d;
+}
+
+.download-bar--complete .download-bar__icon {
+  color: #86efac;
+  opacity: 1;
+}
+
+.download-bar--complete .download-bar__status {
+  color: #86efac;
+  opacity: 1;
+}
+
+.download-bar__progress {
+  flex: 1;
+  height: 4px;
+  background: #333;
+  border-radius: 2px;
+  min-width: 100px;
+  max-width: 300px;
+}
+
+.download-bar__progress-fill {
+  height: 100%;
+  background: #f59e0b;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.download-bar__percent {
+  font-size: 12px;
+  font-weight: 500;
+  min-width: 32px;
+  text-align: right;
+}
+
+.download-bar__cancel {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  padding: 6px;
+  cursor: pointer;
+  color: #999;
+  border-radius: 4px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.download-bar__cancel:hover {
+  background: #333;
+  color: #fff;
+}
+
+.download-bar__queue {
+  font-size: 11px;
+  opacity: 0.6;
+  margin-left: 4px;
+}
+
+@media (max-width: 600px) {
+  .download-bar {
+    padding: 10px 16px;
+    gap: 10px;
+  }
+
+  .download-bar__title {
+    max-width: 120px;
+  }
+
+  .download-bar__status {
+    display: none;
+  }
+
+  .download-bar__progress {
+    min-width: 60px;
+  }
+}
+
+/* =============================================
+   Book Card Menu - Kindle-style dropdown
+   ============================================= */
+
+.book-card-menu {
+  position: relative;
+}
+
+.book-card-menu__trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: #999;
+  border-radius: 4px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.book-card-menu__trigger:hover {
+  background: #f0f0f0;
+  color: #666;
+}
+
+.book-card-menu__dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 200px;
+  background: var(--color-bg, #fff);
+  border: 1px solid var(--color-border, #E8E2D9);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  z-index: 200;
+  overflow: hidden;
+  animation: menu-fade-in 0.15s ease;
+}
+
+@keyframes menu-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.book-card-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  background: none;
+  color: var(--color-text, #191919);
+  text-align: left;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.book-card-menu__item:hover {
+  background: var(--color-bg-secondary, #F5F0E8);
+}
+
+.book-card-menu__item svg {
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+.book-card-menu__item--danger {
+  color: #dc2626;
+}
+
+.book-card-menu__item--danger svg {
+  opacity: 1;
+}
+
+.book-card-menu__divider {
+  height: 1px;
+  background: var(--color-border, #E8E2D9);
+  margin: 4px 0;
 }

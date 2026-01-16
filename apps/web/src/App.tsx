@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate, useParams, useLocation } from '
 import { SiteProvider, useSite } from './context/SiteContext'
 import { AuthProvider } from './context/AuthContext'
 import { LanguageProvider, isValidLanguage } from './context/LanguageContext'
+import { DownloadProvider } from './context/DownloadContext'
 import { HomePage } from './pages/HomePage'
 import { ReaderPage } from './pages/ReaderPage'
 import { BooksPage } from './pages/BooksPage'
@@ -15,6 +16,7 @@ import { AboutPage } from './pages/AboutPage'
 import { LibraryPage } from './pages/LibraryPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { Header } from './components/Header'
+import { DownloadProgressBar } from './components/DownloadProgressBar'
 import './styles/theme.css'
 import './styles/reader.css'
 import './styles/books.css'
@@ -87,7 +89,10 @@ function App() {
     <BrowserRouter>
       <SiteProvider>
         <AuthProvider>
-          <AppRoutes />
+          <DownloadProvider>
+            <AppRoutes />
+            <DownloadProgressBar />
+          </DownloadProvider>
         </AuthProvider>
       </SiteProvider>
     </BrowserRouter>

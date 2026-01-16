@@ -99,6 +99,24 @@ export async function upsertProgress(editionId: string, data: UpsertProgressRequ
   })
 }
 
+// Mark book as fully read (100%)
+export async function markAsRead(editionId: string, chapterId: string): Promise<ReadingProgressDto> {
+  return upsertProgress(editionId, {
+    chapterId,
+    locator: '{"type":"end"}',
+    percent: 1,
+  })
+}
+
+// Mark book as unread (0%)
+export async function markAsUnread(editionId: string, chapterId: string): Promise<ReadingProgressDto> {
+  return upsertProgress(editionId, {
+    chapterId,
+    locator: '{"type":"start"}',
+    percent: 0,
+  })
+}
+
 // Library API
 export interface LibraryItem {
   editionId: string

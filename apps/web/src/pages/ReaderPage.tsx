@@ -201,10 +201,11 @@ export function ReaderPage() {
     }
   }, [currentPage, totalPages, overallProgress, book?.id, chapter?.id, updateProgress])
 
-  // Auto-add to library after page 2
+  // Auto-add to library after page 2 or 1% progress (for single-page chapters)
   useEffect(() => {
     if (!book?.id || libraryAddedRef.current) return
-    if (currentPage < 1) return // page 2 = index 1
+    // Trigger on page 2 OR 1% overall progress (handles single-page chapters)
+    if (currentPage < 1 && overallProgress < 0.01) return
     if (isInLibrary(book.id)) {
       libraryAddedRef.current = true
       return
@@ -213,7 +214,7 @@ export function ReaderPage() {
     addToLibrary(book.id)
       .then(() => setToastMessage('Added to library'))
       .catch(() => {}) // silent fail
-  }, [currentPage, book?.id, isInLibrary, addToLibrary])
+  }, [currentPage, overallProgress, book?.id, isInLibrary, addToLibrary])
 
   // Navigate to saved chapter if different from current
   useEffect(() => {
@@ -271,7 +272,7 @@ export function ReaderPage() {
   useEffect(() => {
     if (!bookSlug || !chapterSlug) return
     let cancelled = false
-    const signal = markFetchStart()
+    markFetchStart()
 
     const fetchData = async () => {
       setLoading(true)

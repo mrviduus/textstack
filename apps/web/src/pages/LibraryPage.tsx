@@ -1,17 +1,46 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useLibrary } from '../hooks/useLibrary'
+import { useApi } from '../hooks/useApi'
 import { LocalizedLink } from '../components/LocalizedLink'
 import { SeoHead } from '../components/SeoHead'
 import { OfflineBadge } from '../components/OfflineBadge'
+import { BookCardMenu } from '../components/library/BookCardMenu'
 import { getStorageUrl } from '../api/client'
 import { stringToColor } from '../utils/colors'
-import { getAllProgress, ReadingProgressDto } from '../api/auth'
+import { getAllProgress, ReadingProgressDto, markAsRead, markAsUnread } from '../api/auth'
 
 export function LibraryPage() {
   const { isAuthenticated, user } = useAuth()
   const { items, loading, remove } = useLibrary()
+  const api = useApi()
   const [progressMap, setProgressMap] = useState<Record<string, ReadingProgressDto>>({})
+
+  // Mark book as read (fetch first chapter, set 100%)
+  const handleMarkRead = useCallback(async (editionId: string, slug: string) => {
+    try {
+      const book = await api.getBook(slug)
+      if (book.chapters.length === 0) return
+      const lastChapter = book.chapters[book.chapters.length - 1]
+      const result = await markAsRead(editionId, lastChapter.id)
+      setProgressMap(prev => ({ ...prev, [editionId]: result }))
+    } catch (err) {
+      console.error('Failed to mark as read:', err)
+    }
+  }, [api])
+
+  // Mark book as unread (set 0%)
+  const handleMarkUnread = useCallback(async (editionId: string, slug: string) => {
+    try {
+      const book = await api.getBook(slug)
+      if (book.chapters.length === 0) return
+      const firstChapter = book.chapters[0]
+      const result = await markAsUnread(editionId, firstChapter.id)
+      setProgressMap(prev => ({ ...prev, [editionId]: result }))
+    } catch (err) {
+      console.error('Failed to mark as unread:', err)
+    }
+  }, [api])
 
   // Fetch all reading progress
   useEffect(() => {
@@ -100,15 +129,13 @@ export function LibraryPage() {
                       <OfflineBadge editionId={item.editionId} />
                     </div>
                   </div>
-                  <button
-                    className="library-card__remove"
-                    onClick={() => remove(item.editionId)}
-                    title="Remove from library"
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M18 6L6 18M6 6l12 12" />
-                    </svg>
-                  </button>
+                  <BookCardMenu
+                    book={item}
+                    isRead={percent >= 1}
+                    onRemove={() => remove(item.editionId)}
+                    onMarkRead={() => handleMarkRead(item.editionId, item.slug)}
+                    onMarkUnread={() => handleMarkUnread(item.editionId, item.slug)}
+                  />
                 </div>
               </div>
             )
