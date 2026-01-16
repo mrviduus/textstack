@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useCallback, useRef, type ReactNod
 import { createApi } from '../api/client'
 import {
   cacheChapter,
+  getCachedChapter,
   getCachedBookMeta,
   setCachedBookMeta,
   countCachedChapters,
@@ -104,6 +105,9 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       return
     }
 
+    // Get current cached count for resume progress
+    const currentCached = await countCachedChapters(editionId)
+
     // Initialize download state
     const info: DownloadInfo = {
       editionId,
@@ -111,7 +115,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       title,
       progress: 0,
       totalChapters: 0,
-      downloadedChapters: 0,
+      downloadedChapters: currentCached,
       failedChapters: 0,
       status: 'downloading',
     }
@@ -154,6 +158,15 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         const chapterSummary = chapters[i]
 
         try {
+          // Skip already cached chapters (resume support)
+          const existing = await getCachedChapter(editionId, chapterSummary.slug)
+          if (existing) {
+            const downloadedChapters = await countCachedChapters(editionId)
+            const progress = Math.round((downloadedChapters / totalChapters) * 100)
+            updateDownload(editionId, { downloadedChapters, progress })
+            continue
+          }
+
           const chapter = await api.getChapter(bookSlug, chapterSummary.slug)
           if (job.aborted) break
 
