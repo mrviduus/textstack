@@ -150,6 +150,27 @@ Upload EPUB/PDF/FB2 → BookFile (stored) → IngestionJob (queued)
 - GIN indexes for fast queries
 - Fuzzy search via trigrams
 
+**Reader**: Kindle-like reading experience
+- Page-based pagination with smooth transitions
+- Settings: font size, line height, width, theme, font family
+- Fullscreen mode with auto-hiding bars
+- Keyboard shortcuts (arrows, F, ?)
+- Mobile: swipe navigation, tap zones, immersive mode
+- Auto-save progress (local + server sync)
+
+**Offline Reading**: PWA with IndexedDB
+- Cache-first chapter loading
+- Download manager with progress tracking
+- Resume support for interrupted downloads
+- Storage quota checks (50MB minimum)
+- UI: offline badge, download/resume/remove menu
+
+**User Auth**: Google OAuth
+- Cookie-based JWT with refresh tokens
+- User library (save/unsave books)
+- Reading progress sync to server
+- Continue reading from library page
+
 ## API Endpoints
 
 **Public**:
@@ -168,10 +189,14 @@ Upload EPUB/PDF/FB2 → BookFile (stored) → IngestionJob (queued)
 - `POST /auth/logout`
 
 **User** (authenticated):
-- `POST /user/library` — save book, `DELETE /user/library/{editionId}` — unsave
-- `POST /user/reading-progress` — save position
-- `POST /user/bookmarks`, `DELETE /user/bookmarks/{id}`
-- `POST /user/notes`
+- `GET /me/library` — list saved books
+- `POST /me/library` — save book
+- `DELETE /me/library/{editionId}` — unsave
+- `GET /me/progress` — get all reading progress
+- `POST /me/progress` — save reading position
+- `GET /me/bookmarks` — list bookmarks
+- `POST /me/bookmarks` — create bookmark
+- `DELETE /me/bookmarks/{id}` — delete bookmark
 
 **Admin**:
 - `POST /admin/books/upload` — create Work + Edition + BookFile + IngestionJob
@@ -184,11 +209,19 @@ Upload EPUB/PDF/FB2 → BookFile (stored) → IngestionJob (queued)
 |------|------|
 | Domain | `backend/src/Domain/Entities/{Work,Edition,Chapter,Author,Genre}.cs` |
 | API | `backend/src/Api/Endpoints/{Books,Authors,Genres,Search,Seo}Endpoints.cs` |
+| User API | `backend/src/Api/Endpoints/UserDataEndpoints.cs` |
+| Auth API | `backend/src/Api/Endpoints/AuthEndpoints.cs` |
 | Services | `backend/src/Application/{Books,Ingestion,Seo}/` |
 | Worker | `backend/src/Worker/Services/IngestionWorkerService.cs` |
 | Search | `backend/src/Search/` |
 | Extraction | `backend/src/Extraction/OnlineLib.Extraction/` |
-| Web | `apps/web/src/pages/` |
+| Multisite | `backend/src/Api/Sites/{SiteContextMiddleware,SiteResolver}.cs` |
+| Web Pages | `apps/web/src/pages/` |
+| Reader | `apps/web/src/pages/ReaderPage.tsx` |
+| Library | `apps/web/src/pages/LibraryPage.tsx` |
+| Offline DB | `apps/web/src/lib/offlineDb.ts` |
+| Download | `apps/web/src/context/DownloadContext.tsx` |
+| Auth Context | `apps/web/src/context/AuthContext.tsx` |
 | Admin | `apps/admin/src/pages/` |
 
 ## IMPORTANT — HOW TO WORK IN THIS REPO
@@ -222,5 +255,7 @@ Search is a **key feature** - must always work. React immediately to any search 
 ## Known Technical Debt
 
 - 3 site resolution sources (HostSiteResolver, SiteResolver, frontend SiteContext) - needs consolidation
-- User entity features (ReadingProgresses, Bookmarks, Notes) unused in API
 - AdminAuditLog entity defined but never used
+- Notes feature partially implemented (entity exists, API not fully wired)
+- No Service Worker for true offline PWA
+- No background sync for offline operations

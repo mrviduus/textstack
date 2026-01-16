@@ -2,6 +2,37 @@
 
 ## [Unreleased]
 
+### Offline Reading (PWA)
+- **IndexedDB storage** - chapters cached locally for offline reading
+- **Download manager** - global context tracks active downloads, progress, errors
+- **Resume support** - paused/interrupted downloads continue from last chapter
+- **Storage quota check** - warns when <50MB available, handles QuotaExceededError
+- **Kindle-style library UI** - 3-dots menu with download/resume/remove options
+- **Offline badge** - visual indicator (download icon, spinner, pause icon)
+- **Cache-first reader** - serves from IndexedDB when available
+
+### User Authentication
+- **Google OAuth** - cookie-based auth with JWT refresh
+- **User library** - save/unsave books, persisted server-side
+- **Reading progress sync** - resume position synced to server
+- **Continue Reading** - library shows last read chapter with progress bar
+
+### Library
+- **My Library page** - grid view of saved books
+- **Progress indicators** - visual progress bar per book
+- **Read/unread status** - mark books as read
+- **Quick actions** - context menu for common operations
+
+### Search Improvements
+- **Enter to search** - pressing Enter navigates directly to search page
+- **Overlay close fix** - View All Results properly closes overlay
+- **Direct navigation** - search input triggers page navigation
+
+### Admin
+- **Stats cards** - authors/genres pages show count summaries
+- **Genres filter alignment** - consistent with authors page layout
+- **Published filter** - sitemap/admin respects publication status
+
 ### SEO - Chapter Splitting
 - **Chapter splitter** - long chapters auto-split at word boundaries (HTML block-aware)
 - **Site-level config** - `MaxWordsPerPart` per site (general: 1000, programming: 2000)
