@@ -46,7 +46,7 @@ export function ReaderPage() {
   const containerRef = useRef<HTMLDivElement>(null)
 
   const { settings, update } = useReaderSettings()
-  const { visible, show, toggle } = useAutoHideBar()
+  const { visible, toggle } = useAutoHideBar()
   const { bookmarks, addBookmark, removeBookmark, isBookmarked, getBookmarkForChapter } = useBookmarks(bookSlug || '')
   const { add: addToLibrary, isInLibrary } = useLibrary()
   const [scrollPercent, setScrollPercent] = useState(0)
@@ -97,12 +97,6 @@ export function ReaderPage() {
       setImmersiveMode(true)
     }, 3000)
   }, [isMobile])
-
-  const showBarsTemporarily = useCallback(() => {
-    if (!isMobile) return
-    setImmersiveMode(false)
-    startImmersiveTimer()
-  }, [isMobile, startImmersiveTimer])
 
   useEffect(() => {
     if (isMobile && !loading) {
