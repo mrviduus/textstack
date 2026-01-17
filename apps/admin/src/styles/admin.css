@@ -883,6 +883,11 @@ body {
   border: 2px dashed #d1d5db;
 }
 
+.cover-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .books-table {
   width: 100%;
   border-collapse: collapse;

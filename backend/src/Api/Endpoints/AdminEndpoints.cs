@@ -77,6 +77,10 @@ public static class AdminEndpoints
             .WithDescription("Upload edition cover (max 5MB, JPG/PNG/WebP)")
             .DisableAntiforgery();
 
+        group.MapDelete("/editions/{id:guid}/cover", DeleteEditionCover)
+            .WithName("DeleteEditionCover")
+            .WithDescription("Delete edition cover");
+
         // Chapter management
         group.MapGet("/chapters/{id:guid}", GetChapter)
             .WithName("AdminGetChapter");
@@ -377,6 +381,27 @@ public static class AdminEndpoints
         await db.SaveChangesAsync(ct);
 
         return Results.Ok(new { coverPath = relativePath });
+    }
+
+    private static async Task<IResult> DeleteEditionCover(
+        Guid id,
+        IAppDbContext db,
+        IFileStorageService storage,
+        CancellationToken ct)
+    {
+        var edition = await db.Editions.FindAsync([id], ct);
+        if (edition is null)
+            return Results.NotFound(new { error = "Edition not found" });
+
+        if (string.IsNullOrEmpty(edition.CoverPath))
+            return Results.Ok(new { message = "No cover to delete" });
+
+        await storage.DeleteFileAsync(edition.CoverPath, ct);
+        edition.CoverPath = null;
+        edition.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(ct);
+
+        return Results.Ok(new { message = "Cover deleted" });
     }
 
     private static async Task<IResult> ImportTextStack(

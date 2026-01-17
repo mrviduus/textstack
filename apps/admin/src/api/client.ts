@@ -390,6 +390,10 @@ export const adminApi = {
     })
   },
 
+  deleteEditionCover: async (id: string): Promise<void> => {
+    await fetchVoid(`/admin/editions/${id}/cover`, { method: 'DELETE' })
+  },
+
   getSites: async (): Promise<SiteListItem[]> => {
     return fetchJson<SiteListItem[]>('/admin/sites')
   },

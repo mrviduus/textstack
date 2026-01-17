@@ -19,6 +19,7 @@ export function EditEditionPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [uploadingCover, setUploadingCover] = useState(false)
+  const [deletingCover, setDeletingCover] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const [title, setTitle] = useState('')
@@ -152,6 +153,22 @@ export function EditEditionPage() {
     }
   }
 
+  const handleDeleteCover = async () => {
+    if (!id || !edition?.coverPath) return
+    if (!confirm('Remove cover image?')) return
+
+    setDeletingCover(true)
+    try {
+      await adminApi.deleteEditionCover(id)
+      const updated = await adminApi.getEdition(id)
+      setEdition(updated)
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to delete cover')
+    } finally {
+      setDeletingCover(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="edit-edition-page">
@@ -198,14 +215,26 @@ export function EditEditionPage() {
                 onChange={handleCoverUpload}
                 style={{ display: 'none' }}
               />
-              <button
-                type="button"
-                onClick={() => coverInputRef.current?.click()}
-                className="btn btn--small"
-                disabled={uploadingCover}
-              >
-                {uploadingCover ? 'Uploading...' : 'Upload Cover'}
-              </button>
+              <div className="cover-actions">
+                <button
+                  type="button"
+                  onClick={() => coverInputRef.current?.click()}
+                  className="btn btn--small"
+                  disabled={uploadingCover || deletingCover}
+                >
+                  {uploadingCover ? 'Uploading...' : edition.coverPath ? 'Change Cover' : 'Upload Cover'}
+                </button>
+                {edition.coverPath && (
+                  <button
+                    type="button"
+                    onClick={handleDeleteCover}
+                    className="btn btn--small btn--danger"
+                    disabled={uploadingCover || deletingCover}
+                  >
+                    {deletingCover ? 'Removing...' : 'Remove'}
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
