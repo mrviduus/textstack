@@ -371,9 +371,9 @@ public static class AdminEndpoints
             await storage.DeleteFileAsync(edition.CoverPath, ct);
         }
 
-        // Save new cover
+        // Save new cover with timestamp for cache busting
         await using var stream = file.OpenReadStream();
-        var fileName = $"cover{ext}";
+        var fileName = $"cover-{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}{ext}";
         var relativePath = await storage.SaveFileAsync(id, fileName, stream, ct);
 
         edition.CoverPath = relativePath;
