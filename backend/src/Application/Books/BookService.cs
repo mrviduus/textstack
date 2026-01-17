@@ -89,6 +89,14 @@ public class BookService(IAppDbContext db)
             .FirstOrDefaultAsync(ct);
     }
 
+    public async Task<string?> FindBookLanguageAsync(Guid siteId, string slug, CancellationToken ct)
+    {
+        return await db.Editions
+            .Where(e => e.SiteId == siteId && e.Slug == slug && e.Status == EditionStatus.Published)
+            .Select(e => e.Language)
+            .FirstOrDefaultAsync(ct);
+    }
+
     public async Task<ChapterDto?> GetChapterAsync(
         Guid siteId, string bookSlug, string chapterSlug, string language, CancellationToken ct)
     {

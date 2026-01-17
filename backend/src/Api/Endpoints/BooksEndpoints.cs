@@ -38,7 +38,19 @@ public static class BooksEndpoints
         var siteId = httpContext.GetSiteId();
         var language = httpContext.GetLanguage();
         var book = await bookService.GetBookAsync(siteId, slug, language, ct);
-        return book is null ? Results.NotFound() : Results.Ok(book);
+
+        if (book is null)
+        {
+            var actualLang = await bookService.FindBookLanguageAsync(siteId, slug, ct);
+            if (actualLang is not null && actualLang != language)
+            {
+                var encodedSlug = Uri.EscapeDataString(slug);
+                return Results.Redirect($"/{actualLang}/books/{encodedSlug}", permanent: false);
+            }
+            return Results.NotFound();
+        }
+
+        return Results.Ok(book);
     }
 
     private static async Task<IResult> GetChapter(
@@ -51,6 +63,19 @@ public static class BooksEndpoints
         var siteId = httpContext.GetSiteId();
         var language = httpContext.GetLanguage();
         var chapter = await bookService.GetChapterAsync(siteId, slug, chapterSlug, language, ct);
-        return chapter is null ? Results.NotFound() : Results.Ok(chapter);
+
+        if (chapter is null)
+        {
+            var actualLang = await bookService.FindBookLanguageAsync(siteId, slug, ct);
+            if (actualLang is not null && actualLang != language)
+            {
+                var encodedSlug = Uri.EscapeDataString(slug);
+                var encodedChapterSlug = Uri.EscapeDataString(chapterSlug);
+                return Results.Redirect($"/{actualLang}/books/{encodedSlug}/{encodedChapterSlug}", permanent: false);
+            }
+            return Results.NotFound();
+        }
+
+        return Results.Ok(chapter);
     }
 }
