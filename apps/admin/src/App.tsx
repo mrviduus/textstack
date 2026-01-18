@@ -13,6 +13,8 @@ import { CreateGenrePage } from './pages/CreateGenrePage'
 import { EditGenrePage } from './pages/EditGenrePage'
 import { EditChapterPage } from './pages/EditChapterPage'
 import { SitesPage } from './pages/SitesPage'
+import { SeoCrawlPage } from './pages/SeoCrawlPage'
+import { SeoCrawlJobPage } from './pages/SeoCrawlJobPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import './styles/admin.css'
 
@@ -34,6 +36,8 @@ function App() {
           <Route path="genres/new" element={<CreateGenrePage />} />
           <Route path="genres/:id" element={<EditGenrePage />} />
           <Route path="sites" element={<SitesPage />} />
+          <Route path="seo-crawl" element={<SeoCrawlPage />} />
+          <Route path="seo-crawl/:id" element={<SeoCrawlJobPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Route>
       </Routes>

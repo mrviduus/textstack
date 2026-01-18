@@ -94,37 +94,7 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
         // Clean up leftover test data from previous runs
         CleanupOldTestData(db);
 
-        // Use try-catch to handle parallel test execution race conditions
-        try
-        {
-            if (!db.Sites.Any(s => s.Id == GeneralSiteId))
-            {
-                db.Sites.Add(new Site
-                {
-                    Id = GeneralSiteId,
-                    Code = "general",
-                    PrimaryDomain = "general.localhost",
-                    DefaultLanguage = "en",
-                    IndexingEnabled = true,
-                    SitemapEnabled = true,
-                    CreatedAt = DateTimeOffset.UtcNow,
-                    UpdatedAt = DateTimeOffset.UtcNow
-                });
-                db.SaveChanges();
-            }
-            else
-            {
-                // Ensure existing site has indexing enabled
-                var site = db.Sites.First(s => s.Id == GeneralSiteId);
-                if (!site.IndexingEnabled || !site.SitemapEnabled)
-                {
-                    site.IndexingEnabled = true;
-                    site.SitemapEnabled = true;
-                    db.SaveChanges();
-                }
-            }
-        }
-        catch { db.ChangeTracker.Clear(); }
+        // Use existing site from DB - don't create or modify
 
         try
         {

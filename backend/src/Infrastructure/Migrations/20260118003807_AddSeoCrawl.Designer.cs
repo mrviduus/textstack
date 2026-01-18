@@ -3,6 +3,7 @@ using System;
 using Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using NpgsqlTypes;
@@ -12,9 +13,11 @@ using NpgsqlTypes;
 namespace Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260118003807_AddSeoCrawl")]
+    partial class AddSeoCrawl
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -821,6 +824,12 @@ namespace Infrastructure.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("crawl_delay_ms");
 
+                    b.Property<string>("CrawlMode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("crawl_mode");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -837,6 +846,15 @@ namespace Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("finished_at");
 
+                    b.Property<string>("HostAllowlistJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("host_allowlist_json");
+
+                    b.Property<int>("MaxDepth")
+                        .HasColumnType("integer")
+                        .HasColumnName("max_depth");
+
                     b.Property<int>("MaxPages")
                         .HasColumnType("integer")
                         .HasColumnName("max_pages");
@@ -844,6 +862,12 @@ namespace Infrastructure.Migrations
                     b.Property<int>("PagesCrawled")
                         .HasColumnType("integer")
                         .HasColumnName("pages_crawled");
+
+                    b.Property<string>("SeedUrl")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)")
+                        .HasColumnName("seed_url");
 
                     b.Property<Guid>("SiteId")
                         .HasColumnType("uuid")
@@ -856,10 +880,6 @@ namespace Infrastructure.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("integer")
                         .HasColumnName("status");
-
-                    b.Property<int>("TotalUrls")
-                        .HasColumnType("integer")
-                        .HasColumnName("total_urls");
 
                     b.Property<string>("UserAgent")
                         .IsRequired()
@@ -899,6 +919,10 @@ namespace Infrastructure.Migrations
                         .HasColumnType("character varying(100)")
                         .HasColumnName("content_type");
 
+                    b.Property<int>("Depth")
+                        .HasColumnType("integer")
+                        .HasColumnName("depth");
+
                     b.Property<string>("FetchError")
                         .HasColumnType("text")
                         .HasColumnName("fetch_error");
@@ -930,6 +954,12 @@ namespace Infrastructure.Migrations
                         .HasColumnType("character varying(100)")
                         .HasColumnName("meta_robots");
 
+                    b.Property<string>("NormalizedUrl")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)")
+                        .HasColumnName("normalized_url");
+
                     b.Property<int?>("StatusCode")
                         .HasColumnType("integer")
                         .HasColumnName("status_code");
@@ -945,12 +975,6 @@ namespace Infrastructure.Migrations
                         .HasColumnType("character varying(2048)")
                         .HasColumnName("url");
 
-                    b.Property<string>("UrlType")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasColumnName("url_type");
-
                     b.Property<string>("XRobotsTag")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)")
@@ -962,12 +986,12 @@ namespace Infrastructure.Migrations
                     b.HasIndex("JobId")
                         .HasDatabaseName("ix_seo_crawl_results_job_id");
 
+                    b.HasIndex("JobId", "NormalizedUrl")
+                        .IsUnique()
+                        .HasDatabaseName("ix_seo_crawl_results_job_id_normalized_url");
+
                     b.HasIndex("JobId", "StatusCode")
                         .HasDatabaseName("ix_seo_crawl_results_job_id_status_code");
-
-                    b.HasIndex("JobId", "Url")
-                        .IsUnique()
-                        .HasDatabaseName("ix_seo_crawl_results_job_id_url");
 
                     b.ToTable("seo_crawl_results", (string)null);
                 });
