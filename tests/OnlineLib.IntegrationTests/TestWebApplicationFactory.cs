@@ -94,10 +94,11 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
         // Clean up leftover test data from previous runs
         CleanupOldTestData(db);
 
-        // Create site only if it doesn't exist (for CI), don't modify existing (for local dev)
+        // Ensure site exists with correct settings for tests
         try
         {
-            if (!db.Sites.Any(s => s.Id == GeneralSiteId))
+            var site = db.Sites.FirstOrDefault(s => s.Id == GeneralSiteId);
+            if (site == null)
             {
                 db.Sites.Add(new Site
                 {
@@ -110,8 +111,15 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
                     CreatedAt = DateTimeOffset.UtcNow,
                     UpdatedAt = DateTimeOffset.UtcNow
                 });
-                db.SaveChanges();
             }
+            else
+            {
+                // Ensure required settings for tests
+                site.PrimaryDomain = "general.localhost";
+                site.IndexingEnabled = true;
+                site.SitemapEnabled = true;
+            }
+            db.SaveChanges();
         }
         catch { db.ChangeTracker.Clear(); }
 
