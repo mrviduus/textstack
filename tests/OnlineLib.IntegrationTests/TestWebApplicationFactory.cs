@@ -103,7 +103,7 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
                 {
                     Id = GeneralSiteId,
                     Code = "general",
-                    PrimaryDomain = "test.localhost",
+                    PrimaryDomain = "general.localhost",
                     DefaultLanguage = "en",
                     IndexingEnabled = true,
                     SitemapEnabled = true,
