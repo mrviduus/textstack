@@ -13,6 +13,8 @@ public class BookService(IAppDbContext db)
     {
         var query = db.Editions
             .Where(e => e.SiteId == siteId && e.Status == EditionStatus.Published)
+            // Only show books with at least one chapter
+            .Where(e => e.Chapters.Any())
             .AsQueryable();
 
         if (!string.IsNullOrEmpty(language))

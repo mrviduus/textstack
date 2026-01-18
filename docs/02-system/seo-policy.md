@@ -200,8 +200,11 @@ To prevent Google from indexing empty or invalid pages, the API returns HTTP 404
 ### Implementation
 
 **Backend (API):**
+- `GET /books` → only shows published books with chapters
 - `GET /books/{slug}` → 404 if `book is null OR book.Chapters.Count == 0`
+- `GET /authors` → only shows authors with published editions
 - `GET /authors/{slug}` → 404 if `author is null OR author.Editions.Count == 0`
+- `GET /genres` → only shows genres with published editions
 - `GET /genres/{slug}` → 404 if `genre is null OR genre.Editions.Count == 0`
 
 **Frontend (SPA):**
