@@ -107,7 +107,7 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
     volumes:
       - ./data/storage:/storage
-      - ${TEXTSTACK_PATH:-./data/textstack}:/data/textstack:ro
+      - ${TEXTSTACK_PATH:-./data/textstack}:/data/textstack
     ports:
       - "8080:8080"
     restart: unless-stopped

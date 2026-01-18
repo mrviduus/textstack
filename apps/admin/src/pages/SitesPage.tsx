@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { adminApi, SiteListItem, ReprocessResult, ReimportResult } from '../api/client'
+import { adminApi, SiteListItem, ReprocessResult, ReimportResult, SyncResult, RestoreResult } from '../api/client'
 
 export function SitesPage() {
   const [sites, setSites] = useState<SiteListItem[]>([])
@@ -12,6 +12,12 @@ export function SitesPage() {
   const [reprocessResult, setReprocessResult] = useState<{ siteId: string; result: ReprocessResult } | null>(null)
   const [reimportingSiteId, setReimportingSiteId] = useState<string | null>(null)
   const [reimportResult, setReimportResult] = useState<{ siteId: string; result: ReimportResult } | null>(null)
+  const [syncingSiteId, setSyncingSiteId] = useState<string | null>(null)
+  const [syncLimit, setSyncLimit] = useState<string>('')
+  const [syncResult, setSyncResult] = useState<{ siteId: string; result: SyncResult } | null>(null)
+  const [restoringSiteId, setRestoringSiteId] = useState<string | null>(null)
+  const [restoreLimit, setRestoreLimit] = useState<string>('')
+  const [restoreResult, setRestoreResult] = useState<{ siteId: string; result: RestoreResult } | null>(null)
 
   useEffect(() => {
     fetchSites()
@@ -76,6 +82,37 @@ export function SitesPage() {
       alert(err instanceof Error ? err.message : 'Failed to reimport')
     } finally {
       setReimportingSiteId(null)
+    }
+  }
+
+  const handleSync = async (siteId: string) => {
+    const limit = syncLimit ? parseInt(syncLimit) : undefined
+    if (!confirm(`Sync Standard Ebooks from GitHub?\n${limit ? `Limit: ${limit} books` : 'All available books'}\nThis may take a while.`)) return
+    setSyncingSiteId(siteId)
+    setSyncResult(null)
+    try {
+      const result = await adminApi.syncStandardEbooks(siteId, limit)
+      setSyncResult({ siteId, result })
+      await fetchSites() // refresh stats
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to sync')
+    } finally {
+      setSyncingSiteId(null)
+    }
+  }
+
+  const handleRestore = async (siteId: string) => {
+    const limit = restoreLimit ? parseInt(restoreLimit) : undefined
+    if (!confirm(`Restore source files from GitHub?\nThis will download source folders for books already in DB that are missing local files.\n${limit ? `Limit: ${limit} books` : 'All missing'}\nThis may take a while.`)) return
+    setRestoringSiteId(siteId)
+    setRestoreResult(null)
+    try {
+      const result = await adminApi.restoreStandardEbooksSources(siteId, limit)
+      setRestoreResult({ siteId, result })
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to restore')
+    } finally {
+      setRestoringSiteId(null)
     }
   }
 
@@ -248,6 +285,131 @@ export function SitesPage() {
                           .map(r => (
                             <li key={r.book}>
                               {r.book}: {r.error}
+                            </li>
+                          ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="setting-row setting-row--reprocess">
+                <label>Sync Standard Ebooks</label>
+                <div className="setting-edit">
+                  <input
+                    type="number"
+                    placeholder="Limit (empty = all)"
+                    value={syncLimit}
+                    onChange={(e) => setSyncLimit(e.target.value)}
+                    className="setting-input"
+                    min="1"
+                    style={{ width: '120px' }}
+                  />
+                  <button
+                    onClick={() => handleSync(site.id)}
+                    disabled={syncingSiteId === site.id}
+                    className="btn btn--secondary"
+                  >
+                    {syncingSiteId === site.id ? 'Syncing...' : 'Sync from GitHub'}
+                  </button>
+                </div>
+                <p className="setting-hint">
+                  Clone missing books from Standard Ebooks GitHub and import them.
+                </p>
+
+                {syncResult?.siteId === site.id && (
+                  <div className="reprocess-result">
+                    <h4>Sync Complete</h4>
+                    <div className="reprocess-stats">
+                      <span><strong>{syncResult.result.total}</strong> available</span>
+                      <span><strong>{syncResult.result.alreadyImported}</strong> already imported</span>
+                      <span><strong>{syncResult.result.cloned}</strong> cloned</span>
+                      <span><strong>{syncResult.result.imported}</strong> imported</span>
+                      <span><strong>{syncResult.result.failed}</strong> failed</span>
+                    </div>
+                    {syncResult.result.books.filter(b => b.status === 'imported').length > 0 && (
+                      <ul className="reprocess-editions">
+                        {syncResult.result.books
+                          .filter(b => b.status === 'imported')
+                          .slice(0, 20)
+                          .map(b => (
+                            <li key={b.identifier}>{b.identifier}</li>
+                          ))}
+                        {syncResult.result.books.filter(b => b.status === 'imported').length > 20 && (
+                          <li>... and {syncResult.result.books.filter(b => b.status === 'imported').length - 20} more</li>
+                        )}
+                      </ul>
+                    )}
+                    {syncResult.result.books.filter(b => b.error).length > 0 && (
+                      <ul className="reprocess-editions" style={{ color: 'red' }}>
+                        {syncResult.result.books
+                          .filter(b => b.error)
+                          .map(b => (
+                            <li key={b.identifier}>
+                              {b.identifier}: {b.error}
+                            </li>
+                          ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="setting-row setting-row--reprocess">
+                <label>Restore Source Files</label>
+                <div className="setting-edit">
+                  <input
+                    type="number"
+                    placeholder="Limit (empty = all)"
+                    value={restoreLimit}
+                    onChange={(e) => setRestoreLimit(e.target.value)}
+                    className="setting-input"
+                    min="1"
+                    style={{ width: '120px' }}
+                  />
+                  <button
+                    onClick={() => handleRestore(site.id)}
+                    disabled={restoringSiteId === site.id}
+                    className="btn btn--secondary"
+                  >
+                    {restoringSiteId === site.id ? 'Restoring...' : 'Restore from GitHub'}
+                  </button>
+                </div>
+                <p className="setting-hint">
+                  Download source folders for books in DB that don't have local files.
+                </p>
+
+                {restoreResult?.siteId === site.id && (
+                  <div className="reprocess-result">
+                    <h4>Restore Complete</h4>
+                    <div className="reprocess-stats">
+                      <span><strong>{restoreResult.result.totalInDb}</strong> in DB</span>
+                      <span><strong>{restoreResult.result.alreadyHaveSource}</strong> have source</span>
+                      <span><strong>{restoreResult.result.missingSource}</strong> missing</span>
+                      <span><strong>{restoreResult.result.availableOnGitHub}</strong> on GitHub</span>
+                      <span><strong>{restoreResult.result.restored}</strong> restored</span>
+                      <span><strong>{restoreResult.result.failed}</strong> failed</span>
+                    </div>
+                    {restoreResult.result.books.filter(b => b.status === 'restored').length > 0 && (
+                      <ul className="reprocess-editions">
+                        {restoreResult.result.books
+                          .filter(b => b.status === 'restored')
+                          .slice(0, 20)
+                          .map(b => (
+                            <li key={b.identifier}>{b.identifier}</li>
+                          ))}
+                        {restoreResult.result.books.filter(b => b.status === 'restored').length > 20 && (
+                          <li>... and {restoreResult.result.books.filter(b => b.status === 'restored').length - 20} more</li>
+                        )}
+                      </ul>
+                    )}
+                    {restoreResult.result.books.filter(b => b.error).length > 0 && (
+                      <ul className="reprocess-editions" style={{ color: 'red' }}>
+                        {restoreResult.result.books
+                          .filter(b => b.error)
+                          .map(b => (
+                            <li key={b.identifier}>
+                              {b.identifier}: {b.error}
                             </li>
                           ))}
                       </ul>

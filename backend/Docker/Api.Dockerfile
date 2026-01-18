@@ -13,6 +13,7 @@ COPY src/ src/
 RUN dotnet publish src/Api/Api.csproj -c Release -o /app/publish
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine AS runtime
+RUN apk add --no-cache git
 WORKDIR /app
 COPY --from=build /app/publish .
 ENV ASPNETCORE_URLS=http://+:8080

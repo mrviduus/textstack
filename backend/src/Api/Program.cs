@@ -91,6 +91,10 @@ builder.Services.AddSingleton<ISiteResolver, SiteResolver>();
 // TextStack import
 builder.Services.AddScoped<TextStackImportService>();
 
+// Standard Ebooks sync
+builder.Services.AddHttpClient<StandardEbooksSyncService>();
+builder.Services.AddScoped<StandardEbooksSyncService>();
+
 // Host-based site resolution
 builder.Services.AddSingleton<HostSiteResolver>();
 builder.Services.AddScoped<HostSiteContext>();

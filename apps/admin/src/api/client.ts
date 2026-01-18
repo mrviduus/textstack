@@ -169,6 +169,31 @@ export interface ReimportBookResult {
   error: string | null
 }
 
+export interface SyncResult {
+  total: number
+  alreadyImported: number
+  cloned: number
+  imported: number
+  failed: number
+  books: SyncBookResult[]
+}
+
+export interface SyncBookResult {
+  identifier: string
+  status: string
+  error: string | null
+}
+
+export interface RestoreResult {
+  totalInDb: number
+  alreadyHaveSource: number
+  missingSource: number
+  availableOnGitHub: number
+  restored: number
+  failed: number
+  books: SyncBookResult[]
+}
+
 // Legacy interface for backwards compatibility
 export interface Site {
   id: string
@@ -525,6 +550,22 @@ export const adminApi = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ siteId, path }),
+    })
+  },
+
+  syncStandardEbooks: async (siteId: string, limit?: number): Promise<SyncResult> => {
+    return fetchJson<SyncResult>('/admin/sync/standardebooks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ siteId, limit: limit || null }),
+    })
+  },
+
+  restoreStandardEbooksSources: async (siteId: string, limit?: number): Promise<RestoreResult> => {
+    return fetchJson<RestoreResult>('/admin/restore/standardebooks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ siteId, limit: limit || null }),
     })
   },
 

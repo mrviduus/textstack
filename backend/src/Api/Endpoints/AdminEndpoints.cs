@@ -52,6 +52,14 @@ public static class AdminEndpoints
             .WithName("ReimportTextStack")
             .WithDescription("Reimport existing books from TextStack folder (keeps SEO metadata)");
 
+        group.MapPost("/sync/standardebooks", SyncStandardEbooks)
+            .WithName("SyncStandardEbooks")
+            .WithDescription("Sync books from Standard Ebooks GitHub repository");
+
+        group.MapPost("/restore/standardebooks", RestoreStandardEbooksSources)
+            .WithName("RestoreStandardEbooksSources")
+            .WithDescription("Download source files for books in DB that don't have local sources");
+
         // Stats
         group.MapGet("/stats", GetStats)
             .WithName("GetStats")
@@ -497,7 +505,55 @@ public static class AdminEndpoints
 
         return Results.Ok(new { reimported, skipped, failed, total = results.Count, results });
     }
+
+    private static async Task<IResult> SyncStandardEbooks(
+        [FromBody] SyncStandardEbooksRequest request,
+        StandardEbooksSyncService syncService,
+        CancellationToken ct)
+    {
+        var result = await syncService.SyncAsync(request.SiteId, "/data/textstack", request.Limit, ct);
+
+        return Results.Ok(new
+        {
+            total = result.Total,
+            alreadyImported = result.AlreadyImported,
+            cloned = result.Cloned,
+            imported = result.Imported,
+            failed = result.Failed,
+            books = result.Books.Select(b => new
+            {
+                identifier = b.Identifier,
+                status = b.Status,
+                error = b.Error
+            })
+        });
+    }
+
+    private static async Task<IResult> RestoreStandardEbooksSources(
+        [FromBody] SyncStandardEbooksRequest request,
+        StandardEbooksSyncService syncService,
+        CancellationToken ct)
+    {
+        var result = await syncService.RestoreSourcesAsync(request.SiteId, "/data/textstack", request.Limit, ct);
+
+        return Results.Ok(new
+        {
+            totalInDb = result.TotalInDb,
+            alreadyHaveSource = result.AlreadyHaveSource,
+            missingSource = result.MissingSource,
+            availableOnGitHub = result.AvailableOnGitHub,
+            restored = result.Restored,
+            failed = result.Failed,
+            books = result.Books.Select(b => new
+            {
+                identifier = b.Identifier,
+                status = b.Status,
+                error = b.Error
+            })
+        });
+    }
 }
 
 public record ImportTextStackRequest(Guid SiteId, string? Path = null);
 public record ReimportTextStackRequest(Guid SiteId, string? Path = null);
+public record SyncStandardEbooksRequest(Guid SiteId, int? Limit = null);
