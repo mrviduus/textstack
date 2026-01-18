@@ -1,151 +1,275 @@
 # SEO Crawler — User Guide
 
-## What is this?
+## What is it?
 
-Internal SEO audit tool that crawls TextStack pages **as Googlebot sees them** (prerendered HTML). Helps find SEO issues before Google does.
+SEO Crawler validates SEO quality of TextStack pages **before Google sees them**.
+
+### Key Concept
+
+```
+Add book → Appears in sitemap.xml → Run SEO Crawler →
+→ Find issues → Fix them → Google sees clean version
+```
+
+### Why does it matter?
+
+1. **TextStack uses Prerender** — Google sees pre-rendered HTML, not React code
+2. **Crawler acts as Googlebot** — sees exactly what Google will see
+3. **Check before indexing** — fix issues before they hit search results
 
 ---
 
-## Your Sites
+## How it works technically
 
-| Environment | Site Code | Domain | Seed URL |
-|-------------|-----------|--------|----------|
-| **Production** | general | textstack.app | `https://textstack.app/en` |
-| **Production** | programming | textstack.dev | `https://textstack.dev/en` |
-| Dev | general | general.localhost | `http://general.localhost:5173/en` |
-| Dev | programming | programming.localhost | `http://programming.localhost:5173/en` |
+### User-Agent
 
-**Note:** The `example.com` URLs you see are test data from automated tests — ignore them.
+Crawler uses Googlebot User-Agent:
+
+```
+Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)
+```
+
+When Prerender sees this User-Agent, it returns **pre-rendered HTML** instead of empty SPA.
+
+### What gets checked?
+
+Crawler takes all URLs from sitemap (books, authors, genres) and for each:
+
+1. Makes HTTP request as Googlebot
+2. Gets HTML (via Prerender)
+3. Parses SEO fields:
+   - `<title>` — page title
+   - `<meta name="description">` — snippet description
+   - `<h1>` — main heading
+   - `<link rel="canonical">` — canonical URL
+   - `<meta name="robots">` — indexing directives
+
+### Where do URLs come from?
+
+**Not from sitemap.xml via HTTP**, but **directly from database**.
+
+Uses same logic as sitemap.xml generation:
+- Books: `Published` + `Indexable = true`
+- Authors: `Indexable = true` + has published books
+- Genres: `Indexable = true` + has published books
 
 ---
 
-## How to Run a Crawl
+## Step-by-step guide
 
-### Step 1: Create Job
+### 1. Open Admin → SEO Crawl
 
-1. Go to **Admin → SEO Crawl**
-2. Click **"New Crawl"**
-3. Fill the form:
+```
+http://localhost:5174/seo-crawl     (dev)
+https://admin.textstack.app/seo-crawl  (prod)
+```
 
-| Field | Description | Recommended |
-|-------|-------------|-------------|
-| **Site** | Which site to crawl | Pick `general` or `programming` |
-| **Seed URL** | Starting page | `https://textstack.app/en` (prod) |
-| **Max Pages** | Crawl limit | 100-500 for full site |
-| **Max Depth** | How deep to follow links | 3-5 |
+### 2. Create new crawl
 
-4. Click **"Create Job"**
+1. Click **"New Crawl"**
+2. Select site:
+   - `general (textstack.app)` — main site
+   - `programming (textstack.dev)` — programming books
 
-### Step 2: Start Crawl
+3. You'll see preview:
+   ```
+   Will check 56 URLs:
+   • 23 books
+   • 22 authors
+   • 11 genres
+   ```
 
-- Job is created in **Queued** status
-- Click **"Start"** to begin crawling
+4. Configure limits (optional):
+   - **Max Pages** — maximum pages (default 500)
+
+5. Click **"Create Job"**
+
+### 3. Start crawl
+
+- Status will be **Queued**
+- Click **"Start"**
 - Status changes to **Running**
-- Watch progress: `X / 500 pages`
+- Watch progress: `12 / 56`
 
-### Step 3: Review Results
+### 4. View results
 
-When **Completed**:
-1. Click **"View"** to see results
-2. Use filters to find problems:
-   - **2xx** — OK pages
-   - **3xx** — Redirects (check if intentional)
-   - **4xx** — Broken links (fix these!)
-   - **5xx** — Server errors (investigate)
-   - **Missing Title** — SEO problem
-   - **Missing Description** — SEO problem
-   - **Missing H1** — SEO problem
+When status is **Completed**:
 
-### Step 4: Export
+1. Click **"View"**
+2. See statistics:
 
-Click **"Export CSV"** to download results for spreadsheet analysis.
+| Metric | Meaning |
+|--------|---------|
+| **2XX** | ✅ Successful pages |
+| **3XX** | ⚠️ Redirects |
+| **4XX** | ❌ Broken links (404) |
+| **5XX** | 🔥 Server errors |
+| **Missing Title** | No `<title>` |
+| **Missing Desc** | No meta description |
+| **Missing H1** | No `<h1>` |
+| **NoIndex** | Page excluded from index |
 
----
+### 5. Filter issues
 
-## What It Extracts
+Use filters:
+- **Status Code** — 2xx/3xx/4xx/5xx
+- **Missing Title** — pages without title
+- **Missing Description** — without description
+- **Missing H1** — without H1
 
-For each page:
+### 6. Export
 
-| Field | What | Why Important |
-|-------|------|---------------|
-| URL | Page address | Reference |
-| Status Code | HTTP response | 200=OK, 404=broken |
-| Title | `<title>` tag | Google search result title |
-| Meta Description | `<meta name="description">` | Google snippet |
-| H1 | First `<h1>` heading | Page topic signal |
-| Canonical | `<link rel="canonical">` | Duplicate prevention |
-| Meta Robots | `<meta name="robots">` | Index/noindex control |
+Click **"Export CSV"** for analysis in Excel/Google Sheets.
 
 ---
 
-## How It Works (Technical)
+## What to check?
 
-1. **Uses Googlebot User-Agent** → triggers prerender
-2. **Sees same HTML as Google** → accurate SEO data
-3. **BFS crawl** → follows internal links only
-4. **Respects limits** → won't overload server
+### Weekly
 
-```
-User-Agent: Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)
-```
+1. Run crawl on prod (textstack.app)
+2. Check:
+   - Any 404 errors?
+   - All pages have title/description/H1?
+   - No unexpected noindex?
 
----
+### After adding books
 
-## Common Issues & Actions
+1. Add book via Admin
+2. Wait for Worker to process
+3. Run SEO Crawl
+4. Verify new book:
+   - Returns 200
+   - Has title = book name
+   - Has description
+   - Has H1
 
-| Problem | What to Check | Action |
-|---------|---------------|--------|
-| Many 404s | Broken internal links | Fix links or add redirects |
-| Missing titles | React hydration issues | Check SSR/prerender |
-| Missing descriptions | Template not setting meta | Update page templates |
-| Duplicate H1s | Multiple H1 tags | Keep one H1 per page |
-| Redirect chains | 301→301→200 | Simplify to direct link |
-| 5xx errors | Server/API issues | Check logs |
+### Before major changes
 
----
-
-## Recommended Workflow
-
-### Weekly Check
-1. Run crawl with `max_pages=500`
-2. Filter: 4xx errors → fix broken links
-3. Filter: Missing title → fix meta
-4. Export CSV for tracking
-
-### Before Deploy
-1. Run crawl on staging
-2. Compare with previous results
-3. Ensure no new 404s or missing SEO fields
-
-### After Major Changes
-1. Full crawl with `max_pages=1000`
-2. Review all 3xx redirects
-3. Check canonical tags
+1. Run full crawl
+2. Save CSV as baseline
+3. Make changes
+4. Run again
+5. Compare results
 
 ---
 
-## Settings Reference
+## Common issues and solutions
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| Max Pages | 500 | Stop after N pages |
-| Max Depth | 5 | Don't follow links deeper than N levels |
-| Concurrency | 4 | Parallel requests |
-| Crawl Delay | 200ms | Wait between requests |
-| Mode | Rendered | Uses Googlebot UA (always use this) |
+### Many 404 errors
+
+**Cause:** Broken links or deleted pages
+
+**Solution:**
+1. Check if book/author/genre exists
+2. If deleted — add redirect
+3. If error — fix slug
+
+### Missing Title
+
+**Cause:** Prerender not working or React component doesn't set title
+
+**Solution:**
+1. Check `curl -A "Googlebot" https://textstack.app/en/books/{slug}`
+2. Find `<title>` in response
+3. If missing — check React page component
+
+### Missing Description
+
+**Cause:** Meta description not set
+
+**Solution:**
+1. Book should have `seo_description` in database
+2. Verify component uses this field
+
+### Missing H1
+
+**Cause:** Page has no `<h1>` tag
+
+**Solution:**
+1. Every page should have one `<h1>`
+2. For books: book title
+3. For authors: author name
+4. For genres: genre name
+
+### NoIndex on pages that should be indexed
+
+**Cause:** Wrong `<meta name="robots">`
+
+**Solution:**
+1. Books, authors, genres should be `index, follow`
+2. Only chapters should be `noindex, follow`
+3. Check React component logic
+
+---
+
+## Settings
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| **Max Pages** | 500 | Maximum pages to check |
+| **Concurrency** | 4 | Parallel requests |
+| **Crawl Delay** | 200ms | Pause between requests |
+
+---
+
+## Results table columns
+
+| Column | Description |
+|--------|-------------|
+| **URL** | Page address |
+| **Type** | `book` / `author` / `genre` |
+| **Status** | HTTP code (200, 301, 404...) |
+| **Title** | `<title>` content |
+| **Meta Desc** | Meta description content |
+| **H1** | First `<h1>` content |
+| **Error** | Request error (if any) |
 
 ---
 
 ## FAQ
 
-**Q: Why Googlebot User-Agent?**
-A: TextStack uses prerender for SEO. Googlebot UA triggers prerender, so you see exactly what Google sees.
+### Why use Googlebot User-Agent?
 
-**Q: Can I crawl external sites?**
-A: No. This tool is for TextStack sites only. Use Screaming Frog for external audits.
+TextStack uses Prerender for SEO. When request comes with Googlebot User-Agent, server returns pre-rendered HTML instead of empty SPA. Crawler sees exactly what Google will see.
 
-**Q: Job stuck in Running?**
-A: Click "Cancel" and check Worker logs. May be network issue or server timeout.
+### What does "Type" mean in results?
 
-**Q: Why are there example.com jobs?**
-A: Test data from automated tests. You can ignore them or they'll be cleaned up.
+- `book` — book page (`/en/books/{slug}`)
+- `author` — author page (`/en/authors/{slug}`)
+- `genre` — genre page (`/en/genres/{slug}`)
+
+### Why no chapters in crawl?
+
+Chapters have `noindex` and shouldn't be indexed. We only check what goes to Google: books, authors, genres.
+
+### Job stuck in Running?
+
+1. Click **"Cancel"**
+2. Check Worker logs: `docker logs textstack_worker_prod`
+3. Possible causes:
+   - Network issues
+   - Prerender not responding
+   - Timeouts
+
+### Can I check external site?
+
+No. Crawler only works with TextStack sites (textstack.app, textstack.dev).
+
+### How often to run?
+
+- **Weekly** — for monitoring
+- **After each deploy** — verify nothing broke
+- **After adding content** — ensure correct SEO
+
+---
+
+## Related docs
+
+- [SEO Policy](../02-system/seo-policy.md) — indexing policy
+- [SEO Implementation](../02-system/seo-implementation.md) — technical implementation
+- [Prerender Setup](../03-ops/deployment.md) — Prerender configuration
+
+---
+
+*Last updated: 2025-01-18*
