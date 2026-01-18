@@ -61,7 +61,7 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
     volumes:
       - ./data/storage:/storage
-      - /tmp/standardebooks-import:/data/textstack:ro
+      - ./data/textstack:/data/textstack
     ports:
       - "127.0.0.1:8080:8080"  # Only localhost, nginx will proxy
     restart: always
