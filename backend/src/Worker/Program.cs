@@ -67,6 +67,11 @@ builder.Services.AddSingleton<IExtractorRegistry, ExtractorRegistry>();
 builder.Services.AddSingleton<IngestionWorkerService>();
 builder.Services.AddHostedService<IngestionWorker>();
 
+// SEO Crawl
+builder.Services.AddHttpClient("SeoCrawl");
+builder.Services.AddSingleton<SeoCrawlWorkerService>();
+builder.Services.AddHostedService<SeoCrawlWorker>();
+
 // TextStack watcher (optional, enable via config)
 if (builder.Configuration.GetValue("TextStack:EnableWatcher", false))
 {

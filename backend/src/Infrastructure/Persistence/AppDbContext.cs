@@ -28,6 +28,8 @@ public class AppDbContext : DbContext, IAppDbContext
     public DbSet<EditionAuthor> EditionAuthors => Set<EditionAuthor>();
     public DbSet<Genre> Genres => Set<Genre>();
     public DbSet<TextStackImport> TextStackImports => Set<TextStackImport>();
+    public DbSet<SeoCrawlJob> SeoCrawlJobs => Set<SeoCrawlJob>();
+    public DbSet<SeoCrawlResult> SeoCrawlResults => Set<SeoCrawlResult>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -244,6 +246,34 @@ public class AppDbContext : DbContext, IAppDbContext
             e.Property(x => x.Identifier).HasMaxLength(500);
             e.HasOne(x => x.Site).WithMany().HasForeignKey(x => x.SiteId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.Edition).WithMany().HasForeignKey(x => x.EditionId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // SeoCrawlJob
+        modelBuilder.Entity<SeoCrawlJob>(e =>
+        {
+            e.HasIndex(x => x.SiteId);
+            e.HasIndex(x => x.Status);
+            e.HasIndex(x => x.CreatedAt);
+            e.Property(x => x.UserAgent).HasMaxLength(500);
+            e.HasOne(x => x.Site).WithMany().HasForeignKey(x => x.SiteId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // SeoCrawlResult
+        modelBuilder.Entity<SeoCrawlResult>(e =>
+        {
+            e.HasIndex(x => x.JobId);
+            e.HasIndex(x => new { x.JobId, x.Url }).IsUnique();
+            e.HasIndex(x => new { x.JobId, x.StatusCode });
+            e.Property(x => x.Url).HasMaxLength(2048);
+            e.Property(x => x.UrlType).HasMaxLength(20);
+            e.Property(x => x.ContentType).HasMaxLength(100);
+            e.Property(x => x.Title).HasMaxLength(1000);
+            e.Property(x => x.MetaDescription).HasMaxLength(2000);
+            e.Property(x => x.H1).HasMaxLength(1000);
+            e.Property(x => x.Canonical).HasMaxLength(2048);
+            e.Property(x => x.MetaRobots).HasMaxLength(100);
+            e.Property(x => x.XRobotsTag).HasMaxLength(100);
+            e.HasOne(x => x.Job).WithMany(x => x.Results).HasForeignKey(x => x.JobId).OnDelete(DeleteBehavior.Cascade);
         });
     }
 

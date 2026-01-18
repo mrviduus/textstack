@@ -154,6 +154,7 @@ app.MapAdminEndpoints();
 app.MapAdminAuthorsEndpoints();
 app.MapAdminGenresEndpoints();
 app.MapAdminSitesEndpoints();
+app.MapAdminSeoCrawlEndpoints();
 app.MapBooksEndpoints();
 app.MapSearchEndpoints();
 app.MapAuthorsEndpoints();

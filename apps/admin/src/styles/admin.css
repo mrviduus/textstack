@@ -1463,3 +1463,255 @@ body {
 .reprocess-editions li {
   margin: 4px 0;
 }
+
+/* SEO Crawl Pages */
+.seo-crawl-page h1,
+.seo-crawl-job-page h1 {
+  margin: 0;
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.header-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.create-form {
+  background: #fff;
+  padding: 24px;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  margin-bottom: 24px;
+}
+
+.create-form h3 {
+  margin: 0 0 16px;
+}
+
+.create-form .form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.create-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.create-form input,
+.create-form select {
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.create-form input:focus,
+.create-form select:focus {
+  outline: none;
+  border-color: #4f46e5;
+}
+
+.filters {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 24px;
+  align-items: center;
+}
+
+.filters select {
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.checkbox-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.data-table {
+  width: 100%;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  border-collapse: collapse;
+  overflow: hidden;
+}
+
+.data-table th,
+.data-table td {
+  padding: 12px 16px;
+  text-align: left;
+  border-bottom: 1px solid #eee;
+}
+
+.data-table th {
+  background: #f9fafb;
+  font-weight: 600;
+  font-size: 13px;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.data-table td {
+  font-size: 14px;
+}
+
+.data-table tr:last-child td {
+  border-bottom: none;
+}
+
+.data-table a {
+  color: #4f46e5;
+  text-decoration: none;
+}
+
+.data-table a:hover {
+  text-decoration: underline;
+}
+
+.url-cell {
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: monospace;
+  font-size: 12px;
+}
+
+.error-count {
+  color: #dc2626;
+  font-weight: 600;
+}
+
+.badge--cancelled {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 48px;
+  color: #666;
+}
+
+/* Job Detail Page */
+.job-overview {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-bottom: 32px;
+}
+
+.overview-card {
+  background: #fff;
+  padding: 24px;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.overview-card h3 {
+  margin: 0 0 16px;
+  font-size: 18px;
+}
+
+.overview-card dl {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 8px 16px;
+  margin: 0;
+}
+
+.overview-card dt {
+  font-weight: 500;
+  color: #666;
+  font-size: 13px;
+}
+
+.overview-card dd {
+  margin: 0;
+  font-size: 14px;
+  word-break: break-word;
+}
+
+.overview-card dd a {
+  color: #4f46e5;
+  text-decoration: none;
+}
+
+.overview-card dd a:hover {
+  text-decoration: underline;
+}
+
+.job-error {
+  margin-top: 16px;
+  padding: 12px;
+  background: #fee2e2;
+  color: #991b1b;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.stats-card .stat {
+  padding: 12px;
+  background: #f9fafb;
+  border-radius: 8px;
+  text-align: center;
+}
+
+.stat-value {
+  display: block;
+  font-size: 24px;
+  font-weight: 700;
+  color: #1a1a2e;
+}
+
+.stat-label {
+  font-size: 11px;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.stat--success .stat-value { color: #059669; }
+.stat--redirect .stat-value { color: #d97706; }
+.stat--client-error .stat-value { color: #dc2626; }
+.stat--server-error .stat-value { color: #7c3aed; }
+.stat--warning .stat-value { color: #ea580c; }
+
+.results-section h2 {
+  margin: 0 0 16px;
+}
+
+.results-table .missing {
+  color: #dc2626;
+  font-style: italic;
+}
+
+.status-2xx { color: #059669; font-weight: 600; }
+.status-3xx { color: #d97706; font-weight: 600; }
+.status-4xx { color: #dc2626; font-weight: 600; }
+.status-5xx { color: #7c3aed; font-weight: 600; }

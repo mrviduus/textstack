@@ -94,10 +94,11 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
         // Clean up leftover test data from previous runs
         CleanupOldTestData(db);
 
-        // Use try-catch to handle parallel test execution race conditions
+        // Ensure site exists with correct settings for tests
         try
         {
-            if (!db.Sites.Any(s => s.Id == GeneralSiteId))
+            var site = db.Sites.FirstOrDefault(s => s.Id == GeneralSiteId);
+            if (site == null)
             {
                 db.Sites.Add(new Site
                 {
@@ -110,19 +111,15 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
                     CreatedAt = DateTimeOffset.UtcNow,
                     UpdatedAt = DateTimeOffset.UtcNow
                 });
-                db.SaveChanges();
             }
             else
             {
-                // Ensure existing site has indexing enabled
-                var site = db.Sites.First(s => s.Id == GeneralSiteId);
-                if (!site.IndexingEnabled || !site.SitemapEnabled)
-                {
-                    site.IndexingEnabled = true;
-                    site.SitemapEnabled = true;
-                    db.SaveChanges();
-                }
+                // Ensure required settings for tests
+                site.PrimaryDomain = "general.localhost";
+                site.IndexingEnabled = true;
+                site.SitemapEnabled = true;
             }
+            db.SaveChanges();
         }
         catch { db.ChangeTracker.Clear(); }
 

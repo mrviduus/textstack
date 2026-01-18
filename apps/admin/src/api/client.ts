@@ -274,6 +274,84 @@ export interface EditionGenre {
   name: string
 }
 
+// SEO Crawl
+export type SeoCrawlJobStatus = 'Queued' | 'Running' | 'Completed' | 'Failed' | 'Cancelled'
+
+export interface SeoCrawlJobListItem {
+  id: string
+  siteId: string
+  siteCode: string
+  status: SeoCrawlJobStatus
+  totalUrls: number
+  maxPages: number
+  pagesCrawled: number
+  errorsCount: number
+  createdAt: string
+  startedAt: string | null
+  finishedAt: string | null
+}
+
+export interface SeoCrawlJobDetail {
+  id: string
+  siteId: string
+  siteCode: string
+  status: SeoCrawlJobStatus
+  totalUrls: number
+  maxPages: number
+  concurrency: number
+  crawlDelayMs: number
+  userAgent: string
+  pagesCrawled: number
+  errorsCount: number
+  error: string | null
+  createdAt: string
+  startedAt: string | null
+  finishedAt: string | null
+}
+
+export interface SeoCrawlJobStats {
+  total: number
+  status2xx: number
+  status3xx: number
+  status4xx: number
+  status5xx: number
+  missingTitle: number
+  missingDescription: number
+  missingH1: number
+  noIndex: number
+}
+
+export interface SeoCrawlResult {
+  id: string
+  url: string
+  urlType: string
+  statusCode: number | null
+  contentType: string | null
+  htmlBytes: number | null
+  title: string | null
+  metaDescription: string | null
+  h1: string | null
+  canonical: string | null
+  metaRobots: string | null
+  xRobotsTag: string | null
+  fetchedAt: string
+  fetchError: string | null
+}
+
+export interface SeoCrawlPreview {
+  totalUrls: number
+  bookCount: number
+  authorCount: number
+  genreCount: number
+}
+
+export interface CreateSeoCrawlJobRequest {
+  siteId: string
+  maxPages?: number
+  crawlDelayMs?: number
+  concurrency?: number
+}
+
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, init)
   if (!res.ok) {
@@ -552,5 +630,61 @@ export const adminApi = {
 
   deleteChapter: async (id: string): Promise<void> => {
     await fetchVoid(`/admin/chapters/${id}`, { method: 'DELETE' })
+  },
+
+  // SEO Crawl
+  getSeoCrawlPreview: async (siteId: string): Promise<SeoCrawlPreview> => {
+    return fetchJson<SeoCrawlPreview>(`/admin/seo-crawl/preview?siteId=${siteId}`)
+  },
+
+  getSeoCrawlJobs: async (params?: { siteId?: string; status?: SeoCrawlJobStatus; limit?: number; offset?: number }): Promise<PaginatedResult<SeoCrawlJobListItem>> => {
+    const query = new URLSearchParams()
+    if (params?.siteId) query.set('siteId', params.siteId)
+    if (params?.status) query.set('status', params.status)
+    if (params?.limit) query.set('limit', String(params.limit))
+    if (params?.offset) query.set('offset', String(params.offset))
+    const qs = query.toString()
+    return fetchJson<PaginatedResult<SeoCrawlJobListItem>>(`/admin/seo-crawl/jobs${qs ? `?${qs}` : ''}`)
+  },
+
+  getSeoCrawlJob: async (id: string): Promise<SeoCrawlJobDetail> => {
+    return fetchJson<SeoCrawlJobDetail>(`/admin/seo-crawl/jobs/${id}`)
+  },
+
+  createSeoCrawlJob: async (data: CreateSeoCrawlJobRequest): Promise<{ id: string }> => {
+    return fetchJson<{ id: string }>('/admin/seo-crawl/jobs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    })
+  },
+
+  startSeoCrawlJob: async (id: string): Promise<void> => {
+    await fetchVoid(`/admin/seo-crawl/jobs/${id}/start`, { method: 'POST' })
+  },
+
+  cancelSeoCrawlJob: async (id: string): Promise<void> => {
+    await fetchVoid(`/admin/seo-crawl/jobs/${id}/cancel`, { method: 'POST' })
+  },
+
+  getSeoCrawlJobStats: async (id: string): Promise<SeoCrawlJobStats> => {
+    return fetchJson<SeoCrawlJobStats>(`/admin/seo-crawl/jobs/${id}/stats`)
+  },
+
+  getSeoCrawlResults: async (id: string, params?: { statusCodeMin?: number; statusCodeMax?: number; missingTitle?: boolean; missingDescription?: boolean; missingH1?: boolean; limit?: number; offset?: number }): Promise<PaginatedResult<SeoCrawlResult>> => {
+    const query = new URLSearchParams()
+    if (params?.statusCodeMin !== undefined) query.set('statusCodeMin', String(params.statusCodeMin))
+    if (params?.statusCodeMax !== undefined) query.set('statusCodeMax', String(params.statusCodeMax))
+    if (params?.missingTitle !== undefined) query.set('missingTitle', String(params.missingTitle))
+    if (params?.missingDescription !== undefined) query.set('missingDescription', String(params.missingDescription))
+    if (params?.missingH1 !== undefined) query.set('missingH1', String(params.missingH1))
+    if (params?.limit) query.set('limit', String(params.limit))
+    if (params?.offset) query.set('offset', String(params.offset))
+    const qs = query.toString()
+    return fetchJson<PaginatedResult<SeoCrawlResult>>(`/admin/seo-crawl/jobs/${id}/results${qs ? `?${qs}` : ''}`)
+  },
+
+  getSeoCrawlExportUrl: (id: string): string => {
+    return `${API_BASE}/admin/seo-crawl/jobs/${id}/export.csv`
   },
 }
