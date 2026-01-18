@@ -20,11 +20,13 @@ import { SeoHead } from '../components/SeoHead'
 import { Toast } from '../components/Toast'
 import { ReaderTopBar } from '../components/reader/ReaderTopBar'
 import { ReaderContent } from '../components/reader/ReaderContent'
+import { ScrollReaderContent } from '../components/reader/ScrollReaderContent'
 import { ReaderFooterNav } from '../components/reader/ReaderFooterNav'
 import { ReaderPageNav } from '../components/reader/ReaderPageNav'
 import { ReaderSettingsDrawer } from '../components/reader/ReaderSettingsDrawer'
 import { ReaderTocDrawer, type AutoSaveInfo } from '../components/reader/ReaderTocDrawer'
 import { ReaderSearchDrawer } from '../components/reader/ReaderSearchDrawer'
+import { useScrollReader } from '../hooks/useScrollReader'
 
 export function ReaderPage() {
   const { bookSlug, chapterSlug } = useParams<{ bookSlug: string; chapterSlug: string }>()
@@ -64,6 +66,39 @@ export function ReaderPage() {
   const isMobile = useIsMobile()
   const [immersiveMode, setImmersiveMode] = useState(false)
   const immersiveTimerRef = useRef<number | null>(null)
+
+  // Scroll mode for mobile continuous reading
+  const useScrollMode = isMobile
+
+  // Fetch chapter callback for scroll reader
+  const fetchChapter = useCallback(
+    async (slug: string) => {
+      return api.getChapter(bookSlug!, slug)
+    },
+    [api, bookSlug]
+  )
+
+  // Scroll reader hook (for mobile continuous scroll)
+  const scrollReader = useScrollReader({
+    book,
+    initialChapterSlug: chapterSlug || '',
+    editionId: book?.id || '',
+    fetchChapter,
+  })
+
+  // Track current URL chapter (may differ from chapterSlug after replaceState)
+  const currentUrlChapterRef = useRef(chapterSlug)
+
+  // Sync URL with visible chapter from scroll reader
+  useEffect(() => {
+    if (!useScrollMode) return
+    const visibleSlug = scrollReader.visibleChapterSlug
+    if (visibleSlug && visibleSlug !== currentUrlChapterRef.current) {
+      const newPath = getLocalizedPath(`/books/${bookSlug}/${visibleSlug}`)
+      window.history.replaceState(null, '', newPath)
+      currentUrlChapterRef.current = visibleSlug
+    }
+  }, [useScrollMode, scrollReader.visibleChapterSlug, bookSlug, getLocalizedPath])
 
   // Show bars on mouse move in fullscreen, hide after 2s
   const handleMouseMove = useCallback(() => {
@@ -166,9 +201,47 @@ export function ReaderPage() {
 
   // Calculate overall book progress based on word counts
   const overallProgress = useMemo(() => {
-    if (!book || !chapterSlug || totalPages === 0) return 0
+    if (!book) return 0
 
     const chapters = book.chapters
+
+    // For scroll mode: use visibleChapterSlug from scrollReader
+    if (useScrollMode) {
+      const currentSlug = scrollReader.visibleChapterSlug
+      if (!currentSlug) return 0
+
+      const currentChapterIndex = chapters.findIndex(c => c.slug === currentSlug)
+      if (currentChapterIndex === -1) return 0
+
+      // Calculate progress within current chapter based on scroll offset
+      const chapterEl = scrollReader.chapterRefs.current.get(currentSlug)
+      let chapterProgress = 0
+      if (chapterEl) {
+        const chapterHeight = chapterEl.scrollHeight
+        if (chapterHeight > 0) {
+          chapterProgress = Math.min(1, Math.max(0, scrollReader.scrollOffset / chapterHeight))
+        }
+      }
+
+      // Calculate using word counts for accuracy
+      const totalWords = chapters.reduce((sum, c) => sum + (c.wordCount || 0), 0)
+      if (totalWords === 0) {
+        // Fallback to chapter-based if no word counts
+        return (currentChapterIndex + chapterProgress) / chapters.length
+      }
+
+      const wordsBeforeCurrent = chapters
+        .slice(0, currentChapterIndex)
+        .reduce((sum, c) => sum + (c.wordCount || 0), 0)
+      const currentChapterWords = chapters[currentChapterIndex].wordCount || 0
+      const wordsRead = wordsBeforeCurrent + currentChapterWords * chapterProgress
+
+      return wordsRead / totalWords
+    }
+
+    // For pagination mode: use page-based progress
+    if (!chapterSlug || totalPages === 0) return 0
+
     const currentChapterIndex = chapters.findIndex(c => c.slug === chapterSlug)
     if (currentChapterIndex === -1) return 0
 
@@ -186,14 +259,39 @@ export function ReaderPage() {
     const wordsRead = wordsBeforeCurrent + currentChapterWords * progress
 
     return wordsRead / totalWords
-  }, [book, chapterSlug, progress, totalPages])
+  }, [book, chapterSlug, progress, totalPages, useScrollMode, scrollReader.visibleChapterSlug, scrollReader.scrollOffset, scrollReader.chapterRefs])
 
-  // Sync progress when page changes
+  // Sync progress when page changes (pagination mode)
   useEffect(() => {
     if (totalPages > 0 && book?.id && chapter?.id) {
       updateProgress(overallProgress, currentPage)
     }
   }, [currentPage, totalPages, overallProgress, book?.id, chapter?.id, updateProgress])
+
+  // Sync progress when scroll position changes (scroll mode)
+  const lastScrollSaveRef = useRef<{ slug: string; offset: number } | null>(null)
+  useEffect(() => {
+    if (!useScrollMode || !book?.id || !book?.chapters) return
+
+    const visibleSlug = scrollReader.visibleChapterSlug
+    const offset = scrollReader.scrollOffset
+    if (!visibleSlug) return
+
+    // Only save if position changed significantly (chapter change OR 500px scroll)
+    const last = lastScrollSaveRef.current
+    if (last && last.slug === visibleSlug && Math.abs(last.offset - offset) < 500) {
+      return
+    }
+    lastScrollSaveRef.current = { slug: visibleSlug, offset }
+
+    // Find chapter info from book's chapter list (has IDs)
+    const bookChapter = book.chapters.find(c => c.slug === visibleSlug)
+    if (!bookChapter) return
+
+    // Create scroll locator and save with correct chapter info
+    const scrollLocator = `scroll:${visibleSlug}:${Math.round(offset)}`
+    updateProgress(overallProgress, undefined, scrollLocator, bookChapter.id, visibleSlug)
+  }, [useScrollMode, book?.id, book?.chapters, scrollReader.visibleChapterSlug, scrollReader.scrollOffset, overallProgress, updateProgress])
 
   // Auto-add to library after page 2 or 1% progress (for single-page chapters)
   useEffect(() => {
@@ -506,9 +604,10 @@ export function ReaderPage() {
 
   const fullscreenClass = isFullscreen ? (showBarsInFullscreen ? 'fullscreen-bars-visible' : 'fullscreen-bars-hidden') : ''
   const immersiveClass = immersiveMode ? 'immersive-mode' : ''
+  const scrollModeClass = useScrollMode ? 'reader-page--scroll-mode' : ''
 
   return (
-    <div className={`reader-page ${fullscreenClass} ${immersiveClass}`}>
+    <div className={`reader-page ${fullscreenClass} ${immersiveClass} ${scrollModeClass}`}>
       {/* noindex: chapters are reading UX only, not search-worthy content */}
       <SeoHead title={seoTitle} description={seoDescription} noindex />
       <a href="#reader-content" className="skip-link">Skip to content</a>
@@ -543,16 +642,27 @@ export function ReaderPage() {
       />
 
       <main id="reader-content" className="reader-main">
-        <ReaderContent
-          ref={contentRef}
-          containerRef={containerRef}
-          html={chapter.html}
-          settings={settings}
-          onTap={() => { if (isMobile) { setImmersiveMode(false); startImmersiveTimer(); } else { toggle(); } }}
-          onDoubleTap={toggleFullscreen}
-          onLeftTap={isMobile ? handlePrevPage : undefined}
-          onRightTap={isMobile ? handleNextPage : undefined}
-        />
+        {useScrollMode ? (
+          <ScrollReaderContent
+            chapters={scrollReader.chapters}
+            settings={settings}
+            isLoadingMore={scrollReader.isLoadingMore}
+            onLoadMore={scrollReader.loadMore}
+            chapterRefs={scrollReader.chapterRefs}
+            onTap={() => { setImmersiveMode(false); startImmersiveTimer(); }}
+          />
+        ) : (
+          <ReaderContent
+            ref={contentRef}
+            containerRef={containerRef}
+            html={chapter.html}
+            settings={settings}
+            onTap={() => { if (isMobile) { setImmersiveMode(false); startImmersiveTimer(); } else { toggle(); } }}
+            onDoubleTap={toggleFullscreen}
+            onLeftTap={isMobile ? handlePrevPage : undefined}
+            onRightTap={isMobile ? handleNextPage : undefined}
+          />
+        )}
       </main>
 
       <ReaderPageNav

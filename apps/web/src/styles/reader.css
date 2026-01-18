@@ -1066,3 +1066,109 @@ html[data-theme="high-contrast"] .reader-search-drawer__context mark {
 .reader-shortcuts-modal__item span {
   color: var(--reader-secondary);
 }
+
+/* ===========================================
+   Mobile Continuous Scroll Mode
+   =========================================== */
+
+/* Scroll reader container */
+.scroll-reader {
+  padding: 80px 16px 100px;
+  min-height: 100vh;
+}
+
+.scroll-reader--loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.scroll-reader__spinner {
+  color: var(--reader-secondary);
+  font-size: 16px;
+}
+
+/* Chapter content in scroll mode */
+.scroll-reader__chapter {
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.scroll-reader__chapter p {
+  margin: 0 0 1.2em;
+}
+
+.scroll-reader__chapter h1,
+.scroll-reader__chapter h2,
+.scroll-reader__chapter h3 {
+  margin: 1.5em 0 0.8em;
+  line-height: 1.3;
+}
+
+.scroll-reader__chapter h1 { font-size: 1.8em; }
+.scroll-reader__chapter h2 { font-size: 1.5em; }
+.scroll-reader__chapter h3 { font-size: 1.2em; }
+
+/* Images in scroll mode */
+.scroll-reader__chapter img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 1em auto;
+}
+
+/* Chapter separator */
+.chapter-separator {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 32px 0;
+  margin: 24px 0;
+}
+
+.chapter-separator__line {
+  flex: 1;
+  height: 1px;
+  background: var(--reader-border);
+}
+
+.chapter-separator__title {
+  font-size: 14px;
+  color: var(--reader-secondary);
+  font-weight: 500;
+  text-align: center;
+  max-width: 60%;
+  line-height: 1.4;
+}
+
+/* Loading indicator */
+.scroll-reader__loading {
+  text-align: center;
+  padding: 24px;
+  color: var(--reader-secondary);
+  font-size: 14px;
+}
+
+/* Bottom sentinel (invisible, used for intersection observer) */
+.scroll-reader__sentinel {
+  height: 1px;
+}
+
+/* Hide page navigation arrows in scroll mode */
+.reader-page--scroll-mode .reader-page-nav {
+  display: none !important;
+}
+
+/* Adjust footer for scroll mode */
+.reader-page--scroll-mode .reader-footer {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+}
+
+/* Hide tap zones styling in scroll mode (natural scroll instead) */
+.reader-page--scroll-mode .reader-content-wrapper {
+  -webkit-user-select: text;
+  user-select: text;
+}

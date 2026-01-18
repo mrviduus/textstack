@@ -23,20 +23,40 @@ export function useReadingProgress(
   const resolvedChapterSlug = optionsChapterSlug || chapterSlug
 
   // Update progress (called by reader when page changes)
-  const updateProgress = useCallback((percent: number, page?: number) => {
-    if (!editionId || !chapterId) return
+  // page: page number for paginated mode
+  // scrollLocator: custom locator string for scroll mode (e.g., "scroll:chapter-slug:offset")
+  // overrideChapterId/overrideChapterSlug: for scroll mode where visible chapter differs
+  const updateProgress = useCallback((
+    percent: number,
+    page?: number,
+    scrollLocator?: string,
+    overrideChapterId?: string,
+    overrideChapterSlug?: string
+  ) => {
+    const effectiveChapterId = overrideChapterId || chapterId
+    const effectiveChapterSlug = overrideChapterSlug || resolvedChapterSlug
+
+    if (!editionId || !effectiveChapterId) return
 
     // Skip if same value synced recently
     if (Math.abs(percent - lastSyncedRef.current) < 0.01) return
     lastSyncedRef.current = percent
 
-    const locator = page != null ? `page:${page}` : `percent:${percent.toFixed(4)}`
+    // Support scroll locator, page locator, or percent fallback
+    let locator: string
+    if (scrollLocator) {
+      locator = scrollLocator
+    } else if (page != null) {
+      locator = `page:${page}`
+    } else {
+      locator = `percent:${percent.toFixed(4)}`
+    }
 
     // Always save to localStorage (works offline, fallback if API fails)
     try {
       localStorage.setItem(`${STORAGE_KEY}${editionId}`, JSON.stringify({
-        chapterId,
-        chapterSlug: resolvedChapterSlug,
+        chapterId: effectiveChapterId,
+        chapterSlug: effectiveChapterSlug,
         locator,
         percent,
       }))
@@ -50,7 +70,7 @@ export function useReadingProgress(
       if (serverSyncRef.current) clearTimeout(serverSyncRef.current)
       serverSyncRef.current = window.setTimeout(() => {
         upsertProgress(editionId, {
-          chapterId,
+          chapterId: effectiveChapterId,
           locator,
           percent,
         }).catch(() => {})
