@@ -1,7 +1,9 @@
 using Api.Language;
 using Api.Sites;
 using Application.Books;
+using Application.Common.Interfaces;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace Api.Endpoints;
 
@@ -14,6 +16,7 @@ public static class BooksEndpoints
         group.MapGet("", GetBooks).WithName("GetBooks");
         group.MapGet("/{slug}", GetBook).WithName("GetBook");
         group.MapGet("/{slug}/chapters/{chapterSlug}", GetChapter).WithName("GetChapter");
+        group.MapGet("/{editionId:guid}/assets/{assetId:guid}", GetAsset).WithName("GetAsset");
     }
 
     private static async Task<IResult> GetBooks(
@@ -77,5 +80,25 @@ public static class BooksEndpoints
         }
 
         return Results.Ok(chapter);
+    }
+
+    private static async Task<IResult> GetAsset(
+        Guid editionId,
+        Guid assetId,
+        IAppDbContext db,
+        IFileStorageService storage,
+        CancellationToken ct)
+    {
+        var asset = await db.BookAssets
+            .FirstOrDefaultAsync(a => a.Id == assetId && a.EditionId == editionId, ct);
+
+        if (asset is null)
+            return Results.NotFound();
+
+        var stream = await storage.GetFileAsync(asset.StoragePath, ct);
+        if (stream is null)
+            return Results.NotFound();
+
+        return Results.File(stream, asset.ContentType);
     }
 }

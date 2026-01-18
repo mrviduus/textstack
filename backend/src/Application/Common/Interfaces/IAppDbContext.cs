@@ -27,6 +27,7 @@ public interface IAppDbContext
     DbSet<TextStackImport> TextStackImports { get; }
     DbSet<SeoCrawlJob> SeoCrawlJobs { get; }
     DbSet<SeoCrawlResult> SeoCrawlResults { get; }
+    DbSet<BookAsset> BookAssets { get; }
 
     Task<int> SaveChangesAsync(CancellationToken ct = default);
 }

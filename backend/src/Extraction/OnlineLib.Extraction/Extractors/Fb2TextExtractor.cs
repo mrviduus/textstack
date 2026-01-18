@@ -32,6 +32,7 @@ public sealed class Fb2TextExtractor : ITextExtractor
                 SourceFormat.Fb2,
                 new ExtractionMetadata(null, null, null, null),
                 [],
+                [],
                 new ExtractionDiagnostics(TextSource.None, null, warnings));
         }
 
@@ -46,6 +47,7 @@ public sealed class Fb2TextExtractor : ITextExtractor
                 SourceFormat.Fb2,
                 new ExtractionMetadata(null, null, null, null),
                 [],
+                [],
                 new ExtractionDiagnostics(TextSource.None, null, warnings));
         }
 
@@ -57,12 +59,15 @@ public sealed class Fb2TextExtractor : ITextExtractor
 
         ct.ThrowIfCancellationRequested();
 
+        // Extract inline images from binary elements
+        var images = ExtractImages(root, ns, metadata.CoverMimeType, warnings);
+
         // Split long chapters into smaller parts
         var splitter = new ChapterSplitter(request.Options.MaxWordsPerPart);
         var splitUnits = splitter.SplitAll(units);
 
         var diagnostics = new ExtractionDiagnostics(TextSource.NativeText, null, warnings);
-        return new ExtractionResult(SourceFormat.Fb2, metadata, splitUnits, diagnostics);
+        return new ExtractionResult(SourceFormat.Fb2, metadata, splitUnits, images, diagnostics);
     }
 
     private static ExtractionMetadata ExtractMetadata(XElement root, XNamespace ns)
@@ -147,6 +152,71 @@ public sealed class Fb2TextExtractor : ITextExtractor
         }
 
         return new ExtractionMetadata(title, authors, language, annotation, coverImage, coverMimeType);
+    }
+
+    private static List<ExtractedImage> ExtractImages(
+        XElement root,
+        XNamespace ns,
+        string? coverMimeType,
+        List<ExtractionWarning> warnings)
+    {
+        var images = new List<ExtractedImage>();
+
+        // Get cover binary id to identify cover image
+        string? coverBinaryId = null;
+        try
+        {
+            var description = root.Element(ns + "description");
+            var titleInfo = description?.Element(ns + "title-info");
+            var coverpage = titleInfo?.Element(ns + "coverpage");
+            var coverImageEl = coverpage?.Element(ns + "image");
+            if (coverImageEl != null)
+            {
+                var xlinkNs = XNamespace.Get("http://www.w3.org/1999/xlink");
+                var href = coverImageEl.Attribute(xlinkNs + "href")?.Value
+                        ?? coverImageEl.Attribute("href")?.Value;
+                coverBinaryId = href?.TrimStart('#');
+            }
+        }
+        catch
+        {
+            // Ignore errors in cover detection
+        }
+
+        foreach (var binary in root.Elements(ns + "binary"))
+        {
+            try
+            {
+                var id = binary.Attribute("id")?.Value;
+                if (string.IsNullOrEmpty(id))
+                    continue;
+
+                var contentType = binary.Attribute("content-type")?.Value;
+                var base64 = binary.Value;
+
+                if (string.IsNullOrWhiteSpace(base64))
+                    continue;
+
+                var data = Convert.FromBase64String(base64.Trim());
+                var mimeType = contentType ?? "image/jpeg";
+                var isCover = id == coverBinaryId;
+
+                images.Add(new ExtractedImage(
+                    OriginalPath: id,
+                    Data: data,
+                    MimeType: mimeType,
+                    IsCover: isCover
+                ));
+            }
+            catch (Exception ex)
+            {
+                warnings.Add(new ExtractionWarning(
+                    ExtractionWarningCode.ChapterParseError,
+                    $"Failed to extract binary image: {ex.Message}"));
+            }
+        }
+
+        return images;
     }
 
     private static string? ExtractAuthorName(XElement author, XNamespace ns)
@@ -361,7 +431,15 @@ public sealed class Fb2TextExtractor : ITextExtractor
                 break;
 
             case "image":
-                // Skip binary images for now
+                // Extract image href for later rewriting
+                var xlinkNs = XNamespace.Get("http://www.w3.org/1999/xlink");
+                var imgHref = element.Attribute(xlinkNs + "href")?.Value
+                           ?? element.Attribute("href")?.Value;
+                if (!string.IsNullOrEmpty(imgHref))
+                {
+                    var imgId = imgHref.TrimStart('#');
+                    sb.Append($"<img src=\"{EscapeHtml(imgId)}\" />");
+                }
                 break;
 
             default:

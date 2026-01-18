@@ -3,6 +3,7 @@ using OnlineLib.Extraction.Enums;
 using OnlineLib.Extraction.Services;
 using OnlineLib.Extraction.Utilities;
 using VersOne.Epub;
+using VersOne.Epub.Schema;
 
 namespace OnlineLib.Extraction.Extractors;
 
@@ -28,6 +29,7 @@ public sealed class EpubTextExtractor : ITextExtractor
             return new ExtractionResult(
                 SourceFormat.Epub,
                 new ExtractionMetadata(null, null, null, null),
+                [],
                 [],
                 new ExtractionDiagnostics(TextSource.None, null, warnings));
         }
@@ -80,27 +82,83 @@ public sealed class EpubTextExtractor : ITextExtractor
         var splitter = new ChapterSplitter(request.Options.MaxWordsPerPart);
         var splitUnits = splitter.SplitAll(units);
 
-        // Extract cover image
+        // Extract all images
+        var images = new List<ExtractedImage>();
         byte[]? coverImage = null;
         string? coverMimeType = null;
+
         try
         {
-            var cover = book.CoverImage;
-            if (cover != null)
+            var coverFilePath = book.Schema.Package.Manifest.Items
+                .FirstOrDefault(i => i.Properties?.Contains(EpubManifestProperty.COVER_IMAGE) == true)?.Href;
+
+            foreach (var imageFile in book.Content.Images.Local)
             {
-                coverImage = cover;
-                // Detect image type from magic bytes
-                coverMimeType = ImageUtils.DetectMimeType(cover);
+                try
+                {
+                    var imageBytes = imageFile.Content;
+                    if (imageBytes == null || imageBytes.Length == 0)
+                        continue;
+
+                    var mimeType = GetMimeType(imageFile.ContentType) ?? ImageUtils.DetectMimeType(imageBytes);
+                    var originalPath = imageFile.FilePath;
+                    var isCover = coverFilePath != null &&
+                                  (originalPath.EndsWith(coverFilePath, StringComparison.OrdinalIgnoreCase) ||
+                                   originalPath.Contains("cover", StringComparison.OrdinalIgnoreCase));
+
+                    if (isCover && coverImage == null)
+                    {
+                        coverImage = imageBytes;
+                        coverMimeType = mimeType;
+                    }
+
+                    images.Add(new ExtractedImage(
+                        OriginalPath: originalPath,
+                        Data: imageBytes,
+                        MimeType: mimeType,
+                        IsCover: isCover
+                    ));
+                }
+                catch (Exception ex)
+                {
+                    warnings.Add(new ExtractionWarning(
+                        ExtractionWarningCode.ChapterParseError,
+                        $"Failed to extract image {imageFile.FilePath}: {ex.Message}"));
+                }
+            }
+
+            // Fallback: try book.CoverImage if no cover found yet
+            if (coverImage == null)
+            {
+                var cover = book.CoverImage;
+                if (cover != null)
+                {
+                    coverImage = cover;
+                    coverMimeType = ImageUtils.DetectMimeType(cover);
+                }
             }
         }
         catch
         {
-            // Cover extraction is optional, don't fail on error
+            // Image extraction is optional, don't fail
         }
 
         var metadata = new ExtractionMetadata(title, authors, null, description, coverImage, coverMimeType);
         var diagnostics = new ExtractionDiagnostics(TextSource.NativeText, null, warnings);
 
-        return new ExtractionResult(SourceFormat.Epub, metadata, splitUnits, diagnostics);
+        return new ExtractionResult(SourceFormat.Epub, metadata, splitUnits, images, diagnostics);
+    }
+
+    private static string? GetMimeType(EpubContentType contentType)
+    {
+        return contentType switch
+        {
+            EpubContentType.IMAGE_GIF => "image/gif",
+            EpubContentType.IMAGE_JPEG => "image/jpeg",
+            EpubContentType.IMAGE_PNG => "image/png",
+            EpubContentType.IMAGE_SVG => "image/svg+xml",
+            EpubContentType.IMAGE_WEBP => "image/webp",
+            _ => null
+        };
     }
 }

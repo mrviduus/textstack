@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using Application.Common.Interfaces;
 using Domain.Entities;
+using Domain.Enums;
+using HtmlAgilityPack;
 using Infrastructure.Persistence;
 using Infrastructure.Telemetry;
 using Microsoft.EntityFrameworkCore;
@@ -167,7 +169,58 @@ public class IngestionWorkerService
                 throw new NotSupportedException(warning);
             }
 
-            var parsed = MapToApplicationModel(extractionResult);
+            // Save inline images and build path->assetId map
+            var imageMap = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+            if (extractionResult.Images.Count > 0)
+            {
+                using var imagesActivity = IngestionActivitySource.Source.StartActivity("persist.images");
+                imagesActivity?.SetTag("images.count", extractionResult.Images.Count);
+
+                foreach (var image in extractionResult.Images)
+                {
+                    if (image.IsCover) continue; // Cover saved separately
+
+                    try
+                    {
+                        var assetId = Guid.NewGuid();
+                        var ext = GetExtensionFromMimeType(image.MimeType);
+                        using var imageStream = new MemoryStream(image.Data);
+                        var storagePath = await _storage.SaveFileAsync(
+                            job.EditionId,
+                            $"assets/{assetId}{ext}",
+                            imageStream,
+                            ct);
+
+                        var asset = new BookAsset
+                        {
+                            Id = assetId,
+                            EditionId = job.EditionId,
+                            Kind = AssetKind.InlineImage,
+                            OriginalPath = image.OriginalPath,
+                            StoragePath = storagePath,
+                            ContentType = image.MimeType,
+                            ByteSize = image.Data.Length,
+                            CreatedAt = DateTimeOffset.UtcNow
+                        };
+                        db.BookAssets.Add(asset);
+                        imageMap[image.OriginalPath] = assetId;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to save image {Path} for edition {EditionId}",
+                            image.OriginalPath, job.EditionId);
+                    }
+                }
+
+                if (imageMap.Count > 0)
+                {
+                    await db.SaveChangesAsync(ct);
+                    _logger.LogInformation("Saved {Count} images for edition {EditionId}",
+                        imageMap.Count, job.EditionId);
+                }
+            }
+
+            var parsed = MapToApplicationModel(extractionResult, imageMap, job.EditionId);
             var summary = MapToExtractionSummary(extractionResult);
 
             _logger.LogInformation("Parsed {ChapterCount} chapters from {Title}",
@@ -274,13 +327,16 @@ public class IngestionWorkerService
         }
     }
 
-    private static AppIngestion.ParsedBook MapToApplicationModel(ExtractionResult result)
+    private static AppIngestion.ParsedBook MapToApplicationModel(
+        ExtractionResult result,
+        Dictionary<string, Guid> imageMap,
+        Guid editionId)
     {
         var chapters = result.Units
             .Select(u => new AppIngestion.ParsedChapter(
                 u.OrderIndex,
                 u.Title ?? $"Chapter {u.OrderIndex + 1}",
-                u.Html ?? string.Empty,
+                RewriteImageSrcs(u.Html ?? string.Empty, imageMap, editionId),
                 u.PlainText,
                 u.WordCount ?? 0,
                 u.OriginalChapterNumber,
@@ -293,6 +349,69 @@ public class IngestionWorkerService
             result.Metadata.Authors,
             result.Metadata.Description,
             chapters);
+    }
+
+    private static string RewriteImageSrcs(string html, Dictionary<string, Guid> imageMap, Guid editionId)
+    {
+        if (string.IsNullOrEmpty(html) || imageMap.Count == 0)
+            return html;
+
+        var doc = new HtmlDocument();
+        doc.LoadHtml(html);
+
+        var imgNodes = doc.DocumentNode.SelectNodes("//img[@src]");
+        if (imgNodes == null)
+            return html;
+
+        foreach (var img in imgNodes)
+        {
+            var src = img.GetAttributeValue("src", "");
+            if (string.IsNullOrEmpty(src))
+                continue;
+
+            // Try to match the src to an image in our map
+            // Need to handle various path formats
+            var normalizedSrc = NormalizeImagePath(src);
+
+            foreach (var (originalPath, assetId) in imageMap)
+            {
+                var normalizedOriginal = NormalizeImagePath(originalPath);
+                if (normalizedSrc.Equals(normalizedOriginal, StringComparison.OrdinalIgnoreCase) ||
+                    normalizedSrc.EndsWith(normalizedOriginal, StringComparison.OrdinalIgnoreCase) ||
+                    normalizedOriginal.EndsWith(normalizedSrc, StringComparison.OrdinalIgnoreCase))
+                {
+                    img.SetAttributeValue("src", $"/books/{editionId}/assets/{assetId}");
+                    break;
+                }
+            }
+        }
+
+        return doc.DocumentNode.InnerHtml;
+    }
+
+    private static string NormalizeImagePath(string path)
+    {
+        // Remove leading ../ or ./
+        var result = path;
+        while (result.StartsWith("../"))
+            result = result[3..];
+        while (result.StartsWith("./"))
+            result = result[2..];
+        // Remove leading /
+        result = result.TrimStart('/');
+        return result;
+    }
+
+    private static string GetExtensionFromMimeType(string mimeType)
+    {
+        return mimeType switch
+        {
+            "image/png" => ".png",
+            "image/gif" => ".gif",
+            "image/webp" => ".webp",
+            "image/svg+xml" => ".svg",
+            _ => ".jpg"
+        };
     }
 
     private static AppIngestion.ExtractionSummary MapToExtractionSummary(ExtractionResult result)

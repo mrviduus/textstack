@@ -152,6 +152,23 @@ export interface ReprocessedEdition {
   error: string | null
 }
 
+export interface ReimportResult {
+  reimported: number
+  skipped: number
+  failed: number
+  total: number
+  results: ReimportBookResult[]
+}
+
+export interface ReimportBookResult {
+  book: string
+  editionId: string | null
+  chapters: number
+  images: number
+  wasSkipped: boolean
+  error: string | null
+}
+
 // Legacy interface for backwards compatibility
 export interface Site {
   id: string
@@ -500,6 +517,14 @@ export const adminApi = {
   reprocessChapters: async (siteId: string): Promise<ReprocessResult> => {
     return fetchJson<ReprocessResult>(`/admin/reprocess/split-existing?siteId=${siteId}`, {
       method: 'POST',
+    })
+  },
+
+  reimportTextStack: async (siteId: string, path?: string): Promise<ReimportResult> => {
+    return fetchJson<ReimportResult>('/admin/reimport/textstack', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ siteId, path }),
     })
   },
 

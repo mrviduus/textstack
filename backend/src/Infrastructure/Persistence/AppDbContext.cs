@@ -30,6 +30,7 @@ public class AppDbContext : DbContext, IAppDbContext
     public DbSet<TextStackImport> TextStackImports => Set<TextStackImport>();
     public DbSet<SeoCrawlJob> SeoCrawlJobs => Set<SeoCrawlJob>();
     public DbSet<SeoCrawlResult> SeoCrawlResults => Set<SeoCrawlResult>();
+    public DbSet<BookAsset> BookAssets => Set<BookAsset>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -274,6 +275,18 @@ public class AppDbContext : DbContext, IAppDbContext
             e.Property(x => x.MetaRobots).HasMaxLength(100);
             e.Property(x => x.XRobotsTag).HasMaxLength(100);
             e.HasOne(x => x.Job).WithMany(x => x.Results).HasForeignKey(x => x.JobId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // BookAsset
+        modelBuilder.Entity<BookAsset>(e =>
+        {
+            e.HasIndex(x => x.EditionId);
+            e.HasIndex(x => new { x.EditionId, x.OriginalPath }).IsUnique();
+            e.Property(x => x.Kind).HasConversion<string>().HasMaxLength(20);
+            e.Property(x => x.OriginalPath).HasMaxLength(500);
+            e.Property(x => x.StoragePath).HasMaxLength(500);
+            e.Property(x => x.ContentType).HasMaxLength(100);
+            e.HasOne(x => x.Edition).WithMany(x => x.Assets).HasForeignKey(x => x.EditionId).OnDelete(DeleteBehavior.Cascade);
         });
     }
 

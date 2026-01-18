@@ -19,6 +19,13 @@ export default defineConfig({
           Host: 'general.localhost',
         },
       },
+      '/books': {
+        target: 'http://api:8080',
+        changeOrigin: false,
+        headers: {
+          Host: 'general.localhost',
+        },
+      },
     },
   },
 })

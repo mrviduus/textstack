@@ -92,6 +92,7 @@ public sealed class PdfTextExtractor : ITextExtractor
                 SourceFormat.Pdf,
                 new ExtractionMetadata(TextProcessingUtils.ExtractTitleFromFileName(request.FileName), null, null, null),
                 [],
+                [],
                 new ExtractionDiagnostics(TextSource.None, null, warnings));
         }
         finally
@@ -151,7 +152,7 @@ public sealed class PdfTextExtractor : ITextExtractor
         var metadata = new ExtractionMetadata(title, authors, null, null, coverImage, coverMimeType);
         var diagnostics = new ExtractionDiagnostics(textSource, null, warnings);
 
-        return new ExtractionResult(SourceFormat.Pdf, metadata, splitUnits, diagnostics);
+        return new ExtractionResult(SourceFormat.Pdf, metadata, splitUnits, [], diagnostics);
     }
 
     private async Task<ExtractionResult> ExtractWithOcrAsync(
@@ -176,6 +177,7 @@ public sealed class PdfTextExtractor : ITextExtractor
             return new ExtractionResult(
                 SourceFormat.Pdf,
                 new ExtractionMetadata(title, authors, null, null),
+                [],
                 [],
                 new ExtractionDiagnostics(TextSource.None, null, warnings));
         }
@@ -273,7 +275,7 @@ public sealed class PdfTextExtractor : ITextExtractor
         var metadata = new ExtractionMetadata(title, authors, null, null, coverImage, coverMimeType);
         var diagnostics = new ExtractionDiagnostics(textSource, avgConfidence, warnings);
 
-        return new ExtractionResult(SourceFormat.Pdf, metadata, splitUnits, diagnostics);
+        return new ExtractionResult(SourceFormat.Pdf, metadata, splitUnits, [], diagnostics);
     }
 
     private static MemoryStream RenderPageToImage(PdfDocument document, int pageNumber)

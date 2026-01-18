@@ -34,4 +34,5 @@ public class Edition
     public ICollection<IngestionJob> IngestionJobs { get; set; } = [];
     public ICollection<EditionAuthor> EditionAuthors { get; set; } = [];
     public ICollection<Genre> Genres { get; set; } = [];
+    public ICollection<BookAsset> Assets { get; set; } = [];
 }

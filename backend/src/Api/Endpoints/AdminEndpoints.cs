@@ -48,6 +48,10 @@ public static class AdminEndpoints
             .WithName("ImportTextStack")
             .WithDescription("Bulk import from TextStack folder");
 
+        group.MapPost("/reimport/textstack", ReimportTextStack)
+            .WithName("ReimportTextStack")
+            .WithDescription("Reimport existing books from TextStack folder (keeps SEO metadata)");
+
         // Stats
         group.MapGet("/stats", GetStats)
             .WithName("GetStats")
@@ -436,16 +440,64 @@ public static class AdminEndpoints
 
             results.Add(new
             {
-                path = Path.GetFileName(bookDir),
+                book = Path.GetFileName(bookDir),
                 editionId = result.EditionId,
-                chapterCount = result.ChapterCount,
-                skipped = result.WasSkipped,
+                chapters = result.ChapterCount,
+                images = result.ImageCount,
+                wasSkipped = result.WasSkipped,
                 error = result.Error
             });
         }
 
         return Results.Ok(new { imported, skipped, total = results.Count, results });
     }
+
+    private static async Task<IResult> ReimportTextStack(
+        [FromBody] ReimportTextStackRequest request,
+        IServiceScopeFactory scopeFactory,
+        CancellationToken ct)
+    {
+        var path = request.Path ?? "/data/textstack";
+        if (!Directory.Exists(path))
+            return Results.BadRequest(new { error = $"Directory not found: {path}" });
+
+        var results = new List<object>();
+        var reimported = 0;
+        var skipped = 0;
+        var failed = 0;
+
+        foreach (var bookDir in Directory.GetDirectories(path))
+        {
+            var opfPath = Path.Combine(bookDir, "src/epub/content.opf");
+            if (!File.Exists(opfPath))
+                continue;
+
+            using var scope = scopeFactory.CreateScope();
+            var importService = scope.ServiceProvider.GetRequiredService<TextStackImportService>();
+
+            var result = await importService.ReimportBookAsync(request.SiteId, bookDir, ct);
+
+            if (result.WasSkipped)
+                skipped++;
+            else if (result.Error == null)
+                reimported++;
+            else
+                failed++;
+
+            results.Add(new
+            {
+                book = Path.GetFileName(bookDir),
+                editionId = result.EditionId,
+                chapters = result.ChapterCount,
+                images = result.ImageCount,
+                wasSkipped = result.WasSkipped,
+                error = result.Error
+            });
+        }
+
+        return Results.Ok(new { reimported, skipped, failed, total = results.Count, results });
+    }
 }
 
 public record ImportTextStackRequest(Guid SiteId, string? Path = null);
+public record ReimportTextStackRequest(Guid SiteId, string? Path = null);

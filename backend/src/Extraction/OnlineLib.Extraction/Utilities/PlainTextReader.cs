@@ -39,7 +39,7 @@ public static class PlainTextReader
         var splitUnits = splitter.SplitAll(units);
 
         var diagnostics = new ExtractionDiagnostics(TextSource.NativeText, null, warnings);
-        return new ExtractionResult(format, metadata, splitUnits, diagnostics);
+        return new ExtractionResult(format, metadata, splitUnits, [], diagnostics);
     }
 
     private static async Task<string> ReadTextAsync(

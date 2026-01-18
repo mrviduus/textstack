@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { adminApi, SiteListItem, ReprocessResult } from '../api/client'
+import { adminApi, SiteListItem, ReprocessResult, ReimportResult } from '../api/client'
 
 export function SitesPage() {
   const [sites, setSites] = useState<SiteListItem[]>([])
@@ -10,6 +10,8 @@ export function SitesPage() {
   const [saving, setSaving] = useState(false)
   const [reprocessingSiteId, setReprocessingSiteId] = useState<string | null>(null)
   const [reprocessResult, setReprocessResult] = useState<{ siteId: string; result: ReprocessResult } | null>(null)
+  const [reimportingSiteId, setReimportingSiteId] = useState<string | null>(null)
+  const [reimportResult, setReimportResult] = useState<{ siteId: string; result: ReimportResult } | null>(null)
 
   useEffect(() => {
     fetchSites()
@@ -59,6 +61,21 @@ export function SitesPage() {
       alert(err instanceof Error ? err.message : 'Failed to reprocess')
     } finally {
       setReprocessingSiteId(null)
+    }
+  }
+
+  const handleReimport = async (siteId: string) => {
+    if (!confirm('Reimport all Standard Ebooks from /data/textstack?\nThis keeps SEO metadata but replaces chapters with images.')) return
+    setReimportingSiteId(siteId)
+    setReimportResult(null)
+    try {
+      const result = await adminApi.reimportTextStack(siteId)
+      setReimportResult({ siteId, result })
+      await fetchSites() // refresh stats
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to reimport')
+    } finally {
+      setReimportingSiteId(null)
     }
   }
 
@@ -184,6 +201,53 @@ export function SitesPage() {
                           .map(e => (
                             <li key={e.editionId}>
                               {e.title}: {e.chaptersSplit} chapters → {e.newParts} parts
+                            </li>
+                          ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="setting-row setting-row--reprocess">
+                <button
+                  onClick={() => handleReimport(site.id)}
+                  disabled={reimportingSiteId === site.id}
+                  className="btn btn--secondary"
+                >
+                  {reimportingSiteId === site.id ? 'Reimporting...' : 'Reimport TextStack'}
+                </button>
+                <p className="setting-hint">
+                  Reimport Standard Ebooks with images (keeps SEO metadata).
+                </p>
+
+                {reimportResult?.siteId === site.id && (
+                  <div className="reprocess-result">
+                    <h4>Reimport Complete</h4>
+                    <div className="reprocess-stats">
+                      <span><strong>{reimportResult.result.reimported}</strong> reimported</span>
+                      <span><strong>{reimportResult.result.skipped}</strong> skipped</span>
+                      <span><strong>{reimportResult.result.failed}</strong> failed</span>
+                      <span><strong>{reimportResult.result.results.reduce((sum, r) => sum + r.images, 0)}</strong> images</span>
+                    </div>
+                    {reimportResult.result.results.filter(r => r.images > 0).length > 0 && (
+                      <ul className="reprocess-editions">
+                        {reimportResult.result.results
+                          .filter(r => r.images > 0)
+                          .map(r => (
+                            <li key={r.book}>
+                              {r.book}: {r.chapters} chapters, {r.images} images
+                            </li>
+                          ))}
+                      </ul>
+                    )}
+                    {reimportResult.result.results.filter(r => r.error).length > 0 && (
+                      <ul className="reprocess-editions" style={{ color: 'red' }}>
+                        {reimportResult.result.results
+                          .filter(r => r.error)
+                          .map(r => (
+                            <li key={r.book}>
+                              {r.book}: {r.error}
                             </li>
                           ))}
                       </ul>
