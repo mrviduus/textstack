@@ -28,6 +28,8 @@ public static class GenresEndpoints
 
         var query = db.Genres
             .Where(g => g.SiteId == siteId && g.Indexable)
+            // Only show genres with at least one published edition
+            .Where(g => g.Editions.Any(e => e.Status == Domain.Enums.EditionStatus.Published))
             .OrderBy(g => g.Name);
 
         var total = await query.CountAsync(ct);

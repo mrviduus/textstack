@@ -29,9 +29,11 @@ public static class AuthorsEndpoints
         var skip = offset ?? 0;
 
         var query = db.Authors
-            .Where(a => a.SiteId == siteId && a.Indexable);
+            .Where(a => a.SiteId == siteId && a.Indexable)
+            // Only show authors with at least one published edition
+            .Where(a => a.EditionAuthors.Any(ea => ea.Edition.Status == Domain.Enums.EditionStatus.Published));
 
-        // Filter authors who have at least one published edition in the requested language
+        // Further filter by language if specified
         if (!string.IsNullOrEmpty(language))
         {
             query = query.Where(a => a.EditionAuthors.Any(ea =>
