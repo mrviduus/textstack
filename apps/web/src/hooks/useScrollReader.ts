@@ -46,6 +46,19 @@ export function useScrollReader({
   const chapterRefs = useRef<Map<string, HTMLElement>>(new Map())
   const loadingRef = useRef(false)
   const loadedSlugsRef = useRef<Set<string>>(new Set())
+  const lastInitialSlugRef = useRef(initialChapterSlug)
+
+  // Reset when navigating to a different chapter
+  useEffect(() => {
+    if (lastInitialSlugRef.current !== initialChapterSlug) {
+      lastInitialSlugRef.current = initialChapterSlug
+      setChapters([])
+      setVisibleChapterSlug(initialChapterSlug)
+      setScrollOffset(0)
+      loadedSlugsRef.current.clear()
+      chapterRefs.current.clear()
+    }
+  }, [initialChapterSlug])
 
   // Get chapter index from book
   const getChapterIndex = useCallback(

@@ -18,7 +18,8 @@ export function useReadingProgress(
 ) {
   const { isAuthenticated } = useAuth()
   const serverSyncRef = useRef<number | null>(null)
-  const lastSyncedRef = useRef<number>(0)
+  const lastSyncedPercentRef = useRef<number>(0)
+  const lastSyncedLocatorRef = useRef<string>('')
   const { editionId, chapterId, chapterSlug: optionsChapterSlug, onSave } = options || {}
   const resolvedChapterSlug = optionsChapterSlug || chapterSlug
 
@@ -38,11 +39,7 @@ export function useReadingProgress(
 
     if (!editionId || !effectiveChapterId) return
 
-    // Skip if same value synced recently
-    if (Math.abs(percent - lastSyncedRef.current) < 0.01) return
-    lastSyncedRef.current = percent
-
-    // Support scroll locator, page locator, or percent fallback
+    // Build locator early to check for changes
     let locator: string
     if (scrollLocator) {
       locator = scrollLocator
@@ -51,6 +48,13 @@ export function useReadingProgress(
     } else {
       locator = `percent:${percent.toFixed(4)}`
     }
+
+    // Skip if same values synced recently (check both percent AND locator)
+    const percentUnchanged = Math.abs(percent - lastSyncedPercentRef.current) < 0.01
+    const locatorUnchanged = locator === lastSyncedLocatorRef.current
+    if (percentUnchanged && locatorUnchanged) return
+    lastSyncedPercentRef.current = percent
+    lastSyncedLocatorRef.current = locator
 
     // Always save to localStorage (works offline, fallback if API fails)
     try {

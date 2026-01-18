@@ -86,6 +86,14 @@ export function ReaderPage() {
     fetchChapter,
   })
 
+  // In scroll mode, use visible chapter for bookmarks (URL chapterSlug doesn't update on replaceState)
+  const activeChapterSlug = useScrollMode && scrollReader.visibleChapterSlug
+    ? scrollReader.visibleChapterSlug
+    : chapterSlug || ''
+  const activeChapter = useScrollMode
+    ? book?.chapters.find(c => c.slug === activeChapterSlug)
+    : chapter
+
   // Track current URL chapter (may differ from chapterSlug after replaceState)
   const currentUrlChapterRef = useRef(chapterSlug)
 
@@ -270,6 +278,7 @@ export function ReaderPage() {
 
   // Sync progress when scroll position changes (scroll mode)
   const lastScrollSaveRef = useRef<{ slug: string; offset: number } | null>(null)
+  const scrollSaveTimerRef = useRef<number | null>(null)
   useEffect(() => {
     if (!useScrollMode || !book?.id || !book?.chapters) return
 
@@ -277,20 +286,33 @@ export function ReaderPage() {
     const offset = scrollReader.scrollOffset
     if (!visibleSlug) return
 
+    // Skip save if scroll handler hasn't populated refs yet (offset would be stale)
+    if (scrollReader.chapterRefs.current.size === 0) return
+
     // Only save if position changed significantly (chapter change OR 500px scroll)
     const last = lastScrollSaveRef.current
     if (last && last.slug === visibleSlug && Math.abs(last.offset - offset) < 500) {
       return
     }
+
+    // Update ref immediately to prevent duplicate saves
     lastScrollSaveRef.current = { slug: visibleSlug, offset }
 
     // Find chapter info from book's chapter list (has IDs)
     const bookChapter = book.chapters.find(c => c.slug === visibleSlug)
     if (!bookChapter) return
 
-    // Create scroll locator and save with correct chapter info
-    const scrollLocator = `scroll:${visibleSlug}:${Math.round(offset)}`
-    updateProgress(overallProgress, undefined, scrollLocator, bookChapter.id, visibleSlug)
+    // Debounce the actual save to avoid rapid writes
+    if (scrollSaveTimerRef.current) clearTimeout(scrollSaveTimerRef.current)
+    scrollSaveTimerRef.current = window.setTimeout(() => {
+      // Create scroll locator and save with correct chapter info
+      const scrollLocator = `scroll:${visibleSlug}:${Math.round(offset)}`
+      updateProgress(overallProgress, undefined, scrollLocator, bookChapter.id, visibleSlug)
+    }, 200)
+
+    return () => {
+      if (scrollSaveTimerRef.current) clearTimeout(scrollSaveTimerRef.current)
+    }
   }, [useScrollMode, book?.id, book?.chapters, scrollReader.visibleChapterSlug, scrollReader.scrollOffset, overallProgress, updateProgress])
 
   // Auto-add to library after page 2 or 1% progress (for single-page chapters)
@@ -316,8 +338,9 @@ export function ReaderPage() {
     }
   }, [shouldNavigate, targetChapterSlug, bookSlug, navigate, getLocalizedPath])
 
-  // Restore page position after pagination is ready
+  // Restore page position after pagination is ready (pagination mode)
   useEffect(() => {
+    if (useScrollMode) return // Skip for scroll mode
     // Wait for: pagination ready, progress loaded, book data available
     const bookReady = !!book?.id
     if (restoredRef.current || totalPages === 0 || progressLoading || shouldNavigate || !bookReady) return
@@ -339,11 +362,50 @@ export function ReaderPage() {
       const pct = parseFloat(locator.split(':')[1])
       if (!isNaN(pct)) goToPage(Math.floor(pct * (totalPages - 1)))
     }
-  }, [totalPages, savedProgress, progressLoading, shouldNavigate, goToPage, book?.id])
+  }, [useScrollMode, totalPages, savedProgress, progressLoading, shouldNavigate, goToPage, book?.id])
+
+  // Restore scroll position (scroll mode)
+  const scrollRestoredRef = useRef(false)
+  useEffect(() => {
+    if (!useScrollMode) return // Only for scroll mode
+    if (scrollRestoredRef.current || progressLoading || shouldNavigate) return
+    if (scrollReader.chapters.length === 0) return // Wait for chapters to load
+
+    // Parse scroll locator: scroll:{chapterSlug}:{offset}
+    if (!savedProgress?.locator?.startsWith('scroll:')) {
+      scrollRestoredRef.current = true
+      return
+    }
+
+    const parts = savedProgress.locator.split(':')
+    if (parts.length < 3) {
+      scrollRestoredRef.current = true
+      return
+    }
+
+    const savedSlug = parts[1]
+    const savedOffset = parseInt(parts[2], 10)
+    if (isNaN(savedOffset)) {
+      scrollRestoredRef.current = true
+      return
+    }
+
+    // Wait for chapter element to be rendered
+    const chapterEl = scrollReader.chapterRefs.current.get(savedSlug)
+    if (!chapterEl) return // Chapter not loaded/rendered yet
+
+    scrollRestoredRef.current = true
+
+    // Scroll to chapter position + offset (offsetTop gives absolute position in document)
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: chapterEl.offsetTop + savedOffset, behavior: 'instant' })
+    })
+  }, [useScrollMode, progressLoading, shouldNavigate, savedProgress, scrollReader.chapters, scrollReader.chapterRefs])
 
   // Reset restore refs on chapter change
   useEffect(() => {
     restoredRef.current = false
+    scrollRestoredRef.current = false
     hasNavigatedRef.current = false
   }, [chapterSlug])
 
@@ -513,12 +575,12 @@ export function ReaderPage() {
           setTocOpen(true)
           break
         case 'b':
-          if (chapterSlug) {
-            const bookmark = getBookmarkForChapter(chapterSlug)
+          if (activeChapterSlug && activeChapter) {
+            const bookmark = getBookmarkForChapter(activeChapterSlug)
             if (bookmark) {
               removeBookmark(bookmark.id)
-            } else if (chapter) {
-              addBookmark(chapterSlug, chapter.title)
+            } else {
+              addBookmark(activeChapterSlug, activeChapter.title)
             }
           }
           break
@@ -552,7 +614,7 @@ export function ReaderPage() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [bookSlug, chapterSlug, chapter, navigate, getLocalizedPath, tocOpen, settingsOpen, searchOpen, shortcutsOpen, clearSearch, currentPage, totalPages, prevPage, nextPage, toggleFullscreen, settings, update, getBookmarkForChapter, removeBookmark, addBookmark])
+  }, [bookSlug, activeChapterSlug, activeChapter, chapter, navigate, getLocalizedPath, tocOpen, settingsOpen, searchOpen, shortcutsOpen, clearSearch, currentPage, totalPages, prevPage, nextPage, toggleFullscreen, settings, update, getBookmarkForChapter, removeBookmark, addBookmark])
 
   // Handle next page click - go to next chapter if at end
   const handleNextPage = () => {
@@ -617,29 +679,32 @@ export function ReaderPage() {
         title={book.title}
         chapterTitle={chapter.title}
         progress={overallProgress}
-        isBookmarked={isBookmarked(chapterSlug!)}
+        isBookmarked={isBookmarked(activeChapterSlug)}
         isAutoSaved={isAutoSaved}
         isFullscreen={isFullscreen}
         onSearchClick={() => setSearchOpen(true)}
         onTocClick={() => setTocOpen(true)}
         onSettingsClick={() => setSettingsOpen(true)}
         onBookmarkClick={() => {
-          const bookmark = getBookmarkForChapter(chapterSlug!)
+          const bookmark = getBookmarkForChapter(activeChapterSlug)
           if (bookmark) {
             removeBookmark(bookmark.id)
-          } else {
-            addBookmark(chapterSlug!, chapter.title)
+          } else if (activeChapter) {
+            addBookmark(activeChapterSlug, activeChapter.title)
           }
         }}
         onFullscreenClick={toggleFullscreen}
         onHelpClick={() => setShortcutsOpen(true)}
       />
 
-      <ReaderPageNav
-        direction="prev"
-        disabled={currentPage === 0 && !chapter.prev}
-        onClick={handlePrevPage}
-      />
+      {/* Hide side navigation in scroll mode - content scrolls continuously */}
+      {!useScrollMode && (
+        <ReaderPageNav
+          direction="prev"
+          disabled={currentPage === 0 && !chapter.prev}
+          onClick={handlePrevPage}
+        />
+      )}
 
       <main id="reader-content" className="reader-main">
         {useScrollMode ? (
@@ -665,11 +730,13 @@ export function ReaderPage() {
         )}
       </main>
 
-      <ReaderPageNav
-        direction="next"
-        disabled={currentPage === totalPages - 1 && !chapter.next}
-        onClick={handleNextPage}
-      />
+      {!useScrollMode && (
+        <ReaderPageNav
+          direction="next"
+          disabled={currentPage === totalPages - 1 && !chapter.next}
+          onClick={handleNextPage}
+        />
+      )}
 
       <ReaderFooterNav
         bookSlug={bookSlug!}
@@ -688,11 +755,20 @@ export function ReaderPage() {
         open={tocOpen}
         bookSlug={bookSlug!}
         chapters={book.chapters}
-        currentChapterSlug={chapterSlug!}
+        currentChapterSlug={activeChapterSlug}
         bookmarks={bookmarks}
         autoSave={autoSaveInfo}
         onClose={() => setTocOpen(false)}
         onRemoveBookmark={removeBookmark}
+        onChapterSelect={useScrollMode ? (slug) => {
+          // In scroll mode: scroll to chapter if loaded, else navigate
+          const isLoaded = scrollReader.chapters.some(c => c.slug === slug)
+          if (isLoaded) {
+            scrollReader.scrollToChapter(slug)
+          } else {
+            navigate(getLocalizedPath(`/books/${bookSlug}/${slug}`))
+          }
+        } : undefined}
       />
 
       <ReaderSettingsDrawer

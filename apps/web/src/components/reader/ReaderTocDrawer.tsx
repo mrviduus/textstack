@@ -20,6 +20,7 @@ interface Props {
   autoSave?: AutoSaveInfo | null
   onClose: () => void
   onRemoveBookmark: (id: string) => void
+  onChapterSelect?: (slug: string) => void // For scroll mode: scroll to chapter instead of navigate
 }
 
 type Tab = 'contents' | 'bookmarks'
@@ -33,6 +34,7 @@ export function ReaderTocDrawer({
   autoSave,
   onClose,
   onRemoveBookmark,
+  onChapterSelect,
 }: Props) {
   const containerRef = useFocusTrap(open)
   const [activeTab, setActiveTab] = useState<Tab>('contents')
@@ -79,7 +81,13 @@ export function ReaderTocDrawer({
                 <LocalizedLink
                   to={`/books/${bookSlug}/${ch.slug}`}
                   className={`reader-toc-drawer__item ${ch.slug === currentChapterSlug ? 'active' : ''}`}
-                  onClick={onClose}
+                  onClick={(e) => {
+                    if (onChapterSelect) {
+                      e.preventDefault()
+                      onChapterSelect(ch.slug)
+                    }
+                    onClose()
+                  }}
                 >
                   <span className="reader-toc-drawer__number">{ch.chapterNumber + 1}</span>
                   <span className="reader-toc-drawer__title">{ch.title}</span>
