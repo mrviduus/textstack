@@ -53,6 +53,10 @@ public static class BooksEndpoints
             return Results.NotFound();
         }
 
+        // Return 404 if book has no chapters (no readable content)
+        if (book.Chapters.Count == 0)
+            return Results.NotFound();
+
         return Results.Ok(book);
     }
 

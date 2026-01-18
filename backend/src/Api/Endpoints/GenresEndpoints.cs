@@ -76,7 +76,8 @@ public static class GenresEndpoints
             ))
             .FirstOrDefaultAsync(ct);
 
-        if (genre is null)
+        // Return 404 if genre doesn't exist OR has no published editions
+        if (genre is null || genre.Editions.Count == 0)
             return Results.NotFound();
 
         return Results.Ok(genre);

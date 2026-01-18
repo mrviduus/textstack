@@ -93,7 +93,8 @@ public static class AuthorsEndpoints
             ))
             .FirstOrDefaultAsync(ct);
 
-        if (author is null)
+        // Return 404 if author doesn't exist OR has no published editions
+        if (author is null || author.Editions.Count == 0)
             return Results.NotFound();
 
         return Results.Ok(author);

@@ -186,7 +186,39 @@ Only indexable pages appear in sitemap:
 
 ---
 
-## 11. Explicit Anti-Patterns
+## 11. HTTP 404 Rules
+
+To prevent Google from indexing empty or invalid pages, the API returns HTTP 404 for:
+
+| Entity | 404 Condition |
+|--------|---------------|
+| Book | Not found, unpublished, OR has 0 chapters |
+| Author | Not found OR has 0 published editions |
+| Genre | Not found OR has 0 published editions |
+| Chapter | Not found OR parent edition unpublished |
+
+### Implementation
+
+**Backend (API):**
+- `GET /books/{slug}` → 404 if `book is null OR book.Chapters.Count == 0`
+- `GET /authors/{slug}` → 404 if `author is null OR author.Editions.Count == 0`
+- `GET /genres/{slug}` → 404 if `genre is null OR genre.Editions.Count == 0`
+
+**Frontend (SPA):**
+- Uses `<meta name="prerender-status-code" content="404">` for prerender service
+- Prerender service reads this tag and returns HTTP 404 to bots
+- SeoHead component accepts `statusCode` prop for error pages
+
+### Rationale
+
+1. Authors/genres with 0 books have no content to index
+2. Books with 0 chapters have no readable content
+3. Prevents "soft 404" warnings in Search Console
+4. Keeps sitemap and index in sync
+
+---
+
+## 12. Anti-Patterns
 
 DO NOT:
 - Index raw book text (chapters)
@@ -199,11 +231,11 @@ DO NOT:
 
 ---
 
-## 12. Verification & Testing
+## 13. Verification & Testing
 
 After any SEO change:
 
-### 12.1 Test Prerender Output
+### 13.1 Test Prerender Output
 
 ```bash
 # Book page (should be indexable - no robots meta)
@@ -215,13 +247,13 @@ curl -s -A "Googlebot" https://textstack.app/en/books/frankenstein/letter-i-part
 # Expected: <meta name="robots" content="noindex,follow">
 ```
 
-### 12.2 Clear Prerender Cache
+### 13.2 Clear Prerender Cache
 
 ```bash
 docker restart textstack_prerender_prod
 ```
 
-### 12.3 Validate in Google Search Console
+### 13.3 Validate in Google Search Console
 
 1. Use URL Inspection tool
 2. Book pages → "URL is on Google" or "URL can be indexed"
@@ -229,7 +261,7 @@ docker restart textstack_prerender_prod
 
 ---
 
-## 13. Future Extensions (Non-MVP)
+## 14. Future Extensions
 
 Indexing chapter-level pages is acceptable ONLY if they provide unique value:
 - Commentary or annotations
@@ -242,7 +274,7 @@ Raw public-domain text alone is never indexable.
 
 ---
 
-## 14. Summary
+## 15. Summary
 
 | Principle | Rule |
 |-----------|------|
