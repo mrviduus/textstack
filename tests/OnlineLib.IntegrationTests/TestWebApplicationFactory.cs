@@ -94,7 +94,26 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
         // Clean up leftover test data from previous runs
         CleanupOldTestData(db);
 
-        // Use existing site from DB - don't create or modify
+        // Create site only if it doesn't exist (for CI), don't modify existing (for local dev)
+        try
+        {
+            if (!db.Sites.Any(s => s.Id == GeneralSiteId))
+            {
+                db.Sites.Add(new Site
+                {
+                    Id = GeneralSiteId,
+                    Code = "general",
+                    PrimaryDomain = "test.localhost",
+                    DefaultLanguage = "en",
+                    IndexingEnabled = true,
+                    SitemapEnabled = true,
+                    CreatedAt = DateTimeOffset.UtcNow,
+                    UpdatedAt = DateTimeOffset.UtcNow
+                });
+                db.SaveChanges();
+            }
+        }
+        catch { db.ChangeTracker.Clear(); }
 
         try
         {
