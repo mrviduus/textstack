@@ -39,6 +39,12 @@ export function GenreDetailPage() {
   if (error || !genre) {
     return (
       <div className="genre-detail">
+        <SeoHead
+          title="Genre Not Found"
+          description="This genre doesn't exist or has no published books."
+          noindex
+          statusCode={404}
+        />
         <h1>{language === 'uk' ? 'Жанр не знайдений' : 'Genre not found'}</h1>
         <p className="error">{error || 'Not found'}</p>
       </div>

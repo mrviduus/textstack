@@ -43,6 +43,12 @@ export function AuthorDetailPage() {
   if (error || !author) {
     return (
       <div className="author-detail">
+        <SeoHead
+          title="Author Not Found"
+          description="This author doesn't exist or has no published books."
+          noindex
+          statusCode={404}
+        />
         <h1>{language === 'uk' ? 'Автор не знайдений' : 'Author not found'}</h1>
         <p className="error">{error || 'Not found'}</p>
       </div>

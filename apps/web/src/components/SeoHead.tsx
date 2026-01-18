@@ -10,6 +10,7 @@ interface SeoHeadProps {
   type?: 'website' | 'book' | 'profile'
   availableLanguages?: SupportedLanguage[]
   noindex?: boolean
+  statusCode?: number // HTTP status for prerender (e.g., 404 for not found)
 }
 
 const HREFLANG_DATA_ATTR = 'data-hreflang-managed'
@@ -60,6 +61,7 @@ export function SeoHead({
   type = 'website',
   availableLanguages,
   noindex,
+  statusCode,
 }: SeoHeadProps) {
   const location = useLocation()
   const { language } = useLanguage()
@@ -108,6 +110,19 @@ export function SeoHead({
       robotsMeta.content = 'noindex,follow'
     } else if (robotsMeta) {
       robotsMeta.remove()
+    }
+
+    // Set prerender status code (for prerender service to return correct HTTP status)
+    let statusMeta = document.querySelector('meta[name="prerender-status-code"]') as HTMLMetaElement | null
+    if (statusCode) {
+      if (!statusMeta) {
+        statusMeta = document.createElement('meta')
+        statusMeta.name = 'prerender-status-code'
+        document.head.appendChild(statusMeta)
+      }
+      statusMeta.content = String(statusCode)
+    } else if (statusMeta) {
+      statusMeta.remove()
     }
 
     // Open Graph tags
@@ -160,7 +175,7 @@ export function SeoHead({
     return () => {
       document.querySelectorAll(`link[${HREFLANG_DATA_ATTR}]`).forEach((el) => el.remove())
     }
-  }, [location.pathname, title, description, image, type, availableLanguages, language, noindex, site?.primaryDomain])
+  }, [location.pathname, title, description, image, type, availableLanguages, language, noindex, statusCode, site?.primaryDomain])
 
   return null
 }

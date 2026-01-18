@@ -75,6 +75,12 @@ export function BookDetailPage() {
   if (error || !book) {
     return (
       <div className="book-detail">
+        <SeoHead
+          title="Book Not Found"
+          description="This book doesn't exist or is not available."
+          noindex
+          statusCode={404}
+        />
         <h1>Error</h1>
         <p>{error || 'Book not found'}</p>
         <LocalizedLink to="/books" title="Browse all books">Back to Books</LocalizedLink>
