@@ -648,9 +648,6 @@ export function ReaderPage() {
         case '3':
           update({ theme: 'dark' })
           break
-        case '4':
-          update({ theme: 'high-contrast' })
-          break
         case '?':
           setShortcutsOpen(o => !o)
           break
@@ -878,7 +875,6 @@ export function ReaderPage() {
                 <div className="reader-shortcuts-modal__item"><kbd>1</kbd><span>Light</span></div>
                 <div className="reader-shortcuts-modal__item"><kbd>2</kbd><span>Sepia</span></div>
                 <div className="reader-shortcuts-modal__item"><kbd>3</kbd><span>Dark</span></div>
-                <div className="reader-shortcuts-modal__item"><kbd>4</kbd><span>High contrast</span></div>
               </div>
             </div>
           </div>

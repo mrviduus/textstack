@@ -8,11 +8,10 @@ interface Props {
   onClose: () => void
 }
 
-const themes: { value: Theme; label: string; bg: string; border?: string }[] = [
+const themes: { value: Theme; label: string; bg: string }[] = [
   { value: 'light', label: 'Light', bg: '#fff' },
   { value: 'sepia', label: 'Sepia', bg: '#f4ecd8' },
   { value: 'dark', label: 'Dark', bg: '#1a1a1a' },
-  { value: 'high-contrast', label: 'High Contrast', bg: '#000', border: '#fff' },
 ]
 
 const fonts: { value: FontFamily; label: string; fontFamily: string }[] = [
@@ -103,7 +102,7 @@ export function ReaderSettingsDrawer({ open, settings, onUpdate, onClose }: Prop
               <button
                 key={t.value}
                 className={`reader-settings-drawer__theme ${settings.theme === t.value ? 'active' : ''}`}
-                style={{ backgroundColor: t.bg, borderColor: t.border }}
+                style={{ backgroundColor: t.bg }}
                 onClick={() => onUpdate({ theme: t.value })}
                 title={t.label}
               />

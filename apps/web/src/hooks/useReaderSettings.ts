@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 
-export type Theme = 'light' | 'sepia' | 'dark' | 'high-contrast'
+export type Theme = 'light' | 'sepia' | 'dark'
 export type FontFamily = 'serif' | 'sans' | 'dyslexic'
 export type TextAlign = 'left' | 'center' | 'justify'
 
@@ -17,7 +17,7 @@ const STORAGE_KEY = 'reader.settings.v1'
 const defaults: ReaderSettings = {
   fontSize: 18,
   lineHeight: 1.65,
-  textAlign: 'left',
+  textAlign: 'center',
   theme: 'light',
   fontFamily: 'serif',
 }

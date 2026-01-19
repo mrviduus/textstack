@@ -33,25 +33,6 @@ html[data-theme="dark"] {
   --reader-bar-bg: rgba(26, 26, 26, 0.95);
 }
 
-html[data-theme="high-contrast"] {
-  --reader-bg: #000000;
-  --reader-text: #ffffff;
-  --reader-secondary: #ffff00;
-  --reader-border: #ffffff;
-  --reader-bar-bg: rgba(0, 0, 0, 0.98);
-  --reader-link: #ffff00;
-}
-
-html[data-theme="high-contrast"] .reader-content a {
-  color: var(--reader-link);
-}
-
-html[data-theme="high-contrast"] .reader-top-bar__btn:hover,
-html[data-theme="high-contrast"] .reader-footer__link:hover,
-html[data-theme="high-contrast"] .reader-toc-drawer__item:hover {
-  background: #333;
-}
-
 /* Skip link */
 .skip-link {
   position: absolute;
@@ -200,11 +181,6 @@ html[data-theme="dark"] .reader-main {
     inset -100px 0 80px -70px rgba(0, 0, 0, 0.7),
     inset 0 60px 50px -45px rgba(0, 0, 0, 0.5),
     inset 0 -60px 50px -45px rgba(0, 0, 0, 0.5);
-}
-
-/* High contrast - no effect */
-html[data-theme="high-contrast"] .reader-main {
-  box-shadow: none;
 }
 
 .reader-content-wrapper {
@@ -738,8 +714,7 @@ html[data-theme="high-contrast"] .reader-main {
   border-radius: 2px;
 }
 
-html[data-theme="dark"] .reader-search-drawer__context mark,
-html[data-theme="high-contrast"] .reader-search-drawer__context mark {
+html[data-theme="dark"] .reader-search-drawer__context mark {
   background: #ffeb3b;
   color: #000;
 }
