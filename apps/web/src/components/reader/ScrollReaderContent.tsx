@@ -2,6 +2,8 @@ import { useEffect, useRef, useCallback, Fragment } from 'react'
 import type { ReaderSettings } from '../../hooks/useReaderSettings'
 import type { LoadedChapter } from '../../hooks/useScrollReader'
 
+const DOUBLE_TAP_DELAY = 300 // ms
+
 interface Props {
   chapters: LoadedChapter[]
   settings: ReaderSettings
@@ -9,6 +11,7 @@ interface Props {
   onLoadMore: () => void
   chapterRefs: React.MutableRefObject<Map<string, HTMLElement>>
   onTap?: () => void
+  onDoubleTap?: () => void
 }
 
 function getFontFamily(family: ReaderSettings['fontFamily']): string {
@@ -29,17 +32,45 @@ export function ScrollReaderContent({
   onLoadMore,
   chapterRefs,
   onTap,
+  onDoubleTap,
 }: Props) {
   const bottomSentinelRef = useRef<HTMLDivElement>(null)
   const fontFamily = getFontFamily(settings.fontFamily)
+  const lastTapRef = useRef<number>(0)
+  const tapTimeoutRef = useRef<number | null>(null)
 
-  // Handle tap to toggle immersive mode
+  // Handle tap with double-tap detection for fullscreen
   const handleClick = useCallback((e: React.MouseEvent) => {
     // Don't trigger on links
     const target = e.target as HTMLElement
     if (target.tagName === 'A' || target.closest('a')) return
-    onTap?.()
-  }, [onTap])
+
+    const now = Date.now()
+    const timeSinceLastTap = now - lastTapRef.current
+
+    // Double-tap detected
+    if (timeSinceLastTap < DOUBLE_TAP_DELAY && onDoubleTap) {
+      if (tapTimeoutRef.current) {
+        clearTimeout(tapTimeoutRef.current)
+        tapTimeoutRef.current = null
+      }
+      lastTapRef.current = 0
+      onDoubleTap()
+      return
+    }
+
+    // First tap - wait to see if it's a double-tap
+    lastTapRef.current = now
+
+    if (tapTimeoutRef.current) {
+      clearTimeout(tapTimeoutRef.current)
+    }
+
+    tapTimeoutRef.current = window.setTimeout(() => {
+      tapTimeoutRef.current = null
+      onTap?.()
+    }, DOUBLE_TAP_DELAY)
+  }, [onTap, onDoubleTap])
 
   // Register chapter ref
   const setChapterRef = useCallback(

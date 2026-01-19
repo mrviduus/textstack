@@ -747,6 +747,7 @@ export function ReaderPage() {
             onLoadMore={scrollReader.loadMore}
             chapterRefs={scrollReader.chapterRefs}
             onTap={() => { setImmersiveMode(false); startImmersiveTimer(); }}
+            onDoubleTap={toggleFullscreen}
           />
         ) : (
           <ReaderContent
