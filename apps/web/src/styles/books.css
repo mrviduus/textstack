@@ -1687,6 +1687,22 @@
   background: #333;
 }
 
+/* Common 404 back link */
+.back-home-link {
+  display: inline-block;
+  background: #1a1a1a;
+  color: #fff;
+  padding: 12px 24px;
+  border-radius: 8px;
+  text-decoration: none;
+  font-weight: 500;
+  margin-top: 16px;
+}
+
+.back-home-link:hover {
+  background: #333;
+}
+
 /* Error Boundary */
 .error-boundary {
   max-width: 600px;

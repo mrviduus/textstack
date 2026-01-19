@@ -51,6 +51,9 @@ export function AuthorDetailPage() {
         />
         <h1>{language === 'uk' ? 'Автор не знайдений' : 'Author not found'}</h1>
         <p className="error">{error || 'Not found'}</p>
+        <LocalizedLink to="/" className="back-home-link">
+          {language === 'uk' ? 'На головну' : 'Back to Home'}
+        </LocalizedLink>
       </div>
     )
   }

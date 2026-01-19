@@ -81,9 +81,11 @@ export function BookDetailPage() {
           noindex
           statusCode={404}
         />
-        <h1>Error</h1>
-        <p>{error || 'Book not found'}</p>
-        <LocalizedLink to="/books" title="Browse all books">Back to Books</LocalizedLink>
+        <h1>{language === 'uk' ? 'Книгу не знайдено' : 'Book not found'}</h1>
+        <p className="error">{error || (language === 'uk' ? 'Не знайдено' : 'Not found')}</p>
+        <LocalizedLink to="/" className="back-home-link">
+          {language === 'uk' ? 'На головну' : 'Back to Home'}
+        </LocalizedLink>
       </div>
     )
   }
