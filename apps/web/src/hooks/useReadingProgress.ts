@@ -8,7 +8,14 @@ interface UseReadingProgressOptions {
   editionId?: string
   chapterId?: string
   chapterSlug?: string
-  onSave?: () => void
+}
+
+// Store for pending sync (used by lifecycle triggers)
+interface PendingSync {
+  editionId: string
+  chapterId: string
+  locator: string
+  percent: number
 }
 
 export function useReadingProgress(
@@ -20,7 +27,8 @@ export function useReadingProgress(
   const serverSyncRef = useRef<number | null>(null)
   const lastSyncedPercentRef = useRef<number>(0)
   const lastSyncedLocatorRef = useRef<string>('')
-  const { editionId, chapterId, chapterSlug: optionsChapterSlug, onSave } = options || {}
+  const pendingSyncRef = useRef<PendingSync | null>(null)
+  const { editionId, chapterId, chapterSlug: optionsChapterSlug } = options || {}
   const resolvedChapterSlug = optionsChapterSlug || chapterSlug
 
   // Update progress (called by reader when page changes)
@@ -64,9 +72,16 @@ export function useReadingProgress(
         locator,
         percent,
       }))
-      onSave?.()
     } catch {
       // localStorage might be full or disabled
+    }
+
+    // Store pending sync data for lifecycle triggers
+    pendingSyncRef.current = {
+      editionId,
+      chapterId: effectiveChapterId,
+      locator,
+      percent,
     }
 
     // Also sync to server if authenticated (debounced)
@@ -78,16 +93,57 @@ export function useReadingProgress(
           locator,
           percent,
         }).catch(() => {})
+        pendingSyncRef.current = null
       }, 2000)
     }
-  }, [bookSlug, chapterSlug, isAuthenticated, editionId, chapterId, resolvedChapterSlug, onSave])
+  }, [bookSlug, chapterSlug, isAuthenticated, editionId, chapterId, resolvedChapterSlug])
 
-  // Cleanup
+  // Flush pending sync immediately (bypasses debounce)
+  const flushSave = useCallback(() => {
+    if (!pendingSyncRef.current || !isAuthenticated) return
+
+    // Cancel pending debounced sync
+    if (serverSyncRef.current) {
+      clearTimeout(serverSyncRef.current)
+      serverSyncRef.current = null
+    }
+
+    const { editionId, chapterId, locator, percent } = pendingSyncRef.current
+    // Use sendBeacon for reliability during page unload
+    const payload = JSON.stringify({ chapterId, locator, percent })
+    const url = `/api/me/progress/${editionId}`
+
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon(url, new Blob([payload], { type: 'application/json' }))
+    } else {
+      // Fallback to fetch (may not complete during unload)
+      upsertProgress(editionId, { chapterId, locator, percent }).catch(() => {})
+    }
+
+    pendingSyncRef.current = null
+  }, [isAuthenticated])
+
+  // Lifecycle event triggers (ADR-007 section 3.3)
   useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        flushSave()
+      }
+    }
+
+    const handleBeforeUnload = () => {
+      flushSave()
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('beforeunload', handleBeforeUnload)
+
     return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('beforeunload', handleBeforeUnload)
       if (serverSyncRef.current) clearTimeout(serverSyncRef.current)
     }
-  }, [])
+  }, [flushSave])
 
-  return { updateProgress }
+  return { updateProgress, flushSave }
 }

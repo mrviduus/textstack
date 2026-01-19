@@ -16,7 +16,9 @@ import { useLibrary } from '../hooks/useLibrary'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { useNetworkRecovery } from '../hooks/useNetworkRecovery'
 import { getCachedChapter, cacheChapter } from '../lib/offlineDb'
+import { InvalidContentTypeError } from '../lib/fetchWithRetry'
 import { SeoHead } from '../components/SeoHead'
+import { LocalizedLink } from '../components/LocalizedLink'
 import { Toast } from '../components/Toast'
 import { ReaderTopBar } from '../components/reader/ReaderTopBar'
 import { ReaderContent } from '../components/reader/ReaderContent'
@@ -53,8 +55,6 @@ export function ReaderPage() {
   const { add: addToLibrary, isInLibrary } = useLibrary()
   const [scrollPercent, setScrollPercent] = useState(0)
   const [toastMessage, setToastMessage] = useState<string | null>(null)
-  const [isAutoSaved, setIsAutoSaved] = useState(false)
-  const firstAutoSaveRef = useRef(false)
   const libraryAddedRef = useRef(false)
   const editionIdRef = useRef<string | null>(null)
   const { markFetchStart, wasAbortedDueToWake } = useNetworkRecovery()
@@ -162,20 +162,11 @@ export function ReaderPage() {
     recalculate,
   } = usePagination(contentRef, containerRef)
 
-  // Handle autosave visual feedback
-  const handleAutoSave = useCallback(() => {
-    setIsAutoSaved(true)
-    if (!firstAutoSaveRef.current) {
-      firstAutoSaveRef.current = true
-      setToastMessage('Auto-saved')
-    }
-  }, [])
-
   // Reading progress sync (with server when authenticated)
   const { updateProgress } = useReadingProgress(
     bookSlug || '',
     chapterSlug || '',
-    { editionId: book?.id, chapterId: chapter?.id, chapterSlug: chapterSlug, onSave: handleAutoSave }
+    { editionId: book?.id, chapterId: chapter?.id, chapterSlug: chapterSlug }
   )
 
   // Restore progress on mount
@@ -201,7 +192,7 @@ export function ReaderPage() {
     } catch {
       return null
     }
-  }, [book?.id, book?.chapters, isAutoSaved]) // isAutoSaved triggers re-read after save
+  }, [book?.id, book?.chapters])
 
   // Refs for restore logic
   const hasNavigatedRef = useRef(false)
@@ -302,18 +293,53 @@ export function ReaderPage() {
     const bookChapter = book.chapters.find(c => c.slug === visibleSlug)
     if (!bookChapter) return
 
-    // Debounce the actual save to avoid rapid writes
+    // Debounce the actual save (600ms per ADR-007 spec: 500-800ms)
     if (scrollSaveTimerRef.current) clearTimeout(scrollSaveTimerRef.current)
     scrollSaveTimerRef.current = window.setTimeout(() => {
       // Create scroll locator and save with correct chapter info
       const scrollLocator = `scroll:${visibleSlug}:${Math.round(offset)}`
       updateProgress(overallProgress, undefined, scrollLocator, bookChapter.id, visibleSlug)
-    }, 200)
+    }, 600)
 
     return () => {
       if (scrollSaveTimerRef.current) clearTimeout(scrollSaveTimerRef.current)
     }
   }, [useScrollMode, book?.id, book?.chapters, scrollReader.visibleChapterSlug, scrollReader.scrollOffset, overallProgress, updateProgress])
+
+  // Time-on-position trigger (ADR-007 section 3.2): save if user stays at same position for 3s
+  const stablePositionTimerRef = useRef<number | null>(null)
+  const lastStablePositionRef = useRef<{ page: number; progress: number } | null>(null)
+  useEffect(() => {
+    if (!book?.id || !chapter?.id) return
+
+    const currentPosition = { page: currentPage, progress: overallProgress }
+    const lastPosition = lastStablePositionRef.current
+
+    // If position unchanged, don't restart timer
+    if (lastPosition &&
+        lastPosition.page === currentPosition.page &&
+        Math.abs(lastPosition.progress - currentPosition.progress) < 0.001) {
+      return
+    }
+
+    // Position changed - update ref and start new 3s timer
+    lastStablePositionRef.current = currentPosition
+
+    if (stablePositionTimerRef.current) {
+      clearTimeout(stablePositionTimerRef.current)
+    }
+
+    stablePositionTimerRef.current = window.setTimeout(() => {
+      // User has been at same position for 3s - trigger save
+      updateProgress(overallProgress, currentPage)
+    }, 3000)
+
+    return () => {
+      if (stablePositionTimerRef.current) {
+        clearTimeout(stablePositionTimerRef.current)
+      }
+    }
+  }, [currentPage, overallProgress, book?.id, chapter?.id, updateProgress])
 
   // Auto-add to library after page 2 or 1% progress (for single-page chapters)
   useEffect(() => {
@@ -481,7 +507,11 @@ export function ReaderPage() {
           fetchData()
           return
         }
-        setError((err as Error).message)
+        if (err instanceof InvalidContentTypeError) {
+          setError('Chapter not found. The book may have been removed.')
+        } else {
+          setError((err as Error).message)
+        }
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -657,6 +687,9 @@ export function ReaderPage() {
       <div className="reader-error">
         <h2>Error loading chapter</h2>
         <p>{error || 'Chapter not found'}</p>
+        <LocalizedLink to="/" className="reader-error__home-link">
+          Back to Home
+        </LocalizedLink>
       </div>
     )
   }
@@ -680,7 +713,6 @@ export function ReaderPage() {
         chapterTitle={chapter.title}
         progress={overallProgress}
         isBookmarked={isBookmarked(activeChapterSlug)}
-        isAutoSaved={isAutoSaved}
         isFullscreen={isFullscreen}
         onSearchClick={() => setSearchOpen(true)}
         onTocClick={() => setTocOpen(true)}

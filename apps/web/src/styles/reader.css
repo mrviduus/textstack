@@ -896,6 +896,21 @@ html[data-theme="high-contrast"] .reader-search-drawer__context mark {
   color: var(--reader-secondary);
 }
 
+.reader-error__home-link {
+  display: inline-block;
+  margin-top: 16px;
+  padding: 8px 16px;
+  color: var(--reader-text);
+  border: 1px solid var(--reader-secondary);
+  border-radius: 4px;
+  text-decoration: none;
+}
+
+.reader-error__home-link:hover {
+  background: var(--reader-secondary);
+  color: var(--reader-bg);
+}
+
 /* Fullscreen mode - bars hidden by default */
 .fullscreen-bars-hidden .reader-top-bar {
   transform: translateY(-100%) !important;

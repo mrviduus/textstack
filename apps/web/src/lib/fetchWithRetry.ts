@@ -23,6 +23,13 @@ export class FetchRetryExhaustedError extends Error {
   }
 }
 
+export class InvalidContentTypeError extends Error {
+  constructor(received: string) {
+    super(`Expected JSON but received ${received || 'unknown'} (likely 404 page)`)
+    this.name = 'InvalidContentTypeError'
+  }
+}
+
 async function fetchWithTimeout(
   url: string,
   timeout: number,
@@ -107,5 +114,11 @@ export async function fetchJsonWithRetry<T>(
 ): Promise<T> {
   const res = await fetchWithRetry(url, options)
   if (!res.ok) throw new Error(`API error: ${res.status}`)
+
+  const contentType = res.headers.get('content-type') || ''
+  if (!contentType.includes('application/json')) {
+    throw new InvalidContentTypeError(contentType)
+  }
+
   return res.json()
 }
