@@ -44,6 +44,13 @@ export function useRestoreProgress(
     fetchedRef.current = true
 
     async function fetchProgress() {
+      // Skip restore when navigating directly from TOC (?direct=1)
+      const params = new URLSearchParams(window.location.search)
+      if (params.get('direct') === '1') {
+        setState(s => ({ ...s, isLoading: false }))
+        return
+      }
+
       let progress: SavedProgress | null = null
 
       // Always check localStorage first (works offline, always available)

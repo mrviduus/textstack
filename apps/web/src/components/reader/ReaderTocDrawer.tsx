@@ -79,7 +79,7 @@ export function ReaderTocDrawer({
             {chapters.map((ch) => (
               <li key={ch.id}>
                 <LocalizedLink
-                  to={`/books/${bookSlug}/${ch.slug}`}
+                  to={`/books/${bookSlug}/${ch.slug}?direct=1`}
                   className={`reader-toc-drawer__item ${ch.slug === currentChapterSlug ? 'active' : ''}`}
                   onClick={(e) => {
                     if (onChapterSelect) {

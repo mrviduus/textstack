@@ -15,37 +15,32 @@ interface Props {
 
 export function ReaderFooterNav({
   chapterTitle,
-  progress,
-  pagesLeft,
-  scrollPercent,
   overallProgress,
 }: Props) {
-  const pagePercent = Math.round(progress * 100)
-  const scrollPct = Math.round(scrollPercent * 100)
   const bookPercent = Math.round(overallProgress * 100)
 
   return (
     <footer className="reader-footer">
-      {/* Desktop: page-based progress */}
+      {/* Desktop: book-based progress */}
       <div className="reader-footer__progress reader-footer__progress--desktop">
         <div
           className="reader-footer__progress-bar"
-          style={{ width: `${pagePercent}%` }}
+          style={{ width: `${bookPercent}%` }}
           role="progressbar"
-          aria-valuenow={pagePercent}
+          aria-valuenow={bookPercent}
           aria-valuemin={0}
           aria-valuemax={100}
           aria-label="Reading progress"
         />
       </div>
 
-      {/* Mobile: scroll-based progress */}
+      {/* Mobile: book-based progress (same as desktop for consistency) */}
       <div className="reader-footer__progress reader-footer__progress--mobile">
         <div
           className="reader-footer__progress-bar"
-          style={{ width: `${scrollPct}%` }}
+          style={{ width: `${bookPercent}%` }}
           role="progressbar"
-          aria-valuenow={scrollPct}
+          aria-valuenow={bookPercent}
           aria-valuemin={0}
           aria-valuemax={100}
           aria-label="Reading progress"
@@ -54,13 +49,9 @@ export function ReaderFooterNav({
 
       <div className="reader-footer__info">
         <span className="reader-footer__chapter">{chapterTitle}</span>
-        {/* Desktop: pages left */}
+        {/* Desktop: overall book progress */}
         <span className="reader-footer__pages reader-footer__pages--desktop">
-          {pagesLeft === 0
-            ? 'Last page'
-            : `${pagesLeft} page${pagesLeft === 1 ? '' : 's'} left`}
-          {' · '}
-          {pagePercent}%
+          {bookPercent}%
         </span>
         {/* Mobile: overall book progress */}
         <span className="reader-footer__pages reader-footer__pages--mobile">

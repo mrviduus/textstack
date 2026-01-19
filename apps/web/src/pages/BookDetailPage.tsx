@@ -151,7 +151,7 @@ export function BookDetailPage() {
           <div className="book-detail__actions">
             {firstChapter && (
               <LocalizedLink
-                to={`/books/${book.slug}/${firstChapter.slug}`}
+                to={`/books/${book.slug}/${firstChapter.slug}?direct=1`}
                 className="book-detail__read-btn"
                 title={`Start reading ${book.title}`}
               >
@@ -193,7 +193,7 @@ export function BookDetailPage() {
         <ul>
           {book.chapters.map((ch) => (
             <li key={ch.id}>
-              <LocalizedLink to={`/books/${book.slug}/${ch.slug}`} title={`Read ${ch.title}`}>
+              <LocalizedLink to={`/books/${book.slug}/${ch.slug}?direct=1`} title={`Read ${ch.title}`}>
                 <span className="chapter-number">{ch.chapterNumber + 1}.</span>
                 <span className="chapter-title">{ch.title}</span>
                 {ch.wordCount && (

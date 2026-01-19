@@ -260,12 +260,13 @@ export function ReaderPage() {
     return wordsRead / totalWords
   }, [book, chapterSlug, progress, totalPages, useScrollMode, scrollReader.visibleChapterSlug, scrollReader.scrollOffset, scrollReader.chapterRefs])
 
-  // Sync progress when page changes (pagination mode)
+  // Sync progress when page changes (pagination mode only)
   useEffect(() => {
+    if (useScrollMode) return // Scroll mode has its own save effect
     if (totalPages > 0 && book?.id && chapter?.id) {
       updateProgress(overallProgress, currentPage)
     }
-  }, [currentPage, totalPages, overallProgress, book?.id, chapter?.id, updateProgress])
+  }, [useScrollMode, currentPage, totalPages, overallProgress, book?.id, chapter?.id, updateProgress])
 
   // Sync progress when scroll position changes (scroll mode)
   const lastScrollSaveRef = useRef<{ slug: string; offset: number } | null>(null)
@@ -282,9 +283,7 @@ export function ReaderPage() {
 
     // Only save if position changed significantly (chapter change OR 500px scroll)
     const last = lastScrollSaveRef.current
-    if (last && last.slug === visibleSlug && Math.abs(last.offset - offset) < 500) {
-      return
-    }
+    if (last && last.slug === visibleSlug && Math.abs(last.offset - offset) < 500) return
 
     // Update ref immediately to prevent duplicate saves
     lastScrollSaveRef.current = { slug: visibleSlug, offset }
@@ -295,21 +294,35 @@ export function ReaderPage() {
 
     // Debounce the actual save (600ms per ADR-007 spec: 500-800ms)
     if (scrollSaveTimerRef.current) clearTimeout(scrollSaveTimerRef.current)
-    scrollSaveTimerRef.current = window.setTimeout(() => {
-      // Create scroll locator and save with correct chapter info
-      const scrollLocator = `scroll:${visibleSlug}:${Math.round(offset)}`
-      updateProgress(overallProgress, undefined, scrollLocator, bookChapter.id, visibleSlug)
-    }, 600)
 
+    // Capture current values for the timeout callback
+    const saveSlug = visibleSlug
+    const saveOffset = offset
+    const saveChapterId = bookChapter.id
+    const saveProgress = overallProgress
+
+    scrollSaveTimerRef.current = window.setTimeout(() => {
+      const scrollLocator = `scroll:${saveSlug}:${Math.round(saveOffset)}`
+      updateProgress(saveProgress, undefined, scrollLocator, saveChapterId, saveSlug)
+      scrollSaveTimerRef.current = null
+    }, 600)
+  }, [useScrollMode, book?.id, book?.chapters, scrollReader.visibleChapterSlug, scrollReader.scrollOffset, overallProgress, updateProgress])
+
+  // Cleanup scroll save timer on unmount
+  useEffect(() => {
     return () => {
       if (scrollSaveTimerRef.current) clearTimeout(scrollSaveTimerRef.current)
     }
-  }, [useScrollMode, book?.id, book?.chapters, scrollReader.visibleChapterSlug, scrollReader.scrollOffset, overallProgress, updateProgress])
+  }, [])
 
   // Time-on-position trigger (ADR-007 section 3.2): save if user stays at same position for 3s
+  // Only for pagination mode - scroll mode has its own save effect
   const stablePositionTimerRef = useRef<number | null>(null)
   const lastStablePositionRef = useRef<{ page: number; progress: number } | null>(null)
+  const useScrollModeRef = useRef(useScrollMode)
+  useScrollModeRef.current = useScrollMode // Keep ref in sync
   useEffect(() => {
+    if (useScrollMode) return // Scroll mode has its own save effect
     if (!book?.id || !chapter?.id) return
 
     const currentPosition = { page: currentPage, progress: overallProgress }
@@ -330,6 +343,8 @@ export function ReaderPage() {
     }
 
     stablePositionTimerRef.current = window.setTimeout(() => {
+      // Double-check scroll mode hasn't changed since timer was set
+      if (useScrollModeRef.current) return
       // User has been at same position for 3s - trigger save
       updateProgress(overallProgress, currentPage)
     }, 3000)
@@ -339,7 +354,7 @@ export function ReaderPage() {
         clearTimeout(stablePositionTimerRef.current)
       }
     }
-  }, [currentPage, overallProgress, book?.id, chapter?.id, updateProgress])
+  }, [useScrollMode, currentPage, overallProgress, book?.id, chapter?.id, updateProgress])
 
   // Auto-add to library after page 2 or 1% progress (for single-page chapters)
   useEffect(() => {
@@ -710,7 +725,7 @@ export function ReaderPage() {
         visible={visible}
         bookSlug={bookSlug!}
         title={book.title}
-        chapterTitle={chapter.title}
+        chapterTitle={activeChapter?.title || chapter.title}
         progress={overallProgress}
         isBookmarked={isBookmarked(activeChapterSlug)}
         isFullscreen={isFullscreen}
@@ -773,7 +788,7 @@ export function ReaderPage() {
 
       <ReaderFooterNav
         bookSlug={bookSlug!}
-        chapterTitle={chapter.title}
+        chapterTitle={activeChapter?.title || chapter.title}
         prev={chapter.prev}
         next={chapter.next}
         progress={progress}
@@ -799,7 +814,7 @@ export function ReaderPage() {
           if (isLoaded) {
             scrollReader.scrollToChapter(slug)
           } else {
-            navigate(getLocalizedPath(`/books/${bookSlug}/${slug}`))
+            navigate(getLocalizedPath(`/books/${bookSlug}/${slug}?direct=1`))
           }
         } : undefined}
       />
