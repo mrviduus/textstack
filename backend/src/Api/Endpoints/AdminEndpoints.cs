@@ -104,21 +104,13 @@ public static class AdminEndpoints
             .WithName("AdminDeleteChapter");
 
         // Reprocessing endpoints
-        group.MapGet("/reprocess/stats", GetReprocessingStats)
-            .WithName("GetReprocessingStats")
-            .WithDescription("Get statistics about what will be reprocessed");
-
         group.MapPost("/reprocess/{editionId:guid}", ReprocessEdition)
             .WithName("ReprocessEdition")
-            .WithDescription("Reprocess a single edition with chapter splitting");
+            .WithDescription("Reprocess a single edition");
 
         group.MapPost("/reprocess/all", ReprocessAllEditions)
             .WithName("ReprocessAllEditions")
-            .WithDescription("Reprocess all published editions with chapter splitting");
-
-        group.MapPost("/reprocess/split-existing", SplitExistingChapters)
-            .WithName("SplitExistingChapters")
-            .WithDescription("Split long chapters directly in DB (no source file needed)");
+            .WithDescription("Reprocess all published editions");
     }
 
     private static async Task<IResult> UploadBook(
@@ -317,15 +309,6 @@ public static class AdminEndpoints
 
     // Reprocessing handlers
 
-    private static async Task<IResult> GetReprocessingStats(
-        ReprocessingService reprocessingService,
-        [FromQuery] Guid? siteId,
-        CancellationToken ct)
-    {
-        var stats = await reprocessingService.GetReprocessingStatsAsync(siteId, ct);
-        return Results.Ok(stats);
-    }
-
     private static async Task<IResult> ReprocessEdition(
         Guid editionId,
         ReprocessingService reprocessingService,
@@ -341,15 +324,6 @@ public static class AdminEndpoints
         CancellationToken ct)
     {
         var result = await reprocessingService.ReprocessAllEditionsAsync(siteId, ct);
-        return Results.Ok(result);
-    }
-
-    private static async Task<IResult> SplitExistingChapters(
-        ReprocessingService reprocessingService,
-        [FromQuery] Guid? siteId,
-        CancellationToken ct)
-    {
-        var result = await reprocessingService.SplitExistingChaptersAsync(siteId, ct);
         return Results.Ok(result);
     }
 

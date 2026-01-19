@@ -1,7 +1,6 @@
 using System.Text;
 using OnlineLib.Extraction.Contracts;
 using OnlineLib.Extraction.Enums;
-using OnlineLib.Extraction.Services;
 
 namespace OnlineLib.Extraction.Utilities;
 
@@ -34,12 +33,8 @@ public static class PlainTextReader
             WordCount: TextProcessingUtils.CountWords(normalized)
         ));
 
-        // Split long text into smaller parts (consistent with all extractors)
-        var splitter = new ChapterSplitter(request.Options.MaxWordsPerPart);
-        var splitUnits = splitter.SplitAll(units);
-
         var diagnostics = new ExtractionDiagnostics(TextSource.NativeText, null, warnings);
-        return new ExtractionResult(format, metadata, splitUnits, [], diagnostics);
+        return new ExtractionResult(format, metadata, units, [], diagnostics);
     }
 
     private static async Task<string> ReadTextAsync(

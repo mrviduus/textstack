@@ -1,7 +1,6 @@
 using OnlineLib.Extraction.Contracts;
 using OnlineLib.Extraction.Enums;
 using OnlineLib.Extraction.Ocr;
-using OnlineLib.Extraction.Services;
 using OnlineLib.Extraction.Utilities;
 using UglyToad.PdfPig;
 using UglyToad.PdfPig.Content;
@@ -145,14 +144,10 @@ public sealed class PdfTextExtractor : ITextExtractor
 
         title ??= TextProcessingUtils.ExtractTitleFromFileName(request.FileName);
 
-        // Split long pages into smaller parts (consistent with EPUB/FB2)
-        var splitter = new ChapterSplitter(request.Options.MaxWordsPerPart);
-        var splitUnits = splitter.SplitAll(units);
-
         var metadata = new ExtractionMetadata(title, authors, null, null, coverImage, coverMimeType);
         var diagnostics = new ExtractionDiagnostics(textSource, null, warnings);
 
-        return new ExtractionResult(SourceFormat.Pdf, metadata, splitUnits, [], diagnostics);
+        return new ExtractionResult(SourceFormat.Pdf, metadata, units, [], diagnostics);
     }
 
     private async Task<ExtractionResult> ExtractWithOcrAsync(
@@ -268,14 +263,10 @@ public sealed class PdfTextExtractor : ITextExtractor
 
         title ??= TextProcessingUtils.ExtractTitleFromFileName(request.FileName);
 
-        // Split long pages into smaller parts (consistent with EPUB/FB2)
-        var splitter = new ChapterSplitter(request.Options.MaxWordsPerPart);
-        var splitUnits = splitter.SplitAll(units);
-
         var metadata = new ExtractionMetadata(title, authors, null, null, coverImage, coverMimeType);
         var diagnostics = new ExtractionDiagnostics(textSource, avgConfidence, warnings);
 
-        return new ExtractionResult(SourceFormat.Pdf, metadata, splitUnits, [], diagnostics);
+        return new ExtractionResult(SourceFormat.Pdf, metadata, units, [], diagnostics);
     }
 
     private static MemoryStream RenderPageToImage(PdfDocument document, int pageNumber)

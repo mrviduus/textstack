@@ -25,12 +25,6 @@ public sealed class ExtractionOptions
     public string OcrLanguage { get; init; } = "eng";
 
     /// <summary>
-    /// Maximum words per chapter part. Chapters exceeding this will be split.
-    /// Default: 2000 words.
-    /// </summary>
-    public int MaxWordsPerPart { get; init; } = 2000;
-
-    /// <summary>
     /// Default options with OCR disabled.
     /// </summary>
     public static ExtractionOptions Default { get; } = new();

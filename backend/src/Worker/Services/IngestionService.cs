@@ -122,15 +122,12 @@ public class IngestionWorkerService
             }
 
             await using var fileStream = File.OpenRead(filePath);
-            // Use site's MaxWordsPerPart setting for chapter splitting
-            var maxWordsPerPart = job.Edition.Site?.MaxWordsPerPart
-                                  ?? ExtractionOptions.Default.MaxWordsPerPart;
             var request = new ExtractionRequest
             {
                 Content = fileStream,
                 FileName = job.BookFile.OriginalFileName,
                 ContentLength = fileStream.Length,
-                Options = new ExtractionOptions { MaxWordsPerPart = maxWordsPerPart }
+                Options = ExtractionOptions.Default
             };
 
             // Extraction span
