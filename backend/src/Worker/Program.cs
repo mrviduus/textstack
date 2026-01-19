@@ -1,3 +1,4 @@
+using System.Text;
 using Application.Common.Interfaces;
 using Infrastructure.Persistence;
 using Infrastructure.Services;
@@ -11,6 +12,9 @@ using OnlineLib.Extraction.Ocr;
 using OnlineLib.Extraction.Registry;
 using OnlineLib.Search;
 using Worker.Services;
+
+// Register legacy encodings (windows-1251 for FB2, etc.)
+Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
 var builder = Host.CreateApplicationBuilder(args);
 
