@@ -1182,8 +1182,4 @@ html[data-theme="high-contrast"] .reader-search-drawer__context mark {
   right: 0;
 }
 
-/* Hide tap zones styling in scroll mode (natural scroll instead) */
-.reader-page--scroll-mode .reader-content-wrapper {
-  -webkit-user-select: text;
-  user-select: text;
-}
+/* Scroll mode - keep selection disabled for clean reading UX */
