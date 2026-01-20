@@ -58,6 +58,7 @@
 
 ### Documentation
 - **feat-0007** - Next.js SSG Migration PDD (`docs/05-features/feat-0007-nextjs-ssg-migration.md`)
+- **database.md** - Updated to match actual schema: added UserRefreshToken, BookAsset, TextStackImport, SeoCrawlJob, SeoCrawlResult; fixed Chapter/User/IngestionJob/ReadingProgress/Bookmark/Note schemas; removed non-existent search_documents table
 
 ---
 
