@@ -22,12 +22,6 @@ Request → Host header → SiteResolver → SiteContext → All queries
 3. Returns `SiteContext` with site_id, code, theme, features
 4. Unknown hosts → 404
 
-### Dev Override
-
-```
-http://localhost:5173/?site=general
-```
-
 ### Key Files
 
 - `backend/src/Api/Sites/SiteResolver.cs`

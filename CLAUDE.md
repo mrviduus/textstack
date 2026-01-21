@@ -136,8 +136,6 @@ Upload EPUB/PDF/FB2 → BookFile (stored) → IngestionJob (queued)
 ```
 
 **Site Context**: Host header → SiteResolver → SiteContext
-- Dev override: `?site=general`
-- Test: `http://localhost:5173/?site=general`
 - Files: `backend/src/Api/Sites/`
 
 **Storage**:

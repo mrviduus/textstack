@@ -39,12 +39,6 @@ curl http://api.localhost/debug/site
 # => {"site":"general"}
 ```
 
-## Testing Sites
-
-Query param override works in Development:
-```
-http://localhost:5173/?site=general      # General (default)
-```
 
 ## Migrations
 
