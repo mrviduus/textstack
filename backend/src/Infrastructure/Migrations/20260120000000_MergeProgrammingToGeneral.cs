@@ -113,6 +113,39 @@ namespace Infrastructure.Migrations
                 SET site_id = '{GeneralSiteId}'
                 WHERE site_id = '{ProgrammingSiteId}'
             ");
+
+            // 13. Migrate textstack imports
+            migrationBuilder.Sql($@"
+                UPDATE textstack_imports
+                SET site_id = '{GeneralSiteId}'
+                WHERE site_id = '{ProgrammingSiteId}'
+            ");
+
+            // 14. Delete SEO crawl results for programming site jobs
+            migrationBuilder.Sql($@"
+                DELETE FROM seo_crawl_results
+                WHERE job_id IN (
+                    SELECT id FROM seo_crawl_jobs WHERE site_id = '{ProgrammingSiteId}'
+                )
+            ");
+
+            // 15. Delete SEO crawl jobs for programming site
+            migrationBuilder.Sql($@"
+                DELETE FROM seo_crawl_jobs
+                WHERE site_id = '{ProgrammingSiteId}'
+            ");
+
+            // 16. Delete programming site domains
+            migrationBuilder.Sql($@"
+                DELETE FROM site_domains
+                WHERE site_id = '{ProgrammingSiteId}'
+            ");
+
+            // 17. Delete programming site (no longer needed)
+            migrationBuilder.Sql($@"
+                DELETE FROM sites
+                WHERE id = '{ProgrammingSiteId}'
+            ");
         }
 
         protected override void Down(MigrationBuilder migrationBuilder)
