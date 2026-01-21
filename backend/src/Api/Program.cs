@@ -45,15 +45,17 @@ builder.Services.AddCors(options =>
     options.AddDefaultPolicy(policy =>
     {
         policy.WithOrigins(
+                // Dev: public site
                 "http://localhost:5173",
-                "http://localhost:5174",
                 "http://general.localhost",
                 "http://general.localhost:5173",
-                "http://programming.localhost",
-                "http://programming.localhost:5173",
+                // Dev: admin panel
+                "http://localhost:5174",
                 "http://admin.localhost",
                 "http://admin.localhost:5174",
+                // Prod: public site
                 "https://textstack.app",
+                // Prod: admin panel
                 "https://textstack.dev"
             )
             .AllowAnyHeader()

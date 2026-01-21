@@ -34,9 +34,6 @@ function getCanonicalOrigin(primaryDomain: string | undefined): string {
   if (host === 'textstack.app' || host === 'www.textstack.app') {
     return 'https://textstack.app'
   }
-  if (host === 'textstack.dev' || host === 'www.textstack.dev') {
-    return 'https://textstack.dev'
-  }
 
   // 4. Fallback to current origin (for local dev)
   return window.location.origin

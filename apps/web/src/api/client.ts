@@ -11,13 +11,11 @@ export function getStorageUrl(path: string | null | undefined): string | undefin
 function getSiteFromHost(): string {
   const host = window.location.hostname
 
-  // Production domains
-  if (host === 'textstack.dev' || host === 'www.textstack.dev') return 'programming'
+  // Production domain
   if (host === 'textstack.app' || host === 'www.textstack.app') return 'general'
 
   // Dev subdomains
   const subdomain = host.split('.')[0]
-  if (subdomain === 'programming') return 'programming'
   if (subdomain === 'general') return 'general'
 
   return import.meta.env.VITE_SITE || 'general'

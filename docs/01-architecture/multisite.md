@@ -1,13 +1,13 @@
-# Multisite Architecture
+# Site Architecture
 
-One backend serves multiple branded sites with content isolation and per-site SEO.
+Single public domain with admin panel on separate domain.
 
-## Sites
+## Domains
 
-| Code | Domain | Purpose |
-|------|--------|---------|
-| general | general.example.com | Student-first aggregator (default) |
-| programming | programming.example.com | Developer-focused vertical |
+| Domain | Purpose |
+|--------|---------|
+| textstack.app | Public book library (all content) |
+| textstack.dev | Admin panel (auth-gated) |
 
 ## Site Resolution
 
@@ -26,7 +26,6 @@ Request → Host header → SiteResolver → SiteContext → All queries
 
 ```
 http://localhost:5173/?site=general
-http://localhost:5173/?site=programming
 ```
 
 ### Key Files
@@ -35,66 +34,45 @@ http://localhost:5173/?site=programming
 - `backend/src/Api/Sites/SiteContextMiddleware.cs`
 - `apps/web/src/context/SiteContext.tsx`
 
-## Data Isolation
+## Data Model
 
 | Entity | Scoping |
 |--------|---------|
 | Site | Root entity |
 | SiteDomain | FK to Site |
-| Work | FK to Site (primary) |
-| Edition | FK to Site (denormalized) |
+| Work | FK to Site |
+| Edition | FK to Site |
 | Chapter | Via Edition |
 | ReadingProgress, Bookmark, Note | FK to Site |
 | User | Global (cross-site) |
 
-### Hard Rules
-
-1. One Work belongs to exactly one site
-2. All public queries must filter by site_id
-3. User accounts are global (can use multiple sites)
-
-## SEO per Site
+## SEO
 
 ### robots.txt
 - Served dynamically per Host
-- Includes sitemap URL for that site
-
-### Canonical
-- Must point to same host that served content
-- No cross-site canonicals
+- Includes sitemap URL
 
 ### Sitemaps
-- `/sitemap.xml` — index per site
-- `/sitemaps/books.xml` — site-scoped
+- `/sitemap.xml` — index
+- `/sitemaps/books.xml` — all books
 - `/sitemaps/chapters-*.xml` — chunked
 
 ### Structured Data
-- Per-site Organization schema
+- Organization schema
 - Book schema on book pages
 - BreadcrumbList on all pages
 
 ## Frontend Routing
 
-### Shared Routes
+### Public Routes
 ```
 /                           — Home
-/book/:slug                 — Book detail
-/book/:slug/chapter/:n      — Chapter reader
-/search?q=                  — Search
-```
-
-### Per-Site Sections
-- General: broad, student-first browsing
-- Programming: topic-first browsing
-
-### Theming
-
-```typescript
-// apps/web/src/config/sites.ts
-export const sites = {
-  general: { name: 'General', color: '#0066CC' },
-  programming: { name: 'CodeBooks', color: '#10B981' }
-}
+/{lang}/books               — Book list
+/{lang}/books/:slug         — Book detail
+/{lang}/books/:slug/:chapter — Chapter reader
+/{lang}/search?q=           — Search
+/{lang}/authors             — Author list
+/{lang}/genres              — Genre list
 ```
 
 ## API Filtering
@@ -128,5 +106,5 @@ Stored in `sites` table:
 
 ## See Also
 
-- [ADR-005: Multisite Resolution](adr/005-multisite-resolution.md)
+- [ADR-007: Single Domain Consolidation](adr/007-single-domain-consolidation.md)
 - [Database: Site/SiteDomain entities](../02-system/database.md)

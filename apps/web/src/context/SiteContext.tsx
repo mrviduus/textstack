@@ -29,15 +29,12 @@ const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
 function getSiteFromHost(): string | null {
   const host = window.location.hostname
 
-  // Production domains
-  if (host === 'textstack.dev' || host === 'www.textstack.dev') return 'programming'
+  // Production domain (single public site)
   if (host === 'textstack.app' || host === 'www.textstack.app') return 'general'
 
   // Dev subdomains
   const subdomain = host.split('.')[0]
-  if (subdomain === 'programming') return 'programming'
   if (subdomain === 'general') return 'general'
-  if (subdomain === 'fiction') return 'general' // alias
 
   return null
 }
