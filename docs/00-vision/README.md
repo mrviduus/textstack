@@ -38,16 +38,10 @@ Free book library with Kindle-like reader. Upload EPUB/PDF/FB2 → parse → SEO
 - Edition management
 - Ingestion monitoring
 
-## Multisite
+## Domains
 
-Single backend serves multiple branded sites:
-- `general.example.com` — General (student-first aggregator)
-- `programming.example.com` — CodeBooks (developer vertical)
-
-Each site has:
-- Own domain, theme, SEO identity
-- Content isolation (site_id on content)
-- Cross-site user accounts
+- `textstack.app` — Public book library (all content)
+- `textstack.dev` — Admin panel (auth-gated, not indexed)
 
 ## Non-Goals (MVP)
 

@@ -26,32 +26,6 @@ const SiteContext = createContext<SiteContextValue>({
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
 
-function getSiteFromHost(): string | null {
-  const host = window.location.hostname
-
-  // Production domains
-  if (host === 'textstack.dev' || host === 'www.textstack.dev') return 'programming'
-  if (host === 'textstack.app' || host === 'www.textstack.app') return 'general'
-
-  // Dev subdomains
-  const subdomain = host.split('.')[0]
-  if (subdomain === 'programming') return 'programming'
-  if (subdomain === 'general') return 'general'
-  if (subdomain === 'fiction') return 'general' // alias
-
-  return null
-}
-
-function getSiteParam(): string | null {
-  // Query param takes precedence (dev override)
-  const params = new URLSearchParams(window.location.search)
-  const queryParam = params.get('site')
-  if (queryParam) return queryParam
-
-  // Fall back to hostname-based resolution
-  return getSiteFromHost()
-}
-
 export function SiteProvider({ children }: { children: ReactNode }) {
   const [site, setSite] = useState<SiteConfig | null>(null)
   const [loading, setLoading] = useState(true)
@@ -59,12 +33,8 @@ export function SiteProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const controller = new AbortController()
-    const siteParam = getSiteParam()
-    const url = siteParam
-      ? `${API_BASE}/api/site/context?site=${siteParam}`
-      : `${API_BASE}/api/site/context`
 
-    fetch(url, { signal: controller.signal })
+    fetch(`${API_BASE}/api/site/context`, { signal: controller.signal })
       .then(res => {
         if (!res.ok) throw new Error('Site not found')
         return res.json()

@@ -2,7 +2,7 @@
 
 Free book library with Kindle-like reader. EPUB/PDF/FB2 upload, parsing, SEO pages, and offline reading.
 
-**Live**: [textstack.app](https://textstack.app/) (general) · [textstack.dev](https://textstack.dev/) (programming)
+**Live**: [textstack.app](https://textstack.app/) (public) · [textstack.dev](https://textstack.dev/) (admin)
 
 ## Quick Links
 
@@ -77,6 +77,7 @@ docs/
 | [004](01-architecture/adr/004-postgres-fts.md) | PostgreSQL FTS |
 | [005](01-architecture/adr/005-multisite-resolution.md) | Multisite via Host |
 | [006](01-architecture/adr/006-modular-monolith.md) | Modular monolith |
+| [007](01-architecture/adr/007-single-domain-consolidation.md) | Single domain consolidation |
 
 ## Governance
 

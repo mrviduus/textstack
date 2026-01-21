@@ -8,25 +8,6 @@ export function getStorageUrl(path: string | null | undefined): string | undefin
   return `${API_BASE}/storage/${path}`
 }
 
-function getSiteFromHost(): string {
-  const host = window.location.hostname
-
-  // Production domains
-  if (host === 'textstack.dev' || host === 'www.textstack.dev') return 'programming'
-  if (host === 'textstack.app' || host === 'www.textstack.app') return 'general'
-
-  // Dev subdomains
-  const subdomain = host.split('.')[0]
-  if (subdomain === 'programming') return 'programming'
-  if (subdomain === 'general') return 'general'
-
-  return import.meta.env.VITE_SITE || 'general'
-}
-
-function addSiteParam(query: URLSearchParams): void {
-  if (!query.has('site')) query.set('site', getSiteFromHost())
-}
-
 async function fetchJson<T>(path: string, options?: FetchOptions): Promise<T> {
   return fetchJsonWithRetry<T>(`${API_BASE}${path}`, options)
 }
@@ -37,31 +18,26 @@ export function createApi(language: string) {
   return {
     getBooks: (params?: { limit?: number; offset?: number }) => {
       const query = new URLSearchParams()
-      addSiteParam(query)
       if (params?.limit) query.set('limit', String(params.limit))
       if (params?.offset) query.set('offset', String(params.offset))
+      const qs = query.toString()
       return fetchJson<{ total: number; items: import('../types/api').Edition[] }>(
-        `${langPrefix}/books?${query}`
+        `${langPrefix}/books${qs ? `?${qs}` : ''}`
       )
     },
 
     getBook: (slug: string) => {
-      const query = new URLSearchParams()
-      addSiteParam(query)
-      return fetchJson<import('../types/api').BookDetail>(`${langPrefix}/books/${slug}?${query}`)
+      return fetchJson<import('../types/api').BookDetail>(`${langPrefix}/books/${slug}`)
     },
 
     getChapter: (bookSlug: string, chapterSlug: string) => {
-      const query = new URLSearchParams()
-      addSiteParam(query)
       return fetchJson<import('../types/api').Chapter>(
-        `${langPrefix}/books/${bookSlug}/chapters/${chapterSlug}?${query}`
+        `${langPrefix}/books/${bookSlug}/chapters/${chapterSlug}`
       )
     },
 
     search: (q: string, params?: { limit?: number; offset?: number; highlight?: boolean }) => {
       const query = new URLSearchParams({ q })
-      addSiteParam(query)
       if (params?.limit) query.set('limit', String(params.limit))
       if (params?.offset) query.set('offset', String(params.offset))
       if (params?.highlight) query.set('highlight', 'true')
@@ -72,14 +48,12 @@ export function createApi(language: string) {
 
     suggest: (q: string, params?: { limit?: number }) => {
       const query = new URLSearchParams({ q })
-      addSiteParam(query)
       if (params?.limit) query.set('limit', String(params.limit))
       return fetchJson<import('../types/api').Suggestion[]>(`${langPrefix}/search/suggest?${query}`)
     },
 
     getAuthors: (params?: { limit?: number; offset?: number; sort?: 'name' | 'recent' }) => {
       const query = new URLSearchParams()
-      addSiteParam(query)
       query.set('language', language)
       if (params?.limit) query.set('limit', String(params.limit))
       if (params?.offset) query.set('offset', String(params.offset))
@@ -88,21 +62,15 @@ export function createApi(language: string) {
     },
 
     getAuthor: (slug: string) => {
-      const query = new URLSearchParams()
-      addSiteParam(query)
-      return fetchJson<import('../types/api').AuthorDetail>(`/authors/${slug}?${query}`)
+      return fetchJson<import('../types/api').AuthorDetail>(`/authors/${slug}`)
     },
 
     getGenres: () => {
-      const query = new URLSearchParams()
-      addSiteParam(query)
-      return fetchJson<{ total: number; items: import('../types/api').Genre[] }>(`/genres?${query}`)
+      return fetchJson<{ total: number; items: import('../types/api').Genre[] }>(`/genres`)
     },
 
     getGenre: (slug: string) => {
-      const query = new URLSearchParams()
-      addSiteParam(query)
-      return fetchJson<import('../types/api').GenreDetail>(`/genres/${slug}?${query}`)
+      return fetchJson<import('../types/api').GenreDetail>(`/genres/${slug}`)
     },
   }
 }

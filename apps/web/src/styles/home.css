@@ -57,19 +57,6 @@
   display: none;
 }
 
-/* Programming Hero Variant - dark minimal */
-.home-hero--programming {
-  background: #191919;
-}
-
-.home-hero--programming .home-hero__title {
-  color: #fff;
-}
-
-.home-hero--programming .home-hero__subtitle {
-  color: rgba(255, 255, 255, 0.6);
-}
-
 /* About Section */
 .home-about {
   padding: 48px 16px;

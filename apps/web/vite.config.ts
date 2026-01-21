@@ -7,7 +7,7 @@ export default defineConfig({
     port: 5173,
     host: true,
     // Allow prerender container to access via Docker network name
-    allowedHosts: ['web', 'localhost', 'general.localhost', 'programming.localhost'],
+    allowedHosts: ['web', 'localhost', 'general.localhost'],
     // Proxy API requests to API container (needed for prerender)
     proxy: {
       '/api': {

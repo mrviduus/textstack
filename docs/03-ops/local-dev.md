@@ -26,8 +26,7 @@ For prod-like host-based routing, use nginx gateway on port 80:
 
 | Host | Target |
 |------|--------|
-| http://general.localhost | Web (general site) |
-| http://programming.localhost | Web (programming site) |
+| http://general.localhost | Web (public site) |
 | http://api.localhost | API |
 | http://admin.localhost | Admin |
 
@@ -38,19 +37,8 @@ For prod-like host-based routing, use nginx gateway on port 80:
 curl http://api.localhost/health
 curl http://api.localhost/debug/site
 # => {"site":"general"}
-
-# Test with Host header
-curl -H "Host: programming.localhost" http://api.localhost/debug/site
-# => {"site":"programming"}
 ```
 
-## Testing Sites (Legacy)
-
-Query param override still works in Development:
-```
-http://localhost:5173/?site=general      # General (default)
-http://localhost:5173/?site=programming  # CodeBooks
-```
 
 ## Migrations
 
