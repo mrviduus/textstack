@@ -181,7 +181,7 @@ public class SitemapEndpointTests : IClassFixture<TestWebApplicationFactory>
         foreach (var loc in locs)
         {
             var uri = new Uri(loc);
-            Assert.Equal("http", uri.Scheme); // TestServer uses http
+            Assert.Equal("https", uri.Scheme); // Canonical URLs always use https
             Assert.Equal(TestHost, uri.Host);
             Assert.True(string.IsNullOrEmpty(uri.Query), $"URL should not have query string: {loc}");
             Assert.True(string.IsNullOrEmpty(uri.Fragment), $"URL should not have fragment: {loc}");

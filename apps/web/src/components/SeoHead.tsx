@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useLanguage, SupportedLanguage } from '../context/LanguageContext'
 import { useSite } from '../context/SiteContext'
+import { buildCanonicalUrl, normalizeOrigin } from '../lib/canonicalUrl'
 
 interface SeoHeadProps {
   title?: string
@@ -20,13 +21,13 @@ const OG_DATA_ATTR = 'data-og-managed'
 function getCanonicalOrigin(primaryDomain: string | undefined): string {
   // 1. Use primaryDomain from site context if available
   if (primaryDomain) {
-    return primaryDomain.startsWith('http') ? primaryDomain : `https://${primaryDomain}`
+    return normalizeOrigin(primaryDomain)
   }
 
   // 2. Use VITE_CANONICAL_URL env var (for prerender where site context may not load in time)
   const envCanonical = import.meta.env.VITE_CANONICAL_URL
   if (envCanonical) {
-    return envCanonical.startsWith('http') ? envCanonical : `https://${envCanonical}`
+    return normalizeOrigin(envCanonical)
   }
 
   // 3. Detect production domain from hostname
@@ -36,7 +37,7 @@ function getCanonicalOrigin(primaryDomain: string | undefined): string {
   }
 
   // 4. Fallback to current origin (for local dev)
-  return window.location.origin
+  return normalizeOrigin(window.location.origin)
 }
 
 function setMeta(property: string, content: string, attr: string) {
@@ -68,7 +69,11 @@ export function SeoHead({
     // Wait for site context to load before setting SEO tags
     // This ensures canonical URLs use the correct domain
     const origin = getCanonicalOrigin(site?.primaryDomain)
-    const canonicalUrl = `${origin}${location.pathname}`
+    const canonicalUrl = buildCanonicalUrl({
+      origin,
+      pathname: location.pathname,
+      search: location.search,
+    })
     const fullTitle = title ? `${title} | TextStack` : 'TextStack'
 
     // Set canonical URL (always set, will update when site loads)
@@ -156,7 +161,11 @@ export function SeoHead({
         const hreflangLink = document.createElement('link')
         hreflangLink.rel = 'alternate'
         hreflangLink.hreflang = lang
-        hreflangLink.href = `${origin}/${lang}${pathWithoutLang}`
+        hreflangLink.href = buildCanonicalUrl({
+          origin,
+          pathname: `/${lang}${pathWithoutLang}`,
+          search: location.search,
+        })
         hreflangLink.setAttribute(HREFLANG_DATA_ATTR, 'true')
         document.head.appendChild(hreflangLink)
       })
@@ -164,7 +173,11 @@ export function SeoHead({
       const xDefaultLink = document.createElement('link')
       xDefaultLink.rel = 'alternate'
       xDefaultLink.hreflang = 'x-default'
-      xDefaultLink.href = `${origin}/${language}${pathWithoutLang}`
+      xDefaultLink.href = buildCanonicalUrl({
+        origin,
+        pathname: `/${language}${pathWithoutLang}`,
+        search: location.search,
+      })
       xDefaultLink.setAttribute(HREFLANG_DATA_ATTR, 'true')
       document.head.appendChild(xDefaultLink)
     }
@@ -172,7 +185,7 @@ export function SeoHead({
     return () => {
       document.querySelectorAll(`link[${HREFLANG_DATA_ATTR}]`).forEach((el) => el.remove())
     }
-  }, [location.pathname, title, description, image, type, availableLanguages, language, noindex, statusCode, site?.primaryDomain])
+  }, [location.pathname, location.search, title, description, image, type, availableLanguages, language, noindex, statusCode, site?.primaryDomain])
 
   return null
 }

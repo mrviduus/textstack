@@ -1,3 +1,4 @@
+using Api.Seo;
 using Api.Sites;
 using Application.Common.Interfaces;
 using Application.Seo;
@@ -22,8 +23,7 @@ public static class SeoEndpoints
     private static IResult GetRobots(HttpContext httpContext)
     {
         var site = httpContext.GetSiteContext();
-        var host = httpContext.Request.Host.Value;
-        var scheme = httpContext.Request.Scheme;
+        var baseUrl = CanonicalUrlBuilder.GetCanonicalBase(site.PrimaryDomain);
 
         var sb = new StringBuilder();
         sb.AppendLine("User-agent: *");
@@ -37,7 +37,7 @@ public static class SeoEndpoints
             sb.AppendLine("Disallow: /admin");
             sb.AppendLine("Disallow: /api/");
             sb.AppendLine();
-            sb.AppendLine($"Sitemap: {scheme}://{host}/sitemap.xml");
+            sb.AppendLine($"Sitemap: {baseUrl}/sitemap.xml");
         }
 
         return Results.Content(sb.ToString(), "text/plain");
@@ -50,9 +50,7 @@ public static class SeoEndpoints
         if (!site.SitemapEnabled)
             return Task.FromResult(Results.NotFound());
 
-        var host = httpContext.Request.Host.Value;
-        var scheme = httpContext.Request.Scheme;
-        var baseUrl = $"{scheme}://{host}";
+        var baseUrl = CanonicalUrlBuilder.GetCanonicalBase(site.PrimaryDomain);
 
         var sb = new StringBuilder();
         sb.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
@@ -86,10 +84,6 @@ public static class SeoEndpoints
         if (!site.SitemapEnabled)
             return Results.NotFound();
 
-        var host = httpContext.Request.Host.Value;
-        var scheme = httpContext.Request.Scheme;
-        var baseUrl = $"{scheme}://{host}";
-
         var books = await seoService.GetBooksForSitemapAsync(site.SiteId, ct);
 
         var sb = new StringBuilder();
@@ -99,8 +93,9 @@ public static class SeoEndpoints
         // Only individual book detail pages - no homepage or list pages
         foreach (var book in books)
         {
+            var loc = CanonicalUrlBuilder.BuildSitemapUrl(site.PrimaryDomain, $"/{book.Language}/books/{book.Slug}");
             sb.AppendLine("  <url>");
-            sb.AppendLine($"    <loc>{baseUrl}/{book.Language}/books/{book.Slug}</loc>");
+            sb.AppendLine($"    <loc>{loc}</loc>");
             sb.AppendLine($"    <lastmod>{book.UpdatedAt:yyyy-MM-dd}</lastmod>");
             sb.AppendLine("  </url>");
         }
@@ -120,10 +115,6 @@ public static class SeoEndpoints
         if (!site.SitemapEnabled)
             return Results.NotFound();
 
-        var host = httpContext.Request.Host.Value;
-        var scheme = httpContext.Request.Scheme;
-        var baseUrl = $"{scheme}://{host}";
-
         // Only include authors who have at least one published book
         var authors = await db.Authors
             .Where(a => a.SiteId == site.SiteId && a.Indexable)
@@ -140,8 +131,9 @@ public static class SeoEndpoints
 
         foreach (var author in authors)
         {
+            var loc = CanonicalUrlBuilder.BuildSitemapUrl(site.PrimaryDomain, $"/{site.DefaultLanguage}/authors/{author.Slug}");
             sb.AppendLine("  <url>");
-            sb.AppendLine($"    <loc>{baseUrl}/{site.DefaultLanguage}/authors/{author.Slug}</loc>");
+            sb.AppendLine($"    <loc>{loc}</loc>");
             sb.AppendLine($"    <lastmod>{author.UpdatedAt:yyyy-MM-dd}</lastmod>");
             sb.AppendLine("    <changefreq>monthly</changefreq>");
             sb.AppendLine("  </url>");
@@ -162,10 +154,6 @@ public static class SeoEndpoints
         if (!site.SitemapEnabled)
             return Results.NotFound();
 
-        var host = httpContext.Request.Host.Value;
-        var scheme = httpContext.Request.Scheme;
-        var baseUrl = $"{scheme}://{host}";
-
         // Only include genres that have at least one published book
         var genres = await db.Genres
             .Where(g => g.SiteId == site.SiteId && g.Indexable)
@@ -182,8 +170,9 @@ public static class SeoEndpoints
 
         foreach (var genre in genres)
         {
+            var loc = CanonicalUrlBuilder.BuildSitemapUrl(site.PrimaryDomain, $"/{site.DefaultLanguage}/genres/{genre.Slug}");
             sb.AppendLine("  <url>");
-            sb.AppendLine($"    <loc>{baseUrl}/{site.DefaultLanguage}/genres/{genre.Slug}</loc>");
+            sb.AppendLine($"    <loc>{loc}</loc>");
             sb.AppendLine($"    <lastmod>{genre.UpdatedAt:yyyy-MM-dd}</lastmod>");
             sb.AppendLine("    <changefreq>monthly</changefreq>");
             sb.AppendLine("  </url>");
