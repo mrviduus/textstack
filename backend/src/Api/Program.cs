@@ -1,14 +1,18 @@
+using System.Threading.RateLimiting;
 using Api.Endpoints;
 using Api.Language;
 using Api.Middleware;
 using Api.Sites;
 using Application;
+using Application.AdminAuth;
 using Application.Common.Interfaces;
 using Application.TextStack;
+using Domain.Enums;
 using Infrastructure.Persistence;
 using Infrastructure.Services;
 using Infrastructure.Telemetry;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.FileProviders;
@@ -100,6 +104,18 @@ builder.Services.AddSingleton<HostSiteResolver>();
 builder.Services.AddScoped<HostSiteContext>();
 builder.Services.AddScoped<IHostSiteContext>(sp => sp.GetRequiredService<HostSiteContext>());
 
+// Rate limiting for admin login
+builder.Services.AddRateLimiter(options =>
+{
+    options.AddFixedWindowLimiter("admin-login", opt =>
+    {
+        opt.Window = TimeSpan.FromMinutes(1);
+        opt.PermitLimit = 5;
+        opt.QueueLimit = 0;
+    });
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+});
+
 var app = builder.Build();
 
 // Skip migrations in Test environment (uses InMemory DB)
@@ -127,6 +143,7 @@ forwardedHeadersOptions.KnownProxies.Clear();
 app.UseForwardedHeaders(forwardedHeadersOptions);
 
 app.UseCors();
+app.UseRateLimiter();
 app.UseExceptionMiddleware();
 
 // Static files for uploaded content (author photos, book covers)
@@ -153,6 +170,13 @@ app.UseLanguageContext();
 // Explicit routing after middleware so path rewriting works
 app.UseRouting();
 
+// Admin auth middleware - protect /admin/* except /admin/auth/*
+app.UseWhen(
+    ctx => ctx.Request.Path.StartsWithSegments("/admin")
+        && !ctx.Request.Path.StartsWithSegments("/admin/auth"),
+    branch => branch.UseAdminAuth());
+
+app.MapAdminAuthEndpoints();
 app.MapDebugEndpoints(app.Environment);
 app.MapAdminEndpoints();
 app.MapAdminAuthorsEndpoints();
@@ -205,6 +229,39 @@ if (args.Length > 0 && args[0] == "import-textstack")
         Console.WriteLine($"Error: {result.Error}");
     else
         Console.WriteLine($"Success! Edition: {result.EditionId}, Chapters: {result.ChapterCount}");
+
+    return;
+}
+
+// CLI: create-admin command
+if (args.Length > 0 && args[0] == "create-admin")
+{
+    if (args.Length < 3)
+    {
+        Console.WriteLine("Usage: dotnet run create-admin <email> <password> [role]");
+        Console.WriteLine("Roles: Admin (default), Editor, Moderator");
+        return;
+    }
+
+    var email = args[1];
+    var password = args[2];
+    var role = AdminRole.Admin;
+
+    if (args.Length >= 4 && Enum.TryParse<AdminRole>(args[3], true, out var parsedRole))
+        role = parsedRole;
+
+    using var cliScope = app.Services.CreateScope();
+    var adminAuthService = cliScope.ServiceProvider.GetRequiredService<AdminAuthService>();
+
+    try
+    {
+        var admin = await adminAuthService.CreateAdminUserAsync(email, password, role, CancellationToken.None);
+        Console.WriteLine($"Admin user created: {admin.Email} ({admin.Role})");
+    }
+    catch (InvalidOperationException ex)
+    {
+        Console.WriteLine($"Error: {ex.Message}");
+    }
 
     return;
 }

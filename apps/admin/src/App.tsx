@@ -1,5 +1,8 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { AdminAuthProvider } from './context/AdminAuthContext'
+import { ProtectedRoute } from './components/ProtectedRoute'
 import { Layout } from './components/Layout'
+import { LoginPage } from './pages/LoginPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { UploadPage } from './pages/UploadPage'
 import { JobsPage } from './pages/JobsPage'
@@ -21,26 +24,36 @@ import './styles/admin.css'
 function App() {
   return (
     <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<Layout />}>
-          <Route index element={<DashboardPage />} />
-          <Route path="upload" element={<UploadPage />} />
-          <Route path="jobs" element={<JobsPage />} />
-          <Route path="editions" element={<EditionsPage />} />
-          <Route path="editions/:id" element={<EditEditionPage />} />
-          <Route path="chapters/:id" element={<EditChapterPage />} />
-          <Route path="authors" element={<AuthorsPage />} />
-          <Route path="authors/new" element={<CreateAuthorPage />} />
-          <Route path="authors/:id" element={<EditAuthorPage />} />
-          <Route path="genres" element={<GenresPage />} />
-          <Route path="genres/new" element={<CreateGenrePage />} />
-          <Route path="genres/:id" element={<EditGenrePage />} />
-          <Route path="sites" element={<SitesPage />} />
-          <Route path="seo-crawl" element={<SeoCrawlPage />} />
-          <Route path="seo-crawl/:id" element={<SeoCrawlJobPage />} />
-          <Route path="*" element={<NotFoundPage />} />
-        </Route>
-      </Routes>
+      <AdminAuthProvider>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route
+            path="/"
+            element={
+              <ProtectedRoute>
+                <Layout />
+              </ProtectedRoute>
+            }
+          >
+            <Route index element={<DashboardPage />} />
+            <Route path="upload" element={<UploadPage />} />
+            <Route path="jobs" element={<JobsPage />} />
+            <Route path="editions" element={<EditionsPage />} />
+            <Route path="editions/:id" element={<EditEditionPage />} />
+            <Route path="chapters/:id" element={<EditChapterPage />} />
+            <Route path="authors" element={<AuthorsPage />} />
+            <Route path="authors/new" element={<CreateAuthorPage />} />
+            <Route path="authors/:id" element={<EditAuthorPage />} />
+            <Route path="genres" element={<GenresPage />} />
+            <Route path="genres/new" element={<CreateGenrePage />} />
+            <Route path="genres/:id" element={<EditGenrePage />} />
+            <Route path="sites" element={<SitesPage />} />
+            <Route path="seo-crawl" element={<SeoCrawlPage />} />
+            <Route path="seo-crawl/:id" element={<SeoCrawlJobPage />} />
+            <Route path="*" element={<NotFoundPage />} />
+          </Route>
+        </Routes>
+      </AdminAuthProvider>
     </BrowserRouter>
   )
 }
