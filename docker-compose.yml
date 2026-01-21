@@ -43,52 +43,15 @@ services:
         condition: service_healthy
     restart: "no"
 
-  # Observability Stack
-  otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.116.1
-    container_name: books_otel
-    command: ["--config=/etc/otel-collector-config.yaml"]
-    volumes:
-      - ./infra/otel/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+  # Observability - Aspire Dashboard (all-in-one: traces, logs, metrics)
+  aspire-dashboard:
+    image: mcr.microsoft.com/dotnet/aspire-dashboard:latest
+    container_name: books_aspire
     ports:
-      - "4317:4317"   # OTLP gRPC
-      - "4318:4318"   # OTLP HTTP
-      - "8889:8889"   # Prometheus metrics
-    restart: unless-stopped
-
-  prometheus:
-    image: prom/prometheus:v3.1.0
-    container_name: books_prometheus
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--web.enable-lifecycle'
-      - '--web.enable-remote-write-receiver'
-    volumes:
-      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./data/prometheus:/prometheus
-    ports:
-      - "9090:9090"
-    restart: unless-stopped
-    depends_on:
-      - otel-collector
-
-  grafana:
-    image: grafana/grafana:11.4.0
-    container_name: books_grafana
+      - "18888:18888"   # Dashboard UI
     environment:
-      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
-      GF_USERS_ALLOW_SIGN_UP: "false"
-    volumes:
-      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
-      - ./data/grafana:/var/lib/grafana
-    ports:
-      - "3000:3000"
+      - ASPIRE_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS=true
     restart: unless-stopped
-    depends_on:
-      - prometheus
 
   api:
     build:
@@ -104,7 +67,7 @@ services:
       Jwt__AccessTokenExpiryMinutes: ${JWT_ACCESS_TOKEN_EXPIRY_MINUTES:-15}
       Jwt__RefreshTokenExpiryDays: ${JWT_REFRESH_TOKEN_EXPIRY_DAYS:-30}
       Google__ClientId: ${GOOGLE_CLIENT_ID:-}
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://aspire-dashboard:18889
     volumes:
       - ./data/storage:/storage
       - ${TEXTSTACK_PATH:-./data/textstack}:/data/textstack
@@ -122,7 +85,7 @@ services:
         condition: service_healthy
       migrator:
         condition: service_completed_successfully
-      otel-collector:
+      aspire-dashboard:
         condition: service_started
 
   worker:
@@ -134,7 +97,7 @@ services:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
       ConnectionStrings__Default: "Host=db;Port=5432;Database=${POSTGRES_DB:-books};Username=${POSTGRES_USER:-app};Password=${POSTGRES_PASSWORD:-changeme}"
       Storage__RootPath: /storage
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://aspire-dashboard:18889
     volumes:
       - ./data/storage:/storage
     restart: unless-stopped
@@ -143,7 +106,7 @@ services:
         condition: service_healthy
       migrator:
         condition: service_completed_successfully
-      otel-collector:
+      aspire-dashboard:
         condition: service_started
 
   web:

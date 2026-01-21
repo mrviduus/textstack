@@ -116,8 +116,7 @@ make restore FILE=backups/db_xxx.sql.gz  # Restore to dev
 | Web | http://localhost:5173 |
 | Admin | http://localhost:5174 |
 | Postgres | localhost:5432 |
-| Grafana | http://localhost:3000 |
-| Prometheus | http://localhost:9090 |
+| Aspire Dashboard | http://localhost:18888 |
 
 ## Key Concepts
 

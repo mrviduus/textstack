@@ -44,7 +44,11 @@ public static class TelemetryExtensions
                 builder
                     .SetResourceBuilder(resourceBuilder)
                     .AddSource(TelemetryConstants.IngestionActivitySourceName)
-                    .AddSource(TelemetryConstants.ApiActivitySourceName);
+                    .AddSource(TelemetryConstants.ApiActivitySourceName)
+                    .AddEntityFrameworkCoreInstrumentation(opts =>
+                    {
+                        opts.SetDbStatementForText = true; // Include SQL in traces
+                    });
 
                 // Allow additional instrumentation configuration
                 configureTracing?.Invoke(builder);

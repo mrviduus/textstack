@@ -58,7 +58,7 @@ services:
       Jwt__Issuer: ${JWT_ISSUER}
       Jwt__Audience: ${JWT_AUDIENCE}
       Google__ClientId: ${GOOGLE_CLIENT_ID}
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://aspire-dashboard:18889
     volumes:
       - ./data/storage:/storage
       - ./data/textstack:/data/textstack
@@ -76,7 +76,7 @@ services:
         condition: service_healthy
       migrator:
         condition: service_completed_successfully
-      otel-collector:
+      aspire-dashboard:
         condition: service_started
     deploy:
       resources:
@@ -94,7 +94,7 @@ services:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       ConnectionStrings__Default: "Host=db;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
       Storage__RootPath: /storage
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://aspire-dashboard:18889
     volumes:
       - ./data/storage:/storage
     restart: always
@@ -103,7 +103,7 @@ services:
         condition: service_healthy
       migrator:
         condition: service_completed_successfully
-      otel-collector:
+      aspire-dashboard:
         condition: service_started
     deploy:
       resources:
@@ -150,88 +150,20 @@ services:
           memory: 256M
 
   # ===========================================
-  # Observability Stack (optional but recommended)
+  # Observability - Aspire Dashboard (all-in-one: traces, logs, metrics)
   # ===========================================
 
-  loki:
-    image: grafana/loki:3.3.2
-    container_name: textstack_loki_prod
-    command: ["-config.file=/etc/loki/local-config.yaml"]
-    volumes:
-      - ./observability/loki/loki-config.yaml:/etc/loki/local-config.yaml:ro
-      - ./data/loki-prod:/loki
-    restart: always
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-        reservations:
-          memory: 128M
-
-  otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.116.1
-    container_name: textstack_otel_prod
-    command: ["--config=/etc/otel-collector-config.yaml"]
-    volumes:
-      - ./infra/otel/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
-    restart: always
-    depends_on:
-      - loki
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-        reservations:
-          memory: 64M
-
-  prometheus:
-    image: prom/prometheus:v3.1.0
-    container_name: textstack_prometheus_prod
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--storage.tsdb.retention.time=30d'
-      - '--web.enable-lifecycle'
-      - '--web.enable-remote-write-receiver'
-    volumes:
-      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./data/prometheus-prod:/prometheus
+  aspire-dashboard:
+    image: mcr.microsoft.com/dotnet/aspire-dashboard:latest
+    container_name: textstack_aspire_prod
     ports:
-      - "127.0.0.1:9090:9090"  # Only localhost
-    restart: always
-    depends_on:
-      - otel-collector
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-        reservations:
-          memory: 128M
-
-  grafana:
-    image: grafana/grafana:11.4.0
-    container_name: textstack_grafana_prod
+      - "127.0.0.1:18888:18888"   # Dashboard UI (localhost only)
     environment:
-      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
-      GF_USERS_ALLOW_SIGN_UP: "false"
-      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://localhost:3000}
-    volumes:
-      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
-      - ./data/grafana-prod:/var/lib/grafana
-    ports:
-      - "127.0.0.1:3000:3000"  # Only localhost
+      - ASPIRE_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS=true
     restart: always
-    depends_on:
-      - prometheus
     deploy:
       resources:
         limits:
           memory: 256M
         reservations:
           memory: 64M
-
-# Production uses separate data directories to avoid conflicts with dev
-# Dev data: ./data/postgres, ./data/grafana, ./data/prometheus, ./data/loki
-# Prod data: ./data/postgres-prod, ./data/grafana-prod, ./data/prometheus-prod, ./data/loki-prod
