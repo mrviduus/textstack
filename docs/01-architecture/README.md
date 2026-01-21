@@ -88,7 +88,7 @@ IngestionJob.Status == Queued
   → Processing → Succeeded/Failed
 ```
 
-### Multisite
+### Site Context
 Every request:
 1. SiteContextMiddleware resolves Host → SiteContext
 2. SiteContext.SiteId used in all queries

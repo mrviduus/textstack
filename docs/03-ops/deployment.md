@@ -13,8 +13,8 @@ Cloudflare Tunnel (cloudflared daemon)
     │
     ▼
 Host nginx (port 80)
-    ├── textstack.app     → static files + /api/ proxy (X-Site-Id: general)
-    └── textstack.dev     → static files + /api/ proxy (X-Site-Id: programming)
+    ├── textstack.app     → static files + /api/ proxy (public site)
+    └── textstack.dev     → admin panel (auth-gated)
     │
     ▼
 Docker containers (localhost only)

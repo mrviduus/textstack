@@ -6,7 +6,6 @@ namespace Api.Sites;
 public static class SiteKeys
 {
     public const string General = "general";
-    public const string Programming = "programming";
 
-    public static readonly HashSet<string> Valid = [General, Programming];
+    public static readonly HashSet<string> Valid = [General];
 }

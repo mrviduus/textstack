@@ -6,9 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Free book library w/ Kindle-like reader. Upload EPUB/PDF/FB2 → parse → SEO pages + offline-first sync.
 
-**Live**: [textstack.app](https://textstack.app/) (general) · [textstack.dev](https://textstack.dev/) (programming)
+**Live**: [textstack.app](https://textstack.app/) (public) · [textstack.dev](https://textstack.dev/) (admin)
 
-**Stack**: ASP.NET Core (API + Worker) + PostgreSQL + React + Multisite
+**Stack**: ASP.NET Core (API + Worker) + PostgreSQL + React
 
 ## CRITICAL: Production Environment
 
@@ -135,8 +135,8 @@ Upload EPUB/PDF/FB2 → BookFile (stored) → IngestionJob (queued)
      → Worker polls → Extraction → Chapters created → search_vector indexed
 ```
 
-**Multisite**: Host header → SiteResolver → SiteContext
-- Dev override: `?site=general` or `?site=programming`
+**Site Context**: Host header → SiteResolver → SiteContext
+- Dev override: `?site=general`
 - Test: `http://localhost:5173/?site=general`
 - Files: `backend/src/Api/Sites/`
 

@@ -95,19 +95,22 @@ export function UploadPage() {
       <p className="upload-page__subtitle">Upload a book file (EPUB, FB2, PDF, TXT) to add to the library.</p>
 
       <form onSubmit={handleSubmit} className="upload-form">
-        <div className="form-group">
-          <label htmlFor="site">Site *</label>
-          <select
-            id="site"
-            value={siteId}
-            onChange={(e) => setSiteId(e.target.value)}
-            required
-          >
-            {sites.map(site => (
-              <option key={site.id} value={site.id}>{site.code}</option>
-            ))}
-          </select>
-        </div>
+        {/* Site selector - hidden when only one site exists */}
+        {sites.length > 1 && (
+          <div className="form-group">
+            <label htmlFor="site">Site *</label>
+            <select
+              id="site"
+              value={siteId}
+              onChange={(e) => setSiteId(e.target.value)}
+              required
+            >
+              {sites.map(site => (
+                <option key={site.id} value={site.id}>{site.code}</option>
+              ))}
+            </select>
+          </div>
+        )}
 
         <div className="form-group">
           <label htmlFor="file">Book File *</label>
