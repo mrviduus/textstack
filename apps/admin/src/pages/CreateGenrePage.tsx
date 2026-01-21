@@ -1,8 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { adminApi } from '../api/client'
-
-const DEFAULT_SITE_ID = '11111111-1111-1111-1111-111111111111'
+import { adminApi, DEFAULT_SITE_ID } from '../api/client'
 
 export function CreateGenrePage() {
   const navigate = useNavigate()

@@ -1,8 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { adminApi, AuthorListItem, AuthorStats } from '../api/client'
-
-const DEFAULT_SITE_ID = '11111111-1111-1111-1111-111111111111'
+import { adminApi, AuthorListItem, AuthorStats, DEFAULT_SITE_ID } from '../api/client'
 
 type PublishedFilter = 'all' | 'published' | 'unpublished'
 
