@@ -1,20 +1,17 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { adminApi, SeoCrawlJobListItem, SiteListItem, SeoCrawlJobStatus, SeoCrawlPreview } from '../api/client'
+import { adminApi, SeoCrawlJobListItem, SeoCrawlJobStatus, SeoCrawlPreview, DEFAULT_SITE_ID } from '../api/client'
 
 export function SeoCrawlPage() {
   const [jobs, setJobs] = useState<SeoCrawlJobListItem[]>([])
-  const [sites, setSites] = useState<SiteListItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   // Filters
-  const [siteFilter, setSiteFilter] = useState<string>('')
   const [statusFilter, setStatusFilter] = useState<SeoCrawlJobStatus | ''>('')
 
   // Create form
   const [showCreate, setShowCreate] = useState(false)
-  const [createSiteId, setCreateSiteId] = useState('')
   const [createMaxPages, setCreateMaxPages] = useState(500)
   const [preview, setPreview] = useState<SeoCrawlPreview | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
@@ -22,16 +19,12 @@ export function SeoCrawlPage() {
 
   const fetchData = async () => {
     try {
-      const [jobsData, sitesData] = await Promise.all([
-        adminApi.getSeoCrawlJobs({
-          siteId: siteFilter || undefined,
-          status: statusFilter || undefined,
-          limit: 50,
-        }),
-        adminApi.getSites(),
-      ])
+      const jobsData = await adminApi.getSeoCrawlJobs({
+        siteId: DEFAULT_SITE_ID,
+        status: statusFilter || undefined,
+        limit: 50,
+      })
       setJobs(jobsData.items)
-      setSites(sitesData)
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load')
@@ -44,11 +37,11 @@ export function SeoCrawlPage() {
     fetchData()
     const interval = setInterval(fetchData, 5000)
     return () => clearInterval(interval)
-  }, [siteFilter, statusFilter])
+  }, [statusFilter])
 
-  // Load preview when site is selected
+  // Load preview when create form opens
   useEffect(() => {
-    if (!createSiteId) {
+    if (!showCreate) {
       setPreview(null)
       return
     }
@@ -56,7 +49,7 @@ export function SeoCrawlPage() {
     const loadPreview = async () => {
       setPreviewLoading(true)
       try {
-        const data = await adminApi.getSeoCrawlPreview(createSiteId)
+        const data = await adminApi.getSeoCrawlPreview(DEFAULT_SITE_ID)
         setPreview(data)
       } catch (err) {
         setPreview(null)
@@ -65,20 +58,18 @@ export function SeoCrawlPage() {
       }
     }
     loadPreview()
-  }, [createSiteId])
+  }, [showCreate])
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!createSiteId) return
 
     setCreating(true)
     try {
       await adminApi.createSeoCrawlJob({
-        siteId: createSiteId,
+        siteId: DEFAULT_SITE_ID,
         maxPages: createMaxPages,
       })
       setShowCreate(false)
-      setCreateSiteId('')
       setPreview(null)
       fetchData()
     } catch (err) {
@@ -150,15 +141,6 @@ export function SeoCrawlPage() {
           </p>
           <div className="form-row">
             <label>
-              Site
-              <select value={createSiteId} onChange={e => setCreateSiteId(e.target.value)} required>
-                <option value="">Select site...</option>
-                {sites.map(s => (
-                  <option key={s.id} value={s.id}>{s.code} ({s.primaryDomain})</option>
-                ))}
-              </select>
-            </label>
-            <label>
               Max Pages
               <input
                 type="number"
@@ -184,7 +166,7 @@ export function SeoCrawlPage() {
           )}
 
           <div className="form-actions">
-            <button type="submit" className="btn btn--primary" disabled={creating || !createSiteId}>
+            <button type="submit" className="btn btn--primary" disabled={creating}>
               {creating ? 'Creating...' : 'Create Job'}
             </button>
           </div>
@@ -192,12 +174,6 @@ export function SeoCrawlPage() {
       )}
 
       <div className="filters">
-        <select value={siteFilter} onChange={e => setSiteFilter(e.target.value)}>
-          <option value="">All Sites</option>
-          {sites.map(s => (
-            <option key={s.id} value={s.id}>{s.code}</option>
-          ))}
-        </select>
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as SeoCrawlJobStatus | '')}>
           <option value="">All Status</option>
           <option value="Queued">Queued</option>
@@ -215,7 +191,6 @@ export function SeoCrawlPage() {
         <table className="data-table">
           <thead>
             <tr>
-              <th>Site</th>
               <th>Status</th>
               <th>Progress</th>
               <th>Total URLs</th>
@@ -227,7 +202,6 @@ export function SeoCrawlPage() {
           <tbody>
             {jobs.map(job => (
               <tr key={job.id}>
-                <td>{job.siteCode}</td>
                 <td>{getStatusBadge(job.status)}</td>
                 <td>{job.pagesCrawled} / {job.maxPages}</td>
                 <td>{job.totalUrls}</td>

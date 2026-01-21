@@ -5,7 +5,6 @@ using Application.Books;
 using Application.Reprocessing;
 using Application.Seo;
 using Application.SeoCrawl;
-using Application.Sites;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -18,7 +17,6 @@ public static class DependencyInjection
         services.AddScoped<BookService>();
         services.AddScoped<SeoService>();
         services.AddScoped<AdminService>();
-        services.AddScoped<SiteService>();
         services.AddScoped<Ingestion.IngestionService>();
         services.AddScoped<AuthService>();
         services.AddScoped<AdminAuthService>();

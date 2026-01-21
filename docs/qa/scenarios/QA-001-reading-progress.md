@@ -2,7 +2,7 @@
 
 **Area**: Reader, Library, Progress Sync
 **Priority**: High
-**Last Tested**: 2026-01-19
+**Last Tested**: 2026-01-20
 **Status**: Passed
 
 ---
@@ -102,4 +102,5 @@ _Document any bugs found during testing:_
 
 | Date | Tester | Result | Notes |
 |------|--------|--------|-------|
+| 2026-01-20 | Claude | ✅ Pass | Full scenario test after multisite removal. Auto-add at 2%, TOC direct nav works, library resume works. |
 | 2026-01-19 | Claude | ✅ Pass | All steps verified. TOC vs Library distinction working correctly. |

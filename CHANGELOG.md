@@ -2,9 +2,18 @@
 
 ## [Unreleased]
 
+### Single Domain Consolidation (ADR-007)
+- **textstack.app** - single public domain for all books
+- **textstack.dev** - admin panel only (auth-gated, noindex)
+- **Migration** - merge programming books to general site
+- **Admin Tools page** - reprocess, reimport, sync operations
+- **Removed multisite code** - HostSiteResolver, SiteService, AdminSitesEndpoints
+- **See**: `docs/01-architecture/adr/007-single-domain-consolidation-deploy.md`
+
 ### Removed
 - **DjVu format support** — unused, removed extractor, tests, Docker deps
 - **Tempo** - distributed tracing service removed to save ~350MB RAM
+- **Multisite infrastructure** — HostSiteResolver, SiteService, SitesPage (ADR-007)
   - Traces still collected via OTEL but not stored
   - To restore Tempo in future, see `docs/tempo-restore.md`
 

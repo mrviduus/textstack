@@ -101,10 +101,6 @@ builder.Services.AddScoped<TextStackImportService>();
 builder.Services.AddHttpClient<StandardEbooksSyncService>();
 builder.Services.AddScoped<StandardEbooksSyncService>();
 
-// Host-based site resolution
-builder.Services.AddSingleton<HostSiteResolver>();
-builder.Services.AddScoped<HostSiteContext>();
-builder.Services.AddScoped<IHostSiteContext>(sp => sp.GetRequiredService<HostSiteContext>());
 
 // Rate limiting for admin login
 builder.Services.AddRateLimiter(options =>
@@ -163,7 +159,6 @@ app.UseStaticFiles(new StaticFileOptions
 app.MapGet("/health", () => Results.Ok("healthy"));
 
 // Site resolution middleware
-app.UseHostSiteContext();
 app.UseSiteContext();
 
 // Language resolution middleware (after site context)
@@ -179,11 +174,9 @@ app.UseWhen(
     branch => branch.UseAdminAuth());
 
 app.MapAdminAuthEndpoints();
-app.MapDebugEndpoints(app.Environment);
 app.MapAdminEndpoints();
 app.MapAdminAuthorsEndpoints();
 app.MapAdminGenresEndpoints();
-app.MapAdminSitesEndpoints();
 app.MapAdminSeoCrawlEndpoints();
 app.MapBooksEndpoints();
 app.MapSearchEndpoints();

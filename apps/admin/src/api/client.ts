@@ -100,42 +100,7 @@ export interface PaginatedResult<T> {
   items: T[]
 }
 
-export interface SiteListItem {
-  id: string
-  code: string
-  primaryDomain: string
-  defaultLanguage: string
-  theme: string
-  adsEnabled: boolean
-  indexingEnabled: boolean
-  sitemapEnabled: boolean
-  maxWordsPerPart: number
-  domainCount: number
-  workCount: number
-}
-
-export interface SiteDetail {
-  id: string
-  code: string
-  primaryDomain: string
-  defaultLanguage: string
-  theme: string
-  adsEnabled: boolean
-  indexingEnabled: boolean
-  sitemapEnabled: boolean
-  featuresJson: string
-  maxWordsPerPart: number
-  createdAt: string
-  updatedAt: string
-  domains: SiteDomain[]
-}
-
-export interface SiteDomain {
-  id: string
-  domain: string
-  isPrimary: boolean
-}
-
+// Tools types
 export interface ReprocessResult {
   editionsProcessed: number
   chaptersSplit: number
@@ -192,13 +157,6 @@ export interface RestoreResult {
   restored: number
   failed: number
   books: SyncBookResult[]
-}
-
-// Legacy interface for backwards compatibility
-export interface Site {
-  id: string
-  code: string
-  name: string
 }
 
 export interface AuthorSearchResult {
@@ -395,7 +353,10 @@ export interface CreateSeoCrawlJobRequest {
 }
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, init)
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    credentials: 'include',
+  })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || `API error: ${res.status}`)
@@ -404,7 +365,10 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 async function fetchVoid(path: string, init?: RequestInit): Promise<void> {
-  const res = await fetch(`${API_BASE}${path}`, init)
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    credentials: 'include',
+  })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || `API error: ${res.status}`)
@@ -513,61 +477,6 @@ export const adminApi = {
 
   deleteEditionCover: async (id: string): Promise<void> => {
     await fetchVoid(`/admin/editions/${id}/cover`, { method: 'DELETE' })
-  },
-
-  getSites: async (): Promise<SiteListItem[]> => {
-    return fetchJson<SiteListItem[]>('/admin/sites')
-  },
-
-  getSite: async (id: string): Promise<SiteDetail> => {
-    return fetchJson<SiteDetail>(`/admin/sites/${id}`)
-  },
-
-  updateSite: async (id: string, data: {
-    primaryDomain?: string
-    defaultLanguage?: string
-    theme?: string
-    adsEnabled?: boolean
-    indexingEnabled?: boolean
-    sitemapEnabled?: boolean
-    featuresJson?: string
-    maxWordsPerPart?: number
-  }): Promise<void> => {
-    await fetchVoid(`/admin/sites/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    })
-  },
-
-  reprocessChapters: async (siteId: string): Promise<ReprocessResult> => {
-    return fetchJson<ReprocessResult>(`/admin/reprocess/split-existing?siteId=${siteId}`, {
-      method: 'POST',
-    })
-  },
-
-  reimportTextStack: async (siteId: string, path?: string): Promise<ReimportResult> => {
-    return fetchJson<ReimportResult>('/admin/reimport/textstack', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ siteId, path }),
-    })
-  },
-
-  syncStandardEbooks: async (siteId: string, limit?: number): Promise<SyncResult> => {
-    return fetchJson<SyncResult>('/admin/sync/standardebooks', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ siteId, limit: limit || null }),
-    })
-  },
-
-  restoreStandardEbooksSources: async (siteId: string, limit?: number): Promise<RestoreResult> => {
-    return fetchJson<RestoreResult>('/admin/restore/standardebooks', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ siteId, limit: limit || null }),
-    })
   },
 
   // Authors
@@ -753,5 +662,36 @@ export const adminApi = {
 
   getSeoCrawlExportUrl: (id: string): string => {
     return `${API_BASE}/admin/seo-crawl/jobs/${id}/export.csv`
+  },
+
+  // Tools
+  reprocessAllEditions: async (siteId: string): Promise<ReprocessResult> => {
+    return fetchJson<ReprocessResult>(`/admin/reprocess/all?siteId=${siteId}`, {
+      method: 'POST',
+    })
+  },
+
+  reimportTextStack: async (siteId: string, path?: string): Promise<ReimportResult> => {
+    return fetchJson<ReimportResult>('/admin/reimport/textstack', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ siteId, path }),
+    })
+  },
+
+  syncStandardEbooks: async (siteId: string, limit?: number): Promise<SyncResult> => {
+    return fetchJson<SyncResult>('/admin/sync/standardebooks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ siteId, limit: limit || null }),
+    })
+  },
+
+  restoreStandardEbooksSources: async (siteId: string, limit?: number): Promise<RestoreResult> => {
+    return fetchJson<RestoreResult>('/admin/restore/standardebooks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ siteId, limit: limit || null }),
+    })
   },
 }

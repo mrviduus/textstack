@@ -1,5 +1,5 @@
-import { useState, useEffect, FormEvent } from 'react'
-import { adminApi, SiteListItem } from '../api/client'
+import { useState, FormEvent } from 'react'
+import { adminApi, DEFAULT_SITE_ID } from '../api/client'
 import { AuthorAutocomplete } from '../components/AuthorAutocomplete'
 import { AuthorList, AuthorItem } from '../components/AuthorList'
 import { CreateAuthorModal } from '../components/CreateAuthorModal'
@@ -14,8 +14,6 @@ export function UploadPage() {
   const [file, setFile] = useState<File | null>(null)
   const [title, setTitle] = useState('')
   const [language, setLanguage] = useState('en')
-  const [siteId, setSiteId] = useState('')
-  const [sites, setSites] = useState<SiteListItem[]>([])
   const [description, setDescription] = useState('')
   const [authors, setAuthors] = useState<AuthorItem[]>([])
   const [genres, setGenres] = useState<SelectedGenre[]>([])
@@ -25,13 +23,6 @@ export function UploadPage() {
   // Author modal state
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [newAuthorName, setNewAuthorName] = useState('')
-
-  useEffect(() => {
-    adminApi.getSites().then(data => {
-      setSites(data)
-      if (data.length > 0) setSiteId(data[0].id)
-    })
-  }, [])
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
@@ -55,7 +46,7 @@ export function UploadPage() {
         file,
         title: title || file.name.replace(/\.[^/.]+$/, ''),
         language,
-        siteId,
+        siteId: DEFAULT_SITE_ID,
         description: description || undefined,
         authorIds: authors.map(a => a.id),
         genreId: genres[0].id,
@@ -95,23 +86,6 @@ export function UploadPage() {
       <p className="upload-page__subtitle">Upload a book file (EPUB, FB2, PDF, TXT) to add to the library.</p>
 
       <form onSubmit={handleSubmit} className="upload-form">
-        {/* Site selector - hidden when only one site exists */}
-        {sites.length > 1 && (
-          <div className="form-group">
-            <label htmlFor="site">Site *</label>
-            <select
-              id="site"
-              value={siteId}
-              onChange={(e) => setSiteId(e.target.value)}
-              required
-            >
-              {sites.map(site => (
-                <option key={site.id} value={site.id}>{site.code}</option>
-              ))}
-            </select>
-          </div>
-        )}
-
         <div className="form-group">
           <label htmlFor="file">Book File *</label>
           <input
@@ -159,35 +133,31 @@ export function UploadPage() {
           />
         </div>
 
-        {siteId && (
-          <>
-            <div className="form-group">
-              <label>Author(s) *</label>
-              <AuthorAutocomplete
-                siteId={siteId}
-                onSelect={handleSelectAuthor}
-                onCreateNew={handleCreateNew}
-                excludeIds={authors.map(a => a.id)}
-                placeholder="Search or create authors..."
-              />
-              {authors.length > 0 && (
-                <div style={{ marginTop: '12px' }}>
-                  <AuthorList authors={authors} onChange={setAuthors} />
-                </div>
-              )}
+        <div className="form-group">
+          <label>Author(s) *</label>
+          <AuthorAutocomplete
+            siteId={DEFAULT_SITE_ID}
+            onSelect={handleSelectAuthor}
+            onCreateNew={handleCreateNew}
+            excludeIds={authors.map(a => a.id)}
+            placeholder="Search or create authors..."
+          />
+          {authors.length > 0 && (
+            <div style={{ marginTop: '12px' }}>
+              <AuthorList authors={authors} onChange={setAuthors} />
             </div>
+          )}
+        </div>
 
-            <div className="form-group">
-              <label>Genre *</label>
-              <GenreSelect
-                siteId={siteId}
-                selected={genres}
-                onChange={setGenres}
-                maxSelections={1}
-              />
-            </div>
-          </>
-        )}
+        <div className="form-group">
+          <label>Genre *</label>
+          <GenreSelect
+            siteId={DEFAULT_SITE_ID}
+            selected={genres}
+            onChange={setGenres}
+            maxSelections={1}
+          />
+        </div>
 
         <button
           type="submit"
@@ -204,9 +174,9 @@ export function UploadPage() {
         </div>
       )}
 
-      {showCreateModal && siteId && (
+      {showCreateModal && (
         <CreateAuthorModal
-          siteId={siteId}
+          siteId={DEFAULT_SITE_ID}
           initialName={newAuthorName}
           onCreated={handleAuthorCreated}
           onCancel={() => { setShowCreateModal(false); setNewAuthorName('') }}

@@ -95,7 +95,7 @@ namespace Infrastructure.Migrations
 
             // 10. Migrate user reading progress
             migrationBuilder.Sql($@"
-                UPDATE reading_progress
+                UPDATE reading_progresses
                 SET site_id = '{GeneralSiteId}'
                 WHERE site_id = '{ProgrammingSiteId}'
             ");
@@ -116,7 +116,7 @@ namespace Infrastructure.Migrations
 
             // 13. Migrate textstack imports
             migrationBuilder.Sql($@"
-                UPDATE textstack_imports
+                UPDATE text_stack_imports
                 SET site_id = '{GeneralSiteId}'
                 WHERE site_id = '{ProgrammingSiteId}'
             ");

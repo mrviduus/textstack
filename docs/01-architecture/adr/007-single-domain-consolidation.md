@@ -1,7 +1,8 @@
 # ADR-007: Single Domain Consolidation
 
-**Status**: Accepted
+**Status**: Implemented (dev), Pending Deploy (prod)
 **Date**: 2025-01
+**Implemented**: 2026-01-20
 
 ## Context
 
@@ -35,22 +36,36 @@ textstack.dev  → nginx → admin dist → API /admin/* (auth required)
 ### Slice 1 — Block textstack.dev from indexing
 - Add `X-Robots-Tag: noindex, nofollow` header in nginx
 - Set `IndexingEnabled=false` for programming site in DB
+- **Status**: PENDING PROD
 
 ### Slice 2 — Migrate programming books to general site
 - SQL: UPDATE editions/works SET site_id = general WHERE site_id = programming
+- Migration: `20260120000000_MergeProgrammingToGeneral.cs`
+- **Status**: CODE READY, PENDING PROD
 
 ### Slice 3 — Route textstack.dev to admin panel
 - Nginx: serve admin dist (not web dist) for textstack.dev
 - Remove textstack.dev from public CORS
+- **Status**: PENDING PROD (nginx config needed)
 
 ### Slice 4 — Auth gate for textstack.dev
 - Admin app already requires login (ProtectedRoute)
 - All pages redirect to /login if not authenticated
+- **Status**: DONE (already works)
 
-### Slice 5 — Cleanup
-- Remove programming site from DB (or mark inactive)
-- Remove textstack.dev detection from frontend SiteContext
-- Update docs
+### Slice 5 — Cleanup (Dev)
+- Removed `HostSiteResolver`, `HostSiteContextMiddleware`, `IHostSiteContext`
+- Removed `SiteKeys.cs`, `DebugEndpoints.cs`, `AdminSitesEndpoints.cs`
+- Removed `SiteService.cs`, `SitesPage.tsx`
+- Added `ToolsPage.tsx` for sync/reprocess operations
+- Fixed `credentials: 'include'` in admin API client
+- **Status**: DONE
+
+---
+
+## Deployment Guide
+
+See: [007-single-domain-consolidation-deploy.md](./007-single-domain-consolidation-deploy.md)
 
 ---
 
