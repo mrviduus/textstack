@@ -16,6 +16,9 @@ import { useLibrary } from '../hooks/useLibrary'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { useNetworkRecovery } from '../hooks/useNetworkRecovery'
 import { useReaderKeyboard } from '../hooks/useReaderKeyboard'
+import { useReaderNavigation } from '../hooks/useReaderNavigation'
+import { useFullscreenBars } from '../hooks/useFullscreenBars'
+import { useImmersiveMode } from '../hooks/useImmersiveMode'
 import { getCachedChapter, cacheChapter } from '../lib/offlineDb'
 import { InvalidContentTypeError } from '../lib/fetchWithRetry'
 import { SeoHead } from '../components/SeoHead'
@@ -61,13 +64,11 @@ export function ReaderPage() {
   const editionIdRef = useRef<string | null>(null)
   const { markFetchStart, wasAbortedDueToWake } = useNetworkRecovery()
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen()
-  const [showBarsInFullscreen, setShowBarsInFullscreen] = useState(false)
-  const hideTimeoutRef = useRef<number | null>(null)
+  const showBarsInFullscreen = useFullscreenBars(isFullscreen)
 
   // Mobile immersive mode
   const isMobile = useIsMobile()
-  const [immersiveMode, setImmersiveMode] = useState(false)
-  const immersiveTimerRef = useRef<number | null>(null)
+  const { immersiveMode, showBars: showImmersiveBars } = useImmersiveMode(isMobile, loading)
 
   // Scroll mode for mobile continuous reading
   const useScrollMode = isMobile
@@ -110,47 +111,6 @@ export function ReaderPage() {
     }
   }, [useScrollMode, scrollReader.visibleChapterSlug, bookSlug, getLocalizedPath])
 
-  // Show bars on mouse move in fullscreen, hide after 2s
-  const handleMouseMove = useCallback(() => {
-    if (!isFullscreen) return
-    setShowBarsInFullscreen(true)
-    if (hideTimeoutRef.current) {
-      clearTimeout(hideTimeoutRef.current)
-    }
-    hideTimeoutRef.current = window.setTimeout(() => {
-      setShowBarsInFullscreen(false)
-    }, 2000)
-  }, [isFullscreen])
-
-  useEffect(() => {
-    if (isFullscreen) {
-      window.addEventListener('mousemove', handleMouseMove)
-      return () => {
-        window.removeEventListener('mousemove', handleMouseMove)
-        if (hideTimeoutRef.current) clearTimeout(hideTimeoutRef.current)
-      }
-    } else {
-      setShowBarsInFullscreen(false)
-    }
-  }, [isFullscreen, handleMouseMove])
-
-  // Mobile immersive mode: auto-hide after 3s, show on tap
-  const startImmersiveTimer = useCallback(() => {
-    if (!isMobile) return
-    if (immersiveTimerRef.current) clearTimeout(immersiveTimerRef.current)
-    immersiveTimerRef.current = window.setTimeout(() => {
-      setImmersiveMode(true)
-    }, 3000)
-  }, [isMobile])
-
-  useEffect(() => {
-    if (isMobile && !loading) {
-      startImmersiveTimer()
-    }
-    return () => {
-      if (immersiveTimerRef.current) clearTimeout(immersiveTimerRef.current)
-    }
-  }, [isMobile, loading, startImmersiveTimer])
 
   // Page-based pagination
   const {
@@ -580,9 +540,16 @@ export function ReaderPage() {
     }
   }, [activeChapterSlug, activeChapter, getBookmarkForChapter, removeBookmark, addBookmark])
 
-  const navigateToChapter = useCallback((slug: string) => {
-    navigate(getLocalizedPath(`/books/${bookSlug}/${slug}`))
-  }, [navigate, getLocalizedPath, bookSlug])
+  // Navigation handlers
+  const { navigateToChapter, handleNextPage, handlePrevPage } = useReaderNavigation({
+    bookSlug: bookSlug || '',
+    currentPage,
+    totalPages,
+    prevChapterSlug: chapter?.prev?.slug,
+    nextChapterSlug: chapter?.next?.slug,
+    prevPage,
+    nextPage,
+  })
 
   useReaderKeyboard({
     currentPage,
@@ -607,24 +574,6 @@ export function ReaderPage() {
     updateSettings: update,
     toggleFullscreen,
   })
-
-  // Handle next page click - go to next chapter if at end
-  const handleNextPage = () => {
-    if (currentPage < totalPages - 1) {
-      nextPage()
-    } else if (chapter?.next) {
-      navigate(getLocalizedPath(`/books/${bookSlug}/${chapter.next.slug}`))
-    }
-  }
-
-  // Handle prev page click - go to prev chapter if at start
-  const handlePrevPage = () => {
-    if (currentPage > 0) {
-      prevPage()
-    } else if (chapter?.prev) {
-      navigate(getLocalizedPath(`/books/${bookSlug}/${chapter.prev.slug}`))
-    }
-  }
 
   // Swipe navigation - disabled on mobile (use tap zones instead)
   useSwipe({
@@ -708,7 +657,7 @@ export function ReaderPage() {
             isLoadingMore={scrollReader.isLoadingMore}
             onLoadMore={scrollReader.loadMore}
             chapterRefs={scrollReader.chapterRefs}
-            onTap={() => { setImmersiveMode(false); startImmersiveTimer(); }}
+            onTap={showImmersiveBars}
             onDoubleTap={toggleFullscreen}
           />
         ) : (
@@ -717,7 +666,7 @@ export function ReaderPage() {
             containerRef={containerRef}
             html={chapter.html}
             settings={settings}
-            onTap={() => { if (isMobile) { setImmersiveMode(false); startImmersiveTimer(); } else { toggle(); } }}
+            onTap={() => { if (isMobile) { showImmersiveBars(); } else { toggle(); } }}
             onDoubleTap={toggleFullscreen}
             onLeftTap={isMobile ? handlePrevPage : undefined}
             onRightTap={isMobile ? handleNextPage : undefined}
