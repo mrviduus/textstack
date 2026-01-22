@@ -78,6 +78,18 @@ export function EditAuthorPage() {
     }
   }
 
+  const handleDeletePhoto = async () => {
+    if (!id || !author?.photoPath) return
+    if (!confirm('Remove photo?')) return
+    try {
+      await adminApi.deleteAuthorPhoto(id)
+      const updated = await adminApi.getAuthor(id)
+      setAuthor(updated)
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to delete photo')
+    }
+  }
+
   const handleDelete = async () => {
     if (!id || !author) return
     if (author.bookCount > 0) {
@@ -128,9 +140,16 @@ export function EditAuthorPage() {
                   onChange={handlePhotoUpload}
                   style={{ display: 'none' }}
                 />
-                <button type="button" onClick={() => fileInputRef.current?.click()} className="btn btn--small">
-                  Upload Photo
-                </button>
+                <div className="photo-actions">
+                  <button type="button" onClick={() => fileInputRef.current?.click()} className="btn btn--small">
+                    Upload Photo
+                  </button>
+                  {author.photoPath && (
+                    <button type="button" onClick={handleDeletePhoto} className="btn btn--small btn--danger">
+                      Remove Photo
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
 

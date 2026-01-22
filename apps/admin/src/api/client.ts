@@ -539,6 +539,10 @@ export const adminApi = {
     })
   },
 
+  deleteAuthorPhoto: async (id: string): Promise<void> => {
+    await fetchVoid(`/admin/authors/${id}/photo`, { method: 'DELETE' })
+  },
+
   // Genres
   searchGenres: async (siteId: string, query?: string, limit?: number): Promise<GenreSearchResult[]> => {
     const params = new URLSearchParams({ siteId })

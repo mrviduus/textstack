@@ -47,6 +47,10 @@ public static class AdminAuthorsEndpoints
             .WithName("AdminUploadAuthorPhoto")
             .WithDescription("Upload author photo (max 2MB, JPG/PNG only)")
             .DisableAntiforgery();
+
+        group.MapDelete("/{id:guid}/photo", DeleteAuthorPhoto)
+            .WithName("AdminDeleteAuthorPhoto")
+            .WithDescription("Delete author photo");
     }
 
     private static async Task<IResult> GetAuthorStats(
@@ -352,5 +356,26 @@ public static class AdminAuthorsEndpoints
         await db.SaveChangesAsync(ct);
 
         return Results.Ok(new { photoPath = relativePath });
+    }
+
+    private static async Task<IResult> DeleteAuthorPhoto(
+        IAppDbContext db,
+        IFileStorageService storage,
+        Guid id,
+        CancellationToken ct)
+    {
+        var author = await db.Authors.FindAsync([id], ct);
+        if (author is null)
+            return Results.NotFound(new { error = "Author not found" });
+
+        if (string.IsNullOrEmpty(author.PhotoPath))
+            return Results.Ok();
+
+        await storage.DeleteFileAsync(author.PhotoPath, ct);
+        author.PhotoPath = null;
+        author.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(ct);
+
+        return Results.Ok();
     }
 }
