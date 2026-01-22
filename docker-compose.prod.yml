@@ -160,10 +160,13 @@ services:
       - "127.0.0.1:18888:18888"   # Dashboard UI (localhost only)
     environment:
       - ASPIRE_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS=true
+      - DASHBOARD__TELEMETRYLIMITS__MAXLOGCOUNT=100000
+      - DASHBOARD__TELEMETRYLIMITS__MAXTRACECOUNT=50000
+      - DASHBOARD__TELEMETRYLIMITS__MAXMETRICCOUNT=100000
     restart: always
     deploy:
       resources:
         limits:
-          memory: 256M
+          memory: 1G
         reservations:
-          memory: 64M
+          memory: 256M
