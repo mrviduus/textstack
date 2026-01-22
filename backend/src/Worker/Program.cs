@@ -20,7 +20,7 @@ var builder = Host.CreateApplicationBuilder(args);
 
 // OpenTelemetry
 builder.Services.AddOnlineLibTelemetry(builder.Configuration, "onlinelib-worker");
-builder.Logging.AddTelemetryLogging();
+builder.Logging.AddTelemetryLogging(builder.Configuration, "onlinelib-worker");
 
 // Database
 var connectionString = builder.Configuration.GetConnectionString("Default")

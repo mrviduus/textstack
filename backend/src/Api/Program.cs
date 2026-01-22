@@ -38,7 +38,7 @@ builder.Services.AddOnlineLibTelemetry(
             };
         })
         .AddHttpClientInstrumentation());
-builder.Logging.AddTelemetryLogging();
+builder.Logging.AddTelemetryLogging(builder.Configuration, "onlinelib-api");
 
 builder.Services.AddCors(options =>
 {
