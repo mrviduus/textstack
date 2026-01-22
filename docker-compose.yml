@@ -139,19 +139,3 @@ services:
     depends_on:
       - api
 
-  # Prerender for SEO - renders SPA for search engine bots
-  # https://github.com/tvanro/prerender-alpine
-  prerender:
-    image: tvanro/prerender-alpine:7.2.0
-    container_name: books_prerender
-    environment:
-      MEMORY_CACHE: 1
-      CACHE_MAXSIZE: 500
-      CACHE_TTL: 3600
-    ports:
-      - "3030:3000"
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 1G

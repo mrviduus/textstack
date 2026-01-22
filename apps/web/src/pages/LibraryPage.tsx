@@ -60,7 +60,7 @@ export function LibraryPage() {
   if (!isAuthenticated) {
     return (
       <div className="library-page">
-        <SeoHead title="My Library" />
+        <SeoHead title="My Library" noindex />
         <div className="library-page__empty">
           <h1>My Library</h1>
           <p>Sign in to save books to your library and track your reading progress.</p>
@@ -71,7 +71,7 @@ export function LibraryPage() {
 
   return (
     <div className="library-page">
-      <SeoHead title="My Library" />
+      <SeoHead title="My Library" noindex />
       <div className="library-page__header">
         <h1>My Library</h1>
         {user && <p className="library-page__user">{user.email}</p>}
