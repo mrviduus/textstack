@@ -4,6 +4,75 @@ Goal: **everything is automatically testable** (CI runs it), with fast feedback 
 
 ---
 
+## Quick Reference
+
+### Backend Tests
+```bash
+dotnet test                                    # All tests
+dotnet test tests/OnlineLib.UnitTests          # Unit only
+dotnet test tests/OnlineLib.IntegrationTests   # Integration (needs Docker)
+dotnet test --filter "Name~YourTestName"       # Single test
+```
+
+### Frontend Tests
+```bash
+pnpm -C apps/web test       # Run all tests
+pnpm -C apps/web test:watch # Watch mode
+```
+
+---
+
+## Backend vs Frontend Strategy
+
+| Layer | Backend (.NET) | Frontend (React) |
+|-------|----------------|------------------|
+| Unit | xUnit, FluentAssertions | Vitest |
+| Integration | WebApplicationFactory + Testcontainers | (not used yet) |
+| E2E | Playwright (planned) | Playwright (planned) |
+
+### Backend Testing
+
+**What to test:**
+- Domain logic (entities, value objects)
+- Service methods (business logic)
+- API endpoints (integration)
+- Search queries
+
+**Naming convention:**
+```
+{MethodName}_{Scenario}_{ExpectedResult}
+GetAuthors_WithLanguageFilter_ReturnsFilteredResults
+```
+
+**Test file location:**
+```
+tests/
+  OnlineLib.UnitTests/           # Pure logic, no DB
+  OnlineLib.IntegrationTests/    # API + DB
+  OnlineLib.Extraction.Tests/    # Book parsing
+  OnlineLib.Search.Tests/        # Search logic
+```
+
+### Frontend Testing
+
+**What to test:**
+- Utility functions (lib/)
+- Custom hooks (hooks/)
+- Component logic (when complex)
+
+**Test file location:** Same folder as source, with `.test.ts(x)` suffix:
+```
+src/lib/canonicalUrl.ts
+src/lib/canonicalUrl.test.ts
+```
+
+**When to write tests:**
+- New utility function: always
+- New hook with logic: yes
+- Pure UI component: usually no (rely on E2E)
+
+---
+
 ## 1) Testing principles
 
 - **Testing pyramid**: many fast tests (unit/component) → fewer integration → few end‑to‑end.

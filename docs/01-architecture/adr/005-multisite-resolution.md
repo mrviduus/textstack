@@ -23,12 +23,24 @@ programming.example.com → site_id=programming
 
 ## Implementation
 
-- `SiteResolver` middleware resolves Host → Site entity
-- `SiteContext` injected into HttpContext.Items
-- All queries filter by SiteId
-- Unknown hosts return 404
+### Backend (Request Pipeline)
 
-Dev override: `?site=general` query param.
+```
+Request → SiteContextMiddleware → SiteResolver → SiteContext
+                                       ↓
+                               DB lookup (cached)
+```
+
+- `ISiteResolver` / `SiteResolver`: Handles host → site lookup with 10min cache
+- `SiteContextMiddleware`: Integrates SiteResolver into request pipeline, stores in HttpContext.Items
+- `HttpContextExtensions.GetSiteId()`: Helper to retrieve site from context
+
+### Frontend (React)
+
+- `SiteContext.tsx`: Fetches site config from `/api/site/context` endpoint
+- `useSite()` hook: Provides site config to components
+
+Dev override: `?site=general` query param (backend converts to `{site}.localhost`).
 
 ## Data Isolation
 

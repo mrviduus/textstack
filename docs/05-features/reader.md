@@ -238,16 +238,32 @@ Automatically adds book to library when:
 
 | File | Purpose |
 |------|---------|
-| `apps/web/src/pages/ReaderPage.tsx` | Main reader page |
-| `apps/web/src/hooks/useReaderSettings.ts` | Settings state |
+| `apps/web/src/pages/ReaderPage.tsx` | Main reader page (~800 lines) |
+| `apps/web/src/hooks/useReaderSettings.ts` | Settings state & persistence |
+| `apps/web/src/hooks/useReaderKeyboard.ts` | Keyboard shortcut handling |
 | `apps/web/src/hooks/usePagination.ts` | Page calculations |
-| `apps/web/src/hooks/useReadingProgress.ts` | Progress sync |
-| `apps/web/src/hooks/useRestoreProgress.ts` | Restore position |
+| `apps/web/src/hooks/useReadingProgress.ts` | Progress sync (local + server) |
+| `apps/web/src/hooks/useRestoreProgress.ts` | Restore position on load |
+| `apps/web/src/hooks/useScrollReader.ts` | Continuous scroll mode (mobile) |
 | `apps/web/src/hooks/useBookmarks.ts` | Bookmarks CRUD |
-| `apps/web/src/hooks/useInBookSearch.ts` | Chapter search |
+| `apps/web/src/hooks/useInBookSearch.ts` | Chapter text search |
 | `apps/web/src/hooks/useSwipe.ts` | Touch navigation |
-| `apps/web/src/hooks/useFullscreen.ts` | Fullscreen API |
+| `apps/web/src/hooks/useFullscreen.ts` | Fullscreen API wrapper |
 | `apps/web/src/components/reader/` | UI components |
+
+### Reader Components
+
+| Component | Purpose |
+|-----------|---------|
+| `ReaderTopBar` | Header with actions |
+| `ReaderContent` | Paginated content view |
+| `ScrollReaderContent` | Continuous scroll view |
+| `ReaderFooterNav` | Navigation footer |
+| `ReaderPageNav` | Side arrows |
+| `ReaderSettingsDrawer` | Settings panel |
+| `ReaderTocDrawer` | Table of contents |
+| `ReaderSearchDrawer` | In-book search |
+| `ReaderShortcutsModal` | Keyboard shortcuts help |
 
 ## CSS
 

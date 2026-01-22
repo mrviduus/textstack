@@ -13,5 +13,4 @@ public class AdminUser
     public DateTimeOffset UpdatedAt { get; set; }
 
     public ICollection<AdminRefreshToken> RefreshTokens { get; set; } = [];
-    public ICollection<AdminAuditLog> AuditLogs { get; set; } = [];
 }

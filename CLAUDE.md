@@ -251,8 +251,6 @@ Search is a **key feature** - must always work. React immediately to any search 
 
 ## Known Technical Debt
 
-- 3 site resolution sources (HostSiteResolver, SiteResolver, frontend SiteContext) - needs consolidation
-- AdminAuditLog entity defined but never used
-- Notes feature partially implemented (entity exists, API not fully wired)
+- Notes feature partially implemented (entity exists, API not fully wired) - see TODO in `Domain/Entities/Note.cs`
 - No Service Worker for true offline PWA
 - No background sync for offline operations
