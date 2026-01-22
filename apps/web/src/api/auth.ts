@@ -122,6 +122,7 @@ export interface LibraryItem {
   editionId: string
   slug: string
   title: string
+  language: string
   coverPath: string | null
   createdAt: string
 }

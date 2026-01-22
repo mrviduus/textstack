@@ -372,6 +372,7 @@ public static class UserDataEndpoints
                 l.EditionId,
                 l.Edition.Slug,
                 l.Edition.Title,
+                l.Edition.Language,
                 l.Edition.CoverPath,
                 l.CreatedAt
             ))
@@ -403,6 +404,7 @@ public static class UserDataEndpoints
                 existing.EditionId,
                 edition.Slug,
                 edition.Title,
+                edition.Language,
                 edition.CoverPath,
                 existing.CreatedAt
             ));
@@ -422,6 +424,7 @@ public static class UserDataEndpoints
             libraryItem.EditionId,
             edition.Slug,
             edition.Title,
+            edition.Language,
             edition.CoverPath,
             libraryItem.CreatedAt
         ));
@@ -486,6 +489,7 @@ public record LibraryItemDto(
     Guid EditionId,
     string Slug,
     string Title,
+    string Language,
     string? CoverPath,
     DateTimeOffset CreatedAt
 );

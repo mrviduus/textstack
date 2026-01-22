@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useLibrary } from '../hooks/useLibrary'
 import { useApi } from '../hooks/useApi'
@@ -91,11 +92,11 @@ export function LibraryPage() {
             const progress = progressMap[item.editionId]
             const percent = progress?.percent ?? 0
             const destination = progress?.chapterSlug
-              ? `/books/${item.slug}/${progress.chapterSlug}`
-              : `/books/${item.slug}`
+              ? `/${item.language}/books/${item.slug}/${progress.chapterSlug}`
+              : `/${item.language}/books/${item.slug}`
             return (
               <div key={item.editionId} className="library-card">
-                <LocalizedLink to={destination} className="library-card__cover" title={`Read ${item.title} online`}>
+                <Link to={destination} className="library-card__cover" title={`Read ${item.title} online`}>
                   {item.coverPath ? (
                     <img src={getStorageUrl(item.coverPath)} alt={item.title} title={`${item.title} - Read online free`} />
                   ) : (
@@ -114,12 +115,12 @@ export function LibraryPage() {
                       />
                     </div>
                   )}
-                </LocalizedLink>
+                </Link>
                 <div className="library-card__info">
                   <div className="library-card__text">
-                    <LocalizedLink to={destination} className="library-card__title" title={`Read ${item.title} online`}>
+                    <Link to={destination} className="library-card__title" title={`Read ${item.title} online`}>
                       {item.title}
-                    </LocalizedLink>
+                    </Link>
                     <div className="library-card__meta">
                       {percent > 0 && (
                         <span className="library-card__progress-text">
