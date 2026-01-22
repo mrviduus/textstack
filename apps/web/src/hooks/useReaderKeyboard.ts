@@ -97,9 +97,18 @@ export function useReaderKeyboard({
         toggleFullscreen()
         break
       case 's':
-      case '/':
         e.preventDefault()
         setSearchOpen(true)
+        break
+      case '/':
+        // Shift+/ = ? = shortcuts modal
+        if (e.shiftKey) {
+          e.preventDefault()
+          setShortcutsOpen(o => !o)
+        } else {
+          e.preventDefault()
+          setSearchOpen(true)
+        }
         break
       case 't':
         setTocOpen(true)
