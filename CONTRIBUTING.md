@@ -5,7 +5,7 @@
 ### Prerequisites
 - Docker & Docker Compose
 - Node.js 18+ & pnpm
-- .NET 8 SDK
+- .NET 10 SDK
 
 ### Dev Setup
 ```bash

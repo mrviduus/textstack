@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - Docker + Docker Compose
-- .NET 8 SDK (for migrations without Docker)
+- .NET 10 SDK (for migrations without Docker)
 - Node.js 18+ and pnpm
 
 ## Quick Start
