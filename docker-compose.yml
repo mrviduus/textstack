@@ -4,6 +4,7 @@ services:
     container_name: books_nginx
     volumes:
       - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./apps/web/dist:/var/www/dist:ro
     ports:
       - "80:80"
     restart: unless-stopped
@@ -138,4 +139,24 @@ services:
     restart: unless-stopped
     depends_on:
       - api
+
+  # SSG Build service - prerenders SEO pages
+  web-build:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile.ssg
+    container_name: books_web_build
+    environment:
+      API_URL: http://api:8080
+      API_HOST: general.localhost
+      CONCURRENCY: "8"
+      VITE_API_URL: /api
+      VITE_CANONICAL_URL: https://textstack.app
+    volumes:
+      - ./apps/web/dist:/app/dist
+    profiles:
+      - build
+    depends_on:
+      api:
+        condition: service_healthy
 

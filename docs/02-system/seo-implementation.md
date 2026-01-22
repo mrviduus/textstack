@@ -4,9 +4,9 @@ Technical implementation spec for TextStack SEO module.
 
 **Related docs:**
 - [SEO Policy](seo-policy.md) — what to index (strategy)
-- [Dynamic Rendering Article](../04-articles/dynamic-rendering-seo.md) — how prerender works
+- [SSG Prerender](ssg-prerender.md) — static HTML generation for SEO pages
 
-**Status:** Slice 1 complete (Dec 2025)
+**Status:** Slice 1 complete (Dec 2025), SSG implemented (Jan 2026)
 
 ---
 
@@ -210,6 +210,19 @@ Includes:
 Includes:
 - Book JSON-LD schema
 - Validation against schema.org
+
+---
+
+### Slice 5 — SSG Prerender ✅ COMPLETE (Jan 2026)
+Pre-render SEO pages to static HTML at build time.
+
+Includes:
+- Puppeteer-based prerender script (`apps/web/scripts/prerender.mjs`)
+- SSG API endpoints (`/ssg/routes`, `/ssg/books`, `/ssg/authors`, `/ssg/genres`)
+- nginx routing: SSG first, SPA fallback
+- ~2000 pages rendered (books, authors, genres, homepage)
+
+See [SSG Prerender](ssg-prerender.md) for architecture details.
 
 ---
 

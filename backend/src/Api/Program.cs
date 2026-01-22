@@ -184,6 +184,7 @@ app.MapAuthorsEndpoints();
 app.MapGenresEndpoints();
 app.MapSiteEndpoints();
 app.MapSeoEndpoints();
+app.MapSsgEndpoints();
 app.MapAuthEndpoints();
 app.MapUserDataEndpoints();
 
