@@ -15,6 +15,7 @@ import { useSwipe } from '../hooks/useSwipe'
 import { useLibrary } from '../hooks/useLibrary'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { useNetworkRecovery } from '../hooks/useNetworkRecovery'
+import { useReaderKeyboard } from '../hooks/useReaderKeyboard'
 import { getCachedChapter, cacheChapter } from '../lib/offlineDb'
 import { InvalidContentTypeError } from '../lib/fetchWithRetry'
 import { SeoHead } from '../components/SeoHead'
@@ -28,6 +29,7 @@ import { ReaderPageNav } from '../components/reader/ReaderPageNav'
 import { ReaderSettingsDrawer } from '../components/reader/ReaderSettingsDrawer'
 import { ReaderTocDrawer, type AutoSaveInfo } from '../components/reader/ReaderTocDrawer'
 import { ReaderSearchDrawer } from '../components/reader/ReaderSearchDrawer'
+import { ReaderShortcutsModal } from '../components/reader/ReaderShortcutsModal'
 import { useScrollReader } from '../hooks/useScrollReader'
 
 export function ReaderPage() {
@@ -569,94 +571,42 @@ export function ReaderPage() {
   }, [])
 
   // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Skip when typing in input
-      if (e.target instanceof HTMLInputElement) return
-
-      const key = e.key.toLowerCase()
-
-      // Escape - close drawers
-      if (e.key === 'Escape') {
-        if (shortcutsOpen) setShortcutsOpen(false)
-        if (tocOpen) setTocOpen(false)
-        if (settingsOpen) setSettingsOpen(false)
-        if (searchOpen) {
-          setSearchOpen(false)
-          clearSearch()
-        }
-        return
-      }
-
-      // Arrow navigation
-      if (e.key === 'ArrowLeft') {
-        if (currentPage > 0) {
-          prevPage()
-        } else if (chapter?.prev) {
-          navigate(getLocalizedPath(`/books/${bookSlug}/${chapter.prev.slug}`))
-        }
-        return
-      }
-      if (e.key === 'ArrowRight') {
-        if (currentPage < totalPages - 1) {
-          nextPage()
-        } else if (chapter?.next) {
-          navigate(getLocalizedPath(`/books/${bookSlug}/${chapter.next.slug}`))
-        }
-        return
-      }
-
-      // Feature shortcuts
-      switch (key) {
-        case 'f':
-          toggleFullscreen()
-          break
-        case 's':
-        case '/':
-          e.preventDefault()
-          setSearchOpen(true)
-          break
-        case 't':
-          setTocOpen(true)
-          break
-        case 'b':
-          if (activeChapterSlug && activeChapter) {
-            const bookmark = getBookmarkForChapter(activeChapterSlug)
-            if (bookmark) {
-              removeBookmark(bookmark.id)
-            } else {
-              addBookmark(activeChapterSlug, activeChapter.title)
-            }
-          }
-          break
-        case ',':
-          setSettingsOpen(true)
-          break
-        case '+':
-        case '=':
-          if (settings.fontSize < 28) update({ fontSize: settings.fontSize + 2 })
-          break
-        case '-':
-          if (settings.fontSize > 14) update({ fontSize: settings.fontSize - 2 })
-          break
-        case '1':
-          update({ theme: 'light' })
-          break
-        case '2':
-          update({ theme: 'sepia' })
-          break
-        case '3':
-          update({ theme: 'dark' })
-          break
-        case '?':
-          setShortcutsOpen(o => !o)
-          break
-      }
+  const toggleBookmark = useCallback(() => {
+    const bookmark = getBookmarkForChapter(activeChapterSlug)
+    if (bookmark) {
+      removeBookmark(bookmark.id)
+    } else if (activeChapter) {
+      addBookmark(activeChapterSlug, activeChapter.title)
     }
+  }, [activeChapterSlug, activeChapter, getBookmarkForChapter, removeBookmark, addBookmark])
 
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [bookSlug, activeChapterSlug, activeChapter, chapter, navigate, getLocalizedPath, tocOpen, settingsOpen, searchOpen, shortcutsOpen, clearSearch, currentPage, totalPages, prevPage, nextPage, toggleFullscreen, settings, update, getBookmarkForChapter, removeBookmark, addBookmark])
+  const navigateToChapter = useCallback((slug: string) => {
+    navigate(getLocalizedPath(`/books/${bookSlug}/${slug}`))
+  }, [navigate, getLocalizedPath, bookSlug])
+
+  useReaderKeyboard({
+    currentPage,
+    totalPages,
+    prevPage,
+    nextPage,
+    prevChapterSlug: chapter?.prev?.slug,
+    nextChapterSlug: chapter?.next?.slug,
+    navigateToChapter,
+    tocOpen,
+    settingsOpen,
+    searchOpen,
+    shortcutsOpen,
+    setTocOpen,
+    setSettingsOpen,
+    setSearchOpen,
+    setShortcutsOpen,
+    clearSearch,
+    activeChapterSlug,
+    toggleBookmark,
+    settings,
+    updateSettings: update,
+    toggleFullscreen,
+  })
 
   // Handle next page click - go to next chapter if at end
   const handleNextPage = () => {
@@ -838,48 +788,10 @@ export function ReaderPage() {
         }}
       />
 
-      {shortcutsOpen && (
-        <>
-          <div className="reader-drawer-backdrop" onClick={() => setShortcutsOpen(false)} />
-          <div className="reader-shortcuts-modal">
-            <div className="reader-shortcuts-modal__header">
-              <h3>Keyboard Shortcuts</h3>
-              <button onClick={() => setShortcutsOpen(false)} className="reader-shortcuts-modal__close">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M18 6L6 18M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            <div className="reader-shortcuts-modal__content">
-              <div className="reader-shortcuts-modal__group">
-                <h4>Navigation</h4>
-                <div className="reader-shortcuts-modal__item"><kbd>←</kbd><span>Previous page</span></div>
-                <div className="reader-shortcuts-modal__item"><kbd>→</kbd><span>Next page</span></div>
-              </div>
-              <div className="reader-shortcuts-modal__group">
-                <h4>Panels</h4>
-                <div className="reader-shortcuts-modal__item"><kbd>S</kbd> or <kbd>/</kbd><span>Search</span></div>
-                <div className="reader-shortcuts-modal__item"><kbd>T</kbd><span>Table of contents</span></div>
-                <div className="reader-shortcuts-modal__item"><kbd>,</kbd><span>Settings</span></div>
-                <div className="reader-shortcuts-modal__item"><kbd>Esc</kbd><span>Close panel</span></div>
-              </div>
-              <div className="reader-shortcuts-modal__group">
-                <h4>Actions</h4>
-                <div className="reader-shortcuts-modal__item"><kbd>F</kbd><span>Fullscreen</span></div>
-                <div className="reader-shortcuts-modal__item"><kbd>B</kbd><span>Bookmark</span></div>
-                <div className="reader-shortcuts-modal__item"><kbd>+</kbd><span>Increase font</span></div>
-                <div className="reader-shortcuts-modal__item"><kbd>-</kbd><span>Decrease font</span></div>
-              </div>
-              <div className="reader-shortcuts-modal__group">
-                <h4>Themes</h4>
-                <div className="reader-shortcuts-modal__item"><kbd>1</kbd><span>Light</span></div>
-                <div className="reader-shortcuts-modal__item"><kbd>2</kbd><span>Sepia</span></div>
-                <div className="reader-shortcuts-modal__item"><kbd>3</kbd><span>Dark</span></div>
-              </div>
-            </div>
-          </div>
-        </>
-      )}
+      <ReaderShortcutsModal
+        open={shortcutsOpen}
+        onClose={() => setShortcutsOpen(false)}
+      />
 
       {toastMessage && (
         <Toast message={toastMessage} onClose={() => setToastMessage(null)} />

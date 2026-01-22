@@ -1,5 +1,6 @@
 using Api.Sites;
 using Application.Common.Interfaces;
+using Contracts.Genres;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -85,29 +86,3 @@ public static class GenresEndpoints
         return Results.Ok(genre);
     }
 }
-
-public record GenreListDto(
-    Guid Id,
-    string Slug,
-    string Name,
-    int BookCount
-);
-
-public record GenreDetailDto(
-    Guid Id,
-    string Slug,
-    string Name,
-    string? Description,
-    string? SeoTitle,
-    string? SeoDescription,
-    int BookCount,
-    List<GenreEditionDto> Editions
-);
-
-public record GenreEditionDto(
-    Guid Id,
-    string Slug,
-    string Title,
-    string Language,
-    string? CoverPath
-);

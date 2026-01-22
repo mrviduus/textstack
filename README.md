@@ -74,8 +74,7 @@ In production, sites resolve via Host header (general.example.com, programming.e
 ├── apps/
 │   ├── web/               # React (Vite) - public site
 │   ├── admin/             # React (Vite) - admin panel
-│   └── mobile/            # React Native Expo (later)
-├── packages/              # Shared TS code
+│   └── mobile/            # React Native Expo (planned)
 ├── scripts/               # Docker clean/build scripts
 └── docs/                  # Architecture docs
 ```

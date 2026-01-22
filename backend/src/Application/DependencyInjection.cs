@@ -1,6 +1,7 @@
 using Application.Admin;
 using Application.AdminAuth;
 using Application.Auth;
+using Application.Authors;
 using Application.Books;
 using Application.Reprocessing;
 using Application.Seo;
@@ -14,6 +15,7 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddApplication(this IServiceCollection services)
     {
+        services.AddScoped<AuthorsService>();
         services.AddScoped<BookService>();
         services.AddScoped<SeoService>();
         services.AddScoped<AdminService>();
