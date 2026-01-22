@@ -17,6 +17,7 @@ public static class SeoEndpoints
         app.MapGet("/sitemaps/books.xml", GetBooksSitemap).WithName("GetBooksSitemap").WithTags("SEO");
         app.MapGet("/sitemaps/authors.xml", GetAuthorsSitemap).WithName("GetAuthorsSitemap").WithTags("SEO");
         app.MapGet("/sitemaps/genres.xml", GetGenresSitemap).WithName("GetGenresSitemap").WithTags("SEO");
+        app.MapGet("/sitemaps/pages.xml", GetPagesSitemap).WithName("GetPagesSitemap").WithTags("SEO");
         // NOTE: Chapters sitemap intentionally removed - chapters should not be indexed
     }
 
@@ -66,6 +67,10 @@ public static class SeoEndpoints
 
         sb.AppendLine("  <sitemap>");
         sb.AppendLine($"    <loc>{baseUrl}/sitemaps/genres.xml</loc>");
+        sb.AppendLine("  </sitemap>");
+
+        sb.AppendLine("  <sitemap>");
+        sb.AppendLine($"    <loc>{baseUrl}/sitemaps/pages.xml</loc>");
         sb.AppendLine("  </sitemap>");
 
         // NOTE: Chapters sitemap intentionally excluded - chapters are noindex
@@ -181,5 +186,60 @@ public static class SeoEndpoints
         sb.AppendLine("</urlset>");
 
         return Results.Content(sb.ToString(), "application/xml");
+    }
+
+    private static Task<IResult> GetPagesSitemap(HttpContext httpContext)
+    {
+        var site = httpContext.GetSiteContext();
+
+        if (!site.SitemapEnabled)
+            return Task.FromResult(Results.NotFound());
+
+        var baseUrl = CanonicalUrlBuilder.GetCanonicalBase(site.PrimaryDomain);
+        var today = DateTime.UtcNow.ToString("yyyy-MM-dd");
+
+        // Static pages for each supported language
+        var languages = new[] { "en", "uk" };
+        var listPages = new[] { "books", "authors", "genres", "about" };
+
+        var sb = new StringBuilder();
+        sb.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
+        sb.AppendLine("<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\"");
+        sb.AppendLine("        xmlns:xhtml=\"http://www.w3.org/1999/xhtml\">");
+
+        // Homepage for each language (with hreflang alternates)
+        foreach (var lang in languages)
+        {
+            sb.AppendLine("  <url>");
+            sb.AppendLine($"    <loc>{baseUrl}/{lang}/</loc>");
+            sb.AppendLine($"    <lastmod>{today}</lastmod>");
+            sb.AppendLine("    <changefreq>daily</changefreq>");
+            sb.AppendLine("    <priority>1.0</priority>");
+            // Hreflang alternates
+            foreach (var altLang in languages)
+            {
+                sb.AppendLine($"    <xhtml:link rel=\"alternate\" hreflang=\"{altLang}\" href=\"{baseUrl}/{altLang}/\" />");
+            }
+            sb.AppendLine($"    <xhtml:link rel=\"alternate\" hreflang=\"x-default\" href=\"{baseUrl}/en/\" />");
+            sb.AppendLine("  </url>");
+        }
+
+        // List pages (books, authors, genres) for each language
+        foreach (var lang in languages)
+        {
+            foreach (var page in listPages)
+            {
+                sb.AppendLine("  <url>");
+                sb.AppendLine($"    <loc>{baseUrl}/{lang}/{page}</loc>");
+                sb.AppendLine($"    <lastmod>{today}</lastmod>");
+                sb.AppendLine("    <changefreq>daily</changefreq>");
+                sb.AppendLine("    <priority>0.8</priority>");
+                sb.AppendLine("  </url>");
+            }
+        }
+
+        sb.AppendLine("</urlset>");
+
+        return Task.FromResult(Results.Content(sb.ToString(), "application/xml"));
     }
 }
