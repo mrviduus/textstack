@@ -62,6 +62,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!GOOGLE_CLIENT_ID || initializedRef.current) return
 
     const initGoogle = async () => {
+      // Skip Google Identity for bots
+      const isBot = /googlebot|bingbot|yandex|baiduspider|facebookexternalhit|twitterbot|linkedinbot|whatsapp|applebot|semrush|ahrefs/i.test(navigator.userAgent)
+      if (isBot) return
+
       // Load script if not present
       if (!document.getElementById('google-signin-script')) {
         await new Promise<void>((resolve, reject) => {
