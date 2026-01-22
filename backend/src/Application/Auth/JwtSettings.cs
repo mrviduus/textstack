@@ -6,6 +6,6 @@ public class JwtSettings
 
     public required string SecretKey { get; set; }
     public string Issuer { get; set; } = "textstack.app";
-    public int AccessTokenExpiryMinutes { get; set; } = 15;
+    public int AccessTokenExpiryMinutes { get; set; } = 60;
     public int RefreshTokenExpiryDays { get; set; } = 30;
 }

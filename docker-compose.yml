@@ -64,7 +64,7 @@ services:
       Storage__RootPath: /storage
       Jwt__SecretKey: ${JWT_SECRET:-dev-secret-key-min-32-characters-long-for-testing}
       Jwt__Issuer: ${JWT_ISSUER:-textstack.app}
-      Jwt__AccessTokenExpiryMinutes: ${JWT_ACCESS_TOKEN_EXPIRY_MINUTES:-15}
+      Jwt__AccessTokenExpiryMinutes: ${JWT_ACCESS_TOKEN_EXPIRY_MINUTES:-60}
       Jwt__RefreshTokenExpiryDays: ${JWT_REFRESH_TOKEN_EXPIRY_DAYS:-30}
       Google__ClientId: ${GOOGLE_CLIENT_ID:-}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://aspire-dashboard:18889
