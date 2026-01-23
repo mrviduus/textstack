@@ -9,6 +9,7 @@
 - **Admin Tools page** - reprocess, reimport, sync operations
 - **Removed multisite code** - HostSiteResolver, SiteService, AdminSitesEndpoints
 - **Admin port** - changed from 5174 → 81 (easier to remember)
+- **SSG Worker** - Docker service polls DB for rebuild jobs, prerenders pages automatically
 - **See**: `docs/01-architecture/adr/007-single-domain-consolidation-deploy.md`
 
 ### Removed
