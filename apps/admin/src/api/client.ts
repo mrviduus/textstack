@@ -434,6 +434,10 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
     credentials: 'include',
   })
+  if (res.status === 401) {
+    window.location.href = '/login'
+    throw new Error('Session expired')
+  }
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || `API error: ${res.status}`)
@@ -446,6 +450,10 @@ async function fetchVoid(path: string, init?: RequestInit): Promise<void> {
     ...init,
     credentials: 'include',
   })
+  if (res.status === 401) {
+    window.location.href = '/login'
+    throw new Error('Session expired')
+  }
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || `API error: ${res.status}`)
