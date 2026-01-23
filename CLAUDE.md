@@ -112,6 +112,8 @@ Upload EPUB/PDF/FB2 → BookFile (stored) → IngestionJob (queued)
 | Search | `backend/src/Search/` |
 | Web Pages | `apps/web/src/pages/` |
 | Reader | `apps/web/src/pages/ReaderPage.tsx` |
+| Library | `apps/web/src/pages/LibraryPage.tsx` |
+| Admin | `apps/admin/src/pages/` |
 | SSG | `apps/web/scripts/prerender.mjs` |
 
 ## Work Rules

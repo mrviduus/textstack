@@ -1,4 +1,5 @@
 using System.Text;
+using Application;
 using Application.Common.Interfaces;
 using Infrastructure.Persistence;
 using Infrastructure.Services;
@@ -30,6 +31,10 @@ builder.Services.AddDbContextFactory<AppDbContext>(options =>
     options.UseNpgsql(connectionString)
         .UseSnakeCaseNamingConvention()
         .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
+
+// Register IAppDbContext for scoped services (creates context via factory)
+builder.Services.AddScoped<IAppDbContext>(sp =>
+    sp.GetRequiredService<IDbContextFactory<AppDbContext>>().CreateDbContext());
 
 // File storage
 var storagePath = builder.Configuration["Storage:RootPath"] ?? "/storage";
@@ -67,6 +72,9 @@ builder.Services.AddSingleton<ITextExtractor, MdTextExtractor>();
 builder.Services.AddSingleton<ITextExtractor>(new PdfTextExtractor(extractionOptions, ocrEngine));
 builder.Services.AddSingleton<IExtractorRegistry, ExtractorRegistry>();
 
+// Application services (for ISsgRouteProvider, etc.)
+builder.Services.AddApplication();
+
 // Services
 builder.Services.AddSingleton<IngestionWorkerService>();
 builder.Services.AddHostedService<IngestionWorker>();
@@ -75,6 +83,10 @@ builder.Services.AddHostedService<IngestionWorker>();
 builder.Services.AddHttpClient("SeoCrawl");
 builder.Services.AddSingleton<SeoCrawlWorkerService>();
 builder.Services.AddHostedService<SeoCrawlWorker>();
+
+// SSG Rebuild
+builder.Services.AddSingleton<SsgRebuildWorkerService>();
+builder.Services.AddHostedService<SsgRebuildWorker>();
 
 // TextStack watcher (optional, enable via config)
 if (builder.Configuration.GetValue("TextStack:EnableWatcher", false))
