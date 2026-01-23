@@ -71,16 +71,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'pnpm'
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Install & build web
+        working-directory: apps/web
+        run: pnpm install --frozen-lockfile && pnpm build
 
-      - name: Build web
-        run: pnpm -C apps/web build
-
-      - name: Build admin
-        run: pnpm -C apps/admin build
+      - name: Install & build admin
+        working-directory: apps/admin
+        run: pnpm install --frozen-lockfile && pnpm build
 
   docker:
     runs-on: ubuntu-latest
