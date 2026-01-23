@@ -18,22 +18,19 @@ Host nginx (port 80)
     │
     ▼
 Docker containers (localhost only)
-    ├── API        (127.0.0.1:8080)
-    ├── Worker     (background jobs)
-    ├── Admin      (127.0.0.1:5174)
-    ├── PostgreSQL (internal only)
-    └── Observability Stack
-        ├── Grafana     (127.0.0.1:3000)
-        ├── Prometheus  (127.0.0.1:9090)
-        ├── Loki        (internal)
-        └── OTEL Collector (internal)
+    ├── API           (127.0.0.1:8080)
+    ├── Worker        (background jobs)
+    ├── SSG Worker    (pre-renders SEO pages)
+    ├── Admin         (127.0.0.1:5174)
+    ├── PostgreSQL    (internal only)
+    └── Aspire Dashboard (127.0.0.1:18888)
 ```
 
 ## Prerequisites
 
 - Ubuntu 22.04+ server
 - Docker & Docker Compose
-- Node.js 22+ with pnpm
+- Node.js 20+ with pnpm
 - Domain(s) registered with DNS provider
 - Cloudflare account (free tier)
 
@@ -45,8 +42,7 @@ Docker containers (localhost only)
 | API | Public via /api/ path | Rate limiting, JWT auth |
 | Admin panel | localhost only | Not exposed to internet |
 | PostgreSQL | Docker internal | No external ports |
-| Grafana | localhost only | Password auth, not exposed |
-| Prometheus | localhost only | Not exposed to internet |
+| Aspire Dashboard | localhost only | Not exposed |
 | SSH | Port 22 | UFW firewall, key auth |
 
 ## Initial Setup
@@ -88,8 +84,11 @@ sudo ufw status
 # Remove default site
 sudo rm -f /etc/nginx/sites-enabled/default
 
-# Install config
-sudo cp infra/nginx-prod/textstack.conf /etc/nginx/sites-available/textstack
+# Install config (auto-replaces paths)
+make nginx-setup
+
+# Or manually:
+sudo cp infra/nginx/textstack.conf /etc/nginx/sites-available/textstack
 sudo ln -sf /etc/nginx/sites-available/textstack /etc/nginx/sites-enabled/textstack
 
 # Set permissions
@@ -104,16 +103,21 @@ sudo systemctl restart nginx
 
 ### 5. Environment Configuration
 
-Create `.env.production` (never commit to git):
+Create `.env` from example (never commit secrets to git):
 
 ```bash
+cp .env.example .env
+
 # Generate secure values
 openssl rand -base64 24  # for POSTGRES_PASSWORD
 openssl rand -base64 32  # for JWT_SECRET
+
+# Edit .env with generated values
+nano .env
 ```
 
+Example `.env`:
 ```env
-# .env.production
 POSTGRES_USER=textstack_prod
 POSTGRES_PASSWORD=<generated>
 POSTGRES_DB=textstack_prod
@@ -121,14 +125,10 @@ POSTGRES_DB=textstack_prod
 ASPNETCORE_ENVIRONMENT=Production
 
 JWT_SECRET=<generated_32+_chars>
-JWT_ISSUER=textstack-api
-JWT_AUDIENCE=textstack-client
+JWT_ISSUER=textstack.app
+JWT_AUDIENCE=textstack.app
 
-VITE_API_URL=/api
-
-# Observability
-GRAFANA_ADMIN_PASSWORD=<generated>
-GRAFANA_ROOT_URL=http://localhost:3000
+GOOGLE_CLIENT_ID=<your-google-client-id>
 ```
 
 ### 6. Build Frontend
@@ -136,21 +136,19 @@ GRAFANA_ROOT_URL=http://localhost:3000
 ```bash
 cd apps/web
 pnpm install
-VITE_API_URL=/api pnpm build
+VITE_API_URL=/api VITE_CANONICAL_URL=https://textstack.app pnpm build
+cd ../..
 ```
 
-### 7. Create Data Directories
+### 7. Start Services
 
 ```bash
-# Observability data directories (need correct permissions)
-mkdir -p data/grafana-prod data/prometheus-prod data/loki-prod
-sudo chmod 777 data/grafana-prod data/prometheus-prod data/loki-prod
+docker compose up -d --build
 ```
 
-### 8. Start Services
-
+Or use Makefile:
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+make up
 ```
 
 ## Verification Checklist
@@ -158,16 +156,13 @@ docker compose -f docker-compose.prod.yml --env-file .env.production up -d --bui
 ```bash
 # Services running
 docker ps
+make status
 sudo systemctl status nginx
 sudo systemctl status cloudflared
 
 # Health checks
 curl http://localhost:8080/health
 curl http://localhost:80
-
-# Observability
-curl http://localhost:3000/api/health  # Grafana
-curl http://localhost:9090/-/healthy   # Prometheus
 
 # From phone (mobile data, not WiFi)
 # https://textstack.app
@@ -176,94 +171,82 @@ curl http://localhost:9090/-/healthy   # Prometheus
 
 ## Operations
 
-### Service Management
+### Daily Commands
 
 ```bash
-# View logs
-docker logs textstack_api_prod -f
-docker logs textstack_worker_prod -f
-sudo journalctl -u nginx -f
-sudo journalctl -u cloudflared -f
-
-# Restart services
-docker compose -f docker-compose.prod.yml --env-file .env.production restart
-sudo systemctl restart nginx
-sudo systemctl restart cloudflared
-
-# Stop all
-docker compose -f docker-compose.prod.yml down
+make up           # Start all services
+make down         # Stop all services
+make restart      # Restart all services
+make logs         # View logs (tail -f)
+make status       # Show service status
 ```
 
-### Code Updates
+### Deployment
 
 ```bash
-cd /home/vasyl/projects/onlinelib/onlinelib
-git pull
-
-# Rebuild frontend
-cd apps/web && pnpm build && cd ../..
-
-# Rebuild and restart containers
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+make deploy       # Full deploy: git pull, build, restart, SSG rebuild
 ```
+
+Or manually:
+```bash
+git pull origin main
+cd apps/web && pnpm install && VITE_API_URL=/api VITE_CANONICAL_URL=https://textstack.app pnpm build
+docker compose up -d --build
+```
+
+### SSG Rebuild
+
+SSG pages are pre-rendered for SEO. Rebuild after content changes:
+
+```bash
+# Via Makefile (runs on host)
+make rebuild-ssg
+
+# Via Admin Panel (recommended)
+# Go to https://textstack.dev → SSG Rebuild → New Rebuild
+```
+
+The `ssg-worker` container automatically picks up rebuild jobs created via admin panel.
 
 ### Database Access
 
 ```bash
-# Connect to prod DB
-docker exec -it textstack_db_prod psql -U textstack_prod -d textstack_prod
+# Connect to DB
+docker exec -it textstack_db_prod psql -U $POSTGRES_USER -d $POSTGRES_DB
 
-# Run migrations manually (if needed)
-docker compose -f docker-compose.prod.yml --env-file .env.production up migrator
+# Or with make (reads .env)
+. ./.env && docker exec -it textstack_db_prod psql -U $POSTGRES_USER -d $POSTGRES_DB
 ```
 
-## Backup Strategy
+## Backup & Restore
 
-See [backup.md](backup.md) for detailed procedures.
-
-### Production Backup Script
+### Backup
 
 ```bash
-#!/bin/bash
-# /home/vasyl/scripts/backup-prod.sh
-
-DATE=$(date +%F-%H%M)
-BACKUP_DIR=/home/vasyl/backups
-PROJECT_DIR=/home/vasyl/projects/onlinelib/onlinelib
-
-mkdir -p $BACKUP_DIR
-
-# Database
-docker exec textstack_db_prod pg_dump -U textstack_prod textstack_prod | gzip > $BACKUP_DIR/db-$DATE.sql.gz
-
-# Storage files
-tar czf $BACKUP_DIR/storage-$DATE.tar.gz -C $PROJECT_DIR/data storage
-
-# Cleanup (keep 7 days)
-find $BACKUP_DIR -name "*.gz" -mtime +7 -delete
-
-echo "Backup completed: $DATE"
+make backup           # Creates timestamped backup in backups/
+make backup-list      # List existing backups
 ```
 
-### Crontab
+### Restore
 
 ```bash
-# Daily at 3 AM
-0 3 * * * /home/vasyl/scripts/backup-prod.sh >> /var/log/textstack-backup.log 2>&1
+make restore FILE=backups/db_2026-01-23_120000.sql.gz
 ```
 
-## Monitoring & Observability
+### Automated Backups
 
-### Grafana Dashboard
+GitHub Actions runs daily backup at 3 AM UTC (see `.github/workflows/backup.yml`).
 
-Access: `http://localhost:3000` (SSH tunnel or local access)
+## Monitoring
 
-**Key dashboards:**
-- **Ingestion Overview** - Book processing health, success rates
-- **Extraction Performance** - Processing latencies by format
-- **Worker Health** - Queue depth, throughput
+### Aspire Dashboard
 
-See [Observability Guide](../../observability/README.md) for detailed usage.
+Access: `http://localhost:18888` (via SSH tunnel)
+
+Shows:
+- Distributed traces
+- Logs from all services
+- Metrics
 
 ### Health Endpoints
 
@@ -271,28 +254,25 @@ See [Observability Guide](../../observability/README.md) for detailed usage.
 |----------|----------|
 | `http://localhost:8080/health` | 200 OK |
 | `https://textstack.app/api/health` | 200 OK |
-| `http://localhost:3000/api/health` | 200 OK (Grafana) |
-| `http://localhost:9090/-/healthy` | 200 OK (Prometheus) |
 
 ### Logs
 
-**Centralized logs (Grafana → Explore → Loki):**
-```logql
-{service_name="onlinelib-api"}           # API logs
-{service_name="onlinelib-worker"}        # Worker logs
-{service_name="onlinelib-api"} | json | level="Error"  # Errors only
+```bash
+# All services
+make logs
+
+# Specific service
+docker logs textstack_api_prod -f
+docker logs textstack_worker_prod -f
+docker logs textstack_ssg_worker -f
+docker logs textstack_admin_prod -f
+
+# Nginx
+sudo tail -f /var/log/nginx/error.log
+
+# Cloudflared
+sudo journalctl -u cloudflared -f
 ```
-
-**Direct Docker logs:**
-
-| Service | Command |
-|---------|---------|
-| API | `docker logs textstack_api_prod` |
-| Worker | `docker logs textstack_worker_prod` |
-| Nginx | `sudo tail -f /var/log/nginx/error.log` |
-| Cloudflared | `sudo journalctl -u cloudflared` |
-| Grafana | `docker logs textstack_grafana_prod` |
-| OTEL Collector | `docker logs textstack_otel_prod` |
 
 ### Resource Usage
 
@@ -311,27 +291,23 @@ free -h
 | API errors | `docker logs textstack_api_prod` | Check logs for details |
 | DNS not resolving | `dig textstack.app` | Wait for propagation / check Cloudflare |
 | Permission denied | nginx logs | `chmod 755` on directories |
-| No logs in Loki | `docker logs textstack_otel_prod` | Check OTEL collector |
-| Grafana "No data" | Check time range | Adjust time picker, verify data sources |
-| Loki permission denied | `ls -la data/loki-prod` | `sudo chmod 777 data/loki-prod` |
+| SSG not updating | Check ssg-worker logs | Trigger rebuild via admin |
 
 ## Security Checklist
 
-- [ ] `.env.production` not in git (check: `git status`)
+- [ ] `.env` not in git (check: `git status`)
 - [ ] Strong passwords (24+ chars, generated)
 - [ ] JWT secret 32+ chars
-- [ ] Grafana admin password set (not default)
 - [ ] UFW enabled with minimal ports
 - [ ] SSH key authentication (disable password)
 - [ ] Regular backups configured
 - [ ] Cloudflare SSL mode: Full (strict)
-- [ ] Grafana/Prometheus not exposed to internet (localhost only)
 
 ## Rollback Procedure
 
 ```bash
 # 1. Stop current version
-docker compose -f docker-compose.prod.yml down
+docker compose down
 
 # 2. Restore previous code
 git checkout <previous-commit>
@@ -340,10 +316,10 @@ git checkout <previous-commit>
 cd apps/web && pnpm build && cd ../..
 
 # 4. Restore database (if needed)
-gunzip -c /path/to/backup.sql.gz | docker exec -i textstack_db_prod psql -U textstack_prod -d textstack_prod
+make restore FILE=/path/to/backup.sql.gz
 
 # 5. Start services
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+docker compose up -d --build
 ```
 
 ## File Locations
@@ -351,22 +327,18 @@ docker compose -f docker-compose.prod.yml --env-file .env.production up -d --bui
 | Item | Path |
 |------|------|
 | Project root | `/home/vasyl/projects/onlinelib/onlinelib` |
-| Production compose | `docker-compose.prod.yml` |
-| Environment file | `.env.production` (not in git) |
+| Docker Compose | `docker-compose.yml` |
+| Environment file | `.env` (not in git) |
 | Nginx config | `/etc/nginx/sites-available/textstack` |
-| Nginx config source | `infra/nginx-prod/textstack.conf` |
+| Nginx config source | `infra/nginx/textstack.conf` |
 | Frontend dist | `apps/web/dist/` |
+| SSG pages | `apps/web/dist/ssg/` |
 | Storage data | `data/storage/` |
 | Database data | `data/postgres-prod/` |
-| Grafana data | `data/grafana-prod/` |
-| Prometheus data | `data/prometheus-prod/` |
-| Loki data | `data/loki-prod/` |
-| Backups | `/home/vasyl/backups/` |
-| Observability docs | `observability/README.md` |
+| Backups | `backups/` or `/home/vasyl/backups/` |
 
 ## See Also
 
-- [Local Development](local-dev.md)
-- [Backup & Restore](backup.md)
-- [Observability Guide](../../observability/README.md)
-- [API Documentation](../02-system/api.md)
+- [Environment Variables](environment-variables.md)
+- [CI/CD Pipeline](.github/workflows/)
+- [SSG Documentation](../02-system/ssg-prerender.md)
