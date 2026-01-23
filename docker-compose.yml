@@ -1,86 +1,68 @@
-services:
-  nginx:
-    image: nginx:alpine
-    container_name: books_nginx
-    volumes:
-      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./apps/web/dist:/var/www/dist:ro
-    ports:
-      - "80:80"
-    restart: unless-stopped
-    depends_on:
-      - api
-      - web
-      - admin
+# Textstack Docker Compose
+# Usage: docker compose up -d
 
+services:
   db:
     image: postgres:16
-    container_name: books_db
+    container_name: textstack_db_prod
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-app}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
-      POSTGRES_DB: ${POSTGRES_DB:-books}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     volumes:
-      - ./data/postgres:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-    restart: unless-stopped
+      - ./data/postgres-prod:/var/lib/postgresql/data
+    # NOTE: No ports exposed - internal only for security
+    restart: always
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app} -d ${POSTGRES_DB:-books}"]
-      interval: 5s
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M
 
   migrator:
     build:
       context: ./backend
       dockerfile: Docker/Migrator.Dockerfile
-    container_name: books_migrator
+    container_name: textstack_migrator_prod
     environment:
-      ConnectionStrings__Default: "Host=db;Port=5432;Database=${POSTGRES_DB:-books};Username=${POSTGRES_USER:-app};Password=${POSTGRES_PASSWORD:-changeme}"
-      MIGRATE_TARGET: ${MIGRATE_TARGET:-}
+      ConnectionStrings__Default: "Host=db;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
     depends_on:
       db:
         condition: service_healthy
     restart: "no"
 
-  # Observability - Aspire Dashboard (all-in-one: traces, logs, metrics)
-  aspire-dashboard:
-    image: mcr.microsoft.com/dotnet/aspire-dashboard:latest
-    container_name: books_aspire
-    ports:
-      - "18888:18888"   # Dashboard UI
-    environment:
-      - ASPIRE_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS=true
-    restart: unless-stopped
-
   api:
     build:
       context: ./backend
       dockerfile: Docker/Api.Dockerfile
-    container_name: books_api
+    container_name: textstack_api_prod
     environment:
-      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
-      ConnectionStrings__Default: "Host=db;Port=5432;Database=${POSTGRES_DB:-books};Username=${POSTGRES_USER:-app};Password=${POSTGRES_PASSWORD:-changeme}"
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ConnectionStrings__Default: "Host=db;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
       Storage__RootPath: /storage
-      Jwt__SecretKey: ${JWT_SECRET:-dev-secret-key-min-32-characters-long-for-testing}
-      Jwt__Issuer: ${JWT_ISSUER:-textstack.app}
-      Jwt__AccessTokenExpiryMinutes: ${JWT_ACCESS_TOKEN_EXPIRY_MINUTES:-60}
-      Jwt__RefreshTokenExpiryDays: ${JWT_REFRESH_TOKEN_EXPIRY_DAYS:-30}
-      Google__ClientId: ${GOOGLE_CLIENT_ID:-}
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://aspire-dashboard:18889
+      Jwt__SecretKey: ${JWT_SECRET}
+      Jwt__Issuer: ${JWT_ISSUER}
+      Jwt__Audience: ${JWT_AUDIENCE}
+      Google__ClientId: ${GOOGLE_CLIENT_ID}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://aspire-dashboard:18890
     volumes:
       - ./data/storage:/storage
-      - ${TEXTSTACK_PATH:-./data/textstack}:/data/textstack
+      - ./data/textstack:/data/textstack
     ports:
-      - "8080:8080"
-    restart: unless-stopped
+      - "127.0.0.1:8080:8080"  # Only localhost, nginx will proxy
+    restart: always
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
-      interval: 10s
-      timeout: 5s
+      interval: 30s
+      timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 30s
     depends_on:
       db:
         condition: service_healthy
@@ -88,20 +70,26 @@ services:
         condition: service_completed_successfully
       aspire-dashboard:
         condition: service_started
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M
 
   worker:
     build:
       context: ./backend
       dockerfile: Docker/Worker.Dockerfile
-    container_name: books_worker
+    container_name: textstack_worker_prod
     environment:
-      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
-      ConnectionStrings__Default: "Host=db;Port=5432;Database=${POSTGRES_DB:-books};Username=${POSTGRES_USER:-app};Password=${POSTGRES_PASSWORD:-changeme}"
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ConnectionStrings__Default: "Host=db;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
       Storage__RootPath: /storage
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://aspire-dashboard:18889
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://aspire-dashboard:18890
     volumes:
       - ./data/storage:/storage
-    restart: unless-stopped
+    restart: always
     depends_on:
       db:
         condition: service_healthy
@@ -109,54 +97,79 @@ services:
         condition: service_completed_successfully
       aspire-dashboard:
         condition: service_started
-
-  web:
-    build:
-      context: ./apps/web
-      dockerfile: Dockerfile
-    container_name: books_web
-    environment:
-      # Use /api proxy for prerender compatibility (Vite proxies to api:8080)
-      VITE_API_URL: ${VITE_API_URL:-/api}
-      VITE_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
-      # Canonical URL for SEO (used when site context not loaded yet)
-      VITE_CANONICAL_URL: ${VITE_CANONICAL_URL:-http://general.localhost}
-    ports:
-      - "5173:5173"
-    restart: unless-stopped
-    depends_on:
-      - api
+    deploy:
+      resources:
+        limits:
+          memory: 2G  # Worker needs more for book processing
+        reservations:
+          memory: 512M
 
   admin:
     build:
       context: ./apps/admin
       dockerfile: Dockerfile
-    container_name: books_admin
+    container_name: textstack_admin_prod
     environment:
-      VITE_API_URL: ${VITE_API_URL:-http://localhost:8080}
+      VITE_API_URL: /api
     ports:
-      - "5174:5174"
-    restart: unless-stopped
+      - "127.0.0.1:5174:5174"  # Only localhost - not exposed to internet
+    restart: always
     depends_on:
       - api
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 64M
 
-  # SSG Build service - prerenders SEO pages
-  web-build:
+  # ===========================================
+  # SSG Worker - prerenders SEO pages
+  # ===========================================
+
+  ssg-worker:
     build:
       context: ./apps/web
-      dockerfile: Dockerfile.ssg
-    container_name: books_web_build
+      dockerfile: Dockerfile.ssg-worker
+    container_name: textstack_ssg_worker
     environment:
+      DATABASE_URL: "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}"
       API_URL: http://api:8080
-      API_HOST: general.localhost
-      CONCURRENCY: "8"
-      VITE_API_URL: /api
-      VITE_CANONICAL_URL: https://textstack.app
+      API_HOST: localhost
+      POLL_INTERVAL: "5000"
     volumes:
       - ./apps/web/dist:/app/dist
-    profiles:
-      - build
+    restart: always
     depends_on:
       api:
         condition: service_healthy
+      db:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
 
+  # ===========================================
+  # Observability - Aspire Dashboard (all-in-one: traces, logs, metrics)
+  # ===========================================
+
+  aspire-dashboard:
+    image: mcr.microsoft.com/dotnet/aspire-dashboard:latest
+    container_name: textstack_aspire_prod
+    ports:
+      - "127.0.0.1:18888:18888"   # Dashboard UI (localhost only)
+    environment:
+      - ASPIRE_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS=true
+      - DASHBOARD__TELEMETRYLIMITS__MAXLOGCOUNT=100000
+      - DASHBOARD__TELEMETRYLIMITS__MAXTRACECOUNT=50000
+      - DASHBOARD__TELEMETRYLIMITS__MAXMETRICCOUNT=100000
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M

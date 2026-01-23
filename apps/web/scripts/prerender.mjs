@@ -229,21 +229,51 @@ async function renderRoute(browser, routeObj) {
     // Set viewport for consistent rendering
     await page.setViewport({ width: 1280, height: 800 });
 
+    // Override fetch to redirect localhost:8080 API calls to our proxy
+    await page.evaluateOnNewDocument((proxyPort) => {
+      const originalFetch = window.fetch;
+      window.fetch = function(input, init) {
+        let url = typeof input === 'string' ? input : input.url;
+        if (url.includes('localhost:8080')) {
+          // Rewrite to proxy, avoiding double /api prefix
+          let newUrl = url.replace('http://localhost:8080', `http://localhost:${proxyPort}`);
+          if (!newUrl.includes('/api/')) {
+            newUrl = newUrl.replace(`http://localhost:${proxyPort}/`, `http://localhost:${proxyPort}/api/`);
+          }
+          if (typeof input === 'string') {
+            return originalFetch.call(this, newUrl, init);
+          } else {
+            return originalFetch.call(this, new Request(newUrl, input), init);
+          }
+        }
+        return originalFetch.call(this, input, init);
+      };
+    }, PORT);
+
     // Navigate to the route
     const url = `http://localhost:${PORT}${route}`;
     await page.goto(url, { waitUntil: 'networkidle0', timeout: 30000 });
 
-    // Wait for React to render
+    // Wait for React to render actual content (not skeleton)
     await page.waitForFunction(() => {
-      // Check if SeoHead has set the title
-      const title = document.title;
-      return title && title !== 'TextStack' && !title.includes('Loading');
-    }, { timeout: 10000 }).catch(() => {
-      // Timeout is OK for some pages, continue with current state
+      // Check no skeleton AND actual content exists
+      const skeleton = document.querySelector('.book-detail__skeleton, .books-grid__skeleton, .author-detail__skeleton, .genre-detail__skeleton');
+      if (skeleton) return false;
+
+      // Check for loaded content indicators
+      const bookDetail = document.querySelector('.book-detail__header h1');
+      const booksList = document.querySelector('.books-grid .book-card:not(.book-card--skeleton)');
+      const authorDetail = document.querySelector('.author-detail__name');
+      const genreDetail = document.querySelector('.genre-detail__title');
+      const staticPage = document.querySelector('.about-page, .static-content, main h1');
+
+      return bookDetail || booksList || authorDetail || genreDetail || staticPage;
+    }, { timeout: 15000 }).catch(() => {
+      // Content may not be available (404, error page, etc) - continue with current state
     });
 
-    // Additional wait for dynamic content
-    await new Promise(r => setTimeout(r, 500));
+    // Shorter wait since we already waited for content
+    await new Promise(r => setTimeout(r, 200));
 
     // Get the rendered HTML
     const html = await page.content();
