@@ -20,6 +20,11 @@ public class SsgRebuildWorkerService
 
     private const string ScriptPath = "apps/web/scripts/prerender.mjs";
 
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
     public SsgRebuildWorkerService(
         IDbContextFactory<AppDbContext> dbFactory,
         ISsgRouteProvider routeProvider,
@@ -171,7 +176,7 @@ public class SsgRebuildWorkerService
             {
                 try
                 {
-                    var evt = JsonSerializer.Deserialize<ProgressEvent>(e.Data);
+                    var evt = JsonSerializer.Deserialize<ProgressEvent>(e.Data, JsonOptions);
                     if (evt?.Event == "progress")
                         _ = UpdateJobProgressAsync(jobId, evt.Rendered, evt.Failed);
                     else if (evt?.Event == "result")
@@ -213,7 +218,7 @@ public class SsgRebuildWorkerService
         if (!File.Exists(outputFile)) return;
 
         var json = await File.ReadAllTextAsync(outputFile, CancellationToken.None);
-        var results = JsonSerializer.Deserialize<List<RenderResult>>(json);
+        var results = JsonSerializer.Deserialize<List<RenderResult>>(json, JsonOptions);
 
         if (results == null) return;
 

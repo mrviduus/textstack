@@ -95,8 +95,11 @@ services:
       ConnectionStrings__Default: "Host=db;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
       Storage__RootPath: /storage
       OTEL_EXPORTER_OTLP_ENDPOINT: http://aspire-dashboard:18890
+      API_URL: http://api:8080
     volumes:
       - ./data/storage:/storage
+      - ./apps/web/scripts:/app/apps/web/scripts:ro
+      - ./apps/web/dist:/app/apps/web/dist
     restart: always
     depends_on:
       db:
