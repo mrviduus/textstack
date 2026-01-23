@@ -8,6 +8,8 @@
 - **Migration** - merge programming books to general site
 - **Admin Tools page** - reprocess, reimport, sync operations
 - **Removed multisite code** - HostSiteResolver, SiteService, AdminSitesEndpoints
+- **Admin port** - changed from 5174 → 81 (easier to remember)
+- **SSG Worker** - Docker service polls DB for rebuild jobs, prerenders pages automatically
 - **See**: `docs/01-architecture/adr/007-single-domain-consolidation-deploy.md`
 
 ### Removed
@@ -100,7 +102,7 @@
 - **EPUB parser** - VersOne.Epub + HtmlAgilityPack, chapter extraction
 - **Ingestion worker** - background polling, EPUB → chapters, search_vector indexing
 - **Data model** - Work/Edition hierarchy, Admin auth system, UserLibrary
-- **Admin app** - separate React app on port 5174
+- **Admin app** - separate React app on port 81
 
 ### Changed
 - Rebrand to **TextStack**, default language to English

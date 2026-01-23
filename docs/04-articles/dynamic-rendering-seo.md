@@ -274,7 +274,7 @@ The entire implementation touched **5 files**:
 | `docker-compose.yml` | +20 | Add prerender service |
 | `nginx.conf` | +85 | Bot detection & routing |
 | `vite.config.ts` | +10 | API proxy for prerender |
-| `docker-compose.prod.yml` | +18 | Production prerender |
+| `docker-compose.yml` | +18 | Production prerender |
 | `nginx-prod.conf` | +118 | Production bot routing |
 
 No React components changed. No business logic touched. The SPA remains exactly as it was.

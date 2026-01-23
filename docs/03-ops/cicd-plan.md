@@ -211,7 +211,7 @@ jobs:
 
       - name: Build Docker images
         run: |
-          docker compose -f docker-compose.prod.yml build
+          docker compose build
 
       - name: Verify images
         run: |
@@ -266,7 +266,7 @@ jobs:
       - name: Deploy containers
         run: |
           cd $PROJECT_DIR
-          docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+          docker compose up -d --build
 
       - name: Wait for services
         run: sleep 30
@@ -444,7 +444,7 @@ Pipeline fails health check → No changes applied (old containers still running
 cd /home/vasyl/projects/onlinelib/onlinelib
 git checkout <previous-commit>
 cd apps/web && pnpm build && cd ..
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+docker compose up -d --build
 ```
 
 ### Database Rollback
@@ -454,9 +454,9 @@ docker compose -f docker-compose.prod.yml --env-file .env.production up -d --bui
 ls -la ~/backups/
 
 # Restore
-docker compose -f docker-compose.prod.yml down
+docker compose down
 gunzip -c ~/backups/db-YYYY-MM-DD.sql.gz | docker exec -i textstack_db_prod psql -U textstack_prod -d textstack_prod
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+docker compose up -d
 ```
 
 ## TODO Checklist
@@ -476,9 +476,9 @@ docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 ## Security Considerations
 
 1. **Secrets Management**
-   - `.env.production` never in git
+   - `.env` never in git
    - Use GitHub Secrets for sensitive values if needed
-   - Runner has access to local `.env.production`
+   - Runner has access to local `.env`
 
 2. **Runner Security**
    - Dedicated non-root user

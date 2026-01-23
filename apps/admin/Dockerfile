@@ -7,5 +7,5 @@ COPY package.json pnpm-lock.yaml* ./
 RUN pnpm install
 
 COPY . .
-EXPOSE 5174
-CMD ["pnpm", "dev", "--host", "0.0.0.0"]
+EXPOSE 81
+CMD ["pnpm", "dev", "--host", "0.0.0.0", "--port", "81"]

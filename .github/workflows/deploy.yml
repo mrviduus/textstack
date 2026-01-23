@@ -52,7 +52,7 @@ jobs:
       - name: Deploy containers
         run: |
           cd $PROJECT_DIR
-          docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+          docker compose up -d --build
 
       - name: Wait for services
         run: sleep 30

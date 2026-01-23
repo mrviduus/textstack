@@ -4,7 +4,7 @@
 ```bash
 docker compose up --build
 ```
-All services: API :8080 | Web :5173 | Admin :5174 | DB :5432
+All services: API :8080 | Web :5173 | Admin :81 | DB :5432
 
 ---
 

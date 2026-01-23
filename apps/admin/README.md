@@ -12,7 +12,7 @@ pnpm -C apps/admin dev
 docker compose up admin
 ```
 
-**URL**: http://localhost:5174
+**URL**: http://localhost:81
 
 ## Folder Structure
 

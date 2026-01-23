@@ -14,7 +14,7 @@ Problems:
 - Duplicate domain signals hurt SEO
 - SEO instability from competing domains
 - Unnecessary architectural complexity
-- Admin panel only accessible via SSH tunnel (localhost:5174)
+- Admin panel only accessible via SSH tunnel (localhost:81)
 
 ## Decision
 

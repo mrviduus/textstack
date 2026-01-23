@@ -60,7 +60,7 @@ Uses same logic as sitemap.xml generation:
 ### 1. Open Admin → SEO Crawl
 
 ```
-http://localhost:5174/seo-crawl     (dev)
+http://localhost:81/seo-crawl     (dev)
 https://admin.textstack.app/seo-crawl  (prod)
 ```
 

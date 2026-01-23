@@ -5,6 +5,7 @@ using Domain.Entities;
 using Domain.Enums;
 using Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace Worker.Services;
@@ -15,24 +16,46 @@ namespace Worker.Services;
 public class SsgRebuildWorkerService
 {
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
-    private readonly ISsgRouteProvider _routeProvider;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<SsgRebuildWorkerService> _logger;
+    private readonly bool _nodeAvailable;
 
     private const string ScriptPath = "apps/web/scripts/prerender.mjs";
 
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true
-    };
-
     public SsgRebuildWorkerService(
         IDbContextFactory<AppDbContext> dbFactory,
-        ISsgRouteProvider routeProvider,
+        IServiceScopeFactory scopeFactory,
         ILogger<SsgRebuildWorkerService> logger)
     {
         _dbFactory = dbFactory;
-        _routeProvider = routeProvider;
+        _scopeFactory = scopeFactory;
         _logger = logger;
+        _nodeAvailable = CheckNodeAvailable();
+
+        if (!_nodeAvailable)
+            _logger.LogWarning("Node.js not found - SSG rebuild jobs will be skipped. Use 'make rebuild-ssg' manually.");
+    }
+
+    private static bool CheckNodeAvailable()
+    {
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = "node",
+                Arguments = "--version",
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            using var process = Process.Start(psi);
+            process?.WaitForExit(1000);
+            return process?.ExitCode == 0;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     /// <summary>Gets next running job to process.</summary>
@@ -63,6 +86,13 @@ public class SsgRebuildWorkerService
         if (job.Status != SsgRebuildJobStatus.Running)
         {
             _logger.LogWarning("Job {JobId} is not Running (was {Status})", jobId, job.Status);
+            return;
+        }
+
+        if (!_nodeAvailable)
+        {
+            await SetJobStatusAsync(jobId, SsgRebuildJobStatus.Failed, "Node.js not available in Worker container. Use 'make rebuild-ssg' manually.");
+            _logger.LogWarning("Skipping SSG job {JobId} - Node.js not available", jobId);
             return;
         }
 
@@ -120,7 +150,9 @@ public class SsgRebuildWorkerService
         var authorSlugs = DeserializeSlugs(job.AuthorSlugsJson);
         var genreSlugs = DeserializeSlugs(job.GenreSlugsJson);
 
-        return await _routeProvider.GetRoutesAsync(
+        using var scope = _scopeFactory.CreateScope();
+        var routeProvider = scope.ServiceProvider.GetRequiredService<ISsgRouteProvider>();
+        return await routeProvider.GetRoutesAsync(
             job.SiteId, job.Mode, bookSlugs, authorSlugs, genreSlugs, ct);
     }
 
@@ -176,7 +208,7 @@ public class SsgRebuildWorkerService
             {
                 try
                 {
-                    var evt = JsonSerializer.Deserialize<ProgressEvent>(e.Data, JsonOptions);
+                    var evt = JsonSerializer.Deserialize<ProgressEvent>(e.Data);
                     if (evt?.Event == "progress")
                         _ = UpdateJobProgressAsync(jobId, evt.Rendered, evt.Failed);
                     else if (evt?.Event == "result")
@@ -218,7 +250,7 @@ public class SsgRebuildWorkerService
         if (!File.Exists(outputFile)) return;
 
         var json = await File.ReadAllTextAsync(outputFile, CancellationToken.None);
-        var results = JsonSerializer.Deserialize<List<RenderResult>>(json, JsonOptions);
+        var results = JsonSerializer.Deserialize<List<RenderResult>>(json);
 
         if (results == null) return;
 

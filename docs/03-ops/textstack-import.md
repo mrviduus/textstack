@@ -67,7 +67,7 @@ curl -X POST "http://localhost:8080/admin/import/textstack" \
 curl -s "http://localhost:8080/admin/import/textstack" ... | jq '.imported, .skipped, .total'
 
 # View drafts in admin
-open http://localhost:5174/editions?status=draft
+open http://localhost:81/editions?status=draft
 ```
 
 ### Step 4: Clean Up and Next Batch
@@ -163,7 +163,7 @@ scp -r /path/to/batch user@server:/tmp/textstack/
 
 # On server
 ssh user@server
-TEXTSTACK_PATH=/tmp/textstack docker compose -f docker-compose.prod.yml up -d api
+TEXTSTACK_PATH=/tmp/textstack docker compose up -d api
 docker exec textstack_api_prod curl -X POST "http://localhost:8080/admin/import/textstack" \
   -H "Content-Type: application/json" \
   -d '{"siteId":"...","path":"/data/textstack"}'
@@ -177,7 +177,7 @@ git submodule add https://github.com/user/standardebooks.git data/textstack
 
 # On prod, update submodule
 git submodule update --init
-docker compose -f docker-compose.prod.yml up -d api
+docker compose up -d api
 # Run import...
 ```
 

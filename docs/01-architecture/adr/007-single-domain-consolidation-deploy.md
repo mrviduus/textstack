@@ -34,7 +34,7 @@ server {
 
     # Serve admin app
     location / {
-        proxy_pass http://localhost:5174;
+        proxy_pass http://localhost:81;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -86,7 +86,7 @@ cd /path/to/onlinelib
 git pull origin main
 
 # Rebuild all containers
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+docker compose up -d --build
 ```
 
 ### 4. Run Migration
@@ -96,10 +96,10 @@ Migration will automatically run on container start (migrator service).
 Verify:
 ```bash
 # Check migration logs
-docker compose -f docker-compose.prod.yml logs migrator
+docker compose logs migrator
 
 # Verify books moved
-docker compose -f docker-compose.prod.yml exec db psql -U textstack_prod -d textstack_prod -c \
+docker compose exec db psql -U textstack_prod -d textstack_prod -c \
   "SELECT site_id, COUNT(*) FROM editions GROUP BY site_id;"
 # Should show only general site ID (11111111-1111-1111-1111-111111111111)
 ```
@@ -137,7 +137,7 @@ make restore-prod FILE=backups/db_YYYYMMDD_HHMMSS.sql.gz
 
 # Revert code
 git checkout HEAD~1
-docker compose -f docker-compose.prod.yml up -d --build
+docker compose up -d --build
 ```
 
 ### If nginx fails:

@@ -1,0 +1,46 @@
+# SSG Worker Container
+# Long-running process that polls DB for SSG jobs and executes prerender
+
+FROM node:20-alpine
+
+# Install Chromium and dependencies for Puppeteer
+RUN apk add --no-cache \
+    chromium \
+    nss \
+    freetype \
+    harfbuzz \
+    ca-certificates \
+    ttf-freefont
+
+# Tell Puppeteer to use installed Chromium
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+
+# Enable pnpm
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
+WORKDIR /app
+
+# Copy package files
+COPY package.json pnpm-lock.yaml ./
+
+# Install dependencies (including pg for DB access)
+RUN pnpm install --frozen-lockfile
+
+# Copy scripts (prerender.mjs and ssg-worker.mjs)
+COPY scripts/ ./scripts/
+
+# Copy dist directory structure (will be mounted as volume in production)
+# This ensures the directory exists even if not mounted
+RUN mkdir -p dist/ssg
+
+# Environment defaults
+ENV NODE_ENV=production
+ENV POLL_INTERVAL=5000
+
+# Health check - verify process is running
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD pgrep -f "ssg-worker.mjs" || exit 1
+
+# Run the worker
+CMD ["node", "scripts/ssg-worker.mjs"]

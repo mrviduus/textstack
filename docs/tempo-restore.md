@@ -18,7 +18,7 @@ Consider restoring Tempo when:
 
 ## Files to Restore
 
-### 1. docker-compose.prod.yml
+### 1. docker-compose.yml
 
 Add Tempo service:
 
@@ -199,7 +199,7 @@ overrides:
    ```
 3. Restart stack:
    ```bash
-   docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+   docker compose up -d
    ```
 4. Verify Tempo is running:
    ```bash

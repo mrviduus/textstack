@@ -85,6 +85,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Create .env for CI
+        run: |
+          cat > .env << 'EOF'
+          POSTGRES_USER=app
+          POSTGRES_PASSWORD=changeme
+          POSTGRES_DB=books
+          JWT_SECRET=test-secret-key-for-ci-minimum-32-chars
+          JWT_ISSUER=textstack.app
+          JWT_AUDIENCE=textstack.app
+          GOOGLE_CLIENT_ID=test
+          ASPNETCORE_ENVIRONMENT=Development
+          EOF
+
       - name: Build containers
         run: docker compose build
 

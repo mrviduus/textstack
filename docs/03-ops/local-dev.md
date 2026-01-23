@@ -17,7 +17,7 @@ docker compose up --build
 | API | http://localhost:8080 |
 | API Docs | http://localhost:8080/scalar/v1 |
 | Web | http://localhost:5173 |
-| Admin | http://localhost:5174 |
+| Admin | http://localhost:81 |
 | Postgres | localhost:5432 |
 
 ## Nginx Gateway (Host-based Routing)

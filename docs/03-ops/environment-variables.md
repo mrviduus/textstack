@@ -66,23 +66,22 @@ All frontend variables must be prefixed with `VITE_`.
 |----------|----------|---------|-------------|
 | `VITE_API_URL` | No | `http://localhost:8080` | API base URL |
 
-## Production vs Development
+## Environment Examples
 
-### Development (.env)
+### Local Development (.env)
 
 ```bash
 POSTGRES_USER=app
 POSTGRES_PASSWORD=changeme
 POSTGRES_DB=books
-ASPNETCORE_ENVIRONMENT=Development
+ASPNETCORE_ENVIRONMENT=Production
 JWT_SECRET=dev-secret-key-minimum-32-characters-long
-JWT_ISSUER=localhost
+JWT_ISSUER=textstack.app
+JWT_AUDIENCE=textstack.app
 GOOGLE_CLIENT_ID=xxx.apps.googleusercontent.com
-VITE_API_URL=http://localhost:8080
-VITE_GOOGLE_CLIENT_ID=xxx.apps.googleusercontent.com
 ```
 
-### Production (.env.production)
+### Production (.env)
 
 ```bash
 POSTGRES_USER=textstack_prod
@@ -91,15 +90,15 @@ POSTGRES_DB=textstack_prod
 ASPNETCORE_ENVIRONMENT=Production
 JWT_SECRET=<256-bit-secret>
 JWT_ISSUER=textstack.app
+JWT_AUDIENCE=textstack.app
 GOOGLE_CLIENT_ID=xxx.apps.googleusercontent.com
-VITE_API_URL=https://api.textstack.app
-VITE_GOOGLE_CLIENT_ID=xxx.apps.googleusercontent.com
-VITE_CANONICAL_URL=https://textstack.app
 ```
+
+**Note:** Both dev and prod use `.env`. Docker Compose reads it automatically.
 
 ## Docker Compose
 
-Variables are passed to containers via:
+Variables are passed to containers via environment section:
 
 ```yaml
 services:
@@ -109,14 +108,7 @@ services:
       - JWT_SECRET=${JWT_SECRET}
 ```
 
-Or via env_file:
-
-```yaml
-services:
-  api:
-    env_file:
-      - .env.production
-```
+Docker Compose automatically reads `.env` file in the project root.
 
 ## SEO Verification (Optional)
 
