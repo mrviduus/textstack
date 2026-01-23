@@ -9,22 +9,28 @@ using Microsoft.Extensions.Logging;
 
 namespace Worker.Services;
 
+/// <summary>
+/// Executes SSG rebuild jobs by spawning Node prerender process.
+/// </summary>
 public class SsgRebuildWorkerService
 {
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
+    private readonly ISsgRouteProvider _routeProvider;
     private readonly ILogger<SsgRebuildWorkerService> _logger;
 
-    // Script path - relative to working directory
     private const string ScriptPath = "apps/web/scripts/prerender.mjs";
 
     public SsgRebuildWorkerService(
         IDbContextFactory<AppDbContext> dbFactory,
+        ISsgRouteProvider routeProvider,
         ILogger<SsgRebuildWorkerService> logger)
     {
         _dbFactory = dbFactory;
+        _routeProvider = routeProvider;
         _logger = logger;
     }
 
+    /// <summary>Gets next running job to process.</summary>
     public async Task<SsgRebuildJob?> GetNextJobAsync(CancellationToken ct)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
@@ -34,6 +40,7 @@ public class SsgRebuildWorkerService
             .FirstOrDefaultAsync(ct);
     }
 
+    /// <summary>Processes a job: spawns prerender, tracks progress, saves results.</summary>
     public async Task ProcessJobAsync(Guid jobId, CancellationToken ct)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
@@ -50,223 +57,208 @@ public class SsgRebuildWorkerService
 
         if (job.Status != SsgRebuildJobStatus.Running)
         {
-            _logger.LogWarning("Job {JobId} is not in Running status (was {Status})", jobId, job.Status);
+            _logger.LogWarning("Job {JobId} is not Running (was {Status})", jobId, job.Status);
             return;
         }
 
-        _logger.LogInformation("Starting SSG rebuild for job {JobId}, site {SiteCode}, mode {Mode}",
+        _logger.LogInformation("Starting SSG rebuild job {JobId}, site {SiteCode}, mode {Mode}",
             jobId, job.Site.Code, job.Mode);
 
         try
         {
             await RunPrerenderAsync(job, ct);
-
-            await using var dbUpdate = await _dbFactory.CreateDbContextAsync(CancellationToken.None);
-            var jobToUpdate = await dbUpdate.SsgRebuildJobs.FirstOrDefaultAsync(j => j.Id == jobId, CancellationToken.None);
-            if (jobToUpdate != null)
-            {
-                jobToUpdate.Status = SsgRebuildJobStatus.Completed;
-                jobToUpdate.FinishedAt = DateTimeOffset.UtcNow;
-                await dbUpdate.SaveChangesAsync(CancellationToken.None);
-            }
-
+            await SetJobStatusAsync(jobId, SsgRebuildJobStatus.Completed);
             _logger.LogInformation("SSG rebuild completed for job {JobId}", jobId);
         }
         catch (OperationCanceledException)
         {
-            await using var dbUpdate = await _dbFactory.CreateDbContextAsync(CancellationToken.None);
-            var jobToUpdate = await dbUpdate.SsgRebuildJobs.FirstOrDefaultAsync(j => j.Id == jobId, CancellationToken.None);
-            if (jobToUpdate != null)
-            {
-                jobToUpdate.Status = SsgRebuildJobStatus.Cancelled;
-                jobToUpdate.FinishedAt = DateTimeOffset.UtcNow;
-                await dbUpdate.SaveChangesAsync(CancellationToken.None);
-            }
-
+            await SetJobStatusAsync(jobId, SsgRebuildJobStatus.Cancelled);
             _logger.LogInformation("SSG rebuild cancelled for job {JobId}", jobId);
         }
         catch (Exception ex)
         {
-            await using var dbUpdate = await _dbFactory.CreateDbContextAsync(CancellationToken.None);
-            var jobToUpdate = await dbUpdate.SsgRebuildJobs.FirstOrDefaultAsync(j => j.Id == jobId, CancellationToken.None);
-            if (jobToUpdate != null)
-            {
-                jobToUpdate.Status = SsgRebuildJobStatus.Failed;
-                jobToUpdate.Error = ex.Message;
-                jobToUpdate.FinishedAt = DateTimeOffset.UtcNow;
-                await dbUpdate.SaveChangesAsync(CancellationToken.None);
-            }
-
+            await SetJobStatusAsync(jobId, SsgRebuildJobStatus.Failed, ex.Message);
             _logger.LogError(ex, "SSG rebuild failed for job {JobId}", jobId);
         }
     }
 
+    #region Private Methods
+
     private async Task RunPrerenderAsync(SsgRebuildJob job, CancellationToken ct)
     {
-        // Get routes from service
-        await using var db = await _dbFactory.CreateDbContextAsync(ct);
-        var service = new SsgRebuildService(db);
-
-        var bookSlugs = job.BookSlugsJson != null ? JsonSerializer.Deserialize<string[]>(job.BookSlugsJson) : null;
-        var authorSlugs = job.AuthorSlugsJson != null ? JsonSerializer.Deserialize<string[]>(job.AuthorSlugsJson) : null;
-        var genreSlugs = job.GenreSlugsJson != null ? JsonSerializer.Deserialize<string[]>(job.GenreSlugsJson) : null;
-
-        var routes = await service.GetRoutesAsync(job.SiteId, job.Mode, bookSlugs, authorSlugs, genreSlugs, ct);
-
+        var routes = await GetJobRoutesAsync(job, ct);
         if (routes.Count == 0)
         {
-            _logger.LogWarning("No routes to render for job {JobId}", job.Id);
+            _logger.LogWarning("No routes for job {JobId}", job.Id);
             return;
         }
 
-        // Write routes to temp file
         var routesFile = Path.Combine(Path.GetTempPath(), $"ssg-routes-{job.Id}.json");
         var outputFile = Path.Combine(Path.GetTempPath(), $"ssg-results-{job.Id}.json");
 
-        var routesJson = JsonSerializer.Serialize(routes.Select(r => new { r.Route, r.RouteType }));
-        await File.WriteAllTextAsync(routesFile, routesJson, ct);
+        await WriteRoutesFileAsync(routes, routesFile, ct);
 
         try
         {
-            // Build process args
-            var args = $"{ScriptPath} --routes-file {routesFile} --output {outputFile} --concurrency {job.Concurrency}";
-
-            // Get site domain for API_HOST
-            var apiHost = job.Site.PrimaryDomain ?? "general.localhost";
-
-            _logger.LogInformation("Spawning prerender: node {Args}", args);
-
-            var psi = new ProcessStartInfo
-            {
-                FileName = "node",
-                Arguments = args,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                WorkingDirectory = Environment.CurrentDirectory
-            };
-
-            psi.Environment["API_URL"] = Environment.GetEnvironmentVariable("API_URL") ?? "http://localhost:8080";
-            psi.Environment["API_HOST"] = apiHost;
-            psi.Environment["CONCURRENCY"] = job.Concurrency.ToString();
-
-            using var process = new Process { StartInfo = psi };
-
-            var outputLock = new object();
-            var renderedCount = 0;
-            var failedCount = 0;
-
-            process.OutputDataReceived += (sender, e) =>
-            {
-                if (string.IsNullOrEmpty(e.Data)) return;
-
-                // Try to parse progress event
-                if (e.Data.StartsWith("{"))
-                {
-                    try
-                    {
-                        var evt = JsonSerializer.Deserialize<ProgressEvent>(e.Data);
-                        if (evt?.Event == "progress")
-                        {
-                            lock (outputLock)
-                            {
-                                renderedCount = evt.Rendered;
-                                failedCount = evt.Failed;
-                            }
-
-                            // Fire and forget progress update
-                            _ = UpdateJobProgressAsync(job.Id, renderedCount, failedCount);
-                        }
-                        else if (evt?.Event == "result")
-                        {
-                            // Fire and forget result save
-                            _ = SaveResultAsync(job.Id, evt);
-                        }
-                    }
-                    catch
-                    {
-                        // Not a JSON event, just log
-                        _logger.LogDebug("[prerender] {Line}", e.Data);
-                    }
-                }
-                else
-                {
-                    _logger.LogDebug("[prerender] {Line}", e.Data);
-                }
-            };
-
-            process.ErrorDataReceived += (sender, e) =>
-            {
-                if (!string.IsNullOrEmpty(e.Data))
-                    _logger.LogWarning("[prerender stderr] {Line}", e.Data);
-            };
-
-            process.Start();
-            process.BeginOutputReadLine();
-            process.BeginErrorReadLine();
-
-            // Wait for process with cancellation
-            while (!process.HasExited)
-            {
-                if (ct.IsCancellationRequested)
-                {
-                    process.Kill(entireProcessTree: true);
-                    throw new OperationCanceledException();
-                }
-
-                await Task.Delay(100, CancellationToken.None);
-            }
-
-            if (process.ExitCode != 0)
-            {
-                throw new Exception($"Prerender script exited with code {process.ExitCode}");
-            }
-
-            // Parse final results if output file exists
-            if (File.Exists(outputFile))
-            {
-                var resultsJson = await File.ReadAllTextAsync(outputFile, CancellationToken.None);
-                var results = JsonSerializer.Deserialize<List<RenderResult>>(resultsJson);
-
-                if (results != null)
-                {
-                    foreach (var result in results)
-                    {
-                        await SaveRenderResultAsync(job.Id, result);
-                    }
-
-                    // Final progress update
-                    var finalRendered = results.Count(r => r.Success);
-                    var finalFailed = results.Count(r => !r.Success);
-                    await UpdateJobProgressAsync(job.Id, finalRendered, finalFailed);
-                }
-            }
+            await SpawnPrerenderProcessAsync(job, routesFile, outputFile, ct);
+            await ProcessOutputFileAsync(job.Id, outputFile);
         }
         finally
         {
-            // Cleanup temp files
-            if (File.Exists(routesFile)) File.Delete(routesFile);
-            if (File.Exists(outputFile)) File.Delete(outputFile);
+            CleanupTempFiles(routesFile, outputFile);
         }
     }
 
-    private async Task UpdateJobProgressAsync(Guid jobId, int renderedCount, int failedCount)
+    private async Task<List<SsgRoute>> GetJobRoutesAsync(SsgRebuildJob job, CancellationToken ct)
+    {
+        var bookSlugs = DeserializeSlugs(job.BookSlugsJson);
+        var authorSlugs = DeserializeSlugs(job.AuthorSlugsJson);
+        var genreSlugs = DeserializeSlugs(job.GenreSlugsJson);
+
+        return await _routeProvider.GetRoutesAsync(
+            job.SiteId, job.Mode, bookSlugs, authorSlugs, genreSlugs, ct);
+    }
+
+    private static async Task WriteRoutesFileAsync(List<SsgRoute> routes, string path, CancellationToken ct)
+    {
+        var json = JsonSerializer.Serialize(routes.Select(r => new { r.Route, r.RouteType }));
+        await File.WriteAllTextAsync(path, json, ct);
+    }
+
+    private async Task SpawnPrerenderProcessAsync(
+        SsgRebuildJob job, string routesFile, string outputFile, CancellationToken ct)
+    {
+        var args = $"{ScriptPath} --routes-file {routesFile} --output {outputFile} --concurrency {job.Concurrency}";
+        var apiHost = job.Site.PrimaryDomain ?? "general.localhost";
+
+        _logger.LogInformation("Spawning: node {Args}", args);
+
+        var psi = new ProcessStartInfo
+        {
+            FileName = "node",
+            Arguments = args,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WorkingDirectory = Environment.CurrentDirectory
+        };
+
+        psi.Environment["API_URL"] = Environment.GetEnvironmentVariable("API_URL") ?? "http://localhost:8080";
+        psi.Environment["API_HOST"] = apiHost;
+        psi.Environment["CONCURRENCY"] = job.Concurrency.ToString();
+
+        using var process = new Process { StartInfo = psi };
+        SetupProcessHandlers(process, job.Id);
+
+        process.Start();
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+
+        await WaitForProcessAsync(process, ct);
+
+        if (process.ExitCode != 0)
+            throw new Exception($"Prerender exited with code {process.ExitCode}");
+    }
+
+    private void SetupProcessHandlers(Process process, Guid jobId)
+    {
+        process.OutputDataReceived += (_, e) =>
+        {
+            if (string.IsNullOrEmpty(e.Data)) return;
+
+            if (e.Data.StartsWith("{"))
+            {
+                try
+                {
+                    var evt = JsonSerializer.Deserialize<ProgressEvent>(e.Data);
+                    if (evt?.Event == "progress")
+                        _ = UpdateJobProgressAsync(jobId, evt.Rendered, evt.Failed);
+                    else if (evt?.Event == "result")
+                        _ = SaveResultAsync(jobId, evt);
+                }
+                catch
+                {
+                    _logger.LogDebug("[prerender] {Line}", e.Data);
+                }
+            }
+            else
+            {
+                _logger.LogDebug("[prerender] {Line}", e.Data);
+            }
+        };
+
+        process.ErrorDataReceived += (_, e) =>
+        {
+            if (!string.IsNullOrEmpty(e.Data))
+                _logger.LogWarning("[prerender stderr] {Line}", e.Data);
+        };
+    }
+
+    private static async Task WaitForProcessAsync(Process process, CancellationToken ct)
+    {
+        while (!process.HasExited)
+        {
+            if (ct.IsCancellationRequested)
+            {
+                process.Kill(entireProcessTree: true);
+                throw new OperationCanceledException();
+            }
+            await Task.Delay(100, CancellationToken.None);
+        }
+    }
+
+    private async Task ProcessOutputFileAsync(Guid jobId, string outputFile)
+    {
+        if (!File.Exists(outputFile)) return;
+
+        var json = await File.ReadAllTextAsync(outputFile, CancellationToken.None);
+        var results = JsonSerializer.Deserialize<List<RenderResult>>(json);
+
+        if (results == null) return;
+
+        foreach (var result in results)
+            await SaveRenderResultAsync(jobId, result);
+
+        var rendered = results.Count(r => r.Success);
+        var failed = results.Count(r => !r.Success);
+        await UpdateJobProgressAsync(jobId, rendered, failed);
+    }
+
+    private static void CleanupTempFiles(params string[] files)
+    {
+        foreach (var file in files)
+            if (File.Exists(file)) File.Delete(file);
+    }
+
+    private async Task SetJobStatusAsync(Guid jobId, SsgRebuildJobStatus status, string? error = null)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(CancellationToken.None);
+        var job = await db.SsgRebuildJobs.FirstOrDefaultAsync(j => j.Id == jobId, CancellationToken.None);
+        if (job == null) return;
+
+        job.Status = status;
+        job.FinishedAt = DateTimeOffset.UtcNow;
+        if (error != null) job.Error = error;
+
+        await db.SaveChangesAsync(CancellationToken.None);
+    }
+
+    private async Task UpdateJobProgressAsync(Guid jobId, int rendered, int failed)
     {
         try
         {
             await using var db = await _dbFactory.CreateDbContextAsync(CancellationToken.None);
             var job = await db.SsgRebuildJobs.FirstOrDefaultAsync(j => j.Id == jobId, CancellationToken.None);
-            if (job != null)
-            {
-                job.RenderedCount = renderedCount;
-                job.FailedCount = failedCount;
-                await db.SaveChangesAsync(CancellationToken.None);
-            }
+            if (job == null) return;
+
+            job.RenderedCount = rendered;
+            job.FailedCount = failed;
+            await db.SaveChangesAsync(CancellationToken.None);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to update job progress");
+            _logger.LogWarning(ex, "Failed to update progress");
         }
     }
 
@@ -292,7 +284,7 @@ public class SsgRebuildWorkerService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to save result for route {Route}", evt.Route);
+            _logger.LogWarning(ex, "Failed to save result for {Route}", evt.Route);
         }
     }
 
@@ -302,10 +294,8 @@ public class SsgRebuildWorkerService
         {
             await using var db = await _dbFactory.CreateDbContextAsync(CancellationToken.None);
 
-            // Check if already exists
             var exists = await db.SsgRebuildResults.AnyAsync(
-                r => r.JobId == jobId && r.Route == result.Route,
-                CancellationToken.None);
+                r => r.JobId == jobId && r.Route == result.Route, CancellationToken.None);
 
             if (!exists)
             {
@@ -325,9 +315,16 @@ public class SsgRebuildWorkerService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to save render result for route {Route}", result.Route);
+            _logger.LogWarning(ex, "Failed to save render result for {Route}", result.Route);
         }
     }
+
+    private static string[]? DeserializeSlugs(string? json) =>
+        json != null ? JsonSerializer.Deserialize<string[]>(json) : null;
+
+    #endregion
+
+    #region DTOs
 
     private record ProgressEvent
     {
@@ -350,4 +347,6 @@ public class SsgRebuildWorkerService
         public int? RenderTimeMs { get; init; }
         public string? Error { get; init; }
     }
+
+    #endregion
 }

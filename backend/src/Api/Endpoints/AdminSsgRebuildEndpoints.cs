@@ -52,7 +52,7 @@ public static class AdminSsgRebuildEndpoints
         [FromQuery] string? bookSlugs = null,
         [FromQuery] string? authorSlugs = null,
         [FromQuery] string? genreSlugs = null,
-        SsgRebuildService service = null!,
+        ISsgJobService service = null!,
         CancellationToken ct = default)
     {
         var preview = await service.GetPreviewAsync(
@@ -68,7 +68,7 @@ public static class AdminSsgRebuildEndpoints
 
     private static async Task<IResult> CreateJob(
         [FromBody] CreateSsgRebuildJobRequest request,
-        SsgRebuildService service,
+        ISsgJobService service,
         CancellationToken ct)
     {
         try
@@ -87,7 +87,7 @@ public static class AdminSsgRebuildEndpoints
         [FromQuery] string? status,
         [FromQuery] int offset = 0,
         [FromQuery] int limit = 20,
-        SsgRebuildService service = null!,
+        ISsgJobService service = null!,
         CancellationToken ct = default)
     {
         var (total, items) = await service.GetJobsAsync(siteId, status, offset, limit, ct);
@@ -96,7 +96,7 @@ public static class AdminSsgRebuildEndpoints
 
     private static async Task<IResult> GetJob(
         Guid id,
-        SsgRebuildService service,
+        ISsgJobService service,
         CancellationToken ct)
     {
         var job = await service.GetJobAsync(id, ct);
@@ -105,7 +105,7 @@ public static class AdminSsgRebuildEndpoints
 
     private static async Task<IResult> StartJob(
         Guid id,
-        SsgRebuildService service,
+        ISsgJobService service,
         CancellationToken ct)
     {
         var started = await service.StartJobAsync(id, ct);
@@ -114,7 +114,7 @@ public static class AdminSsgRebuildEndpoints
 
     private static async Task<IResult> CancelJob(
         Guid id,
-        SsgRebuildService service,
+        ISsgJobService service,
         CancellationToken ct)
     {
         var cancelled = await service.CancelJobAsync(id, ct);
@@ -123,7 +123,7 @@ public static class AdminSsgRebuildEndpoints
 
     private static async Task<IResult> GetJobStats(
         Guid id,
-        SsgRebuildService service,
+        ISsgJobService service,
         CancellationToken ct)
     {
         var stats = await service.GetJobStatsAsync(id, ct);
@@ -136,7 +136,7 @@ public static class AdminSsgRebuildEndpoints
         [FromQuery] string? routeType,
         [FromQuery] int offset = 0,
         [FromQuery] int limit = 50,
-        SsgRebuildService service = null!,
+        ISsgJobService service = null!,
         CancellationToken ct = default)
     {
         var filter = new SsgRebuildResultsFilter(failed, routeType, offset, limit);

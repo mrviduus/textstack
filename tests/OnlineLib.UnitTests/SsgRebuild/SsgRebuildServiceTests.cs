@@ -10,9 +10,14 @@ using Moq;
 
 namespace OnlineLib.UnitTests.SsgRebuild;
 
+/// <summary>
+/// Tests for SsgRebuildService - job management logic.
+/// Route generation tests are in SsgRouteProviderTests.
+/// </summary>
 public class SsgRebuildServiceTests
 {
     private readonly Mock<IAppDbContext> _mockDb;
+    private readonly Mock<ISsgRouteProvider> _mockRouteProvider;
     private readonly SsgRebuildService _service;
 
     private static readonly Guid TestSiteId = Guid.Parse("11111111-1111-1111-1111-111111111111");
@@ -20,272 +25,155 @@ public class SsgRebuildServiceTests
     public SsgRebuildServiceTests()
     {
         _mockDb = new Mock<IAppDbContext>();
-        _service = new SsgRebuildService(_mockDb.Object);
-    }
-
-    [Fact]
-    public async Task GetRoutesAsync_FullMode_ReturnsStaticAndContentRoutes()
-    {
-        // Arrange
-        var site = new Site
-        {
-            Id = TestSiteId,
-            Code = "general",
-            PrimaryDomain = "general.localhost",
-            DefaultLanguage = "en"
-        };
-
-        var editions = new List<Edition>
-        {
-            new()
-            {
-                Id = Guid.NewGuid(),
-                SiteId = TestSiteId,
-                Slug = "book-1",
-                Title = "Book 1",
-                Language = "en",
-                Status = EditionStatus.Published,
-                Indexable = true
-            }
-        }.AsQueryable();
-
-        var authors = new List<Author>
-        {
-            new()
-            {
-                Id = Guid.NewGuid(),
-                SiteId = TestSiteId,
-                Slug = "author-1",
-                Name = "Author 1",
-                Indexable = true,
-                EditionAuthors = [new EditionAuthor { Edition = editions.First() }]
-            }
-        }.AsQueryable();
-
-        var genres = new List<Genre>
-        {
-            new()
-            {
-                Id = Guid.NewGuid(),
-                SiteId = TestSiteId,
-                Slug = "genre-1",
-                Name = "Genre 1",
-                Indexable = true,
-                Editions = [editions.First()]
-            }
-        }.AsQueryable();
-
-        SetupMockDbSets(site, editions, authors, genres);
-
-        // Act
-        var routes = await _service.GetRoutesAsync(
-            TestSiteId,
-            SsgRebuildMode.Full,
-            null, null, null,
-            CancellationToken.None);
-
-        // Assert
-        Assert.NotEmpty(routes);
-        Assert.Contains(routes, r => r.RouteType == "static");
-        Assert.Contains(routes, r => r.RouteType == "book");
-        Assert.Contains(routes, r => r.RouteType == "author");
-        Assert.Contains(routes, r => r.RouteType == "genre");
-    }
-
-    [Fact]
-    public async Task GetRoutesAsync_SpecificMode_OnlyReturnsSpecifiedBooks()
-    {
-        // Arrange
-        var site = new Site
-        {
-            Id = TestSiteId,
-            Code = "general",
-            PrimaryDomain = "general.localhost",
-            DefaultLanguage = "en"
-        };
-
-        var editions = new List<Edition>
-        {
-            new()
-            {
-                Id = Guid.NewGuid(),
-                SiteId = TestSiteId,
-                Slug = "book-1",
-                Title = "Book 1",
-                Language = "en",
-                Status = EditionStatus.Published,
-                Indexable = true
-            },
-            new()
-            {
-                Id = Guid.NewGuid(),
-                SiteId = TestSiteId,
-                Slug = "book-2",
-                Title = "Book 2",
-                Language = "en",
-                Status = EditionStatus.Published,
-                Indexable = true
-            }
-        }.AsQueryable();
-
-        var authors = new List<Author>().AsQueryable();
-        var genres = new List<Genre>().AsQueryable();
-
-        SetupMockDbSets(site, editions, authors, genres);
-
-        // Act
-        var routes = await _service.GetRoutesAsync(
-            TestSiteId,
-            SsgRebuildMode.Specific,
-            ["book-1"], null, null,
-            CancellationToken.None);
-
-        // Assert
-        var bookRoutes = routes.Where(r => r.RouteType == "book").ToList();
-        Assert.Single(bookRoutes);
-        Assert.Contains(bookRoutes, r => r.Route.Contains("book-1"));
-        Assert.DoesNotContain(bookRoutes, r => r.Route.Contains("book-2"));
+        _mockRouteProvider = new Mock<ISsgRouteProvider>();
+        _service = new SsgRebuildService(_mockDb.Object, _mockRouteProvider.Object);
     }
 
     [Fact]
     public async Task GetPreviewAsync_ReturnsCorrectCounts()
     {
         // Arrange
-        var site = new Site
+        var routes = new List<SsgRoute>
         {
-            Id = TestSiteId,
-            Code = "general",
-            PrimaryDomain = "general.localhost",
-            DefaultLanguage = "en"
+            new("/en", "static"),
+            new("/en/books", "static"),
+            new("/en/authors", "static"),
+            new("/en/genres", "static"),
+            new("/en/books/book-1", "book"),
+            new("/en/books/book-2", "book"),
+            new("/en/authors/author-1", "author"),
+            new("/en/genres/genre-1", "genre")
         };
 
-        var editions = new List<Edition>
-        {
-            new() { Id = Guid.NewGuid(), SiteId = TestSiteId, Slug = "book-1", Title = "Book 1", Language = "en", Status = EditionStatus.Published, Indexable = true },
-            new() { Id = Guid.NewGuid(), SiteId = TestSiteId, Slug = "book-2", Title = "Book 2", Language = "en", Status = EditionStatus.Published, Indexable = true }
-        }.AsQueryable();
-
-        var authors = new List<Author>
-        {
-            new() { Id = Guid.NewGuid(), SiteId = TestSiteId, Slug = "author-1", Name = "Author 1", Indexable = true, EditionAuthors = [new EditionAuthor { Edition = editions.First() }] }
-        }.AsQueryable();
-
-        var genres = new List<Genre>
-        {
-            new() { Id = Guid.NewGuid(), SiteId = TestSiteId, Slug = "genre-1", Name = "Genre 1", Indexable = true, Editions = [editions.First()] }
-        }.AsQueryable();
-
-        SetupMockDbSets(site, editions, authors, genres);
+        _mockRouteProvider
+            .Setup(p => p.GetRoutesAsync(TestSiteId, SsgRebuildMode.Full, null, null, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(routes);
 
         // Act
         var preview = await _service.GetPreviewAsync(TestSiteId, "Full", null, null, null, CancellationToken.None);
 
         // Assert
+        Assert.Equal(8, preview.TotalRoutes);
         Assert.Equal(2, preview.BookCount);
         Assert.Equal(1, preview.AuthorCount);
         Assert.Equal(1, preview.GenreCount);
-        Assert.Equal(4, preview.StaticCount); // /, /books, /authors, /genres
+        Assert.Equal(4, preview.StaticCount);
     }
 
     [Fact]
-    public async Task GetRoutesAsync_ExcludesNonIndexableContent()
+    public async Task CreateJobAsync_CreatesQueuedJob()
     {
         // Arrange
-        var site = new Site
-        {
-            Id = TestSiteId,
-            Code = "general",
-            PrimaryDomain = "general.localhost",
-            DefaultLanguage = "en"
-        };
+        var sites = new List<Site> { new() { Id = TestSiteId, Code = "general", PrimaryDomain = "general.localhost", DefaultLanguage = "en" } }.AsQueryable();
+        var jobs = new List<SsgRebuildJob>().AsQueryable();
 
-        var editions = new List<Edition>
-        {
-            new() { Id = Guid.NewGuid(), SiteId = TestSiteId, Slug = "indexable-book", Title = "Indexable Book", Language = "en", Status = EditionStatus.Published, Indexable = true },
-            new() { Id = Guid.NewGuid(), SiteId = TestSiteId, Slug = "non-indexable-book", Title = "Non-Indexable Book", Language = "en", Status = EditionStatus.Published, Indexable = false }
-        }.AsQueryable();
+        _mockDb.Setup(db => db.Sites).Returns(CreateMockDbSet(sites).Object);
+        _mockDb.Setup(db => db.SsgRebuildJobs).Returns(CreateMockDbSet(jobs).Object);
+        _mockDb.Setup(db => db.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
 
-        var authors = new List<Author>().AsQueryable();
-        var genres = new List<Genre>().AsQueryable();
+        _mockRouteProvider
+            .Setup(p => p.GetRoutesAsync(TestSiteId, SsgRebuildMode.Full, null, null, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync([new SsgRoute("/en", "static"), new SsgRoute("/en/books/book-1", "book")]);
 
-        SetupMockDbSets(site, editions, authors, genres);
+        var request = new CreateSsgRebuildJobRequest(TestSiteId, "Full", 4, null, null, null);
 
         // Act
-        var routes = await _service.GetRoutesAsync(TestSiteId, SsgRebuildMode.Full, null, null, null, CancellationToken.None);
+        var job = await _service.CreateJobAsync(request, CancellationToken.None);
 
         // Assert
-        var bookRoutes = routes.Where(r => r.RouteType == "book").ToList();
-        Assert.Single(bookRoutes);
-        Assert.Contains(bookRoutes, r => r.Route.Contains("indexable-book"));
-        Assert.DoesNotContain(bookRoutes, r => r.Route.Contains("non-indexable-book"));
+        Assert.Equal(SsgRebuildJobStatus.Queued, job.Status);
+        Assert.Equal(2, job.TotalRoutes);
+        Assert.Equal(4, job.Concurrency);
     }
 
     [Fact]
-    public async Task GetRoutesAsync_ExcludesDraftEditions()
-    {
-        // Arrange
-        var site = new Site
-        {
-            Id = TestSiteId,
-            Code = "general",
-            PrimaryDomain = "general.localhost",
-            DefaultLanguage = "en"
-        };
-
-        var editions = new List<Edition>
-        {
-            new() { Id = Guid.NewGuid(), SiteId = TestSiteId, Slug = "published-book", Title = "Published Book", Language = "en", Status = EditionStatus.Published, Indexable = true },
-            new() { Id = Guid.NewGuid(), SiteId = TestSiteId, Slug = "draft-book", Title = "Draft Book", Language = "en", Status = EditionStatus.Draft, Indexable = true }
-        }.AsQueryable();
-
-        var authors = new List<Author>().AsQueryable();
-        var genres = new List<Genre>().AsQueryable();
-
-        SetupMockDbSets(site, editions, authors, genres);
-
-        // Act
-        var routes = await _service.GetRoutesAsync(TestSiteId, SsgRebuildMode.Full, null, null, null, CancellationToken.None);
-
-        // Assert
-        var bookRoutes = routes.Where(r => r.RouteType == "book").ToList();
-        Assert.Single(bookRoutes);
-        Assert.Contains(bookRoutes, r => r.Route.Contains("published-book"));
-        Assert.DoesNotContain(bookRoutes, r => r.Route.Contains("draft-book"));
-    }
-
-    [Fact]
-    public async Task GetRoutesAsync_SiteNotFound_ReturnsEmpty()
+    public async Task CreateJobAsync_SiteNotFound_ThrowsArgumentException()
     {
         // Arrange
         var sites = new List<Site>().AsQueryable();
-        var mockSitesSet = CreateMockDbSet(sites);
-        _mockDb.Setup(db => db.Sites).Returns(mockSitesSet.Object);
+        _mockDb.Setup(db => db.Sites).Returns(CreateMockDbSet(sites).Object);
+
+        var request = new CreateSsgRebuildJobRequest(Guid.NewGuid(), "Full", 4, null, null, null);
+
+        // Act & Assert
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            _service.CreateJobAsync(request, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task StartJobAsync_QueuedJob_ReturnsTrue()
+    {
+        // Arrange
+        var jobId = Guid.NewGuid();
+        var job = new SsgRebuildJob { Id = jobId, Status = SsgRebuildJobStatus.Queued };
+        var jobs = new List<SsgRebuildJob> { job }.AsQueryable();
+
+        _mockDb.Setup(db => db.SsgRebuildJobs).Returns(CreateMockDbSet(jobs).Object);
+        _mockDb.Setup(db => db.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
 
         // Act
-        var routes = await _service.GetRoutesAsync(
-            Guid.NewGuid(), // Non-existent site
-            SsgRebuildMode.Full,
-            null, null, null,
-            CancellationToken.None);
+        var result = await _service.StartJobAsync(jobId, CancellationToken.None);
 
         // Assert
-        Assert.Empty(routes);
+        Assert.True(result);
+        Assert.Equal(SsgRebuildJobStatus.Running, job.Status);
+        Assert.NotNull(job.StartedAt);
     }
 
-    private void SetupMockDbSets(Site site, IQueryable<Edition> editions, IQueryable<Author> authors, IQueryable<Genre> genres)
+    [Fact]
+    public async Task StartJobAsync_RunningJob_ReturnsFalse()
     {
-        var sites = new List<Site> { site }.AsQueryable();
+        // Arrange
+        var jobId = Guid.NewGuid();
+        var job = new SsgRebuildJob { Id = jobId, Status = SsgRebuildJobStatus.Running };
+        var jobs = new List<SsgRebuildJob> { job }.AsQueryable();
 
-        var mockSitesSet = CreateMockDbSet(sites);
-        var mockEditionsSet = CreateMockDbSet(editions);
-        var mockAuthorsSet = CreateMockDbSet(authors);
-        var mockGenresSet = CreateMockDbSet(genres);
+        _mockDb.Setup(db => db.SsgRebuildJobs).Returns(CreateMockDbSet(jobs).Object);
 
-        _mockDb.Setup(db => db.Sites).Returns(mockSitesSet.Object);
-        _mockDb.Setup(db => db.Editions).Returns(mockEditionsSet.Object);
-        _mockDb.Setup(db => db.Authors).Returns(mockAuthorsSet.Object);
-        _mockDb.Setup(db => db.Genres).Returns(mockGenresSet.Object);
+        // Act
+        var result = await _service.StartJobAsync(jobId, CancellationToken.None);
+
+        // Assert
+        Assert.False(result);
     }
+
+    [Fact]
+    public async Task CancelJobAsync_RunningJob_ReturnsTrue()
+    {
+        // Arrange
+        var jobId = Guid.NewGuid();
+        var job = new SsgRebuildJob { Id = jobId, Status = SsgRebuildJobStatus.Running };
+        var jobs = new List<SsgRebuildJob> { job }.AsQueryable();
+
+        _mockDb.Setup(db => db.SsgRebuildJobs).Returns(CreateMockDbSet(jobs).Object);
+        _mockDb.Setup(db => db.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
+
+        // Act
+        var result = await _service.CancelJobAsync(jobId, CancellationToken.None);
+
+        // Assert
+        Assert.True(result);
+        Assert.Equal(SsgRebuildJobStatus.Cancelled, job.Status);
+    }
+
+    [Fact]
+    public async Task CancelJobAsync_CompletedJob_ReturnsFalse()
+    {
+        // Arrange
+        var jobId = Guid.NewGuid();
+        var job = new SsgRebuildJob { Id = jobId, Status = SsgRebuildJobStatus.Completed };
+        var jobs = new List<SsgRebuildJob> { job }.AsQueryable();
+
+        _mockDb.Setup(db => db.SsgRebuildJobs).Returns(CreateMockDbSet(jobs).Object);
+
+        // Act
+        var result = await _service.CancelJobAsync(jobId, CancellationToken.None);
+
+        // Assert
+        Assert.False(result);
+    }
+
+    #region Helpers
 
     private static Mock<DbSet<T>> CreateMockDbSet<T>(IQueryable<T> data) where T : class
     {
@@ -299,6 +187,8 @@ public class SsgRebuildServiceTests
         mockSet.As<IQueryable<T>>().Setup(m => m.GetEnumerator()).Returns(data.GetEnumerator());
         return mockSet;
     }
+
+    #endregion
 }
 
 // Async query helpers for EF Core mocking

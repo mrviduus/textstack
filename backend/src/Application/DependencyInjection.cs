@@ -25,7 +25,12 @@ public static class DependencyInjection
         services.AddScoped<AdminAuthService>();
         services.AddScoped<ReprocessingService>();
         services.AddScoped<SeoCrawlService>();
-        services.AddScoped<SsgRebuildService>();
+
+        // SSG Rebuild - interfaces for SOLID compliance
+        services.AddScoped<ISsgRouteProvider, SsgRouteProvider>();
+        services.AddScoped<ISsgJobService, SsgRebuildService>();
+        services.AddScoped<SsgRebuildService>(); // Keep for backwards compatibility
+
         return services;
     }
 

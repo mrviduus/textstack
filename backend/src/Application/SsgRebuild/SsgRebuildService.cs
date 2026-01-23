@@ -7,80 +7,24 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Application.SsgRebuild;
 
+/// <summary>
+/// Route model for SSG prerendering.
+/// </summary>
 public record SsgRoute(string Route, string RouteType);
 
-public class SsgRebuildService
+/// <summary>
+/// Manages SSG rebuild jobs - creation, status, stats, results.
+/// Uses ISsgRouteProvider for route generation (SRP).
+/// </summary>
+public class SsgRebuildService : ISsgJobService
 {
     private readonly IAppDbContext _db;
+    private readonly ISsgRouteProvider _routeProvider;
 
-    public SsgRebuildService(IAppDbContext db)
+    public SsgRebuildService(IAppDbContext db, ISsgRouteProvider routeProvider)
     {
         _db = db;
-    }
-
-    public async Task<List<SsgRoute>> GetRoutesAsync(
-        Guid siteId,
-        SsgRebuildMode mode,
-        string[]? bookSlugs,
-        string[]? authorSlugs,
-        string[]? genreSlugs,
-        CancellationToken ct)
-    {
-        var site = await _db.Sites.FirstOrDefaultAsync(s => s.Id == siteId, ct);
-        if (site == null)
-            return [];
-
-        var routes = new List<SsgRoute>();
-
-        // Static routes
-        if (mode == SsgRebuildMode.Full || mode == SsgRebuildMode.Incremental)
-        {
-            routes.Add(new SsgRoute($"/{site.DefaultLanguage}", "static"));
-            routes.Add(new SsgRoute($"/{site.DefaultLanguage}/books", "static"));
-            routes.Add(new SsgRoute($"/{site.DefaultLanguage}/authors", "static"));
-            routes.Add(new SsgRoute($"/{site.DefaultLanguage}/genres", "static"));
-        }
-
-        // Books
-        var booksQuery = _db.Editions
-            .Where(e => e.SiteId == siteId && e.Status == EditionStatus.Published && e.Indexable);
-
-        if (mode == SsgRebuildMode.Specific && bookSlugs?.Length > 0)
-            booksQuery = booksQuery.Where(e => bookSlugs.Contains(e.Slug));
-
-        var books = await booksQuery
-            .Select(e => new { e.Slug, e.Language })
-            .ToListAsync(ct);
-
-        routes.AddRange(books.Select(b => new SsgRoute($"/{b.Language}/books/{b.Slug}", "book")));
-
-        // Authors
-        var authorsQuery = _db.Authors
-            .Where(a => a.SiteId == siteId && a.Indexable)
-            .Where(a => a.EditionAuthors.Any(ea =>
-                ea.Edition.Status == EditionStatus.Published &&
-                ea.Edition.Indexable));
-
-        if (mode == SsgRebuildMode.Specific && authorSlugs?.Length > 0)
-            authorsQuery = authorsQuery.Where(a => authorSlugs.Contains(a.Slug));
-
-        var authors = await authorsQuery.Select(a => a.Slug).ToListAsync(ct);
-        routes.AddRange(authors.Select(a => new SsgRoute($"/{site.DefaultLanguage}/authors/{a}", "author")));
-
-        // Genres
-        var genresQuery = _db.Genres
-            .Where(g => g.SiteId == siteId && g.Indexable)
-            .Where(g => g.Editions.Any(e =>
-                e.Status == EditionStatus.Published &&
-                e.Indexable));
-
-        if (mode == SsgRebuildMode.Specific && genreSlugs?.Length > 0)
-            genresQuery = genresQuery.Where(g => genreSlugs.Contains(g.Slug));
-
-        var genres = await genresQuery.Select(g => g.Slug).ToListAsync(ct);
-        routes.AddRange(genres.Select(g => new SsgRoute($"/{site.DefaultLanguage}/genres/{g}", "genre")));
-
-        return routes;
+        _routeProvider = routeProvider;
     }
 
     public async Task<SsgRebuildPreviewDto> GetPreviewAsync(
@@ -91,8 +35,8 @@ public class SsgRebuildService
         string[]? genreSlugs,
         CancellationToken ct)
     {
-        var mode = Enum.TryParse<SsgRebuildMode>(modeStr, true, out var m) ? m : SsgRebuildMode.Full;
-        var routes = await GetRoutesAsync(siteId, mode, bookSlugs, authorSlugs, genreSlugs, ct);
+        var mode = ParseMode(modeStr);
+        var routes = await _routeProvider.GetRoutesAsync(siteId, mode, bookSlugs, authorSlugs, genreSlugs, ct);
 
         return new SsgRebuildPreviewDto(
             TotalRoutes: routes.Count,
@@ -109,15 +53,9 @@ public class SsgRebuildService
         if (!siteExists)
             throw new ArgumentException($"Site with ID {request.SiteId} not found");
 
-        var mode = Enum.TryParse<SsgRebuildMode>(request.Mode, true, out var m) ? m : SsgRebuildMode.Full;
-
-        var routes = await GetRoutesAsync(
-            request.SiteId,
-            mode,
-            request.BookSlugs,
-            request.AuthorSlugs,
-            request.GenreSlugs,
-            ct);
+        var mode = ParseMode(request.Mode);
+        var routes = await _routeProvider.GetRoutesAsync(
+            request.SiteId, mode, request.BookSlugs, request.AuthorSlugs, request.GenreSlugs, ct);
 
         var job = new SsgRebuildJob
         {
@@ -126,9 +64,9 @@ public class SsgRebuildService
             Mode = mode,
             Concurrency = request.Concurrency ?? 4,
             TimeoutMs = 30000,
-            BookSlugsJson = request.BookSlugs?.Length > 0 ? JsonSerializer.Serialize(request.BookSlugs) : null,
-            AuthorSlugsJson = request.AuthorSlugs?.Length > 0 ? JsonSerializer.Serialize(request.AuthorSlugs) : null,
-            GenreSlugsJson = request.GenreSlugs?.Length > 0 ? JsonSerializer.Serialize(request.GenreSlugs) : null,
+            BookSlugsJson = SerializeSlugs(request.BookSlugs),
+            AuthorSlugsJson = SerializeSlugs(request.AuthorSlugs),
+            GenreSlugsJson = SerializeSlugs(request.GenreSlugs),
             Status = SsgRebuildJobStatus.Queued,
             TotalRoutes = routes.Count,
             CreatedAt = DateTimeOffset.UtcNow
@@ -286,9 +224,16 @@ public class SsgRebuildService
         return (total, items);
     }
 
-    private static SsgRebuildJobDetailDto MapToDetail(SsgRebuildJob job)
-    {
-        return new SsgRebuildJobDetailDto(
+    #region Private Helpers
+
+    private static SsgRebuildMode ParseMode(string? mode) =>
+        Enum.TryParse<SsgRebuildMode>(mode, true, out var m) ? m : SsgRebuildMode.Full;
+
+    private static string? SerializeSlugs(string[]? slugs) =>
+        slugs?.Length > 0 ? JsonSerializer.Serialize(slugs) : null;
+
+    private static SsgRebuildJobDetailDto MapToDetail(SsgRebuildJob job) =>
+        new(
             job.Id,
             job.SiteId,
             job.Site.Code,
@@ -300,12 +245,16 @@ public class SsgRebuildService
             job.Concurrency,
             job.TimeoutMs,
             job.Error,
-            job.BookSlugsJson != null ? JsonSerializer.Deserialize<string[]>(job.BookSlugsJson) : null,
-            job.AuthorSlugsJson != null ? JsonSerializer.Deserialize<string[]>(job.AuthorSlugsJson) : null,
-            job.GenreSlugsJson != null ? JsonSerializer.Deserialize<string[]>(job.GenreSlugsJson) : null,
+            DeserializeSlugs(job.BookSlugsJson),
+            DeserializeSlugs(job.AuthorSlugsJson),
+            DeserializeSlugs(job.GenreSlugsJson),
             job.CreatedAt,
             job.StartedAt,
             job.FinishedAt
         );
-    }
+
+    private static string[]? DeserializeSlugs(string? json) =>
+        json != null ? JsonSerializer.Deserialize<string[]>(json) : null;
+
+    #endregion
 }
