@@ -504,7 +504,7 @@ public class AdminService(IAppDbContext db, IFileStorageService storage, ISearch
                 e.PublishedAt,
                 e.Chapters
                     .OrderBy(c => c.ChapterNumber)
-                    .Select(c => new AdminChapterDto(c.Id, c.ChapterNumber, c.Slug, c.Title, c.WordCount))
+                    .Select(c => new AdminChapterDto(c.Id, c.ChapterNumber, c.Slug ?? "", c.Title, c.WordCount))
                     .ToList(),
                 e.EditionAuthors
                     .OrderBy(ea => ea.Order)

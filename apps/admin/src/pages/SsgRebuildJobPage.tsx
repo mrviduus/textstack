@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { adminApi, SsgRebuildJobDetail, SsgRebuildJobStats, SsgRebuildResult } from '../api/client'
+import { getJobStatusClass, getModeClass, getRouteTypeBadge, formatDate } from '../utils/badges'
 
 export function SsgRebuildJobPage() {
   const { id } = useParams<{ id: string }>()
@@ -80,41 +81,6 @@ export function SsgRebuildJobPage() {
     }
   }
 
-  const getStatusClass = (status: string) => {
-    const classes: Record<string, string> = {
-      Queued: 'badge badge--queued',
-      Running: 'badge badge--processing',
-      Completed: 'badge badge--success',
-      Failed: 'badge badge--error',
-      Cancelled: 'badge badge--cancelled',
-    }
-    return classes[status] || 'badge'
-  }
-
-  const getModeClass = (mode: string) => {
-    const classes: Record<string, string> = {
-      Full: 'badge badge--info',
-      Incremental: 'badge badge--warning',
-      Specific: 'badge badge--secondary',
-    }
-    return classes[mode] || 'badge'
-  }
-
-  const getRouteTypeBadge = (type: string) => {
-    const classes: Record<string, string> = {
-      book: 'badge badge--book',
-      author: 'badge badge--author',
-      genre: 'badge badge--genre',
-      static: 'badge badge--secondary',
-    }
-    return <span className={classes[type] || 'badge'}>{type}</span>
-  }
-
-  const formatDate = (date: string | null) => {
-    if (!date) return '-'
-    return new Date(date).toLocaleString()
-  }
-
   const getProgressPercent = () => {
     if (!job || job.totalRoutes === 0) return 0
     return Math.round(((job.renderedCount + job.failedCount) / job.totalRoutes) * 100)
@@ -164,7 +130,7 @@ export function SsgRebuildJobPage() {
           <dl>
             <dt>Site</dt><dd>{job.siteCode}</dd>
             <dt>Mode</dt><dd><span className={getModeClass(job.mode)}>{job.mode}</span></dd>
-            <dt>Status</dt><dd><span className={getStatusClass(job.status)}>{job.status}</span></dd>
+            <dt>Status</dt><dd><span className={getJobStatusClass(job.status)}>{job.status}</span></dd>
             <dt>Progress</dt>
             <dd>
               <div className="progress-cell">
