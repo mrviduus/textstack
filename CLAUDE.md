@@ -181,6 +181,14 @@ Upload EPUB/PDF/FB2 → BookFile (stored) → IngestionJob (queued)
 - Routes: `/en/`, `/en/books`, `/en/books/:slug`, `/en/authors/:slug`, `/en/genres/:slug`
 - SPA-only: `/en/read/*`, `/en/library`, `/en/search`
 - Build: `pnpm -C apps/web build:ssg` or `make rebuild-ssg`
+- **NOTE**: SSG runs on HOST (not in Worker container). Use `make rebuild-ssg` after content changes.
+
+**When to rebuild SSG** (run `make rebuild-ssg`):
+- After adding/publishing new books
+- After updating book metadata (title, description, cover)
+- After adding/updating authors or genres
+- After changing SEO fields (meta_title, meta_description)
+- NOT needed for: reading progress, bookmarks, user data
 
 ## API Endpoints
 
@@ -276,3 +284,4 @@ Search is a **key feature** - must always work. React immediately to any search 
 - Notes feature partially implemented (entity exists, API not fully wired) - see TODO in `Domain/Entities/Note.cs`
 - No Service Worker for true offline PWA
 - No background sync for offline operations
+- SSG Worker in container cannot run (no Node.js) - use `make rebuild-ssg` on host instead
