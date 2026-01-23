@@ -4,7 +4,7 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 5174,
+    port: 81,
     host: true,
     allowedHosts: ['textstack.dev', 'localhost', 'admin.localhost'],
     proxy: {

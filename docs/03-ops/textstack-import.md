@@ -67,7 +67,7 @@ curl -X POST "http://localhost:8080/admin/import/textstack" \
 curl -s "http://localhost:8080/admin/import/textstack" ... | jq '.imported, .skipped, .total'
 
 # View drafts in admin
-open http://localhost:5174/editions?status=draft
+open http://localhost:81/editions?status=draft
 ```
 
 ### Step 4: Clean Up and Next Batch

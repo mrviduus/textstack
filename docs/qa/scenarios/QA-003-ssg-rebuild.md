@@ -12,7 +12,7 @@
 - [x] Docker services running (`docker compose up -d`)
 - [x] Admin account exists (admin@textstack.app / admin123)
 - [x] At least 1 published book in database
-- [x] Browser open at http://localhost:5174
+- [x] Browser open at http://localhost:81
 
 ---
 
@@ -20,7 +20,7 @@
 
 ### 1. Admin Login
 
-1. Open admin panel: http://localhost:5174
+1. Open admin panel: http://localhost:81
 2. Login with `admin@textstack.app` / `admin123`
 
 **Verify**:

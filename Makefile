@@ -34,7 +34,11 @@ deploy:
 	@sleep 10
 	@curl -sf http://localhost:8080/health && echo " API OK" || echo " API FAILED"
 	cd apps/web && API_URL=http://localhost:8080 API_HOST=textstack.app CONCURRENCY=4 node scripts/prerender.mjs
-	sudo systemctl reload nginx
+	@echo "Updating nginx config..."
+	@PROJECT_DIR=$$(pwd) && \
+	sed "s|/home/vasyl/projects/onlinelib/onlinelib|$$PROJECT_DIR|g" \
+		infra/nginx/textstack.conf | sudo tee /etc/nginx/sites-available/textstack > /dev/null
+	sudo nginx -t && sudo systemctl reload nginx
 	@echo "=== Done ==="
 
 rebuild-ssg:

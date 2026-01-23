@@ -50,9 +50,9 @@ builder.Services.AddCors(options =>
                 "http://general.localhost",
                 "http://general.localhost:5173",
                 // Dev: admin panel
-                "http://localhost:5174",
+                "http://localhost:81",
                 "http://admin.localhost",
-                "http://admin.localhost:5174",
+                "http://admin.localhost:81",
                 // Prod: public site
                 "https://textstack.app",
                 // Prod: admin panel

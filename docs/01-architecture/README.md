@@ -15,7 +15,7 @@ Modular monolith: single API + Worker, layered architecture, PostgreSQL.
 ┌───────────────┐   ┌───────────────┐   ┌───────────────┐
 │     Web       │   │     API       │   │    Admin      │
 │  (React/Vite) │   │ (ASP.NET Core)│   │  (React/Vite) │
-│  port 5173    │   │  port 8080    │   │  port 5174    │
+│  port 5173    │   │  port 8080    │   │  port 81    │
 └───────────────┘   └───────────────┘   └───────────────┘
                             │
                     ┌───────┴───────┐

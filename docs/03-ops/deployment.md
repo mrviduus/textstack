@@ -21,7 +21,7 @@ Docker containers (localhost only)
     ├── API           (127.0.0.1:8080)
     ├── Worker        (background jobs)
     ├── SSG Worker    (pre-renders SEO pages)
-    ├── Admin         (127.0.0.1:5174)
+    ├── Admin         (127.0.0.1:81)
     ├── PostgreSQL    (internal only)
     └── Aspire Dashboard (127.0.0.1:18888)
 ```

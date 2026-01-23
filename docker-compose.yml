@@ -112,7 +112,7 @@ services:
     environment:
       VITE_API_URL: /api
     ports:
-      - "127.0.0.1:5174:5174"  # Only localhost - not exposed to internet
+      - "127.0.0.1:81:81"  # Only localhost - not exposed to internet
     restart: always
     depends_on:
       - api

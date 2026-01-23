@@ -30,14 +30,14 @@ Google sees empty page → poor indexing.
 ```
 nginx ─┬─> web (5173)     # Vite dev server / static build
        ├─> api (8080)     # ASP.NET Core
-       └─> admin (5174)   # React Admin
+       └─> admin (81)   # React Admin
 ```
 
 ### Target (SSG)
 ```
 nginx ─┬─> /out/          # Pre-built static HTML (no container)
        ├─> api (8080)     # ASP.NET Core
-       └─> admin (5174)   # React Admin
+       └─> admin (81)   # React Admin
 
 Build (ephemeral):
   next-build → generates /out/ → exits

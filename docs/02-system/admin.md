@@ -4,7 +4,7 @@ Private tool for content management. Separate from public web app.
 
 ## Access
 
-- URL: http://localhost:5174 (dev)
+- URL: http://localhost:81 (dev)
 - Not linked from public UI
 - Not in sitemap
 - Protected by:

@@ -16,7 +16,7 @@ docker compose up --build
 |---------|-----|
 | API | http://localhost:8080 |
 | Web | http://localhost:5173 |
-| Admin | http://localhost:5174 |
+| Admin | http://localhost:81 |
 
 ## Branch Naming
 
