@@ -1,5 +1,6 @@
 using System.Text;
 using Application.Common.Interfaces;
+using Application.SsgRebuild;
 using Infrastructure.Persistence;
 using Infrastructure.Services;
 using Infrastructure.Telemetry;
@@ -30,6 +31,13 @@ builder.Services.AddDbContextFactory<AppDbContext>(options =>
     options.UseNpgsql(connectionString)
         .UseSnakeCaseNamingConvention()
         .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
+
+// IAppDbContext for scoped services (resolved via IServiceScopeFactory)
+builder.Services.AddDbContext<AppDbContext>(options =>
+    options.UseNpgsql(connectionString)
+        .UseSnakeCaseNamingConvention()
+        .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
+builder.Services.AddScoped<IAppDbContext>(sp => sp.GetRequiredService<AppDbContext>());
 
 // File storage
 var storagePath = builder.Configuration["Storage:RootPath"] ?? "/storage";
@@ -77,6 +85,7 @@ builder.Services.AddSingleton<SeoCrawlWorkerService>();
 builder.Services.AddHostedService<SeoCrawlWorker>();
 
 // SSG Rebuild
+builder.Services.AddScoped<ISsgRouteProvider, SsgRouteProvider>();
 builder.Services.AddSingleton<SsgRebuildWorkerService>();
 builder.Services.AddHostedService<SsgRebuildWorker>();
 
