@@ -47,7 +47,7 @@ jobs:
         run: |
           cd $PROJECT_DIR/apps/web
           pnpm install
-          VITE_API_URL=/api pnpm build
+          VITE_API_URL=/api VITE_CANONICAL_URL=https://textstack.app pnpm build
 
       - name: Deploy containers
         run: |
@@ -57,11 +57,27 @@ jobs:
       - name: Wait for services
         run: sleep 30
 
-      - name: Health check
+      - name: Health check API
         run: |
           curl -sf http://localhost:8080/health || exit 1
+          echo "API health check passed"
+
+      - name: Run SSG prerender
+        run: |
+          cd $PROJECT_DIR/apps/web
+          API_URL=http://localhost:8080 API_HOST=textstack.app CONCURRENCY=4 node scripts/prerender.mjs
+
+      - name: Update nginx config
+        run: |
+          cd $PROJECT_DIR
+          sed "s|/home/vasyl/projects/onlinelib/onlinelib|$PROJECT_DIR|g" \
+            infra/nginx/textstack.conf | sudo tee /etc/nginx/sites-available/textstack > /dev/null
+          sudo nginx -t && sudo systemctl reload nginx
+
+      - name: Health check frontend
+        run: |
           curl -sf http://localhost:80 || exit 1
-          echo "Health checks passed"
+          echo "Frontend health check passed"
 
       - name: Cleanup old images
         run: docker image prune -f
