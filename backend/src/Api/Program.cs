@@ -178,6 +178,7 @@ app.MapAdminEndpoints();
 app.MapAdminAuthorsEndpoints();
 app.MapAdminGenresEndpoints();
 app.MapAdminSeoCrawlEndpoints();
+app.MapAdminSsgRebuildEndpoints();
 app.MapBooksEndpoints();
 app.MapSearchEndpoints();
 app.MapAuthorsEndpoints();

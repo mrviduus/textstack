@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 using Application.Common.Interfaces;
+using Application.SsgRebuild;
 using Contracts.Admin;
 using Contracts.Common;
 using Domain.Entities;
@@ -81,7 +82,7 @@ public record IngestionJobsQuery(
 
 public record ChapterPreviewDto(int ChapterNumber, string Title, string Preview, int TotalLength);
 
-public class AdminService(IAppDbContext db, IFileStorageService storage, ISearchIndexer searchIndexer)
+public class AdminService(IAppDbContext db, IFileStorageService storage, ISearchIndexer searchIndexer, SsgRebuildService ssgRebuildService)
 {
     private static readonly string[] AllowedExtensions = [".epub", ".pdf", ".fb2"];
     private const long MaxFileSize = 100 * 1024 * 1024;
@@ -656,6 +657,27 @@ public class AdminService(IAppDbContext db, IFileStorageService storage, ISearch
 
         // Index chapters for search
         await IndexChaptersAsync(edition, ct);
+
+        // Trigger SSG rebuild for this book (fire and forget)
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var job = await ssgRebuildService.CreateJobAsync(new CreateSsgRebuildJobRequest(
+                    SiteId: edition.SiteId,
+                    Mode: "Specific",
+                    Concurrency: 2,
+                    BookSlugs: [edition.Slug]
+                ), CancellationToken.None);
+
+                // Auto-start the job
+                await ssgRebuildService.StartJobAsync(job.Id, CancellationToken.None);
+            }
+            catch
+            {
+                // SSG rebuild failure shouldn't block publish
+            }
+        });
 
         return (true, null);
     }

@@ -6,6 +6,7 @@ using Application.Books;
 using Application.Reprocessing;
 using Application.Seo;
 using Application.SeoCrawl;
+using Application.SsgRebuild;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -24,6 +25,7 @@ public static class DependencyInjection
         services.AddScoped<AdminAuthService>();
         services.AddScoped<ReprocessingService>();
         services.AddScoped<SeoCrawlService>();
+        services.AddScoped<SsgRebuildService>();
         return services;
     }
 

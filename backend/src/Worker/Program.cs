@@ -76,6 +76,10 @@ builder.Services.AddHttpClient("SeoCrawl");
 builder.Services.AddSingleton<SeoCrawlWorkerService>();
 builder.Services.AddHostedService<SeoCrawlWorker>();
 
+// SSG Rebuild
+builder.Services.AddSingleton<SsgRebuildWorkerService>();
+builder.Services.AddHostedService<SsgRebuildWorker>();
+
 // TextStack watcher (optional, enable via config)
 if (builder.Configuration.GetValue("TextStack:EnableWatcher", false))
 {

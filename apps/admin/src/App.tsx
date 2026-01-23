@@ -18,6 +18,8 @@ import { EditChapterPage } from './pages/EditChapterPage'
 import { ToolsPage } from './pages/ToolsPage'
 import { SeoCrawlPage } from './pages/SeoCrawlPage'
 import { SeoCrawlJobPage } from './pages/SeoCrawlJobPage'
+import { SsgRebuildPage } from './pages/SsgRebuildPage'
+import { SsgRebuildJobPage } from './pages/SsgRebuildJobPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import './styles/admin.css'
 
@@ -50,6 +52,8 @@ function App() {
             <Route path="tools" element={<ToolsPage />} />
             <Route path="seo-crawl" element={<SeoCrawlPage />} />
             <Route path="seo-crawl/:id" element={<SeoCrawlJobPage />} />
+            <Route path="ssg-rebuild" element={<SsgRebuildPage />} />
+            <Route path="ssg-rebuild/:id" element={<SsgRebuildJobPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Route>
         </Routes>

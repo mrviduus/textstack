@@ -4,6 +4,12 @@
  *
  * Renders SEO pages to static HTML at build time.
  * Uses Puppeteer to render React app and extract final HTML.
+ *
+ * Usage:
+ *   node prerender.mjs                           # Fetch routes from API
+ *   node prerender.mjs --routes-file routes.json # Read routes from file
+ *   node prerender.mjs --output results.json     # Write results to file
+ *   node prerender.mjs --concurrency 8           # Override concurrency
  */
 
 import puppeteer from 'puppeteer';
@@ -17,10 +23,34 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = join(__dirname, '..', 'dist');
 const SSG_DIR = join(DIST_DIR, 'ssg');
 
+// Parse CLI args
+function parseArgs() {
+  const args = process.argv.slice(2);
+  const opts = {
+    routesFile: null,
+    outputFile: null,
+    concurrency: parseInt(process.env.CONCURRENCY || '4', 10),
+  };
+
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--routes-file' && args[i + 1]) {
+      opts.routesFile = args[++i];
+    } else if (args[i] === '--output' && args[i + 1]) {
+      opts.outputFile = args[++i];
+    } else if (args[i] === '--concurrency' && args[i + 1]) {
+      opts.concurrency = parseInt(args[++i], 10);
+    }
+  }
+
+  return opts;
+}
+
+const CLI_OPTS = parseArgs();
+
 // Configuration
 const API_URL = process.env.API_URL || 'http://localhost:8080';
 const API_HOST = process.env.API_HOST || 'general.localhost';
-const CONCURRENCY = parseInt(process.env.CONCURRENCY || '4', 10);
+const CONCURRENCY = CLI_OPTS.concurrency;
 const PORT = 3456;
 
 // Parse API URL
@@ -38,6 +68,13 @@ const MIME_TYPES = {
   '.woff': 'font/woff',
   '.woff2': 'font/woff2',
 };
+
+/**
+ * Emit a JSON event to stdout for Worker to parse
+ */
+function emitEvent(event) {
+  console.log(JSON.stringify(event));
+}
 
 /**
  * Proxy request to API
@@ -118,7 +155,7 @@ function startServer() {
 /**
  * Fetch routes from SSG API endpoint using http module (to set Host header)
  */
-function fetchRoutes() {
+function fetchRoutesFromApi() {
   return new Promise((resolve, reject) => {
     console.log(`Fetching routes from ${API_URL}/ssg/routes...`);
 
@@ -144,7 +181,8 @@ function fetchRoutes() {
         try {
           const json = JSON.parse(data);
           console.log(`Found ${json.count} routes to prerender`);
-          resolve(json.routes);
+          // Convert to array of route objects
+          resolve(json.routes.map(route => ({ route, routeType: 'unknown' })));
         } catch (err) {
           reject(new Error(`Failed to parse routes: ${err.message}`));
         }
@@ -157,10 +195,35 @@ function fetchRoutes() {
 }
 
 /**
+ * Load routes from JSON file
+ */
+function loadRoutesFromFile(filePath) {
+  console.log(`Loading routes from ${filePath}...`);
+  const content = readFileSync(filePath, 'utf-8');
+  const routes = JSON.parse(content);
+  console.log(`Found ${routes.length} routes to prerender`);
+  return routes;
+}
+
+/**
+ * Get routes from file or API
+ */
+async function getRoutes() {
+  if (CLI_OPTS.routesFile) {
+    return loadRoutesFromFile(CLI_OPTS.routesFile);
+  }
+  return fetchRoutesFromApi();
+}
+
+/**
  * Render a single route using Puppeteer
  */
-async function renderRoute(browser, route) {
+async function renderRoute(browser, routeObj) {
+  const route = typeof routeObj === 'string' ? routeObj : routeObj.route || routeObj.Route;
+  const routeType = typeof routeObj === 'string' ? 'unknown' : (routeObj.routeType || routeObj.RouteType || 'unknown');
+
   const page = await browser.newPage();
+  const startTime = Date.now();
 
   try {
     // Set viewport for consistent rendering
@@ -195,9 +258,11 @@ async function renderRoute(browser, route) {
     mkdirSync(outputDir, { recursive: true });
     writeFileSync(outputPath, html);
 
-    return { route, success: true };
+    const renderTimeMs = Date.now() - startTime;
+    return { route, routeType, success: true, renderTimeMs };
   } catch (error) {
-    return { route, success: false, error: error.message };
+    const renderTimeMs = Date.now() - startTime;
+    return { route, routeType, success: false, error: error.message, renderTimeMs };
   } finally {
     await page.close();
   }
@@ -207,30 +272,51 @@ async function renderRoute(browser, route) {
  * Process routes in batches with concurrency control
  */
 async function processRoutes(browser, routes) {
-  const results = { success: 0, failed: 0, errors: [] };
+  const results = [];
+  let rendered = 0;
+  let failed = 0;
+  const total = routes.length;
 
   // Process in batches
   for (let i = 0; i < routes.length; i += CONCURRENCY) {
     const batch = routes.slice(i, i + CONCURRENCY);
     const batchResults = await Promise.all(
-      batch.map(route => renderRoute(browser, route))
+      batch.map(routeObj => renderRoute(browser, routeObj))
     );
 
     for (const result of batchResults) {
+      results.push(result);
+
       if (result.success) {
-        results.success++;
+        rendered++;
       } else {
-        results.failed++;
-        results.errors.push({ route: result.route, error: result.error });
+        failed++;
       }
+
+      // Emit result event for each route
+      emitEvent({
+        event: 'result',
+        route: result.route,
+        routeType: result.routeType,
+        success: result.success,
+        renderTimeMs: result.renderTimeMs,
+        error: result.error || null,
+      });
     }
 
-    // Progress update
-    const progress = Math.min(i + CONCURRENCY, routes.length);
-    process.stdout.write(`\rPrerendered ${progress}/${routes.length} routes...`);
+    // Emit progress event after each batch
+    emitEvent({
+      event: 'progress',
+      rendered,
+      failed,
+      total,
+    });
+
+    // Also print progress for human-readable output
+    process.stderr.write(`\rPrerendered ${rendered + failed}/${total} routes...`);
   }
 
-  console.log(); // New line after progress
+  process.stderr.write('\n'); // New line after progress
   return results;
 }
 
@@ -246,8 +332,8 @@ async function main() {
     process.exit(1);
   }
 
-  // Fetch routes
-  const routes = await fetchRoutes();
+  // Get routes
+  const routes = await getRoutes();
 
   // Create SSG output directory
   mkdirSync(SSG_DIR, { recursive: true });
@@ -267,18 +353,27 @@ async function main() {
     console.log(`\nStarting prerender with concurrency=${CONCURRENCY}...\n`);
     const results = await processRoutes(browser, routes);
 
-    // Summary
-    console.log('\n=== Prerender Complete ===');
-    console.log(`Success: ${results.success}`);
-    console.log(`Failed: ${results.failed}`);
+    // Write results to output file if specified
+    if (CLI_OPTS.outputFile) {
+      writeFileSync(CLI_OPTS.outputFile, JSON.stringify(results, null, 2));
+      console.log(`Results written to ${CLI_OPTS.outputFile}`);
+    }
 
-    if (results.errors.length > 0) {
+    // Summary
+    const successCount = results.filter(r => r.success).length;
+    const failedCount = results.filter(r => !r.success).length;
+
+    console.log('\n=== Prerender Complete ===');
+    console.log(`Success: ${successCount}`);
+    console.log(`Failed: ${failedCount}`);
+
+    if (failedCount > 0) {
       console.log('\nFailed routes:');
-      for (const err of results.errors.slice(0, 10)) {
+      for (const err of results.filter(r => !r.success).slice(0, 10)) {
         console.log(`  ${err.route}: ${err.error}`);
       }
-      if (results.errors.length > 10) {
-        console.log(`  ... and ${results.errors.length - 10} more`);
+      if (failedCount > 10) {
+        console.log(`  ... and ${failedCount - 10} more`);
       }
     }
 
