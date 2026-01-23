@@ -4,7 +4,7 @@
 Accepted
 
 ## Context
-OnlineLib is a content-first, SEO-driven online library platform.
+TextStack is a content-first, SEO-driven online library platform.
 At launch, the project must choose how to structure content and user entry points.
 
 Key observations:

@@ -1,4 +1,4 @@
-# TextStack (OnlineLib)
+# TextStack
 
 <p align="center">
   <img src="docs/assets/hero.png" alt="TextStack - A calm place to read books online" width="800">

@@ -30,7 +30,7 @@ CREATE INDEX idx_editions_authors_trgm ON editions USING GIST(lower(authors_json
 **Goal**: Partial word matches in FTS ("дум" → "думи", "думив")
 
 **Files**:
-- `backend/src/Search/OnlineLib.Search/Providers/PostgresFts/TsQueryBuilder.cs`
+- `backend/src/Search/TextStack.Search/Providers/PostgresFts/TsQueryBuilder.cs`
 
 **Change**: Add `:*` suffix to tsquery tokens
 - Input: "думи мої"
@@ -45,7 +45,7 @@ CREATE INDEX idx_editions_authors_trgm ON editions USING GIST(lower(authors_json
 **Goal**: Find books with typos in title
 
 **Files**:
-- `backend/src/Search/OnlineLib.Search/Providers/PostgresFts/PostgresSearchProvider.cs`
+- `backend/src/Search/TextStack.Search/Providers/PostgresFts/PostgresSearchProvider.cs`
 
 **Change**: Add UNION clause for fuzzy title:
 ```sql
@@ -64,7 +64,7 @@ WHERE similarity(lower(e.title), @Query) > 0.3
 **Goal**: Find books with typos in author name
 
 **Files**:
-- `backend/src/Search/OnlineLib.Search/Providers/PostgresFts/PostgresSearchProvider.cs`
+- `backend/src/Search/TextStack.Search/Providers/PostgresFts/PostgresSearchProvider.cs`
 
 **Change**: Add UNION clause for fuzzy author:
 ```sql
@@ -83,7 +83,7 @@ WHERE similarity(lower(e.authors_json), @Query) > 0.3
 **Goal**: Typo tolerance in autocomplete dropdown
 
 **Files**:
-- `backend/src/Search/OnlineLib.Search/Providers/PostgresFts/PostgresSearchProvider.cs`
+- `backend/src/Search/TextStack.Search/Providers/PostgresFts/PostgresSearchProvider.cs`
 
 **Change**: Replace LIKE with similarity() in SuggestAsync:
 ```sql
@@ -100,8 +100,8 @@ WHERE similarity(lower(e.title), @Query) > 0.3
 **Goal**: Make fuzzy threshold configurable
 
 **Files**:
-- `backend/src/Search/OnlineLib.Search/SearchOptions.cs` (new or extend)
-- `backend/src/Search/OnlineLib.Search/Providers/PostgresFts/PostgresSearchProvider.cs`
+- `backend/src/Search/TextStack.Search/SearchOptions.cs` (new or extend)
+- `backend/src/Search/TextStack.Search/Providers/PostgresFts/PostgresSearchProvider.cs`
 
 **Change**: Add `FuzzyThreshold` property, inject via DI
 

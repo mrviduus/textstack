@@ -159,16 +159,16 @@ jobs:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
       - name: Restore dependencies
-        run: dotnet restore backend/OnlineLib.sln
+        run: dotnet restore backend/TextStack.sln
 
       - name: Build
-        run: dotnet build backend/OnlineLib.sln --no-restore -c Release
+        run: dotnet build backend/TextStack.sln --no-restore -c Release
 
       - name: Run unit tests
-        run: dotnet test backend/tests/OnlineLib.UnitTests --no-build -c Release
+        run: dotnet test backend/tests/TextStack.UnitTests --no-build -c Release
 
       - name: Run integration tests
-        run: dotnet test backend/tests/OnlineLib.IntegrationTests --no-build -c Release
+        run: dotnet test backend/tests/TextStack.IntegrationTests --no-build -c Release
         env:
           ConnectionStrings__Default: "Host=localhost;Database=test;Username=test;Password=test"
 
@@ -233,7 +233,7 @@ on:
         required: false
 
 env:
-  PROJECT_DIR: /home/vasyl/projects/onlinelib/onlinelib
+  PROJECT_DIR: /home/vasyl/projects/onlinelib/textstack
 
 jobs:
   deploy:
@@ -311,7 +311,7 @@ on:
   workflow_dispatch:
 
 env:
-  PROJECT_DIR: /home/vasyl/projects/onlinelib/onlinelib
+  PROJECT_DIR: /home/vasyl/projects/onlinelib/textstack
   BACKUP_DIR: /home/vasyl/backups
 
 jobs:
@@ -441,7 +441,7 @@ Pipeline fails health check → No changes applied (old containers still running
 # Go to Actions → Deploy → Run workflow → Enter commit SHA
 
 # Or via CLI
-cd /home/vasyl/projects/onlinelib/onlinelib
+cd /home/vasyl/projects/onlinelib/textstack
 git checkout <previous-commit>
 cd apps/web && pnpm build && cd ..
 docker compose up -d --build

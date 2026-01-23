@@ -9,9 +9,9 @@ public static class TelemetryConstants
     public static readonly string ServiceVersion =
         Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? "1.0.0";
 
-    public const string IngestionActivitySourceName = "OnlineLib.Ingestion";
-    public const string ApiActivitySourceName = "OnlineLib.Api";
-    public const string MeterName = "OnlineLib.Ingestion";
+    public const string IngestionActivitySourceName = "TextStack.Ingestion";
+    public const string ApiActivitySourceName = "TextStack.Api";
+    public const string MeterName = "TextStack.Ingestion";
 }
 
 public static class IngestionActivitySource

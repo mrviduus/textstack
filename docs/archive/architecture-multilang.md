@@ -1,6 +1,6 @@
-# Multilingual Architecture (EN + UK) — OnlineLib
+# Multilingual Architecture (EN + UK) — TextStack
 
-This document defines the **multi-language architecture** for OnlineLib and is intended to be added to the repository as an architectural decision/reference.
+This document defines the **multi-language architecture** for TextStack and is intended to be added to the repository as an architectural decision/reference.
 
 ## Goals
 
@@ -8,7 +8,7 @@ This document defines the **multi-language architecture** for OnlineLib and is i
 - Support multiple language variants of the **same logical book**, without duplicating structure.
 - Allow gradual translation: EN can exist first, UA/UK can appear later per chapter.
 - Enable correct Google indexing via `hreflang` and language-specific metadata.
-- Keep the current OnlineLib principles: **self-hosted**, **simple MVP**, data in **PostgreSQL + disk**.
+- Keep the current TextStack principles: **self-hosted**, **simple MVP**, data in **PostgreSQL + disk**.
 
 ## Core Decision
 

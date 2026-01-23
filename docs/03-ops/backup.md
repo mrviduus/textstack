@@ -87,7 +87,7 @@ Recommended: copy backups to external storage.
 rsync -av /srv/backups/ nas:/volume1/books-backup/
 
 # To cloud (rclone)
-rclone sync /srv/backups remote:onlinelib-backup
+rclone sync /srv/backups remote:textstack-backup
 ```
 
 ## Disaster Recovery

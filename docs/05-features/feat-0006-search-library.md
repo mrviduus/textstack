@@ -4,7 +4,7 @@
 Draft
 
 ## Goal
-Extract search functionality into standalone `OnlineLib.Search` library following Extraction lib patterns. Enable provider-agnostic search (PostgreSQL FTS now, Elasticsearch/vector search later) with highlights, autocomplete, and facets.
+Extract search functionality into standalone `TextStack.Search` library following Extraction lib patterns. Enable provider-agnostic search (PostgreSQL FTS now, Elasticsearch/vector search later) with highlights, autocomplete, and facets.
 
 ## Non-goals
 - Elasticsearch/Algolia providers (future work)
@@ -21,7 +21,7 @@ Extract search functionality into standalone `OnlineLib.Search` library followin
 ## Architecture
 
 ```
-backend/src/Search/OnlineLib.Search/
+backend/src/Search/TextStack.Search/
 ├── Contracts/           # SearchRequest, SearchResult, SearchHit, etc.
 ├── Abstractions/        # ISearchProvider, ISearchIndexer, IQueryBuilder
 ├── Providers/
@@ -30,7 +30,7 @@ backend/src/Search/OnlineLib.Search/
 ├── Chunking/            # IDocumentChunker (vector search prep)
 └── DependencyInjection.cs
 
-tests/OnlineLib.Search.Tests/
+tests/TextStack.Search.Tests/
 ```
 
 ## Acceptance Criteria
@@ -47,10 +47,10 @@ tests/OnlineLib.Search.Tests/
 ### Slice 1: Project scaffold + core contracts
 **Goal:** Create project structure and DTOs
 **Files:**
-- `backend/src/Search/OnlineLib.Search/OnlineLib.Search.csproj`
-- `backend/src/Search/OnlineLib.Search/Contracts/*.cs`
-- `backend/src/Search/OnlineLib.Search/Enums/*.cs`
-- `onlinelib.sln` (add project)
+- `backend/src/Search/TextStack.Search/TextStack.Search.csproj`
+- `backend/src/Search/TextStack.Search/Contracts/*.cs`
+- `backend/src/Search/TextStack.Search/Enums/*.cs`
+- `textstack.sln` (add project)
 - `backend/Directory.Packages.props` (add Dapper)
 
 **Tasks:**
@@ -69,7 +69,7 @@ tests/OnlineLib.Search.Tests/
 ### Slice 2: Core abstractions (interfaces)
 **Goal:** Define provider contracts
 **Files:**
-- `backend/src/Search/OnlineLib.Search/Abstractions/*.cs`
+- `backend/src/Search/TextStack.Search/Abstractions/*.cs`
 
 **Tasks:**
 - [ ] `ISearchProvider` (SearchAsync, SuggestAsync)
@@ -85,8 +85,8 @@ tests/OnlineLib.Search.Tests/
 ### Slice 3: TsQuery builder + tests
 **Goal:** Convert user queries to PostgreSQL tsquery
 **Files:**
-- `backend/src/Search/OnlineLib.Search/Providers/PostgresFts/TsQueryBuilder.cs`
-- `tests/OnlineLib.Search.Tests/Providers/PostgresFts/TsQueryBuilderTests.cs`
+- `backend/src/Search/TextStack.Search/Providers/PostgresFts/TsQueryBuilder.cs`
+- `tests/TextStack.Search.Tests/Providers/PostgresFts/TsQueryBuilderTests.cs`
 
 **Tasks:**
 - [ ] Escape special characters (&|!:*())
@@ -102,9 +102,9 @@ tests/OnlineLib.Search.Tests/
 ### Slice 4: Multilingual analyzer + tests
 **Goal:** Language detection and FTS config mapping
 **Files:**
-- `backend/src/Search/OnlineLib.Search/Analyzers/MultilingualAnalyzer.cs`
-- `backend/src/Search/OnlineLib.Search/Analyzers/TextNormalizer.cs`
-- `tests/OnlineLib.Search.Tests/Analyzers/MultilingualAnalyzerTests.cs`
+- `backend/src/Search/TextStack.Search/Analyzers/MultilingualAnalyzer.cs`
+- `backend/src/Search/TextStack.Search/Analyzers/TextNormalizer.cs`
+- `tests/TextStack.Search.Tests/Analyzers/MultilingualAnalyzerTests.cs`
 
 **Tasks:**
 - [ ] Map SearchLanguage → PostgreSQL config (uk→simple, en→english)
@@ -118,8 +118,8 @@ tests/OnlineLib.Search.Tests/
 ### Slice 5: PostgreSQL search provider (basic)
 **Goal:** Implement search with Dapper (fix EF Core bug)
 **Files:**
-- `backend/src/Search/OnlineLib.Search/Providers/PostgresFts/PostgresSearchProvider.cs`
-- `tests/OnlineLib.Search.Tests/Providers/PostgresFts/PostgresSearchProviderTests.cs`
+- `backend/src/Search/TextStack.Search/Providers/PostgresFts/PostgresSearchProvider.cs`
+- `tests/TextStack.Search.Tests/Providers/PostgresFts/PostgresSearchProviderTests.cs`
 
 **Tasks:**
 - [ ] Implement `ISearchProvider.SearchAsync`
@@ -135,8 +135,8 @@ tests/OnlineLib.Search.Tests/
 ### Slice 6: PostgreSQL indexer
 **Goal:** Index documents to search table
 **Files:**
-- `backend/src/Search/OnlineLib.Search/Providers/PostgresFts/PostgresIndexer.cs`
-- `tests/OnlineLib.Search.Tests/Providers/PostgresFts/PostgresIndexerTests.cs`
+- `backend/src/Search/TextStack.Search/Providers/PostgresFts/PostgresIndexer.cs`
+- `tests/TextStack.Search.Tests/Providers/PostgresFts/PostgresIndexerTests.cs`
 
 **Tasks:**
 - [ ] Implement `ISearchIndexer.IndexAsync`
@@ -152,7 +152,7 @@ tests/OnlineLib.Search.Tests/
 ### Slice 7: Highlighting with ts_headline
 **Goal:** Return matched text snippets
 **Files:**
-- `backend/src/Search/OnlineLib.Search/Providers/PostgresFts/PostgresHighlighter.cs`
+- `backend/src/Search/TextStack.Search/Providers/PostgresFts/PostgresHighlighter.cs`
 - Update `PostgresSearchProvider` to include highlights
 
 **Tasks:**
@@ -167,7 +167,7 @@ tests/OnlineLib.Search.Tests/
 ### Slice 8: Suggestions/autocomplete
 **Goal:** Prefix-based suggestions
 **Files:**
-- `backend/src/Search/OnlineLib.Search/Providers/PostgresFts/PostgresSuggestionProvider.cs`
+- `backend/src/Search/TextStack.Search/Providers/PostgresFts/PostgresSuggestionProvider.cs`
 - Update `PostgresSearchProvider.SuggestAsync`
 
 **Tasks:**
@@ -183,14 +183,14 @@ tests/OnlineLib.Search.Tests/
 ### Slice 9: DI + configuration
 **Goal:** Wire up services
 **Files:**
-- `backend/src/Search/OnlineLib.Search/Configuration/SearchOptions.cs`
-- `backend/src/Search/OnlineLib.Search/Configuration/PostgresFtsOptions.cs`
-- `backend/src/Search/OnlineLib.Search/DependencyInjection.cs`
+- `backend/src/Search/TextStack.Search/Configuration/SearchOptions.cs`
+- `backend/src/Search/TextStack.Search/Configuration/PostgresFtsOptions.cs`
+- `backend/src/Search/TextStack.Search/DependencyInjection.cs`
 
 **Tasks:**
 - [ ] `SearchOptions` (DefaultLimit, MaxLimit, EnableHighlights)
 - [ ] `PostgresFtsOptions` (ConnectionString)
-- [ ] `AddOnlineLibSearch()` extension method
+- [ ] `AddTextStackSearch()` extension method
 - [ ] `AddPostgresFtsProvider()` builder
 
 **Tests:** DI registration test
@@ -200,10 +200,10 @@ tests/OnlineLib.Search.Tests/
 ### Slice 10: Document chunking (vector prep)
 **Goal:** Prepare for future vector search
 **Files:**
-- `backend/src/Search/OnlineLib.Search/Chunking/IDocumentChunker.cs`
-- `backend/src/Search/OnlineLib.Search/Chunking/OverlappingChunker.cs`
-- `backend/src/Search/OnlineLib.Search/Chunking/DocumentChunk.cs`
-- `tests/OnlineLib.Search.Tests/Chunking/OverlappingChunkerTests.cs`
+- `backend/src/Search/TextStack.Search/Chunking/IDocumentChunker.cs`
+- `backend/src/Search/TextStack.Search/Chunking/OverlappingChunker.cs`
+- `backend/src/Search/TextStack.Search/Chunking/DocumentChunk.cs`
+- `tests/TextStack.Search.Tests/Chunking/OverlappingChunkerTests.cs`
 
 **Tasks:**
 - [ ] Chunk interface and model
@@ -218,9 +218,9 @@ tests/OnlineLib.Search.Tests/
 ### Slice 11: Test project setup + mocks
 **Goal:** Create test infrastructure
 **Files:**
-- `tests/OnlineLib.Search.Tests/OnlineLib.Search.Tests.csproj`
-- `tests/OnlineLib.Search.Tests/Mocks/MockSearchProvider.cs`
-- `tests/OnlineLib.Search.Tests/Mocks/InMemorySearchProvider.cs`
+- `tests/TextStack.Search.Tests/TextStack.Search.Tests.csproj`
+- `tests/TextStack.Search.Tests/Mocks/MockSearchProvider.cs`
+- `tests/TextStack.Search.Tests/Mocks/InMemorySearchProvider.cs`
 
 **Tasks:**
 - [ ] Create test project, add to solution

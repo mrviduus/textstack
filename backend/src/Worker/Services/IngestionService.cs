@@ -7,12 +7,12 @@ using Infrastructure.Persistence;
 using Infrastructure.Telemetry;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using OnlineLib.Extraction.Contracts;
-using OnlineLib.Extraction.Enums;
-using OnlineLib.Extraction.Registry;
-using OnlineLib.Search.Abstractions;
-using OnlineLib.Search.Contracts;
-using OnlineLib.Search.Enums;
+using TextStack.Extraction.Contracts;
+using TextStack.Extraction.Enums;
+using TextStack.Extraction.Registry;
+using TextStack.Search.Abstractions;
+using TextStack.Search.Contracts;
+using TextStack.Search.Enums;
 using AppIngestion = Application.Ingestion;
 
 namespace Worker.Services;

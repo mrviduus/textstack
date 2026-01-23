@@ -33,7 +33,7 @@ ufw --force enable
 
 echo "3. Installing nginx config..."
 rm -f /etc/nginx/sites-enabled/default
-sed "s|/home/vasyl/projects/onlinelib/onlinelib|$PROJECT_DIR|g" \
+sed "s|/home/vasyl/projects/onlinelib/textstack|$PROJECT_DIR|g" \
     "$PROJECT_DIR/infra/nginx/textstack.conf" > /etc/nginx/sites-available/textstack
 ln -sf /etc/nginx/sites-available/textstack /etc/nginx/sites-enabled/
 nginx -t

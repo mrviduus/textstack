@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  PROJECT_DIR: /home/vasyl/projects/onlinelib/onlinelib
+  PROJECT_DIR: /home/vasyl/projects/onlinelib/textstack
 
 jobs:
   ci:

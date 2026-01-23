@@ -3,7 +3,7 @@ using System.Text.Json;
 using Application.Common.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using OnlineLib.Search.Abstractions;
+using TextStack.Search.Abstractions;
 
 namespace Application.TextStack;
 

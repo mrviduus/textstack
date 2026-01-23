@@ -13,7 +13,7 @@ namespace Infrastructure.Telemetry;
 
 public static class TelemetryExtensions
 {
-    public static IServiceCollection AddOnlineLibTelemetry(
+    public static IServiceCollection AddTextStackTelemetry(
         this IServiceCollection services,
         IConfiguration configuration,
         string serviceName,

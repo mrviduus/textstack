@@ -42,7 +42,7 @@ deploy:
 	rm -rf dist/ssg-old
 	@echo "Updating nginx config..."
 	@PROJECT_DIR=$$(pwd) && \
-	sed "s|/home/vasyl/projects/onlinelib/onlinelib|$$PROJECT_DIR|g" \
+	sed "s|/home/vasyl/projects/onlinelib/textstack|$$PROJECT_DIR|g" \
 		infra/nginx/textstack.conf | sudo tee /etc/nginx/sites-available/textstack > /dev/null
 	sudo nginx -t && sudo systemctl reload nginx
 	@echo "=== Done ==="
@@ -70,7 +70,7 @@ clean-ssg:
 nginx-setup:
 	@echo "Generating nginx config..."
 	@PROJECT_DIR=$$(pwd) && \
-	sudo sed "s|/home/vasyl/projects/onlinelib/onlinelib|$$PROJECT_DIR|g" \
+	sudo sed "s|/home/vasyl/projects/onlinelib/textstack|$$PROJECT_DIR|g" \
 		infra/nginx/textstack.conf > /tmp/textstack.conf && \
 	sudo mv /tmp/textstack.conf /etc/nginx/sites-available/textstack && \
 	sudo ln -sf /etc/nginx/sites-available/textstack /etc/nginx/sites-enabled/ && \
@@ -80,7 +80,7 @@ nginx-setup:
 # Mac (homebrew)
 nginx-setup-mac:
 	@echo "Generating nginx config for Mac..."
-	@sed "s|/home/vasyl/projects/onlinelib/onlinelib|$$(pwd)|g" \
+	@sed "s|/home/vasyl/projects/onlinelib/textstack|$$(pwd)|g" \
 		infra/nginx/textstack.conf > /opt/homebrew/etc/nginx/servers/textstack.conf
 	@echo "Done. Run: sudo nginx -s reload"
 

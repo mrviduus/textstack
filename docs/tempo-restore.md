@@ -211,13 +211,13 @@ overrides:
 
 ```traceql
 # All traces from worker
-{service.name="onlinelib-worker"}
+{service.name="textstack-worker"}
 
 # Slow traces (>10s)
-{service.name="onlinelib-worker"} | duration > 10s
+{service.name="textstack-worker"} | duration > 10s
 
 # Failed traces
-{service.name="onlinelib-worker" && status=error}
+{service.name="textstack-worker" && status=error}
 
 # Specific operation
 {name="ingestion.job.process"}

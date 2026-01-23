@@ -4,9 +4,9 @@ using Domain.Enums;
 using Domain.Utilities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using OnlineLib.Search.Abstractions;
-using OnlineLib.Search.Contracts;
-using OnlineLib.Search.Enums;
+using TextStack.Search.Abstractions;
+using TextStack.Search.Contracts;
+using TextStack.Search.Enums;
 
 namespace Application.TextStack;
 
