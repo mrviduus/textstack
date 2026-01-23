@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Rebrand: OnlineLib → TextStack
+- **Solution & projects renamed** - `onlinelib.sln` → `textstack.sln`, `OnlineLib.*` → `TextStack.*`
+- **C# namespaces updated** - 70+ files migrated to `TextStack.*` namespaces
+- **Telemetry renamed** - service names `textstack-api/worker`, activity sources `TextStack.*`
+- **GitHub repo renamed** - `github.com/mrviduus/textstack`
+- **Deployment paths updated** - workflows, Makefile, nginx config
+
 ### Single Domain Consolidation (ADR-007)
 - **textstack.app** - single public domain for all books
 - **textstack.dev** - admin panel only (auth-gated, noindex)
