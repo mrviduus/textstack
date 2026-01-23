@@ -70,7 +70,7 @@ nginx-setup-mac:
 
 backup:
 	@mkdir -p backups
-	@docker exec textstack_db_prod pg_dump -U textstack_prod textstack_prod | gzip > backups/db_$$(date +%Y-%m-%d_%H%M%S).sql.gz
+	@. ./.env && docker exec textstack_db_prod pg_dump -U $$POSTGRES_USER $$POSTGRES_DB | gzip > backups/db_$$(date +%Y-%m-%d_%H%M%S).sql.gz
 	@echo "Backup saved:"
 	@ls -lh backups/db_*.sql.gz | tail -1
 
@@ -80,7 +80,7 @@ restore:
 		exit 1; \
 	fi
 	@echo "Restoring from $(FILE)..."
-	@gunzip -c $(FILE) | docker exec -i textstack_db_prod psql -U textstack_prod textstack_prod
+	@. ./.env && gunzip -c $(FILE) | docker exec -i textstack_db_prod psql -U $$POSTGRES_USER $$POSTGRES_DB
 	@echo "Done."
 
 backup-list:
