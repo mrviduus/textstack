@@ -10,6 +10,8 @@ Free book library w/ Kindle-like reader. Upload EPUB/PDF/FB2 → parse → SEO p
 
 **Stack**: ASP.NET Core (API + Worker) + PostgreSQL + React
 
+**CI/CD**: Push to `main` → auto-deploy. SSG rebuild: admin panel or `make rebuild-ssg`.
+
 ## Quick Start
 
 ```bash
