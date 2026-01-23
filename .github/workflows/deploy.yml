@@ -67,12 +67,7 @@ jobs:
           cd $PROJECT_DIR/apps/web
           API_URL=http://localhost:8080 API_HOST=textstack.app CONCURRENCY=4 node scripts/prerender.mjs
 
-      - name: Update nginx config
-        run: |
-          cd $PROJECT_DIR
-          sed "s|/home/vasyl/projects/onlinelib/onlinelib|$PROJECT_DIR|g" \
-            infra/nginx/textstack.conf | sudo tee /etc/nginx/sites-available/textstack > /dev/null
-          sudo nginx -t && sudo systemctl reload nginx
+      # nginx config update requires sudo - run manually via `make deploy` when config changes
 
       - name: Health check frontend
         run: |
