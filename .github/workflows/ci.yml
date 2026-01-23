@@ -64,17 +64,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
 
       - name: Install & build web
         working-directory: apps/web
-        run: npm ci && npm run build
+        run: pnpm install --frozen-lockfile && pnpm build
 
       - name: Install & build admin
         working-directory: apps/admin
-        run: npm ci && npm run build
+        run: pnpm install --frozen-lockfile && pnpm build
 
   docker:
     runs-on: ubuntu-latest

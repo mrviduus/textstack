@@ -17,7 +17,7 @@ public static class SeoEndpoints
         app.MapGet("/sitemaps/books.xml", GetBooksSitemap).WithName("GetBooksSitemap").WithTags("SEO");
         app.MapGet("/sitemaps/authors.xml", GetAuthorsSitemap).WithName("GetAuthorsSitemap").WithTags("SEO");
         app.MapGet("/sitemaps/genres.xml", GetGenresSitemap).WithName("GetGenresSitemap").WithTags("SEO");
-        app.MapGet("/sitemaps/pages.xml", GetPagesSitemap).WithName("GetPagesSitemap").WithTags("SEO");
+        app.MapGet("/sitemaps/pages.xml", (Delegate)GetPagesSitemap).WithName("GetPagesSitemap").WithTags("SEO");
         // NOTE: Chapters sitemap intentionally removed - chapters should not be indexed
     }
 

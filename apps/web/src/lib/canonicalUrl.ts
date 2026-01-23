@@ -106,3 +106,39 @@ export function normalizeOrigin(domain: string): string {
   origin = stripWww(origin)
   return origin.replace(/\/$/, '')
 }
+
+/**
+ * Gets the canonical origin for building URLs.
+ * Priority:
+ * 1. Provided primaryDomain from site context
+ * 2. VITE_CANONICAL_URL env var
+ * 3. Production domain detection
+ * 4. Current window.location.origin
+ */
+export function getCanonicalOrigin(primaryDomain?: string): string {
+  // 1. Use primaryDomain from site context if available
+  if (primaryDomain) {
+    return normalizeOrigin(primaryDomain)
+  }
+
+  // 2. Use VITE_CANONICAL_URL env var (for prerender where site context may not load)
+  const envCanonical = import.meta.env.VITE_CANONICAL_URL
+  if (envCanonical) {
+    return normalizeOrigin(envCanonical)
+  }
+
+  // 3. Detect production domain from hostname
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname
+    if (host === 'textstack.app' || host === 'www.textstack.app') {
+      return 'https://textstack.app'
+    }
+  }
+
+  // 4. Fallback to current origin (for local dev)
+  if (typeof window !== 'undefined') {
+    return normalizeOrigin(window.location.origin)
+  }
+
+  return ''
+}

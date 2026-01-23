@@ -5,6 +5,7 @@ import { AuthorAutocomplete } from '../components/AuthorAutocomplete'
 import { AuthorList, AuthorItem } from '../components/AuthorList'
 import { CreateAuthorModal } from '../components/CreateAuthorModal'
 import { GenreSelect } from '../components/GenreSelect'
+import { SeoFieldset } from '../components/SeoFieldset'
 
 interface SelectedGenre {
   id: string
@@ -287,61 +288,19 @@ export function EditEditionPage() {
           />
         </div>
 
-        <fieldset className="form-fieldset">
-          <legend>SEO Settings</legend>
-
-          <div className="form-group form-group--checkbox">
-            <label>
-              <input
-                type="checkbox"
-                checked={indexable}
-                onChange={(e) => setIndexable(e.target.checked)}
-                disabled={edition.status === 'Draft'}
-              />
-              Indexable by search engines
-            </label>
-            {edition.status === 'Draft' && (
-              <small className="form-hint">Draft editions are never indexed. Publish to enable indexing.</small>
-            )}
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="seoTitle">SEO Title (overrides default)</label>
-            <input
-              type="text"
-              id="seoTitle"
-              value={seoTitle}
-              onChange={(e) => setSeoTitle(e.target.value)}
-              placeholder={title ? `${title} — read online | TextStack` : 'Auto-generated from title'}
-              maxLength={160}
-            />
-            <small>{seoTitle.length}/160</small>
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="seoDescription">SEO Description</label>
-            <textarea
-              id="seoDescription"
-              value={seoDescription}
-              onChange={(e) => setSeoDescription(e.target.value)}
-              rows={3}
-              placeholder="Auto-generated from book description"
-              maxLength={320}
-            />
-            <small>{seoDescription.length}/320</small>
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="canonicalOverride">Canonical URL Override</label>
-            <input
-              type="url"
-              id="canonicalOverride"
-              value={canonicalOverride}
-              onChange={(e) => setCanonicalOverride(e.target.value)}
-              placeholder="Leave empty for default"
-            />
-          </div>
-        </fieldset>
+        <SeoFieldset
+          indexable={indexable}
+          onIndexableChange={setIndexable}
+          seoTitle={seoTitle}
+          onSeoTitleChange={setSeoTitle}
+          seoDescription={seoDescription}
+          onSeoDescriptionChange={setSeoDescription}
+          canonicalOverride={canonicalOverride}
+          onCanonicalOverrideChange={setCanonicalOverride}
+          titlePlaceholder={title ? `${title} — read online | TextStack` : 'Auto-generated from title'}
+          indexableDisabled={edition.status === 'Draft'}
+          indexableHint={edition.status === 'Draft' ? 'Draft editions are never indexed. Publish to enable indexing.' : undefined}
+        />
 
         <div className="form-actions">
           <button type="submit" disabled={saving} className="btn btn--primary">

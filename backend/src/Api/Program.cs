@@ -136,7 +136,7 @@ var forwardedHeadersOptions = new ForwardedHeadersOptions
     ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
 };
 // Trust all proxies in production (behind nginx/cloudflare)
-forwardedHeadersOptions.KnownNetworks.Clear();
+forwardedHeadersOptions.KnownIPNetworks.Clear();
 forwardedHeadersOptions.KnownProxies.Clear();
 app.UseForwardedHeaders(forwardedHeadersOptions);
 
@@ -178,12 +178,14 @@ app.MapAdminEndpoints();
 app.MapAdminAuthorsEndpoints();
 app.MapAdminGenresEndpoints();
 app.MapAdminSeoCrawlEndpoints();
+app.MapAdminSsgRebuildEndpoints();
 app.MapBooksEndpoints();
 app.MapSearchEndpoints();
 app.MapAuthorsEndpoints();
 app.MapGenresEndpoints();
 app.MapSiteEndpoints();
 app.MapSeoEndpoints();
+app.MapSsgEndpoints();
 app.MapAuthEndpoints();
 app.MapUserDataEndpoints();
 

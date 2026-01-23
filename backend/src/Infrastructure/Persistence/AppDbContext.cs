@@ -29,6 +29,8 @@ public class AppDbContext : DbContext, IAppDbContext
     public DbSet<TextStackImport> TextStackImports => Set<TextStackImport>();
     public DbSet<SeoCrawlJob> SeoCrawlJobs => Set<SeoCrawlJob>();
     public DbSet<SeoCrawlResult> SeoCrawlResults => Set<SeoCrawlResult>();
+    public DbSet<SsgRebuildJob> SsgRebuildJobs => Set<SsgRebuildJob>();
+    public DbSet<SsgRebuildResult> SsgRebuildResults => Set<SsgRebuildResult>();
     public DbSet<BookAsset> BookAssets => Set<BookAsset>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -277,6 +279,30 @@ public class AppDbContext : DbContext, IAppDbContext
             e.Property(x => x.StoragePath).HasMaxLength(500);
             e.Property(x => x.ContentType).HasMaxLength(100);
             e.HasOne(x => x.Edition).WithMany(x => x.Assets).HasForeignKey(x => x.EditionId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // SsgRebuildJob
+        modelBuilder.Entity<SsgRebuildJob>(e =>
+        {
+            e.HasIndex(x => x.SiteId);
+            e.HasIndex(x => x.Status);
+            e.HasIndex(x => x.CreatedAt);
+            e.Property(x => x.Mode).HasConversion<string>().HasMaxLength(20);
+            e.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
+            e.Property(x => x.BookSlugsJson).HasColumnType("jsonb");
+            e.Property(x => x.AuthorSlugsJson).HasColumnType("jsonb");
+            e.Property(x => x.GenreSlugsJson).HasColumnType("jsonb");
+            e.HasOne(x => x.Site).WithMany().HasForeignKey(x => x.SiteId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // SsgRebuildResult
+        modelBuilder.Entity<SsgRebuildResult>(e =>
+        {
+            e.HasIndex(x => x.JobId);
+            e.HasIndex(x => new { x.JobId, x.Route }).IsUnique();
+            e.Property(x => x.Route).HasMaxLength(500);
+            e.Property(x => x.RouteType).HasMaxLength(20);
+            e.HasOne(x => x.Job).WithMany(x => x.Results).HasForeignKey(x => x.JobId).OnDelete(DeleteBehavior.Cascade);
         });
     }
 

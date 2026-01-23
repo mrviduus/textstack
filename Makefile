@@ -4,23 +4,29 @@
 # Production Deployment
 # ============================================================
 
-# Full deploy: pull code, build frontend, restart containers
+# Full deploy: pull code, build frontend + SSG, restart containers
 deploy:
 	@echo "=== Production Deploy ==="
 	@echo "1. Pulling latest code..."
 	git pull origin main
 	@echo ""
 	@echo "2. Building frontend..."
-	cd apps/web && pnpm install && VITE_API_URL=/api pnpm build
+	cd apps/web && pnpm install && VITE_API_URL=/api VITE_CANONICAL_URL=https://textstack.app pnpm build
 	@echo ""
 	@echo "3. Restarting containers..."
 	docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
 	@echo ""
-	@echo "4. Waiting for services..."
+	@echo "4. Waiting for API..."
 	sleep 10
-	@echo ""
-	@echo "5. Health check..."
 	@curl -sf http://localhost:8080/health && echo " API OK" || echo " API FAILED"
+	@echo ""
+	@echo "5. Building SSG pages..."
+	cd apps/web && API_URL=http://localhost:8080 API_HOST=textstack.app CONCURRENCY=4 node scripts/prerender.mjs
+	@echo ""
+	@echo "6. Reloading nginx..."
+	sudo systemctl reload nginx
+	@echo ""
+	@echo "7. Final health check..."
 	@curl -sf http://localhost:80 > /dev/null && echo " Nginx OK" || echo " Nginx FAILED"
 	@echo ""
 	@echo "=== Deploy Complete ==="
@@ -58,6 +64,12 @@ prod-restart:
 	docker compose -f docker-compose.prod.yml --env-file .env.production restart
 	sudo systemctl restart nginx
 	@echo "Done"
+
+# Rebuild SSG only (no container restart, requires API running)
+rebuild-ssg:
+	@echo "Rebuilding SSG pages..."
+	cd apps/web && API_URL=http://localhost:8080 API_HOST=textstack.app CONCURRENCY=4 node scripts/prerender.mjs
+	@echo "Done. Files in apps/web/dist/ssg/"
 
 # ============================================================
 # PostgreSQL Backup/Restore

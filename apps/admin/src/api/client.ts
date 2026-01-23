@@ -352,6 +352,83 @@ export interface CreateSeoCrawlJobRequest {
   concurrency?: number
 }
 
+// SSG Rebuild
+export type SsgRebuildJobStatus = 'Queued' | 'Running' | 'Completed' | 'Failed' | 'Cancelled'
+export type SsgRebuildMode = 'Full' | 'Incremental' | 'Specific'
+
+export interface SsgRebuildJobListItem {
+  id: string
+  siteId: string
+  siteCode: string
+  mode: SsgRebuildMode
+  status: SsgRebuildJobStatus
+  totalRoutes: number
+  renderedCount: number
+  failedCount: number
+  concurrency: number
+  createdAt: string
+  startedAt: string | null
+  finishedAt: string | null
+}
+
+export interface SsgRebuildJobDetail {
+  id: string
+  siteId: string
+  siteCode: string
+  mode: SsgRebuildMode
+  status: SsgRebuildJobStatus
+  totalRoutes: number
+  renderedCount: number
+  failedCount: number
+  concurrency: number
+  timeoutMs: number
+  error: string | null
+  bookSlugs: string[] | null
+  authorSlugs: string[] | null
+  genreSlugs: string[] | null
+  createdAt: string
+  startedAt: string | null
+  finishedAt: string | null
+}
+
+export interface SsgRebuildJobStats {
+  total: number
+  successful: number
+  failed: number
+  bookRoutes: number
+  authorRoutes: number
+  genreRoutes: number
+  staticRoutes: number
+  avgRenderTimeMs: number
+}
+
+export interface SsgRebuildResult {
+  id: string
+  route: string
+  routeType: string
+  success: boolean
+  renderTimeMs: number | null
+  error: string | null
+  renderedAt: string
+}
+
+export interface SsgRebuildPreview {
+  totalRoutes: number
+  bookCount: number
+  authorCount: number
+  genreCount: number
+  staticCount: number
+}
+
+export interface CreateSsgRebuildJobRequest {
+  siteId: string
+  mode?: SsgRebuildMode
+  concurrency?: number
+  bookSlugs?: string[]
+  authorSlugs?: string[]
+  genreSlugs?: string[]
+}
+
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
@@ -697,5 +774,56 @@ export const adminApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ siteId, limit: limit || null }),
     })
+  },
+
+  // SSG Rebuild
+  getSsgRebuildPreview: async (siteId: string, mode?: SsgRebuildMode): Promise<SsgRebuildPreview> => {
+    const query = new URLSearchParams({ siteId })
+    if (mode) query.set('mode', mode)
+    return fetchJson<SsgRebuildPreview>(`/admin/ssg/preview?${query}`)
+  },
+
+  getSsgRebuildJobs: async (params?: { siteId?: string; status?: SsgRebuildJobStatus; limit?: number; offset?: number }): Promise<PaginatedResult<SsgRebuildJobListItem>> => {
+    const query = new URLSearchParams()
+    if (params?.siteId) query.set('siteId', params.siteId)
+    if (params?.status) query.set('status', params.status)
+    if (params?.limit) query.set('limit', String(params.limit))
+    if (params?.offset) query.set('offset', String(params.offset))
+    const qs = query.toString()
+    return fetchJson<PaginatedResult<SsgRebuildJobListItem>>(`/admin/ssg/jobs${qs ? `?${qs}` : ''}`)
+  },
+
+  getSsgRebuildJob: async (id: string): Promise<SsgRebuildJobDetail> => {
+    return fetchJson<SsgRebuildJobDetail>(`/admin/ssg/jobs/${id}`)
+  },
+
+  createSsgRebuildJob: async (data: CreateSsgRebuildJobRequest): Promise<{ id: string }> => {
+    return fetchJson<{ id: string }>('/admin/ssg/jobs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    })
+  },
+
+  startSsgRebuildJob: async (id: string): Promise<void> => {
+    await fetchVoid(`/admin/ssg/jobs/${id}/start`, { method: 'POST' })
+  },
+
+  cancelSsgRebuildJob: async (id: string): Promise<void> => {
+    await fetchVoid(`/admin/ssg/jobs/${id}/cancel`, { method: 'POST' })
+  },
+
+  getSsgRebuildJobStats: async (id: string): Promise<SsgRebuildJobStats> => {
+    return fetchJson<SsgRebuildJobStats>(`/admin/ssg/jobs/${id}/stats`)
+  },
+
+  getSsgRebuildResults: async (id: string, params?: { failed?: boolean; routeType?: string; limit?: number; offset?: number }): Promise<PaginatedResult<SsgRebuildResult>> => {
+    const query = new URLSearchParams()
+    if (params?.failed !== undefined) query.set('failed', String(params.failed))
+    if (params?.routeType) query.set('routeType', params.routeType)
+    if (params?.limit) query.set('limit', String(params.limit))
+    if (params?.offset) query.set('offset', String(params.offset))
+    const qs = query.toString()
+    return fetchJson<PaginatedResult<SsgRebuildResult>>(`/admin/ssg/jobs/${id}/results${qs ? `?${qs}` : ''}`)
   },
 }

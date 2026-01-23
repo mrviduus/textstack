@@ -1,15 +1,17 @@
 import { useState, useEffect, useMemo } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useLocation } from 'react-router-dom'
 import { useApi } from '../hooks/useApi'
 import { getStorageUrl } from '../api/client'
 import { useLanguage, SupportedLanguage } from '../context/LanguageContext'
 import { useDownload } from '../context/DownloadContext'
 import { useLibrary } from '../hooks/useLibrary'
+import { useSite } from '../context/SiteContext'
 import { LocalizedLink } from '../components/LocalizedLink'
 import { SeoHead } from '../components/SeoHead'
 import { JsonLd } from '../components/JsonLd'
 import { stringToColor } from '../utils/colors'
 import { getCachedBookMeta } from '../lib/offlineDb'
+import { getCanonicalOrigin, buildCanonicalUrl } from '../lib/canonicalUrl'
 import type { BookDetail } from '../types/api'
 
 // Strip HTML tags from description text
@@ -20,10 +22,13 @@ function stripHtml(html: string): string {
 
 export function BookDetailPage() {
   const { bookSlug } = useParams<{ bookSlug: string }>()
+  const location = useLocation()
   const api = useApi()
   const { language } = useLanguage()
   const { isDownloading, getProgress, startDownload } = useDownload()
   const { isInLibrary } = useLibrary()
+  const { site } = useSite()
+  const canonicalOrigin = getCanonicalOrigin(site?.primaryDomain)
   const [book, setBook] = useState<BookDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -112,9 +117,9 @@ export function BookDetailPage() {
           author: book.authors.map((a) => ({
             '@type': 'Person',
             name: a.name,
-            url: `${window.location.origin}/${language}/authors/${a.slug}`,
+            url: buildCanonicalUrl({ origin: canonicalOrigin, pathname: `/${language}/authors/${a.slug}` }),
           })),
-          url: window.location.href,
+          url: buildCanonicalUrl({ origin: canonicalOrigin, pathname: location.pathname }),
         }}
       />
       <div className="book-detail__header">

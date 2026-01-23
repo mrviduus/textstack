@@ -31,3 +31,5 @@ Each scenario includes:
 | ID | Name | Area |
 |----|------|------|
 | QA-001 | [Reading Progress & Auto-Save](scenarios/QA-001-reading-progress.md) | Reader, Library |
+| QA-002 | [Library Multilang Navigation](scenarios/QA-002-library-multilang-navigation.md) | Library, i18n |
+| QA-003 | [SSG Rebuild Admin](scenarios/QA-003-ssg-rebuild.md) | Admin, SSG |

@@ -1,9 +1,13 @@
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Text;
 using Domain.Entities;
 using Domain.Enums;
 using Infrastructure.Persistence;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.IdentityModel.Tokens;
 
 namespace OnlineLib.IntegrationTests;
 
@@ -15,6 +19,10 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
     public static readonly Guid GeneralSiteId = Guid.Parse("11111111-1111-1111-1111-111111111111");
     public static readonly Guid TestAuthorId = Guid.Parse("22222222-2222-2222-2222-222222222222");
     public static readonly Guid TestGenreId = Guid.Parse("33333333-3333-3333-3333-333333333333");
+
+    // Admin test data
+    public static readonly Guid TestAdminId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+    public const string TestJwtSecret = "test-secret-key-for-jwt-integration-tests-min-32-chars";
 
     // Sitemap test data IDs
     public static readonly Guid PublishedWorkId = Guid.Parse("44444444-4444-4444-4444-444444444444");
@@ -35,6 +43,44 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
 
         // Set env var before host starts
         Environment.SetEnvironmentVariable("Storage__RootPath", _tempPath);
+        Environment.SetEnvironmentVariable("Jwt__SecretKey", TestJwtSecret);
+    }
+
+    /// <summary>
+    /// Creates an HttpClient with admin authentication cookie
+    /// </summary>
+    public HttpClient CreateAdminClient()
+    {
+        var client = CreateClient();
+        client.DefaultRequestHeaders.Add("Host", "general.localhost");
+
+        // Generate a test admin JWT token
+        var token = GenerateTestAdminToken();
+        client.DefaultRequestHeaders.Add("Cookie", $"admin_access_token={token}");
+
+        return client;
+    }
+
+    private static string GenerateTestAdminToken()
+    {
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(TestJwtSecret));
+        var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+
+        var claims = new[]
+        {
+            new Claim(ClaimTypes.NameIdentifier, TestAdminId.ToString()),
+            new Claim(ClaimTypes.Email, "test@admin.com"),
+            new Claim(ClaimTypes.Role, AdminRole.Admin.ToString()),
+            new Claim("is_admin", "true")
+        };
+
+        var token = new JwtSecurityToken(
+            issuer: "textstack.app",
+            claims: claims,
+            expires: DateTime.UtcNow.AddHours(1),
+            signingCredentials: credentials);
+
+        return new JwtSecurityTokenHandler().WriteToken(token);
     }
 
     /// <summary>
@@ -275,6 +321,25 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
             }
         }
         catch { db.ChangeTracker.Clear(); }
+
+        // Seed test admin user
+        try
+        {
+            if (!db.AdminUsers.Any(a => a.Id == TestAdminId))
+            {
+                db.AdminUsers.Add(new AdminUser
+                {
+                    Id = TestAdminId,
+                    Email = "test@admin.com",
+                    PasswordHash = BCrypt.Net.BCrypt.HashPassword("test-password"),
+                    Role = AdminRole.Admin,
+                    IsActive = true,
+                    CreatedAt = DateTimeOffset.UtcNow
+                });
+                db.SaveChanges();
+            }
+        }
+        catch { db.ChangeTracker.Clear(); }
     }
 
     protected override void Dispose(bool disposing)
@@ -301,7 +366,14 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
             using var scope = Services.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-            // Delete in order: jobs -> book_files -> chapters -> editions -> works
+            // Clean SSG rebuild jobs and results
+            var ssgResults = db.SsgRebuildResults.Where(r => _createdJobIds.Contains(r.JobId)).ToList();
+            db.SsgRebuildResults.RemoveRange(ssgResults);
+
+            var ssgJobs = db.SsgRebuildJobs.Where(j => _createdJobIds.Contains(j.Id)).ToList();
+            db.SsgRebuildJobs.RemoveRange(ssgJobs);
+
+            // Delete ingestion jobs in order: jobs -> book_files -> chapters -> editions -> works
             var jobs = db.IngestionJobs.Where(j => _createdJobIds.Contains(j.Id)).ToList();
             var editionIds = jobs.Select(j => j.EditionId).Distinct().ToList();
             var workIds = jobs.Where(j => j.WorkId.HasValue).Select(j => j.WorkId!.Value).Distinct().ToList();

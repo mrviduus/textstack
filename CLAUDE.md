@@ -67,6 +67,9 @@ make prod-restart
 
 # Backup prod database
 make backup-prod
+
+# Rebuild SSG pages only (requires API running)
+make rebuild-ssg
 ```
 
 ### Development (local machine only)
@@ -95,6 +98,10 @@ dotnet test --filter "Name~TestMethodName"              # Single method
 # Type-check frontend
 pnpm -C apps/web build    # includes tsc
 pnpm -C apps/admin build  # includes tsc
+
+# SSG Build (renders SEO pages to static HTML)
+pnpm -C apps/web build:ssg    # Build SPA + prerender SSG pages
+docker compose --profile build up web-build  # Docker-based SSG build
 
 # Migrations
 dotnet ef migrations add <Name> --project backend/src/Infrastructure --startup-project backend/src/Api
@@ -168,6 +175,13 @@ Upload EPUB/PDF/FB2 → BookFile (stored) → IngestionJob (queued)
 - Reading progress sync to server
 - Continue reading from library page
 
+**SSG (Static Site Generation)**: Puppeteer-based prerendering
+- SEO pages rendered to static HTML at build time
+- nginx serves SSG HTML first, falls back to SPA
+- Routes: `/en/`, `/en/books`, `/en/books/:slug`, `/en/authors/:slug`, `/en/genres/:slug`
+- SPA-only: `/en/read/*`, `/en/library`, `/en/search`
+- Build: `pnpm -C apps/web build:ssg` or `make rebuild-ssg`
+
 ## API Endpoints
 
 **Public**:
@@ -200,6 +214,12 @@ Upload EPUB/PDF/FB2 → BookFile (stored) → IngestionJob (queued)
 - `GET /admin/ingestion/jobs` — list jobs
 - CRUD: `/admin/authors`, `/admin/sites`
 
+**SSG** (build-time, for prerender script):
+- `GET /ssg/routes` — all routes to prerender
+- `GET /ssg/books` — book slugs + languages
+- `GET /ssg/authors` — author slugs
+- `GET /ssg/genres` — genre slugs
+
 ## Key Files
 
 | Area | Path |
@@ -220,6 +240,8 @@ Upload EPUB/PDF/FB2 → BookFile (stored) → IngestionJob (queued)
 | Download | `apps/web/src/context/DownloadContext.tsx` |
 | Auth Context | `apps/web/src/context/AuthContext.tsx` |
 | Admin | `apps/admin/src/pages/` |
+| SSG Prerender | `apps/web/scripts/prerender.mjs` |
+| SSG API | `backend/src/Api/Endpoints/SsgEndpoints.cs` |
 
 ## IMPORTANT — HOW TO WORK IN THIS REPO
 
