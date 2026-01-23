@@ -150,6 +150,31 @@ CREATE TABLE ssg_rebuild_jobs (
 
 ---
 
+## Atomic Swap
+
+SSG rebuild uses atomic swap for zero-downtime updates:
+
+```
+1. Build     → dist/ssg-new/
+2. Rename    → dist/ssg/ → dist/ssg-old/
+3. Rename    → dist/ssg-new/ → dist/ssg/
+4. Delete    → dist/ssg-old/
+```
+
+**Benefits:**
+- Zero downtime during rebuild
+- Orphan files automatically cleaned (deleted books, old routes)
+- Rollback possible (keep ssg-old before step 4)
+
+**Disk space:** ~100MB during rebuild (2x normal)
+
+**Cleanup command:**
+```bash
+make clean-ssg  # Removes ssg, ssg-new, ssg-old
+```
+
+---
+
 ## Usage
 
 ### Via Admin Panel

@@ -14,11 +14,17 @@
 
 import pg from 'pg';
 import { spawn } from 'child_process';
-import { writeFileSync, unlinkSync } from 'fs';
+import { writeFileSync, unlinkSync, existsSync } from 'fs';
+import { rename, rm } from 'fs/promises';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// SSG directories for atomic swap
+const SSG_DIR = '/app/dist/ssg';
+const SSG_NEW_DIR = '/app/dist/ssg-new';
+const SSG_OLD_DIR = '/app/dist/ssg-old';
 
 // Configuration
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -128,12 +134,13 @@ async function processJob(job) {
     const outputFile = `/tmp/ssg-results-${jobId}.json`;
     writeFileSync(routesFile, JSON.stringify(routes));
 
-    // 4. Spawn prerender.mjs
+    // 4. Spawn prerender.mjs (output to ssg-new for atomic swap)
     const prerenderScript = join(__dirname, 'prerender.mjs');
     const args = [
       prerenderScript,
       '--routes-file', routesFile,
       '--output', outputFile,
+      '--output-dir', SSG_NEW_DIR,
       '--concurrency', String(job.concurrency || 4),
     ];
 
@@ -191,16 +198,53 @@ async function processJob(job) {
 
     // 8. Update job status based on exit code
     if (exitCode === 0) {
+      // Atomic swap: ssg-new → ssg
+      await atomicSwap();
       console.log(`Job ${jobId} completed successfully`);
       await setJobStatus(jobId, 'Completed');
     } else {
+      // Cleanup failed build
+      await cleanupFailedBuild();
       console.error(`Job ${jobId} failed with exit code ${exitCode}`);
       await setJobStatus(jobId, 'Failed', `Prerender process exited with code ${exitCode}`);
     }
   } catch (error) {
     console.error(`Error processing job ${jobId}:`, error);
+    await cleanupFailedBuild();
     await setJobStatus(jobId, 'Failed', error.message || String(error));
   }
+}
+
+/**
+ * Atomic swap: ssg-new → ssg (zero downtime)
+ */
+async function atomicSwap() {
+  console.log('Starting atomic swap...');
+
+  // 1. Remove old backup if exists
+  await rm(SSG_OLD_DIR, { recursive: true, force: true });
+
+  // 2. Move current to old (if exists)
+  if (existsSync(SSG_DIR)) {
+    await rename(SSG_DIR, SSG_OLD_DIR);
+    console.log(`  ${SSG_DIR} → ${SSG_OLD_DIR}`);
+  }
+
+  // 3. Move new to current
+  await rename(SSG_NEW_DIR, SSG_DIR);
+  console.log(`  ${SSG_NEW_DIR} → ${SSG_DIR}`);
+
+  // 4. Cleanup old
+  await rm(SSG_OLD_DIR, { recursive: true, force: true });
+  console.log('Atomic swap completed');
+}
+
+/**
+ * Cleanup failed build (remove ssg-new, keep ssg intact)
+ */
+async function cleanupFailedBuild() {
+  await rm(SSG_NEW_DIR, { recursive: true, force: true });
+  console.log('Cleaned up failed build');
 }
 
 /**

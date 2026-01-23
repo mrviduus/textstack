@@ -9,19 +9,21 @@
  *   node prerender.mjs                           # Fetch routes from API
  *   node prerender.mjs --routes-file routes.json # Read routes from file
  *   node prerender.mjs --output results.json     # Write results to file
+ *   node prerender.mjs --output-dir /tmp/ssg     # Write SSG files to custom dir
  *   node prerender.mjs --concurrency 8           # Override concurrency
  */
 
 import puppeteer from 'puppeteer';
 import { createServer, request as httpRequest } from 'http';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
-import { dirname, join } from 'path';
+import { dirname, join, isAbsolute } from 'path';
 import { fileURLToPath } from 'url';
 import { URL } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = join(__dirname, '..', 'dist');
-const SSG_DIR = join(DIST_DIR, 'ssg');
+
+// CLI_OPTS parsed below, SSG_DIR defined after
 
 // Parse CLI args
 function parseArgs() {
@@ -29,6 +31,7 @@ function parseArgs() {
   const opts = {
     routesFile: null,
     outputFile: null,
+    outputDir: null,
     concurrency: parseInt(process.env.CONCURRENCY || '4', 10),
   };
 
@@ -37,6 +40,8 @@ function parseArgs() {
       opts.routesFile = args[++i];
     } else if (args[i] === '--output' && args[i + 1]) {
       opts.outputFile = args[++i];
+    } else if (args[i] === '--output-dir' && args[i + 1]) {
+      opts.outputDir = args[++i];
     } else if (args[i] === '--concurrency' && args[i + 1]) {
       opts.concurrency = parseInt(args[++i], 10);
     }
@@ -46,6 +51,11 @@ function parseArgs() {
 }
 
 const CLI_OPTS = parseArgs();
+
+// SSG output directory (custom via --output-dir or default dist/ssg)
+const SSG_DIR = CLI_OPTS.outputDir
+  ? (isAbsolute(CLI_OPTS.outputDir) ? CLI_OPTS.outputDir : join(process.cwd(), CLI_OPTS.outputDir))
+  : join(DIST_DIR, 'ssg');
 
 // Configuration
 const API_URL = process.env.API_URL || 'http://localhost:8080';
@@ -254,26 +264,38 @@ async function renderRoute(browser, routeObj) {
     const url = `http://localhost:${PORT}${route}`;
     await page.goto(url, { waitUntil: 'networkidle0', timeout: 30000 });
 
-    // Wait for React to render actual content (not skeleton)
-    await page.waitForFunction(() => {
-      // Check no skeleton AND actual content exists
-      const skeleton = document.querySelector('.book-detail__skeleton, .books-grid__skeleton, .author-detail__skeleton, .genre-detail__skeleton');
-      if (skeleton) return false;
+    // Wait for React to render (content OR error page)
+    // Returns: 'content' | 'error' | 'skeleton' (still loading)
+    const renderState = await page.waitForFunction(() => {
+      // Check for error pages first (fast exit)
+      const errorPage = document.querySelector('.error-page, .not-found, [class*="error"], [class*="not-found"]');
+      const errorText = document.body?.innerText || '';
+      if (errorPage || errorText.includes('not found') || errorText.includes('404') || errorText.includes('API error')) {
+        return 'error';
+      }
 
-      // Check for loaded content indicators
+      // Check if still loading (skeleton visible)
+      const skeleton = document.querySelector('.book-detail__skeleton, .books-grid__skeleton, .author-detail__skeleton, .genre-detail__skeleton');
+      if (skeleton) return 'skeleton';
+
+      // Check for loaded content
       const bookDetail = document.querySelector('.book-detail__header h1');
       const booksList = document.querySelector('.books-grid .book-card:not(.book-card--skeleton)');
       const authorDetail = document.querySelector('.author-detail__name');
       const genreDetail = document.querySelector('.genre-detail__title');
       const staticPage = document.querySelector('.about-page, .static-content, main h1');
 
-      return bookDetail || booksList || authorDetail || genreDetail || staticPage;
-    }, { timeout: 15000 }).catch(() => {
-      // Content may not be available (404, error page, etc) - continue with current state
-    });
+      if (bookDetail || booksList || authorDetail || genreDetail || staticPage) {
+        return 'content';
+      }
 
-    // Shorter wait since we already waited for content
-    await new Promise(r => setTimeout(r, 200));
+      return null; // Keep waiting
+    }, { timeout: 5000 }).then(h => h?.jsonValue()).catch(() => 'timeout');
+
+    // Small stabilization delay only for successful content
+    if (renderState === 'content') {
+      await new Promise(r => setTimeout(r, 100));
+    }
 
     // Get the rendered HTML
     const html = await page.content();
