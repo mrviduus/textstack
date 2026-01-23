@@ -9,6 +9,8 @@ public record BookDetailDto(
     string? CoverPath,
     DateTimeOffset? PublishedAt,
     bool IsPublicDomain,
+    string? SeoTitle,
+    string? SeoDescription,
     WorkDto Work,
     IReadOnlyList<ChapterSummaryDto> Chapters,
     IReadOnlyList<EditionSummaryDto> OtherEditions,

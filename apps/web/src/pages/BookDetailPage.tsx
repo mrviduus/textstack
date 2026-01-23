@@ -100,8 +100,8 @@ export function BookDetailPage() {
   return (
     <div className="book-detail">
       <SeoHead
-        title={book.title}
-        description={book.description || undefined}
+        title={book.seoTitle || book.title}
+        description={book.seoDescription || book.description || undefined}
         image={book.coverPath ? getStorageUrl(book.coverPath) : undefined}
         type="book"
         availableLanguages={availableLanguages}

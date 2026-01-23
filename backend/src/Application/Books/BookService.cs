@@ -63,6 +63,8 @@ public class BookService(IAppDbContext db)
                 e.CoverPath,
                 e.PublishedAt,
                 e.IsPublicDomain,
+                e.SeoTitle,
+                e.SeoDescription,
                 new WorkDto(e.Work.Id, e.Work.Slug),
                 e.Chapters
                     .OrderBy(c => c.ChapterNumber)

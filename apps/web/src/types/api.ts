@@ -49,6 +49,9 @@ export interface BookDetail {
   description: string | null
   coverPath: string | null
   publishedAt: string | null
+  isPublicDomain: boolean
+  seoTitle: string | null
+  seoDescription: string | null
   chapters: ChapterSummary[]
   otherEditions: { slug: string; language: string; title: string }[]
   authors: BookAuthor[]
