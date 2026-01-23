@@ -17,7 +17,7 @@ docker compose ps
 
 echo ""
 echo "============================================"
-echo "  OnlineLib is ready!"
+echo "  TextStack is ready!"
 echo "============================================"
 echo ""
 echo "  Main Services (via nginx):"

@@ -1,4 +1,4 @@
-# Multilingual Data Model & EF Core Migrations — OnlineLib
+# Multilingual Data Model & EF Core Migrations — TextStack
 
 This document describes the **database model changes** needed for multi-language support and how to implement them with **EF Core (code-first)**.
 

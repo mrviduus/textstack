@@ -1,4 +1,4 @@
-# OnlineLib Database Schema
+# TextStack Database Schema
 
 ## Quick Start
 ```bash

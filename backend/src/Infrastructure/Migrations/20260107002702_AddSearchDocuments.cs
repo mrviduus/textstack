@@ -6,7 +6,7 @@ namespace Infrastructure.Migrations
 {
     /// <summary>
     /// Creates the search_documents table for PostgreSQL full-text search.
-    /// This table is used by OnlineLib.Search library (Dapper-based, not EF).
+    /// This table is used by TextStack.Search library (Dapper-based, not EF).
     /// </summary>
     public partial class AddSearchDocuments : Migration
     {

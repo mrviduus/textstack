@@ -2,7 +2,7 @@
 # PDD: Multilingual Content Model v1 (UA/EN)
 
 ## Goal
-Design bilingual support (Ukrainian / English) for OnlineLib so that:
+Design bilingual support (Ukrainian / English) for TextStack so that:
 - each page has **exactly one language**
 - URLs and SEO are correct and scalable
 - translations are linked at the data level (no duplicated books)

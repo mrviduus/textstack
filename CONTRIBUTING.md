@@ -86,8 +86,8 @@ Brief description of changes.
 ### Backend
 ```bash
 dotnet test                                    # all tests
-dotnet test tests/OnlineLib.UnitTests          # unit only
-dotnet test tests/OnlineLib.IntegrationTests   # integration
+dotnet test tests/TextStack.UnitTests          # unit only
+dotnet test tests/TextStack.IntegrationTests   # integration
 ```
 
 ### Frontend

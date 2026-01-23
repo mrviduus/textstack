@@ -326,7 +326,7 @@ docker compose up -d --build
 
 | Item | Path |
 |------|------|
-| Project root | `/home/vasyl/projects/onlinelib/onlinelib` |
+| Project root | `/home/vasyl/projects/onlinelib/textstack` |
 | Docker Compose | `docker-compose.yml` |
 | Environment file | `.env` (not in git) |
 | Nginx config | `/etc/nginx/sites-available/textstack` |

@@ -102,15 +102,15 @@ If entity is:
 #### Global Templates (Config-based)
 - Book title:
   ```
-  {Title} — read online | OnlineLib
+  {Title} — read online | TextStack
   ```
 - Author title:
   ```
-  {Name} — books by author | OnlineLib
+  {Name} — books by author | TextStack
   ```
 - Genre title:
   ```
-  {Genre} — books online | OnlineLib
+  {Genre} — books online | TextStack
   ```
 
 #### Description Rules

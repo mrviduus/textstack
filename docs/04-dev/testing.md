@@ -1,4 +1,4 @@
-# OnlineLib — Automated Testing Strategy (MVP → Hardening)
+# TextStack — Automated Testing Strategy (MVP → Hardening)
 
 Goal: **everything is automatically testable** (CI runs it), with fast feedback locally and strong confidence before deploy.
 
@@ -9,8 +9,8 @@ Goal: **everything is automatically testable** (CI runs it), with fast feedback 
 ### Backend Tests
 ```bash
 dotnet test                                    # All tests
-dotnet test tests/OnlineLib.UnitTests          # Unit only
-dotnet test tests/OnlineLib.IntegrationTests   # Integration (needs Docker)
+dotnet test tests/TextStack.UnitTests          # Unit only
+dotnet test tests/TextStack.IntegrationTests   # Integration (needs Docker)
 dotnet test --filter "Name~YourTestName"       # Single test
 ```
 
@@ -47,10 +47,10 @@ GetAuthors_WithLanguageFilter_ReturnsFilteredResults
 **Test file location:**
 ```
 tests/
-  OnlineLib.UnitTests/           # Pure logic, no DB
-  OnlineLib.IntegrationTests/    # API + DB
-  OnlineLib.Extraction.Tests/    # Book parsing
-  OnlineLib.Search.Tests/        # Search logic
+  TextStack.UnitTests/           # Pure logic, no DB
+  TextStack.IntegrationTests/    # API + DB
+  TextStack.Extraction.Tests/    # Book parsing
+  TextStack.Search.Tests/        # Search logic
 ```
 
 ### Frontend Testing
@@ -323,10 +323,10 @@ On merge to main:
 
 ```
 /tests
-  /OnlineLib.UnitTests
-  /OnlineLib.Api.ComponentTests
-  /OnlineLib.IntegrationTests
-  /OnlineLib.E2E
+  /TextStack.UnitTests
+  /TextStack.Api.ComponentTests
+  /TextStack.IntegrationTests
+  /TextStack.E2E
     /fixtures
     /snapshots
 ```

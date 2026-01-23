@@ -1,5 +1,5 @@
 using System.Xml.Linq;
-using OnlineLib.Extraction.Utilities;
+using TextStack.Extraction.Utilities;
 
 namespace Application.TextStack;
 

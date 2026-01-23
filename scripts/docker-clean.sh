@@ -10,7 +10,7 @@ docker compose down -v --remove-orphans 2>/dev/null || true
 # Remove project images
 echo "Removing project images..."
 docker images --filter "reference=*books*" -q | xargs -r docker rmi -f 2>/dev/null || true
-docker images --filter "reference=*onlinelib*" -q | xargs -r docker rmi -f 2>/dev/null || true
+docker images --filter "reference=*textstack*" -q | xargs -r docker rmi -f 2>/dev/null || true
 
 # Remove dangling images
 echo "Removing dangling images..."

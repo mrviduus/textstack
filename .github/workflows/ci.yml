@@ -48,13 +48,13 @@ jobs:
 
       # Extraction tests skipped - require native SkiaSharp libs
       # - name: Extraction tests
-      #   run: dotnet test tests/OnlineLib.Extraction.Tests --no-build
+      #   run: dotnet test tests/TextStack.Extraction.Tests --no-build
 
       - name: Search tests
-        run: dotnet test tests/OnlineLib.Search.Tests --no-build
+        run: dotnet test tests/TextStack.Search.Tests --no-build
 
       - name: Integration tests
-        run: dotnet test tests/OnlineLib.IntegrationTests --no-build
+        run: dotnet test tests/TextStack.IntegrationTests --no-build
         env:
           ConnectionStrings__Default: "Host=localhost;Port=5432;Database=books;Username=app;Password=changeme"
 

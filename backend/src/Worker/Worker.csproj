@@ -14,7 +14,7 @@
     <ProjectReference Include="..\Infrastructure\Infrastructure.csproj" />
     <ProjectReference Include="..\Contracts\Contracts.csproj" />
     <ProjectReference Include="..\Domain\Domain.csproj" />
-    <ProjectReference Include="..\Extraction\OnlineLib.Extraction\OnlineLib.Extraction.csproj" />
-    <ProjectReference Include="..\Search\OnlineLib.Search\OnlineLib.Search.csproj" />
+    <ProjectReference Include="..\Extraction\TextStack.Extraction\TextStack.Extraction.csproj" />
+    <ProjectReference Include="..\Search\TextStack.Search\TextStack.Search.csproj" />
   </ItemGroup>
 </Project>

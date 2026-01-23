@@ -1,4 +1,4 @@
-# OnlineLib Vision
+# TextStack Vision
 
 Free book library with Kindle-like reader. Upload EPUB/PDF/FB2 → parse → SEO pages + offline-first reading sync.
 

@@ -7,11 +7,11 @@ using Infrastructure.Telemetry;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Npgsql;
-using OnlineLib.Extraction.Contracts;
-using OnlineLib.Extraction.Extractors;
-using OnlineLib.Extraction.Ocr;
-using OnlineLib.Extraction.Registry;
-using OnlineLib.Search;
+using TextStack.Extraction.Contracts;
+using TextStack.Extraction.Extractors;
+using TextStack.Extraction.Ocr;
+using TextStack.Extraction.Registry;
+using TextStack.Search;
 using Worker.Services;
 
 // Register legacy encodings (windows-1251 for FB2, etc.)
@@ -20,8 +20,8 @@ Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 var builder = Host.CreateApplicationBuilder(args);
 
 // OpenTelemetry
-builder.Services.AddOnlineLibTelemetry(builder.Configuration, "onlinelib-worker");
-builder.Logging.AddTelemetryLogging(builder.Configuration, "onlinelib-worker");
+builder.Services.AddTextStackTelemetry(builder.Configuration, "textstack-worker");
+builder.Logging.AddTelemetryLogging(builder.Configuration, "textstack-worker");
 
 // Database
 var connectionString = builder.Configuration.GetConnectionString("Default")
@@ -41,7 +41,7 @@ var storagePath = builder.Configuration["Storage:RootPath"] ?? "/storage";
 builder.Services.AddSingleton<IFileStorageService>(new LocalFileStorageService(storagePath));
 
 // Search library
-builder.Services.AddOnlineLibSearch();
+builder.Services.AddTextStackSearch();
 builder.Services.AddPostgresFtsProvider(
     _ => () => new NpgsqlConnection(connectionString),
     options => options.ConnectionString = connectionString);

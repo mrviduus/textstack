@@ -1,6 +1,6 @@
-# OnlineLib – API Contract (Public vs Authenticated)
+# TextStack – API Contract (Public vs Authenticated)
 
-This document defines the **API surface area** for OnlineLib MVP, grouped by access level.
+This document defines the **API surface area** for TextStack MVP, grouped by access level.
 Paths are suggestions; keep the access rules even if your route names differ.
 
 ---

@@ -12,9 +12,9 @@ using Api.Language;
 using Api.Sites;
 using Contracts.Common;
 using Microsoft.AspNetCore.Mvc;
-using OnlineLib.Search.Abstractions;
-using OnlineLib.Search.Analyzers;
-using OnlineLib.Search.Contracts;
+using TextStack.Search.Abstractions;
+using TextStack.Search.Analyzers;
+using TextStack.Search.Contracts;
 
 namespace Api.Endpoints;
 

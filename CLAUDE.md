@@ -52,8 +52,8 @@ make nginx-setup            # Install nginx config (one-time)
 
 # Tests
 dotnet test                 # All tests
-dotnet test tests/OnlineLib.UnitTests
-dotnet test tests/OnlineLib.IntegrationTests
+dotnet test tests/TextStack.UnitTests
+dotnet test tests/TextStack.IntegrationTests
 
 # Frontend
 pnpm -C apps/web build
@@ -129,5 +129,5 @@ Upload EPUB/PDF/FB2 → BookFile (stored) → IngestionJob (queued)
 
 Search uses raw SQL (Dapper). After schema changes:
 1. Update `PostgresSearchProvider.cs` SQL
-2. Run `dotnet test tests/OnlineLib.IntegrationTests --filter SearchEndpoint`
+2. Run `dotnet test tests/TextStack.IntegrationTests --filter SearchEndpoint`
 3. Test: `https://textstack.app/en/search?q=test`

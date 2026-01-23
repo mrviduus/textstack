@@ -17,17 +17,17 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.FileProviders;
 using Npgsql;
-using OnlineLib.Search;
-using OnlineLib.Search.Abstractions;
+using TextStack.Search;
+using TextStack.Search.Abstractions;
 using OpenTelemetry.Trace;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // OpenTelemetry
-builder.Services.AddOnlineLibTelemetry(
+builder.Services.AddTextStackTelemetry(
     builder.Configuration,
-    "onlinelib-api",
+    "textstack-api",
     tracing => tracing
         .AddAspNetCoreInstrumentation(options =>
         {
@@ -38,7 +38,7 @@ builder.Services.AddOnlineLibTelemetry(
             };
         })
         .AddHttpClientInstrumentation());
-builder.Logging.AddTelemetryLogging(builder.Configuration, "onlinelib-api");
+builder.Logging.AddTelemetryLogging(builder.Configuration, "textstack-api");
 
 builder.Services.AddCors(options =>
 {
@@ -85,7 +85,7 @@ var storagePath = builder.Configuration["Storage:RootPath"] ?? "/storage";
 builder.Services.AddSingleton<IFileStorageService>(new LocalFileStorageService(storagePath));
 
 // Search library
-builder.Services.AddOnlineLibSearch();
+builder.Services.AddTextStackSearch();
 builder.Services.AddPostgresFtsProvider(
     _ => () => new NpgsqlConnection(connectionString),
     options => options.ConnectionString = connectionString);
