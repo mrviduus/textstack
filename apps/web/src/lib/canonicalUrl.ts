@@ -19,13 +19,22 @@ function forceHttps(url: string): string {
 }
 
 /**
- * Removes trailing slash except for root path
+ * Removes trailing slash except for root path and language roots (/en/, /uk/)
  */
 function removeTrailingSlash(url: string): string {
-  // Parse URL to check if path is root
   try {
     const parsed = new URL(url)
-    if (parsed.pathname !== '/' && parsed.pathname.endsWith('/')) {
+
+    // Keep trailing slash for root and language roots
+    if (parsed.pathname === '/' || /^\/(en|uk)\/?$/.test(parsed.pathname)) {
+      if (!parsed.pathname.endsWith('/')) {
+        parsed.pathname += '/'
+      }
+      return parsed.toString()
+    }
+
+    // Remove trailing slash for all other paths
+    if (parsed.pathname.endsWith('/')) {
       parsed.pathname = parsed.pathname.slice(0, -1)
       return parsed.toString()
     }
