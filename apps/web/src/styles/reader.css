@@ -33,6 +33,17 @@ html[data-theme="dark"] {
   --reader-bar-bg: rgba(26, 26, 26, 0.95);
 }
 
+/* Set html/body background to match reader theme */
+html[data-theme],
+html[data-theme] body {
+  background: var(--reader-bg);
+}
+
+/* Hide main site header on reader pages */
+body:has(.reader-page) .site-header {
+  display: none;
+}
+
 /* Skip link */
 .skip-link {
   position: absolute;
@@ -57,6 +68,7 @@ html[data-theme="dark"] {
 /* Reader page */
 .reader-page {
   min-height: 100vh;
+  min-height: 100dvh;
   background: var(--reader-bg);
   color: var(--reader-text);
   transition: background 0.3s, color 0.3s;
@@ -76,9 +88,8 @@ html[data-theme="dark"] {
   left: 0;
   right: 0;
   height: 56px;
-  background: var(--reader-bar-bg);
+  background: var(--reader-bg);
   backdrop-filter: blur(10px);
-  border-bottom: 1px solid var(--reader-border);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -86,6 +97,7 @@ html[data-theme="dark"] {
   z-index: 100;
   transition: transform 0.3s, opacity 0.3s;
 }
+
 
 .reader-top-bar__left {
   display: flex;
@@ -157,6 +169,7 @@ html[data-theme="dark"] {
   bottom: 60px;
   overflow: hidden;
   padding: 24px 60px;
+  background: var(--reader-bg);
   /* Aged book edge effect */
   box-shadow:
     inset 80px 0 60px -60px rgba(30, 15, 5, 0.5),

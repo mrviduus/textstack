@@ -364,6 +364,9 @@ export function ReaderPage() {
     } else if (locator.startsWith('percent:')) {
       const pct = parseFloat(locator.split(':')[1])
       if (!isNaN(pct)) goToPage(Math.floor(pct * (totalPages - 1)))
+    } else if (savedProgress.percent != null && savedProgress.percent > 0) {
+      // Fallback for scroll: or other formats
+      goToPage(Math.floor(savedProgress.percent * (totalPages - 1)))
     }
   }, [useScrollMode, totalPages, savedProgress, progressLoading, shouldNavigate, goToPage, book?.id])
 

@@ -14,6 +14,7 @@ interface LocalProgress {
 interface SavedProgress {
   chapterSlug: string | null
   locator: string
+  percent?: number
 }
 
 interface RestoreState {
@@ -61,6 +62,7 @@ export function useRestoreProgress(
           progress = {
             chapterSlug: local.chapterSlug,
             locator: local.locator,
+            percent: local.percent,
           }
         }
       } catch {
@@ -75,6 +77,7 @@ export function useRestoreProgress(
             progress = {
               chapterSlug: serverProgress.chapterSlug,
               locator: serverProgress.locator,
+              percent: serverProgress.percent ?? undefined,
             }
           }
         } catch {
