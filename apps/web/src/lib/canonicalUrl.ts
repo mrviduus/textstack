@@ -19,29 +19,26 @@ function forceHttps(url: string): string {
 }
 
 /**
- * Removes trailing slash except for root path and language roots (/en/, /uk/)
+ * Ensures trailing slash on all paths
  */
-function removeTrailingSlash(url: string): string {
+function ensureTrailingSlash(url: string): string {
   try {
     const parsed = new URL(url)
 
-    // Keep trailing slash for root and language roots
-    if (parsed.pathname === '/' || /^\/(en|uk)\/?$/.test(parsed.pathname)) {
-      if (!parsed.pathname.endsWith('/')) {
-        parsed.pathname += '/'
-      }
-      return parsed.toString()
+    // Add trailing slash if missing
+    if (!parsed.pathname.endsWith('/')) {
+      parsed.pathname += '/'
     }
-
-    // Remove trailing slash for all other paths
-    if (parsed.pathname.endsWith('/')) {
-      parsed.pathname = parsed.pathname.slice(0, -1)
-      return parsed.toString()
-    }
-    return url
+    return parsed.toString()
   } catch {
-    // If URL parsing fails, just remove trailing slash from end
-    return url.replace(/\/(\?|#|$)/, '$1')
+    // If URL parsing fails, add trailing slash before query/hash
+    if (url.includes('?')) {
+      return url.replace(/\/?(\?)/, '/$1')
+    }
+    if (url.includes('#')) {
+      return url.replace(/\/?(\#)/, '/$1')
+    }
+    return url.endsWith('/') ? url : url + '/'
   }
 }
 
@@ -80,7 +77,7 @@ export interface CanonicalOptions {
  * - no www prefix
  * - tracking params stripped
  * - semantic params preserved (?q=)
- * - no trailing slash (except root)
+ * - trailing slash on all paths
  */
 export function buildCanonicalUrl(options: CanonicalOptions): string {
   const { pathname, search = '' } = options
@@ -98,8 +95,8 @@ export function buildCanonicalUrl(options: CanonicalOptions): string {
   // Build URL
   let url = `${origin}${pathname}${filteredSearch}`
 
-  // Remove trailing slash
-  url = removeTrailingSlash(url)
+  // Ensure trailing slash
+  url = ensureTrailingSlash(url)
 
   return url
 }

@@ -36,13 +36,17 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
 
   const switchLanguage = useCallback((newLang: SupportedLanguage) => {
     const pathWithoutLang = location.pathname.replace(/^\/(en|uk)/, '')
-    navigate(`/${newLang}${pathWithoutLang || '/'}`)
+    const newPath = `/${newLang}${pathWithoutLang || '/'}`
+    navigate(newPath.endsWith('/') ? newPath : `${newPath}/`)
   }, [location.pathname, navigate])
 
   const getLocalizedPath = useCallback((path: string) => {
-    if (path.startsWith(`/${language}`)) return path
+    if (path.startsWith(`/${language}`)) {
+      return path.endsWith('/') ? path : `${path}/`
+    }
     const cleanPath = path.startsWith('/') ? path : `/${path}`
-    return `/${language}${cleanPath}`
+    const result = `/${language}${cleanPath}`
+    return result.endsWith('/') ? result : `${result}/`
   }, [language])
 
   const value = useMemo(() => ({
