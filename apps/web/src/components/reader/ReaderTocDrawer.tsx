@@ -1,6 +1,6 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { LocalizedLink } from '../LocalizedLink'
-import type { ChapterSummary } from '../../types/api'
 import type { Bookmark } from '../../hooks/useBookmarks'
 import { useFocusTrap } from '../../hooks/useFocusTrap'
 
@@ -11,27 +11,37 @@ export interface AutoSaveInfo {
   percent: number
 }
 
+// Normalized chapter for both public and user books
+export interface TocChapter {
+  id: string
+  identifier: string // slug for public, chapterNumber as string for user
+  title: string
+  chapterNumber: number
+}
+
 interface Props {
   open: boolean
-  bookSlug: string
-  chapters: ChapterSummary[]
-  currentChapterSlug: string
+  chapters: TocChapter[]
+  currentChapterIdentifier: string
   bookmarks: Bookmark[]
   autoSave?: AutoSaveInfo | null
+  getChapterUrl: (identifier: string) => string
+  useLocalizedLink?: boolean // true for public, false for user books
   onClose: () => void
   onRemoveBookmark: (id: string) => void
-  onChapterSelect?: (slug: string) => void // For scroll mode: scroll to chapter instead of navigate
+  onChapterSelect?: (identifier: string) => void // For scroll mode: scroll to chapter instead of navigate
 }
 
 type Tab = 'contents' | 'bookmarks'
 
 export function ReaderTocDrawer({
   open,
-  bookSlug,
   chapters,
-  currentChapterSlug,
+  currentChapterIdentifier,
   bookmarks,
   autoSave,
+  getChapterUrl,
+  useLocalizedLink = true,
   onClose,
   onRemoveBookmark,
   onChapterSelect,
@@ -40,6 +50,8 @@ export function ReaderTocDrawer({
   const [activeTab, setActiveTab] = useState<Tab>('contents')
 
   if (!open) return null
+
+  const ChapterLink = useLocalizedLink ? LocalizedLink : Link
 
   const formatDate = (timestamp: number) => {
     return new Date(timestamp).toLocaleDateString(undefined, {
@@ -78,20 +90,20 @@ export function ReaderTocDrawer({
           <ul className="reader-toc-drawer__list">
             {chapters.map((ch) => (
               <li key={ch.id}>
-                <LocalizedLink
-                  to={`/books/${bookSlug}/${ch.slug}?direct=1`}
-                  className={`reader-toc-drawer__item ${ch.slug === currentChapterSlug ? 'active' : ''}`}
+                <ChapterLink
+                  to={`${getChapterUrl(ch.identifier)}?direct=1`}
+                  className={`reader-toc-drawer__item ${ch.identifier === currentChapterIdentifier ? 'active' : ''}`}
                   onClick={(e) => {
                     if (onChapterSelect) {
                       e.preventDefault()
-                      onChapterSelect(ch.slug)
+                      onChapterSelect(ch.identifier)
                     }
                     onClose()
                   }}
                 >
                   <span className="reader-toc-drawer__number">{ch.chapterNumber + 1}</span>
                   <span className="reader-toc-drawer__title">{ch.title}</span>
-                </LocalizedLink>
+                </ChapterLink>
               </li>
             ))}
           </ul>
@@ -102,27 +114,27 @@ export function ReaderTocDrawer({
             {/* Auto-saved position first */}
             {autoSave && (
               <li className="reader-toc-drawer__bookmark-item reader-toc-drawer__autosave">
-                <LocalizedLink
-                  to={`/books/${bookSlug}/${autoSave.chapterSlug}`}
-                  className={`reader-toc-drawer__item ${autoSave.chapterSlug === currentChapterSlug ? 'active' : ''}`}
+                <ChapterLink
+                  to={getChapterUrl(autoSave.chapterSlug)}
+                  className={`reader-toc-drawer__item ${autoSave.chapterSlug === currentChapterIdentifier ? 'active' : ''}`}
                   onClick={onClose}
                 >
                   <span className="reader-toc-drawer__title">{autoSave.chapterTitle}</span>
                   <span className="reader-toc-drawer__date">Auto-saved</span>
-                </LocalizedLink>
+                </ChapterLink>
               </li>
             )}
             {/* Manual bookmarks */}
             {bookmarks.map((bm) => (
               <li key={bm.id} className="reader-toc-drawer__bookmark-item">
-                <LocalizedLink
-                  to={`/books/${bookSlug}/${bm.chapterSlug}`}
-                  className={`reader-toc-drawer__item ${bm.chapterSlug === currentChapterSlug ? 'active' : ''}`}
+                <ChapterLink
+                  to={getChapterUrl(bm.chapterSlug)}
+                  className={`reader-toc-drawer__item ${bm.chapterSlug === currentChapterIdentifier ? 'active' : ''}`}
                   onClick={onClose}
                 >
                   <span className="reader-toc-drawer__title">{bm.chapterTitle}</span>
                   <span className="reader-toc-drawer__date">{formatDate(bm.createdAt)}</span>
-                </LocalizedLink>
+                </ChapterLink>
                 <button
                   className="reader-toc-drawer__remove"
                   onClick={(e) => {

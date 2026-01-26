@@ -1,13 +1,15 @@
+import { Link } from 'react-router-dom'
 import { LocalizedLink } from '../LocalizedLink'
 
 interface Props {
   visible: boolean
-  bookSlug: string
   title: string
   chapterTitle: string
   progress: number
   isBookmarked: boolean
   isFullscreen: boolean
+  backUrl: string
+  useLocalizedLink?: boolean // true for public books (uses LocalizedLink), false for user books (uses Link)
   onSearchClick: () => void
   onTocClick: () => void
   onSettingsClick: () => void
@@ -18,12 +20,13 @@ interface Props {
 
 export function ReaderTopBar({
   visible,
-  bookSlug,
   title,
   chapterTitle,
   progress,
   isBookmarked,
   isFullscreen,
+  backUrl,
+  useLocalizedLink = true,
   onSearchClick,
   onTocClick,
   onSettingsClick,
@@ -31,6 +34,8 @@ export function ReaderTopBar({
   onFullscreenClick,
   onHelpClick,
 }: Props) {
+  const BackLink = useLocalizedLink ? LocalizedLink : Link
+
   return (
     <header
       className="reader-top-bar"
@@ -40,11 +45,11 @@ export function ReaderTopBar({
       }}
     >
       <div className="reader-top-bar__left">
-        <LocalizedLink to={`/books/${bookSlug}`} className="reader-top-bar__back">
+        <BackLink to={backUrl} className="reader-top-bar__back">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M19 12H5M12 19l-7-7 7-7" />
           </svg>
-        </LocalizedLink>
+        </BackLink>
         <div className="reader-top-bar__title">
           <span className="reader-top-bar__book-title">{title}</span>
           <span className="reader-top-bar__chapter-title">{chapterTitle}</span>

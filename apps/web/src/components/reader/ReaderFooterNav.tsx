@@ -1,15 +1,5 @@
-import type { ChapterNav } from '../../types/api'
-
 interface Props {
-  bookSlug: string
   chapterTitle: string
-  prev: ChapterNav | null
-  next: ChapterNav | null
-  progress: number
-  pagesLeft: number
-  currentPage: number
-  totalPages: number
-  scrollPercent: number
   overallProgress: number
 }
 

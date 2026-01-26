@@ -14,6 +14,7 @@ import { GenresPage } from './pages/GenresPage'
 import { GenreDetailPage } from './pages/GenreDetailPage'
 import { AboutPage } from './pages/AboutPage'
 import { LibraryPage } from './pages/LibraryPage'
+import { UserBookDetailPage } from './pages/UserBookDetailPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { Header } from './components/Header'
 import { DownloadProgressBar } from './components/DownloadProgressBar'
@@ -30,12 +31,13 @@ function LanguageRoutes() {
     return <Navigate to="/en" replace />
   }
 
-  // Hide header on reader page (has its own top bar)
+  // Hide header on reader pages (have their own top bar)
   const isReaderPage = /^\/[a-z]{2}\/books\/[^/]+\/[^/]+$/.test(location.pathname)
+  const isUserBookReaderPage = /^\/[a-z]{2}\/library\/my\/[^/]+\/read\/\d+$/.test(location.pathname)
 
   return (
     <LanguageProvider>
-      {!isReaderPage && <Header />}
+      {!isReaderPage && !isUserBookReaderPage && <Header />}
       <Routes>
         <Route path="/" element={<HomePage />} />
         <Route path="/search" element={<SearchPage />} />
@@ -48,6 +50,8 @@ function LanguageRoutes() {
         <Route path="/genres/:slug" element={<GenreDetailPage />} />
         <Route path="/about" element={<AboutPage />} />
         <Route path="/library" element={<LibraryPage />} />
+        <Route path="/library/my/:id" element={<UserBookDetailPage />} />
+        <Route path="/library/my/:id/read/:chapterNumber" element={<ReaderPage mode="userbook" />} />
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </LanguageProvider>
