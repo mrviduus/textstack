@@ -54,6 +54,10 @@ make nginx-setup            # Install nginx config (one-time)
 dotnet test                 # All tests
 dotnet test tests/TextStack.UnitTests
 dotnet test tests/TextStack.IntegrationTests
+dotnet test --filter "FullyQualifiedName~TestMethodName"  # Single test
+
+# Local dev (no Docker)
+dotnet run --project backend/src/Api
 
 # Frontend
 pnpm -C apps/web build
@@ -117,13 +121,6 @@ Upload EPUB/PDF/FB2 → BookFile (stored) → IngestionJob (queued)
 | Library | `apps/web/src/pages/LibraryPage.tsx` |
 | Admin | `apps/admin/src/pages/` |
 | SSG | `apps/web/scripts/prerender.mjs` |
-
-## Work Rules
-
-- Small slices, independently mergeable
-- Tests first (TDD)
-- `dotnet test` must pass
-- Don't expand scope - list Follow-ups instead
 
 ## Search
 
