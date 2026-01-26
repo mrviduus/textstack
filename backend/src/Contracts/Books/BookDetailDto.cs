@@ -14,7 +14,8 @@ public record BookDetailDto(
     WorkDto Work,
     IReadOnlyList<ChapterSummaryDto> Chapters,
     IReadOnlyList<EditionSummaryDto> OtherEditions,
-    IReadOnlyList<BookAuthorDto> Authors
+    IReadOnlyList<BookAuthorDto> Authors,
+    IReadOnlyList<TocEntryDto>? Toc = null
 );
 
 public record WorkDto(Guid Id, string Slug);
@@ -28,3 +29,11 @@ public record ChapterSummaryDto(
 );
 
 public record EditionSummaryDto(Guid Id, string Slug, string Language, string Title);
+
+public record TocEntryDto(
+    string Title,
+    int ChapterNumber,
+    string? Anchor,
+    int Level,
+    IReadOnlyList<TocEntryDto>? Children
+);

@@ -29,6 +29,11 @@ public interface IAppDbContext
     DbSet<SsgRebuildJob> SsgRebuildJobs { get; }
     DbSet<SsgRebuildResult> SsgRebuildResults { get; }
     DbSet<BookAsset> BookAssets { get; }
+    DbSet<LintResult> LintResults { get; }
+    DbSet<UserBook> UserBooks { get; }
+    DbSet<UserChapter> UserChapters { get; }
+    DbSet<UserBookFile> UserBookFiles { get; }
+    DbSet<UserIngestionJob> UserIngestionJobs { get; }
 
     Task<int> SaveChangesAsync(CancellationToken ct = default);
 }

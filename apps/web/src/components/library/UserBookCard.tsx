@@ -1,0 +1,148 @@
+import { useState, useRef, useEffect } from 'react'
+import { Link } from 'react-router-dom'
+import { deleteUserBook, getUserBookCoverUrl, type UserBook } from '../../api/userBooks'
+import { stringToColor } from '../../utils/colors'
+import { useLanguage } from '../../context/LanguageContext'
+
+interface UserBookCardProps {
+  book: UserBook
+  onDelete: () => void
+}
+
+export function UserBookCard({ book, onDelete }: UserBookCardProps) {
+  const { language } = useLanguage()
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  // Close menu on click outside
+  useEffect(() => {
+    if (!menuOpen) return
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [menuOpen])
+
+  const handleDelete = async () => {
+    if (deleting) return
+    setDeleting(true)
+    try {
+      await deleteUserBook(book.id)
+      onDelete()
+    } catch (err) {
+      console.error('Failed to delete book:', err)
+    } finally {
+      setDeleting(false)
+      setMenuOpen(false)
+    }
+  }
+
+  const isReady = book.status === 'Ready'
+  const isProcessing = book.status === 'Processing'
+  const isFailed = book.status === 'Failed'
+
+  const destination = isReady ? `/${language}/library/my/${book.id}` : '#'
+
+  return (
+    <div className="user-book-card">
+      <Link
+        to={destination}
+        className={`user-book-card__cover ${!isReady ? 'user-book-card__cover--disabled' : ''}`}
+        onClick={(e) => !isReady && e.preventDefault()}
+      >
+        {book.coverPath ? (
+          <img src={getUserBookCoverUrl(book.coverPath)} alt={book.title} />
+        ) : (
+          <div
+            className="user-book-card__cover-placeholder"
+            style={{ backgroundColor: stringToColor(book.title) }}
+          >
+            {book.title?.[0] || '?'}
+          </div>
+        )}
+
+        {isProcessing && (
+          <div className="user-book-card__status user-book-card__status--processing">
+            <span className="user-book-card__spinner" />
+            Processing...
+          </div>
+        )}
+
+        {isFailed && (
+          <div className="user-book-card__status user-book-card__status--failed">
+            Failed
+          </div>
+        )}
+      </Link>
+
+      <div className="user-book-card__info">
+        <div className="user-book-card__text">
+          <Link
+            to={destination}
+            className="user-book-card__title"
+            onClick={(e) => !isReady && e.preventDefault()}
+          >
+            {book.title}
+          </Link>
+          <div className="user-book-card__meta">
+            {isReady && book.chapterCount > 0 && (
+              <span>{book.chapterCount} chapters</span>
+            )}
+          </div>
+        </div>
+
+        <div className="user-book-card__menu" ref={menuRef}>
+          <button
+            className="user-book-card__menu-trigger"
+            onClick={() => setMenuOpen((v) => !v)}
+            aria-haspopup="true"
+            aria-expanded={menuOpen}
+            title="Options"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <circle cx="12" cy="5" r="2" />
+              <circle cx="12" cy="12" r="2" />
+              <circle cx="12" cy="19" r="2" />
+            </svg>
+          </button>
+
+          {menuOpen && (
+            <div className="user-book-card__dropdown" role="menu">
+              {isReady && (
+                <Link
+                  to={`/${language}/library/my/${book.id}`}
+                  className="user-book-card__item"
+                  role="menuitem"
+                  onClick={() => setMenuOpen(false)}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                  </svg>
+                  View details
+                </Link>
+              )}
+
+              <button
+                className="user-book-card__item user-book-card__item--danger"
+                onClick={handleDelete}
+                disabled={deleting}
+                role="menuitem"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="3 6 5 6 21 6" />
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                </svg>
+                {deleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}

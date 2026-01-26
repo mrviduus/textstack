@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Application.Common.Interfaces;
 using Contracts.Books;
 using Contracts.Common;
@@ -52,9 +53,10 @@ public class BookService(IAppDbContext db)
 
     public async Task<BookDetailDto?> GetBookAsync(Guid siteId, string slug, string language, CancellationToken ct)
     {
-        return await db.Editions
+        var result = await db.Editions
             .Where(e => e.SiteId == siteId && e.Slug == slug && e.Language == language && e.Status == EditionStatus.Published)
-            .Select(e => new BookDetailDto(
+            .Select(e => new
+            {
                 e.Id,
                 e.Slug,
                 e.Title,
@@ -65,8 +67,9 @@ public class BookService(IAppDbContext db)
                 e.IsPublicDomain,
                 e.SeoTitle,
                 e.SeoDescription,
-                new WorkDto(e.Work.Id, e.Work.Slug),
-                e.Chapters
+                e.TocJson,
+                Work = new WorkDto(e.Work.Id, e.Work.Slug),
+                Chapters = e.Chapters
                     .OrderBy(c => c.ChapterNumber)
                     .Select(c => new ChapterSummaryDto(
                         c.Id,
@@ -76,11 +79,11 @@ public class BookService(IAppDbContext db)
                         c.WordCount
                     ))
                     .ToList(),
-                e.Work.Editions
+                OtherEditions = e.Work.Editions
                     .Where(oe => oe.Id != e.Id && oe.Status == EditionStatus.Published)
                     .Select(oe => new EditionSummaryDto(oe.Id, oe.Slug, oe.Language, oe.Title))
                     .ToList(),
-                e.EditionAuthors
+                Authors = e.EditionAuthors
                     .OrderBy(ea => ea.Order)
                     .Select(ea => new BookAuthorDto(
                         ea.Author.Id,
@@ -89,8 +92,46 @@ public class BookService(IAppDbContext db)
                         ea.Role.ToString()
                     ))
                     .ToList()
-            ))
+            })
             .FirstOrDefaultAsync(ct);
+
+        if (result is null)
+            return null;
+
+        // Deserialize ToC from JSON
+        IReadOnlyList<TocEntryDto>? toc = null;
+        if (!string.IsNullOrEmpty(result.TocJson))
+        {
+            try
+            {
+                toc = JsonSerializer.Deserialize<List<TocEntryDto>>(result.TocJson, new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+            }
+            catch
+            {
+                // Ignore deserialization errors
+            }
+        }
+
+        return new BookDetailDto(
+            result.Id,
+            result.Slug,
+            result.Title,
+            result.Language,
+            result.Description,
+            result.CoverPath,
+            result.PublishedAt,
+            result.IsPublicDomain,
+            result.SeoTitle,
+            result.SeoDescription,
+            result.Work,
+            result.Chapters,
+            result.OtherEditions,
+            result.Authors,
+            toc
+        );
     }
 
     public async Task<string?> FindBookLanguageAsync(Guid siteId, string slug, CancellationToken ct)

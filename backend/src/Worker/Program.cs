@@ -1,4 +1,3 @@
-using System.Text;
 using Application;
 using Application.Common.Interfaces;
 using Infrastructure.Persistence;
@@ -7,15 +6,10 @@ using Infrastructure.Telemetry;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Npgsql;
-using TextStack.Extraction.Contracts;
 using TextStack.Extraction.Extractors;
-using TextStack.Extraction.Ocr;
 using TextStack.Extraction.Registry;
 using TextStack.Search;
 using Worker.Services;
-
-// Register legacy encodings (windows-1251 for FB2, etc.)
-Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -46,30 +40,8 @@ builder.Services.AddPostgresFtsProvider(
     _ => () => new NpgsqlConnection(connectionString),
     options => options.ConnectionString = connectionString);
 
-// Extraction options (OCR disabled by default)
-var extractionOptions = new ExtractionOptions
-{
-    EnableOcrFallback = builder.Configuration.GetValue("Extraction:EnableOcrFallback", false),
-    MaxPagesForOcr = builder.Configuration.GetValue("Extraction:MaxPagesForOcr", 50),
-    OcrLanguage = builder.Configuration.GetValue("Extraction:OcrLanguage", "eng") ?? "eng"
-};
-builder.Services.AddSingleton(extractionOptions);
-
-// OCR engine (optional, only created if OCR enabled)
-IOcrEngine? ocrEngine = null;
-if (extractionOptions.EnableOcrFallback)
-{
-    var tessDataPath = builder.Configuration.GetValue("Extraction:TessDataPath", "/usr/share/tessdata") ?? "/usr/share/tessdata";
-    ocrEngine = new TesseractOcrEngine(tessDataPath);
-    builder.Services.AddSingleton(ocrEngine);
-}
-
-// Extraction
+// Extraction (EPUB-only)
 builder.Services.AddSingleton<ITextExtractor, EpubTextExtractor>();
-builder.Services.AddSingleton<ITextExtractor, Fb2TextExtractor>();
-builder.Services.AddSingleton<ITextExtractor, TxtTextExtractor>();
-builder.Services.AddSingleton<ITextExtractor, MdTextExtractor>();
-builder.Services.AddSingleton<ITextExtractor>(new PdfTextExtractor(extractionOptions, ocrEngine));
 builder.Services.AddSingleton<IExtractorRegistry, ExtractorRegistry>();
 
 // Application services (for ISsgRouteProvider, etc.)
@@ -77,6 +49,7 @@ builder.Services.AddApplication();
 
 // Services
 builder.Services.AddSingleton<IngestionWorkerService>();
+builder.Services.AddSingleton<UserIngestionService>();
 builder.Services.AddHostedService<IngestionWorker>();
 
 // SEO Crawl

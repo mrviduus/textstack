@@ -1,4 +1,5 @@
 using TextStack.Extraction.Enums;
+using TextStack.Extraction.Toc;
 
 namespace TextStack.Extraction.Contracts;
 
@@ -7,7 +8,8 @@ public sealed record ExtractionResult(
     ExtractionMetadata Metadata,
     IReadOnlyList<ContentUnit> Units,
     IReadOnlyList<ExtractedImage> Images,
-    ExtractionDiagnostics Diagnostics
+    ExtractionDiagnostics Diagnostics,
+    IReadOnlyList<TocEntry>? Toc = null
 )
 {
     public static ExtractionResult Unsupported(string fileName) => new(
@@ -15,6 +17,7 @@ public sealed record ExtractionResult(
         new ExtractionMetadata(null, null, null, null),
         [],
         [],
-        ExtractionDiagnostics.Unsupported(fileName)
+        ExtractionDiagnostics.Unsupported(fileName),
+        null
     );
 }

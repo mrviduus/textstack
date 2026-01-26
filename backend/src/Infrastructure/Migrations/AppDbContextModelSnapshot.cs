@@ -477,6 +477,10 @@ namespace Infrastructure.Migrations
                         .HasColumnType("text")
                         .HasColumnName("title");
 
+                    b.Property<string>("TocJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("toc_json");
+
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
@@ -694,6 +698,59 @@ namespace Infrastructure.Migrations
                         .HasDatabaseName("ix_ingestion_jobs_work_id");
 
                     b.ToTable("ingestion_jobs", (string)null);
+                });
+
+            modelBuilder.Entity("Domain.Entities.LintResult", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int?>("ChapterNumber")
+                        .HasColumnType("integer")
+                        .HasColumnName("chapter_number");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasColumnName("code");
+
+                    b.Property<string>("Context")
+                        .HasColumnType("text")
+                        .HasColumnName("context");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("EditionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("edition_id");
+
+                    b.Property<int?>("LineNumber")
+                        .HasColumnType("integer")
+                        .HasColumnName("line_number");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("message");
+
+                    b.Property<string>("Severity")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("severity");
+
+                    b.HasKey("Id")
+                        .HasName("pk_lint_results");
+
+                    b.HasIndex("EditionId")
+                        .HasDatabaseName("ix_lint_results_edition_id");
+
+                    b.ToTable("lint_results", (string)null);
                 });
 
             modelBuilder.Entity("Domain.Entities.Note", b =>
@@ -1299,6 +1356,10 @@ namespace Infrastructure.Migrations
                         .HasColumnType("text")
                         .HasColumnName("picture");
 
+                    b.Property<long>("StorageUsedBytes")
+                        .HasColumnType("bigint")
+                        .HasColumnName("storage_used_bytes");
+
                     b.HasKey("Id")
                         .HasName("pk_users");
 
@@ -1311,6 +1372,250 @@ namespace Infrastructure.Migrations
                         .HasDatabaseName("ix_users_google_subject");
 
                     b.ToTable("users", (string)null);
+                });
+
+            modelBuilder.Entity("Domain.Entities.UserBook", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CoverPath")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("cover_path");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasColumnType("text")
+                        .HasColumnName("error_message");
+
+                    b.Property<string>("Language")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasColumnName("language");
+
+                    b.Property<string>("Slug")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("slug");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("title");
+
+                    b.Property<string>("TocJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("toc_json");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_user_books");
+
+                    b.HasIndex("Status")
+                        .HasDatabaseName("ix_user_books_status");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_user_books_user_id");
+
+                    b.HasIndex("UserId", "Slug")
+                        .IsUnique()
+                        .HasDatabaseName("ix_user_books_user_id_slug");
+
+                    b.ToTable("user_books", (string)null);
+                });
+
+            modelBuilder.Entity("Domain.Entities.UserBookFile", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<long>("FileSize")
+                        .HasColumnType("bigint")
+                        .HasColumnName("file_size");
+
+                    b.Property<int>("Format")
+                        .HasColumnType("integer")
+                        .HasColumnName("format");
+
+                    b.Property<string>("OriginalFileName")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("original_file_name");
+
+                    b.Property<string>("Sha256")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("sha256");
+
+                    b.Property<string>("StoragePath")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("storage_path");
+
+                    b.Property<DateTimeOffset>("UploadedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("uploaded_at");
+
+                    b.Property<Guid>("UserBookId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_book_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_user_book_files");
+
+                    b.HasIndex("Sha256")
+                        .HasDatabaseName("ix_user_book_files_sha256");
+
+                    b.HasIndex("UserBookId")
+                        .HasDatabaseName("ix_user_book_files_user_book_id");
+
+                    b.ToTable("user_book_files", (string)null);
+                });
+
+            modelBuilder.Entity("Domain.Entities.UserChapter", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("ChapterNumber")
+                        .HasColumnType("integer")
+                        .HasColumnName("chapter_number");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Html")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("html");
+
+                    b.Property<string>("PlainText")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("plain_text");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("title");
+
+                    b.Property<Guid>("UserBookId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_book_id");
+
+                    b.Property<int?>("WordCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("word_count");
+
+                    b.HasKey("Id")
+                        .HasName("pk_user_chapters");
+
+                    b.HasIndex("UserBookId")
+                        .HasDatabaseName("ix_user_chapters_user_book_id");
+
+                    b.HasIndex("UserBookId", "ChapterNumber")
+                        .IsUnique()
+                        .HasDatabaseName("ix_user_chapters_user_book_id_chapter_number");
+
+                    b.ToTable("user_chapters", (string)null);
+                });
+
+            modelBuilder.Entity("Domain.Entities.UserIngestionJob", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempt_count");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Error")
+                        .HasColumnType("text")
+                        .HasColumnName("error");
+
+                    b.Property<DateTimeOffset?>("FinishedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("finished_at");
+
+                    b.Property<string>("SourceFormat")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("source_format");
+
+                    b.Property<DateTimeOffset?>("StartedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("started_at");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.Property<int?>("UnitsCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("units_count");
+
+                    b.Property<Guid>("UserBookFileId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_book_file_id");
+
+                    b.Property<Guid>("UserBookId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_book_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_user_ingestion_jobs");
+
+                    b.HasIndex("CreatedAt")
+                        .HasDatabaseName("ix_user_ingestion_jobs_created_at");
+
+                    b.HasIndex("Status")
+                        .HasDatabaseName("ix_user_ingestion_jobs_status");
+
+                    b.HasIndex("UserBookFileId")
+                        .HasDatabaseName("ix_user_ingestion_jobs_user_book_file_id");
+
+                    b.HasIndex("UserBookId")
+                        .HasDatabaseName("ix_user_ingestion_jobs_user_book_id");
+
+                    b.ToTable("user_ingestion_jobs", (string)null);
                 });
 
             modelBuilder.Entity("Domain.Entities.UserLibrary", b =>
@@ -1635,6 +1940,18 @@ namespace Infrastructure.Migrations
                     b.Navigation("Work");
                 });
 
+            modelBuilder.Entity("Domain.Entities.LintResult", b =>
+                {
+                    b.HasOne("Domain.Entities.Edition", "Edition")
+                        .WithMany()
+                        .HasForeignKey("EditionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_lint_results_editions_edition_id");
+
+                    b.Navigation("Edition");
+                });
+
             modelBuilder.Entity("Domain.Entities.Note", b =>
                 {
                     b.HasOne("Domain.Entities.Chapter", "Chapter")
@@ -1794,6 +2111,63 @@ namespace Infrastructure.Migrations
                     b.Navigation("Site");
                 });
 
+            modelBuilder.Entity("Domain.Entities.UserBook", b =>
+                {
+                    b.HasOne("Domain.Entities.User", "User")
+                        .WithMany("UserBooks")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_user_books_users_user_id");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Domain.Entities.UserBookFile", b =>
+                {
+                    b.HasOne("Domain.Entities.UserBook", "UserBook")
+                        .WithMany("BookFiles")
+                        .HasForeignKey("UserBookId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_user_book_files_user_books_user_book_id");
+
+                    b.Navigation("UserBook");
+                });
+
+            modelBuilder.Entity("Domain.Entities.UserChapter", b =>
+                {
+                    b.HasOne("Domain.Entities.UserBook", "UserBook")
+                        .WithMany("Chapters")
+                        .HasForeignKey("UserBookId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_user_chapters_user_books_user_book_id");
+
+                    b.Navigation("UserBook");
+                });
+
+            modelBuilder.Entity("Domain.Entities.UserIngestionJob", b =>
+                {
+                    b.HasOne("Domain.Entities.UserBookFile", "UserBookFile")
+                        .WithMany()
+                        .HasForeignKey("UserBookFileId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_user_ingestion_jobs_user_book_files_user_book_file_id");
+
+                    b.HasOne("Domain.Entities.UserBook", "UserBook")
+                        .WithMany("IngestionJobs")
+                        .HasForeignKey("UserBookId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_user_ingestion_jobs_user_books_user_book_id");
+
+                    b.Navigation("UserBook");
+
+                    b.Navigation("UserBookFile");
+                });
+
             modelBuilder.Entity("Domain.Entities.UserLibrary", b =>
                 {
                     b.HasOne("Domain.Entities.Edition", "Edition")
@@ -1920,7 +2294,18 @@ namespace Infrastructure.Migrations
 
                     b.Navigation("ReadingProgresses");
 
+                    b.Navigation("UserBooks");
+
                     b.Navigation("UserLibraries");
+                });
+
+            modelBuilder.Entity("Domain.Entities.UserBook", b =>
+                {
+                    b.Navigation("BookFiles");
+
+                    b.Navigation("Chapters");
+
+                    b.Navigation("IngestionJobs");
                 });
 
             modelBuilder.Entity("Domain.Entities.Work", b =>

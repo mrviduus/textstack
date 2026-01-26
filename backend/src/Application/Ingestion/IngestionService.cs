@@ -59,13 +59,17 @@ public class IngestionService(IAppDbContext db, IFileStorageService storage)
     }
 
     public async Task ProcessParsedBookAsync(
-        IngestionJob job, ParsedBook parsed, ExtractionSummary? summary, CancellationToken ct)
+        IngestionJob job, ParsedBook parsed, ExtractionSummary? summary, string? tocJson, CancellationToken ct)
     {
         // Update edition metadata if empty
         if (string.IsNullOrEmpty(job.Edition.Description) && !string.IsNullOrEmpty(parsed.Description))
             job.Edition.Description = parsed.Description;
 
         // Note: parsed.Authors could be used to auto-create Author records in the future
+
+        // Store table of contents
+        if (!string.IsNullOrEmpty(tocJson))
+            job.Edition.TocJson = tocJson;
 
         job.Edition.UpdatedAt = DateTimeOffset.UtcNow;
 

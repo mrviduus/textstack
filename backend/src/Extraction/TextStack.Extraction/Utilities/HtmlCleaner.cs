@@ -1,6 +1,8 @@
 using System.Text;
 using System.Text.RegularExpressions;
 using HtmlAgilityPack;
+using TextStack.Extraction.Clean;
+using TextStack.Extraction.Typography;
 
 namespace TextStack.Extraction.Utilities;
 
@@ -11,6 +13,15 @@ public static partial class HtmlCleaner
 
     public static (string Html, string PlainText) CleanHtml(string html)
     {
+        // 1. NFC normalize
+        html = html.Normalize(NormalizationForm.FormC);
+
+        // 2. Whitespace normalization (collapse spaces, normalize line breaks)
+        html = WhitespaceNormalizer.Normalize(html);
+
+        // 3. Entity normalization (decode entities, fix double-encoding)
+        html = EntityNormalizer.Normalize(html);
+
         var doc = new HtmlDocument();
         doc.LoadHtml(html);
 
@@ -23,6 +34,16 @@ public static partial class HtmlCleaner
         RemoveDangerousAttributes(content);
 
         var cleanHtml = content.InnerHtml.Trim();
+
+        // 4. Remove empty tags
+        cleanHtml = EmptyTagRemover.Remove(cleanHtml);
+
+        // 5. Typography processing (smart quotes, dashes, ellipses, fractions)
+        cleanHtml = TypographyProcessor.Typogrify(cleanHtml);
+
+        // 6. Semantic processing (abbreviations, roman numerals, measurements)
+        cleanHtml = SemanticProcessor.Semanticate(cleanHtml);
+
         var plainText = ExtractPlainText(content);
 
         return (cleanHtml, plainText);
