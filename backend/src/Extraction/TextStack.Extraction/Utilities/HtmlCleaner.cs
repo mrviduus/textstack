@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using HtmlAgilityPack;
 using TextStack.Extraction.Clean;
+using TextStack.Extraction.Spelling;
 using TextStack.Extraction.Typography;
 
 namespace TextStack.Extraction.Utilities;
@@ -38,10 +39,14 @@ public static partial class HtmlCleaner
         // 4. Remove empty tags
         cleanHtml = EmptyTagRemover.Remove(cleanHtml);
 
-        // 5. Typography processing (smart quotes, dashes, ellipses, fractions)
+        // 5. Spelling modernization (archaic → modern spellings)
+        cleanHtml = SpellingProcessor.ModernizeSpelling(cleanHtml);
+        cleanHtml = HyphenationModernizer.ModernizeHyphenation(cleanHtml);
+
+        // 6. Typography processing (smart quotes, dashes, ellipses, fractions)
         cleanHtml = TypographyProcessor.Typogrify(cleanHtml);
 
-        // 6. Semantic processing (abbreviations, roman numerals, measurements)
+        // 7. Semantic processing (abbreviations, roman numerals, measurements)
         cleanHtml = SemanticProcessor.Semanticate(cleanHtml);
 
         var plainText = ExtractPlainText(content);

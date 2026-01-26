@@ -13,10 +13,20 @@ public class Linter
     {
         _rules =
         [
+            // Typography rules
             new StraightQuotesRule(),
             new WrongDashRule(),
             new MultipleSpacesRule(),
-            new EmptyTagRule()
+
+            // Markup rules
+            new EmptyTagRule(),
+
+            // Encoding rules
+            new MojibakeRule(),
+            new UnusualCharacterRule(),
+
+            // Spelling rules
+            new ArchaicSpellingRule()
         ];
     }
 

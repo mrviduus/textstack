@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using TextStack.Extraction.Semantic;
 
 namespace TextStack.Extraction.Typography;
 
@@ -133,6 +134,9 @@ public static partial class SemanticProcessor
         // 20. Add "eoc" class for end-of-clause abbreviations
         html = EocEtcRegex().Replace(html, "<abbr class=\"eoc\">etc.</abbr>$1");
         html = EocGeneralRegex().Replace(html, "<abbr class=\"eoc\"$1>$2</abbr>$3");
+
+        // 21. Extended abbreviations (Jr., Sr., et al., ibid., etc.)
+        html = Abbreviations.MarkupExtendedAbbreviations(html);
 
         return html;
     }
