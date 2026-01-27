@@ -8,6 +8,7 @@ export interface UserBook {
   description: string | null
   coverPath: string | null
   status: 'Processing' | 'Ready' | 'Failed'
+  errorMessage: string | null
   chapterCount: number
   createdAt: string
 }
@@ -138,6 +139,10 @@ export async function getUserBookChapter(bookId: string, chapterNumber: number):
 
 export async function deleteUserBook(id: string): Promise<void> {
   await authFetch<void>(`/me/books/${id}`, { method: 'DELETE' })
+}
+
+export async function retryUserBook(id: string): Promise<void> {
+  await authFetch<void>(`/me/books/${id}/retry`, { method: 'POST' })
 }
 
 export async function getStorageQuota(): Promise<StorageQuota> {

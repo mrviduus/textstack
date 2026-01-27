@@ -8,6 +8,7 @@ public record UserBookListDto(
     string? Description,
     string? CoverPath,
     string Status,
+    string? ErrorMessage,
     int ChapterCount,
     DateTimeOffset CreatedAt
 );

@@ -21,6 +21,7 @@ public static class UserBooksEndpoints
         group.MapGet("/{id:guid}", GetBook).WithName("GetUserBook");
         group.MapGet("/{id:guid}/chapters/{chapterNumber:int}", GetChapter).WithName("GetUserBookChapter");
         group.MapGet("/{id:guid}/assets/{assetId:guid}", GetAsset).WithName("GetUserBookAsset");
+        group.MapPost("/{id:guid}/retry", RetryBook).WithName("RetryUserBook");
         group.MapDelete("/{id:guid}", DeleteBook).WithName("DeleteUserBook");
     }
 
@@ -158,6 +159,23 @@ public static class UserBooksEndpoints
             return Results.NotFound();
 
         return Results.File(stream, contentType);
+    }
+
+    private static async Task<IResult> RetryBook(
+        Guid id,
+        HttpContext httpContext,
+        AuthService authService,
+        UserBookService userBookService,
+        CancellationToken ct)
+    {
+        var userId = GetUserId(httpContext, authService);
+        if (userId == null) return Results.Unauthorized();
+
+        var (success, error) = await userBookService.RetryAsync(userId.Value, id, ct);
+        if (!success)
+            return Results.BadRequest(new { error });
+
+        return Results.Ok(new { status = "Processing" });
     }
 
     private static async Task<IResult> DeleteBook(

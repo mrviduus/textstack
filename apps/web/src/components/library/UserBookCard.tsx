@@ -1,18 +1,20 @@
 import { useState, useRef, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { deleteUserBook, getUserBookCoverUrl, type UserBook } from '../../api/userBooks'
+import { deleteUserBook, retryUserBook, getUserBookCoverUrl, type UserBook } from '../../api/userBooks'
 import { stringToColor } from '../../utils/colors'
 import { useLanguage } from '../../context/LanguageContext'
 
 interface UserBookCardProps {
   book: UserBook
   onDelete: () => void
+  onRetry?: () => void
 }
 
-export function UserBookCard({ book, onDelete }: UserBookCardProps) {
+export function UserBookCard({ book, onDelete, onRetry }: UserBookCardProps) {
   const { language } = useLanguage()
   const [menuOpen, setMenuOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [retrying, setRetrying] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
 
   // Close menu on click outside
@@ -37,6 +39,20 @@ export function UserBookCard({ book, onDelete }: UserBookCardProps) {
       console.error('Failed to delete book:', err)
     } finally {
       setDeleting(false)
+      setMenuOpen(false)
+    }
+  }
+
+  const handleRetry = async () => {
+    if (retrying) return
+    setRetrying(true)
+    try {
+      await retryUserBook(book.id)
+      onRetry?.()
+    } catch (err) {
+      console.error('Failed to retry book:', err)
+    } finally {
+      setRetrying(false)
       setMenuOpen(false)
     }
   }
@@ -74,6 +90,9 @@ export function UserBookCard({ book, onDelete }: UserBookCardProps) {
 
         {isFailed && (
           <div className="user-book-card__status user-book-card__status--failed">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+            </svg>
             Failed
           </div>
         )}
@@ -91,6 +110,13 @@ export function UserBookCard({ book, onDelete }: UserBookCardProps) {
           <div className="user-book-card__meta">
             {isReady && book.chapterCount > 0 && (
               <span>{book.chapterCount} chapters</span>
+            )}
+            {isFailed && book.errorMessage && (
+              <span className="user-book-card__error" title={book.errorMessage}>
+                {book.errorMessage.length > 40
+                  ? book.errorMessage.slice(0, 40) + '...'
+                  : book.errorMessage}
+              </span>
             )}
           </div>
         </div>
@@ -125,6 +151,21 @@ export function UserBookCard({ book, onDelete }: UserBookCardProps) {
                   </svg>
                   View details
                 </Link>
+              )}
+
+              {isFailed && (
+                <button
+                  className="user-book-card__item"
+                  onClick={handleRetry}
+                  disabled={retrying}
+                  role="menuitem"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M23 4v6h-6M1 20v-6h6" />
+                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                  </svg>
+                  {retrying ? 'Retrying...' : 'Retry'}
+                </button>
               )}
 
               <button

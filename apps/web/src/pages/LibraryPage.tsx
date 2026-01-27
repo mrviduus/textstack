@@ -218,6 +218,7 @@ export function LibraryPage() {
                   key={book.id}
                   book={book}
                   onDelete={fetchUserBooks}
+                  onRetry={fetchUserBooks}
                 />
               ))}
             </div>

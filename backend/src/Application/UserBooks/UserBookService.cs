@@ -110,6 +110,7 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage)
                 b.Description,
                 b.CoverPath,
                 b.Status,
+                b.ErrorMessage,
                 ChapterCount = b.Chapters.Count,
                 b.CreatedAt
             })
@@ -123,6 +124,7 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage)
             b.Description,
             b.CoverPath,
             b.Status.ToString(),
+            b.ErrorMessage,
             b.ChapterCount,
             b.CreatedAt
         )).ToList();
@@ -245,6 +247,43 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage)
 
         // Delete from database (cascade will handle related entities)
         db.UserBooks.Remove(book);
+        await db.SaveChangesAsync(ct);
+
+        return (true, null);
+    }
+
+    public async Task<(bool Success, string? Error)> RetryAsync(Guid userId, Guid bookId, CancellationToken ct)
+    {
+        var book = await db.UserBooks
+            .Include(b => b.BookFiles)
+            .FirstOrDefaultAsync(b => b.UserId == userId && b.Id == bookId, ct);
+
+        if (book is null)
+            return (false, "Book not found");
+
+        if (book.Status != UserBookStatus.Failed)
+            return (false, "Only failed books can be retried");
+
+        var bookFile = book.BookFiles.FirstOrDefault();
+        if (bookFile is null)
+            return (false, "No source file found");
+
+        // Create new ingestion job
+        var job = new UserIngestionJob
+        {
+            Id = Guid.NewGuid(),
+            UserBookId = bookId,
+            UserBookFileId = bookFile.Id,
+            Status = JobStatus.Queued,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+
+        // Reset book status
+        book.Status = UserBookStatus.Processing;
+        book.ErrorMessage = null;
+        book.UpdatedAt = DateTimeOffset.UtcNow;
+
+        db.UserIngestionJobs.Add(job);
         await db.SaveChangesAsync(ct);
 
         return (true, null);

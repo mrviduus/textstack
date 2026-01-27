@@ -2502,6 +2502,21 @@
   color: #dc2626;
 }
 
+.user-book-card__error {
+  color: #dc2626;
+  font-size: 11px;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-book-card__status--failed {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 /* =============================================
    User Book Detail Page
    ============================================= */
