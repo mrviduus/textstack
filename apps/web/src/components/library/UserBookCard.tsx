@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { deleteUserBook, retryUserBook, getUserBookCoverUrl, type UserBook } from '../../api/userBooks'
+import { deleteUserBook, retryUserBook, cancelUserBook, getUserBookCoverUrl, type UserBook } from '../../api/userBooks'
 import { stringToColor } from '../../utils/colors'
 import { useLanguage } from '../../context/LanguageContext'
 
@@ -8,14 +8,39 @@ interface UserBookCardProps {
   book: UserBook
   onDelete: () => void
   onRetry?: () => void
+  onCancel?: () => void
 }
 
-export function UserBookCard({ book, onDelete, onRetry }: UserBookCardProps) {
+function formatElapsed(seconds: number): string {
+  const mins = Math.floor(seconds / 60)
+  const secs = seconds % 60
+  return `${mins}:${secs.toString().padStart(2, '0')}`
+}
+
+export function UserBookCard({ book, onDelete, onRetry, onCancel }: UserBookCardProps) {
   const { language } = useLanguage()
   const [menuOpen, setMenuOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [retrying, setRetrying] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
+  const [elapsed, setElapsed] = useState(0)
   const menuRef = useRef<HTMLDivElement>(null)
+
+  const isProcessing = book.status === 'Processing'
+
+  // Track elapsed time for processing books
+  useEffect(() => {
+    if (!isProcessing) return
+
+    const startTime = new Date(book.createdAt).getTime()
+    const updateElapsed = () => {
+      setElapsed(Math.floor((Date.now() - startTime) / 1000))
+    }
+
+    updateElapsed()
+    const timer = setInterval(updateElapsed, 1000)
+    return () => clearInterval(timer)
+  }, [isProcessing, book.createdAt])
 
   // Close menu on click outside
   useEffect(() => {
@@ -57,9 +82,23 @@ export function UserBookCard({ book, onDelete, onRetry }: UserBookCardProps) {
     }
   }
 
+  const handleCancel = async () => {
+    if (cancelling) return
+    setCancelling(true)
+    try {
+      await cancelUserBook(book.id)
+      onCancel?.()
+    } catch (err) {
+      console.error('Failed to cancel book:', err)
+    } finally {
+      setCancelling(false)
+      setMenuOpen(false)
+    }
+  }
+
   const isReady = book.status === 'Ready'
-  const isProcessing = book.status === 'Processing'
   const isFailed = book.status === 'Failed'
+  const isStuck = isProcessing && elapsed > 180 // 3 minutes
 
   const destination = isReady ? `/${language}/library/my/${book.id}` : '#'
 
@@ -82,9 +121,10 @@ export function UserBookCard({ book, onDelete, onRetry }: UserBookCardProps) {
         )}
 
         {isProcessing && (
-          <div className="user-book-card__status user-book-card__status--processing">
+          <div className={`user-book-card__status user-book-card__status--processing${isStuck ? ' user-book-card__status--stuck' : ''}`}>
             <span className="user-book-card__spinner" />
-            Processing...
+            Processing... {formatElapsed(elapsed)}
+            {isStuck && <span className="user-book-card__stuck-warning">Possible issue</span>}
           </div>
         )}
 
@@ -165,6 +205,21 @@ export function UserBookCard({ book, onDelete, onRetry }: UserBookCardProps) {
                     <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
                   </svg>
                   {retrying ? 'Retrying...' : 'Retry'}
+                </button>
+              )}
+
+              {isProcessing && (
+                <button
+                  className="user-book-card__item user-book-card__item--danger"
+                  onClick={handleCancel}
+                  disabled={cancelling}
+                  role="menuitem"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="10" />
+                    <path d="M15 9l-6 6M9 9l6 6" />
+                  </svg>
+                  {cancelling ? 'Cancelling...' : 'Cancel'}
                 </button>
               )}
 

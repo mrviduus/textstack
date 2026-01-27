@@ -1,3 +1,5 @@
+import { refreshToken } from './auth'
+
 const API_BASE = import.meta.env.VITE_API_URL ?? ''
 
 export interface UserBook {
@@ -63,13 +65,22 @@ export interface StorageQuota {
   usedPercent: number
 }
 
-async function authFetch<T>(path: string, options?: RequestInit): Promise<T> {
+async function authFetch<T>(path: string, options?: RequestInit, retry = true): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
     credentials: 'include',
   })
 
   if (!res.ok) {
+    if (res.status === 401 && retry) {
+      // Try refresh token and retry once
+      try {
+        await refreshToken()
+        return authFetch<T>(path, options, false)
+      } catch {
+        throw new Error('Unauthorized')
+      }
+    }
     if (res.status === 401) throw new Error('Unauthorized')
     const text = await res.text()
     let error = `API error: ${res.status}`
@@ -143,6 +154,10 @@ export async function deleteUserBook(id: string): Promise<void> {
 
 export async function retryUserBook(id: string): Promise<void> {
   await authFetch<void>(`/me/books/${id}/retry`, { method: 'POST' })
+}
+
+export async function cancelUserBook(id: string): Promise<void> {
+  await authFetch<void>(`/me/books/${id}/cancel`, { method: 'POST' })
 }
 
 export async function getStorageQuota(): Promise<StorageQuota> {

@@ -252,6 +252,34 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage)
         return (true, null);
     }
 
+    public async Task<(bool Success, string? Error)> CancelAsync(Guid userId, Guid bookId, CancellationToken ct)
+    {
+        var book = await db.UserBooks.FirstOrDefaultAsync(b => b.UserId == userId && b.Id == bookId, ct);
+        if (book is null)
+            return (false, "Book not found");
+
+        if (book.Status != UserBookStatus.Processing)
+            return (false, "Only processing books can be cancelled");
+
+        // Cancel any active job
+        var job = await db.UserIngestionJobs
+            .Where(j => j.UserBookId == bookId && (j.Status == JobStatus.Queued || j.Status == JobStatus.Processing))
+            .FirstOrDefaultAsync(ct);
+        if (job is not null)
+        {
+            job.Status = JobStatus.Failed;
+            job.Error = "Cancelled by user";
+            job.FinishedAt = DateTimeOffset.UtcNow;
+        }
+
+        book.Status = UserBookStatus.Failed;
+        book.ErrorMessage = "Cancelled by user";
+        book.UpdatedAt = DateTimeOffset.UtcNow;
+
+        await db.SaveChangesAsync(ct);
+        return (true, null);
+    }
+
     public async Task<(bool Success, string? Error)> RetryAsync(Guid userId, Guid bookId, CancellationToken ct)
     {
         var book = await db.UserBooks

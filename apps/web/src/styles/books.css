@@ -2517,6 +2517,24 @@
   gap: 6px;
 }
 
+.user-book-card__status--stuck {
+  background: rgba(239, 68, 68, 0.9) !important;
+  animation: status-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.user-book-card__stuck-warning {
+  margin-left: auto;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  opacity: 0.9;
+}
+
 /* =============================================
    User Book Detail Page
    ============================================= */

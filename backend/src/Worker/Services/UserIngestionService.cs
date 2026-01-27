@@ -31,7 +31,7 @@ public class UserIngestionService
         _logger = logger;
     }
 
-    private static readonly TimeSpan StuckJobTimeout = TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan StuckJobTimeout = TimeSpan.FromMinutes(5);
 
     public async Task<UserIngestionJob?> GetNextJobAsync(CancellationToken ct)
     {
