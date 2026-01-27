@@ -6,7 +6,7 @@ namespace TextStack.Extraction.Typography;
 /// Extended fraction handling with Unicode characters.
 /// Ported from Standard Ebooks typography.py.
 /// </summary>
-public static partial class Fractions
+public static class Fractions
 {
     // Complete Unicode fraction mappings
     private static readonly Dictionary<string, string> FractionMap = new()
@@ -127,6 +127,6 @@ public static partial class Fractions
     public static IEnumerable<string> GetUnicodeFractions() => FractionMap.Values;
 
     // Remove space between whole number and Unicode fraction
-    [GeneratedRegex(@"(\d)\s+([\u00BC\u00BD\u00BE\u2150-\u215E\u2189])")]
-    private static partial Regex NumberFractionRegex();
+    private static readonly Regex NumberFractionRegexInstance = new(@"(\d)\s+([\u00BC\u00BD\u00BE\u2150-\u215E\u2189])", RegexOptions.Compiled);
+    private static Regex NumberFractionRegex() => NumberFractionRegexInstance;
 }

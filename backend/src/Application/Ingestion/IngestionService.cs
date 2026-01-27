@@ -31,10 +31,16 @@ public record ExtractionWarningDto(int Code, string Message);
 
 public class IngestionService(IAppDbContext db, IFileStorageService storage)
 {
+    private static readonly TimeSpan StuckJobTimeout = TimeSpan.FromMinutes(10);
+
     public async Task<IngestionJob?> GetNextJobAsync(CancellationToken ct)
     {
+        var stuckThreshold = DateTimeOffset.UtcNow - StuckJobTimeout;
+
+        // Pick up queued jobs or stuck InProgress jobs (crashed worker)
         return await db.IngestionJobs
-            .Where(j => j.Status == JobStatus.Queued)
+            .Where(j => j.Status == JobStatus.Queued ||
+                        (j.Status == JobStatus.Processing && j.StartedAt < stuckThreshold))
             .OrderBy(j => j.CreatedAt)
             .FirstOrDefaultAsync(ct);
     }

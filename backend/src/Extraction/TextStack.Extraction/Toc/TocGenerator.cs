@@ -7,7 +7,7 @@ namespace TextStack.Extraction.Toc;
 /// Generates hierarchical table of contents from HTML headings.
 /// Injects anchor IDs into headings for navigation.
 /// </summary>
-public static partial class TocGenerator
+public static class TocGenerator
 {
     /// <summary>
     /// Generate ToC entries from a list of chapters.
@@ -179,12 +179,12 @@ public static partial class TocGenerator
         return text;
     }
 
-    [GeneratedRegex(@"\s+")]
-    private static partial Regex WhitespaceRegex();
+    private static readonly Regex WhitespaceRegexInstance = new(@"\s+", RegexOptions.Compiled);
+    private static Regex WhitespaceRegex() => WhitespaceRegexInstance;
 
-    [GeneratedRegex(@"[^a-z0-9\-]")]
-    private static partial Regex SlugCleanRegex();
+    private static readonly Regex SlugCleanRegexInstance = new(@"[^a-z0-9\-]", RegexOptions.Compiled);
+    private static Regex SlugCleanRegex() => SlugCleanRegexInstance;
 
-    [GeneratedRegex(@"-{2,}")]
-    private static partial Regex MultipleHyphensRegex();
+    private static readonly Regex MultipleHyphensRegexInstance = new(@"-{2,}", RegexOptions.Compiled);
+    private static Regex MultipleHyphensRegex() => MultipleHyphensRegexInstance;
 }
