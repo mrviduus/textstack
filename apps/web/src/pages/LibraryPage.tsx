@@ -7,7 +7,10 @@ import { LocalizedLink } from '../components/LocalizedLink'
 import { SeoHead } from '../components/SeoHead'
 import { OfflineBadge } from '../components/OfflineBadge'
 import { BookCardMenu } from '../components/library/BookCardMenu'
+import { UploadSection } from '../components/library/UploadSection'
+import { UserBookCard } from '../components/library/UserBookCard'
 import { getStorageUrl } from '../api/client'
+import { getUserBooks, type UserBook } from '../api/userBooks'
 import { stringToColor } from '../utils/colors'
 import { getAllProgress, ReadingProgressDto, markAsRead, markAsUnread } from '../api/auth'
 
@@ -16,6 +19,36 @@ export function LibraryPage() {
   const { items, loading, remove } = useLibrary()
   const api = useApi()
   const [progressMap, setProgressMap] = useState<Record<string, ReadingProgressDto>>({})
+  const [activeTab, setActiveTab] = useState<'saved' | 'uploads'>('saved')
+  const [userBooks, setUserBooks] = useState<UserBook[]>([])
+  const [userBooksLoading, setUserBooksLoading] = useState(false)
+
+  // Fetch user books
+  const fetchUserBooks = useCallback(async () => {
+    if (!isAuthenticated) return
+    setUserBooksLoading(true)
+    try {
+      const books = await getUserBooks()
+      setUserBooks(books)
+    } catch {
+      // Ignore errors
+    } finally {
+      setUserBooksLoading(false)
+    }
+  }, [isAuthenticated])
+
+  useEffect(() => {
+    fetchUserBooks()
+  }, [fetchUserBooks])
+
+  // Auto-refresh processing books
+  useEffect(() => {
+    const processingBooks = userBooks.filter(b => b.status === 'Processing')
+    if (processingBooks.length === 0) return
+
+    const interval = setInterval(fetchUserBooks, 5000)
+    return () => clearInterval(interval)
+  }, [userBooks, fetchUserBooks])
 
   // Mark book as read (fetch first chapter, set 100%)
   const handleMarkRead = useCallback(async (editionId: string, slug: string) => {
@@ -77,71 +110,120 @@ export function LibraryPage() {
         {user && <p className="library-page__user">{user.email}</p>}
       </div>
 
-      {loading ? (
-        <div className="library-page__loading">Loading...</div>
-      ) : items.length === 0 ? (
-        <div className="library-page__empty">
-          <p>Your library is empty.</p>
-          <LocalizedLink to="/books" className="library-page__browse-btn" title="Browse all books">
-            Browse Books
-          </LocalizedLink>
-        </div>
-      ) : (
-        <div className="library-page__grid">
-          {items.map((item) => {
-            const progress = progressMap[item.editionId]
-            const percent = progress?.percent ?? 0
-            const destination = progress?.chapterSlug
-              ? `/${item.language}/books/${item.slug}/${progress.chapterSlug}`
-              : `/${item.language}/books/${item.slug}`
-            return (
-              <div key={item.editionId} className="library-card">
-                <Link to={destination} className="library-card__cover" title={`Read ${item.title} online`}>
-                  {item.coverPath ? (
-                    <img src={getStorageUrl(item.coverPath)} alt={item.title} title={`${item.title} - Read online free`} />
-                  ) : (
-                    <div
-                      className="library-card__cover-placeholder"
-                      style={{ backgroundColor: stringToColor(item.title) }}
-                    >
-                      {item.title?.[0] || '?'}
-                    </div>
-                  )}
-                  {percent > 0 && (
-                    <div className="library-card__progress-bar">
-                      <div
-                        className="library-card__progress-fill"
-                        style={{ width: `${Math.round(percent * 100)}%` }}
+      <div className="library-page__tabs">
+        <button
+          className={`library-page__tab ${activeTab === 'saved' ? 'library-page__tab--active' : ''}`}
+          onClick={() => setActiveTab('saved')}
+        >
+          Saved Books
+          {items.length > 0 && <span className="library-page__tab-count">{items.length}</span>}
+        </button>
+        <button
+          className={`library-page__tab ${activeTab === 'uploads' ? 'library-page__tab--active' : ''}`}
+          onClick={() => setActiveTab('uploads')}
+        >
+          My Uploads
+          {userBooks.length > 0 && <span className="library-page__tab-count">{userBooks.length}</span>}
+        </button>
+      </div>
+
+      {activeTab === 'saved' && (
+        <>
+          {loading ? (
+            <div className="library-page__loading">Loading...</div>
+          ) : items.length === 0 ? (
+            <div className="library-page__empty">
+              <p>Your library is empty.</p>
+              <LocalizedLink to="/books" className="library-page__browse-btn" title="Browse all books">
+                Browse Books
+              </LocalizedLink>
+            </div>
+          ) : (
+            <div className="library-page__grid">
+              {items.map((item) => {
+                const progress = progressMap[item.editionId]
+                const percent = progress?.percent ?? 0
+                const destination = progress?.chapterSlug
+                  ? `/${item.language}/books/${item.slug}/${progress.chapterSlug}`
+                  : `/${item.language}/books/${item.slug}`
+                return (
+                  <div key={item.editionId} className="library-card">
+                    <Link to={destination} className="library-card__cover" title={`Read ${item.title} online`}>
+                      {item.coverPath ? (
+                        <img src={getStorageUrl(item.coverPath)} alt={item.title} title={`${item.title} - Read online free`} />
+                      ) : (
+                        <div
+                          className="library-card__cover-placeholder"
+                          style={{ backgroundColor: stringToColor(item.title) }}
+                        >
+                          {item.title?.[0] || '?'}
+                        </div>
+                      )}
+                      {percent > 0 && (
+                        <div className="library-card__progress-bar">
+                          <div
+                            className="library-card__progress-fill"
+                            style={{ width: `${Math.round(percent * 100)}%` }}
+                          />
+                        </div>
+                      )}
+                    </Link>
+                    <div className="library-card__info">
+                      <div className="library-card__text">
+                        <Link to={destination} className="library-card__title" title={`Read ${item.title} online`}>
+                          {item.title}
+                        </Link>
+                        <div className="library-card__meta">
+                          {percent > 0 && (
+                            <span className="library-card__progress-text">
+                              {Math.round(percent * 100)}% read
+                            </span>
+                          )}
+                          <OfflineBadge editionId={item.editionId} />
+                        </div>
+                      </div>
+                      <BookCardMenu
+                        book={item}
+                        isRead={percent >= 1}
+                        onRemove={() => remove(item.editionId)}
+                        onMarkRead={() => handleMarkRead(item.editionId, item.slug)}
+                        onMarkUnread={() => handleMarkUnread(item.editionId, item.slug)}
                       />
                     </div>
-                  )}
-                </Link>
-                <div className="library-card__info">
-                  <div className="library-card__text">
-                    <Link to={destination} className="library-card__title" title={`Read ${item.title} online`}>
-                      {item.title}
-                    </Link>
-                    <div className="library-card__meta">
-                      {percent > 0 && (
-                        <span className="library-card__progress-text">
-                          {Math.round(percent * 100)}% read
-                        </span>
-                      )}
-                      <OfflineBadge editionId={item.editionId} />
-                    </div>
                   </div>
-                  <BookCardMenu
-                    book={item}
-                    isRead={percent >= 1}
-                    onRemove={() => remove(item.editionId)}
-                    onMarkRead={() => handleMarkRead(item.editionId, item.slug)}
-                    onMarkUnread={() => handleMarkUnread(item.editionId, item.slug)}
-                  />
-                </div>
-              </div>
-            )
-          })}
-        </div>
+                )
+              })}
+            </div>
+          )}
+        </>
+      )}
+
+      {activeTab === 'uploads' && (
+        <>
+          <UploadSection onUploadComplete={fetchUserBooks} />
+
+          {userBooksLoading && userBooks.length === 0 ? (
+            <div className="library-page__loading">Loading...</div>
+          ) : userBooks.length === 0 ? (
+            <div className="library-page__empty">
+              <p>No uploaded books yet.</p>
+              <p className="library-page__empty-hint">
+                Upload EPUB files to read them here.
+              </p>
+            </div>
+          ) : (
+            <div className="library-page__grid">
+              {userBooks.map((book) => (
+                <UserBookCard
+                  key={book.id}
+                  book={book}
+                  onDelete={fetchUserBooks}
+                  onRetry={fetchUserBooks}
+                />
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   )

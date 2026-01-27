@@ -48,7 +48,8 @@ make restore FILE=path.gz   # Restore from backup
 make backup-list            # List backups
 
 # Setup
-make nginx-setup            # Install nginx config (one-time)
+make nginx-setup            # Install nginx config (Linux)
+make nginx-setup-mac        # Install nginx config (Mac)
 
 # Tests
 dotnet test                 # All tests
@@ -115,6 +116,7 @@ Upload EPUB/PDF/FB2 → BookFile (stored) → IngestionJob (queued)
 | Domain | `backend/src/Domain/Entities/` |
 | API | `backend/src/Api/Endpoints/` |
 | Worker | `backend/src/Worker/Services/IngestionWorkerService.cs` |
+| Extraction | `backend/src/Extraction/` (EPUB/PDF/FB2 parsers) |
 | Search | `backend/src/Search/` |
 | Web Pages | `apps/web/src/pages/` |
 | Reader | `apps/web/src/pages/ReaderPage.tsx` |

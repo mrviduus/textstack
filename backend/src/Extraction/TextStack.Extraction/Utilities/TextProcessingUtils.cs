@@ -5,7 +5,7 @@ namespace TextStack.Extraction.Utilities;
 /// <summary>
 /// Shared text processing utilities used by all text extractors.
 /// </summary>
-public static partial class TextProcessingUtils
+public static class TextProcessingUtils
 {
     /// <summary>
     /// Normalizes text by converting line endings to LF, trimming trailing whitespace,
@@ -69,6 +69,6 @@ public static partial class TextProcessingUtils
         return string.IsNullOrWhiteSpace(name) ? null : name;
     }
 
-    [GeneratedRegex(@"\n{3,}")]
-    private static partial Regex MultipleNewlinesRegex();
+    private static readonly Regex MultipleNewlinesRegexInstance = new(@"\n{3,}", RegexOptions.Compiled);
+    private static Regex MultipleNewlinesRegex() => MultipleNewlinesRegexInstance;
 }

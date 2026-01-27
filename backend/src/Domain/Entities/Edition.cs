@@ -25,6 +25,9 @@ public class Edition
     public string? SeoDescription { get; set; }
     public string? CanonicalOverride { get; set; }
 
+    // Table of contents (JSON)
+    public string? TocJson { get; set; }
+
     public Work Work { get; set; } = null!;
     public Site Site { get; set; } = null!;
     public Edition? SourceEdition { get; set; }

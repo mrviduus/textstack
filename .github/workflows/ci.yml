@@ -53,11 +53,6 @@ jobs:
       - name: Search tests
         run: dotnet test tests/TextStack.Search.Tests --no-build
 
-      - name: Integration tests
-        run: dotnet test tests/TextStack.IntegrationTests --no-build
-        env:
-          ConnectionStrings__Default: "Host=localhost;Port=5432;Database=books;Username=app;Password=changeme"
-
   frontend:
     runs-on: ubuntu-latest
 
@@ -107,6 +102,15 @@ jobs:
       - name: Wait for API health
         run: |
           timeout 120 bash -c 'until curl -s http://localhost:8080/health; do sleep 5; done'
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Integration tests
+        run: dotnet test tests/TextStack.IntegrationTests
+        env:
+          API_URL: http://localhost:8080
 
       - name: Stop services
         if: always()

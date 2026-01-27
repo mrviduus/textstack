@@ -11,16 +11,29 @@ export default defineConfig({
     // Proxy API requests to API container (needed for prerender)
     proxy: {
       '/api': {
-        target: 'http://api:8080',
+        target: 'http://localhost:8080',
         changeOrigin: false,
         rewrite: (path) => path.replace(/^\/api/, ''),
         headers: {
-          // Send 'general.localhost' for dev site resolution
+          Host: 'general.localhost',
+        },
+      },
+      '/me': {
+        target: 'http://localhost:8080',
+        changeOrigin: false,
+        headers: {
           Host: 'general.localhost',
         },
       },
       '/books': {
-        target: 'http://api:8080',
+        target: 'http://localhost:8080',
+        changeOrigin: false,
+        headers: {
+          Host: 'general.localhost',
+        },
+      },
+      '/storage': {
+        target: 'http://localhost:8080',
         changeOrigin: false,
         headers: {
           Host: 'general.localhost',

@@ -32,6 +32,11 @@ public class AppDbContext : DbContext, IAppDbContext
     public DbSet<SsgRebuildJob> SsgRebuildJobs => Set<SsgRebuildJob>();
     public DbSet<SsgRebuildResult> SsgRebuildResults => Set<SsgRebuildResult>();
     public DbSet<BookAsset> BookAssets => Set<BookAsset>();
+    public DbSet<LintResult> LintResults => Set<LintResult>();
+    public DbSet<UserBook> UserBooks => Set<UserBook>();
+    public DbSet<UserChapter> UserChapters => Set<UserChapter>();
+    public DbSet<UserBookFile> UserBookFiles => Set<UserBookFile>();
+    public DbSet<UserIngestionJob> UserIngestionJobs => Set<UserIngestionJob>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -74,6 +79,7 @@ public class AppDbContext : DbContext, IAppDbContext
             e.HasIndex(x => new { x.WorkId, x.Language }).IsUnique();
             e.HasIndex(x => new { x.SiteId, x.Language, x.Slug }).IsUnique();
             e.Property(x => x.Language).HasMaxLength(8);
+            e.Property(x => x.TocJson).HasColumnType("jsonb");
             e.HasOne(x => x.Work).WithMany(x => x.Editions).HasForeignKey(x => x.WorkId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.Site).WithMany().HasForeignKey(x => x.SiteId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.SourceEdition).WithMany(x => x.TranslatedEditions).HasForeignKey(x => x.SourceEditionId).OnDelete(DeleteBehavior.SetNull);
@@ -303,6 +309,61 @@ public class AppDbContext : DbContext, IAppDbContext
             e.Property(x => x.Route).HasMaxLength(500);
             e.Property(x => x.RouteType).HasMaxLength(20);
             e.HasOne(x => x.Job).WithMany(x => x.Results).HasForeignKey(x => x.JobId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // LintResult
+        modelBuilder.Entity<LintResult>(e =>
+        {
+            e.HasIndex(x => x.EditionId);
+            e.Property(x => x.Severity).HasConversion<string>().HasMaxLength(20);
+            e.Property(x => x.Code).HasMaxLength(10);
+            e.HasOne(x => x.Edition).WithMany().HasForeignKey(x => x.EditionId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // UserBook
+        modelBuilder.Entity<UserBook>(e =>
+        {
+            e.HasIndex(x => x.UserId);
+            e.HasIndex(x => x.Status);
+            e.HasIndex(x => new { x.UserId, x.Slug }).IsUnique();
+            e.Property(x => x.Title).HasMaxLength(500);
+            e.Property(x => x.Slug).HasMaxLength(500);
+            e.Property(x => x.Language).HasMaxLength(10);
+            e.Property(x => x.CoverPath).HasMaxLength(500);
+            e.Property(x => x.TocJson).HasColumnType("jsonb");
+            e.HasOne(x => x.User).WithMany(x => x.UserBooks).HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // UserChapter
+        modelBuilder.Entity<UserChapter>(e =>
+        {
+            e.HasIndex(x => x.UserBookId);
+            e.HasIndex(x => new { x.UserBookId, x.ChapterNumber }).IsUnique();
+            e.Property(x => x.Title).HasMaxLength(500);
+            e.HasOne(x => x.UserBook).WithMany(x => x.Chapters).HasForeignKey(x => x.UserBookId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // UserBookFile
+        modelBuilder.Entity<UserBookFile>(e =>
+        {
+            e.HasIndex(x => x.UserBookId);
+            e.HasIndex(x => x.Sha256);
+            e.Property(x => x.OriginalFileName).HasMaxLength(500);
+            e.Property(x => x.StoragePath).HasMaxLength(500);
+            e.Property(x => x.Sha256).HasMaxLength(64);
+            e.HasOne(x => x.UserBook).WithMany(x => x.BookFiles).HasForeignKey(x => x.UserBookId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // UserIngestionJob
+        modelBuilder.Entity<UserIngestionJob>(e =>
+        {
+            e.HasIndex(x => x.UserBookId);
+            e.HasIndex(x => x.UserBookFileId);
+            e.HasIndex(x => x.Status);
+            e.HasIndex(x => x.CreatedAt);
+            e.Property(x => x.SourceFormat).HasMaxLength(50);
+            e.HasOne(x => x.UserBook).WithMany(x => x.IngestionJobs).HasForeignKey(x => x.UserBookId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.UserBookFile).WithMany().HasForeignKey(x => x.UserBookFileId).OnDelete(DeleteBehavior.Cascade);
         });
     }
 

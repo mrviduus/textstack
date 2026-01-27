@@ -43,7 +43,7 @@ public static class XhtmlChapterParser
                 continue;
 
             var xhtml = File.ReadAllText(filePath);
-            var (html, plainText) = HtmlCleaner.CleanHtml(xhtml);
+            var (html, plainText) = HtmlCleaner.Clean(xhtml);
             var wordCount = HtmlCleaner.CountWords(plainText);
 
             // Skip files with no actual content (only metadata/titles)

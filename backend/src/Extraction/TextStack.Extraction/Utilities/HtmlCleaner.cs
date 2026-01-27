@@ -1,16 +1,43 @@
 using System.Text;
 using System.Text.RegularExpressions;
 using HtmlAgilityPack;
+using TextStack.Extraction.TextProcessing.Abstractions;
+using TextStack.Extraction.TextProcessing.Configuration;
+using TextStack.Extraction.TextProcessing.Pipeline;
 
 namespace TextStack.Extraction.Utilities;
 
-public static partial class HtmlCleaner
+/// <summary>
+/// Cleans HTML content using the text processing pipeline.
+/// </summary>
+public partial class HtmlCleaner
 {
-    private static readonly string[] BlockTags = ["p", "div", "br", "h1", "h2", "h3", "h4", "h5", "h6", "li", "tr"];
     private static readonly string[] DangerousAttributes = ["onclick", "onload", "onerror", "onmouseover", "onfocus", "onblur"];
 
-    public static (string Html, string PlainText) CleanHtml(string html)
+    private readonly IProcessingPipeline _pipeline;
+    private readonly TextProcessingOptions _options;
+
+    /// <summary>
+    /// Create HtmlCleaner with custom pipeline or default.
+    /// </summary>
+    public HtmlCleaner(IProcessingPipeline? pipeline = null, TextProcessingOptions? options = null)
     {
+        _options = options ?? new TextProcessingOptions();
+        _pipeline = pipeline ?? PipelineBuilder.CreateDefault(_options).Build();
+    }
+
+    /// <summary>
+    /// Clean HTML content.
+    /// </summary>
+    public (string Html, string PlainText) CleanHtml(string html, string? language = null)
+    {
+        // 1. NFC normalize
+        html = html.Normalize(NormalizationForm.FormC);
+
+        // 2. Fix self-closing non-void tags that break HAP parsing
+        // HAP treats <title/> as unclosed, swallowing all subsequent content
+        html = FixSelfClosingTitle(html);
+
         var doc = new HtmlDocument();
         doc.LoadHtml(html);
 
@@ -23,10 +50,19 @@ public static partial class HtmlCleaner
         RemoveDangerousAttributes(content);
 
         var cleanHtml = content.InnerHtml.Trim();
-        var plainText = ExtractPlainText(content);
 
-        return (cleanHtml, plainText);
+        // 3. Run through processing pipeline
+        var context = new ProcessingContext(language ?? _options.Language, _options);
+        var (processedHtml, plainText) = _pipeline.Process(cleanHtml, context);
+
+        return (processedHtml, plainText);
     }
+
+    /// <summary>
+    /// Static method for backward compatibility.
+    /// </summary>
+    public static (string Html, string PlainText) Clean(string html)
+        => new HtmlCleaner().CleanHtml(html);
 
     public static string? ExtractTitle(string html)
     {
@@ -50,6 +86,19 @@ public static partial class HtmlCleaner
             return 0;
 
         return text.Split([' ', '\t', '\n', '\r'], StringSplitOptions.RemoveEmptyEntries).Length;
+    }
+
+    /// <summary>
+    /// Fixes self-closing title tag that breaks HAP parsing.
+    /// HAP incorrectly parses &lt;title/&gt; as unclosed, swallowing subsequent content.
+    /// </summary>
+    private static string FixSelfClosingTitle(string html)
+    {
+        // Simple string replacement for the most common case
+        // This avoids regex which can cause issues in some environments
+        return html
+            .Replace("<title/>", "<title></title>")
+            .Replace("<title />", "<title></title>");
     }
 
     private static void RemoveDangerousAttributes(HtmlNode node)
@@ -88,37 +137,4 @@ public static partial class HtmlCleaner
             }
         }
     }
-
-    private static string ExtractPlainText(HtmlNode node)
-    {
-        var sb = new StringBuilder();
-        ExtractTextRecursive(node, sb);
-        var text = sb.ToString();
-        text = WhitespaceRegex().Replace(text, " ");
-        return text.Trim();
-    }
-
-    private static void ExtractTextRecursive(HtmlNode node, StringBuilder sb)
-    {
-        if (node.NodeType == HtmlNodeType.Text)
-        {
-            var text = HtmlEntity.DeEntitize(node.InnerText);
-            sb.Append(text);
-            return;
-        }
-
-        if (BlockTags.Contains(node.Name.ToLowerInvariant()))
-            sb.Append(' ');
-
-        foreach (var child in node.ChildNodes)
-        {
-            ExtractTextRecursive(child, sb);
-        }
-
-        if (BlockTags.Contains(node.Name.ToLowerInvariant()))
-            sb.Append(' ');
-    }
-
-    [GeneratedRegex(@"\s+")]
-    private static partial Regex WhitespaceRegex();
 }

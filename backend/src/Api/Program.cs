@@ -97,6 +97,9 @@ builder.Services.AddSingleton<ISiteResolver, SiteResolver>();
 // TextStack import
 builder.Services.AddScoped<TextStackImportService>();
 
+// User books
+builder.Services.AddScoped<Application.UserBooks.UserBookService>();
+
 // Standard Ebooks sync
 builder.Services.AddHttpClient<StandardEbooksSyncService>();
 builder.Services.AddScoped<StandardEbooksSyncService>();
@@ -179,6 +182,7 @@ app.MapAdminAuthorsEndpoints();
 app.MapAdminGenresEndpoints();
 app.MapAdminSeoCrawlEndpoints();
 app.MapAdminSsgRebuildEndpoints();
+app.MapAdminLintEndpoints();
 app.MapBooksEndpoints();
 app.MapSearchEndpoints();
 app.MapAuthorsEndpoints();
@@ -188,6 +192,7 @@ app.MapSeoEndpoints();
 app.MapSsgEndpoints();
 app.MapAuthEndpoints();
 app.MapUserDataEndpoints();
+app.MapUserBooksEndpoints();
 
 // CLI: import-textstack command
 if (args.Length > 0 && args[0] == "import-textstack")

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.Json;
 using Application.Common.Interfaces;
 using Domain.Entities;
 using Domain.Enums;
@@ -9,6 +10,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using TextStack.Extraction.Contracts;
 using TextStack.Extraction.Enums;
+using TextStack.Extraction.Lint;
 using TextStack.Extraction.Registry;
 using TextStack.Search.Abstractions;
 using TextStack.Search.Contracts;
@@ -220,6 +222,17 @@ public class IngestionWorkerService
             var parsed = MapToApplicationModel(extractionResult, imageMap, job.EditionId);
             var summary = MapToExtractionSummary(extractionResult);
 
+            // Serialize ToC to JSON
+            string? tocJson = null;
+            if (extractionResult.Toc is { Count: > 0 })
+            {
+                tocJson = JsonSerializer.Serialize(extractionResult.Toc, new JsonSerializerOptions
+                {
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                    WriteIndented = false
+                });
+            }
+
             _logger.LogInformation("Parsed {ChapterCount} chapters from {Title}",
                 parsed.Chapters.Count, parsed.Title);
 
@@ -263,7 +276,7 @@ public class IngestionWorkerService
             // Persist result span
             using (var persistActivity = IngestionActivitySource.Source.StartActivity("persist.result"))
             {
-                await service.ProcessParsedBookAsync(job, parsed, summary, ct);
+                await service.ProcessParsedBookAsync(job, parsed, summary, tocJson, ct);
                 persistActivity?.SetTag("chapters_count", parsed.Chapters.Count);
             }
 
@@ -272,6 +285,13 @@ public class IngestionWorkerService
             {
                 await IndexChaptersForSearchAsync(db, job.EditionId, ct);
                 indexActivity?.SetTag("chapters_indexed", parsed.Chapters.Count);
+            }
+
+            // Run linter and save results
+            using (var lintActivity = IngestionActivitySource.Source.StartActivity("lint.run"))
+            {
+                await RunLinterAsync(db, job.EditionId, extractionResult.Units, ct);
+                lintActivity?.SetTag("lint.completed", true);
             }
 
             _logger.LogInformation("Job {JobId} completed successfully. {ChapterCount} chapters created.",
@@ -479,6 +499,66 @@ public class IngestionWorkerService
             "uk" => SearchLanguage.Uk,
             "en" => SearchLanguage.En,
             _ => SearchLanguage.Auto
+        };
+    }
+
+    private async Task RunLinterAsync(
+        AppDbContext db,
+        Guid editionId,
+        IReadOnlyList<ContentUnit> units,
+        CancellationToken ct)
+    {
+        try
+        {
+            // Clear existing lint results
+            var existingResults = await db.LintResults
+                .Where(r => r.EditionId == editionId)
+                .ToListAsync(ct);
+            db.LintResults.RemoveRange(existingResults);
+
+            // Run linter on all chapters
+            var linter = new Linter();
+            var chapters = units
+                .Where(u => u.Html != null)
+                .Select(u => (u.OrderIndex + 1, u.Html!))
+                .ToList();
+
+            var issues = linter.LintAll(chapters);
+
+            // Save lint results (limit to 1000 per edition to avoid bloat)
+            var resultsToSave = issues.Take(1000).Select(issue => new LintResult
+            {
+                Id = Guid.NewGuid(),
+                EditionId = editionId,
+                Severity = MapLintSeverity(issue.Severity),
+                Code = issue.Code,
+                Message = issue.Message,
+                ChapterNumber = issue.ChapterNumber,
+                LineNumber = issue.LineNumber,
+                Context = issue.Context?.Length > 200 ? issue.Context[..200] : issue.Context,
+                CreatedAt = DateTimeOffset.UtcNow
+            }).ToList();
+
+            db.LintResults.AddRange(resultsToSave);
+            await db.SaveChangesAsync(ct);
+
+            _logger.LogInformation("Lint completed for edition {EditionId}: {IssueCount} issues found",
+                editionId, resultsToSave.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Linting failed for edition {EditionId}", editionId);
+            // Don't fail the job if linting fails
+        }
+    }
+
+    private static Domain.Enums.LintSeverity MapLintSeverity(TextStack.Extraction.Lint.LintSeverity severity)
+    {
+        return severity switch
+        {
+            TextStack.Extraction.Lint.LintSeverity.Error => Domain.Enums.LintSeverity.Error,
+            TextStack.Extraction.Lint.LintSeverity.Warning => Domain.Enums.LintSeverity.Warning,
+            _ => Domain.Enums.LintSeverity.Info
         };
     }
 }

@@ -1,12 +1,15 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useApi } from '../hooks/useApi'
+import { useAuth } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
 import type { Chapter, BookDetail } from '../types/api'
+import { getUserBook, getUserBookChapter } from '../api/userBooks'
 import { useReaderSettings } from '../hooks/useReaderSettings'
 import { useAutoHideBar } from '../hooks/useAutoHideBar'
 import { useReadingProgress } from '../hooks/useReadingProgress'
 import { useRestoreProgress } from '../hooks/useRestoreProgress'
+import { useUserBookProgress } from '../hooks/useUserBookProgress'
 import { useBookmarks } from '../hooks/useBookmarks'
 import { useInBookSearch } from '../hooks/useInBookSearch'
 import { useFullscreen } from '../hooks/useFullscreen'
@@ -30,18 +33,59 @@ import { ScrollReaderContent } from '../components/reader/ScrollReaderContent'
 import { ReaderFooterNav } from '../components/reader/ReaderFooterNav'
 import { ReaderPageNav } from '../components/reader/ReaderPageNav'
 import { ReaderSettingsDrawer } from '../components/reader/ReaderSettingsDrawer'
-import { ReaderTocDrawer, type AutoSaveInfo } from '../components/reader/ReaderTocDrawer'
+import { ReaderTocDrawer, type AutoSaveInfo, type TocChapter } from '../components/reader/ReaderTocDrawer'
 import { ReaderSearchDrawer } from '../components/reader/ReaderSearchDrawer'
 import { ReaderShortcutsModal } from '../components/reader/ReaderShortcutsModal'
 import { useScrollReader } from '../hooks/useScrollReader'
 
-export function ReaderPage() {
-  const { bookSlug, chapterSlug } = useParams<{ bookSlug: string; chapterSlug: string }>()
+export type ReaderMode = 'public' | 'userbook'
+
+interface ReaderPageProps {
+  mode?: ReaderMode
+}
+
+// Normalized chapter type for both modes
+interface NormalizedChapter {
+  id: string
+  chapterNumber: number
+  identifier: string // slug for public, chapterNumber as string for userbook
+  title: string
+  html: string
+  wordCount: number | null
+  prev: { identifier: string; title: string } | null
+  next: { identifier: string; title: string } | null
+}
+
+// Normalized book type for both modes
+interface NormalizedBook {
+  id: string
+  title: string
+  chapters: TocChapter[]
+}
+
+export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
+  // Get params based on mode
+  const { bookSlug, chapterSlug, id, chapterNumber: chapterNumParam } = useParams<{
+    bookSlug: string
+    chapterSlug: string
+    id: string
+    chapterNumber: string
+  }>()
+
+  const chapterIdentifier = mode === 'public' ? chapterSlug : chapterNumParam
+  const chapterNumber = mode === 'userbook' ? parseInt(chapterNumParam || '1', 10) : undefined
+
   const api = useApi()
-  const { getLocalizedPath } = useLanguage()
+  const { isAuthenticated } = useAuth()
+  const { language, getLocalizedPath } = useLanguage()
   const navigate = useNavigate()
-  const [chapter, setChapter] = useState<Chapter | null>(null)
-  const [book, setBook] = useState<BookDetail | null>(null)
+  // Raw state for public books (needed for scroll reader, caching, etc.)
+  const [publicChapter, setPublicChapter] = useState<Chapter | null>(null)
+  const [publicBook, setPublicBook] = useState<BookDetail | null>(null)
+
+  // Normalized state for both modes
+  const [chapter, setChapter] = useState<NormalizedChapter | null>(null)
+  const [book, setBook] = useState<NormalizedBook | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -56,9 +100,10 @@ export function ReaderPage() {
 
   const { settings, update } = useReaderSettings()
   const { visible, toggle } = useAutoHideBar()
-  const { bookmarks, addBookmark, removeBookmark, isBookmarked, getBookmarkForChapter } = useBookmarks(bookSlug || '')
+  // Use different bookmark key for user books to avoid conflicts
+  const bookmarkKey = mode === 'public' ? (bookSlug || '') : `userbook:${id}`
+  const { bookmarks, addBookmark, removeBookmark, isBookmarked, getBookmarkForChapter } = useBookmarks(bookmarkKey)
   const { add: addToLibrary, isInLibrary } = useLibrary()
-  const [scrollPercent, setScrollPercent] = useState(0)
   const [toastMessage, setToastMessage] = useState<string | null>(null)
   const libraryAddedRef = useRef(false)
   const editionIdRef = useRef<string | null>(null)
@@ -70,10 +115,10 @@ export function ReaderPage() {
   const isMobile = useIsMobile()
   const { immersiveMode, showBars: showImmersiveBars } = useImmersiveMode(isMobile, loading)
 
-  // Scroll mode for mobile continuous reading
-  const useScrollMode = isMobile
+  // Scroll mode for mobile continuous reading (only for public books)
+  const useScrollMode = isMobile && mode === 'public'
 
-  // Fetch chapter callback for scroll reader
+  // Fetch chapter callback for scroll reader (public only)
   const fetchChapter = useCallback(
     async (slug: string) => {
       return api.getChapter(bookSlug!, slug)
@@ -81,35 +126,35 @@ export function ReaderPage() {
     [api, bookSlug]
   )
 
-  // Scroll reader hook (for mobile continuous scroll)
+  // Scroll reader hook (for mobile continuous scroll, public books only)
   const scrollReader = useScrollReader({
-    book,
+    book: publicBook,
     initialChapterSlug: chapterSlug || '',
-    editionId: book?.id || '',
+    editionId: publicBook?.id || '',
     fetchChapter,
   })
 
   // In scroll mode, use visible chapter for bookmarks (URL chapterSlug doesn't update on replaceState)
-  const activeChapterSlug = useScrollMode && scrollReader.visibleChapterSlug
+  const activeChapterIdentifier = useScrollMode && scrollReader.visibleChapterSlug
     ? scrollReader.visibleChapterSlug
-    : chapterSlug || ''
+    : chapterIdentifier || ''
   const activeChapter = useScrollMode
-    ? book?.chapters.find(c => c.slug === activeChapterSlug)
+    ? book?.chapters.find(c => c.identifier === activeChapterIdentifier)
     : chapter
 
   // Track current URL chapter (may differ from chapterSlug after replaceState)
-  const currentUrlChapterRef = useRef(chapterSlug)
+  const currentUrlChapterRef = useRef(chapterIdentifier)
 
-  // Sync URL with visible chapter from scroll reader
+  // Sync URL with visible chapter from scroll reader (public mode only)
   useEffect(() => {
-    if (!useScrollMode) return
+    if (!useScrollMode || mode !== 'public') return
     const visibleSlug = scrollReader.visibleChapterSlug
     if (visibleSlug && visibleSlug !== currentUrlChapterRef.current) {
       const newPath = getLocalizedPath(`/books/${bookSlug}/${visibleSlug}`)
       window.history.replaceState(null, '', newPath)
       currentUrlChapterRef.current = visibleSlug
     }
-  }, [useScrollMode, scrollReader.visibleChapterSlug, bookSlug, getLocalizedPath])
+  }, [useScrollMode, mode, scrollReader.visibleChapterSlug, bookSlug, getLocalizedPath])
 
 
   // Page-based pagination
@@ -117,33 +162,43 @@ export function ReaderPage() {
     currentPage,
     totalPages,
     progress,
-    pagesLeft,
     nextPage,
     prevPage,
     goToPage,
     recalculate,
   } = usePagination(contentRef, containerRef)
 
-  // Reading progress sync (with server when authenticated)
-  const { updateProgress } = useReadingProgress(
-    bookSlug || '',
-    chapterSlug || '',
-    { editionId: book?.id, chapterId: chapter?.id, chapterSlug: chapterSlug }
+  // Reading progress sync (with server when authenticated) - public mode only
+  const publicProgress = useReadingProgress(
+    mode === 'public' ? (bookSlug || '') : '',
+    mode === 'public' ? (chapterSlug || '') : '',
+    { editionId: publicBook?.id, chapterId: publicChapter?.id, chapterSlug: chapterSlug }
   )
 
-  // Restore progress on mount
-  const { savedProgress, shouldNavigate, targetChapterSlug, isLoading: progressLoading } =
-    useRestoreProgress(book?.id, chapterSlug)
+  // User book progress (localStorage) - userbook mode only
+  const userProgress = useUserBookProgress(mode === 'userbook' ? (id || '') : '')
 
-  // Auto-save info for bookmarks drawer
+  // Unified progress interface
+  const updateProgress = mode === 'public'
+    ? publicProgress.updateProgress
+    : (percent: number, page?: number) => {
+        userProgress.saveProgress(chapterNumber || 1, page || 0, percent)
+      }
+
+  // Restore progress on mount - public mode only (user books restore handled separately)
+  const { savedProgress, shouldNavigate, targetChapterSlug, isLoading: progressLoading } =
+    useRestoreProgress(mode === 'public' ? publicBook?.id : undefined, chapterSlug)
+
+  // Auto-save info for bookmarks drawer (public mode only)
   const autoSaveInfo = useMemo((): AutoSaveInfo | null => {
-    if (!book?.id || !book?.chapters) return null
+    if (mode !== 'public') return null
+    if (!publicBook?.id || !publicBook?.chapters) return null
     try {
-      const stored = localStorage.getItem(`reading.progress.${book.id}`)
+      const stored = localStorage.getItem(`reading.progress.${publicBook.id}`)
       if (!stored) return null
       const data = JSON.parse(stored) as { chapterSlug: string; locator: string; percent: number }
       if (!data.chapterSlug) return null
-      const chapter = book.chapters.find(c => c.slug === data.chapterSlug)
+      const chapter = publicBook.chapters.find(c => c.slug === data.chapterSlug)
       if (!chapter) return null
       return {
         chapterSlug: data.chapterSlug,
@@ -154,7 +209,7 @@ export function ReaderPage() {
     } catch {
       return null
     }
-  }, [book?.id, book?.chapters])
+  }, [mode, publicBook?.id, publicBook?.chapters])
 
   // Refs for restore logic
   const hasNavigatedRef = useRef(false)
@@ -162,12 +217,9 @@ export function ReaderPage() {
 
   // Calculate overall book progress based on word counts
   const overallProgress = useMemo(() => {
-    if (!book) return 0
-
-    const chapters = book.chapters
-
-    // For scroll mode: use visibleChapterSlug from scrollReader
-    if (useScrollMode) {
+    // For public mode with scroll reader
+    if (mode === 'public' && useScrollMode && publicBook) {
+      const chapters = publicBook.chapters
       const currentSlug = scrollReader.visibleChapterSlug
       if (!currentSlug) return 0
 
@@ -187,7 +239,6 @@ export function ReaderPage() {
       // Calculate using word counts for accuracy
       const totalWords = chapters.reduce((sum, c) => sum + (c.wordCount || 0), 0)
       if (totalWords === 0) {
-        // Fallback to chapter-based if no word counts
         return (currentChapterIndex + chapterProgress) / chapters.length
       }
 
@@ -200,27 +251,42 @@ export function ReaderPage() {
       return wordsRead / totalWords
     }
 
-    // For pagination mode: use page-based progress
-    if (!chapterSlug || totalPages === 0) return 0
+    // For public mode pagination
+    if (mode === 'public' && publicBook) {
+      const chapters = publicBook.chapters
+      if (!chapterSlug || totalPages === 0) return 0
 
-    const currentChapterIndex = chapters.findIndex(c => c.slug === chapterSlug)
-    if (currentChapterIndex === -1) return 0
+      const currentChapterIndex = chapters.findIndex(c => c.slug === chapterSlug)
+      if (currentChapterIndex === -1) return 0
 
-    // Calculate using word counts for accuracy
-    const totalWords = chapters.reduce((sum, c) => sum + (c.wordCount || 0), 0)
-    if (totalWords === 0) {
-      // Fallback to chapter-based if no word counts
+      const totalWords = chapters.reduce((sum, c) => sum + (c.wordCount || 0), 0)
+      if (totalWords === 0) {
+        return (currentChapterIndex + progress) / chapters.length
+      }
+
+      const wordsBeforeCurrent = chapters
+        .slice(0, currentChapterIndex)
+        .reduce((sum, c) => sum + (c.wordCount || 0), 0)
+      const currentChapterWords = chapters[currentChapterIndex].wordCount || 0
+      const wordsRead = wordsBeforeCurrent + currentChapterWords * progress
+
+      return wordsRead / totalWords
+    }
+
+    // For userbook mode: simple chapter-based progress
+    if (mode === 'userbook' && book) {
+      const chapters = book.chapters
+      if (!chapterNumber || totalPages === 0) return 0
+
+      const currentChapterIndex = chapters.findIndex(c => c.chapterNumber === chapterNumber)
+      if (currentChapterIndex === -1) return 0
+
+      // Simple chapter + page progress (no word counts for user books)
       return (currentChapterIndex + progress) / chapters.length
     }
 
-    const wordsBeforeCurrent = chapters
-      .slice(0, currentChapterIndex)
-      .reduce((sum, c) => sum + (c.wordCount || 0), 0)
-    const currentChapterWords = chapters[currentChapterIndex].wordCount || 0
-    const wordsRead = wordsBeforeCurrent + currentChapterWords * progress
-
-    return wordsRead / totalWords
-  }, [book, chapterSlug, progress, totalPages, useScrollMode, scrollReader.visibleChapterSlug, scrollReader.scrollOffset, scrollReader.chapterRefs])
+    return 0
+  }, [mode, publicBook, book, chapterSlug, chapterNumber, progress, totalPages, useScrollMode, scrollReader.visibleChapterSlug, scrollReader.scrollOffset, scrollReader.chapterRefs])
 
   // Sync progress when page changes (pagination mode only)
   useEffect(() => {
@@ -230,11 +296,11 @@ export function ReaderPage() {
     }
   }, [useScrollMode, currentPage, totalPages, overallProgress, book?.id, chapter?.id, updateProgress])
 
-  // Sync progress when scroll position changes (scroll mode)
+  // Sync progress when scroll position changes (scroll mode, public only)
   const lastScrollSaveRef = useRef<{ slug: string; offset: number } | null>(null)
   const scrollSaveTimerRef = useRef<number | null>(null)
   useEffect(() => {
-    if (!useScrollMode || !book?.id || !book?.chapters) return
+    if (!useScrollMode || mode !== 'public' || !publicBook?.id || !publicBook?.chapters) return
 
     const visibleSlug = scrollReader.visibleChapterSlug
     const offset = scrollReader.scrollOffset
@@ -251,7 +317,7 @@ export function ReaderPage() {
     lastScrollSaveRef.current = { slug: visibleSlug, offset }
 
     // Find chapter info from book's chapter list (has IDs)
-    const bookChapter = book.chapters.find(c => c.slug === visibleSlug)
+    const bookChapter = publicBook.chapters.find(c => c.slug === visibleSlug)
     if (!bookChapter) return
 
     // Debounce the actual save (600ms per ADR-007 spec: 500-800ms)
@@ -265,10 +331,10 @@ export function ReaderPage() {
 
     scrollSaveTimerRef.current = window.setTimeout(() => {
       const scrollLocator = `scroll:${saveSlug}:${Math.round(saveOffset)}`
-      updateProgress(saveProgress, undefined, scrollLocator, saveChapterId, saveSlug)
+      publicProgress.updateProgress(saveProgress, undefined, scrollLocator, saveChapterId, saveSlug)
       scrollSaveTimerRef.current = null
     }, 600)
-  }, [useScrollMode, book?.id, book?.chapters, scrollReader.visibleChapterSlug, scrollReader.scrollOffset, overallProgress, updateProgress])
+  }, [useScrollMode, mode, publicBook?.id, publicBook?.chapters, scrollReader.visibleChapterSlug, scrollReader.scrollOffset, overallProgress, publicProgress])
 
   // Cleanup scroll save timer on unmount
   useEffect(() => {
@@ -413,7 +479,7 @@ export function ReaderPage() {
     restoredRef.current = false
     scrollRestoredRef.current = false
     hasNavigatedRef.current = false
-  }, [chapterSlug])
+  }, [chapterIdentifier])
 
   // Search hook needs chapter html, use empty string until loaded
   const chapterHtml = chapter?.html || ''
@@ -428,62 +494,146 @@ export function ReaderPage() {
     clear: clearSearch,
   } = useInBookSearch(chapterHtml)
 
-  // Fetch chapter and book data (cache-first)
+  // Fetch chapter and book data
   useEffect(() => {
-    if (!bookSlug || !chapterSlug) return
+    // Public mode requires bookSlug and chapterSlug
+    if (mode === 'public' && (!bookSlug || !chapterSlug)) return
+    // User mode requires id and chapterNumber, plus auth
+    if (mode === 'userbook' && (!id || !chapterNumber || !isAuthenticated)) return
+
     let cancelled = false
-    markFetchStart()
+    if (mode === 'public') markFetchStart()
 
     const fetchData = async () => {
       setLoading(true)
       setError(null)
 
       try {
-        // Try cache first if we have editionId
-        const cachedEditionId = editionIdRef.current
-        if (cachedEditionId) {
-          const cached = await getCachedChapter(cachedEditionId, chapterSlug)
-          if (cached && !cancelled) {
-            setChapter({
-              id: cached.key,
-              chapterNumber: 0,
-              slug: cached.chapterSlug,
-              title: cached.title,
-              html: cached.html,
-              wordCount: cached.wordCount,
-              prev: cached.prev,
-              next: cached.next,
-            })
-            // Still need book for TOC - fetch it
-            try {
-              const bk = await api.getBook(bookSlug)
-              if (!cancelled) setBook(bk)
-            } catch {
-              // Book fetch failed but chapter from cache - ok
+        if (mode === 'public') {
+          // Try cache first if we have editionId
+          const cachedEditionId = editionIdRef.current
+          if (cachedEditionId) {
+            const cached = await getCachedChapter(cachedEditionId, chapterSlug!)
+            if (cached && !cancelled) {
+              // Set raw public chapter
+              const rawChapter: Chapter = {
+                id: cached.key,
+                chapterNumber: 0,
+                slug: cached.chapterSlug,
+                title: cached.title,
+                html: cached.html,
+                wordCount: cached.wordCount,
+                prev: cached.prev,
+                next: cached.next,
+              }
+              setPublicChapter(rawChapter)
+              // Normalize for UI
+              setChapter({
+                id: rawChapter.id,
+                chapterNumber: rawChapter.chapterNumber,
+                identifier: rawChapter.slug,
+                title: rawChapter.title,
+                html: rawChapter.html,
+                wordCount: rawChapter.wordCount,
+                prev: rawChapter.prev ? { identifier: rawChapter.prev.slug, title: rawChapter.prev.title } : null,
+                next: rawChapter.next ? { identifier: rawChapter.next.slug, title: rawChapter.next.title } : null,
+              })
+              // Still need book for TOC - fetch it
+              try {
+                const bk = await api.getBook(bookSlug!)
+                if (!cancelled) {
+                  setPublicBook(bk)
+                  setBook({
+                    id: bk.id,
+                    title: bk.title,
+                    chapters: bk.chapters.map(c => ({
+                      id: c.id,
+                      identifier: c.slug,
+                      title: c.title,
+                      chapterNumber: c.chapterNumber,
+                    })),
+                  })
+                }
+              } catch {
+                // Book fetch failed but chapter from cache - ok
+              }
+              setLoading(false)
+              return
             }
-            setLoading(false)
-            return
           }
+
+          // Cache miss or no editionId - fetch from API
+          const [ch, bk] = await Promise.all([
+            api.getChapter(bookSlug!, chapterSlug!),
+            api.getBook(bookSlug!),
+          ])
+
+          if (cancelled) return
+
+          // Set raw data
+          setPublicChapter(ch)
+          setPublicBook(bk)
+          editionIdRef.current = bk.id
+
+          // Normalize for UI
+          setChapter({
+            id: ch.id,
+            chapterNumber: ch.chapterNumber,
+            identifier: ch.slug,
+            title: ch.title,
+            html: ch.html,
+            wordCount: ch.wordCount,
+            prev: ch.prev ? { identifier: ch.prev.slug, title: ch.prev.title } : null,
+            next: ch.next ? { identifier: ch.next.slug, title: ch.next.title } : null,
+          })
+          setBook({
+            id: bk.id,
+            title: bk.title,
+            chapters: bk.chapters.map(c => ({
+              id: c.id,
+              identifier: c.slug,
+              title: c.title,
+              chapterNumber: c.chapterNumber,
+            })),
+          })
+
+          // Cache for offline use
+          cacheChapter(bk.id, ch).catch(() => {})
+        } else {
+          // User book mode
+          const [bk, ch] = await Promise.all([
+            getUserBook(id!),
+            getUserBookChapter(id!, chapterNumber!),
+          ])
+
+          if (cancelled) return
+
+          // Normalize for UI
+          setChapter({
+            id: ch.id,
+            chapterNumber: ch.chapterNumber,
+            identifier: String(ch.chapterNumber),
+            title: ch.title,
+            html: ch.html,
+            wordCount: ch.wordCount,
+            prev: ch.previous ? { identifier: String(ch.previous.chapterNumber), title: ch.previous.title } : null,
+            next: ch.next ? { identifier: String(ch.next.chapterNumber), title: ch.next.title } : null,
+          })
+          setBook({
+            id: bk.id,
+            title: bk.title,
+            chapters: bk.chapters.map(c => ({
+              id: c.id,
+              identifier: String(c.chapterNumber),
+              title: c.title,
+              chapterNumber: c.chapterNumber,
+            })),
+          })
         }
-
-        // Cache miss or no editionId - fetch from API
-        const [ch, bk] = await Promise.all([
-          api.getChapter(bookSlug, chapterSlug),
-          api.getBook(bookSlug),
-        ])
-
-        if (cancelled) return
-
-        setChapter(ch)
-        setBook(bk)
-        editionIdRef.current = bk.id
-
-        // Cache for offline use
-        cacheChapter(bk.id, ch).catch(() => {})
       } catch (err) {
         if (cancelled) return
-        // If aborted due to wake, auto-retry
-        if (wasAbortedDueToWake()) {
+        // If aborted due to wake, auto-retry (public mode only)
+        if (mode === 'public' && wasAbortedDueToWake()) {
           fetchData()
           return
         }
@@ -499,7 +649,7 @@ export function ReaderPage() {
 
     fetchData()
     return () => { cancelled = true }
-  }, [bookSlug, chapterSlug, api, markFetchStart, wasAbortedDueToWake])
+  }, [mode, bookSlug, chapterSlug, id, chapterNumber, isAuthenticated, api, markFetchStart, wasAbortedDueToWake])
 
   // Recalculate pagination when settings change
   useEffect(() => {
@@ -520,36 +670,57 @@ export function ReaderPage() {
     return () => clearTimeout(timer)
   }, [chapterHtml, recalculate])
 
-  // Track scroll position for mobile progress bar
-  useEffect(() => {
-    const handleScroll = () => {
-      const scrollTop = window.scrollY
-      const docHeight = document.documentElement.scrollHeight - window.innerHeight
-      if (docHeight > 0) {
-        setScrollPercent(scrollTop / docHeight)
-      }
-    }
-    window.addEventListener('scroll', handleScroll, { passive: true })
-    return () => window.removeEventListener('scroll', handleScroll)
-  }, [])
-
   // Keyboard shortcuts
   const toggleBookmark = useCallback(() => {
-    const bookmark = getBookmarkForChapter(activeChapterSlug)
+    const bookmark = getBookmarkForChapter(activeChapterIdentifier)
     if (bookmark) {
       removeBookmark(bookmark.id)
     } else if (activeChapter) {
-      addBookmark(activeChapterSlug, activeChapter.title)
+      addBookmark(activeChapterIdentifier, activeChapter.title)
     }
-  }, [activeChapterSlug, activeChapter, getBookmarkForChapter, removeBookmark, addBookmark])
+  }, [activeChapterIdentifier, activeChapter, getBookmarkForChapter, removeBookmark, addBookmark])
+
+  // Chapter URL helper
+  const getChapterUrl = useCallback((identifier: string) => {
+    if (mode === 'public') {
+      return getLocalizedPath(`/books/${bookSlug}/${identifier}`)
+    }
+    return `/${language}/library/my/${id}/read/${identifier}`
+  }, [mode, bookSlug, id, language, getLocalizedPath])
+
+  // Back URL
+  const backUrl = mode === 'public'
+    ? `/books/${bookSlug}`
+    : `/${language}/library/my/${id}`
 
   // Navigation handlers
-  const { navigateToChapter, handleNextPage, handlePrevPage } = useReaderNavigation({
+  const navigateToChapterCustom = useCallback((identifier: string) => {
+    navigate(getChapterUrl(identifier))
+  }, [navigate, getChapterUrl])
+
+  const handlePrevPageCustom = useCallback(() => {
+    if (currentPage > 0) {
+      prevPage()
+    } else if (chapter?.prev) {
+      navigateToChapterCustom(chapter.prev.identifier)
+    }
+  }, [currentPage, chapter?.prev, prevPage, navigateToChapterCustom])
+
+  const handleNextPageCustom = useCallback(() => {
+    if (currentPage < totalPages - 1) {
+      nextPage()
+    } else if (chapter?.next) {
+      navigateToChapterCustom(chapter.next.identifier)
+    }
+  }, [currentPage, totalPages, chapter?.next, nextPage, navigateToChapterCustom])
+
+  // Legacy navigation hook (still needed for keyboard shortcuts compatibility)
+  const { navigateToChapter } = useReaderNavigation({
     bookSlug: bookSlug || '',
     currentPage,
     totalPages,
-    prevChapterSlug: chapter?.prev?.slug,
-    nextChapterSlug: chapter?.next?.slug,
+    prevChapterSlug: mode === 'public' ? chapter?.prev?.identifier : undefined,
+    nextChapterSlug: mode === 'public' ? chapter?.next?.identifier : undefined,
     prevPage,
     nextPage,
   })
@@ -559,9 +730,9 @@ export function ReaderPage() {
     totalPages,
     prevPage,
     nextPage,
-    prevChapterSlug: chapter?.prev?.slug,
-    nextChapterSlug: chapter?.next?.slug,
-    navigateToChapter,
+    prevChapterSlug: chapter?.prev?.identifier,
+    nextChapterSlug: chapter?.next?.identifier,
+    navigateToChapter: mode === 'public' ? navigateToChapter : navigateToChapterCustom,
     tocOpen,
     settingsOpen,
     searchOpen,
@@ -571,7 +742,7 @@ export function ReaderPage() {
     setSearchOpen,
     setShortcutsOpen,
     clearSearch,
-    activeChapterSlug,
+    activeChapterSlug: activeChapterIdentifier,
     toggleBookmark,
     settings,
     updateSettings: update,
@@ -580,30 +751,55 @@ export function ReaderPage() {
 
   // Swipe navigation - disabled on mobile (use tap zones instead)
   useSwipe({
-    onSwipeLeft: handleNextPage,
-    onSwipeRight: handlePrevPage,
+    onSwipeLeft: handleNextPageCustom,
+    onSwipeRight: handlePrevPageCustom,
     threshold: 50,
     enabled: !isMobile && !tocOpen && !settingsOpen && !searchOpen,
   })
 
+  // Auth check for userbook mode
+  if (mode === 'userbook' && !isAuthenticated) {
+    return (
+      <div className="reader-page">
+        <SeoHead title="Reader" noindex />
+        <div className="reader-error">
+          <h2>Sign in required</h2>
+          <p>Sign in to read your uploaded books.</p>
+          <Link to={`/${language}/library`} className="reader-error__home-link">
+            Back to Library
+          </Link>
+        </div>
+      </div>
+    )
+  }
+
   if (loading) {
     return (
-      <div className="reader-loading">
-        <div className="reader-loading__skeleton" />
-        <div className="reader-loading__skeleton" />
-        <div className="reader-loading__skeleton" />
+      <div className="reader-page">
+        <SeoHead title="Loading..." noindex />
+        <div className="reader-loading">
+          <div className="reader-loading__skeleton" />
+          <div className="reader-loading__skeleton" />
+          <div className="reader-loading__skeleton" />
+        </div>
       </div>
     )
   }
 
   if (error || !chapter || !book) {
+    const errorBackUrl = mode === 'public' ? '/' : `/${language}/library/my/${id}`
+    const errorBackText = mode === 'public' ? 'Back to Home' : 'Back to Book'
+    const ErrorLink = mode === 'public' ? LocalizedLink : Link
     return (
-      <div className="reader-error">
-        <h2>Error loading chapter</h2>
-        <p>{error || 'Chapter not found'}</p>
-        <LocalizedLink to="/" className="reader-error__home-link">
-          Back to Home
-        </LocalizedLink>
+      <div className="reader-page">
+        <SeoHead title="Error" noindex />
+        <div className="reader-error">
+          <h2>Error loading chapter</h2>
+          <p>{error || 'Chapter not found'}</p>
+          <ErrorLink to={errorBackUrl} className="reader-error__home-link">
+            {errorBackText}
+          </ErrorLink>
+        </div>
       </div>
     )
   }
@@ -622,21 +818,22 @@ export function ReaderPage() {
       <a href="#reader-content" className="skip-link">Skip to content</a>
       <ReaderTopBar
         visible={visible}
-        bookSlug={bookSlug!}
         title={book.title}
         chapterTitle={activeChapter?.title || chapter.title}
         progress={overallProgress}
-        isBookmarked={isBookmarked(activeChapterSlug)}
+        isBookmarked={isBookmarked(activeChapterIdentifier)}
         isFullscreen={isFullscreen}
+        backUrl={backUrl}
+        useLocalizedLink={mode === 'public'}
         onSearchClick={() => setSearchOpen(true)}
         onTocClick={() => setTocOpen(true)}
         onSettingsClick={() => setSettingsOpen(true)}
         onBookmarkClick={() => {
-          const bookmark = getBookmarkForChapter(activeChapterSlug)
+          const bookmark = getBookmarkForChapter(activeChapterIdentifier)
           if (bookmark) {
             removeBookmark(bookmark.id)
           } else if (activeChapter) {
-            addBookmark(activeChapterSlug, activeChapter.title)
+            addBookmark(activeChapterIdentifier, activeChapter.title)
           }
         }}
         onFullscreenClick={toggleFullscreen}
@@ -648,7 +845,7 @@ export function ReaderPage() {
         <ReaderPageNav
           direction="prev"
           disabled={currentPage === 0 && !chapter.prev}
-          onClick={handlePrevPage}
+          onClick={handlePrevPageCustom}
         />
       )}
 
@@ -671,8 +868,8 @@ export function ReaderPage() {
             settings={settings}
             onTap={() => { if (isMobile) { showImmersiveBars(); } else { toggle(); } }}
             onDoubleTap={toggleFullscreen}
-            onLeftTap={isMobile ? handlePrevPage : undefined}
-            onRightTap={isMobile ? handleNextPage : undefined}
+            onLeftTap={isMobile ? handlePrevPageCustom : undefined}
+            onRightTap={isMobile ? handleNextPageCustom : undefined}
           />
         )}
       </main>
@@ -681,39 +878,32 @@ export function ReaderPage() {
         <ReaderPageNav
           direction="next"
           disabled={currentPage === totalPages - 1 && !chapter.next}
-          onClick={handleNextPage}
+          onClick={handleNextPageCustom}
         />
       )}
 
       <ReaderFooterNav
-        bookSlug={bookSlug!}
         chapterTitle={activeChapter?.title || chapter.title}
-        prev={chapter.prev}
-        next={chapter.next}
-        progress={progress}
-        pagesLeft={pagesLeft}
-        currentPage={currentPage + 1}
-        totalPages={totalPages}
-        scrollPercent={scrollPercent}
         overallProgress={overallProgress}
       />
 
       <ReaderTocDrawer
         open={tocOpen}
-        bookSlug={bookSlug!}
         chapters={book.chapters}
-        currentChapterSlug={activeChapterSlug}
+        currentChapterIdentifier={activeChapterIdentifier}
         bookmarks={bookmarks}
         autoSave={autoSaveInfo}
+        getChapterUrl={getChapterUrl}
+        useLocalizedLink={mode === 'public'}
         onClose={() => setTocOpen(false)}
         onRemoveBookmark={removeBookmark}
-        onChapterSelect={useScrollMode ? (slug) => {
+        onChapterSelect={useScrollMode ? (identifier) => {
           // In scroll mode: scroll to chapter if loaded, else navigate
-          const isLoaded = scrollReader.chapters.some(c => c.slug === slug)
+          const isLoaded = scrollReader.chapters.some(c => c.slug === identifier)
           if (isLoaded) {
-            scrollReader.scrollToChapter(slug)
+            scrollReader.scrollToChapter(identifier)
           } else {
-            navigate(getLocalizedPath(`/books/${bookSlug}/${slug}?direct=1`))
+            navigate(getChapterUrl(identifier) + '?direct=1')
           }
         } : undefined}
       />

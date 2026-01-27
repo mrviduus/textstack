@@ -1,4 +1,4 @@
-.PHONY: up down restart logs status backup restore rebuild-ssg clean-ssg deploy nginx-setup
+.PHONY: up down restart logs status backup restore rebuild-ssg clean-ssg deploy nginx-setup build rebuild
 
 # ============================================================
 # Docker Services
@@ -12,6 +12,13 @@ down:
 
 restart:
 	docker compose restart
+
+build:
+	docker compose up -d --build
+
+rebuild:
+	docker compose build --no-cache
+	docker compose up -d
 
 logs:
 	docker compose logs -f --tail 100

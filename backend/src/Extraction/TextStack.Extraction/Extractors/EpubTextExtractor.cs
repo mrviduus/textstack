@@ -1,5 +1,6 @@
 using TextStack.Extraction.Contracts;
 using TextStack.Extraction.Enums;
+using TextStack.Extraction.Toc;
 using TextStack.Extraction.Utilities;
 using VersOne.Epub;
 using VersOne.Epub.Schema;
@@ -37,7 +38,11 @@ public sealed class EpubTextExtractor : ITextExtractor
         var authors = book.AuthorList?.Count > 0 ? string.Join(", ", book.AuthorList) : null;
         var description = book.Description;
 
+        // Build navigation title map from EPUB's NCX/NAV
+        var navTitleMap = BuildNavigationTitleMap(book);
+
         var units = new List<ContentUnit>();
+        var tocChapters = new List<(int ChapterNumber, string Html)>();
         var order = 0;
 
         foreach (var textContent in book.ReadingOrder)
@@ -51,12 +56,20 @@ public sealed class EpubTextExtractor : ITextExtractor
                 if (string.IsNullOrWhiteSpace(html))
                     continue;
 
-                var (cleanHtml, plainText) = HtmlCleaner.CleanHtml(html);
+                var (cleanHtml, plainText) = HtmlCleaner.Clean(html);
                 if (string.IsNullOrWhiteSpace(plainText))
                     continue;
 
-                var chapterTitle = HtmlCleaner.ExtractTitle(html) ?? $"Chapter {order + 1}";
+                var chapterNumber = order + 1;
+                var filePath = textContent.FilePath;
+
+                // Try to get title from EPUB navigation first, then HTML, then fallback
+                var chapterTitle = GetChapterTitle(filePath, navTitleMap, html, chapterNumber);
                 var wordCount = HtmlCleaner.CountWords(plainText);
+
+                // Inject anchor IDs into headings for ToC navigation
+                cleanHtml = TocGenerator.InjectAnchorIds(cleanHtml, chapterNumber);
+                tocChapters.Add((chapterNumber, cleanHtml));
 
                 units.Add(new ContentUnit(
                     Type: ContentUnitType.Chapter,
@@ -74,6 +87,9 @@ public sealed class EpubTextExtractor : ITextExtractor
                     $"Failed to parse chapter: {ex.Message}"));
             }
         }
+
+        // Generate table of contents
+        var toc = TocGenerator.GenerateToc(tocChapters);
 
         ct.ThrowIfCancellationRequested();
 
@@ -141,7 +157,7 @@ public sealed class EpubTextExtractor : ITextExtractor
         var metadata = new ExtractionMetadata(title, authors, null, description, coverImage, coverMimeType);
         var diagnostics = new ExtractionDiagnostics(TextSource.NativeText, null, warnings);
 
-        return new ExtractionResult(SourceFormat.Epub, metadata, units, images, diagnostics);
+        return new ExtractionResult(SourceFormat.Epub, metadata, units, images, diagnostics, toc);
     }
 
     private static string? GetMimeType(EpubContentType contentType)
@@ -155,5 +171,96 @@ public sealed class EpubTextExtractor : ITextExtractor
             EpubContentType.IMAGE_WEBP => "image/webp",
             _ => null
         };
+    }
+
+    /// <summary>
+    /// Builds a map of file paths to chapter titles from the EPUB's NCX/NAV navigation.
+    /// </summary>
+    private static Dictionary<string, string> BuildNavigationTitleMap(EpubBook book)
+    {
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        try
+        {
+            var navigation = book.Navigation;
+            if (navigation == null)
+                return map;
+
+            void ProcessNavItems(IEnumerable<EpubNavigationItem>? items)
+            {
+                if (items == null) return;
+
+                foreach (var item in items)
+                {
+                    if (!string.IsNullOrWhiteSpace(item.Title) && item.Link?.ContentFilePath != null)
+                    {
+                        var path = item.Link.ContentFilePath;
+                        // Store without fragment (anchor)
+                        var pathWithoutFragment = path.Contains('#') ? path[..path.IndexOf('#')] : path;
+
+                        if (!map.ContainsKey(pathWithoutFragment))
+                        {
+                            map[pathWithoutFragment] = item.Title.Trim();
+                        }
+                    }
+
+                    // Process nested items
+                    ProcessNavItems(item.NestedItems);
+                }
+            }
+
+            ProcessNavItems(navigation);
+        }
+        catch
+        {
+            // Navigation extraction is optional
+        }
+
+        return map;
+    }
+
+    /// <summary>
+    /// Gets chapter title with fallback chain: NCX/NAV -> HTML h1/h2 -> "Chapter N"
+    /// </summary>
+    private static string GetChapterTitle(string filePath, Dictionary<string, string> navTitleMap, string html, int chapterNumber)
+    {
+        // 1. Try navigation map first (most reliable source)
+        if (navTitleMap.TryGetValue(filePath, out var navTitle) && !string.IsNullOrWhiteSpace(navTitle))
+        {
+            // Skip if title looks like a file name (contains underscore + numbers pattern)
+            if (!LooksLikeFileName(navTitle))
+                return navTitle;
+        }
+
+        // 2. Try extracting from HTML (h1, h2, title tag)
+        var htmlTitle = HtmlCleaner.ExtractTitle(html);
+        if (!string.IsNullOrWhiteSpace(htmlTitle) && !LooksLikeFileName(htmlTitle))
+        {
+            return htmlTitle;
+        }
+
+        // 3. Fallback to generic chapter number
+        return $"Chapter {chapterNumber}";
+    }
+
+    /// <summary>
+    /// Checks if a string looks like a file name rather than a proper title.
+    /// </summary>
+    private static bool LooksLikeFileName(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return true;
+
+        // File names often have patterns like: code_1, chapter-01, SF20_Code-4
+        var normalized = text.Trim();
+
+        // Contains file-like patterns
+        if (System.Text.RegularExpressions.Regex.IsMatch(normalized, @"^[A-Za-z0-9_-]+$") &&
+            System.Text.RegularExpressions.Regex.IsMatch(normalized, @"[_-]\d+|^\d+[_-]"))
+        {
+            return true;
+        }
+
+        return false;
     }
 }
