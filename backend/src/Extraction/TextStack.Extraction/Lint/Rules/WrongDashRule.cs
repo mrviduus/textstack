@@ -5,18 +5,17 @@ namespace TextStack.Extraction.Lint.Rules;
 /// <summary>
 /// T002: Detects wrong dash types (hyphens used as em/en dashes).
 /// </summary>
-public partial class WrongDashRule : ILintRule
+public partial class WrongDashRule : LintRuleBase
 {
-    public string Code => "T002";
-    public string Description => "Wrong dash type found";
+    public override string Code => "T002";
+    public override string Description => "Wrong dash type found";
 
-    public IEnumerable<LintIssue> Check(string html, int chapterNumber)
+    public override IEnumerable<LintIssue> Check(string html, int chapterNumber)
     {
         if (string.IsNullOrEmpty(html))
             yield break;
 
         // Check for spaced hyphens that should be em dashes
-        // Pattern: word - word (hyphen with spaces)
         var spacedHyphens = SpacedHyphenRegex().Matches(html);
         foreach (Match match in spacedHyphens)
         {
@@ -51,30 +50,9 @@ public partial class WrongDashRule : ILintRule
         }
     }
 
-    private static bool IsInsideHtmlTag(string html, int index)
-    {
-        var lastOpenTag = html.LastIndexOf('<', index);
-        var lastCloseTag = html.LastIndexOf('>', index);
-        return lastOpenTag > lastCloseTag;
-    }
-
-    private static string GetContext(string html, int index)
-    {
-        var start = Math.Max(0, index - 20);
-        var end = Math.Min(html.Length, index + 20);
-        return html.Substring(start, end - start).Replace('\n', ' ').Replace('\r', ' ');
-    }
-
-    private static int GetLineNumber(string html, int index)
-    {
-        return html.Take(index).Count(c => c == '\n') + 1;
-    }
-
-    // Matches: word - word (spaced hyphen)
     [GeneratedRegex(@"\w\s+-\s+\w")]
     private static partial Regex SpacedHyphenRegex();
 
-    // Matches: -- (double hyphen not already converted)
     [GeneratedRegex(@"--")]
     private static partial Regex DoubleHyphenRegex();
 }

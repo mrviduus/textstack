@@ -4,14 +4,12 @@ namespace TextStack.Extraction.Lint.Rules;
 
 /// <summary>
 /// S001: Flags archaic spellings that weren't automatically modernized.
-/// These may need manual review for context-dependent corrections.
 /// </summary>
-public partial class ArchaicSpellingRule : ILintRule
+public partial class ArchaicSpellingRule : LintRuleBase
 {
-    public string Code => "S001";
-    public string Description => "Archaic spelling detected (may need manual review)";
+    public override string Code => "S001";
+    public override string Description => "Archaic spelling detected (may need manual review)";
 
-    // Archaic spellings that might need context-dependent correction
     private static readonly (Regex Pattern, string Modern, string Note)[] ArchaicPatterns =
     [
         (ConnexionRegex(), "connection", "British archaic; may be intentional in historical context"),
@@ -36,7 +34,7 @@ public partial class ArchaicSpellingRule : ILintRule
         (DraughtRegex(), "draft", "British spelling; context-dependent"),
     ];
 
-    public IEnumerable<LintIssue> Check(string html, int chapterNumber)
+    public override IEnumerable<LintIssue> Check(string html, int chapterNumber)
     {
         if (string.IsNullOrEmpty(html))
             yield break;
@@ -45,40 +43,19 @@ public partial class ArchaicSpellingRule : ILintRule
         {
             foreach (Match match in pattern.Matches(html))
             {
-                // Skip if inside HTML tag
                 if (IsInsideHtmlTag(html, match.Index))
                     continue;
 
-                var context = GetContext(html, match.Index);
                 yield return new LintIssue(
                     Code,
                     LintSeverity.Info,
                     $"Archaic/British spelling \"{match.Value}\" (modern: {modern}). {note}",
                     chapterNumber,
                     GetLineNumber(html, match.Index),
-                    context
+                    GetContext(html, match.Index)
                 );
             }
         }
-    }
-
-    private static bool IsInsideHtmlTag(string html, int index)
-    {
-        var lastOpenTag = html.LastIndexOf('<', index);
-        var lastCloseTag = html.LastIndexOf('>', index);
-        return lastOpenTag > lastCloseTag;
-    }
-
-    private static string GetContext(string html, int index)
-    {
-        var start = Math.Max(0, index - 20);
-        var end = Math.Min(html.Length, index + 20);
-        return html.Substring(start, end - start).Replace('\n', ' ').Replace('\r', ' ');
-    }
-
-    private static int GetLineNumber(string html, int index)
-    {
-        return html.Take(index).Count(c => c == '\n') + 1;
     }
 
     [GeneratedRegex(@"\b[Cc]onnexion(s)?\b")]

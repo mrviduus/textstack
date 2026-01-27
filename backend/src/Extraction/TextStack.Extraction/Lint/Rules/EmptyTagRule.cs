@@ -5,12 +5,11 @@ namespace TextStack.Extraction.Lint.Rules;
 /// <summary>
 /// X001: Detects empty HTML tags.
 /// </summary>
-public partial class EmptyTagRule : ILintRule
+public partial class EmptyTagRule : LintRuleBase
 {
-    public string Code => "X001";
-    public string Description => "Empty HTML tag found";
+    public override string Code => "X001";
+    public override string Description => "Empty HTML tag found";
 
-    // Tags that are allowed to be empty
     private static readonly HashSet<string> AllowedEmptyTags = new(StringComparer.OrdinalIgnoreCase)
     {
         "br", "hr", "img", "input", "meta", "link", "area", "base",
@@ -18,7 +17,7 @@ public partial class EmptyTagRule : ILintRule
         "td", "th", "iframe", "video", "audio", "canvas", "svg", "object"
     };
 
-    public IEnumerable<LintIssue> Check(string html, int chapterNumber)
+    public override IEnumerable<LintIssue> Check(string html, int chapterNumber)
     {
         if (string.IsNullOrEmpty(html))
             yield break;
@@ -28,7 +27,6 @@ public partial class EmptyTagRule : ILintRule
         {
             var tagName = match.Groups[1].Value.ToLowerInvariant();
 
-            // Skip allowed empty tags
             if (AllowedEmptyTags.Contains(tagName))
                 continue;
 
@@ -38,24 +36,11 @@ public partial class EmptyTagRule : ILintRule
                 $"Empty <{tagName}> tag found",
                 chapterNumber,
                 GetLineNumber(html, match.Index),
-                GetContext(html, match.Index)
+                GetContext(html, match.Index, 40)
             );
         }
     }
 
-    private static string GetContext(string html, int index)
-    {
-        var start = Math.Max(0, index - 10);
-        var end = Math.Min(html.Length, index + 50);
-        return html.Substring(start, end - start).Replace('\n', ' ').Replace('\r', ' ');
-    }
-
-    private static int GetLineNumber(string html, int index)
-    {
-        return html.Take(index).Count(c => c == '\n') + 1;
-    }
-
-    // Matches: <tag>whitespace-only</tag> or <tag></tag>
     [GeneratedRegex(@"<(\w+)(?:\s+[^>]*)?>\s*</\1>", RegexOptions.IgnoreCase)]
     private static partial Regex EmptyTagRegex();
 }

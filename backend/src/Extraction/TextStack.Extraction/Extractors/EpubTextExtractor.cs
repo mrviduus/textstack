@@ -56,7 +56,7 @@ public sealed class EpubTextExtractor : ITextExtractor
                 if (string.IsNullOrWhiteSpace(html))
                     continue;
 
-                var (cleanHtml, plainText) = HtmlCleaner.CleanHtml(html);
+                var (cleanHtml, plainText) = HtmlCleaner.Clean(html);
                 if (string.IsNullOrWhiteSpace(plainText))
                     continue;
 

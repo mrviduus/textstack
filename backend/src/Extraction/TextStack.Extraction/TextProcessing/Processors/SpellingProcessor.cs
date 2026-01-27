@@ -1,15 +1,16 @@
 using System.Text.RegularExpressions;
+using TextStack.Extraction.TextProcessing.Abstractions;
 
-namespace TextStack.Extraction.Spelling;
+namespace TextStack.Extraction.TextProcessing.Processors;
 
 /// <summary>
 /// Modernizes archaic spellings to contemporary forms.
-/// Ported from Standard Ebooks spelling.py.
-/// Uses standard Regex instead of source-generated for ARM64 compatibility.
 /// </summary>
-public static class SpellingProcessor
+public class SpellingProcessor : ITextProcessor
 {
-    // Pre-compiled regexes for performance
+    public string Name => "Spelling";
+    public int Order => 400;
+
     private static readonly Regex AmpersandCRegex = new(@"\b&c\.", RegexOptions.Compiled);
     private static readonly Regex ConnexionRegex = new(@"\b([Cc])onnexion(s?)\b", RegexOptions.Compiled);
     private static readonly Regex ReflexionRegex = new(@"\b([Rr])eflexion(s?)\b", RegexOptions.Compiled);
@@ -45,121 +46,50 @@ public static class SpellingProcessor
     private static readonly Regex FulfilRegex = new(@"\b([Ff])ulfil(s|led|ling|ment)?\b", RegexOptions.Compiled);
     private static readonly Regex InstalmentRegex = new(@"\b([Ii])nstalment(s)?\b", RegexOptions.Compiled);
 
-    /// <summary>
-    /// Modernize archaic spellings to contemporary English.
-    /// </summary>
-    public static string ModernizeSpelling(string html, string? language = null)
+    public string Process(string input, IProcessingContext context)
     {
-        if (string.IsNullOrEmpty(html))
-            return html;
-
-        // Default to English
-        language ??= "en";
+        if (string.IsNullOrEmpty(input))
+            return input;
 
         // Only process English text
-        if (!language.StartsWith("en", StringComparison.OrdinalIgnoreCase))
-            return html;
+        if (!context.Language.StartsWith("en", StringComparison.OrdinalIgnoreCase))
+            return input;
 
-        // &c. → etc.
+        var html = input;
+
         html = AmpersandCRegex.Replace(html, "etc.");
-
-        // connexion → connection (but not complexion)
         html = ConnexionRegex.Replace(html, "$1onnection$2");
-
-        // reflexion → reflection (but not complexion)
         html = ReflexionRegex.Replace(html, "$1eflection$2");
-
-        // inflexion → inflection
         html = InflexionRegex.Replace(html, "$1nflection$2");
-
-        // to-day → today
         html = ToDayRegex.Replace(html, "$1oday");
-
-        // to-morrow → tomorrow
         html = ToMorrowRegex.Replace(html, "$1omorrow");
-
-        // to-night → tonight
         html = ToNightRegex.Replace(html, "$1onight");
-
-        // now-a-days → nowadays
         html = NowadaysRegex.Replace(html, "$1owadays");
-
-        // any-one → anyone
         html = AnyOneRegex.Replace(html, "$1nyone");
-
-        // every-one → everyone
         html = EveryOneRegex.Replace(html, "$1veryone");
-
-        // some-one → someone
         html = SomeOneRegex.Replace(html, "$1omeone");
-
-        // no-one → no one (note: not "noone")
         html = NoOneRegex.Replace(html, "$1o one");
-
-        // any-thing → anything
         html = AnyThingRegex.Replace(html, "$1nything");
-
-        // every-thing → everything
         html = EveryThingRegex.Replace(html, "$1verything");
-
-        // some-thing → something
         html = SomeThingRegex.Replace(html, "$1omething");
-
-        // any-where → anywhere
         html = AnyWhereRegex.Replace(html, "$1nywhere");
-
-        // every-where → everywhere
         html = EveryWhereRegex.Replace(html, "$1verywhere");
-
-        // some-where → somewhere
         html = SomeWhereRegex.Replace(html, "$1omewhere");
-
-        // no-where → nowhere
         html = NoWhereRegex.Replace(html, "$1owhere");
-
-        // mean-while → meanwhile
         html = MeanWhileRegex.Replace(html, "$1eanwhile");
-
-        // shew/shewn → show/shown
         html = ShewRegex.Replace(html, "$1how$2");
-
-        // gaol → jail
         html = GaolRegex.Replace(html, "$1ail$2");
-
-        // despatch → dispatch
         html = DespatchRegex.Replace(html, "$1ispatch$2");
-
-        // behove → behoove (US)
         html = BehoveRegex.Replace(html, "$1ehoove$2");
-
-        // waggon → wagon
         html = WaggonRegex.Replace(html, "$1agon$2");
-
-        // clew → clue
         html = ClewRegex.Replace(html, "$1lue$2");
-
-        // burthen → burden
         html = BurthenRegex.Replace(html, "$1urden$2");
-
-        // Hindoo → Hindu
         html = HindooRegex.Replace(html, "$1indu$2");
-
-        // intrust → entrust
         html = IntrustRegex.Replace(html, "$1ntrust$2");
-
-        // dulness → dullness
         html = DulnessRegex.Replace(html, "$1ullness$2");
-
-        // skilful → skillful (US)
         html = SkilfulRegex.Replace(html, "$1killful$2");
-
-        // wilful → willful (US)
         html = WilfulRegex.Replace(html, "$1illful$2");
-
-        // fulfil → fulfill (US)
         html = FulfilRegex.Replace(html, "$1ulfill$2");
-
-        // instalment → installment (US)
         html = InstalmentRegex.Replace(html, "$1nstallment$2");
 
         return html;

@@ -1,4 +1,7 @@
-using TextStack.Extraction.Spelling;
+using TextStack.Extraction.TextProcessing.Abstractions;
+using TextStack.Extraction.TextProcessing.Configuration;
+using TextStack.Extraction.TextProcessing.Pipeline;
+using TextStack.Extraction.TextProcessing.Processors;
 using TextStack.Extraction.Typography;
 using TextStack.Extraction.Utilities;
 
@@ -6,11 +9,14 @@ namespace TextStack.UnitTests;
 
 public class TextProcessingTests
 {
+    private static readonly IProcessingContext DefaultContext = new ProcessingContext("en");
+
     [Fact]
     public void SpellingProcessor_ModernizesToday()
     {
+        var processor = new SpellingProcessor();
         var input = "We shall meet to-day and to-morrow.";
-        var result = SpellingProcessor.ModernizeSpelling(input);
+        var result = processor.Process(input, DefaultContext);
 
         Assert.Contains("today", result);
         Assert.Contains("tomorrow", result);
@@ -21,8 +27,9 @@ public class TextProcessingTests
     [Fact]
     public void SpellingProcessor_ModernizesConnexion()
     {
+        var processor = new SpellingProcessor();
         var input = "The connexion was clear.";
-        var result = SpellingProcessor.ModernizeSpelling(input);
+        var result = processor.Process(input, DefaultContext);
 
         Assert.Contains("connection", result);
         Assert.DoesNotContain("connexion", result);
@@ -31,8 +38,9 @@ public class TextProcessingTests
     [Fact]
     public void SpellingProcessor_ModernizesShew()
     {
+        var processor = new SpellingProcessor();
         var input = "He shewed great courage and shewn his strength.";
-        var result = SpellingProcessor.ModernizeSpelling(input);
+        var result = processor.Process(input, DefaultContext);
 
         Assert.Contains("showed", result);
         Assert.Contains("shown", result);
@@ -44,7 +52,6 @@ public class TextProcessingTests
         var input = " twas a dark night. 'Tis true!";
         var result = Contractions.FixArchaicContractions(input);
 
-        // Should have proper apostrophe (right single quote U+2019)
         Assert.Contains("\u2019twas", result);
         Assert.Contains("\u2019Tis", result);
     }
@@ -63,38 +70,41 @@ public class TextProcessingTests
     public void Fractions_ConvertsToUnicode()
     {
         var input = "He ate 1/2 of the pie and 3/4 of the cake.";
-        var result = TextStack.Extraction.Typography.Fractions.ConvertFractions(input);
+        var result = Fractions.ConvertFractions(input);
 
-        Assert.Contains("½", result);  // U+00BD
-        Assert.Contains("¾", result);  // U+00BE
+        Assert.Contains("½", result);
+        Assert.Contains("¾", result);
     }
 
     [Fact]
     public void TypographyProcessor_SmartQuotes()
     {
+        var processor = new TypographyProcessor();
         var input = "\"Hello,\" he said. \"How are you?\"";
-        var result = TypographyProcessor.Typogrify(input);
+        var result = processor.Process(input, DefaultContext);
 
-        Assert.Contains("\u201C", result);  // Left double quote
-        Assert.Contains("\u201D", result);  // Right double quote
+        Assert.Contains("\u201C", result);
+        Assert.Contains("\u201D", result);
         Assert.DoesNotContain("\"", result);
     }
 
     [Fact]
     public void TypographyProcessor_EmDash()
     {
+        var processor = new TypographyProcessor();
         var input = "word--word and word---word";
-        var result = TypographyProcessor.Typogrify(input);
+        var result = processor.Process(input, DefaultContext);
 
-        Assert.Contains("\u2014", result);  // Em dash
-        Assert.Contains("\u2E3B", result);  // Three-em dash
+        Assert.Contains("\u2014", result);
+        Assert.Contains("\u2E3B", result);
     }
 
     [Fact]
     public void SemanticProcessor_MarksAbbreviations()
     {
+        var processor = new SemanticProcessor();
         var input = "Mr. Smith met Dr. Jones.";
-        var result = SemanticProcessor.Semanticate(input);
+        var result = processor.Process(input, DefaultContext);
 
         Assert.Contains("<abbr", result);
         Assert.Contains("epub:type=\"z3998:name-title\"", result);
@@ -103,8 +113,9 @@ public class TextProcessingTests
     [Fact]
     public void SemanticProcessor_MarksRomanNumerals()
     {
+        var processor = new SemanticProcessor();
         var input = "Chapter III and Volume IV";
-        var result = SemanticProcessor.Semanticate(input);
+        var result = processor.Process(input, DefaultContext);
 
         Assert.Contains("<span epub:type=\"z3998:roman\">III</span>", result);
         Assert.Contains("<span epub:type=\"z3998:roman\">IV</span>", result);
@@ -119,17 +130,17 @@ public class TextProcessingTests
             <p>The price: L50 for 1/2.</p>
         ";
 
-        var (html, _) = HtmlCleaner.CleanHtml(input);
+        var (html, _) = HtmlCleaner.Clean(input);
 
         // Spelling modernization
         Assert.Contains("today", html.ToLower());
         Assert.Contains("connection", html.ToLower());
 
         // Smart quotes
-        Assert.Contains("\u201C", html);  // Left double quote
+        Assert.Contains("\u201C", html);
 
         // Contractions
-        Assert.Contains("\u2019", html);  // Apostrophe
+        Assert.Contains("\u2019", html);
 
         // Currency
         Assert.Contains("£50", html);
@@ -139,5 +150,30 @@ public class TextProcessingTests
 
         // Abbreviations
         Assert.Contains("<abbr", html);
+    }
+
+    [Fact]
+    public void PipelineBuilder_CreatesDefaultPipeline()
+    {
+        var pipeline = PipelineBuilder.CreateDefault().Build();
+        var context = new ProcessingContext("en");
+
+        var (html, plainText) = pipeline.Process("<p>To-day</p>", context);
+
+        Assert.Contains("today", html.ToLower());
+        Assert.NotEmpty(plainText);
+    }
+
+    [Fact]
+    public void PipelineBuilder_RespectsOptions()
+    {
+        var options = new TextProcessingOptions { EnableSpelling = false };
+        var pipeline = PipelineBuilder.CreateDefault(options).Build();
+        var context = new ProcessingContext("en", options);
+
+        var (html, _) = pipeline.Process("<p>to-day</p>", context);
+
+        // Spelling should NOT be modernized
+        Assert.Contains("to-day", html);
     }
 }

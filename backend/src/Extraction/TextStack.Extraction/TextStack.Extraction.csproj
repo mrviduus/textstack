@@ -9,6 +9,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="Spelling\Data\words.txt" />
+    <EmbeddedResource Include="TextProcessing\Data\words.txt" />
   </ItemGroup>
 </Project>
