@@ -149,7 +149,7 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage)
                 b.UpdatedAt,
                 Chapters = b.Chapters
                     .OrderBy(c => c.ChapterNumber)
-                    .Select(c => new UserChapterSummaryDto(c.Id, c.ChapterNumber, c.Title, c.WordCount))
+                    .Select(c => new UserChapterSummaryDto(c.Id, c.ChapterNumber, c.Slug, c.Title, c.WordCount))
                     .ToList()
             })
             .FirstOrDefaultAsync(ct);
@@ -186,14 +186,15 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage)
         );
     }
 
-    public async Task<UserChapterDto?> GetChapterAsync(Guid userId, Guid bookId, int chapterNumber, CancellationToken ct)
+    public async Task<UserChapterDto?> GetChapterBySlugAsync(Guid userId, Guid bookId, string slug, CancellationToken ct)
     {
         var chapter = await db.UserChapters
-            .Where(c => c.UserBook.UserId == userId && c.UserBookId == bookId && c.ChapterNumber == chapterNumber)
+            .Where(c => c.UserBook.UserId == userId && c.UserBookId == bookId && c.Slug == slug)
             .Select(c => new
             {
                 c.Id,
                 c.ChapterNumber,
+                c.Slug,
                 c.Title,
                 c.Html,
                 c.WordCount,
@@ -205,18 +206,19 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage)
             return null;
 
         var prev = await db.UserChapters
-            .Where(c => c.UserBookId == chapter.UserBookId && c.ChapterNumber == chapterNumber - 1)
-            .Select(c => new UserChapterNavDto(c.ChapterNumber, c.Title))
+            .Where(c => c.UserBookId == chapter.UserBookId && c.ChapterNumber == chapter.ChapterNumber - 1)
+            .Select(c => new UserChapterNavDto(c.ChapterNumber, c.Slug, c.Title))
             .FirstOrDefaultAsync(ct);
 
         var next = await db.UserChapters
-            .Where(c => c.UserBookId == chapter.UserBookId && c.ChapterNumber == chapterNumber + 1)
-            .Select(c => new UserChapterNavDto(c.ChapterNumber, c.Title))
+            .Where(c => c.UserBookId == chapter.UserBookId && c.ChapterNumber == chapter.ChapterNumber + 1)
+            .Select(c => new UserChapterNavDto(c.ChapterNumber, c.Slug, c.Title))
             .FirstOrDefaultAsync(ct);
 
         return new UserChapterDto(
             chapter.Id,
             chapter.ChapterNumber,
+            chapter.Slug,
             chapter.Title,
             chapter.Html,
             chapter.WordCount,
@@ -329,6 +331,112 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage)
             : 0;
 
         return new StorageQuotaDto(usedBytes, User.StorageLimitBytes, Math.Round(percent, 2));
+    }
+
+    public async Task<UserBookProgressDto?> GetProgressAsync(Guid userId, Guid bookId, CancellationToken ct)
+    {
+        var book = await db.UserBooks
+            .Where(b => b.UserId == userId && b.Id == bookId)
+            .Select(b => new { b.ProgressChapterSlug, b.ProgressLocator, b.ProgressPercent, b.ProgressUpdatedAt })
+            .FirstOrDefaultAsync(ct);
+
+        if (book is null || book.ProgressChapterSlug is null)
+            return null;
+
+        return new UserBookProgressDto(
+            book.ProgressChapterSlug,
+            book.ProgressLocator,
+            book.ProgressPercent,
+            book.ProgressUpdatedAt
+        );
+    }
+
+    public async Task<(bool Success, string? Error)> UpsertProgressAsync(
+        Guid userId, Guid bookId, UpsertUserBookProgressRequest request, CancellationToken ct)
+    {
+        var book = await db.UserBooks.FirstOrDefaultAsync(b => b.UserId == userId && b.Id == bookId, ct);
+        if (book is null)
+            return (false, "Book not found");
+
+        // Conflict resolution: client timestamp must be newer
+        if (request.UpdatedAt.HasValue && book.ProgressUpdatedAt.HasValue &&
+            request.UpdatedAt.Value <= book.ProgressUpdatedAt.Value)
+        {
+            // Client data is stale, return success but don't update
+            return (true, null);
+        }
+
+        book.ProgressChapterSlug = request.ChapterSlug;
+        book.ProgressLocator = request.Locator;
+        book.ProgressPercent = request.Percent;
+        book.ProgressUpdatedAt = request.UpdatedAt ?? DateTimeOffset.UtcNow;
+
+        await db.SaveChangesAsync(ct);
+        return (true, null);
+    }
+
+    public async Task<IReadOnlyList<UserBookBookmarkDto>> GetBookmarksAsync(Guid userId, Guid bookId, CancellationToken ct)
+    {
+        return await db.UserBookBookmarks
+            .Where(b => b.UserBook.UserId == userId && b.UserBookId == bookId)
+            .OrderByDescending(b => b.CreatedAt)
+            .Select(b => new UserBookBookmarkDto(
+                b.Id,
+                b.ChapterId,
+                b.Chapter.Slug,
+                b.Locator,
+                b.Title,
+                b.CreatedAt
+            ))
+            .ToListAsync(ct);
+    }
+
+    public async Task<(UserBookBookmarkDto? Bookmark, string? Error)> CreateBookmarkAsync(
+        Guid userId, Guid bookId, CreateUserBookBookmarkRequest request, CancellationToken ct)
+    {
+        var book = await db.UserBooks.FirstOrDefaultAsync(b => b.UserId == userId && b.Id == bookId, ct);
+        if (book is null)
+            return (null, "Book not found");
+
+        var chapter = await db.UserChapters.FirstOrDefaultAsync(c => c.UserBookId == bookId && c.Id == request.ChapterId, ct);
+        if (chapter is null)
+            return (null, "Chapter not found");
+
+        var bookmark = new UserBookBookmark
+        {
+            Id = Guid.NewGuid(),
+            UserBookId = bookId,
+            ChapterId = request.ChapterId,
+            Locator = request.Locator,
+            Title = request.Title,
+            CreatedAt = DateTimeOffset.UtcNow,
+        };
+
+        db.UserBookBookmarks.Add(bookmark);
+        await db.SaveChangesAsync(ct);
+
+        return (new UserBookBookmarkDto(
+            bookmark.Id,
+            bookmark.ChapterId,
+            chapter.Slug,
+            bookmark.Locator,
+            bookmark.Title,
+            bookmark.CreatedAt
+        ), null);
+    }
+
+    public async Task<(bool Success, string? Error)> DeleteBookmarkAsync(
+        Guid userId, Guid bookId, Guid bookmarkId, CancellationToken ct)
+    {
+        var bookmark = await db.UserBookBookmarks
+            .FirstOrDefaultAsync(b => b.UserBook.UserId == userId && b.UserBookId == bookId && b.Id == bookmarkId, ct);
+
+        if (bookmark is null)
+            return (false, "Bookmark not found");
+
+        db.UserBookBookmarks.Remove(bookmark);
+        await db.SaveChangesAsync(ct);
+        return (true, null);
     }
 
     private static BookFormat DetectFormat(string fileName)

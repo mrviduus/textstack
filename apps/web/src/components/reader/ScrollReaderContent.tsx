@@ -74,11 +74,11 @@ export function ScrollReaderContent({
 
   // Register chapter ref
   const setChapterRef = useCallback(
-    (slug: string, el: HTMLElement | null) => {
+    (identifier: string, el: HTMLElement | null) => {
       if (el) {
-        chapterRefs.current.set(slug, el)
+        chapterRefs.current.set(identifier, el)
       } else {
-        chapterRefs.current.delete(slug)
+        chapterRefs.current.delete(identifier)
       }
     },
     [chapterRefs]
@@ -117,7 +117,7 @@ export function ScrollReaderContent({
   return (
     <div className="scroll-reader" onClick={handleClick}>
       {chapters.map((chapter, i) => (
-        <Fragment key={chapter.slug}>
+        <Fragment key={chapter.identifier}>
           {/* Chapter separator (not for first chapter) */}
           {i > 0 && (
             <div className="chapter-separator">
@@ -129,9 +129,9 @@ export function ScrollReaderContent({
 
           {/* Chapter content */}
           <article
-            ref={(el) => setChapterRef(chapter.slug, el)}
+            ref={(el) => setChapterRef(chapter.identifier, el)}
             className="scroll-reader__chapter"
-            data-chapter-slug={chapter.slug}
+            data-chapter-id={chapter.identifier}
             data-chapter-index={chapter.index}
             style={{
               fontSize: `${settings.fontSize}px`,

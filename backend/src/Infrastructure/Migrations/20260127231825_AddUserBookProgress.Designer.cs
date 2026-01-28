@@ -3,6 +3,7 @@ using System;
 using Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using NpgsqlTypes;
@@ -12,9 +13,11 @@ using NpgsqlTypes;
 namespace Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260127231825_AddUserBookProgress")]
+    partial class AddUserBookProgress
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1464,48 +1467,6 @@ namespace Infrastructure.Migrations
                     b.ToTable("user_books", (string)null);
                 });
 
-            modelBuilder.Entity("Domain.Entities.UserBookBookmark", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<Guid>("ChapterId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("chapter_id");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("Locator")
-                        .IsRequired()
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)")
-                        .HasColumnName("locator");
-
-                    b.Property<string>("Title")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)")
-                        .HasColumnName("title");
-
-                    b.Property<Guid>("UserBookId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("user_book_id");
-
-                    b.HasKey("Id")
-                        .HasName("pk_user_book_bookmarks");
-
-                    b.HasIndex("ChapterId")
-                        .HasDatabaseName("ix_user_book_bookmarks_chapter_id");
-
-                    b.HasIndex("UserBookId")
-                        .HasDatabaseName("ix_user_book_bookmarks_user_book_id");
-
-                    b.ToTable("user_book_bookmarks", (string)null);
-                });
-
             modelBuilder.Entity("Domain.Entities.UserBookFile", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2188,27 +2149,6 @@ namespace Infrastructure.Migrations
                         .HasConstraintName("fk_user_books_users_user_id");
 
                     b.Navigation("User");
-                });
-
-            modelBuilder.Entity("Domain.Entities.UserBookBookmark", b =>
-                {
-                    b.HasOne("Domain.Entities.UserChapter", "Chapter")
-                        .WithMany()
-                        .HasForeignKey("ChapterId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_user_book_bookmarks_user_chapters_chapter_id");
-
-                    b.HasOne("Domain.Entities.UserBook", "UserBook")
-                        .WithMany()
-                        .HasForeignKey("UserBookId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_user_book_bookmarks_user_books_user_book_id");
-
-                    b.Navigation("Chapter");
-
-                    b.Navigation("UserBook");
                 });
 
             modelBuilder.Entity("Domain.Entities.UserBookFile", b =>

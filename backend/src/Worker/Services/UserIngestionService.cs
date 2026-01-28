@@ -2,6 +2,7 @@ using System.Text.Json;
 using Application.Common.Interfaces;
 using Domain.Entities;
 using Domain.Enums;
+using Domain.Utilities;
 using HtmlAgilityPack;
 using Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -143,12 +144,14 @@ public class UserIngestionService
             foreach (var unit in result.Units)
             {
                 var html = RewriteImageSrcs(unit.Html ?? string.Empty, imageMap);
+                var chapterTitle = SanitizeText(unit.Title ?? $"Chapter {unit.OrderIndex + 1}");
                 var chapter = new UserChapter
                 {
                     Id = Guid.NewGuid(),
                     UserBookId = job.UserBookId,
                     ChapterNumber = unit.OrderIndex + 1,
-                    Title = SanitizeText(unit.Title ?? $"Chapter {unit.OrderIndex + 1}"),
+                    Slug = SlugGenerator.GenerateChapterSlug(chapterTitle, unit.OrderIndex),
+                    Title = chapterTitle,
                     Html = SanitizeText(html),
                     PlainText = SanitizeText(unit.PlainText),
                     WordCount = unit.WordCount,

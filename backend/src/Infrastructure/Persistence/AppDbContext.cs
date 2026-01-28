@@ -37,6 +37,7 @@ public class AppDbContext : DbContext, IAppDbContext
     public DbSet<UserChapter> UserChapters => Set<UserChapter>();
     public DbSet<UserBookFile> UserBookFiles => Set<UserBookFile>();
     public DbSet<UserIngestionJob> UserIngestionJobs => Set<UserIngestionJob>();
+    public DbSet<UserBookBookmark> UserBookBookmarks => Set<UserBookBookmark>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -339,7 +340,9 @@ public class AppDbContext : DbContext, IAppDbContext
         {
             e.HasIndex(x => x.UserBookId);
             e.HasIndex(x => new { x.UserBookId, x.ChapterNumber }).IsUnique();
+            e.HasIndex(x => new { x.UserBookId, x.Slug }).IsUnique();
             e.Property(x => x.Title).HasMaxLength(500);
+            e.Property(x => x.Slug).HasMaxLength(255);
             e.HasOne(x => x.UserBook).WithMany(x => x.Chapters).HasForeignKey(x => x.UserBookId).OnDelete(DeleteBehavior.Cascade);
         });
 
@@ -364,6 +367,18 @@ public class AppDbContext : DbContext, IAppDbContext
             e.Property(x => x.SourceFormat).HasMaxLength(50);
             e.HasOne(x => x.UserBook).WithMany(x => x.IngestionJobs).HasForeignKey(x => x.UserBookId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.UserBookFile).WithMany().HasForeignKey(x => x.UserBookFileId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // UserBookBookmark
+        modelBuilder.Entity<UserBookBookmark>(e =>
+        {
+            e.ToTable("user_book_bookmarks");
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.UserBookId);
+            e.Property(x => x.Locator).HasMaxLength(1000);
+            e.Property(x => x.Title).HasMaxLength(500);
+            e.HasOne(x => x.UserBook).WithMany().HasForeignKey(x => x.UserBookId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Chapter).WithMany().HasForeignKey(x => x.ChapterId).OnDelete(DeleteBehavior.Cascade);
         });
     }
 
