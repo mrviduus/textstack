@@ -5,6 +5,7 @@ public class UserChapter
     public Guid Id { get; set; }
     public Guid UserBookId { get; set; }
     public int ChapterNumber { get; set; }
+    public string? Slug { get; set; }
     public required string Title { get; set; }
     public required string Html { get; set; }
     public required string PlainText { get; set; }

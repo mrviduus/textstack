@@ -1,10 +1,17 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
 import { getUserBook, deleteUserBook, getUserBookCoverUrl, type UserBookDetail } from '../api/userBooks'
 import { SeoHead } from '../components/SeoHead'
 import { stringToColor } from '../utils/colors'
+
+interface SavedProgress {
+  chapterSlug?: string
+  chapterNumber?: number // legacy format
+  page: number
+  percent: number
+}
 
 export function UserBookDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -15,6 +22,37 @@ export function UserBookDetailPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
+
+  // Get saved progress from localStorage
+  const savedProgress = useMemo((): SavedProgress | null => {
+    if (!id) return null
+    try {
+      const stored = localStorage.getItem(`userbook.progress.${id}`)
+      if (!stored) return null
+      return JSON.parse(stored) as SavedProgress
+    } catch {
+      return null
+    }
+  }, [id])
+
+  // Determine continue reading target
+  const continueReadingSlug = useMemo(() => {
+    if (!savedProgress || !book?.chapters) return null
+
+    // New format: chapterSlug
+    if (savedProgress.chapterSlug) {
+      const chapter = book.chapters.find(c => c.slug === savedProgress.chapterSlug)
+      if (chapter) return chapter.slug || String(chapter.chapterNumber)
+    }
+
+    // Legacy format: chapterNumber
+    if (savedProgress.chapterNumber) {
+      const chapter = book.chapters.find(c => c.chapterNumber === savedProgress.chapterNumber)
+      if (chapter) return chapter.slug || String(chapter.chapterNumber)
+    }
+
+    return null
+  }, [savedProgress, book?.chapters])
 
   useEffect(() => {
     if (!id || !isAuthenticated) return
@@ -154,10 +192,10 @@ export function UserBookDetailPage() {
           <div className="user-book-detail__actions">
             {isReady && book.chapters.length > 0 && (
               <Link
-                to={`/${language}/library/my/${book.id}/read/1`}
+                to={`/${language}/library/my/${book.id}/read/${continueReadingSlug || book.chapters[0].slug || book.chapters[0].chapterNumber}`}
                 className="user-book-detail__read-btn"
               >
-                Start Reading
+                {continueReadingSlug ? 'Continue Reading' : 'Start Reading'}
               </Link>
             )}
 
@@ -178,7 +216,7 @@ export function UserBookDetailPage() {
           <ul className="user-book-detail__chapter-list">
             {book.chapters.map((chapter) => (
               <li key={chapter.id}>
-                <Link to={`/${language}/library/my/${book.id}/read/${chapter.chapterNumber}`}>
+                <Link to={`/${language}/library/my/${book.id}/read/${chapter.slug || chapter.chapterNumber}`}>
                   <span className="user-book-detail__chapter-number">
                     {chapter.chapterNumber}.
                   </span>

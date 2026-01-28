@@ -31,6 +31,7 @@ public record UserBookDetailDto(
 public record UserChapterSummaryDto(
     Guid Id,
     int ChapterNumber,
+    string? Slug,
     string Title,
     int? WordCount
 );
@@ -38,6 +39,7 @@ public record UserChapterSummaryDto(
 public record UserChapterDto(
     Guid Id,
     int ChapterNumber,
+    string? Slug,
     string Title,
     string Html,
     int? WordCount,
@@ -45,10 +47,39 @@ public record UserChapterDto(
     UserChapterNavDto? Next
 );
 
-public record UserChapterNavDto(int ChapterNumber, string Title);
+public record UserChapterNavDto(int ChapterNumber, string? Slug, string Title);
 
 public record TocEntryDto(string Title, int? ChapterNumber, IReadOnlyList<TocEntryDto>? Children);
 
 public record UploadUserBookResponse(Guid UserBookId, Guid JobId, string Status);
 
 public record StorageQuotaDto(long UsedBytes, long LimitBytes, double UsedPercent);
+
+public record UserBookProgressDto(
+    string? ChapterSlug,
+    string? Locator,
+    double? Percent,
+    DateTimeOffset? UpdatedAt
+);
+
+public record UpsertUserBookProgressRequest(
+    string ChapterSlug,
+    string? Locator,
+    double? Percent,
+    DateTimeOffset? UpdatedAt
+);
+
+public record UserBookBookmarkDto(
+    Guid Id,
+    Guid ChapterId,
+    string? ChapterSlug,
+    string Locator,
+    string? Title,
+    DateTimeOffset CreatedAt
+);
+
+public record CreateUserBookBookmarkRequest(
+    Guid ChapterId,
+    string Locator,
+    string? Title
+);

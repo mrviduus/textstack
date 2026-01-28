@@ -33,7 +33,7 @@ function LanguageRoutes() {
 
   // Hide header on reader pages (have their own top bar)
   const isReaderPage = /^\/[a-z]{2}\/books\/[^/]+\/[^/]+$/.test(location.pathname)
-  const isUserBookReaderPage = /^\/[a-z]{2}\/library\/my\/[^/]+\/read\/\d+$/.test(location.pathname)
+  const isUserBookReaderPage = /^\/[a-z]{2}\/library\/my\/[^/]+\/read\/[^/]+$/.test(location.pathname)
 
   return (
     <LanguageProvider>
@@ -51,7 +51,7 @@ function LanguageRoutes() {
         <Route path="/about" element={<AboutPage />} />
         <Route path="/library" element={<LibraryPage />} />
         <Route path="/library/my/:id" element={<UserBookDetailPage />} />
-        <Route path="/library/my/:id/read/:chapterNumber" element={<ReaderPage mode="userbook" />} />
+        <Route path="/library/my/:id/read/:chapterSlug" element={<ReaderPage mode="userbook" />} />
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </LanguageProvider>

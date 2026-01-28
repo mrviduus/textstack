@@ -19,7 +19,12 @@ public static class UserBooksEndpoints
         group.MapGet("", GetBooks).WithName("GetUserBooks");
         group.MapGet("/quota", GetStorageQuota).WithName("GetStorageQuota");
         group.MapGet("/{id:guid}", GetBook).WithName("GetUserBook");
-        group.MapGet("/{id:guid}/chapters/{chapterNumber:int}", GetChapter).WithName("GetUserBookChapter");
+        group.MapGet("/{id:guid}/chapters/{slug}", GetChapterBySlug).WithName("GetUserBookChapter");
+        group.MapGet("/{id:guid}/progress", GetProgress).WithName("GetUserBookProgress");
+        group.MapPut("/{id:guid}/progress", UpsertProgress).WithName("UpsertUserBookProgress");
+        group.MapGet("/{id:guid}/bookmarks", GetBookmarks).WithName("GetUserBookBookmarks");
+        group.MapPost("/{id:guid}/bookmarks", CreateBookmark).WithName("CreateUserBookBookmark");
+        group.MapDelete("/{id:guid}/bookmarks/{bookmarkId:guid}", DeleteBookmark).WithName("DeleteUserBookBookmark");
         group.MapGet("/{id:guid}/assets/{assetId:guid}", GetAsset).WithName("GetUserBookAsset");
         group.MapPost("/{id:guid}/retry", RetryBook).WithName("RetryUserBook");
         group.MapPost("/{id:guid}/cancel", CancelBook).WithName("CancelUserBook");
@@ -100,9 +105,9 @@ public static class UserBooksEndpoints
         return Results.Ok(book);
     }
 
-    private static async Task<IResult> GetChapter(
+    private static async Task<IResult> GetChapterBySlug(
         Guid id,
-        int chapterNumber,
+        string slug,
         HttpContext httpContext,
         AuthService authService,
         UserBookService userBookService,
@@ -111,10 +116,94 @@ public static class UserBooksEndpoints
         var userId = GetUserId(httpContext, authService);
         if (userId == null) return Results.Unauthorized();
 
-        var chapter = await userBookService.GetChapterAsync(userId.Value, id, chapterNumber, ct);
+        var chapter = await userBookService.GetChapterBySlugAsync(userId.Value, id, slug, ct);
         if (chapter is null) return Results.NotFound();
 
         return Results.Ok(chapter);
+    }
+
+    private static async Task<IResult> GetProgress(
+        Guid id,
+        HttpContext httpContext,
+        AuthService authService,
+        UserBookService userBookService,
+        CancellationToken ct)
+    {
+        var userId = GetUserId(httpContext, authService);
+        if (userId == null) return Results.Unauthorized();
+
+        var progress = await userBookService.GetProgressAsync(userId.Value, id, ct);
+        if (progress is null) return Results.NotFound();
+
+        return Results.Ok(progress);
+    }
+
+    private static async Task<IResult> UpsertProgress(
+        Guid id,
+        UpsertUserBookProgressRequest request,
+        HttpContext httpContext,
+        AuthService authService,
+        UserBookService userBookService,
+        CancellationToken ct)
+    {
+        var userId = GetUserId(httpContext, authService);
+        if (userId == null) return Results.Unauthorized();
+
+        var (success, error) = await userBookService.UpsertProgressAsync(userId.Value, id, request, ct);
+        if (!success)
+            return Results.BadRequest(new { error });
+
+        return Results.Ok();
+    }
+
+    private static async Task<IResult> GetBookmarks(
+        Guid id,
+        HttpContext httpContext,
+        AuthService authService,
+        UserBookService userBookService,
+        CancellationToken ct)
+    {
+        var userId = GetUserId(httpContext, authService);
+        if (userId == null) return Results.Unauthorized();
+
+        var bookmarks = await userBookService.GetBookmarksAsync(userId.Value, id, ct);
+        return Results.Ok(bookmarks);
+    }
+
+    private static async Task<IResult> CreateBookmark(
+        Guid id,
+        CreateUserBookBookmarkRequest request,
+        HttpContext httpContext,
+        AuthService authService,
+        UserBookService userBookService,
+        CancellationToken ct)
+    {
+        var userId = GetUserId(httpContext, authService);
+        if (userId == null) return Results.Unauthorized();
+
+        var (bookmark, error) = await userBookService.CreateBookmarkAsync(userId.Value, id, request, ct);
+        if (error is not null)
+            return Results.BadRequest(new { error });
+
+        return Results.Ok(bookmark);
+    }
+
+    private static async Task<IResult> DeleteBookmark(
+        Guid id,
+        Guid bookmarkId,
+        HttpContext httpContext,
+        AuthService authService,
+        UserBookService userBookService,
+        CancellationToken ct)
+    {
+        var userId = GetUserId(httpContext, authService);
+        if (userId == null) return Results.Unauthorized();
+
+        var (success, error) = await userBookService.DeleteBookmarkAsync(userId.Value, id, bookmarkId, ct);
+        if (!success)
+            return Results.NotFound(new { error });
+
+        return Results.NoContent();
     }
 
     private static async Task<IResult> GetAsset(

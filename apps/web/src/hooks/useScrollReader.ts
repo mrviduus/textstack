@@ -1,31 +1,43 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import type { BookDetail, Chapter, ChapterSummary } from '../types/api'
-import { getCachedChapter, cacheChapter } from '../lib/offlineDb'
 
 export interface LoadedChapter {
-  slug: string
+  identifier: string // slug for both public and userbook
   title: string
   html: string
   wordCount: number | null
   index: number // position in book.chapters
 }
 
+interface ChapterSummary {
+  identifier: string
+  title: string
+  chapterNumber: number
+  wordCount?: number | null
+}
+
+interface FetchedChapter {
+  identifier: string
+  title: string
+  html: string
+  wordCount: number | null
+}
+
 interface UseScrollReaderProps {
-  book: BookDetail | null
-  initialChapterSlug: string
-  editionId: string
-  fetchChapter: (chapterSlug: string) => Promise<Chapter>
+  book: { chapters: ChapterSummary[] } | null
+  initialIdentifier: string
+  bookId: string // editionId for public, userBookId for userbook
+  fetchChapter: (identifier: string) => Promise<FetchedChapter>
 }
 
 interface UseScrollReaderResult {
   chapters: LoadedChapter[]
-  visibleChapterSlug: string
+  visibleIdentifier: string
   isLoadingMore: boolean
   loadError: string | null
   scrollOffset: number
   loadMore: () => Promise<void>
   loadPrev: () => Promise<void>
-  scrollToChapter: (slug: string) => void
+  scrollToChapter: (identifier: string) => void
   chapterRefs: React.MutableRefObject<Map<string, HTMLElement>>
 }
 
@@ -33,89 +45,69 @@ const CHAPTERS_BUFFER = 2 // Load 2 chapters ahead/behind
 
 export function useScrollReader({
   book,
-  initialChapterSlug,
-  editionId,
+  initialIdentifier,
+  bookId: _bookId,
   fetchChapter,
 }: UseScrollReaderProps): UseScrollReaderResult {
   const [chapters, setChapters] = useState<LoadedChapter[]>([])
-  const [visibleChapterSlug, setVisibleChapterSlug] = useState(initialChapterSlug)
+  const [visibleIdentifier, setVisibleIdentifier] = useState(initialIdentifier)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [scrollOffset, setScrollOffset] = useState(0)
 
   const chapterRefs = useRef<Map<string, HTMLElement>>(new Map())
   const loadingRef = useRef(false)
-  const loadedSlugsRef = useRef<Set<string>>(new Set())
-  const lastInitialSlugRef = useRef(initialChapterSlug)
+  const loadedIdsRef = useRef<Set<string>>(new Set())
+  const lastInitialIdRef = useRef(initialIdentifier)
 
   // Reset when navigating to a different chapter
   useEffect(() => {
-    if (lastInitialSlugRef.current !== initialChapterSlug) {
-      lastInitialSlugRef.current = initialChapterSlug
+    if (lastInitialIdRef.current !== initialIdentifier) {
+      lastInitialIdRef.current = initialIdentifier
       setChapters([])
-      setVisibleChapterSlug(initialChapterSlug)
+      setVisibleIdentifier(initialIdentifier)
       setScrollOffset(0)
-      loadedSlugsRef.current.clear()
+      loadedIdsRef.current.clear()
       chapterRefs.current.clear()
     }
-  }, [initialChapterSlug])
+  }, [initialIdentifier])
 
   // Get chapter index from book
   const getChapterIndex = useCallback(
-    (slug: string): number => {
+    (identifier: string): number => {
       if (!book) return -1
-      return book.chapters.findIndex((c) => c.slug === slug)
+      return book.chapters.findIndex((c) => c.identifier === identifier)
     },
     [book]
   )
 
-  // Fetch a single chapter (cache-first)
+  // Fetch a single chapter
   const loadChapter = useCallback(
     async (chapterSummary: ChapterSummary): Promise<LoadedChapter | null> => {
-      const { slug } = chapterSummary
+      const { identifier } = chapterSummary
 
       // Skip if already loaded
-      if (loadedSlugsRef.current.has(slug)) return null
+      if (loadedIdsRef.current.has(identifier)) return null
 
       try {
-        // Try cache first
-        let chapterData: Chapter | null = null
-        const cached = await getCachedChapter(editionId, slug)
+        const chapterData = await fetchChapter(identifier)
 
-        if (cached) {
-          chapterData = {
-            id: '', // not needed for display
-            chapterNumber: chapterSummary.chapterNumber,
-            slug: cached.chapterSlug,
-            title: cached.title,
-            html: cached.html,
-            wordCount: cached.wordCount,
-            prev: cached.prev,
-            next: cached.next,
-          }
-        } else {
-          // Fetch from API
-          chapterData = await fetchChapter(slug)
-          // Cache for offline
-          await cacheChapter(editionId, chapterData)
-        }
-
-        const index = book?.chapters.findIndex((c) => c.slug === slug) ?? -1
-        loadedSlugsRef.current.add(slug)
+        const index = book?.chapters.findIndex((c) => c.identifier === identifier) ?? -1
+        loadedIdsRef.current.add(identifier)
 
         return {
-          slug: chapterData.slug,
+          identifier: chapterData.identifier,
           title: chapterData.title,
           html: chapterData.html,
           wordCount: chapterData.wordCount,
           index,
         }
       } catch (err) {
-        console.error(`Failed to load chapter ${slug}:`, err)
+        console.error(`Failed to load chapter ${identifier}:`, err)
         return null
       }
     },
-    [editionId, fetchChapter, book]
+    [fetchChapter, book]
   )
 
   // Initial load: current chapter + next CHAPTERS_BUFFER
@@ -127,7 +119,7 @@ export function useScrollReader({
       setLoadError(null)
 
       try {
-        const currentIndex = getChapterIndex(initialChapterSlug)
+        const currentIndex = getChapterIndex(initialIdentifier)
         if (currentIndex === -1) {
           setLoadError('Chapter not found')
           return
@@ -153,7 +145,7 @@ export function useScrollReader({
     }
 
     loadInitial()
-  }, [book, initialChapterSlug, getChapterIndex, loadChapter, chapters.length])
+  }, [book, initialIdentifier, getChapterIndex, loadChapter, chapters.length])
 
   // Load more chapters (next)
   const loadMore = useCallback(async () => {
@@ -234,10 +226,10 @@ export function useScrollReader({
       timeoutId = window.setTimeout(() => {
         // Find which chapter is visible at top of viewport
         const viewportTop = window.innerHeight * 0.25 // Check within top 25%
-        let foundSlug: string | null = null
+        let foundId: string | null = null
         let foundTop = -Infinity
 
-        chapterRefs.current.forEach((el, slug) => {
+        chapterRefs.current.forEach((el, identifier) => {
           const rect = el.getBoundingClientRect()
           // Chapter is visible if:
           // 1. Its top is within the top portion of viewport OR scrolled past (negative)
@@ -245,18 +237,18 @@ export function useScrollReader({
           if (rect.top < viewportTop && rect.bottom > 0) {
             // Pick the chapter with highest top (most recently scrolled into)
             if (rect.top > foundTop) {
-              foundSlug = slug
+              foundId = identifier
               foundTop = rect.top
             }
           }
         })
 
-        if (foundSlug && foundSlug !== visibleChapterSlug) {
-          setVisibleChapterSlug(foundSlug)
+        if (foundId && foundId !== visibleIdentifier) {
+          setVisibleIdentifier(foundId)
         }
 
         // Calculate offset relative to visible chapter
-        const visibleEl = chapterRefs.current.get(foundSlug || visibleChapterSlug)
+        const visibleEl = chapterRefs.current.get(foundId || visibleIdentifier)
         if (visibleEl) {
           const rect = visibleEl.getBoundingClientRect()
           setScrollOffset(Math.abs(rect.top))
@@ -271,11 +263,11 @@ export function useScrollReader({
       clearTimeout(timeoutId)
       window.removeEventListener('scroll', handleScroll)
     }
-  }, [visibleChapterSlug, chapters])
+  }, [visibleIdentifier, chapters])
 
   // Scroll to a specific chapter
-  const scrollToChapter = useCallback((slug: string) => {
-    const el = chapterRefs.current.get(slug)
+  const scrollToChapter = useCallback((identifier: string) => {
+    const el = chapterRefs.current.get(identifier)
     if (el) {
       el.scrollIntoView({ behavior: 'smooth', block: 'start' })
     }
@@ -283,7 +275,7 @@ export function useScrollReader({
 
   return {
     chapters,
-    visibleChapterSlug,
+    visibleIdentifier,
     isLoadingMore,
     loadError,
     scrollOffset,

@@ -34,6 +34,7 @@ public interface IAppDbContext
     DbSet<UserChapter> UserChapters { get; }
     DbSet<UserBookFile> UserBookFiles { get; }
     DbSet<UserIngestionJob> UserIngestionJobs { get; }
+    DbSet<UserBookBookmark> UserBookBookmarks { get; }
 
     Task<int> SaveChangesAsync(CancellationToken ct = default);
 }

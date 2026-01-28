@@ -18,6 +18,7 @@ export interface UserBook {
 export interface UserChapterSummary {
   id: string
   chapterNumber: number
+  slug: string | null
   title: string
   wordCount: number | null
 }
@@ -46,11 +47,12 @@ export interface UserBookDetail {
 export interface UserChapter {
   id: string
   chapterNumber: number
+  slug: string | null
   title: string
   html: string
   wordCount: number | null
-  previous: { chapterNumber: number; title: string } | null
-  next: { chapterNumber: number; title: string } | null
+  previous: { chapterNumber: number; slug: string | null; title: string } | null
+  next: { chapterNumber: number; slug: string | null; title: string } | null
 }
 
 export interface UploadResponse {
@@ -144,8 +146,8 @@ export async function getUserBook(id: string): Promise<UserBookDetail> {
   return authFetch<UserBookDetail>(`/me/books/${id}`)
 }
 
-export async function getUserBookChapter(bookId: string, chapterNumber: number): Promise<UserChapter> {
-  return authFetch<UserChapter>(`/me/books/${bookId}/chapters/${chapterNumber}`)
+export async function getUserBookChapter(bookId: string, slug: string): Promise<UserChapter> {
+  return authFetch<UserChapter>(`/me/books/${bookId}/chapters/${slug}`)
 }
 
 export async function deleteUserBook(id: string): Promise<void> {
@@ -167,4 +169,62 @@ export async function getStorageQuota(): Promise<StorageQuota> {
 export function getUserBookCoverUrl(coverPath: string | null | undefined): string | undefined {
   if (!coverPath) return undefined
   return `${API_BASE}/storage/${coverPath}`
+}
+
+// Progress API
+export interface UserBookProgress {
+  chapterSlug: string | null
+  locator: string | null
+  percent: number | null
+  updatedAt: string | null
+}
+
+export async function getUserBookProgress(bookId: string): Promise<UserBookProgress | null> {
+  try {
+    return await authFetch<UserBookProgress>(`/me/books/${bookId}/progress`)
+  } catch {
+    return null
+  }
+}
+
+export async function saveUserBookProgress(
+  bookId: string,
+  data: { chapterSlug: string; locator?: string; percent?: number; updatedAt?: string }
+): Promise<void> {
+  await authFetch<void>(`/me/books/${bookId}/progress`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+}
+
+// Bookmark API
+export interface UserBookBookmark {
+  id: string
+  chapterId: string
+  chapterSlug: string | null
+  locator: string
+  title: string | null
+  createdAt: string
+}
+
+export async function getUserBookBookmarks(bookId: string): Promise<UserBookBookmark[]> {
+  return authFetch<UserBookBookmark[]>(`/me/books/${bookId}/bookmarks`)
+}
+
+export async function createUserBookBookmark(
+  bookId: string,
+  data: { chapterId: string; locator: string; title?: string }
+): Promise<UserBookBookmark> {
+  return authFetch<UserBookBookmark>(`/me/books/${bookId}/bookmarks`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+}
+
+export async function deleteUserBookBookmark(bookId: string, bookmarkId: string): Promise<void> {
+  await authFetch<void>(`/me/books/${bookId}/bookmarks/${bookmarkId}`, {
+    method: 'DELETE',
+  })
 }
