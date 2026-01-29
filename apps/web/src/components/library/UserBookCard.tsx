@@ -9,6 +9,7 @@ interface UserBookCardProps {
   onDelete: () => void
   onRetry?: () => void
   onCancel?: () => void
+  progress?: { percent: number | null; chapterSlug: string | null; updatedAt: string | null }
 }
 
 function formatElapsed(seconds: number): string {
@@ -17,8 +18,9 @@ function formatElapsed(seconds: number): string {
   return `${mins}:${secs.toString().padStart(2, '0')}`
 }
 
-export function UserBookCard({ book, onDelete, onRetry, onCancel }: UserBookCardProps) {
+export function UserBookCard({ book, onDelete, onRetry, onCancel, progress }: UserBookCardProps) {
   const { language } = useLanguage()
+  const percent = progress?.percent ?? 0
   const [menuOpen, setMenuOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [retrying, setRetrying] = useState(false)
@@ -100,7 +102,9 @@ export function UserBookCard({ book, onDelete, onRetry, onCancel }: UserBookCard
   const isFailed = book.status === 'Failed'
   const isStuck = isProcessing && elapsed > 180 // 3 minutes
 
-  const destination = isReady ? `/${language}/library/my/${book.id}` : '#'
+  const destination = isReady
+    ? (progress?.chapterSlug ? `/${language}/library/my/${book.id}/read/${progress.chapterSlug}` : `/${language}/library/my/${book.id}`)
+    : '#'
 
   return (
     <div className="user-book-card">
@@ -110,15 +114,18 @@ export function UserBookCard({ book, onDelete, onRetry, onCancel }: UserBookCard
         onClick={(e) => !isReady && e.preventDefault()}
       >
         {book.coverPath ? (
-          <img src={getUserBookCoverUrl(book.coverPath)} alt={book.title} />
-        ) : (
-          <div
-            className="user-book-card__cover-placeholder"
-            style={{ backgroundColor: stringToColor(book.title) }}
-          >
-            {book.title?.[0] || '?'}
-          </div>
-        )}
+          <img
+            src={getUserBookCoverUrl(book.coverPath)}
+            alt={book.title}
+            onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextElementSibling?.classList.remove('hidden') }}
+          />
+        ) : null}
+        <div
+          className={`user-book-card__cover-placeholder ${book.coverPath ? 'hidden' : ''}`}
+          style={{ backgroundColor: stringToColor(book.title) }}
+        >
+          {book.title?.[0] || '?'}
+        </div>
 
         {isProcessing && (
           <div className={`user-book-card__status user-book-card__status--processing${isStuck ? ' user-book-card__status--stuck' : ''}`}>
@@ -136,6 +143,15 @@ export function UserBookCard({ book, onDelete, onRetry, onCancel }: UserBookCard
             Failed
           </div>
         )}
+
+        {isReady && percent > 0 && (
+          <div className="user-book-card__progress-bar">
+            <div
+              className="user-book-card__progress-fill"
+              style={{ width: `${Math.round(percent * 100)}%` }}
+            />
+          </div>
+        )}
       </Link>
 
       <div className="user-book-card__info">
@@ -148,7 +164,10 @@ export function UserBookCard({ book, onDelete, onRetry, onCancel }: UserBookCard
             {book.title}
           </Link>
           <div className="user-book-card__meta">
-            {isReady && book.chapterCount > 0 && (
+            {isReady && percent > 0 && (
+              <span className="user-book-card__progress-text">{Math.round(percent * 100)}% read</span>
+            )}
+            {isReady && book.chapterCount > 0 && percent === 0 && (
               <span>{book.chapterCount} chapters</span>
             )}
             {isFailed && book.errorMessage && (

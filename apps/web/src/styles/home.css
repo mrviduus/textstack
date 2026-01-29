@@ -1,208 +1,120 @@
 .home-page {
-  max-width: 1200px;
+  max-width: 1400px;
   margin: 0 auto;
-  padding: 0 16px;
+  padding: 0 24px;
   overflow-x: hidden;
 }
 
-/* Hero Section - Theory Ventures inspired */
+/* Hero Section - Stitch design */
 .home-hero {
   position: relative;
   text-align: center;
-  padding: 0 24px;
-  margin: 0 calc(-50vw + 50%);
-  width: 100vw;
-  min-height: calc(100vh - 80px);
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  background: #FAFAF8;
+  padding: 96px 24px 128px;
 }
 
 .home-hero__content {
-  max-width: 1000px;
+  max-width: 800px;
   margin: 0 auto;
-  padding: 0 24px;
-  width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
 }
 
 .home-hero__title {
-  font-family: 'Playfair Display', Georgia, 'Times New Roman', serif;
-  font-size: clamp(2.5rem, 8vw, 5rem);
-  font-weight: 400;
-  line-height: 1.1;
+  font-family: 'Crimson Pro', 'Playfair Display', serif;
+  font-size: clamp(3rem, 10vw, 6rem);
+  font-weight: 300;
+  line-height: 1.05;
   margin: 0;
-  color: #191919;
-  max-width: 900px;
+  color: var(--color-text);
   letter-spacing: -0.02em;
 }
 
 .home-hero__subtitle {
-  font-size: 1.125rem;
-  color: #666;
+  font-family: 'Crimson Pro', serif;
+  font-size: clamp(1.125rem, 2vw, 1.5rem);
+  font-style: italic;
+  color: var(--color-text-secondary);
   margin: 32px 0 0;
   max-width: 600px;
-  line-height: 1.6;
+  line-height: 1.5;
 }
 
-.home-hero__description {
-  display: none;
-}
-
-.home-hero__cta {
-  display: none;
-}
-
-/* About Section */
-.home-about {
-  padding: 48px 16px;
-  background: var(--color-bg-warm, #FAF8F5);
-  border-radius: 0;
-  margin: 0;
-}
-
-.home-about__title {
-  font-size: 1.75rem;
-  margin: 0 0 24px;
-  font-weight: 400;
-}
-
-.home-about__list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-}
-
-.home-about__item {
-  flex: 1 1 200px;
-  padding: 16px 20px;
-  background: var(--color-bg, #fff);
-  border-radius: 8px;
-  border: 1px solid var(--color-border, #E8E2D9);
-}
-
-/* Authors Section */
-.home-authors {
-  padding: 64px 0;
-}
-
-.home-authors__title {
-  font-size: 1.75rem;
-  margin: 0 0 32px;
-  font-weight: 400;
-}
-
-.home-authors__grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  gap: 16px;
-}
-
-.home-author-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-decoration: none;
-  color: inherit;
-  padding: 16px;
-  border-radius: 8px;
-  transition: background 0.2s;
-}
-
-.home-author-card:hover {
-  background: var(--color-bg-secondary, #f9fafb);
-}
-
-.home-author-card__photo {
-  width: 64px;
-  height: 64px;
-  border-radius: 50%;
-  overflow: hidden;
-  background: var(--color-bg-secondary, #f0f0f0);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 8px;
-}
-
-.home-author-card__photo img {
+.home-hero__search {
+  position: relative;
   width: 100%;
-  height: 100%;
-  object-fit: cover;
+  max-width: 560px;
+  margin-top: 48px;
 }
 
-.home-author-card__initials {
-  font-size: 1.5rem;
-  font-weight: 600;
-  color: var(--color-text-secondary, #666);
+.home-hero__search-icon {
+  position: absolute;
+  left: 20px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 22px;
+  color: var(--color-text-secondary);
+  pointer-events: none;
 }
 
-.home-author-card__name {
-  font-size: 0.875rem;
-  text-align: center;
-  font-weight: 500;
+.home-hero__search-input {
+  width: 100%;
+  padding: 18px 24px 18px 56px;
+  font-size: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 9999px;
+  background: var(--color-bg-card);
+  color: var(--color-text);
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.home-author-card--skeleton .home-author-card__photo {
-  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
-  background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
+.home-hero__search-input::placeholder {
+  color: var(--color-text-secondary);
 }
 
-.home-author-card--skeleton .home-author-card__name {
-  width: 60px;
-  height: 14px;
-  background: #f0f0f0;
-  border-radius: 4px;
+.home-hero__search-input:focus {
+  border-color: var(--color-text);
+  box-shadow: 0 0 0 1px var(--color-text);
 }
 
-.home-authors__view-all {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 32px;
-  color: var(--color-text, #191919);
-  text-decoration: none;
-  font-weight: 500;
-  transition: gap 0.2s;
-}
-
-.home-authors__view-all:hover {
-  gap: 10px;
-}
-
-.home-authors__view-all::after {
-  content: '→';
-}
-
-.home-authors__empty {
-  color: var(--color-text-secondary, #666);
-}
-
-/* Books Section */
+/* Books Section - Stitch design */
 .home-books {
   padding: 64px 0;
-  border-bottom: 1px solid var(--color-border, #E8E2D9);
+}
+
+.home-books__header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-bottom: 48px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .home-books__title {
-  font-size: 1.75rem;
-  margin: 0 0 32px;
-  font-weight: 400;
+  font-family: 'Crimson Pro', 'Playfair Display', serif;
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  margin: 0;
+  font-weight: 500;
 }
 
 .home-books__grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 180px));
-  gap: 20px;
-  justify-content: start;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 32px 24px;
+}
+
+@media (min-width: 640px) {
+  .home-books__grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+@media (min-width: 1024px) {
+  .home-books__grid {
+    grid-template-columns: repeat(6, 1fr);
+  }
 }
 
 .home-book-card {
@@ -210,24 +122,18 @@
   flex-direction: column;
   text-decoration: none;
   color: inherit;
-  border-radius: 8px;
-  overflow: hidden;
-  transition: transform 0.2s, box-shadow 0.2s;
-}
-
-.home-book-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  min-width: 0; /* Allow grid items to shrink */
 }
 
 .home-book-card__cover {
   aspect-ratio: 2/3;
-  background: var(--color-bg-secondary, #f0f0f0);
+  background: var(--color-bg-secondary);
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 8px;
   overflow: hidden;
+  margin-bottom: 16px;
 }
 
 .home-book-card__cover img {
@@ -239,26 +145,33 @@
 .home-book-card__no-cover {
   font-size: 2rem;
   font-weight: 600;
-  color: var(--color-text-secondary, #999);
+  color: var(--color-text-secondary);
 }
 
 .home-book-card__info {
-  padding: 12px 0;
+  padding: 0;
 }
 
 .home-book-card__title {
-  font-size: 0.9rem;
+  font-size: 14px;
   margin: 0;
-  font-weight: 600;
+  font-weight: 500;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  line-height: 1.4;
+}
+
+.home-book-card:hover .home-book-card__title {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  text-decoration-thickness: 1px;
 }
 
 .home-book-card__author {
-  font-size: 0.8rem;
-  color: var(--color-text-secondary, #666);
+  font-size: 12px;
+  color: var(--color-text-secondary);
   margin: 4px 0 0;
   display: -webkit-box;
   -webkit-line-clamp: 1;
@@ -267,51 +180,158 @@
 }
 
 .home-book-card--skeleton .home-book-card__cover {
-  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background: linear-gradient(90deg, var(--color-bg-secondary) 25%, var(--color-border) 50%, var(--color-bg-secondary) 75%);
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
 }
 
 .home-book-card--skeleton .home-book-card__info {
   height: 40px;
-  background: #f0f0f0;
+  background: var(--color-bg-secondary);
   border-radius: 4px;
 }
 
 .home-books__view-all {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 32px;
-  color: var(--color-text, #191919);
+  gap: 8px;
+  color: var(--color-text-secondary);
   text-decoration: none;
+  font-size: 14px;
   font-weight: 500;
-  transition: gap 0.2s;
+  transition: color 0.15s ease;
+  white-space: nowrap;
 }
 
 .home-books__view-all:hover {
-  gap: 10px;
+  color: var(--color-text);
 }
 
-.home-books__view-all::after {
-  content: '→';
+.home-books__view-all .material-icons-outlined {
+  font-size: 16px;
 }
 
 .home-books__empty {
-  color: var(--color-text-secondary, #666);
+  color: var(--color-text-secondary);
 }
 
-/* SEO Section */
-.home-seo {
-  padding: 32px 0;
-  border-top: 1px solid var(--color-border, #e5e7eb);
-  margin-top: 32px;
+/* Authors Section - Stitch design */
+.home-authors {
+  padding: 96px 0;
 }
 
-.home-seo__text {
-  color: var(--color-text-secondary, #666);
-  line-height: 1.6;
+.home-authors__header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-bottom: 48px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.home-authors__title {
+  font-family: 'Crimson Pro', 'Playfair Display', serif;
+  font-size: clamp(1.5rem, 3vw, 2rem);
   margin: 0;
+  font-weight: 500;
+}
+
+.home-authors__grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 32px 16px;
+}
+
+.home-author-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.home-author-card__photo {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--color-bg-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16px;
+  border: 2px solid transparent;
+  padding: 4px;
+  transition: border-color 0.2s ease;
+}
+
+.home-author-card:hover .home-author-card__photo {
+  border-color: var(--color-border);
+}
+
+.home-author-card__photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+  filter: grayscale(1);
+  transition: filter 0.3s ease;
+}
+
+.home-author-card:hover .home-author-card__photo img {
+  filter: grayscale(0%);
+}
+
+.home-author-card__initials {
+  font-size: 2rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.home-author-card__name {
+  font-size: 12px;
+  text-align: center;
+  font-weight: 500;
+  max-width: 80px;
+}
+
+.home-author-card--skeleton .home-author-card__photo {
+  background: linear-gradient(90deg, var(--color-bg-secondary) 25%, var(--color-border) 50%, var(--color-bg-secondary) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+.home-author-card--skeleton .home-author-card__name {
+  width: 60px;
+  height: 14px;
+  background: var(--color-bg-secondary);
+  border-radius: 4px;
+}
+
+.home-authors__view-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+  transition: color 0.15s ease;
+  white-space: nowrap;
+}
+
+.home-authors__view-all:hover {
+  color: var(--color-text);
+}
+
+.home-authors__view-all .material-icons-outlined {
+  font-size: 16px;
+}
+
+.home-authors__empty {
+  color: var(--color-text-secondary);
 }
 
 /* Shimmer animation */
@@ -322,34 +342,21 @@
 
 /* Responsive */
 @media (max-width: 640px) {
+  .home-page {
+    padding: 0 16px;
+  }
+
   .home-hero {
-    min-height: 80vh;
-    padding: 0 20px;
-    box-sizing: border-box;
+    padding: 48px 0 64px;
   }
 
-  .home-hero__content {
-    padding: 0;
-    max-width: 100%;
+  .home-hero__search {
+    margin-top: 32px;
   }
 
-  .home-hero__title {
-    font-size: clamp(1.5rem, 8vw, 2.25rem);
-    max-width: 100%;
-  }
-
-  .home-hero__subtitle {
-    font-size: 0.95rem;
-    margin-top: 20px;
-    max-width: 100%;
-  }
-
-  .home-about__list {
-    flex-direction: column;
-  }
-
-  .home-about__item {
-    flex: none;
+  .home-hero__search-input {
+    padding: 14px 20px 14px 48px;
+    font-size: 15px;
   }
 
   .home-books,
@@ -357,7 +364,86 @@
     padding: 48px 0;
   }
 
-  .home-books__grid {
+  .home-books__header,
+  .home-authors__header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 32px;
+    padding-bottom: 16px;
+  }
+
+  .home-authors__grid {
     justify-content: center;
   }
+
+  .home-author-card__photo {
+    width: 72px;
+    height: 72px;
+  }
+}
+
+/* =============================================
+   Footer - Stitch design
+   ============================================= */
+
+.site-footer {
+  background: var(--color-bg-secondary);
+  border-top: 1px solid var(--color-border);
+  padding: 96px 24px;
+}
+
+.site-footer__inner {
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.site-footer__description {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--color-text-secondary);
+  text-align: center;
+  font-weight: 300;
+  margin: 0 0 48px;
+}
+
+.site-footer__links {
+  display: flex;
+  justify-content: center;
+  gap: 48px;
+  flex-wrap: wrap;
+}
+
+.site-footer__link {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.site-footer__link:hover {
+  color: var(--color-text);
+}
+
+.site-footer__bottom {
+  margin-top: 48px;
+  padding-top: 48px;
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.site-footer__logo {
+  font-family: 'Crimson Pro', 'Playfair Display', serif;
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.site-footer__copyright {
+  font-size: 12px;
+  color: var(--color-text-secondary);
 }

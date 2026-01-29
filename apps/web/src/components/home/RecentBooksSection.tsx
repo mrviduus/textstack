@@ -23,9 +23,11 @@ export function RecentBooksSection() {
   if (loading) {
     return (
       <section className="home-books">
-        <h2 className="home-books__title">{t('home.recentBooks.title')}</h2>
+        <div className="home-books__header">
+          <h2 className="home-books__title">{t('home.recentBooks.title')}</h2>
+        </div>
         <div className="home-books__grid">
-          {Array.from({ length: 4 }).map((_, i) => (
+          {Array.from({ length: 6 }).map((_, i) => (
             <div key={i} className="home-book-card home-book-card--skeleton">
               <div className="home-book-card__cover" />
               <div className="home-book-card__info" />
@@ -39,7 +41,9 @@ export function RecentBooksSection() {
   if (books.length === 0) {
     return (
       <section className="home-books">
-        <h2 className="home-books__title">{t('home.recentBooks.title')}</h2>
+        <div className="home-books__header">
+          <h2 className="home-books__title">{t('home.recentBooks.title')}</h2>
+        </div>
         <p className="home-books__empty">{t('common.noBooksYet')}</p>
       </section>
     )
@@ -47,11 +51,16 @@ export function RecentBooksSection() {
 
   return (
     <section className="home-books">
-      <h2 className="home-books__title">{t('home.recentBooks.title')}</h2>
+      <div className="home-books__header">
+        <h2 className="home-books__title">{t('home.recentBooks.title')}</h2>
+        <LocalizedLink to="/books" className="home-books__view-all" title="Browse all books">
+          {t('home.recentBooks.viewAll')} <span className="material-icons-outlined">arrow_forward</span>
+        </LocalizedLink>
+      </div>
       <div className="home-books__grid">
         {books.map((book) => (
           <LocalizedLink key={book.id} to={`/books/${book.slug}`} className="home-book-card" title={`Read ${book.title} online`}>
-            <div className="home-book-card__cover">
+            <div className="home-book-card__cover book-shadow">
               {book.coverPath ? (
                 <img src={getStorageUrl(book.coverPath)} alt={book.title} title={`${book.title} - Read online free`} />
               ) : (
@@ -67,9 +76,6 @@ export function RecentBooksSection() {
           </LocalizedLink>
         ))}
       </div>
-      <LocalizedLink to="/books" className="home-books__view-all" title="Browse all books">
-        {t('home.recentBooks.viewAll')}
-      </LocalizedLink>
     </section>
   )
 }

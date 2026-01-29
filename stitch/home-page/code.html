@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>TextStack - A Calm Place to Read</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,400&amp;family=Inter:wght@300;400;500&amp;family=Material+Icons+Outlined&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
+<script>
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              primary: "#1a1a1a",
+              "background-light": "#fdfdfb",
+              "background-dark": "#121212",
+              "card-light": "#ffffff",
+              "card-dark": "#1e1e1e",
+            },
+            fontFamily: {
+              display: ["Crimson Pro", "serif"],
+              sans: ["Inter", "sans-serif"],
+            },
+            borderRadius: {
+              DEFAULT: "4px",
+              'lg': "12px",
+            },
+          },
+        },
+      };
+    </script>
+<style>
+        body {
+            font-family: 'Inter', sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+        .serif-text {
+            font-family: 'Crimson Pro', serif;
+        }
+        .book-shadow {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .book-shadow:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 12px 24px rgba(0,0,0,0.12);
+        }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark text-gray-900 dark:text-gray-100 transition-colors duration-300">
+<nav class="sticky top-0 z-50 bg-background-light/80 dark:bg-background-dark/80 backdrop-blur-md border-b border-gray-100 dark:border-gray-800">
+<div class="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
+<div class="flex items-center gap-8">
+<a class="text-2xl serif-text font-semibold tracking-tight" href="#">TextStack</a>
+<div class="hidden md:flex items-center gap-6 text-sm font-medium text-gray-500 dark:text-gray-400">
+<a class="hover:text-primary dark:hover:text-white transition-colors" href="#">Library</a>
+<a class="hover:text-primary dark:hover:text-white transition-colors" href="#">Collections</a>
+<a class="hover:text-primary dark:hover:text-white transition-colors" href="#">About</a>
+</div>
+</div>
+<div class="flex items-center gap-6">
+<div class="hidden sm:flex items-center gap-2 text-sm text-gray-500">
+<span>EN</span>
+<span class="material-icons-outlined text-sm">expand_more</span>
+</div>
+<button class="p-2 text-gray-500 hover:text-primary dark:hover:text-white transition-colors" onclick="document.documentElement.classList.toggle('dark')">
+<span class="material-icons-outlined dark:hidden">dark_mode</span>
+<span class="material-icons-outlined hidden dark:block">light_mode</span>
+</button>
+<button class="material-icons-outlined text-gray-500 hover:text-primary dark:hover:text-white transition-colors">search</button>
+</div>
+</div>
+</nav>
+<header class="relative pt-24 pb-32 px-6">
+<div class="max-w-4xl mx-auto text-center">
+<h1 class="text-6xl md:text-8xl serif-text font-light tracking-tight mb-8">
+                A calm place to read
+            </h1>
+<p class="text-xl md:text-2xl text-gray-500 dark:text-gray-400 serif-text italic mb-12">
+                Clean reading experience. Thousands of books. No distractions.
+            </p>
+<div class="max-w-xl mx-auto relative">
+<span class="material-icons-outlined absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">search</span>
+<input class="w-full pl-12 pr-6 py-4 bg-white dark:bg-card-dark border border-gray-200 dark:border-gray-800 rounded-full focus:ring-1 focus:ring-primary focus:border-primary outline-none text-lg transition-all shadow-sm" placeholder="Search by title, author, or genre..." type="text"/>
+</div>
+</div>
+</header>
+<section class="max-w-7xl mx-auto px-6 py-16">
+<div class="flex items-end justify-between mb-12 border-b border-gray-100 dark:border-gray-800 pb-6">
+<h2 class="text-3xl serif-text font-medium">Recently Added Books</h2>
+<a class="flex items-center gap-2 text-sm font-medium text-gray-500 hover:text-primary dark:hover:text-white transition-colors" href="#">
+                View all books <span class="material-icons-outlined text-base">arrow_forward</span>
+</a>
+</div>
+<div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-x-8 gap-y-12">
+<div class="group">
+<div class="aspect-[2/3] overflow-hidden rounded-lg book-shadow mb-4 bg-gray-100">
+<img alt="The Goldfinch book cover" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAN0rgTc84MnUN50yCS5d-i--UeiHV9MUaBNN1jCFCfRkdxEEm3ONZAz4HCCB5tdxxBM-Io0LquDS7uz7cmSEAhPcH6nLWWwC9_ezyHysj7Vo9vR1FnbdRoi-BU-HOVorsW444RE3C4fzu9Ln6nIGmr8WOh9VGqxNQrNqcl4_In8Kb5lv6i9Z7Tr4pJ8HxCcZp9mQtAcVE5LYjjtIxs_pfwxZ3h9jUaoM_AoK8xbOCaKrJX7FvuRPD8UiHj-Cb8Kf6jUZTOuv08ayl9"/>
+</div>
+<h3 class="font-medium text-sm mb-1 group-hover:underline underline-offset-4 decoration-1">The Goldfinch</h3>
+<p class="text-xs text-gray-500 dark:text-gray-400">Donna Tartt</p>
+</div>
+<div class="group">
+<div class="aspect-[2/3] overflow-hidden rounded-lg book-shadow mb-4 bg-gray-100">
+<img alt="White Fang book cover" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuA9qIBnRQvA9ePT0M44Ipzt-LN0CVF96hNyuF6TugYMYXYKPzB2gEBqPqg-oYrXfVW4a70bppxBCJlUscHIcfB0EJaumiYXGIU0aJzO0BMbXWSKUS4uWMak503V3JX5W0bdPPhwxbEgRUhsORhL9Lf42ZtjCbDblZejI_1RxCX-oknfQAv8NDWnXYB-pw0JToqzVE26A8tntjbKakl096aZG4T4cysN4M3685ssEfc_8JJQbfQ0I-V0uj55ctaM_PXGKy4TUeQDaA_A"/>
+</div>
+<h3 class="font-medium text-sm mb-1 group-hover:underline underline-offset-4 decoration-1">White Fang</h3>
+<p class="text-xs text-gray-500 dark:text-gray-400">Jack London</p>
+</div>
+<div class="group">
+<div class="aspect-[2/3] overflow-hidden rounded-lg book-shadow mb-4 bg-gray-100">
+<img alt="Walden book cover" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBFjbjiZIVbxJCCI3aKvqy1kxj-kBwiyLmIiofbfjWk9taESkqw21vIP2TzRVK80rOCTA_SoU9jNojoXn2fM43OIWEpGGSFcl5bgOh7t6XK-Go8IbMeQUX6Jn_PpIPm4irOGl6msyNLSJAYwkk4jTWQ1iq6YCVrA_-FUhZ5whHsSjZclOPOSBkon1_o738PZ-MRt0Tf4wxZQV9B9GfVnMA--lPQ1giscOVKfhVTi0CB_JopdG9r02dBxutnmugGwDey78h2ZtyqRvq5"/>
+</div>
+<h3 class="font-medium text-sm mb-1 group-hover:underline underline-offset-4 decoration-1">Walden</h3>
+<p class="text-xs text-gray-500 dark:text-gray-400">Henry David Thoreau</p>
+</div>
+<div class="group">
+<div class="aspect-[2/3] overflow-hidden rounded-lg book-shadow mb-4 bg-gray-100">
+<img alt="Vathek book cover" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDjD38GFgTaFbOFy6GnC2U2dIRmnoWbDfiW0-vCH2iA_r66te1ndNwZkUuKA3mlbGuX7wW30gT-q_J5qHebGu_ju89A4CUrOCH7kKXOa0tC_194Gc6Xpj_ObdLuM_O93WRuIm9iBrlNAwkZOhoETN2xH5byeUE4JEGrgd99g_TuwpRJp_E-OwgGfJMbL4oNuqbpznRfMsviIEZwpKt51SxyzS7gW3K0n7N2h0GGnCyJ3UbxuWh_AlL0KqicOCi3Ml1Xl64HLX-AJ6Ez"/>
+</div>
+<h3 class="font-medium text-sm mb-1 group-hover:underline underline-offset-4 decoration-1">Vathek</h3>
+<p class="text-xs text-gray-500 dark:text-gray-400">William Beckford</p>
+</div>
+<div class="group">
+<div class="aspect-[2/3] overflow-hidden rounded-lg book-shadow mb-4 bg-gray-100">
+<img alt="Uncle Tom's Cabin book cover" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuB_Cpeb1Z6aBHfIxkjjhLbhpD-JVYkiv4NaIAgmckxQxiHZLCdF6B6ntVVUtDR1uwqKm335d5M-RRAnka_c19rbDK3tsRsc2onsp5jWEw0HZ0t-07WnIYPeVKZspBAtCQl2F8dMxGUfdqg0pSH8SagWPR5cOE22x1KuZWOziPjuqqM4ooj5GYVyMRgOxSd3rW-Icdxn1k8FyoWMnNkz96Q0xuy92IWYDJOcvZGBhvCvDdhU4Jed4JcpP5wu9xZtoWcXA1wZ1llwoPcH"/>
+</div>
+<h3 class="font-medium text-sm mb-1 group-hover:underline underline-offset-4 decoration-1">Uncle Tom's Cabin</h3>
+<p class="text-xs text-gray-500 dark:text-gray-400">Harriet Beecher Stowe</p>
+</div>
+<div class="group">
+<div class="aspect-[2/3] overflow-hidden rounded-lg book-shadow mb-4 bg-gray-100">
+<img alt="Treasure Island book cover" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuA4SQdg3A1maI1KeWNGluET86CFjBqGJXKFoXJSdf3Us6qQRcfA06cCQzL2ZQbq8Vv-ABE_wE0br1thjmdhRV1VAcjcEowRwsh6jV05caVhmm047eGl8h5h5JvVr3iI4cyAJPFvbSv46YL9Vv3TbVoe_v1tD4ogMgOUcxrLySfsuCzs5rfslpCXCfDbzkm2XJPAr5cViIoO3Zl2ZS6byXQqrF_dRkRd2xcNrns4nszaU0Rn1WDHuqRZSZuOku0LCtYudzeM8B9OYAuT"/>
+</div>
+<h3 class="font-medium text-sm mb-1 group-hover:underline underline-offset-4 decoration-1">Treasure Island</h3>
+<p class="text-xs text-gray-500 dark:text-gray-400">Robert Louis Stevenson</p>
+</div>
+<div class="group">
+<div class="aspect-[2/3] overflow-hidden rounded-lg book-shadow mb-4 bg-gray-100">
+<img alt="Thus Spake Zarathustra book cover" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAso9AL2prxitFqQ3W01VmHt0lZRGwny007mk2tLMwrUEzoUxeVUH9YAq4H1LSi0Fer1dYyM4rBOtl5_0DLGDRcfKB1R1BE8uGLRyOAfTucgiTETMXdIiUWDvFnV9XvI2uDFLgprdUZko6VU4tyxqx2rtm3wdYnoyMjxXZdzelS1RqKsH_UnaFF3lzaLZoSuXwH_tGhtyiTuIUZO1NbqsX88iu_SF1v7yJmW4FOud_Bql1BeFxkgLpgrkcDHSDElNgkQ-2oX_q3Ootx"/>
+</div>
+<h3 class="font-medium text-sm mb-1 group-hover:underline underline-offset-4 decoration-1">Thus Spake Zarathustra</h3>
+<p class="text-xs text-gray-500 dark:text-gray-400">Friedrich Nietzsche</p>
+</div>
+<div class="group">
+<div class="aspect-[2/3] overflow-hidden rounded-lg book-shadow mb-4 bg-gray-100">
+<img alt="The Turn of the Screw book cover" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuA_wDffyH-umH-8KtX8eHaBrB7miKDu1HPVtwYHLzVpCT073Z3-dBjIZJpUOwrN1QwrX-_9djS-u4DECR6WBE-mcqUQfhU9F8ghhfkXTpXe8hozUfK1buG5B6N5SFJx3XhaPXa4VUF3WaHUd2ZmUq2OKloyZAOpNgz7bhSgC_9FQGlRDTsEzlFyMTlnhsHZUDy4-RgrAyAnphM43ekWCYXntTf-8kQVJ33vpQyQQYcppEVhsgvstM989eEhP8SZ5u4YyWviqpjmL6ez"/>
+</div>
+<h3 class="font-medium text-sm mb-1 group-hover:underline underline-offset-4 decoration-1">The Turn of the Screw</h3>
+<p class="text-xs text-gray-500 dark:text-gray-400">Henry James</p>
+</div>
+<div class="group">
+<div class="aspect-[2/3] overflow-hidden rounded-lg book-shadow mb-4 bg-gray-100">
+<img alt="The Three Musketeers book cover" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAtVhw0nh-Wr8rZGFRfm7QBNm9YoaXb26CqyHKoN4BnAQhD5W95VtGPMLDR9g7htFM5v67CUITjg-x_25ErzTui7GMxu3h4bDt55TN9TBX13vgnl0YsL52ZpS06RJXTUNSukYUWr5PRe8iLfGYqOm3-_M8VkcTinZInOUVzz6RuUNdgkpx0d4CE_hKutD1X7ZCLhLeSgBfT7KzJ9hqiMeg3YUwcybU55QPMLlN8MfK3q7FyR7xNHl63Geij5WMnpQAGp7AL0h9kxAoB"/>
+</div>
+<h3 class="font-medium text-sm mb-1 group-hover:underline underline-offset-4 decoration-1">The Three Musketeers</h3>
+<p class="text-xs text-gray-500 dark:text-gray-400">Alexandre Dumas</p>
+</div>
+<div class="group">
+<div class="aspect-[2/3] overflow-hidden rounded-lg book-shadow mb-4 bg-gray-100">
+<img alt="The Strange Case of Dr. Jekyll and Mr. Hyde book cover" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAb7uoeiGRPfLd2oZp3_AnZrl4jVCA00Cohbn1DodXSUCBopvptkTyVtnZk4bqAUvsI1Ww3aLAC2DnB2Wf8otOGh8EpKwHwY9lDm81rz2oMvLBCPdHeO9ut9X6T8HIfHMpgRnYZXtFSMzYRdBycQUkYYW0iXiruWtxUhykPQq9ytn1NCTqjkrQIb4oNVzmUwxlNmu3Otin75VjPPRZYTR6kkTuEJh8WSBoJrvIugziN_NWvkY3Eqj4oHbwg3C66WjHXTZbcnN1t57tt"/>
+</div>
+<h3 class="font-medium text-sm mb-1 group-hover:underline underline-offset-4 decoration-1">Dr. Jekyll &amp; Mr. Hyde</h3>
+<p class="text-xs text-gray-500 dark:text-gray-400">Robert Louis Stevenson</p>
+</div>
+<div class="group">
+<div class="aspect-[2/3] overflow-hidden rounded-lg book-shadow mb-4 bg-gray-100">
+<img alt="Sherlock Holmes book cover" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAkOA01JaBLtmvBDIsuhP7obief9DmOcO0inM3HhH3rkonOnyxhIH6uXt0otAvW_nW77xXRcp7keYMKXNXE8DYWIsWQlJPZcQWFBa5w3L876vuxYdA_A4yH9PUMVhXa6XXXwuzYRTkfT9aq1SzyqoQNp6-JGQVwFIV2AldKoG-UUWgMFjdOEm4G8oWXxU8Kt07_GYrEUDBNK_8VmCnH0KRw9R2c9Zc3SWdj4Ad1U3Na3uSwgQVPnRq7vssakbCXV-QlNCWp_6pMlO_f"/>
+</div>
+<h3 class="font-medium text-sm mb-1 group-hover:underline underline-offset-4 decoration-1">Sherlock Holmes</h3>
+<p class="text-xs text-gray-500 dark:text-gray-400">Arthur Conan Doyle</p>
+</div>
+<div class="group">
+<div class="aspect-[2/3] overflow-hidden rounded-lg book-shadow mb-4 bg-gray-100">
+<img alt="The Red Badge of Courage book cover" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBMLeUeMTt2Fl4QJRZyCirjuEzZGpGw-ggwo7wupqtKrCudWxMCK-X-VV7PjkD5tifVRdQGIJUiARkBG_-vBljoA2PVZVi6dWE6aGJKYcQI5xY5Q1f3KgSXjutgurXHo3nXZQpD1u_L2o7r0SVTu4p4HxmlB4y7E63OLrN5Aho2utnNLNEVyITVV0Y3QMAw2rep4v6HfRvzrDXzooL5tIWk3Mx8DNTkla0fhqqlm7D2-Xe6OIp24f7AQRj2PsawxYGth_p3QYvC4ru3"/>
+</div>
+<h3 class="font-medium text-sm mb-1 group-hover:underline underline-offset-4 decoration-1">The Red Badge of Courage</h3>
+<p class="text-xs text-gray-500 dark:text-gray-400">Stephen Crane</p>
+</div>
+</div>
+</section>
+<section class="max-w-7xl mx-auto px-6 py-24">
+<div class="flex items-end justify-between mb-12 border-b border-gray-100 dark:border-gray-800 pb-6">
+<h2 class="text-3xl serif-text font-medium">Featured Authors</h2>
+<a class="flex items-center gap-2 text-sm font-medium text-gray-500 hover:text-primary dark:hover:text-white transition-colors" href="#">
+                View all authors <span class="material-icons-outlined text-base">arrow_forward</span>
+</a>
+</div>
+<div class="flex flex-wrap justify-between gap-8 md:gap-4">
+<div class="flex flex-col items-center group cursor-pointer">
+<div class="w-24 h-24 rounded-full overflow-hidden border-2 border-transparent group-hover:border-gray-200 dark:group-hover:border-gray-700 transition-all p-1 mb-4">
+<img alt="Donna Tartt" class="w-full h-full object-cover rounded-full filter grayscale group-hover:grayscale-0 transition-all" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBT7-_or33k5TT4w8V3FEzO9-ov-Cvg9QvzXrSk88b52TjsjjjnzSpDWbmIwRjU2nG9mr643ogZOCHVurwwUmWj0L7CwP1HrbWLmB6UgqjqPBICzSC3Q3O8sDCVXJWkYdYqA7ZXtsHDImIHV0mWmEJDn0Eqv2AKw9ILfgajHyw73Cc919AexEjvSpJP2O0Emo1GPqhto56xtpzXYpY0NsgolRkgNDkmUrUXNkV-CtkPdXdJKH9JcPjEpPpDpyN5Qky8ua_T8UAtqK-t"/>
+</div>
+<span class="text-xs font-medium text-center">Donna Tartt</span>
+</div>
+<div class="flex flex-col items-center group cursor-pointer">
+<div class="w-24 h-24 rounded-full overflow-hidden border-2 border-transparent group-hover:border-gray-200 dark:group-hover:border-gray-700 transition-all p-1 mb-4">
+<img alt="Zofia Nalkowska" class="w-full h-full object-cover rounded-full filter grayscale group-hover:grayscale-0 transition-all" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBwoV4Z6iPuEPlvBMTxauD_uIu0fiy4f4dXf-b_N7knn0lqZInFu0uX-ze2ufbnc2pZtG-0MpEHkr6do41I24hM9fv5MTJVEjjAdXArT5L89QqXGhj6GXQ3w3xY_kNU2Gdb0IDlOVd_6G4kPjXSr02X-BCuCH8hi44fXozBpVQlQEtL8URTPI21k294pGqNjc-I2KRlvYbtgwo2_9-onzmOSPkE8m1ig_OMCYiNfXGbcnPMUgclQxX11bslc0DkUjFtAKHpFlg4-aN9"/>
+</div>
+<span class="text-xs font-medium text-center">Zofia Nalkowska</span>
+</div>
+<div class="flex flex-col items-center group cursor-pointer">
+<div class="w-24 h-24 rounded-full overflow-hidden border-2 border-transparent group-hover:border-gray-200 dark:group-hover:border-gray-700 transition-all p-1 mb-4">
+<img alt="Zane Grey" class="w-full h-full object-cover rounded-full filter grayscale group-hover:grayscale-0 transition-all" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDyOnHkfCQrT7QWU2na0jmW6gmIkLowKky1kXAMUFYzPlPcobhyliGyRPNI7qDURejb7VW2NAzSJryM8pmJ1tSMT_TiSpM0_JbJnEw1aSCP_DMeyi5euoaR7SBKPdEJv2Swx38QlZTFBS_rQraUKGX8iQpzwm4E4XKEaRz8vcxxXQQFLSHPy5BY3qwDekHEy0CsI4RKvAjpjLLB2Pmcaz8BueT9ASw5KV_gEZVW1WhYgyZ_UofAyazXiQdPECp_ULC1Vkf4qOvCyUJO"/>
+</div>
+<span class="text-xs font-medium text-center">Zane Grey</span>
+</div>
+<div class="flex flex-col items-center group cursor-pointer">
+<div class="w-24 h-24 rounded-full overflow-hidden border-2 border-transparent group-hover:border-gray-200 dark:group-hover:border-gray-700 transition-all p-1 mb-4">
+<img alt="Yevgeny Zamyatin" class="w-full h-full object-cover rounded-full filter grayscale group-hover:grayscale-0 transition-all" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC0eBB-hl2bAL7p3uYdXWlLYcIVHg7aRmIyg_wlNYgiOa78fq7ZhLRUPAZDanjRQPpGZd4VXU104-f6C7_h2HlIUNEI7xHkuFaCwkNZQXqhtE0msKmusy45uibc63hMn6dDiCH1yA_p6rVxayZaZCNZFM-pLi42YL8hk3XB5FHz4YIGJS5ZBF8ok5zlWG9usC8ndjrjpcpL4J39GO7lvWrgLgK-5Fok6a4WMlrmvDVbIMm7dgS3Iid2voq3BN6oI9_9Fh61EvOsH5Hr"/>
+</div>
+<span class="text-xs font-medium text-center">Yevgeny Zamyatin</span>
+</div>
+<div class="flex flex-col items-center group cursor-pointer">
+<div class="w-24 h-24 rounded-full overflow-hidden border-2 border-transparent group-hover:border-gray-200 dark:group-hover:border-gray-700 transition-all p-1 mb-4">
+<img alt="W. N. P. Barbellion" class="w-full h-full object-cover rounded-full filter grayscale group-hover:grayscale-0 transition-all" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDwaf4oD1JSIza8mFMT2CkJ08SNkfPn1Xg7tUcAY--x7t8Kc7cVVAzONvCVr5bw6zCT3d2d5Dw83t1m0gex3fAKFCviyzNAo4LRdIAwYJqdfyLYNIJXnzSWQH0Ij7uCvk2b6FrWINxvL2Q8DjSuSm6lXXWPI1u-30wrGjoQHhx1oMYEXySBPSTXyV9n3Cl8lpQagSoILBXU7LthRNaBXdWQa4YWzRz9T2qc3kbTpHZr_sWThOBikn974AfQLT2wBjBWCHf_Kj2E5jy3"/>
+</div>
+<span class="text-xs font-medium text-center">W. N. P. Barbellion</span>
+</div>
+<div class="flex flex-col items-center group cursor-pointer">
+<div class="w-24 h-24 rounded-full overflow-hidden border-2 border-transparent group-hover:border-gray-200 dark:group-hover:border-gray-700 transition-all p-1 mb-4">
+<img alt="Zitkála-Šá" class="w-full h-full object-cover rounded-full filter grayscale group-hover:grayscale-0 transition-all" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDI4ppwQHrPLXfM90kmSXINCR02MibEEzmquLHCYLtIJKUfujTLQW4fGRjil3wufk9crv1WnYMX0s5-qjH15EKYPc7kQuyKSR5D8sCBb5aidJ7h11JQ6UQJTSGcGO9rqBO4aYpyzJil-dKt5QRk1Rz0_gVN7v_JEAEJ_K6ymk8xOhyEWLRM0azyOiDIN0Ww1vVSMvIjurcSu-Kqx41cpT1hDa8oNLgPxiQFqSXsd72zA4s7M-oVTSWF5BGKBfMCmqUqS-2p240k2Dp6"/>
+</div>
+<span class="text-xs font-medium text-center">Zitkála-Šá</span>
+</div>
+<div class="flex flex-col items-center group cursor-pointer">
+<div class="w-24 h-24 rounded-full overflow-hidden border-2 border-transparent group-hover:border-gray-200 dark:group-hover:border-gray-700 transition-all p-1 mb-4">
+<img alt="W. Somerset Maugham" class="w-full h-full object-cover rounded-full filter grayscale group-hover:grayscale-0 transition-all" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBZnDewW2eck_ZuOnD3rSsRe0ToujoYxpkPqCIiVp8EenjvGsEi_HRwubO_5L20-TBwQyUyDf1qvZqc4ttAkP5xx-8vDWISjeR47oCpeVoQ0cVNnr4YcWIVGy3SlDa-V348ShvfmbSC50shROgDA47A7kZbADPjVSs4A6pTKDFCNNxgCH_0S1qyqNA9vpLybT2v6IHjIrc65LM2_-LbFW1ciEc3RL1yc4D2vq8VMsdw27vwp_Qgs-xW2S5Hy40H3UdhI8vHpmfWabbs"/>
+</div>
+<span class="text-xs font-medium text-center text-balance max-w-[80px]">W. Somerset Maugham</span>
+</div>
+<div class="flex flex-col items-center group cursor-pointer">
+<div class="w-24 h-24 rounded-full overflow-hidden border-2 border-transparent group-hover:border-gray-200 dark:group-hover:border-gray-700 transition-all p-1 mb-4">
+<img alt="William Beckford" class="w-full h-full object-cover rounded-full filter grayscale group-hover:grayscale-0 transition-all" src="https://lh3.googleusercontent.com/aida-public/AB6AXuD7qDRnUkJkmRRLWWnuU6XHQmLd4L8lyc1IJprGNNgFg-LI1Kj1DSQGnFCLlFOEE43WWrF1LFcDMJoFCBoGdZMrQqTKJcnooLyj_UHfagUVlPJMRdFuS03RkUEM8u7TcyTxiHaf8kJOwmjq9LxRDVuZgPnFsTutaNKC10cwmcw-DkTMnj0XaEwpOpEqIpx93tbH_o8SmiXuJ_X5EHcDIicz_kiQIciwYIUU4aB4skxI2J7KJgq6Y6L2DH1Z9DR3VTIBwHDfKHBpsABB"/>
+</div>
+<span class="text-xs font-medium text-center">William Beckford</span>
+</div>
+</div>
+</section>
+<footer class="bg-gray-50 dark:bg-black/20 py-24 px-6 border-t border-gray-100 dark:border-gray-800">
+<div class="max-w-4xl mx-auto">
+<p class="text-gray-500 dark:text-gray-400 text-sm leading-relaxed text-center font-light mb-12">
+                Textstack is an online platform designed for comfortable reading. The current catalog features classic literature and public-domain works by authors from different eras and traditions. Each book is organized into chapters for easy navigation. The platform is built for readers who prefer a distraction-free reading experience.
+            </p>
+<div class="flex justify-center gap-12 text-xs font-medium text-gray-400">
+<a class="hover:text-primary transition-colors" href="#">Privacy Policy</a>
+<a class="hover:text-primary transition-colors" href="#">Terms of Service</a>
+<a class="hover:text-primary transition-colors" href="#">Contact Us</a>
+<a class="hover:text-primary transition-colors" href="#">API</a>
+</div>
+<div class="mt-12 pt-12 border-t border-gray-200 dark:border-gray-800 flex flex-col items-center gap-4">
+<span class="text-2xl serif-text font-semibold">TextStack</span>
+<span class="text-xs text-gray-400">© 2024 TextStack Library Project.</span>
+</div>
+</div>
+</footer>
+
+</body></html>

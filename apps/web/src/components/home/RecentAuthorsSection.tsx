@@ -23,9 +23,11 @@ export function RecentAuthorsSection() {
   if (loading) {
     return (
       <section className="home-authors">
-        <h2 className="home-authors__title">{t('home.recentAuthors.title')}</h2>
+        <div className="home-authors__header">
+          <h2 className="home-authors__title">{t('home.recentAuthors.title')}</h2>
+        </div>
         <div className="home-authors__grid">
-          {Array.from({ length: 4 }).map((_, i) => (
+          {Array.from({ length: 8 }).map((_, i) => (
             <div key={i} className="home-author-card home-author-card--skeleton">
               <div className="home-author-card__photo" />
               <div className="home-author-card__name" />
@@ -39,7 +41,9 @@ export function RecentAuthorsSection() {
   if (authors.length === 0) {
     return (
       <section className="home-authors">
-        <h2 className="home-authors__title">{t('home.recentAuthors.title')}</h2>
+        <div className="home-authors__header">
+          <h2 className="home-authors__title">{t('home.recentAuthors.title')}</h2>
+        </div>
         <p className="home-authors__empty">{t('common.noAuthorsYet')}</p>
       </section>
     )
@@ -47,7 +51,12 @@ export function RecentAuthorsSection() {
 
   return (
     <section className="home-authors">
-      <h2 className="home-authors__title">{t('home.recentAuthors.title')}</h2>
+      <div className="home-authors__header">
+        <h2 className="home-authors__title">{t('home.recentAuthors.title')}</h2>
+        <LocalizedLink to="/authors" className="home-authors__view-all" title="Browse all authors">
+          {t('home.recentAuthors.viewAll')} <span className="material-icons-outlined">arrow_forward</span>
+        </LocalizedLink>
+      </div>
       <div className="home-authors__grid">
         {authors.map((author) => (
           <LocalizedLink key={author.id} to={`/authors/${author.slug}`} className="home-author-card" title={`${author.name} - View biography`}>
@@ -62,9 +71,6 @@ export function RecentAuthorsSection() {
           </LocalizedLink>
         ))}
       </div>
-      <LocalizedLink to="/authors" className="home-authors__view-all" title="Browse all authors">
-        {t('home.recentAuthors.viewAll')}
-      </LocalizedLink>
     </section>
   )
 }

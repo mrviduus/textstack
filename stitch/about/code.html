@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>TextStack - Editorial About</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&amp;family=Inter:wght@300;400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
+<script>
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              primary: "#1a1a1a",
+              "background-light": "#fbfaf8",
+              "background-dark": "#121212",
+              accent: "#8b7e74",
+            },
+            fontFamily: {
+              display: ["'Playfair Display'", "serif"],
+              sans: ["Inter", "sans-serif"],
+            },
+            borderRadius: {
+              DEFAULT: "0.5rem",
+            },
+          },
+        },
+      };
+    </script>
+<style>
+      .material-symbols-outlined {
+        font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24;
+      }
+      body {
+        transition: background-color 0.3s ease, color 0.3s ease;
+      }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark text-zinc-900 dark:text-zinc-100 font-sans selection:bg-accent selection:text-white">
+<button class="fixed bottom-8 right-8 z-50 p-3 rounded-full bg-white dark:bg-zinc-800 shadow-lg border border-zinc-200 dark:border-zinc-700 flex items-center justify-center hover:scale-110 transition-transform" onclick="document.documentElement.classList.toggle('dark')">
+<span class="material-symbols-outlined dark:hidden">dark_mode</span>
+<span class="material-symbols-outlined hidden dark:block text-yellow-400">light_mode</span>
+</button>
+<nav class="sticky top-0 z-40 bg-background-light/80 dark:bg-background-dark/80 backdrop-blur-md border-b border-zinc-200/50 dark:border-zinc-800/50">
+<div class="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="font-display text-2xl font-bold tracking-tight">TextStack</span>
+</div>
+<div class="flex items-center gap-8 text-sm font-medium">
+<a class="hover:text-accent transition-colors" href="#">Library</a>
+<a class="text-accent underline underline-offset-8" href="#">About</a>
+<div class="flex items-center gap-1 cursor-pointer">
+<span>EN</span>
+<span class="material-symbols-outlined text-[18px]">expand_more</span>
+</div>
+<button class="material-symbols-outlined text-2xl">search</button>
+<div class="w-8 h-8 rounded-full bg-zinc-200 dark:bg-zinc-700 overflow-hidden ring-1 ring-zinc-300 dark:ring-zinc-600">
+<img alt="User Profile" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAD0lBQg2Kezvikhi5KfN66z6jreu8q_QgYN_DouofB8T1Qv8_tP7GHP1VU7embD35qInq5005enCbkIE-qCLXytWIuvnMUW5wNDSuzXZP-A1GfDTP60hGr7ZthcBEOPn9dtvnRZKhOA4pGVuKkDBXLmLY_jKFPR-eQQBWQROxqgVWuI3UVrKeXggEorg2-Ld-FCGs9UQ2qt_hNV-hOp9QHPKvxLYHRHnyvUYxLZ87wGqvR9MVY9TH5DAwqCamLeyJsmbsRcYRvhrN6"/>
+</div>
+</div>
+</div>
+</nav>
+<main class="max-w-7xl mx-auto px-6 py-20 lg:py-32">
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-16 lg:gap-24">
+<div class="lg:col-span-7">
+<header class="mb-16">
+<h1 class="font-display text-6xl lg:text-8xl font-bold mb-8 leading-tight">About</h1>
+<div class="h-1 w-20 bg-accent mb-12"></div>
+</header>
+<section class="space-y-8 max-w-2xl">
+<p class="text-xl lg:text-2xl font-display leading-relaxed italic text-zinc-600 dark:text-zinc-400">
+                        TextStack is an independent online library dedicated to public domain literature — books that belong to everyone.
+                    </p>
+<div class="prose prose-lg dark:prose-invert prose-zinc prose-p:leading-relaxed">
+<p>
+                            Every book here is free to read, share, and enjoy. No ads, no accounts, no barriers. Just clean typography, calm reading, and timeless stories that have shaped generations.
+                        </p>
+<h2 class="font-display text-4xl mt-16 mb-8 text-zinc-900 dark:text-zinc-100">The Mission</h2>
+<p>
+                            We believe that access to the world's great literature is a fundamental right. In an age of digital distraction and paywalls, TextStack provides a sanctuary for focused, deep reading.
+                        </p>
+<p>
+                            Our digital editions are meticulously formatted to respect the author's intent while providing a modern, accessible reading experience across all devices.
+                        </p>
+</div>
+</section>
+</div>
+<div class="lg:col-span-5">
+<div class="sticky top-32">
+<div class="p-8 lg:p-12 border border-zinc-200 dark:border-zinc-800 rounded-2xl bg-white dark:bg-zinc-900/50 shadow-sm">
+<h3 class="font-display text-3xl font-bold mb-10 border-b border-zinc-100 dark:border-zinc-800 pb-6">The Creator</h3>
+<div class="flex flex-col items-start gap-8">
+<div class="relative group">
+<div class="absolute -inset-1 bg-accent/20 rounded-full blur transition group-hover:bg-accent/30"></div>
+<img alt="Vasyl Vdovychenko" class="relative w-24 h-24 rounded-full object-cover grayscale hover:grayscale-0 transition-all duration-500 border-2 border-white dark:border-zinc-800" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBEIO1ioraIjLMA9ezkLI4gznxwxbpmGOoe4p2i_GtWWFUAJUBtDTFz5wRFyhBEvm4DKKh4HqDjVjVa8S_XYdvspNbWP0hl26AE_g-RgmbiXOcjphEi2WUwuYuYfxK6aOLO8TGllpvIj1AJcCB02tuexQeelFt2EJz3DldHVtyPEoRgRyGhHjOQBhgP0dwx0cKR8etc95aoZ3idrRvoxmOkJWSewQ_exjbuKTo54c0mhnlFyX_cgMpYXnY_mB1TcRqqitRCOqX6KzCL"/>
+</div>
+<div class="space-y-1">
+<h4 class="text-xl font-bold">Vasyl Vdovychenko</h4>
+<p class="text-zinc-500 dark:text-zinc-400 font-mono text-sm">vasyl.vdov@gmail.com</p>
+</div>
+<div class="space-y-6 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+<p>
+                                    I built TextStack because I believe in the transformative power of reading — and that classic literature should be available to anyone, anywhere, without friction.
+                                </p>
+<p>
+                                    This is a long-term passion project. If you share this vision or want to connect, I'd love to hear from you.
+                                </p>
+</div>
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full mt-4">
+<a class="flex items-center justify-center gap-2 px-4 py-3 bg-primary text-white hover:bg-zinc-800 dark:hover:bg-zinc-700 transition-colors rounded-lg text-sm font-medium" href="mailto:vasyl.vdov@gmail.com">
+<span class="material-symbols-outlined text-lg">mail</span>
+                                    Email
+                                </a>
+<a class="flex items-center justify-center gap-2 px-4 py-3 bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors rounded-lg text-sm font-medium border border-zinc-200 dark:border-zinc-700" href="#">
+<svg class="w-5 h-5 fill-current" viewBox="0 0 24 24"><path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"></path></svg>
+                                    LinkedIn
+                                </a>
+<a class="flex items-center justify-center gap-2 px-4 py-3 bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors rounded-lg text-sm font-medium border border-zinc-200 dark:border-zinc-700 col-span-1 sm:col-span-2" href="#">
+<span class="material-symbols-outlined text-lg">edit_note</span>
+                                    Read my Blog
+                                </a>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+<footer class="max-w-7xl mx-auto px-6 py-20 border-t border-zinc-200 dark:border-zinc-800 text-sm text-zinc-500 flex flex-col md:flex-row justify-between items-center gap-6">
+<div class="font-display font-bold text-lg text-zinc-900 dark:text-zinc-100">TextStack</div>
+<div class="flex gap-8">
+<a class="hover:text-accent transition-colors" href="#">Twitter</a>
+<a class="hover:text-accent transition-colors" href="#">Github</a>
+<a class="hover:text-accent transition-colors" href="#">Privacy</a>
+</div>
+<div>© 2025 TextStack. Public Domain Literature.</div>
+</footer>
+
+</body></html>

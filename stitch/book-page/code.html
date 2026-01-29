@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>TextStack - White Fang</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&amp;family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
+<script>
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              primary: "#171717",
+              "background-light": "#fafaf9",
+              "background-dark": "#0a0a0a",
+            },
+            fontFamily: {
+              display: ["'Playfair Display'", "serif"],
+              sans: ["'Inter'", "sans-serif"],
+            },
+            borderRadius: {
+              DEFAULT: "0.5rem",
+              'xl': '1rem',
+              '2xl': '1.5rem',
+            },
+          },
+        },
+      };
+    </script>
+<style>
+        body {
+            font-family: 'Inter', sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+        .serif-title {
+            font-family: 'Playfair Display', serif;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark text-slate-900 dark:text-slate-100 min-h-screen transition-colors duration-300">
+<nav class="sticky top-0 z-50 bg-background-light/80 dark:bg-background-dark/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800">
+<div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+<div class="flex items-center gap-8">
+<a class="text-xl font-semibold tracking-tight serif-title" href="#">TextStack</a>
+</div>
+<div class="flex items-center gap-6">
+<a class="text-sm font-medium hover:text-primary dark:hover:text-white transition-colors" href="#">About</a>
+<button class="flex items-center gap-1 text-sm font-medium">
+<span>EN</span>
+<span class="material-symbols-outlined text-sm">expand_more</span>
+</button>
+<button class="material-symbols-outlined text-[22px] hover:text-primary dark:hover:text-white transition-colors">search</button>
+<div class="h-8 w-8 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden border border-slate-300 dark:border-slate-700">
+<img alt="User avatar" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDa_TJgQnVuUR8iFteaz23MzzGV0DksmJi0QjfVheNnk2ioB78eYRAMZwAbE5y3oPQdB_tQweGJEcNrTUDid8ZKODV5sm5ihCMmeYySdoWgtoC6THSQwYpiD_Qyx7Kmk9Lel37eoqN9ZsUVzF_yKD8beHDiuu0t4EtLqRS5S9HhPDPtR7B2B7DRv0ujsEWK3HyzbVh0z3p8Ucf9dYSNET6zOnanZfvxhjb375CE05B8ha6UoYB5EftSy8sdIwMg7NlWwbO8GF7WiJNs"/>
+</div>
+</div>
+</div>
+</nav>
+<main class="max-w-7xl mx-auto px-6 py-12 lg:py-20">
+<section class="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-24 items-start mb-24">
+<div class="lg:col-span-5 relative">
+<div class="aspect-[3/4] rounded-2xl overflow-hidden shadow-2xl transform lg:-rotate-2 hover:rotate-0 transition-transform duration-500">
+<img alt="White Fang Book Cover" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAyPzX1WuKGuZ_5XDfSfx2EUNszFqU1JJ68fLXkWE30KxiTD9DMnoNko5remervlz5j7kW8jSayCvm-5Wsodu704hz0mkYgm_orVj25JPeheuSBxtJD6MIgMMQ7SOflCTlSUXD4PCKwmbWY9Qi_Uo-G0oys2QK2JBU3suKsCkvyfGGb1veblzj5WmobZZmBnPymawVUCv4u-Yz-sim6oTyHfyMBhdl5G0MwuUCuieuZ3Ur_PASmQp72CaufsTWsw5Q0YGCMQj6A4hms"/>
+</div>
+<div class="absolute -bottom-6 -right-6 -z-10 w-full h-full border border-slate-200 dark:border-slate-800 rounded-2xl transform translate-x-4 translate-y-4"></div>
+</div>
+<div class="lg:col-span-7 pt-4">
+<div class="space-y-8">
+<div class="space-y-2">
+<h1 class="text-6xl lg:text-8xl font-bold serif-title leading-tight tracking-tighter">
+                            White Fang
+                        </h1>
+<p class="text-2xl font-medium text-slate-500 dark:text-slate-400">Jack London</p>
+</div>
+<div class="prose prose-lg dark:prose-invert max-w-none text-slate-600 dark:text-slate-300 leading-relaxed font-light">
+<p>
+                            White Fang by Jack London is a powerful companion novel to The Call of the Wild, exploring the journey from wildness to civilization. Published in 1906, this gripping tale follows White Fang, a wolf-dog hybrid born in the frozen Yukon wilderness, as he experiences the full spectrum of human cruelty and kindness.
+                        </p>
+<p>
+                            From his early life with a Native American tribe through brutal abuse as a fighting dog to eventual redemption with a loving master, White Fang's transformation illuminates the debate between nature and nurture. London's vivid prose captures both the harsh beauty of the Arctic and the animal's complex inner life. A thrilling adventure with profound themes.
+                        </p>
+</div>
+<div class="flex items-center gap-6 text-sm text-slate-400 font-medium">
+<span class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-lg">auto_stories</span>
+                            25 chapters
+                        </span>
+<span class="w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-700"></span>
+<span class="flex items-center gap-1.5 uppercase tracking-wider">
+                            English
+                        </span>
+</div>
+<div class="pt-4">
+<button class="bg-primary text-white dark:bg-white dark:text-primary px-10 py-4 rounded-full font-medium text-lg hover:scale-105 active:scale-95 transition-all shadow-lg">
+                            Start Reading
+                        </button>
+</div>
+</div>
+</div>
+</section>
+<section class="max-w-4xl">
+<h2 class="text-3xl font-bold serif-title mb-12 flex items-center gap-4">
+                Chapters
+                <span class="h-px flex-1 bg-slate-200 dark:bg-slate-800 mt-2"></span>
+</h2>
+<div class="space-y-0">
+<a class="group block py-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between hover:px-4 transition-all duration-300 rounded-lg -mx-4 hover:bg-slate-50 dark:hover:bg-slate-900/50" href="#">
+<div class="flex items-baseline gap-8">
+<span class="text-sm font-medium text-slate-400 group-hover:text-primary dark:group-hover:text-white">01.</span>
+<h3 class="text-xl font-medium text-slate-800 dark:text-slate-200 group-hover:translate-x-1 transition-transform">The Trail of the Meat</h3>
+</div>
+<div class="flex items-center gap-4">
+<span class="text-sm text-slate-400 group-hover:text-slate-500">2500 words</span>
+<span class="material-symbols-outlined opacity-0 group-hover:opacity-100 transition-opacity text-slate-400">arrow_forward_ios</span>
+</div>
+</a>
+<a class="group block py-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between hover:px-4 transition-all duration-300 rounded-lg -mx-4 hover:bg-slate-50 dark:hover:bg-slate-900/50" href="#">
+<div class="flex items-baseline gap-8">
+<span class="text-sm font-medium text-slate-400 group-hover:text-primary dark:group-hover:text-white">02.</span>
+<h3 class="text-xl font-medium text-slate-800 dark:text-slate-200 group-hover:translate-x-1 transition-transform">The She-Wolf</h3>
+</div>
+<div class="flex items-center gap-4">
+<span class="text-sm text-slate-400 group-hover:text-slate-500">3272 words</span>
+<span class="material-symbols-outlined opacity-0 group-hover:opacity-100 transition-opacity text-slate-400">arrow_forward_ios</span>
+</div>
+</a>
+<a class="group block py-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between hover:px-4 transition-all duration-300 rounded-lg -mx-4 hover:bg-slate-50 dark:hover:bg-slate-900/50" href="#">
+<div class="flex items-baseline gap-8">
+<span class="text-sm font-medium text-slate-400 group-hover:text-primary dark:group-hover:text-white">03.</span>
+<h3 class="text-xl font-medium text-slate-800 dark:text-slate-200 group-hover:translate-x-1 transition-transform">The Hunger Cry</h3>
+</div>
+<div class="flex items-center gap-4">
+<span class="text-sm text-slate-400 group-hover:text-slate-500">3827 words</span>
+<span class="material-symbols-outlined opacity-0 group-hover:opacity-100 transition-opacity text-slate-400">arrow_forward_ios</span>
+</div>
+</a>
+<a class="group block py-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between hover:px-4 transition-all duration-300 rounded-lg -mx-4 hover:bg-slate-50 dark:hover:bg-slate-900/50" href="#">
+<div class="flex items-baseline gap-8">
+<span class="text-sm font-medium text-slate-400 group-hover:text-primary dark:group-hover:text-white">04.</span>
+<h3 class="text-xl font-medium text-slate-800 dark:text-slate-200 group-hover:translate-x-1 transition-transform">The Battle of the Fangs</h3>
+</div>
+<div class="flex items-center gap-4">
+<span class="text-sm text-slate-400 group-hover:text-slate-500">3467 words</span>
+<span class="material-symbols-outlined opacity-0 group-hover:opacity-100 transition-opacity text-slate-400">arrow_forward_ios</span>
+</div>
+</a>
+<a class="group block py-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between hover:px-4 transition-all duration-300 rounded-lg -mx-4 hover:bg-slate-50 dark:hover:bg-slate-900/50" href="#">
+<div class="flex items-baseline gap-8">
+<span class="text-sm font-medium text-slate-400 group-hover:text-primary dark:group-hover:text-white">05.</span>
+<h3 class="text-xl font-medium text-slate-800 dark:text-slate-200 group-hover:translate-x-1 transition-transform">The Lair</h3>
+</div>
+<div class="flex items-center gap-4">
+<span class="text-sm text-slate-400 group-hover:text-slate-500">2910 words</span>
+<span class="material-symbols-outlined opacity-0 group-hover:opacity-100 transition-opacity text-slate-400">arrow_forward_ios</span>
+</div>
+</a>
+</div>
+<div class="mt-12 text-center">
+<button class="text-sm font-medium text-slate-400 hover:text-primary dark:hover:text-white transition-colors uppercase tracking-widest flex items-center gap-2 mx-auto">
+                    View all 25 chapters
+                    <span class="material-symbols-outlined">expand_more</span>
+</button>
+</div>
+</section>
+</main>
+<footer class="border-t border-slate-200 dark:border-slate-800 mt-20 py-12">
+<div class="max-w-7xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-8 text-slate-400 text-sm">
+<div class="flex items-center gap-8">
+<span class="serif-title text-lg text-slate-600 dark:text-slate-300">TextStack</span>
+<span>© 2025 Editorial Library</span>
+</div>
+<div class="flex gap-8">
+<a class="hover:text-primary dark:hover:text-white transition-colors" href="#">Privacy Policy</a>
+<a class="hover:text-primary dark:hover:text-white transition-colors" href="#">Terms of Service</a>
+<a class="hover:text-primary dark:hover:text-white transition-colors" href="#">Contact</a>
+</div>
+</div>
+</footer>
+<div class="fixed bottom-6 right-6 z-50">
+<button class="w-12 h-12 rounded-full bg-white dark:bg-slate-800 shadow-xl border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:scale-110 transition-transform" onclick="document.documentElement.classList.toggle('dark')">
+<span class="material-symbols-outlined dark:hidden">dark_mode</span>
+<span class="material-symbols-outlined hidden dark:block text-yellow-400">light_mode</span>
+</button>
+</div>
+
+</body></html>

@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>My Library - Editorial List View</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400..900;1,400..900&amp;family=Inter:wght@300;400;500;600&amp;family=Material+Icons+Outlined&amp;display=swap" rel="stylesheet"/>
+<script>
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        primary: "#111827",
+                        "background-light": "#FAFAFA",
+                        "background-dark": "#0A0A0A",
+                    },
+                    fontFamily: {
+                        display: ["'Playfair Display'", "serif"],
+                        sans: ["'Inter'", "sans-serif"],
+                    },
+                    borderRadius: {
+                        DEFAULT: "0.5rem",
+                    },
+                },
+            },
+        };
+    </script>
+<style>
+        body {
+            font-family: 'Inter', sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+        .editorial-title {
+            font-family: 'Playfair Display', serif;
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 10px;
+        }
+        .dark .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #334155;
+        }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark text-slate-900 dark:text-slate-100 min-h-screen">
+<nav class="border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-black/80 backdrop-blur-md sticky top-0 z-50">
+<div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+<div class="flex items-center gap-8">
+<span class="editorial-title text-2xl font-bold tracking-tight">TextStack</span>
+<div class="hidden md:flex items-center gap-6 text-sm font-medium text-slate-500 dark:text-slate-400">
+<a class="hover:text-primary dark:hover:text-white transition-colors" href="#">Catalog</a>
+<a class="text-primary dark:text-white border-b-2 border-primary dark:border-white pb-1" href="#">My Library</a>
+<a class="hover:text-primary dark:hover:text-white transition-colors" href="#">About</a>
+</div>
+</div>
+<div class="flex items-center gap-6">
+<button class="flex items-center gap-1 text-sm font-medium text-slate-600 dark:text-slate-300">
+                    EN <span class="material-icons-outlined text-sm">expand_more</span>
+</button>
+<button class="material-icons-outlined text-slate-600 dark:text-slate-300">search</button>
+<div class="w-8 h-8 rounded-full overflow-hidden bg-slate-200">
+<img alt="User Profile" src="https://lh3.googleusercontent.com/aida-public/AB6AXuB8GHvZR42gdwuuijxe4fRJkzVGTcsUAkr7QDCKifmXSuAT8MIlCrdKGwjc5Ksp4bYmiJMPfchReevsd9SvNgP65hUtPKt2eW7oys1rPZ3Y0DGZvfZim8LD44gKZfvCzHtJxVc9bBw5zk7u-QtXacqxoftsXJxb9lDODHEL7GVK3QC-YmGXKLS5fVc_mHFx-jDScIf0eQCvgyflzNn62L2z_ezyLPhdgb2bgm6w5K1yg1f-o1pni8UHkw9gt9qDsReaANwBfhl4DBPF"/>
+</div>
+</div>
+</div>
+</nav>
+<div class="max-w-7xl mx-auto px-6 py-12 flex flex-col lg:flex-row gap-12">
+<aside class="w-full lg:w-48 flex-shrink-0">
+<div class="flex lg:flex-col gap-4 sticky top-28">
+<button class="flex items-center gap-3 px-4 py-2 bg-slate-100 dark:bg-slate-900 rounded-lg text-slate-900 dark:text-white font-medium w-full text-left">
+<span class="material-icons-outlined text-lg">book</span>
+<span>Saved</span>
+<span class="ml-auto text-xs bg-slate-200 dark:bg-slate-800 px-2 py-0.5 rounded-full">2</span>
+</button>
+<button class="flex items-center gap-3 px-4 py-2 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900/50 rounded-lg w-full text-left transition-all">
+<span class="material-icons-outlined text-lg">file_upload</span>
+<span>Uploads</span>
+<span class="ml-auto text-xs opacity-60">2</span>
+</button>
+<div class="h-px bg-slate-200 dark:bg-slate-800 my-4 hidden lg:block"></div>
+<button class="flex lg:flex items-center gap-3 px-4 py-2 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900/50 rounded-lg w-full text-left transition-all">
+<span class="material-icons-outlined text-lg">collections_bookmark</span>
+<span>Collections</span>
+</button>
+</div>
+</aside>
+<main class="flex-grow">
+<header class="mb-12">
+<h1 class="editorial-title text-5xl md:text-6xl font-light mb-3">My Library</h1>
+<p class="text-slate-500 dark:text-slate-400 font-light tracking-wide">mrviduus@gmail.com</p>
+</header>
+<div class="flex items-center justify-between mb-8 pb-4 border-b border-slate-200 dark:border-slate-800">
+<div class="flex gap-4">
+<button class="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 hover:text-primary dark:hover:text-white transition-colors">
+                        Sort by: Recently Added <span class="material-icons-outlined text-sm">expand_more</span>
+</button>
+</div>
+<div class="flex gap-2">
+<button class="p-2 text-slate-300 dark:text-slate-600">
+<span class="material-icons-outlined">grid_view</span>
+</button>
+<button class="p-2 text-primary dark:text-white">
+<span class="material-icons-outlined">format_list_bulleted</span>
+</button>
+</div>
+</div>
+<div class="space-y-0">
+<article class="group relative flex flex-col md:flex-row items-start md:items-center gap-8 py-8 border-b border-slate-200 dark:border-slate-800 transition-all hover:bg-slate-50/50 dark:hover:bg-slate-900/20 -mx-4 px-4 rounded-xl">
+<div class="w-32 md:w-40 flex-shrink-0 shadow-xl transition-transform group-hover:scale-[1.02] duration-300">
+<img alt="The Goldfinch Cover" class="w-full aspect-[2/3] object-cover rounded shadow-sm" src="https://lh3.googleusercontent.com/aida-public/AB6AXuASwpKsNJPs_6NgZzaD3yFB4TinbAi9Ydgn8qd8IrlUuBjqXzHaD7pK1RuiORcS0ZmyqyLP9M_Rpb-jiA0HyakSHAV3dCClK2QmZFb9VjqkWLK-VfYqSf6FScNhHy4hAN8i51X4nxbroDwVA41_d4ootZ6C_H8YxlsFThb_wfZH_1NzwdM1ummXMbtNglekrgNPpBHLaxNcGJkBD7q-RuJ0x5d5CPRFuqT3kOqg4zEIPs_XVtoeYAPvgge3RlNgYT4DBnTiTOQ394Mx"/>
+</div>
+<div class="flex-grow space-y-4 w-full">
+<div class="space-y-1">
+<div class="flex items-center gap-2 text-[10px] font-bold tracking-[0.2em] text-slate-400 uppercase">
+<span>Fiction</span>
+<span class="w-1 h-1 bg-slate-300 dark:bg-slate-700 rounded-full"></span>
+<span>Pulitzer Prize Winner</span>
+</div>
+<h2 class="editorial-title text-3xl font-medium leading-tight group-hover:text-primary dark:group-hover:text-white transition-colors">The Goldfinch</h2>
+<p class="text-slate-500 dark:text-slate-400 font-light">Donna Tartt</p>
+</div>
+<div class="max-w-md">
+<div class="flex items-center justify-between text-xs mb-2">
+<span class="font-medium text-slate-400">Reading Progress</span>
+<span class="text-slate-900 dark:text-white font-semibold">7%</span>
+</div>
+<div class="w-full h-1 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
+<div class="bg-primary dark:bg-white h-full transition-all duration-700 w-[7%]"></div>
+</div>
+</div>
+<div class="flex items-center gap-4 text-xs font-medium text-slate-400">
+<span class="flex items-center gap-1"><span class="material-icons-outlined text-sm">schedule</span> Last read 2 days ago</span>
+<span class="flex items-center gap-1"><span class="material-icons-outlined text-sm">description</span> 771 pages</span>
+</div>
+</div>
+<div class="flex md:flex-col items-center gap-4 self-center md:self-auto">
+<button class="w-12 h-12 flex items-center justify-center rounded-full border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-primary hover:text-white dark:hover:bg-white dark:hover:text-black transition-all shadow-sm">
+<span class="material-icons-outlined">file_download</span>
+</button>
+<button class="w-12 h-12 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">
+<span class="material-icons-outlined">more_horiz</span>
+</button>
+</div>
+</article>
+<article class="group relative flex flex-col md:flex-row items-start md:items-center gap-8 py-8 border-b border-slate-200 dark:border-slate-800 transition-all hover:bg-slate-50/50 dark:hover:bg-slate-900/20 -mx-4 px-4 rounded-xl">
+<div class="w-32 md:w-40 flex-shrink-0 shadow-xl transition-transform group-hover:scale-[1.02] duration-300">
+<img alt="The Brothers Karamazov Cover" class="w-full aspect-[2/3] object-cover rounded shadow-sm" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBQOGttSpATSOFfV7aSo2VtMYnJJ5kvDLWO5QhpJP5PchNpmD0aajHDqs3r-hRJfylAsSpbdxWbd2RoZPRK3zlcISygSVRv_4qiFSRmboWJLU3CXLGGILAxM-0QZX7HBCUkl5EU1p7B6yuv7n6pgI08d0smKw3iwck1dp6hUKKyNRFCbupaQDfMfUiy5Uyg-SojpmYg7uf8VA9y7fVYodKJYU0J9XveSjG-mBu_WZ0QYv1jC6Z5Pwp-onbRFCTfiRvhetZqo5H4rzN4"/>
+</div>
+<div class="flex-grow space-y-4 w-full">
+<div class="space-y-1">
+<div class="flex items-center gap-2 text-[10px] font-bold tracking-[0.2em] text-slate-400 uppercase">
+<span>Classic Literature</span>
+<span class="w-1 h-1 bg-slate-300 dark:bg-slate-700 rounded-full"></span>
+<span>Russian Literature</span>
+</div>
+<h2 class="editorial-title text-3xl font-medium leading-tight group-hover:text-primary dark:group-hover:text-white transition-colors">The Brothers Karamazov</h2>
+<p class="text-slate-500 dark:text-slate-400 font-light">Fyodor Dostoevsky</p>
+</div>
+<div class="max-w-md">
+<div class="flex items-center justify-between text-xs mb-2">
+<span class="font-medium text-slate-400">Reading Progress</span>
+<span class="text-slate-900 dark:text-white font-semibold">15%</span>
+</div>
+<div class="w-full h-1 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
+<div class="bg-primary dark:bg-white h-full transition-all duration-700 w-[15%]"></div>
+</div>
+</div>
+<div class="flex items-center gap-4 text-xs font-medium text-slate-400">
+<span class="flex items-center gap-1"><span class="material-icons-outlined text-sm">schedule</span> Last read 4 hours ago</span>
+<span class="flex items-center gap-1"><span class="material-icons-outlined text-sm">description</span> 824 pages</span>
+</div>
+</div>
+<div class="flex md:flex-col items-center gap-4 self-center md:self-auto">
+<button class="w-12 h-12 flex items-center justify-center rounded-full border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-primary hover:text-white dark:hover:bg-white dark:hover:text-black transition-all shadow-sm">
+<span class="material-icons-outlined text-check text-green-500">check_circle</span>
+</button>
+<button class="w-12 h-12 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">
+<span class="material-icons-outlined">more_horiz</span>
+</button>
+</div>
+</article>
+</div>
+<div class="mt-12 flex items-center justify-center gap-2">
+<button class="p-2 w-10 h-10 flex items-center justify-center rounded-full border border-slate-200 dark:border-slate-800 text-slate-400">1</button>
+<button class="p-2 w-10 h-10 flex items-center justify-center rounded-full text-slate-500">2</button>
+<button class="p-2 w-10 h-10 flex items-center justify-center rounded-full text-slate-500">3</button>
+<span class="mx-2 text-slate-300">...</span>
+<button class="p-2 w-10 h-10 flex items-center justify-center rounded-full text-slate-500">
+<span class="material-icons-outlined">chevron_right</span>
+</button>
+</div>
+</main>
+</div>
+<button class="fixed bottom-8 right-8 w-14 h-14 bg-primary dark:bg-white text-white dark:text-black rounded-full shadow-2xl flex items-center justify-center hover:scale-110 transition-transform active:scale-95 z-50">
+<span class="material-icons-outlined">add</span>
+</button>
+
+</body></html>
