@@ -20,6 +20,11 @@ function stripHtml(html: string): string {
   return doc.body.textContent || ''
 }
 
+// Format chapter number with leading zero
+function formatChapterNumber(num: number): string {
+  return String(num + 1).padStart(2, '0')
+}
+
 export function BookDetailPage() {
   const { bookSlug } = useParams<{ bookSlug: string }>()
   const location = useLocation()
@@ -33,6 +38,7 @@ export function BookDetailPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isOffline, setIsOffline] = useState(false)
+  const [showAllChapters, setShowAllChapters] = useState(false)
 
   useEffect(() => {
     if (!bookSlug) return
@@ -71,7 +77,7 @@ export function BookDetailPage() {
 
   if (loading) {
     return (
-      <div className="book-detail">
+      <div className="book-detail--stitch">
         <div className="book-detail__skeleton" />
       </div>
     )
@@ -79,7 +85,7 @@ export function BookDetailPage() {
 
   if (error || !book) {
     return (
-      <div className="book-detail">
+      <div className="book-detail--stitch">
         <SeoHead
           title="Book Not Found"
           description="This book doesn't exist or is not available."
@@ -96,9 +102,11 @@ export function BookDetailPage() {
   }
 
   const firstChapter = book.chapters[0]
+  const visibleChapters = showAllChapters ? book.chapters : book.chapters.slice(0, 5)
+  const hasMoreChapters = book.chapters.length > 5
 
   return (
-    <div className="book-detail">
+    <div className="book-detail--stitch">
       <SeoHead
         title={book.seoTitle || book.title}
         description={book.seoDescription || book.description || undefined}
@@ -122,47 +130,69 @@ export function BookDetailPage() {
           url: buildCanonicalUrl({ origin: canonicalOrigin, pathname: location.pathname }),
         }}
       />
-      <div className="book-detail__header">
-        <div
-          className="book-detail__cover"
-          style={{ backgroundColor: book.coverPath ? undefined : stringToColor(book.title) }}
-        >
-          {book.coverPath ? (
-            <img src={getStorageUrl(book.coverPath)} alt={book.title} title={`${book.title} - Read online free`} />
-          ) : (
-            <span className="book-detail__cover-text">{book.title?.[0] || '?'}</span>
-          )}
+
+      {/* Hero Section */}
+      <section className="book-hero">
+        {/* Cover */}
+        <div className="book-hero__cover-wrapper">
+          <div
+            className="book-hero__cover"
+            style={{ backgroundColor: book.coverPath ? undefined : stringToColor(book.title) }}
+          >
+            {book.coverPath ? (
+              <img src={getStorageUrl(book.coverPath)} alt={book.title} title={`${book.title} - Read online free`} />
+            ) : (
+              <span className="book-hero__cover-text">{book.title?.[0] || '?'}</span>
+            )}
+          </div>
+          <div className="book-hero__cover-border" />
         </div>
-        <div className="book-detail__info">
-          <h1>{book.title}</h1>
-          <p className="book-detail__author">
+
+        {/* Info */}
+        <div className="book-hero__info">
+          <h1 className="book-hero__title">{book.title}</h1>
+
+          <p className="book-hero__author">
             {book.authors.length > 0
               ? book.authors.map((a, i) => (
                   <span key={a.id}>
                     {i > 0 && ', '}
-                    <LocalizedLink to={`/authors/${a.slug}`} className="book-detail__author-link" title={`${a.name} - View biography`}>
+                    <LocalizedLink to={`/authors/${a.slug}`} className="book-hero__author-link" title={`${a.name} - View biography`}>
                       {a.name}
                     </LocalizedLink>
                   </span>
                 ))
               : 'Unknown'}
           </p>
+
           {book.description && (
-            <p className="book-detail__description">{stripHtml(book.description)}</p>
+            <div className="book-hero__description">
+              <p>{stripHtml(book.description)}</p>
+            </div>
           )}
-          <p className="book-detail__meta">
-            {book.chapters.length} chapters · {book.language.toUpperCase()}
-          </p>
-          <div className="book-detail__actions">
+
+          <div className="book-hero__meta">
+            <span className="book-hero__meta-item">
+              <span className="material-icons-outlined">auto_stories</span>
+              {book.chapters.length} {language === 'uk' ? 'розділів' : 'chapters'}
+            </span>
+            <span className="book-hero__meta-dot" />
+            <span className="book-hero__meta-item book-hero__meta-item--lang">
+              {book.language.toUpperCase()}
+            </span>
+          </div>
+
+          <div className="book-hero__actions">
             {firstChapter && (
               <LocalizedLink
                 to={`/books/${book.slug}/${firstChapter.slug}?direct=1`}
-                className="book-detail__read-btn"
+                className="book-hero__read-btn"
                 title={`Start reading ${book.title}`}
               >
                 Start Reading
               </LocalizedLink>
             )}
+
             {book.id && isDownloading(book.id) && (
               <span className="book-detail__download-status book-detail__download-status--downloading">
                 Downloading {getProgress(book.id)}%...
@@ -191,25 +221,49 @@ export function BookDetailPage() {
             )}
           </div>
         </div>
-      </div>
+      </section>
 
-      <div className="book-detail__toc">
-        <h2>Chapters</h2>
-        <ul>
-          {book.chapters.map((ch) => (
-            <li key={ch.id}>
-              <LocalizedLink to={`/books/${book.slug}/${ch.slug}?direct=1`} title={`Read ${ch.title}`}>
-                <span className="chapter-number">{ch.chapterNumber + 1}.</span>
-                <span className="chapter-title">{ch.title}</span>
+      {/* Chapters Section */}
+      <section className="book-chapters">
+        <h2 className="book-chapters__heading">
+          Chapters
+          <span className="book-chapters__heading-line" />
+        </h2>
+
+        <div className="book-chapters__list">
+          {visibleChapters.map((ch) => (
+            <LocalizedLink
+              key={ch.id}
+              to={`/books/${book.slug}/${ch.slug}?direct=1`}
+              className="book-chapters__item"
+              title={`Read ${ch.title}`}
+            >
+              <div className="book-chapters__item-left">
+                <span className="book-chapters__number">{formatChapterNumber(ch.chapterNumber)}.</span>
+                <h3 className="book-chapters__title">{ch.title}</h3>
+              </div>
+              <div className="book-chapters__item-right">
                 {ch.wordCount && (
-                  <span className="chapter-words">{ch.wordCount} words</span>
+                  <span className="book-chapters__words">{ch.wordCount} words</span>
                 )}
-              </LocalizedLink>
-            </li>
+                <span className="book-chapters__arrow material-icons-outlined">arrow_forward_ios</span>
+              </div>
+            </LocalizedLink>
           ))}
-        </ul>
-      </div>
+        </div>
 
+        {hasMoreChapters && !showAllChapters && (
+          <button
+            className="book-chapters__view-all"
+            onClick={() => setShowAllChapters(true)}
+          >
+            View all {book.chapters.length} chapters
+            <span className="material-icons-outlined">expand_more</span>
+          </button>
+        )}
+      </section>
+
+      {/* Other Editions */}
       {book.otherEditions.length > 0 && (
         <div className="book-detail__editions">
           <h2>Other Editions</h2>
