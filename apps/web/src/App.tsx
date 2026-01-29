@@ -13,6 +13,9 @@ import { AuthorDetailPage } from './pages/AuthorDetailPage'
 import { GenresPage } from './pages/GenresPage'
 import { GenreDetailPage } from './pages/GenreDetailPage'
 import { AboutPage } from './pages/AboutPage'
+import { PrivacyPage } from './pages/PrivacyPage'
+import { TermsPage } from './pages/TermsPage'
+import { ContactPage } from './pages/ContactPage'
 import { LibraryPage } from './pages/LibraryPage'
 import { UserBookDetailPage } from './pages/UserBookDetailPage'
 import { NotFoundPage } from './pages/NotFoundPage'
@@ -49,6 +52,9 @@ function LanguageRoutes() {
         <Route path="/genres" element={<GenresPage />} />
         <Route path="/genres/:slug" element={<GenreDetailPage />} />
         <Route path="/about" element={<AboutPage />} />
+        <Route path="/privacy" element={<PrivacyPage />} />
+        <Route path="/terms" element={<TermsPage />} />
+        <Route path="/contact" element={<ContactPage />} />
         <Route path="/library" element={<LibraryPage />} />
         <Route path="/library/my/:id" element={<UserBookDetailPage />} />
         <Route path="/library/my/:id/read/:chapterSlug" element={<ReaderPage mode="userbook" />} />
@@ -82,6 +88,9 @@ function AppRoutes() {
       <Route path="/genres/*" element={<LegacyRedirect />} />
       <Route path="/search" element={<LegacyRedirect />} />
       <Route path="/about" element={<LegacyRedirect />} />
+      <Route path="/privacy" element={<LegacyRedirect />} />
+      <Route path="/terms" element={<LegacyRedirect />} />
+      <Route path="/contact" element={<LegacyRedirect />} />
       <Route path="/library" element={<LegacyRedirect />} />
       <Route path="/:lang/*" element={<LanguageRoutes />} />
     </Routes>
