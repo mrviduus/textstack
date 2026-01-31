@@ -56,24 +56,34 @@ dotnet test                 # All tests
 dotnet test tests/TextStack.UnitTests
 dotnet test tests/TextStack.IntegrationTests
 dotnet test --filter "FullyQualifiedName~TestMethodName"  # Single test
+pnpm -C apps/web test       # Frontend tests
+pnpm -C apps/web test:watch # Frontend watch mode
 
 # Local dev (no Docker)
 dotnet run --project backend/src/Api
+dotnet run --project backend/src/Worker
+pnpm -C apps/web dev        # http://localhost:5173
+pnpm -C apps/admin dev
 
-# Frontend
+# Build frontend
 pnpm -C apps/web build
 pnpm -C apps/admin build
+
+# Database
+docker compose exec db psql -U app books   # DB shell
+docker compose down -v                      # Reset all (loses data)
 
 # Migrations
 dotnet ef migrations add <Name> --project backend/src/Infrastructure --startup-project backend/src/Api
 ```
 
-| Service | URL |
-|---------|-----|
-| Web | https://textstack.app |
-| API | https://textstack.app/api |
-| Admin | https://textstack.dev |
-| Aspire | http://127.0.0.1:18888 |
+| Service | Local | Prod |
+|---------|-------|------|
+| Web | http://localhost:5173 | https://textstack.app |
+| API | http://localhost:8080 | https://textstack.app/api |
+| API Docs | http://localhost:8080/scalar/v1 | — |
+| Admin | http://localhost:81 | https://textstack.dev |
+| Aspire | http://127.0.0.1:18888 | — |
 
 ## Key Concepts
 
