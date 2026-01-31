@@ -60,6 +60,11 @@ export interface EditionDetail {
   seoTitle: string | null
   seoDescription: string | null
   canonicalOverride: string | null
+  // SEO content blocks
+  seoAboutText: string | null
+  seoRelevanceText: string | null
+  seoThemesJson: string | null
+  seoFaqsJson: string | null
 }
 
 export interface EditionAuthor {
@@ -529,6 +534,11 @@ export const adminApi = {
     seoTitle?: string | null
     seoDescription?: string | null
     canonicalOverride?: string | null
+    // SEO content blocks
+    seoAboutText?: string | null
+    seoRelevanceText?: string | null
+    seoThemesJson?: string | null
+    seoFaqsJson?: string | null
     authors?: UpdateEditionAuthor[] | null
     genreIds?: string[] | null
   }): Promise<void> => {

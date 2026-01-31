@@ -3690,6 +3690,167 @@ html.dark .book-hero__read-btn {
   font-size: 20px;
 }
 
+/* Book About Section */
+.book-about {
+  max-width: 800px;
+  margin-bottom: 48px;
+}
+
+.book-about h2 {
+  font-family: 'Crimson Pro', serif;
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: var(--color-text);
+}
+
+.book-about p {
+  font-size: 1rem;
+  line-height: 1.7;
+  color: var(--color-text-secondary);
+}
+
+/* Book Themes Section */
+.book-themes {
+  max-width: 800px;
+  margin-bottom: 48px;
+}
+
+.book-themes h2 {
+  font-family: 'Crimson Pro', serif;
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin-bottom: 24px;
+  color: var(--color-text);
+}
+
+.book-themes__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+}
+
+.book-themes__item {
+  padding: 16px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.book-themes__item h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--color-text);
+}
+
+.book-themes__item p {
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+}
+
+/* Book Relevance Section */
+.book-relevance {
+  max-width: 800px;
+  margin-bottom: 48px;
+}
+
+.book-relevance h2 {
+  font-family: 'Crimson Pro', serif;
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: var(--color-text);
+}
+
+.book-relevance p {
+  font-size: 1rem;
+  line-height: 1.7;
+  color: var(--color-text-secondary);
+}
+
+/* Book Author Section */
+.book-author-section {
+  max-width: 800px;
+  margin-bottom: 48px;
+}
+
+.book-author-section h2 {
+  font-family: 'Crimson Pro', serif;
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: var(--color-text);
+}
+
+.book-author-section a {
+  font-size: 1rem;
+  color: var(--color-brand, #C4704B);
+  text-decoration: none;
+  transition: opacity 0.15s ease;
+}
+
+.book-author-section a:hover {
+  opacity: 0.8;
+}
+
+/* Book FAQ Section */
+.book-faq {
+  max-width: 800px;
+  margin-bottom: 48px;
+}
+
+.book-faq h2 {
+  font-family: 'Crimson Pro', serif;
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin-bottom: 24px;
+  color: var(--color-text);
+}
+
+.book-faq details {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.book-faq details:first-of-type {
+  border-top: 1px solid var(--color-border);
+}
+
+.book-faq summary {
+  padding: 16px 0;
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--color-text);
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.book-faq summary::-webkit-details-marker {
+  display: none;
+}
+
+.book-faq summary::after {
+  content: '+';
+  font-size: 1.25rem;
+  color: var(--color-text-secondary);
+  transition: transform 0.2s ease;
+}
+
+.book-faq details[open] summary::after {
+  content: '−';
+}
+
+.book-faq details p {
+  padding: 0 0 16px 0;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  color: var(--color-text-secondary);
+}
+
 /* Override old styles for stitch version */
 .book-detail--stitch .book-detail__editions {
   max-width: 800px;

@@ -32,7 +32,12 @@ public record AdminEditionDetailDto(
     bool Indexable,
     string? SeoTitle,
     string? SeoDescription,
-    string? CanonicalOverride
+    string? CanonicalOverride,
+    // SEO content blocks
+    string? SeoAboutText,
+    string? SeoRelevanceText,
+    string? SeoThemesJson,
+    string? SeoFaqsJson
 );
 
 public record AdminEditionAuthorDto(
@@ -64,6 +69,11 @@ public record UpdateEditionRequest(
     string? SeoTitle,
     string? SeoDescription,
     string? CanonicalOverride,
+    // SEO content blocks
+    string? SeoAboutText,
+    string? SeoRelevanceText,
+    string? SeoThemesJson,
+    string? SeoFaqsJson,
     List<UpdateEditionAuthorDto>? Authors,
     List<Guid>? GenreIds
 );

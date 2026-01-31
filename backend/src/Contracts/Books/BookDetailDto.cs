@@ -11,6 +11,11 @@ public record BookDetailDto(
     bool IsPublicDomain,
     string? SeoTitle,
     string? SeoDescription,
+    // SEO content blocks
+    string? SeoAboutText,
+    string? SeoRelevanceText,
+    string? SeoThemesJson,
+    string? SeoFaqsJson,
     WorkDto Work,
     IReadOnlyList<ChapterSummaryDto> Chapters,
     IReadOnlyList<EditionSummaryDto> OtherEditions,

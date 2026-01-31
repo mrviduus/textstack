@@ -517,7 +517,11 @@ public class AdminService(IAppDbContext db, IFileStorageService storage, ISearch
                 e.Indexable,
                 e.SeoTitle,
                 e.SeoDescription,
-                e.CanonicalOverride
+                e.CanonicalOverride,
+                e.SeoAboutText,
+                e.SeoRelevanceText,
+                e.SeoThemesJson,
+                e.SeoFaqsJson
             ))
             .FirstOrDefaultAsync(ct);
     }
@@ -548,6 +552,12 @@ public class AdminService(IAppDbContext db, IFileStorageService storage, ISearch
         edition.SeoTitle = request.SeoTitle;
         edition.SeoDescription = request.SeoDescription;
         edition.CanonicalOverride = request.CanonicalOverride;
+
+        // SEO content blocks
+        edition.SeoAboutText = request.SeoAboutText;
+        edition.SeoRelevanceText = request.SeoRelevanceText;
+        edition.SeoThemesJson = request.SeoThemesJson;
+        edition.SeoFaqsJson = request.SeoFaqsJson;
 
         // Handle author assignment
         if (request.Authors is not null)

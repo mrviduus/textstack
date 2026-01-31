@@ -12,6 +12,13 @@ import { JsonLd } from '../components/JsonLd'
 import { stringToColor } from '../utils/colors'
 import { getCachedBookMeta } from '../lib/offlineDb'
 import { getCanonicalOrigin, buildCanonicalUrl } from '../lib/canonicalUrl'
+import {
+  getThemes,
+  getFAQs,
+  generateAboutText,
+  generateRelevanceText,
+  generateThemeDescription,
+} from '../lib/bookSeo'
 import type { BookDetail } from '../types/api'
 
 // Strip HTML tags from description text
@@ -262,6 +269,69 @@ export function BookDetailPage() {
           </button>
         )}
       </section>
+
+      {/* What is it about */}
+      <section className="book-about">
+        <h2>What is {book.title} about?</h2>
+        <p>{generateAboutText(book)}</p>
+      </section>
+
+      {/* Themes */}
+      {getThemes(book).length > 0 && (
+        <section className="book-themes">
+          <h2>Main themes in {book.title}</h2>
+          <div className="book-themes__grid">
+            {getThemes(book).map((theme) => (
+              <div key={theme} className="book-themes__item">
+                <h3>{theme}</h3>
+                <p>{generateThemeDescription(theme, book.title)}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Relevance */}
+      <section className="book-relevance">
+        <h2>Why {book.title} is still relevant today</h2>
+        <p>{generateRelevanceText(book)}</p>
+      </section>
+
+      {/* Author */}
+      {book.authors.length > 0 && (
+        <section className="book-author-section">
+          <h2>About the author</h2>
+          <LocalizedLink to={`/authors/${book.authors[0].slug}`}>
+            {book.authors[0].name}
+          </LocalizedLink>
+        </section>
+      )}
+
+      {/* FAQ */}
+      <section className="book-faq">
+        <h2>Frequently Asked Questions</h2>
+        {getFAQs(book).map((faq, i) => (
+          <details key={i}>
+            <summary>{faq.question}</summary>
+            <p>{faq.answer}</p>
+          </details>
+        ))}
+      </section>
+
+      <JsonLd
+        data={{
+          '@context': 'https://schema.org',
+          '@type': 'FAQPage',
+          mainEntity: getFAQs(book).map((faq) => ({
+            '@type': 'Question',
+            name: faq.question,
+            acceptedAnswer: {
+              '@type': 'Answer',
+              text: faq.answer,
+            },
+          })),
+        }}
+      />
 
       {/* Other Editions */}
       {book.otherEditions.length > 0 && (
