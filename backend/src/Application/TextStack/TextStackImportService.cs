@@ -94,6 +94,18 @@ public class TextStackImportService
                 };
                 _db.Works.Add(work);
             }
+            else
+            {
+                // Check if edition with same language already exists for this work
+                var existingEdition = await _db.Editions
+                    .FirstOrDefaultAsync(e => e.WorkId == work.Id && e.Language == metadata.Language, ct);
+                if (existingEdition != null)
+                {
+                    _logger.LogInformation("Edition already exists for work {WorkSlug} in language {Language}",
+                        workSlug, metadata.Language);
+                    return new ImportResult(existingEdition.Id, 0, 0, WasSkipped: true);
+                }
+            }
 
             var editionSlug = await GenerateUniqueEditionSlugAsync(siteId, metadata.Title, metadata.Language, ct);
             var edition = new Edition
