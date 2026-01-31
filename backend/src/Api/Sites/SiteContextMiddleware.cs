@@ -11,14 +11,26 @@ public class SiteContextMiddleware
         _resolver = resolver;
     }
 
-    private static readonly string[] SkipPaths = ["/admin", "/auth/", "/health", "/openapi", "/scalar", "/debug"];
+    private static readonly string[] SkipPaths = ["/admin", "/auth/", "/health", "/openapi", "/scalar", "/debug", "/storage"];
+
+    private static bool ShouldSkip(string path)
+    {
+        if (SkipPaths.Any(p => path.StartsWith(p, StringComparison.OrdinalIgnoreCase)))
+            return true;
+
+        // Skip /books/{id}/assets/{assetId} - public resources don't need site context
+        if (path.Contains("/assets/", StringComparison.OrdinalIgnoreCase) && path.StartsWith("/books/", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return false;
+    }
 
     public async Task InvokeAsync(HttpContext context)
     {
         var path = context.Request.Path.Value ?? "";
 
-        // Skip site resolution for admin and infra routes
-        if (SkipPaths.Any(p => path.StartsWith(p, StringComparison.OrdinalIgnoreCase)))
+        // Skip site resolution for admin, infra routes, and public assets
+        if (ShouldSkip(path))
         {
             await _next(context);
             return;
