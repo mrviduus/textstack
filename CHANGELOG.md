@@ -65,6 +65,7 @@
 - **GeneratedRegex** - compiled regex patterns for performance
 
 ### Reader
+- **Theme cleanup** - reader theme properly reset on unmount (fixes body class leak)
 - **Mobile progress** - footer shows overall book % instead of chapter %
 - **Help button** - hidden on mobile (keyboard shortcuts not applicable)
 - **Scroll tracking** - mobile progress bar reflects scroll position
