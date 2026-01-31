@@ -41,6 +41,10 @@ export function useReaderSettings() {
     save(settings)
     // Apply theme to html element
     document.documentElement.dataset.theme = settings.theme
+    // Cleanup: remove data-theme when reader unmounts
+    return () => {
+      delete document.documentElement.dataset.theme
+    }
   }, [settings])
 
   const update = useCallback((partial: Partial<ReaderSettings>) => {
