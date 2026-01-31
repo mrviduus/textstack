@@ -219,7 +219,7 @@ public class TextStackImportService
 
             var metadata = OpfParser.Parse(opfPath);
 
-            // 2. Find existing edition by slug (exact match first, then contains)
+            // 2. Find existing edition by slug or title
             var expectedSlug = SlugGenerator.GenerateSlug(metadata.Title);
             var edition = await _db.Editions
                 .Include(e => e.Chapters)
@@ -231,6 +231,12 @@ public class TextStackImportService
                 .Include(e => e.Chapters)
                 .Include(e => e.Assets)
                 .FirstOrDefaultAsync(e => e.SiteId == siteId && e.Slug.Contains(expectedSlug), ct);
+
+            // Fallback to title match (case-insensitive)
+            edition ??= await _db.Editions
+                .Include(e => e.Chapters)
+                .Include(e => e.Assets)
+                .FirstOrDefaultAsync(e => e.SiteId == siteId && e.Title.ToLower() == metadata.Title.ToLower(), ct);
 
             if (edition == null)
             {
