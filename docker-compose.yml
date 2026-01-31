@@ -50,7 +50,7 @@ services:
       Jwt__Issuer: ${JWT_ISSUER}
       Jwt__Audience: ${JWT_AUDIENCE}
       Google__ClientId: ${GOOGLE_CLIENT_ID}
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://aspire-dashboard:18890
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://aspire-dashboard:18889
     volumes:
       - ./data/storage:/storage
       - ./data/textstack:/data/textstack
@@ -86,7 +86,7 @@ services:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       ConnectionStrings__Default: "Host=db;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
       Storage__RootPath: /storage
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://aspire-dashboard:18890
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://aspire-dashboard:18889
     volumes:
       - ./data/storage:/storage
     restart: always
@@ -162,10 +162,13 @@ services:
     ports:
       - "127.0.0.1:18888:18888"   # Dashboard UI (localhost only)
     environment:
-      - ASPIRE_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS=true
-      - DASHBOARD__TELEMETRYLIMITS__MAXLOGCOUNT=100000
-      - DASHBOARD__TELEMETRYLIMITS__MAXTRACECOUNT=50000
-      - DASHBOARD__TELEMETRYLIMITS__MAXMETRICCOUNT=100000
+      # Auth mode for all endpoints (Aspire 13.x+)
+      - Dashboard__Frontend__AuthMode=Unsecured
+      - Dashboard__Otlp__AuthMode=Unsecured
+      # Telemetry limits
+      - Dashboard__TelemetryLimits__MaxLogCount=100000
+      - Dashboard__TelemetryLimits__MaxTraceCount=50000
+      - Dashboard__TelemetryLimits__MaxMetricCount=100000
     restart: always
     deploy:
       resources:

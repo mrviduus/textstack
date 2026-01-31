@@ -63,7 +63,7 @@ public static class TelemetryExtensions
                     builder.AddOtlpExporter(options =>
                     {
                         options.Endpoint = new Uri(otlpEndpoint!);
-                        options.Protocol = OtlpExportProtocol.HttpProtobuf;
+                        options.Protocol = OtlpExportProtocol.Grpc;
                     });
                 }
             })
@@ -72,7 +72,9 @@ public static class TelemetryExtensions
                 builder
                     .SetResourceBuilder(resourceBuilder)
                     .AddMeter(TelemetryConstants.MeterName)
-                    .AddRuntimeInstrumentation();
+                    .AddRuntimeInstrumentation()
+                    .AddAspNetCoreInstrumentation()
+                    .AddHttpClientInstrumentation();
 
                 if (useConsoleExporter)
                 {
@@ -83,7 +85,7 @@ public static class TelemetryExtensions
                     builder.AddOtlpExporter(options =>
                     {
                         options.Endpoint = new Uri(otlpEndpoint!);
-                        options.Protocol = OtlpExportProtocol.HttpProtobuf;
+                        options.Protocol = OtlpExportProtocol.Grpc;
                     });
                 }
             });
@@ -129,7 +131,7 @@ public static class TelemetryExtensions
                 options.AddOtlpExporter(exporterOptions =>
                 {
                     exporterOptions.Endpoint = new Uri(otlpEndpoint);
-                    exporterOptions.Protocol = OtlpExportProtocol.HttpProtobuf;
+                    exporterOptions.Protocol = OtlpExportProtocol.Grpc;
                 });
             }
         });
