@@ -6,6 +6,13 @@ import { LocalizedLink } from '../components/LocalizedLink'
 import { SeoHead } from '../components/SeoHead'
 import { JsonLd } from '../components/JsonLd'
 import { useLanguage } from '../context/LanguageContext'
+import {
+  generateAboutText,
+  generateRelevanceText,
+  getThemes,
+  getFAQs,
+  generateThemeDescription,
+} from '../lib/authorSeo'
 import type { AuthorDetail } from '../types/api'
 
 export function AuthorDetailPage() {
@@ -120,6 +127,59 @@ export function AuthorDetailPage() {
           ))}
         </div>
       )}
+
+      {/* About Section */}
+      <section className="author-about">
+        <h2>{language === 'uk' ? `Про ${author.name}` : `About ${author.name}`}</h2>
+        <p>{generateAboutText(author)}</p>
+      </section>
+
+      {/* Themes Section */}
+      {getThemes(author).length > 0 && (
+        <section className="author-themes">
+          <h2>{language === 'uk' ? `Основні теми у творах ${author.name}` : `Common themes in ${author.name}'s work`}</h2>
+          <div className="author-themes__grid">
+            {getThemes(author).map((theme) => (
+              <div key={theme} className="author-themes__item">
+                <h3>{theme}</h3>
+                <p>{generateThemeDescription(theme, author.name)}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Relevance Section */}
+      <section className="author-relevance">
+        <h2>{language === 'uk' ? `Чому ${author.name} читають і сьогодні` : `Why ${author.name} is still read today`}</h2>
+        <p>{generateRelevanceText(author)}</p>
+      </section>
+
+      {/* FAQ Section */}
+      <section className="author-faq">
+        <h2>{language === 'uk' ? 'Часті запитання' : 'Frequently Asked Questions'}</h2>
+        {getFAQs(author).map((faq, i) => (
+          <details key={i}>
+            <summary>{faq.question}</summary>
+            <p>{faq.answer}</p>
+          </details>
+        ))}
+      </section>
+
+      <JsonLd
+        data={{
+          '@context': 'https://schema.org',
+          '@type': 'FAQPage',
+          mainEntity: getFAQs(author).map((faq) => ({
+            '@type': 'Question',
+            name: faq.question,
+            acceptedAnswer: {
+              '@type': 'Answer',
+              text: faq.answer,
+            },
+          })),
+        }}
+      />
     </div>
   )
 }

@@ -3908,3 +3908,137 @@ html.dark .book-hero__read-btn {
     display: none;
   }
 }
+
+/* Author SEO Sections */
+.author-about {
+  max-width: 800px;
+  margin-top: 48px;
+  margin-bottom: 48px;
+}
+
+.author-about h2 {
+  font-family: 'Crimson Pro', serif;
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: var(--color-text);
+}
+
+.author-about p {
+  font-size: 1rem;
+  line-height: 1.7;
+  color: var(--color-text-secondary);
+}
+
+.author-themes {
+  max-width: 800px;
+  margin-bottom: 48px;
+}
+
+.author-themes h2 {
+  font-family: 'Crimson Pro', serif;
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin-bottom: 24px;
+  color: var(--color-text);
+}
+
+.author-themes__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+}
+
+.author-themes__item {
+  padding: 16px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.author-themes__item h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--color-text);
+}
+
+.author-themes__item p {
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+}
+
+.author-relevance {
+  max-width: 800px;
+  margin-bottom: 48px;
+}
+
+.author-relevance h2 {
+  font-family: 'Crimson Pro', serif;
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: var(--color-text);
+}
+
+.author-relevance p {
+  font-size: 1rem;
+  line-height: 1.7;
+  color: var(--color-text-secondary);
+}
+
+.author-faq {
+  max-width: 800px;
+  margin-bottom: 48px;
+}
+
+.author-faq h2 {
+  font-family: 'Crimson Pro', serif;
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin-bottom: 24px;
+  color: var(--color-text);
+}
+
+.author-faq details {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.author-faq details:first-of-type {
+  border-top: 1px solid var(--color-border);
+}
+
+.author-faq summary {
+  padding: 16px 0;
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--color-text);
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.author-faq summary::-webkit-details-marker {
+  display: none;
+}
+
+.author-faq summary::after {
+  content: '+';
+  font-size: 1.25rem;
+  color: var(--color-text-secondary);
+  transition: transform 0.2s ease;
+}
+
+.author-faq details[open] summary::after {
+  content: '−';
+}
+
+.author-faq details p {
+  padding: 0 0 16px 0;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  color: var(--color-text-secondary);
+}
