@@ -57,6 +57,10 @@ public class AuthorsService(IAppDbContext db)
                 a.PhotoPath,
                 a.SeoTitle,
                 a.SeoDescription,
+                a.SeoAboutText,
+                a.SeoRelevanceText,
+                a.SeoThemesJson,
+                a.SeoFaqsJson,
                 a.EditionAuthors
                     .Where(ea => ea.Edition.Status == EditionStatus.Published)
                     .OrderBy(ea => ea.Order)

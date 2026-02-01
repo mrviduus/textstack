@@ -98,6 +98,10 @@ export interface Author {
 }
 
 export interface AuthorDetail extends Author {
+  seoAboutText: string | null
+  seoRelevanceText: string | null
+  seoThemesJson: string | null
+  seoFaqsJson: string | null
   editions: Edition[]
 }
 

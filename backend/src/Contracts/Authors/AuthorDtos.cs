@@ -16,6 +16,10 @@ public record AuthorDetailDto(
     string? PhotoPath,
     string? SeoTitle,
     string? SeoDescription,
+    string? SeoAboutText,
+    string? SeoRelevanceText,
+    string? SeoThemesJson,
+    string? SeoFaqsJson,
     List<AuthorEditionDto> Editions
 );
 
