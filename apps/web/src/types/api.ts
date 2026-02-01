@@ -52,6 +52,11 @@ export interface BookDetail {
   isPublicDomain: boolean
   seoTitle: string | null
   seoDescription: string | null
+  // SEO content blocks
+  seoAboutText: string | null
+  seoRelevanceText: string | null
+  seoThemesJson: string | null
+  seoFaqsJson: string | null
   chapters: ChapterSummary[]
   otherEditions: { slug: string; language: string; title: string }[]
   authors: BookAuthor[]

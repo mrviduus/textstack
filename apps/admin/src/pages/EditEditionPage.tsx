@@ -6,6 +6,7 @@ import { AuthorList, AuthorItem } from '../components/AuthorList'
 import { CreateAuthorModal } from '../components/CreateAuthorModal'
 import { GenreSelect } from '../components/GenreSelect'
 import { SeoFieldset } from '../components/SeoFieldset'
+import { SeoContentFieldset } from '../components/SeoContentFieldset'
 
 interface SelectedGenre {
   id: string
@@ -35,6 +36,11 @@ export function EditEditionPage() {
   const [seoTitle, setSeoTitle] = useState('')
   const [seoDescription, setSeoDescription] = useState('')
   const [canonicalOverride, setCanonicalOverride] = useState('')
+  // SEO content blocks
+  const [seoAboutText, setSeoAboutText] = useState('')
+  const [seoRelevanceText, setSeoRelevanceText] = useState('')
+  const [seoThemes, setSeoThemes] = useState<string[]>([])
+  const [seoFaqs, setSeoFaqs] = useState<{ question: string; answer: string }[]>([])
 
   useEffect(() => {
     if (!id) return
@@ -55,6 +61,19 @@ export function EditEditionPage() {
         setSeoTitle(data.seoTitle || '')
         setSeoDescription(data.seoDescription || '')
         setCanonicalOverride(data.canonicalOverride || '')
+        // SEO content blocks
+        setSeoAboutText(data.seoAboutText || '')
+        setSeoRelevanceText(data.seoRelevanceText || '')
+        try {
+          setSeoThemes(data.seoThemesJson ? JSON.parse(data.seoThemesJson) : [])
+        } catch { setSeoThemes([]) }
+        try {
+          const faqs = data.seoFaqsJson ? JSON.parse(data.seoFaqsJson) : []
+          setSeoFaqs(faqs.map((f: { q?: string; question?: string; a?: string; answer?: string }) => ({
+            question: f.q || f.question || '',
+            answer: f.a || f.answer || ''
+          })))
+        } catch { setSeoFaqs([]) }
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false))
@@ -74,6 +93,11 @@ export function EditEditionPage() {
         seoTitle: seoTitle || null,
         seoDescription: seoDescription || null,
         canonicalOverride: canonicalOverride || null,
+        // SEO content blocks
+        seoAboutText: seoAboutText || null,
+        seoRelevanceText: seoRelevanceText || null,
+        seoThemesJson: seoThemes.length > 0 ? JSON.stringify(seoThemes) : null,
+        seoFaqsJson: seoFaqs.length > 0 ? JSON.stringify(seoFaqs.map(f => ({ q: f.question, a: f.answer }))) : null,
         authors: authors.map(a => ({ authorId: a.id, role: a.role })),
         genreIds: genres.map(g => g.id),
       })
@@ -300,6 +324,17 @@ export function EditEditionPage() {
           titlePlaceholder={title ? `${title} — read online | TextStack` : 'Auto-generated from title'}
           indexableDisabled={edition.status === 'Draft'}
           indexableHint={edition.status === 'Draft' ? 'Draft editions are never indexed. Publish to enable indexing.' : undefined}
+        />
+
+        <SeoContentFieldset
+          aboutText={seoAboutText}
+          onAboutTextChange={setSeoAboutText}
+          relevanceText={seoRelevanceText}
+          onRelevanceTextChange={setSeoRelevanceText}
+          themes={seoThemes}
+          onThemesChange={setSeoThemes}
+          faqs={seoFaqs}
+          onFaqsChange={setSeoFaqs}
         />
 
         <div className="form-actions">

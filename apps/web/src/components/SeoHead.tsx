@@ -74,7 +74,11 @@ export function SeoHead({
       pathname: location.pathname,
       search: location.search,
     })
-    const fullTitle = title ? `${title} | TextStack` : 'TextStack'
+    const fullTitle = title
+      ? title.toLowerCase().includes('textstack')
+        ? title
+        : `${title} | TextStack`
+      : 'TextStack'
 
     // Set canonical URL (always set, will update when site loads)
     let link = document.querySelector('link[rel="canonical"]') as HTMLLinkElement | null

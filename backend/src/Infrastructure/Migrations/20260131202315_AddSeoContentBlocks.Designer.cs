@@ -3,6 +3,7 @@ using System;
 using Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using NpgsqlTypes;
@@ -12,9 +13,11 @@ using NpgsqlTypes;
 namespace Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260131202315_AddSeoContentBlocks")]
+    partial class AddSeoContentBlocks
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -117,10 +120,6 @@ namespace Infrastructure.Migrations
                         .HasColumnType("text")
                         .HasColumnName("bio");
 
-                    b.Property<string>("CanonicalOverride")
-                        .HasColumnType("text")
-                        .HasColumnName("canonical_override");
-
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -139,25 +138,9 @@ namespace Infrastructure.Migrations
                         .HasColumnType("text")
                         .HasColumnName("photo_path");
 
-                    b.Property<string>("SeoAboutText")
-                        .HasColumnType("text")
-                        .HasColumnName("seo_about_text");
-
                     b.Property<string>("SeoDescription")
                         .HasColumnType("text")
                         .HasColumnName("seo_description");
-
-                    b.Property<string>("SeoFaqsJson")
-                        .HasColumnType("text")
-                        .HasColumnName("seo_faqs_json");
-
-                    b.Property<string>("SeoRelevanceText")
-                        .HasColumnType("text")
-                        .HasColumnName("seo_relevance_text");
-
-                    b.Property<string>("SeoThemesJson")
-                        .HasColumnType("text")
-                        .HasColumnName("seo_themes_json");
 
                     b.Property<string>("SeoTitle")
                         .HasColumnType("text")

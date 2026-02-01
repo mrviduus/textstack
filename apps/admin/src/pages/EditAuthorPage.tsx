@@ -1,6 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { adminApi, AuthorDetail } from '../api/client'
+import { SeoContentFieldset } from '../components/SeoContentFieldset'
+
+interface FAQItem {
+  question: string
+  answer: string
+}
 
 export function EditAuthorPage() {
   const { id } = useParams<{ id: string }>()
@@ -17,6 +23,12 @@ export function EditAuthorPage() {
   const [indexable, setIndexable] = useState(true)
   const [seoTitle, setSeoTitle] = useState('')
   const [seoDescription, setSeoDescription] = useState('')
+  const [canonicalOverride, setCanonicalOverride] = useState('')
+  // SEO content blocks
+  const [seoAboutText, setSeoAboutText] = useState('')
+  const [seoRelevanceText, setSeoRelevanceText] = useState('')
+  const [seoThemes, setSeoThemes] = useState<string[]>([])
+  const [seoFaqs, setSeoFaqs] = useState<FAQItem[]>([])
 
   useEffect(() => {
     if (!id) return
@@ -29,6 +41,11 @@ export function EditAuthorPage() {
         setIndexable(data.indexable)
         setSeoTitle(data.seoTitle || '')
         setSeoDescription(data.seoDescription || '')
+        setCanonicalOverride(data.canonicalOverride || '')
+        setSeoAboutText(data.seoAboutText || '')
+        setSeoRelevanceText(data.seoRelevanceText || '')
+        setSeoThemes(data.seoThemesJson ? JSON.parse(data.seoThemesJson) : [])
+        setSeoFaqs(data.seoFaqsJson ? JSON.parse(data.seoFaqsJson) : [])
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load author')
       } finally {
@@ -49,6 +66,11 @@ export function EditAuthorPage() {
         indexable,
         seoTitle: seoTitle || null,
         seoDescription: seoDescription || null,
+        canonicalOverride: canonicalOverride || null,
+        seoAboutText: seoAboutText || null,
+        seoRelevanceText: seoRelevanceText || null,
+        seoThemesJson: seoThemes.length > 0 ? JSON.stringify(seoThemes) : null,
+        seoFaqsJson: seoFaqs.length > 0 ? JSON.stringify(seoFaqs) : null,
       })
       const updated = await adminApi.getAuthor(id)
       setAuthor(updated)
@@ -214,6 +236,28 @@ export function EditAuthorPage() {
               placeholder="Meta description for search engines"
             />
           </div>
+
+          <div className="form-group">
+            <label htmlFor="canonicalOverride">Canonical URL Override</label>
+            <input
+              id="canonicalOverride"
+              type="text"
+              value={canonicalOverride}
+              onChange={(e) => setCanonicalOverride(e.target.value)}
+              placeholder="Leave empty for default canonical"
+            />
+          </div>
+
+          <SeoContentFieldset
+            aboutText={seoAboutText}
+            onAboutTextChange={setSeoAboutText}
+            relevanceText={seoRelevanceText}
+            onRelevanceTextChange={setSeoRelevanceText}
+            themes={seoThemes}
+            onThemesChange={setSeoThemes}
+            faqs={seoFaqs}
+            onFaqsChange={setSeoFaqs}
+          />
         </div>
 
         <div className="form-actions">

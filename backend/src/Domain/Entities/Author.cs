@@ -15,6 +15,13 @@ public class Author
     public bool Indexable { get; set; } = true;
     public string? SeoTitle { get; set; }
     public string? SeoDescription { get; set; }
+    public string? CanonicalOverride { get; set; }
+
+    // SEO content blocks
+    public string? SeoAboutText { get; set; }
+    public string? SeoRelevanceText { get; set; }
+    public string? SeoThemesJson { get; set; }
+    public string? SeoFaqsJson { get; set; }
 
     public Site Site { get; set; } = null!;
     public ICollection<EditionAuthor> EditionAuthors { get; set; } = [];

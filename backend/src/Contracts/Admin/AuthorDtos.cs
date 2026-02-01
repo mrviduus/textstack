@@ -27,6 +27,11 @@ public record AdminAuthorDetailDto(
     bool Indexable,
     string? SeoTitle,
     string? SeoDescription,
+    string? CanonicalOverride,
+    string? SeoAboutText,
+    string? SeoRelevanceText,
+    string? SeoThemesJson,
+    string? SeoFaqsJson,
     int BookCount,
     DateTimeOffset CreatedAt,
     List<AdminAuthorBookDto> Books
@@ -57,7 +62,12 @@ public record UpdateAuthorRequest(
     string? Bio,
     bool? Indexable,
     string? SeoTitle,
-    string? SeoDescription
+    string? SeoDescription,
+    string? CanonicalOverride,
+    string? SeoAboutText,
+    string? SeoRelevanceText,
+    string? SeoThemesJson,
+    string? SeoFaqsJson
 );
 
 public record AdminAuthorStatsDto(
