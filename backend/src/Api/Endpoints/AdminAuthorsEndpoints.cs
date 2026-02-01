@@ -226,6 +226,11 @@ public static class AdminAuthorsEndpoints
                 a.Indexable,
                 a.SeoTitle,
                 a.SeoDescription,
+                a.CanonicalOverride,
+                a.SeoAboutText,
+                a.SeoRelevanceText,
+                a.SeoThemesJson,
+                a.SeoFaqsJson,
                 a.EditionAuthors.Count,
                 a.CreatedAt,
                 a.EditionAuthors
@@ -290,6 +295,11 @@ public static class AdminAuthorsEndpoints
             author.Indexable = req.Indexable.Value;
         author.SeoTitle = req.SeoTitle;
         author.SeoDescription = req.SeoDescription;
+        author.CanonicalOverride = req.CanonicalOverride;
+        author.SeoAboutText = req.SeoAboutText;
+        author.SeoRelevanceText = req.SeoRelevanceText;
+        author.SeoThemesJson = req.SeoThemesJson;
+        author.SeoFaqsJson = req.SeoFaqsJson;
 
         await db.SaveChangesAsync(ct);
         return Results.Ok();

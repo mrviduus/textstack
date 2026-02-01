@@ -191,6 +191,11 @@ export interface AuthorDetail {
   indexable: boolean
   seoTitle: string | null
   seoDescription: string | null
+  canonicalOverride: string | null
+  seoAboutText: string | null
+  seoRelevanceText: string | null
+  seoThemesJson: string | null
+  seoFaqsJson: string | null
   bookCount: number
   createdAt: string
   books: AuthorBook[]
@@ -613,6 +618,11 @@ export const adminApi = {
     indexable?: boolean
     seoTitle?: string | null
     seoDescription?: string | null
+    canonicalOverride?: string | null
+    seoAboutText?: string | null
+    seoRelevanceText?: string | null
+    seoThemesJson?: string | null
+    seoFaqsJson?: string | null
   }): Promise<void> => {
     await fetchVoid(`/admin/authors/${id}`, {
       method: 'PUT',
