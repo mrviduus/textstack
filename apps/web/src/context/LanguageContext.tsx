@@ -41,12 +41,17 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   }, [location.pathname, navigate])
 
   const getLocalizedPath = useCallback((path: string) => {
-    if (path.startsWith(`/${language}`)) {
-      return path.endsWith('/') ? path : `${path}/`
+    const [pathname, query] = path.split('?')
+    const suffix = query ? `?${query}` : ''
+
+    if (pathname.startsWith(`/${language}`)) {
+      const normalized = pathname.endsWith('/') ? pathname : `${pathname}/`
+      return `${normalized}${suffix}`
     }
-    const cleanPath = path.startsWith('/') ? path : `/${path}`
+    const cleanPath = pathname.startsWith('/') ? pathname : `/${pathname}`
     const result = `/${language}${cleanPath}`
-    return result.endsWith('/') ? result : `${result}/`
+    const normalized = result.endsWith('/') ? result : `${result}/`
+    return `${normalized}${suffix}`
   }, [language])
 
   const value = useMemo(() => ({

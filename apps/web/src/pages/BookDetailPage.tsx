@@ -128,7 +128,10 @@ export function BookDetailPage() {
           name: book.title,
           description: book.description || undefined,
           inLanguage: book.language,
-          image: book.coverPath ? getStorageUrl(book.coverPath) : undefined,
+          image: book.coverPath ? (() => {
+            const url = getStorageUrl(book.coverPath)
+            return url?.startsWith('http') ? url : `${canonicalOrigin}${url}`
+          })() : undefined,
           author: book.authors.map((a) => ({
             '@type': 'Person',
             name: a.name,

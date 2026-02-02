@@ -214,5 +214,15 @@ export function generateThemeDescription(theme: string, title: string): string {
     return `${themeDescriptions[lowerTheme]} in ${title}.`
   }
 
-  return `A significant theme that shapes the narrative of ${title}.`
+  // Deterministic fallback templates (pick based on hash)
+  const templates = [
+    `The theme of ${lowerTheme} weaves through ${title}, adding depth to its narrative.`,
+    `${theme} emerges as a defining element in ${title}, shaping character development.`,
+    `In ${title}, ${lowerTheme} provides a lens for understanding the story's core message.`,
+    `${title} thoughtfully explores ${lowerTheme} through its central conflicts.`,
+    `The presence of ${lowerTheme} in ${title} connects readers to its enduring relevance.`,
+  ]
+
+  const hash = (theme + title).split('').reduce((a, c) => a + c.charCodeAt(0), 0)
+  return templates[hash % templates.length]
 }
