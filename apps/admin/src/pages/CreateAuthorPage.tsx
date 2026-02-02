@@ -132,7 +132,7 @@ export function CreateAuthorPage() {
                   value={bio}
                   onChange={(e) => setBio(e.target.value)}
                   rows={5}
-                  placeholder="Author biography..."
+                  placeholder="Short bio or notable quote..."
                 />
               </div>
             </div>

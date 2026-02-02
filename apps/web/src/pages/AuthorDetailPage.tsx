@@ -109,9 +109,8 @@ export function AuthorDetailPage() {
         </div>
         <div className="author-detail__info">
           <h1 className="author-detail__name">{author.name}</h1>
-          {author.bio && <p className="author-detail__bio-quote">{author.bio}</p>}
           <div className="author-detail__about-inline">
-            <h2>{language === 'uk' ? `Про ${author.name}` : `About ${author.name}`}</h2>
+            <h2>{language === 'uk' ? 'Біографія' : 'Biography'}</h2>
             <p>{generateAboutText(author)}</p>
           </div>
         </div>
