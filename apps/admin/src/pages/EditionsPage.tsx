@@ -15,6 +15,7 @@ export function EditionsPage() {
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [stats, setStats] = useState<AdminStats | null>(null)
+  const [sortOption, setSortOption] = useState<string>('newest')
 
   const totalPages = Math.ceil(total / PAGE_SIZE)
 
@@ -29,6 +30,13 @@ export function EditionsPage() {
 
   const fetchEditions = async () => {
     setLoading(true)
+    const sortMap: Record<string, { sort: string; sortOrder: string }> = {
+      'newest': { sort: 'createdAt', sortOrder: 'desc' },
+      'oldest': { sort: 'createdAt', sortOrder: 'asc' },
+      'title-asc': { sort: 'title', sortOrder: 'asc' },
+      'title-desc': { sort: 'title', sortOrder: 'desc' },
+    }
+    const { sort, sortOrder } = sortMap[sortOption] || sortMap['newest']
     try {
       const data = await adminApi.getEditions({
         status: statusFilter || undefined,
@@ -37,6 +45,8 @@ export function EditionsPage() {
         indexable: indexableFilter === '' ? undefined : indexableFilter === 'true',
         limit: PAGE_SIZE,
         offset: (page - 1) * PAGE_SIZE,
+        sort,
+        sortOrder,
       })
       setEditions(data.items)
       setTotal(data.total)
@@ -54,7 +64,7 @@ export function EditionsPage() {
 
   useEffect(() => {
     fetchEditions()
-  }, [statusFilter, languageFilter, indexableFilter, page])
+  }, [statusFilter, languageFilter, indexableFilter, sortOption, page])
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
@@ -74,6 +84,11 @@ export function EditionsPage() {
 
   const handleIndexableChange = (value: string) => {
     setIndexableFilter(value)
+    setPage(1)
+  }
+
+  const handleSortChange = (value: string) => {
+    setSortOption(value)
     setPage(1)
   }
 
@@ -190,6 +205,17 @@ export function EditionsPage() {
           <option value="">All SEO</option>
           <option value="true">Indexed</option>
           <option value="false">Not indexed</option>
+        </select>
+
+        <select
+          value={sortOption}
+          onChange={(e) => handleSortChange(e.target.value)}
+          className="status-filter"
+        >
+          <option value="newest">Newest first</option>
+          <option value="oldest">Oldest first</option>
+          <option value="title-asc">Title A-Z</option>
+          <option value="title-desc">Title Z-A</option>
         </select>
       </div>
 

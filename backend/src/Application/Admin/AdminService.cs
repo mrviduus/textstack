@@ -437,7 +437,7 @@ public class AdminService(IAppDbContext db, IFileStorageService storage, ISearch
     }
 
     public async Task<PaginatedResult<AdminEditionListDto>> GetEditionsAsync(
-        Guid? siteId, int offset, int limit, EditionStatus? status, string? search, string? language, bool? indexable, CancellationToken ct)
+        Guid? siteId, int offset, int limit, EditionStatus? status, string? search, string? language, bool? indexable, string? sort, string? sortOrder, CancellationToken ct)
     {
         var query = db.Editions.AsQueryable();
 
@@ -465,8 +465,18 @@ public class AdminService(IAppDbContext db, IFileStorageService storage, ISearch
 
         var total = await query.CountAsync(ct);
 
+        var sortField = (sort ?? "createdat").ToLowerInvariant();
+        var isDesc = (sortOrder ?? "desc").ToLowerInvariant() == "desc";
+
+        query = (sortField, isDesc) switch
+        {
+            ("title", false) => query.OrderBy(e => e.Title),
+            ("title", true) => query.OrderByDescending(e => e.Title),
+            ("createdat", false) => query.OrderBy(e => e.CreatedAt),
+            _ => query.OrderByDescending(e => e.CreatedAt)
+        };
+
         var items = await query
-            .OrderByDescending(e => e.CreatedAt)
             .Skip(offset)
             .Take(limit)
             .Select(e => new AdminEditionListDto(

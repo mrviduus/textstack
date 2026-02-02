@@ -2,6 +2,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+using Application.AdminSettings;
 using Application.Auth;
 using Application.Common.Interfaces;
 using Domain.Entities;
@@ -16,11 +17,13 @@ public class AdminAuthService
 {
     private readonly IAppDbContext _db;
     private readonly JwtSettings _jwtSettings;
+    private readonly AdminSettingsService _settingsService;
 
-    public AdminAuthService(IAppDbContext db, IOptions<JwtSettings> jwtSettings)
+    public AdminAuthService(IAppDbContext db, IOptions<JwtSettings> jwtSettings, AdminSettingsService settingsService)
     {
         _db = db;
         _jwtSettings = jwtSettings.Value;
+        _settingsService = settingsService;
     }
 
     public async Task<(AdminUser user, string accessToken, string refreshToken)?> LoginAsync(
@@ -37,7 +40,7 @@ public class AdminAuthService
         if (!BCrypt.Net.BCrypt.Verify(password, user.PasswordHash))
             return null;
 
-        var accessToken = GenerateAccessToken(user);
+        var accessToken = await GenerateAccessTokenAsync(user, ct);
         var refreshToken = await CreateRefreshTokenAsync(user.Id, ct);
 
         return (user, accessToken, refreshToken);
@@ -57,7 +60,7 @@ public class AdminAuthService
         // Rotate refresh token
         _db.AdminRefreshTokens.Remove(token);
         var newRefreshToken = await CreateRefreshTokenAsync(token.AdminUserId, ct);
-        var accessToken = GenerateAccessToken(token.AdminUser);
+        var accessToken = await GenerateAccessTokenAsync(token.AdminUser, ct);
 
         return (token.AdminUser, accessToken, newRefreshToken);
     }
@@ -147,8 +150,19 @@ public class AdminAuthService
         return user;
     }
 
-    private string GenerateAccessToken(AdminUser user)
+    public async Task<int> GetAccessTokenExpiryMinutesAsync(CancellationToken ct = default)
     {
+        return await _settingsService.GetAccessTokenExpiryMinutesAsync(ct);
+    }
+
+    public async Task<int> GetRefreshTokenExpiryDaysAsync(CancellationToken ct = default)
+    {
+        return await _settingsService.GetRefreshTokenExpiryDaysAsync(ct);
+    }
+
+    private async Task<string> GenerateAccessTokenAsync(AdminUser user, CancellationToken ct)
+    {
+        var expiryMinutes = await _settingsService.GetAccessTokenExpiryMinutesAsync(ct);
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwtSettings.SecretKey));
         var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
@@ -163,7 +177,7 @@ public class AdminAuthService
         var token = new JwtSecurityToken(
             issuer: _jwtSettings.Issuer,
             claims: claims,
-            expires: DateTime.UtcNow.AddMinutes(_jwtSettings.AccessTokenExpiryMinutes),
+            expires: DateTime.UtcNow.AddMinutes(expiryMinutes),
             signingCredentials: credentials
         );
 
@@ -172,12 +186,13 @@ public class AdminAuthService
 
     private async Task<string> CreateRefreshTokenAsync(Guid adminUserId, CancellationToken ct)
     {
+        var expiryDays = await _settingsService.GetRefreshTokenExpiryDaysAsync(ct);
         var token = new AdminRefreshToken
         {
             Id = Guid.NewGuid(),
             AdminUserId = adminUserId,
             Token = GenerateSecureToken(),
-            ExpiresAt = DateTimeOffset.UtcNow.AddDays(_jwtSettings.RefreshTokenExpiryDays),
+            ExpiresAt = DateTimeOffset.UtcNow.AddDays(expiryDays),
             CreatedAt = DateTimeOffset.UtcNow
         };
 

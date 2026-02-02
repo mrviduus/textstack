@@ -1,5 +1,6 @@
 using Application.Admin;
 using Application.AdminAuth;
+using Application.AdminSettings;
 using Application.Auth;
 using Application.Authors;
 using Application.Books;
@@ -23,6 +24,7 @@ public static class DependencyInjection
         services.AddScoped<Ingestion.IngestionService>();
         services.AddScoped<AuthService>();
         services.AddScoped<AdminAuthService>();
+        services.AddScoped<AdminSettingsService>();
         services.AddScoped<ReprocessingService>();
         services.AddScoped<SeoCrawlService>();
 

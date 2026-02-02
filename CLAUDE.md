@@ -12,66 +12,48 @@ Free book library w/ Kindle-like reader. Upload EPUB/PDF/FB2 → parse → SEO p
 
 **CI/CD**: Push to `main` → auto-deploy. SSG rebuild: admin panel or `make rebuild-ssg`.
 
-## Quick Start
-
-```bash
-# Setup (one-time)
-cp .env.example .env                          # Edit with real values
-make nginx-setup                              # Install nginx config
-make up                                       # Start services
-
-# Daily
-make status                 # Check health
-make logs                   # View logs
-make deploy                 # Pull + build + restart
-make rebuild-ssg            # Regenerate SEO pages
-make backup                 # Backup database
-```
-
 ## Commands
 
 ```bash
+# Setup (one-time)
+cp .env.example .env          # Edit with real values
+make nginx-setup              # Install nginx config (Linux)
+make nginx-setup-mac          # Mac
+make up                       # Start services
+
 # Docker
-make up                     # Start services
-make down                   # Stop services
-make restart                # Restart services
-make logs                   # Tail logs
-make status                 # Health check
+make up / down / restart / logs / status
 
 # Deploy
-make deploy                 # Full deploy (pull, build, restart, SSG)
-make rebuild-ssg            # Rebuild SSG pages only
+make deploy                   # Full deploy (pull, build, restart, SSG)
+make rebuild-ssg              # Rebuild SSG pages only
 
 # Database
-make backup                 # Backup to backups/
-make restore FILE=path.gz   # Restore from backup
-make backup-list            # List backups
-
-# Setup
-make nginx-setup            # Install nginx config (Linux)
-make nginx-setup-mac        # Install nginx config (Mac)
+make backup                   # Backup to backups/
+make restore FILE=path.gz     # Restore from backup
+docker compose exec db psql -U app books   # DB shell
+docker compose down -v                      # Reset all (loses data)
 
 # Tests
-dotnet test                 # All tests
+dotnet test                                 # All tests
 dotnet test tests/TextStack.UnitTests
 dotnet test tests/TextStack.IntegrationTests
-dotnet test --filter "FullyQualifiedName~TestMethodName"  # Single test
-pnpm -C apps/web test       # Frontend tests
-pnpm -C apps/web test:watch # Frontend watch mode
+dotnet test --filter "Name~TestMethodName"  # Single test
+pnpm -C apps/web test                       # Frontend tests
+pnpm -C apps/web test:watch                 # Watch mode
+
+# Lint
+dotnet format backend/TextStack.sln         # Backend
 
 # Local dev (no Docker)
 dotnet run --project backend/src/Api
 dotnet run --project backend/src/Worker
-pnpm -C apps/web dev        # http://localhost:5173
-pnpm -C apps/admin dev
+pnpm -C apps/web dev          # http://localhost:5173
+pnpm -C apps/admin dev        # http://localhost:81
 
-# Build frontend
+# Build
 pnpm -C apps/web build
 pnpm -C apps/admin build
-
-# Database
-docker compose exec db psql -U app books   # DB shell
-docker compose down -v                      # Reset all (loses data)
 
 # Migrations
 dotnet ef migrations add <Name> --project backend/src/Infrastructure --startup-project backend/src/Api
@@ -84,6 +66,25 @@ dotnet ef migrations add <Name> --project backend/src/Infrastructure --startup-p
 | API Docs | http://localhost:8080/scalar/v1 | — |
 | Admin | http://localhost:81 | https://textstack.dev |
 | Aspire | http://127.0.0.1:18888 | — |
+
+## Architecture
+
+```
+API → Application → Domain ← Infrastructure
+                      ↑
+                   Worker
+```
+
+- **Domain**: Pure C#, no framework deps
+- **Application**: Business logic, interfaces
+- **Infrastructure**: EF Core, storage implementations
+- **API/Worker**: Orchestration, DI
+
+**Multisite**: Every request → `SiteContextMiddleware` → Host → SiteId. Unknown host → 404. All queries scoped to SiteId.
+
+**Patterns**:
+- Endpoints: `Map{Domain}Endpoints()` in `Api/Endpoints/`
+- Test naming: `{Method}_{Scenario}_{Expected}`
 
 ## Key Concepts
 

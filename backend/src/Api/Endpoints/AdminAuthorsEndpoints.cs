@@ -168,6 +168,8 @@ public static class AdminAuthorsEndpoints
         [FromQuery] int? limit,
         [FromQuery] string? search,
         [FromQuery] bool? hasPublishedBooks,
+        [FromQuery] string? sort,
+        [FromQuery] string? sortOrder,
         CancellationToken ct)
     {
         if (siteId is null)
@@ -191,8 +193,18 @@ public static class AdminAuthorsEndpoints
 
         var total = await query.CountAsync(ct);
 
+        var sortField = (sort ?? "createdat").ToLowerInvariant();
+        var isDesc = (sortOrder ?? "desc").ToLowerInvariant() == "desc";
+
+        query = (sortField, isDesc) switch
+        {
+            ("name", false) => query.OrderBy(a => a.Name),
+            ("name", true) => query.OrderByDescending(a => a.Name),
+            ("createdat", false) => query.OrderBy(a => a.CreatedAt),
+            _ => query.OrderByDescending(a => a.CreatedAt)
+        };
+
         var items = await query
-            .OrderBy(a => a.Name)
             .Skip(skip)
             .Take(take)
             .Select(a => new AdminAuthorListDto(

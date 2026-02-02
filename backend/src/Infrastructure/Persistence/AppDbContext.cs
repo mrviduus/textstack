@@ -38,6 +38,7 @@ public class AppDbContext : DbContext, IAppDbContext
     public DbSet<UserBookFile> UserBookFiles => Set<UserBookFile>();
     public DbSet<UserIngestionJob> UserIngestionJobs => Set<UserIngestionJob>();
     public DbSet<UserBookBookmark> UserBookBookmarks => Set<UserBookBookmark>();
+    public DbSet<AdminSettings> AdminSettings => Set<AdminSettings>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -379,6 +380,14 @@ public class AppDbContext : DbContext, IAppDbContext
             e.Property(x => x.Title).HasMaxLength(500);
             e.HasOne(x => x.UserBook).WithMany().HasForeignKey(x => x.UserBookId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.Chapter).WithMany().HasForeignKey(x => x.ChapterId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // AdminSettings
+        modelBuilder.Entity<AdminSettings>(e =>
+        {
+            e.HasKey(x => x.Key);
+            e.Property(x => x.Key).HasMaxLength(100);
+            e.Property(x => x.Value).HasMaxLength(500);
         });
     }
 

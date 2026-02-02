@@ -439,6 +439,12 @@ export interface CreateSsgRebuildJobRequest {
   genreSlugs?: string[]
 }
 
+// Session Settings
+export interface SessionSettings {
+  accessTokenExpiryMinutes: number
+  refreshTokenExpiryDays: number
+}
+
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
@@ -516,7 +522,7 @@ export const adminApi = {
   },
 
   // Editions
-  getEditions: async (params?: { status?: string; search?: string; language?: string; indexable?: boolean; limit?: number; offset?: number }): Promise<PaginatedResult<Edition>> => {
+  getEditions: async (params?: { status?: string; search?: string; language?: string; indexable?: boolean; limit?: number; offset?: number; sort?: string; sortOrder?: string }): Promise<PaginatedResult<Edition>> => {
     const query = new URLSearchParams()
     if (params?.status) query.set('status', params.status)
     if (params?.search) query.set('search', params.search)
@@ -524,6 +530,8 @@ export const adminApi = {
     if (params?.indexable !== undefined) query.set('indexable', String(params.indexable))
     if (params?.limit) query.set('limit', String(params.limit))
     if (params?.offset) query.set('offset', String(params.offset))
+    if (params?.sort) query.set('sort', params.sort)
+    if (params?.sortOrder) query.set('sortOrder', params.sortOrder)
     const qs = query.toString()
     return fetchJson<PaginatedResult<Edition>>(`/admin/editions${qs ? `?${qs}` : ''}`)
   },
@@ -595,12 +603,14 @@ export const adminApi = {
     })
   },
 
-  getAuthors: async (params: { siteId: string; search?: string; hasPublishedBooks?: boolean; offset?: number; limit?: number }): Promise<PaginatedResult<AuthorListItem>> => {
+  getAuthors: async (params: { siteId: string; search?: string; hasPublishedBooks?: boolean; offset?: number; limit?: number; sort?: string; sortOrder?: string }): Promise<PaginatedResult<AuthorListItem>> => {
     const query = new URLSearchParams({ siteId: params.siteId })
     if (params.search) query.set('search', params.search)
     if (params.hasPublishedBooks !== undefined) query.set('hasPublishedBooks', String(params.hasPublishedBooks))
     if (params.offset) query.set('offset', String(params.offset))
     if (params.limit) query.set('limit', String(params.limit))
+    if (params.sort) query.set('sort', params.sort)
+    if (params.sortOrder) query.set('sortOrder', params.sortOrder)
     return fetchJson<PaginatedResult<AuthorListItem>>(`/admin/authors?${query}`)
   },
 
@@ -853,5 +863,18 @@ export const adminApi = {
     if (params?.offset) query.set('offset', String(params.offset))
     const qs = query.toString()
     return fetchJson<PaginatedResult<SsgRebuildResult>>(`/admin/ssg/jobs/${id}/results${qs ? `?${qs}` : ''}`)
+  },
+
+  // Session Settings
+  getSessionSettings: async (): Promise<SessionSettings> => {
+    return fetchJson<SessionSettings>('/admin/settings/session')
+  },
+
+  updateSessionSettings: async (data: Partial<SessionSettings>): Promise<SessionSettings> => {
+    return fetchJson<SessionSettings>('/admin/settings/session', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    })
   },
 }

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { adminApi, AuthorListItem, AuthorStats, DEFAULT_SITE_ID } from '../api/client'
 
 type PublishedFilter = 'all' | 'published' | 'unpublished'
+type SortOption = 'newest' | 'oldest' | 'name-asc' | 'name-desc'
 
 export function AuthorsPage() {
   const [authors, setAuthors] = useState<AuthorListItem[]>([])
@@ -12,6 +13,7 @@ export function AuthorsPage() {
   const [search, setSearch] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [publishedFilter, setPublishedFilter] = useState<PublishedFilter>('all')
+  const [sortOption, setSortOption] = useState<SortOption>('newest')
   const [offset, setOffset] = useState(0)
   const [refreshKey, setRefreshKey] = useState(0)
   const [stats, setStats] = useState<AuthorStats | null>(null)
@@ -29,12 +31,20 @@ export function AuthorsPage() {
 
     const hasPublishedBooks = publishedFilter === 'all' ? undefined : publishedFilter === 'published'
 
+    const sortParams = {
+      newest: { sort: 'createdAt', sortOrder: 'desc' },
+      oldest: { sort: 'createdAt', sortOrder: 'asc' },
+      'name-asc': { sort: 'name', sortOrder: 'asc' },
+      'name-desc': { sort: 'name', sortOrder: 'desc' },
+    }[sortOption]
+
     adminApi.getAuthors({
       siteId: DEFAULT_SITE_ID,
       search: searchQuery || undefined,
       hasPublishedBooks,
       offset,
       limit,
+      ...sortParams,
     })
       .then((data) => {
         if (cancelled) return
@@ -51,7 +61,7 @@ export function AuthorsPage() {
       })
 
     return () => { cancelled = true }
-  }, [offset, searchQuery, publishedFilter, refreshKey])
+  }, [offset, searchQuery, publishedFilter, sortOption, refreshKey])
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
@@ -126,6 +136,19 @@ export function AuthorsPage() {
           <option value="all">All statuses</option>
           <option value="published">Published</option>
           <option value="unpublished">Unpublished</option>
+        </select>
+        <select
+          value={sortOption}
+          onChange={(e) => {
+            setSortOption(e.target.value as SortOption)
+            setOffset(0)
+          }}
+          className="sort-filter"
+        >
+          <option value="newest">Newest first</option>
+          <option value="oldest">Oldest first</option>
+          <option value="name-asc">Name A-Z</option>
+          <option value="name-desc">Name Z-A</option>
         </select>
       </div>
 

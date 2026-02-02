@@ -34,7 +34,7 @@ public static class AdminAuthEndpoints
 
         var (user, accessToken, refreshToken) = result.Value;
 
-        SetAuthCookies(httpContext, accessToken, refreshToken);
+        await SetAuthCookiesAsync(httpContext, authService, accessToken, refreshToken, ct);
 
         return Results.Ok(new AdminAuthResponse(
             new AdminUserDto(user.Id, user.Email, user.Role, user.CreatedAt)));
@@ -60,7 +60,7 @@ public static class AdminAuthEndpoints
 
         var (user, newAccessToken, newRefreshToken) = result.Value;
 
-        SetAuthCookies(httpContext, newAccessToken, newRefreshToken);
+        await SetAuthCookiesAsync(httpContext, authService, newAccessToken, newRefreshToken, ct);
 
         return Results.Ok(new AdminAuthResponse(
             new AdminUserDto(user.Id, user.Email, user.Role, user.CreatedAt)));
@@ -105,18 +105,26 @@ public static class AdminAuthEndpoints
             new AdminUserDto(user.Id, user.Email, user.Role, user.CreatedAt)));
     }
 
-    private static void SetAuthCookies(HttpContext httpContext, string accessToken, string refreshToken)
+    private static async Task SetAuthCookiesAsync(
+        HttpContext httpContext,
+        AdminAuthService authService,
+        string accessToken,
+        string refreshToken,
+        CancellationToken ct)
     {
         var isProduction = !httpContext.RequestServices
             .GetRequiredService<IWebHostEnvironment>()
             .IsDevelopment();
+
+        var accessExpiryMinutes = await authService.GetAccessTokenExpiryMinutesAsync(ct);
+        var refreshExpiryDays = await authService.GetRefreshTokenExpiryDaysAsync(ct);
 
         httpContext.Response.Cookies.Append(AccessTokenCookie, accessToken, new CookieOptions
         {
             HttpOnly = true,
             Secure = isProduction,
             SameSite = SameSiteMode.Lax,
-            MaxAge = TimeSpan.FromMinutes(15),
+            MaxAge = TimeSpan.FromMinutes(accessExpiryMinutes),
             Path = "/"
         });
 
@@ -125,7 +133,7 @@ public static class AdminAuthEndpoints
             HttpOnly = true,
             Secure = isProduction,
             SameSite = SameSiteMode.Lax,
-            MaxAge = TimeSpan.FromDays(30),
+            MaxAge = TimeSpan.FromDays(refreshExpiryDays),
             Path = "/"
         });
     }
