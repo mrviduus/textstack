@@ -16,7 +16,6 @@ import { getCanonicalOrigin, buildCanonicalUrl } from '../lib/canonicalUrl'
 import {
   getThemes,
   getFAQs,
-  generateAboutText,
   generateRelevanceText,
   generateThemeDescription,
 } from '../lib/bookSeo'
@@ -273,12 +272,6 @@ export function BookDetailPage() {
             <span className="material-icons-outlined">expand_more</span>
           </button>
         )}
-      </section>
-
-      {/* What is it about */}
-      <section className="book-about">
-        <h2>What is {book.title} about?</h2>
-        <p>{generateAboutText(book)}</p>
       </section>
 
       {/* Themes */}
