@@ -53,7 +53,6 @@ export interface BookDetail {
   seoTitle: string | null
   seoDescription: string | null
   // SEO content blocks
-  seoAboutText: string | null
   seoRelevanceText: string | null
   seoThemesJson: string | null
   seoFaqsJson: string | null
@@ -98,7 +97,6 @@ export interface Author {
 }
 
 export interface AuthorDetail extends Author {
-  seoAboutText: string | null
   seoRelevanceText: string | null
   seoThemesJson: string | null
   seoFaqsJson: string | null

@@ -12,7 +12,6 @@ public record BookDetailDto(
     string? SeoTitle,
     string? SeoDescription,
     // SEO content blocks
-    string? SeoAboutText,
     string? SeoRelevanceText,
     string? SeoThemesJson,
     string? SeoFaqsJson,

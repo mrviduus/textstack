@@ -26,7 +26,6 @@ public class Edition
     public string? CanonicalOverride { get; set; }
 
     // SEO content blocks (override auto-generated)
-    public string? SeoAboutText { get; set; }
     public string? SeoRelevanceText { get; set; }
     public string? SeoThemesJson { get; set; }  // JSON array: ["Theme1", "Theme2"]
     public string? SeoFaqsJson { get; set; }    // JSON array: [{q: "", a: ""}, ...]

@@ -84,7 +84,6 @@ describe('generateFAQs', () => {
     isPublicDomain: true,
     seoTitle: null,
     seoDescription: null,
-    seoAboutText: null,
     seoRelevanceText: null,
     seoThemesJson: null,
     seoFaqsJson: null,

@@ -528,7 +528,6 @@ public class AdminService(IAppDbContext db, IFileStorageService storage, ISearch
                 e.SeoTitle,
                 e.SeoDescription,
                 e.CanonicalOverride,
-                e.SeoAboutText,
                 e.SeoRelevanceText,
                 e.SeoThemesJson,
                 e.SeoFaqsJson
@@ -564,7 +563,6 @@ public class AdminService(IAppDbContext db, IFileStorageService storage, ISearch
         edition.CanonicalOverride = request.CanonicalOverride;
 
         // SEO content blocks
-        edition.SeoAboutText = request.SeoAboutText;
         edition.SeoRelevanceText = request.SeoRelevanceText;
         edition.SeoThemesJson = request.SeoThemesJson;
         edition.SeoFaqsJson = request.SeoFaqsJson;

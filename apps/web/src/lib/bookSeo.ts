@@ -116,14 +116,8 @@ export function generateFAQs(book: BookDetail): FAQItem[] {
 
 /**
  * Generate "About" section text from description or template
- * Uses custom seoAboutText if set, otherwise auto-generates
  */
 export function generateAboutText(book: BookDetail): string {
-  // Use custom if set
-  if (book.seoAboutText) {
-    return book.seoAboutText
-  }
-
   if (book.description) {
     // Use first 2 sentences of description
     const sentences = book.description.replace(/<[^>]*>/g, '').split(/(?<=[.!?])\s+/)

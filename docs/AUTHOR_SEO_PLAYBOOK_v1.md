@@ -96,12 +96,6 @@ H2: Why {Author Name} is still read today
 
 These fields override auto-generated content:
 
-### About Text (`SeoAboutText`)
-- Appears under "About {Author Name}" section
-- 200-400 words
-- Cover: birth/death dates, nationality, literary movement
-- Leave empty to auto-generate from Bio
-
 ### Relevance Text (`SeoRelevanceText`)
 - Appears under "Why {Author Name} is still read today"
 - 100-200 words
@@ -258,7 +252,6 @@ Fallback: Use site default author silhouette
 
 **Content:**
 [ ] Bio filled (≥ 200 words)
-[ ] About text (or auto-generate)
 [ ] Relevance text (or auto-generate)
 [ ] Themes tagged
 [ ] FAQs added (2-4 items)

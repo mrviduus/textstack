@@ -37,7 +37,6 @@ export function EditEditionPage() {
   const [seoDescription, setSeoDescription] = useState('')
   const [canonicalOverride, setCanonicalOverride] = useState('')
   // SEO content blocks
-  const [seoAboutText, setSeoAboutText] = useState('')
   const [seoRelevanceText, setSeoRelevanceText] = useState('')
   const [seoThemes, setSeoThemes] = useState<string[]>([])
   const [seoFaqs, setSeoFaqs] = useState<{ question: string; answer: string }[]>([])
@@ -62,7 +61,6 @@ export function EditEditionPage() {
         setSeoDescription(data.seoDescription || '')
         setCanonicalOverride(data.canonicalOverride || '')
         // SEO content blocks
-        setSeoAboutText(data.seoAboutText || '')
         setSeoRelevanceText(data.seoRelevanceText || '')
         try {
           setSeoThemes(data.seoThemesJson ? JSON.parse(data.seoThemesJson) : [])
@@ -94,7 +92,6 @@ export function EditEditionPage() {
         seoDescription: seoDescription || null,
         canonicalOverride: canonicalOverride || null,
         // SEO content blocks
-        seoAboutText: seoAboutText || null,
         seoRelevanceText: seoRelevanceText || null,
         seoThemesJson: seoThemes.length > 0 ? JSON.stringify(seoThemes) : null,
         seoFaqsJson: seoFaqs.length > 0 ? JSON.stringify(seoFaqs.map(f => ({ q: f.question, a: f.answer }))) : null,
@@ -275,6 +272,18 @@ export function EditEditionPage() {
                 maxLength={500}
               />
             </div>
+
+            <div className="form-group">
+              <label htmlFor="description">Description</label>
+              <textarea
+                id="description"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                rows={5}
+                maxLength={5000}
+                placeholder="Book summary, used for SEO 'About' section..."
+              />
+            </div>
           </div>
         </div>
 
@@ -301,17 +310,6 @@ export function EditEditionPage() {
           />
         </div>
 
-        <div className="form-group">
-          <label htmlFor="description">Description</label>
-          <textarea
-            id="description"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            rows={5}
-            maxLength={5000}
-          />
-        </div>
-
         <SeoFieldset
           indexable={indexable}
           onIndexableChange={setIndexable}
@@ -327,8 +325,6 @@ export function EditEditionPage() {
         />
 
         <SeoContentFieldset
-          aboutText={seoAboutText}
-          onAboutTextChange={setSeoAboutText}
           relevanceText={seoRelevanceText}
           onRelevanceTextChange={setSeoRelevanceText}
           themes={seoThemes}

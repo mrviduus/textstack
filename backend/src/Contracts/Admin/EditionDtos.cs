@@ -34,7 +34,6 @@ public record AdminEditionDetailDto(
     string? SeoDescription,
     string? CanonicalOverride,
     // SEO content blocks
-    string? SeoAboutText,
     string? SeoRelevanceText,
     string? SeoThemesJson,
     string? SeoFaqsJson
@@ -70,7 +69,6 @@ public record UpdateEditionRequest(
     string? SeoDescription,
     string? CanonicalOverride,
     // SEO content blocks
-    string? SeoAboutText,
     string? SeoRelevanceText,
     string? SeoThemesJson,
     string? SeoFaqsJson,

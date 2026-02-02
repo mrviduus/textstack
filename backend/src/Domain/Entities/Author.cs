@@ -18,7 +18,6 @@ public class Author
     public string? CanonicalOverride { get; set; }
 
     // SEO content blocks
-    public string? SeoAboutText { get; set; }
     public string? SeoRelevanceText { get; set; }
     public string? SeoThemesJson { get; set; }
     public string? SeoFaqsJson { get; set; }

@@ -239,7 +239,6 @@ public static class AdminAuthorsEndpoints
                 a.SeoTitle,
                 a.SeoDescription,
                 a.CanonicalOverride,
-                a.SeoAboutText,
                 a.SeoRelevanceText,
                 a.SeoThemesJson,
                 a.SeoFaqsJson,
@@ -308,7 +307,6 @@ public static class AdminAuthorsEndpoints
         author.SeoTitle = req.SeoTitle;
         author.SeoDescription = req.SeoDescription;
         author.CanonicalOverride = req.CanonicalOverride;
-        author.SeoAboutText = req.SeoAboutText;
         author.SeoRelevanceText = req.SeoRelevanceText;
         author.SeoThemesJson = req.SeoThemesJson;
         author.SeoFaqsJson = req.SeoFaqsJson;

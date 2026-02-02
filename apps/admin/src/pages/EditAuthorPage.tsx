@@ -25,7 +25,6 @@ export function EditAuthorPage() {
   const [seoDescription, setSeoDescription] = useState('')
   const [canonicalOverride, setCanonicalOverride] = useState('')
   // SEO content blocks
-  const [seoAboutText, setSeoAboutText] = useState('')
   const [seoRelevanceText, setSeoRelevanceText] = useState('')
   const [seoThemes, setSeoThemes] = useState<string[]>([])
   const [seoFaqs, setSeoFaqs] = useState<FAQItem[]>([])
@@ -42,7 +41,6 @@ export function EditAuthorPage() {
         setSeoTitle(data.seoTitle || '')
         setSeoDescription(data.seoDescription || '')
         setCanonicalOverride(data.canonicalOverride || '')
-        setSeoAboutText(data.seoAboutText || '')
         setSeoRelevanceText(data.seoRelevanceText || '')
         setSeoThemes(data.seoThemesJson ? JSON.parse(data.seoThemesJson) : [])
         setSeoFaqs(data.seoFaqsJson ? JSON.parse(data.seoFaqsJson) : [])
@@ -67,7 +65,6 @@ export function EditAuthorPage() {
         seoTitle: seoTitle || null,
         seoDescription: seoDescription || null,
         canonicalOverride: canonicalOverride || null,
-        seoAboutText: seoAboutText || null,
         seoRelevanceText: seoRelevanceText || null,
         seoThemesJson: seoThemes.length > 0 ? JSON.stringify(seoThemes) : null,
         seoFaqsJson: seoFaqs.length > 0 ? JSON.stringify(seoFaqs) : null,
@@ -194,7 +191,7 @@ export function EditAuthorPage() {
                   value={bio}
                   onChange={(e) => setBio(e.target.value)}
                   rows={5}
-                  placeholder="Author biography..."
+                  placeholder="Short bio or notable quote..."
                 />
               </div>
             </div>
@@ -249,8 +246,6 @@ export function EditAuthorPage() {
           </div>
 
           <SeoContentFieldset
-            aboutText={seoAboutText}
-            onAboutTextChange={setSeoAboutText}
             relevanceText={seoRelevanceText}
             onRelevanceTextChange={setSeoRelevanceText}
             themes={seoThemes}

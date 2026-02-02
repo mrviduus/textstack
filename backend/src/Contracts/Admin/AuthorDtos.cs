@@ -28,7 +28,6 @@ public record AdminAuthorDetailDto(
     string? SeoTitle,
     string? SeoDescription,
     string? CanonicalOverride,
-    string? SeoAboutText,
     string? SeoRelevanceText,
     string? SeoThemesJson,
     string? SeoFaqsJson,
@@ -64,7 +63,6 @@ public record UpdateAuthorRequest(
     string? SeoTitle,
     string? SeoDescription,
     string? CanonicalOverride,
-    string? SeoAboutText,
     string? SeoRelevanceText,
     string? SeoThemesJson,
     string? SeoFaqsJson

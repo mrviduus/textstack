@@ -61,7 +61,6 @@ export interface EditionDetail {
   seoDescription: string | null
   canonicalOverride: string | null
   // SEO content blocks
-  seoAboutText: string | null
   seoRelevanceText: string | null
   seoThemesJson: string | null
   seoFaqsJson: string | null
@@ -192,7 +191,6 @@ export interface AuthorDetail {
   seoTitle: string | null
   seoDescription: string | null
   canonicalOverride: string | null
-  seoAboutText: string | null
   seoRelevanceText: string | null
   seoThemesJson: string | null
   seoFaqsJson: string | null
@@ -548,7 +546,6 @@ export const adminApi = {
     seoDescription?: string | null
     canonicalOverride?: string | null
     // SEO content blocks
-    seoAboutText?: string | null
     seoRelevanceText?: string | null
     seoThemesJson?: string | null
     seoFaqsJson?: string | null
@@ -629,7 +626,6 @@ export const adminApi = {
     seoTitle?: string | null
     seoDescription?: string | null
     canonicalOverride?: string | null
-    seoAboutText?: string | null
     seoRelevanceText?: string | null
     seoThemesJson?: string | null
     seoFaqsJson?: string | null

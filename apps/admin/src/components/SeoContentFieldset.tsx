@@ -6,8 +6,6 @@ interface FAQItem {
 }
 
 interface SeoContentFieldsetProps {
-  aboutText: string
-  onAboutTextChange: (value: string) => void
   relevanceText: string
   onRelevanceTextChange: (value: string) => void
   themes: string[]
@@ -17,8 +15,6 @@ interface SeoContentFieldsetProps {
 }
 
 export function SeoContentFieldset({
-  aboutText,
-  onAboutTextChange,
   relevanceText,
   onRelevanceTextChange,
   themes,
@@ -62,19 +58,6 @@ export function SeoContentFieldset({
   return (
     <fieldset className="form-fieldset">
       <legend>SEO Content Blocks (overrides auto-generated)</legend>
-
-      <div className="form-group">
-        <label htmlFor="seoAboutText">About Text</label>
-        <textarea
-          id="seoAboutText"
-          value={aboutText}
-          onChange={(e) => onAboutTextChange(e.target.value)}
-          rows={3}
-          placeholder="Leave empty to auto-generate from description"
-          maxLength={1000}
-        />
-        <small>Appears in "What is [title] about?" section</small>
-      </div>
 
       <div className="form-group">
         <label htmlFor="seoRelevanceText">Relevance Text</label>

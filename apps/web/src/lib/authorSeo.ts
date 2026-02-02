@@ -47,10 +47,6 @@ function extractThemes(bio: string | null, count = 4): string[] {
  * Generate "About" section text
  */
 export function generateAboutText(author: AuthorDetail): string {
-  if (author.seoAboutText) {
-    return author.seoAboutText
-  }
-
   if (author.bio) {
     const sentences = author.bio.replace(/<[^>]*>/g, '').split(/(?<=[.!?])\s+/)
     return sentences.slice(0, 2).join(' ')

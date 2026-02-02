@@ -57,7 +57,6 @@ public class AuthorsService(IAppDbContext db)
                 a.PhotoPath,
                 a.SeoTitle,
                 a.SeoDescription,
-                a.SeoAboutText,
                 a.SeoRelevanceText,
                 a.SeoThemesJson,
                 a.SeoFaqsJson,

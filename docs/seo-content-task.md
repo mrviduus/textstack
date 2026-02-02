@@ -24,19 +24,23 @@ Claude will:
 
 | Field | Description | Target Length |
 |-------|-------------|---------------|
-| `seo_about_text` | Biographical text about the author, their life, major works, literary style, and influence | 200-400 words |
+| `bio` | Biographical text about the author, their life, major works, literary style, and influence | 200-400 words |
 | `seo_relevance_text` | Why this author remains relevant today, their influence on modern culture/literature | 100-200 words |
 | `seo_themes_json` | JSON array of 5-7 key themes in their work | `["Theme 1", "Theme 2", ...]` |
 | `seo_faqs_json` | JSON array of 4-6 frequently asked questions with answers | See format below |
+
+Note: "About" text is auto-generated from `bio` field (first 2 sentences). No separate `seo_about_text` field needed.
 
 ### For Books (`editions` table)
 
 | Field | Description | Target Length |
 |-------|-------------|---------------|
-| `seo_about_text` | Plot summary without major spoilers, literary significance, writing style | 150-250 words |
+| `description` | Plot summary without major spoilers, literary significance, writing style | 150-250 words |
 | `seo_relevance_text` | Why this book matters today, its cultural impact, who should read it | 100-150 words |
 | `seo_themes_json` | JSON array of 5-7 key themes in the book | `["Theme 1", "Theme 2", ...]` |
 | `seo_faqs_json` | JSON array of 4-6 frequently asked questions with answers | See format below |
+
+Note: "About" text is auto-generated from `description` field (first 2 sentences). No separate `seo_about_text` field needed.
 
 ### FAQ JSON Format
 
@@ -122,7 +126,7 @@ ORDER BY e.title;
 ```sql
 -- Update author
 UPDATE authors SET
-  seo_about_text = '...',
+  bio = '...',
   seo_relevance_text = '...',
   seo_themes_json = '[...]',
   seo_faqs_json = '[...]'
@@ -130,7 +134,7 @@ WHERE id = '[author-uuid]';
 
 -- Update each book
 UPDATE editions SET
-  seo_about_text = '...',
+  description = '...',
   seo_relevance_text = '...',
   seo_themes_json = '[...]',
   seo_faqs_json = '[...]'
