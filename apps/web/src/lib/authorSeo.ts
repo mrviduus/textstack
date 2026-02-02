@@ -44,12 +44,11 @@ function extractThemes(bio: string | null, count = 4): string[] {
 }
 
 /**
- * Generate "About" section text
+ * Generate "About" section text - returns full bio
  */
 export function generateAboutText(author: AuthorDetail): string {
   if (author.bio) {
-    const sentences = author.bio.replace(/<[^>]*>/g, '').split(/(?<=[.!?])\s+/)
-    return sentences.slice(0, 2).join(' ')
+    return author.bio.replace(/<[^>]*>/g, '')
   }
 
   return `${author.name} is a distinguished author whose works continue to captivate readers worldwide.`

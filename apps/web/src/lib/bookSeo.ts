@@ -119,9 +119,7 @@ export function generateFAQs(book: BookDetail): FAQItem[] {
  */
 export function generateAboutText(book: BookDetail): string {
   if (book.description) {
-    // Use first 2 sentences of description
-    const sentences = book.description.replace(/<[^>]*>/g, '').split(/(?<=[.!?])\s+/)
-    return sentences.slice(0, 2).join(' ')
+    return book.description.replace(/<[^>]*>/g, '')
   }
 
   const authorName = book.authors[0]?.name || 'an acclaimed author'
