@@ -108,26 +108,6 @@ export function AuthorDetailPage() {
         </div>
       </div>
 
-      <h2>{language === 'uk' ? 'Книги' : 'Books'}</h2>
-      {author.editions.length === 0 ? (
-        <p>{language === 'uk' ? 'Книг поки немає.' : 'No books available.'}</p>
-      ) : (
-        <div className="books-grid">
-          {author.editions.map((book) => (
-            <LocalizedLink key={book.id} to={`/books/${book.slug}`} className="book-card" title={`Read ${book.title} online`}>
-              <div className="book-card__cover" style={{ backgroundColor: book.coverPath ? undefined : '#e0e0e0' }}>
-                {book.coverPath ? (
-                  <img src={getStorageUrl(book.coverPath)} alt={book.title} title={`${book.title} - Read online free`} />
-                ) : (
-                  <span className="book-card__cover-text">{book.title?.[0] || '?'}</span>
-                )}
-              </div>
-              <h3 className="book-card__title">{book.title}</h3>
-            </LocalizedLink>
-          ))}
-        </div>
-      )}
-
       {/* About Section */}
       <section className="author-about">
         <h2>{language === 'uk' ? `Про ${author.name}` : `About ${author.name}`}</h2>
@@ -147,6 +127,26 @@ export function AuthorDetailPage() {
             ))}
           </div>
         </section>
+      )}
+
+      <h2>{language === 'uk' ? 'Книги' : 'Books'}</h2>
+      {author.editions.length === 0 ? (
+        <p>{language === 'uk' ? 'Книг поки немає.' : 'No books available.'}</p>
+      ) : (
+        <div className="books-grid">
+          {author.editions.map((book) => (
+            <LocalizedLink key={book.id} to={`/books/${book.slug}`} className="book-card" title={`Read ${book.title} online`}>
+              <div className="book-card__cover" style={{ backgroundColor: book.coverPath ? undefined : '#e0e0e0' }}>
+                {book.coverPath ? (
+                  <img src={getStorageUrl(book.coverPath)} alt={book.title} title={`${book.title} - Read online free`} />
+                ) : (
+                  <span className="book-card__cover-text">{book.title?.[0] || '?'}</span>
+                )}
+              </div>
+              <h3 className="book-card__title">{book.title}</h3>
+            </LocalizedLink>
+          ))}
+        </div>
       )}
 
       {/* Relevance Section */}
