@@ -177,8 +177,11 @@ export function BookDetailPage() {
           </p>
 
           {book.description && (
-            <div className="book-hero__description">
-              <p>{stripHtml(book.description)}</p>
+            <div className="book-hero__about">
+              <h2 className="book-hero__about-title">
+                {language === 'uk' ? `Про що «${book.title}»?` : `What is ${book.title} about?`}
+              </h2>
+              <p className="book-hero__about-text">{stripHtml(book.description)}</p>
             </div>
           )}
 

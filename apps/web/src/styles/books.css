@@ -3550,14 +3550,22 @@
   text-decoration: underline;
 }
 
-.book-hero__description {
+.book-hero__about {
+  margin-top: 2rem;
+}
+
+.book-hero__about-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 0 0 0.75rem 0;
+}
+
+.book-hero__about-text {
   font-size: 1.125rem;
   line-height: 1.7;
   color: var(--color-text-secondary);
   font-weight: 300;
-}
-
-.book-hero__description p {
   margin: 0;
 }
 
