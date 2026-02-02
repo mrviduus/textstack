@@ -7,7 +7,7 @@ on:
 
 jobs:
   health:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - name: Check textstack.app API
         run: curl -sf --retry 3 --retry-delay 10 https://textstack.app/health
