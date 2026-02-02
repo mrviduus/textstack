@@ -3,6 +3,7 @@ import { useApi } from '../hooks/useApi'
 import { getStorageUrl } from '../api/client'
 import { LocalizedLink } from '../components/LocalizedLink'
 import { SeoHead } from '../components/SeoHead'
+import { Footer } from '../components/Footer'
 import { useLanguage } from '../context/LanguageContext'
 import type { Author } from '../types/api'
 
@@ -53,6 +54,7 @@ export function AuthorsPage() {
   }
 
   return (
+    <>
     <div className="authors-page">
       <SeoHead title={title} description={description} />
       <h1>{title}</h1>
@@ -78,5 +80,7 @@ export function AuthorsPage() {
         </div>
       )}
     </div>
+    <Footer />
+    </>
   )
 }

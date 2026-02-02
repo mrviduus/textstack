@@ -5,6 +5,7 @@ import { getStorageUrl } from '../api/client'
 import { useLanguage } from '../context/LanguageContext'
 import { LocalizedLink } from '../components/LocalizedLink'
 import { SeoHead } from '../components/SeoHead'
+import { Footer } from '../components/Footer'
 import type { SearchResult } from '../types/api'
 
 const RESULTS_PER_PAGE = 20
@@ -59,6 +60,7 @@ export function SearchPage() {
 
   if (!query) {
     return (
+      <>
       <div className="search-page">
         <SeoHead title={title} noindex />
         <h1>{title}</h1>
@@ -66,10 +68,13 @@ export function SearchPage() {
           {language === 'uk' ? 'Введіть запит для пошуку' : 'Enter a search query'}
         </p>
       </div>
+      <Footer />
+      </>
     )
   }
 
   return (
+    <>
     <div className="search-page">
       <SeoHead title={`${title}: ${query}`} noindex />
       <h1>{title}: "{query}"</h1>
@@ -168,5 +173,7 @@ export function SearchPage() {
         </>
       )}
     </div>
+    <Footer />
+    </>
   )
 }

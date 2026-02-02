@@ -9,6 +9,7 @@ import { useSite } from '../context/SiteContext'
 import { LocalizedLink } from '../components/LocalizedLink'
 import { SeoHead } from '../components/SeoHead'
 import { JsonLd } from '../components/JsonLd'
+import { Footer } from '../components/Footer'
 import { stringToColor } from '../utils/colors'
 import { getCachedBookMeta } from '../lib/offlineDb'
 import { getCanonicalOrigin, buildCanonicalUrl } from '../lib/canonicalUrl'
@@ -113,6 +114,7 @@ export function BookDetailPage() {
   const hasMoreChapters = book.chapters.length > 5
 
   return (
+    <>
     <div className="book-detail--stitch">
       <SeoHead
         title={book.seoTitle || book.title}
@@ -356,5 +358,7 @@ export function BookDetailPage() {
         Back to Books
       </LocalizedLink>
     </div>
+    <Footer />
+    </>
   )
 }

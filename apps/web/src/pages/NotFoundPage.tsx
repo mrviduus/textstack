@@ -1,11 +1,13 @@
 import { LocalizedLink } from '../components/LocalizedLink'
 import { SeoHead } from '../components/SeoHead'
+import { Footer } from '../components/Footer'
 import { useLanguage } from '../context/LanguageContext'
 
 export function NotFoundPage() {
   const { language } = useLanguage()
 
   return (
+    <>
     <div className="not-found">
       <SeoHead
         title="Page Not Found"
@@ -21,5 +23,7 @@ export function NotFoundPage() {
         </LocalizedLink>
       </div>
     </div>
+    <Footer />
+    </>
   )
 }

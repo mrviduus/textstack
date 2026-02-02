@@ -3,6 +3,7 @@ import { useApi } from '../hooks/useApi'
 import { getStorageUrl } from '../api/client'
 import { LocalizedLink } from '../components/LocalizedLink'
 import { SeoHead } from '../components/SeoHead'
+import { Footer } from '../components/Footer'
 import { useLanguage } from '../context/LanguageContext'
 import { stringToColor } from '../utils/colors'
 import type { Edition } from '../types/api'
@@ -66,6 +67,7 @@ export function BooksPage() {
     : 'Read books online for free | TextStack'
 
   return (
+    <>
     <div className="books-page">
       <SeoHead title={title} description={description} />
       <h1>{title}</h1>
@@ -123,5 +125,7 @@ export function BooksPage() {
         </>
       )}
     </div>
+    <Footer />
+    </>
   )
 }

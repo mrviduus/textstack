@@ -4,6 +4,7 @@ import { useApi } from '../hooks/useApi'
 import { getStorageUrl } from '../api/client'
 import { LocalizedLink } from '../components/LocalizedLink'
 import { SeoHead } from '../components/SeoHead'
+import { Footer } from '../components/Footer'
 import { useLanguage } from '../context/LanguageContext'
 import type { GenreDetail } from '../types/api'
 
@@ -62,6 +63,7 @@ export function GenreDetailPage() {
     : `Read ${genre.name} books online`)
 
   return (
+    <>
     <div className="genre-detail">
       <SeoHead title={seoTitle} description={seoDescription} />
 
@@ -93,5 +95,7 @@ export function GenreDetailPage() {
         </div>
       )}
     </div>
+    <Footer />
+    </>
   )
 }
