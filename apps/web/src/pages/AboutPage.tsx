@@ -1,8 +1,10 @@
 import { SeoHead } from '../components/SeoHead'
+import { Footer } from '../components/Footer'
 import './AboutPage.css'
 
 export function AboutPage() {
   return (
+    <>
     <div className="about-page">
       <SeoHead
         title="About TextStack"
@@ -117,5 +119,7 @@ export function AboutPage() {
         </div>
       </div>
     </div>
+    <Footer />
+    </>
   )
 }

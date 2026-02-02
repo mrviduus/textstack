@@ -5,6 +5,7 @@ import { getStorageUrl } from '../api/client'
 import { LocalizedLink } from '../components/LocalizedLink'
 import { SeoHead } from '../components/SeoHead'
 import { JsonLd } from '../components/JsonLd'
+import { Footer } from '../components/Footer'
 import { useLanguage } from '../context/LanguageContext'
 import {
   generateAboutText,
@@ -73,6 +74,7 @@ export function AuthorDetailPage() {
     : `Read books by ${author.name} online`)
 
   return (
+    <>
     <div className="author-detail">
       <SeoHead
         title={seoTitle}
@@ -92,33 +94,34 @@ export function AuthorDetailPage() {
       />
 
       <div className="author-detail__header">
-        <div className="author-detail__photo">
-          {author.photoPath ? (
-            <img src={getStorageUrl(author.photoPath)} alt={author.name} title={`${author.name} - Biography and books`} />
-          ) : (
-            <span className="author-detail__initials">{author.name?.[0] || '?'}</span>
-          )}
+        <div className="author-detail__photo-col">
+          <div className="author-detail__photo">
+            {author.photoPath ? (
+              <img src={getStorageUrl(author.photoPath)} alt={author.name} title={`${author.name} - Biography and books`} />
+            ) : (
+              <span className="author-detail__initials">{author.name?.[0] || '?'}</span>
+            )}
+          </div>
+          <div className="author-detail__publications">
+            <span className="author-detail__publications-label">{language === 'uk' ? 'ПУБЛІКАЦІЇ' : 'PUBLICATIONS'}</span>
+            <span className="author-detail__publications-count">{author.editions.length} {language === 'uk' ? 'книг' : 'books'}</span>
+          </div>
         </div>
         <div className="author-detail__info">
           <h1 className="author-detail__name">{author.name}</h1>
-          {author.bio && <p className="author-detail__bio">{author.bio}</p>}
-          <p className="author-detail__count">
-            {author.editions.length} {language === 'uk' ? 'книг' : 'books'}
-          </p>
+          {author.bio && <p className="author-detail__bio-quote">{author.bio}</p>}
+          <div className="author-detail__about-inline">
+            <h2>{language === 'uk' ? `Про ${author.name}` : `About ${author.name}`}</h2>
+            <p>{generateAboutText(author)}</p>
+          </div>
         </div>
       </div>
-
-      {/* About Section */}
-      <section className="author-about">
-        <h2>{language === 'uk' ? `Про ${author.name}` : `About ${author.name}`}</h2>
-        <p>{generateAboutText(author)}</p>
-      </section>
 
       {/* Themes Section */}
       {getThemes(author).length > 0 && (
         <section className="author-themes">
           <h2>{language === 'uk' ? `Основні теми у творах ${author.name}` : `Common themes in ${author.name}'s work`}</h2>
-          <div className="author-themes__grid">
+          <div className="author-themes__carousel">
             {getThemes(author).map((theme) => (
               <div key={theme} className="author-themes__item">
                 <h3>{theme}</h3>
@@ -181,5 +184,7 @@ export function AuthorDetailPage() {
         }}
       />
     </div>
+    <Footer />
+    </>
   )
 }

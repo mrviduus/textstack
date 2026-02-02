@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
 import { getUserBook, deleteUserBook, getUserBookCoverUrl, type UserBookDetail } from '../api/userBooks'
 import { SeoHead } from '../components/SeoHead'
+import { Footer } from '../components/Footer'
 import { stringToColor } from '../utils/colors'
 
 interface SavedProgress {
@@ -102,26 +103,33 @@ export function UserBookDetailPage() {
 
   if (!isAuthenticated) {
     return (
+      <>
       <div className="user-book-detail">
         <SeoHead title="My Book" noindex />
         <div className="user-book-detail__empty">
           <p>Sign in to view your uploaded books.</p>
         </div>
       </div>
+      <Footer />
+      </>
     )
   }
 
   if (loading) {
     return (
+      <>
       <div className="user-book-detail">
         <SeoHead title="Loading..." noindex />
         <div className="user-book-detail__loading">Loading...</div>
       </div>
+      <Footer />
+      </>
     )
   }
 
   if (error || !book) {
     return (
+      <>
       <div className="user-book-detail">
         <SeoHead title="Book Not Found" noindex />
         <div className="user-book-detail__error">
@@ -132,6 +140,8 @@ export function UserBookDetailPage() {
           </Link>
         </div>
       </div>
+      <Footer />
+      </>
     )
   }
 
@@ -140,6 +150,7 @@ export function UserBookDetailPage() {
   const isFailed = book.status === 'Failed'
 
   return (
+    <>
     <div className="user-book-detail">
       <SeoHead title={book.title} noindex />
 
@@ -235,5 +246,7 @@ export function UserBookDetailPage() {
         </div>
       )}
     </div>
+    <Footer />
+    </>
   )
 }

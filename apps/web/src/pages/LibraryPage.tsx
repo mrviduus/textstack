@@ -5,6 +5,7 @@ import { useLibrary } from '../hooks/useLibrary'
 import { useApi } from '../hooks/useApi'
 import { LocalizedLink } from '../components/LocalizedLink'
 import { SeoHead } from '../components/SeoHead'
+import { Footer } from '../components/Footer'
 import { OfflineBadge } from '../components/OfflineBadge'
 import { BookCardMenu } from '../components/library/BookCardMenu'
 import { UploadSection } from '../components/library/UploadSection'
@@ -153,6 +154,7 @@ export function LibraryPage() {
 
   if (!isAuthenticated) {
     return (
+      <>
       <div className="library-page">
         <SeoHead title="My Library" noindex />
         <div className="library-page__empty">
@@ -160,10 +162,13 @@ export function LibraryPage() {
           <p>Sign in to save books to your library and track your reading progress.</p>
         </div>
       </div>
+      <Footer />
+      </>
     )
   }
 
   return (
+    <>
     <div className="library-page library-page--stitch">
       <SeoHead title="My Library" noindex />
 
@@ -571,6 +576,8 @@ export function LibraryPage() {
         </button>
       )}
     </div>
+    <Footer />
+    </>
   )
 }
 

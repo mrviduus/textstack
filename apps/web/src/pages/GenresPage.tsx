@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useApi } from '../hooks/useApi'
 import { LocalizedLink } from '../components/LocalizedLink'
 import { SeoHead } from '../components/SeoHead'
+import { Footer } from '../components/Footer'
 import { useLanguage } from '../context/LanguageContext'
 import type { Genre } from '../types/api'
 
@@ -51,6 +52,7 @@ export function GenresPage() {
   }
 
   return (
+    <>
     <div className="genres-page">
       <SeoHead title={title} description={description} />
       <h1>{title}</h1>
@@ -72,5 +74,7 @@ export function GenresPage() {
         </div>
       )}
     </div>
+    <Footer />
+    </>
   )
 }
