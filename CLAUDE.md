@@ -10,6 +10,8 @@ Free book library w/ Kindle-like reader. Upload EPUB/PDF/FB2 → parse → SEO p
 
 **Stack**: ASP.NET Core (API + Worker) + PostgreSQL + React
 
+**Prerequisites**: Docker, .NET 10 SDK, Node.js 18+, pnpm
+
 **CI/CD**: Push to `main` → auto-deploy. SSG rebuild: admin panel or `make rebuild-ssg`.
 
 ## Commands
@@ -30,6 +32,7 @@ make rebuild-ssg              # Rebuild SSG pages only
 
 # Database
 make backup                   # Backup to backups/
+make backup-list              # List all backups
 make restore FILE=path.gz     # Restore from backup
 docker compose exec db psql -U app books   # DB shell
 docker compose down -v                      # Reset all (loses data)
@@ -57,6 +60,7 @@ pnpm -C apps/admin build
 
 # Migrations
 dotnet ef migrations add <Name> --project backend/src/Infrastructure --startup-project backend/src/Api
+MIGRATE_TARGET=0 docker compose up migrator   # Rollback all migrations
 ```
 
 | Service | Local | Prod |
@@ -66,6 +70,8 @@ dotnet ef migrations add <Name> --project backend/src/Infrastructure --startup-p
 | API Docs | http://localhost:8080/scalar/v1 | — |
 | Admin | http://localhost:81 | https://textstack.dev |
 | Aspire | http://127.0.0.1:18888 | — |
+
+**Storage**: Files at `./data/storage/books/{editionId}/` (originals + derived covers).
 
 ## Architecture
 
