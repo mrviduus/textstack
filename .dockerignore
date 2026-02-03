@@ -1,0 +1,36 @@
+# Data folders
+data/
+backups/
+
+# Frontend build outputs (built separately)
+apps/web/dist/
+apps/web/node_modules/
+apps/admin/dist/
+apps/admin/node_modules/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docs
+docs/
+*.md
+
+# Tests (not needed in Docker build)
+tests/
+
+# Logs
+*.log
+
+# Local env
+.env
+.env.local
