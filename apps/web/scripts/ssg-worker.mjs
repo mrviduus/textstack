@@ -200,6 +200,12 @@ async function processJob(job) {
     if (exitCode === 0) {
       // Atomic swap: ssg-new → ssg
       await atomicSwap();
+
+      // Submit to IndexNow (Bing/Yandex)
+      if (process.env.INDEXNOW_ENABLED === 'true' && process.env.INDEXNOW_KEY) {
+        await submitToIndexNow(job.primary_domain, routes);
+      }
+
       console.log(`Job ${jobId} completed successfully`);
       await setJobStatus(jobId, 'Completed');
     } else {
@@ -212,6 +218,37 @@ async function processJob(job) {
     console.error(`Error processing job ${jobId}:`, error);
     await cleanupFailedBuild();
     await setJobStatus(jobId, 'Failed', error.message || String(error));
+  }
+}
+
+/**
+ * Submit URLs to IndexNow (Bing/Yandex instant indexing)
+ */
+async function submitToIndexNow(host, routes) {
+  const key = process.env.INDEXNOW_KEY;
+  if (!key || !host) return;
+
+  const urlList = routes.map(r => `https://${host}${r}`);
+  const BATCH_SIZE = 10000; // IndexNow limit
+
+  for (let i = 0; i < urlList.length; i += BATCH_SIZE) {
+    const batch = urlList.slice(i, i + BATCH_SIZE);
+    try {
+      const res = await fetch('https://api.indexnow.org/indexnow', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          host,
+          key,
+          keyLocation: `https://${host}/${key}.txt`,
+          urlList: batch
+        })
+      });
+      console.log(`IndexNow: ${batch.length} URLs → ${res.status}`);
+    } catch (err) {
+      console.error('IndexNow error:', err.message);
+      // Don't fail SSG if IndexNow fails
+    }
   }
 }
 

@@ -137,6 +137,8 @@ services:
       API_URL: http://api:8080
       API_HOST: localhost
       POLL_INTERVAL: "5000"
+      INDEXNOW_KEY: ${INDEXNOW_KEY:-}
+      INDEXNOW_ENABLED: ${INDEXNOW_ENABLED:-false}
     volumes:
       - ./apps/web/dist:/app/dist
     restart: always
