@@ -1,8 +1,8 @@
 #!/bin/sh
 set -e
 
-PROJECT="src/Infrastructure/Infrastructure.csproj"
-STARTUP="src/Api/Api.csproj"
+PROJECT="backend/src/Infrastructure/Infrastructure.csproj"
+STARTUP="backend/src/Api/Api.csproj"
 CONNECTION="$ConnectionStrings__Default"
 
 echo "=== EF Core Migration Runner ==="

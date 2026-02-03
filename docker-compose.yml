@@ -27,8 +27,8 @@ services:
 
   migrator:
     build:
-      context: ./backend
-      dockerfile: Docker/Migrator.Dockerfile
+      context: .
+      dockerfile: backend/Docker/Migrator.Dockerfile
     container_name: textstack_migrator_prod
     environment:
       ConnectionStrings__Default: "Host=db;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
@@ -39,8 +39,8 @@ services:
 
   api:
     build:
-      context: ./backend
-      dockerfile: Docker/Api.Dockerfile
+      context: .
+      dockerfile: backend/Docker/Api.Dockerfile
     container_name: textstack_api_prod
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
@@ -79,8 +79,8 @@ services:
 
   worker:
     build:
-      context: ./backend
-      dockerfile: Docker/Worker.Dockerfile
+      context: .
+      dockerfile: backend/Docker/Worker.Dockerfile
     container_name: textstack_worker_prod
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
