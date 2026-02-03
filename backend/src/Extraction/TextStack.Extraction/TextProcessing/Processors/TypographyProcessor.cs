@@ -49,6 +49,7 @@ public class TypographyProcessor : ITextProcessor
     private static readonly Regex EllipsisPeriodRegex = new(@"[\s\u00a0]?\u2026[\s\u00a0]?\.", RegexOptions.Compiled);
     private static readonly Regex EllipsisSpacingRegex = new(@"[\s\u00a0]?\u2026[\s\u00a0]?", RegexOptions.Compiled);
     private static readonly Regex EllipsisPunctuationRegex = new(@"\u2026[\s\u00a0]?([!?.,;])", RegexOptions.Compiled);
+    private static readonly Regex EllipsisExclamationRegex = new(@"\u2026([!?])", RegexOptions.Compiled);
     private static readonly Regex NumberUnitRegex = new(@"(\d)\s+(oz\.|lbs?\.)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex TimeAmPmRegex = new(@"(\d)\s+([ap])\.m\.", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex NegativeNumberRegex = new(@"([\s>])-(\d)", RegexOptions.Compiled);
@@ -115,6 +116,8 @@ public class TypographyProcessor : ITextProcessor
         html = EllipsisPeriodRegex.Replace(html, ".\u200a\u2026");
         html = EllipsisSpacingRegex.Replace(html, "\u200a\u2026 ");
         html = EllipsisPunctuationRegex.Replace(html, "\u2026\u200a$1");
+        // Ellipsis with exclamation/question: …! → .⁠ ⁠…! (period before trailing ellipsis)
+        html = EllipsisExclamationRegex.Replace(html, ".\u2060\u200a\u2060\u2026$1");
 
         // 16. Add word joiner before ellipses with hair space
         html = html.Replace("\u200a\u2026", "\u2060\u200a\u2060\u2026");
@@ -134,17 +137,20 @@ public class TypographyProcessor : ITextProcessor
         // 21. Historical currency normalization (L -> GBP symbol)
         html = Currency.NormalizeCurrency(html);
 
-        // 22. Fix O.K. to OK
+        // 22. Scottish/Irish name normalization
+        html = Names.NormalizeNames(html);
+
+        // 23. Fix O.K. to OK
         html = html.Replace("O.K.", "OK");
 
-        // 23. Non-breaking space before &amp;
+        // 24. Non-breaking space before &amp;
         html = html.Replace(" &amp;", "\u00a0&amp;");
 
-        // 24. Remove word joiners from img alt attributes
+        // 25. Remove word joiners from img alt attributes
         html = AltAttributeRegex.Replace(html, m =>
             m.Value.Replace("\u00a0", " ").Replace("\u2060", ""));
 
-        // 25. Remove word joiners from title elements
+        // 26. Remove word joiners from title elements
         html = TitleElementRegex.Replace(html, m =>
             m.Value.Replace("\u00a0", " ").Replace("\u2060", ""));
 
