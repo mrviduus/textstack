@@ -45,6 +45,8 @@ public sealed class EpubTextExtractor : ITextExtractor
         var units = new List<ContentUnit>();
         var tocChapters = new List<(int ChapterNumber, string Html)>();
         var order = 0;
+        ContentUnit? previousUnit = null;
+        int previousUnitIndex = -1;
 
         foreach (var textContent in book.ReadingOrder)
         {
@@ -77,25 +79,52 @@ public sealed class EpubTextExtractor : ITextExtractor
                     // Ignore piracy detection errors, continue processing
                 }
 
-                var chapterNumber = order + 1;
                 var filePath = textContent.FilePath;
-
-                // Try to get title from EPUB navigation first, then HTML, then fallback
-                var chapterTitle = GetChapterTitle(filePath, navTitleMap, html, chapterNumber);
                 var wordCount = HtmlCleaner.CountWords(plainText);
+
+                // Check if this is a continuation (no proper title)
+                var isProperChapter = HasProperTitle(filePath, navTitleMap, html);
+
+                if (!isProperChapter && previousUnit != null)
+                {
+                    // Merge with previous chapter
+                    var mergedHtml = previousUnit.Html + cleanHtml;
+                    var mergedPlainText = previousUnit.PlainText + " " + plainText;
+                    var mergedWordCount = previousUnit.WordCount + wordCount;
+
+                    var updatedUnit = previousUnit with
+                    {
+                        Html = mergedHtml,
+                        PlainText = mergedPlainText,
+                        WordCount = mergedWordCount
+                    };
+
+                    units[previousUnitIndex] = updatedUnit;
+                    tocChapters[previousUnitIndex] = (previousUnit.OrderIndex + 1, mergedHtml);
+                    previousUnit = updatedUnit;
+                    continue;
+                }
+
+                // Regular chapter - create new unit
+                var chapterNumber = order + 1;
+                var chapterTitle = GetChapterTitle(filePath, navTitleMap, html, chapterNumber);
 
                 // Inject anchor IDs into headings for ToC navigation
                 cleanHtml = TocGenerator.InjectAnchorIds(cleanHtml, chapterNumber);
                 tocChapters.Add((chapterNumber, cleanHtml));
 
-                units.Add(new ContentUnit(
+                var newUnit = new ContentUnit(
                     Type: ContentUnitType.Chapter,
                     Title: chapterTitle,
                     Html: cleanHtml,
                     PlainText: plainText,
                     OrderIndex: order++,
                     WordCount: wordCount
-                ));
+                );
+
+                units.Add(newUnit);
+                previousUnit = newUnit;
+                previousUnitIndex = units.Count - 1;
             }
             catch (Exception ex)
             {
@@ -302,6 +331,29 @@ public sealed class EpubTextExtractor : ITextExtractor
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Checks if a chapter has a proper title (not a continuation).
+    /// </summary>
+    private static bool HasProperTitle(string filePath, Dictionary<string, string> navTitleMap, string html)
+    {
+        // Has title in navigation?
+        if (navTitleMap.TryGetValue(filePath, out var navTitle) &&
+            !string.IsNullOrWhiteSpace(navTitle) &&
+            !LooksLikeFileName(navTitle))
+            return true;
+
+        // Has heading in HTML?
+        var htmlTitle = HtmlCleaner.ExtractTitle(html);
+        if (!string.IsNullOrWhiteSpace(htmlTitle) && !LooksLikeFileName(htmlTitle))
+            return true;
+
+        // Has front matter type?
+        if (DetectFrontMatterType(html) != null)
+            return true;
+
+        return false;
     }
 
     /// <summary>

@@ -207,6 +207,42 @@ public class SecretHistoryTests
     }
 
     [Fact]
+    public async Task ExtractAsync_SecretHistory_NoSectionNTitles()
+    {
+        if (!File.Exists(FixturePath))
+        {
+            return;
+        }
+
+        var extractor = new EpubTextExtractor();
+        await using var stream = File.OpenRead(FixturePath);
+        var request = new ExtractionRequest { Content = stream, FileName = "secret_history.epub" };
+
+        var result = await extractor.ExtractAsync(request);
+
+        Console.WriteLine($"\n=== Chapter Titles ===\n");
+        Console.WriteLine($"Total units: {result.Units.Count}");
+
+        var sectionNUnits = new List<ContentUnit>();
+        foreach (var unit in result.Units)
+        {
+            var marker = unit.Title?.StartsWith("Section ") == true ? " *** SECTION ***" : "";
+            Console.WriteLine($"  {unit.OrderIndex + 1}. {unit.Title} ({unit.WordCount} words){marker}");
+            if (unit.Title?.StartsWith("Section ") == true)
+            {
+                sectionNUnits.Add(unit);
+            }
+        }
+
+        Console.WriteLine($"\n'Section N' entries: {sectionNUnits.Count}");
+
+        // Only first file (title page) should be "Section 1"
+        // All continuation files should be merged
+        Assert.True(sectionNUnits.Count <= 1,
+            $"Expected at most 1 'Section N' entry (first file), but found {sectionNUnits.Count}");
+    }
+
+    [Fact]
     public async Task ExtractAsync_SecretHistory_TestTextProcessing()
     {
         if (!File.Exists(FixturePath))
