@@ -363,4 +363,98 @@ public class SitemapEndpointTests : IClassFixture<LiveApiFixture>
     }
 
     #endregion
+
+    #region URL Accessibility
+
+    [Fact]
+    public async Task BooksSitemap_FirstUrlReturns200()
+    {
+        var sitemapRequest = _fixture.CreateRequest(HttpMethod.Get, "/sitemaps/books.xml");
+        var sitemapResponse = await _fixture.Client.SendAsync(sitemapRequest);
+
+        if (ShouldSkip(sitemapResponse)) return;
+
+        var content = await sitemapResponse.Content.ReadAsStringAsync();
+        var doc = XDocument.Parse(content);
+        var firstLoc = doc.Descendants(SitemapNs + "loc").FirstOrDefault()?.Value;
+
+        if (firstLoc == null) return; // no books
+
+        var uri = new Uri(firstLoc);
+        var pageRequest = _fixture.CreateRequest(HttpMethod.Get, uri.AbsolutePath);
+        var pageResponse = await _fixture.Client.SendAsync(pageRequest);
+
+        Assert.Equal(HttpStatusCode.OK, pageResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task AuthorsSitemap_FirstUrlReturns200()
+    {
+        var sitemapRequest = _fixture.CreateRequest(HttpMethod.Get, "/sitemaps/authors.xml");
+        var sitemapResponse = await _fixture.Client.SendAsync(sitemapRequest);
+
+        if (ShouldSkip(sitemapResponse)) return;
+
+        var content = await sitemapResponse.Content.ReadAsStringAsync();
+        var doc = XDocument.Parse(content);
+        var firstLoc = doc.Descendants(SitemapNs + "loc").FirstOrDefault()?.Value;
+
+        if (firstLoc == null) return; // no authors
+
+        var uri = new Uri(firstLoc);
+        var pageRequest = _fixture.CreateRequest(HttpMethod.Get, uri.AbsolutePath);
+        var pageResponse = await _fixture.Client.SendAsync(pageRequest);
+
+        Assert.Equal(HttpStatusCode.OK, pageResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task GenresSitemap_FirstUrlReturns200()
+    {
+        var sitemapRequest = _fixture.CreateRequest(HttpMethod.Get, "/sitemaps/genres.xml");
+        var sitemapResponse = await _fixture.Client.SendAsync(sitemapRequest);
+
+        if (ShouldSkip(sitemapResponse)) return;
+
+        var content = await sitemapResponse.Content.ReadAsStringAsync();
+        var doc = XDocument.Parse(content);
+        var firstLoc = doc.Descendants(SitemapNs + "loc").FirstOrDefault()?.Value;
+
+        if (firstLoc == null) return; // no genres
+
+        var uri = new Uri(firstLoc);
+        var pageRequest = _fixture.CreateRequest(HttpMethod.Get, uri.AbsolutePath);
+        var pageResponse = await _fixture.Client.SendAsync(pageRequest);
+
+        Assert.Equal(HttpStatusCode.OK, pageResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task PagesSitemap_Returns200()
+    {
+        var request = _fixture.CreateRequest(HttpMethod.Get, "/sitemaps/pages.xml");
+        var response = await _fixture.Client.SendAsync(request);
+
+        if (ShouldSkip(response)) return;
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task PagesSitemap_ContainsHomepages()
+    {
+        var request = _fixture.CreateRequest(HttpMethod.Get, "/sitemaps/pages.xml");
+        var response = await _fixture.Client.SendAsync(request);
+
+        if (ShouldSkip(response)) return;
+
+        var content = await response.Content.ReadAsStringAsync();
+        var doc = XDocument.Parse(content);
+        var locs = doc.Descendants(SitemapNs + "loc").Select(e => e.Value).ToList();
+
+        Assert.Contains(locs, loc => loc.EndsWith("/en/"));
+        Assert.Contains(locs, loc => loc.EndsWith("/uk/"));
+    }
+
+    #endregion
 }
