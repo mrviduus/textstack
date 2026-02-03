@@ -165,4 +165,25 @@ Lewis Carroll was the first author to receive complete SEO content and serves as
 | Author | Date | Books Updated |
 |--------|------|---------------|
 | Lewis Carroll | 2026-01 | 4 |
-| Fyodor Dostoevsky | 2026-02-02 | 8 |
+| Fyodor Dostoevsky | 2026-02-02 | 9 |
+| Charles Dickens | 2026-02-02 | 14 |
+| Jane Austen | 2026-02-02 | 6 |
+| Arthur Conan Doyle | 2026-02-02 | 5 |
+| Oscar Wilde | 2026-02-02 | 8 |
+
+## Priority Queue
+
+Next authors to process, prioritized by book count and search interest:
+
+| Priority | Author | Books | Notes |
+|----------|--------|-------|-------|
+| 1 | William Shakespeare | 4 | Classic, high search volume |
+| 2 | Mark Twain | 3 | American classic |
+| 3 | Friedrich Nietzsche | 2 | Philosophy |
+| 4 | Homer | 2 | Ancient classics |
+| 5 | Jack London | 2 | Adventure classics |
+| 6 | Jules Verne | 2 | Sci-fi pioneer |
+| 7 | Robert Louis Stevenson | 2 | Adventure/horror |
+| 8 | Bram Stoker | 1 | Dracula - high search volume |
+| 9 | Mary Shelley | 1 | Frankenstein - high search volume |
+| 10 | Victor Hugo | 1 | Les Misérables - iconic work |
