@@ -170,6 +170,70 @@ Lewis Carroll was the first author to receive complete SEO content and serves as
 | Jane Austen | 2026-02-02 | 6 |
 | Arthur Conan Doyle | 2026-02-02 | 5 |
 | Oscar Wilde | 2026-02-02 | 8 |
+| William Shakespeare | 2026-02-03 | 40 |
+| Mark Twain | 2026-02-03 | 9 |
+| Friedrich Nietzsche | 2026-02-03 | 3 |
+| Homer | 2026-02-03 | 2 |
+| Jack London | 2026-02-03 | 9 |
+| Jules Verne | 2026-02-03 | 19 |
+| Robert Louis Stevenson | 2026-02-03 | 8 |
+| Bram Stoker | 2026-02-03 | 1 |
+| Mary Shelley | 2026-02-03 | 3 |
+| Victor Hugo | 2026-02-03 | 3 |
+| Leo Tolstoy | 2026-02-03 | 9 |
+| H. G. Wells | 2026-02-03 | 14 |
+| Joseph Conrad | 2026-02-03 | 15 |
+| Agatha Christie | 2026-02-03 | 12 |
+| Thomas Hardy | 2026-02-03 | 8 |
+| Virginia Woolf | 2026-02-03 | 6 |
+| James Joyce | 2026-02-03 | 5 |
+| F. Scott Fitzgerald | 2026-02-03 | 4 |
+| George Eliot | 2026-02-03 | 4 |
+| Edith Wharton | 2026-02-03 | 5 |
+| Henry James | 2026-02-03 | 6 |
+| Anton Chekhov | 2026-02-03 | 6 |
+| Charlotte Brontë | 2026-02-03 | 1 |
+| Emily Brontë | 2026-02-03 | 1 |
+| Alexandre Dumas | 2026-02-03 | 1 |
+| Miguel de Cervantes Saavedra | 2026-02-03 | 1 |
+| Herman Melville | 2026-02-03 | 1 |
+| Dante Alighieri | 2026-02-03 | 1 |
+| Virgil | 2026-02-03 | 1 |
+| Daniel Defoe | 2026-02-03 | 1 |
+| Jonathan Swift | 2026-02-03 | 1 |
+| Louisa May Alcott | 2026-02-03 | 1 |
+| Nathaniel Hawthorne | 2026-02-03 | 1 |
+| Harriet Beecher Stowe | 2026-02-03 | 1 |
+| Giovanni Boccaccio | 2026-02-03 | 1 |
+| Henry David Thoreau | 2026-02-03 | 1 |
+| Kate Chopin | 2026-02-03 | 1 |
+| Stephen Crane | 2026-02-03 | 1 |
+| James Fenimore Cooper | 2026-02-03 | 1 |
+| Willa Cather | 2026-02-03 | 1 |
+| John Buchan | 2026-02-03 | 1 |
+| W. Somerset Maugham | 2026-02-03 | 1 |
+| M. G. Lewis | 2026-02-03 | 1 |
+| William Beckford | 2026-02-03 | 1 |
+| George MacDonald | 2026-02-03 | 1 |
+| Niccolò Machiavelli | 2026-02-03 | 1 |
+| Marcus Aurelius | 2026-02-03 | 1 |
+| Sun Tzu | 2026-02-03 | 1 |
+| John Stuart Mill | 2026-02-03 | 1 |
+| Thomas Hobbes | 2026-02-03 | 1 |
+| Yevgeny Zamyatin | 2026-02-03 | 1 |
+| Donna Tartt | 2026-02-03 | 1 |
+| J. P. Jacobsen | 2026-02-03 | 1 |
+| Zane Grey | 2026-02-03 | 2 |
+| Zitkála-Šá | 2026-02-03 | 1 |
+| Zofia Nałkowska | 2026-02-03 | 1 |
+| W. N. P. Barbellion | 2026-02-03 | 1 |
+| Леся Українка | 2026-02-03 | 1 |
+| Viktor Pelevin | 2026-02-03 | 1 |
+| Еріх Гамма | 2026-02-03 | 1 |
+| Річард Хелм | 2026-02-03 | 1 |
+| Ральф Джонсон | 2026-02-03 | 1 |
+| Джон Вліссідес | 2026-02-03 | 1 |
+| Роберт Мартін | 2026-02-03 | 1 |
 
 ## Priority Queue
 
@@ -177,13 +241,13 @@ Next authors to process, prioritized by book count and search interest:
 
 | Priority | Author | Books | Notes |
 |----------|--------|-------|-------|
-| 1 | William Shakespeare | 4 | Classic, high search volume |
-| 2 | Mark Twain | 3 | American classic |
-| 3 | Friedrich Nietzsche | 2 | Philosophy |
-| 4 | Homer | 2 | Ancient classics |
-| 5 | Jack London | 2 | Adventure classics |
-| 6 | Jules Verne | 2 | Sci-fi pioneer |
-| 7 | Robert Louis Stevenson | 2 | Adventure/horror |
-| 8 | Bram Stoker | 1 | Dracula - high search volume |
-| 9 | Mary Shelley | 1 | Frankenstein - high search volume |
-| 10 | Victor Hugo | 1 | Les Misérables - iconic work |
+| 1 | P. G. Wodehouse | 26 | Humor classic |
+| 2 | Edgar Rice Burroughs | 24 | Tarzan, adventure |
+| 3 | Honoré de Balzac | 17 | French literature |
+| 4 | George Bernard Shaw | 16 | Playwright |
+| 5 | G. K. Chesterton | 12 | Father Brown |
+
+## Notes
+
+- 2026-02-03: Bulk SEO update for 42 authors and 41 published books (all books with status=1 that were missing SEO content)
+- "Bratya_Karamazovy" edition skipped as duplicate of "The Brothers Karamazov"
