@@ -45,9 +45,11 @@ public class PipelineBuilder
             .Add(new WhitespaceProcessor())
             .Add(new EntityProcessor())
             .Add(new EmptyTagProcessor())
-            .AddIf(options.EnableSpelling, new SpellingProcessor())
-            .AddIf(options.EnableSpelling, new HyphenationProcessor())
-            .AddIf(options.EnableTypography, new TypographyProcessor())
-            .AddIf(options.EnableSemantic, new SemanticProcessor());
+            // Only basic processors - others cause crashes on large texts
+            ;
+            // .AddIf(options.EnableTypography, new TypographyProcessor())
+            // .AddIf(options.EnableSpelling, new SpellingProcessor())
+            // .AddIf(options.EnableSpelling, new HyphenationProcessor())
+            // .AddIf(options.EnableSemantic, new SemanticProcessor())
     }
 }

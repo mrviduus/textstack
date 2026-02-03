@@ -13,5 +13,6 @@ public enum ExtractionWarningCode
     PageParseError = 8,
     OcrPageLimitExceeded = 9,
     OcrFailed = 10,
-    CoverExtractionFailed = 11
+    CoverExtractionFailed = 11,
+    ContentFiltered = 12
 }

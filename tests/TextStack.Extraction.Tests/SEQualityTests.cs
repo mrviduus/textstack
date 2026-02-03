@@ -266,4 +266,36 @@ public class SEQualityTests
     }
 
     #endregion
+
+    #region Piracy Watermark Filter
+
+    [Theory]
+    [InlineData("<p>Спасибо, что скачали книгу в <a href=\"https://royallib.com\">библиотеке</a></p>")]
+    [InlineData("<p>Downloaded from flibusta.is - free ebook library</p>")]
+    [InlineData("<p>Скачать бесплатно книгу в электронная библиотека coollib.net</p>")]
+    public void PiracyWatermark_DetectsPiracySites(string html)
+    {
+        var result = PiracyWatermarkProcessor.IsPiracyWatermark(html);
+        Assert.True(result);
+    }
+
+    [Theory]
+    [InlineData("<p>The snow in the mountains was melting and Bunny had been dead for several weeks.</p>")]
+    [InlineData("<p>Chapter 1: The Beginning</p>")]
+    [InlineData("<p>It was a bright cold day in April, and the clocks were striking thirteen.</p>")]
+    public void PiracyWatermark_AllowsLegitimateContent(string html)
+    {
+        var result = PiracyWatermarkProcessor.IsPiracyWatermark(html);
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void PiracyWatermark_FiltersRussianWatermarkWithDomain()
+    {
+        var html = "<span><p class=\"p\">Спасибо, что скачали книгу в <a href=\"https://royallib.com\">бесплатной электронной библиотеке</a></p></span>";
+        var result = PiracyWatermarkProcessor.IsPiracyWatermark(html);
+        Assert.True(result);
+    }
+
+    #endregion
 }

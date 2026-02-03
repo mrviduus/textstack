@@ -1,5 +1,6 @@
 using TextStack.Extraction.Contracts;
 using TextStack.Extraction.Enums;
+using TextStack.Extraction.TextProcessing.Processors;
 using TextStack.Extraction.Toc;
 using TextStack.Extraction.Utilities;
 using VersOne.Epub;
@@ -59,6 +60,22 @@ public sealed class EpubTextExtractor : ITextExtractor
                 var (cleanHtml, plainText) = HtmlCleaner.Clean(html);
                 if (string.IsNullOrWhiteSpace(plainText))
                     continue;
+
+                // Skip piracy watermark chapters
+                try
+                {
+                    if (PiracyWatermarkProcessor.IsPiracyWatermark(cleanHtml))
+                    {
+                        warnings.Add(new ExtractionWarning(
+                            ExtractionWarningCode.ContentFiltered,
+                            "Skipped piracy watermark chapter"));
+                        continue;
+                    }
+                }
+                catch
+                {
+                    // Ignore piracy detection errors, continue processing
+                }
 
                 var chapterNumber = order + 1;
                 var filePath = textContent.FilePath;
@@ -220,7 +237,7 @@ public sealed class EpubTextExtractor : ITextExtractor
     }
 
     /// <summary>
-    /// Gets chapter title with fallback chain: NCX/NAV -> HTML h1/h2 -> "Chapter N"
+    /// Gets chapter title with fallback chain: NCX/NAV -> HTML h1/h2 -> detect front matter -> "Section N"
     /// </summary>
     private static string GetChapterTitle(string filePath, Dictionary<string, string> navTitleMap, string html, int chapterNumber)
     {
@@ -239,8 +256,52 @@ public sealed class EpubTextExtractor : ITextExtractor
             return htmlTitle;
         }
 
-        // 3. Fallback to generic chapter number
-        return $"Chapter {chapterNumber}";
+        // 3. Try to detect front matter type from content
+        var frontMatterType = DetectFrontMatterType(html);
+        if (frontMatterType != null)
+            return frontMatterType;
+
+        // 4. Fallback to "Section N" (avoids conflict with actual "Chapter N" titles)
+        return $"Section {chapterNumber}";
+    }
+
+    /// <summary>
+    /// Detects common front/back matter types from HTML content.
+    /// Only applies to short sections to avoid false positives in chapter content.
+    /// </summary>
+    private static string? DetectFrontMatterType(string? html)
+    {
+        // Only detect front matter for short sections (< 3000 chars)
+        // Longer sections are actual chapter content that may mention these words
+        if (string.IsNullOrEmpty(html) || html.Length > 3000)
+            return null;
+
+        var lowerHtml = html.ToLowerInvariant();
+
+        // Check for common front/back matter patterns (only in short sections)
+        if (lowerHtml.Contains("copyright") || lowerHtml.Contains("©") || lowerHtml.Contains("all rights reserved"))
+            return "Copyright";
+
+        if (lowerHtml.Contains("table of contents"))
+            return "Contents";
+
+        // These need to be at the start or be the main content, not just mentioned
+        if (html.Length < 1500)
+        {
+            if (lowerHtml.Contains("acknowledgment") || lowerHtml.Contains("acknowledgement"))
+                return "Acknowledgments";
+
+            if (lowerHtml.Contains("about the author"))
+                return "About the Author";
+
+            if (lowerHtml.Contains("afterword"))
+                return "Afterword";
+
+            if (lowerHtml.Contains("appendix"))
+                return "Appendix";
+        }
+
+        return null;
     }
 
     /// <summary>
