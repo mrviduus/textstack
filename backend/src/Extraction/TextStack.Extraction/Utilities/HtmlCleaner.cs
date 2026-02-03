@@ -54,7 +54,6 @@ public partial class HtmlCleaner
         // 3. Run through processing pipeline
         var context = new ProcessingContext(language ?? _options.Language, _options);
         var (processedHtml, plainText) = _pipeline.Process(cleanHtml, context);
-
         return (processedHtml, plainText);
     }
 

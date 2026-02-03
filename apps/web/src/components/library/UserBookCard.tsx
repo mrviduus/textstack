@@ -100,7 +100,7 @@ export function UserBookCard({ book, onDelete, onRetry, onCancel, progress }: Us
 
   const isReady = book.status === 'Ready'
   const isFailed = book.status === 'Failed'
-  const isStuck = isProcessing && elapsed > 180 // 3 minutes
+  const isStuck = isProcessing && elapsed > 30 // 30 seconds
 
   const destination = isReady
     ? (progress?.chapterSlug ? `/${language}/library/my/${book.id}/read/${progress.chapterSlug}` : `/${language}/library/my/${book.id}`)

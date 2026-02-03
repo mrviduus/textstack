@@ -1,5 +1,6 @@
 using TextStack.Extraction.Contracts;
 using TextStack.Extraction.Enums;
+using TextStack.Extraction.TextProcessing.Processors;
 using TextStack.Extraction.Toc;
 using TextStack.Extraction.Utilities;
 using VersOne.Epub;
@@ -44,6 +45,8 @@ public sealed class EpubTextExtractor : ITextExtractor
         var units = new List<ContentUnit>();
         var tocChapters = new List<(int ChapterNumber, string Html)>();
         var order = 0;
+        ContentUnit? previousUnit = null;
+        int previousUnitIndex = -1;
 
         foreach (var textContent in book.ReadingOrder)
         {
@@ -60,25 +63,68 @@ public sealed class EpubTextExtractor : ITextExtractor
                 if (string.IsNullOrWhiteSpace(plainText))
                     continue;
 
-                var chapterNumber = order + 1;
-                var filePath = textContent.FilePath;
+                // Skip piracy watermark chapters
+                try
+                {
+                    if (PiracyWatermarkProcessor.IsPiracyWatermark(cleanHtml))
+                    {
+                        warnings.Add(new ExtractionWarning(
+                            ExtractionWarningCode.ContentFiltered,
+                            "Skipped piracy watermark chapter"));
+                        continue;
+                    }
+                }
+                catch
+                {
+                    // Ignore piracy detection errors, continue processing
+                }
 
-                // Try to get title from EPUB navigation first, then HTML, then fallback
-                var chapterTitle = GetChapterTitle(filePath, navTitleMap, html, chapterNumber);
+                var filePath = textContent.FilePath;
                 var wordCount = HtmlCleaner.CountWords(plainText);
+
+                // Check if this is a continuation (no proper title)
+                var isProperChapter = HasProperTitle(filePath, navTitleMap, html);
+
+                if (!isProperChapter && previousUnit != null)
+                {
+                    // Merge with previous chapter
+                    var mergedHtml = previousUnit.Html + cleanHtml;
+                    var mergedPlainText = previousUnit.PlainText + " " + plainText;
+                    var mergedWordCount = previousUnit.WordCount + wordCount;
+
+                    var updatedUnit = previousUnit with
+                    {
+                        Html = mergedHtml,
+                        PlainText = mergedPlainText,
+                        WordCount = mergedWordCount
+                    };
+
+                    units[previousUnitIndex] = updatedUnit;
+                    tocChapters[previousUnitIndex] = (previousUnit.OrderIndex + 1, mergedHtml);
+                    previousUnit = updatedUnit;
+                    continue;
+                }
+
+                // Regular chapter - create new unit
+                var chapterNumber = order + 1;
+                var chapterTitle = GetChapterTitle(filePath, navTitleMap, html, chapterNumber);
 
                 // Inject anchor IDs into headings for ToC navigation
                 cleanHtml = TocGenerator.InjectAnchorIds(cleanHtml, chapterNumber);
                 tocChapters.Add((chapterNumber, cleanHtml));
 
-                units.Add(new ContentUnit(
+                var newUnit = new ContentUnit(
                     Type: ContentUnitType.Chapter,
                     Title: chapterTitle,
                     Html: cleanHtml,
                     PlainText: plainText,
                     OrderIndex: order++,
                     WordCount: wordCount
-                ));
+                );
+
+                units.Add(newUnit);
+                previousUnit = newUnit;
+                previousUnitIndex = units.Count - 1;
             }
             catch (Exception ex)
             {
@@ -220,7 +266,7 @@ public sealed class EpubTextExtractor : ITextExtractor
     }
 
     /// <summary>
-    /// Gets chapter title with fallback chain: NCX/NAV -> HTML h1/h2 -> "Chapter N"
+    /// Gets chapter title with fallback chain: NCX/NAV -> HTML h1/h2 -> detect front matter -> "Section N"
     /// </summary>
     private static string GetChapterTitle(string filePath, Dictionary<string, string> navTitleMap, string html, int chapterNumber)
     {
@@ -239,8 +285,75 @@ public sealed class EpubTextExtractor : ITextExtractor
             return htmlTitle;
         }
 
-        // 3. Fallback to generic chapter number
-        return $"Chapter {chapterNumber}";
+        // 3. Try to detect front matter type from content
+        var frontMatterType = DetectFrontMatterType(html);
+        if (frontMatterType != null)
+            return frontMatterType;
+
+        // 4. Fallback to "Section N" (avoids conflict with actual "Chapter N" titles)
+        return $"Section {chapterNumber}";
+    }
+
+    /// <summary>
+    /// Detects common front/back matter types from HTML content.
+    /// Only applies to short sections to avoid false positives in chapter content.
+    /// </summary>
+    private static string? DetectFrontMatterType(string? html)
+    {
+        // Only detect front matter for short sections (< 3000 chars)
+        // Longer sections are actual chapter content that may mention these words
+        if (string.IsNullOrEmpty(html) || html.Length > 3000)
+            return null;
+
+        var lowerHtml = html.ToLowerInvariant();
+
+        // Check for common front/back matter patterns (only in short sections)
+        if (lowerHtml.Contains("copyright") || lowerHtml.Contains("©") || lowerHtml.Contains("all rights reserved"))
+            return "Copyright";
+
+        if (lowerHtml.Contains("table of contents"))
+            return "Contents";
+
+        // These need to be at the start or be the main content, not just mentioned
+        if (html.Length < 1500)
+        {
+            if (lowerHtml.Contains("acknowledgment") || lowerHtml.Contains("acknowledgement"))
+                return "Acknowledgments";
+
+            if (lowerHtml.Contains("about the author"))
+                return "About the Author";
+
+            if (lowerHtml.Contains("afterword"))
+                return "Afterword";
+
+            if (lowerHtml.Contains("appendix"))
+                return "Appendix";
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Checks if a chapter has a proper title (not a continuation).
+    /// </summary>
+    private static bool HasProperTitle(string filePath, Dictionary<string, string> navTitleMap, string html)
+    {
+        // Has title in navigation?
+        if (navTitleMap.TryGetValue(filePath, out var navTitle) &&
+            !string.IsNullOrWhiteSpace(navTitle) &&
+            !LooksLikeFileName(navTitle))
+            return true;
+
+        // Has heading in HTML?
+        var htmlTitle = HtmlCleaner.ExtractTitle(html);
+        if (!string.IsNullOrWhiteSpace(htmlTitle) && !LooksLikeFileName(htmlTitle))
+            return true;
+
+        // Has front matter type?
+        if (DetectFrontMatterType(html) != null)
+            return true;
+
+        return false;
     }
 
     /// <summary>

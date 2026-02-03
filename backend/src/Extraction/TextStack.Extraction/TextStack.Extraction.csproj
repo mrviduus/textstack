@@ -10,5 +10,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="TextProcessing\Data\words.txt" />
+    <EmbeddedResource Include="TextProcessing\Data\spellings.json" />
+    <EmbeddedResource Include="TextProcessing\Data\hyphenation-en.txt" />
   </ItemGroup>
 </Project>

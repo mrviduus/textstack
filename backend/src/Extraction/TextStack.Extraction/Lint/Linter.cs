@@ -17,16 +17,28 @@ public class Linter
             new StraightQuotesRule(),
             new WrongDashRule(),
             new MultipleSpacesRule(),
+            new MissingWordJoinerRule(),
+            new InconsistentQuotesRule(),
+            new DoubleSpaceAfterPeriodRule(),
 
             // Markup rules
             new EmptyTagRule(),
+            new HeadingHierarchyRule(),
+            new EmptyParagraphRule(),
 
             // Encoding rules
             new MojibakeRule(),
             new UnusualCharacterRule(),
 
             // Spelling rules
-            new ArchaicSpellingRule()
+            new ArchaicSpellingRule(),
+
+            // Semantic rules
+            new UnmarkedRomanNumeralRule(),
+
+            // Content rules
+            new ScannoRule(),
+            new DoubleWordRule()
         ];
     }
 

@@ -30,6 +30,28 @@ public static partial class Contractions
         // Common archaic contractions needing apostrophe
         html = CommonArchaicRegex().Replace(html, "\u2019$1");
 
+        // Extended contractions: 'til, 'n', 'cause, 'fore, 'bout, 'cross, etc.
+        html = ExtendedContractionsRegex().Replace(html, "\u2019$1");
+
+        // Dialectal contractions: 'nother, 'fraid, 'spose
+        html = DialectalContractionsRegex().Replace(html, "\u2019$1");
+
+        // Poetic contractions: ne'er, e'er, o'er, 'mongst, 'mong
+        html = PoeticContractionsRegex().Replace(html, m =>
+        {
+            var word = m.Groups[1].Value;
+            // Insert apostrophe at proper position
+            return word switch
+            {
+                var w when w.StartsWith("ne", StringComparison.OrdinalIgnoreCase) => w[0] + "e\u2019er",
+                var w when w.StartsWith("e", StringComparison.OrdinalIgnoreCase) => w[0] + "\u2019er",
+                var w when w.StartsWith("o", StringComparison.OrdinalIgnoreCase) => w[0] + "\u2019er",
+                var w when w.StartsWith("mongst", StringComparison.OrdinalIgnoreCase) => "\u2019mongst",
+                var w when w.StartsWith("mong", StringComparison.OrdinalIgnoreCase) => "\u2019mong",
+                _ => "\u2019" + word
+            };
+        });
+
         // 'a' abbreviation: surrounded by spaces
         html = AbbrevARegex().Replace(html, "$1\u2019a\u2019$2");
 
@@ -108,4 +130,16 @@ public static partial class Contractions
     // Possessive after abbr
     [GeneratedRegex(@"</abbr>['\u2018]([sd])\b")]
     private static partial Regex PossessiveAfterAbbrRegex();
+
+    // Extended contractions: 'til, 'n', 'cause, 'fore, 'bout, 'cross
+    [GeneratedRegex(@"'([Tt]il|[Nn]'|[Cc]ause|[Ff]ore|[Bb]out|[Cc]ross)\b")]
+    private static partial Regex ExtendedContractionsRegex();
+
+    // Dialectal contractions: 'nother, 'fraid, 'spose
+    [GeneratedRegex(@"'([Nn]other|[Ff]raid|[Ss]pose)\b")]
+    private static partial Regex DialectalContractionsRegex();
+
+    // Poetic contractions: ne'er, e'er, o'er, 'mongst, 'mong
+    [GeneratedRegex(@"([Nn]e'?er|[Ee]'?er|[Oo]'?er|'?[Mm]ongst|'?[Mm]ong)\b")]
+    private static partial Regex PoeticContractionsRegex();
 }

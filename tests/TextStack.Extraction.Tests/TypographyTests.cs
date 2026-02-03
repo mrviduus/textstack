@@ -108,4 +108,14 @@ public class TypographyTests
         Assert.Contains("\u201C", result);  // Left quote
         Assert.Contains("\u201D", result);  // Right quote
     }
+
+    [Theory]
+    [InlineData("M'Gregor", "McGregor")]         // Scottish name
+    [InlineData("M'Donald", "McDonald")]         // Scottish name
+    [InlineData("O'Brien", "O\u2019Brien")]      // Irish name with proper apostrophe
+    public void Process_ScottishIrishNames(string input, string expected)
+    {
+        var result = _processor.Process(input, _context);
+        Assert.Equal(expected, result);
+    }
 }
