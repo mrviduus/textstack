@@ -347,11 +347,12 @@
   }
 
   .home-hero {
-    padding: 48px 0 64px;
+    padding: 48px 16px 64px;
   }
 
   .home-hero__search {
     margin-top: 32px;
+    max-width: 100%;
   }
 
   .home-hero__search-input {
