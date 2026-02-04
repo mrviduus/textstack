@@ -100,7 +100,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
   const containerRef = useRef<HTMLDivElement>(null)
 
   const { settings, update } = useReaderSettings()
-  const { visible, toggle } = useAutoHideBar()
+  const { visible } = useAutoHideBar()
 
   // Bookmarks: server sync for both public and userbook modes
   // Public mode uses useBookmarks with editionId for server sync
