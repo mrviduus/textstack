@@ -8,7 +8,7 @@ describe('buildCanonicalUrl', () => {
       pathname: '/en/books/test',
       search: '?utm_source=google&utm_medium=cpc&utm_campaign=test',
     })
-    expect(url).toBe('https://textstack.app/en/books/test')
+    expect(url).toBe('https://textstack.app/en/books/test/')
   })
 
   it('strips other tracking params', () => {
@@ -17,7 +17,7 @@ describe('buildCanonicalUrl', () => {
       pathname: '/en/search',
       search: '?gclid=123&fbclid=456&_ga=789',
     })
-    expect(url).toBe('https://textstack.app/en/search')
+    expect(url).toBe('https://textstack.app/en/search/')
   })
 
   it('preserves semantic param ?q', () => {
@@ -26,7 +26,7 @@ describe('buildCanonicalUrl', () => {
       pathname: '/en/search',
       search: '?q=hello&utm_source=google',
     })
-    expect(url).toBe('https://textstack.app/en/search?q=hello')
+    expect(url).toBe('https://textstack.app/en/search/?q=hello')
   })
 
   it('strips www from origin', () => {
@@ -35,7 +35,7 @@ describe('buildCanonicalUrl', () => {
       pathname: '/en/books',
       search: '',
     })
-    expect(url).toBe('https://textstack.app/en/books')
+    expect(url).toBe('https://textstack.app/en/books/')
   })
 
   it('forces https', () => {
@@ -44,16 +44,16 @@ describe('buildCanonicalUrl', () => {
       pathname: '/en/books',
       search: '',
     })
-    expect(url).toBe('https://textstack.app/en/books')
+    expect(url).toBe('https://textstack.app/en/books/')
   })
 
-  it('removes trailing slash from path', () => {
+  it('keeps trailing slash on path', () => {
     const url = buildCanonicalUrl({
       origin: 'https://textstack.app',
       pathname: '/en/books/',
       search: '',
     })
-    expect(url).toBe('https://textstack.app/en/books')
+    expect(url).toBe('https://textstack.app/en/books/')
   })
 
   it('keeps trailing slash for root path', () => {
@@ -98,7 +98,7 @@ describe('buildCanonicalUrl', () => {
       pathname: '/en/search/',
       search: '?q=test&utm_source=fb&gclid=abc',
     })
-    expect(url).toBe('https://textstack.app/en/search?q=test')
+    expect(url).toBe('https://textstack.app/en/search/?q=test')
   })
 
   it('handles empty search string', () => {
@@ -106,7 +106,7 @@ describe('buildCanonicalUrl', () => {
       origin: 'https://textstack.app',
       pathname: '/en/books/foo',
     })
-    expect(url).toBe('https://textstack.app/en/books/foo')
+    expect(url).toBe('https://textstack.app/en/books/foo/')
   })
 })
 

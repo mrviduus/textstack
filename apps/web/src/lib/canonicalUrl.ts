@@ -20,28 +20,14 @@ function forceHttps(url: string): string {
 
 /**
  * Normalizes trailing slash:
- * - Root paths (/, /en/, /uk/) keep trailing slash
- * - Deeper paths (/en/books, /en/search) have trailing slash removed
+ * - All paths get trailing slash (matches nginx behavior)
  */
 function normalizeTrailingSlash(url: string): string {
   try {
     const parsed = new URL(url)
-    const path = parsed.pathname
-
-    // Root path or language root (/en/, /uk/) - keep trailing slash
-    const isRootLike = path === '/' || /^\/[a-z]{2}\/?$/.test(path)
-
-    if (isRootLike) {
-      if (!path.endsWith('/')) {
-        parsed.pathname += '/'
-      }
-    } else {
-      // Deeper paths - remove trailing slash
-      if (path.endsWith('/')) {
-        parsed.pathname = path.slice(0, -1)
-      }
+    if (!parsed.pathname.endsWith('/')) {
+      parsed.pathname += '/'
     }
-
     return parsed.toString()
   } catch {
     return url
