@@ -43,6 +43,14 @@ jobs:
             git pull origin main
           fi
 
+      - name: Clean dist/ssg before build
+        run: |
+          cd $PROJECT_DIR/apps/web
+          # Remove ssg folder if owned by root (Docker) - will be rebuilt after
+          if [ -d dist/ssg ]; then
+            docker run --rm -v "$PWD/dist:/dist" alpine rm -rf /dist/ssg /dist/ssg-old /dist/ssg-new 2>/dev/null || true
+          fi
+
       - name: Build frontend
         run: |
           cd $PROJECT_DIR/apps/web
