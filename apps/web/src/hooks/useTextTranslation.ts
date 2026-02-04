@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { translate as translateApi, getLanguages, type LanguageInfo } from '../api/translation'
 import { getCachedTranslation, cacheTranslation, clearOldTranslations } from '../lib/offlineDb'
 
@@ -24,8 +24,6 @@ export function useTextTranslation(options?: UseTextTranslationOptions) {
   const [languages, setLanguages] = useState<LanguageInfo[]>([])
   const [sourceLang, setSourceLang] = useState(defaultSourceLang)
   const [targetLang, setTargetLang] = useState(defaultTargetLang)
-
-  const abortControllerRef = useRef<AbortController | null>(null)
 
   // Fetch available languages on mount
   useEffect(() => {
@@ -62,11 +60,6 @@ export function useTextTranslation(options?: UseTextTranslationOptions) {
     async (text: string, source?: string, target?: string) => {
       const srcLang = source || sourceLang
       const tgtLang = target || targetLang
-
-      // Cancel any pending request
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort()
-      }
 
       setState({ translatedText: null, isLoading: true, error: null })
 
@@ -126,9 +119,6 @@ export function useTextTranslation(options?: UseTextTranslationOptions) {
   )
 
   const reset = useCallback(() => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort()
-    }
     setState({
       translatedText: null,
       isLoading: false,

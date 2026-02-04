@@ -151,18 +151,3 @@ export function HighlightLayer({
     </svg>
   )
 }
-
-// CSS styles - add to reader.css
-export const highlightLayerStyles = `
-.highlight-layer {
-  overflow: visible;
-}
-
-.highlight-layer rect {
-  transition: opacity 0.15s;
-}
-
-.highlight-layer rect:hover {
-  opacity: 0.8;
-}
-`

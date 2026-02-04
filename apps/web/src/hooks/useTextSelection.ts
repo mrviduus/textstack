@@ -16,22 +16,20 @@ const EMPTY_STATE: TextSelectionState = {
 
 interface UseTextSelectionOptions {
   minLength?: number
-  debounceMs?: number
 }
 
 export function useTextSelection(
   containerRef: React.RefObject<HTMLElement | null>,
   options?: UseTextSelectionOptions
 ) {
-  const { minLength = 1, debounceMs = 100 } = options || {}
+  const { minLength = 1 } = options || {}
   const [selection, setSelection] = useState<TextSelectionState>(EMPTY_STATE)
-  const debounceRef = useRef<number | null>(null)
   const startPosRef = useRef<{ x: number; y: number } | null>(null)
   const wasDragRef = useRef(false)
 
-  const updateSelection = useCallback((requireDrag = false) => {
-    // If requireDrag is true and there was no drag, don't show toolbar
-    if (requireDrag && !wasDragRef.current) {
+  const updateSelection = useCallback(() => {
+    // Only show toolbar if user dragged (not double-click)
+    if (!wasDragRef.current) {
       return
     }
 
@@ -46,13 +44,7 @@ export function useTextSelection(
 
     // Check if selection is within container
     const container = containerRef.current
-    if (!container) {
-      setSelection(EMPTY_STATE)
-      return
-    }
-
-    const commonAncestor = range.commonAncestorContainer
-    if (!container.contains(commonAncestor)) {
+    if (!container || !container.contains(range.commonAncestorContainer)) {
       setSelection(EMPTY_STATE)
       return
     }
@@ -70,13 +62,10 @@ export function useTextSelection(
       return
     }
 
-    // Use the last rect for positioning (end of selection)
-    const lastRect = rects[rects.length - 1]
-
     setSelection({
       text,
       range: range.cloneRange(),
-      rect: lastRect,
+      rect: rects[rects.length - 1],
       isCollapsed: false,
     })
   }, [containerRef, minLength])
@@ -87,17 +76,6 @@ export function useTextSelection(
   }, [])
 
   useEffect(() => {
-    const handleSelectionChange = () => {
-      if (debounceRef.current) {
-        clearTimeout(debounceRef.current)
-      }
-
-      debounceRef.current = window.setTimeout(() => {
-        // Don't update on selectionchange - wait for mouseup/touchend
-        debounceRef.current = null
-      }, debounceMs)
-    }
-
     const handlePointerDown = (e: MouseEvent | TouchEvent) => {
       const pos = 'touches' in e
         ? { x: e.touches[0].clientX, y: e.touches[0].clientY }
@@ -118,27 +96,22 @@ export function useTextSelection(
         wasDragRef.current = dx > 10 || dy > 10
       }
 
-      // Small delay to let selection finalize, require drag
-      setTimeout(() => updateSelection(true), 10)
+      // Small delay to let selection finalize
+      setTimeout(updateSelection, 10)
     }
 
-    document.addEventListener('selectionchange', handleSelectionChange)
     document.addEventListener('mousedown', handlePointerDown)
     document.addEventListener('mouseup', handlePointerUp)
     document.addEventListener('touchstart', handlePointerDown)
     document.addEventListener('touchend', handlePointerUp)
 
     return () => {
-      document.removeEventListener('selectionchange', handleSelectionChange)
       document.removeEventListener('mousedown', handlePointerDown)
       document.removeEventListener('mouseup', handlePointerUp)
       document.removeEventListener('touchstart', handlePointerDown)
       document.removeEventListener('touchend', handlePointerUp)
-      if (debounceRef.current) {
-        clearTimeout(debounceRef.current)
-      }
     }
-  }, [updateSelection, debounceMs])
+  }, [updateSelection])
 
   return {
     selection,

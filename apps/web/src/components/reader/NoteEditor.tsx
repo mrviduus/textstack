@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import type { StoredHighlight } from '../../lib/offlineDb'
 
 interface NoteEditorProps {
@@ -52,12 +52,18 @@ export function NoteEditor({
     top = Math.max(8, Math.min(top, window.innerHeight - editorRect.height - 8))
 
     setPosition({ top, left })
-  }, [rect, containerRef, noteText])
+  }, [rect, containerRef])
 
   // Focus textarea on mount
   useEffect(() => {
     textareaRef.current?.focus()
   }, [])
+
+  const handleSave = useCallback(() => {
+    const trimmed = noteText.trim()
+    onSave(trimmed || null)
+    onClose()
+  }, [noteText, onSave, onClose])
 
   // Close on click outside
   useEffect(() => {
@@ -69,7 +75,7 @@ export function NoteEditor({
 
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [noteText])
+  }, [handleSave])
 
   // Handle keyboard shortcuts
   useEffect(() => {
@@ -83,17 +89,7 @@ export function NoteEditor({
 
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [noteText])
-
-  const handleSave = () => {
-    const trimmed = noteText.trim()
-    onSave(trimmed || null)
-    onClose()
-  }
-
-  const handleDelete = () => {
-    onDelete()
-  }
+  }, [handleSave, onClose])
 
   if (!rect) return null
 
@@ -146,7 +142,7 @@ export function NoteEditor({
       <div className="note-editor__footer">
         <button
           className="note-editor__delete"
-          onClick={handleDelete}
+          onClick={onDelete}
           title="Delete highlight"
         >
           <TrashIcon />
