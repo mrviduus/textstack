@@ -104,6 +104,9 @@ builder.Services.AddScoped<Application.UserBooks.UserBookService>();
 builder.Services.AddHttpClient<StandardEbooksSyncService>();
 builder.Services.AddScoped<StandardEbooksSyncService>();
 
+// HttpClient for translation proxy
+builder.Services.AddHttpClient();
+
 
 // Rate limiting for admin login
 builder.Services.AddRateLimiter(options =>
@@ -193,6 +196,9 @@ app.MapSeoEndpoints();
 app.MapSsgEndpoints();
 app.MapAuthEndpoints();
 app.MapUserDataEndpoints();
+app.MapHighlightsEndpoints();
+app.MapTranslationEndpoints();
+app.MapDictionaryEndpoints();
 app.MapUserBooksEndpoints();
 
 // CLI: import-textstack command

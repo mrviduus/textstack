@@ -36,6 +36,7 @@ public interface IAppDbContext
     DbSet<UserIngestionJob> UserIngestionJobs { get; }
     DbSet<UserBookBookmark> UserBookBookmarks { get; }
     DbSet<Domain.Entities.AdminSettings> AdminSettings { get; }
+    DbSet<Highlight> Highlights { get; }
 
     Task<int> SaveChangesAsync(CancellationToken ct = default);
 }

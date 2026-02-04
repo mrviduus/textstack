@@ -141,9 +141,27 @@ All services: API :8080 | Web :5173 | Admin :81 | DB :5432
 │ │ locator      │  │ locator   │  │ locator  │   ● unique(user,edition)     │
 │ │ percent      │  │ title     │  │ text     │                              │
 │ │ updated      │  │ created   │  │ version  │ ← conflict resolution        │
-│ └──────────────┘  └───────────┘  │ created  │                              │
-│  ● unique(user,site,edition)     │ updated  │                              │
+│ └──────────────┘  └───────────┘  │ highlight│ → (optional)                 │
+│  ● unique(user,site,edition)     │ created  │                              │
+│                                  │ updated  │                              │
 │                                  └──────────┘                              │
+│                                                                            │
+│ ┌─────────────┐                                                            │
+│ │  Highlight  │                                                            │
+│ │─────────────│                                                            │
+│ │ id          │                                                            │
+│ │ user_id   → │                                                            │
+│ │ site_id   → │                                                            │
+│ │ edition_id →│                                                            │
+│ │ chapter_id →│                                                            │
+│ │ anchor_json │ ← TextAnchor serialized                                    │
+│ │ color       │ ← yellow|green|pink|blue                                   │
+│ │ selected_txt│                                                            │
+│ │ note_text   │                                                            │
+│ │ version     │                                                            │
+│ │ created     │                                                            │
+│ │ updated     │                                                            │
+│ └─────────────┘                                                            │
 └─────────────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -237,7 +255,8 @@ Legend:
 | `user_libraries` | Saved books | → user, → edition |
 | `reading_progresses` | Resume position (site-scoped) | → user, → site, → edition, → chapter |
 | `bookmarks` | Saved locations (site-scoped) | → user, → site, → edition, → chapter |
-| `notes` | User annotations (site-scoped) | → user, → site, → edition, → chapter |
+| `notes` | User annotations (site-scoped) | → user, → site, → edition, → chapter, → highlight? |
+| `highlights` | Text highlights with colors | → user, → site, → edition, → chapter |
 | `admin_users` | Admin panel auth | → tokens, → logs |
 | `admin_refresh_tokens` | JWT refresh | → admin_user |
 | `admin_audit_logs` | Action history | → admin_user |
@@ -506,16 +525,33 @@ created_at TIMESTAMPTZ NOT NULL
 
 #### `notes`
 ```sql
-id         UUID PRIMARY KEY
-user_id    UUID NOT NULL → users(id) CASCADE
-site_id    UUID NOT NULL → sites(id)
-edition_id UUID NOT NULL → editions(id) CASCADE
-chapter_id UUID NOT NULL → chapters(id) CASCADE
-locator    TEXT NOT NULL
-text       TEXT NOT NULL
-version    INT NOT NULL     -- conflict resolution for sync
-created_at TIMESTAMPTZ NOT NULL
-updated_at TIMESTAMPTZ NOT NULL
+id           UUID PRIMARY KEY
+user_id      UUID NOT NULL → users(id) CASCADE
+site_id      UUID NOT NULL → sites(id)
+edition_id   UUID NOT NULL → editions(id) CASCADE
+chapter_id   UUID NOT NULL → chapters(id) CASCADE
+highlight_id UUID → highlights(id) CASCADE  -- optional link to highlight
+locator      TEXT NOT NULL
+text         TEXT NOT NULL
+version      INT NOT NULL     -- conflict resolution for sync
+created_at   TIMESTAMPTZ NOT NULL
+updated_at   TIMESTAMPTZ NOT NULL
+```
+
+#### `highlights`
+```sql
+id            UUID PRIMARY KEY
+user_id       UUID NOT NULL → users(id) CASCADE
+site_id       UUID NOT NULL → sites(id)
+edition_id    UUID NOT NULL → editions(id) CASCADE
+chapter_id    UUID NOT NULL → chapters(id) CASCADE
+anchor_json   TEXT NOT NULL   -- JSON: {"prefix":"...","exact":"...","suffix":"...","startOffset":N,"endOffset":N}
+color         VARCHAR NOT NULL  -- yellow | green | pink | blue
+selected_text TEXT NOT NULL   -- denormalized for display
+note_text     TEXT            -- inline note (optional)
+version       INT NOT NULL    -- optimistic concurrency
+created_at    TIMESTAMPTZ NOT NULL
+updated_at    TIMESTAMPTZ NOT NULL
 ```
 
 ---
@@ -649,3 +685,5 @@ SeoCrawlJobStatus  { Queued=0, Running=1, Completed=2, Failed=3, Cancelled=4 }
 16. **Ingestion diagnostics** - SourceFormat/UnitsCount/TextSource/Confidence/Warnings for debugging
 17. **SEO crawler** - SeoCrawlJob/SeoCrawlResult for sitemap validation
 18. **TextStack migration** - TextStackImport tracks migrated content
+19. **Highlights** - Text anchoring with prefix/exact/suffix for reliable text location
+20. **Note-Highlight link** - Notes can optionally link to highlights via HighlightId

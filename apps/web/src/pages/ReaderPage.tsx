@@ -37,6 +37,7 @@ import { ReaderSettingsDrawer } from '../components/reader/ReaderSettingsDrawer'
 import { ReaderTocDrawer, type AutoSaveInfo, type TocChapter } from '../components/reader/ReaderTocDrawer'
 import { ReaderSearchDrawer } from '../components/reader/ReaderSearchDrawer'
 import { ReaderShortcutsModal } from '../components/reader/ReaderShortcutsModal'
+import { ReaderHighlights } from '../components/reader/ReaderHighlights'
 import { useScrollReader } from '../hooks/useScrollReader'
 
 export type ReaderMode = 'public' | 'userbook'
@@ -959,16 +960,24 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
             onDoubleTap={toggleFullscreen}
           />
         ) : (
-          <ReaderContent
-            ref={contentRef}
+          <ReaderHighlights
+            editionId={book.id}
+            chapterId={chapter.id}
             containerRef={containerRef}
-            html={chapter.html}
-            settings={settings}
-            onTap={() => { if (isMobile) { showImmersiveBars(); } else { toggle(); } }}
-            onDoubleTap={toggleFullscreen}
-            onLeftTap={isMobile ? handlePrevPageCustom : undefined}
-            onRightTap={isMobile ? handleNextPageCustom : undefined}
-          />
+            isAuthenticated={isAuthenticated}
+            bookLanguage={publicBook?.language}
+          >
+            <ReaderContent
+              ref={contentRef}
+              containerRef={containerRef}
+              html={chapter.html}
+              settings={settings}
+              onTap={() => { if (isMobile) { showImmersiveBars(); } else { toggle(); } }}
+              onDoubleTap={toggleFullscreen}
+              onLeftTap={isMobile ? handlePrevPageCustom : undefined}
+              onRightTap={isMobile ? handleNextPageCustom : undefined}
+            />
+          </ReaderHighlights>
         )}
       </main>
 
