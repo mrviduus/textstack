@@ -43,6 +43,14 @@ jobs:
             git pull origin main
           fi
 
+      - name: Fix dist folder permissions
+        run: |
+          cd $PROJECT_DIR/apps/web
+          # Fix ownership if dist/ssg was created by Docker (root)
+          if [ -d dist/ssg ]; then
+            sudo chown -R $USER:$USER dist/ssg || true
+          fi
+
       - name: Build frontend
         run: |
           cd $PROJECT_DIR/apps/web
