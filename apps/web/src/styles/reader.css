@@ -228,9 +228,6 @@ html[data-theme="dark"] .reader-main {
 
   .reader-content-wrapper {
     height: auto;
-    /* Disable text selection on tap - keep custom tap zones working */
-    -webkit-user-select: none;
-    user-select: none;
     -webkit-tap-highlight-color: transparent;
   }
 
@@ -1202,6 +1199,7 @@ html[data-theme="dark"] .reader-search-drawer__context mark {
   border-radius: 8px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
   z-index: 150;
+  touch-action: none;
 }
 
 .selection-toolbar__colors {
@@ -1216,6 +1214,7 @@ html[data-theme="dark"] .reader-search-drawer__context mark {
   border: 2px solid transparent;
   cursor: pointer;
   transition: transform 0.15s, border-color 0.15s;
+  touch-action: manipulation;
 }
 
 .selection-toolbar__color:hover {
@@ -1242,6 +1241,7 @@ html[data-theme="dark"] .reader-search-drawer__context mark {
   color: var(--reader-text);
   cursor: pointer;
   transition: background 0.15s;
+  touch-action: manipulation;
 }
 
 .selection-toolbar__action:hover {

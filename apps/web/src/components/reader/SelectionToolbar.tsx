@@ -93,6 +93,7 @@ export function SelectionToolbar({
             className="selection-toolbar__color"
             style={{ background: hex }}
             onMouseDown={(e) => e.preventDefault()}
+            onTouchStart={(e) => e.preventDefault()}
             onClick={() => onHighlight(color)}
             title={`Highlight ${label}`}
             aria-label={`Highlight ${label}`}
@@ -104,6 +105,7 @@ export function SelectionToolbar({
         <button
           className="selection-toolbar__action"
           onMouseDown={(e) => e.preventDefault()}
+          onTouchStart={(e) => e.preventDefault()}
           onClick={onTranslate}
           title="Translate"
           aria-label="Translate selected text"
@@ -115,6 +117,7 @@ export function SelectionToolbar({
         <button
           className="selection-toolbar__action"
           onMouseDown={(e) => e.preventDefault()}
+          onTouchStart={(e) => e.preventDefault()}
           onClick={onDictionary}
           title="Dictionary"
           aria-label="Look up word in dictionary"
@@ -125,6 +128,7 @@ export function SelectionToolbar({
       <button
         className="selection-toolbar__action"
         onMouseDown={(e) => e.preventDefault()}
+        onTouchStart={(e) => e.preventDefault()}
         onClick={handleCopy}
         title="Copy"
         aria-label="Copy selected text"

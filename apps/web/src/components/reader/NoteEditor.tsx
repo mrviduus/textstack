@@ -110,6 +110,7 @@ export function NoteEditor({
         top: position?.top ?? -9999,
         left: position?.left ?? -9999,
         visibility: position ? 'visible' : 'hidden',
+        touchAction: 'none',
       }}
     >
       <div

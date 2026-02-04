@@ -98,6 +98,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
   // Refs for pagination
   const contentRef = useRef<HTMLElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
 
   const { settings, update } = useReaderSettings()
   const { visible } = useAutoHideBar()
@@ -950,15 +951,25 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
 
       <main id="reader-content" className="reader-main">
         {useScrollMode ? (
-          <ScrollReaderContent
-            chapters={scrollReader.chapters}
-            settings={settings}
-            isLoadingMore={scrollReader.isLoadingMore}
-            onLoadMore={scrollReader.loadMore}
-            chapterRefs={scrollReader.chapterRefs}
-            onTap={showImmersiveBars}
-            onDoubleTap={isMobile ? toggleFullscreen : undefined}
-          />
+          <ReaderHighlights
+            editionId={book?.id || ''}
+            chapterId={activeChapter?.id || ''}
+            containerRef={scrollContainerRef}
+            isAuthenticated={isAuthenticated}
+            bookLanguage={publicBook?.language}
+          >
+            <div ref={scrollContainerRef}>
+              <ScrollReaderContent
+                chapters={scrollReader.chapters}
+                settings={settings}
+                isLoadingMore={scrollReader.isLoadingMore}
+                onLoadMore={scrollReader.loadMore}
+                chapterRefs={scrollReader.chapterRefs}
+                onTap={showImmersiveBars}
+                onDoubleTap={isMobile ? toggleFullscreen : undefined}
+              />
+            </div>
+          </ReaderHighlights>
         ) : (
           <ReaderHighlights
             editionId={book.id}
