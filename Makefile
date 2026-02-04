@@ -102,15 +102,17 @@ nginx-setup-mac:
 # Database Backup/Restore
 # ============================================================
 
+BACKUP_DIR := $(HOME)/backups/textstack
+
 backup:
-	@mkdir -p backups
-	@. ./.env && docker exec textstack_db_prod pg_dump -U $$POSTGRES_USER $$POSTGRES_DB | gzip > backups/db_$$(date +%Y-%m-%d_%H%M%S).sql.gz
+	@mkdir -p $(BACKUP_DIR)
+	@. ./.env && docker exec textstack_db_prod pg_dump -U $$POSTGRES_USER $$POSTGRES_DB | gzip > $(BACKUP_DIR)/db_$$(date +%Y-%m-%d_%H%M%S).sql.gz
 	@echo "Backup saved:"
-	@ls -lh backups/db_*.sql.gz | tail -1
+	@ls -lh $(BACKUP_DIR)/db_*.sql.gz | tail -1
 
 restore:
 	@if [ -z "$(FILE)" ]; then \
-		echo "Usage: make restore FILE=backups/db_YYYY-MM-DD_HHMMSS.sql.gz"; \
+		echo "Usage: make restore FILE=$(BACKUP_DIR)/db_YYYY-MM-DD_HHMMSS.sql.gz"; \
 		exit 1; \
 	fi
 	@echo "Restoring from $(FILE)..."
@@ -118,4 +120,4 @@ restore:
 	@echo "Done."
 
 backup-list:
-	@ls -lh backups/*.sql.gz 2>/dev/null || echo "No backups found"
+	@ls -lh $(BACKUP_DIR)/*.sql.gz 2>/dev/null || echo "No backups found"

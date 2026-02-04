@@ -27,9 +27,9 @@ jobs:
     steps:
       - name: Pre-deploy backup
         run: |
-          mkdir -p ~/backups
+          mkdir -p ~/backups/textstack
           DATE=$(date +%F-%H%M)
-          docker exec textstack_db_prod pg_dump -U textstack_prod textstack_prod | gzip > ~/backups/pre-deploy-$DATE.sql.gz
+          docker exec textstack_db_prod pg_dump -U textstack_prod textstack_prod | gzip > ~/backups/textstack/pre-deploy-$DATE.sql.gz
           echo "Backup created: pre-deploy-$DATE.sql.gz"
 
       - name: Pull latest code

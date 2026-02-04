@@ -31,7 +31,7 @@ make deploy                   # Full deploy (pull, build, restart, SSG)
 make rebuild-ssg              # Rebuild SSG pages only
 
 # Database
-make backup                   # Backup to backups/
+make backup                   # Backup to ~/backups/textstack/
 make backup-list              # List all backups
 make restore FILE=path.gz     # Restore from backup
 docker compose exec db psql -U app books   # DB shell
