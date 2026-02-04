@@ -8,8 +8,8 @@ public class LiveApiFixture : IDisposable
 {
     public HttpClient Client { get; }
 
-    // Test host for Host header (matches Site in DB)
-    public const string TestHost = "textstack.app";
+    // Test host for Host header (matches seeded Site domain in DB)
+    public const string TestHost = "localhost";
 
     // Admin API base
     public const string AdminHost = "textstack.dev";
