@@ -957,7 +957,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
             onLoadMore={scrollReader.loadMore}
             chapterRefs={scrollReader.chapterRefs}
             onTap={showImmersiveBars}
-            onDoubleTap={toggleFullscreen}
+            onDoubleTap={isMobile ? toggleFullscreen : undefined}
           />
         ) : (
           <ReaderHighlights
@@ -972,8 +972,8 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
               containerRef={containerRef}
               html={chapter.html}
               settings={settings}
-              onTap={() => { if (isMobile) { showImmersiveBars(); } else { toggle(); } }}
-              onDoubleTap={toggleFullscreen}
+              onTap={() => { if (isMobile) { showImmersiveBars(); } }}
+              onDoubleTap={isMobile ? toggleFullscreen : undefined}
               onLeftTap={isMobile ? handlePrevPageCustom : undefined}
               onRightTap={isMobile ? handleNextPageCustom : undefined}
             />
