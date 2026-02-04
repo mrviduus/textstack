@@ -1,4 +1,4 @@
-.PHONY: up down restart logs status backup restore rebuild-ssg clean-ssg deploy nginx-setup build rebuild
+.PHONY: up down restart logs status backup restore rebuild-ssg clean-ssg deploy nginx-setup build rebuild fix-permissions
 
 # ============================================================
 # Docker Services
@@ -33,7 +33,14 @@ status:
 # Deployment
 # ============================================================
 
-deploy:
+# Fix volume permissions for containers running as non-root
+fix-permissions:
+	@echo "Fixing volume permissions..."
+	@mkdir -p data/libretranslate
+	@docker run --rm -v $$(pwd)/data/libretranslate:/data alpine chown -R 1032:1032 /data
+	@echo "Done."
+
+deploy: fix-permissions
 	@echo "=== Deploy ==="
 	git pull origin main
 	cd apps/web && pnpm install && VITE_API_URL=/api VITE_CANONICAL_URL=https://textstack.app pnpm build
