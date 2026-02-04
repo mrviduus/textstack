@@ -41,12 +41,15 @@ docker compose down -v                      # Reset all (loses data)
 dotnet test                                 # All tests
 dotnet test tests/TextStack.UnitTests
 dotnet test tests/TextStack.IntegrationTests
+dotnet test tests/TextStack.Extraction.Tests
+dotnet test tests/TextStack.Search.Tests
 dotnet test --filter "Name~TestMethodName"  # Single test
 pnpm -C apps/web test                       # Frontend tests
 pnpm -C apps/web test:watch                 # Watch mode
 
 # Lint
 dotnet format backend/TextStack.sln         # Backend
+pnpm -C apps/web lint                       # Frontend
 
 # Local dev (no Docker)
 dotnet run --project backend/src/Api
@@ -140,6 +143,7 @@ Upload EPUB/PDF/FB2 → BookFile (stored) → IngestionJob (queued)
 | Library | `apps/web/src/pages/LibraryPage.tsx` |
 | Admin | `apps/admin/src/pages/` |
 | SSG | `apps/web/scripts/prerender.mjs` |
+| nginx config | `infra/nginx/textstack.conf` |
 
 ## Search
 
@@ -147,3 +151,28 @@ Search uses raw SQL (Dapper). After schema changes:
 1. Update `PostgresSearchProvider.cs` SQL
 2. Run `dotnet test tests/TextStack.IntegrationTests --filter SearchEndpoint`
 3. Test: `https://textstack.app/en/search?q=test`
+
+## Test Projects
+
+```
+tests/
+├── TextStack.UnitTests/           # Pure logic, no DB
+├── TextStack.IntegrationTests/    # API + DB (Testcontainers)
+├── TextStack.Extraction.Tests/    # Book parsing (EPUB/PDF/FB2)
+├── TextStack.Search.Tests/        # Search logic
+```
+
+Test naming convention: `{MethodName}_{Scenario}_{ExpectedResult}`
+
+## Verifying SSG
+
+After content changes, verify SSG is serving correctly:
+```bash
+# Check header indicates SSG (not SPA fallback)
+curl -I https://textstack.app/en/books/dracula/ | grep X-SEO-Render
+# Expected: X-SEO-Render: ssg
+
+# Check SPA routes still work
+curl -I https://textstack.app/en/search | grep X-SEO-Render
+# Expected: X-SEO-Render: spa
+```
