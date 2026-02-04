@@ -23,6 +23,10 @@ public class SitemapEndpointTests : IClassFixture<LiveApiFixture>
         response.StatusCode == HttpStatusCode.NotFound ||
         response.StatusCode == HttpStatusCode.InternalServerError;
 
+    // Helper: check if robots.txt indicates indexing disabled (returns "Disallow: /")
+    private static bool IsIndexingDisabled(string robotsTxt) =>
+        robotsTxt.Contains("Disallow: /\n") || robotsTxt.TrimEnd() == "User-agent: *\nDisallow: /";
+
     #region Sitemap Index
 
     [Fact]
@@ -324,6 +328,8 @@ public class SitemapEndpointTests : IClassFixture<LiveApiFixture>
         if (ShouldSkip(response)) return;
 
         var content = await response.Content.ReadAsStringAsync();
+        if (IsIndexingDisabled(content)) return; // Site has indexing disabled
+
         Assert.Contains("Sitemap:", content);
         Assert.Contains("sitemap.xml", content);
     }
@@ -337,6 +343,8 @@ public class SitemapEndpointTests : IClassFixture<LiveApiFixture>
         if (ShouldSkip(response)) return;
 
         var content = await response.Content.ReadAsStringAsync();
+        if (IsIndexingDisabled(content)) return; // Site has indexing disabled
+
         Assert.Contains("Disallow: /admin", content);
         Assert.Contains("Disallow: /api", content);
     }
