@@ -50,6 +50,7 @@ services:
       Jwt__Issuer: ${JWT_ISSUER}
       Jwt__Audience: ${JWT_AUDIENCE}
       Google__ClientId: ${GOOGLE_CLIENT_ID}
+      LibreTranslate__BaseUrl: http://libretranslate:5000
       OTEL_EXPORTER_OTLP_ENDPOINT: http://aspire-dashboard:18889
     volumes:
       - ./data/storage:/storage
@@ -178,3 +179,30 @@ services:
           memory: 1G
         reservations:
           memory: 256M
+
+  # ===========================================
+  # LibreTranslate - Self-hosted translation API
+  # ===========================================
+
+  libretranslate:
+    image: libretranslate/libretranslate:latest
+    container_name: textstack_libretranslate
+    environment:
+      - LT_LOAD_ONLY=en,uk,ru,de,fr,es,pl
+      - LT_DISABLE_WEB_UI=true
+      - LT_UPDATE_MODELS=true
+    volumes:
+      - ./data/libretranslate:/home/libretranslate/.local
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:5000/languages || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 1G

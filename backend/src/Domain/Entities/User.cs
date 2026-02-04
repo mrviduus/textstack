@@ -17,4 +17,5 @@ public class User
     public ICollection<Note> Notes { get; set; } = [];
     public ICollection<UserLibrary> UserLibraries { get; set; } = [];
     public ICollection<UserBook> UserBooks { get; set; } = [];
+    public ICollection<Highlight> Highlights { get; set; } = [];
 }

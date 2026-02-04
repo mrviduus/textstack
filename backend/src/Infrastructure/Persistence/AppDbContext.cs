@@ -39,6 +39,7 @@ public class AppDbContext : DbContext, IAppDbContext
     public DbSet<UserIngestionJob> UserIngestionJobs => Set<UserIngestionJob>();
     public DbSet<UserBookBookmark> UserBookBookmarks => Set<UserBookBookmark>();
     public DbSet<AdminSettings> AdminSettings => Set<AdminSettings>();
+    public DbSet<Highlight> Highlights => Set<Highlight>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -175,10 +176,27 @@ public class AppDbContext : DbContext, IAppDbContext
             e.HasIndex(x => x.ChapterId);
             e.HasIndex(x => x.EditionId);
             e.HasIndex(x => x.SiteId);
+            e.HasIndex(x => x.HighlightId);
             e.HasIndex(x => new { x.UserId, x.SiteId, x.EditionId });
             e.HasOne(x => x.User).WithMany(x => x.Notes).HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.Edition).WithMany().HasForeignKey(x => x.EditionId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.Chapter).WithMany(x => x.Notes).HasForeignKey(x => x.ChapterId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Site).WithMany().HasForeignKey(x => x.SiteId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.Highlight).WithOne(x => x.Note).HasForeignKey<Note>(x => x.HighlightId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // Highlight
+        modelBuilder.Entity<Highlight>(e =>
+        {
+            e.HasIndex(x => x.ChapterId);
+            e.HasIndex(x => x.EditionId);
+            e.HasIndex(x => x.SiteId);
+            e.HasIndex(x => new { x.UserId, x.SiteId, x.EditionId });
+            e.Property(x => x.AnchorJson).HasColumnType("jsonb");
+            e.Property(x => x.Color).HasMaxLength(20);
+            e.HasOne(x => x.User).WithMany(x => x.Highlights).HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Edition).WithMany().HasForeignKey(x => x.EditionId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Chapter).WithMany().HasForeignKey(x => x.ChapterId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.Site).WithMany().HasForeignKey(x => x.SiteId).OnDelete(DeleteBehavior.Restrict);
         });
 

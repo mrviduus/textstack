@@ -37,6 +37,7 @@ import { ReaderSettingsDrawer } from '../components/reader/ReaderSettingsDrawer'
 import { ReaderTocDrawer, type AutoSaveInfo, type TocChapter } from '../components/reader/ReaderTocDrawer'
 import { ReaderSearchDrawer } from '../components/reader/ReaderSearchDrawer'
 import { ReaderShortcutsModal } from '../components/reader/ReaderShortcutsModal'
+import { ReaderHighlights } from '../components/reader/ReaderHighlights'
 import { useScrollReader } from '../hooks/useScrollReader'
 
 export type ReaderMode = 'public' | 'userbook'
@@ -99,7 +100,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
   const containerRef = useRef<HTMLDivElement>(null)
 
   const { settings, update } = useReaderSettings()
-  const { visible, toggle } = useAutoHideBar()
+  const { visible } = useAutoHideBar()
 
   // Bookmarks: server sync for both public and userbook modes
   // Public mode uses useBookmarks with editionId for server sync
@@ -956,19 +957,27 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
             onLoadMore={scrollReader.loadMore}
             chapterRefs={scrollReader.chapterRefs}
             onTap={showImmersiveBars}
-            onDoubleTap={toggleFullscreen}
+            onDoubleTap={isMobile ? toggleFullscreen : undefined}
           />
         ) : (
-          <ReaderContent
-            ref={contentRef}
+          <ReaderHighlights
+            editionId={book.id}
+            chapterId={chapter.id}
             containerRef={containerRef}
-            html={chapter.html}
-            settings={settings}
-            onTap={() => { if (isMobile) { showImmersiveBars(); } else { toggle(); } }}
-            onDoubleTap={toggleFullscreen}
-            onLeftTap={isMobile ? handlePrevPageCustom : undefined}
-            onRightTap={isMobile ? handleNextPageCustom : undefined}
-          />
+            isAuthenticated={isAuthenticated}
+            bookLanguage={publicBook?.language}
+          >
+            <ReaderContent
+              ref={contentRef}
+              containerRef={containerRef}
+              html={chapter.html}
+              settings={settings}
+              onTap={() => { if (isMobile) { showImmersiveBars(); } }}
+              onDoubleTap={isMobile ? toggleFullscreen : undefined}
+              onLeftTap={isMobile ? handlePrevPageCustom : undefined}
+              onRightTap={isMobile ? handleNextPageCustom : undefined}
+            />
+          </ReaderHighlights>
         )}
       </main>
 

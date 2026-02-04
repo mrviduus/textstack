@@ -49,13 +49,16 @@ export function ScrollReaderContent({
     const timeSinceLastTap = now - lastTapRef.current
 
     // Double-tap detected
-    if (timeSinceLastTap < DOUBLE_TAP_DELAY && onDoubleTap) {
+    if (timeSinceLastTap < DOUBLE_TAP_DELAY) {
       if (tapTimeoutRef.current) {
         clearTimeout(tapTimeoutRef.current)
         tapTimeoutRef.current = null
       }
       lastTapRef.current = 0
-      onDoubleTap()
+      // Only call onDoubleTap if it exists, otherwise just ignore (let browser select word)
+      if (onDoubleTap) {
+        onDoubleTap()
+      }
       return
     }
 

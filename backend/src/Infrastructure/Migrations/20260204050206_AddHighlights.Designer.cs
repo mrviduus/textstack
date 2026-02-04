@@ -3,6 +3,7 @@ using System;
 using Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using NpgsqlTypes;
@@ -12,9 +13,11 @@ using NpgsqlTypes;
 namespace Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260204050206_AddHighlights")]
+    partial class AddHighlights
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -682,10 +685,6 @@ namespace Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("edition_id");
 
-                    b.Property<string>("NoteText")
-                        .HasColumnType("text")
-                        .HasColumnName("note_text");
-
                     b.Property<string>("SelectedText")
                         .IsRequired()
                         .HasColumnType("text")
@@ -896,10 +895,6 @@ namespace Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("edition_id");
 
-                    b.Property<Guid?>("HighlightId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("highlight_id");
-
                     b.Property<string>("Locator")
                         .IsRequired()
                         .HasColumnType("text")
@@ -934,10 +929,6 @@ namespace Infrastructure.Migrations
 
                     b.HasIndex("EditionId")
                         .HasDatabaseName("ix_notes_edition_id");
-
-                    b.HasIndex("HighlightId")
-                        .IsUnique()
-                        .HasDatabaseName("ix_notes_highlight_id");
 
                     b.HasIndex("SiteId")
                         .HasDatabaseName("ix_notes_site_id");
@@ -2206,12 +2197,6 @@ namespace Infrastructure.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_notes_editions_edition_id");
 
-                    b.HasOne("Domain.Entities.Highlight", "Highlight")
-                        .WithOne("Note")
-                        .HasForeignKey("Domain.Entities.Note", "HighlightId")
-                        .OnDelete(DeleteBehavior.SetNull)
-                        .HasConstraintName("fk_notes_highlights_highlight_id");
-
                     b.HasOne("Domain.Entities.Site", "Site")
                         .WithMany()
                         .HasForeignKey("SiteId")
@@ -2229,8 +2214,6 @@ namespace Infrastructure.Migrations
                     b.Navigation("Chapter");
 
                     b.Navigation("Edition");
-
-                    b.Navigation("Highlight");
 
                     b.Navigation("Site");
 
@@ -2534,11 +2517,6 @@ namespace Infrastructure.Migrations
                     b.Navigation("IngestionJobs");
 
                     b.Navigation("TranslatedEditions");
-                });
-
-            modelBuilder.Entity("Domain.Entities.Highlight", b =>
-                {
-                    b.Navigation("Note");
                 });
 
             modelBuilder.Entity("Domain.Entities.SeoCrawlJob", b =>

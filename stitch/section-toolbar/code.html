@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Reader Text Selection Toolbar</title>
+<link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@400;500;600&amp;family=Inter:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
+<script>
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              primary: "#5c5c5c",
+              "background-light": "#f8f5f0", // Warm cream background for eye comfort
+              "background-dark": "#1a1a1a",
+              "page-light": "#fffdfa",
+              "page-dark": "#262626",
+            },
+            fontFamily: {
+              display: ["Inter", "sans-serif"],
+              serif: ["Crimson Pro", "serif"],
+            },
+            borderRadius: {
+              DEFAULT: "8px",
+            },
+          },
+        },
+      };
+    </script>
+<style>
+        ::selection {
+            background-color: rgba(254, 240, 138, 0.7);color: inherit;
+        }
+        .dark ::selection {
+            background-color: rgba(133, 77, 14, 0.5);
+            color: inherit;
+        }
+        .page-gradient-top {
+            background: linear-gradient(to bottom, rgba(0,0,0,0.05), transparent);
+        }
+        .page-gradient-bottom {
+            background: linear-gradient(to top, rgba(0,0,0,0.05), transparent);
+        }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark font-display text-gray-800 dark:text-gray-200 transition-colors duration-300 min-h-screen flex flex-col">
+<header class="h-14 flex items-center justify-between px-6 bg-page-light dark:bg-page-dark border-b border-gray-200 dark:border-gray-800 sticky top-0 z-20">
+<div class="flex items-center gap-4">
+<button class="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors">
+<span class="material-icons-outlined">arrow_back</span>
+</button>
+<div>
+<h1 class="text-sm font-semibold leading-tight">The Goldfinch</h1>
+<p class="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wider">Donna Tartt</p>
+</div>
+</div>
+<div class="flex items-center gap-1">
+<span class="text-xs text-gray-400 mr-4">0%</span>
+<button class="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full"><span class="material-icons-outlined text-[20px]">search</span></button>
+<button class="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full"><span class="material-icons-outlined text-[20px]">bookmark_border</span></button>
+<button class="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full"><span class="material-icons-outlined text-[20px]">menu</span></button>
+<button class="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full"><span class="material-icons-outlined text-[20px]">tune</span></button>
+<button class="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full"><span class="material-icons-outlined text-[20px]">fullscreen</span></button>
+<button class="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full" id="themeToggle"><span class="material-icons-outlined text-[20px]">dark_mode</span></button>
+</div>
+</header>
+<main class="flex-grow flex items-center justify-center p-8 relative">
+<div class="max-w-6xl w-full grid grid-cols-1 md:grid-cols-2 gap-16 relative">
+<div class="space-y-6">
+<div class="text-xs italic text-gray-400 mb-8">i.</div>
+<div class="prose prose-stone lg:prose-xl dark:prose-invert font-serif leading-relaxed text-justify">
+<p>
+<span class="text-3xl font-medium float-left mr-2 mt-1">W</span>HILE I WAS STILL in Amsterdam, I dreamed about my mother for the first time in years. I’d been shut up in my hotel for more than a week, afraid to telephone anybody or go out; and my heart scrambled and floundered at even the most innocent noises: elevator bell, rattle of the minibar cart, even church clocks tolling the hour, de Westertoren, Krijtberg, a dark edge to the clangor, an inwrought fairy-tale sense of doom. By day I sat on the foot of the bed straining to puzzle out the Dutch-language news on television (which was hopeless, since I knew not a word of Dutch) and when I gave up, I sat by the window staring out at the canal with my camel’s-hair coat thrown over my clothes—for I’d left New York in a hurry and the things I’d brought weren’t warm enough, even indoors.
+                    </p>
+<p>
+                        Outside, all was activity and cheer. It was Christmas, lights twinkling on the canal bridges at night; red-cheeked <em>dames en heren</em>, scarves flying in the icy wind, clattered down the cobblestones with Christmas trees lashed to the backs of their bicycles. In the afternoons, an amateur band played Christmas carols that hung tinny and fragile in the winter air.
+                    </p>
+</div>
+</div>
+<div class="space-y-6 relative">
+<div class="prose prose-stone lg:prose-xl dark:prose-invert font-serif leading-relaxed text-justify">
+<p>
+                        Chaotic room-service trays; too many cigarettes; lukewarm vodka from duty free. During those restless, shut-up days, I got to know every inch of the room as a prisoner comes to know his cell. It was my first time in Amsterdam; I’d seen almost nothing of the city and yet the room itself, in its bleak, drafty, sunscrubbed beauty, gave a keen sense of Northern Europe, a model of the Netherlands in miniature: whitewash and Protestant probity, co-mingled with deep-dyed luxury brought in merchant ships from the East. 
+<span class="relative group">
+<span class="bg-yellow-200/60 dark:bg-yellow-900/40 border-b-2 border-yellow-400/50">I spent an unreasonable amount of time scrutinizing a tiny pair of gilt-framed oils hanging over the bureau, one of peasants skating on an ice-pond by a church, the other a sailboat flouncing on a choppy winter sea: decorative copies, nothing special, though I studied them as if they held, encrypted, some key to the secret heart of the old Flemish masters.</span>
+</span></p><div class="absolute -top-16 left-1/2 -translate-x-1/2 flex items-center bg-white dark:bg-gray-800 shadow-xl border border-gray-100 dark:border-gray-700 rounded-full px-2 py-1.5 gap-2 z-50 animate-in fade-in slide-in-from-bottom-2 duration-300">
+<div class="flex items-center gap-1.5 px-2 border-r border-gray-200 dark:border-gray-700 mr-1">
+<button class="w-5 h-5 rounded-full bg-yellow-400 ring-2 ring-offset-2 ring-yellow-400 dark:ring-offset-gray-800 transition-transform hover:scale-110"></button>
+<button class="w-5 h-5 rounded-full bg-green-400 hover:scale-110 transition-transform"></button>
+<button class="w-5 h-5 rounded-full bg-pink-400 hover:scale-110 transition-transform"></button>
+<button class="w-5 h-5 rounded-full bg-blue-400 hover:scale-110 transition-transform"></button>
+<button class="w-5 h-5 rounded-full border border-gray-300 dark:border-gray-600 flex items-center justify-center hover:bg-gray-50 dark:hover:bg-gray-700">
+<span class="material-icons-outlined text-[10px]">close</span>
+</button>
+</div>
+<div class="flex items-center gap-1">
+<button class="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full group/btn relative" title="Translate">
+<span class="material-icons-outlined text-[20px] text-gray-600 dark:text-gray-300">language</span>
+</button>
+<button class="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full group/btn relative" title="Dictionary">
+<span class="material-icons-outlined text-[20px] text-gray-600 dark:text-gray-300">auto_stories</span>
+</button>
+<button class="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full group/btn relative" title="Add Note">
+<span class="material-icons-outlined text-[20px] text-gray-600 dark:text-gray-300">sticky_note_2</span>
+</button>
+<button class="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full group/btn relative" title="More">
+<span class="material-icons-outlined text-[20px] text-gray-600 dark:text-gray-300">more_vert</span>
+</button>
+</div>
+</div>
+
+                        Outside, sleet tapped at the windowpanes and drizzled over the canal; and though the brocades were rich and the carpet was soft, still the winter light carried a chilly tone of 1943, privation and austerities, weak tea without sugar and hungry to bed.
+                    <p></p>
+<p>
+                        Early every morning while it was still black out, before the extra clerks came on duty and the lobby started filling up, I walked downstairs for the newspapers. The hotel staff moved with hushed voices and quiet footsteps, eyes gliding across me coolly as if they didn’t quite see me, the American man in 27 who never came down during...
+                    </p>
+</div>
+</div>
+</div>
+<div class="absolute inset-x-0 top-0 h-12 page-gradient-top pointer-events-none"></div>
+<div class="absolute inset-x-0 bottom-0 h-12 page-gradient-bottom pointer-events-none"></div>
+</main>
+<footer class="h-10 flex items-center justify-between px-6 bg-page-light dark:bg-page-dark border-t border-gray-200 dark:border-gray-800 z-20">
+<span class="text-[10px] text-gray-500 font-semibold uppercase tracking-widest">The Goldfinch</span>
+<div class="flex-grow max-w-lg mx-8 h-1 bg-gray-200 dark:bg-gray-800 rounded-full relative">
+<div class="absolute inset-y-0 left-0 bg-gray-400 dark:bg-gray-600 rounded-full" style="width: 4%"></div>
+<div class="absolute -left-1 -top-1.5 w-4 h-4 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded shadow-sm flex items-center justify-center cursor-pointer">
+<div class="w-1.5 h-1.5 bg-gray-400 dark:bg-gray-300 rounded-full"></div>
+</div>
+</div>
+<span class="text-[10px] text-gray-500 font-semibold">0%</span>
+</footer>
+<script>
+        // Dark Mode Toggle Logic
+        const themeToggle = document.getElementById('themeToggle');
+        const html = document.documentElement;
+        themeToggle.addEventListener('click', () => {
+            if (html.classList.contains('dark')) {
+                html.classList.remove('dark');
+                themeToggle.querySelector('span').textContent = 'dark_mode';
+            } else {
+                html.classList.add('dark');
+                themeToggle.querySelector('span').textContent = 'light_mode';
+            }
+        });
+        // Initialize with light mode based on request description
+        html.classList.remove('dark');
+    </script>
+
+</body></html>

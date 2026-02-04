@@ -65,3 +65,60 @@ export async function deletePublicBookmark(id: string): Promise<void> {
     method: 'DELETE',
   })
 }
+
+// Highlight types
+export interface PublicHighlight {
+  id: string
+  editionId: string
+  chapterId: string
+  anchorJson: string
+  color: string
+  selectedText: string
+  noteText: string | null
+  version: number
+  createdAt: string
+  updatedAt: string
+}
+
+// Highlight API
+export async function getPublicHighlights(editionId: string): Promise<PublicHighlight[]> {
+  return authFetch<PublicHighlight[]>(`/me/highlights/${editionId}`)
+}
+
+export async function createPublicHighlight(data: {
+  editionId: string
+  chapterId: string
+  anchorJson: string
+  color: string
+  selectedText: string
+  noteText?: string
+}): Promise<PublicHighlight> {
+  return authFetch<PublicHighlight>('/me/highlights', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+}
+
+export async function updatePublicHighlight(
+  id: string,
+  data: {
+    color?: string
+    anchorJson?: string
+    selectedText?: string
+    noteText?: string | null
+    version?: number
+  }
+): Promise<PublicHighlight> {
+  return authFetch<PublicHighlight>(`/me/highlights/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+}
+
+export async function deletePublicHighlight(id: string): Promise<void> {
+  await authFetch<void>(`/me/highlights/${id}`, {
+    method: 'DELETE',
+  })
+}
