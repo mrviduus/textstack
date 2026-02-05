@@ -189,7 +189,7 @@ public class SitemapEndpointTests : IClassFixture<LiveApiFixture>
         foreach (var loc in locs)
         {
             var uri = new Uri(loc);
-            Assert.Matches(@"^/[a-z]{2}/books/[^/]+$", uri.AbsolutePath);
+            Assert.Matches(@"^/[a-z]{2}/books/[^/]+/$", uri.AbsolutePath);
         }
     }
 
@@ -249,7 +249,7 @@ public class SitemapEndpointTests : IClassFixture<LiveApiFixture>
         foreach (var loc in locs)
         {
             var uri = new Uri(loc);
-            Assert.Matches(@"^/[a-z]{2}/authors/[^/]+$", uri.AbsolutePath);
+            Assert.Matches(@"^/[a-z]{2}/authors/[^/]+/$", uri.AbsolutePath);
         }
     }
 
@@ -284,7 +284,7 @@ public class SitemapEndpointTests : IClassFixture<LiveApiFixture>
         foreach (var loc in locs)
         {
             var uri = new Uri(loc);
-            Assert.Matches(@"^/[a-z]{2}/genres/[^/]+$", uri.AbsolutePath);
+            Assert.Matches(@"^/[a-z]{2}/genres/[^/]+/$", uri.AbsolutePath);
         }
     }
 
