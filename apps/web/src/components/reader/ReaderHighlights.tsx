@@ -182,7 +182,7 @@ export function ReaderHighlights({
   }, [editingHighlight, removeHighlight])
 
   return (
-    <div ref={wrapperRef} className="reader-highlights-wrapper">
+    <div ref={wrapperRef} className="reader-highlights-wrapper" onContextMenu={(e) => e.preventDefault()}>
       {children}
 
       <HighlightLayer

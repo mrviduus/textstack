@@ -81,7 +81,7 @@ export const ReaderContent = forwardRef<HTMLElement, Props>(
     }, [onTap, onDoubleTap, onLeftTap, onRightTap])
 
     return (
-      <div className="reader-content-wrapper" ref={containerRef as React.RefObject<HTMLDivElement>} onClick={handleClick}>
+      <div className="reader-content-wrapper" ref={containerRef as React.RefObject<HTMLDivElement>} onClick={handleClick} onContextMenu={(e) => e.preventDefault()}>
         <article
           ref={ref as React.RefObject<HTMLElement>}
           className="reader-content"

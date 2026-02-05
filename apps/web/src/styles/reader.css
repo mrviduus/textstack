@@ -1178,6 +1178,7 @@ html[data-theme="dark"] .reader-search-drawer__context mark {
 .scroll-reader__chapter {
   -webkit-user-select: text;
   user-select: text;
+  -webkit-touch-callout: none; /* suppress iOS native callout */
 }
 
 /* Highlight colors for native ::selection */
