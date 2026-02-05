@@ -3,6 +3,7 @@ import { useTranslation } from '../../hooks/useTranslation'
 import { useApi } from '../../hooks/useApi'
 import { getStorageUrl } from '../../api/client'
 import { LocalizedLink } from '../LocalizedLink'
+import { HttpError } from '../../lib/fetchWithRetry'
 import type { Edition } from '../../types/api'
 
 const BOOK_LIMIT = 12
@@ -12,11 +13,19 @@ export function RecentBooksSection() {
   const api = useApi()
   const [books, setBooks] = useState<Edition[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     api.getBooks({ limit: BOOK_LIMIT })
       .then((data) => setBooks(data.items))
-      .catch(() => {})
+      .catch((err) => {
+        console.error('Failed to load books:', err)
+        if (err instanceof HttpError) {
+          setError(`Error ${err.status}`)
+        } else {
+          setError('Connection error')
+        }
+      })
       .finally(() => setLoading(false))
   }, [api])
 
@@ -34,6 +43,17 @@ export function RecentBooksSection() {
             </div>
           ))}
         </div>
+      </section>
+    )
+  }
+
+  if (error) {
+    return (
+      <section className="home-books">
+        <div className="home-books__header">
+          <h2 className="home-books__title">{t('home.recentBooks.title')}</h2>
+        </div>
+        <p className="home-books__error">{error}</p>
       </section>
     )
   }

@@ -30,6 +30,15 @@ export class InvalidContentTypeError extends Error {
   }
 }
 
+export class HttpError extends Error {
+  constructor(public status: number, public statusText: string) {
+    super(`HTTP ${status}: ${statusText}`)
+    this.name = 'HttpError'
+  }
+}
+
+const RETRYABLE_STATUS = [429, 500, 502, 503, 504]
+
 async function fetchWithTimeout(
   url: string,
   timeout: number,
@@ -79,6 +88,20 @@ export async function fetchWithRetry(
 
     try {
       const res = await fetchWithTimeout(url, timeout, signal)
+
+      // Retry on retryable HTTP status codes
+      if (!res.ok && RETRYABLE_STATUS.includes(res.status) && attempt < retries) {
+        const retryAfter = res.headers.get('Retry-After')
+        const delay = retryAfter ? parseInt(retryAfter) * 1000 : backoff * Math.pow(2, attempt)
+        await sleep(delay)
+        continue
+      }
+
+      // Throw HttpError for non-ok responses after retries exhausted
+      if (!res.ok) {
+        throw new HttpError(res.status, res.statusText)
+      }
+
       return res
     } catch (err) {
       lastError = err as Error
@@ -93,6 +116,9 @@ export async function fetchWithRetry(
         // Network error - retryable
       } else if (err instanceof FetchTimeoutError) {
         // Timeout - retryable
+      } else if (err instanceof HttpError) {
+        // Already handled above, throw immediately
+        throw err
       } else {
         throw err
       }
@@ -113,7 +139,6 @@ export async function fetchJsonWithRetry<T>(
   options?: FetchOptions
 ): Promise<T> {
   const res = await fetchWithRetry(url, options)
-  if (!res.ok) throw new Error(`API error: ${res.status}`)
 
   const contentType = res.headers.get('content-type') || ''
   if (!contentType.includes('application/json')) {

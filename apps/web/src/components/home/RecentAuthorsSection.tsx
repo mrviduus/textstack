@@ -3,6 +3,7 @@ import { useTranslation } from '../../hooks/useTranslation'
 import { useApi } from '../../hooks/useApi'
 import { getStorageUrl } from '../../api/client'
 import { LocalizedLink } from '../LocalizedLink'
+import { HttpError } from '../../lib/fetchWithRetry'
 import type { Author } from '../../types/api'
 
 const AUTHOR_LIMIT = 8
@@ -12,11 +13,19 @@ export function RecentAuthorsSection() {
   const api = useApi()
   const [authors, setAuthors] = useState<Author[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     api.getAuthors({ limit: AUTHOR_LIMIT, sort: 'recent' })
       .then((data) => setAuthors(data.items))
-      .catch(() => {})
+      .catch((err) => {
+        console.error('Failed to load authors:', err)
+        if (err instanceof HttpError) {
+          setError(`Error ${err.status}`)
+        } else {
+          setError('Connection error')
+        }
+      })
       .finally(() => setLoading(false))
   }, [api])
 
@@ -34,6 +43,17 @@ export function RecentAuthorsSection() {
             </div>
           ))}
         </div>
+      </section>
+    )
+  }
+
+  if (error) {
+    return (
+      <section className="home-authors">
+        <div className="home-authors__header">
+          <h2 className="home-authors__title">{t('home.recentAuthors.title')}</h2>
+        </div>
+        <p className="home-authors__error">{error}</p>
       </section>
     )
   }

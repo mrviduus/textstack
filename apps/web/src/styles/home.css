@@ -211,8 +211,11 @@
   font-size: 16px;
 }
 
-.home-books__empty {
+.home-books__empty,
+.home-books__error {
   color: var(--color-text-secondary);
+  text-align: center;
+  padding: 2rem;
 }
 
 /* Authors Section - Stitch design */
@@ -330,8 +333,11 @@
   font-size: 16px;
 }
 
-.home-authors__empty {
+.home-authors__empty,
+.home-authors__error {
   color: var(--color-text-secondary);
+  text-align: center;
+  padding: 2rem;
 }
 
 /* Shimmer animation */
