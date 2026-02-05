@@ -1,0 +1,5 @@
+# Allow vasyl to manage nginx without password (for deploy automation)
+# Install: sudo cp infra/sudoers.d/textstack-nginx /etc/sudoers.d/ && sudo chmod 440 /etc/sudoers.d/textstack-nginx
+vasyl ALL=(ALL) NOPASSWD: /usr/bin/tee /etc/nginx/sites-available/textstack
+vasyl ALL=(ALL) NOPASSWD: /usr/sbin/nginx -t
+vasyl ALL=(ALL) NOPASSWD: /usr/bin/systemctl reload nginx
