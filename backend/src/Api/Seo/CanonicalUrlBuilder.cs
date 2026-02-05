@@ -50,9 +50,9 @@ public static partial class CanonicalUrlBuilder
         if (!path.StartsWith('/'))
             path = "/" + path;
 
-        // Remove trailing slash from path (unless root)
-        if (path.Length > 1 && path.EndsWith('/'))
-            path = path[..^1];
+        // Ensure trailing slash on path
+        if (path.Length > 0 && !path.EndsWith('/'))
+            path = path + "/";
 
         return baseUrl + path;
     }
