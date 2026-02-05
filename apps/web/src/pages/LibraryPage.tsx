@@ -311,9 +311,6 @@ export function LibraryPage() {
                         </div>
                       </div>
                       <div className="library-list-item__actions">
-                        <button className="library-list-item__action-btn" title="Download">
-                          <span className="material-icons-outlined">file_download</span>
-                        </button>
                         <BookCardMenu
                           book={item}
                           isRead={percent >= 1}
