@@ -230,7 +230,7 @@ public static class SeoEndpoints
             foreach (var page in listPages)
             {
                 sb.AppendLine("  <url>");
-                sb.AppendLine($"    <loc>{baseUrl}/{lang}/{page}</loc>");
+                sb.AppendLine($"    <loc>{baseUrl}/{lang}/{page}/</loc>");
                 sb.AppendLine($"    <lastmod>{today}</lastmod>");
                 sb.AppendLine("    <changefreq>daily</changefreq>");
                 sb.AppendLine("    <priority>0.8</priority>");
