@@ -74,12 +74,19 @@ export function useTextSelection(
       setTimeout(updateSelection, 10)
     }
 
+    // selectionchange is more reliable on iOS
+    const handleSelectionChange = () => {
+      setTimeout(updateSelection, 10)
+    }
+
     document.addEventListener('mouseup', handlePointerUp)
     document.addEventListener('touchend', handlePointerUp)
+    document.addEventListener('selectionchange', handleSelectionChange)
 
     return () => {
       document.removeEventListener('mouseup', handlePointerUp)
       document.removeEventListener('touchend', handlePointerUp)
+      document.removeEventListener('selectionchange', handleSelectionChange)
     }
   }, [updateSelection])
 
