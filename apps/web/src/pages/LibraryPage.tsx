@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useLibrary } from '../hooks/useLibrary'
 import { useApi } from '../hooks/useApi'
+import { useLanguage } from '../context/LanguageContext'
 import { LocalizedLink } from '../components/LocalizedLink'
 import { SeoHead } from '../components/SeoHead'
 import { Footer } from '../components/Footer'
@@ -23,6 +24,7 @@ export function LibraryPage() {
   const { isAuthenticated, user } = useAuth()
   const { items, loading, remove } = useLibrary()
   const api = useApi()
+  const { language } = useLanguage()
   const [progressMap, setProgressMap] = useState<Record<string, ReadingProgressDto>>({})
   const [activeTab, setActiveTab] = useState<SidebarTab>('saved')
   const [userBooks, setUserBooks] = useState<UserBook[]>([])
@@ -452,7 +454,7 @@ export function LibraryPage() {
                   const progress = userBookProgress[book.id]
                   const percent = progress?.percent ?? 0
                   const destination = isReady
-                    ? (progress?.chapterSlug ? `/en/library/my/${book.id}/read/${progress.chapterSlug}` : `/en/library/my/${book.id}`)
+                    ? (progress?.chapterSlug ? `/${language}/library/my/${book.id}/read/${progress.chapterSlug}` : `/${language}/library/my/${book.id}`)
                     : '#'
                   const coverUrl = getUserBookCoverUrl(book.coverPath)
                   return (
