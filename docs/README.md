@@ -17,6 +17,7 @@ Free book library with Kindle-like reader. EPUB/PDF/FB2 upload, parsing, SEO pag
 | [Local Dev](03-ops/local-dev.md) | Docker, migrations |
 | [Environment Variables](03-ops/environment-variables.md) | Complete env var reference |
 | [Production Deployment](03-ops/deployment.md) | Cloudflare tunnel, nginx, Docker |
+| [E2E Testing Guide](04-dev/e2e-guide.md) | Playwright setup, UI mode, troubleshooting |
 
 ## Core Features
 
