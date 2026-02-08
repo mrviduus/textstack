@@ -28,7 +28,7 @@ pnpm -C apps/web test:watch # Watch mode
 |-------|----------------|------------------|
 | Unit | xUnit, FluentAssertions | Vitest |
 | Integration | WebApplicationFactory + Testcontainers | (not used yet) |
-| E2E | Playwright (planned) | Playwright (planned) |
+| E2E | Playwright ([guide](e2e-guide.md)) | Playwright ([guide](e2e-guide.md)) |
 
 ### Backend Testing
 

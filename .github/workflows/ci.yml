@@ -115,3 +115,71 @@ jobs:
       - name: Stop services
         if: always()
         run: docker compose down
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create .env for CI
+        run: |
+          cat > .env << 'EOF'
+          POSTGRES_USER=app
+          POSTGRES_PASSWORD=changeme
+          POSTGRES_DB=books
+          JWT_SECRET=test-secret-key-for-ci-minimum-32-chars
+          JWT_ISSUER=textstack.app
+          JWT_AUDIENCE=textstack.app
+          GOOGLE_CLIENT_ID=test
+          ASPNETCORE_ENVIRONMENT=Development
+          ENABLE_TEST_AUTH=true
+          ADMIN_EMAIL=admin@textstack.app
+          ADMIN_PASSWORD=admin
+          EOF
+
+      - name: Build & start services
+        run: docker compose up -d --build
+
+      - name: Wait for API health
+        run: |
+          timeout 120 bash -c 'until curl -s http://localhost:8080/health; do sleep 5; done'
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install web dependencies
+        working-directory: apps/web
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        working-directory: apps/web
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Clean stale dist
+        run: rm -rf apps/web/dist
+
+      - name: Run E2E tests
+        working-directory: apps/web
+        run: pnpm test:e2e
+        env:
+          CI: true
+          API_URL: http://localhost:8080
+          BASE_URL: http://localhost:5173
+          ADMIN_URL: http://localhost:81
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: apps/web/e2e/playwright-report/
+          retention-days: 14
+
+      - name: Stop services
+        if: always()
+        run: docker compose down

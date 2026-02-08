@@ -44,6 +44,7 @@ services:
     container_name: textstack_api_prod
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ENABLE_TEST_AUTH: ${ENABLE_TEST_AUTH:-false}
       ConnectionStrings__Default: "Host=db;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
       Storage__RootPath: /storage
       Jwt__SecretKey: ${JWT_SECRET}

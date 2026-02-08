@@ -9,7 +9,9 @@
     "build:ssg": "tsc && vite build && node scripts/prerender.mjs",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:e2e": "playwright test --config e2e/playwright.config.ts",
+    "test:e2e:ui": "playwright test --config e2e/playwright.config.ts --ui"
   },
   "dependencies": {
     "pg": "^8.13.1",
@@ -18,6 +20,7 @@
     "react-router-dom": "^7.0.2"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@prerenderer/renderer-puppeteer": "^1.2.4",
     "@types/node": "^25.2.0",
     "@types/react": "^18.3.12",
