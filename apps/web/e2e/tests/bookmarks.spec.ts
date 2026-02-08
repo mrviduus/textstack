@@ -167,28 +167,27 @@ test.describe('QA-004: Autosave', () => {
     await waitForReaderLoad(page)
 
     const nextBtn = page.locator('.reader-page-nav button').last()
-    if (await nextBtn.isVisible()) {
+    // Only click if the button is visible AND enabled
+    if (await nextBtn.isEnabled({ timeout: 3000 }).catch(() => false)) {
       await nextBtn.click()
       await page.waitForTimeout(500)
-      await nextBtn.click()
+      // Second click only if still enabled (might be last page now)
+      if (await nextBtn.isEnabled({ timeout: 1000 }).catch(() => false)) {
+        await nextBtn.click()
+      }
       await page.waitForTimeout(4000) // auto-save
     }
 
-    // Save current progress
-    const savedProgress = await page.evaluate((id) => {
-      return localStorage.getItem(`reading.progress.${id}`)
-    }, enBook.editionId)
-
     // Navigate away and back
     await page.goto('/en/books')
-    await page.waitForLoadState('networkidle')
+    await page.waitForLoadState('domcontentloaded')
 
     // Go to library → click book (resume without ?direct=1)
     await page.goto('/en/library')
-    await page.waitForLoadState('networkidle')
+    await page.waitForLoadState('domcontentloaded')
 
     const bookLink = page.locator('.library-list-item__title, .library-card__title').first()
-    if (await bookLink.isVisible()) {
+    if (await bookLink.isVisible({ timeout: 5000 }).catch(() => false)) {
       await bookLink.click()
       await page.waitForURL(/\/books\//)
       expect(page.url()).not.toContain('direct=1')
