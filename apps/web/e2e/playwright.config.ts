@@ -48,15 +48,13 @@ export default defineConfig({
     },
   ],
 
-  ...(!isCI && {
-    webServer: [
-      {
-        command: 'pnpm dev',
-        url: baseURL,
-        reuseExistingServer: true,
-      },
-    ],
-  }),
+  webServer: [
+    {
+      command: isCI ? 'pnpm build && pnpm preview --port 5173' : 'pnpm dev',
+      url: baseURL,
+      reuseExistingServer: !isCI,
+    },
+  ],
 })
 
 export { apiURL, adminURL, baseURL }
