@@ -16,6 +16,23 @@ public static class AuthEndpoints
         group.MapPost("/refresh", RefreshToken).WithName("RefreshToken");
         group.MapPost("/logout", Logout).WithName("Logout");
         group.MapGet("/me", GetCurrentUser).WithName("GetCurrentUser");
+
+        if (app.Environment.IsDevelopment()
+            || string.Equals(app.Configuration["ENABLE_TEST_AUTH"], "true", StringComparison.OrdinalIgnoreCase))
+        {
+            group.MapPost("/test-login", TestLogin).WithName("TestLogin");
+        }
+    }
+
+    private static async Task<IResult> TestLogin(
+        [FromBody] TestLoginRequest request,
+        AuthService authService,
+        HttpContext httpContext,
+        CancellationToken ct)
+    {
+        var (user, accessToken, refreshToken) = await authService.TestLoginAsync(request.Email, ct);
+        SetAuthCookies(httpContext, accessToken, refreshToken);
+        return Results.Ok(new AuthResponse(new UserDto(user.Id, user.Email, user.Name, user.Picture, user.CreatedAt)));
     }
 
     private static async Task<IResult> LoginWithGoogle(

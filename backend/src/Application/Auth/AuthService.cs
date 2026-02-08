@@ -27,6 +27,30 @@ public class AuthService
         _googleSettings = googleSettings.Value;
     }
 
+    public async Task<(User user, string accessToken, string refreshToken)> TestLoginAsync(
+        string email,
+        CancellationToken ct)
+    {
+        var user = await _db.Users.FirstOrDefaultAsync(x => x.Email == email, ct);
+        if (user == null)
+        {
+            user = new User
+            {
+                Id = Guid.NewGuid(),
+                Email = email,
+                Name = email.Split('@')[0],
+                GoogleSubject = $"test_{Guid.NewGuid()}",
+                CreatedAt = DateTimeOffset.UtcNow
+            };
+            _db.Users.Add(user);
+            await _db.SaveChangesAsync(ct);
+        }
+
+        var accessToken = GenerateAccessToken(user);
+        var refreshToken = await CreateRefreshTokenAsync(user.Id, ct);
+        return (user, accessToken, refreshToken);
+    }
+
     public async Task<(User user, string accessToken, string refreshToken)?> LoginWithGoogleAsync(
         string googleIdToken,
         CancellationToken ct)
