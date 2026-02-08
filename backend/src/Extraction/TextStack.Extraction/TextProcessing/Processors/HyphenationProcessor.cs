@@ -12,8 +12,9 @@ public class HyphenationProcessor : ITextProcessor
     public string Name => "Hyphenation";
     public int Order => 500;
 
+    private static readonly TimeSpan RegexTimeout = TimeSpan.FromMilliseconds(100);
     private static readonly Lazy<HashSet<string>> Dictionary = new(LoadDictionary);
-    private static readonly Regex HyphenatedWordRegex = new(@"\b([a-zA-Z]+)-([a-zA-Z]+)\b", RegexOptions.Compiled);
+    private static readonly Regex HyphenatedWordRegex = new(@"\b([a-zA-Z]+)-([a-zA-Z]+)\b", RegexOptions.Compiled, RegexTimeout);
 
     public string Process(string input, IProcessingContext context)
     {

@@ -14,6 +14,7 @@ public class SpellingProcessor : ITextProcessor
     public string Name => "Spelling";
     public int Order => 400;
 
+    private static readonly TimeSpan RegexTimeout = TimeSpan.FromMilliseconds(100);
     private static readonly List<CompiledPattern> Patterns;
 
     static SpellingProcessor()
@@ -137,7 +138,7 @@ public class SpellingProcessor : ITextProcessor
         }
 
         return new CompiledPattern(
-            new Regex(regexPattern, RegexOptions.Compiled),
+            new Regex(regexPattern, RegexOptions.Compiled, RegexTimeout),
             replacer
         );
     }
@@ -147,16 +148,16 @@ public class SpellingProcessor : ITextProcessor
         // Minimal fallback patterns
         return
         [
-            new CompiledPattern(new Regex(@"\b&c\.", RegexOptions.Compiled), _ => "etc."),
-            new CompiledPattern(new Regex(@"\b([Cc])onnexion(s?)\b", RegexOptions.Compiled), m => $"{m.Groups[1].Value}onnection{m.Groups[2].Value}"),
-            new CompiledPattern(new Regex(@"\b([Tt])o-day\b", RegexOptions.Compiled), m => $"{m.Groups[1].Value}oday"),
-            new CompiledPattern(new Regex(@"\b([Tt])o-morrow\b", RegexOptions.Compiled), m => $"{m.Groups[1].Value}omorrow"),
-            new CompiledPattern(new Regex(@"\b([Tt])o-night\b", RegexOptions.Compiled), m => $"{m.Groups[1].Value}onight"),
-            new CompiledPattern(new Regex(@"\b([Ss])hew(n|ed|ing|s)?\b", RegexOptions.Compiled), m => $"{m.Groups[1].Value}how{m.Groups[2].Value}"),
-            new CompiledPattern(new Regex(@"\b([Gg])aol(er|s|ed)?\b", RegexOptions.Compiled), m => $"{(char.IsUpper(m.Groups[1].Value[0]) ? 'J' : 'j')}ail{m.Groups[2].Value}"),
-            new CompiledPattern(new Regex(@"\b([Cc])olour(s|ed|ing|ful|less)?\b", RegexOptions.Compiled), m => $"{m.Groups[1].Value}olor{m.Groups[2].Value}"),
-            new CompiledPattern(new Regex(@"\b([Ff])avour(s|ed|ing|able|ite|ites)?\b", RegexOptions.Compiled), m => $"{m.Groups[1].Value}avor{m.Groups[2].Value}"),
-            new CompiledPattern(new Regex(@"\b([Hh])onour(s|ed|ing|able|ary)?\b", RegexOptions.Compiled), m => $"{m.Groups[1].Value}onor{m.Groups[2].Value}")
+            new CompiledPattern(new Regex(@"\b&c\.", RegexOptions.Compiled, RegexTimeout), _ => "etc."),
+            new CompiledPattern(new Regex(@"\b([Cc])onnexion(s?)\b", RegexOptions.Compiled, RegexTimeout), m => $"{m.Groups[1].Value}onnection{m.Groups[2].Value}"),
+            new CompiledPattern(new Regex(@"\b([Tt])o-day\b", RegexOptions.Compiled, RegexTimeout), m => $"{m.Groups[1].Value}oday"),
+            new CompiledPattern(new Regex(@"\b([Tt])o-morrow\b", RegexOptions.Compiled, RegexTimeout), m => $"{m.Groups[1].Value}omorrow"),
+            new CompiledPattern(new Regex(@"\b([Tt])o-night\b", RegexOptions.Compiled, RegexTimeout), m => $"{m.Groups[1].Value}onight"),
+            new CompiledPattern(new Regex(@"\b([Ss])hew(n|ed|ing|s)?\b", RegexOptions.Compiled, RegexTimeout), m => $"{m.Groups[1].Value}how{m.Groups[2].Value}"),
+            new CompiledPattern(new Regex(@"\b([Gg])aol(er|s|ed)?\b", RegexOptions.Compiled, RegexTimeout), m => $"{(char.IsUpper(m.Groups[1].Value[0]) ? 'J' : 'j')}ail{m.Groups[2].Value}"),
+            new CompiledPattern(new Regex(@"\b([Cc])olour(s|ed|ing|ful|less)?\b", RegexOptions.Compiled, RegexTimeout), m => $"{m.Groups[1].Value}olor{m.Groups[2].Value}"),
+            new CompiledPattern(new Regex(@"\b([Ff])avour(s|ed|ing|able|ite|ites)?\b", RegexOptions.Compiled, RegexTimeout), m => $"{m.Groups[1].Value}avor{m.Groups[2].Value}"),
+            new CompiledPattern(new Regex(@"\b([Hh])onour(s|ed|ing|able|ary)?\b", RegexOptions.Compiled, RegexTimeout), m => $"{m.Groups[1].Value}onor{m.Groups[2].Value}")
         ];
     }
 

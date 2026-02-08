@@ -1,12 +1,11 @@
 using System.Net;
-using System.Text;
 using System.Text.RegularExpressions;
 using TextStack.Extraction.TextProcessing.Abstractions;
 
 namespace TextStack.Extraction.TextProcessing.Pipeline;
 
 /// <summary>
-/// Executes processors sequentially.
+/// Executes processors sequentially with timeout protection.
 /// </summary>
 public class ProcessingPipeline : IProcessingPipeline
 {
@@ -24,7 +23,20 @@ public class ProcessingPipeline : IProcessingPipeline
     {
         foreach (var processor in _processors)
         {
-            html = processor.Process(html, context);
+            try
+            {
+                html = processor.Process(html, context);
+            }
+            catch (RegexMatchTimeoutException)
+            {
+                // Regex timed out - skip this processor and continue with unprocessed text
+                // In production, this would be logged
+            }
+            catch
+            {
+                // Catch any other exceptions to prevent pipeline failure
+                // Continue with unprocessed text from this processor
+            }
         }
 
         var plainText = ExtractPlainText(html);
