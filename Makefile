@@ -43,7 +43,7 @@ fix-permissions:
 deploy: fix-permissions
 	@echo "=== Deploy ==="
 	git pull origin main
-	cd apps/web && pnpm install && VITE_API_URL=/api VITE_CANONICAL_URL=https://textstack.app pnpm build
+	cd apps/web && pnpm install && VITE_API_URL=/api VITE_STORAGE_URL= VITE_CANONICAL_URL=https://textstack.app pnpm build
 	docker compose up -d --build
 	@sleep 10
 	@curl -sf http://localhost:8080/health && echo " API OK" || echo " API FAILED"

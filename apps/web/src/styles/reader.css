@@ -196,6 +196,10 @@ html[data-theme="dark"] .reader-main {
     inset 0 -60px 50px -45px rgba(0, 0, 0, 0.5);
 }
 
+.reader-highlights-wrapper {
+  height: 100%;
+}
+
 .reader-content-wrapper {
   height: 100%;
   overflow: hidden;
@@ -224,6 +228,10 @@ html[data-theme="dark"] .reader-main {
     position: static;
     padding: 80px 16px 100px;
     overflow: auto;
+  }
+
+  .reader-highlights-wrapper {
+    height: auto;
   }
 
   .reader-content-wrapper {

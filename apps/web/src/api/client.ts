@@ -1,11 +1,12 @@
 import { fetchJsonWithRetry, type FetchOptions } from '../lib/fetchWithRetry'
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
+const STORAGE_BASE = import.meta.env.VITE_STORAGE_URL || API_BASE
 
 /** Build full URL for storage files (covers, photos) */
 export function getStorageUrl(path: string | null | undefined): string | undefined {
   if (!path) return undefined
-  return `${API_BASE}/storage/${path}`
+  return `${STORAGE_BASE}/storage/${path}`
 }
 
 async function fetchJson<T>(path: string, options?: FetchOptions): Promise<T> {
