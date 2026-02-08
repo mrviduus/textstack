@@ -160,6 +160,9 @@ jobs:
         working-directory: apps/web
         run: pnpm exec playwright install --with-deps chromium
 
+      - name: Clean stale dist
+        run: rm -rf apps/web/dist
+
       - name: Run E2E tests
         working-directory: apps/web
         run: pnpm test:e2e
