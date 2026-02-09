@@ -33,6 +33,7 @@ public class UserIngestionService
     }
 
     private static readonly TimeSpan StuckJobTimeout = TimeSpan.FromMinutes(2);
+    private const int MaxAttempts = 3;
 
     public async Task<UserIngestionJob?> GetNextJobAsync(CancellationToken ct)
     {
@@ -41,8 +42,9 @@ public class UserIngestionService
 
         // Pick up queued jobs or stuck InProgress jobs (crashed worker)
         return await db.UserIngestionJobs
-            .Where(j => j.Status == JobStatus.Queued ||
-                        (j.Status == JobStatus.Processing && j.StartedAt < stuckThreshold))
+            .Where(j => j.AttemptCount < MaxAttempts &&
+                        (j.Status == JobStatus.Queued ||
+                         (j.Status == JobStatus.Processing && j.StartedAt < stuckThreshold)))
             .OrderBy(j => j.CreatedAt)
             .FirstOrDefaultAsync(ct);
     }
@@ -63,6 +65,19 @@ public class UserIngestionService
         }
 
         _logger.LogInformation("Processing user book job {JobId} for book {BookId}", jobId, job.UserBookId);
+
+        if (job.AttemptCount >= MaxAttempts)
+        {
+            _logger.LogWarning("User book job {JobId} exceeded max attempts ({Max}), marking failed", jobId, MaxAttempts);
+            job.Status = JobStatus.Failed;
+            job.FinishedAt = DateTimeOffset.UtcNow;
+            job.Error = "Exceeded max retry attempts";
+            job.UserBook.Status = UserBookStatus.Failed;
+            job.UserBook.ErrorMessage = "Processing failed after multiple attempts. Try re-uploading or use a different file.";
+            job.UserBook.UpdatedAt = DateTimeOffset.UtcNow;
+            await db.SaveChangesAsync(ct);
+            return;
+        }
 
         try
         {
@@ -111,8 +126,18 @@ public class UserIngestionService
 
             if (result.Diagnostics.TextSource == TextSource.None)
             {
-                var warning = result.Diagnostics.Warnings.FirstOrDefault()?.Message ?? "Unsupported format";
-                throw new NotSupportedException(warning);
+                var warning = result.Diagnostics.Warnings.FirstOrDefault();
+                var technicalMsg = warning?.Message ?? "Unsupported format";
+                var friendlyMsg = MapToFriendlyError(warning?.Code);
+
+                job.Status = JobStatus.Failed;
+                job.FinishedAt = DateTimeOffset.UtcNow;
+                job.Error = technicalMsg;
+                job.UserBook.Status = UserBookStatus.Failed;
+                job.UserBook.ErrorMessage = friendlyMsg;
+                job.UserBook.UpdatedAt = DateTimeOffset.UtcNow;
+                await db.SaveChangesAsync(ct);
+                return;
             }
 
             // Save inline images and build path->id map
@@ -204,7 +229,7 @@ public class UserIngestionService
             job.Error = ex.Message;
 
             job.UserBook.Status = UserBookStatus.Failed;
-            job.UserBook.ErrorMessage = ex.Message;
+            job.UserBook.ErrorMessage = "Could not read this file. It may be corrupted or password-protected.";
             job.UserBook.UpdatedAt = DateTimeOffset.UtcNow;
 
             await db.SaveChangesAsync(CancellationToken.None);
@@ -269,6 +294,18 @@ public class UserIngestionService
             _ => ".jpg"
         };
     }
+
+    private static string MapToFriendlyError(ExtractionWarningCode? code) => code switch
+    {
+        ExtractionWarningCode.NoTextLayer =>
+            "This PDF contains only images without text. Try uploading an EPUB or text-based PDF.",
+        ExtractionWarningCode.EmptyContent =>
+            "This file appears to be empty.",
+        ExtractionWarningCode.ParseError =>
+            "Could not read this file. It may be corrupted or password-protected.",
+        _ =>
+            "This file format is not supported."
+    };
 
     private static string SanitizeText(string? text)
         => text?.Replace("\0", "") ?? "";

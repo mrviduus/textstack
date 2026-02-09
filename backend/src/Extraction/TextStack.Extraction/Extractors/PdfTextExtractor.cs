@@ -11,7 +11,7 @@ namespace TextStack.Extraction.Extractors;
 public sealed class PdfTextExtractor : ITextExtractor
 {
     private const int MaxPages = 2000;
-    private const int MinWordThreshold = 100;
+    private const int SampleCount = 10;
 
     public SourceFormat SupportedFormat => SourceFormat.Pdf;
 
@@ -106,23 +106,20 @@ public sealed class PdfTextExtractor : ITextExtractor
         }
         catch { }
 
-        // Check text layer: count total words
+        // Quick text-layer check: sample pages spread across the document
         var totalWords = 0;
-        for (var i = 1; i <= Math.Min(pageCount, 10); i++)
+        var step = Math.Max(1, pageCount / SampleCount);
+        for (var i = 1; i <= pageCount; i += step)
         {
-            try
-            {
-                var page = document.GetPage(i);
-                totalWords += page.GetWords().Count();
-            }
+            try { totalWords += document.GetPage(i).GetWords().Count(); }
             catch { }
         }
 
-        if (totalWords < MinWordThreshold)
+        if (totalWords == 0)
         {
             warnings.Add(new ExtractionWarning(
                 ExtractionWarningCode.NoTextLayer,
-                $"PDF has very few words ({totalWords}), may be image-only"));
+                "PDF has no extractable text (image-only)"));
 
             return new ExtractionResult(
                 SourceFormat.Pdf,
@@ -223,6 +220,20 @@ public sealed class PdfTextExtractor : ITextExtractor
                     ExtractionWarningCode.ChapterParseError,
                     $"Failed to process chapter {chapterNumber}: {ex.Message}"));
             }
+        }
+
+        // No extractable text — likely image-only PDF
+        if (units.Count == 0)
+        {
+            warnings.Add(new ExtractionWarning(
+                ExtractionWarningCode.NoTextLayer,
+                "PDF produced no content units, may be image-only"));
+
+            return new ExtractionResult(
+                SourceFormat.Pdf,
+                new ExtractionMetadata(title, authors, null, description, coverImage, coverMimeType),
+                [], images,
+                new ExtractionDiagnostics(TextSource.None, null, warnings));
         }
 
         // Generate TOC
