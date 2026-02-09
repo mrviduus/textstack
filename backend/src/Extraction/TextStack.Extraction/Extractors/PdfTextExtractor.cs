@@ -90,27 +90,6 @@ public sealed class PdfTextExtractor : ITextExtractor
         var authors = NullIfEmpty(info.Author);
         var description = NullIfEmpty(info.Subject);
 
-        // Extract cover from page 1 early (before word check so image-only PDFs still get a cover)
-        byte[]? coverImage = null;
-        string? coverMimeType = null;
-        try
-        {
-            var firstPage = document.GetPage(1);
-            var (p1Images, _) = ExtractPageImages(firstPage, 1, warnings);
-            var coverImg = p1Images.MaxBy(img => img.Data.Length);
-            if (coverImg != null)
-            {
-                coverImage = coverImg.Data;
-                coverMimeType = coverImg.MimeType;
-            }
-        }
-        catch (Exception ex)
-        {
-            warnings.Add(new ExtractionWarning(
-                ExtractionWarningCode.CoverExtractionFailed,
-                $"Failed to extract cover from page 1: {ex.Message}"));
-        }
-
         // Quick text-layer check: sample pages spread across the document
         var totalWords = 0;
         var step = Math.Max(1, pageCount / SampleCount);
@@ -128,7 +107,7 @@ public sealed class PdfTextExtractor : ITextExtractor
 
             return new ExtractionResult(
                 SourceFormat.Pdf,
-                new ExtractionMetadata(title, authors, null, description, coverImage, coverMimeType),
+                new ExtractionMetadata(title, authors, null, description),
                 [], [],
                 new ExtractionDiagnostics(TextSource.None, null, warnings));
         }
@@ -238,7 +217,7 @@ public sealed class PdfTextExtractor : ITextExtractor
 
             return new ExtractionResult(
                 SourceFormat.Pdf,
-                new ExtractionMetadata(title, authors, null, description, coverImage, coverMimeType),
+                new ExtractionMetadata(title, authors, null, description),
                 [], allImages,
                 new ExtractionDiagnostics(TextSource.None, null, warnings));
         }
@@ -246,7 +225,9 @@ public sealed class PdfTextExtractor : ITextExtractor
         // Generate TOC
         var toc = TocGenerator.GenerateToc(tocChapters);
 
-        // Override cover with largest page-1 image from chapter extraction (may be better quality)
+        // Extract cover from largest page-1 image
+        byte[]? coverImage = null;
+        string? coverMimeType = null;
         try
         {
             var coverImg = allImages

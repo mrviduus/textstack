@@ -43,11 +43,10 @@ public class ImageOnlyPdfTests : IAsyncLifetime
         => Assert.Empty(_result.Units);
 
     [Fact]
-    public void ExtractAsync_ImageOnlyPdf_StillExtractsCover()
+    public void ExtractAsync_ImageOnlyPdf_NoCover()
     {
-        Assert.NotNull(_result.Metadata.CoverImage);
-        Assert.True(_result.Metadata.CoverImage!.Length > 1024);
-        Assert.NotNull(_result.Metadata.CoverMimeType);
+        Assert.Null(_result.Metadata.CoverImage);
+        Assert.Null(_result.Metadata.CoverMimeType);
     }
 
     [Fact]

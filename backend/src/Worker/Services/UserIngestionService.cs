@@ -109,23 +109,6 @@ public class UserIngestionService
 
             job.SourceFormat = result.SourceFormat.ToString();
 
-            // Save cover before text check so image-only PDFs still get a cover
-            if (result.Metadata.CoverImage is { Length: > 0 })
-            {
-                var ext = result.Metadata.CoverMimeType switch
-                {
-                    "image/png" => ".png",
-                    "image/gif" => ".gif",
-                    "image/webp" => ".webp",
-                    _ => ".jpg"
-                };
-
-                using var coverStream = new MemoryStream(result.Metadata.CoverImage);
-                var coverPath = await _storage.SaveUserFileAsync(
-                    job.UserBook.UserId, job.UserBookId, $"cover{ext}", coverStream, ct);
-                job.UserBook.CoverPath = coverPath;
-            }
-
             if (result.Diagnostics.TextSource == TextSource.None)
             {
                 var warning = result.Diagnostics.Warnings.FirstOrDefault();
@@ -152,6 +135,23 @@ public class UserIngestionService
                 job.UserBook.UpdatedAt = DateTimeOffset.UtcNow;
                 await db.SaveChangesAsync(ct);
                 return;
+            }
+
+            // Save cover
+            if (result.Metadata.CoverImage is { Length: > 0 })
+            {
+                var ext = result.Metadata.CoverMimeType switch
+                {
+                    "image/png" => ".png",
+                    "image/gif" => ".gif",
+                    "image/webp" => ".webp",
+                    _ => ".jpg"
+                };
+
+                using var coverStream = new MemoryStream(result.Metadata.CoverImage);
+                var coverPath = await _storage.SaveUserFileAsync(
+                    job.UserBook.UserId, job.UserBookId, $"cover{ext}", coverStream, ct);
+                job.UserBook.CoverPath = coverPath;
             }
 
             // Save inline images and build path->id map
