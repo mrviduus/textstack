@@ -87,7 +87,7 @@ export function UploadSection({ onUploadComplete }: UploadSectionProps) {
         <input
           ref={fileInputRef}
           type="file"
-          accept=".epub"
+          accept=".epub,.pdf"
           onChange={handleFileSelect}
           disabled={isUploading}
           hidden
@@ -111,7 +111,7 @@ export function UploadSection({ onUploadComplete }: UploadSectionProps) {
               <line x1="12" y1="3" x2="12" y2="15" />
             </svg>
             <p className="upload-section__text">
-              Drop EPUB here
+              Drop EPUB or PDF here
             </p>
             <p className="upload-section__subtext">
               or click to browse

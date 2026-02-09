@@ -94,7 +94,8 @@
     "timeMinAgo": "min ago",
     "timeHoursAgo": "hours ago",
     "timeYesterday": "yesterday",
-    "timeDaysAgo": "days ago"
+    "timeDaysAgo": "days ago",
+    "failedToProcess": "Failed to process"
   },
   "books": {
     "title": "Books",

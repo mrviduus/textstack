@@ -94,7 +94,8 @@
     "timeMinAgo": "хв тому",
     "timeHoursAgo": "год тому",
     "timeYesterday": "вчора",
-    "timeDaysAgo": "дн тому"
+    "timeDaysAgo": "дн тому",
+    "failedToProcess": "Не вдалося обробити"
   },
   "books": {
     "title": "Книги",
