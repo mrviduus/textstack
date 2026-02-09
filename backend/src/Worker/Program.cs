@@ -40,8 +40,9 @@ builder.Services.AddPostgresFtsProvider(
     _ => () => new NpgsqlConnection(connectionString),
     options => options.ConnectionString = connectionString);
 
-// Extraction (EPUB-only)
+// Extraction
 builder.Services.AddSingleton<ITextExtractor, EpubTextExtractor>();
+builder.Services.AddSingleton<ITextExtractor, PdfTextExtractor>();
 builder.Services.AddSingleton<IExtractorRegistry, ExtractorRegistry>();
 
 // Application services (for ISsgRouteProvider, etc.)

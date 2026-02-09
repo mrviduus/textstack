@@ -3,5 +3,6 @@ namespace TextStack.Extraction.Enums;
 public enum SourceFormat
 {
     Unknown = 0,
-    Epub = 1
+    Epub = 1,
+    Pdf = 2
 }
