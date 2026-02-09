@@ -66,6 +66,8 @@ public class UserIngestionService
 
         _logger.LogInformation("Processing user book job {JobId} for book {BookId}", jobId, job.UserBookId);
 
+        // Safety net: GetNextJobAsync already filters AttemptCount < MaxAttempts,
+        // but guard here in case of race conditions or direct calls
         if (job.AttemptCount >= MaxAttempts)
         {
             _logger.LogWarning("User book job {JobId} exceeded max attempts ({Max}), marking failed", jobId, MaxAttempts);
@@ -135,6 +137,18 @@ public class UserIngestionService
                 job.Error = technicalMsg;
                 job.UserBook.Status = UserBookStatus.Failed;
                 job.UserBook.ErrorMessage = friendlyMsg;
+                job.UserBook.UpdatedAt = DateTimeOffset.UtcNow;
+                await db.SaveChangesAsync(ct);
+                return;
+            }
+
+            if (result.Units.Count == 0)
+            {
+                job.Status = JobStatus.Failed;
+                job.FinishedAt = DateTimeOffset.UtcNow;
+                job.Error = "No readable content extracted";
+                job.UserBook.Status = UserBookStatus.Failed;
+                job.UserBook.ErrorMessage = "Could not extract any readable content from this file.";
                 job.UserBook.UpdatedAt = DateTimeOffset.UtcNow;
                 await db.SaveChangesAsync(ct);
                 return;
@@ -298,7 +312,7 @@ public class UserIngestionService
     private static string MapToFriendlyError(ExtractionWarningCode? code) => code switch
     {
         ExtractionWarningCode.NoTextLayer =>
-            "This PDF contains only images without text. Try uploading an EPUB or text-based PDF.",
+            "This file contains only images without extractable text.",
         ExtractionWarningCode.EmptyContent =>
             "This file appears to be empty.",
         ExtractionWarningCode.ParseError =>

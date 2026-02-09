@@ -13,6 +13,7 @@ namespace TextStack.Extraction.Extractors.Pdf;
 public static class PdfChapterDetector
 {
     private const int PageSplitSize = 15;
+    private const int HeadingScanMaxPages = 100;
 
     private static readonly Regex ChapterPattern = new(
         @"^(chapter|глава|розділ|part|частина|часть)\s+(\d+|[IVXLCDM]+)",
@@ -89,8 +90,7 @@ public static class PdfChapterDetector
         {
             var chapterStarts = new List<(string Title, int PageNumber)>();
 
-            // Only scan first 100 pages for heading patterns to avoid slow perf
-            var scanLimit = Math.Min(pageCount, 100);
+            var scanLimit = Math.Min(pageCount, HeadingScanMaxPages);
 
             for (var i = 1; i <= scanLimit; i++)
             {

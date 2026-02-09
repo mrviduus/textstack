@@ -64,7 +64,7 @@ public static class PdfFixtureGenerator
 
             if (i == 1)
             {
-                var imgPlacement = page.AddJpeg(jpegBytes,
+                page.AddJpeg(jpegBytes,
                     new UglyToad.PdfPig.Core.PdfRectangle(72, 400, 300, 650));
             }
         }

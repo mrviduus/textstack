@@ -41,8 +41,7 @@ public class PdfChapterDetectorTests
     public void DetectChapters_WithSamplePdf_ReturnsChapters()
     {
         var fixturePath = Path.Combine(AppContext.BaseDirectory, "Fixtures", "sample_textlayer.pdf");
-        if (!File.Exists(fixturePath))
-            return; // skip if fixture missing
+        Assert.SkipWhen(!File.Exists(fixturePath), "sample_textlayer.pdf fixture not present");
 
         using var doc = PdfDocument.Open(fixturePath);
         var chapters = PdfChapterDetector.DetectChapters(doc);

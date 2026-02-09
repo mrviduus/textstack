@@ -12,6 +12,9 @@ public static class PdfPageTextExtractor
 {
     private const double LineYTolerance = 3.0;
     private const double ParagraphGapMultiplier = 1.5;
+    private const double HeadingFontRatio = 0.9;
+    private const double MinHeadingFontDifference = 1.5;
+    private const int MaxHeadingTextLength = 200;
 
     public static List<PdfTextElement> ExtractPage(Page page)
     {
@@ -23,8 +26,15 @@ public static class PdfPageTextExtractor
         var blocks = RecursiveXYCut.Instance.GetBlocks(words);
 
         // Determine heading font size threshold: largest font on page
-        var maxFontSize = words.Max(w => w.Letters.Count > 0 ? w.Letters.Max(l => l.FontSize) : 0);
-        var headingThreshold = maxFontSize * 0.9;
+        var allFontSizes = words
+            .SelectMany(w => w.Letters)
+            .Select(l => l.FontSize)
+            .ToList();
+        var maxFontSize = allFontSizes.Count > 0 ? allFontSizes.Max() : 0;
+        var avgFontSizeAll = allFontSizes.Count > 0 ? allFontSizes.Average() : 0;
+        // Only detect headings if the largest font is meaningfully bigger than average
+        var hasDistinctHeadingFont = maxFontSize - avgFontSizeAll >= MinHeadingFontDifference;
+        var headingThreshold = maxFontSize * HeadingFontRatio;
 
         var elements = new List<PdfTextElement>();
 
@@ -66,7 +76,7 @@ public static class PdfPageTextExtractor
                     .DefaultIfEmpty(0)
                     .Average();
 
-                var isHeading = avgFontSize >= headingThreshold && text.Length < 200;
+                var isHeading = hasDistinctHeadingFont && avgFontSize >= headingThreshold && text.Length < MaxHeadingTextLength;
 
                 var yPosition = allWords
                     .Select(w => w.BoundingBox.Bottom)

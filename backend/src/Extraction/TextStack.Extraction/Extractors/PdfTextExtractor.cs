@@ -12,6 +12,7 @@ public sealed class PdfTextExtractor : ITextExtractor
 {
     private const int MaxPages = 2000;
     private const int SampleCount = 10;
+    private const int MinInlineImageBytes = 2048;
 
     public SourceFormat SupportedFormat => SourceFormat.Pdf;
 
@@ -95,8 +96,7 @@ public sealed class PdfTextExtractor : ITextExtractor
         try
         {
             var firstPage = document.GetPage(1);
-            var p1Images = new List<ExtractedImage>();
-            ExtractPageImages(firstPage, 1, p1Images, warnings);
+            var (p1Images, _) = ExtractPageImages(firstPage, 1, warnings);
             var coverImg = p1Images.MaxBy(img => img.Data.Length);
             if (coverImg != null)
             {
@@ -104,7 +104,12 @@ public sealed class PdfTextExtractor : ITextExtractor
                 coverMimeType = coverImg.MimeType;
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            warnings.Add(new ExtractionWarning(
+                ExtractionWarningCode.CoverExtractionFailed,
+                $"Failed to extract cover from page 1: {ex.Message}"));
+        }
 
         // Quick text-layer check: sample pages spread across the document
         var totalWords = 0;
@@ -112,7 +117,7 @@ public sealed class PdfTextExtractor : ITextExtractor
         for (var i = 1; i <= pageCount; i += step)
         {
             try { totalWords += document.GetPage(i).GetWords().Count(); }
-            catch { }
+            catch { /* sampling — safe to skip unreadable pages */ }
         }
 
         if (totalWords == 0)
@@ -134,7 +139,7 @@ public sealed class PdfTextExtractor : ITextExtractor
         // Extract content per chapter
         var units = new List<ContentUnit>();
         var tocChapters = new List<(int ChapterNumber, string Html)>();
-        var images = new List<ExtractedImage>();
+        var allImages = new List<ExtractedImage>();
 
         for (var chapterIdx = 0; chapterIdx < chapters.Count; chapterIdx++)
         {
@@ -156,8 +161,10 @@ public sealed class PdfTextExtractor : ITextExtractor
                         var textElements = PdfPageTextExtractor.ExtractPage(page);
 
                         // Extract images and create inline elements
-                        var pageImages = ExtractPageImages(page, p, images, warnings);
-                        var imageElements = pageImages
+                        var (pageImages, inlinePositions) = ExtractPageImages(page, p, warnings);
+                        allImages.AddRange(pageImages);
+
+                        var imageElements = inlinePositions
                             .Select(pi => new PdfTextElement(
                                 TextElementType.Image, pi.Path, false, false, pi.YPosition))
                             .ToList();
@@ -197,7 +204,7 @@ public sealed class PdfTextExtractor : ITextExtractor
                         continue;
                     }
                 }
-                catch { }
+                catch { /* piracy detection is optional, same as EPUB */ }
 
                 // Inject anchor IDs
                 html = TocGenerator.InjectAnchorIds(html, chapterNumber);
@@ -232,7 +239,7 @@ public sealed class PdfTextExtractor : ITextExtractor
             return new ExtractionResult(
                 SourceFormat.Pdf,
                 new ExtractionMetadata(title, authors, null, description, coverImage, coverMimeType),
-                [], images,
+                [], allImages,
                 new ExtractionDiagnostics(TextSource.None, null, warnings));
         }
 
@@ -242,30 +249,39 @@ public sealed class PdfTextExtractor : ITextExtractor
         // Override cover with largest page-1 image from chapter extraction (may be better quality)
         try
         {
-            var coverImg = images
+            var coverImg = allImages
                 .Where(img => img.OriginalPath.StartsWith("page-1-"))
                 .MaxBy(img => img.Data.Length);
             if (coverImg != null)
             {
                 coverImage = coverImg.Data;
                 coverMimeType = coverImg.MimeType;
-                var idx = images.IndexOf(coverImg);
-                images[idx] = coverImg with { IsCover = true };
+                var idx = allImages.IndexOf(coverImg);
+                allImages[idx] = coverImg with { IsCover = true };
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            warnings.Add(new ExtractionWarning(
+                ExtractionWarningCode.CoverExtractionFailed,
+                $"Failed to select cover image: {ex.Message}"));
+        }
 
         var metadata = new ExtractionMetadata(title, authors, null, description, coverImage, coverMimeType);
         var diagnostics = new ExtractionDiagnostics(TextSource.NativeText, null, warnings);
 
-        return new ExtractionResult(SourceFormat.Pdf, metadata, units, images, diagnostics, toc);
+        return new ExtractionResult(SourceFormat.Pdf, metadata, units, allImages, diagnostics, toc);
     }
 
-    private static List<(string Path, double YPosition)> ExtractPageImages(
-        UglyToad.PdfPig.Content.Page page, int pageNumber,
-        List<ExtractedImage> images, List<ExtractionWarning> warnings)
+    /// <summary>
+    /// Extracts images from a PDF page.
+    /// Returns (all extracted images, inline positions for images above size threshold).
+    /// </summary>
+    private static (List<ExtractedImage> Images, List<(string Path, double YPosition)> InlinePositions)
+        ExtractPageImages(UglyToad.PdfPig.Content.Page page, int pageNumber, List<ExtractionWarning> warnings)
     {
-        var result = new List<(string Path, double YPosition)>();
+        var extractedImages = new List<ExtractedImage>();
+        var inlinePositions = new List<(string Path, double YPosition)>();
         try
         {
             var pageImages = page.GetImages().ToList();
@@ -301,15 +317,14 @@ public sealed class PdfTextExtractor : ITextExtractor
                     var path = $"page-{pageNumber}-img-{i}";
                     var yPosition = img.Bounds.Top;
 
-                    images.Add(new ExtractedImage(
+                    extractedImages.Add(new ExtractedImage(
                         OriginalPath: path,
                         Data: imageData,
                         MimeType: mimeType,
                         IsCover: false));
 
-                    // Only inline images > 2KB (skip tiny decorative elements)
-                    if (imageData.Length >= 2048)
-                        result.Add((path, yPosition));
+                    if (imageData.Length >= MinInlineImageBytes)
+                        inlinePositions.Add((path, yPosition));
                 }
                 catch (Exception ex)
                 {
@@ -319,8 +334,13 @@ public sealed class PdfTextExtractor : ITextExtractor
                 }
             }
         }
-        catch { }
-        return result;
+        catch (Exception ex)
+        {
+            warnings.Add(new ExtractionWarning(
+                ExtractionWarningCode.CoverExtractionFailed,
+                $"Failed to enumerate images on page {pageNumber}: {ex.Message}"));
+        }
+        return (extractedImages, inlinePositions);
     }
 
     private static bool IsRecognizedImage(byte[] data)
@@ -333,6 +353,16 @@ public sealed class PdfTextExtractor : ITextExtractor
 
         // PNG: 89 50 4E 47
         if (data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47)
+            return true;
+
+        // GIF: 47 49 46 38
+        if (data[0] == 0x47 && data[1] == 0x49 && data[2] == 0x46 && data[3] == 0x38)
+            return true;
+
+        // WebP: 52 49 46 46 ... 57 45 42 50
+        if (data.Length >= 12 &&
+            data[0] == 0x52 && data[1] == 0x49 && data[2] == 0x46 && data[3] == 0x46 &&
+            data[8] == 0x57 && data[9] == 0x45 && data[10] == 0x42 && data[11] == 0x50)
             return true;
 
         return false;
