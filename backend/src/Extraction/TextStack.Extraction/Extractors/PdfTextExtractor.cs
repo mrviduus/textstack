@@ -89,6 +89,23 @@ public sealed class PdfTextExtractor : ITextExtractor
         var authors = NullIfEmpty(info.Author);
         var description = NullIfEmpty(info.Subject);
 
+        // Extract cover from page 1 early (before word check so image-only PDFs still get a cover)
+        byte[]? coverImage = null;
+        string? coverMimeType = null;
+        try
+        {
+            var firstPage = document.GetPage(1);
+            var p1Images = new List<ExtractedImage>();
+            ExtractPageImages(firstPage, 1, p1Images, warnings);
+            var coverImg = p1Images.MaxBy(img => img.Data.Length);
+            if (coverImg != null)
+            {
+                coverImage = coverImg.Data;
+                coverMimeType = coverImg.MimeType;
+            }
+        }
+        catch { }
+
         // Check text layer: count total words
         var totalWords = 0;
         for (var i = 1; i <= Math.Min(pageCount, 10); i++)
@@ -109,7 +126,7 @@ public sealed class PdfTextExtractor : ITextExtractor
 
             return new ExtractionResult(
                 SourceFormat.Pdf,
-                new ExtractionMetadata(title, authors, null, description),
+                new ExtractionMetadata(title, authors, null, description, coverImage, coverMimeType),
                 [], [],
                 new ExtractionDiagnostics(TextSource.None, null, warnings));
         }
@@ -211,9 +228,7 @@ public sealed class PdfTextExtractor : ITextExtractor
         // Generate TOC
         var toc = TocGenerator.GenerateToc(tocChapters);
 
-        // Extract cover (largest image on page 1)
-        byte[]? coverImage = null;
-        string? coverMimeType = null;
+        // Override cover with largest page-1 image from chapter extraction (may be better quality)
         try
         {
             var coverImg = images
@@ -223,7 +238,6 @@ public sealed class PdfTextExtractor : ITextExtractor
             {
                 coverImage = coverImg.Data;
                 coverMimeType = coverImg.MimeType;
-                // Mark it as cover
                 var idx = images.IndexOf(coverImg);
                 images[idx] = coverImg with { IsCover = true };
             }

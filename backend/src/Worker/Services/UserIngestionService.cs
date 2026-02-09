@@ -92,13 +92,7 @@ public class UserIngestionService
 
             job.SourceFormat = result.SourceFormat.ToString();
 
-            if (result.Diagnostics.TextSource == TextSource.None)
-            {
-                var warning = result.Diagnostics.Warnings.FirstOrDefault()?.Message ?? "Unsupported format";
-                throw new NotSupportedException(warning);
-            }
-
-            // Save cover if present
+            // Save cover before text check so image-only PDFs still get a cover
             if (result.Metadata.CoverImage is { Length: > 0 })
             {
                 var ext = result.Metadata.CoverMimeType switch
@@ -113,6 +107,12 @@ public class UserIngestionService
                 var coverPath = await _storage.SaveUserFileAsync(
                     job.UserBook.UserId, job.UserBookId, $"cover{ext}", coverStream, ct);
                 job.UserBook.CoverPath = coverPath;
+            }
+
+            if (result.Diagnostics.TextSource == TextSource.None)
+            {
+                var warning = result.Diagnostics.Warnings.FirstOrDefault()?.Message ?? "Unsupported format";
+                throw new NotSupportedException(warning);
             }
 
             // Save inline images and build path->id map
