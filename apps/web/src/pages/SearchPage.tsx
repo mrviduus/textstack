@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useApi } from '../hooks/useApi'
 import { getStorageUrl } from '../api/client'
-import { useLanguage } from '../context/LanguageContext'
+import { useTranslation } from '../hooks/useTranslation'
 import { LocalizedLink } from '../components/LocalizedLink'
 import { SeoHead } from '../components/SeoHead'
 import { Footer } from '../components/Footer'
@@ -14,7 +14,7 @@ export function SearchPage() {
   const [searchParams] = useSearchParams()
   const query = searchParams.get('q') || ''
   const api = useApi()
-  const { language } = useLanguage()
+  const { t } = useTranslation()
 
   const [results, setResults] = useState<SearchResult[]>([])
   const [total, setTotal] = useState(0)
@@ -56,16 +56,14 @@ export function SearchPage() {
     return <span dangerouslySetInnerHTML={{ __html: html }} />
   }
 
-  const title = language === 'uk' ? 'Пошук' : 'Search'
-
   if (!query) {
     return (
       <>
       <div className="search-page">
-        <SeoHead title={title} noindex />
-        <h1>{title}</h1>
+        <SeoHead title={t('search.title')} noindex />
+        <h1>{t('search.title')}</h1>
         <p className="search-page__empty">
-          {language === 'uk' ? 'Введіть запит для пошуку' : 'Enter a search query'}
+          {t('search.enterQuery')}
         </p>
       </div>
       <Footer />
@@ -76,8 +74,8 @@ export function SearchPage() {
   return (
     <>
     <div className="search-page">
-      <SeoHead title={`${title}: ${query}`} noindex />
-      <h1>{title}: "{query}"</h1>
+      <SeoHead title={`${t('search.title')}: ${query}`} noindex />
+      <h1>{t('search.title')}: "{query}"</h1>
 
       {loading ? (
         <div className="search-page__results">
@@ -95,14 +93,12 @@ export function SearchPage() {
         <p className="error">Error: {error}</p>
       ) : results.length === 0 ? (
         <p className="search-page__empty">
-          {language === 'uk' ? 'Нічого не знайдено' : 'No results found'}
+          {t('search.noResults')}
         </p>
       ) : (
         <>
           <p className="search-page__count">
-            {language === 'uk'
-              ? `Знайдено ${total} результатів`
-              : `Found ${total} results`}
+            {t('search.foundResults').replace('{total}', String(total))}
           </p>
 
           <div className="search-page__results">
@@ -111,14 +107,14 @@ export function SearchPage() {
                 key={result.chapterId}
                 to={`/books/${result.edition.slug}`}
                 className="search-page__result"
-                title={`Read ${result.edition.title} online`}
+                title={t('search.readOnline').replace('{title}', result.edition.title)}
               >
                 <div
                   className="search-page__result-cover"
                   style={{ backgroundColor: result.edition.coverPath ? undefined : '#e0e0e0' }}
                 >
                   {result.edition.coverPath ? (
-                    <img src={getStorageUrl(result.edition.coverPath)} alt={result.edition.title} title={`${result.edition.title} - Read online free`} />
+                    <img src={getStorageUrl(result.edition.coverPath)} alt={result.edition.title} title={t('search.readOnlineFree').replace('{title}', result.edition.title)} />
                   ) : (
                     <span>{result.edition.title?.[0] || '?'}</span>
                   )}
@@ -126,7 +122,7 @@ export function SearchPage() {
                 <div className="search-page__result-info">
                   <h3 className="search-page__result-title">{result.edition.title}</h3>
                   <p className="search-page__result-chapter">
-                    {result.chapterTitle || `Chapter ${result.chapterNumber}`}
+                    {result.chapterTitle || `${t('search.chapter')} ${result.chapterNumber}`}
                   </p>
                   {result.edition.authors && (
                     <p className="search-page__result-author">
@@ -154,19 +150,17 @@ export function SearchPage() {
                 disabled={page === 1}
                 className="search-page__pagination-btn"
               >
-                {language === 'uk' ? '← Назад' : '← Previous'}
+                {t('search.previous')}
               </button>
               <span className="search-page__pagination-info">
-                {language === 'uk'
-                  ? `Сторінка ${page} з ${totalPages}`
-                  : `Page ${page} of ${totalPages}`}
+                {t('search.page').replace('{page}', String(page)).replace('{total}', String(totalPages))}
               </span>
               <button
                 onClick={() => setPage(p => Math.min(totalPages, p + 1))}
                 disabled={page === totalPages}
                 className="search-page__pagination-btn"
               >
-                {language === 'uk' ? 'Далі →' : 'Next →'}
+                {t('search.next')}
               </button>
             </div>
           )}

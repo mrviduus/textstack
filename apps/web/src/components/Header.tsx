@@ -7,30 +7,32 @@ import { UserMenu } from './auth/UserMenu'
 import { useAuth } from '../context/AuthContext'
 import { useScrolled } from '../hooks/useScrolled'
 import { useDarkMode } from '../hooks/useDarkMode'
+import { useTranslation } from '../hooks/useTranslation'
 
 export function Header() {
   const [searchOpen, setSearchOpen] = useState(false)
   const { isAuthenticated, isLoading } = useAuth()
   const isScrolled = useScrolled(50)
   const { isDark, toggleTheme } = useDarkMode()
+  const { t } = useTranslation()
 
   return (
     <header className={`site-header ${isScrolled ? 'site-header--scrolled' : ''}`}>
       <div className="site-header__left">
-        <LocalizedLink to="/" className="site-header__brand" title="TextStack - Free online library">
+        <LocalizedLink to="/" className="site-header__brand" title={t('nav.brandTitle')}>
           <span className="site-header__wordmark">TextStack</span>
         </LocalizedLink>
         <nav className="site-header__nav-links">
-          <LocalizedLink to="/books" className="site-header__nav-link" title="Browse all books">
-            Catalog
+          <LocalizedLink to="/books" className="site-header__nav-link" title={t('nav.browseBooks')}>
+            {t('nav.catalog')}
           </LocalizedLink>
           {isAuthenticated && (
-            <LocalizedLink to="/library" className="site-header__nav-link" title="My Library">
-              My Library
+            <LocalizedLink to="/library" className="site-header__nav-link" title={t('nav.library')}>
+              {t('nav.library')}
             </LocalizedLink>
           )}
-          <LocalizedLink to="/about" className="site-header__nav-link" title="About TextStack">
-            About
+          <LocalizedLink to="/about" className="site-header__nav-link" title={t('nav.aboutTextStack')}>
+            {t('nav.about')}
           </LocalizedLink>
         </nav>
       </div>

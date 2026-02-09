@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { useLibrary } from '../hooks/useLibrary'
 import { useApi } from '../hooks/useApi'
 import { useLanguage } from '../context/LanguageContext'
+import { useTranslation } from '../hooks/useTranslation'
 import { LocalizedLink } from '../components/LocalizedLink'
 import { SeoHead } from '../components/SeoHead'
 import { Footer } from '../components/Footer'
@@ -25,6 +26,7 @@ export function LibraryPage() {
   const { items, loading, remove } = useLibrary()
   const api = useApi()
   const { language } = useLanguage()
+  const { t } = useTranslation()
   const [progressMap, setProgressMap] = useState<Record<string, ReadingProgressDto>>({})
   const [activeTab, setActiveTab] = useState<SidebarTab>('saved')
   const [userBooks, setUserBooks] = useState<UserBook[]>([])
@@ -149,19 +151,19 @@ export function LibraryPage() {
   })
 
   const sortLabels: Record<SortOption, string> = {
-    recent: 'Recently Added',
-    title: 'Title',
-    progress: 'Progress'
+    recent: t('library.sortRecent'),
+    title: t('library.sortTitle'),
+    progress: t('library.sortProgress')
   }
 
   if (!isAuthenticated) {
     return (
       <>
       <div className="library-page">
-        <SeoHead title="My Library" noindex />
+        <SeoHead title={t('library.title')} noindex />
         <div className="library-page__empty">
-          <h1>My Library</h1>
-          <p>Sign in to save books to your library and track your reading progress.</p>
+          <h1>{t('library.title')}</h1>
+          <p>{t('library.signInPrompt')}</p>
         </div>
       </div>
       <Footer />
@@ -172,7 +174,7 @@ export function LibraryPage() {
   return (
     <>
     <div className="library-page library-page--stitch">
-      <SeoHead title="My Library" noindex />
+      <SeoHead title={t('library.title')} noindex />
 
       {/* Sidebar */}
       <aside className="library-sidebar">
@@ -182,7 +184,7 @@ export function LibraryPage() {
             onClick={() => setActiveTab('saved')}
           >
             <span className="material-icons-outlined">book</span>
-            <span>Saved</span>
+            <span>{t('library.saved')}</span>
             {items.length > 0 && <span className="library-sidebar__count">{items.length}</span>}
           </button>
           <button
@@ -190,7 +192,7 @@ export function LibraryPage() {
             onClick={() => setActiveTab('uploads')}
           >
             <span className="material-icons-outlined">file_upload</span>
-            <span>Uploads</span>
+            <span>{t('library.uploads')}</span>
             {userBooks.length > 0 && <span className="library-sidebar__count">{userBooks.length}</span>}
           </button>
         </div>
@@ -199,7 +201,7 @@ export function LibraryPage() {
       {/* Main Content */}
       <main className="library-main">
         <header className="library-header">
-          <h1 className="library-header__title">My Library</h1>
+          <h1 className="library-header__title">{t('library.title')}</h1>
           {user && <p className="library-header__email">{user.email}</p>}
         </header>
 
@@ -213,7 +215,7 @@ export function LibraryPage() {
                     className="library-sort__trigger"
                     onClick={() => setShowSortMenu(!showSortMenu)}
                   >
-                    Sort by: {sortLabels[sortBy]}
+                    {t('library.sortBy')}: {sortLabels[sortBy]}
                     <span className="material-icons-outlined">expand_more</span>
                   </button>
                   {showSortMenu && (
@@ -253,12 +255,12 @@ export function LibraryPage() {
             </div>
 
             {loading ? (
-              <div className="library-page__loading">Loading...</div>
+              <div className="library-page__loading">{t('library.loading')}</div>
             ) : sortedItems.length === 0 ? (
               <div className="library-page__empty">
-                <p>Your library is empty.</p>
-                <LocalizedLink to="/books" className="library-page__browse-btn" title="Browse all books">
-                  Browse Books
+                <p>{t('library.emptyLibrary')}</p>
+                <LocalizedLink to="/books" className="library-page__browse-btn" title={t('nav.browseBooks')}>
+                  {t('library.browseBooks')}
                 </LocalizedLink>
               </div>
             ) : viewMode === 'list' ? (
@@ -291,7 +293,7 @@ export function LibraryPage() {
                         {/* Progress bar */}
                         <div className="library-list-item__progress">
                           <div className="library-list-item__progress-header">
-                            <span>Reading Progress</span>
+                            <span>{t('library.readingProgress')}</span>
                             <span className="library-list-item__progress-percent">{Math.round(percent * 100)}%</span>
                           </div>
                           <div className="library-list-item__progress-bar">
@@ -306,7 +308,7 @@ export function LibraryPage() {
                           {progress?.updatedAt && (
                             <span className="library-list-item__info-item">
                               <span className="material-icons-outlined">schedule</span>
-                              Last read {formatTimeAgo(progress.updatedAt)}
+                              {t('library.lastRead')} {formatTimeAgo(progress.updatedAt, t)}
                             </span>
                           )}
                           <OfflineBadge editionId={item.editionId} />
@@ -363,7 +365,7 @@ export function LibraryPage() {
                           <div className="library-card__meta">
                             {percent > 0 && (
                               <span className="library-card__progress-text">
-                                {Math.round(percent * 100)}% read
+                                {Math.round(percent * 100)}% {t('library.read')}
                               </span>
                             )}
                             <OfflineBadge editionId={item.editionId} />
@@ -399,7 +401,7 @@ export function LibraryPage() {
                     className="library-sort__trigger"
                     onClick={() => setShowSortMenu(!showSortMenu)}
                   >
-                    Sort by: {sortLabels[sortBy]}
+                    {t('library.sortBy')}: {sortLabels[sortBy]}
                     <span className="material-icons-outlined">expand_more</span>
                   </button>
                   {showSortMenu && (
@@ -439,12 +441,12 @@ export function LibraryPage() {
             </div>
 
             {userBooksLoading && userBooks.length === 0 ? (
-              <div className="library-page__loading">Loading...</div>
+              <div className="library-page__loading">{t('library.loading')}</div>
             ) : userBooks.length === 0 ? (
               <div className="library-page__empty">
-                <p>No uploaded books yet.</p>
+                <p>{t('library.noUploads')}</p>
                 <p className="library-page__empty-hint">
-                  Click the + button to upload EPUB files.
+                  {t('library.uploadHint')}
                 </p>
               </div>
             ) : viewMode === 'list' ? (
@@ -505,7 +507,7 @@ export function LibraryPage() {
                         {isReady && (
                           <div className="library-list-item__progress">
                             <div className="library-list-item__progress-header">
-                              <span>Reading Progress</span>
+                              <span>{t('library.readingProgress')}</span>
                               <span className="library-list-item__progress-percent">{Math.round(percent * 100)}%</span>
                             </div>
                             <div className="library-list-item__progress-bar">
@@ -520,25 +522,25 @@ export function LibraryPage() {
                         <div className="library-list-item__info">
                           {book.chapterCount > 0 && (
                             <span className="library-list-item__info-item">
-                              {book.chapterCount} chapters
+                              {book.chapterCount} {t('library.chapters')}
                             </span>
                           )}
                           {isReady && progress?.updatedAt && (
                             <span className="library-list-item__info-item">
                               <span className="material-icons-outlined">schedule</span>
-                              Last read {formatTimeAgo(progress.updatedAt)}
+                              {t('library.lastRead')} {formatTimeAgo(progress.updatedAt, t)}
                             </span>
                           )}
                           {book.status === 'Processing' && (
                             <span className="library-list-item__info-item library-list-item__info-item--processing">
                               <span className="material-icons-outlined">sync</span>
-                              Processing...
+                              {t('library.processing')}
                             </span>
                           )}
                           {book.status === 'Failed' && (
                             <span className="library-list-item__info-item library-list-item__info-item--error">
                               <span className="material-icons-outlined">error</span>
-                              Failed
+                              {t('library.failed')}
                             </span>
                           )}
                         </div>
@@ -580,7 +582,7 @@ export function LibraryPage() {
   )
 }
 
-function formatTimeAgo(dateStr: string): string {
+function formatTimeAgo(dateStr: string, t: (key: string) => string): string {
   const date = new Date(dateStr)
   const now = new Date()
   const diffMs = now.getTime() - date.getTime()
@@ -588,10 +590,10 @@ function formatTimeAgo(dateStr: string): string {
   const diffHours = Math.floor(diffMins / 60)
   const diffDays = Math.floor(diffHours / 24)
 
-  if (diffMins < 1) return 'just now'
-  if (diffMins < 60) return `${diffMins} min ago`
-  if (diffHours < 24) return `${diffHours} hours ago`
-  if (diffDays === 1) return 'yesterday'
-  if (diffDays < 7) return `${diffDays} days ago`
+  if (diffMins < 1) return t('library.timeJustNow')
+  if (diffMins < 60) return `${diffMins} ${t('library.timeMinAgo')}`
+  if (diffHours < 24) return `${diffHours} ${t('library.timeHoursAgo')}`
+  if (diffDays === 1) return t('library.timeYesterday')
+  if (diffDays < 7) return `${diffDays} ${t('library.timeDaysAgo')}`
   return date.toLocaleDateString()
 }

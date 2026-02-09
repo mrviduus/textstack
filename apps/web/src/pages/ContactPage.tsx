@@ -1,24 +1,26 @@
 import { SeoHead } from '../components/SeoHead'
 import { Footer } from '../components/Footer'
+import { useTranslation } from '../hooks/useTranslation'
 import './LegalPage.css'
 
 export function ContactPage() {
+  const { t } = useTranslation()
+
   return (
     <>
       <div className="legal-page">
       <SeoHead
-        title="Contact Us - TextStack"
-        description="Get in touch with TextStack. We'd love to hear your feedback, questions, or content requests."
+        title={t('contact.seoTitle')}
+        description={t('contact.seoDesc')}
       />
 
       <header className="legal-page__header">
-        <h1 className="legal-page__title">Contact Us</h1>
+        <h1 className="legal-page__title">{t('contact.title')}</h1>
         <div className="legal-page__accent-bar" />
       </header>
 
       <p className="legal-page__intro">
-        We'd love to hear from you. Whether it's feedback, a question, or a book
-        request — drop us a line.
+        {t('contact.intro')}
       </p>
 
       <div className="legal-page__contact-card">
@@ -29,23 +31,19 @@ export function ContactPage() {
       </div>
 
       <section className="legal-page__section">
-        <h2>What to Reach Out About</h2>
+        <h2>{t('contact.reachOutHeading')}</h2>
         <ul>
-          <li>Bug reports or technical issues</li>
-          <li>Feedback on the reading experience</li>
-          <li>Book or author requests</li>
-          <li>Questions about the platform</li>
-          <li>Partnership or collaboration ideas</li>
+          <li>{t('contact.reachOut1')}</li>
+          <li>{t('contact.reachOut2')}</li>
+          <li>{t('contact.reachOut3')}</li>
+          <li>{t('contact.reachOut4')}</li>
+          <li>{t('contact.reachOut5')}</li>
         </ul>
       </section>
 
       <section className="legal-page__section">
-        <h2>Response Time</h2>
-        <p>
-          TextStack is a passion project maintained by a small team. We read every
-          message and will do our best to respond promptly, but please allow a few
-          days for a reply.
-        </p>
+        <h2>{t('contact.responseHeading')}</h2>
+        <p>{t('contact.responseBody')}</p>
       </section>
       </div>
       <Footer />
