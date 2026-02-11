@@ -75,8 +75,38 @@
 - **Legacy URL redirects** - 301 redirect `/authors/*` → `/en/authors/*` (nginx + React Router)
 - **Google Search Console fix** - non-prefixed URLs now properly redirect to language-prefixed versions
 
+### i18n
+- **Full Ukrainian i18n** — all pages translated (en/uk JSON files)
+- **Dynamic language** in library list view links
+
+### E2E Testing
+- **Playwright e2e tests** — chromium, mobile, admin projects with CI pipeline
+- **Flaky test fixes** — bookmark test waits for btn enabled before click
+
+### Reader
+- **Text selection** — highlights, translate (LibreTranslate), dictionary
+- **iOS selection toolbar fix** — use `selectionchange` event, suppress native context menu in PWA
+
+### Infrastructure
+- **Regex timeouts** in text processors
+- **Retry on 5xx/429 errors** — error state in home sections
+- **Separate storage URL config** — reader highlights height fix
+
+### SEO
+- **Trailing slashes** on all sitemap URLs (books, authors, pages)
+- **IndexNow API key** for Bing indexing
+- **URL redirects & canonicalization** — redirect logic in HTTP block for Cloudflare SSL
+
+### Ops
+- **Sudoers** for passwordless nginx deploy
+- **Backup directory** → `~/backups/textstack`
+- **Docker context fix** — `.dockerignore` to exclude data folder, permission fixes
+
+### Removed
+- **Old IndexNow key file**
+- **Redundant download button** from library list
+
 ### Documentation
-- **feat-0007** - Next.js SSG Migration PDD (`docs/05-features/feat-0007-nextjs-ssg-migration.md`)
 - **database.md** - Updated to match actual schema: added UserRefreshToken, BookAsset, TextStackImport, SeoCrawlJob, SeoCrawlResult; fixed Chapter/User/IngestionJob/ReadingProgress/Bookmark/Note schemas; removed non-existent search_documents table
 
 ---
@@ -122,19 +152,3 @@
 - Fresh migration: `Initial_WorkEdition_Admin`
 - Removed: Book, BookTranslation, ChapterTranslation entities
 
----
-
-## Next Up
-
-### Phase B: Google OAuth
-- Cookie-based auth with Google sign-in
-- Endpoints: `/auth/google`, `/auth/me`, `/auth/logout`
-
-### Phase D: User API
-- `/me/library` - saved books
-- `/me/progress` - reading position sync
-- `/me/bookmarks`, `/me/notes`
-
-### Search Enhancements
-- Highlights, autocomplete, facets
-- Document chunking for vector search

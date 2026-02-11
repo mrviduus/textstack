@@ -1,211 +1,84 @@
-# Monorepo Frontend Structure (Web + Mobile) — Basic Architecture Guide
-Date: 2025-12-16 • Stack: ASP.NET Core (API/Worker) + Postgres + React (Web) + React Native Expo (Mobile)
+# Frontend Architecture
 
-This document describes the recommended **repository structure** for building:
-- **Web**: SEO-friendly library + reader that works well on desktop and mobile browsers
-- **Mobile**: React Native app (Expo) optimized for offline reading and smooth UX
-- **Shared code**: API client, sync logic, locator format, and reusable UI components
+Stack: React 18 + Vite + TypeScript. Two apps, no shared packages.
 
 ---
 
-## 1) Why a Monorepo (single repo)
-A monorepo makes it easy to:
-- keep the web/mobile apps aligned on **API contracts** and **data models**
-- share core logic (sync, locator, API client) without copy/paste
-- run CI/CD and deployments from one place
+## Apps
 
-**Important:** Web and Mobile should **not** live in the same app folder. They have different tooling (Vite/Next vs Expo), different build pipelines, and different runtime expectations (SEO).
+### `apps/web/` — Public site
+- Vite SPA, served via nginx (SSG first, SPA fallback)
+- Pages: Home, Books, Authors, Genres, Reader, Library, Search, About, Privacy, Terms, Contact
+- i18n: `/:lang/` prefix on all routes. Languages: `en`, `uk`. JSON files in `src/locales/`.
+
+### `apps/admin/` — Admin panel
+- Vite SPA on port 81 (`textstack.dev`)
+- English only, no i18n
+- Password-based JWT auth, sidebar layout
+- Pages: Books, Authors, Genres, Editions, Chapters, Ingestion Jobs, Tools, Stats
 
 ---
 
-## 2) Recommended Folder Structure
+## State Management
 
+React Context only — no Redux/Zustand.
+
+Provider hierarchy in `App.tsx`:
 ```
-repo/
-├─ backend/                          # ASP.NET Core API + Worker + Infrastructure
-│  ├─ src/
-│  │  ├─ Api/                        # Public API (REST), SEO HTML endpoints, auth
-│  │  ├─ Worker/                     # Ingestion pipeline (parse books, extract text)
-│  │  ├─ Infrastructure/             # EF Core DbContext, migrations, storage, FTS SQL
-│  │  ├─ Domain/                     # Domain entities/value objects (optional)
-│  │  └─ Contracts/                  # DTOs (C#) and shared contracts
-│  └─ Docker/                        # Api.Dockerfile, Worker.Dockerfile
-│
-├─ apps/
-│  ├─ web/                           # Web application (React)
-│  │  ├─ src/
-│  │  ├─ public/
-│  │  ├─ Dockerfile
-│  │  └─ README.md
-│  │
-│  └─ mobile/                        # Mobile app (React Native Expo)
-│     ├─ app/                        # Expo Router (or src/ if not using router)
-│     ├─ assets/
-│     ├─ app.json
-│     └─ README.md
-│
-├─ packages/                         # Shared code across web + mobile
-│  ├─ api-client/                    # Typed TS client (OpenAPI -> generated)
-│  ├─ sync/                          # Offline queue + conflict helpers
-│  ├─ reader/                        # Locator format + progress calculation
-│  ├─ ui/                            # Shared UI components (optional)
-│  └─ utils/                         # Shared helpers (slugs, dates, text utils)
-│
-├─ docs/                             # Product + engineering docs
-│  ├─ SPECS.md
-│  ├─ MVP_PLAN.md
-│  └─ ARCHITECTURE.md                # (this file)
-│
-├─ docker-compose.yml                # Local dev stack (db + api + worker + web)
-├─ .env.example                      # Environment variables template
-├─ package.json                      # Workspace root (pnpm/yarn workspaces)
-└─ .github/workflows/                # CI/CD (GitHub Actions)
+SiteProvider → AuthProvider → DownloadProvider → LanguageProvider → {children}
 ```
 
----
-
-## 3) What Goes Where (Responsibilities)
-
-### 3.1 `backend/`
-**Owns:**
-- Authentication (JWT + refresh)
-- Book ingestion (upload -> parse -> chapters/content)
-- SEO HTML endpoints (book + chapter pages)
-- Postgres schema + EF Core migrations
-- Full-text search (tsvector + GIN + ranking queries)
-
-**Key subprojects:**
-- `Api/`: HTTP API + SEO HTML endpoints + sitemap
-- `Worker/`: ingestion jobs (parse books)
-- `Infrastructure/`: DbContext, migrations, storage, FTS SQL, repositories
+- **SiteProvider**: fetches `/api/site/context`, provides `site` to all children
+- **AuthProvider**: Google Sign-In, auto-refresh token, skips Google for bots
+- **DownloadProvider**: IndexedDB offline downloads, progress tracking
+- **LanguageProvider**: extracts `lang` from URL, provides `switchLanguage()`, `getLocalizedPath()`
 
 ---
 
-### 3.2 `apps/web/`
-**Owns:**
-- Web UI for browsing, reading, and account pages
-- Mobile-friendly responsive UI (works well on phones via browser)
-- (Optional) PWA packaging if desired
+## Routing
 
-**Does not own:**
-- SEO rendering (in MVP it can be served by API for best indexing)
-- Parsing logic
+Language-prefixed routes: `/:lang/books`, `/:lang/authors/:slug`, etc.
+
+Root `/` redirects to `/en`. Legacy `/authors/*` → 301 to `/en/authors/*`.
 
 ---
 
-### 3.3 `apps/mobile/` (Expo)
-**Owns:**
-- Offline-first reading experience
-- Local cache (SQLite / file cache)
-- Sync queue handling (client-side)
-- Reader UI (often via WebView rendering extracted chapter HTML)
+## API Client
 
-**Does not own:**
-- SEO pages (search engines index the web, not apps)
+`useApi()` hook → `createApi(language)` → typed methods (`getBooks()`, `getBook(slug)`, etc.).
+
+Uses `fetchJsonWithRetry()` with retry on 5xx/429.
 
 ---
 
-### 3.4 `packages/` (Shared)
-Only place truly cross-platform logic here.
+## Reader
 
-Recommended packages:
-- `packages/api-client/`
-  - generated TS client from OpenAPI
-  - used by web + mobile
-- `packages/sync/`
-  - offline queue schema (client side)
-  - retry + backoff
-  - conflict handling helpers (409 responses)
-- `packages/reader/`
-  - Locator format parsing/serialization
-  - “progress calc” utilities
-- `packages/ui/` (optional)
-  - shared UI components (buttons, cards)
-  - keep platform assumptions minimal
-- `packages/utils/`
-  - date/time helpers, slug helpers, text utilities
+`ReaderPage.tsx` — Kindle-like reader with:
+- Settings: font size, line height, width, theme (light/sepia/dark), font family, alignment
+- Navigation: TOC drawer, chapter prev/next, keyboard shortcuts, mobile swipe
+- Offline: cache-first from IndexedDB
+- Text selection: highlights, translate (LibreTranslate), dictionary
+- Progress: autosave to server (authenticated) or localStorage (anonymous)
 
 ---
 
-## 4) Workspaces (Package Manager)
-Use one of:
-- **pnpm workspaces** (recommended)
-- yarn workspaces
-- npm workspaces
+## SEO
 
-Example workspace root files:
-- `package.json` at repo root with `workspaces: ["apps/*", "packages/*"]`
-
-This enables:
-- `pnpm -C apps/web dev`
-- `pnpm -C apps/mobile start`
-- `pnpm -C packages/api-client build`
+- SSG: Puppeteer prerenders book/author/genre pages to static HTML
+- nginx serves SSG → SPA fallback (check `X-SEO-Render` header)
+- `SeoHead` component: title, description, canonical, robots, OG tags, JSON-LD
 
 ---
 
-## 5) Local Development: How It Runs Together
+## Key Directories
 
-### 5.1 Start backend + db + worker + web
-From repo root:
-```bash
-docker compose up --build
 ```
-
-Expected:
-- API: http://localhost:8080
-- Web: http://localhost:5173
-- Postgres: localhost:5432 (for debugging)
-- Worker: runs ingestion in background
-
-### 5.2 Mobile development (separate process)
-From repo root:
-```bash
-cd apps/mobile
-pnpm install
-pnpm start
+apps/web/src/
+├── pages/          # Route components
+├── components/     # Shared UI
+├── contexts/       # React Context providers
+├── hooks/          # useApi, useTranslation, etc.
+├── locales/        # en.json, uk.json
+├── styles/         # Global CSS
+└── utils/          # Helpers
 ```
-
-Mobile calls the API using your dev machine IP:
-- `http://<your-lan-ip>:8080`
-(You cannot use `localhost` from a phone.)
-
----
-
-## 6) Deployment Mindset (Self-Hosted)
-For your local server machine with internet access:
-- deploy `db + api + worker` via Docker Compose
-- expose API and SEO pages through reverse proxy + TLS (Traefik/Nginx)
-- deploy web either:
-  - as a container behind proxy, or
-  - as static files served by the API/proxy
-
-Mobile deployment (App Store) is separate and can come later.
-
----
-
-## 7) Minimal “Start Web First” Option (Even Faster MVP)
-If you want the fastest time-to-launch:
-- create only `apps/web/` first
-- postpone `apps/mobile/` until the web MVP and SEO are validated
-
----
-
-## 8) Naming Conventions (Consistency)
-- Backend services:
-  - `books_api`, `books_worker`, `books_db`
-- Environment variables:
-  - `ConnectionStrings__Default`
-  - `Storage__RootPath`
-  - `VITE_API_BASE_URL`
-- Shared types:
-  - Locator stored as JSON string with stable keys (`type`, `chapterId`, offsets)
-
----
-
-## 9) “Done” Criteria for This Structure
-- Web and backend run with one `docker compose up --build`
-- Mobile can be started independently (Expo)
-- Shared packages compile and are importable from both web and mobile
-- CI can build backend + web without needing mobile build tooling
-
----

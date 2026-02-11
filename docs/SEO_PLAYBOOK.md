@@ -103,22 +103,57 @@ Conditional:
 
 ## 4. Author page SEO checklist
 
-### 4.1 SEO Title
+### 4.1 URL
+- `/en/authors/{author-slug}/`
+- Lowercase, hyphen-separated, trailing slash
+- Canonical = self
+
+### 4.2 SEO Title
+Templates by author type:
+- Classic: `{Author Name} Books – Read Classic Novels Online | TextStack`
+- Contemporary: `{Author Name} – Novels & Stories Online | TextStack`
+- Poets: `{Author Name} Poetry – Read Poems Online | TextStack`
+
+Rules: author name first, max 60 chars, one brand suffix.
+
+### 4.3 Meta description
+- Classic: `Explore books by {Author Name}. Read classic novels and stories online with a clean, distraction‑free reading experience.`
+- 150-160 chars, include author name and content type.
+
+### 4.4 Headings structure
 ```
-{Author Name} Books – Read Novels Online | TextStack
+H1: {Author Name}
+H2: About {Author Name}
+H2: Writing style and themes
+H2: Most popular books
+H2: Why {Author Name} is still read today
 ```
 
-### 4.2 Meta description
-```
-Explore books by {Author Name}. Read classic novels online with a clean, distraction‑free reading experience.
-```
-
-### 4.3 Content
+### 4.5 Content
 - 400–700 words
-- Biography
-- Themes
-- Historical significance
-- Book list with links
+- Biography, themes/style, historical context, modern relevance
+- Books list with links (mandatory)
+- Tone: neutral, informative
+
+### 4.6 SEO Content Blocks (Admin UI)
+- `SeoRelevanceText` — "Why still read today" (100-200 words, or auto-generate)
+- `SeoThemesJson` — JSON array of theme strings
+- `SeoFaqsJson` — JSON array of `{question, answer}` objects → FAQ schema
+
+### 4.7 Structured data
+- Person schema (required): name, url, image, description, birthDate, deathDate
+- BreadcrumbList (required)
+- FAQPage (if FAQs present)
+
+### 4.8 Author publishing checklist
+- [ ] SEO title (max 60 chars)
+- [ ] Meta description (150-160 chars)
+- [ ] Canonical URL
+- [ ] One H1, 3-4 H2 sections
+- [ ] Bio filled (>= 200 words)
+- [ ] Books listed with links
+- [ ] Person + BreadcrumbList schema
+- [ ] OG tags present
 
 ---
 

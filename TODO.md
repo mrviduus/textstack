@@ -82,9 +82,9 @@
 - [ ] Submit sitemap to Google Search Console and Bing Webmaster Tools
 
 ### Content Management
-- [ ] Add author bios and photos via Admin UI
-- [ ] Create genres via Admin UI (table empty)
-- [ ] Admin endpoints for Authors/Genres CRUD
+- [x] Add author bios and photos via Admin UI
+- [x] Create genres via Admin UI
+- [x] Admin endpoints for Authors/Genres CRUD
 
 ### Future SEO Slices
 - [ ] Slice 2: Admin SEO Control (editable slug, SEO preview, bulk indexable toggle)
@@ -99,11 +99,6 @@
 
 ## Search Library Follow-ups
 
-### Database & Migrations
-- [ ] EF Core migration for `search_documents` table
-- [ ] Remove trigger-based `Chapter.SearchVector` indexing (verify new approach first)
-- [ ] Backfill existing chapters into `search_documents`
-
 ### Backend
 - [ ] Re-indexing endpoint for admin API
 - [ ] Bulk re-index CLI command
@@ -114,9 +109,9 @@
 ### Frontend
 - [ ] Loading skeleton for suggestions dropdown
 - [ ] Client-side suggestions caching
-- [ ] "View all results" link
+- [x] "View all results" link
 - [ ] Keyboard shortcut (Cmd/Ctrl+K)
-- [ ] Mobile search UI
+- [x] Mobile search UI
 
 ### Future Providers
 - [ ] Elasticsearch provider
@@ -124,14 +119,13 @@
 - [ ] Algolia provider (hosted)
 
 ### Testing
-- [ ] Integration tests for search endpoints
-- [ ] E2E tests for search UI
+- [x] Integration tests for search endpoints
+- [x] E2E tests for search UI
 - [ ] Performance benchmarks
 
 ---
 
 ## Priority
 1. **LLM Batch** - higher priority (immediate need for 1000 drafts)
-2. **SEO Dashboard** - visibility into SEO health
-3. **Search improvements** - incremental
-4. **Eye Tracking** - experimental/research phase
+2. **Search improvements** - incremental
+3. **Eye Tracking** - experimental/research phase

@@ -3,6 +3,8 @@
 ## Status
 Implemented
 
+> **Note**: Tempo removed to save RAM. Traces collected via OTEL but not stored long-term. See `docs/tempo-restore.md` to re-enable.
+
 ## Goal
 Production-grade observability for API + Worker using OpenTelemetry:
 - Distributed tracing (TraceId correlation)

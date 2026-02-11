@@ -3,7 +3,7 @@
 Technical implementation spec for TextStack SEO module.
 
 **Related docs:**
-- [SEO Policy](seo-policy.md) — what to index (strategy)
+- [SEO Playbook](../SEO_PLAYBOOK.md) — content SEO strategy & checklists
 - [SSG Prerender](ssg-prerender.md) — static HTML generation for SEO pages
 
 **Status:** Slice 1 complete (Dec 2025), SSG implemented (Jan 2026)
@@ -241,7 +241,27 @@ See [SSG Prerender](ssg-prerender.md) for architecture details.
 
 ---
 
-## 10. Acceptance Criteria
+## 10. Indexing Policy
+
+> Only pages that add unique value should be indexed. Raw public-domain text does NOT provide unique SEO value.
+
+**Indexable** (`index, follow`): Homepage, Books list, Book page, Author page, Genre page, About page.
+
+**Non-indexable** (`noindex, follow`): Chapter pages, Reader views, Search results, User library.
+
+**Not indexed** (`noindex, nofollow`): Auth pages, Admin.
+
+### HTTP 404 Rules
+API returns 404 for: book not found / 0 chapters, author not found / 0 editions, genre not found / 0 editions. Frontend uses `<meta name="prerender-status-code" content="404">` for SSG.
+
+### Rendering
+- SSG prerender for SEO pages (Puppeteer)
+- nginx serves SSG first, SPA fallback
+- Chapter pages: `noindex, follow` (not in sitemap)
+
+---
+
+## 11. Acceptance Criteria
 SEO Module MVP is complete when:
 - Google Search Console accepts sitemap without errors
 - Public pages render valid canonical + meta tags

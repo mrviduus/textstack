@@ -38,8 +38,7 @@ docs/
 ├── 02-system/          # What: schemas, APIs
 ├── 03-ops/             # Run: setup, deploy
 ├── 04-dev/             # Build: test, security
-├── 05-features/        # Feature PDDs
-└── archive/            # Historical docs
+└── 05-features/        # Feature PDDs
 ```
 
 ## Features
@@ -51,15 +50,11 @@ docs/
 | Offline Reading | [offline-reading.md](05-features/offline-reading.md) |
 | User Auth & Library | [user-auth.md](05-features/user-auth.md) |
 | Full-text Search | [feat-0006](05-features/feat-0006-search-library.md) |
-| Multisite | [feat-0002](05-features/feat-0002-multisite-general-programming.md) |
 | Text Extraction | [feat-0003](05-features/feat-0003-text-extraction-core.md) |
-| Site Resolver | [feat-0004](05-features/feat-0004-site-resolver-host.md) |
 | Observability | [feat-0005](05-features/feat-0005-observability-opentelemetry.md) |
-
-### Planned
-| Feature | Docs |
-|---------|------|
-| Next.js SSG Migration | [feat-0007](05-features/feat-0007-nextjs-ssg-migration.md) |
+| i18n (EN/UK) | Full Ukrainian translation for all pages |
+| E2E Testing | Playwright e2e tests with CI pipeline |
+| Text Selection | Highlights, translate, dictionary in reader |
 
 ## Reading Order
 
@@ -72,11 +67,11 @@ docs/
 
 | ADR | Title |
 |-----|-------|
-| [001](01-architecture/adr/001-storage-bind-mounts.md) | Storage via bind mounts |
+| [001](01-architecture/adr/001-storage-bind-mounts.md) | Storage via bind mounts (superseded by ADR-007) |
 | [002](01-architecture/adr/002-google-auth-only.md) | Google OAuth only |
 | [003](01-architecture/adr/003-work-edition-model.md) | Work/Edition data model |
 | [004](01-architecture/adr/004-postgres-fts.md) | PostgreSQL FTS |
-| [005](01-architecture/adr/005-multisite-resolution.md) | Multisite via Host |
+| [005](01-architecture/adr/005-multisite-resolution.md) | Multisite via Host (superseded by ADR-007) |
 | [006](01-architecture/adr/006-modular-monolith.md) | Modular monolith |
 | [007](01-architecture/adr/007-single-domain-consolidation.md) | Single domain consolidation |
 
@@ -90,7 +85,7 @@ docs/
 | Endpoint added | (auto in Scalar) |
 | Architecture decision | New ADR |
 | Migration created | Mention if significant |
-| New page type (indexable/not) | seo-policy.md |
+| New page type (indexable/not) | seo-implementation.md |
 
 ### When ADR Required
 
