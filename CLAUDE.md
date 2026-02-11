@@ -44,8 +44,10 @@ dotnet test tests/TextStack.IntegrationTests
 dotnet test tests/TextStack.Extraction.Tests
 dotnet test tests/TextStack.Search.Tests
 dotnet test --filter "Name~TestMethodName"  # Single test
-pnpm -C apps/web test                       # Frontend tests
+pnpm -C apps/web test                       # Frontend unit tests (Vitest)
 pnpm -C apps/web test:watch                 # Watch mode
+pnpm -C apps/web test:e2e                   # Playwright E2E (headless)
+pnpm -C apps/web test:e2e:ui                # Playwright E2E (UI mode)
 
 # Lint
 dotnet format backend/TextStack.sln         # Backend
@@ -85,15 +87,36 @@ API → Application → Domain ← Infrastructure
 ```
 
 - **Domain**: Pure C#, no framework deps
-- **Application**: Business logic, interfaces
-- **Infrastructure**: EF Core, storage implementations
+- **Application**: Business logic, interfaces (`IAppDbContext`, `IFileStorageService`)
+- **Infrastructure**: EF Core (snake_case naming), storage implementations
 - **API/Worker**: Orchestration, DI
 
-**Multisite**: Every request → `SiteContextMiddleware` → Host → SiteId. Unknown host → 404. All queries scoped to SiteId.
+**Middleware pipeline** (order matters): `ForwardedHeaders` → `Cors` → `ExceptionMiddleware` → `SiteContext` → `LanguageContext` → `AdminAuth`
+
+**Multisite**: Every request → `SiteContextMiddleware` → Host → SiteId. Unknown host → 404. All queries scoped to SiteId. Dev mode: `?site=` query param override.
 
 **Patterns**:
 - Endpoints: `Map{Domain}Endpoints()` in `Api/Endpoints/`
 - Test naming: `{Method}_{Scenario}_{Expected}`
+
+### Frontend Architecture
+
+**No Redux/Zustand** — React Context only. Provider hierarchy in `App.tsx`:
+```
+SiteProvider → AuthProvider → DownloadProvider → LanguageProvider → {children}
+```
+
+- **SiteProvider**: Fetches `/api/site/context`, provides `site` to all children
+- **LanguageProvider**: Extracts `lang` from URL params, provides `switchLanguage()`, `getLocalizedPath()`
+- **AuthProvider**: Google Sign-In, auto-refresh token, skips Google for bots
+
+**i18n**: JSON files in `apps/web/src/locales/{en,uk}.json`. Hook: `useTranslation()`. Languages: `['en', 'uk']`.
+
+**Routing**: Language-prefixed routes (`/:lang/books`, `/:lang/authors`, etc). Root `/` → `/en`.
+
+**API client**: `useApi()` hook → `createApi(language)` → methods like `getBooks()`, `getBook(slug)`. Uses `fetchJsonWithRetry()`.
+
+**Admin panel**: Separate React app (English-only, no i18n). JWT auth, sidebar layout.
 
 ## Key Concepts
 
@@ -160,9 +183,22 @@ tests/
 ├── TextStack.IntegrationTests/    # API + DB (Testcontainers)
 ├── TextStack.Extraction.Tests/    # Book parsing (EPUB/PDF/FB2)
 ├── TextStack.Search.Tests/        # Search logic
+apps/web/e2e/                      # Playwright E2E (chromium, mobile, admin projects)
 ```
 
 Test naming convention: `{MethodName}_{Scenario}_{ExpectedResult}`
+
+**E2E setup**: Global setup authenticates test user + admin, discovers books from API → `.test-data.json`. Auth state stored in `apps/web/e2e/.auth/`. Page object helpers in `apps/web/e2e/helpers/`.
+
+## Deployment
+
+```
+Internet → Cloudflare (DNS+SSL) → Cloudflare Tunnel → nginx (port 80)
+  ├─ textstack.app → SSG static files + /api/ proxy to :8080
+  └─ textstack.dev → admin panel (:81)
+```
+
+Docker services: `db` (postgres:16), `migrator`, `api`, `worker`, `admin`, `ssg-worker`, `aspire-dashboard`, `libretranslate`. All localhost-only, no public ports except 80 via tunnel.
 
 ## Verifying SSG
 
