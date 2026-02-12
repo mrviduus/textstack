@@ -81,9 +81,9 @@ function StreakCalendar({ dailyStats }: { dailyStats: DailyStatDto[] }) {
 
   const getColor = (seconds: number): string => {
     if (seconds === 0) return 'var(--color-bg-secondary, #f3f4f6)'
-    if (seconds < 600) return 'var(--color-primary-light, #93c5fd)'
-    if (seconds < 1800) return 'var(--color-primary, #3b82f6)'
-    return 'var(--color-primary-dark, #1d4ed8)'
+    if (seconds < 600) return '#d4a574'
+    if (seconds < 1800) return 'var(--color-brand, #C4704B)'
+    return '#8b4513'
   }
 
   return (
