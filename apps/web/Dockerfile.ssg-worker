@@ -42,5 +42,8 @@ ENV POLL_INTERVAL=5000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD pgrep -f "ssg-worker.mjs" || exit 1
 
+# Run as non-root
+USER node
+
 # Run the worker
 CMD ["node", "scripts/ssg-worker.mjs"]

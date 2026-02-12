@@ -1,5 +1,6 @@
 import { useCallback, forwardRef, useRef } from 'react'
 import type { ReaderSettings } from '../../hooks/useReaderSettings'
+import { sanitizeHtml } from '../../utils/sanitize'
 
 interface Props {
   html: string
@@ -91,7 +92,7 @@ export const ReaderContent = forwardRef<HTMLElement, Props>(
             fontFamily,
             textAlign: settings.textAlign,
           }}
-          dangerouslySetInnerHTML={{ __html: html }}
+          dangerouslySetInnerHTML={{ __html: sanitizeHtml(html) }}
         />
       </div>
     )

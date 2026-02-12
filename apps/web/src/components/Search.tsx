@@ -14,6 +14,7 @@ import { getStorageUrl } from '../api/client'
 import { useLanguage } from '../context/LanguageContext'
 import { LocalizedLink } from './LocalizedLink'
 import type { SearchResult, Suggestion } from '../types/api'
+import { sanitizeHtml } from '../utils/sanitize'
 
 // ============================================
 // TYPES
@@ -237,7 +238,7 @@ function ResultItem({
                 <p
                   key={i}
                   className="search__result-highlight"
-                  dangerouslySetInnerHTML={{ __html: highlight }}
+                  dangerouslySetInnerHTML={{ __html: sanitizeHtml(highlight) }}
                 />
               ))}
             </div>

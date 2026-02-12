@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback, Fragment } from 'react'
 import type { ReaderSettings } from '../../hooks/useReaderSettings'
 import type { LoadedChapter } from '../../hooks/useScrollReader'
+import { sanitizeHtml } from '../../utils/sanitize'
 
 const DOUBLE_TAP_DELAY = 300 // ms
 
@@ -142,7 +143,7 @@ export function ScrollReaderContent({
               fontFamily,
               textAlign: settings.textAlign,
             }}
-            dangerouslySetInnerHTML={{ __html: chapter.html }}
+            dangerouslySetInnerHTML={{ __html: sanitizeHtml(chapter.html) }}
           />
         </Fragment>
       ))}

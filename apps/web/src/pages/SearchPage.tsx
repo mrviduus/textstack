@@ -7,6 +7,7 @@ import { LocalizedLink } from '../components/LocalizedLink'
 import { SeoHead } from '../components/SeoHead'
 import { Footer } from '../components/Footer'
 import type { SearchResult } from '../types/api'
+import { sanitizeHtml } from '../utils/sanitize'
 
 const RESULTS_PER_PAGE = 20
 
@@ -53,7 +54,7 @@ export function SearchPage() {
   const totalPages = Math.ceil(total / RESULTS_PER_PAGE)
 
   const renderHighlight = (html: string) => {
-    return <span dangerouslySetInnerHTML={{ __html: html }} />
+    return <span dangerouslySetInnerHTML={{ __html: sanitizeHtml(html) }} />
   }
 
   if (!query) {
