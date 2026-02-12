@@ -56,6 +56,13 @@ export function UserMenu() {
           >
             My Library
           </LocalizedLink>
+          <LocalizedLink
+            to="/stats"
+            className="user-menu__item"
+            onClick={() => setOpen(false)}
+          >
+            Stats
+          </LocalizedLink>
           <hr className="user-menu__divider" />
           <button
             className="user-menu__item user-menu__item--danger"
