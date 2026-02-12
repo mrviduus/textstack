@@ -12,6 +12,7 @@ import { OfflineBadge } from '../components/OfflineBadge'
 import { BookCardMenu } from '../components/library/BookCardMenu'
 import { UploadSection } from '../components/library/UploadSection'
 import { UserBookCard } from '../components/library/UserBookCard'
+import { UserBookMenu } from '../components/library/UserBookMenu'
 import { getStorageUrl } from '../api/client'
 import { getUserBooks, getUserBookCoverUrl, getUserBookProgress, type UserBook, type UserBookProgress } from '../api/userBooks'
 import { stringToColor } from '../utils/colors'
@@ -544,6 +545,9 @@ export function LibraryPage() {
                             </span>
                           )}
                         </div>
+                      </div>
+                      <div className="library-list-item__actions">
+                        <UserBookMenu book={book} onAction={fetchUserBooks} />
                       </div>
                     </article>
                   )
