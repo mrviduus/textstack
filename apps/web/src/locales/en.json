@@ -27,6 +27,7 @@
   "nav": {
     "catalog": "Catalog",
     "library": "My Library",
+    "stats": "Stats",
     "about": "About",
     "brandTitle": "TextStack - Free online library",
     "browseBooks": "Browse all books",
@@ -142,6 +143,29 @@
     "rightsBody": "You have the right to access, correct, or delete any personal data we may hold. Since we collect minimal data, there's usually nothing to delete — but if you have questions, please contact us.",
     "contactHeading": "Contact",
     "contactBody": "If you have questions about this privacy policy, please reach out at"
+  },
+  "stats": {
+    "title": "Reading Stats",
+    "signInPrompt": "Sign in to track your reading and unlock achievements.",
+    "totalTime": "Total Time",
+    "booksFinished": "Books Finished",
+    "currentStreak": "Current Streak",
+    "avgDaily": "Avg Daily",
+    "dailyGoal": "Daily Goal",
+    "goalMet": "Goal met!",
+    "streakCalendar": "Reading Activity",
+    "weeklyChart": "This Week",
+    "achievements": "Achievements",
+    "goalSettings": "Goal Settings",
+    "dailyMinutesTarget": "Daily minutes target",
+    "streakThreshold": "Min minutes for streak",
+    "saveGoal": "Save",
+    "details": "Details",
+    "longestStreak": "Longest Streak",
+    "avgWpm": "Avg Words/Min",
+    "thisWeek": "This Week",
+    "thisMonth": "This Month",
+    "days": "days"
   },
   "terms": {
     "seoTitle": "Terms of Service - TextStack",

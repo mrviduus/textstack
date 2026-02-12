@@ -4,6 +4,7 @@ using TextStack.Extraction.Extractors.Pdf;
 using TextStack.Extraction.TextProcessing.Processors;
 using TextStack.Extraction.Toc;
 using TextStack.Extraction.Utilities;
+using PDFtoImage;
 using UglyToad.PdfPig;
 
 namespace TextStack.Extraction.Extractors;
@@ -41,7 +42,20 @@ public sealed class PdfTextExtractor : ITextExtractor
 
         try
         {
-            return Task.FromResult(ExtractFromDocument(document, warnings, ct));
+            // Read stream to byte[] for both PdfPig (already open) and PDFtoImage fallback
+            byte[] pdfBytes;
+            if (request.Content is MemoryStream ms)
+            {
+                pdfBytes = ms.ToArray();
+            }
+            else
+            {
+                using var copy = new MemoryStream();
+                request.Content.Position = 0;
+                request.Content.CopyTo(copy);
+                pdfBytes = copy.ToArray();
+            }
+            return Task.FromResult(ExtractFromDocument(document, pdfBytes, warnings, ct));
         }
         catch (Exception ex)
         {
@@ -63,7 +77,7 @@ public sealed class PdfTextExtractor : ITextExtractor
     }
 
     private static ExtractionResult ExtractFromDocument(
-        PdfDocument document, List<ExtractionWarning> warnings, CancellationToken ct)
+        PdfDocument document, byte[] pdfBytes, List<ExtractionWarning> warnings, CancellationToken ct)
     {
         var pageCount = document.NumberOfPages;
         if (pageCount == 0)
@@ -225,7 +239,7 @@ public sealed class PdfTextExtractor : ITextExtractor
         // Generate TOC
         var toc = TocGenerator.GenerateToc(tocChapters);
 
-        // Extract cover from largest page-1 image
+        // Extract cover: try largest page-1 embedded image first, then render page 1
         byte[]? coverImage = null;
         string? coverMimeType = null;
         try
@@ -246,6 +260,23 @@ public sealed class PdfTextExtractor : ITextExtractor
             warnings.Add(new ExtractionWarning(
                 ExtractionWarningCode.CoverExtractionFailed,
                 $"Failed to select cover image: {ex.Message}"));
+        }
+
+        // Fallback: render page 1 as cover if no embedded image found
+        if (coverImage == null)
+        {
+            try
+            {
+                coverImage = RenderFirstPageAsCover(pdfBytes, warnings);
+                if (coverImage != null)
+                    coverMimeType = "image/jpeg";
+            }
+            catch (Exception ex)
+            {
+                warnings.Add(new ExtractionWarning(
+                    ExtractionWarningCode.CoverExtractionFailed,
+                    $"Failed to render page 1 as cover: {ex.Message}"));
+            }
         }
 
         var metadata = new ExtractionMetadata(title, authors, null, description, coverImage, coverMimeType);
@@ -347,6 +378,28 @@ public sealed class PdfTextExtractor : ITextExtractor
             return true;
 
         return false;
+    }
+
+    private static byte[]? RenderFirstPageAsCover(byte[] pdfBytes, List<ExtractionWarning> warnings)
+    {
+        try
+        {
+            using var pdfStream = new MemoryStream(pdfBytes);
+            using var imageStream = new MemoryStream();
+            #pragma warning disable CA1416 // Platform compatibility — worker runs on Linux
+            Conversion.SaveJpeg(imageStream, pdfStream, Index.FromStart(0),
+                options: new RenderOptions(Dpi: 150));
+            #pragma warning restore CA1416
+            var result = imageStream.ToArray();
+            return result.Length > 0 ? result : null;
+        }
+        catch (Exception ex)
+        {
+            warnings.Add(new ExtractionWarning(
+                ExtractionWarningCode.CoverExtractionFailed,
+                $"PDFtoImage render failed: {ex.Message}"));
+            return null;
+        }
     }
 
     private static string? NullIfEmpty(string? value)

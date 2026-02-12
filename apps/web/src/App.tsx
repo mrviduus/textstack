@@ -18,12 +18,14 @@ import { TermsPage } from './pages/TermsPage'
 import { ContactPage } from './pages/ContactPage'
 import { LibraryPage } from './pages/LibraryPage'
 import { UserBookDetailPage } from './pages/UserBookDetailPage'
+import { StatsPage } from './pages/StatsPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { Header } from './components/Header'
 import { DownloadProgressBar } from './components/DownloadProgressBar'
 import './styles/theme.css'
 import './styles/reader.css'
 import './styles/books.css'
+import './styles/stats.css'
 
 function LanguageRoutes() {
   const { lang } = useParams<{ lang: string }>()
@@ -56,6 +58,7 @@ function LanguageRoutes() {
         <Route path="/terms" element={<TermsPage />} />
         <Route path="/contact" element={<ContactPage />} />
         <Route path="/library" element={<LibraryPage />} />
+        <Route path="/stats" element={<StatsPage />} />
         <Route path="/library/my/:id" element={<UserBookDetailPage />} />
         <Route path="/library/my/:id/read/:chapterSlug" element={<ReaderPage mode="userbook" />} />
         <Route path="*" element={<NotFoundPage />} />
@@ -92,6 +95,7 @@ function AppRoutes() {
       <Route path="/terms" element={<LegacyRedirect />} />
       <Route path="/contact" element={<LegacyRedirect />} />
       <Route path="/library" element={<LegacyRedirect />} />
+      <Route path="/stats" element={<LegacyRedirect />} />
       <Route path="/:lang/*" element={<LanguageRoutes />} />
     </Routes>
   )
