@@ -2886,6 +2886,38 @@
   border-radius: 8px;
 }
 
+/* Dark mode */
+html.dark .user-book-detail__read-btn {
+  background: #fff;
+  color: #0a0a0a;
+}
+
+html.dark .user-book-detail__back {
+  background: #fff;
+  color: #0a0a0a;
+}
+
+html.dark .user-book-detail__delete-btn:hover {
+  background: rgba(220, 38, 38, 0.15);
+}
+
+html.dark .user-book-detail__status--processing {
+  background: rgba(30, 64, 175, 0.15);
+  border-color: rgba(30, 64, 175, 0.3);
+  color: #93b4fd;
+}
+
+html.dark .user-book-detail__status--failed {
+  background: rgba(220, 38, 38, 0.15);
+  border-color: rgba(220, 38, 38, 0.3);
+  color: #fca5a5;
+}
+
+html.dark .user-book-detail__spinner {
+  border-color: rgba(147, 180, 253, 0.3);
+  border-top-color: #93b4fd;
+}
+
 /* Mobile adjustments */
 @media (max-width: 600px) {
   .user-book-detail__content {
