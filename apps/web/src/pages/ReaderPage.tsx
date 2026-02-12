@@ -39,6 +39,7 @@ import { ReaderSearchDrawer } from '../components/reader/ReaderSearchDrawer'
 import { ReaderShortcutsModal } from '../components/reader/ReaderShortcutsModal'
 import { ReaderHighlights } from '../components/reader/ReaderHighlights'
 import { useScrollReader } from '../hooks/useScrollReader'
+import { useReadingSession } from '../hooks/useReadingSession'
 
 export type ReaderMode = 'public' | 'userbook'
 
@@ -381,6 +382,37 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
 
     return 0
   }, [mode, publicBook, book, scrollReaderBook, chapterSlug, chapterIdentifier, progress, totalPages, useScrollMode, scrollReader.visibleIdentifier, scrollReader.scrollOffset, scrollReader.chapterRefs])
+
+  // Reading session tracking (time, words)
+  const readingSession = useReadingSession({
+    editionId: mode === 'public' ? publicBook?.id : undefined,
+    userBookId: mode === 'userbook' ? id : undefined,
+    totalWords: mode === 'public' && publicBook
+      ? publicBook.chapters.reduce((sum, c) => sum + (c.wordCount || 0), 0)
+      : undefined,
+    startPercent: overallProgress,
+    isAuthenticated,
+  })
+
+  // Sync percent to reading session tracker
+  useEffect(() => {
+    readingSession.updatePercent(overallProgress)
+  }, [overallProgress, readingSession])
+
+  // Track scroll activity for reading session (scroll mode)
+  useEffect(() => {
+    if (!useScrollMode) return
+    let lastScroll = 0
+    const handleScroll = () => {
+      const now = Date.now()
+      if (now - lastScroll > 5000) { // throttle: once per 5s
+        lastScroll = now
+        readingSession.recordActivity()
+      }
+    }
+    window.addEventListener('scroll', handleScroll, { passive: true })
+    return () => window.removeEventListener('scroll', handleScroll)
+  }, [useScrollMode, readingSession])
 
   // Sync progress when page changes (pagination mode only)
   useEffect(() => {
@@ -800,20 +832,22 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
   }, [navigate, getChapterUrl])
 
   const handlePrevPageCustom = useCallback(() => {
+    readingSession.recordActivity()
     if (currentPage > 0) {
       prevPage()
     } else if (chapter?.prev) {
       navigateToChapterCustom(chapter.prev.identifier)
     }
-  }, [currentPage, chapter?.prev, prevPage, navigateToChapterCustom])
+  }, [currentPage, chapter?.prev, prevPage, navigateToChapterCustom, readingSession])
 
   const handleNextPageCustom = useCallback(() => {
+    readingSession.recordActivity()
     if (currentPage < totalPages - 1) {
       nextPage()
     } else if (chapter?.next) {
       navigateToChapterCustom(chapter.next.identifier)
     }
-  }, [currentPage, totalPages, chapter?.next, nextPage, navigateToChapterCustom])
+  }, [currentPage, totalPages, chapter?.next, nextPage, navigateToChapterCustom, readingSession])
 
   // Legacy navigation hook (still needed for keyboard shortcuts compatibility)
   const { navigateToChapter } = useReaderNavigation({
@@ -829,8 +863,8 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
   useReaderKeyboard({
     currentPage,
     totalPages,
-    prevPage,
-    nextPage,
+    prevPage: handlePrevPageCustom,
+    nextPage: handleNextPageCustom,
     prevChapterSlug: chapter?.prev?.identifier,
     nextChapterSlug: chapter?.next?.identifier,
     navigateToChapter: mode === 'public' ? navigateToChapter : navigateToChapterCustom,
@@ -965,7 +999,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
                 isLoadingMore={scrollReader.isLoadingMore}
                 onLoadMore={scrollReader.loadMore}
                 chapterRefs={scrollReader.chapterRefs}
-                onTap={showImmersiveBars}
+                onTap={() => { readingSession.recordActivity(); showImmersiveBars() }}
                 onDoubleTap={isMobile ? toggleFullscreen : undefined}
               />
             </div>
@@ -983,7 +1017,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
               containerRef={containerRef}
               html={chapter.html}
               settings={settings}
-              onTap={() => { if (isMobile) { showImmersiveBars(); } }}
+              onTap={() => { readingSession.recordActivity(); if (isMobile) { showImmersiveBars(); } }}
               onDoubleTap={isMobile ? toggleFullscreen : undefined}
               onLeftTap={isMobile ? handlePrevPageCustom : undefined}
               onRightTap={isMobile ? handleNextPageCustom : undefined}

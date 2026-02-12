@@ -40,6 +40,9 @@ public class AppDbContext : DbContext, IAppDbContext
     public DbSet<UserBookBookmark> UserBookBookmarks => Set<UserBookBookmark>();
     public DbSet<AdminSettings> AdminSettings => Set<AdminSettings>();
     public DbSet<Highlight> Highlights => Set<Highlight>();
+    public DbSet<ReadingSession> ReadingSessions => Set<ReadingSession>();
+    public DbSet<ReadingGoal> ReadingGoals => Set<ReadingGoal>();
+    public DbSet<UserAchievement> UserAchievements => Set<UserAchievement>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -406,6 +409,39 @@ public class AppDbContext : DbContext, IAppDbContext
             e.HasKey(x => x.Key);
             e.Property(x => x.Key).HasMaxLength(100);
             e.Property(x => x.Value).HasMaxLength(500);
+        });
+
+        // ReadingSession
+        modelBuilder.Entity<ReadingSession>(e =>
+        {
+            e.HasIndex(x => new { x.UserId, x.SiteId });
+            e.HasIndex(x => new { x.UserId, x.StartedAt });
+            e.HasIndex(x => new { x.UserId, x.EditionId, x.StartedAt }).IsUnique().HasFilter("edition_id IS NOT NULL");
+            e.HasIndex(x => new { x.UserId, x.UserBookId, x.StartedAt }).IsUnique().HasFilter("user_book_id IS NOT NULL");
+            e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Site).WithMany().HasForeignKey(x => x.SiteId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.Edition).WithMany().HasForeignKey(x => x.EditionId).OnDelete(DeleteBehavior.SetNull);
+            e.HasOne(x => x.UserBook).WithMany().HasForeignKey(x => x.UserBookId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // ReadingGoal
+        modelBuilder.Entity<ReadingGoal>(e =>
+        {
+            e.HasIndex(x => new { x.UserId, x.SiteId });
+            e.HasIndex(x => new { x.UserId, x.SiteId, x.GoalType }).IsUnique();
+            e.Property(x => x.GoalType).HasMaxLength(50);
+            e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Site).WithMany().HasForeignKey(x => x.SiteId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // UserAchievement
+        modelBuilder.Entity<UserAchievement>(e =>
+        {
+            e.HasIndex(x => new { x.UserId, x.SiteId });
+            e.HasIndex(x => new { x.UserId, x.SiteId, x.AchievementCode }).IsUnique();
+            e.Property(x => x.AchievementCode).HasMaxLength(50);
+            e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Site).WithMany().HasForeignKey(x => x.SiteId).OnDelete(DeleteBehavior.Restrict);
         });
     }
 

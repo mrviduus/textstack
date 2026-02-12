@@ -1,0 +1,233 @@
+.stats-page {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+}
+
+.stats-page h1 {
+  margin-bottom: 1.5rem;
+}
+
+.stats-page h2 {
+  font-size: 1.1rem;
+  margin-bottom: 0.75rem;
+}
+
+/* Summary cards */
+.stats-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.stats-card {
+  background: var(--color-bg-secondary, #f9fafb);
+  border-radius: 12px;
+  padding: 1.25rem;
+  text-align: center;
+}
+
+.stats-card__value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.stats-card__label {
+  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+  margin-top: 0.25rem;
+}
+
+/* Sections */
+.stats-section {
+  margin-bottom: 2rem;
+}
+
+/* Goal ring */
+.stats-goal-section {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.stats-goal-text p {
+  margin: 0.25rem 0;
+}
+
+.stats-goal-met {
+  color: var(--color-success, #22c55e);
+  font-weight: 600;
+}
+
+/* Streak calendar (heatmap) */
+.stats-streak-calendar {
+  display: grid;
+  grid-template-columns: repeat(18, 1fr);
+  gap: 3px;
+}
+
+.stats-streak-calendar__cell {
+  aspect-ratio: 1;
+  border-radius: 3px;
+  min-width: 0;
+}
+
+/* Weekly chart */
+.stats-weekly-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+  height: 120px;
+}
+
+.stats-weekly-chart__bar-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 100%;
+}
+
+.stats-weekly-chart__bar-wrapper {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.stats-weekly-chart__bar {
+  width: 70%;
+  background: var(--color-primary, #3b82f6);
+  border-radius: 4px 4px 0 0;
+  min-height: 4px;
+  transition: height 0.3s ease;
+}
+
+.stats-weekly-chart__label {
+  font-size: 0.7rem;
+  color: var(--color-text-secondary);
+  margin-top: 0.25rem;
+}
+
+/* Achievements */
+.stats-achievements {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 0.75rem;
+}
+
+.stats-achievement {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border-radius: 8px;
+  background: var(--color-bg-secondary, #f9fafb);
+  opacity: 0.45;
+}
+
+.stats-achievement--unlocked {
+  opacity: 1;
+}
+
+.stats-achievement__icon {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+}
+
+.stats-achievement__name {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.stats-achievement__desc {
+  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+}
+
+.stats-achievement__date {
+  font-size: 0.7rem;
+  color: var(--color-text-tertiary, #9ca3af);
+}
+
+/* Goal form */
+.stats-goal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 300px;
+}
+
+.stats-goal-form__row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.stats-goal-form__row label {
+  font-size: 0.85rem;
+  color: var(--color-text-secondary);
+}
+
+.stats-input {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 8px;
+  background: var(--color-bg, #fff);
+  color: var(--color-text);
+  font-size: 0.9rem;
+  width: 100%;
+}
+
+.stats-btn {
+  padding: 0.5rem 1.25rem;
+  border: none;
+  border-radius: 8px;
+  background: var(--color-primary, #3b82f6);
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 0.9rem;
+  align-self: flex-start;
+}
+
+.stats-btn:hover {
+  opacity: 0.9;
+}
+
+/* Details */
+.stats-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.stats-detail-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--color-border, #e5e7eb);
+  font-size: 0.9rem;
+}
+
+.stats-detail-row span:last-child {
+  font-weight: 600;
+}
+
+/* Mobile */
+@media (max-width: 480px) {
+  .stats-cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .stats-streak-calendar {
+    grid-template-columns: repeat(10, 1fr);
+  }
+
+  .stats-achievements {
+    grid-template-columns: 1fr;
+  }
+}
