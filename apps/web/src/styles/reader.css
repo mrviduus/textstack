@@ -261,6 +261,13 @@ html[data-theme="dark"] .reader-main {
 .reader-content h2 { font-size: 1.5em; }
 .reader-content h3 { font-size: 1.2em; }
 
+.reader-content img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 1em auto;
+}
+
 /* Page navigation arrows */
 .reader-page-nav {
   position: fixed;
