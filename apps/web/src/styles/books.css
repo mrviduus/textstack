@@ -1272,12 +1272,12 @@
 }
 
 .search-page__count {
-  color: #666;
+  color: var(--color-text-secondary);
   margin: 0 0 24px;
 }
 
 .search-page__empty {
-  color: #666;
+  color: var(--color-text-secondary);
   text-align: center;
   padding: 48px 0;
 }
@@ -1292,16 +1292,16 @@
   display: flex;
   gap: 16px;
   padding: 16px;
-  background: white;
-  border: 1px solid #e0e0e0;
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
   border-radius: 8px;
   text-decoration: none;
-  color: inherit;
+  color: var(--color-text);
   transition: box-shadow 0.15s, border-color 0.15s;
 }
 
 .search-page__result:hover {
-  border-color: #ccc;
+  border-color: var(--color-text-secondary);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
@@ -1318,7 +1318,7 @@
   align-items: center;
   justify-content: center;
   font-size: 24px;
-  color: #999;
+  color: var(--color-text-secondary);
   overflow: hidden;
 }
 
@@ -1337,16 +1337,17 @@
   margin: 0 0 4px;
   font-size: 16px;
   font-weight: 600;
+  color: var(--color-text);
 }
 
 .search-page__result-chapter {
-  color: #666;
+  color: var(--color-text-secondary);
   font-size: 14px;
   margin: 0 0 4px;
 }
 
 .search-page__result-author {
-  color: #888;
+  color: var(--color-text-secondary);
   font-size: 13px;
   margin: 0 0 8px;
 }
@@ -1357,7 +1358,7 @@
 
 .search-page__result-highlight {
   font-size: 13px;
-  color: #555;
+  color: var(--color-text-secondary);
   line-height: 1.4;
   margin: 4px 0;
 }
@@ -1370,6 +1371,11 @@
   font-weight: 600;
 }
 
+html.dark .search-page__result-highlight b {
+  background: rgba(255, 243, 205, 0.15);
+  color: #fbbf24;
+}
+
 .search-page__pagination {
   display: flex;
   justify-content: center;
@@ -1377,13 +1383,13 @@
   gap: 16px;
   margin-top: 32px;
   padding-top: 24px;
-  border-top: 1px solid #e0e0e0;
+  border-top: 1px solid var(--color-border);
 }
 
 .search-page__pagination-btn {
   padding: 8px 16px;
-  background: #333;
-  color: white;
+  background: var(--color-primary);
+  color: var(--color-bg);
   border: none;
   border-radius: 4px;
   cursor: pointer;
@@ -1391,16 +1397,16 @@
 }
 
 .search-page__pagination-btn:disabled {
-  background: #ccc;
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
 .search-page__pagination-btn:hover:not(:disabled) {
-  background: #555;
+  opacity: 0.8;
 }
 
 .search-page__pagination-info {
-  color: #666;
+  color: var(--color-text-secondary);
   font-size: 14px;
 }
 

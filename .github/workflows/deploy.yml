@@ -74,6 +74,9 @@ jobs:
         run: |
           cd $PROJECT_DIR/apps/web
 
+          # Kill any leftover prerender process on port 3456
+          fuser -k 3456/tcp 2>/dev/null || true
+
           # Build to temp dir
           API_URL=http://localhost:8080 API_HOST=textstack.app CONCURRENCY=4 \
             node scripts/prerender.mjs --output-dir dist/ssg-new
