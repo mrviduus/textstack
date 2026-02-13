@@ -16,6 +16,7 @@ export function EditAuthorPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [photoCacheBust, setPhotoCacheBust] = useState(Date.now())
 
   // Form state
   const [name, setName] = useState('')
@@ -92,8 +93,11 @@ export function EditAuthorPage() {
       await adminApi.uploadAuthorPhoto(id, file)
       const updated = await adminApi.getAuthor(id)
       setAuthor(updated)
+      setPhotoCacheBust(Date.now())
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to upload photo')
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = ''
     }
   }
 
@@ -145,7 +149,7 @@ export function EditAuthorPage() {
               <div className="photo-upload">
                 {author.photoPath ? (
                   <img
-                    src={`${import.meta.env.VITE_API_URL || 'http://localhost:8080'}/storage/${author.photoPath}`}
+                    src={`${import.meta.env.VITE_API_URL || 'http://localhost:8080'}/storage/${author.photoPath}?v=${photoCacheBust}`}
                     alt={author.name}
                     className="photo-preview"
                   />
