@@ -1,0 +1,78 @@
+{
+  "common": {
+    "loading": "Loading...",
+    "error": "Something went wrong",
+    "retry": "Retry",
+    "cancel": "Cancel",
+    "save": "Save",
+    "delete": "Delete",
+    "search": "Search",
+    "noResults": "No results found"
+  },
+  "nav": {
+    "home": "Home",
+    "library": "Library",
+    "search": "Search",
+    "settings": "Settings"
+  },
+  "auth": {
+    "signIn": "Sign In",
+    "signInWith": "Sign in with Google",
+    "signOut": "Sign Out",
+    "signInPrompt": "Sign in to save books and track your reading progress."
+  },
+  "home": {
+    "title": "TextStack",
+    "subtitle": "A calm place to read books",
+    "recentBooks": "Recently Added",
+    "viewAll": "View all"
+  },
+  "books": {
+    "title": "Books",
+    "chapters": "chapters",
+    "unknown": "Unknown",
+    "readNow": "Read Now",
+    "addToLibrary": "Add to Library",
+    "removeFromLibrary": "Remove from Library",
+    "noBooks": "No books available yet."
+  },
+  "search": {
+    "placeholder": "Search books...",
+    "noResults": "No results found",
+    "results": "Found {{total}} results",
+    "chapter": "Chapter"
+  },
+  "library": {
+    "title": "My Library",
+    "empty": "Your library is empty.",
+    "browseBooks": "Browse Books",
+    "readingProgress": "Reading Progress",
+    "lastRead": "Last read"
+  },
+  "reader": {
+    "chapter": "Chapter {{number}}",
+    "previous": "Previous",
+    "next": "Next",
+    "contents": "Contents",
+    "progress": "{{percent}}% complete"
+  },
+  "settings": {
+    "title": "Settings",
+    "language": "Language",
+    "english": "English",
+    "ukrainian": "Ukrainian",
+    "theme": {
+      "title": "Theme",
+      "light": "Light",
+      "dark": "Dark",
+      "system": "System"
+    },
+    "about": "About",
+    "version": "Version",
+    "logout": "Sign Out"
+  },
+  "onboarding": {
+    "message": "Welcome to TextStack"
+  },
+  "welcome": "Welcome to TextStack"
+}
