@@ -59,7 +59,19 @@ export function useReadingSession(options: UseReadingSessionOptions) {
   }, [])
 
   const endAndSubmit = useCallback(() => {
-    if (!sessionActiveRef.current || activeSecondsRef.current < 10) {
+    if (!sessionActiveRef.current) return
+
+    // Wall-clock fallback: if heartbeat hasn't fired yet (< 30s session),
+    // estimate active time from elapsed wall clock
+    if (activeSecondsRef.current < 10 && startedAtRef.current > 0) {
+      const elapsed = (Date.now() - startedAtRef.current) / 1000
+      const sinceLastActivity = (Date.now() - lastActivityRef.current) / 1000
+      if (sinceLastActivity < IDLE_THRESHOLD / 1000) {
+        activeSecondsRef.current = Math.min(elapsed, 30)
+      }
+    }
+
+    if (activeSecondsRef.current < 10) {
       sessionActiveRef.current = false
       return
     }
@@ -74,7 +86,7 @@ export function useReadingSession(options: UseReadingSessionOptions) {
       userBookId: userBookId || null,
       startedAt: new Date(startedAtRef.current).toISOString(),
       endedAt: new Date(now).toISOString(),
-      durationSeconds: Math.min(activeSecondsRef.current, 14400),
+      durationSeconds: Math.min(Math.round(activeSecondsRef.current), 14400),
       wordsRead: totalWords
         ? Math.round(Math.abs(currentPercentRef.current - startPercentRef.current) * totalWords)
         : 0,
@@ -85,18 +97,13 @@ export function useReadingSession(options: UseReadingSessionOptions) {
     sessionActiveRef.current = false
     activeSecondsRef.current = 0
 
-    // Try sendBeacon first (reliable during unload)
-    const payload = JSON.stringify(session)
-    const url = '/api/me/reading/sessions'
+    // Always save to localStorage first (beacon is best-effort, can't detect server errors)
+    savePendingSession(session)
 
+    // Try sendBeacon as fast path (fire-and-forget)
     if (navigator.sendBeacon) {
-      const sent = navigator.sendBeacon(url, new Blob([payload], { type: 'application/json' }))
-      if (!sent) {
-        savePendingSession(session)
-      }
-    } else {
-      // Fallback: save to localStorage for later
-      savePendingSession(session)
+      const payload = JSON.stringify(session)
+      navigator.sendBeacon('/api/me/reading/sessions', new Blob([payload], { type: 'application/json' }))
     }
   }, [isAuthenticated, editionId, userBookId, totalWords])
 
@@ -180,13 +187,19 @@ async function flushPendingSessions() {
 
     localStorage.removeItem(PENDING_SESSIONS_KEY)
 
+    const failed: PendingSession[] = []
     for (const session of sessions) {
       try {
         await submitSession(session)
+        // Success or duplicate — either way, done
       } catch {
-        // Re-save failed ones
-        savePendingSession(session)
+        failed.push(session)
       }
+    }
+
+    // Re-save only genuinely failed ones
+    if (failed.length > 0) {
+      localStorage.setItem(PENDING_SESSIONS_KEY, JSON.stringify(failed))
     }
   } catch {
     // ignore

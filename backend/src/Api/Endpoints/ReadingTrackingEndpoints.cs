@@ -79,9 +79,9 @@ public static class ReadingTrackingEndpoints
         {
             await db.SaveChangesAsync(ct);
         }
-        catch (DbUpdateException)
+        catch (DbUpdateException ex) when (ex.InnerException is Npgsql.PostgresException { SqlState: "23505" })
         {
-            // Duplicate (unique index) — ignore
+            // Unique constraint violation (duplicate) — ignore
             return Results.Ok(new SubmitSessionResponse(session.Id, []));
         }
 

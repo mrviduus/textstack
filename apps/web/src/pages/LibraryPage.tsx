@@ -270,8 +270,8 @@ export function LibraryPage() {
                   const progress = progressMap[item.editionId]
                   const percent = progress?.percent ?? 0
                   const destination = progress?.chapterSlug
-                    ? `/${item.language}/books/${item.slug}/${progress.chapterSlug}`
-                    : `/${item.language}/books/${item.slug}`
+                    ? `/${language}/books/${item.slug}/${progress.chapterSlug}`
+                    : `/${language}/books/${item.slug}`
                   return (
                     <article key={item.editionId} className="library-list-item">
                       <Link to={destination} className="library-list-item__cover">
@@ -334,8 +334,8 @@ export function LibraryPage() {
                   const progress = progressMap[item.editionId]
                   const percent = progress?.percent ?? 0
                   const destination = progress?.chapterSlug
-                    ? `/${item.language}/books/${item.slug}/${progress.chapterSlug}`
-                    : `/${item.language}/books/${item.slug}`
+                    ? `/${language}/books/${item.slug}/${progress.chapterSlug}`
+                    : `/${language}/books/${item.slug}`
                   return (
                     <div key={item.editionId} className="library-card">
                       <Link to={destination} className="library-card__cover" title={`Read ${item.title} online`}>
