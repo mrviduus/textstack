@@ -251,11 +251,16 @@ export function readReadingLine(
   readingLineY: number,
 ): { chapterText: string; charOffset: number } | null {
   const rect = article.getBoundingClientRect()
+  // Clamped into the article's visible band. A chapter shorter than the reading
+  // line — a poem, a preface, a clip, the stub last chapter of a book — ends
+  // ABOVE it, so an unclamped probe finds no text and the reader silently gets
+  // no logical position at all, falling back to the pixel offset forever.
+  const y = Math.max(rect.top + 4, Math.min(readingLineY, rect.bottom - 4))
   // A few x positions: the reading line can land in a margin, between
   // paragraphs, or on an image, and a caret there resolves to nothing.
   const xs = [rect.left + 24, rect.left + rect.width / 2, rect.right - 24]
   for (const x of xs) {
-    const caret = caretAt(x, readingLineY)
+    const caret = caretAt(x, y)
     if (!caret || !article.contains(caret.node)) continue
     const before = extractText(article, article, 0, caret.node, caret.offset)
     const after = extractText(article, caret.node, caret.offset, null, null)

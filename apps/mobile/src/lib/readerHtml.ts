@@ -485,7 +485,14 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
         if (!bounds) return null;
         var el = chapterElement(bounds.slug);
         if (!el) return null;
-        var y = window.innerHeight * 0.25;
+        // The reading line, clamped into the chapter's visible band. A chapter
+        // shorter than a quarter of the viewport -- a poem, a preface, a clip,
+        // the stub last chapter of a book -- ends ABOVE the line, so an
+        // unclamped probe finds no text and the reader silently gets no logical
+        // position at all, falling back to the pixel offset forever. Measured:
+        // a one-paragraph chapter ends at 108px with the line at 200px.
+        var rect = el.getBoundingClientRect();
+        var y = Math.max(rect.top + 4, Math.min(window.innerHeight * 0.25, rect.bottom - 4));
         // A few x positions: the reading line can land in a margin, between
         // paragraphs, or on an image, and a caret there resolves to nothing.
         var caret = caretAt(24, y) || caretAt(window.innerWidth / 2, y) || caretAt(window.innerWidth - 24, y);
