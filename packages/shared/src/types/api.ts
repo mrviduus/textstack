@@ -446,6 +446,11 @@ export interface UserBookDto {
   progressPercent: number | null
   progressUpdatedAt: string | null
   progressChapterSlug: string | null
+  /** Where the reader stopped. The list used to carry a percentage and a slug
+   *  but no position, so a card could say how far in a reader was and still not
+   *  offer to continue from there. `progressPositionJson` is preferred. */
+  progressLocator?: string | null
+  progressPositionJson?: string | null
   /** True when the original upload is a PDF → the card can open "Original layout".
    *  Absent on older payloads → false. */
   hasOriginalPdf?: boolean

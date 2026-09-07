@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Library** — the shelf called Continue Reading can finally continue something — backend, shared · [details](docs/changelog-archive/2026-H2.md#2026-09-07-library-the-shelf-that-could-not-continue)
 - **Reader** — web joins the position model; a slug with a colon and a tab-close write both stop losing data — web · [details](docs/changelog-archive/2026-H2.md#2026-09-07-reader-web-joins-the-position-model)
 - **Reader** — the reading position is a place in the text, not a pixel — mobile, backend, shared · [details](docs/changelog-archive/2026-H2.md#2026-09-07-reader-the-position-is-a-place-in-the-text)
 - **Reader** — a font size change stops destroying your place, and three defects found on the way — mobile · [details](docs/changelog-archive/2026-H2.md#2026-09-07-reader-a-font-size-change-stops-destroying-your-place)

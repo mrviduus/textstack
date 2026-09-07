@@ -69,6 +69,8 @@ public class LibraryShelvesService(IAppDbContext db)
                 b.Language,
                 Progress = b.ProgressPercent ?? 0,
                 b.ProgressChapterSlug,
+                b.ProgressLocator,
+                b.ProgressPositionJson,
                 LastOpened = b.ProgressUpdatedAt,
                 b.CreatedAt,
                 b.TotalWordCount
@@ -82,7 +84,7 @@ public class LibraryShelvesService(IAppDbContext db)
             let latestProgress = db.ReadingProgresses
                 .Where(p => p.UserId == userId && p.EditionId == e.Id)
                 .OrderByDescending(p => p.UpdatedAt)
-                .Select(p => new { p.Percent, p.UpdatedAt, p.ChapterId, p.Locator, p.CompletedAt })
+                .Select(p => new { p.Percent, p.UpdatedAt, p.ChapterId, p.Locator, p.PositionJson, p.CompletedAt })
                 .FirstOrDefault()
             where latestProgress != null
                 && latestProgress.Percent != null
@@ -104,6 +106,7 @@ public class LibraryShelvesService(IAppDbContext db)
                 Progress = latestProgress.Percent ?? 0,
                 CurrentChapterId = (Guid?)latestProgress.ChapterId,
                 CurrentLocator = latestProgress.Locator,
+                CurrentPositionJson = latestProgress.PositionJson,
                 LastOpened = (DateTimeOffset?)latestProgress.UpdatedAt,
                 ul.CreatedAt,
                 TotalWordCount = (int?)db.Chapters
@@ -126,7 +129,8 @@ public class LibraryShelvesService(IAppDbContext db)
                 return new LibraryShelfItemDto(
                     u.Id, "userbook", u.Title, u.Author, u.CoverPath, u.Slug, u.Language,
                     p, u.LastOpened, u.CreatedAt,
-                    EstimateRemaining(u.TotalWordCount, p, pace));
+                    EstimateRemaining(u.TotalWordCount, p, pace),
+                    u.ProgressLocator, u.ProgressPositionJson);
             })
             .Concat(saved.Select(s =>
             {
@@ -134,7 +138,8 @@ public class LibraryShelvesService(IAppDbContext db)
                 return new LibraryShelfItemDto(
                     s.Id, "savedbook", s.Title, s.Author, s.CoverPath, s.Slug, s.Language,
                     p, s.LastOpened, s.CreatedAt,
-                    EstimateRemaining(s.TotalWordCount, p, pace));
+                    EstimateRemaining(s.TotalWordCount, p, pace),
+                    s.CurrentLocator, s.CurrentPositionJson);
             }))
             .OrderByDescending(i => i.LastOpenedAt ?? DateTimeOffset.MinValue)
             .Take(ShelfLimit)
@@ -162,6 +167,8 @@ public class LibraryShelvesService(IAppDbContext db)
                 b.Language,
                 Progress = b.ProgressPercent ?? 0,
                 b.ProgressChapterSlug,
+                b.ProgressLocator,
+                b.ProgressPositionJson,
                 LastOpened = b.ProgressUpdatedAt,
                 b.CreatedAt,
                 b.TotalWordCount
@@ -175,7 +182,7 @@ public class LibraryShelvesService(IAppDbContext db)
             let latest = db.ReadingProgresses
                 .Where(p => p.UserId == userId && p.EditionId == e.Id)
                 .OrderByDescending(p => p.UpdatedAt)
-                .Select(p => new { p.Percent, p.UpdatedAt, p.ChapterId, p.Locator })
+                .Select(p => new { p.Percent, p.UpdatedAt, p.ChapterId, p.Locator, p.PositionJson })
                 .FirstOrDefault()
             orderby ul.CreatedAt descending
             select new
@@ -193,6 +200,7 @@ public class LibraryShelvesService(IAppDbContext db)
                 LatestProgress = latest != null ? latest.Percent : null,
                 CurrentChapterId = latest != null ? (Guid?)latest.ChapterId : null,
                 CurrentLocator = latest != null ? latest.Locator : null,
+                CurrentPositionJson = latest != null ? latest.PositionJson : null,
                 LastOpened = latest != null ? (DateTimeOffset?)latest.UpdatedAt : null,
                 TotalWordCount = (int?)db.Chapters
                     .Where(c => c.EditionId == e.Id)
@@ -206,7 +214,8 @@ public class LibraryShelvesService(IAppDbContext db)
                 return new LibraryShelfItemDto(
                     u.Id, "userbook", u.Title, u.Author, u.CoverPath, u.Slug, u.Language,
                     p, u.LastOpened, u.CreatedAt,
-                    EstimateRemaining(u.TotalWordCount, p, pace));
+                    EstimateRemaining(u.TotalWordCount, p, pace),
+                    u.ProgressLocator, u.ProgressPositionJson);
             })
             .Concat(saved.Select(s =>
             {
@@ -214,7 +223,8 @@ public class LibraryShelvesService(IAppDbContext db)
                 return new LibraryShelfItemDto(
                     s.Id, "savedbook", s.Title, s.Author, s.CoverPath, s.Slug, s.Language,
                     p, s.LastOpened, s.CreatedAt,
-                    EstimateRemaining(s.TotalWordCount, p, pace));
+                    EstimateRemaining(s.TotalWordCount, p, pace),
+                    s.CurrentLocator, s.CurrentPositionJson);
             }))
             .OrderByDescending(i => i.CreatedAt)
             .Take(ShelfLimit)
@@ -245,6 +255,8 @@ public class LibraryShelvesService(IAppDbContext db)
                 b.Language,
                 Progress = b.ProgressPercent ?? 0,
                 b.ProgressChapterSlug,
+                b.ProgressLocator,
+                b.ProgressPositionJson,
                 LastOpened = b.ProgressUpdatedAt,
                 b.CreatedAt,
                 b.TotalWordCount
@@ -261,7 +273,7 @@ public class LibraryShelvesService(IAppDbContext db)
             let latest = db.ReadingProgresses
                 .Where(p => p.UserId == userId && p.EditionId == e.Id)
                 .OrderByDescending(p => p.UpdatedAt)
-                .Select(p => new { p.Percent, p.UpdatedAt, p.ChapterId, p.Locator })
+                .Select(p => new { p.Percent, p.UpdatedAt, p.ChapterId, p.Locator, p.PositionJson })
                 .FirstOrDefault()
             where totalWords > 0 && ((latest != null ? latest.Percent : null) ?? 0) < InProgressMaxPercent
             orderby totalWords
@@ -279,6 +291,7 @@ public class LibraryShelvesService(IAppDbContext db)
                 Progress = (latest != null ? latest.Percent : null) ?? 0,
                 CurrentChapterId = latest != null ? (Guid?)latest.ChapterId : null,
                 CurrentLocator = latest != null ? latest.Locator : null,
+                CurrentPositionJson = latest != null ? latest.PositionJson : null,
                 LastOpened = latest != null ? (DateTimeOffset?)latest.UpdatedAt : null,
                 ul.CreatedAt,
                 TotalWordCount = (int?)totalWords
@@ -298,14 +311,16 @@ public class LibraryShelvesService(IAppDbContext db)
             .Select(x => new LibraryShelfItemDto(
                 x.Item.Id, "userbook", x.Item.Title, x.Item.Author, x.Item.CoverPath, x.Item.Slug, x.Item.Language,
                 x.Pct, x.Item.LastOpened, x.Item.CreatedAt,
-                EstimateRemaining(x.Item.TotalWordCount, x.Pct, pace)))
+                EstimateRemaining(x.Item.TotalWordCount, x.Pct, pace),
+                x.Item.ProgressLocator, x.Item.ProgressPositionJson))
             .Concat(saved
                 .Select(s => (Item: s, Pct: Math.Clamp(s.Progress, 0.0, 1.0)))
                 .Where(x => IsQuick(x.Item.TotalWordCount, x.Pct))
                 .Select(x => new LibraryShelfItemDto(
                     x.Item.Id, "savedbook", x.Item.Title, x.Item.Author, x.Item.CoverPath, x.Item.Slug, x.Item.Language,
                     x.Pct, x.Item.LastOpened, x.Item.CreatedAt,
-                    EstimateRemaining(x.Item.TotalWordCount, x.Pct, pace))))
+                    EstimateRemaining(x.Item.TotalWordCount, x.Pct, pace),
+                    x.Item.CurrentLocator, x.Item.CurrentPositionJson)))
             .OrderBy(i => i.EstimatedMinutesRemaining ?? int.MaxValue)
             .Take(ShelfLimit)
             .ToList();

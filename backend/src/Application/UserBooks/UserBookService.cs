@@ -207,6 +207,8 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage, IEnt
                 b.ProgressPercent,
                 b.ProgressUpdatedAt,
                 b.ProgressChapterSlug,
+                b.ProgressLocator,
+                b.ProgressPositionJson,
                 b.Tags,
                 b.SuggestedTags,
                 b.SourceUrl,
@@ -242,7 +244,9 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage, IEnt
             b.IsClip,
             b.IsRead,
             b.ReadAt,
-            b.HasOriginalPdf
+            b.HasOriginalPdf,
+            b.ProgressLocator,
+            b.ProgressPositionJson
         )).ToList();
     }
 

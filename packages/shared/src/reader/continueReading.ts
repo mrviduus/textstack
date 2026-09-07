@@ -202,7 +202,12 @@ function pickUserBook(ub: UserBookDto, local: UserBookProgressLite | undefined):
     title: ub.title || 'Untitled',
     coverPath: ub.coverPath,
     percent: displayPercent,
-    chapterSlug: ub.progressChapterSlug,
+    // Same rule the catalog branch above applies, and for the same reason: the
+    // locator is the position and the slug beside it is a field that can lag.
+    // It happens to be client-written here rather than server-derived, so this
+    // has not yet cost anything — but one branch of one function obeying a rule
+    // the other does not is how #496 turned into #500 turned into #501.
+    chapterSlug: resumeChapterSlug(ub.progressChapterSlug, ub.progressLocator, null),
     updatedAtMs: ubMs,
   }
 }

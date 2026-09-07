@@ -26,7 +26,16 @@ public record UserBookListDto(
     DateTimeOffset? ReadAt,
     // True when the book has a stored PDF original → the library card can open
     // "Original layout" instantly, before extraction finishes.
-    bool HasOriginalPdf
+    bool HasOriginalPdf,
+    /// <summary>
+    /// Where the reader stopped. The list carried a percentage and a chapter
+    /// slug but no position, so a card could show how far in a reader was and
+    /// still not offer to continue from there without a second request per book.
+    /// <para><c>ProgressPositionJson</c> is the logical position (ADR-015) and is
+    /// preferred; the locator is what a row written by an older build offers.</para>
+    /// </summary>
+    string? ProgressLocator = null,
+    string? ProgressPositionJson = null
 );
 
 public record AcceptSuggestedTagsRequest(string[] Accepted);
