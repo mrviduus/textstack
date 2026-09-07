@@ -19,6 +19,8 @@ public partial class AppDbContext
             e.HasIndex(x => x.EditionId);
             e.HasIndex(x => x.SiteId);
             e.HasIndex(x => new { x.UserId, x.SiteId, x.EditionId }).IsUnique();
+            // Same storage as Highlight.AnchorJson, which holds the same shape.
+            e.Property(x => x.PositionJson).HasColumnType("jsonb");
             e.HasOne(x => x.User).WithMany(x => x.ReadingProgresses).HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.Edition).WithMany().HasForeignKey(x => x.EditionId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.Chapter).WithMany(x => x.ReadingProgresses).HasForeignKey(x => x.ChapterId).OnDelete(DeleteBehavior.Cascade);

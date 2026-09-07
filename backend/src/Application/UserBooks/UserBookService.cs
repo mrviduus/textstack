@@ -509,7 +509,7 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage, IEnt
     {
         var book = await db.UserBooks
             .Where(b => b.UserId == userId && b.Id == bookId && b.TakedownAt == null)
-            .Select(b => new { b.ProgressChapterSlug, b.ProgressLocator, b.ProgressPercent, b.ProgressUpdatedAt })
+            .Select(b => new { b.ProgressChapterSlug, b.ProgressLocator, b.ProgressPercent, b.ProgressUpdatedAt, b.ProgressPositionJson })
             .FirstOrDefaultAsync(ct);
 
         // Page-based (PDF "Original layout", ADR-012) progress has no chapter — the
@@ -522,7 +522,8 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage, IEnt
             book.ProgressChapterSlug,
             book.ProgressLocator,
             book.ProgressPercent,
-            book.ProgressUpdatedAt
+            book.ProgressUpdatedAt,
+            book.ProgressPositionJson
         );
     }
 
@@ -552,6 +553,9 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage, IEnt
 
         book.ProgressChapterSlug = request.ChapterSlug;
         book.ProgressLocator = request.Locator;
+        // Assigned, never merged — see ReaderPosition. Reached only after MayReplace
+        // has accepted the write, so a refusal leaves the stored position alone too.
+        book.ProgressPositionJson = ReaderPosition.ToStore(request.PositionJson, request.Locator);
         // A null Percent means "I know where the reader is, but not how far
         // through the book" — the client could not compute a book-wide value
         // because the chapter list had not resolved (every save made offline,

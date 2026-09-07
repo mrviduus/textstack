@@ -114,7 +114,10 @@ public record UserBookProgressDto(
     string? ChapterSlug,
     string? Locator,
     double? Percent,
-    DateTimeOffset? UpdatedAt
+    DateTimeOffset? UpdatedAt,
+    /// <summary>The logical position, when the row holds one. Same contract as
+    /// ReadingProgressDto.PositionJson — see Domain.Entities.ReadingProgress.PositionJson.</summary>
+    string? PositionJson = null
 );
 
 // ChapterSlug is nullable: PDFs opened in "Original layout" (ADR-012) have no
@@ -132,7 +135,10 @@ public record UpsertUserBookProgressRequest(
     /// Required only to move a book BETWEEN spaces; a write that stays in the space
     /// already stored is accepted without it, so older clients keep working.
     /// See Application.ReadingTracking.LocatorSpace.</summary>
-    string? LocatorKind = null
+    string? LocatorKind = null,
+    /// <summary>The logical position this write is really about. Absent means absent,
+    /// not unchanged. See Application.ReadingTracking.ReaderPosition.</summary>
+    string? PositionJson = null
 );
 
 // ChapterId/ChapterSlug are nullable: PDFs opened in "Original layout" (ADR-012) are

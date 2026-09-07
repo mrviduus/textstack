@@ -325,4 +325,119 @@ public class UserBookProgressServiceTests
         Assert.Equal("scroll:ch-2:20", book.ProgressLocator);
         Assert.Equal(0.2, book.ProgressPercent);
     }
+
+    // --- PositionJson: the logical position, and the invariant that a row never
+    // holds two positions that disagree. -----------------------------------------
+
+    private const string Anchor =
+        """{"v":1,"chapterSlug":"2-act-i","anchor":{"prefix":"and then ","exact":"the door opened","suffix":" onto a"},"charOffset":4120,"chapterFraction":0.31}""";
+
+    [Fact]
+    public async Task UpsertProgressAsync_ScrollWriteWithPosition_StoresAndRoundTrips()
+    {
+        var h = new Harness();
+        var userId = Guid.NewGuid();
+        var book = h.SeedBook(userId);
+
+        var req = new UpsertUserBookProgressRequest(
+            ChapterSlug: "2-act-i", Locator: "scroll:2-act-i:4200", Percent: 0.31, UpdatedAt: null,
+            PercentUnit: ProgressUnit.Book, LocatorKind: LocatorSpace.Scroll, PositionJson: Anchor);
+
+        var (success, _) = await h.Service.UpsertProgressAsync(userId, book.Id, req, CancellationToken.None);
+
+        Assert.True(success);
+        Assert.Equal(Anchor, book.ProgressPositionJson);
+
+        var got = await h.Service.GetProgressAsync(userId, book.Id, CancellationToken.None);
+        Assert.Equal(Anchor, got!.PositionJson);
+    }
+
+    [Fact]
+    public async Task UpsertProgressAsync_WriteWithoutPosition_ClearsTheStoredOne()
+    {
+        // The old-build case, and the reason this is an assignment rather than a merge.
+        // A device that predates the column writes the locator and nothing else, so its
+        // pixel offset is the only true statement on the row. Keeping the anchor would
+        // leave the row contradicting itself for as long as that device kept reading.
+        var h = new Harness();
+        var userId = Guid.NewGuid();
+        var book = h.SeedBook(userId);
+        book.ProgressLocator = "scroll:2-act-i:4200";
+        book.ProgressPositionJson = Anchor;
+
+        var req = new UpsertUserBookProgressRequest(
+            ChapterSlug: "2-act-i", Locator: "scroll:2-act-i:5000", Percent: 0.34, UpdatedAt: null,
+            PercentUnit: ProgressUnit.Book);
+
+        await h.Service.UpsertProgressAsync(userId, book.Id, req, CancellationToken.None);
+
+        Assert.Equal("scroll:2-act-i:5000", book.ProgressLocator);
+        Assert.Null(book.ProgressPositionJson);
+    }
+
+    [Fact]
+    public async Task UpsertProgressAsync_PageWrite_ClearsThePosition()
+    {
+        // A PDF read in Original layout has no text anchor to give, and its page IS
+        // its logical position. An anchor left beside page:17 would name a chapter the
+        // reader is not in.
+        var h = new Harness();
+        var userId = Guid.NewGuid();
+        var book = h.SeedBook(userId);
+        book.ProgressLocator = "page:9";
+        book.ProgressPositionJson = Anchor;
+
+        var req = new UpsertUserBookProgressRequest(
+            ChapterSlug: null, Locator: "page:17", Percent: 0.16, UpdatedAt: null,
+            PercentUnit: ProgressUnit.Book, LocatorKind: LocatorSpace.Page, PositionJson: Anchor);
+
+        await h.Service.UpsertProgressAsync(userId, book.Id, req, CancellationToken.None);
+
+        Assert.Equal("page:17", book.ProgressLocator);
+        Assert.Null(book.ProgressPositionJson);
+    }
+
+    [Fact]
+    public async Task UpsertProgressAsync_RefusedWrite_LeavesThePositionAlone()
+    {
+        // A refusal drops the whole write (ADR-013 rule 5). The position is part of
+        // the write, so it must not be the one field that leaks through.
+        var h = new Harness();
+        var userId = Guid.NewGuid();
+        var book = h.SeedBook(userId);
+        book.ProgressLocator = "page:16";
+        book.ProgressPositionJson = null;
+
+        var req = new UpsertUserBookProgressRequest(
+            ChapterSlug: "1-intro", Locator: "scroll:1-intro:0", Percent: 0.04, UpdatedAt: null,
+            PercentUnit: ProgressUnit.Book, PositionJson: Anchor);   // undeclared cross-space
+
+        var (success, _) = await h.Service.UpsertProgressAsync(userId, book.Id, req, CancellationToken.None);
+
+        Assert.True(success);                       // refusals are silent
+        Assert.Equal("page:16", book.ProgressLocator);
+        Assert.Null(book.ProgressPositionJson);
+    }
+
+    [Fact]
+    public async Task UpsertProgressAsync_OversizedPosition_DropsOnlyThePosition()
+    {
+        // Unlike a foreign coordinate space, an oversized payload says nothing about
+        // whether the rest of the snapshot is trustworthy — so the locator and the
+        // percentage still land.
+        var h = new Harness();
+        var userId = Guid.NewGuid();
+        var book = h.SeedBook(userId);
+
+        var req = new UpsertUserBookProgressRequest(
+            ChapterSlug: "2-act-i", Locator: "scroll:2-act-i:4200", Percent: 0.31, UpdatedAt: null,
+            PercentUnit: ProgressUnit.Book,
+            PositionJson: new string('x', ReaderPosition.MaxLength + 1));
+
+        await h.Service.UpsertProgressAsync(userId, book.Id, req, CancellationToken.None);
+
+        Assert.Equal("scroll:2-act-i:4200", book.ProgressLocator);
+        Assert.Equal(0.31, book.ProgressPercent);
+        Assert.Null(book.ProgressPositionJson);
+    }
 }
