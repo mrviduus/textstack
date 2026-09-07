@@ -29,8 +29,10 @@ export default function UploadScreen() {
   const unmountedRef = useRef(false)
 
   useEffect(() => {
-    // Don't ask for a quota the reader has no way to spend. A guest would get a
-    // real answer (Entitlements.Guest), which is exactly the confusion to avoid.
+    // A guest now gets this figure, and it is the truth: their `Guest` tier
+    // answer is 50 MB and they may spend it (ADR-014 §3, reversed 2026-09-06).
+    // The guard stays for the sessionless case, where `/me/books/quota` has no
+    // bearer token and would only 401 into the console.
     if (!canUpload) return
     userBooksApi.getStorageQuota()
       .then(setQuota)
@@ -50,11 +52,36 @@ export default function UploadScreen() {
     }
   }, [])
 
+  /**
+   * The server's own message for a 400, when it sent one.
+   *
+   * Every refusal from `UserBookService` comes back as `400 { error: "…" }`, and
+   * until upload opened to guests they all meant the same thing in practice — a
+   * file the extractor would not take — because every non-guest tier has
+   * `MaxBooks: null`. The tier refusals are reachable now (ADR-014 §3a), and the
+   * one a guest actually hits reads *"Guest accounts can upload 1 book. Sign up
+   * for more."*: the correct copy AND the conversion prompt, thrown away by a
+   * status-only mapping that answered it with "This file looks invalid".
+   */
+  const serverErrorMessage = (body: string | undefined): string | null => {
+    if (!body) return null
+    try {
+      const parsed = JSON.parse(body)
+      const message = parsed?.error
+      // Length-bounded: a stack trace or an HTML error page is not copy.
+      return typeof message === 'string' && message.length > 0 && message.length <= 200
+        ? message
+        : null
+    } catch {
+      return null
+    }
+  }
+
   /** Map HTTP status to user-visible copy so errors are actionable (P3-3). */
-  const uploadErrorMessage = (status: number): string => {
+  const uploadErrorMessage = (status: number, body?: string): string => {
     if (status === 413) return 'File is too large. Try a smaller book.'
     if (status === 415) return 'Unsupported file format. Use EPUB or PDF.'
-    if (status === 400) return 'This file looks invalid. Try another one.'
+    if (status === 400) return serverErrorMessage(body) ?? 'This file looks invalid. Try another one.'
     if (status === 401 || status === 403) return 'Sign in to upload books.'
     if (status === 429) return 'Too many uploads. Take a breather and retry.'
     if (status >= 500) return 'Server error. Try again in a bit.'
@@ -113,7 +140,7 @@ export default function UploadScreen() {
         xhr.onload = () => {
           if (xhr.status >= 200 && xhr.status < 300) resolve()
           else {
-            const err = new Error(uploadErrorMessage(xhr.status)) as Error & { status?: number }
+            const err = new Error(uploadErrorMessage(xhr.status, xhr.responseText)) as Error & { status?: number }
             err.status = xhr.status
             reject(err)
           }
@@ -153,11 +180,14 @@ export default function UploadScreen() {
     : 0
 
   // This screen had no auth check of its own — it relied entirely on the tab
-  // being hidden. That was survivable while a signed-out reader had no session,
-  // but a guest is a real account row the server would happily accept a book
-  // from (Entitlements.Guest allows one), and `FirstBookState` on an empty
-  // Library is a route straight here. Uploading is account-only by policy, so
-  // the screen enforces it too rather than trusting whoever routed here.
+  // being hidden, which stopped being enough once `FirstBookState` on an empty
+  // Library started routing straight here. It keeps its own guard.
+  //
+  // What the guard catches changed on 2026-09-06 (ADR-014 §3): a guest passes it
+  // now and uploads on the `Guest` tier. What is left below is the reader with no
+  // session at all — mobile mints a guest only when a book is opened — for whom
+  // there is genuinely no row to attach a file to, and for whom the honest and
+  // only actionable next step is an account.
   if (!canUpload) {
     return (
       <>
@@ -166,7 +196,7 @@ export default function UploadScreen() {
           <View style={styles.content}>
             <Text style={styles.title}>Upload a Book</Text>
             <Text style={styles.subtitle}>
-              Uploading your own books needs an account — it is how they follow you to another phone.
+              Your books need somewhere to live. Create a free account — it also carries them to your next phone.
             </Text>
             <TouchableOpacity
               style={styles.pickBtn}

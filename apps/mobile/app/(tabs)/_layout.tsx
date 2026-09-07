@@ -160,12 +160,13 @@ export default function TabLayout() {
           // custom "+" button (it owns navigation via router.push); everyone
           // else gets the tab hidden via href: null.
           //
-          // `canUpload`, not `isAuthenticated`: a guest HAS a session, and the
-          // server would even take the upload — a guest resolves to the `Guest`
-          // entitlement tier, one book, 50 MB. Spending it is the bad trade. The
-          // guest who uploads their only book and then loses the device has lost
-          // the book, and we would have taken the storage to arrange that. Upload
-          // is the moment to ask for an account, not to work around not having one.
+          // `canUpload`, not `isAuthenticated`: since the 2026-09-06 reversal
+          // (ADR-014 §3) those two agree for a guest — a guest HAS a session and
+          // the `Guest` entitlement tier grants one book at 50 MB — but they part
+          // company for an install with no session at all, which is the case this
+          // predicate still hides the "+" from. Keep reading the capability, not
+          // the auth flag: the next capability to move across that line will move
+          // in `lib/capabilities.ts` and nowhere else.
           ...(caps.canUpload
             ? { tabBarButton: () => <UploadTabButton /> }
             : { href: null }),

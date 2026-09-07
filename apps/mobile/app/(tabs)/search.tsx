@@ -14,6 +14,7 @@ import { OfflineBanner } from '../../src/components/ui/OfflineBanner'
 import { useReconnectCount } from '../../src/hooks/useOnline'
 import { BookCard } from '../../src/components/ui/BookCard'
 import { EmptyState } from '../../src/components/ui/EmptyState'
+import { StartReadingCard } from '../../src/components/discover/StartReadingCard'
 import { trackSearchPerformed } from '../../src/lib/analytics'
 
 /** Renders HTML search highlights with <b> tags as bold Text spans */
@@ -293,6 +294,13 @@ export default function DiscoverScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
+      {/* Above the search box on purpose: searching assumes you already know
+          what you are looking for, and this screen is the first thing an
+          install shows. The card hides itself once anything has been read
+          (see StartReadingCard / decideStartReadingCard), after which this
+          screen is exactly what it is today. */}
+      {!searched && <StartReadingCard />}
+
       <View style={styles.searchBar}>
         <View style={[styles.inputWrapper, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <Ionicons name="search-outline" size={18} color={colors.textSecondary} />

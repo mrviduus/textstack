@@ -114,9 +114,11 @@ The specs must encode the IA the owner asked for. **These are the acceptance cri
 6. **One merged list** — a catalog book and an upload appear together; no `Saved`/`Uploads` tabs.
 7. Source / sort / layout live in the View sheet, and switching source filters the list.
 8. Zero books → `FirstBookState` with exactly one primary CTA. Still exactly one — but **which** one
-   depends on `canUpload`: an account gets *Upload a book* with the catalog as the text link
-   underneath; a guest gets *Browse free books* primary and *Or upload your own book* as the link
-   (which routes to sign-in). Assert "exactly one primary" in both, and the label per capability.
+   depends on `canUpload`, and since the 2026-09-06 upload reversal (ADR-014 §3) that is a
+   *session* predicate: an account **and a guest** both get *Upload a book* with the catalog as the
+   text link underneath; only a device with **no session** gets *Browse free books* primary and *Or
+   upload your own book* as the link (which routes to sign-in). Assert "exactly one primary" in all
+   three, and the label per capability.
 9. Every route reachable from the tab bar renders without an ErrorBoundary.
 10. **No dead routes**: every tappable book row navigates to a screen that is not `+not-found`.
 
@@ -177,8 +179,13 @@ Anyone updating Lane A should know the current specs reference removed things:
 - **Guest sessions exist (2026-09-06).** Opening a book mints one. "Signed out" now means *no
   session*; a guest is a session, and most `/me/*` calls succeed for it. Any spec that used
   "signed out" as shorthand for "no tokens" needs rereading against
-  [ADR-014](../01-architecture/adr/ADR-014-guest-sessions.md). What is still account-only: upload,
-  AI, identity editing, account deletion, silent sign-out.
+  [ADR-014](../01-architecture/adr/ADR-014-guest-sessions.md). What is still account-only: AI,
+  identity editing, account deletion, silent sign-out.
+- **Guest upload opened (2026-09-06, ADR-014 §3 reversed).** A guest can upload one book on the
+  `Guest` tier (50 MB) — the `+` tab, `/my-books/upload` and the Profile *Upload space* row are all
+  live for them. The remaining refusal is the sessionless device, which mobile only produces before
+  the first book is opened. Any spec asserting "a guest tapping `+` lands on sign-in" is now
+  backwards.
 
 ---
 

@@ -15,13 +15,25 @@ import { PressableScale } from '../ui/PressableScale'
  * nothing to decide here. Which action is primary depends on which one the
  * reader can actually take:
  *
- *   - An account can upload, and uploading is what makes the rest of the app do
- *     anything for a book they already want to finish. Catalog underneath.
- *   - A guest cannot (`canUpload` is account-only — see `lib/capabilities.ts`),
- *     so the catalog is promoted and upload becomes the link that asks for an
- *     account. Offering a guest a primary "Upload a book" that lands on a
- *     sign-in wall would be the same broken promise the tap-a-word coachmark
- *     used to make.
+ *   - Anyone with a session can upload — a guest included, since the
+ *     2026-09-06 reversal (`lib/capabilities.ts`, ADR-014 §3). Uploading is what
+ *     makes the rest of the app do anything for a book they already want to
+ *     finish, and "bring your own book" is the product's first claim, so it is
+ *     the primary. Catalog underneath.
+ *   - A device with no session at all cannot: `POST /me/books/upload` has no
+ *     bearer token, and mobile mints a guest only when a book is opened. For
+ *     them the catalog is promoted, and it is not a consolation prize — opening
+ *     one classic is what mints the session that makes the other branch
+ *     available. Upload stays as the link that asks for an account, because a
+ *     primary "Upload a book" landing on a sign-in wall would be the same broken
+ *     promise the tap-a-word coachmark used to make.
+ *
+ * The branch moved without this file changing, which was the point of putting
+ * the policy in one pure function. Only the reasons above are new.
+ *
+ * Note the `library.firstBook.guest*` keys now address that second reader, not a
+ * guest — the names are older than the policy. Renaming them is a locale-file
+ * change with no behaviour in it, deliberately not bundled here.
  *
  * The copy names the tap-a-word loop in both variants, since that is the feature
  * a new reader cannot discover on their own and the reason to read here rather
