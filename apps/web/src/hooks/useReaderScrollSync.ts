@@ -1,9 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  buildTextPosition, parseScrollLocator, parseTextPosition, resolveTextPosition,
+  serializeTextPosition, type ResolvedPosition,
+} from '@textstack/shared'
+import { readReadingLine, rangeAtCharOffset, articleText } from '../lib/textAnchor'
 import type { BookDetail } from '../types/api'
 import type { ReaderMode } from './useReaderChapter'
 
 interface ProgressLocator {
   locator?: string | null
+  /** Serialised TextPosition (ADR-015). Preferred over `locator` when present. */
+  positionJson?: string | null
 }
 
 interface PublicProgressApi {
@@ -13,12 +20,13 @@ interface PublicProgressApi {
     scrollLocator?: string,
     overrideChapterId?: string,
     overrideChapterSlug?: string,
+    positionJson?: string,
   ) => void
   flushSave: () => void
 }
 
 interface UserProgressApi {
-  saveProgress: (chapterSlug: string, page: number, percent: number, locator?: string) => Promise<void> | void
+  saveProgress: (chapterSlug: string, page: number, percent: number, locator?: string, positionJson?: string) => Promise<void> | void
   flushSave: () => void
 }
 
@@ -45,6 +53,55 @@ interface Params {
   publicBookChapters: BookDetail['chapters'] | undefined
   publicProgress: PublicProgressApi
   userProgress: UserProgressApi
+  /**
+   * Identity of the typography currently applied. Changing it reflows the text,
+   * which is the one thing that silently invalidates a pixel scroll position —
+   * and this hook had no idea it ever happened.
+   */
+  settingsKey: string
+}
+
+
+/**
+ * A quarter down the viewport — the same probe the mobile reader measures
+ * against, so a position captured on one client describes the same place on the
+ * other.
+ */
+const READING_LINE_FRACTION = 0.25
+
+/** The rendered chapter. Web mounts exactly one per route (see ReaderPage). */
+function readerArticle(): HTMLElement | null {
+  return document.querySelector<HTMLElement>('.reader-section__article')
+}
+
+/** Where to scroll so a resolved position sits on the reading line. */
+function anchoredScrollTop(article: HTMLElement | null, resolved: ResolvedPosition | null): number | null {
+  if (!article || !resolved) return null
+  if (resolved.kind === 'fraction') {
+    const height = document.documentElement.scrollHeight - window.innerHeight
+    return height > 0 ? Math.round(height * resolved.fraction) : 0
+  }
+  const range = rangeAtCharOffset(article, resolved.offset)
+  if (!range) return null
+  const rect = range.getBoundingClientRect()
+  const scrollTop = (document.scrollingElement || document.documentElement).scrollTop
+  return Math.max(0, Math.round(scrollTop + rect.top - window.innerHeight * READING_LINE_FRACTION))
+}
+
+/** The position at the reading line right now, serialised, or null. */
+function captureReadingPosition(chapterSlug: string): string | null {
+  const article = readerArticle()
+  if (!article) return null
+  const line = readReadingLine(article, window.innerHeight * READING_LINE_FRACTION)
+  if (!line) return null
+  const height = document.documentElement.scrollHeight - window.innerHeight
+  const scrollTop = (document.scrollingElement || document.documentElement).scrollTop
+  return serializeTextPosition(buildTextPosition({
+    chapterSlug,
+    chapterText: line.chapterText,
+    charOffset: line.charOffset,
+    chapterFraction: height > 0 ? Math.min(1, Math.max(0, scrollTop / height)) : 0,
+  }))
 }
 
 const SAVE_DEBOUNCE_MS = 600
@@ -61,6 +118,7 @@ export function useReaderScrollSync({
   publicBookChapters,
   publicProgress,
   userProgress,
+  settingsKey,
 }: Params) {
   const scrollRestoredRef = useRef(false)
   const lastSaveRef = useRef<{ identifier: string; offset: number; timestamp: number } | null>(null)
@@ -72,6 +130,34 @@ export function useReaderScrollSync({
   const [restoredFor, setRestoredFor] = useState<string | null>(null)
   // Guard: emit exactly one save-on-open per opened chapter.
   const savedOnOpenForRef = useRef<string | null>(null)
+
+  /**
+   * The one place a reading position is written.
+   *
+   * There used to be three copies of this — save-on-open, the debounced scroll
+   * save, and the keepalive flush — each building the locator itself and each
+   * branching on mode. Adding the text position to three copies is how a fourth
+   * field ends up in two of them.
+   *
+   * Returns whether anything was written, so the flush knows whether to follow
+   * it with a keepalive.
+   */
+  const writeProgress = useCallback((identifier: string, offset: number, progress: number): boolean => {
+    const locator = `scroll:${identifier}:${Math.round(offset)}`
+    // Captured at write time from the live DOM, so it describes the same instant
+    // the offset does. Null when the reading line has no text under it — a
+    // margin, a gap, an image — and the locator then travels alone.
+    const positionJson = captureReadingPosition(identifier) ?? undefined
+
+    if (mode === 'public') {
+      const bookChapter = publicBookChapters?.find(c => c.slug === identifier)
+      if (!bookChapter) return false
+      publicProgress.updateProgress(progress, undefined, locator, bookChapter.id, identifier, positionJson)
+      return true
+    }
+    userProgress.saveProgress(identifier, 0, progress, locator, positionJson)
+    return true
+  }, [mode, publicBookChapters, publicProgress, userProgress])
 
   // Reset restore guard on chapter change.
   useEffect(() => {
@@ -86,22 +172,76 @@ export function useReaderScrollSync({
     if (scrollRestoredRef.current || effectiveLoading) return
     if (originalActive || !chapterLoaded) return
 
-    const targetOffset = (() => {
-      if (!effectiveProgress?.locator?.startsWith('scroll:')) return 0
-      const parts = effectiveProgress.locator.split(':')
-      if (parts.length < 3) return 0
-      const savedSlug = parts[1]
-      const savedOffset = parseInt(parts[2], 10)
-      if (isNaN(savedOffset) || savedSlug !== chapterIdentifier) return 0
-      return savedOffset
-    })()
+    // The text anchor first: it is the only one of the two that is still true
+    // after the text has reflowed — a font size change here, a different screen
+    // width, a re-parsed book, or simply the phone this was last read on. The
+    // pixel offset below is what a row written by an older build has to offer,
+    // and is parsed with the SHARED parser rather than the split(':') this used
+    // to do inline: a chapter slug containing a colon made that return the wrong
+    // slug and an offset of 0.
+    const article = readerArticle()
+    const anchored = article
+      ? resolveTextPosition(
+          parseTextPosition(effectiveProgress?.positionJson),
+          chapterIdentifier ?? null,
+          articleText(article),
+        )
+      : null
+
+    const parsed = parseScrollLocator(effectiveProgress?.locator)
+    const savedOffset = parsed && parsed.slug === chapterIdentifier ? parsed.offset : 0
 
     requestAnimationFrame(() => {
-      window.scrollTo({ top: targetOffset, behavior: 'instant' })
+      const top = anchoredScrollTop(article, anchored) ?? savedOffset
+      window.scrollTo({ top, behavior: 'instant' })
       scrollRestoredRef.current = true
       setRestoredFor(chapterIdentifier ?? null)
     })
   }, [originalActive, chapterLoaded, effectiveLoading, effectiveProgress, chapterIdentifier])
+
+  /**
+   * Keep the reader in place when the text reflows under them.
+   *
+   * Web applies typography as inline styles on the article, so there is no
+   * remount and no restore — `scrollRestoredRef` is already true and only a
+   * chapter change clears it. The text simply re-wrapped under a fixed
+   * `scrollTop`, and the debounced save then wrote the drifted position. Nothing
+   * in this hook has ever depended on `settings`; that absence WAS the bug.
+   *
+   * The position is captured before the browser has re-laid-out (this effect
+   * runs in the same commit as the style change) and re-applied once the article
+   * actually resizes — a ResizeObserver is the only reliable signal that the
+   * reflow has landed, since a style change fires no resize event on window.
+   */
+  useEffect(() => {
+    if (originalActive || !chapterLoaded || !chapterIdentifier) return
+    if (restoredFor !== chapterIdentifier) return
+    const article = readerArticle()
+    if (!article || typeof ResizeObserver === 'undefined') return
+
+    const before = captureReadingPosition(chapterIdentifier)
+    if (!before) return
+
+    let done = false
+    const observer = new ResizeObserver(() => {
+      if (done) return
+      done = true
+      observer.disconnect()
+      const resolved = resolveTextPosition(parseTextPosition(before), chapterIdentifier, articleText(article))
+      const top = anchoredScrollTop(article, resolved)
+      if (top != null) {
+        window.scrollTo({ top, behavior: 'instant' })
+        // The save that would otherwise fire for the transient position is not
+        // ours to make — re-prime the skip window so the scroll listener treats
+        // this as already saved.
+        lastSaveRef.current = { identifier: chapterIdentifier, offset: top, timestamp: Date.now() }
+      }
+    })
+    observer.observe(article)
+    // A settings change that does not resize the article (a theme swap) leaves
+    // the observer waiting; drop it on the next change rather than leak it.
+    return () => observer.disconnect()
+  }, [settingsKey, originalActive, chapterLoaded, chapterIdentifier, restoredFor])
 
   // Save-on-chapter-open: the debounced scroll save is gated by user scrolling,
   // so chapter→chapter navigation (route param change; ReaderPage stays mounted)
@@ -117,21 +257,13 @@ export function useReaderScrollSync({
     savedOnOpenForRef.current = chapterIdentifier
 
     const offset = (document.scrollingElement || document.documentElement).scrollTop
-    const scrollLocator = `scroll:${chapterIdentifier}:${Math.round(offset)}`
 
     // Prime the dedupe/skip refs so the next scroll-debounced save doesn't
     // immediately re-fire an identical write for the same chapter.
     lastSaveRef.current = { identifier: chapterIdentifier, offset, timestamp: Date.now() }
     pendingSaveRef.current = { identifier: chapterIdentifier, offset, progress: overallProgress }
 
-    if (mode === 'public' && publicBookChapters) {
-      const bookChapter = publicBookChapters.find(c => c.slug === chapterIdentifier)
-      if (bookChapter) {
-        publicProgress.updateProgress(overallProgress, undefined, scrollLocator, bookChapter.id, chapterIdentifier)
-      }
-    } else if (mode === 'userbook') {
-      userProgress.saveProgress(chapterIdentifier, 0, overallProgress, scrollLocator)
-    }
+    writeProgress(chapterIdentifier, offset, overallProgress)
     // overallProgress intentionally excluded: we snapshot it on open only. The
     // scroll-debounced effect owns continuous updates as the user reads.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -153,17 +285,9 @@ export function useReaderScrollSync({
     }
 
     const { identifier, offset, progress } = pending
-    const scrollLocator = `scroll:${identifier}:${Math.round(offset)}`
-
-    if (mode === 'public' && publicBookChapters) {
-      const bookChapter = publicBookChapters.find(c => c.slug === identifier)
-      if (bookChapter) {
-        publicProgress.updateProgress(progress, undefined, scrollLocator, bookChapter.id, identifier)
-        publicProgress.flushSave()
-      }
-    } else if (mode === 'userbook') {
-      userProgress.saveProgress(identifier, 0, progress, scrollLocator)
-      userProgress.flushSave()
+    if (writeProgress(identifier, offset, progress)) {
+      if (mode === 'public') publicProgress.flushSave()
+      else userProgress.flushSave()
     }
 
     pendingSaveRef.current = null
@@ -191,15 +315,7 @@ export function useReaderScrollSync({
     const saveProgress = overallProgress
 
     saveTimerRef.current = window.setTimeout(() => {
-      const scrollLocator = `scroll:${saveId}:${Math.round(saveOffset)}`
-      if (mode === 'public' && publicBookChapters) {
-        const bookChapter = publicBookChapters.find(c => c.slug === saveId)
-        if (bookChapter) {
-          publicProgress.updateProgress(saveProgress, undefined, scrollLocator, bookChapter.id, saveId)
-        }
-      } else if (mode === 'userbook') {
-        userProgress.saveProgress(saveId, 0, saveProgress, scrollLocator)
-      }
+      writeProgress(saveId, saveOffset, saveProgress)
       pendingSaveRef.current = null
       saveTimerRef.current = null
     }, SAVE_DEBOUNCE_MS)

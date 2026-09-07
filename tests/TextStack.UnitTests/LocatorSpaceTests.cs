@@ -82,4 +82,21 @@ public class LocatorSpaceTests
         // that waves any write through.
         Assert.False(LocatorSpace.MayReplace("page:16", "scroll:ch1:0", LocatorSpace.Page));
     }
+
+    [Theory]
+    [InlineData("text:2-act-i:4120")]
+    [InlineData("anchor:2-act-i:4120")]
+    public void Derive_TextSpace_IsStillUnrecognised(string locator)
+    {
+        // Deliberate, and the assertion is the point. The logical reading position went
+        // into a column of its own rather than a third locator space, because rule 3
+        // ("same space — accept, declared or not") is the entire compatibility story:
+        // introduce `text:` and every already-installed build's `scroll:` write becomes a
+        // different space with no declaration, hits rule 5, and is refused. A phone that
+        // updated would silently stop a desktop that had not from saving anything.
+        //
+        // If this test starts failing, someone has added the space anyway. Read ADR-013
+        // §2 and ADR-015 before deleting it.
+        Assert.Null(LocatorSpace.Derive(locator));
+    }
 }

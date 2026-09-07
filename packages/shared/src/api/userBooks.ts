@@ -64,7 +64,14 @@ export function retryUserBook(id: string) {
 }
 
 export function getUserBookProgress(bookId: string) {
-  return authFetch<{ chapterSlug: string | null; locator: string | null; percent: number | null; updatedAt: string | null }>(`/me/books/${bookId}/progress`)
+  return authFetch<{
+    chapterSlug: string | null
+    locator: string | null
+    percent: number | null
+    updatedAt: string | null
+    /** Where the reader is in the TEXT, serialised. Prefer it over `locator`. */
+    positionJson?: string | null
+  }>(`/me/books/${bookId}/progress`)
 }
 
 // chapterSlug is nullable — a chapterless PDF read in Original layout (ADR-012)
@@ -84,6 +91,9 @@ export function updateUserBookProgress(bookId: string, data: {
   percentUnit?: string
   locatorKind?: string
   updatedAt?: string
+  /** Serialised TextPosition. Absent means absent: the server clears the stored
+   *  one rather than leaving it beside a fresher pixel offset. */
+  positionJson?: string
 }) {
   return authFetch<void>(`/me/books/${bookId}/progress`, jsonBody('PUT', data))
 }

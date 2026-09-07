@@ -31,6 +31,30 @@ public class ReadingProgress : ISiteScoped
     public double? Percent { get; set; }
 
     /// <summary>
+    /// The reader's position as a LOGICAL position in the text — a chapter slug,
+    /// a text anchor (prefix/exact/suffix, the same shape
+    /// <see cref="Highlight.AnchorJson"/> stores) and a character offset hint.
+    /// Opaque to the server; the clients own the format.
+    /// <para>
+    /// <see cref="Locator"/> is a pixel offset, and a pixel offset stops being
+    /// true the moment the text reflows — a font size change, a rotation, a
+    /// different screen, a re-parsed book. ADR-007 decided in January 2026 that
+    /// the position is a logical position in the text and listed <c>scrollY</c>
+    /// among the things explicitly not used; the implementation went the other
+    /// way four months later and has been patched sixteen times since. This is
+    /// the column that lets it be right, added alongside rather than instead of
+    /// the locator so already-installed builds keep working unchanged.
+    /// </para>
+    /// <para>
+    /// INVARIANT: a row never holds two positions that disagree. A write that
+    /// carries no position NULLs this, and so does a write whose accepted
+    /// locator is not in scroll space. A stale anchor beside a fresh pixel is
+    /// exactly the self-contradicting row <c>resume.ts</c> was written for.
+    /// </para>
+    /// </summary>
+    public string? PositionJson { get; set; }
+
+    /// <summary>
     /// High-water mark: the furthest chapter ordinal (<see cref="Chapter.ChapterNumber"/>) the user
     /// has ever reached in this edition. Used by the RAG spoiler gate so flipping back to an earlier
     /// chapter doesn't hide already-read later chapters. Null on legacy rows → callers fall back to

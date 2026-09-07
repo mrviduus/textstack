@@ -141,6 +141,13 @@ The goal is to restore **reading context**, not an approximate location.
 ---
 
 ## Related Decisions
+- [ADR-015: The reading position is a place in the text](ADR-015-reader-position-is-logical.md) —
+  written 2026-09-07. **This decision was not implemented for eight months.** On 2026-05-17 the
+  reader shipped `scroll:<slug>:<pixelOffset>` — the coordinate this document explicitly excludes —
+  and sixteen commits since have been repairing the consequences. ADR-015 implements what is written
+  above, with one substitution: `paragraph_index` is replaced by a text anchor, because a paragraph
+  index survives a font change but not the re-ingestion that recreates every chapter. The acceptance
+  criterion "Font changes do not break progress" now has a test.
 - [ADR-013: Reader Position Model](ADR-013-reader-position-model.md) — written 2026-08-27, after the position had broken in six distinct ways. This entry said "ADR-006 (planned)" for the whole of that.
 - ADR-008: Reading Sessions Tracking (planned)
 

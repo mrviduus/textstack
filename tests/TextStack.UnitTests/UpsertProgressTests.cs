@@ -229,4 +229,73 @@ public class UpsertProgressTests
 
         Assert.Null(target.CompletedAt);
     }
+
+    // --- PositionJson on the catalog path. Same invariant as uploads: a row never
+    // holds two positions that disagree. -----------------------------------------
+
+    private const string Anchor =
+        """{"v":1,"chapterSlug":"2-act-i","anchor":{"prefix":"and then ","exact":"the door opened","suffix":" onto a"},"charOffset":4120,"chapterFraction":0.31}""";
+
+    private static UpsertProgressRequest ScrollRequest(Guid chapterId, string? positionJson) =>
+        new(chapterId, "scroll:2-act-i:4200", 0.31, null, ProgressUnit.Book, positionJson);
+
+    [Fact]
+    public void ApplyProgressUpdate_ScrollWriteWithPosition_StoresIt()
+    {
+        var chapter = ChapterAt(2);
+        var target = Progress(maxChapter: 1);
+
+        UserDataEndpoints.ApplyProgressUpdate(target, ScrollRequest(chapter.Id, Anchor), chapter);
+
+        Assert.Equal(Anchor, target.PositionJson);
+    }
+
+    [Fact]
+    public void ApplyProgressUpdate_WriteWithoutPosition_ClearsTheStoredOne()
+    {
+        // The old-build case. A device that predates the column writes the locator and
+        // nothing else; its pixel offset is then the only true statement on the row.
+        var chapter = ChapterAt(2);
+        var target = Progress(maxChapter: 1);
+        target.PositionJson = Anchor;
+
+        UserDataEndpoints.ApplyProgressUpdate(target, ScrollRequest(chapter.Id, null), chapter);
+
+        Assert.Equal("scroll:2-act-i:4200", target.Locator);
+        Assert.Null(target.PositionJson);
+    }
+
+    [Fact]
+    public void ApplyProgressUpdate_NonScrollLocator_ClearsThePosition()
+    {
+        // The catalog path is not guarded by LocatorSpace.MayReplace (ADR-013 records
+        // this as a known gap), so a page write or a mark-as-read can land here at any
+        // time. Neither has a text anchor, and an anchor left beside one would name a
+        // chapter the reader is not in.
+        var chapter = ChapterAt(2);
+        foreach (var locator in new[] { "page:17", """{"type":"end"}""", "percent:0.42" })
+        {
+            var target = Progress(maxChapter: 1);
+            target.PositionJson = Anchor;
+
+            UserDataEndpoints.ApplyProgressUpdate(
+                target, new UpsertProgressRequest(chapter.Id, locator, 0.5, null, ProgressUnit.Book, Anchor), chapter);
+
+            Assert.Null(target.PositionJson);
+        }
+    }
+
+    [Fact]
+    public void ApplyProgressUpdate_OversizedPosition_DropsOnlyThePosition()
+    {
+        var chapter = ChapterAt(2);
+        var target = Progress(maxChapter: 1);
+
+        UserDataEndpoints.ApplyProgressUpdate(
+            target, ScrollRequest(chapter.Id, new string('x', ReaderPosition.MaxLength + 1)), chapter);
+
+        Assert.Equal("scroll:2-act-i:4200", target.Locator);
+        Assert.Equal(0.31, target.Percent);
+        Assert.Null(target.PositionJson);
+    }
 }

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useRouter } from 'expo-router'
 import { WebView } from 'react-native-webview'
-import { readingProgressApi, parseScrollLocator, chapterIdForSlug } from '@textstack/shared'
-import type { Language } from '@textstack/shared'
+import { readingProgressApi, parseScrollLocator, chapterIdForSlug, parseTextPosition, serializeTextPosition } from '@textstack/shared'
+import type { Language, TextPosition } from '@textstack/shared'
 import { getLocalProgress, saveLocalProgress } from '../../lib/progressStorage'
 import { useReaderChapter } from '../../hooks/useReaderChapter'
 import { useReaderBook } from '../../hooks/useReaderBook'
@@ -47,6 +47,7 @@ export function useEditionReaderSource({
   const scrollOffsetRef = useRef(0)
   const currentChapterSlugRef = useRef<string | null>(null)
   const bookProgressRef = useRef<number | null>(null)
+  const positionRef = useRef<TextPosition | null>(null)
   const totalWordCountRef = useRef(0)
   const editionIdRef = useRef<string | null>(null)
   const bookTitleRef = useRef<string | null>(null)
@@ -99,6 +100,9 @@ export function useEditionReaderSource({
     // write back — the local record is the position either way — and send it when the list lands.
     const chapterId = chapterIdForSlug(chaptersRef.current, snap.chapterSlug)
       ?? (snap.chapterSlug === routeChapterSlugRef.current ? snap.chapterId : null)
+    // Assigned, never carried forward — the same rule the server applies. An
+    // anchor kept beside a fresher pixel offset is a record contradicting itself.
+    const positionJson = serializeTextPosition(snap.position) ?? undefined
     saveLocalProgress(id, {
       // '' rather than null: getAllLocalProgress() validates this field as a
       // string and would drop the whole record otherwise. The local row is
@@ -106,6 +110,7 @@ export function useEditionReaderSource({
       chapterId: chapterId ?? '',
       chapterSlug: snap.chapterSlug,
       locator: `scroll:${snap.chapterSlug}:${snap.scrollOffset}`,
+      positionJson,
       percent: snap.chapterPercent,
       // null leaves the prior bookPercent in place (resume card would
       // otherwise lose its hint between mount and chapters arriving).
@@ -128,6 +133,7 @@ export function useEditionReaderSource({
       // chapter fraction is a strictly better guess than nothing there.
       progress: snap.bookPercent ?? snap.chapterPercent,
       scrollOffset: snap.scrollOffset,
+      positionJson,
     }).catch((e) => { console.warn('[progress] save failed', e) })
   }, [isAuthenticated])
 
@@ -135,6 +141,7 @@ export function useEditionReaderSource({
     const id = editionIdRef.current
     let percent: number | null = null
     let offset: number | null = null
+    let position: TextPosition | null = null
     try {
       if (id) {
         const local = await getLocalProgress(id)
@@ -142,6 +149,8 @@ export function useEditionReaderSource({
           if (typeof local.percent === 'number') percent = local.percent
           const parsed = parseScrollLocator(local.locator)
           if (parsed && parsed.slug === slug && parsed.offset > 0) offset = parsed.offset
+          const p = parseTextPosition(local.positionJson)
+          if (p && p.chapterSlug === slug) position = p
         }
       }
     } catch {}
@@ -151,25 +160,33 @@ export function useEditionReaderSource({
     // percent spans the whole book, so applying it as a within-chapter scroll
     // fraction would drop the reader at 42% of the current chapter for a book
     // they are 42% through. The locator is chapter-scoped and exact.
-    if (offset == null && isAuthenticated && id) {
+    if (position == null && offset == null && isAuthenticated && id) {
       try {
         const server = await readingProgressApi.getProgress(id)
         const parsed = parseScrollLocator(server?.locator)
         if (parsed && parsed.slug === slug && parsed.offset > 0) offset = parsed.offset
+        const p = parseTextPosition(server?.positionJson)
+        if (p && p.chapterSlug === slug) position = p
       } catch {}
     }
     // Only restore a mid-chapter percent (skip ~start/~end → leave at top).
     if (percent != null && !(percent > 0.005 && percent < 0.999)) percent = null
-    return { offset, percent }
+    return { position, offset, percent }
   }, [isAuthenticated])
 
-  const { saveProgress, bumpProgress, onWebViewLoaded, onRestoreLanded } = useReaderPersistence({
+  // Stable: the persistence hook keys effects on the identity of what it is given,
+  // and a rebuilt callback here would re-arm a restore.
+  const navigateToChapter = useCallback((slug: string) => {
+    router.replace(`/reader/${bookSlug}/${slug}`)
+  }, [router, bookSlug])
+
+  const { saveProgress, bumpProgress, onWebViewLoaded, onRestoreLanded, onDocumentRebuild, beginReflow } = useReaderPersistence({
     bookKey: editionId,
     chapterSlug,
     chapterId: chapter?.id ?? null,
     injectJs,
-    progressRef, scrollOffsetRef, currentChapterSlugRef, bookProgressRef,
-    persist, loadPosition,
+    progressRef, scrollOffsetRef, currentChapterSlugRef, bookProgressRef, positionRef,
+    persist, loadPosition, navigateToChapter,
   })
 
   // The chapter list arriving is the second chance for a server write that had to be held back.
@@ -199,11 +216,11 @@ export function useEditionReaderSource({
     chapters,
     chaptersLoading,
     wordCount: wordCountRef.current,
-    progressRef, scrollOffsetRef, currentChapterSlugRef, bookProgressRef, totalWordCountRef,
-    saveProgress, bumpProgress, onWebViewLoaded, onRestoreLanded,
+    progressRef, scrollOffsetRef, currentChapterSlugRef, bookProgressRef, positionRef, totalWordCountRef,
+    saveProgress, bumpProgress, onWebViewLoaded, onRestoreLanded, onDocumentRebuild, beginReflow,
     onChapterLoaded: () => { if (chapter) enableForChapter(chapter) },
     onRequestNextChapter: loadNext,
-    onNavigateChapter: (slug) => router.replace(`/reader/${bookSlug}/${slug}`),
+    onNavigateChapter: navigateToChapter,
     bookmarks,
     onToggleCurrentBookmark: (slug) => { if (chapter) toggle({ chapter, slug }) },
     onDeleteBookmark: remove,

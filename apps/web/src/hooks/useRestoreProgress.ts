@@ -8,6 +8,8 @@ interface LocalProgress {
   chapterId: string
   chapterSlug: string
   locator: string
+  /** Serialised TextPosition (ADR-015). Absent on entries written before it. */
+  positionJson?: string
   percent: number
   /** Epoch ms. Optional for backward-compat with pre-fix entries (treated as 0 → server wins). */
   updatedAt?: number
@@ -16,6 +18,8 @@ interface LocalProgress {
 interface SavedProgress {
   chapterSlug: string | null
   locator: string
+  /** Serialised TextPosition (ADR-015). Preferred over `locator` on restore. */
+  positionJson?: string | null
   percent?: number
   /** Epoch ms. 0 when unknown. */
   updatedAt: number
@@ -72,6 +76,7 @@ export function useRestoreProgress(
           progress = {
             chapterSlug: local.chapterSlug,
             locator: local.locator,
+            positionJson: local.positionJson,
             percent: local.percent,
             updatedAt: local.updatedAt ?? 0,
           }
@@ -90,6 +95,7 @@ export function useRestoreProgress(
             const serverData: SavedProgress = {
               chapterSlug: serverProgress.chapterSlug,
               locator: serverProgress.locator,
+              positionJson: serverProgress.positionJson,
               percent: serverProgress.percent ?? undefined,
               updatedAt: serverProgress.updatedAt
                 ? Date.parse(serverProgress.updatedAt)

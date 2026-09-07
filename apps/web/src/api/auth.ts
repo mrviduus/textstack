@@ -187,11 +187,19 @@ export interface ReadingProgressDto {
   /** Non-null once the book is finished. Read this instead of comparing
    *  `percent` against a threshold of your own. */
   completedAt?: string | null
+  /** Where the reader is IN THE TEXT, serialised (ADR-015). Prefer it over
+   *  `locator`: a pixel offset stops being true the moment the text reflows. */
+  positionJson?: string | null
 }
 
 export interface UpsertProgressRequest {
   chapterId: string
   locator: string
+  /** Serialised TextPosition — where the reader is in the TEXT (ADR-015).
+   *  Travels beside the locator, never instead of it, so a build that predates
+   *  this keeps resuming from the pixel offset. Absent means absent: the server
+   *  clears the stored position rather than leaving it beside a fresher pixel. */
+  positionJson?: string
   percent: number | null
   updatedAt?: string
 }

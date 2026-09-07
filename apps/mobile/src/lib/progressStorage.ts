@@ -24,6 +24,12 @@ export interface LocalProgress {
   chapterId: string
   chapterSlug: string
   locator?: string
+  /** The logical position, serialised (see @textstack/shared textPosition).
+   *  Optional for back-compat with entries written before this field, and
+   *  cleared rather than carried forward — a stale anchor beside a fresh pixel
+   *  offset is a record that contradicts itself, which is the failure the whole
+   *  position model exists to end. */
+  positionJson?: string
   percent: number
   /** Book-wide reading progress (0..1) computed across all chapters.
    *  Stored alongside chapter `percent` so ContinueReadingCard can show

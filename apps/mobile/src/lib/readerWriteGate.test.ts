@@ -114,4 +114,23 @@ describe('restoreGateReduce', () => {
     const open: RestoreGateState = restoreGateReduce(issued, { type: 'restoreLanded', restoreId: 7 })
     expect(restoreGateReduce(open, { type: 'positionReported', scrollY: 900 })).toBe(open)
   })
+
+  it('shuts for a typography reflow and reopens only when it lands', () => {
+    // A reflow scrolls the document to keep the reader in place, and on the way
+    // back that scroll is indistinguishable from the reader's own finger. So it
+    // goes through the same machine: an id out, an acknowledgement back. Between
+    // the two, whatever the WebView reports is a transient — including the
+    // non-zero offsets, which is the difference from a fresh load.
+    const open = restoreGateReduce(issued, { type: 'restoreLanded', restoreId: 7 })
+    expect(restoredChapter(open)).toBe('4-act-iii')
+
+    const reflowing = restoreGateReduce(open, { type: 'restoreIssued', restoreId: 8, at: 1_000 })
+    expect(restoredChapter(reflowing)).toBeNull()
+
+    expect(restoredChapter(restoreGateReduce(reflowing, { type: 'restoreLanded', restoreId: 7 })))
+      .toBeNull()  // the previous restore's ack cannot open this one
+
+    expect(restoredChapter(restoreGateReduce(reflowing, { type: 'restoreLanded', restoreId: 8 })))
+      .toBe('4-act-iii')
+  })
 })

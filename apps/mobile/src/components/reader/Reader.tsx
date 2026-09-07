@@ -73,11 +73,14 @@ export function Reader({ runtime }: { runtime: ReaderRuntime }) {
       scrollOffsetRef={runtime.scrollOffsetRef}
       currentChapterSlugRef={runtime.currentChapterSlugRef}
       bookProgressRef={runtime.bookProgressRef}
+      positionRef={runtime.positionRef}
       totalWordCountRef={runtime.totalWordCountRef}
       bumpProgress={runtime.bumpProgress}
       saveProgress={runtime.saveProgress}
       onWebViewLoaded={runtime.onWebViewLoaded}
       onRestoreLanded={runtime.onRestoreLanded}
+      onDocumentRebuild={runtime.onDocumentRebuild}
+      beginReflow={runtime.beginReflow}
       onChapterLoaded={runtime.onChapterLoaded}
       onRequestNextChapter={runtime.onRequestNextChapter}
       onNavigateChapter={runtime.onNavigateChapter}

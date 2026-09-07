@@ -65,7 +65,8 @@ public static class UserDataEndpoints
                 x.p.Locator,
                 x.p.Percent,
                 x.p.UpdatedAt,
-                x.p.CompletedAt
+                x.p.CompletedAt,
+                x.p.PositionJson
             ))
             .ToListAsync(ct);
 
@@ -93,7 +94,8 @@ public static class UserDataEndpoints
                 x.p.Locator,
                 x.p.Percent,
                 x.p.UpdatedAt,
-                x.p.CompletedAt
+                x.p.CompletedAt,
+                x.p.PositionJson
             ))
             .FirstOrDefaultAsync(ct);
 
@@ -147,7 +149,8 @@ public static class UserDataEndpoints
                     existing.Locator,
                     existing.Percent,
                     existing.UpdatedAt,
-                    existing.CompletedAt
+                    existing.CompletedAt,
+                    existing.PositionJson
                 ));
             }
 
@@ -163,6 +166,7 @@ public static class UserDataEndpoints
                 EditionId = editionId,
                 ChapterId = request.ChapterId,
                 Locator = request.Locator,
+                PositionJson = ReaderPosition.ToStore(request.PositionJson, request.Locator),
                 Percent = request.Percent,
                 MaxChapterNumber = chapter.ChapterNumber,
                 UpdatedAt = DateTimeOffset.UtcNow
@@ -215,7 +219,8 @@ public static class UserDataEndpoints
             existing.Locator,
             existing.Percent,
             existing.UpdatedAt,
-            existing.CompletedAt
+            existing.CompletedAt,
+            existing.PositionJson
         ));
     }
 
@@ -228,6 +233,9 @@ public static class UserDataEndpoints
     {
         target.ChapterId = request.ChapterId;
         target.Locator = request.Locator;
+        // Always assigned, never merged: a write that carries no position clears the stored one.
+        // See ReaderPosition for why "keep what was there" is the wrong default.
+        target.PositionJson = ReaderPosition.ToStore(request.PositionJson, request.Locator);
 
         // The position is always the reader's, so it is always saved. The NUMBER is
         // only saved when the caller says what it is a fraction of — an old client
@@ -549,7 +557,13 @@ public record ReadingProgressDto(
     DateTimeOffset UpdatedAt,
     /// <summary>Non-null once the book is finished. Clients read this instead of
     /// comparing <paramref name="Percent"/> against a threshold of their own.</summary>
-    DateTimeOffset? CompletedAt
+    DateTimeOffset? CompletedAt,
+    /// <summary>The logical position, when the row holds one — see
+    /// <see cref="Domain.Entities.ReadingProgress.PositionJson"/>. Null on rows
+    /// last written by a build that predates it, and on every PDF page position.
+    /// A client that understands it prefers it over <paramref name="Locator"/>;
+    /// one that does not carries on reading the locator, unchanged.</summary>
+    string? PositionJson = null
 );
 
 public record UpsertProgressRequest(
@@ -561,7 +575,12 @@ public record UpsertProgressRequest(
     /// stored — see <see cref="Application.ReadingTracking.ProgressUnit"/>.
     /// Absent from clients that predate the contract, whose percentages are of
     /// unknown scale and are therefore left unstored.</summary>
-    string? PercentUnit = null
+    string? PercentUnit = null,
+    /// <summary>The logical position this write is really about. Absent means
+    /// absent, not unchanged: the stored one is cleared, because a row must
+    /// never hold two positions that disagree. See
+    /// <see cref="Application.ReadingTracking.ReaderPosition"/>.</summary>
+    string? PositionJson = null
 );
 
 public record BookmarkDto(

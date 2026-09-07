@@ -26,6 +26,8 @@ public partial class AppDbContext
             e.Property(x => x.CoverPath).HasMaxLength(500);
             e.Property(x => x.Genre).HasMaxLength(200);
             e.Property(x => x.TocJson).HasColumnType("jsonb");
+            // Same storage as Highlight.AnchorJson and ReadingProgress.PositionJson.
+            e.Property(x => x.ProgressPositionJson).HasColumnType("jsonb");
             e.Property(x => x.TakedownReason).HasMaxLength(1000);
             e.Property(x => x.SeoSource).HasMaxLength(20).HasDefaultValue("auto");
             e.Property(x => x.MetadataHistoryJson).HasColumnType("jsonb");

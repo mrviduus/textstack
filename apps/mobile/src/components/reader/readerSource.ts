@@ -1,6 +1,6 @@
 import type { MutableRefObject, RefObject } from 'react'
 import type { WebView } from 'react-native-webview'
-import type { BookmarkDto, AskTarget } from '@textstack/shared'
+import type { BookmarkDto, AskTarget, TextPosition } from '@textstack/shared'
 import type { ReaderSource, ReaderShellChapter } from './ReaderShell'
 
 /**
@@ -40,17 +40,27 @@ export interface ProgressSnapshot {
   chapterSlug: string
   /** 0..1 within the active chapter. */
   chapterPercent: number
-  /** Pixel scroll offset — builds the `scroll:<slug>:<offset>` resume locator. */
+  /** Pixel scroll offset — builds the `scroll:<slug>:<offset>` resume locator.
+   *  Kept for the compatibility write; `position` is what a current build reads. */
   scrollOffset: number
+  /** Where the reader is IN THE TEXT — survives a reflow, a re-parse and a
+   *  different device, none of which a pixel offset survives. Null when the
+   *  reading line lands somewhere with no text under it. */
+  position: TextPosition | null
   /** 0..1 across the whole book, or null until chapters/word-counts resolve. */
   bookPercent: number | null
   /** Epoch ms — LWW key for server + local merge. */
   updatedAt: number
 }
 
-/** Saved resume position for a chapter. Either field may be null. Offset is
- *  preferred (pixel-accurate); percent is the coarse fallback. */
+/** Saved resume position for a chapter. Every field may be null.
+ *
+ *  Tried in order: the text anchor, then the pixel offset it is replacing, then
+ *  the coarse percent. The anchor is the only one that is still true after the
+ *  text has reflowed, so it goes first; the other two are what a row written by
+ *  an older build has to offer. */
 export interface SavedPosition {
+  position: TextPosition | null
   offset: number | null
   percent: number | null
 }
@@ -83,6 +93,8 @@ export interface ReaderRuntime {
   progressRef: MutableRefObject<number>
   scrollOffsetRef: MutableRefObject<number>
   currentChapterSlugRef: MutableRefObject<string | null>
+  /** Latest logical position reported by the WebView. */
+  positionRef: MutableRefObject<TextPosition | null>
   bookProgressRef: MutableRefObject<number | null>
   totalWordCountRef: MutableRefObject<number>
 
@@ -94,6 +106,11 @@ export interface ReaderRuntime {
   onWebViewLoaded: () => void
   /** The WebView acknowledged a restore, carrying back the id it was issued with. */
   onRestoreLanded: (restoreId: number) => void
+  /** The document is about to be rebuilt — told before the new one loads. */
+  onDocumentRebuild: () => void
+  /** Mint a restore id and shut the write gate behind it, for a move the reader
+   *  did not make (a typography reflow). */
+  beginReflow: () => number
 
   // Infinite scroll.
   onChapterLoaded: () => void

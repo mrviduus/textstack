@@ -421,6 +421,9 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
     publicBookChapters: publicBook?.chapters,
     publicProgress,
     userProgress,
+    // Typography only. Theme is a data-attribute swap and does not re-wrap text,
+    // so re-anchoring for it would cost a layout read for nothing.
+    settingsKey: `${settings.fontSize} ${settings.lineHeight} ${settings.fontFamily} ${settings.textAlign}`,
   })
 
   // Track current book for guest returning user feature

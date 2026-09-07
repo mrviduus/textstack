@@ -149,6 +149,11 @@ export interface ReadingProgressDto {
    *  `percent` against a threshold — editions used to have no completion field,
    *  so four places each picked their own (0.95, 0.95, 1.0, 1.0). */
   completedAt?: string | null
+  /** Where the reader is IN THE TEXT, serialised — see `textPosition.ts`.
+   *  Prefer it over `locator`: a pixel offset stops being true the moment the
+   *  text reflows. Null on rows last written by a build that predates it, and
+   *  on every PDF page position. */
+  positionJson?: string | null
 }
 
 // Bookmarks
@@ -441,6 +446,11 @@ export interface UserBookDto {
   progressPercent: number | null
   progressUpdatedAt: string | null
   progressChapterSlug: string | null
+  /** Where the reader stopped. The list used to carry a percentage and a slug
+   *  but no position, so a card could say how far in a reader was and still not
+   *  offer to continue from there. `progressPositionJson` is preferred. */
+  progressLocator?: string | null
+  progressPositionJson?: string | null
   /** True when the original upload is a PDF → the card can open "Original layout".
    *  Absent on older payloads → false. */
   hasOriginalPdf?: boolean

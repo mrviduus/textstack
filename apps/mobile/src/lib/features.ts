@@ -16,6 +16,14 @@ export const FEATURES = {
   // Default ON — already shipped to 100% of users via hardcoded `overlayV2: true`.
   // Flip OFF via env if a regression surfaces; per-device override via AsyncStorage below.
   readerOverlayV2: readBool(process.env.EXPO_PUBLIC_READER_OVERLAY_V2, true),
+
+  // Restore the reading position from its text anchor rather than from the pixel
+  // offset (ADR-015). Default ON — the anchor is the reason the position survives
+  // a font change, and the pixel offset it replaces is still written beside it,
+  // so flipping this off falls back to exactly the old behaviour with no data
+  // loss. Only the READ is gated; the write never is, so a device that has been
+  // switched off keeps accumulating positions for when it is switched back.
+  readerTextPosition: readBool(process.env.EXPO_PUBLIC_READER_TEXT_POSITION, true),
 } as const
 
 export type FeatureKey = keyof typeof FEATURES
@@ -39,5 +47,24 @@ export async function readReaderOverlayV2Active(): Promise<boolean> {
     return resolveReaderOverlayV2Active(v)
   } catch {
     return FEATURES.readerOverlayV2
+  }
+}
+
+// Same cascade for the text-anchor restore:
+//   AsyncStorage.setItem('textstack.readerTextPosition', '0')  // killswitch
+export const READER_TEXT_POSITION_STORAGE_KEY = 'textstack.readerTextPosition'
+
+export function resolveReaderTextPositionActive(stored: string | null): boolean {
+  if (stored === '0') return false
+  if (stored === '1') return true
+  return FEATURES.readerTextPosition
+}
+
+export async function readReaderTextPositionActive(): Promise<boolean> {
+  try {
+    const v = await AsyncStorage.getItem(READER_TEXT_POSITION_STORAGE_KEY)
+    return resolveReaderTextPositionActive(v)
+  } catch {
+    return FEATURES.readerTextPosition
   }
 }

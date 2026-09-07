@@ -19,6 +19,8 @@ interface Params {
 interface EffectiveProgress {
   chapterSlug: string
   locator: string
+  /** Serialised TextPosition (ADR-015). Preferred over `locator` on restore. */
+  positionJson?: string | null
   percent: number
 }
 
@@ -60,6 +62,7 @@ export function useReaderProgress({
       ? {
           chapterSlug: userProgress.savedProgress.chapterSlug,
           locator: userProgress.savedProgress.locator || '',
+          positionJson: userProgress.savedProgress.positionJson,
           percent: userProgress.savedProgress.percent,
         }
       : null

@@ -115,6 +115,16 @@ compared only against itself — a schema change with its own migration, deliber
 into a defect fix. The same cross-clock comparison still exists on the catalog path
 (`UserDataEndpoints`).
 
+## Superseded in part by
+
+[ADR-015](ADR-015-reader-position-is-logical.md) (2026-09-07) makes the logical position — a chapter
+slug and a text anchor — the source of truth, in an additive column. The rules here are unchanged
+and still govern the `locator`, which is still written: §2 rule 3 is *why* the position went into a
+column rather than becoming a third space, and `LocatorSpaceTests` now asserts that `text:` is still
+not one.
+
+The "Consequences" note that the catalog path is unguarded remains open, and remains a known gap.
+
 ## Enforced by
 
 - `backend/src/Application/ReadingTracking/LocatorSpace.cs` and `LocatorSpaceTests.cs`

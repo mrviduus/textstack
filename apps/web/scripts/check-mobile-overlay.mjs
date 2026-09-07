@@ -1,54 +1,24 @@
 #!/usr/bin/env node
-// Drift guard for the mobile overlay bundle. Runs the bundler, compares the
-// freshly generated file with the committed one, fails non-zero on diff.
-// Wire into CI so a PR that edits packages/reader-overlay/src/* without
-// regenerating apps/mobile/src/lib/readerOverlayScript.generated.ts fails.
+// Drift guard for the mobile WebView bundles. Re-renders each one and fails
+// non-zero if the committed file differs, so a PR that edits
+// packages/reader-overlay/src/* without regenerating cannot merge.
 
-import { build } from 'esbuild'
 import { readFile } from 'node:fs/promises'
-import { fileURLToPath } from 'node:url'
-import { dirname, resolve } from 'node:path'
+import { BUNDLES, renderBundle } from './mobile-bundles.mjs'
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
-const repoRoot = resolve(__dirname, '..', '..', '..')
-const entry = resolve(repoRoot, 'packages/reader-overlay/src/mobileBootstrap.ts')
-const outFile = resolve(repoRoot, 'apps/mobile/src/lib/readerOverlayScript.generated.ts')
+let stale = false
+for (const bundle of BUNDLES) {
+  const { content } = await renderBundle(bundle)
+  const actual = await readFile(bundle.out, 'utf8').catch(() => null)
+  if (actual !== content) {
+    console.error(`\n[check:mobile-overlay] ${bundle.out} is out of date.\n`)
+    stale = true
+  } else {
+    console.log(`[check:mobile-overlay] ${bundle.out} is up to date.`)
+  }
+}
 
-const result = await build({
-  entryPoints: [entry],
-  // Fixed, because esbuild writes source paths in the bundle RELATIVE TO CWD.
-  // Without it the same source produced two different bundles depending on
-  // whether the script was run from the repo root or from apps/web, and the
-  // drift guard reported a clean tree as out of date.
-  absWorkingDir: resolve(__dirname, '..'),
-  bundle: true,
-  format: 'iife',
-  target: ['es2017'],
-  platform: 'browser',
-  write: false,
-  minify: false,
-  legalComments: 'none',
-})
-
-const bundleSource = result.outputFiles[0].text.trim()
-const banner = `// AUTO-GENERATED — do not edit.
-// Source: packages/reader-overlay/src/mobileBootstrap.ts
-// Regenerate: pnpm -C apps/web build:mobile-overlay
-//
-// IIFE bundle of the shared @textstack/reader-overlay package, transpiled
-// for Android WebView (es2017). Injected into the WebView by readerHtml.ts.
-
-/* eslint-disable */
-/* prettier-ignore */
-`
-const expected = `${banner}export const READER_OVERLAY_SCRIPT = ${JSON.stringify(`\n${bundleSource}\n`)}\n`
-
-const actual = await readFile(outFile, 'utf8')
-
-if (actual !== expected) {
-  console.error(`\n[check:mobile-overlay] ${outFile} is out of date.\n`)
+if (stale) {
   console.error('Run: pnpm -C apps/web build:mobile-overlay\n')
   process.exit(1)
 }
-
-console.log(`[check:mobile-overlay] ${outFile} is up to date.`)

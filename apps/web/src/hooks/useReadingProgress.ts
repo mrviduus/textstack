@@ -1,6 +1,7 @@
 import { useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { upsertProgress } from '../api/auth'
+import { PERCENT_UNIT_BOOK } from '@textstack/shared'
 
 const STORAGE_KEY = 'reading.progress.'
 
@@ -14,6 +15,7 @@ interface PendingSync {
   editionId: string
   chapterId: string
   locator: string
+  positionJson?: string
   percent: number
   updatedAt: number
 }
@@ -36,7 +38,12 @@ export function useReadingProgress(
     page?: number,
     scrollLocator?: string,
     overrideChapterId?: string,
-    overrideChapterSlug?: string
+    overrideChapterSlug?: string,
+    /** Serialised TextPosition — where the reader is in the TEXT (ADR-015).
+     *  Travels beside the locator, never instead of it: the locator is what a
+     *  build that predates this reads. Absent means absent, and the server
+     *  clears the stored one rather than leaving it beside a fresher pixel. */
+    positionJson?: string,
   ) => {
     const effectiveChapterId = overrideChapterId || chapterId
     const effectiveChapterSlug = overrideChapterSlug || resolvedChapterSlug
@@ -59,6 +66,7 @@ export function useReadingProgress(
         chapterId: effectiveChapterId,
         chapterSlug: effectiveChapterSlug,
         locator,
+        positionJson,
         percent,
         updatedAt,
       }))
@@ -70,6 +78,7 @@ export function useReadingProgress(
       editionId,
       chapterId: effectiveChapterId,
       locator,
+      positionJson,
       percent,
       updatedAt,
     }
@@ -88,6 +97,7 @@ export function useReadingProgress(
       upsertProgress(payload.editionId, {
         chapterId: payload.chapterId,
         locator: payload.locator,
+        positionJson: payload.positionJson,
         percent: payload.percent,
         updatedAt: new Date(payload.updatedAt).toISOString(),
       })
@@ -113,10 +123,18 @@ export function useReadingProgress(
       serverSyncRef.current = null
     }
 
+    // Hand-built rather than routed through upsertProgress because this one has
+    // to be a keepalive fetch — which means the declarations upsertProgress adds
+    // for every other writer have to be repeated here. They were not: this path
+    // sent no `percentUnit`, so the LAST write before a tab closes, the one most
+    // likely to be the newest the server ever sees, silently failed to store its
+    // percentage (Application.ReadingTracking.ProgressUnit drops an undeclared one).
     const body = JSON.stringify({
       chapterId: payload.chapterId,
       locator: payload.locator,
+      positionJson: payload.positionJson,
       percent: payload.percent,
+      percentUnit: PERCENT_UNIT_BOOK,
       updatedAt: new Date(payload.updatedAt).toISOString(),
     })
 

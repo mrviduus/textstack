@@ -26,6 +26,12 @@ public class UserBook
     public string? ProgressLocator { get; set; }
 
     /// <summary>
+    /// The logical reading position. Same contract, same invariant and same
+    /// reasons as <see cref="ReadingProgress.PositionJson"/> — see there.
+    /// </summary>
+    public string? ProgressPositionJson { get; set; }
+
+    /// <summary>
     /// Progress across the WHOLE BOOK, 0..1 — not within the current chapter.
     /// Canonicalised in PR #412 after the library card and the Continue-reading
     /// shelf disagreed about the same book; the shelf was re-adding prior-chapter

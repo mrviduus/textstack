@@ -2,6 +2,8 @@ import { openDyslexicBase64 } from './openDyslexicBase64'
 import { pdfChromeCss, type PdfChrome } from './pdfViewerChrome'
 import { readerChromeCss, type ReaderChrome } from './readerChrome'
 import { READER_OVERLAY_SCRIPT } from './readerOverlayScript'
+import { READER_ANCHOR_SCRIPT } from './readerAnchorScript.generated'
+import { TEXT_POSITION_VERSION, POSITION_QUOTE_LENGTH, ANCHOR_CONTEXT_LENGTH } from '@textstack/shared'
 import { READER_SELECTION_BRIDGE } from './readerBridge'
 import { PDF_VIEWER_SCRIPT } from './pdfViewerScript'
 
@@ -30,6 +32,12 @@ const defaultTheme: ReaderTheme = {
   textColor: '#111827',
 }
 
+/** Chapter slugs are generated from titles and can contain anything a title
+ *  can. This value lands in an HTML attribute, so it is escaped, not trusted. */
+function escapeAttr(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
 function buildFontFace(fontFamily: string): string {
   if (!fontFamily.includes('OpenDyslexic')) return ''
   return `@font-face {
@@ -54,6 +62,10 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
   const overlayV2 = options?.overlayV2 === true
   // Only inline the overlayer script when flag is on — zero bytes otherwise.
   const overlayScript = overlayV2 ? READER_OVERLAY_SCRIPT : ''
+  // Always, unlike the overlay. The reading position is resolved from a text
+  // anchor on every chapter open and has no legacy path behind it; without the
+  // resolver `hlFindAnchor` degrades to a bare indexOf. 3.6KB.
+  const anchorScript = READER_ANCHOR_SCRIPT
   const overlayFlagSetter = overlayV2 ? 'window.__textstackOverlayV2Mobile = true;' : ''
 
   return `<!DOCTYPE html>
@@ -180,6 +192,7 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
     // the SVG overlayer. Set before the overlayer IIFE so init can read it.
     ${overlayFlagSetter}
   </script>
+  <script>${anchorScript}</script>
   ${overlayScript ? `<script>${overlayScript}</script>` : ''}
   <script>${READER_SELECTION_BRIDGE}</script>
   <script>
@@ -251,7 +264,12 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
           type: 'progress',
           progress: progress,
           chapterSlug: currentSlug,
-          scrollY: Math.round(relY)
+          scrollY: Math.round(relY),
+          // The logical position rides along, so RN always holds a fresh one
+          // without a round trip. saveProgress is synchronous — it is called
+          // from an unmount and from an AppState listener — and cannot wait for
+          // an answer. Null when the reading line lands somewhere with no text.
+          position: window.__textstackCapturePosition ? window.__textstackCapturePosition() : null
         }));
       }
     }
@@ -272,6 +290,29 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
     //
     // (No backticks anywhere in here: this whole document is one template
     // literal, and one would end it.)
+    /**
+     * Jump, without animating.
+     *
+     * The document sets html { scroll-behavior: smooth }, which is right for
+     * the reader's own navigation and wrong for every restore: scrollTo becomes
+     * an animation, window.scrollY still reads the OLD position on the next
+     * line, and the acknowledgement below therefore reported a place the reader
+     * was not yet at. Meanwhile the animation kept firing reportProgress with
+     * intermediate positions after the gate had already opened, so the 2s
+     * debounce could persist one of them. A restore is a jump, not a journey.
+     *
+     * scroll-behavior is toggled on the element rather than passing
+     * behavior:'instant', because that value is not understood everywhere the
+     * app runs and an unknown value falls back to the CSS — i.e. to smooth.
+     */
+    function scrollToInstant(y) {
+      var root = document.documentElement;
+      var prev = root.style.scrollBehavior;
+      root.style.scrollBehavior = 'auto';
+      window.scrollTo(0, y);
+      root.style.scrollBehavior = prev;
+    }
+
     function ackRestore(restoreId) {
       window.ReactNativeWebView.postMessage(JSON.stringify({
         type: 'restored',
@@ -282,11 +323,20 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
 
     window.__textstackRestoreScroll = function(offsetY, restoreId) {
       try {
-        var target = Math.max(0, Math.floor(offsetY) || 0);
+        var offset = Math.max(0, Math.floor(offsetY) || 0);
         // requestAnimationFrame to wait one paint so the reader's own
         // mount-time scroll-to-top doesn't race ahead and clobber us.
         requestAnimationFrame(function() {
-          window.scrollTo(0, target);
+          // The saved offset is CHAPTER-relative — reportProgress subtracts the
+          // chapter's top before emitting it. This used to treat it as a
+          // document coordinate, which agreed only while the first chapter's
+          // recorded top was zero. It is now the real top of the element, which
+          // sits below the reader's own page padding, so the two have to be
+          // added back together. A fresh document holds the restored chapter
+          // and nothing before it, hence index 0.
+          recomputeChapterTops();
+          var base = chapterSlugs.length > 0 ? chapterSlugs[0].top : 0;
+          scrollToInstant(Math.max(0, base + offset));
           ackRestore(restoreId);
         });
       } catch (e) {}
@@ -295,11 +345,331 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
     // The percent branch: no saved pixel offset, only a fraction of the chapter.
     // It used to be a raw string injected from the hook with no function behind
     // it here, which is why it had nowhere to report from. Same shape, same ack.
+    //
+    // The fraction it is handed is CHAPTER-scoped — reportProgress divides by
+    // (bounds.bottom - bounds.top) - innerHeight. This used to multiply it by
+    // the whole document's scrollHeight and not subtract the viewport at all,
+    // so even with one chapter loaded it landed roughly innerHeight x fraction
+    // too deep, and at fraction ~1 it clamped to the very bottom. Restoring by
+    // percent was never safe; it is now the exact inverse of the report.
     window.__textstackRestorePercent = function(pct, restoreId) {
       try {
         var fraction = Math.min(1, Math.max(0, Number(pct) || 0));
         requestAnimationFrame(function() {
-          window.scrollTo(0, Math.round(document.documentElement.scrollHeight * fraction));
+          scrollToInstant(chapterScrollTarget(0, fraction));
+          ackRestore(restoreId);
+        });
+      } catch (e) {}
+    };
+
+    // Document Y that puts the reading line the given fraction of the way
+    // through the chapter at idx. Inverse of reportProgress. Tops are
+    // recomputed first --
+    // a restore always follows something that changed the layout.
+    function chapterScrollTarget(idx, fraction) {
+      recomputeChapterTops();
+      var docBottom = document.documentElement.scrollHeight;
+      var top = 0, bottom = docBottom;
+      if (chapterSlugs.length > idx && idx >= 0) {
+        top = chapterSlugs[idx].top;
+        bottom = chapterSlugs[idx + 1] ? chapterSlugs[idx + 1].top : docBottom;
+      }
+      var span = (bottom - top) - window.innerHeight;
+      return Math.max(0, Math.round(top + (span > 0 ? span * fraction : 0)));
+    }
+
+    // --- The logical reading position (ADR-015) ------------------------------
+    //
+    // Interpolated from @textstack/shared rather than written here twice: an
+    // anchor built in this document has to resolve in the web reader, and it
+    // will not if the two quote different amounts of text.
+    var TS_POSITION_VERSION = ${TEXT_POSITION_VERSION};
+    var TS_QUOTE_LEN = ${POSITION_QUOTE_LENGTH};
+    var TS_CONTEXT_LEN = ${ANCHOR_CONTEXT_LENGTH};
+    //
+    // A pixel offset stops being true the moment the text reflows. What survives
+    // is the text itself: the passage under the reading line, plus a little of
+    // what surrounds it. That is what a highlight already is, and the resolver
+    // below is the same one highlights use.
+
+    /** The element holding the chapter the reader is in, for scoping the text. */
+    function chapterElement(slug) {
+      if (!slug) return null;
+      for (var i = 0; i < chapterSlugs.length; i++) {
+        if (chapterSlugs[i].slug === slug) return chapterSlugs[i].el;
+      }
+      return null;
+    }
+
+    /**
+     * The chapter's text, as the anchor offsets measure it.
+     *
+     * Not textContent: vocab overlays and inline translations are DOM nodes the
+     * reader never wrote, and counting them would shift every offset the moment
+     * a word was saved. Web excludes the same two selectors when it builds an
+     * anchor -- if these two walkers ever disagree, an anchor made on the phone
+     * stops resolving on the desktop.
+     */
+    function chapterText(el) {
+      if (!el) return '';
+      // Cached on the element: the extraction walks every text node, and this
+      // runs on every progress message. A chapter's text never changes once it
+      // is in the document — appendChapter adds a NEW element, and the walker
+      // already excludes the vocab decorations that do get added to an old one.
+      if (el.__tsText !== undefined) return el.__tsText;
+      var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
+        acceptNode: function(n) {
+          var p = n.parentElement;
+          if (!p) return NodeFilter.FILTER_REJECT;
+          var tag = p.tagName;
+          if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT') return NodeFilter.FILTER_REJECT;
+          if (p.closest && (p.closest('[data-vocab-overlay]') || p.closest('.vocab-inline-translation'))) return NodeFilter.FILTER_REJECT;
+          return NodeFilter.FILTER_ACCEPT;
+        }
+      });
+      var out = '', node;
+      while ((node = walker.nextNode())) out += node.nodeValue || '';
+      el.__tsText = out;
+      return out;
+    }
+
+    /** Character offset of a (node, offset) pair within the chapter's text. */
+    function charOffsetOf(el, node, offset) {
+      var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
+        acceptNode: function(n) {
+          var p = n.parentElement;
+          if (!p) return NodeFilter.FILTER_REJECT;
+          var tag = p.tagName;
+          if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT') return NodeFilter.FILTER_REJECT;
+          if (p.closest && (p.closest('[data-vocab-overlay]') || p.closest('.vocab-inline-translation'))) return NodeFilter.FILTER_REJECT;
+          return NodeFilter.FILTER_ACCEPT;
+        }
+      });
+      var consumed = 0, n;
+      while ((n = walker.nextNode())) {
+        if (n === node) return consumed + offset;
+        consumed += (n.nodeValue || '').length;
+      }
+      return consumed;
+    }
+
+    /** (node, offset) at a point, across the two spellings of the same API. */
+    function caretAt(x, y) {
+      try {
+        if (document.caretPositionFromPoint) {
+          var pos = document.caretPositionFromPoint(x, y);
+          if (pos && pos.offsetNode) return { node: pos.offsetNode, offset: pos.offset };
+        }
+        if (document.caretRangeFromPoint) {
+          var r = document.caretRangeFromPoint(x, y);
+          if (r) return { node: r.startContainer, offset: r.startOffset };
+        }
+      } catch (e) {}
+      return null;
+    }
+
+    /**
+     * Where the reader is, as a place in the text.
+     *
+     * The reading line is the same probe currentChapterBounds uses -- a quarter
+     * down the viewport -- so the chapter this answers for and the chapter the
+     * progress message names can never disagree.
+     *
+     * Returns the raw material; RN builds the position with the shared builder,
+     * so both clients quote the same number of characters and resolve them the
+     * same way.
+     */
+    window.__textstackCapturePosition = function() {
+      try {
+        var bounds = currentChapterBounds();
+        if (!bounds) return null;
+        var el = chapterElement(bounds.slug);
+        if (!el) return null;
+        // The reading line, clamped into the chapter's visible band. A chapter
+        // shorter than a quarter of the viewport -- a poem, a preface, a clip,
+        // the stub last chapter of a book -- ends ABOVE the line, so an
+        // unclamped probe finds no text and the reader silently gets no logical
+        // position at all, falling back to the pixel offset forever. Measured:
+        // a one-paragraph chapter ends at 108px with the line at 200px.
+        var rect = el.getBoundingClientRect();
+        var y = Math.max(rect.top + 4, Math.min(window.innerHeight * 0.25, rect.bottom - 4));
+        // A few x positions: the reading line can land in a margin, between
+        // paragraphs, or on an image, and a caret there resolves to nothing.
+        var caret = caretAt(24, y) || caretAt(window.innerWidth / 2, y) || caretAt(window.innerWidth - 24, y);
+        if (!caret || !el.contains(caret.node)) return null;
+        var span = (bounds.bottom - bounds.top) - window.innerHeight;
+        var text = chapterText(el);
+        var start = Math.max(0, Math.min(text.length, charOffsetOf(el, caret.node, caret.offset)));
+        var exact = text.slice(start, start + TS_QUOTE_LEN);
+        if (exact.length === 0) return null;
+        // Shape and constants come from @textstack/shared's buildTextPosition,
+        // interpolated below rather than duplicated: an anchor made here has to
+        // resolve on the web, and it will not if the two quote different amounts.
+        return {
+          v: TS_POSITION_VERSION,
+          chapterSlug: bounds.slug,
+          anchor: {
+            prefix: text.slice(Math.max(0, start - TS_CONTEXT_LEN), start),
+            exact: exact,
+            suffix: text.slice(start + exact.length, start + exact.length + TS_CONTEXT_LEN),
+            startOffset: start,
+            endOffset: start + exact.length
+          },
+          charOffset: start,
+          chapterFraction: span > 0 ? Math.min(1, Math.max(0, (window.scrollY - bounds.top) / span)) : 0
+        };
+      } catch (e) { return null; }
+    };
+
+    /**
+     * Put the reader back at a resolved character offset.
+     *
+     * The offset comes from RN, which resolved the anchor against the text this
+     * document reported. Same Range-to-scroll path highlights use, with the
+     * passage at the reading line rather than centred, and the same ack the
+     * other restores send -- the write gate does not care which kind it was.
+     */
+    /**
+     * Put a resolved position under the reading line. Shared by the cold restore
+     * and by a typography reflow, which is the same problem with a shorter fuse.
+     * Returns false when the position could not be placed, so the caller can
+     * fall back to the chapter fraction.
+     */
+    function scrollToResolvedPosition(pos) {
+      try {
+        var api = window.__TSAnchor;
+        if (!pos || !api || !api.resolvePosition) return false;
+        var el = chapterElement(pos.chapterSlug);
+        if (!el) return false;
+        var resolved = api.resolvePosition(JSON.stringify(pos), pos.chapterSlug, chapterText(el));
+        if (!resolved || resolved.kind !== 'anchor') return false;
+        var loc = locateCharOffset(el, resolved.offset);
+        if (!loc) return false;
+        var range = document.createRange();
+        range.setStart(loc.node, loc.offset);
+        range.setEnd(loc.node, Math.min((loc.node.nodeValue || '').length, loc.offset + 1));
+        var rect = range.getBoundingClientRect();
+        scrollToInstant(Math.max(0, Math.round(window.scrollY + rect.top - window.innerHeight * 0.25)));
+        return true;
+      } catch (e) { return false; }
+    }
+
+    window.__textstackRestoreAnchor = function(json, restoreId) {
+      try {
+        // The chapter the document was built from is the one a restore can land
+        // in. If the saved position names another, the resolver returns null and
+        // the reader stays at the top — RN routes to that chapter instead, which
+        // is a decision it can make and this document cannot.
+        var slug = chapterSlugs.length > 0 ? chapterSlugs[0].slug : null;
+        var el = chapterElement(slug);
+        var api = window.__TSAnchor;
+        if (!el || !api || !api.resolvePosition) {
+          // Diagnostics, not defensiveness: each of these is a different failure
+          // with a different fix, and from RN they look identical -- an ack with
+          // no movement. Cost one line to tell them apart on a device.
+          console.log('[diag] restoreAnchor: no target', 'slug=', slug, 'el=', !!el, 'api=', !!(api && api.resolvePosition));
+          ackRestore(restoreId); return;
+        }
+        var resolved = api.resolvePosition(json, slug, chapterText(el));
+        if (!resolved) {
+          console.log('[diag] restoreAnchor: unresolved in', slug);
+          ackRestore(restoreId); return;
+        }
+        console.log('[diag] restoreAnchor:', resolved.kind, resolved.offset != null ? resolved.offset : resolved.fraction);
+        requestAnimationFrame(function() {
+          try {
+            if (resolved.kind === 'anchor') {
+              var loc = locateCharOffset(el, resolved.offset);
+              if (loc) {
+                var range = document.createRange();
+                range.setStart(loc.node, loc.offset);
+                range.setEnd(loc.node, Math.min((loc.node.nodeValue || '').length, loc.offset + 1));
+                var rect = range.getBoundingClientRect();
+                // The reading line, not the top of the viewport — the same
+                // quarter-down probe the position was measured against, so a
+                // capture and a restore describe the same place.
+                scrollToInstant(Math.max(0, Math.round(window.scrollY + rect.top - window.innerHeight * 0.25)));
+              }
+            } else {
+              scrollToInstant(chapterScrollTarget(0, resolved.fraction));
+            }
+          } catch (e) {}
+          ackRestore(restoreId);
+        });
+      } catch (e) {}
+    };
+
+    /** Inverse of charOffsetOf: a character offset back to (node, offset). */
+    function locateCharOffset(el, target) {
+      var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
+        acceptNode: function(n) {
+          var p = n.parentElement;
+          if (!p) return NodeFilter.FILTER_REJECT;
+          var tag = p.tagName;
+          if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT') return NodeFilter.FILTER_REJECT;
+          if (p.closest && (p.closest('[data-vocab-overlay]') || p.closest('.vocab-inline-translation'))) return NodeFilter.FILTER_REJECT;
+          return NodeFilter.FILTER_ACCEPT;
+        }
+      });
+      var consumed = 0, node;
+      while ((node = walker.nextNode())) {
+        var len = (node.nodeValue || '').length;
+        if (consumed + len > target) return { node: node, offset: target - consumed };
+        consumed += len;
+      }
+      return null;
+    }
+
+    /**
+     * Change typography on the LIVE document and keep the reader where they were.
+     *
+     * Typography used to be an input to the document string, so changing a font
+     * size reloaded the WebView — which threw away every chapter infinite scroll
+     * had appended and then restored a chapter-two fraction into a chapter-one
+     * document. Injecting the CSS instead keeps the document, so there is
+     * nothing to lose and nothing to re-fetch.
+     *
+     * The three steps are one call because the middle one has to happen between
+     * the other two: measure where the reader is BEFORE the reflow (afterwards
+     * the old coordinates mean nothing), restyle, then recompute the chapter
+     * tops the reflow just invalidated and put the same chapter fraction back
+     * under the reading line. The scroll fires reportProgress, so it carries a
+     * restoreId and acks like any other restore — the write gate is what stops
+     * the transient from being saved, and it already exists.
+     */
+    window.__textstackApplyTypography = function(css, restoreId) {
+      try {
+        // The TEXT the reader is looking at, captured before the reflow. A
+        // chapter fraction is not good enough here and the device pass proved
+        // it: justify plus a line-height change re-wraps paragraphs unevenly, so
+        // the same fraction of a taller chapter is a different sentence -- about
+        // two paragraphs out, measured on a real phone. The anchor is exact, and
+        // the fraction stays as the fallback for when it resolves to nothing.
+        var beforePos = window.__textstackCapturePosition ? window.__textstackCapturePosition() : null;
+        var before = currentChapterBounds();
+        var idx = 0, fraction = 0;
+        if (before) {
+          for (var i = 0; i < chapterSlugs.length; i++) {
+            if (chapterSlugs[i].slug === before.slug) { idx = i; break; }
+          }
+          var span = (before.bottom - before.top) - window.innerHeight;
+          fraction = span > 0 ? Math.min(1, Math.max(0, (window.scrollY - before.top) / span)) : 0;
+        }
+        var style = document.getElementById('ts-typography');
+        if (!style) {
+          style = document.createElement('style');
+          style.id = 'ts-typography';
+          document.head.appendChild(style);
+        }
+        style.textContent = css;
+        requestAnimationFrame(function() {
+          recomputeChapterTops();
+          if (!scrollToResolvedPosition(beforePos)) scrollToInstant(chapterScrollTarget(idx, fraction));
+          // Highlights and vocab underlines are drawn from Range rects, and a
+          // style change fires no resize event — the overlayer's own listeners
+          // never hear about this one.
+          try { if (_hlOverlayer) _hlOverlayer.redraw(); } catch (e) {}
+          try { if (typeof vhlScheduleReposition === 'function') vhlScheduleReposition(); } catch (e) {}
           ackRestore(restoreId);
         });
       } catch (e) {}
@@ -395,6 +765,8 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
           }));
         }
       }
+      installTopsObserver();
+      recomputeChapterTops();
       setTimeout(checkInfiniteScroll, 100);
     });
 
@@ -424,19 +796,62 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
       sep.innerHTML = '<hr><span>' + title + '</span>';
       document.body.appendChild(sep);
       var div = document.createElement('div');
+      // The chapter gets an element of its own, named. It is the scope a
+      // reading position is measured in — web has had the same thing since
+      // ReaderSection stamped data-chapter-id on its <article>.
+      if (slug) div.setAttribute('data-chapter-slug', slug);
       div.innerHTML = html;
       document.body.appendChild(div);
-      if (slug) registerChapter(slug);
+      if (slug) registerChapter(slug, div);
       loadingNext = false;
       setTimeout(checkInfiniteScroll, 100);
     }
     function enableInfiniteScroll() { infiniteScrollEnabled = true; }
     function disableInfiniteScroll() { infiniteScrollEnabled = false; loadingNext = false; }
 
-    // Chapter tracking for progress
+    // Chapter tracking for progress.
+    //
+    // Each entry keeps the ELEMENT, not just the number it happened to be at
+    // when the chapter was appended. The old version sampled offsetTop once and
+    // never looked again, which was invisible only because nothing reflowed a
+    // live document: images and webfonts land before the first append, and
+    // typography used to rebuild the whole document rather than restyle it.
+    // The moment a font size is injected into a live document, every stored
+    // top is a lie, currentChapterBounds() names the wrong chapter, and
+    // reportProgress posts that wrong slug — the same corruption the rebuild
+    // caused, by a different route. So tops are recomputed, never remembered.
     var chapterSlugs = [];
-    function registerChapter(slug) {
-      chapterSlugs.push({ slug: slug, top: document.body.lastElementChild ? document.body.lastElementChild.offsetTop : 0 });
+    function registerChapter(slug, el) {
+      var node = el || document.body.lastElementChild;
+      chapterSlugs.push({ slug: slug, el: node, top: chapterTop(node) });
+    }
+    // Document-absolute top of a chapter element. getBoundingClientRect rather
+    // than offsetTop: offsetTop is measured from the offsetParent's padding
+    // edge, and body carries the reader's own padding, so the two disagree by
+    // exactly the top inset — which is the reading line's own margin of error.
+    function chapterTop(el) {
+      if (!el || !el.getBoundingClientRect) return 0;
+      return Math.round(el.getBoundingClientRect().top + window.scrollY);
+    }
+    function recomputeChapterTops() {
+      for (var i = 0; i < chapterSlugs.length; i++) {
+        if (chapterSlugs[i].el) chapterSlugs[i].top = chapterTop(chapterSlugs[i].el);
+      }
+    }
+    // Everything that can move a chapter's top: an image finishing, a webfont
+    // swapping, typography being injected, a rotation. One observer covers all
+    // of them, and rAF-coalesced so a burst costs one layout read.
+    var _topsScheduled = false;
+    function scheduleRecomputeTops() {
+      if (_topsScheduled) return;
+      _topsScheduled = true;
+      requestAnimationFrame(function() { _topsScheduled = false; recomputeChapterTops(); });
+    }
+    // Installed from the load handler: this script runs in <head>, where
+    // document.body is still null.
+    function installTopsObserver() {
+      if (typeof ResizeObserver === 'undefined' || !document.body) return;
+      try { new ResizeObserver(scheduleRecomputeTops).observe(document.body); } catch (e) {}
     }
     function getCurrentChapterSlug() {
       if (chapterSlugs.length === 0) return null;
@@ -1202,8 +1617,8 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
   </script>
 </head>
 <body>
-  ${chapterHtml}
-  ${initialChapterSlug ? `<script>registerChapter(${JSON.stringify(initialChapterSlug)});</script>` : ''}
+  <div${initialChapterSlug ? ` data-chapter-slug="${escapeAttr(initialChapterSlug)}"` : ''}>${chapterHtml}</div>
+  ${initialChapterSlug ? `<script>registerChapter(${JSON.stringify(initialChapterSlug)}, document.querySelector('[data-chapter-slug]'));</script>` : ''}
 </body>
 </html>`
 }

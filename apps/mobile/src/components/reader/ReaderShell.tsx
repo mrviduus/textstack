@@ -4,13 +4,14 @@ import { View, Text, StyleSheet, TouchableOpacity, Animated, Linking, BackHandle
 import { WebView } from 'react-native-webview'
 import { useRouter, Stack } from 'expo-router'
 import { t, computeBookProgress, estimateTimeLeft, formatMinutesLeft, citationChapterSlug, makeSnippet, plural, resolvePdfResumePage, chapterEndPage } from '@textstack/shared'
-import type { Chapter, BookmarkDto, AskCitation, AskTarget } from '@textstack/shared'
+import type { Chapter, BookmarkDto, AskCitation, AskTarget, TextPosition } from '@textstack/shared'
 import { buildReaderHtml, buildPdfViewerHtml } from '../../lib/readerHtml'
 import {
   pdfDocumentKey, pdfChromeInjectionJs, latchPdfChrome, pdfChromeChanged, type PdfChrome,
 } from '../../lib/pdfViewerChrome'
 import {
   readerDocumentKey, readerChromeInjectionJs, latchReaderChrome, readerChromeChanged, type ReaderChrome,
+  readerTypographyInjectionJs, readerTypographyChanged, fontFaceKey, type ReaderTypography,
 } from '../../lib/readerChrome'
 import { pdfGateReduce, PDF_GATE_INITIAL, chapterSlugForPage, type PdfGateState } from '@textstack/shared'
 import { getAccessToken, onUnauthorized, API_URL } from '../../lib/api'
@@ -98,6 +99,7 @@ export interface ReaderShellProps {
   scrollOffsetRef: MutableRefObject<number>
   currentChapterSlugRef: MutableRefObject<string | null>
   bookProgressRef: MutableRefObject<number | null>
+  positionRef: MutableRefObject<TextPosition | null>
   totalWordCountRef: MutableRefObject<number>
   bumpProgress: () => void
   saveProgress: () => void
@@ -109,6 +111,8 @@ export interface ReaderShellProps {
 
   /** The WebView acknowledged a restore, carrying back the id it was issued with. */
   onRestoreLanded: (restoreId: number) => void
+  onDocumentRebuild: () => void
+  beginReflow: () => number
 
   // Infinite scroll — the per-source fetch lives in the route; these fire on the
   // WebView 'loaded' / 'requestNextChapter' messages.
@@ -176,9 +180,9 @@ export function ReaderShell(props: ReaderShellProps) {
   const {
     source, webViewRef, injectJs, chapter, chapterSlug, htmlChapterSlug,
     bookTitle, chapters, chaptersLoading,
-    progressRef, scrollOffsetRef, currentChapterSlugRef, bookProgressRef, totalWordCountRef,
+    progressRef, scrollOffsetRef, currentChapterSlugRef, bookProgressRef, positionRef, totalWordCountRef,
     bumpProgress, saveProgress,
-    onWebViewLoaded, onRestoreLanded,
+    onWebViewLoaded, onRestoreLanded, onDocumentRebuild, beginReflow,
     onChapterLoaded, onRequestNextChapter, onNavigateChapter,
     bookmarks, onToggleCurrentBookmark, onDeleteBookmark, bookmarkChapterSlug,
     bookTitleRef, wordCount, explainBookId, askTarget,
@@ -240,6 +244,7 @@ export function ReaderShell(props: ReaderShellProps) {
   // then pushed to the live DOM by the effect below. See pdfViewerChrome.ts.
   const readerChromeRef = useRef<ReaderChrome | null>(null)
   const readerAppliedChromeRef = useRef<ReaderChrome | null>(null)
+  const readerAppliedTypographyRef = useRef<ReaderTypography | null>(null)
   const pdfChromeRef = useRef<PdfChrome | null>(null)
   const pdfAppliedChromeRef = useRef<PdfChrome | null>(null)
   // S4c — top-visible page + page count for the PDF chrome + page-bookmark
@@ -501,6 +506,11 @@ export function ReaderShell(props: ReaderShellProps) {
       } else if (data.type === 'progress') {
         progressRef.current = data.progress
         if (typeof data.scrollY === 'number') scrollOffsetRef.current = data.scrollY
+        // Null when the reading line had no text under it — a margin, a gap
+        // between paragraphs, an image. Keep the previous one rather than
+        // blanking a good position for a scroll that passed over a picture;
+        // saveProgress checks the chapter before it uses it.
+        if (data.position) positionRef.current = data.position
         setProgress(data.progress)
         if (data.chapterSlug) {
           currentChapterSlugRef.current = data.chapterSlug
@@ -784,10 +794,17 @@ export function ReaderShell(props: ReaderShellProps) {
     setBookProgress(bp)
   }, [chapters, chapterSlug])
 
+  const documentKey = readerDocumentKey({
+    chapterSlug: htmlChapterSlug ?? '',
+    fontFaceKey: fontFaceKey(resolvedFontFamily),
+    overlayV2,
+    htmlLength: chapter.html.length,
+  })
+
   const html = useMemo(
     () => {
-      // Chrome is read from the ref, deliberately outside the dependency list —
-      // see readerChrome.ts for what a rebuild costs here.
+      // Chrome and typography are read from refs, deliberately outside the
+      // dependency list — see readerChrome.ts for what a rebuild costs here.
       const chrome = readerChromeRef.current ?? {
         safeArea: { top: insets.top, bottom: insets.bottom },
         backgroundColor: resolvedTheme.backgroundColor,
@@ -795,28 +812,53 @@ export function ReaderShell(props: ReaderShellProps) {
       }
       readerChromeRef.current = chrome
       readerAppliedChromeRef.current = chrome  // a fresh document already has it
-      return buildReaderHtml(chapter.html, {
+      const typography = {
+        fontFamily: resolvedFontFamily,
         fontSize: settings.fontSize,
         lineHeight: settings.lineHeight,
-        fontFamily: resolvedFontFamily,
         textAlign: settings.textAlign,
+      }
+      readerAppliedTypographyRef.current = typography
+      return buildReaderHtml(chapter.html, {
+        fontSize: typography.fontSize,
+        lineHeight: typography.lineHeight,
+        fontFamily: typography.fontFamily,
+        textAlign: typography.textAlign,
         backgroundColor: chrome.backgroundColor,
         textColor: chrome.textColor,
       }, htmlChapterSlug, chrome.safeArea, { overlayV2 })
     },
-    // Keyed on document identity ONLY. Insets and colours are absent on purpose;
-    // readerChrome.test.ts asserts that absence.
+    // Keyed on document identity ONLY. Insets, colours and typography are absent
+    // on purpose; readerChrome.test.ts asserts that absence.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [readerDocumentKey({
-      chapterSlug: htmlChapterSlug ?? '',
+    [documentKey],
+  )
+
+  // A rebuild is starting. Told to the persistence hook BEFORE the new document
+  // loads, because the fresh document's load event overwrites the one fact that
+  // decides what to do about it: which chapter the reader was actually in.
+  const lastDocumentKeyRef = useRef(documentKey)
+  useEffect(() => {
+    if (lastDocumentKeyRef.current === documentKey) return
+    lastDocumentKeyRef.current = documentKey
+    onDocumentRebuild()
+  }, [documentKey, onDocumentRebuild])
+
+  // Typography changes reach the OPEN document instead of rebuilding it. The
+  // injection measures, restyles and re-anchors as one operation and acks the
+  // restoreId, so the write gate is shut across the reflow.
+  useEffect(() => {
+    if (original) return
+    const next = {
       fontFamily: resolvedFontFamily,
       fontSize: settings.fontSize,
       lineHeight: settings.lineHeight,
       textAlign: settings.textAlign,
-      overlayV2,
-      htmlLength: chapter.html.length,
-    })],
-  )
+    }
+    if (!readerTypographyChanged(readerAppliedTypographyRef.current, next)) return
+    readerAppliedTypographyRef.current = next
+    injectJs(readerTypographyInjectionJs(next, beginReflow()))
+  }, [original, resolvedFontFamily, settings.fontSize, settings.lineHeight, settings.textAlign, injectJs, beginReflow])
 
   // ADR-012 S4b — the Original-layout PDF document. Rebuilt when the token
   // refreshes (nonce) so a silent 401 recovery reloads at the tracked page.
