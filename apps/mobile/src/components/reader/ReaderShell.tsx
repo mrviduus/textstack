@@ -4,7 +4,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Animated, Linking, BackHandle
 import { WebView } from 'react-native-webview'
 import { useRouter, Stack } from 'expo-router'
 import { t, computeBookProgress, estimateTimeLeft, formatMinutesLeft, citationChapterSlug, makeSnippet, plural, resolvePdfResumePage, chapterEndPage } from '@textstack/shared'
-import type { Chapter, BookmarkDto, AskCitation, AskTarget } from '@textstack/shared'
+import type { Chapter, BookmarkDto, AskCitation, AskTarget, TextPosition } from '@textstack/shared'
 import { buildReaderHtml, buildPdfViewerHtml } from '../../lib/readerHtml'
 import {
   pdfDocumentKey, pdfChromeInjectionJs, latchPdfChrome, pdfChromeChanged, type PdfChrome,
@@ -99,6 +99,7 @@ export interface ReaderShellProps {
   scrollOffsetRef: MutableRefObject<number>
   currentChapterSlugRef: MutableRefObject<string | null>
   bookProgressRef: MutableRefObject<number | null>
+  positionRef: MutableRefObject<TextPosition | null>
   totalWordCountRef: MutableRefObject<number>
   bumpProgress: () => void
   saveProgress: () => void
@@ -179,7 +180,7 @@ export function ReaderShell(props: ReaderShellProps) {
   const {
     source, webViewRef, injectJs, chapter, chapterSlug, htmlChapterSlug,
     bookTitle, chapters, chaptersLoading,
-    progressRef, scrollOffsetRef, currentChapterSlugRef, bookProgressRef, totalWordCountRef,
+    progressRef, scrollOffsetRef, currentChapterSlugRef, bookProgressRef, positionRef, totalWordCountRef,
     bumpProgress, saveProgress,
     onWebViewLoaded, onRestoreLanded, onDocumentRebuild, beginReflow,
     onChapterLoaded, onRequestNextChapter, onNavigateChapter,
@@ -505,6 +506,11 @@ export function ReaderShell(props: ReaderShellProps) {
       } else if (data.type === 'progress') {
         progressRef.current = data.progress
         if (typeof data.scrollY === 'number') scrollOffsetRef.current = data.scrollY
+        // Null when the reading line had no text under it — a margin, a gap
+        // between paragraphs, an image. Keep the previous one rather than
+        // blanking a good position for a scroll that passed over a picture;
+        // saveProgress checks the chapter before it uses it.
+        if (data.position) positionRef.current = data.position
         setProgress(data.progress)
         if (data.chapterSlug) {
           currentChapterSlugRef.current = data.chapterSlug

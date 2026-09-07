@@ -2,6 +2,8 @@ import { openDyslexicBase64 } from './openDyslexicBase64'
 import { pdfChromeCss, type PdfChrome } from './pdfViewerChrome'
 import { readerChromeCss, type ReaderChrome } from './readerChrome'
 import { READER_OVERLAY_SCRIPT } from './readerOverlayScript'
+import { READER_ANCHOR_SCRIPT } from './readerAnchorScript.generated'
+import { TEXT_POSITION_VERSION, POSITION_QUOTE_LENGTH, ANCHOR_CONTEXT_LENGTH } from '@textstack/shared'
 import { READER_SELECTION_BRIDGE } from './readerBridge'
 import { PDF_VIEWER_SCRIPT } from './pdfViewerScript'
 
@@ -60,6 +62,10 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
   const overlayV2 = options?.overlayV2 === true
   // Only inline the overlayer script when flag is on — zero bytes otherwise.
   const overlayScript = overlayV2 ? READER_OVERLAY_SCRIPT : ''
+  // Always, unlike the overlay. The reading position is resolved from a text
+  // anchor on every chapter open and has no legacy path behind it; without the
+  // resolver `hlFindAnchor` degrades to a bare indexOf. 3.6KB.
+  const anchorScript = READER_ANCHOR_SCRIPT
   const overlayFlagSetter = overlayV2 ? 'window.__textstackOverlayV2Mobile = true;' : ''
 
   return `<!DOCTYPE html>
@@ -186,6 +192,7 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
     // the SVG overlayer. Set before the overlayer IIFE so init can read it.
     ${overlayFlagSetter}
   </script>
+  <script>${anchorScript}</script>
   ${overlayScript ? `<script>${overlayScript}</script>` : ''}
   <script>${READER_SELECTION_BRIDGE}</script>
   <script>
@@ -257,7 +264,12 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
           type: 'progress',
           progress: progress,
           chapterSlug: currentSlug,
-          scrollY: Math.round(relY)
+          scrollY: Math.round(relY),
+          // The logical position rides along, so RN always holds a fresh one
+          // without a round trip. saveProgress is synchronous — it is called
+          // from an unmount and from an AppState listener — and cannot wait for
+          // an answer. Null when the reading line lands somewhere with no text.
+          position: window.__textstackCapturePosition ? window.__textstackCapturePosition() : null
         }));
       }
     }
@@ -364,6 +376,206 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
       }
       var span = (bottom - top) - window.innerHeight;
       return Math.max(0, Math.round(top + (span > 0 ? span * fraction : 0)));
+    }
+
+    // --- The logical reading position (ADR-015) ------------------------------
+    //
+    // Interpolated from @textstack/shared rather than written here twice: an
+    // anchor built in this document has to resolve in the web reader, and it
+    // will not if the two quote different amounts of text.
+    var TS_POSITION_VERSION = ${TEXT_POSITION_VERSION};
+    var TS_QUOTE_LEN = ${POSITION_QUOTE_LENGTH};
+    var TS_CONTEXT_LEN = ${ANCHOR_CONTEXT_LENGTH};
+    //
+    // A pixel offset stops being true the moment the text reflows. What survives
+    // is the text itself: the passage under the reading line, plus a little of
+    // what surrounds it. That is what a highlight already is, and the resolver
+    // below is the same one highlights use.
+
+    /** The element holding the chapter the reader is in, for scoping the text. */
+    function chapterElement(slug) {
+      if (!slug) return null;
+      for (var i = 0; i < chapterSlugs.length; i++) {
+        if (chapterSlugs[i].slug === slug) return chapterSlugs[i].el;
+      }
+      return null;
+    }
+
+    /**
+     * The chapter's text, as the anchor offsets measure it.
+     *
+     * Not textContent: vocab overlays and inline translations are DOM nodes the
+     * reader never wrote, and counting them would shift every offset the moment
+     * a word was saved. Web excludes the same two selectors when it builds an
+     * anchor -- if these two walkers ever disagree, an anchor made on the phone
+     * stops resolving on the desktop.
+     */
+    function chapterText(el) {
+      if (!el) return '';
+      // Cached on the element: the extraction walks every text node, and this
+      // runs on every progress message. A chapter's text never changes once it
+      // is in the document — appendChapter adds a NEW element, and the walker
+      // already excludes the vocab decorations that do get added to an old one.
+      if (el.__tsText !== undefined) return el.__tsText;
+      var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
+        acceptNode: function(n) {
+          var p = n.parentElement;
+          if (!p) return NodeFilter.FILTER_REJECT;
+          var tag = p.tagName;
+          if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT') return NodeFilter.FILTER_REJECT;
+          if (p.closest && (p.closest('[data-vocab-overlay]') || p.closest('.vocab-inline-translation'))) return NodeFilter.FILTER_REJECT;
+          return NodeFilter.FILTER_ACCEPT;
+        }
+      });
+      var out = '', node;
+      while ((node = walker.nextNode())) out += node.nodeValue || '';
+      el.__tsText = out;
+      return out;
+    }
+
+    /** Character offset of a (node, offset) pair within the chapter's text. */
+    function charOffsetOf(el, node, offset) {
+      var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
+        acceptNode: function(n) {
+          var p = n.parentElement;
+          if (!p) return NodeFilter.FILTER_REJECT;
+          var tag = p.tagName;
+          if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT') return NodeFilter.FILTER_REJECT;
+          if (p.closest && (p.closest('[data-vocab-overlay]') || p.closest('.vocab-inline-translation'))) return NodeFilter.FILTER_REJECT;
+          return NodeFilter.FILTER_ACCEPT;
+        }
+      });
+      var consumed = 0, n;
+      while ((n = walker.nextNode())) {
+        if (n === node) return consumed + offset;
+        consumed += (n.nodeValue || '').length;
+      }
+      return consumed;
+    }
+
+    /** (node, offset) at a point, across the two spellings of the same API. */
+    function caretAt(x, y) {
+      try {
+        if (document.caretPositionFromPoint) {
+          var pos = document.caretPositionFromPoint(x, y);
+          if (pos && pos.offsetNode) return { node: pos.offsetNode, offset: pos.offset };
+        }
+        if (document.caretRangeFromPoint) {
+          var r = document.caretRangeFromPoint(x, y);
+          if (r) return { node: r.startContainer, offset: r.startOffset };
+        }
+      } catch (e) {}
+      return null;
+    }
+
+    /**
+     * Where the reader is, as a place in the text.
+     *
+     * The reading line is the same probe currentChapterBounds uses -- a quarter
+     * down the viewport -- so the chapter this answers for and the chapter the
+     * progress message names can never disagree.
+     *
+     * Returns the raw material; RN builds the position with the shared builder,
+     * so both clients quote the same number of characters and resolve them the
+     * same way.
+     */
+    window.__textstackCapturePosition = function() {
+      try {
+        var bounds = currentChapterBounds();
+        if (!bounds) return null;
+        var el = chapterElement(bounds.slug);
+        if (!el) return null;
+        var y = window.innerHeight * 0.25;
+        // A few x positions: the reading line can land in a margin, between
+        // paragraphs, or on an image, and a caret there resolves to nothing.
+        var caret = caretAt(24, y) || caretAt(window.innerWidth / 2, y) || caretAt(window.innerWidth - 24, y);
+        if (!caret || !el.contains(caret.node)) return null;
+        var span = (bounds.bottom - bounds.top) - window.innerHeight;
+        var text = chapterText(el);
+        var start = Math.max(0, Math.min(text.length, charOffsetOf(el, caret.node, caret.offset)));
+        var exact = text.slice(start, start + TS_QUOTE_LEN);
+        if (exact.length === 0) return null;
+        // Shape and constants come from @textstack/shared's buildTextPosition,
+        // interpolated below rather than duplicated: an anchor made here has to
+        // resolve on the web, and it will not if the two quote different amounts.
+        return {
+          v: TS_POSITION_VERSION,
+          chapterSlug: bounds.slug,
+          anchor: {
+            prefix: text.slice(Math.max(0, start - TS_CONTEXT_LEN), start),
+            exact: exact,
+            suffix: text.slice(start + exact.length, start + exact.length + TS_CONTEXT_LEN),
+            startOffset: start,
+            endOffset: start + exact.length
+          },
+          charOffset: start,
+          chapterFraction: span > 0 ? Math.min(1, Math.max(0, (window.scrollY - bounds.top) / span)) : 0
+        };
+      } catch (e) { return null; }
+    };
+
+    /**
+     * Put the reader back at a resolved character offset.
+     *
+     * The offset comes from RN, which resolved the anchor against the text this
+     * document reported. Same Range-to-scroll path highlights use, with the
+     * passage at the reading line rather than centred, and the same ack the
+     * other restores send -- the write gate does not care which kind it was.
+     */
+    window.__textstackRestoreAnchor = function(json, restoreId) {
+      try {
+        // The chapter the document was built from is the one a restore can land
+        // in. If the saved position names another, the resolver returns null and
+        // the reader stays at the top — RN routes to that chapter instead, which
+        // is a decision it can make and this document cannot.
+        var slug = chapterSlugs.length > 0 ? chapterSlugs[0].slug : null;
+        var el = chapterElement(slug);
+        var api = window.__TSAnchor;
+        if (!el || !api || !api.resolvePosition) { ackRestore(restoreId); return; }
+        var resolved = api.resolvePosition(json, slug, chapterText(el));
+        if (!resolved) { ackRestore(restoreId); return; }
+        requestAnimationFrame(function() {
+          try {
+            if (resolved.kind === 'anchor') {
+              var loc = locateCharOffset(el, resolved.offset);
+              if (loc) {
+                var range = document.createRange();
+                range.setStart(loc.node, loc.offset);
+                range.setEnd(loc.node, Math.min((loc.node.nodeValue || '').length, loc.offset + 1));
+                var rect = range.getBoundingClientRect();
+                // The reading line, not the top of the viewport — the same
+                // quarter-down probe the position was measured against, so a
+                // capture and a restore describe the same place.
+                scrollToInstant(Math.max(0, Math.round(window.scrollY + rect.top - window.innerHeight * 0.25)));
+              }
+            } else {
+              scrollToInstant(chapterScrollTarget(0, resolved.fraction));
+            }
+          } catch (e) {}
+          ackRestore(restoreId);
+        });
+      } catch (e) {}
+    };
+
+    /** Inverse of charOffsetOf: a character offset back to (node, offset). */
+    function locateCharOffset(el, target) {
+      var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
+        acceptNode: function(n) {
+          var p = n.parentElement;
+          if (!p) return NodeFilter.FILTER_REJECT;
+          var tag = p.tagName;
+          if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT') return NodeFilter.FILTER_REJECT;
+          if (p.closest && (p.closest('[data-vocab-overlay]') || p.closest('.vocab-inline-translation'))) return NodeFilter.FILTER_REJECT;
+          return NodeFilter.FILTER_ACCEPT;
+        }
+      });
+      var consumed = 0, node;
+      while ((node = walker.nextNode())) {
+        var len = (node.nodeValue || '').length;
+        if (consumed + len > target) return { node: node, offset: target - consumed };
+        consumed += len;
+      }
+      return null;
     }
 
     /**

@@ -21,7 +21,7 @@ export function getProgress(editionId: string) {
  */
 export function updateProgress(
   editionId: string,
-  data: { chapterId: string; chapterSlug: string; progress: number; scrollOffset?: number },
+  data: { chapterId: string; chapterSlug: string; progress: number; scrollOffset?: number; positionJson?: string },
 ) {
   const offset = typeof data.scrollOffset === 'number' && Number.isFinite(data.scrollOffset) && data.scrollOffset > 0
     ? Math.floor(data.scrollOffset)
@@ -29,6 +29,10 @@ export function updateProgress(
   return authFetch<void>(`/me/progress/${editionId}`, jsonBody('PUT', {
     chapterId: data.chapterId,
     locator: `scroll:${data.chapterSlug}:${offset}`,
+    // Where the reader is in the TEXT. The locator above is kept for builds that
+    // predate this; the server stores them side by side and clears the position
+    // whenever a write cannot carry one, so the row can never disagree with itself.
+    positionJson: data.positionJson,
     percent: data.progress,
     // Book-wide, and says so. Without the declaration the server keeps whatever
     // it already had — see Application.ReadingTracking.ProgressUnit.

@@ -149,6 +149,11 @@ export interface ReadingProgressDto {
    *  `percent` against a threshold — editions used to have no completion field,
    *  so four places each picked their own (0.95, 0.95, 1.0, 1.0). */
   completedAt?: string | null
+  /** Where the reader is IN THE TEXT, serialised — see `textPosition.ts`.
+   *  Prefer it over `locator`: a pixel offset stops being true the moment the
+   *  text reflows. Null on rows last written by a build that predates it, and
+   *  on every PDF page position. */
+  positionJson?: string | null
 }
 
 // Bookmarks

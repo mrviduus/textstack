@@ -23,6 +23,7 @@ import type { DrawFn, DrawOptions } from './readerOverlay'
 // WebView bundle grows by exactly that one leaf module rather than by the whole
 // shared index (which would drag the API clients in with it).
 import { findAnchorOffset, type TextAnchor } from '../../shared/src/reader/textAnchor'
+import { parseTextPosition, resolveTextPosition, type ResolvedPosition } from '../../shared/src/reader/textPosition'
 
 declare global {
   interface Window {
@@ -43,6 +44,8 @@ declare global {
 interface TSAnchorGlobal {
   /** Character offset of `anchor.exact` within `fullText`, or null. */
   findOffset: (fullText: string, anchor: TextAnchor) => number | null
+  /** Resolve a serialised reading position. See anchorBootstrap.ts. */
+  resolvePosition: (json: string, chapterSlug: string, chapterText: string) => ResolvedPosition | null
 }
 
 interface TSOverlayerInstance {
@@ -83,8 +86,14 @@ function adapt(ov: Overlayer): TSOverlayerInstance {
   }
 }
 
+// Both entry points install this, guarded, so whichever loads first wins — they
+// must therefore offer the same surface. anchorBootstrap.ts says why there are two.
 if (typeof window !== 'undefined' && !window.__TSAnchor) {
-  window.__TSAnchor = { findOffset: findAnchorOffset }
+  window.__TSAnchor = {
+    findOffset: findAnchorOffset,
+    resolvePosition: (json, chapterSlug, chapterText) =>
+      resolveTextPosition(parseTextPosition(json), chapterSlug, chapterText),
+  }
 }
 
 if (typeof window !== 'undefined' && !window.__TSOverlayer) {

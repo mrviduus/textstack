@@ -73,6 +73,7 @@ export function Reader({ runtime }: { runtime: ReaderRuntime }) {
       scrollOffsetRef={runtime.scrollOffsetRef}
       currentChapterSlugRef={runtime.currentChapterSlugRef}
       bookProgressRef={runtime.bookProgressRef}
+      positionRef={runtime.positionRef}
       totalWordCountRef={runtime.totalWordCountRef}
       bumpProgress={runtime.bumpProgress}
       saveProgress={runtime.saveProgress}

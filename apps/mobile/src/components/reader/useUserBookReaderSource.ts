@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'expo-router'
 import { WebView } from 'react-native-webview'
-import { userBooksApi, parseScrollLocator, buildUserBookProgressPayload, buildPdfProgressPayload, parsePdfPageLocator } from '@textstack/shared'
-import type { UserBookChapterDto, BookmarkDto } from '@textstack/shared'
+import { userBooksApi, parseScrollLocator, buildUserBookProgressPayload, buildPdfProgressPayload, parsePdfPageLocator, parseTextPosition, serializeTextPosition } from '@textstack/shared'
+import type { UserBookChapterDto, BookmarkDto, TextPosition } from '@textstack/shared'
 import { API_URL } from '../../lib/api'
 import { saveUserBookLocalProgress } from '../../lib/progressStorage'
 import { reflowWritesEnabled } from '../../lib/readerWriteMode'
@@ -44,6 +44,7 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
   const progressRef = useRef(0)
   const scrollOffsetRef = useRef(0)
   const currentChapterSlugRef = useRef<string | null>(null)
+  const positionRef = useRef<TextPosition | null>(null)
   const bookProgressRef = useRef<number | null>(null)
   const totalWordCountRef = useRef(0)
   const wordCountRef = useRef(0)
@@ -145,6 +146,9 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
       // scroll into a book-wide value using the chapter word counts.
       chapters,
       totalWordCount: totalWordCountRef.current || undefined,
+      // Assigned, never carried forward — absent means the server clears the
+      // stored one rather than leaving it beside a fresher pixel offset.
+      positionJson: serializeTextPosition(snap.position) ?? undefined,
     })
     if (payload) {
       userBooksApi.updateUserBookProgress(bookId, payload)
@@ -159,16 +163,20 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
     try {
       const prog = await userBooksApi.getUserBookProgress(bookId)
       if (prog && prog.chapterSlug === slug) {
+        // The anchor first: it is the only one of the three still true after the
+        // text has reflowed, or been re-parsed, or been opened on another device.
+        const position = parseTextPosition(prog.positionJson)
+        if (position && position.chapterSlug === slug) return { position, offset: null, percent: null }
         const parsed = parseScrollLocator(prog.locator)
-        if (parsed && parsed.slug === slug && parsed.offset > 0) return { offset: parsed.offset, percent: null }
+        if (parsed && parsed.slug === slug && parsed.offset > 0) return { position: null, offset: parsed.offset, percent: null }
         // Percent fallback — was missing on user-book reader (one half of the
         // "returns to top" bug); now shared with catalog so it can't drift.
         if (typeof prog.percent === 'number' && prog.percent > 0.005 && prog.percent < 0.999) {
-          return { offset: null, percent: prog.percent }
+          return { position: null, offset: null, percent: prog.percent }
         }
       }
     } catch {}
-    return { offset: null, percent: null }
+    return { position: null, offset: null, percent: null }
   }, [bookId])
 
   // Which reader owns this book's position. ONE expression, two consumers — the
@@ -189,7 +197,7 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
     chapterSlug,
     chapterId: chapter?.id ?? null,
     injectJs,
-    progressRef, scrollOffsetRef, currentChapterSlugRef, bookProgressRef,
+    progressRef, scrollOffsetRef, currentChapterSlugRef, bookProgressRef, positionRef,
     persist, loadPosition, navigateToChapter,
     enabled: reflowWrites,
   })
@@ -393,7 +401,7 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
     chapters,
     chaptersLoading,
     wordCount: wordCountRef.current,
-    progressRef, scrollOffsetRef, currentChapterSlugRef, bookProgressRef, totalWordCountRef,
+    progressRef, scrollOffsetRef, currentChapterSlugRef, bookProgressRef, positionRef, totalWordCountRef,
     saveProgress, bumpProgress, onWebViewLoaded, onRestoreLanded, onDocumentRebuild, beginReflow,
     onChapterLoaded: () => {
       if (chapter?.next) {

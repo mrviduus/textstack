@@ -52,6 +52,10 @@ export interface UserBookProgressPayload {
   locatorKind: LocatorSpaceKind
   chapterSlug: string
   locator: string
+  /** Where the reader is in the TEXT, serialised. Omitted when the viewer could
+   *  not anchor — the server then clears the stored one rather than leaving it
+   *  beside a fresher pixel offset. */
+  positionJson?: string
 }
 
 export interface UserBookProgressInputs {
@@ -74,6 +78,8 @@ export interface UserBookProgressInputs {
   /** Canonical book-wide word total (Σ chapter WordCount on the server). Passed
    *  through to computeBookProgress so the denominator matches the server's. */
   totalWordCount?: number
+  /** Serialised `TextPosition` for the reading line, when the viewer could build one. */
+  positionJson?: string
 }
 
 // Reasonable upper bound for a scroll offset (pixels). Real long-form
@@ -118,6 +124,7 @@ export function buildUserBookProgressPayload(input: UserBookProgressInputs): Use
     payload.percent = clampUnit(bookPct)
     payload.percentUnit = PERCENT_UNIT_BOOK
   }
+  if (input.positionJson) payload.positionJson = input.positionJson
   return payload
 }
 

@@ -7,7 +7,9 @@ import {
   RESTORE_SETTLE_MS,
   type RestoreGateEvent,
 } from '../lib/readerWriteGate'
+import { FEATURES, readReaderTextPositionActive } from '../lib/features'
 import { useFlushOnBackground } from './useFlushOnBackground'
+import type { TextPosition } from '@textstack/shared'
 import type { ProgressSnapshot, SavedPosition } from '../components/reader/readerSource'
 
 type Options = {
@@ -25,6 +27,7 @@ type Options = {
   scrollOffsetRef: MutableRefObject<number>
   currentChapterSlugRef: MutableRefObject<string | null>
   bookProgressRef: MutableRefObject<number | null>
+  positionRef: MutableRefObject<TextPosition | null>
 
   /** Source-specific write. MUST be stable (wrap in useCallback). */
   persist: (snap: ProgressSnapshot) => void
@@ -83,6 +86,7 @@ export function useReaderPersistence({
   scrollOffsetRef,
   currentChapterSlugRef,
   bookProgressRef,
+  positionRef,
   persist,
   loadPosition,
   navigateToChapter,
@@ -91,6 +95,7 @@ export function useReaderPersistence({
   // Restore state machine — all refs so changes never trigger a re-render.
   const savedOffsetRef = useRef<number | null>(null)
   const savedPercentRef = useRef<number | null>(null)
+  const savedPositionRef = useRef<TextPosition | null>(null)
   const restoredRef = useRef(false)
   // State, deliberately, not a ref: a writer has to be able to re-run once restore finishes, and
   // flipping a ref triggers no render. The web reader keeps exactly this, for exactly this reason.
@@ -111,6 +116,14 @@ export function useReaderPersistence({
   const positionLoadedRef = useRef(false)
   /** The chapter the reader was in when a rebuild started — see onDocumentRebuild. */
   const rebuiltFromSlugRef = useRef<string | null>(null)
+  // Read once per mount. A ref rather than state: it is consulted inside the
+  // restore, and a re-render on resolve would re-arm the effect that starts one.
+  const textPositionEnabledRef = useRef(FEATURES.readerTextPosition)
+  useEffect(() => {
+    let cancelled = false
+    readReaderTextPositionActive().then(v => { if (!cancelled) textPositionEnabledRef.current = v })
+    return () => { cancelled = true }
+  }, [])
 
   /**
    * Mint a restore id, shut the write gate behind it and arm the settle timeout.
@@ -139,7 +152,8 @@ export function useReaderPersistence({
     restoredRef.current = true
     const offset = savedOffsetRef.current
     const pct = savedPercentRef.current
-    if (offset == null && pct == null) {
+    const pos = savedPositionRef.current
+    if (pos == null && offset == null && pct == null) {
       // Nothing saved: the top of the chapter IS the restored position. Open the gate now, or a
       // book opened for the first time could never be saved at all.
       dispatchGate({ type: 'nothingToRestore' })
@@ -148,7 +162,12 @@ export function useReaderPersistence({
     // Asked, not arrived. The gate stays shut until the WebView reports back — this is the window
     // in which a back-press used to persist the load event's zero over a half-read book.
     const restoreId = issueRestore()
-    if (offset != null) {
+    // The anchor first: it is the only one of the three that is still true after
+    // the text has reflowed. The WebView resolves it against the text it is
+    // actually showing and answers with the same ack either way.
+    if (pos != null) {
+      injectJs(`window.__textstackRestoreAnchor && window.__textstackRestoreAnchor(${JSON.stringify(JSON.stringify(pos))}, ${restoreId})`)
+    } else if (offset != null) {
       injectJs(`window.__textstackRestoreScroll && window.__textstackRestoreScroll(${offset}, ${restoreId})`)
     } else {
       injectJs(`window.__textstackRestorePercent && window.__textstackRestorePercent(${pct}, ${restoreId})`)
@@ -248,6 +267,11 @@ export function useReaderPersistence({
       chapterSlug: slug,
       chapterPercent: progressRef.current,
       scrollOffset: scrollOffsetRef.current,
+      // Only when it belongs to the chapter being saved. The refs are written by
+      // one message each, and a progress message with no text under the reading
+      // line leaves the position at its previous value — which may name the
+      // chapter before this one.
+      position: positionRef.current?.chapterSlug === slug ? positionRef.current : null,
       bookPercent: bookProgressRef.current,
       updatedAt: Date.now(),
     })
@@ -255,7 +279,7 @@ export function useReaderPersistence({
     // repeat the save if one arrives (chapter fetch lands, or the device comes
     // back online and the next chapter resolves normally).
     pendingSaveRef.current = !chapterId
-  }, [enabled, bookKey, chapterId, chapterSlug, restoredFor, persist, currentChapterSlugRef, progressRef, scrollOffsetRef, bookProgressRef])
+  }, [enabled, bookKey, chapterId, chapterSlug, restoredFor, persist, currentChapterSlugRef, progressRef, scrollOffsetRef, bookProgressRef, positionRef])
 
   // Re-save once the chapter id lands, so the server gets the write that the
   // local store already has. Harmless when the id was there from the start.
@@ -298,6 +322,7 @@ export function useReaderPersistence({
     positionLoadedRef.current = false
     savedOffsetRef.current = null
     savedPercentRef.current = null
+    savedPositionRef.current = null
     pendingSaveRef.current = false
     // Restoring a reflow scroll position into a PDF viewer would fight the
     // page jump the PDF path is already performing.
@@ -308,6 +333,10 @@ export function useReaderPersistence({
         if (cancelled) return
         savedOffsetRef.current = pos.offset
         savedPercentRef.current = pos.percent
+        // Gated read (features.ts): flipping the flag off falls back to the pixel
+        // offset written beside it, which is exactly the old behaviour. The WRITE
+        // is never gated, so a device switched off keeps accumulating positions.
+        savedPositionRef.current = textPositionEnabledRef.current ? pos.position : null
         positionLoadedRef.current = true
         tryRestore()
       })
