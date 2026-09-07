@@ -618,7 +618,7 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
           // Highlights and vocab underlines are drawn from Range rects, and a
           // style change fires no resize event — the overlayer's own listeners
           // never hear about this one.
-          try { if (typeof _hlOverlayer !== 'undefined' && _hlOverlayer) _hlOverlayer.redraw(); } catch (e) {}
+          try { if (_hlOverlayer) _hlOverlayer.redraw(); } catch (e) {}
           try { if (typeof vhlScheduleReposition === 'function') vhlScheduleReposition(); } catch (e) {}
           ackRestore(restoreId);
         });
