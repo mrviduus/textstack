@@ -94,6 +94,11 @@ export interface ReaderRuntime {
   onWebViewLoaded: () => void
   /** The WebView acknowledged a restore, carrying back the id it was issued with. */
   onRestoreLanded: (restoreId: number) => void
+  /** The document is about to be rebuilt — told before the new one loads. */
+  onDocumentRebuild: () => void
+  /** Mint a restore id and shut the write gate behind it, for a move the reader
+   *  did not make (a typography reflow). */
+  beginReflow: () => number
 
   // Infinite scroll.
   onChapterLoaded: () => void

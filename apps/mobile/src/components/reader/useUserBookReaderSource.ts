@@ -178,13 +178,19 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
   // `page:16` with `scroll:<url-slug>:0`. See readerWriteMode.ts.
   const reflowWrites = reflowWritesEnabled({ hasOriginalPdf, forceReflow })
 
-  const { saveProgress, bumpProgress, onWebViewLoaded, onRestoreLanded } = useReaderPersistence({
+  // Stable: the persistence hook keys effects on the identity of what it is given,
+  // and a rebuilt callback here would re-arm a restore.
+  const navigateToChapter = useCallback((slug: string) => {
+    router.replace(`/my-books/read/${bookId}/${slug}`)
+  }, [router, bookId])
+
+  const { saveProgress, bumpProgress, onWebViewLoaded, onRestoreLanded, onDocumentRebuild, beginReflow } = useReaderPersistence({
     bookKey: bookId || null,
     chapterSlug,
     chapterId: chapter?.id ?? null,
     injectJs,
     progressRef, scrollOffsetRef, currentChapterSlugRef, bookProgressRef,
-    persist, loadPosition,
+    persist, loadPosition, navigateToChapter,
     enabled: reflowWrites,
   })
 
@@ -388,7 +394,7 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
     chaptersLoading,
     wordCount: wordCountRef.current,
     progressRef, scrollOffsetRef, currentChapterSlugRef, bookProgressRef, totalWordCountRef,
-    saveProgress, bumpProgress, onWebViewLoaded, onRestoreLanded,
+    saveProgress, bumpProgress, onWebViewLoaded, onRestoreLanded, onDocumentRebuild, beginReflow,
     onChapterLoaded: () => {
       if (chapter?.next) {
         nextChapterRef.current = chapter.next
@@ -396,7 +402,7 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
       }
     },
     onRequestNextChapter: loadNext,
-    onNavigateChapter: (slug) => router.replace(`/my-books/read/${bookId}/${slug}`),
+    onNavigateChapter: navigateToChapter,
     bookmarks,
     onToggleCurrentBookmark: toggleBookmark,
     onDeleteBookmark: deleteBookmark,

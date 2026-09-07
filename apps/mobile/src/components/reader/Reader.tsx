@@ -78,6 +78,8 @@ export function Reader({ runtime }: { runtime: ReaderRuntime }) {
       saveProgress={runtime.saveProgress}
       onWebViewLoaded={runtime.onWebViewLoaded}
       onRestoreLanded={runtime.onRestoreLanded}
+      onDocumentRebuild={runtime.onDocumentRebuild}
+      beginReflow={runtime.beginReflow}
       onChapterLoaded={runtime.onChapterLoaded}
       onRequestNextChapter={runtime.onRequestNextChapter}
       onNavigateChapter={runtime.onNavigateChapter}

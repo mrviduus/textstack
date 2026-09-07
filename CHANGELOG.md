@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Reader** — a font size change stops destroying your place, and three defects found on the way — mobile · [details](docs/changelog-archive/2026-H2.md#2026-09-07-reader-a-font-size-change-stops-destroying-your-place)
 - **Vocabulary** — Blitz runs Blitz, after a mode set in one mount effect lost to the default read in the next — mobile · [details](docs/changelog-archive/2026-H2.md#2026-09-06-vocabulary-blitz-runs-blitz-and-four-smaller-things-a-qa)
 - **Mobile** — one word tap buys one translation instead of two, and the screen behind the reader stops refetching — mobile · [details](docs/changelog-archive/2026-H2.md#2026-09-06-mobile-one-word-tap-buys-one-translation-not-two-and-the)
 - **QA** — the guest loop walked on a device with a traffic log, and the step that guards the data loss could not reach it — docs · [details](docs/changelog-archive/2026-H2.md#2026-09-06-qa-the-guest-loop-walked-on-a-device-with-a-traffic-log)

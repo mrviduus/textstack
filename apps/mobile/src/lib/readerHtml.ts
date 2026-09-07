@@ -30,6 +30,12 @@ const defaultTheme: ReaderTheme = {
   textColor: '#111827',
 }
 
+/** Chapter slugs are generated from titles and can contain anything a title
+ *  can. This value lands in an HTML attribute, so it is escaped, not trusted. */
+function escapeAttr(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
 function buildFontFace(fontFamily: string): string {
   if (!fontFamily.includes('OpenDyslexic')) return ''
   return `@font-face {
@@ -272,6 +278,29 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
     //
     // (No backticks anywhere in here: this whole document is one template
     // literal, and one would end it.)
+    /**
+     * Jump, without animating.
+     *
+     * The document sets html { scroll-behavior: smooth }, which is right for
+     * the reader's own navigation and wrong for every restore: scrollTo becomes
+     * an animation, window.scrollY still reads the OLD position on the next
+     * line, and the acknowledgement below therefore reported a place the reader
+     * was not yet at. Meanwhile the animation kept firing reportProgress with
+     * intermediate positions after the gate had already opened, so the 2s
+     * debounce could persist one of them. A restore is a jump, not a journey.
+     *
+     * scroll-behavior is toggled on the element rather than passing
+     * behavior:'instant', because that value is not understood everywhere the
+     * app runs and an unknown value falls back to the CSS — i.e. to smooth.
+     */
+    function scrollToInstant(y) {
+      var root = document.documentElement;
+      var prev = root.style.scrollBehavior;
+      root.style.scrollBehavior = 'auto';
+      window.scrollTo(0, y);
+      root.style.scrollBehavior = prev;
+    }
+
     function ackRestore(restoreId) {
       window.ReactNativeWebView.postMessage(JSON.stringify({
         type: 'restored',
@@ -282,11 +311,20 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
 
     window.__textstackRestoreScroll = function(offsetY, restoreId) {
       try {
-        var target = Math.max(0, Math.floor(offsetY) || 0);
+        var offset = Math.max(0, Math.floor(offsetY) || 0);
         // requestAnimationFrame to wait one paint so the reader's own
         // mount-time scroll-to-top doesn't race ahead and clobber us.
         requestAnimationFrame(function() {
-          window.scrollTo(0, target);
+          // The saved offset is CHAPTER-relative — reportProgress subtracts the
+          // chapter's top before emitting it. This used to treat it as a
+          // document coordinate, which agreed only while the first chapter's
+          // recorded top was zero. It is now the real top of the element, which
+          // sits below the reader's own page padding, so the two have to be
+          // added back together. A fresh document holds the restored chapter
+          // and nothing before it, hence index 0.
+          recomputeChapterTops();
+          var base = chapterSlugs.length > 0 ? chapterSlugs[0].top : 0;
+          scrollToInstant(Math.max(0, base + offset));
           ackRestore(restoreId);
         });
       } catch (e) {}
@@ -295,11 +333,81 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
     // The percent branch: no saved pixel offset, only a fraction of the chapter.
     // It used to be a raw string injected from the hook with no function behind
     // it here, which is why it had nowhere to report from. Same shape, same ack.
+    //
+    // The fraction it is handed is CHAPTER-scoped — reportProgress divides by
+    // (bounds.bottom - bounds.top) - innerHeight. This used to multiply it by
+    // the whole document's scrollHeight and not subtract the viewport at all,
+    // so even with one chapter loaded it landed roughly innerHeight x fraction
+    // too deep, and at fraction ~1 it clamped to the very bottom. Restoring by
+    // percent was never safe; it is now the exact inverse of the report.
     window.__textstackRestorePercent = function(pct, restoreId) {
       try {
         var fraction = Math.min(1, Math.max(0, Number(pct) || 0));
         requestAnimationFrame(function() {
-          window.scrollTo(0, Math.round(document.documentElement.scrollHeight * fraction));
+          scrollToInstant(chapterScrollTarget(0, fraction));
+          ackRestore(restoreId);
+        });
+      } catch (e) {}
+    };
+
+    // Document Y that puts the reading line the given fraction of the way
+    // through the chapter at idx. Inverse of reportProgress. Tops are
+    // recomputed first --
+    // a restore always follows something that changed the layout.
+    function chapterScrollTarget(idx, fraction) {
+      recomputeChapterTops();
+      var docBottom = document.documentElement.scrollHeight;
+      var top = 0, bottom = docBottom;
+      if (chapterSlugs.length > idx && idx >= 0) {
+        top = chapterSlugs[idx].top;
+        bottom = chapterSlugs[idx + 1] ? chapterSlugs[idx + 1].top : docBottom;
+      }
+      var span = (bottom - top) - window.innerHeight;
+      return Math.max(0, Math.round(top + (span > 0 ? span * fraction : 0)));
+    }
+
+    /**
+     * Change typography on the LIVE document and keep the reader where they were.
+     *
+     * Typography used to be an input to the document string, so changing a font
+     * size reloaded the WebView — which threw away every chapter infinite scroll
+     * had appended and then restored a chapter-two fraction into a chapter-one
+     * document. Injecting the CSS instead keeps the document, so there is
+     * nothing to lose and nothing to re-fetch.
+     *
+     * The three steps are one call because the middle one has to happen between
+     * the other two: measure where the reader is BEFORE the reflow (afterwards
+     * the old coordinates mean nothing), restyle, then recompute the chapter
+     * tops the reflow just invalidated and put the same chapter fraction back
+     * under the reading line. The scroll fires reportProgress, so it carries a
+     * restoreId and acks like any other restore — the write gate is what stops
+     * the transient from being saved, and it already exists.
+     */
+    window.__textstackApplyTypography = function(css, restoreId) {
+      try {
+        var before = currentChapterBounds();
+        var idx = 0, fraction = 0;
+        if (before) {
+          for (var i = 0; i < chapterSlugs.length; i++) {
+            if (chapterSlugs[i].slug === before.slug) { idx = i; break; }
+          }
+          var span = (before.bottom - before.top) - window.innerHeight;
+          fraction = span > 0 ? Math.min(1, Math.max(0, (window.scrollY - before.top) / span)) : 0;
+        }
+        var style = document.getElementById('ts-typography');
+        if (!style) {
+          style = document.createElement('style');
+          style.id = 'ts-typography';
+          document.head.appendChild(style);
+        }
+        style.textContent = css;
+        requestAnimationFrame(function() {
+          scrollToInstant(chapterScrollTarget(idx, fraction));
+          // Highlights and vocab underlines are drawn from Range rects, and a
+          // style change fires no resize event — the overlayer's own listeners
+          // never hear about this one.
+          try { if (typeof _hlOverlayer !== 'undefined' && _hlOverlayer) _hlOverlayer.redraw(); } catch (e) {}
+          try { if (typeof vhlScheduleReposition === 'function') vhlScheduleReposition(); } catch (e) {}
           ackRestore(restoreId);
         });
       } catch (e) {}
@@ -395,6 +503,8 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
           }));
         }
       }
+      installTopsObserver();
+      recomputeChapterTops();
       setTimeout(checkInfiniteScroll, 100);
     });
 
@@ -424,19 +534,62 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
       sep.innerHTML = '<hr><span>' + title + '</span>';
       document.body.appendChild(sep);
       var div = document.createElement('div');
+      // The chapter gets an element of its own, named. It is the scope a
+      // reading position is measured in — web has had the same thing since
+      // ReaderSection stamped data-chapter-id on its <article>.
+      if (slug) div.setAttribute('data-chapter-slug', slug);
       div.innerHTML = html;
       document.body.appendChild(div);
-      if (slug) registerChapter(slug);
+      if (slug) registerChapter(slug, div);
       loadingNext = false;
       setTimeout(checkInfiniteScroll, 100);
     }
     function enableInfiniteScroll() { infiniteScrollEnabled = true; }
     function disableInfiniteScroll() { infiniteScrollEnabled = false; loadingNext = false; }
 
-    // Chapter tracking for progress
+    // Chapter tracking for progress.
+    //
+    // Each entry keeps the ELEMENT, not just the number it happened to be at
+    // when the chapter was appended. The old version sampled offsetTop once and
+    // never looked again, which was invisible only because nothing reflowed a
+    // live document: images and webfonts land before the first append, and
+    // typography used to rebuild the whole document rather than restyle it.
+    // The moment a font size is injected into a live document, every stored
+    // top is a lie, currentChapterBounds() names the wrong chapter, and
+    // reportProgress posts that wrong slug — the same corruption the rebuild
+    // caused, by a different route. So tops are recomputed, never remembered.
     var chapterSlugs = [];
-    function registerChapter(slug) {
-      chapterSlugs.push({ slug: slug, top: document.body.lastElementChild ? document.body.lastElementChild.offsetTop : 0 });
+    function registerChapter(slug, el) {
+      var node = el || document.body.lastElementChild;
+      chapterSlugs.push({ slug: slug, el: node, top: chapterTop(node) });
+    }
+    // Document-absolute top of a chapter element. getBoundingClientRect rather
+    // than offsetTop: offsetTop is measured from the offsetParent's padding
+    // edge, and body carries the reader's own padding, so the two disagree by
+    // exactly the top inset — which is the reading line's own margin of error.
+    function chapterTop(el) {
+      if (!el || !el.getBoundingClientRect) return 0;
+      return Math.round(el.getBoundingClientRect().top + window.scrollY);
+    }
+    function recomputeChapterTops() {
+      for (var i = 0; i < chapterSlugs.length; i++) {
+        if (chapterSlugs[i].el) chapterSlugs[i].top = chapterTop(chapterSlugs[i].el);
+      }
+    }
+    // Everything that can move a chapter's top: an image finishing, a webfont
+    // swapping, typography being injected, a rotation. One observer covers all
+    // of them, and rAF-coalesced so a burst costs one layout read.
+    var _topsScheduled = false;
+    function scheduleRecomputeTops() {
+      if (_topsScheduled) return;
+      _topsScheduled = true;
+      requestAnimationFrame(function() { _topsScheduled = false; recomputeChapterTops(); });
+    }
+    // Installed from the load handler: this script runs in <head>, where
+    // document.body is still null.
+    function installTopsObserver() {
+      if (typeof ResizeObserver === 'undefined' || !document.body) return;
+      try { new ResizeObserver(scheduleRecomputeTops).observe(document.body); } catch (e) {}
     }
     function getCurrentChapterSlug() {
       if (chapterSlugs.length === 0) return null;
@@ -1202,8 +1355,8 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
   </script>
 </head>
 <body>
-  ${chapterHtml}
-  ${initialChapterSlug ? `<script>registerChapter(${JSON.stringify(initialChapterSlug)});</script>` : ''}
+  <div${initialChapterSlug ? ` data-chapter-slug="${escapeAttr(initialChapterSlug)}"` : ''}>${chapterHtml}</div>
+  ${initialChapterSlug ? `<script>registerChapter(${JSON.stringify(initialChapterSlug)}, document.querySelector('[data-chapter-slug]'));</script>` : ''}
 </body>
 </html>`
 }

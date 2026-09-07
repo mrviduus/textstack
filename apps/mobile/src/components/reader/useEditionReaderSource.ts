@@ -163,13 +163,19 @@ export function useEditionReaderSource({
     return { offset, percent }
   }, [isAuthenticated])
 
-  const { saveProgress, bumpProgress, onWebViewLoaded, onRestoreLanded } = useReaderPersistence({
+  // Stable: the persistence hook keys effects on the identity of what it is given,
+  // and a rebuilt callback here would re-arm a restore.
+  const navigateToChapter = useCallback((slug: string) => {
+    router.replace(`/reader/${bookSlug}/${slug}`)
+  }, [router, bookSlug])
+
+  const { saveProgress, bumpProgress, onWebViewLoaded, onRestoreLanded, onDocumentRebuild, beginReflow } = useReaderPersistence({
     bookKey: editionId,
     chapterSlug,
     chapterId: chapter?.id ?? null,
     injectJs,
     progressRef, scrollOffsetRef, currentChapterSlugRef, bookProgressRef,
-    persist, loadPosition,
+    persist, loadPosition, navigateToChapter,
   })
 
   // The chapter list arriving is the second chance for a server write that had to be held back.
@@ -200,10 +206,10 @@ export function useEditionReaderSource({
     chaptersLoading,
     wordCount: wordCountRef.current,
     progressRef, scrollOffsetRef, currentChapterSlugRef, bookProgressRef, totalWordCountRef,
-    saveProgress, bumpProgress, onWebViewLoaded, onRestoreLanded,
+    saveProgress, bumpProgress, onWebViewLoaded, onRestoreLanded, onDocumentRebuild, beginReflow,
     onChapterLoaded: () => { if (chapter) enableForChapter(chapter) },
     onRequestNextChapter: loadNext,
-    onNavigateChapter: (slug) => router.replace(`/reader/${bookSlug}/${slug}`),
+    onNavigateChapter: navigateToChapter,
     bookmarks,
     onToggleCurrentBookmark: (slug) => { if (chapter) toggle({ chapter, slug }) },
     onDeleteBookmark: remove,
