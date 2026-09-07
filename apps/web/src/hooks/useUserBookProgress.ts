@@ -8,6 +8,8 @@ const DEBOUNCE_MS = 2000
 interface SavedProgress {
   chapterSlug: string
   locator?: string
+  /** Serialised TextPosition (ADR-015). Beside the locator, never instead of it. */
+  positionJson?: string
   percent: number
   updatedAt: number
 }
@@ -62,6 +64,7 @@ export function useUserBookProgress(bookId: string) {
       const serverData: SavedProgress = {
         chapterSlug: serverProgress.chapterSlug,
         locator: serverProgress.locator ?? undefined,
+        positionJson: serverProgress.positionJson ?? undefined,
         percent: serverProgress.percent ?? 0,
         updatedAt: serverProgress.updatedAt ? new Date(serverProgress.updatedAt).getTime() : 0,
       }
@@ -108,6 +111,7 @@ export function useUserBookProgress(bookId: string) {
       saveUserBookProgress(bookId, {
         chapterSlug: toSync.chapterSlug,
         locator: toSync.locator,
+        positionJson: toSync.positionJson,
         percent: toSync.percent,
         // Both declarations are required or the server ignores what they
         // describe: without percentUnit the number is dropped (which is what
@@ -143,6 +147,7 @@ export function useUserBookProgress(bookId: string) {
     const payload = JSON.stringify({
       chapterSlug: toSync.chapterSlug,
       locator: toSync.locator,
+      positionJson: toSync.positionJson,
       percent: toSync.percent,
       // Same two declarations as the debounced path above. This body is built
       // by hand rather than by a shared builder, which is exactly how it came to
@@ -195,12 +200,20 @@ export function useUserBookProgress(bookId: string) {
   }, [flushSave])
 
   // Save progress - uses slug + locator
-  const saveProgress = useCallback((chapterSlug: string, _page: number, percent: number, locator?: string) => {
+  const saveProgress = useCallback((
+    chapterSlug: string,
+    _page: number,
+    percent: number,
+    locator?: string,
+    /** Serialised TextPosition (ADR-015) — beside the locator, never instead. */
+    positionJson?: string,
+  ) => {
     if (!bookId) return
 
     const data: SavedProgress = {
       chapterSlug,
       locator,
+      positionJson,
       percent,
       updatedAt: Date.now(),
     }

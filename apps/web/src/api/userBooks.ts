@@ -360,6 +360,9 @@ export interface UserBookProgress {
   locator: string | null
   percent: number | null
   updatedAt: string | null
+  /** Where the reader is IN THE TEXT, serialised (ADR-015). Prefer it over
+   *  `locator`: a pixel offset stops being true the moment the text reflows. */
+  positionJson?: string | null
 }
 
 export async function getUserBookProgress(bookId: string): Promise<UserBookProgress | null> {
@@ -385,6 +388,8 @@ export async function saveUserBookProgress(
     percentUnit?: string
     locatorKind?: string
     updatedAt?: string
+    /** Serialised TextPosition (ADR-015). Beside the locator, never instead. */
+    positionJson?: string
   }
 ): Promise<void> {
   await authFetch<void>(`/me/books/${bookId}/progress`, {

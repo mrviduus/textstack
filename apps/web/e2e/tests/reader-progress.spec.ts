@@ -138,4 +138,50 @@ test.describe('QA-001: Reading Progress', () => {
     const libraryItems = page.locator('.library-list-item, .library-card')
     await expect(libraryItems.first()).toBeVisible({ timeout: 10_000 })
   })
+
+  test('a font size change keeps the reader on the same paragraph', async ({ authedPage: page }) => {
+    // ADR-007 made this an acceptance criterion in January 2026 — "Font changes
+    // do not break progress" — and nothing has ever tested it. Web applies
+    // typography as inline styles on the article, so the text re-wraps under a
+    // fixed scrollTop and the debounced save then writes the drifted position.
+    const { enBook } = getTestData()
+    await page.goto(`/en/books/${enBook.slug}/${enBook.firstChapterSlug}`)
+    await waitForReaderLoad(page)
+
+    // Read a little way in, somewhere with text on both sides of the reading line.
+    await page.evaluate(() => window.scrollTo({ top: 1200, behavior: 'instant' }))
+    await page.waitForTimeout(300)
+
+    // The paragraph under the reading line — a quarter down, where the reader is
+    // looking and where the position is measured from.
+    const paragraphAt = () => page.evaluate(() => {
+      const el = document.elementFromPoint(window.innerWidth / 2, window.innerHeight * 0.25)
+      const p = el?.closest('p')
+      return (p?.textContent ?? '').slice(0, 60)
+    })
+
+    const before = await paragraphAt()
+    expect(before.length).toBeGreaterThan(10)
+
+    // Change the font size twice through the real control, so the text genuinely
+    // re-wraps rather than merely repainting.
+    await clickTopBarBtn(page, 2)
+    const drawer = page.getByRole('dialog', { name: 'Reading Settings' })
+    await expect(drawer).toBeVisible()
+    await drawer.getByRole('button', { name: 'A+' }).click()
+    await drawer.getByRole('button', { name: 'A+' }).click()
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(500)
+
+    expect(await paragraphAt()).toBe(before)
+
+    // And what gets SAVED is that place, not the drifted one. Past the debounce.
+    await page.waitForTimeout(1500)
+    await expect(async () => {
+      const saved = await getProgressFromLocalStorage(page, enBook.editionId)
+      expect(saved?.positionJson).toBeTruthy()
+      const position = JSON.parse(saved.positionJson as string)
+      expect(before).toContain(position.anchor.exact.slice(0, 20))
+    }).toPass({ timeout: 20_000, intervals: [1000] })
+  })
 })

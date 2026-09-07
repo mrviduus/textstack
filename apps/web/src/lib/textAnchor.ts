@@ -210,3 +210,83 @@ export function getHighlightRects(
 
   return Array.from(range.getClientRects())
 }
+
+// --- The reading position (ADR-015) ------------------------------------------
+//
+// Not a highlight: nothing is selected, and the passage is whatever happens to
+// sit under the reading line. But it is anchored the same way, with the same
+// resolver and the same exclusions, because an anchor built here has to resolve
+// on the phone and vice versa.
+
+/** (node, offset) at a viewport point, across the two spellings of the API. */
+function caretAt(x: number, y: number): { node: Node; offset: number } | null {
+  try {
+    const doc = document as Document & {
+      caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null
+    }
+    if (doc.caretPositionFromPoint) {
+      const pos = doc.caretPositionFromPoint(x, y)
+      if (pos?.offsetNode) return { node: pos.offsetNode, offset: pos.offset }
+    }
+    if (document.caretRangeFromPoint) {
+      const r = document.caretRangeFromPoint(x, y)
+      if (r) return { node: r.startContainer, offset: r.startOffset }
+    }
+  } catch { /* a detached or cross-origin node — treat as no caret */ }
+  return null
+}
+
+/**
+ * What the reader is looking at, as text.
+ *
+ * `readingLineY` is a viewport coordinate — a quarter down, matching the probe
+ * the mobile reader measures against, so a position captured on one client
+ * describes the same place on the other.
+ *
+ * Returns the raw material; `buildTextPosition` in `@textstack/shared` turns it
+ * into the stored shape, so both clients quote the same number of characters.
+ */
+export function readReadingLine(
+  article: HTMLElement,
+  readingLineY: number,
+): { chapterText: string; charOffset: number } | null {
+  const rect = article.getBoundingClientRect()
+  // A few x positions: the reading line can land in a margin, between
+  // paragraphs, or on an image, and a caret there resolves to nothing.
+  const xs = [rect.left + 24, rect.left + rect.width / 2, rect.right - 24]
+  for (const x of xs) {
+    const caret = caretAt(x, readingLineY)
+    if (!caret || !article.contains(caret.node)) continue
+    const before = extractText(article, article, 0, caret.node, caret.offset)
+    const after = extractText(article, caret.node, caret.offset, null, null)
+    if (before.length + after.length === 0) continue
+    return { chapterText: before + after, charOffset: before.length }
+  }
+  return null
+}
+
+/** The article's text, as the anchor offsets measure it — same exclusions. */
+export function articleText(article: HTMLElement): string {
+  return extractText(article, article, 0, null, null)
+}
+
+/** A Range at a character offset within the article, for scrolling to. */
+export function rangeAtCharOffset(article: HTMLElement, target: number): Range | null {
+  const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT)
+  let consumed = 0
+  let node: Node | null
+  while ((node = walker.nextNode())) {
+    const tn = node as Text
+    if (isExcluded(tn)) continue
+    if (consumed + tn.length > target) {
+      const range = document.createRange()
+      const offset = target - consumed
+      range.setStart(tn, offset)
+      range.setEnd(tn, Math.min(tn.length, offset + 1))
+      return range
+    }
+    consumed += tn.length
+  }
+  return null
+}
+
