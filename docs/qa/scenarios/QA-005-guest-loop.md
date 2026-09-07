@@ -187,11 +187,23 @@ It only appears when the access token has expired, which takes an hour.
 
 ## 6. Things that are meant to be closed
 
+> **Changed 2026-09-06 — upload is no longer one of them.** ADR-014 §3a reversed it: a guest may
+> upload one book on the `Guest` tier (50 MB). The two upload checks below are inverted from the
+> version this scenario was first run against, and the run table further down still records the old
+> expectation as a pass. That row is history, not a target.
+
 **Verify**:
-- [ ] The **upload tab is not visible** to a guest.
-- [ ] Library with zero books shows one primary CTA, and for a guest it is **Browse free books**,
-      with upload demoted to a link that leads to sign-in. It must not offer a primary "Upload a
-      book" that lands on a wall.
+- [ ] The **upload tab IS visible** to a guest (the `+`), and tapping it opens the add sheet rather
+      than the sign-in screen. It is still hidden with **no session at all** — a fresh install that
+      has not yet opened a book — which is now the only case that gets the wall.
+- [ ] Library with zero books shows one primary CTA, and for a guest it is now **Upload a book**,
+      with the catalog as the text link underneath. **Browse free books** as the primary is correct
+      only for a device with no session.
+- [ ] A guest's Profile shows the **Upload space** row (`0 B / 50.0 MB`) — this was filed as a defect
+      when the allowance was unspendable, and is deliberate now that it is not.
+- [ ] A guest upload actually completes: pick an EPUB, it parses, and it opens in the reader. The
+      **second** one must be refused by the server (`MaxBooks: 1`), not by the client — check the
+      refusal is legible and not a silent failure.
 - [ ] **Librarian** and **Tutor** show a sign-in invitation, not an error — and opening them does
       **not** fire a model call. Watch the network: a paid request before the wall renders is a
       defect that existed until recently.
@@ -243,7 +255,7 @@ It only appears when the access token has expired, which takes an hour.
 | Register → word survives | yes | **Pass** — 3/3 words, progress, language; account `createdAt` = guest mint time |
 | **Register after >1h idle → word survives** | **yes** | **Pass on the retry.** Via Profile the token is refreshed before the form is reachable (D2), so that run proved nothing. Re-run via Discover → Ask the librarian → Register, token 21 min expired: app fired `refresh-mobile` proactively, then `register` 200, word survived, `createdAt` = guest mint |
 | Login into existing account | both sets present, no 500 | **Pass** — 200; 5 words; account's `fr` not overwritten by guest's `ru` |
-| Upload tab for a guest | hidden | **Pass** |
+| Upload tab for a guest | hidden | **Pass** — *expectation reversed 2026-09-06, ADR-014 §3a; do not re-assert* |
 | Librarian/Tutor | wall, and no model call | **Pass** — zero requests of any kind |
 | Translate / dictionary / TTS | still work | Translate + TTS **pass**. Dictionary returns 503 in ~3.0 s — **upstream outage**, not ours |
 | Airplane mode, cached book | opens ~1s | **Pass, ~0.5 s** — but only for an explicitly *downloaded* book; reading online does not cache |

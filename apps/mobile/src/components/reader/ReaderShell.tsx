@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import type { MutableRefObject, RefObject } from 'react'
-import { View, Text, StyleSheet, TouchableOpacity, Animated, Linking } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, Animated, Linking, BackHandler } from 'react-native'
 import { WebView } from 'react-native-webview'
 import { useRouter, Stack } from 'expo-router'
 import { t, computeBookProgress, estimateTimeLeft, formatMinutesLeft, citationChapterSlug, makeSnippet, plural, resolvePdfResumePage, chapterEndPage } from '@textstack/shared'
@@ -52,6 +52,7 @@ import { fonts } from '../../theme/typography'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { StatusBar } from 'expo-status-bar'
 import { capabilitiesFor } from '../../lib/capabilities'
+import { latchChapterEnd, shouldInterceptReaderBack } from '../../lib/firstRun'
 
 /** Lightweight {key} interpolation — shared `t()` returns raw keys, we fill them in here. */
 function interpolate(template: string, vars: Record<string, string | number>): string {
@@ -217,6 +218,10 @@ export function ReaderShell(props: ReaderShellProps) {
   const [visibleChapterSlug, setVisibleChapterSlug] = useState<string | null>(null)
 
   const sessionWordCountRef = useRef(0)
+  // "this session got to the end of a chapter", latched from the WebView's
+  // progress messages. A condition of the one-shot "bring your own book" ask —
+  // see latchChapterEnd for why it is latched rather than sampled on exit.
+  const finishedChapterRef = useRef(false)
 
   // --- ADR-012 S4b: Original-layout PDF viewer state ------------------------
   // The Bearer token is fetched once and injected into pdf.js httpHeaders via
@@ -291,11 +296,18 @@ export function ReaderShell(props: ReaderShellProps) {
   const {
     sessionWordCount,
     setSessionWordCount,
-    exitSummary,
+    prompt: exitPrompt,
+    pendingPrompt,
     exit: handleExit,
     exitToReview: handleExitReview,
+    exitToUpload: handleExitUpload,
     exitLater: handleExitLater,
-  } = useReaderExitSummary({ router, saveProgress })
+  } = useReaderExitSummary({
+    router,
+    saveProgress,
+    sourceKind: source.kind,
+    finishedChapterRef,
+  })
 
   const { vocabMapRef, flushToCache: flushVocabMap, bumpVocab } = useReaderVocabMap({
     user,
@@ -442,6 +454,32 @@ export function ReaderShell(props: ReaderShellProps) {
   // after the viewer was already ready.
   useEffect(() => { maybeInitialPdfJump() }, [maybeInitialPdfJump])
 
+  // Android's hardware back pops this screen without ever calling `exit()` —
+  // the chevron in the top bar is the only thing wired to it. That is why the
+  // one-shot "bring your own book" ask claims the press: on the primary
+  // platform it would otherwise almost never be seen. Nothing else is
+  // intercepted, and `shouldInterceptReaderBack` refuses whenever a sheet is
+  // open or a card is already up, so a second press always leaves.
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      const intercept = shouldInterceptReaderBack({
+        promptVisible: exitPrompt !== null,
+        otherOverlayOpen:
+          settingsOpen || bookmarksOpen || highlightsOpen || translateOpen
+          || explainOpen || askOpen || tocOpen || pdfError
+          || !!selection || !!editingHighlight,
+        prompt: pendingPrompt(),
+      })
+      if (!intercept) return false
+      handleExit()
+      return true
+    })
+    return () => sub.remove()
+  }, [
+    exitPrompt, pendingPrompt, handleExit, settingsOpen, bookmarksOpen, highlightsOpen,
+    translateOpen, explainOpen, askOpen, tocOpen, pdfError, selection, editingHighlight,
+  ])
+
   const handleMessage = useCallback((event: any) => {
     try {
       const data = JSON.parse(event.nativeEvent.data)
@@ -468,6 +506,11 @@ export function ReaderShell(props: ReaderShellProps) {
           currentChapterSlugRef.current = data.chapterSlug
           setVisibleChapterSlug(data.chapterSlug)
         }
+        finishedChapterRef.current = latchChapterEnd(finishedChapterRef.current, {
+          chapterProgress: data.progress,
+          visibleChapterSlug: data.chapterSlug ?? currentChapterSlugRef.current,
+          openedChapterSlug: chapterSlug,
+        })
         const activeSlugForCalc = data.chapterSlug || currentChapterSlugRef.current || chapterSlug || null
         const bp = computeBookProgress(chapters, activeSlugForCalc, data.progress, totalWordCountRef.current)
         bookProgressRef.current = bp
@@ -1193,7 +1236,7 @@ export function ReaderShell(props: ReaderShellProps) {
           </View>
         )}
 
-        {exitSummary && (
+        {exitPrompt === 'review-words' && (
           <View style={styles.exitSummaryOverlay}>
             {/* Follows the READER theme (barBg/barText), not the app theme — this
                 card sits over the page the user was just reading, and a white card
@@ -1216,6 +1259,51 @@ export function ReaderShell(props: ReaderShellProps) {
                   onPress={handleExitLater}
                 >
                   <Text style={[styles.exitSummaryBtnText, { color: barText }]}>Later</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* The ask, once per install: they have just finished a chapter and saved
+            words in it, so the mechanic has proved itself and the product's real
+            proposition — read the books you already care about — is finally
+            something they can judge. Not gated on `canUpload` here on purpose:
+            the upload screen owns that policy and states it in its own words. */}
+        {exitPrompt === 'own-book' && (
+          <View style={styles.exitSummaryOverlay}>
+            <View style={[styles.exitSummaryCard, styles.askCard, { backgroundColor: barBg }]}>
+              <Ionicons name="checkmark-circle" size={40} color={colors.success} />
+              <Text style={[styles.exitSummaryText, { color: barText }]}>
+                {plural(sessionWordCount, 'word', 'words', '{n} {noun} saved')}
+              </Text>
+              <Text style={[styles.askTitle, { color: barText }]}>
+                {t(language, 'reader.ownBookAsk.title')}
+              </Text>
+              <Text style={[styles.askBody, { color: barText + 'B3' }]}>
+                {t(language, 'reader.ownBookAsk.body')}
+              </Text>
+              {/* Stacked, not side by side: these two labels are sentences, and
+                  the row layout the summary uses squeezes them onto a narrow
+                  phone. */}
+              <View style={styles.askButtons}>
+                <TouchableOpacity
+                  style={[styles.exitSummaryBtn, styles.askBtn, { backgroundColor: colors.primary }]}
+                  onPress={handleExitUpload}
+                  accessibilityRole="button"
+                >
+                  <Text style={[styles.exitSummaryBtnText, styles.askBtnText, { color: '#fff' }]}>
+                    {t(language, 'reader.ownBookAsk.cta')}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.exitSummaryBtn, styles.askBtn, { backgroundColor: barText + '15' }]}
+                  onPress={handleExitLater}
+                  accessibilityRole="button"
+                >
+                  <Text style={[styles.exitSummaryBtnText, styles.askBtnText, { color: barText }]}>
+                    {t(language, 'reader.ownBookAsk.dismiss')}
+                  </Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -1293,6 +1381,14 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 20,
   },
+  // The summary card sizes to its content; the ask has two sentences in it and
+  // would otherwise run edge to edge.
+  askCard: { maxWidth: 340, marginHorizontal: 24 },
+  askTitle: { fontFamily: fonts.sansMedium, fontSize: 17, textAlign: 'center', marginTop: 4 },
+  askBody: { fontFamily: fonts.sans, fontSize: 14, lineHeight: 20, textAlign: 'center', marginTop: 8 },
+  askButtons: { alignSelf: 'stretch', gap: 8, marginTop: 12 },
+  askBtn: { alignItems: 'center' },
+  askBtnText: { fontSize: 15 },
   exitSummaryBtnText: {
     fontFamily: fonts.sansMedium,
     fontSize: 14,

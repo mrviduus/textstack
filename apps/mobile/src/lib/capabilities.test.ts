@@ -52,7 +52,9 @@ describe('capabilitiesFor — the whole table', () => {
       hasSession: true,
       isGuest: true,
       isAccount: false,
-      canUpload: false,
+      // The one `true` on this row that is not a fact about the session: a
+      // policy a guest is allowed. See the reason below.
+      canUpload: true,
       canUseAi: false,
       canEditIdentity: false,
       canDeleteAccount: false,
@@ -87,11 +89,30 @@ describe('hasSession', () => {
 })
 
 describe('policy flags, one reason each', () => {
-  it('canUpload is false for a guest to keep it off the 50 MB / 1-book Guest allowance', () => {
-    // Product choice, not a server constraint: the Guest entitlement tier in
-    // backend/src/Api/appsettings.json would accept the upload.
-    expect(capabilitiesFor(guest).canUpload).toBe(false)
+  it('canUpload is TRUE for a guest — the Guest tier already grants one book at 50 MB', () => {
+    // Reversed 2026-09-06 (ADR-014 §3). It was false on the argument that a
+    // guest who loses the device loses their only book; the thesis is user
+    // books first, and answering "bring the book you want to finish" with a
+    // sign-in wall contradicts it. The server never refused this upload —
+    // Entitlements:Tiers:Guest meters it exactly like anyone else's.
+    expect(capabilitiesFor(guest).canUpload).toBe(true)
     expect(capabilitiesFor(account).canUpload).toBe(true)
+  })
+
+  it('canUpload is false with no session at all, because the upload needs a bearer token', () => {
+    // Not `true` unconditionally: mobile mints a guest from one trigger only
+    // (opening a book, via ReaderSessionGate), so an install that has only
+    // browsed the catalog has no row to hang a file on. This is the line that
+    // keeps `/my-books/upload` and the "+" tab asking for an account there.
+    expect(capabilitiesFor(null).canUpload).toBe(false)
+  })
+
+  it('canUseAi stays account-only, and is deliberately NOT moved by the upload reversal', () => {
+    // Different kind of decision: cost, on paid inference, enforced server-side
+    // by RequireAiAccount() with a 403. Upload spends a tier allowance the tier
+    // already has; AI spends money the tier does not.
+    expect(capabilitiesFor(guest).canUpload).toBe(true)
+    expect(capabilitiesFor(guest).canUseAi).toBe(false)
   })
 
   it('canUseAi is false for a guest because librarian and tutor call paid inference', () => {

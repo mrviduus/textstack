@@ -186,6 +186,17 @@ someone's memory.
   `LastActiveAt` is written only at guest creation and a guest who reads daily but saves nothing is
   still reaped at 30 days. Recorded under Open in ADR-014.
 
+  **Reversed 2026-09-06: a guest may upload.** `canUpload` was account-only by product choice; the
+  product's thesis is user books first, and the two contradicted. It is now a session predicate
+  (`hasSession`) and the server was already permitting it — `Entitlements:Tiers:Guest` grants one
+  book at 50 MB. ADR-014 §3a. Two things this leaves open, neither built: an install that has never
+  opened a book still has no session and so still meets the sign-in wall on upload (mobile mints a
+  guest from one trigger, web from three including upload); and **an abandoned guest upload is
+  permanent disk** — `GuestCleanupWorker` preserves any guest holding an upload, so a guest who
+  uploads 50 MB and then reinstalls leaves a file nothing can reach and nothing will collect.
+  Bounded per row, unbounded in rows. Deliberately not solved: picking a guest-retention number
+  needs the real occupancy figure first.
+
 - ~~**The selection fix passes on a phone, but not yet on the phone that reported it.**~~ Closed
   2026-09-03: the reporter ran all six steps of
   [`2026-09-01-android-tts-selection.md`](qa/reports/2026-09-01-android-tts-selection.md) on the

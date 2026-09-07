@@ -92,6 +92,15 @@
       "content": "TextStack is a language learning platform built around reading. The catalog features thousands of classic and public-domain books. As you read, you can look up words, save them to your vocabulary, and review with spaced repetition. Track reading stats, set goals, and grow your fluency — all in a calm, distraction-free environment."
     }
   },
+  "firstRun": {
+    "startReading": {
+      "title": "Learn a language by reading real books",
+      "body": "Long-press any word while you read and it's translated where it stands. Save it, and it comes back for review later.",
+      "cta": "Start reading",
+      "meta": "“Down the Rabbit-Hole” · about 10 minutes",
+      "a11y": "Start reading Down the Rabbit-Hole, the first chapter of Alice's Adventures in Wonderland"
+    }
+  },
   "common": {
     "loading": "Loading...",
     "noBooksYet": "No books available yet.",
@@ -674,6 +683,12 @@
     "coachmarkTitle": "Press and hold a word",
     "coachmarkSubtitle": "Press and hold a word to see its translation, then tap Save to add it to your vocabulary. Tap the page to show or hide the toolbars.",
     "coachmarkDismiss": "Got it",
+    "ownBookAsk": {
+      "title": "Now do that with your own book",
+      "body": "Long-press, translate, save, review — it all works the same on an EPUB or PDF of your own. Those are the books you'll actually finish.",
+      "cta": "Add my own book",
+      "dismiss": "Not now"
+    },
     "vocab": {
       "queuedForTomorrow": "Daily cap reached — queued for tomorrow",
       "savedToReference": "Saved to reference (rare word)",

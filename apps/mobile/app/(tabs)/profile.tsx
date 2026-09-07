@@ -342,11 +342,16 @@ export default function ProfileScreen() {
         {/* Upload space lives here rather than mid-list on Library, where it
             was an unlabelled bar between the upload button and the search box.
 
-            Behind `canUpload` because upload is account-only by product choice
-            (`src/lib/capabilities.ts`). Unconditional, this screen offered a
-            guest "0 B of 50 MB used" — an allowance they are not permitted to
-            spend, on the same screen that asks them to create an account. The
-            capability was already computed one line up and simply never read. */}
+            Still behind `canUpload`, but the reason has inverted. It used to be
+            "don't show a guest 0 B of 50 MB used, it is an allowance they are not
+            permitted to spend". Since 2026-09-06 they are (ADR-014 §3), so the row
+            is now shown to them on purpose: it is their real figure, on the tier
+            that meters their real upload, and hiding it would understate what the
+            app already lets them do.
+
+            The gate is not redundant. `canUpload` is false with no session, and
+            `StorageQuotaRow` fetches `/me/books/quota` on mount — unconditional,
+            this fires a token-less request that can only 401. */}
         {canUpload && <StorageQuotaRow />}
 
         {MENU_ITEMS.map(item => (

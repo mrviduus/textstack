@@ -21,6 +21,11 @@ import type { UserDto } from '@textstack/shared'
  * - **Account predicates (~8 sites).** "Is there a durable, recoverable account
  *   behind this session?" Only these get capabilities.
  *
+ * A capability is therefore "may this session do X", and for most of them the
+ * answer happens to be `isAccount`. Not all: `canUpload` is a session predicate
+ * (below), which is why the flags are named after the *action* and not after the
+ * kind of viewer — the day one moves across the line, only its own line changes.
+ *
  * **Why named capabilities and not a bare `isGuest` flag.** A flag forces every
  * screen to re-derive `isAuthenticated && !user?.isGuest` inline, and the
  * re-derivation is where it goes wrong. Live example: on `app/(tabs)/profile.tsx`
@@ -54,11 +59,29 @@ export interface Capabilities {
   /**
    * Upload a book of one's own.
    *
-   * The server would allow it — a guest resolves to the `Guest` entitlement tier
-   * (50 MB, `MaxBooks: 1`, `backend/src/Api/appsettings.json`). This is a
-   * product choice not to spend that allowance: a guest that uploads its only
-   * book and then loses the device loses the book. Upload is the moment to ask
-   * for an account, not the moment to work around not having one.
+   * **A session predicate, not an account predicate** — and the only capability
+   * on this side of the line. It was `isAccount` until 2026-09-06, on the
+   * argument that a guest who uploads their only book and then loses the device
+   * has lost the book. True, and beside the point: the product's thesis is
+   * *user books first, catalogue second*, and a policy that answers "bring the
+   * book you actually want to finish" with a sign-in wall contradicts it. The
+   * thesis wins. Recorded as a reversal in
+   * `docs/01-architecture/adr/ADR-014-guest-sessions.md` §3.
+   *
+   * Nothing on the server changed, because nothing had to. A guest resolves to
+   * the `Guest` entitlement tier — one book, 50 MB (`Entitlements:Tiers:Guest`,
+   * `backend/src/Api/appsettings.json`) — so the allowance being spent here is
+   * one the tier already grants, metered by the same code that meters everyone
+   * else's. The upload was never refused; it was hidden.
+   *
+   * `hasSession`, not `true`, because `POST /me/books/upload` needs a bearer
+   * token and mobile mints a guest from exactly one trigger — opening a book
+   * (`ReaderSessionGate`). An install that has only ever browsed the catalog has
+   * no session and no row to hang a file on, so for it this is still false and
+   * the affordance still asks for an account. See "Open" in the ADR.
+   *
+   * Contrast `canUseAi`, which stays `isAccount` and is a cost decision the
+   * server enforces itself.
    */
   canUpload: boolean
   /**
@@ -127,7 +150,9 @@ export function capabilitiesFor(user: UserDto | null): Capabilities {
     hasSession,
     isGuest,
     isAccount,
-    canUpload: isAccount,
+    // The one capability a guest shares with an account. `hasSession` because
+    // the upload needs a token, not because it needs an identity.
+    canUpload: hasSession,
     canUseAi: isAccount,
     canEditIdentity: isAccount,
     canDeleteAccount: isAccount,
