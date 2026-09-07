@@ -2,8 +2,10 @@
 
 **Area**: Reader, Library, Progress Sync
 **Priority**: High
-**Last Tested**: 2026-01-20 (steps 1-4) · steps 5-8 added 2026-09-07, never run
-**Status**: Steps 5-8 UNTESTED — they are the scenarios the position defects actually lived in
+**Last Tested**: 2026-01-20 (steps 1-4) · steps 5-9 walked 2026-09-07 on Pixel_7_Pro (API 37)
+against a local stack with the ADR-015 migration
+**Status**: Steps 5, 6, 9 PASS. Steps 7-8 (offline, cross-device) still unrun. One unreproduced
+miss recorded below.
 
 ---
 
@@ -86,6 +88,18 @@
 - [ ] Scrolling down continues into chapter 3 (the appended chapters were not thrown away)
 - [ ] Highlights and saved-word underlines are still drawn, and in the right places
 
+> **Result 2026-09-07** — walked on Alice's Adventures in Wonderland, scrolled from chapter 1 into
+> chapter 7 by infinite scroll, then 18px→22px, 1.65→1.8, centre→justify. The same sentence stayed
+> under the reading line; the top bar still read "Pig and Pepper"; the footer still read 7/13, 51%;
+> the appended chapters were not lost. The server row afterwards was
+> `scroll:7-pig-and-pepper:16389`, percent 0.5068, `chapter_id` resolving to `7-pig-and-pepper` —
+> the row agreeing with itself — and `position_json` holding an anchor quoting the text at the
+> reading line.
+>
+> The first attempt of this step, before the fix was completed, drifted about two paragraphs: the
+> reflow was re-anchored by chapter FRACTION, and justify plus a line-height change re-wraps
+> unevenly. It re-anchors by text now.
+
 ### 6. …then kill the app and come back
 
 1. From the state above, force-stop the app (swipe away is not enough on Android)
@@ -93,6 +107,17 @@
 
 **Verify**:
 - [ ] Opens **chapter 2**, at the same sentence — not chapter 1, at any position
+
+> **Result 2026-09-07** — Continue Reading opened chapter 7 and restored to the anchored sentence
+> (`[diag] restoreAnchor: anchor 13455`), on a warm re-entry and on a cold start.
+>
+> **Open, unreproduced:** the FIRST cold entry after a fresh install landed at the top of chapter 7
+> instead of the saved position. Two later cold starts restored correctly and it has not recurred.
+> Crucially the saved position was **not overwritten** — the write gate held, and the row still read
+> 51% afterwards — so this is "did not restore", not the data loss this work is about. The
+> `[diag] restoreAnchor:` line added in that session distinguishes the three ways it can fail
+> (no chapter registered, no resolver, anchor unresolved); reproduce with `adb logcat`/Metro
+> attached and read it rather than guessing.
 
 ### 7. The same, offline
 

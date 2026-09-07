@@ -529,6 +529,31 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
      * passage at the reading line rather than centred, and the same ack the
      * other restores send -- the write gate does not care which kind it was.
      */
+    /**
+     * Put a resolved position under the reading line. Shared by the cold restore
+     * and by a typography reflow, which is the same problem with a shorter fuse.
+     * Returns false when the position could not be placed, so the caller can
+     * fall back to the chapter fraction.
+     */
+    function scrollToResolvedPosition(pos) {
+      try {
+        var api = window.__TSAnchor;
+        if (!pos || !api || !api.resolvePosition) return false;
+        var el = chapterElement(pos.chapterSlug);
+        if (!el) return false;
+        var resolved = api.resolvePosition(JSON.stringify(pos), pos.chapterSlug, chapterText(el));
+        if (!resolved || resolved.kind !== 'anchor') return false;
+        var loc = locateCharOffset(el, resolved.offset);
+        if (!loc) return false;
+        var range = document.createRange();
+        range.setStart(loc.node, loc.offset);
+        range.setEnd(loc.node, Math.min((loc.node.nodeValue || '').length, loc.offset + 1));
+        var rect = range.getBoundingClientRect();
+        scrollToInstant(Math.max(0, Math.round(window.scrollY + rect.top - window.innerHeight * 0.25)));
+        return true;
+      } catch (e) { return false; }
+    }
+
     window.__textstackRestoreAnchor = function(json, restoreId) {
       try {
         // The chapter the document was built from is the one a restore can land
@@ -538,9 +563,19 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
         var slug = chapterSlugs.length > 0 ? chapterSlugs[0].slug : null;
         var el = chapterElement(slug);
         var api = window.__TSAnchor;
-        if (!el || !api || !api.resolvePosition) { ackRestore(restoreId); return; }
+        if (!el || !api || !api.resolvePosition) {
+          // Diagnostics, not defensiveness: each of these is a different failure
+          // with a different fix, and from RN they look identical -- an ack with
+          // no movement. Cost one line to tell them apart on a device.
+          console.log('[diag] restoreAnchor: no target', 'slug=', slug, 'el=', !!el, 'api=', !!(api && api.resolvePosition));
+          ackRestore(restoreId); return;
+        }
         var resolved = api.resolvePosition(json, slug, chapterText(el));
-        if (!resolved) { ackRestore(restoreId); return; }
+        if (!resolved) {
+          console.log('[diag] restoreAnchor: unresolved in', slug);
+          ackRestore(restoreId); return;
+        }
+        console.log('[diag] restoreAnchor:', resolved.kind, resolved.offset != null ? resolved.offset : resolved.fraction);
         requestAnimationFrame(function() {
           try {
             if (resolved.kind === 'anchor') {
@@ -604,6 +639,13 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
      */
     window.__textstackApplyTypography = function(css, restoreId) {
       try {
+        // The TEXT the reader is looking at, captured before the reflow. A
+        // chapter fraction is not good enough here and the device pass proved
+        // it: justify plus a line-height change re-wraps paragraphs unevenly, so
+        // the same fraction of a taller chapter is a different sentence -- about
+        // two paragraphs out, measured on a real phone. The anchor is exact, and
+        // the fraction stays as the fallback for when it resolves to nothing.
+        var beforePos = window.__textstackCapturePosition ? window.__textstackCapturePosition() : null;
         var before = currentChapterBounds();
         var idx = 0, fraction = 0;
         if (before) {
@@ -621,7 +663,8 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
         }
         style.textContent = css;
         requestAnimationFrame(function() {
-          scrollToInstant(chapterScrollTarget(idx, fraction));
+          recomputeChapterTops();
+          if (!scrollToResolvedPosition(beforePos)) scrollToInstant(chapterScrollTarget(idx, fraction));
           // Highlights and vocab underlines are drawn from Range rects, and a
           // style change fires no resize event — the overlayer's own listeners
           // never hear about this one.

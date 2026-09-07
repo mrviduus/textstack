@@ -61,6 +61,13 @@ const SCRIPT = [
   extractFunction('recomputeChapterTops'),
   extractFunction('chapterScrollTarget'),
   extractFunction('scrollToInstant'),
+  // Reached by __textstackApplyTypography. Only *called* when a position was
+  // captured, which the fake DOM cannot do — but it has to exist, or the reflow
+  // path throws before it can fall back to the chapter ratio.
+  extractFunction('scrollToResolvedPosition'),
+  extractFunction('chapterElement'),
+  extractFunction('chapterText'),
+  extractFunction('locateCharOffset'),
   extractWindowFunction('__textstackApplyTypography'),
   extractWindowFunction('__textstackRestorePercent'),
   extractWindowFunction('__textstackRestoreScroll'),
