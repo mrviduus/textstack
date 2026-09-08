@@ -39,8 +39,8 @@
     <!-- Authentication -->
     <PackageVersion Include="BCrypt.Net-Next" Version="4.2.0" />
     <PackageVersion Include="Google.Apis.Auth" Version="1.76.0" />
-    <PackageVersion Include="Microsoft.IdentityModel.Tokens" Version="8.18.0" />
-    <PackageVersion Include="System.IdentityModel.Tokens.Jwt" Version="8.18.0" />
+    <PackageVersion Include="Microsoft.IdentityModel.Tokens" Version="8.22.0" />
+    <PackageVersion Include="System.IdentityModel.Tokens.Jwt" Version="8.22.0" />
     <!-- LLM -->
     <PackageVersion Include="OpenAI" Version="2.10.0" />
     <!-- MCP (Phase 8, AI-047). Official ModelContextProtocol C# SDK (MS/Anthropic).
