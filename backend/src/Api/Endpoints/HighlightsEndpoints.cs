@@ -269,14 +269,14 @@ public static class HighlightsEndpoints
         // string operator compiles to LIKE and Postgres rejects LIKE on jsonb at execution time.
         if (IsAssistantAnchor(request.AnchorJson))
         {
-            var bookColumn = request.UserBookId != null ? "user_book_id" : "edition_id";
-            var bookId = request.UserBookId ?? request.EditionId!.Value;
-
+            // Two fixed statements rather than one with the column name interpolated in. Nothing
+            // user-supplied could ever have reached that interpolation — it was one of two literals —
+            // but a raw-SQL string that is assembled at all is a thing a reader has to prove safe,
+            // and EF1002 is right to say so. Every value here is a parameter.
             var alreadyPlaced = await db.Database
                 .SqlQueryRaw<int>(
-                    $@"SELECT COUNT(*)::int AS ""Value"" FROM highlights
-                       WHERE user_id = {{0}} AND {bookColumn} = {{1}} AND anchor_json->>'source' = {{2}}",
-                    userId.Value, bookId, McpAnchorSource)
+                    request.UserBookId != null ? CountAssistantHighlightsInUserBookSql : CountAssistantHighlightsInEditionSql,
+                    userId.Value, request.UserBookId ?? request.EditionId!.Value, McpAnchorSource)
                 .FirstAsync(ct);
 
             if (alreadyPlaced >= MaxAssistantHighlightsPerBook)
@@ -338,6 +338,20 @@ public static class HighlightsEndpoints
     /// symptom, until a book comes back unreadable.</para>
     /// </summary>
     public const string McpAnchorSource = "mcp";
+
+    // The column differs between the two halves of the edition/user-book XOR and a column name
+    // cannot be a parameter, so it is the statement that varies, not a string that gets built.
+    private const string CountAssistantHighlightsInUserBookSql =
+        """
+        SELECT COUNT(*)::int AS "Value" FROM highlights
+        WHERE user_id = {0} AND user_book_id = {1} AND anchor_json->>'source' = {2}
+        """;
+
+    private const string CountAssistantHighlightsInEditionSql =
+        """
+        SELECT COUNT(*)::int AS "Value" FROM highlights
+        WHERE user_id = {0} AND edition_id = {1} AND anchor_json->>'source' = {2}
+        """;
 
     /// <summary>
     /// Whether this anchor was written by an assistant over MCP — its top-level <c>source</c> is
