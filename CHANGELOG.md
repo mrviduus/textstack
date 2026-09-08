@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **MCP** — TextStack.Mcp 1.1.0 on NuGet: the tool ships the uploaded-library and write-back tools — backend · [details](docs/changelog-archive/2026-H2.md#2026-09-08-mcp-the-book-opens-to-your-assistant-and-the-conclusions-come-back)
 - **Library** — searching your own library answered 500 on every call and always had, behind an empty-looking result — backend · [details](docs/changelog-archive/2026-H2.md#2026-09-08-mcp-the-book-opens-to-your-assistant-and-the-conclusions-come-back)
 - **MCP** — your uploaded books open to your assistant, and its conclusions come back into the book — backend, web · [details](docs/changelog-archive/2026-H2.md#2026-09-08-mcp-the-book-opens-to-your-assistant-and-the-conclusions-come-back)
 - **Docs** — ADR-015 records the position model, and QA-001 finally crosses a chapter boundary — docs · [details](docs/changelog-archive/2026-H2.md#2026-09-07-docs-adr-015-and-the-scenario-that-was-never-in-qa-001)
