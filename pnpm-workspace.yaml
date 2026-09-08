@@ -19,13 +19,15 @@
 # Confirmed by node_modules/.modules.yaml still reporting nodeLinker "isolated".
 nodeLinker: hoisted
 
-# No `overrides:` block, and the three findings that remain are why.
+# No `overrides:` block, and the two findings that remain are why.
 #
-# extract-zip <=2.0.1 (high, symlink path traversal) arrives inside puppeteer 24.
-# The advisory says "patched >=2.0.2" and **2.0.2 does not exist** — 2.0.1 is the
-# latest release. There is nothing to move to; an override was tried and pnpm
-# refused it. Puppeteer is build-time only here (the SSG prerender), so nothing
-# ships with it. Revisit when upstream publishes.
+# extract-zip <=2.0.1 (high, symlink path traversal) used to arrive inside
+# puppeteer 24, and could not be fixed: the advisory demanded >=2.0.2 and 2.0.2
+# was never published. It said "revisit when upstream publishes", and this is
+# that — puppeteer 25 drops the dependency outright, so the lockfile no longer
+# contains extract-zip at all and the allowlist entry is gone with it. The one
+# high-severity finding here was closed by a major nobody would have taken for
+# the version number.
 #
 # decode-uri-component and uuid (moderate) sit under
 # @expo/vector-icons > expo-font > expo. Forcing versions through an SDK's
