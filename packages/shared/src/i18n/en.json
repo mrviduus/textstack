@@ -614,7 +614,7 @@
     "noBookStats": "No book stats yet"
   },
   "highlights": {
-    "empty": "No highlights yet",
+    "emptyTitle": "No highlights yet",
     "emptySubtitle": "Select text while reading to highlight it"
   },
   "terms": {
