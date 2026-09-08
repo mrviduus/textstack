@@ -286,6 +286,23 @@ public class InsightsEndpointTests : IClassFixture<LiveApiFixture>, IClassFixtur
         Assert.False(string.IsNullOrWhiteSpace(chapterRow.GetProperty("chapterTitle").GetString()));
     }
 
+    [Fact]
+    public async Task GetInsights_UnknownBook_Returns404_NotAnEmptyList()
+    {
+        // The read filters by user_id, so a stranger's book leaks nothing either way.
+        // But an empty list is a truthful answer to "what have I worked out about this
+        // book", and letting a wrong id borrow that answer is how a mistake reads as a
+        // fact. Mirrors GET /me/highlights/userbook/{id}.
+        Assert.SkipUnless(_auth.IsAuthenticated, "test-login unavailable (ENABLE_TEST_AUTH)");
+
+        foreach (var query in new[] { $"userBookId={Guid.NewGuid()}", $"editionId={Guid.NewGuid()}" })
+        {
+            var req = _auth.CreateRequest(HttpMethod.Get, $"/me/insights?{query}");
+            var resp = await _auth.Client.SendAsync(req, Ct);
+            Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
+        }
+    }
+
     // ── isolation ───────────────────────────────────────────────────────────────
 
     [Fact]
@@ -317,6 +334,8 @@ public class InsightsEndpointTests : IClassFixture<LiveApiFixture>, IClassFixtur
         var cookie = string.Join("; ", otherUser.Headers.GetValues("Set-Cookie")
             .Select(c => c.Split(';')[0].Trim()));
 
+        // A catalog edition exists for everyone, so this is the read succeeding and
+        // returning nothing — isolation, not a 404 standing in for it.
         var otherReq = _fixture.CreateRequest(HttpMethod.Get, $"/me/insights?editionId={editionId}");
         otherReq.Headers.Add("Cookie", cookie);
         var otherResp = await _fixture.Client.SendAsync(otherReq, Ct);

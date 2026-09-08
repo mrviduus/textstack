@@ -77,9 +77,12 @@ public static class McpManifestCatalog
             + "requires authentication). Pass the bookId, the chapterId of the chapter the passage is "
             + "in (from get_my_book or get_my_chapter), and the exact text as it appears in that "
             + "chapter — it is matched against the chapter text to place the highlight, so quote it "
-            + "verbatim. Optionally a color and a note. The highlight appears in the reader and in "
-            + "list_my_book_highlights. Highlight what is worth returning to, not every interesting "
-            + "line: a book marked end to end is a book with no marks."),
+            + "verbatim. Optionally a color and a note. The highlight is listed by "
+            + "list_my_book_highlights and appears in the reader — EXCEPT on a book get_my_book "
+            + "reports as rendersAsOriginalPdf, where it is saved and listed but not drawn over the "
+            + "page, because a PDF highlight is placed by page geometry this tool cannot produce. "
+            + "Highlight what is worth returning to, not every interesting line: a book marked end "
+            + "to end is a book with no marks, and there is a hard limit of 200 per book."),
         new("list_my_book_highlights",
             "List the highlights already saved in one of the books the user UPLOADED, by bookId "
             + "(requires authentication). Use it before highlighting to see what is already marked. "

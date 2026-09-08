@@ -137,6 +137,33 @@ public static partial class ServiceCollectionExtensions
                     QueueLimit = 0,
                 });
             });
+            // Highlight writes (POST /me/highlights) — the one policy in this file NOT partitioned
+            // by IP, and deliberately so. This endpoint is reached both by a person in the reader and
+            // by an MCP client, and the MCP bridge talks to the API over the internal docker network:
+            // every assistant write in the deployment arrives from the one container address. Keyed
+            // by IP, a single looping client would throttle every other MCP user with it, while a
+            // person behind a shared NAT could be throttled by a stranger. The account is what owns
+            // the rows being written, so the account is the partition.
+            //
+            // The ceiling that stops a book being marked to illegibility is a COUNT, not a rate —
+            // HighlightsEndpoints.MaxAssistantHighlightsPerBook. This is only the loop guard: high
+            // enough that a person highlighting hard, or a client syncing an offline queue after a
+            // flight, never meets it.
+            options.AddPolicy("highlight-write", httpContext =>
+            {
+                var auth = httpContext.RequestServices.GetRequiredService<Application.Auth.AuthService>();
+                // Pure JWT validation, no database call — safe on the limiter's hot path. Falls back
+                // to the IP when there is no usable token; the endpoint answers 401 anyway.
+                var key = httpContext.GetUserId(auth)?.ToString()
+                    ?? httpContext.Connection.RemoteIpAddress?.ToString()
+                    ?? "unknown";
+                return RateLimitPartition.GetFixedWindowLimiter(key, _ => new FixedWindowRateLimiterOptions
+                {
+                    Window = TimeSpan.FromMinutes(1),
+                    PermitLimit = 120,
+                    QueueLimit = 0,
+                });
+            });
             // Insights (POST /me/insights) — the write-back an outside assistant makes after a
             // reading session. Cheap for us (one row, no inference), so the cap is not about cost:
             // it is about a runaway agent loop rewriting a book's конспект thousands of times. 60/min

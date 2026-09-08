@@ -379,6 +379,13 @@ public sealed class McpToolCatalog
                     // Ready / Processing / Failed — a book still processing has no
                     // chapters yet, and saying so beats an unexplained empty list.
                     status = book.Status,
+                    // Half the uploaded library is PDF, and a PDF is read as the
+                    // original document (ADR-012), where a highlight is painted from
+                    // page geometry. A highlight written from here carries a text
+                    // quote instead, so on these books it is saved and listable but
+                    // does not appear over the page. Say so where the model can act
+                    // on it rather than letting it discover the gap by not seeing one.
+                    rendersAsOriginalPdf = book.HasOriginalPdf,
                     chapters = (book.Chapters ?? []).Select(c => new
                     {
                         chapterId = c.Id,
@@ -701,9 +708,12 @@ public sealed class McpToolCatalog
             + "requires authentication). Pass the bookId, the chapterId of the chapter the passage is "
             + "in (from get_my_book or get_my_chapter), and the exact text as it appears in that "
             + "chapter — it is matched against the chapter text to place the highlight, so quote it "
-            + "verbatim. Optionally a color and a note. The highlight appears in the reader and in "
-            + "list_my_book_highlights. Highlight what is worth returning to, not every interesting "
-            + "line: a book marked end to end is a book with no marks.",
+            + "verbatim. Optionally a color and a note. The highlight is listed by "
+            + "list_my_book_highlights and appears in the reader — EXCEPT on a book get_my_book "
+            + "reports as rendersAsOriginalPdf, where it is saved and listed but not drawn over the "
+            + "page, because a PDF highlight is placed by page geometry this tool cannot produce. "
+            + "Highlight what is worth returning to, not every interesting line: a book marked end "
+            + "to end is a book with no marks, and there is a hard limit of 200 per book.",
         InputSchema = SaveMyHighlightSchema,
         Handler = (args, ct) =>
         {
@@ -881,6 +891,11 @@ public sealed class McpToolCatalog
             return InvokeAsync("get_my_insights", ct, async () =>
             {
                 var insights = await api.GetInsightsAsync(editionId, bookId, ct);
+                if (insights is null)
+                    return Error(bookId is { } b
+                        ? $"get_my_insights: no uploaded book found with id '{b}'"
+                        : $"get_my_insights: no catalog book found with editionId '{editionId}'");
+
                 var mapped = insights.Select(i => new
                 {
                     id = i.Id,

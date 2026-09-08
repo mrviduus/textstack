@@ -330,9 +330,16 @@ public sealed class TextStackApiClient
     /// <summary>
     /// <c>GET /me/insights?userBookId=…|editionId=…</c> — everything already worked out about this
     /// book, in reading order. This is the continuity: a later session reads it and does not redo
-    /// work. 401 → <see cref="McpUnauthorizedException"/>; other non-success → empty.
+    /// work.
+    ///
+    /// <para>Returns <b>null</b> — not an empty list — when the book does not exist or is not this
+    /// user's, for the same reason <see cref="GetUserBookHighlightsAsync"/> does: an empty list is a
+    /// truthful answer to "what have I worked out about this book", so a wrong id must not be able
+    /// to borrow it.</para>
+    ///
+    /// <para>401 → <see cref="McpUnauthorizedException"/>.</para>
     /// </summary>
-    public async Task<IReadOnlyList<BookInsightJson>> GetInsightsAsync(
+    public async Task<IReadOnlyList<BookInsightJson>?> GetInsightsAsync(
         Guid? editionId, Guid? userBookId, CancellationToken ct)
     {
         var url = editionId is { } e ? $"/me/insights?editionId={e}" : $"/me/insights?userBookId={userBookId}";
@@ -349,7 +356,7 @@ public sealed class TextStackApiClient
             return result ?? [];
         }
 
-        return [];
+        return null;
     }
 
     /// <summary>
@@ -601,6 +608,10 @@ public sealed record UserBookDetailJson(
     int? PublishedYear,
     int? TotalWordCount,
     string Status,
+    // True when the upload is a PDF the reader renders as the original document
+    // (ADR-012). It changes what a highlight written from here can do — see
+    // BuildSaveMyHighlight — so it is surfaced rather than left in the DTO.
+    bool HasOriginalPdf,
     IReadOnlyList<UserChapterSummaryJson>? Chapters);
 
 public sealed record UserChapterSummaryJson(

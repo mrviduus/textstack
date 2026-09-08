@@ -21,7 +21,8 @@ public static class HighlightsEndpoints
         group.MapPost("/review", MarkHighlightReviewed).WithName("MarkHighlightReviewed");
         group.MapGet("/userbook/{userBookId:guid}", GetUserBookHighlights).WithName("GetUserBookHighlights");
         group.MapGet("/{editionId:guid}", GetHighlights).WithName("GetHighlights");
-        group.MapPost("", CreateHighlight).WithName("CreateHighlight");
+        group.MapPost("", CreateHighlight).WithName("CreateHighlight")
+            .RequireRateLimiting("highlight-write");
         group.MapPut("/{id:guid}", UpdateHighlight).WithName("UpdateHighlight");
         group.MapDelete("/{id:guid}", DeleteHighlight).WithName("DeleteHighlight");
     }
@@ -259,6 +260,31 @@ public static class HighlightsEndpoints
             }
         }
 
+        // The assistant ceiling. Only MCP-authored anchors are counted, and only against the book
+        // being written to, so this is invisible to a person highlighting in the reader — including
+        // one whose book an assistant has also marked.
+        //
+        // Raw SQL because the predicate is a jsonb one (anchor_json->>'source'), and EF has no
+        // mapping for it: AnchorJson is a plain string property over a jsonb column, so any LINQ
+        // string operator compiles to LIKE and Postgres rejects LIKE on jsonb at execution time.
+        if (IsAssistantAnchor(request.AnchorJson))
+        {
+            var bookColumn = request.UserBookId != null ? "user_book_id" : "edition_id";
+            var bookId = request.UserBookId ?? request.EditionId!.Value;
+
+            var alreadyPlaced = await db.Database
+                .SqlQueryRaw<int>(
+                    $@"SELECT COUNT(*)::int AS ""Value"" FROM highlights
+                       WHERE user_id = {{0}} AND {bookColumn} = {{1}} AND anchor_json->>'source' = {{2}}",
+                    userId.Value, bookId, McpAnchorSource)
+                .FirstAsync(ct);
+
+            if (alreadyPlaced >= MaxAssistantHighlightsPerBook)
+                return Results.BadRequest(
+                    $"This book already has {alreadyPlaced} assistant-placed highlights, which is the "
+                    + $"limit of {MaxAssistantHighlightsPerBook}. Remove some before adding more.");
+        }
+
         var now = DateTimeOffset.UtcNow;
         var highlight = new Highlight
         {
@@ -282,6 +308,57 @@ public static class HighlightsEndpoints
         await db.SaveChangesAsync(ct);
 
         return Results.Created($"/me/highlights/{highlight.Id}", highlight.ToDto());
+    }
+
+    /// <summary>
+    /// How many highlights one assistant may place in a single book.
+    ///
+    /// <para>Not a resource limit — a highlight row is tiny. It is a legibility limit. An MCP client
+    /// told to "go through the book and mark what matters" can place a highlight per paragraph in a
+    /// single pass, and a book marked end to end is a book with no marks: the reader loses the thing
+    /// the feature was for. The tool description asks for restraint; this is what happens when the
+    /// asking does not work.</para>
+    ///
+    /// <para>Counted per book and only over MCP-written highlights, so a person who genuinely
+    /// highlights heavily is never affected by it.</para>
+    /// </summary>
+    public const int MaxAssistantHighlightsPerBook = 200;
+
+    /// <summary>
+    /// The value <c>SynthesizeAnchor</c> puts in the anchor's top-level <c>source</c> field for every
+    /// MCP-authored highlight (see <c>TextStack.Ai.Mcp/Tools/McpToolCatalog.cs</c>).
+    ///
+    /// <para>Read with the jsonb operator <c>-&gt;&gt;</c>, not a substring match. <c>anchor_json</c>
+    /// IS jsonb, so <c>LIKE</c> against it does not merely risk false positives — Postgres refuses it
+    /// outright. Reading the field also makes the check independent of how the JSON was spaced or
+    /// ordered by whichever serializer wrote it, which a substring match is not.</para>
+    ///
+    /// <para>Public so a test can assert the bridge still writes it. If the two drift apart the cap
+    /// below silently stops applying, which is the worst way for a limit to fail: no error, no
+    /// symptom, until a book comes back unreadable.</para>
+    /// </summary>
+    public const string McpAnchorSource = "mcp";
+
+    /// <summary>
+    /// Whether this anchor was written by an assistant over MCP — its top-level <c>source</c> is
+    /// <see cref="McpAnchorSource"/>. Reads the same field the SQL predicate above reads, so the
+    /// gate and the count cannot disagree about what they are counting.
+    /// </summary>
+    private static bool IsAssistantAnchor(string? anchorJson)
+    {
+        if (string.IsNullOrWhiteSpace(anchorJson)) return false;
+        try
+        {
+            using var doc = JsonDocument.Parse(anchorJson);
+            return doc.RootElement.ValueKind == JsonValueKind.Object
+                && doc.RootElement.TryGetProperty("source", out var source)
+                && source.ValueKind == JsonValueKind.String
+                && source.GetString() == McpAnchorSource;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 
     // A PDF page anchor is the opaque JSON {v,kind:"pdf",page,rects,exact}. We treat the anchor as

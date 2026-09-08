@@ -61,6 +61,23 @@ public static class InsightsEndpoints
         if (userBookId.HasValue == editionId.HasValue)
             return Results.BadRequest("Provide exactly one of userBookId or editionId");
 
+        // Resolve the book before reading. The query below filters by user_id, so a
+        // stranger's book leaks nothing either way — but it answers with an empty
+        // list, and an empty list is a TRUTHFUL answer to "what have I worked out
+        // about this book". Collapsing "not your book" into it lets a wrong id read
+        // as a book you have never discussed. Same reason
+        // GET /me/highlights/userbook/{id} checks ownership first.
+        if (userBookId is { } bookId)
+        {
+            var owns = await db.UserBooks.AnyAsync(b => b.Id == bookId && b.UserId == userId.Value, ct);
+            if (!owns) return Results.NotFound("User book not found");
+        }
+        else
+        {
+            var exists = await db.Editions.AnyAsync(e => e.Id == editionId!.Value, ct);
+            if (!exists) return Results.NotFound("Edition not found");
+        }
+
         var rows = await db.BookInsights
             .Where(i => i.UserId == userId.Value
                 && (userBookId.HasValue ? i.UserBookId == userBookId : i.EditionId == editionId))

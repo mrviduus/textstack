@@ -324,6 +324,7 @@ public sealed class StubBackend : IAsyncDisposable
           "totalWordCount": 210000,
           "status": "Ready",
           "errorMessage": null,
+          "hasOriginalPdf": false,
           "chapters": [
             { "id": "88888888-8888-8888-8888-888888888888", "chapterNumber": 5, "slug": "replication", "title": "Replication", "wordCount": 14200, "sourceStartPage": 151 }
           ],

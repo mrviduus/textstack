@@ -29,7 +29,7 @@ means your uploads.
 | `search_my_library` | Full-text search across the books **you uploaded**. Returns one hit per book with its `bookId` and best-matching chapter. Needs no RAG index. | User |
 | `get_my_book` | Fetch one of your uploads by `bookId`: metadata + full chapter list, each chapter carrying its `chapterId`. | User |
 | `get_my_chapter` | Fetch one chapter of your upload as plain text, plus its `chapterId` and prev/next slugs. | User |
-| `save_my_highlight` | Highlight a passage in a book you uploaded. Matched against the chapter text, so the quote must be verbatim. | User |
+| `save_my_highlight` | Highlight a passage in a book you uploaded. Matched against the chapter text, so the quote must be verbatim. Capped at 200 per book. | User |
 | `list_my_book_highlights` | List the highlights already in a book you uploaded. | User |
 | `save_insight` | Write a conclusion back into a book — against a `chapterSlug`, or against the whole book when omitted. Saving again for the same chapter replaces it. | User |
 | `get_my_insights` | Read back everything already worked out about a book, in reading order. | User |
@@ -46,6 +46,23 @@ A typical catalog chain is `search_books → get_book` (to get the `editionId` /
 chapter ids) `→ get_chapter` / `ask_book` / `save_highlight`. The chain for your
 own uploads is `search_my_library → get_my_book` (to get the chapter ids)
 `→ get_my_chapter`.
+
+## Limits on what an assistant may write
+
+**200 highlights per book.** Not a resource limit — a highlight row is tiny. A client told to "go
+through the book and mark what matters" can place one per paragraph in a single pass, and a book
+marked end to end is a book with no marks. The cap counts only highlights written over MCP
+(`anchor_json->>'source' = 'mcp'`), so a person who highlights heavily is never affected, including
+on a book an assistant has also marked.
+
+**On a PDF, a highlight is saved but not painted.** The reader shows PDFs as the original document
+(ADR-012), where a highlight is drawn from page geometry an MCP client cannot produce. The highlight
+is stored, listed by `list_my_book_highlights`, and shown on the Highlights page — it just does not
+appear over the page. `get_my_book` reports `rendersAsOriginalPdf` so the assistant can say so
+instead of leaving you looking for a mark that is not there. About half the uploaded library is PDF.
+
+**Insights are capped by shape, not by count**: one per (you, book, chapter), because a save
+replaces. There is no way to accumulate them.
 
 ## Writing conclusions back into a book
 

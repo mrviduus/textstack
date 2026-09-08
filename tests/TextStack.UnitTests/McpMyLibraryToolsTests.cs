@@ -202,6 +202,7 @@ public class McpMyLibraryToolsTests
           "totalWordCount": 210000,
           "status": "Ready",
           "errorMessage": null,
+          "hasOriginalPdf": true,
           "chapters": [
             { "id": "88888888-8888-8888-8888-888888888888", "chapterNumber": 5, "slug": "replication", "title": "Replication", "wordCount": 14200, "sourceStartPage": 151 }
           ],
@@ -231,6 +232,32 @@ public class McpMyLibraryToolsTests
         var chapter = Assert.Single(body.GetProperty("chapters").EnumerateArray());
         Assert.Equal(Chapter, chapter.GetProperty("chapterId").GetString());
         Assert.Equal("replication", chapter.GetProperty("slug").GetString());
+    }
+
+    [Fact]
+    public async Task GetMyBook_ReportsWhenTheBookRendersAsAnOriginalPdf()
+    {
+        // Half the uploaded library is PDF, and on a PDF the reader paints highlights
+        // from page geometry this bridge cannot produce. A text-anchored highlight is
+        // still saved and still listed — it just never appears over the page. The
+        // model has to be told that here, because the alternative is discovering it
+        // by not seeing a mark it believes it made.
+        var (catalog, _) = BuildCatalog(Json(BookBody));
+
+        var result = await catalog.CallAsync(
+            "get_my_book", Args($$"""{"bookId":"{{Book}}"}"""), CancellationToken.None);
+
+        Assert.True(Body(result).GetProperty("rendersAsOriginalPdf").GetBoolean());
+    }
+
+    [Fact]
+    public void SaveMyHighlight_Description_WarnsAboutOriginalPdfBooks()
+    {
+        var (catalog, _) = BuildCatalog(Json("{}"));
+        var description = catalog.ListTools().Single(t => t.Name == "save_my_highlight").Description;
+
+        Assert.Contains("rendersAsOriginalPdf", description);
+        Assert.Contains("200 per book", description);
     }
 
     [Fact]
@@ -651,6 +678,22 @@ public class McpMyLibraryToolsTests
             "get_my_insights", Args($$"""{"editionId":"{{edition}}"}"""), CancellationToken.None);
 
         Assert.Equal($"/me/insights?editionId={edition}", handler.LastRequest!.RequestUri!.PathAndQuery);
+    }
+
+    [Theory]
+    [InlineData("""{"bookId":"77777777-7777-7777-7777-777777777777"}""", "no uploaded book found")]
+    [InlineData("""{"editionId":"33333333-3333-3333-3333-333333333333"}""", "no catalog book found")]
+    public async Task GetMyInsights_UnknownBook_SaysSo_RatherThanReturningEmpty(string args, string expected)
+    {
+        // Same trap as list_my_book_highlights: "you have not discussed this book" and
+        // "that is not your book" are different answers, and only one of them is worth
+        // acting on.
+        var (catalog, _) = BuildCatalog(Json("", HttpStatusCode.NotFound));
+
+        var result = await catalog.CallAsync("get_my_insights", Args(args), CancellationToken.None);
+
+        Assert.True(result.IsError);
+        Assert.Contains(expected, TextOf(result));
     }
 
     [Fact]
