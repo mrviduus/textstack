@@ -117,7 +117,7 @@ jobs:
       # which needs no such permission, filed five that could not merge.
       - name: Open a pull request
         if: steps.resolve.outputs.changed == 'true' && inputs.dry_run != true
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@v8
         with:
           branch: deps/lockfile-refresh
           delete-branch: true
@@ -186,7 +186,7 @@ jobs:
 
       - name: Open a pull request
         if: steps.bump.outputs.changed == 'true'
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@v8
         with:
           branch: deps/catalog
           delete-branch: true
