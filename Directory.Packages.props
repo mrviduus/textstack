@@ -93,7 +93,7 @@
     <PackageVersion Include="VersOne.Epub" Version="3.3.6" />
     <PackageVersion Include="HtmlAgilityPack" Version="1.12.4" />
     <PackageVersion Include="PdfPig" Version="0.1.14" />
-    <PackageVersion Include="PDFtoImage" Version="4.1.1" />
+    <PackageVersion Include="PDFtoImage" Version="5.4.0" />
     <!-- OpenTelemetry. Bumped 1.11.x → 1.15.x to clear GHSA-4625-4j76-fww9
          (OTLP Exporter) and GHSA-g94r-2vxg-569j (Api). Stable channel. -->
     <PackageVersion Include="OpenTelemetry.Api" Version="1.15.3" />
