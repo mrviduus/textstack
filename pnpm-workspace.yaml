@@ -64,9 +64,9 @@ allowBuilds:
 # `expo install` writes, not a floor the runtime enforces. Re-verified with a
 # full Metro bundle, which is the check that actually exercises it.
 catalog:
-  '@playwright/test': ^1.60.0
+  '@playwright/test': ^1.63.0
   '@types/react': ^19.2.14
-  '@types/react-dom': ^19.2.3
+  '@types/react-dom': ^19.2.7
   '@vitejs/plugin-react': ^4.7.0
   '@vitest/coverage-v8': ^3.2.6
   jsdom: ^28.1.0
