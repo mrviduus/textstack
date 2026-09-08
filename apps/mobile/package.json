@@ -72,8 +72,6 @@
     "@playwright/test": "catalog:",
     "@types/react": "catalog:",
     "@vitest/coverage-v8": "catalog:",
-    "express": "^5.2.1",
-    "http-proxy-middleware": "^3.0.5",
     "jsdom": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
