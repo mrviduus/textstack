@@ -1,6 +1,7 @@
 import { View, Text, StyleSheet, TouchableOpacity, Linking } from 'react-native'
 import { buildHandoffBrief, handoffUrl, type HandoffBook, type Assistant } from '@textstack/shared'
 import { useTheme } from '../../context/ThemeContext'
+import { useLanguage } from '../../context/LanguageContext'
 import { fonts } from '../../theme/typography'
 
 /**
@@ -23,6 +24,7 @@ import { fonts } from '../../theme/typography'
  */
 export function DiscussWithAssistant(props: HandoffBook) {
   const { colors } = useTheme()
+  const { t } = useLanguage()
   const brief = buildHandoffBrief(props)
 
   const open = (assistant: Assistant) => {
@@ -31,9 +33,9 @@ export function DiscussWithAssistant(props: HandoffBook) {
 
   return (
     <View style={[styles.section, { borderTopColor: colors.border }]}>
-      <Text style={[styles.label, { color: colors.text }]}>Talk this book over</Text>
+      <Text style={[styles.label, { color: colors.text }]}>{t('library.discuss.label')}</Text>
       <View style={styles.row}>
-        {([['claude', 'Open in Claude'], ['chatgpt', 'Open in ChatGPT']] as const).map(([id, label]) => (
+        {([['claude', t('library.discuss.claude')], ['chatgpt', t('library.discuss.chatgpt')]] as const).map(([id, label]) => (
           <TouchableOpacity
             key={id}
             style={[styles.btn, { borderColor: colors.border, backgroundColor: colors.surface }]}
@@ -45,10 +47,7 @@ export function DiscussWithAssistant(props: HandoffBook) {
           </TouchableOpacity>
         ))}
       </View>
-      <Text style={[styles.hint, { color: colors.textSecondary }]}>
-        Opens a new chat with an opening message about this book. Connect TextStack as a
-        connector and your assistant can read the book and write its conclusions back here.
-      </Text>
+      <Text style={[styles.hint, { color: colors.textSecondary }]}>{t('library.discuss.hint')}</Text>
     </View>
   )
 }

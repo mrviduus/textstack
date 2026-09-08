@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { View, Text, StyleSheet } from 'react-native'
-import { insightsApi, type BookInsight } from '@textstack/shared'
+import { insightsApi, insightChapterLabel, type BookInsight } from '@textstack/shared'
 import { useTheme } from '../../context/ThemeContext'
+import { useLanguage } from '../../context/LanguageContext'
 import { fonts } from '../../theme/typography'
 import { AskMarkdown } from '../AskMarkdown'
 
@@ -30,6 +31,7 @@ interface Props {
 
 export function BookInsightsSection({ userBookId, editionId }: Props) {
   const { colors } = useTheme()
+  const { t } = useLanguage()
   const [insights, setInsights] = useState<BookInsight[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -52,23 +54,16 @@ export function BookInsightsSection({ userBookId, editionId }: Props) {
 
   return (
     <View style={[styles.section, { borderTopColor: colors.border }]}>
-      <Text style={[styles.title, { color: colors.text }]}>What you&apos;ve worked out</Text>
-      <Text style={[styles.lead, { color: colors.textSecondary }]}>
-        Conclusions your assistant wrote back into this book.
-      </Text>
+      <Text style={[styles.title, { color: colors.text }]}>{t('library.insights.title')}</Text>
+      <Text style={[styles.lead, { color: colors.textSecondary }]}>{t('library.insights.lead')}</Text>
 
       {insights.map(insight => (
         <View key={insight.id} style={[styles.item, { borderLeftColor: colors.border }]}>
-          {/* The TITLE, never the number. `chapterNumber` is what the server orders
-              by, but the two book types number differently — a catalog screen adds
-              one, an upload does not — so printing it reads one off the table of
-              contents on exactly one of them. */}
+          {/* Which chapter, decided once in the shared package — never the
+              number, and falling back to the slug when a re-ingest left the
+              title unresolvable. See insightScope.ts for why both matter. */}
           <Text style={[styles.scope, { color: colors.textSecondary }]}>
-            {insight.chapterSlug === null
-              ? 'THIS BOOK'
-              // A slug that no longer resolves (a re-ingest renamed the chapter)
-              // keeps its text and shows unplaced rather than disappearing.
-              : (insight.chapterTitle ?? insight.chapterSlug).toUpperCase()}
+            {(insightChapterLabel(insight) ?? t('library.insights.wholeBook')).toUpperCase()}
           </Text>
 
           {insight.question ? (

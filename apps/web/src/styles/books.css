@@ -8347,7 +8347,7 @@ a.read-later__title:hover { text-decoration: underline; }
 .book-insights__body blockquote { margin: 8px 0; padding-left: 12px; border-left: 3px solid var(--color-border, #e0d8c8); color: var(--color-text-secondary, #666); }
 
 /* "Talk this book over" — the handoff into Claude / ChatGPT. A link, not an
-   integration: see lib/assistantHandoff.ts. Sits under the insights section, so
+   integration: see assistantHandoff.ts in @textstack/shared. Sits under the insights
    the page reads "here is what came back / here is how to get more". */
 .discuss-assistant { margin: 24px 0; padding: 16px 20px; background: var(--color-surface, #fff); border: 1px solid var(--color-border, #e0d8c8); border-radius: 12px; }
 .discuss-assistant__label { font-size: 14px; font-weight: 600; margin-bottom: 10px; }
