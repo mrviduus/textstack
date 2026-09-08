@@ -86,7 +86,7 @@
     <!-- Hosting -->
     <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.11" />
     <!-- Image Optimization -->
-    <PackageVersion Include="SixLabors.ImageSharp" Version="3.1.12" />
+    <PackageVersion Include="SixLabors.ImageSharp" Version="4.1.1" />
     <!-- Worker -->
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.11" />
     <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.11" />
