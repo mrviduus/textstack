@@ -20,7 +20,7 @@ namespace TextStack.Ai.Mcp.Tests;
 public class McpStdioSmokeTests
 {
     [Fact]
-    public async Task Stdio_SubprocessServer_InitializeAndListToolsReturnsSeven()
+    public async Task Stdio_SubprocessServer_InitializeAndListToolsReturnsWholeSurface()
     {
         var ct = TestContext.Current.CancellationToken;
 
@@ -53,7 +53,7 @@ public class McpStdioSmokeTests
         Assert.Equal("textstack", client.ServerInfo.Name);
 
         var tools = await client.ListToolsAsync(cancellationToken: ct);
-        Assert.Equal(7, tools.Count);
+        Assert.Equal(14, tools.Count);
     }
 
     // The MCP project is a ProjectReference, so its DLL is built into the test

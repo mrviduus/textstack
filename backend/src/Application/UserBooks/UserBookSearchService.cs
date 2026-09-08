@@ -21,19 +21,25 @@ public class UserBookSearchService(IAppDbContext db)
         // websearch_to_tsquery handles user-typed query strings safely (quoted phrases, OR, -negation).
         // ts_headline returns excerpt with <mark>...</mark> around hits for direct UI rendering.
         var hasTagFilter = tagsArray.Length > 0;
+        // Column aliases are snake_case, and that is load-bearing. The context is built with
+        // UseSnakeCaseNamingConvention, and the convention applies to the SqlQueryRaw row type too:
+        // EF looks for `chapter_slug`, not `ChapterSlug`. Aliased in PascalCase the query throws
+        // "The required column 'chapter_slug' was not present in the results of a 'FromSql'
+        // operation" on every single call — which is what it did, silently, because the only caller
+        // renders an empty result on failure.
         var sql = $@"
             SELECT
-                ub.id AS ""Id"",
-                ub.title AS ""Title"",
-                ub.author AS ""Author"",
-                ub.cover_path AS ""CoverPath"",
-                ub.language AS ""Language"",
-                MAX(ts_rank(uc.search_vector, q))::float8 AS ""Rank"",
+                ub.id AS id,
+                ub.title AS title,
+                ub.author AS author,
+                ub.cover_path AS cover_path,
+                ub.language AS language,
+                MAX(ts_rank(uc.search_vector, q))::float8 AS rank,
                 (array_agg(
                     ts_headline('english', uc.plain_text, q, 'StartSel=<mark>,StopSel=</mark>,MaxFragments=1,MinWords=15,MaxWords=30,ShortWord=2')
                     ORDER BY ts_rank(uc.search_vector, q) DESC
-                ))[1] AS ""Excerpt"",
-                (array_agg(uc.slug ORDER BY ts_rank(uc.search_vector, q) DESC))[1] AS ""ChapterSlug""
+                ))[1] AS excerpt,
+                (array_agg(uc.slug ORDER BY ts_rank(uc.search_vector, q) DESC))[1] AS chapter_slug
             FROM user_books ub
             JOIN user_chapters uc ON uc.user_book_id = ub.id
             CROSS JOIN websearch_to_tsquery('english', {{0}}) q
@@ -41,7 +47,7 @@ public class UserBookSearchService(IAppDbContext db)
               AND uc.search_vector @@ q
               {(hasTagFilter ? "AND ub.tags @> {2}" : string.Empty)}
             GROUP BY ub.id
-            ORDER BY ""Rank"" DESC
+            ORDER BY rank DESC
             LIMIT {MaxResults};
         ";
 

@@ -8,6 +8,8 @@ import { Footer } from '../components/Footer'
 import { stringToColor } from '../utils/colors'
 import { ShareButtons } from '../components/ShareButtons'
 import { BookStatsSection } from '../components/library/BookStatsSection'
+import { BookInsightsSection } from '../components/library/BookInsightsSection'
+import { DiscussWithAssistant } from '../components/library/DiscussWithAssistant'
 import { emitDataChanges } from '../lib/dataEvents'
 import { AddToCollectionButton } from '../components/library/AddToCollectionButton'
 import { useTranslation } from '../hooks/useTranslation'
@@ -473,6 +475,26 @@ export function UserBookDetailPage() {
 
       {isReady && book && (
         <BookStatsSection bookId={book.id} />
+      )}
+
+      {/* Above the chapter list on purpose: coming back to a book, what you
+          already worked out is more use than the table of contents. */}
+      {isReady && book && (
+        <BookInsightsSection userBookId={book.id} />
+      )}
+
+      {/* Directly under the insights: the section shows what came back, this is
+          how you go and get more. */}
+      {isReady && book && (
+        <DiscussWithAssistant
+          title={book.title}
+          author={book.author}
+          bookId={book.id}
+          progressPercent={savedProgress?.percent ?? null}
+          chapterTitle={
+            book.chapters.find(c => c.slug === savedProgress?.chapterSlug)?.title ?? null
+          }
+        />
       )}
 
       {isReady && book.chapters.length > 0 && (
