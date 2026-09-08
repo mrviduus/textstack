@@ -81,7 +81,7 @@
          word embeddings. Replaces the hand-rolled cosine-threshold union-find. MIT. -->
     <PackageVersion Include="HdbscanSharp" Version="3.0.1" />
     <!-- Search -->
-    <PackageVersion Include="Dapper" Version="2.1.72" />
+    <PackageVersion Include="Dapper" Version="2.1.79" />
     <PackageVersion Include="Meilisearch" Version="0.16.0" />
     <!-- Hosting -->
     <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.11" />
