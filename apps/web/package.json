@@ -43,7 +43,7 @@
     "esbuild": "^0.28.0",
     "jsdom": "catalog:",
     "pg": "^8.20.0",
-    "puppeteer": "^24.43.1",
+    "puppeteer": "^25.10.0",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"

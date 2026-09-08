@@ -61,15 +61,6 @@ function strayLockfiles() {
  * excuse — so re-read these before extending the list, not after.
  */
 const KNOWN = {
-  'GHSA-jmr9-qjv8-65gv': {
-    since: '2026-09-03',
-    module: 'extract-zip',
-    needs: '>=2.0.2',
-    why:
-      'Reached through puppeteer, a devDependency of apps/web that runs in the ssg-worker ' +
-      'container. There is no fix to apply: the advisory demands >=2.0.2 and the newest ' +
-      'version ever published is 2.0.1. An override was tried and pnpm refused it.',
-  },
   'GHSA-vcc3-ghjq-m6fr': {
     since: '2026-09-03',
     module: 'decode-uri-component',
