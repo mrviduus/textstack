@@ -74,7 +74,11 @@ public class McpServerTests
         var tools = catalog.ListTools();
 
         var tool = Assert.Single(tools, t => t.Name == "search_books");
-        Assert.Equal("Search the TextStack library for books and chapters matching a query.", tool.Description);
+        // Names the half of the library it searches, and points at the other tool.
+        // Two search tools that both say "the TextStack library" is how a model
+        // ends up searching the catalog for a book the user uploaded.
+        Assert.StartsWith("Search the PUBLIC TextStack catalog", tool.Description);
+        Assert.Contains("search_my_library", tool.Description);
 
         var schema = tool.InputSchema;
         Assert.Equal("object", schema.GetProperty("type").GetString());

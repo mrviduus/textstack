@@ -9,12 +9,19 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
+# Every job carries `timeout-minutes`, and the comment above each one is what it
+# actually takes, measured. None of them had a ceiling until a hung `mobile-runtime`
+# on a Dependabot PR ran for six hours — GitHub's default — and was billed for all
+# six. The numbers are deliberately loose: a ceiling is there to end a hang, not to
+# police a slow run, so a job that trips one is reporting a hang, not a bad estimate.
 jobs:
   # Cheapest job in the file and the one that would have saved the most time:
   # an EAS workflow pinned to Node 20 could not install eas-cli 23, and finding
   # that out cost two round trips. See scripts/check-node-version.mjs.
   node-version:
     runs-on: ubuntu-latest
+    # 6s typical.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v7
@@ -33,6 +40,8 @@ jobs:
   # to remember it; nothing ran it, and it could not have failed if it had.
   extension:
     runs-on: ubuntu-latest
+    # 12s typical.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v7
@@ -50,6 +59,8 @@ jobs:
   # is a diff. See scripts/check-advisories.mjs.
   advisories:
     runs-on: ubuntu-latest
+    # 2m typical.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
@@ -63,6 +74,8 @@ jobs:
 
   backend:
     runs-on: ubuntu-latest
+    # 5m typical.
+    timeout-minutes: 20
     services:
       postgres:
         # pgvector image (stock pg16 + vector ext) so `dotnet ef database update`
@@ -139,6 +152,8 @@ jobs:
 
   frontend:
     runs-on: ubuntu-latest
+    # 1m45 typical.
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v5
@@ -213,6 +228,8 @@ jobs:
   # it in CI would buy confidence it cannot actually provide.
   mobile:
     runs-on: ubuntu-latest
+    # 1m10 typical.
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v5
@@ -267,6 +284,8 @@ jobs:
   # something that can move a fingerprint has changed.
   mobile-runtime:
     runs-on: ubuntu-latest
+    # 12s when it skips; an install and a fingerprint when it does not.
+    timeout-minutes: 30
     if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v5
@@ -333,6 +352,8 @@ jobs:
 
   docker:
     runs-on: ubuntu-latest
+    # 12m typical.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
 
@@ -422,6 +443,8 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
+    # 11m typical.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
 

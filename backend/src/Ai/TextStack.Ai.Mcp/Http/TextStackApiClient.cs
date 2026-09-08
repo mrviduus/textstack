@@ -190,6 +190,205 @@ public sealed class TextStackApiClient
         return null;
     }
 
+    // ── my library (Bearer) — the UPLOADED half of the library ───────────────────
+    //
+    // A user's own uploads are a different aggregate from the catalog: UserBook /
+    // UserChapter, their own tables, their own chunks. They have NO editionId and
+    // cannot be given one, so every tool below is keyed by `bookId` = UserBook.Id.
+    // Passing one of these ids to an edition-scoped tool (ask_book,
+    // list_my_highlights) is a 404 / an empty list, not a partial answer.
+
+    /// <summary>
+    /// <c>GET /me/library/search?q={query}&amp;tags={tags}</c> — Postgres FTS over the
+    /// user's own uploads, one hit per book carrying its best-matching chapter.
+    /// Needs no RAG index.
+    ///
+    /// <para>Returns <b>null</b> on failure, and an empty list only when the search really matched
+    /// nothing. The distinction is the whole point: this endpoint spent its life answering 500, and
+    /// mapping that to an empty list told the caller "you have no books about this" — a confident,
+    /// wrong answer that reads exactly like a true one.</para>
+    ///
+    /// <para>401 → <see cref="McpUnauthorizedException"/>.</para>
+    /// </summary>
+    public async Task<IReadOnlyList<UserBookSearchHitJson>?> SearchMyLibraryAsync(
+        string query, string? tags, CancellationToken ct)
+    {
+        var url = $"/me/library/search?q={Uri.EscapeDataString(query)}";
+        if (!string.IsNullOrWhiteSpace(tags))
+            url += $"&tags={Uri.EscapeDataString(tags)}";
+
+        using var request = await AuthorizedRequestAsync(HttpMethod.Get, url, ct);
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+
+        if (response.StatusCode is HttpStatusCode.Unauthorized)
+            throw new McpUnauthorizedException();
+
+        if (response.StatusCode is HttpStatusCode.OK)
+        {
+            var result = await response.Content.ReadFromJsonAsync<List<UserBookSearchHitJson>>(JsonOptions, ct);
+            return result ?? [];
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// <c>GET /me/books/{bookId}</c> — an upload's metadata and chapter list. The
+    /// chapter list carries each chapter's <c>id</c>, which is what
+    /// <c>save_my_highlight</c> needs. 401 → <see cref="McpUnauthorizedException"/>;
+    /// other non-success (incl. someone else's book → 404) → null.
+    /// </summary>
+    public async Task<UserBookDetailJson?> GetMyBookAsync(Guid bookId, CancellationToken ct)
+    {
+        using var request = await AuthorizedRequestAsync(HttpMethod.Get, $"/me/books/{bookId}", ct);
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+
+        if (response.StatusCode is HttpStatusCode.Unauthorized)
+            throw new McpUnauthorizedException();
+
+        if (response.StatusCode is HttpStatusCode.OK)
+            return await response.Content.ReadFromJsonAsync<UserBookDetailJson>(JsonOptions, ct);
+
+        return null;
+    }
+
+    /// <summary>
+    /// <c>GET /me/books/{bookId}/chapters/{chapterSlug}</c> — one chapter's HTML,
+    /// which the catalog strips and caps exactly as it does for <c>get_chapter</c>.
+    /// 401 → <see cref="McpUnauthorizedException"/>; other non-success → null.
+    /// </summary>
+    public async Task<UserChapterJson?> GetMyChapterAsync(Guid bookId, string chapterSlug, CancellationToken ct)
+    {
+        var url = $"/me/books/{bookId}/chapters/{Uri.EscapeDataString(chapterSlug)}";
+        using var request = await AuthorizedRequestAsync(HttpMethod.Get, url, ct);
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+
+        if (response.StatusCode is HttpStatusCode.Unauthorized)
+            throw new McpUnauthorizedException();
+
+        if (response.StatusCode is HttpStatusCode.OK)
+            return await response.Content.ReadFromJsonAsync<UserChapterJson>(JsonOptions, ct);
+
+        return null;
+    }
+
+    // ── my-library WRITES (Bearer) ───────────────────────────────────────────────
+
+    /// <summary>
+    /// <c>GET /me/highlights/userbook/{bookId}</c> — highlights on one of the user's uploads. A
+    /// different route from the edition one because they are different aggregates; passing a bookId
+    /// to <see cref="GetHighlightsAsync"/> would return an empty list rather than an error.
+    ///
+    /// <para>Returns <b>null</b> — not an empty list — when the book is not this user's (the endpoint
+    /// answers 404). The difference matters here in a way it does not for the other reads: an empty
+    /// list is a truthful answer to "what have I highlighted", so collapsing "not your book" into it
+    /// would let a wrong id read as a book with no marks. That is the same confusion this route
+    /// exists to avoid, arriving by a different door.</para>
+    ///
+    /// <para>401 → <see cref="McpUnauthorizedException"/>.</para>
+    /// </summary>
+    public async Task<IReadOnlyList<HighlightJson>?> GetUserBookHighlightsAsync(Guid bookId, CancellationToken ct)
+    {
+        using var request = await AuthorizedRequestAsync(HttpMethod.Get, $"/me/highlights/userbook/{bookId}", ct);
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+
+        if (response.StatusCode is HttpStatusCode.Unauthorized)
+            throw new McpUnauthorizedException();
+
+        if (response.StatusCode is HttpStatusCode.OK)
+        {
+            var result = await response.Content.ReadFromJsonAsync<List<HighlightJson>>(JsonOptions, ct);
+            return result ?? [];
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// <c>POST /me/highlights</c> for an UPLOADED book — same endpoint as
+    /// <see cref="SaveHighlightAsync"/>, the other side of its edition/user-book XOR. The API has
+    /// accepted this shape since user-book highlights shipped; only the MCP tool surface was missing.
+    /// A non-PDF upload requires <paramref name="userChapterId"/>, which <c>get_my_chapter</c> and
+    /// <c>get_my_book</c> supply. 401 → <see cref="McpUnauthorizedException"/>; other non-success → null.
+    /// </summary>
+    public async Task<HighlightJson?> SaveUserBookHighlightAsync(
+        Guid userBookId, Guid userChapterId, string anchorJson, string color, string selectedText,
+        string? noteText, CancellationToken ct)
+    {
+        using var request = await AuthorizedRequestAsync(HttpMethod.Post, "/me/highlights", ct);
+        request.Content = JsonContent.Create(
+            new CreateUserBookHighlightJson(userBookId, userChapterId, anchorJson, color, selectedText, noteText),
+            options: JsonOptions);
+
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+
+        if (response.StatusCode is HttpStatusCode.Unauthorized)
+            throw new McpUnauthorizedException();
+
+        if (response.StatusCode is HttpStatusCode.Created or HttpStatusCode.OK)
+            return await response.Content.ReadFromJsonAsync<HighlightJson>(JsonOptions, ct);
+
+        return null;
+    }
+
+    // ── insights (Bearer) — conclusions written back into a book ─────────────────
+
+    /// <summary>
+    /// <c>GET /me/insights?userBookId=…|editionId=…</c> — everything already worked out about this
+    /// book, in reading order. This is the continuity: a later session reads it and does not redo
+    /// work.
+    ///
+    /// <para>Returns <b>null</b> — not an empty list — when the book does not exist or is not this
+    /// user's, for the same reason <see cref="GetUserBookHighlightsAsync"/> does: an empty list is a
+    /// truthful answer to "what have I worked out about this book", so a wrong id must not be able
+    /// to borrow it.</para>
+    ///
+    /// <para>401 → <see cref="McpUnauthorizedException"/>.</para>
+    /// </summary>
+    public async Task<IReadOnlyList<BookInsightJson>?> GetInsightsAsync(
+        Guid? editionId, Guid? userBookId, CancellationToken ct)
+    {
+        var url = editionId is { } e ? $"/me/insights?editionId={e}" : $"/me/insights?userBookId={userBookId}";
+
+        using var request = await AuthorizedRequestAsync(HttpMethod.Get, url, ct);
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+
+        if (response.StatusCode is HttpStatusCode.Unauthorized)
+            throw new McpUnauthorizedException();
+
+        if (response.StatusCode is HttpStatusCode.OK)
+        {
+            var result = await response.Content.ReadFromJsonAsync<List<BookInsightJson>>(JsonOptions, ct);
+            return result ?? [];
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// <c>POST /me/insights</c> — save one conclusion against a chapter slug, or against the whole
+    /// book when <paramref name="chapterSlug"/> is null. Saving over an existing one REPLACES it.
+    /// 401 → <see cref="McpUnauthorizedException"/>; other non-success → null.
+    /// </summary>
+    public async Task<BookInsightJson?> SaveInsightAsync(
+        Guid? editionId, Guid? userBookId, string? chapterSlug, string text, string? question,
+        CancellationToken ct)
+    {
+        using var request = await AuthorizedRequestAsync(HttpMethod.Post, "/me/insights", ct);
+        request.Content = JsonContent.Create(
+            new SaveInsightJson(editionId, userBookId, chapterSlug, text, question), options: JsonOptions);
+
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+
+        if (response.StatusCode is HttpStatusCode.Unauthorized)
+            throw new McpUnauthorizedException();
+
+        if (response.StatusCode is HttpStatusCode.Created or HttpStatusCode.OK)
+            return await response.Content.ReadFromJsonAsync<BookInsightJson>(JsonOptions, ct);
+
+        return null;
+    }
+
     // ── ask_book (Bearer) ────────────────────────────────────────────────────────
 
     /// <summary>
@@ -347,6 +546,10 @@ public sealed record ChapterNavJson(string? Slug, string Title);
 public sealed record HighlightJson(
     Guid Id,
     Guid? ChapterId,
+    // A highlight on an UPLOADED book carries its chapter here, not in ChapterId — the same
+    // edition/user-book split as everywhere else. Omitting it made every highlight listed off an
+    // upload report chapterId: null, so a model could not tell what it had already marked where.
+    Guid? UserChapterId,
     string Color,
     string SelectedText,
     string? NoteText,
@@ -385,3 +588,88 @@ public sealed record AskJson(
     bool Insufficient);
 
 public sealed record AskCitationJson(int Marker, int ChapterOrd, string Preview);
+
+// ── my-library DTOs (uploads). Mirror Contracts.UserBooks.*; deliberately a
+//    separate family from the catalog's Book*/Chapter* records above, because
+//    UserBook and Edition are separate aggregates and conflating the two is
+//    exactly the bug this surface exists to avoid. ─────────────────────────────
+
+// GET /me/library/search → UserBookSearchHitDto[]. `Id` is the UserBook id — the
+// only identifier an upload has. There is no editionId here, by construction.
+public sealed record UserBookSearchHitJson(
+    Guid Id,
+    string Title,
+    string? Author,
+    string? CoverPath,
+    string Language,
+    double Rank,
+    string? Excerpt,
+    string? ChapterSlug);
+
+// GET /me/books/{id} → UserBookDetailDto (subset we surface).
+public sealed record UserBookDetailJson(
+    Guid Id,
+    string Title,
+    string Slug,
+    string Language,
+    string? Author,
+    string? Description,
+    string? Genre,
+    int? PublishedYear,
+    int? TotalWordCount,
+    string Status,
+    // True when the upload is a PDF the reader renders as the original document
+    // (ADR-012). It changes what a highlight written from here can do — see
+    // BuildSaveMyHighlight — so it is surfaced rather than left in the DTO.
+    bool HasOriginalPdf,
+    IReadOnlyList<UserChapterSummaryJson>? Chapters);
+
+public sealed record UserChapterSummaryJson(
+    Guid Id, int ChapterNumber, string? Slug, string Title, int? WordCount);
+
+// GET /me/books/{id}/chapters/{slug} → UserChapterDto (subset).
+// Note `Previous`, not `Prev` — the user-book DTO spells it out where the
+// catalog's ChapterDto abbreviates.
+public sealed record UserChapterJson(
+    Guid Id,
+    int ChapterNumber,
+    string? Slug,
+    string Title,
+    string Html,
+    int? WordCount,
+    UserChapterNavJson? Previous,
+    UserChapterNavJson? Next);
+
+public sealed record UserChapterNavJson(int ChapterNumber, string? Slug, string Title);
+
+// POST /me/highlights request, user-book side of the XOR. EditionId / ChapterId are
+// simply absent (JsonOptions drops nulls) and the API's record defaults them to null.
+public sealed record CreateUserBookHighlightJson(
+    Guid UserBookId,
+    Guid UserChapterId,
+    string AnchorJson,
+    string Color,
+    string SelectedText,
+    string? NoteText);
+
+// GET /me/insights → BookInsightDto[]; also the POST response body.
+public sealed record BookInsightJson(
+    Guid Id,
+    Guid? EditionId,
+    Guid? UserBookId,
+    string? ChapterSlug,
+    int? ChapterNumber,
+    string? ChapterTitle,
+    string Text,
+    string? Question,
+    string Source,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt);
+
+// POST /me/insights request → SaveInsightRequest.
+public sealed record SaveInsightJson(
+    Guid? EditionId,
+    Guid? UserBookId,
+    string? ChapterSlug,
+    string Text,
+    string? Question);

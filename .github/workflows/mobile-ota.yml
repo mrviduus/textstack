@@ -50,6 +50,8 @@ concurrency:
 jobs:
   ota:
     runs-on: ubuntu-latest
+    # 2m typical.
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: apps/mobile

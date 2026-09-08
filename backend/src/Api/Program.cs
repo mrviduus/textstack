@@ -333,6 +333,7 @@ app.MapProfileEndpoints();
 app.MapAccountEndpoints();
 app.MapUserDataEndpoints();
 app.MapHighlightsEndpoints();
+app.MapInsightsEndpoints();
 app.MapTranslationEndpoints();
 app.MapExplainEndpoints();
 app.MapDictionaryEndpoints();

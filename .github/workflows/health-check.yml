@@ -17,6 +17,8 @@ env:
 jobs:
   health:
     runs-on: ubuntu-latest
+    # 6s typical.
+    timeout-minutes: 10
     steps:
       - name: Check textstack.app API
         run: curl -sf $CURL_RETRY https://textstack.app/health
