@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **MCP** — your uploaded books open to your assistant, and its conclusions come back into the book — backend, web · [details](docs/changelog-archive/2026-H2.md#2026-09-08-mcp-the-book-opens-to-your-assistant-and-the-conclusions-come-back)
 - **Docs** — ADR-015 records the position model, and QA-001 finally crosses a chapter boundary — docs · [details](docs/changelog-archive/2026-H2.md#2026-09-07-docs-adr-015-and-the-scenario-that-was-never-in-qa-001)
 - **Library** — the shelf called Continue Reading can finally continue something — backend, shared · [details](docs/changelog-archive/2026-H2.md#2026-09-07-library-the-shelf-that-could-not-continue)
 - **Reader** — web joins the position model; a slug with a colon and a tab-close write both stop losing data — web · [details](docs/changelog-archive/2026-H2.md#2026-09-07-reader-web-joins-the-position-model)

@@ -20,10 +20,17 @@ public class McpManifestEndpointTests : IClassFixture<LiveApiFixture>
         "search_books",
         "get_book",
         "get_chapter",
+        "search_my_library",
+        "get_my_book",
+        "get_my_chapter",
         "list_my_highlights",
         "list_my_vocabulary",
         "save_highlight",
         "ask_book",
+        "save_my_highlight",
+        "list_my_book_highlights",
+        "save_insight",
+        "get_my_insights",
     ];
 
     public McpManifestEndpointTests(LiveApiFixture fixture)
@@ -62,7 +69,7 @@ public class McpManifestEndpointTests : IClassFixture<LiveApiFixture>
     }
 
     [Fact]
-    public async Task GetManifest_ListsSevenExpectedTools()
+    public async Task GetManifest_ListsTheExpectedTools()
     {
         var request = _fixture.CreateRequest(HttpMethod.Get, "/mcp/manifest");
         var response = await _fixture.Client.SendAsync(request, TestContext.Current.CancellationToken);
@@ -73,7 +80,7 @@ public class McpManifestEndpointTests : IClassFixture<LiveApiFixture>
             cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotNull(manifest);
-        Assert.Equal(7, manifest.Tools.Count);
+        Assert.Equal(14, manifest.Tools.Count);
 
         var names = manifest.Tools.Select(t => t.Name).ToHashSet();
         Assert.Equal(ExpectedToolNames.ToHashSet(), names);

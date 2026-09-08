@@ -137,6 +137,21 @@ public static partial class ServiceCollectionExtensions
                     QueueLimit = 0,
                 });
             });
+            // Insights (POST /me/insights) — the write-back an outside assistant makes after a
+            // reading session. Cheap for us (one row, no inference), so the cap is not about cost:
+            // it is about a runaway agent loop rewriting a book's конспект thousands of times. 60/min
+            // clears a model working chapter by chapter through a long book in one pass and stops a
+            // loop dead.
+            options.AddPolicy("insights", httpContext =>
+            {
+                var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
+                {
+                    Window = TimeSpan.FromMinutes(1),
+                    PermitLimit = 60,
+                    QueueLimit = 0,
+                });
+            });
             // User book upload — per-IP cap, mirrors the clip zone. Uploads are heavier
             // (file ingestion) so the same conservative bucket applies.
             options.AddPolicy("user-upload", httpContext =>

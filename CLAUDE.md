@@ -500,7 +500,9 @@ Supported formats: EPUB, PDF. Processing order: Spelling → Hyphenation → Typ
 
 ## MCP Server (`backend/src/Ai/TextStack.Ai.Mcp/`)
 
-Thin, stateless MCP↔HTTP bridge (Phase 8) — every tool call becomes an HTTP request to the public TextStack API (no DB/EF/OpenAI). 7 tools: `search_books`, `get_book`, `get_chapter` (public) + `list_my_highlights`, `list_my_vocabulary`, `ask_book`, `save_highlight` (Bearer).
+Thin, stateless MCP↔HTTP bridge (Phase 8) — every tool call becomes an HTTP request to the public TextStack API (no DB/EF/OpenAI). 14 tools. Public catalog: `search_books`, `get_book`, `get_chapter`. The user's own uploads (Bearer): `search_my_library`, `get_my_book`, `get_my_chapter`, `save_my_highlight`, `list_my_book_highlights` — keyed by `bookId` (`UserBook.Id`), which is NOT an `editionId` and does not work in the edition-scoped tools. Write-back, either book type (Bearer): `save_insight`, `get_my_insights` — conclusions from an outside assistant, keyed by chapter **slug** (`BookInsight`, table `book_insight`), one per (user, book, chapter) so a re-run replaces rather than accumulates. Everything else (Bearer): `list_my_highlights`, `list_my_vocabulary`, `ask_book`, `save_highlight`.
+
+The write-back exists because the reasoning happens in Claude/ChatGPT — where the reader already has a profile and a year of history — and only the **result** comes home. See `docs/05-features/mcp.md`.
 
 **Dual transport** (env `MCP_TRANSPORT`: `stdio` default | `http`; `--http` flag also selects http). Shared wiring (tool catalog handlers, typed `TextStackApiClient`) in `McpBridgeCore`; the two host builders in `McpHosts`.
 - **stdio** (local, single identity): `Host.CreateApplicationBuilder`, **logs→stderr** (stdout is JSON-RPC only — never `Console.Write*`), singleton DI, token from `TEXTSTACK_MCP_TOKEN` (static) or the device flow (`DeviceFlowTokenProvider`, AI-050). Byte-identical to the pre-049 server.

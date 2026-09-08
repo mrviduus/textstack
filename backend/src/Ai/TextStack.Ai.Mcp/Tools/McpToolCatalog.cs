@@ -33,10 +33,17 @@ public sealed class McpToolCatalog
             BuildSearchBooks(api),
             BuildGetBook(api),
             BuildGetChapter(api),
+            BuildSearchMyLibrary(api),
+            BuildGetMyBook(api),
+            BuildGetMyChapter(api),
             BuildListMyHighlights(api),
             BuildListMyVocabulary(api),
             BuildAskBook(api),
             BuildSaveHighlight(api),
+            BuildSaveMyHighlight(api),
+            BuildListMyBookHighlights(api),
+            BuildSaveInsight(api),
+            BuildGetMyInsights(api),
         };
         _byName = tools.ToDictionary(t => t.Name, StringComparer.Ordinal);
     }
@@ -131,7 +138,7 @@ public sealed class McpToolCatalog
     private static McpToolDescriptor BuildSearchBooks(TextStackApiClient api) => new()
     {
         Name = "search_books",
-        Description = "Search the TextStack library for books and chapters matching a query.",
+        Description = "Search the PUBLIC TextStack catalog for books and chapters matching a query. This is the shared library of published books, NOT the user's own uploads — for those, use search_my_library.",
         InputSchema = SearchBooksSchema,
         Handler = (args, ct) =>
         {
@@ -248,6 +255,189 @@ public sealed class McpToolCatalog
                     slug = chapter.Slug,
                     title = chapter.Title,
                     prevSlug = chapter.Prev?.Slug,
+                    nextSlug = chapter.Next?.Slug,
+                    truncated,
+                    text,
+                };
+                return Text(JsonSerializer.Serialize(mapped));
+            });
+        },
+    };
+
+    // ── my library: search_my_library / get_my_book / get_my_chapter ────────────
+    //
+    // The user's OWN uploaded books. Separate from the three tools above in the
+    // only way that matters to a caller: an upload is identified by a `bookId`
+    // (UserBook.Id) and has NO editionId, because UserBook and Edition are
+    // separate aggregates with separate chapter and chunk tables. Feeding a
+    // bookId to ask_book or list_my_highlights yields a 404 or an empty list —
+    // so every description below says which identifier it returns and what that
+    // identifier is good for.
+    //
+    // All three are Bearer-scoped: the endpoints filter by user_id in SQL, so the
+    // bridge inherits the app's isolation rather than reimplementing it. None of
+    // them needs the RAG index — search is Postgres FTS over `search_vector`,
+    // built at upload, and get_my_chapter reads the stored chapter.
+
+    private static readonly JsonElement SearchMyLibrarySchema = JsonDocument.Parse(
+        """
+        {
+          "type": "object",
+          "properties": {
+            "query": { "type": "string", "minLength": 2, "maxLength": 200 },
+            "tags": { "type": "string", "maxLength": 200 }
+          },
+          "required": ["query"],
+          "additionalProperties": false
+        }
+        """).RootElement;
+
+    private static McpToolDescriptor BuildSearchMyLibrary(TextStackApiClient api) => new()
+    {
+        Name = "search_my_library",
+        Description =
+            "Full-text search across the books the signed-in user has UPLOADED to TextStack "
+            + "(their private library, not the public catalog — requires authentication). "
+            + "Returns one hit per book with its bookId, title, author and the best-matching "
+            + "chapter slug and excerpt. Pass the bookId to get_my_book or get_my_chapter. "
+            + "A bookId is NOT an editionId and will not work with ask_book or list_my_highlights.",
+        InputSchema = SearchMyLibrarySchema,
+        Handler = (args, ct) =>
+        {
+            if (!ArgReader.TryObject(args, out var obj, out var err, "query", "tags")
+                || !ArgReader.TryRequiredString(obj, "query", 2, 200, out var query, out err)
+                || !ArgReader.TryOptionalString(obj, "tags", 200, out var tags, out err))
+                return Task.FromResult(Error(err));
+
+            return InvokeAsync("search_my_library", ct, async () =>
+            {
+                var hits = await api.SearchMyLibraryAsync(query, tags, ct);
+                var results = hits.Select(h => new
+                {
+                    // Stated on every row so a model holding a mixed result set
+                    // cannot lose track of which id space an id came from.
+                    source = "userbook",
+                    bookId = h.Id,
+                    title = h.Title,
+                    author = h.Author ?? "",
+                    language = h.Language,
+                    chapterSlug = h.ChapterSlug,
+                    // Carries <mark> around the matched terms, as search_books'
+                    // snippet carries <b> — left as sent.
+                    excerpt = h.Excerpt ?? "",
+                });
+                return Text(JsonSerializer.Serialize(new { results }));
+            });
+        },
+    };
+
+    private static readonly JsonElement GetMyBookSchema = JsonDocument.Parse(
+        """
+        {
+          "type": "object",
+          "properties": {
+            "bookId": { "type": "string", "format": "uuid" }
+          },
+          "required": ["bookId"],
+          "additionalProperties": false
+        }
+        """).RootElement;
+
+    private static McpToolDescriptor BuildGetMyBook(TextStackApiClient api) => new()
+    {
+        Name = "get_my_book",
+        Description =
+            "Fetch one of the signed-in user's UPLOADED books by bookId (from search_my_library): "
+            + "its metadata and its full chapter list (requires authentication). Each chapter "
+            + "carries a chapterId and a slug — the slug goes to get_my_chapter, the chapterId to "
+            + "save_my_highlight.",
+        InputSchema = GetMyBookSchema,
+        Handler = (args, ct) =>
+        {
+            if (!ArgReader.TryObject(args, out var obj, out var err, "bookId")
+                || !ArgReader.TryRequiredGuid(obj, "bookId", out var bookId, out err))
+                return Task.FromResult(Error(err));
+
+            return InvokeAsync("get_my_book", ct, async () =>
+            {
+                var book = await api.GetMyBookAsync(bookId, ct);
+                if (book is null)
+                    return Error($"get_my_book: no uploaded book found with id '{bookId}'");
+
+                var mapped = new
+                {
+                    source = "userbook",
+                    bookId = book.Id,
+                    title = book.Title,
+                    slug = book.Slug,
+                    language = book.Language,
+                    author = book.Author ?? "",
+                    description = book.Description ?? "",
+                    genre = book.Genre,
+                    publishedYear = book.PublishedYear,
+                    totalWordCount = book.TotalWordCount,
+                    // Ready / Processing / Failed — a book still processing has no
+                    // chapters yet, and saying so beats an unexplained empty list.
+                    status = book.Status,
+                    chapters = (book.Chapters ?? []).Select(c => new
+                    {
+                        chapterId = c.Id,
+                        chapterNumber = c.ChapterNumber,
+                        slug = c.Slug,
+                        title = c.Title,
+                        wordCount = c.WordCount,
+                    }),
+                };
+                return Text(JsonSerializer.Serialize(mapped));
+            });
+        },
+    };
+
+    private static readonly JsonElement GetMyChapterSchema = JsonDocument.Parse(
+        """
+        {
+          "type": "object",
+          "properties": {
+            "bookId": { "type": "string", "format": "uuid" },
+            "chapterSlug": { "type": "string", "minLength": 1, "maxLength": 300 }
+          },
+          "required": ["bookId", "chapterSlug"],
+          "additionalProperties": false
+        }
+        """).RootElement;
+
+    private static McpToolDescriptor BuildGetMyChapter(TextStackApiClient api) => new()
+    {
+        Name = "get_my_chapter",
+        Description =
+            "Fetch one chapter of a book the signed-in user UPLOADED: its plain text "
+            + "(HTML stripped, length-capped) plus its chapterId, number, title and prev/next "
+            + "slugs (requires authentication). The chapterId it returns is what save_my_highlight "
+            + "needs.",
+        InputSchema = GetMyChapterSchema,
+        Handler = (args, ct) =>
+        {
+            if (!ArgReader.TryObject(args, out var obj, out var err, "bookId", "chapterSlug")
+                || !ArgReader.TryRequiredGuid(obj, "bookId", out var bookId, out err)
+                || !ArgReader.TryRequiredString(obj, "chapterSlug", 1, 300, out var chapterSlug, out err))
+                return Task.FromResult(Error(err));
+
+            return InvokeAsync("get_my_chapter", ct, async () =>
+            {
+                var chapter = await api.GetMyChapterAsync(bookId, chapterSlug, ct);
+                if (chapter is null)
+                    return Error($"get_my_chapter: no chapter '{chapterSlug}' in uploaded book '{bookId}'");
+
+                var text = HtmlText.StripAndCap(chapter.Html, HtmlText.DefaultMaxChars, out var truncated);
+                var mapped = new
+                {
+                    source = "userbook",
+                    bookId,
+                    chapterId = chapter.Id,
+                    chapterNumber = chapter.ChapterNumber,
+                    slug = chapter.Slug,
+                    title = chapter.Title,
+                    prevSlug = chapter.Previous?.Slug,
                     nextSlug = chapter.Next?.Slug,
                     truncated,
                     text,
@@ -472,6 +662,262 @@ public sealed class McpToolCatalog
             });
         },
     };
+
+    // ── write-back: highlights and insights on the user's OWN books ─────────────
+    //
+    // This is the half that makes the whole surface worth having. The reasoning
+    // happens in the client — Claude, ChatGPT, wherever the reader already has a
+    // profile and a year of history. What comes back here is the RESULT, attached
+    // to the book so it is still there next month.
+    //
+    // Two shapes, because a conclusion is not always about one passage:
+    //   • a passage       → a highlight, which the reader already paints;
+    //   • a chapter, or   → an insight keyed by chapter slug;
+    //   • the whole book  → an insight with no chapter slug.
+    // A study конспект is the assembly of those in reading order, not a separate
+    // document — so re-running a pass refreshes it instead of duplicating it.
+
+    private static readonly JsonElement SaveMyHighlightSchema = JsonDocument.Parse(
+        """
+        {
+          "type": "object",
+          "properties": {
+            "bookId": { "type": "string", "format": "uuid" },
+            "chapterId": { "type": "string", "format": "uuid" },
+            "selectedText": { "type": "string", "minLength": 1, "maxLength": 5000 },
+            "color": { "type": "string", "enum": ["yellow", "green", "blue", "pink"] },
+            "noteText": { "type": "string", "maxLength": 2000 }
+          },
+          "required": ["bookId", "chapterId", "selectedText"],
+          "additionalProperties": false
+        }
+        """).RootElement;
+
+    private static McpToolDescriptor BuildSaveMyHighlight(TextStackApiClient api) => new()
+    {
+        Name = "save_my_highlight",
+        Description =
+            "Highlight a passage in one of the books the user UPLOADED (WRITE on their own account — "
+            + "requires authentication). Pass the bookId, the chapterId of the chapter the passage is "
+            + "in (from get_my_book or get_my_chapter), and the exact text as it appears in that "
+            + "chapter — it is matched against the chapter text to place the highlight, so quote it "
+            + "verbatim. Optionally a color and a note. The highlight appears in the reader and in "
+            + "list_my_book_highlights. Highlight what is worth returning to, not every interesting "
+            + "line: a book marked end to end is a book with no marks.",
+        InputSchema = SaveMyHighlightSchema,
+        Handler = (args, ct) =>
+        {
+            if (!ArgReader.TryObject(args, out var obj, out var err, "bookId", "chapterId", "selectedText", "color", "noteText")
+                || !ArgReader.TryRequiredGuid(obj, "bookId", out var bookId, out err)
+                || !ArgReader.TryRequiredGuid(obj, "chapterId", out var chapterId, out err)
+                || !ArgReader.TryRequiredString(obj, "selectedText", 1, 5000, out var selectedText, out err)
+                || !ArgReader.TryOptionalString(obj, "noteText", 2000, out var noteText, out err)
+                || !TryReadColor(obj, out var color, out err))
+                return Task.FromResult(Error(err));
+
+            // Same synthesized W3C text-quote anchor as the catalog write: no DOM
+            // here, so the reader re-anchors by `exact`.
+            var anchorJson = SynthesizeAnchor(chapterId, selectedText);
+
+            return InvokeAsync("save_my_highlight", ct, async () =>
+            {
+                var saved = await api.SaveUserBookHighlightAsync(
+                    bookId, chapterId, anchorJson, color, selectedText, noteText, ct);
+                if (saved is null)
+                    return Error("save_my_highlight failed: the book or chapter was not found, or the save was rejected");
+
+                var mapped = new
+                {
+                    id = saved.Id,
+                    source = "userbook",
+                    bookId,
+                    chapterId = saved.ChapterId ?? chapterId,
+                    color = saved.Color,
+                    selectedText = saved.SelectedText,
+                    noteText = saved.NoteText,
+                    createdAt = saved.CreatedAt,
+                    saved = true,
+                };
+                return Text(JsonSerializer.Serialize(mapped));
+            });
+        },
+    };
+
+    private static readonly JsonElement ListMyBookHighlightsSchema = JsonDocument.Parse(
+        """
+        {
+          "type": "object",
+          "properties": {
+            "bookId": { "type": "string", "format": "uuid" }
+          },
+          "required": ["bookId"],
+          "additionalProperties": false
+        }
+        """).RootElement;
+
+    private static McpToolDescriptor BuildListMyBookHighlights(TextStackApiClient api) => new()
+    {
+        Name = "list_my_book_highlights",
+        Description =
+            "List the highlights already saved in one of the books the user UPLOADED, by bookId "
+            + "(requires authentication). Use it before highlighting to see what is already marked. "
+            + "For a book from the public catalog use list_my_highlights with its editionId instead.",
+        InputSchema = ListMyBookHighlightsSchema,
+        Handler = (args, ct) =>
+        {
+            if (!ArgReader.TryObject(args, out var obj, out var err, "bookId")
+                || !ArgReader.TryRequiredGuid(obj, "bookId", out var bookId, out err))
+                return Task.FromResult(Error(err));
+
+            return InvokeAsync("list_my_book_highlights", ct, async () =>
+            {
+                var highlights = await api.GetUserBookHighlightsAsync(bookId, ct);
+                if (highlights is null)
+                    return Error($"list_my_book_highlights: no uploaded book found with id '{bookId}'");
+
+                var mapped = highlights.Select(h => new
+                {
+                    id = h.Id,
+                    chapterId = h.ChapterId,
+                    color = h.Color,
+                    selectedText = h.SelectedText,
+                    noteText = h.NoteText,
+                    createdAt = h.CreatedAt,
+                });
+                return Text(JsonSerializer.Serialize(new { source = "userbook", bookId, highlights = mapped }));
+            });
+        },
+    };
+
+    // bookId XOR editionId: JSON Schema could express it with oneOf, but the SDK
+    // does not validate InputSchema at all, so the exclusivity is enforced in the
+    // handler either way (TryReadInsightTarget) and the schema stays readable.
+    private static readonly JsonElement SaveInsightSchema = JsonDocument.Parse(
+        """
+        {
+          "type": "object",
+          "properties": {
+            "bookId": { "type": "string", "format": "uuid" },
+            "editionId": { "type": "string", "format": "uuid" },
+            "chapterSlug": { "type": "string", "maxLength": 300 },
+            "text": { "type": "string", "minLength": 1, "maxLength": 20000 },
+            "question": { "type": "string", "maxLength": 1000 }
+          },
+          "required": ["text"],
+          "additionalProperties": false
+        }
+        """).RootElement;
+
+    private static McpToolDescriptor BuildSaveInsight(TextStackApiClient api) => new()
+    {
+        Name = "save_insight",
+        Description =
+            "Write a conclusion back into a book so the reader finds it there later (WRITE on their "
+            + "own account — requires authentication). Give EITHER bookId (a book they uploaded) OR "
+            + "editionId (a catalog book). Pass chapterSlug when the conclusion is about one chapter, "
+            + "and leave it out when it is about the whole book — that book-level one is the конспект's "
+            + "overview. `text` is Markdown; `question` records what was being worked out, which is "
+            + "what makes it worth coming back to. Saving again for the same chapter REPLACES the "
+            + "previous one, so a second pass refreshes the notes rather than duplicating them.",
+        InputSchema = SaveInsightSchema,
+        Handler = (args, ct) =>
+        {
+            if (!ArgReader.TryObject(args, out var obj, out var err, "bookId", "editionId", "chapterSlug", "text", "question")
+                || !TryReadInsightTarget(obj, out var editionId, out var bookId, out err)
+                || !ArgReader.TryRequiredString(obj, "text", 1, 20000, out var text, out err)
+                || !ArgReader.TryOptionalString(obj, "chapterSlug", 300, out var chapterSlug, out err)
+                || !ArgReader.TryOptionalString(obj, "question", 1000, out var question, out err))
+                return Task.FromResult(Error(err));
+
+            return InvokeAsync("save_insight", ct, async () =>
+            {
+                var saved = await api.SaveInsightAsync(editionId, bookId, chapterSlug, text, question, ct);
+                if (saved is null)
+                    return Error("save_insight failed: the book was not found, or that chapter slug does not exist in it");
+
+                var mapped = new
+                {
+                    id = saved.Id,
+                    editionId = saved.EditionId,
+                    bookId = saved.UserBookId,
+                    chapterSlug = saved.ChapterSlug,
+                    question = saved.Question,
+                    updatedAt = saved.UpdatedAt,
+                    saved = true,
+                };
+                return Text(JsonSerializer.Serialize(mapped));
+            });
+        },
+    };
+
+    private static readonly JsonElement GetMyInsightsSchema = JsonDocument.Parse(
+        """
+        {
+          "type": "object",
+          "properties": {
+            "bookId": { "type": "string", "format": "uuid" },
+            "editionId": { "type": "string", "format": "uuid" }
+          },
+          "required": [],
+          "additionalProperties": false
+        }
+        """).RootElement;
+
+    private static McpToolDescriptor BuildGetMyInsights(TextStackApiClient api) => new()
+    {
+        Name = "get_my_insights",
+        Description =
+            "Read back everything already worked out about a book and saved with save_insight, in "
+            + "reading order (requires authentication). Give EITHER bookId (an uploaded book) OR "
+            + "editionId (a catalog book). Call this FIRST when starting to work on a book the reader "
+            + "has discussed before — it is what stops the next session repeating the last one.",
+        InputSchema = GetMyInsightsSchema,
+        Handler = (args, ct) =>
+        {
+            if (!ArgReader.TryObject(args, out var obj, out var err, "bookId", "editionId")
+                || !TryReadInsightTarget(obj, out var editionId, out var bookId, out err))
+                return Task.FromResult(Error(err));
+
+            return InvokeAsync("get_my_insights", ct, async () =>
+            {
+                var insights = await api.GetInsightsAsync(editionId, bookId, ct);
+                var mapped = insights.Select(i => new
+                {
+                    id = i.Id,
+                    // null chapterSlug = about the whole book.
+                    chapterSlug = i.ChapterSlug,
+                    chapterNumber = i.ChapterNumber,
+                    chapterTitle = i.ChapterTitle,
+                    question = i.Question,
+                    text = i.Text,
+                    updatedAt = i.UpdatedAt,
+                });
+                return Text(JsonSerializer.Serialize(new { insights = mapped }));
+            });
+        },
+    };
+
+    // Exactly one of bookId / editionId. Both or neither is a caller error, and
+    // saying which is missing beats a 400 from three layers down.
+    private static bool TryReadInsightTarget(
+        JsonElement obj, out Guid? editionId, out Guid? bookId, out string error)
+    {
+        editionId = null;
+        if (!ArgReader.TryOptionalGuid(obj, "bookId", out bookId, out error))
+            return false;
+        if (!ArgReader.TryOptionalGuid(obj, "editionId", out editionId, out error))
+            return false;
+
+        if (bookId.HasValue == editionId.HasValue)
+        {
+            error = bookId.HasValue
+                ? "Pass either 'bookId' (an uploaded book) or 'editionId' (a catalog book), not both."
+                : "Pass either 'bookId' (an uploaded book) or 'editionId' (a catalog book).";
+            return false;
+        }
+
+        return true;
+    }
 
     // Optional color: absent → "yellow"; present must be one of the reader palette.
     private static bool TryReadColor(JsonElement obj, out string color, out string error)

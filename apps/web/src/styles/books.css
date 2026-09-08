@@ -8324,3 +8324,34 @@ a.read-later__title:hover { text-decoration: underline; }
   max-width: 340px;
   margin: 0 auto;
 }
+
+/* "What you've worked out" — insights an outside assistant wrote back into the
+   book over MCP. Sits between the stats and the chapter list on the book page:
+   coming back to a book, what you already concluded beats the table of contents.
+   Styled as a quiet document, not a card grid — this is prose to be read. */
+.book-insights { margin: 24px 0; padding: 20px; background: var(--color-surface, #fff); border: 1px solid var(--color-border, #e0d8c8); border-radius: 12px; }
+.book-insights__title { margin: 0 0 4px; font-size: 18px; }
+.book-insights__lead { margin: 0 0 16px; font-size: 13px; color: var(--color-text-secondary, #666); }
+.book-insights__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 20px; }
+.book-insights__item { padding-left: 14px; border-left: 3px solid var(--color-border, #e0d8c8); }
+.book-insights__scope { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-text-secondary, #666); }
+/* The question is the provenance stamp — what you were trying to work out. It is
+   what makes the answer below worth returning to, so it reads as a heading. */
+.book-insights__question { margin-top: 2px; font-size: 15px; font-weight: 600; }
+.book-insights__body { margin-top: 8px; font-size: 15px; line-height: 1.6; }
+.book-insights__body > :first-child { margin-top: 0; }
+.book-insights__body > :last-child { margin-bottom: 0; }
+.book-insights__body ul, .book-insights__body ol { padding-left: 20px; }
+.book-insights__body code { font-size: 0.9em; padding: 1px 4px; border-radius: 4px; background: var(--color-bg-secondary, #f1f5f9); }
+.book-insights__body pre { overflow-x: auto; padding: 12px; border-radius: 8px; background: var(--color-bg-secondary, #f1f5f9); }
+.book-insights__body blockquote { margin: 8px 0; padding-left: 12px; border-left: 3px solid var(--color-border, #e0d8c8); color: var(--color-text-secondary, #666); }
+
+/* "Talk this book over" — the handoff into Claude / ChatGPT. A link, not an
+   integration: see lib/assistantHandoff.ts. Sits under the insights section, so
+   the page reads "here is what came back / here is how to get more". */
+.discuss-assistant { margin: 24px 0; padding: 16px 20px; background: var(--color-surface, #fff); border: 1px solid var(--color-border, #e0d8c8); border-radius: 12px; }
+.discuss-assistant__label { font-size: 14px; font-weight: 600; margin-bottom: 10px; }
+.discuss-assistant__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.discuss-assistant__btn { display: inline-flex; align-items: center; padding: 8px 14px; border: 1px solid var(--color-border, #e0d8c8); border-radius: 8px; font-size: 14px; text-decoration: none; color: inherit; background: var(--color-bg-secondary, #f1f5f9); }
+.discuss-assistant__btn:hover { border-color: var(--color-brand, #C4704B); }
+.discuss-assistant__hint { margin: 10px 0 0; font-size: 12px; line-height: 1.5; color: var(--color-text-secondary, #666); }
