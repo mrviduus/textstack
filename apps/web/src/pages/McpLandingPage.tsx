@@ -73,10 +73,17 @@ export function McpLandingPage() {
     { name: 'search_books', desc: t('mcp.tools.searchBooks') },
     { name: 'get_book', desc: t('mcp.tools.getBook') },
     { name: 'get_chapter', desc: t('mcp.tools.getChapter') },
+    { name: 'search_my_library', desc: t('mcp.tools.searchMyLibrary') },
+    { name: 'get_my_book', desc: t('mcp.tools.getMyBook') },
+    { name: 'get_my_chapter', desc: t('mcp.tools.getMyChapter') },
+    { name: 'save_my_highlight', desc: t('mcp.tools.saveMyHighlight') },
+    { name: 'list_my_book_highlights', desc: t('mcp.tools.listMyBookHighlights') },
     { name: 'list_my_highlights', desc: t('mcp.tools.listMyHighlights') },
     { name: 'save_highlight', desc: t('mcp.tools.saveHighlight') },
     { name: 'list_my_vocabulary', desc: t('mcp.tools.listMyVocabulary') },
     { name: 'ask_book', desc: t('mcp.tools.askBook') },
+    { name: 'save_insight', desc: t('mcp.tools.saveInsight') },
+    { name: 'get_my_insights', desc: t('mcp.tools.getMyInsights') },
   ]
 
   return (

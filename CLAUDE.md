@@ -188,6 +188,8 @@ Context files: `apps/web/src/context/{Site,Auth,GuestLimits,NativeLanguage,Downl
 - Pages: `/:lang/library/my/:id` (detail), `/:lang/library/my/:id/read/:chapterSlug` (reader with `mode="userbook"`)
 - Metadata enrichment: `BookMetadataGenerator` (Worker) — Ollama fire-and-forget generates genre, year, description from title+author. Fields: Author, Genre, PublishedYear, TotalWordCount
 
+**`chapter_number` is an ordering key, not a display ordinal.** It is not consistently based and never has been: on production every edition starts at 0, but 4 uploaded books start at 2, and locally 5 editions start at 1. `BookDetailPage` renders `chapterNumber + 1` and `UserBookDetailPage` renders it raw, so both are right for the common case and wrong for the exceptions. Anything new that shows a chapter to a reader should show its **title** and use the number only to sort. (`BookInsightsSection` does.)
+
 **Book Upload Flow**:
 ```
 Upload EPUB/PDF → BookFile (stored) → IngestionJob (queued)
@@ -425,6 +427,18 @@ Test naming convention: `{MethodName}_{Scenario}_{ExpectedResult}`
 
 **E2E setup**: Global setup authenticates test user + admin, discovers books from API → `.test-data.json`. Auth state stored in `apps/web/e2e/.auth/`. Page object helpers in `apps/web/e2e/helpers/`.
 
+**Running the integration suite locally**: it trips its own rate limits at production values — a dozen classes seed a book by clipping one, and the GDPR-delete class calls account-delete four times. CI raises the knobs; do the same locally or you will read 429s as failures:
+
+```bash
+CLIP_PERMIT_LIMIT=200 ACCOUNT_DELETE_PERMIT_LIMIT=50 GUEST_SESSION_PERMIT_LIMIT=50 \
+  USER_LOGIN_PERMIT_LIMIT=100 RAG_ASK_PERMIT_LIMIT=200 \
+  docker compose up -d --no-deps --force-recreate api
+dotnet test tests/TextStack.IntegrationTests
+docker compose up -d --no-deps --force-recreate api   # back to production values
+```
+
+Also: the windows are 1–5 minutes, so **two overlapping runs throttle each other**. Run the suite once and read the result, rather than re-running to confirm a failure.
+
 **Test env vars**:
 - `ENABLE_TEST_AUTH=true` — enables test auth endpoints (needed for integration + E2E)
 - `ADMIN_EMAIL` / `ADMIN_PASSWORD` — needed for admin E2E
@@ -500,7 +514,13 @@ Supported formats: EPUB, PDF. Processing order: Spelling → Hyphenation → Typ
 
 ## MCP Server (`backend/src/Ai/TextStack.Ai.Mcp/`)
 
-Thin, stateless MCP↔HTTP bridge (Phase 8) — every tool call becomes an HTTP request to the public TextStack API (no DB/EF/OpenAI). 7 tools: `search_books`, `get_book`, `get_chapter` (public) + `list_my_highlights`, `list_my_vocabulary`, `ask_book`, `save_highlight` (Bearer).
+Thin, stateless MCP↔HTTP bridge (Phase 8) — every tool call becomes an HTTP request to the public TextStack API (no DB/EF/OpenAI). 14 tools. Public catalog: `search_books`, `get_book`, `get_chapter`. The user's own uploads (Bearer): `search_my_library`, `get_my_book`, `get_my_chapter`, `save_my_highlight`, `list_my_book_highlights` — keyed by `bookId` (`UserBook.Id`), which is NOT an `editionId` and does not work in the edition-scoped tools. Write-back, either book type (Bearer): `save_insight`, `get_my_insights` — conclusions from an outside assistant, keyed by chapter **slug** (`BookInsight`, table `book_insight`), one per (user, book, chapter) so a re-run replaces rather than accumulates. Everything else (Bearer): `list_my_highlights`, `list_my_vocabulary`, `ask_book`, `save_highlight`.
+
+**Assistant write ceiling**: `HighlightsEndpoints.MaxAssistantHighlightsPerBook` (200) caps how many highlights one book may receive over MCP, counted by `anchor_json->>'source' = 'mcp'` — the field `SynthesizeAnchor` writes. A person highlighting in the reader is never counted and never capped. `POST /me/highlights` is additionally rate-limited by the `highlight-write` policy, which is the **only policy partitioned by user id rather than IP**: the MCP bridge reaches the API from one container address, so an IP key would let one looping client throttle every other MCP user.
+
+**On a PDF upload an MCP highlight is saved and listed but not painted.** The reader renders PDFs as the original document (ADR-012) and `PdfHighlightLayer` only draws `kind:"pdf"` anchors, which are page geometry the bridge cannot produce. `get_my_book` reports `rendersAsOriginalPdf` so the model can say so. Roughly half the uploaded library is PDF.
+
+The write-back exists because the reasoning happens in Claude/ChatGPT — where the reader already has a profile and a year of history — and only the **result** comes home. See `docs/05-features/mcp.md`.
 
 **Dual transport** (env `MCP_TRANSPORT`: `stdio` default | `http`; `--http` flag also selects http). Shared wiring (tool catalog handlers, typed `TextStackApiClient`) in `McpBridgeCore`; the two host builders in `McpHosts`.
 - **stdio** (local, single identity): `Host.CreateApplicationBuilder`, **logs→stderr** (stdout is JSON-RPC only — never `Console.Write*`), singleton DI, token from `TEXTSTACK_MCP_TOKEN` (static) or the device flow (`DeviceFlowTokenProvider`, AI-050). Byte-identical to the pre-049 server.
