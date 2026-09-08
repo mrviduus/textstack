@@ -14,19 +14,27 @@
 # complete coverage. `pnpm audit` from the root is the check that sees everything.
 version: 2
 updates:
-  # One entry for the whole JS workspace: one lockfile, one install.
-  - package-ecosystem: npm
-    directory: /
-    schedule:
-      interval: weekly
-      day: monday
-    open-pull-requests-limit: 5
-    groups:
-      # Tooling churns constantly and is not what anyone wants five separate
-      # PRs about. Anything that ships to a user gets its own PR.
-      dev-tooling:
-        dependency-type: development
-        update-types: [minor, patch]
+  # No npm entry, on the evidence of two weeks that said the same thing. Written
+  # after the first; confirmed by the second, which produced expo-sqlite@57
+  # against an SDK pinning ~55.0.20 — the identical failure, from the identical
+  # cause, one week later.
+  #
+  # Week one: Dependabot opened five JavaScript PRs and all five were wrong —
+  # not failing, wrong:
+  # react-native 0.87.1 against an SDK that pins 0.83.10, expo-splash-screen
+  # from a different SDK entirely, a webview major the SDK does not ship, a
+  # screens minor it does not pin, and a bump to expo-speech, a package nothing
+  # in the app imports. Four of the five had green type checks and green unit
+  # tests, because tsc does not know what an SDK compatibility matrix is.
+  #
+  # The catalog lane in deps-refresh.yml covers the same ground with the gates
+  # Dependabot cannot have: `expo install --check` against the SDK matrix, the
+  # runtime-fingerprint report, and a full Metro bundle per proposal. Running
+  # both means the one without gates files first.
+  #
+  # Security advisories are a separate mechanism (Settings → Advanced Security)
+  # and are not affected by this file. Those are worth having; unreviewed
+  # version churn against a pinned SDK is not.
 
   - package-ecosystem: nuget
     directory: /
@@ -34,10 +42,22 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
-    groups:
-      dotnet:
-        patterns: ['*']
-        update-types: [minor, patch]
+    ignore:
+      # ImageSharp v4 is not a version we can take: the build fails with "No Six
+      # Labors license found. Set $(SixLaborsLicenseKey) ... obtain a license
+      # from sixlabors.com/pricing". v3 is the last release usable under the
+      # split licence on our terms, and this repository is BUSL-1.1 with paid
+      # inference behind it — a per-seat image library is a business decision,
+      # not a dependency bump. Without this, Dependabot reopens the same
+      # unmergeable PR every week forever.
+      - dependency-name: SixLabors.ImageSharp
+        update-types: [version-update:semver-major]
+    # Deliberately ungrouped. The grouped version produced "Bump Dapper and 20
+    # others" — a PR that passes or fails as a unit and so says nothing about
+    # which member did it. Its failure turned out to belong to none of the
+    # twenty: Directory.Packages.props pinned Microsoft.Extensions.* below what
+    # a transitive dependency required. One package per PR is more PRs and less
+    # time.
 
   # The workflows in this repo pin action majors (actions/checkout@v5). Those
   # move rarely and silently, and one of them is what installs the Node version

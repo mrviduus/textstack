@@ -53,6 +53,8 @@ jobs:
   refresh:
     if: ${{ inputs.lane == null || inputs.lane == 'both' || inputs.lane == 'refresh' }}
     runs-on: ubuntu-latest
+    # An install and a lockfile re-resolve.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
 
@@ -105,6 +107,14 @@ jobs:
         working-directory: apps/mobile
         run: npx expo export --platform android --output-dir "$RUNNER_TEMP/bundle"
 
+      # NOTE: this step needs a REPOSITORY SETTING, not a token. Without
+      # Settings → Actions → General → Workflow permissions → "Allow GitHub
+      # Actions to create and approve pull requests", it fails with
+      # "GitHub Actions is not permitted to create or approve pull requests"
+      # AFTER doing all the work — the branch is pushed and the proposal is
+      # sound, only the PR is missing. That is what happened on 2026-09-07:
+      # deps/catalog held two verified bumps that nobody saw, while Dependabot,
+      # which needs no such permission, filed five that could not merge.
       - name: Open a pull request
         if: steps.resolve.outputs.changed == 'true' && inputs.dry_run != true
         uses: peter-evans/create-pull-request@v7
@@ -135,6 +145,8 @@ jobs:
     # skip this one whenever the other had nothing to do.
     if: ${{ inputs.lane == null || inputs.lane == 'both' || inputs.lane == 'catalog' }}
     runs-on: ubuntu-latest
+    # An install, a verify and a Metro bundle.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
 

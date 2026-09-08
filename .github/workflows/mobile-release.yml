@@ -55,6 +55,8 @@ concurrency:
 jobs:
   ship:
     runs-on: ubuntu-latest
+    # 17m, and an EAS cloud build can sit in a queue first.
+    timeout-minutes: 90
     defaults:
       run:
         working-directory: apps/mobile

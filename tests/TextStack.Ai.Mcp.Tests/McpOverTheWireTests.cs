@@ -241,10 +241,10 @@ public class McpOverTheWireTests : IAsyncLifetime
         Assert.Equal("textstack", client.ServerInfo.Name);
     }
 
-    // ── 9. protocol: tools/list → exactly 7 ───────────────────────────────────────
+    // ── 9. protocol: tools/list → exactly the advertised surface ─────────────────
 
     [Fact]
-    public async Task ListTools_OverWire_ReturnsExactlySevenExpectedTools()
+    public async Task ListTools_OverWire_ReturnsExactlyTheExpectedTools()
     {
         await using var client = await _harness.ConnectAsync(bearer: null, Ct);
 
@@ -252,7 +252,7 @@ public class McpOverTheWireTests : IAsyncLifetime
 
         var names = tools.Select(t => t.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray();
         Assert.Equal(
-            ["ask_book", "get_book", "get_chapter", "list_my_highlights", "list_my_vocabulary", "save_highlight", "search_books"],
+            ["ask_book", "get_book", "get_chapter", "get_my_book", "get_my_chapter", "get_my_insights", "list_my_book_highlights", "list_my_highlights", "list_my_vocabulary", "save_highlight", "save_insight", "save_my_highlight", "search_books", "search_my_library"],
             names);
     }
 
@@ -315,7 +315,7 @@ public class McpOverTheWireTests : IAsyncLifetime
         await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
 
         var tools = await client.ListToolsAsync(cancellationToken: Ct);
-        Assert.Equal(7, tools.Count);
+        Assert.Equal(14, tools.Count);
 
         var chapter = await CallAsync(client, "get_chapter", Args(("slug", "dracula"), ("chapterSlug", "ch-1")));
         Assert.NotEqual(true, chapter.IsError);
@@ -336,5 +336,83 @@ public class McpOverTheWireTests : IAsyncLifetime
         // All three user-scoped calls forwarded the same session bearer.
         Assert.Equal($"Bearer {McpServerHarness.TestJwt}", _harness.Stub.Last("save_highlight")!.Authorization);
         Assert.Equal($"Bearer {McpServerHarness.TestJwt}", _harness.Stub.Last("ask_book")!.Authorization);
+    }
+
+    // ── 14. one-session e2e over the UPLOADED half: search → book → chapter ───────
+
+    [Fact]
+    public async Task OneSession_OverWire_MyLibraryChain_SearchToBookToChapter()
+    {
+        // The chain a client actually walks to work with a user's own upload, in
+        // one session: find the book, list its chapters, read one. Every step is
+        // keyed by bookId; nothing in the chain produces or consumes an editionId.
+        await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
+
+        var found = await CallAsync(client, "search_my_library", Args(("query", "quorum")));
+        Assert.NotEqual(true, found.IsError);
+        var hit = Json(found).GetProperty("results").EnumerateArray().Single();
+        Assert.Equal("userbook", hit.GetProperty("source").GetString());
+        var bookId = hit.GetProperty("bookId").GetString()!;
+        Assert.Equal(StubBackend.UserBookId, bookId);
+
+        var book = await CallAsync(client, "get_my_book", Args(("bookId", bookId)));
+        Assert.NotEqual(true, book.IsError);
+        var chapter = Json(book).GetProperty("chapters").EnumerateArray().Single();
+        Assert.Equal(StubBackend.UserChapterId, chapter.GetProperty("chapterId").GetString());
+
+        var read = await CallAsync(client, "get_my_chapter", Args(
+            ("bookId", bookId),
+            ("chapterSlug", chapter.GetProperty("slug").GetString())));
+        Assert.NotEqual(true, read.IsError);
+        Assert.Contains("Replication means keeping a copy", Json(read).GetProperty("text").GetString());
+
+        // The chain never mentions an editionId — an upload does not have one, and
+        // a plausible-looking id here is worse than none.
+        Assert.DoesNotContain("editionId", TextOf(found));
+        Assert.DoesNotContain("editionId", TextOf(book));
+        Assert.DoesNotContain("editionId", TextOf(read));
+
+        Assert.Equal($"Bearer {McpServerHarness.TestJwt}", _harness.Stub.Last("search_my_library")!.Authorization);
+        Assert.Equal($"Bearer {McpServerHarness.TestJwt}", _harness.Stub.Last("get_my_chapter")!.Authorization);
+    }
+
+    // ── 15. one-session e2e: the write-back loop ─────────────────────────────────
+
+    [Fact]
+    public async Task OneSession_OverWire_WriteBack_HighlightThenInsightThenReadBack()
+    {
+        // The point of the whole surface: an outside assistant finishes a reading
+        // session by marking a passage and writing its conclusion into the book, and
+        // the NEXT session reads that back instead of starting over.
+        await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
+
+        var highlighted = await CallAsync(client, "save_my_highlight", Args(
+            ("bookId", StubBackend.UserBookId),
+            ("chapterId", StubBackend.UserChapterId),
+            ("selectedText", "a quorum of replicas"),
+            ("color", "blue")));
+        Assert.NotEqual(true, highlighted.IsError);
+
+        // It went down the user-book side of the API's XOR, not the edition side.
+        var sent = JsonDocument.Parse(_harness.Stub.Last("save_highlight")!.Body).RootElement;
+        Assert.Equal(StubBackend.UserBookId, sent.GetProperty("userBookId").GetString());
+        Assert.False(sent.TryGetProperty("editionId", out _));
+
+        var saved = await CallAsync(client, "save_insight", Args(
+            ("bookId", StubBackend.UserBookId),
+            ("chapterSlug", "replication"),
+            ("text", "Quorums are about overlap, not majorities."),
+            ("question", "why w + r > n?")));
+        Assert.NotEqual(true, saved.IsError);
+        Assert.True(Json(saved).GetProperty("saved").GetBoolean());
+
+        // A later session picks the book back up and finds the work already done.
+        var back = await CallAsync(client, "get_my_insights", Args(("bookId", StubBackend.UserBookId)));
+        Assert.NotEqual(true, back.IsError);
+        var items = Json(back).GetProperty("insights").EnumerateArray().ToArray();
+        Assert.Equal(2, items.Length);
+        Assert.Contains(items, i => i.GetProperty("chapterTitle").GetString() == "Replication");
+
+        Assert.Equal($"Bearer {McpServerHarness.TestJwt}", _harness.Stub.Last("save_insight")!.Authorization);
     }
 }

@@ -23,6 +23,9 @@ import {
   generateThemeDescription,
 } from '../lib/bookSeo'
 import { ShareButtons } from '../components/ShareButtons'
+import { BookInsightsSection } from '../components/library/BookInsightsSection'
+import { DiscussWithAssistant } from '../components/library/DiscussWithAssistant'
+import { useAuth } from '../context/AuthContext'
 import { BookDetailHero } from '../components/BookDetailHero'
 import { AddToCollectionButton } from '../components/library/AddToCollectionButton'
 import { SimilarBooksRail } from '../components/book/SimilarBooksRail'
@@ -68,6 +71,7 @@ export function BookDetailPage() {
   const { t } = useTranslation()
   const { isDownloading, getProgress, startDownload } = useDownload()
   const { isInLibrary } = useLibrary()
+  const { isAuthenticated } = useAuth()
   const { site } = useSite()
   const canonicalOrigin = getCanonicalOrigin(site?.primaryDomain)
   const [book, setBook] = useState<BookDetail | null>(null)
@@ -348,6 +352,20 @@ export function BookDetailPage() {
           </>
         }
       />
+
+      {/* The same two panels as an uploaded book's page — a conclusion written
+          back over MCP can name either book type, so both have to show it or
+          catalog insights would be write-only. Behind isAuthenticated because
+          this page is also prerendered for crawlers, and an anonymous visit
+          firing a 401 is noise on the SEO path. */}
+      {isAuthenticated && <BookInsightsSection editionId={book.id} />}
+      {isAuthenticated && (
+        <DiscussWithAssistant
+          title={book.title}
+          author={book.authors.map(a => a.name).join(', ') || null}
+          editionId={book.id}
+        />
+      )}
 
       {/* Chapters */}
       <section className="book-tabs">

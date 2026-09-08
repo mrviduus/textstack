@@ -5,14 +5,21 @@ library to Claude Desktop, Cursor, or any [Model Context Protocol](https://model
 client. Ask your books questions, read chapters, and manage your highlights and
 vocabulary straight from your AI assistant.
 
-It exposes **7 tools**:
+It exposes **14 tools**:
 
 | Tool | What it does |
 |------|--------------|
-| `search_books` | Search the public book library by query |
+| `search_books` | Search the public book catalog by query |
 | `get_book` | Fetch a book's metadata and chapter list by slug |
 | `get_chapter` | Fetch the full text of a single chapter |
 | `ask_book` | Ask a question about a book and get a cited, grounded answer |
+| `search_my_library` | Search the books **you uploaded** (requires sign-in) |
+| `get_my_book` | Fetch one of your uploads: metadata + chapter list (requires sign-in) |
+| `get_my_chapter` | Fetch the full text of one chapter of your upload (requires sign-in) |
+| `save_my_highlight` | Highlight a passage in a book you uploaded (requires sign-in) |
+| `list_my_book_highlights` | List the highlights in a book you uploaded (requires sign-in) |
+| `save_insight` | Write a conclusion back into a book, against a chapter or the whole book (requires sign-in) |
+| `get_my_insights` | Read back everything already worked out about a book (requires sign-in) |
 | `list_my_highlights` | List your saved highlights (requires sign-in) |
 | `save_highlight` | Save a passage to your highlights (requires sign-in) |
 | `list_my_vocabulary` | List your saved vocabulary words (requires sign-in) |
@@ -50,8 +57,13 @@ Add to your `claude_desktop_config.json`:
 ```
 
 The server speaks MCP over **stdio** by default — exactly what a local desktop
-client needs. The public tools (`search_books`, `get_book`, `get_chapter`,
-`ask_book`) work without signing in.
+client needs. The catalog tools (`search_books`, `get_book`, `get_chapter`) work
+without signing in.
+
+Your own uploads are a separate half of the library, reached by the `*_my_*`
+tools and identified by a `bookId`. A `bookId` is not an `editionId`: passing one
+to `ask_book` or `list_my_highlights` returns nothing rather than an error, so
+keep the two apart.
 
 ## Auth (for your highlights / vocabulary)
 
