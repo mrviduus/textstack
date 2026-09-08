@@ -1,4 +1,4 @@
-import { buildHandoffBrief, handoffUrl, type HandoffBook } from '../../lib/assistantHandoff'
+import { buildHandoffBrief, handoffUrl, type HandoffBook } from '@textstack/shared'
 import { useTranslation } from '../../hooks/useTranslation'
 
 /**

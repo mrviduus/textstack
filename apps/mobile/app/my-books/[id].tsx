@@ -15,6 +15,8 @@ import { LoadingScreen } from '../../src/components/ui/LoadingScreen'
 import { EmptyState } from '../../src/components/ui/EmptyState'
 import { trackBookOpened } from '../../src/lib/analytics'
 import { AddToCollectionSheet } from '../../src/components/library/AddToCollectionSheet'
+import { BookInsightsSection } from '../../src/components/library/BookInsightsSection'
+import { DiscussWithAssistant } from '../../src/components/library/DiscussWithAssistant'
 import { useSheetMount } from '../../src/hooks/useSheetMount'
 
 export default function UserBookDetailScreen() {
@@ -536,6 +538,22 @@ export default function UserBookDetailScreen() {
           onClose={() => setCollectionSheetOpen(false)}
           onAdded={(name) => showToast({ message: t('library.actions.addedToCollection').replace('{{name}}', name), variant: 'success' })}
         />}
+
+        {/* Above the chapter list on purpose: coming back to a book, what you
+            already worked out is more use than the table of contents. */}
+        {isReady && <BookInsightsSection userBookId={book.id} />}
+
+        {/* Directly under it: the section shows what came back, this is how you
+            go and get more. */}
+        {isReady && (
+          <DiscussWithAssistant
+            title={book.title}
+            author={book.author}
+            bookId={book.id}
+            progressFraction={bookPct}
+            chapterTitle={book.chapters.find(c => c.slug === continueSlug)?.title ?? null}
+          />
+        )}
 
         {/* Chapter list */}
         {isReady && book.chapters.length > 0 && (

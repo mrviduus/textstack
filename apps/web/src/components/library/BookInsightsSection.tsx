@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { getBookInsights, type BookInsight } from '../../api/insights'
+import { insightsApi, type BookInsight } from '@textstack/shared'
 import { useTranslation } from '../../hooks/useTranslation'
 
 /**
@@ -34,7 +34,7 @@ export function BookInsightsSection({ userBookId, editionId }: Props) {
 
     let cancelled = false
     setLoading(true)
-    getBookInsights(target)
+    insightsApi.getBookInsights(target)
       .then(rows => { if (!cancelled) setInsights(rows) })
       // Silent: this is a supplementary panel and a failure here must never take
       // the book page down with it. Same posture as BookStatsSection.

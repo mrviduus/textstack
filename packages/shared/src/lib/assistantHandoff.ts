@@ -34,8 +34,20 @@ export interface HandoffBook {
   bookId?: string
   /** Edition id for a catalog book. */
   editionId?: string
-  /** 0–100, if known. */
-  progressPercent?: number | null
+  /**
+   * How far in, as a FRACTION of the book: 0..1, the way progress is stored
+   * everywhere else in this codebase ("the server stores a book-wide fraction",
+   * `progressPayload.ts`).
+   *
+   * Named for the unit on purpose. The first version of this took "0–100",
+   * every caller had a 0..1 fraction to hand, and `Math.round(0.42)` put
+   * "about 0% in" into the brief — silently, because it only shows when the
+   * reader has progress and the first test had none. Percent-vs-fraction is the
+   * recurring defect in this repository (ADR-011 added `percentUnit` for the
+   * same reason); the field carries the unit in its name so the next caller
+   * cannot make the same trade.
+   */
+  progressFraction?: number | null
   /** Where the reader stopped, if known. */
   chapterTitle?: string | null
 }
@@ -48,8 +60,12 @@ export function buildHandoffBrief(book: HandoffBook): string {
   lines.push(`I'm reading "${book.title}"${author}.`)
 
   const where: string[] = []
-  if (typeof book.progressPercent === 'number' && book.progressPercent > 0)
-    where.push(`about ${Math.round(book.progressPercent)}% in`)
+  // Rounds to a whole percent, and only says anything at all once there is a
+  // whole percent to say: "about 0% in" is worse than silence.
+  const pct = typeof book.progressFraction === 'number'
+    ? Math.round(book.progressFraction * 100)
+    : 0
+  if (pct > 0) where.push(`about ${pct}% in`)
   if (book.chapterTitle) where.push(`currently at "${book.chapterTitle}"`)
   if (where.length > 0) lines.push(`I'm ${where.join(', ')}.`)
 
