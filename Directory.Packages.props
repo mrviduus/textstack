@@ -82,7 +82,7 @@
     <PackageVersion Include="HdbscanSharp" Version="3.0.1" />
     <!-- Search -->
     <PackageVersion Include="Dapper" Version="2.1.79" />
-    <PackageVersion Include="Meilisearch" Version="0.16.0" />
+    <PackageVersion Include="Meilisearch" Version="0.20.0" />
     <!-- Hosting -->
     <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.11" />
     <!-- Image Optimization -->
