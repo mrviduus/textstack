@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { getBookInsights, type BookInsight } from '../../api/insights'
+import { insightsApi, insightChapterLabel, type BookInsight } from '@textstack/shared'
 import { useTranslation } from '../../hooks/useTranslation'
 
 /**
@@ -34,7 +34,7 @@ export function BookInsightsSection({ userBookId, editionId }: Props) {
 
     let cancelled = false
     setLoading(true)
-    getBookInsights(target)
+    insightsApi.getBookInsights(target)
       .then(rows => { if (!cancelled) setInsights(rows) })
       // Silent: this is a supplementary panel and a failure here must never take
       // the book page down with it. Same posture as BookStatsSection.
@@ -53,19 +53,11 @@ export function BookInsightsSection({ userBookId, editionId }: Props) {
       <ol className="book-insights__list">
         {insights.map(insight => (
           <li key={insight.id} className="book-insights__item">
-            {/* The TITLE, never the number. `chapterNumber` is what the server
-                orders by, but the two book types number differently — a catalog
-                page renders `chapterNumber + 1` while an upload renders it
-                as-is — so printing it here reads one off from the table of
-                contents on exactly one of them. The title identifies the chapter
-                to a reader anyway. */}
+            {/* Which chapter, decided once in the shared package — never the
+                number, and falling back to the slug when a re-ingest left the
+                title unresolvable. See insightScope.ts for why both matter. */}
             <div className="book-insights__scope">
-              {insight.chapterSlug === null
-                ? t('library.insights.wholeBook')
-                // The slug no longer resolves — a re-ingest renamed the chapter.
-                // The text is still worth having, so show it unplaced rather than
-                // dropping it.
-                : insight.chapterTitle ?? insight.chapterSlug}
+              {insightChapterLabel(insight) ?? t('library.insights.wholeBook')}
             </div>
 
             {insight.question && (

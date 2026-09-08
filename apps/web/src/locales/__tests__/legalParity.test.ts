@@ -18,6 +18,21 @@ const shared = JSON.parse(
   readFileSync(resolve(__dirname, '../../../../../packages/shared/src/i18n/en.json'), 'utf8'),
 )
 
+// The same hazard, one section over. `library.insights` and `library.discuss` are
+// the assistant handoff: the words that tell a reader what the button does and
+// what came back from the conversation. They live in both files because the two
+// apps read different catalogues, and nothing but this test stops a wording fix
+// on one screen from leaving the other saying something else. It has already
+// happened once here — the mobile `lead` was written shorter "for the small
+// screen" and had to be put back.
+describe('assistant-handoff copy parity between web and mobile', () => {
+  for (const block of ['insights', 'discuss'] as const) {
+    it(`library.${block}.* is identical in both locale files`, () => {
+      expect(shared.library[block]).toEqual(web.library[block])
+    })
+  }
+})
+
 describe('legal text parity between web and mobile', () => {
   for (const block of ['privacy', 'terms'] as const) {
     it(`${block}.* is identical in both locale files`, () => {

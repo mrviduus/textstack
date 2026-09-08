@@ -11,6 +11,8 @@ import { useTheme } from '../../src/context/ThemeContext'
 import { useLanguage } from '../../src/context/LanguageContext'
 import { useToast } from '../../src/context/ToastContext'
 import { AddToCollectionSheet } from '../../src/components/library/AddToCollectionSheet'
+import { BookInsightsSection } from '../../src/components/library/BookInsightsSection'
+import { DiscussWithAssistant } from '../../src/components/library/DiscussWithAssistant'
 import { useSheetMount } from '../../src/hooks/useSheetMount'
 import {
   isBookFullyCached,
@@ -539,6 +541,19 @@ export default function BookDetailScreen() {
           onClose={() => setCollectionSheetOpen(false)}
           onAdded={(name) => toast.show({ message: t('library.actions.addedToCollection').replace('{{name}}', name), variant: 'success' })}
         />}
+
+        {/* Same two panels as an uploaded book's screen — a conclusion written back
+            over MCP can name either book type, so both have to show it or catalog
+            insights would be write-only. Behind isAuthenticated because a signed-out
+            reader would only be firing a 401 at every book they open. */}
+        {isAuthenticated && <BookInsightsSection editionId={book.id} />}
+        {isAuthenticated && (
+          <DiscussWithAssistant
+            title={book.title}
+            author={book.authors.map(a => a.name).join(', ') || null}
+            editionId={book.id}
+          />
+        )}
 
         <Text style={[styles.sectionTitle, { color: colors.text }]}>Chapters</Text>
         {(showAllChapters ? book.chapters : book.chapters.slice(0, 10)).map((ch) => (

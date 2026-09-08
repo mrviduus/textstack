@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildHandoffBrief, handoffUrl, MAX_BRIEF_CHARS } from '../assistantHandoff'
+import { buildHandoffBrief, handoffUrl, MAX_BRIEF_CHARS } from './assistantHandoff'
 
 /**
  * The handoff is a LINK, and a link has a length limit that nothing else in the
@@ -11,7 +11,7 @@ describe('buildHandoffBrief', () => {
     title: 'Designing Data-Intensive Applications',
     author: 'Martin Kleppmann',
     bookId: '77777777-7777-7777-7777-777777777777',
-    progressPercent: 42.4,
+    progressFraction: 0.424,
     chapterTitle: 'Replication',
   }
 
@@ -47,9 +47,20 @@ describe('buildHandoffBrief', () => {
     expect(buildHandoffBrief(book)).toContain('save_insight')
   })
 
-  it('omits progress when there is none rather than saying 0%', () => {
-    const brief = buildHandoffBrief({ title: 'Dracula', progressPercent: 0 })
-    expect(brief).not.toContain('%')
+  it('reads the fraction as a fraction — the defect this field is named after', () => {
+    // Progress is stored as 0..1 everywhere in this codebase. Taking it as
+    // "0-100" made Math.round(0.42) === 0, so a reader 42% into a book opened a
+    // chat that said "about 0% in". It only shows when there IS progress, which
+    // is why the first pass missed it.
+    expect(buildHandoffBrief({ title: 'D', progressFraction: 0.424 })).toContain('42%')
+    expect(buildHandoffBrief({ title: 'D', progressFraction: 0.07 })).toContain('7%')
+    expect(buildHandoffBrief({ title: 'D', progressFraction: 1 })).toContain('100%')
+  })
+
+  it('says nothing rather than "about 0% in" when barely started or not started', () => {
+    for (const f of [0, 0.001, null, undefined]) {
+      expect(buildHandoffBrief({ title: 'Dracula', progressFraction: f })).not.toContain('%')
+    }
   })
 
   it('caps the brief, because it has to survive being a URL', () => {

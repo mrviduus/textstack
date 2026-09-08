@@ -156,11 +156,11 @@
     }
   },
   "guest": {
-    "banner": "A free account keeps your books, highlights and vocabulary if you lose this phone \u2014 and lets you upload your own.",
+    "banner": "A free account keeps your books, highlights and vocabulary if you lose this phone — and lets you upload your own.",
     "createAccount": "Create free account",
     "signOut": "Sign out",
     "signOutTitle": "Sign out and lose everything?",
-    "signOutMessage": "You're reading as a guest, so this phone is the only key to your account \u2014 there's no email or password to get back in with. Sign out and your saved books, highlights, vocabulary and reading progress are gone for good, and we can't recover them for you either.",
+    "signOutMessage": "You're reading as a guest, so this phone is the only key to your account — there's no email or password to get back in with. Sign out and your saved books, highlights, vocabulary and reading progress are gone for good, and we can't recover them for you either.",
     "signOutCancel": "Keep reading",
     "signOutConfirm": "Sign out and lose it"
   },
@@ -225,6 +225,17 @@
     "readingProgress": "Reading Progress",
     "lastRead": "Last read",
     "read": "read",
+    "insights": {
+      "title": "What you've worked out",
+      "lead": "Conclusions your assistant wrote back into this book. Read these instead of re-reading the book.",
+      "wholeBook": "This book"
+    },
+    "discuss": {
+      "label": "Talk this book over",
+      "claude": "Open in Claude",
+      "chatgpt": "Open in ChatGPT",
+      "hint": "Opens a new chat with an opening message about this book. Connect TextStack as a connector and your assistant can read the book and write its conclusions back here."
+    },
     "chapters": "chapters",
     "processing": "Processing...",
     "failed": "Failed",

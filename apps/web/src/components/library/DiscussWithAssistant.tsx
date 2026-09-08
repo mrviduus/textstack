@@ -1,11 +1,11 @@
-import { buildHandoffBrief, handoffUrl, type HandoffBook } from '../../lib/assistantHandoff'
+import { buildHandoffBrief, handoffUrl, type HandoffBook } from '@textstack/shared'
 import { useTranslation } from '../../hooks/useTranslation'
 
 /**
  * "Discuss with an assistant" — two links, not an integration.
  *
  * The reader picks Claude or ChatGPT; we open a new conversation there with an
- * opening message already written. See `lib/assistantHandoff.ts` for why this is
+ * opening message already written. See `assistantHandoff.ts` in @textstack/shared for why this is
  * a link and what the brief does and does not carry.
  *
  * `target="_blank"` with `rel="noopener noreferrer"`: these are third-party

@@ -490,7 +490,7 @@ export function UserBookDetailPage() {
           title={book.title}
           author={book.author}
           bookId={book.id}
-          progressPercent={savedProgress?.percent ?? null}
+          progressFraction={savedProgress?.percent ?? null}
           chapterTitle={
             book.chapters.find(c => c.slug === savedProgress?.chapterSlug)?.title ?? null
           }

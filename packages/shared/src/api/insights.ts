@@ -10,7 +10,7 @@ import { authFetch } from './client'
  * конспект's overview.
  *
  * The server resolves each slug to its chapter number and title at read time and
- * returns them in reading order, so the client renders the list as it comes.
+ * returns them in reading order, so a client renders the list as it comes.
  */
 export interface BookInsight {
   id: string
