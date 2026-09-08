@@ -115,6 +115,29 @@ internal static class ArgReader
         return true;
     }
 
+    /// <summary>
+    /// Optional GUID. Absent → <paramref name="value"/> stays null (true); present-but-unparseable
+    /// → false. Used where a tool takes one of two mutually exclusive identifiers and has to check
+    /// the exclusivity itself, which JSON Schema cannot express in a form the SDK enforces anyway.
+    /// </summary>
+    public static bool TryOptionalGuid(
+        JsonElement obj, string name, out Guid? value, out string error)
+    {
+        value = null;
+        error = "";
+        if (!obj.TryGetProperty(name, out var el))
+            return true;
+
+        if (el.ValueKind != JsonValueKind.String || !Guid.TryParse(el.GetString(), out var g))
+        {
+            error = $"'{name}' must be a UUID.";
+            return false;
+        }
+
+        value = g;
+        return true;
+    }
+
     /// <summary>Optional string with a max length. Absent → null (true).</summary>
     public static bool TryOptionalString(
         JsonElement obj, string name, int max, out string? value, out string error)

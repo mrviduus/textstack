@@ -8,25 +8,88 @@ reading, and manage your own highlights and vocabulary — all from the chat.
 This is the canonical reference. The [package README](https://www.nuget.org/packages/TextStack.Mcp)
 and the [landing page](https://textstack.app/en/mcp) point here.
 
-## The 7 tools
+## The 14 tools
 
-The server exposes 7 tools. The public ones need no auth; the user-scoped ones
+The server exposes 14 tools. The public ones need no auth; the user-scoped ones
 require you to be signed in (see [Authentication](#authentication)).
+
+**Two halves, two identifiers.** The public catalog is made of `Edition`s and is
+addressed by `editionId`. The books you uploaded are `UserBook`s — a separate
+aggregate, with its own chapter and chunk tables — and are addressed by `bookId`.
+An upload has no `editionId` and cannot be given one. Passing a `bookId` to
+`ask_book` is a 404, and to `list_my_highlights` an empty list, which reads like
+an empty library rather than a wrong id. The tool names carry the split: `_my_`
+means your uploads.
 
 | Tool | What it does | Auth |
 |------|--------------|------|
 | `search_books` | Search the public library for books and chapters matching a query. | Public |
 | `get_book` | Fetch a catalog book by slug: its `editionId` (for `ask_book`), metadata, authors, genres, and chapter list. | Public |
 | `get_chapter` | Fetch a chapter's plain text (HTML stripped, length-capped) plus its number, title, and prev/next slugs. | Public |
+| `search_my_library` | Full-text search across the books **you uploaded**. Returns one hit per book with its `bookId` and best-matching chapter. Needs no RAG index. | User |
+| `get_my_book` | Fetch one of your uploads by `bookId`: metadata + full chapter list, each chapter carrying its `chapterId`. | User |
+| `get_my_chapter` | Fetch one chapter of your upload as plain text, plus its `chapterId` and prev/next slugs. | User |
+| `save_my_highlight` | Highlight a passage in a book you uploaded. Matched against the chapter text, so the quote must be verbatim. Capped at 200 per book. | User |
+| `list_my_book_highlights` | List the highlights already in a book you uploaded. | User |
+| `save_insight` | Write a conclusion back into a book — against a `chapterSlug`, or against the whole book when omitted. Saving again for the same chapter replaces it. | User |
+| `get_my_insights` | Read back everything already worked out about a book, in reading order. | User |
 | `list_my_highlights` | List your highlights for a given edition. | User |
 | `list_my_vocabulary` | List your saved vocabulary words, optionally filtered by SRS stage or search. | User |
 | `ask_book` | Ask a question about a book you're reading; spoiler-safe (answers only from chapters you've already read). | User |
 | `save_highlight` | Save a passage (text + optional color/note) to your highlights for a catalog book chapter. | User |
 
-All 7 tools are always listed regardless of whether you're signed in — only a
+All 14 tools are always listed regardless of whether you're signed in — only a
 user-scoped *call* fails with a clean "authentication required" message when no
-token is available. A typical chain is `search_books → get_book` (to get the
-`editionId` / chapter ids) `→ get_chapter` / `ask_book` / `save_highlight`.
+token is available.
+
+A typical catalog chain is `search_books → get_book` (to get the `editionId` /
+chapter ids) `→ get_chapter` / `ask_book` / `save_highlight`. The chain for your
+own uploads is `search_my_library → get_my_book` (to get the chapter ids)
+`→ get_my_chapter`.
+
+## Limits on what an assistant may write
+
+**200 highlights per book.** Not a resource limit — a highlight row is tiny. A client told to "go
+through the book and mark what matters" can place one per paragraph in a single pass, and a book
+marked end to end is a book with no marks. The cap counts only highlights written over MCP
+(`anchor_json->>'source' = 'mcp'`), so a person who highlights heavily is never affected, including
+on a book an assistant has also marked.
+
+**On a PDF, a highlight is saved but not painted.** The reader shows PDFs as the original document
+(ADR-012), where a highlight is drawn from page geometry an MCP client cannot produce. The highlight
+is stored, listed by `list_my_book_highlights`, and shown on the Highlights page — it just does not
+appear over the page. `get_my_book` reports `rendersAsOriginalPdf` so the assistant can say so
+instead of leaving you looking for a mark that is not there. About half the uploaded library is PDF.
+
+**Insights are capped by shape, not by count**: one per (you, book, chapter), because a save
+replaces. There is no way to accumulate them.
+
+## Writing conclusions back into a book
+
+TextStack does not try to be your chat. Your assistant already has your profile,
+your memory, and a year of conversation; a copy of that is not something we can
+build, and competing with it is not the point. **The reasoning happens there. The
+result comes back here.**
+
+So after a session — "what did I understand, what didn't I, what's worth marking"
+— the assistant writes the outcome into the book, and it is still there next
+month:
+
+- a passage → `save_my_highlight`, which the reader paints like any other highlight;
+- a chapter → `save_insight` with a `chapterSlug`;
+- the whole book → `save_insight` with no `chapterSlug`.
+
+A study конспект is then not a separate frozen document but the assembly of those
+in reading order. Run the pass again and it is current, because one insight is
+kept per (you, book, chapter) and a save replaces.
+
+The key is the chapter **slug**, not its id: re-ingesting a book deletes and
+recreates every chapter, so anything holding a `chapterId` comes unstuck. Same
+reason the reading position is a text anchor (ADR-015).
+
+`get_my_insights` is the other half, and the more important one — call it at the
+START of a session about a book that has been discussed before. It is what stops
+the next conversation repeating the last one.
 
 ## Quick start — Claude Desktop
 
@@ -117,7 +180,7 @@ Same stdio transport as the global tool.
 
 ## Authentication
 
-Public tools (`search_books`, `get_book`, `get_chapter`) need no auth. The
+Catalog tools (`search_books`, `get_book`, `get_chapter`) need no auth. The
 user-scoped tools use the **OAuth 2.0 Device Authorization Grant**
 ([RFC 8628](https://www.rfc-editor.org/rfc/rfc8628)):
 
@@ -163,7 +226,7 @@ Before wiring up a client, confirm the tool speaks MCP. This sends
 ```
 
 Expect a response with `serverInfo` naming `textstack` and a `tools/list`
-result containing all 7 tools.
+result containing all 14 tools.
 
 ## Troubleshooting
 

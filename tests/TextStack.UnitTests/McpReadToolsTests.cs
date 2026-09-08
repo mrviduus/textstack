@@ -74,17 +74,17 @@ public class McpReadToolsTests
 
     private const string Edition = "33333333-3333-3333-3333-333333333333";
 
-    // ── tools/list: all 7 exposed with correct schemas (6 reads + save_highlight) ─
+    // ── tools/list: the whole surface, with correct schemas ──────────────────────
 
     [Fact]
-    public void ListTools_ExposesAllSevenTools()
+    public void ListTools_ExposesTheWholeSurface()
     {
         var (catalog, _) = BuildCatalog(Json("{}"));
 
         var names = catalog.ListTools().Select(t => t.Name).OrderBy(n => n).ToArray();
 
         Assert.Equal(
-            ["ask_book", "get_book", "get_chapter", "list_my_highlights", "list_my_vocabulary", "save_highlight", "search_books"],
+            ["ask_book", "get_book", "get_chapter", "get_my_book", "get_my_chapter", "get_my_insights", "list_my_book_highlights", "list_my_highlights", "list_my_vocabulary", "save_highlight", "save_insight", "save_my_highlight", "search_books", "search_my_library"],
             names);
     }
 
@@ -115,6 +115,11 @@ public class McpReadToolsTests
         Assert.Equal(["editionId"], Required(byName["list_my_highlights"]));
         Assert.Empty(Required(byName["list_my_vocabulary"]));
         Assert.Equal(["editionId", "question"], Required(byName["ask_book"]));
+        // The my-library tools are keyed by bookId — never editionId. The schema is
+        // where that distinction is enforced, so it is asserted here.
+        Assert.Equal(["query"], Required(byName["search_my_library"]));
+        Assert.Equal(["bookId"], Required(byName["get_my_book"]));
+        Assert.Equal(["bookId", "chapterSlug"], Required(byName["get_my_chapter"]));
     }
 
     [Fact]

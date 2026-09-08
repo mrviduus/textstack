@@ -25,6 +25,8 @@ jobs:
   deploy:
     needs: ci
     runs-on: self-hosted
+    # 2m typical, 30m at worst.
+    timeout-minutes: 60
 
     steps:
       - name: Pre-deploy backup
