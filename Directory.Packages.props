@@ -114,9 +114,9 @@
          SDK, so SentryOptions.BeforeSend never sees them — and our OTel spans carry
          http.client_ip + full SQL (SetDbStatementForText), which must be scrubbed.
          Sentry.Extensions.Logging comes in transitively via Sentry.AspNetCore. -->
-    <PackageVersion Include="Sentry" Version="6.8.0" />
+    <PackageVersion Include="Sentry" Version="6.10.0" />
     <PackageVersion Include="Sentry.AspNetCore" Version="6.8.0" />
-    <PackageVersion Include="Sentry.Extensions.Logging" Version="6.8.0" />
+    <PackageVersion Include="Sentry.Extensions.Logging" Version="6.10.0" />
     <!-- Security (override transitive for CVE fix) -->
     <!-- Testing -->
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
