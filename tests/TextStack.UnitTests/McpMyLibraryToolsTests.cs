@@ -161,6 +161,34 @@ public class McpMyLibraryToolsTests
     }
 
     [Fact]
+    public async Task SearchMyLibrary_UpstreamFailure_IsAnError_NotAnEmptyLibrary()
+    {
+        // This endpoint really did answer 500 on every call (a snake_case mismatch in
+        // its raw SQL), and mapping that to {"results":[]} told the caller "you have
+        // no books about this" — indistinguishable from the truth, and wrong.
+        var (catalog, _) = BuildCatalog(Json("", HttpStatusCode.InternalServerError));
+
+        var result = await catalog.CallAsync(
+            "search_my_library", Args("""{"query":"quorum"}"""), CancellationToken.None);
+
+        Assert.True(result.IsError);
+        Assert.Contains("unavailable", TextOf(result));
+    }
+
+    [Fact]
+    public async Task SearchMyLibrary_NoMatches_IsStillAnEmptyResult_NotAnError()
+    {
+        // The other side of it: nothing found is a real answer and must stay one.
+        var (catalog, _) = BuildCatalog(Json("[]"));
+
+        var result = await catalog.CallAsync(
+            "search_my_library", Args("""{"query":"quorum"}"""), CancellationToken.None);
+
+        Assert.NotEqual(true, result.IsError);
+        Assert.Empty(Body(result).GetProperty("results").EnumerateArray());
+    }
+
+    [Fact]
     public async Task SearchMyLibrary_NullToken_ReturnsAuthRequired_NeverHitsHttp()
     {
         var (catalog, handler) = BuildCatalog(Json("[]"), token: null);
@@ -517,6 +545,9 @@ public class McpMyLibraryToolsTests
 
         var first = Assert.Single(Body(result).GetProperty("highlights").EnumerateArray());
         Assert.Equal("a quorum of replicas", first.GetProperty("selectedText").GetString());
+        // The chapter of an upload's highlight lives in userChapterId. Reported under the
+        // name save_my_highlight accepts, so "what is already marked, and where" is answerable.
+        Assert.Equal(Chapter, first.GetProperty("chapterId").GetString());
     }
 
     [Fact]

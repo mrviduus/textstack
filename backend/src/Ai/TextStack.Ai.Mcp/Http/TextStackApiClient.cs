@@ -201,10 +201,16 @@ public sealed class TextStackApiClient
     /// <summary>
     /// <c>GET /me/library/search?q={query}&amp;tags={tags}</c> — Postgres FTS over the
     /// user's own uploads, one hit per book carrying its best-matching chapter.
-    /// Needs no RAG index. 401 → <see cref="McpUnauthorizedException"/>; other
-    /// non-success → empty list.
+    /// Needs no RAG index.
+    ///
+    /// <para>Returns <b>null</b> on failure, and an empty list only when the search really matched
+    /// nothing. The distinction is the whole point: this endpoint spent its life answering 500, and
+    /// mapping that to an empty list told the caller "you have no books about this" — a confident,
+    /// wrong answer that reads exactly like a true one.</para>
+    ///
+    /// <para>401 → <see cref="McpUnauthorizedException"/>.</para>
     /// </summary>
-    public async Task<IReadOnlyList<UserBookSearchHitJson>> SearchMyLibraryAsync(
+    public async Task<IReadOnlyList<UserBookSearchHitJson>?> SearchMyLibraryAsync(
         string query, string? tags, CancellationToken ct)
     {
         var url = $"/me/library/search?q={Uri.EscapeDataString(query)}";
@@ -223,7 +229,7 @@ public sealed class TextStackApiClient
             return result ?? [];
         }
 
-        return [];
+        return null;
     }
 
     /// <summary>
@@ -540,6 +546,10 @@ public sealed record ChapterNavJson(string? Slug, string Title);
 public sealed record HighlightJson(
     Guid Id,
     Guid? ChapterId,
+    // A highlight on an UPLOADED book carries its chapter here, not in ChapterId — the same
+    // edition/user-book split as everywhere else. Omitting it made every highlight listed off an
+    // upload report chapterId: null, so a model could not tell what it had already marked where.
+    Guid? UserChapterId,
     string Color,
     string SelectedText,
     string? NoteText,

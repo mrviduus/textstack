@@ -312,6 +312,9 @@ public sealed class McpToolCatalog
             return InvokeAsync("search_my_library", ct, async () =>
             {
                 var hits = await api.SearchMyLibraryAsync(query, tags, ct);
+                if (hits is null)
+                    return Error("search_my_library failed: the library search is unavailable");
+
                 var results = hits.Select(h => new
                 {
                     // Stated on every row so a model holding a mixed result set
@@ -788,7 +791,9 @@ public sealed class McpToolCatalog
                 var mapped = highlights.Select(h => new
                 {
                     id = h.Id,
-                    chapterId = h.ChapterId,
+                    // An upload's chapter arrives as userChapterId; report it under the name the
+                    // write tool takes, so listing and saving speak about the same thing.
+                    chapterId = h.UserChapterId ?? h.ChapterId,
                     color = h.Color,
                     selectedText = h.SelectedText,
                     noteText = h.NoteText,

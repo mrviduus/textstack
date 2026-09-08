@@ -345,3 +345,46 @@ public class InsightsEndpointTests : IClassFixture<LiveApiFixture>, IClassFixtur
         Assert.Empty(rows.EnumerateArray());
     }
 }
+
+/// <summary>
+/// <c>GET /me/library/search</c> — the library full-text search.
+///
+/// <para>One test, for one reason. The endpoint's raw SQL aliased its columns in PascalCase while
+/// the context is built with <c>UseSnakeCaseNamingConvention</c>, which applies to the
+/// <c>SqlQueryRaw</c> row type as well — so EF asked for <c>chapter_slug</c>, got
+/// <c>"ChapterSlug"</c>, and threw on <b>every</b> call. It answered 500 for its whole life and
+/// nobody noticed, because the web caller renders an empty result on failure and an empty library
+/// search looks exactly like a library with nothing matching.</para>
+///
+/// <para>No unit test can catch this: it is only wrong once real SQL meets a real database. This
+/// asserts the shape of the answer, not its contents, so it holds on any seeded database.</para>
+/// </summary>
+public class UserLibrarySearchEndpointTests(LiveApiFixture fixture, AuthenticatedApiFixture auth)
+    : IClassFixture<LiveApiFixture>, IClassFixture<AuthenticatedApiFixture>
+{
+    private static CancellationToken Ct => TestContext.Current.CancellationToken;
+
+    [Theory]
+    [InlineData("q=quorum")]
+    [InlineData("q=quorum&tags=nonexistent-tag")] // the other SQL branch — it is built separately
+    public async Task SearchLibrary_Authenticated_Returns200AndAJsonArray(string query)
+    {
+        Assert.SkipUnless(auth.IsAuthenticated, "test-login unavailable (ENABLE_TEST_AUTH)");
+
+        var req = auth.CreateRequest(HttpMethod.Get, $"/me/library/search?{query}");
+        var resp = await auth.Client.SendAsync(req, Ct);
+
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        var body = await resp.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: Ct);
+        Assert.Equal(JsonValueKind.Array, body.ValueKind);
+    }
+
+    [Fact]
+    public async Task SearchLibrary_WithoutAuth_Returns401()
+    {
+        var req = fixture.CreateRequest(HttpMethod.Get, "/me/library/search?q=quorum");
+        var resp = await fixture.Client.SendAsync(req, Ct);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, resp.StatusCode);
+    }
+}
