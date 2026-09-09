@@ -222,7 +222,6 @@
       "prepareCopy": "One-time setup so you can ask about this book.",
       "prepareCta": "Prepare this book for questions",
       "preparing": "Preparing this book… {{done}}/{{total}}",
-      "indexFailed": "Preparation failed.",
       "indexRetry": "Retry",
       "spoilerTooltip": "Answers only use chapters you've read"
     },
@@ -894,7 +893,7 @@
       "why": "Why this card"
     },
     "signIn": {
-      "cta": "Browse books"
+      "ctaBrowse": "Browse books"
     }
   },
   "breadcrumbs": {
