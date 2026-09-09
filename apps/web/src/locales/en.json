@@ -37,7 +37,6 @@
       "seoTitle": "TextStack — A reader that helps you finish dense books",
       "seoDescription": "Finish the tech book, paper, or classic you keep quitting. Contextual word explanations tied to the book's domain. Capped weekly SRS, offline reading. EPUB, PDF.",
       "description": "TextStack is a reader for dense tech books, papers, and literary classics. Contextual word explanations tied to the book's domain, a capped weekly SRS queue, and detailed reading stats — all in one place.",
-      "cta": "Browse catalog",
       "ctaPrimary": "Start reading",
       "ctaSecondary": "Upload your book",
       "ctaReturning": "Continue where you left off",
@@ -48,15 +47,6 @@
       "books": "books",
       "authors": "authors",
       "genres": "genres"
-    },
-    "recentAuthors": {
-      "title": "Recently Added Authors",
-      "viewAll": "View all authors"
-    },
-    "recentBooks": {
-      "title": "Recently Added Books",
-      "viewAll": "View all books",
-      "read": "Read"
     },
     "recommended": {
       "title": "Classic literature",
@@ -226,13 +216,6 @@
   },
   "reader": {
     "ask": {
-      "title": "Ask this book",
-      "placeholder": "Ask a question about what you've read…",
-      "send": "Ask",
-      "thinking": "Thinking…",
-      "empty": "Ask a question about the book — answers come only from chapters you've read.",
-      "signIn": "Sign in to ask questions about this book.",
-      "signInCta": "Sign in",
       "citation": "ch.{{ch}}",
       "citationPage": "p. {{page}}",
       "citationFallback": "source",
@@ -241,19 +224,7 @@
       "preparing": "Preparing this book… {{done}}/{{total}}",
       "indexFailed": "Preparation failed.",
       "indexRetry": "Retry",
-      "startersTitle": "Try asking",
-      "starters": {
-        "summary": "Summarize what I've read so far",
-        "characters": "Who are the main characters?",
-        "keyIdea": "Explain the key idea so far",
-        "attention": "What should I pay attention to?"
-      },
-      "spoilerToggle": "Spoiler-safe",
-      "spoilerTooltip": "Answers only use chapters you've read",
-      "clearChat": "Clear chat",
-      "clearConfirm": "Clear this chat? This can't be undone.",
-      "loadingHistory": "Loading chat…",
-      "detachQuote": "Remove quoted passage"
+      "spoilerTooltip": "Answers only use chapters you've read"
     },
     "studyBuddy": {
       "title": "Help me understand this",
@@ -340,17 +311,7 @@
     },
     "idbUnavailable": "Can't save offline here. Tap to create a free account and keep your words.",
     "vocab": {
-      "queuedForTomorrow": "Daily cap reached — queued for tomorrow",
-      "savedToReference": "Saved to reference (rare word)",
-      "tapAgainToStudy": "Tap again to study ({{n}} left)",
-      "addedToSrs": "Added to your vocabulary",
-      "addAnywayFailed": "Couldn't add word — please try again"
-    },
-    "rareWordNotice": {
-      "title": "Rare word — saved to reference",
-      "body": "We don't add rare words to your review queue automatically, so your SRS stays focused on the vocabulary you'll actually encounter.",
-      "cta": "Add to SRS anyway",
-      "ctaBusy": "Adding…"
+      "tapAgainToStudy": "Tap again to study ({{n}} left)"
     }
   },
   "onboarding": {
@@ -409,28 +370,14 @@
     "errorNotSignedIn": "Please sign in first."
   },
   "common": {
-    "loading": "Loading...",
-    "noBooksYet": "No books available yet.",
-    "noAuthorsYet": "No authors available yet.",
-    "save": "Save",
-    "saving": "Saving…",
-    "cancel": "Cancel",
-    "close": "Close",
-    "dismiss": "Dismiss",
     "home": "Home"
   },
   "nav": {
-    "catalog": "Catalog",
     "books": "Books",
-    "library": "Library",
-    "discover": "Discover",
-    "vocabulary": "Vocabulary",
     "search": "Search",
     "highlights": "Highlights",
-    "about": "About",
     "brandTitle": "TextStack Reader - Learn languages through reading",
     "genres": "Genres",
-    "browseBooks": "Browse all books",
     "browseGenres": "Browse genres",
     "aboutTextStack": "About TextStack Reader",
     "discoverMenu": {
@@ -447,12 +394,9 @@
   },
   "footer": {
     "description": "TextStack Reader is a language learning platform built around reading. Read classic literature, build vocabulary with spaced repetition, track your progress, and grow your fluency — all in a calm, distraction-free environment.",
-    "privacy": "Privacy Policy",
-    "terms": "Terms of Service",
     "dmca": "DMCA",
     "deleteAccount": "Delete Account",
     "authors": "Authors",
-    "contact": "Contact Us",
     "sitemap": "Sitemap"
   },
   "sitemap": {
@@ -468,32 +412,6 @@
     "totalBooks": "{count} books",
     "totalAuthors": "{count} authors",
     "totalGenres": "{count} genres"
-  },
-  "about": {
-    "seoTitle": "About TextStack — open-source reader for developers",
-    "seoDesc": "Open-source reader for developers who want to finish dense English technical books in their native language. Local LLM, AGPL-3.0, self-hostable on a $20 VPS.",
-    "title": "About",
-    "intro": "TextStack is an open-source reader for developers who want to finish dense English technical books in their native language.",
-    "body1": "Tap any term — get a context-aware translation that knows the book's domain. Tap «attention» in an ML chapter and you get «увага (механізм у нейромережах)» in Ukrainian, not the everyday meaning. Words you save feed a capped weekly SRS queue with multiple-choice cards generated by a local Gemma 4 model running on a $20 VPS — no per-user cloud costs.",
-    "missionHeading": "The Mission",
-    "mission1": "Real understanding of a technical book comes from finishing it — not from skipping unfamiliar terms or summarizing it away. TextStack is built around that: keep the book in front of you, let the friction (vocabulary, terminology, domain) get out of the way.",
-    "mission2": "Every feature — domain-aware translation, vocabulary builder, spaced repetition, reading stats — exists for one job: get you to the last page of the kind of book you usually quit halfway through.",
-    "openSourceHeading": "Open Source",
-    "openSource1": "TextStack is licensed under GNU AGPL-3.0. The full codebase — .NET 10 backend, React frontend, React Native mobile app — lives at github.com/mrviduus/textstack. You can self-host the entire stack on a $20/month consumer VPS, no GPU required.",
-    "starOnGitHub": "Star on GitHub",
-    "selfHostGuide": "Self-host guide",
-    "techHeading": "How It Works",
-    "tech1": "Local Gemma 4 model (via Ollama) generates the multiple-choice distractors, vocabulary hints, and book metadata enrichment on your own server — no per-user cloud LLM costs. OpenAI's gpt-4.1-nano handles the translation layer where multilingual quality matters.",
-    "techStackLabel": "Stack",
-    "techStackValue": "ASP.NET Core 10 · PostgreSQL 16 · React 19 · React Native (Expo) · Ollama (Gemma 4) · OpenAI gpt-4.1-nano · Docker · Cloudflare Tunnel",
-    "creator": {
-      "heading": "The Creator",
-      "bio1": "I built TextStack because I quit Designing Data-Intensive Applications three times before this. Not because the book was hard — I understood most of what was on the page — but because forty unfamiliar terms broke my flow. Summarizing it away defeated the point. So I built the thing I wanted: tap a term, get the context, keep reading.",
-      "bio2": "It's an open project I run because I needed it. AGPL-3.0, full codebase on GitHub. If you share the use case or want to contribute, I'd love to hear from you.",
-      "email": "Email",
-      "linkedin": "LinkedIn",
-      "blog": "Read my Blog"
-    }
   },
   "mcp": {
     "seoTitle": "Connect TextStack to your AI assistant (MCP)",
@@ -552,15 +470,6 @@
   "contact": {
     "seoTitle": "Contact Us - TextStack Reader",
     "seoDesc": "Get in touch with TextStack Reader. We'd love to hear your feedback, questions, or content requests.",
-    "title": "Contact Us",
-    "intro": "We'd love to hear from you. Whether it's feedback, a question, or a book request — drop us a line.",
-    "reachOutHeading": "What to Reach Out About",
-    "reachOut1": "Bug reports or technical issues",
-    "reachOut2": "Feedback on the reading experience",
-    "reachOut3": "Book or author requests",
-    "reachOut4": "Questions about the platform",
-    "reachOut5": "Partnership or collaboration ideas",
-    "responseHeading": "Response Time",
     "responseBody": "TextStack Reader is a passion project maintained by a small team. We read every message and will do our best to respond promptly, but please allow a few days for a reply."
   },
   "userBook": {
@@ -569,25 +478,6 @@
     "enrichRetry": "Retry"
   },
   "library": {
-    "title": "My Library",
-    "signInPrompt": "Sign in to save books to your library and track your reading progress.",
-    "saved": "Saved",
-    "uploads": "Uploads",
-    "sortRecent": "Recently Added",
-    "sortTitle": "Title",
-    "sortProgress": "Progress",
-    "sortBy": "Sort by",
-    "loading": "Loading...",
-    "emptyLibrary": "Your library is empty.",
-    "browseBooks": "Browse Books",
-    "readingProgress": "Reading Progress",
-    "lastRead": "Last read",
-    "read": "read",
-    "chapters": "chapters",
-    "processing": "Processing...",
-    "failed": "Failed",
-    "noUploads": "No uploaded books yet.",
-    "uploadHint": "Click the + button to upload EPUB or PDF files.",
     "empty": {
       "uploads": {
         "title": "Drop your first book here",
@@ -612,111 +502,23 @@
       "openOriginal": "Open original article",
       "empty": "Nothing saved yet — install the Send to TextStack extension to clip articles."
     },
-    "sidebar": {
-      "all": "All books",
-      "uploads": "My uploads",
-      "catalog": "Bookmarked from catalog",
-      "tags": "Tags",
-      "collections": "Collections",
-      "allTags": "All tags →",
-      "newCollection": "+ New collection",
-      "open": "Open filters",
-      "close": "Close filters"
-    },
     "shelves": {
-      "viewAll": "View all",
-      "continueReading": {
-        "title": "Continue reading",
-        "subtitle": "Pick up where you left off"
-      },
-      "recentlyAdded": {
-        "title": "Recently added",
-        "subtitle": "New in your library"
-      },
-      "quickReads": {
-        "title": "Quick reads",
-        "subtitle": "Under an hour to finish"
-      },
-      "finishedThisMonth": {
-        "title": "Finished this month",
-        "subtitle": "Recent wins"
-      },
-      "empty": {
-        "title": "Your library is empty",
-        "copy": "Upload a book or browse the catalog to get started.",
-        "browseCatalog": "Browse catalog"
-      }
+      "viewAll": "View all"
     },
     "badge": {
-      "processing": "Processing…",
       "indexing": "Indexing…",
-      "indexingHint": "Indexing text for search, contents and chat — you can read the original now.",
-      "failed": "Failed",
-      "new": "New",
-      "finished": "Read"
+      "indexingHint": "Indexing text for search, contents and chat — you can read the original now."
     },
     "sort": {
-      "label": "Sort by",
       "recent": "Recently opened",
       "added": "Recently added",
-      "title": "Title (A→Z)",
-      "author": "Author (A→Z)",
       "progress": "Progress (most read)"
     },
-    "filter": {
-      "all": "All",
-      "reading": "Reading",
-      "finished": "Finished",
-      "notStarted": "Not started",
-      "failed": "Failed",
-      "empty": "No books match this filter",
-      "clear": "Clear filter"
-    },
-    "status": {
-      "reading": "Reading",
-      "finished": "Finished",
-      "notStarted": "Not started",
-      "failed": "Failed",
-      "all": "All",
-      "empty": {
-        "reading": "Open a book to start reading",
-        "finished": "Finish your first book this month",
-        "notStarted": "Looking good — you're on top of your library",
-        "failed": "These uploads need attention",
-        "all": "No books match this filter"
-      },
-      "ariaLabel": "Filter by status"
-    },
     "search": {
-      "placeholder": "Search your library…",
-      "empty": "No books match \"{query}\"",
-      "clear": "Clear search",
-      "shortcut": "Cmd+F to focus",
       "contentToggle": "Search inside books"
     },
     "actions": {
-      "menu": "Options",
-      "open": "Open",
-      "viewDetails": "View details",
-      "markFinished": "Mark as finished",
-      "markUnfinished": "Mark as unfinished",
-      "editMetadata": "Edit metadata",
-      "retry": "Re-process",
-      "retrying": "Retrying…",
-      "cancel": "Cancel",
-      "cancelling": "Cancelling…",
-      "downloadOriginal": "Download original",
-      "removeFromLibrary": "Remove from library",
-      "addToCollection": "Add to collection",
-      "addToCollectionEmpty": "Create a collection in the sidebar first",
-      "addToCollectionFailed": "Couldn't add to collection",
-      "addedToCollection": "Added to {{name}}",
-      "delete": "Delete",
-      "deleting": "Deleting…",
-      "confirmDeleteTitle": "Delete this book?",
-      "confirmDeleteBody": "This permanently removes \"{title}\" and all its data. This cannot be undone.",
-      "confirmDeleteConfirm": "Delete",
-      "confirmDeleteCancel": "Keep"
+      "addToCollectionEmpty": "Create a collection in the sidebar first"
     },
     "editMetadata": {
       "title": "Edit book metadata",
@@ -808,11 +610,7 @@
       }
     },
     "collections": {
-      "aria": "Collections",
-      "all": "All books",
-      "new": "New collection",
-      "newPlaceholder": "Collection name…",
-      "add": "Add"
+      "new": "New collection"
     },
     "bookStats": {
       "title": "Your stats",
@@ -824,17 +622,6 @@
       "highlights": "Highlights",
       "pace": "Pace",
       "timeLeft": "Time left"
-    },
-    "insights": {
-      "title": "What you've worked out",
-      "lead": "Conclusions your assistant wrote back into this book. Read these instead of re-reading the book.",
-      "wholeBook": "This book"
-    },
-    "discuss": {
-      "label": "Talk this book over",
-      "claude": "Open in Claude",
-      "chatgpt": "Open in ChatGPT",
-      "hint": "Opens a new chat with an opening message about this book. Connect TextStack as a connector and your assistant can read the book and write its conclusions back here."
     },
     "bulk": {
       "select": "Select",
@@ -850,13 +637,7 @@
       "confirmDelete": "Delete",
       "doneSummary": "{ok} done, {fail} failed",
       "tagPlaceholder": "Tag name…"
-    },
-    "timeJustNow": "just now",
-    "timeMinAgo": "min ago",
-    "timeHoursAgo": "hours ago",
-    "timeYesterday": "yesterday",
-    "timeDaysAgo": "days ago",
-    "failedToProcess": "Failed to process"
+    }
   },
   "upload": {
     "button": "Upload book",
@@ -891,210 +672,25 @@
     }
   },
   "books": {
-    "title": "Books",
-    "seoDesc": "Read books online for free | TextStack Reader",
-    "noBooksYet": "No books available yet.",
-    "unknown": "Unknown",
-    "chapters": "chapters",
-    "readOnline": "Read {title} online",
-    "readOnlineFree": "{title} - Read online free",
-    "previous": "← Previous",
-    "next": "Next →",
-    "page": "Page {page} of {total}",
-    "searchPlaceholder": "Search books or authors...",
-    "sortRecent": "Recent",
-    "sortTitle": "Title",
-    "sortOldest": "Oldest",
-    "allCategories": "All",
-    "noResults": "No books found.",
-    "clearFilters": "Clear filters"
+    "seoDesc": "Read books online for free | TextStack Reader"
   },
   "authors": {
-    "title": "Authors",
-    "seoDesc": "Browse our list of authors | TextStack Reader",
-    "searchPlaceholder": "Search authors...",
-    "sortName": "Name",
-    "sortRecent": "Recent",
-    "noResults": "No authors found.",
-    "noAuthorsYet": "No authors available yet.",
-    "books": "books",
-    "viewBio": "{name} - View biography",
-    "bioAndBooks": "{name} - Biography and books"
+    "seoDesc": "Browse our list of authors | TextStack Reader"
   },
   "bookDetail": {
-    "notFound": "Book Not Found",
-    "notFoundDesc": "This book doesn't exist or is not available.",
-    "notFoundHeading": "Book not found",
-    "notFoundError": "Not found",
-    "backToHome": "Back to Home",
-    "readOnlineFree": "{title} - Read online free",
-    "viewBiography": "{name} - View biography",
-    "whatIsAbout": "What is {title} about?",
-    "startReading": "Start Reading",
-    "continueReading": "Continue Reading",
-    "startReadingTitle": "Start reading {title}",
-    "downloading": "Downloading {progress}%...",
-    "availableOffline": "Available offline",
-    "downloadForOffline": "Download for offline",
     "downloadEpub": "Download EPUB",
-    "chaptersHeading": "Chapters",
-    "readChapter": "Read {title}",
-    "words": "words",
-    "viewAllChapters": "View all {count} chapters",
-    "mainThemes": "Main themes in {title}",
-    "whyRelevant": "Why {title} is still relevant today",
-    "aboutAuthor": "About the author",
-    "faq": "Frequently Asked Questions",
-    "otherEditions": "Other Editions",
-    "readInLang": "Read {title} in {lang}",
     "moreByAuthor": "More by this author",
     "similarBooks": "Similar books",
-    "browseAll": "Browse all books",
-    "backToBooks": "Back to Books",
-    "faqWhoWrote": "Who wrote {title}?",
-    "faqWhoWroteAnswer": "{title} was written by {author}.",
-    "faqChapters": "How many chapters are in {title}?",
-    "faqChaptersAnswer": "{title} contains {count} chapters.",
-    "faqReadingTime": "How long does it take to read {title}?",
-    "faqReadingTimeAnswer": "The estimated reading time for {title} is {time}.",
-    "faqPublished": "When was {title} published?",
-    "faqPublishedAnswer": "{title} was first published in {year}.",
-    "faqFree": "Can I read {title} for free?",
     "faqFreeAnswer": "Yes, {title} is available to read for free on TextStack Reader.",
-    "faqLanguages": "Is {title} available in other languages?",
     "faqLanguagesYes": "Yes, {title} is available in {count} language(s) on TextStack Reader.",
-    "faqLanguagesNo": "Currently {title} is only available in {lang} on TextStack Reader.",
-    "relevanceText": "{title} by {author} remains relevant today because it explores {themes} that transcend time and culture. Its insights into human nature continue to resonate with modern readers.",
-    "aboutFallback": "{title} is a renowned work by {author}. This literary classic continues to captivate readers with its compelling narrative and timeless themes.",
-    "readingTimeMinutes": "{minutes} minutes",
-    "readingTimeHour": "1 hour",
-    "readingTimeHours": "{hours} hours",
-    "readingTimeUnknown": "Unknown"
-  },
-  "search": {
-    "title": "Search",
-    "enterQuery": "Enter a search query",
-    "noResults": "No results found",
-    "foundResults": "Found {total} results",
-    "chapter": "Chapter",
-    "readOnline": "Read {title} online",
-    "readOnlineFree": "{title} - Read online free",
-    "previous": "← Previous",
-    "next": "Next →",
-    "page": "Page {page} of {total}",
-    "moreChapters": "+{count} more chapters",
-    "hideChapters": "Hide chapters",
-    "recentSearches": "Recent searches",
-    "clearAll": "Clear all",
-    "searchPlaceholder": "Search books...",
-    "foundEditions": "Found {total} books"
-  },
-  "privacy": {
-    "seoTitle": "Privacy Policy — TextStack",
-    "seoDesc": "What TextStack collects, who receives it, and how long we keep it — including the AI features.",
-    "title": "Privacy Policy",
-    "intro": "This policy explains what TextStack collects, why, who we send it to, and how long we keep it. It covers the textstack.app website and the TextStack mobile apps.",
-    "updated": "Last updated: 20 August 2026",
-    "scopeHeading": "Who we are and what this covers",
-    "scopeBody1": "TextStack is a reading platform for language learning. This policy covers the textstack.app website and the TextStack apps for Android and iOS.",
-    "scopeBody2": "You can browse the public library and read without an account. Creating an account adds sync, uploads, highlights, vocabulary and the AI features — and means we store data on our servers rather than only on your device.",
-    "collectHeading": "What we collect",
-    "collectBody1": "Account. Your email address, display name, and a profile picture if you set one. If you sign in with Google or Apple we receive your email, name, profile image URL and a provider identifier. If you use a password, we store a cryptographic hash of it and never the password itself.",
-    "collectBody2": "Content you create or upload. The books you upload — both the original file and the text extracted from it — plus your highlights, notes, bookmarks, saved vocabulary and collections. Uploaded books are private to your account.",
-    "collectBody3": "Reading activity. Reading sessions (duration, words read, position), progress, goals, streaks and achievements. An earlier version of this policy said this data stayed in your browser. That was wrong: when you are signed in it is stored on our servers and linked to your account, which is what lets it sync across your devices.",
-    "collectBody4": "AI interaction data. When you use Book Chat, the tutor, the librarian, Explain or translation, we store a sample of the request and the response — including the passage of the book sent as context, your question, and the model's answer — linked to your account. We use it to investigate quality problems and to monitor what the service costs to run.",
-    "collectBody5": "Technical data. IP address, request logs, rate-limiting counters, and device and operating-system type. On the website only, analytics events if you accept analytics cookies.",
-    "collectBody6": "Kept only on your device. Theme, fonts, reader layout preferences, and the offline copies of any books you download.",
-    "purposeHeading": "Why we use it",
-    "purposeBody": "To run the reading service and sync your library across devices; to produce AI answers, explanations, translations and speech when you ask for them; to prevent abuse and enforce rate limits; and to monitor reliability and what the service costs to operate.",
-    "thirdPartiesHeading": "Who we send data to",
-    "thirdPartiesIntro": "We do not sell your personal information and we do not share it with advertisers or data brokers. We do send data to the providers below, each only as far as a feature you used requires.",
-    "thirdPartiesOpenai": "OpenAI. When you use an AI feature, your question and the relevant passage of the book are sent to OpenAI's API (models gpt-4.1 and gpt-4.1-nano) and the answer comes back. Under OpenAI's API terms this content is not used to train their models.",
-    "thirdPartiesTts": "Microsoft. Text you ask to be read aloud is sent to the Edge text-to-speech service to be turned into audio.",
-    "thirdPartiesDictionary": "Free Dictionary API (dictionaryapi.dev). The single word you look up is sent to fetch its definition and pronunciation. No account information goes with it.",
-    "thirdPartiesAuth": "Google and Apple. Only if you choose to sign in with them, and only to verify who you are.",
-    "thirdPartiesEmail": "Resend. Receives your email address in order to deliver transactional email such as a password reset.",
-    "thirdPartiesSentry": "Sentry. Receives error and performance data from our servers when something fails, which can include details of the failing request.",
-    "thirdPartiesAnalytics": "Google Analytics and Ahrefs Analytics. On the textstack.app website only, and only after you accept analytics cookies. The mobile apps contain no analytics.",
-    "thirdPartiesCloudflare": "Cloudflare. Carries all traffic to the service as our DNS and network provider.",
-    "thirdPartiesOllama": "Some AI work stays with us. The hints and multiple-choice options in vocabulary review are generated by a model running on our own servers and are not sent to anyone.",
-    "aiHeading": "The AI features",
-    "aiBody1": "They are optional. If you do not use Book Chat, the tutor, the librarian, Explain or translation, nothing is sent to OpenAI.",
-    "aiBody2": "AI output can be wrong. Explanations, translations and answers about a book are generated by a language model and should not be relied on as fact.",
-    "aiBody3": "We do not train models on your content, and under OpenAI's API terms neither do they. We do keep a sample of prompts and responses, as described above, for quality and cost monitoring.",
-    "aiBody4": "If an AI response is offensive or harmful, please report it using the contact address at the bottom of this page.",
-    "cookiesHeading": "Cookies and local storage",
-    "cookiesBody1": "Essential storage keeps you signed in and remembers your reader preferences. It cannot be switched off without breaking the service.",
-    "cookiesBody2": "The website asks for your consent before loading Google Analytics and Ahrefs Analytics. Analytics stays off until you accept, and you can decline. We use no advertising cookies, and the mobile apps ship no analytics or advertising SDKs at all.",
-    "securityHeading": "Storage and security",
-    "securityBody": "Data travels over HTTPS and is stored on servers we control. Books you upload are private to your account. Access to production systems is limited to the operator.",
-    "retentionHeading": "How long we keep it",
-    "retentionBody1": "Account data and the content you create are kept until you delete them, or until you delete your account.",
-    "retentionBody2": "Generated speech and cached AI explanations are deleted after 30 days.",
-    "retentionBody3": "AI interaction records are kept indefinitely — they are the operational record of what the service did and what it cost. When you delete your account, the link between those records and you is removed and they remain only as anonymous entries.",
-    "rightsHeading": "Your rights, and how to use them",
-    "rightsBody1": "You can access and export your data, correct it, or delete it. Deleting your account is immediate and irreversible: the account, uploaded books, highlights, notes, vocabulary, reading history and stored files are removed in a single transaction.",
-    "rightsBody2": "In the app: open the Profile tab, scroll to Delete account, and confirm. On the website: sign in, open the user menu, choose Edit profile, then use the Danger zone. You can also start a deletion request without signing in from the page below.",
-    "rightsLinkLabel": "textstack.app/en/delete-account",
-    "childrenHeading": "Children",
-    "childrenBody": "TextStack is not directed to children under 13 and we do not knowingly collect their personal information. If you believe a child has created an account, contact us and we will remove it.",
-    "transfersHeading": "International transfers",
-    "transfersBody": "Several of the providers above — OpenAI, Microsoft, Google, Apple, Resend, Sentry and Cloudflare — process data in the United States and elsewhere. Using the features that depend on them transfers your data there.",
-    "changesHeading": "Changes to this policy",
-    "changesBody": "If this policy changes materially we will update the date at the top, and for significant changes we will say so in the app or on the site. This version replaces an earlier one that understated both what we store and who receives it.",
-    "contactHeading": "Contact",
-    "contactBody": "Questions about this policy, or a request about your data? Reach out at"
+    "faqLanguagesNo": "Currently {title} is only available in {lang} on TextStack Reader."
   },
   "stats": {
-    "title": "Reading Stats",
-    "signInPrompt": "Sign in to track your reading and unlock achievements.",
     "empty": {
       "title": "Your reading stats will appear here",
       "subtitle": "Start reading to track streaks, time, and achievements.",
       "cta": "Open a book"
     },
-    "totalTime": "Total Time",
-    "booksFinished": "Books Finished",
-    "currentStreak": "Current Streak",
-    "avgDaily": "Avg Daily",
-    "dailyGoal": "Daily Goal",
-    "goalMet": "Goal met!",
-    "streakCalendar": "Reading Activity",
-    "weeklyChart": "This Week",
-    "achievements": "Achievements",
-    "goalSettings": "Goal Settings",
-    "dailyMinutesTarget": "Daily minutes target",
-    "streakThreshold": "Min minutes for streak",
-    "saveGoal": "Save",
-    "details": "Details",
-    "longestStreak": "Longest Streak",
-    "avgWpm": "Avg Words/Min",
-    "thisWeek": "This Week",
-    "thisMonth": "This Month",
-    "days": "days",
-    "allTime": "All Time",
-    "contents": "Jump to...",
-    "summary": "Summary",
-    "streaks": "Streaks",
-    "genres": "Genres",
-    "authors": "Most Read Authors",
-    "pace": "Pace",
-    "languages": "Languages",
-    "booksOverTime": "Books Over Time",
-    "bookLength": "Book Length",
-    "books": "Books",
-    "pages": "Pages",
-    "hours": "Hours",
-    "totalPages": "Total Pages",
-    "avgTimeToFinish": "Avg Days to Finish",
-    "readingTimeByGenre": "Reading Time by Genre",
-    "readingTimeByAuthor": "Reading Time by Author",
-    "slow": "Slow",
-    "medium": "Medium",
-    "fast": "Fast",
-    "short": "Short",
-    "long": "Long",
-    "noData": "No data yet",
     "overview": "Overview",
     "time": "Time",
     "today": "Today",
@@ -1104,44 +700,6 @@
       "empty": "Save 20+ words across a few topics to see your concept map.",
       "more": "+{count} more"
     }
-  },
-  "terms": {
-    "seoTitle": "Terms of Service - TextStack Reader",
-    "seoDesc": "TextStack Reader terms of service. Read about acceptable use, content policies, and your rights as a user.",
-    "title": "Terms of Service",
-    "intro": "By using TextStack — the textstack.app website or the TextStack mobile apps — you agree to these terms. They are meant to be fair and readable.",
-    "updated": "Last updated: 20 August 2026",
-    "acceptanceHeading": "Acceptance of Terms",
-    "acceptanceBody": "By accessing or using TextStack Reader, you agree to be bound by these Terms of Service. If you disagree with any part of these terms, you may not access the service.",
-    "contentHeading": "Content",
-    "contentBody1": "TextStack Reader provides access to public domain literature — works whose copyright has expired and that belong to the public. These books are free to read, share, and enjoy.",
-    "contentBody2": "Users may upload their own books to their personal library. You are responsible for ensuring you have the right to upload and access any content you add to the platform.",
-    "useHeading": "Acceptable Use",
-    "useIntro": "You agree to use TextStack Reader respectfully and lawfully. This means:",
-    "use1": "Not attempting to disrupt or overload the service",
-    "use2": "Not scraping content for commercial purposes",
-    "use3": "Not uploading malicious files or content",
-    "use4": "Respecting the intellectual property rights of others",
-    "ipHeading": "Intellectual Property",
-    "ipBody1": "The public domain books in our library are free for anyone to use. However, the TextStack Reader platform, design, and original content are protected by copyright.",
-    "ipBody2": "We credit sources where applicable and strive to provide accurate information about each work's origin and status.",
-    "uploadsHeading": "Your Uploads",
-    "uploadsWarranty": "When you upload a book, you represent and warrant that you own the copyright or other necessary rights, or that the work is in the public domain in your jurisdiction. You are solely responsible for any content you upload. Uploading infringing material may lead to account suspension or termination.",
-    "uploadsIndemnify": "You agree to indemnify and hold TextStack Reader harmless from any third-party claim, loss, or expense (including reasonable legal fees) arising from content you upload or from your breach of these Terms.",
-    "uploadsDmcaBefore": "Rights holders can report infringing uploads through our ",
-    "uploadsDmcaLink": "DMCA takedown process",
-    "uploadsDmcaAfter": ". We remove infringing material expeditiously upon receiving a valid notice and terminate repeat infringers.",
-    "disclaimerHeading": "Disclaimer and Limitation of Liability",
-    "disclaimerBody1": "TextStack Reader is provided \"as is\" and \"as available\" without warranties of any kind, whether express or implied, including merchantability, fitness for a particular purpose, and non-infringement. While we strive to maintain accurate texts and reliable service, we cannot guarantee uninterrupted access or error-free content.",
-    "disclaimerBody2": "To the maximum extent permitted by applicable law, TextStack Reader is not liable for any indirect, incidental, special, consequential, or punitive damages, or any loss of profits, data, or goodwill, arising from your use of the service.",
-    "liabilityCap": "Our total aggregate liability to you for all claims arising from or relating to the service is limited to the amount you have paid us in the twelve (12) months preceding the claim. For users who have paid nothing, this amount is zero. Some jurisdictions do not allow certain limitations, so parts of this section may not apply to you.",
-    "changesHeading": "Changes to Terms",
-    "changesBody": "We may update these terms from time to time. Significant changes will be communicated through the website. Your continued use of TextStack Reader after changes constitutes acceptance of the new terms.",
-    "contactHeading": "Contact",
-    "contactBody": "Questions about these terms? Reach out at",
-    "aiHeading": "AI features",
-    "aiBody1": "TextStack includes features powered by large language models: Book Chat, the tutor, the librarian, Explain, and translation. Their output is generated, not verified, and can be wrong, incomplete or misleading. Do not rely on it as fact, and do not rely on it for advice of any kind.",
-    "aiBody2": "Using these features sends the text you selected or asked about, together with the surrounding passage, to our AI providers. See the Privacy Policy for who receives it and what is stored. If a response is offensive or harmful, report it to the contact address below and we will look into it."
   },
   "dmca": {
     "seoTitle": "DMCA Takedown Policy - TextStack Reader",
@@ -1217,43 +775,17 @@
     "highlightDesc": "Review your highlighted passages"
   },
   "vocabulary": {
-    "title": "Vocabulary",
-    "signInPrompt": "Sign in to build your personal vocabulary list.",
-    "empty": "No words saved yet. Select words while reading to add them.",
     "emptyPage": {
       "title": "Your vocabulary starts here",
       "subtitle": "Open any book, tap a word — it will appear here ready for review.",
       "cta": "Browse library"
     },
-    "saveWord": "Save word",
-    "wordSaved": "Word saved",
-    "alreadySaved": "Already saved",
-    "startReview": "Start Review",
     "startPractice": "Practice",
-    "dueToday": "Due today",
-    "totalWords": "Total words",
-    "mastered": "Mastered",
-    "learning": "Learning",
-    "word": "Word",
-    "translation": "Translation",
-    "definition": "Definition",
-    "stage": "Stage",
-    "source": "Source",
-    "dueDate": "Due",
-    "noReviewDue": "No words due for review!",
     "deleteConfirm": "Remove",
     "deleteConfirmAction": "Confirm?",
     "deleteAll": "Delete all words",
     "deleteAllConfirm": "Click to confirm — cannot be undone",
-    "editTranslation": "Edit translation",
     "loadMore": "Load more",
-    "stages": {
-      "0": "New",
-      "1": "Recognition",
-      "2": "Recall",
-      "3": "Context",
-      "4": "Mastered"
-    },
     "due": {
       "now": "Now",
       "today": "Today",
@@ -1284,30 +816,14 @@
       "keepStreak": "Keep your streak going!",
       "readyTitle": "Ready to practice!",
       "readySubtitle": "Strengthen your vocabulary by reviewing words.",
-      "dayStreak": "day streak",
-      "budgetReached": "Weekly goal reached. See you next week!"
-    },
-    "weeklyBudget": {
-      "label": "This week",
-      "progress": "{used} / {budget}",
-      "remaining": "{n} left this week",
-      "emptyStateSubtitle": "You've hit your weekly review target. Read — new reviews unlock as old ones age out.",
-      "backToReading": "Back to reading"
+      "dayStreak": "day streak"
     },
     "practice": {
-      "title": "Practice",
-      "cta": "Practice anyway",
-      "subtitle": "Doesn't affect your SRS schedule",
       "mode": "Mode",
       "length": "Length",
       "flashcards": "Flashcards",
       "blitz": "Blitz",
       "wordsUnit": "words"
-    },
-    "retired": {
-      "title": "Mastered — retired",
-      "subtitle": "Graduated from review. Tap to bring back.",
-      "unretire": "Bring back to review"
     },
     "chart": {
       "title": "Practice every day",
@@ -1315,13 +831,8 @@
       "added": "Added"
     },
     "filters": {
-      "all": "All",
-      "new": "New",
-      "learning": "Learning",
-      "mastered": "Mastered",
       "pending": "Pending",
-      "lookups": "Reference",
-      "search": "Search words..."
+      "lookups": "Reference"
     },
     "pending": {
       "emptyTitle": "No words waiting",
@@ -1342,47 +853,7 @@
       "promoteFailed": "Could not promote this word. Try again.",
       "dismissFailed": "Could not remove this word. Try again."
     },
-    "clusters": {
-      "bonusCta": "Bonus: {n} related words",
-      "start": "Start bonus",
-      "fromBook": "from {book}"
-    },
-    "settings": {
-      "title": "Vocabulary settings",
-      "subtitle": "Tune how many new words you take on and how often you review.",
-      "dailyNewCap": "Daily new words",
-      "dailyNewCapHint": "How many new words enter SRS per day (5–100). Extras go to Pending.",
-      "weeklyBudget": "Weekly review budget",
-      "weeklyBudgetHint": "Max reviews per week (10–500). Prevents the \"847 due\" spiral.",
-      "frequencyFilter": "Rare-word filter",
-      "frequencyFilterHint": "Send rare words (beyond top 15k) to Reference instead of SRS.",
-      "autoRetire": "Auto-retire mastered words",
-      "autoRetireHint": "Stop reviewing words you've answered correctly 3× at long intervals.",
-      "loadFailed": "Could not load settings.",
-      "saveFailed": "Could not save settings. Try again."
-    },
-    "sort": {
-      "recent": "Recent",
-      "alphabetical": "A-Z",
-      "due": "Due date",
-      "stage": "Stage"
-    },
     "review": {
-      "title": "Vocabulary Review",
-      "chooseTranslation": "Choose the correct translation",
-      "fillBlank": "What word fills the blank?",
-      "correct": "Correct!",
-      "closeEnough": "Close enough!",
-      "wrong": "Not quite",
-      "correctAnswer": "Correct answer",
-      "next": "Next",
-      "sessionComplete": "Session complete!",
-      "reviewed": "Reviewed",
-      "correctRate": "Correct rate",
-      "promoted": "Level up!",
-      "check": "Check",
-      "fromBook": "from \"{title}\"",
-      "backToVocab": "Back to Vocabulary",
       "practiceMode": "Practice Mode",
       "practiceAgain": "Practice Again",
       "keepPracticing": "Keep Practicing",
@@ -1410,83 +881,19 @@
       "startAgain": "Start Again"
     },
     "stats": {
-      "reviewedToday": "Reviewed today",
-      "correctRate": "Correct rate",
-      "streak": "Review streak",
       "practicedToday": "Practiced today"
     }
   },
   "librarian": {
-    "title": "Ask the librarian",
-    "subtitle": "Describe what you want to read and the librarian reasons over the library to recommend the best fits.",
-    "placeholder": "Describe what you want to read — e.g. 'books like 1984 about surveillance, under 300 pages'",
-    "inputLabel": "What do you want to read?",
-    "ask": "Ask",
     "thinkingShort": "Thinking…",
-    "thinking": "The librarian is thinking…",
-    "reasoningLabel": "Here's what I found and why",
-    "usedExternalNote": "The library was thin on this, so I reached beyond the catalog for a couple of suggestions.",
-    "suggestionBadge": "Suggestion",
-    "suggestionNote": "Not in your library yet — an outside suggestion.",
     "openBook": "Open {{title}}",
-    "unknownAuthor": "Unknown author",
-    "pagesCount": "{{count}} pages",
-    "empty": {
-      "title": "Couldn't find a good match",
-      "subtitle": "Try rephrasing your request — add a theme, a comparable book, or a length."
-    },
-    "error": {
-      "title": "Couldn't reach the librarian",
-      "subtitle": "Something went wrong. Please try again.",
-      "retry": "Try again"
-    },
-    "signIn": {
-      "title": "Sign in to ask the librarian",
-      "subtitle": "The librarian recommends books from a natural-language request, with its reasoning.",
-      "cta": "Sign in"
-    }
+    "pagesCount": "{{count}} pages"
   },
   "tutor": {
-    "title": "Smart session",
-    "planning": "Your tutor is planning your session…",
-    "entry": {
-      "cta": "Smart session",
-      "hint": "Let your AI tutor plan what to study and explain why"
-    },
-    "plan": {
-      "rationaleLabel": "Here's your plan, and why",
-      "adjustedLabel": "Your tutor adjusted your plan",
-      "adjustedNote": "Your tutor adjusted your plan based on how you did.",
-      "start": "Start studying"
-    },
-    "exercise": {
-      "recognition": "Recognition",
-      "recall": "Recall",
-      "context": "Context",
-      "generic": "Exercise"
-    },
     "study": {
       "why": "Why this card"
     },
-    "summary": {
-      "done": "Session complete",
-      "studied": "Studied",
-      "accuracy": "Accuracy",
-      "back": "Back to vocabulary"
-    },
-    "empty": {
-      "title": "Nothing to study right now",
-      "subtitle": "You're all caught up. Keep reading to grow your vocabulary.",
-      "cta": "Browse books"
-    },
-    "error": {
-      "title": "Couldn't plan your session",
-      "subtitle": "Something went wrong reaching your tutor.",
-      "retry": "Try again"
-    },
     "signIn": {
-      "title": "Sign in for a smart session",
-      "subtitle": "Your AI tutor plans what to study from the words you save while reading.",
       "cta": "Browse books"
     }
   },
