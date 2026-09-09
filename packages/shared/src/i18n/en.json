@@ -74,9 +74,7 @@
   },
   "home": {
     "hero": {
-      "title": "Learn languages by reading real books",
       "subtitle": "Read classic literature. Build vocabulary. Track your progress.",
-      "description": "TextStack is a reading platform for language learners. Thousands of classic books with built-in vocabulary tools, spaced repetition, and reading statistics.",
       "cta": "Browse catalog"
     },
     "recentAuthors": {
@@ -87,9 +85,6 @@
       "title": "Recently Added Books",
       "viewAll": "View all books",
       "read": "Read"
-    },
-    "seo": {
-      "content": "TextStack is a language learning platform built around reading. The catalog features thousands of classic and public-domain books. As you read, you can look up words, save them to your vocabulary, and review with spaced repetition. Track reading stats, set goals, and grow your fluency — all in a calm, distraction-free environment."
     }
   },
   "firstRun": {
@@ -118,9 +113,7 @@
     "stats": "Stats",
     "vocabulary": "Vocabulary",
     "about": "About",
-    "brandTitle": "TextStack - Learn languages through reading",
     "browseBooks": "Browse all books",
-    "aboutTextStack": "About TextStack",
     "read": "Read",
     "discover": "Discover",
     "profile": "Profile"
@@ -165,7 +158,6 @@
     "signOutConfirm": "Sign out and lose it"
   },
   "footer": {
-    "description": "TextStack is a language learning platform built around reading. Read classic literature, build vocabulary with spaced repetition, track your progress, and grow your fluency — all in a calm, distraction-free environment.",
     "privacy": "Privacy Policy",
     "terms": "Terms of Service",
     "contact": "Contact Us"
@@ -197,8 +189,6 @@
     }
   },
   "contact": {
-    "seoTitle": "Contact Us - TextStack",
-    "seoDesc": "Get in touch with TextStack. We'd love to hear your feedback, questions, or content requests.",
     "title": "Contact Us",
     "intro": "We'd love to hear from you. Whether it's feedback, a question, or a book request — drop us a line.",
     "reachOutHeading": "What to Reach Out About",
@@ -409,7 +399,6 @@
   },
   "books": {
     "title": "Books",
-    "seoDesc": "Read books online for free | TextStack",
     "noBooksYet": "No books available yet.",
     "unknown": "Unknown",
     "chapters": "chapters",
@@ -428,7 +417,6 @@
   },
   "authors": {
     "title": "Authors",
-    "seoDesc": "Browse our list of authors | TextStack",
     "searchPlaceholder": "Search authors...",
     "sortName": "Name",
     "sortRecent": "Recent",
@@ -474,10 +462,7 @@
     "faqPublished": "When was {title} published?",
     "faqPublishedAnswer": "{title} was first published in {year}.",
     "faqFree": "Can I read {title} for free?",
-    "faqFreeAnswer": "Yes, {title} is available to read for free on TextStack.",
     "faqLanguages": "Is {title} available in other languages?",
-    "faqLanguagesYes": "Yes, {title} is available in {count} language(s) on TextStack.",
-    "faqLanguagesNo": "Currently {title} is only available in {lang} on TextStack.",
     "relevanceText": "{title} by {author} remains relevant today because it explores {themes} that transcend time and culture. Its insights into human nature continue to resonate with modern readers.",
     "aboutFallback": "{title} is a renowned work by {author}. This literary classic continues to captivate readers with its compelling narrative and timeless themes.",
     "readingTimeMinutes": "{minutes} minutes",
@@ -748,7 +733,6 @@
     "source": "Source",
     "dueDate": "Due",
     "noReviewDue": "No words due for review!",
-    "deleteConfirm": "Remove this word?",
     "editTranslation": "Edit translation",
     "stages": {
       "0": "New",

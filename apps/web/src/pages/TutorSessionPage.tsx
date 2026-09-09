@@ -37,7 +37,7 @@ export function TutorSessionPage() {
           icon="🧭"
           title={t('tutor.signIn.title')}
           subtitle={t('tutor.signIn.subtitle')}
-          buttonLabel={t('tutor.signIn.cta')}
+          buttonLabel={t('tutor.signIn.ctaBrowse')}
           buttonTo="/books"
         />
       </div>
