@@ -73,18 +73,13 @@
     }
   },
   "home": {
-    "hero": {
-      "subtitle": "Read classic literature. Build vocabulary. Track your progress.",
-      "cta": "Browse catalog"
-    },
     "recentAuthors": {
       "title": "Recently Added Authors",
       "viewAll": "View all authors"
     },
     "recentBooks": {
       "title": "Recently Added Books",
-      "viewAll": "View all books",
-      "read": "Read"
+      "viewAll": "View all books"
     }
   },
   "firstRun": {
@@ -110,28 +105,14 @@
   "nav": {
     "catalog": "Catalog",
     "library": "Library",
-    "stats": "Stats",
     "vocabulary": "Vocabulary",
     "about": "About",
-    "browseBooks": "Browse all books",
-    "read": "Read",
     "discover": "Discover",
     "profile": "Profile"
   },
   "onboarding": {
-    "chooseLanguage": "Choose your language",
-    "chooseLanguageSubtitle": "You can change this later in settings",
     "nativeLanguageTitle": "What language do you know best?",
-    "nativeLanguageSubtitle": "We'll translate into it while you read. You can change it any time in Profile.",
-    "learnByReading": "Learn by reading",
-    "tapToTranslate": "Tap any word to see its translation",
-    "saveWords": "Save words to build your vocabulary",
-    "save": "Save",
-    "ready": "You're ready!",
-    "readySubtitle": "Saved words appear in your vocabulary\nfor spaced repetition review",
-    "next": "Next",
-    "skip": "Skip",
-    "gotIt": "Got it"
+    "nativeLanguageSubtitle": "We'll translate into it while you read. You can change it any time in Profile."
   },
   "profile": {
     "vocabReminder": {
@@ -203,12 +184,6 @@
   "library": {
     "title": "My Library",
     "signInPrompt": "Sign in to save books to your library and track your reading progress.",
-    "saved": "Saved",
-    "uploads": "Uploads",
-    "sortRecent": "Recently Added",
-    "sortTitle": "Title",
-    "sortProgress": "Progress",
-    "sortBy": "Sort by",
     "loading": "Loading...",
     "emptyLibrary": "Your library is empty.",
     "browseBooks": "Browse Books",
@@ -229,14 +204,11 @@
     "chapters": "chapters",
     "processing": "Processing...",
     "failed": "Failed",
-    "noUploads": "No uploaded books yet.",
-    "uploadHint": "Click the + button to upload EPUB or PDF files.",
     "timeJustNow": "just now",
     "timeMinAgo": "min ago",
     "timeHoursAgo": "hours ago",
     "timeYesterday": "yesterday",
     "timeDaysAgo": "days ago",
-    "failedToProcess": "Failed to process",
     "sidebar": {
       "all": "All books",
       "uploads": "My uploads",
@@ -286,11 +258,7 @@
       "progress": "Most read"
     },
     "filter": {
-      "all": "All",
-      "reading": "Reading",
       "finished": "Finished",
-      "notStarted": "Not started",
-      "failed": "Failed",
       "empty": "No books match this filter",
       "clear": "Clear filter"
     },
@@ -300,24 +268,15 @@
       "notStarted": "Not started",
       "failed": "Failed",
       "all": "All",
-      "empty": {
-        "reading": "Open a book to start reading",
-        "finished": "Finish your first book this month",
-        "notStarted": "Looking good — you're on top of your library",
-        "failed": "These uploads need attention",
-        "all": "No books match this filter"
-      },
       "ariaLabel": "Filter by status"
     },
     "search": {
       "placeholder": "Search your library…",
       "empty": "No books match \"{query}\"",
-      "clear": "Clear search",
-      "shortcut": "Cmd+F to focus"
+      "clear": "Clear search"
     },
     "actions": {
       "menu": "Options",
-      "open": "Open",
       "viewDetails": "View details",
       "markFinished": "Mark as finished",
       "markUnfinished": "Mark as unfinished",
@@ -326,7 +285,6 @@
       "retrying": "Retrying…",
       "cancel": "Cancel",
       "cancelling": "Cancelling…",
-      "downloadOriginal": "Download original",
       "removeFromLibrary": "Remove from library",
       "addToCollection": "Add to collection",
       "addToCollectionEmpty": "No collections yet — create one below",
@@ -388,13 +346,7 @@
   },
   "addMenu": {
     "title": "Add to library",
-    "ariaLabel": "Add content menu",
-    "comingSoon": "Coming in a future update",
     "uploadFile": "Upload file",
-    "pasteUrl": "Paste URL",
-    "emailBook": "Email a book",
-    "browserExtension": "Browser extension",
-    "mobileApps": "Mobile apps",
     "browseAll": "Browse all books"
   },
   "books": {
@@ -441,7 +393,6 @@
     "downloading": "Downloading {progress}%...",
     "availableOffline": "Available offline",
     "downloadForOffline": "Download for offline",
-    "chaptersHeading": "Chapters",
     "readChapter": "Read {title}",
     "words": "words",
     "viewAllChapters": "View all {count} chapters",
@@ -474,7 +425,6 @@
     "title": "Search",
     "enterQuery": "Enter a search query",
     "noResults": "No results found",
-    "foundResults": "Found {total} results",
     "chapter": "Chapter",
     "readOnline": "Read {title} online",
     "readOnlineFree": "{title} - Read online free",
@@ -555,13 +505,10 @@
     "totalTime": "Total Time",
     "booksFinished": "Books Finished",
     "currentStreak": "Current Streak",
-    "avgDaily": "Avg Daily",
     "dailyGoal": "Daily Goal",
     "goalMet": "Goal met!",
-    "streakCalendar": "Reading Activity",
     "weeklyChart": "This Week",
     "achievements": "Achievements",
-    "goalSettings": "Goal Settings",
     "dailyMinutesTarget": "Daily minutes target",
     "streakThreshold": "Min minutes for streak",
     "saveGoal": "Save",
@@ -588,11 +535,6 @@
     "avgTimeToFinish": "Avg Days to Finish",
     "readingTimeByGenre": "Reading Time by Genre",
     "readingTimeByAuthor": "Reading Time by Author",
-    "slow": "Slow",
-    "medium": "Medium",
-    "fast": "Fast",
-    "short": "Short",
-    "long": "Long",
     "noData": "No data yet",
     "emptyTitle": "No reading stats yet",
     "emptySubtitle": "Start reading a book to track your progress",
@@ -661,7 +603,6 @@
       "clearConfirm": "Clear this chat? This can't be undone.",
       "loadingHistory": "Loading chat…",
       "detachQuote": "Remove quoted passage",
-      "askAboutThis": "Ask about this",
       "startersTitle": "Try asking",
       "starters": {
         "summary": "Summarize what I've read so far",
@@ -670,9 +611,6 @@
         "attention": "What should I pay attention to?"
       }
     },
-    "reviewNow": "Review Now",
-    "later": "Later",
-    "wordsSaved": "{count} word(s) saved",
     "toastWordAdded": "Added to vocabulary",
     "toastWordAddedCount": "Added · {count} this session",
     "toastTapToReview": "Tap to review",
@@ -687,7 +625,6 @@
     },
     "vocab": {
       "queuedForTomorrow": "Daily cap reached — queued for tomorrow",
-      "savedToReference": "Saved to reference (rare word)",
       "tapAgainToStudy": "Tap again to study ({n} left)",
       "addedToSrs": "Added to your vocabulary",
       "addAnywayFailed": "Couldn't add word — please try again",
@@ -703,49 +640,18 @@
       "under": "Less than a minute left",
       "minutes": "{minutes} min left",
       "hours": "{hours} hr left",
-      "hoursMinutes": "{hours} hr {minutes} min left",
-      "inChapter": "left in chapter",
-      "inBook": "left in book"
+      "hoursMinutes": "{hours} hr {minutes} min left"
     }
-  },
-  "review": {
-    "excellent": "Excellent!",
-    "greatWork": "Great work!",
-    "keepPracticing": "Keep practicing!",
-    "dayStreak": "{count} day streak"
   },
   "vocabulary": {
     "title": "Vocabulary",
     "signInPrompt": "Sign in to build your personal vocabulary list.",
     "empty": "No words saved yet. Select words while reading to add them.",
-    "saveWord": "Save word",
-    "wordSaved": "Word saved",
-    "alreadySaved": "Already saved",
-    "startReview": "Start Review",
-    "dueToday": "Due today",
     "totalWords": "Total words",
     "mastered": "Mastered",
-    "learning": "Learning",
-    "word": "Word",
-    "translation": "Translation",
-    "definition": "Definition",
-    "stage": "Stage",
-    "source": "Source",
     "dueDate": "Due",
-    "noReviewDue": "No words due for review!",
     "editTranslation": "Edit translation",
-    "stages": {
-      "0": "New",
-      "1": "Recognition",
-      "2": "Recall",
-      "3": "Context",
-      "4": "Mastered"
-    },
     "filters": {
-      "all": "All",
-      "new": "New",
-      "learning": "Learning",
-      "mastered": "Mastered",
       "search": "Search words..."
     },
     "sort": {
@@ -755,31 +661,21 @@
       "stage": "Stage"
     },
     "review": {
-      "title": "Vocabulary Review",
-      "chooseTranslation": "Choose the correct translation",
-      "fillBlank": "What word fills the blank?",
       "correct": "Correct!",
-      "closeEnough": "Close enough!",
       "wrong": "Not quite",
       "correctAnswer": "Correct answer",
       "next": "Next",
-      "sessionComplete": "Session complete!",
       "reviewed": "Reviewed",
       "correctRate": "Correct rate",
-      "promoted": "Level up!",
-      "check": "Check",
       "fromBook": "from \"{title}\"",
       "backToVocab": "Back to Vocabulary"
     },
     "stats": {
-      "reviewedToday": "Reviewed today",
-      "correctRate": "Correct rate",
       "streak": "Review streak"
     },
     "weeklyBudget": {
       "label": "This week",
       "progress": "{used} / {budget}",
-      "remaining": "{n} left this week",
       "emptyStateSubtitle": "You've hit your weekly review target. Read — new reviews unlock as old ones age out.",
       "backToReading": "Back to reading"
     },
@@ -788,13 +684,7 @@
     },
     "practice": {
       "title": "Practice",
-      "cta": "Practice anyway",
-      "subtitle": "Doesn't affect your SRS schedule"
-    },
-    "retired": {
-      "title": "Mastered — retired",
-      "subtitle": "Graduated from review. Tap to bring back.",
-      "unretire": "Bring back to review"
+      "cta": "Practice anyway"
     },
     "clusters": {
       "bonusCta": "Bonus: {n} related words",
