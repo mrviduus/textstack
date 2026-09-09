@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync, readdirSync, statSync } from 'fs'
 import { resolve, join } from 'path'
-import en from '../en.json'
+import { catalog as en } from '../catalog'
 
 /**
  * Every `t('some.key')` in the source must resolve to a string in en.json.

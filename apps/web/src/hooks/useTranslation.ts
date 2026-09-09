@@ -1,10 +1,14 @@
 import { useCallback } from 'react'
 import { useLanguage, SupportedLanguage } from '../context/LanguageContext'
-import en from '../locales/en.json'
+import { catalog, type TranslationNode } from '../locales/catalog'
 
-type TranslationData = typeof en
-
-const translations: Record<SupportedLanguage, TranslationData> = { en }
+// `typeof en` used to stand in for the catalogue's shape. It stopped being able to:
+// `en.json` is now an overlay, not the whole thing, and the shared half arrives typed
+// as a generic node. The literal type is given up on purpose — nothing consumed it
+// structurally (`t(key: string)` and `getNestedValue(obj: unknown)` never did), and
+// `missing-keys.test.ts`, which checks every literal `t('…')` against the real
+// catalogue, was always the stronger guarantee.
+const translations: Record<SupportedLanguage, TranslationNode> = { en: catalog }
 
 function getNestedValue(obj: unknown, path: string): unknown {
   const keys = path.split('.')

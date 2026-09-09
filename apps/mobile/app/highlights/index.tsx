@@ -302,7 +302,7 @@ export default function HighlightsScreen() {
             onButtonPress={() => { setLoading(true); setAttempt(a => a + 1) }}
           />
         ) : highlights.length === 0 ? (
-          <EmptyState icon="color-wand-outline" title={t('highlights.empty')} subtitle={t('highlights.emptySubtitle')} />
+          <EmptyState icon="color-wand-outline" title={t('highlights.emptyTitle')} subtitle={t('highlights.emptySubtitle')} />
         ) : (
           <SectionList
             sections={sections}
