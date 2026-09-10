@@ -51,7 +51,6 @@ interface ReaderHighlightsProps {
   updateHighlight: (id: string, updates: { color?: HighlightColor; noteText?: string | null }) => Promise<StoredHighlight | null>
   removeHighlight: (id: string) => Promise<void>
   /** Open the Study Buddy panel for a highlighted passage (AI-038b). Catalog editions only. */
-  onAskAbout?: (passage: string) => void
   /**
    * Original-layout PDF mode: keep the live selection actions (translate /
    * explain / TTS / copy / vocab-save) but drop persistent visual layers —
@@ -101,7 +100,6 @@ export function ReaderHighlights({
   addHighlight,
   updateHighlight,
   removeHighlight,
-  onAskAbout,
   liveActionsOnly = false,
   onPdfHighlight,
   children,
@@ -442,13 +440,6 @@ export function ReaderHighlights({
   }, [explainPopup, selection.text, selection.range, selection.rect])
 
   // --- Study Buddy: hand the whole selected passage up to the reader's panel ---
-  const handleAskAbout = useCallback(() => {
-    const passage = selection.text?.trim()
-    if (!passage || !onAskAbout) return
-    onAskAbout(passage)
-    clearSelection()
-  }, [selection.text, onAskAbout, clearSelection])
-
   // --- Selection toolbar ---
   const handleHighlight = useCallback(
     async (color: HighlightColor) => {
@@ -531,7 +522,6 @@ export function ReaderHighlights({
           onHighlight={handleHighlight}
           onTranslate={handleTranslate}
           onExplain={handleExplain}
-          onAskAbout={onAskAbout ? handleAskAbout : undefined}
           onSpeak={() => handleSpeak(selection.text)}
           onCopy={handleCopy}
         />

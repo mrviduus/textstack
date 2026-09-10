@@ -102,9 +102,7 @@ internal sealed class CapturingDb : IAppDbContext
     public DbSet<ModelPromotion> ModelPromotions => throw new NotSupportedException();
     public DbSet<DriftCentroid> DriftCentroids => throw new NotSupportedException();
     public DbSet<PodcastGenerationJob> PodcastGenerationJobs => throw new NotSupportedException();
-    public DbSet<BookConversation> BookConversations => throw new NotSupportedException();
     public DbSet<BookInsight> BookInsights => throw new NotSupportedException();
     public DbSet<McpAccessKey> McpAccessKeys => throw new NotSupportedException();
-    public DbSet<ConversationMessage> ConversationMessages => throw new NotSupportedException();
     public DbSet<UserChapterChunk> UserChapterChunks => throw new NotSupportedException();
 }

@@ -27,13 +27,12 @@ namespace Domain.Entities;
 /// freshness, and a writer that wants to add rather than replace reads the existing text first.</para>
 ///
 /// <para>Exactly one of <see cref="EditionId"/> (a catalog book) or <see cref="UserBookId"/> (the
-/// user's own upload) is set — enforced by a DB CHECK, the same shape as
-/// <see cref="BookConversation"/>. Site-scoped (<see cref="ISiteScoped"/>) like the other per-user
-/// AI tables. Plain POCO; EF mapping in AppDbContext.Insights.cs.</para>
+/// user's own upload) is set — enforced by a DB CHECK. Site-scoped (<see cref="ISiteScoped"/>) like
+/// the other per-user tables. Plain POCO; EF mapping in AppDbContext.Insights.cs.</para>
 ///
-/// <para>Deliberately NOT <see cref="BookConversation"/>: that is a chat container with a rolling
-/// summary and a summarized-through watermark, and we decided not to keep the chat. Deliberately not
-/// <c>Note</c> either: its API was never wired up and it is hard-bound to an edition.</para>
+/// <para>Deliberately not <c>Note</c>: its API was never wired up and it is hard-bound to an
+/// edition. The chat container this once contrasted itself against is gone — the conversation now
+/// happens in the reader's own assistant, which is the whole point of this table.</para>
 /// </summary>
 public class BookInsight : ISiteScoped
 {

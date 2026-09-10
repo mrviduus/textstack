@@ -14,10 +14,8 @@ type Props = {
   sessionWordCount: number
   isAuthenticated: boolean
   hasChapters: boolean
-  showAsk: boolean
   isCurrentBookmarked: boolean
   onExit: () => void
-  onAskPress: () => void
   onBookmarksPress: () => void
   onHighlightsPress: () => void
   onTocPress: () => void
@@ -41,10 +39,8 @@ export function ReaderTopBar({
   sessionWordCount,
   isAuthenticated,
   hasChapters,
-  showAsk,
   isCurrentBookmarked,
   onExit,
-  onAskPress,
   onBookmarksPress,
   onHighlightsPress,
   onTocPress,
@@ -76,11 +72,6 @@ export function ReaderTopBar({
         </View>
       )}
       <View style={styles.topBarRight}>
-        {showAsk && (
-          <TouchableOpacity onPress={onAskPress} style={styles.iconBtn} accessibilityLabel="Ask this book">
-            <Ionicons name="chatbubble-ellipses-outline" size={20} color={barText} />
-          </TouchableOpacity>
-        )}
         {isAuthenticated && (
           <TouchableOpacity onPress={onBookmarksPress} style={styles.iconBtn}>
             <Ionicons name={isCurrentBookmarked ? 'bookmark' : 'bookmark-outline'} size={20} color={barText} />

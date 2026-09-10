@@ -18,7 +18,6 @@ interface SelectionToolbarProps {
   onHighlight: (color: HighlightColor) => void
   onTranslate?: () => void
   onExplain?: () => void
-  onAskAbout?: () => void
   onSpeak?: () => void
   onCopy?: () => void
 }
@@ -31,7 +30,6 @@ export function SelectionToolbar({
   onHighlight,
   onTranslate,
   onExplain,
-  onAskAbout,
   onSpeak,
   onCopy,
 }: SelectionToolbarProps) {
@@ -139,18 +137,6 @@ export function SelectionToolbar({
           <ExplainIcon />
         </button>
       )}
-      {onAskAbout && (
-        <button
-          className="selection-toolbar__action"
-          onMouseDown={(e) => e.preventDefault()}
-          onTouchStart={(e) => e.preventDefault()}
-          onClick={onAskAbout}
-          title={t('reader.selectionToolbar.askAboutThis')}
-          aria-label={t('reader.selectionToolbar.askAboutThis')}
-        >
-          <AskAboutIcon />
-        </button>
-      )}
       {onSpeak && text.trim().length <= 500 && (
         <button
           className="selection-toolbar__action"
@@ -209,15 +195,6 @@ function ExplainIcon() {
   )
 }
 
-function AskAboutIcon() {
-  // Sparkles — "help me understand" / agent assist.
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 3l1.9 4.6L18.5 9.5 13.9 11.4 12 16l-1.9-4.6L5.5 9.5l4.6-1.9L12 3z" />
-      <path d="M19 14l.7 1.7L21.5 16.5l-1.8.8L19 19l-.7-1.7L16.5 16.5l1.8-.8L19 14z" />
-    </svg>
-  )
-}
 
 function SpeakIcon() {
   return (

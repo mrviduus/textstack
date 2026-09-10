@@ -551,34 +551,6 @@
     "aiBody2": "Using these features sends the text you selected or asked about, together with the surrounding passage, to our AI providers. See the Privacy Policy for who receives it and what is stored. If a response is offensive or harmful, report it to the contact address below and we will look into it."
   },
   "reader": {
-    "ask": {
-      "title": "Ask this book",
-      "placeholder": "Ask a question about what you've read…",
-      "send": "Ask",
-      "thinking": "Thinking…",
-      "empty": "Ask a question about the book — answers come only from chapters you've read.",
-      "signIn": "Sign in to ask questions about this book.",
-      "signInCta": "Sign in",
-      "indexing": "Indexing this book…",
-      "indexFailed": "Could not index this book.",
-      "indexTimeout": "Indexing is taking too long. Try again.",
-      "retry": "Retry",
-      "notConfigured": "Ask is not available right now.",
-      "insufficient": "Not enough in the book to answer that.",
-      "error": "Could not get an answer",
-      "spoilerToggle": "Spoiler-safe",
-      "clearChat": "Clear chat",
-      "clearConfirm": "Clear this chat? This can't be undone.",
-      "loadingHistory": "Loading chat…",
-      "detachQuote": "Remove quoted passage",
-      "startersTitle": "Try asking",
-      "starters": {
-        "summary": "Summarize what I've read so far",
-        "characters": "Who are the main characters?",
-        "keyIdea": "Explain the key idea so far",
-        "attention": "What should I pay attention to?"
-      }
-    },
     "toastWordAdded": "Added to vocabulary",
     "toastWordAddedCount": "Added · {count} this session",
     "toastTapToReview": "Tap to review",

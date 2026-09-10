@@ -41,7 +41,6 @@ import { HighlightsSheet } from '../HighlightsSheet'
 import { SelectionActionBar } from '../SelectionActionBar'
 import { TranslationSheet } from '../TranslationSheet'
 import { ExplanationSheet } from '../ExplanationSheet'
-import { AskSheet, type AskPrefill } from '../AskSheet'
 import { HighlightNoteModal } from '../HighlightNoteModal'
 import { TocSheet } from '../TocSheet'
 import { ReaderStatsWidget } from '../ReaderStatsWidget'
@@ -213,9 +212,7 @@ export function ReaderShell(props: ReaderShellProps) {
   const [highlightsOpen, setHighlightsOpen] = useState(false)
   const [translateOpen, setTranslateOpen] = useState(false)
   const [explainOpen, setExplainOpen] = useState(false)
-  const [askOpen, setAskOpen] = useState(false)
   /** Passage attached to the Ask sheet via the selection toolbar's "Ask about this" action. */
-  const [askPrefill, setAskPrefill] = useState<AskPrefill | null>(null)
   const [tocOpen, setTocOpen] = useState(false)
   const [progress, setProgress] = useState(0)
   const [bookProgress, setBookProgress] = useState<number | null>(null)
@@ -471,7 +468,7 @@ export function ReaderShell(props: ReaderShellProps) {
         promptVisible: exitPrompt !== null,
         otherOverlayOpen:
           settingsOpen || bookmarksOpen || highlightsOpen || translateOpen
-          || explainOpen || askOpen || tocOpen || pdfError
+          || explainOpen || tocOpen || pdfError
           || !!selection || !!editingHighlight,
         prompt: pendingPrompt(),
       })
@@ -482,7 +479,7 @@ export function ReaderShell(props: ReaderShellProps) {
     return () => sub.remove()
   }, [
     exitPrompt, pendingPrompt, handleExit, settingsOpen, bookmarksOpen, highlightsOpen,
-    translateOpen, explainOpen, askOpen, tocOpen, pdfError, selection, editingHighlight,
+    translateOpen, explainOpen, tocOpen, pdfError, selection, editingHighlight,
   ])
 
   const handleMessage = useCallback((event: any) => {
@@ -1019,10 +1016,8 @@ export function ReaderShell(props: ReaderShellProps) {
           sessionWordCount={sessionWordCount}
           isAuthenticated={isAuthenticated}
           hasChapters={chapters.length > 0}
-          showAsk={!!askTarget}
           isCurrentBookmarked={isCurrentBookmarked}
           onExit={handleExit}
-          onAskPress={() => setAskOpen(true)}
           onBookmarksPress={() => setBookmarksOpen(true)}
           onHighlightsPress={() => setHighlightsOpen(true)}
           onTocPress={() => setTocOpen(true)}
@@ -1049,12 +1044,6 @@ export function ReaderShell(props: ReaderShellProps) {
             vocabStage={vocabMapRef.current[selection.text.toLowerCase()]?.stage ?? null}
             isAuthenticated={isAuthenticated}
             bottomOffset={footerHeight}
-            onAskAbout={askTarget && selection.text.trim() ? () => {
-              setAskPrefill({ text: selection.text.trim(), nonce: Date.now() })
-              setAskOpen(true)
-              injectJs('try{window.getSelection&&window.getSelection().removeAllRanges()}catch(e){};try{window.__tsClearWordMark&&window.__tsClearWordMark()}catch(e){}')
-              setSelection(null)
-            } : undefined}
             onClose={() => {
               injectJs('try{window.getSelection&&window.getSelection().removeAllRanges()}catch(e){};try{window.__tsClearWordMark&&window.__tsClearWordMark()}catch(e){}')
               setSelection(null)
@@ -1202,25 +1191,6 @@ export function ReaderShell(props: ReaderShellProps) {
           fromLang={language}
           onClose={() => setExplainOpen(false)}
         />
-
-        {askTarget && (
-          <AskSheet
-            visible={askOpen}
-            target={askTarget}
-            currentChapterId={chapter.id}
-            chapters={chapters}
-            prefill={askPrefill}
-            // Account predicate, not a session one: Ask calls paid inference and
-            // every rate-limit bucket partitions on IP alone, so a guest reaching
-            // it would be an unmetered path to the LLM. The other `isAuthenticated`
-            // props in this file are session predicates and stay as they are — a
-            // guest is a real row that syncs.
-            canUseAi={capabilitiesFor(user).canUseAi}
-            onCitation={handleCitation}
-            onSignIn={() => { setAskOpen(false); router.push('/(auth)/login') }}
-            onClose={() => { setAskOpen(false); setAskPrefill(null) }}
-          />
-        )}
 
         <TocSheet
           visible={tocOpen}

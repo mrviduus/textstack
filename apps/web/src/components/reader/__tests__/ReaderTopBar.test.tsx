@@ -32,12 +32,6 @@ describe('ReaderTopBar — Original-layout toggle removed (ADR-012)', () => {
     expect(container.querySelector('[aria-pressed]')).toBeNull()
   })
 
-  it('Ask is appended last (index 4) without shifting the base 4', () => {
-    const { container } = renderBar({ showAsk: true, onAskClick: () => {} })
-    const btns = container.querySelectorAll('.reader-top-bar__btn')
-    expect(btns.length).toBe(5)
-    expect(btns[4].getAttribute('title')).toBe('Ask this book')
-  })
 })
 
 describe('ReaderTopBar — Original-layout PDF adaptations', () => {

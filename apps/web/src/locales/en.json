@@ -215,16 +215,6 @@
     "badgeNote": "In closed testing — open to anyone with an Android phone."
   },
   "reader": {
-    "ask": {
-      "citation": "ch.{{ch}}",
-      "citationPage": "p. {{page}}",
-      "citationFallback": "source",
-      "prepareCopy": "One-time setup so you can ask about this book.",
-      "prepareCta": "Prepare this book for questions",
-      "preparing": "Preparing this book… {{done}}/{{total}}",
-      "indexRetry": "Retry",
-      "spoilerTooltip": "Answers only use chapters you've read"
-    },
     "wordPopup": {
       "known": "Known",
       "ignore": "Ignore",
@@ -253,7 +243,6 @@
       "highlightBlue": "Highlight blue",
       "translate": "Translate selected text",
       "explain": "Explain in context",
-      "askAboutThis": "Ask about this",
       "listen": "Listen to pronunciation",
       "copy": "Copy selected text"
     },

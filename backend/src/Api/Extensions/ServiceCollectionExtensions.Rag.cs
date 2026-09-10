@@ -32,7 +32,6 @@ public static partial class ServiceCollectionExtensions
         // Phase 2 "Ask this book" for user uploads: per-user isolated retrieval context (no spoiler gate).
         services.AddScoped<Application.Rag.UserBookRagContextService>();
         // Persistent Book Chat rolling-summary generator (nano route via FeatureTag "explain").
-        services.AddScoped<Application.BookChat.ConversationSummarizer>();
 
         return services;
     }

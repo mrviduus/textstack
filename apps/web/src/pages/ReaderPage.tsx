@@ -20,10 +20,6 @@ import { ReaderSection } from '../components/reader/ReaderSection'
 import { ReaderNav } from '../components/reader/ReaderNav'
 import { ReaderFooterNav } from '../components/reader/ReaderFooterNav'
 import { ReaderSettingsDrawer } from '../components/reader/ReaderSettingsDrawer'
-import { AskPanel, type AskPrefill } from '../components/reader/AskPanel'
-import type { AskCitation, AskTarget } from '../api/ask'
-import { resolveCitationJump } from './readerCitationJump'
-import { scrollToCitation } from '../lib/citationScroll'
 import { ReaderTocDrawer } from '../components/reader/ReaderTocDrawer'
 import { ReaderSearchDrawer } from '../components/reader/ReaderSearchDrawer'
 import { ReaderHighlights } from '../components/reader/ReaderHighlights'
@@ -63,7 +59,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
   // For userbook mode, chapterSlug comes from the :chapterSlug param
   const chapterIdentifier = mode === 'public' ? chapterSlug : userChapterSlug
 
-  const { isAuthenticated, openAuthModal, ensureSession } = useAuth()
+  const { isAuthenticated, ensureSession } = useAuth()
   const { language, getLocalizedPath } = useLanguage()
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -95,9 +91,6 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
 
   const [tocOpen, setTocOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [askOpen, setAskOpen] = useState(false)
-  // "Ask about this": a reader-selection passage attached to the chat composer as a quote card.
-  const [askPrefill, setAskPrefill] = useState<AskPrefill | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
 
   // Original layout (pixel-perfect PDF) is the DEFAULT for user-uploaded PDFs
@@ -515,80 +508,6 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
     }
   }, [book?.chapters, chapter, userProgress.savedProgress, navigate, getChapterUrl])
 
-  // RAG "Ask this book" target (AI-027). P1: catalog editions. P2: user uploads — on-demand
-  // indexing via the owner-scoped `/me/books/{id}/...` endpoints, no spoiler gate. The target
-  // carries the kind + seeded index state/counts so the panel routes to the right endpoints.
-  const askTarget: AskTarget | undefined =
-    mode === 'public' && publicBook
-      ? {
-          kind: 'edition',
-          id: publicBook.id,
-          ragStatus: publicBook.ragStatus,
-          ragChunkCount: publicBook.ragChunkCount,
-          ragEmbeddedCount: publicBook.ragEmbeddedCount,
-        }
-      : mode === 'userbook' && book
-        ? {
-            kind: 'userbook',
-            id: book.id,
-            ragStatus: book.ragStatus,
-            ragChunkCount: book.ragChunkCount,
-            ragEmbeddedCount: book.ragEmbeddedCount,
-          }
-        : undefined
-
-  // "Ask about this" (Study Buddy merged into chat): open the chat panel with the selected passage
-  // attached as a quote card. Available wherever chat is (any resolved askTarget), not catalog-only.
-  const handleAskAboutThis = useCallback((passage: string) => {
-    setAskPrefill({ text: passage, nonce: Date.now() })
-    setAskOpen(true)
-  }, [])
-
-  const pendingCitationRef = useRef<AskCitation | null>(null)
-  const handleNavigateToCitation = useCallback((c: AskCitation) => {
-    // Original PDF mode: a page-anchored citation jumps the pixel-perfect viewer to
-    // its source page (ADR-012 S3c) instead of scrolling the reflow DOM. PDF chunks
-    // are not chapter-anchored, so the reflow path below can't locate them.
-    const jump = resolveCitationJump(c, originalActive)
-    if (jump.kind === 'pdf') {
-      setAskOpen(false)
-      setPdfScrollTo({ page: jump.page, nonce: Date.now() })
-      return
-    }
-    const target = chapterList?.find(ch => ch.chapterNumber === c.chapterOrd)
-    setAskOpen(false)
-    if (!target) return
-    if (target.identifier === activeChapterIdentifier && scrollContainerRef.current) {
-      // Already on the cited chapter — scroll to the passage now (026b).
-      scrollToCitation(scrollContainerRef.current, c)
-    } else {
-      // Different chapter: navigate, then the effect below scrolls once it renders.
-      pendingCitationRef.current = c
-      navigate(getChapterUrl(target.identifier))
-    }
-  }, [chapterList, activeChapterIdentifier, getChapterUrl, navigate, originalActive])
-
-  // Consume a pending citation once its chapter has navigated in and rendered. Runs after
-  // scroll-restore (slight delay) so an explicit citation jump wins over position restore.
-  useEffect(() => {
-    const pending = pendingCitationRef.current
-    if (!pending || loading) return
-    const target = chapterList?.find(ch => ch.chapterNumber === pending.chapterOrd)
-    const container = scrollContainerRef.current
-    if (!target || target.identifier !== activeChapterIdentifier || !container) return
-    pendingCitationRef.current = null
-    // Double rAF: runs a frame after scroll-restore's single rAF, so the explicit citation jump
-    // wins without racing on a magic timeout.
-    let inner = 0
-    const outer = requestAnimationFrame(() => {
-      inner = requestAnimationFrame(() => scrollToCitation(container, pending))
-    })
-    return () => {
-      cancelAnimationFrame(outer)
-      cancelAnimationFrame(inner)
-    }
-  }, [activeChapterIdentifier, loading, chapterList])
-
   // Back URL
   const backUrl = mode === 'public'
     ? `/books/${bookSlug}`
@@ -696,14 +615,12 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
         sourceUrl={mode === 'userbook' ? clipSourceUrl : null}
         sourceDomain={mode === 'userbook' ? sourceDomain(clipSourceUrl) : null}
         useLocalizedLink={mode === 'public'}
-        showAsk={!!askTarget}
         // In-chapter search is reflow-DOM based; the PDF canvas has no page-aware
         // search yet, so hide the button rather than open a no-op (follow-up).
         showSearch={!originalActive}
         // Original PDF has no word-based progress (session is time-only → 0%);
         // the footer page indicator (N / total) is the real progress. Hide the % here.
         showProgress={!originalActive}
-        onAskClick={() => setAskOpen(true)}
         onSearchClick={() => setSearchOpen(true)}
         onTocClick={() => setTocOpen(true)}
         onSettingsClick={() => setSettingsOpen(true)}
@@ -742,7 +659,6 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
           addHighlight={highlightsApi.addHighlight}
           updateHighlight={highlightsApi.updateHighlight}
           removeHighlight={highlightsApi.removeHighlight}
-          onAskAbout={askTarget ? handleAskAboutThis : undefined}
           liveActionsOnly={originalActive}
           onPdfHighlight={originalActive ? handlePdfHighlight : undefined}
         >
@@ -853,20 +769,6 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
         onClose={() => setSettingsOpen(false)}
         originalMode={originalActive}
       />
-
-      {askTarget && (
-        <AskPanel
-          open={askOpen}
-          askTarget={askTarget}
-          currentChapterId={activeChapter?.id}
-          prefill={askPrefill}
-          isAuthenticated={isAuthenticated}
-          onSignIn={openAuthModal}
-          onNavigateToCitation={handleNavigateToCitation}
-          chapters={chapterList ?? undefined}
-          onClose={() => setAskOpen(false)}
-        />
-      )}
 
       <ReaderSearchDrawer
         open={searchOpen}
