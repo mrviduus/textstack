@@ -1149,5 +1149,20 @@
   "vocabulary.weeklyBudget.label": "This week",
   "vocabulary.weeklyBudget.progress": "{used} / {budget}",
   "words.tabs.highlights": "Highlights",
-  "words.tabs.vocabulary": "Vocabulary"
+  "words.tabs.vocabulary": "Vocabulary",
+  "mcp.connect.heading": "Connect your assistant",
+  "mcp.connect.lead": "Create a key, paste it into Claude or ChatGPT once, and it can read the books you upload and write conclusions back. The key does not expire; revoke it here whenever you like.",
+  "mcp.connect.signInLead": "Sign in to create a key. It is tied to your account — that is what lets an assistant reach your library and nobody else's.",
+  "mcp.connect.signInCta": "Sign in",
+  "mcp.connect.createCta": "Create a key",
+  "mcp.connect.creating": "Creating…",
+  "mcp.connect.shownOnce": "Copy this now — it is shown once and cannot be recovered. We store only a hash of it.",
+  "mcp.connect.configLabel": "Claude Desktop — paste into claude_desktop_config.json",
+  "mcp.connect.empty": "No keys yet.",
+  "mcp.connect.revoke": "Revoke",
+  "mcp.connect.usedRecently": "used recently",
+  "mcp.connect.neverUsed": "never used",
+  "mcp.connect.loadFailed": "Could not load your keys.",
+  "mcp.connect.createFailed": "Could not create a key.",
+  "mcp.connect.revokeFailed": "Could not revoke that key."
 }
