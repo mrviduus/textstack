@@ -8,7 +8,7 @@ namespace Application.Entitlements;
 /// <param name="DailyEnrichmentCap">New vocabulary words this user may push through paid LLM
 /// enrichment per UTC day; <c>null</c> = uncapped (every tier but Guest, today).</param>
 /// <param name="CanUseAi">
-/// Whether the paid-inference surface (librarian, tutor, ask, book chat, study buddy, RAG indexing)
+/// Whether the paid-inference surface (tutor)
 /// is open to this user. This is the SERVER's answer — the mobile client has its own
 /// <c>canUseAi</c> flag, but a client-side flag is a UI affordance, not a boundary: a guest token
 /// is a valid bearer token, so without this every one of those endpoints was reachable with an

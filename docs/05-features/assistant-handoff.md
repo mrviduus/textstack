@@ -38,7 +38,7 @@ conversation about a real book — the reader just carries the outcome back by h
 
 | | |
 |---|---|
-| **MCP bridge** | 14 tools, stdio + streamable HTTP, device-flow auth. `textstack.app/mcp` |
+| **MCP bridge** | 13 tools, stdio + streamable HTTP. Auth by connect key (`tsk_…`) or device flow. `textstack.app/mcp` |
 | **`BookInsight`** | Conclusions written back, keyed by `(user, book, chapterSlug)`. One per target — a re-run replaces rather than accumulates |
 | **`DiscussWithAssistant`** | Button on 4 screens: catalog + upload detail, web + mobile. Opens `claude.ai/new?q=…` or `chatgpt.com/?q=…` with a prepared brief |
 | **`BookInsightsSection`** | Renders the conclusions on the same 4 screens |
@@ -46,7 +46,7 @@ conversation about a real book — the reader just carries the outcome back by h
 ## What is missing
 
 **The assistant can write but cannot read.** It is told to call `save_insight` and `save_highlight`,
-and it does. None of the 14 tools returns reading progress, position, a shelf, or any history.
+and it does. None of the 13 tools returns reading progress, position, a shelf, or any history.
 
 | What the reader expects | What the system can actually answer |
 |---|---|
@@ -58,9 +58,10 @@ Two consequences worth naming:
 
 - The brief names `get_my_insights` and `save_insight` and **no highlight tool at all**, so a typical
   session reads insights, writes insights, and never looks at what the reader marked.
-- Position leaks out only as a refusal: `ask_book` answers *"you haven't read far enough in this book
-  to answer yet"* and never names a chapter. The assistant cannot avoid spoilers deliberately — it
-  can only bump into the gate.
+- Position is not exposed at all. It used to leak as a refusal from `ask_book`'s spoiler gate; that
+  tool is gone, so now there is nothing — an assistant cannot avoid spoiling a book because it cannot
+  ask how far the reader has got. `ReadingProgress.MaxChapterNumber` still records exactly that and is
+  currently write-only, waiting for `get_book_progress`.
 
 **The conclusions have nowhere to return to.** `BookInsight` hangs on the book's spine correctly, but
 there is no category field, the UI is a flat list at the bottom of one book's page, there is no
@@ -108,9 +109,9 @@ Counted against the live database, not estimated.
 
 ## Where this stands — 2026-09-10
 
-Branch `feat/mcp-connect-key`, four commits, **−9,623 lines across 66 deleted files** (excluding
-generated EF snapshots). Backend, web, admin and mobile all build; 1,485 backend + 701 web + 381
-mobile tests green.
+Branch `feat/mcp-connect-key`, six commits, **−21,846 lines across 148 deleted files** (excluding
+generated EF snapshots). Backend, web, admin and mobile all build; 1,234 backend + 18 MCP + 698 web +
+381 mobile tests green.
 
 | Done | |
 |---|---|
@@ -118,26 +119,29 @@ mobile tests green.
 | Study Buddy | Deleted end to end (−1,525) |
 | Librarian | Deleted end to end, incl. DiscoverPage and the mobile Search entry card (−3,074) |
 | Book Chat | Deleted end to end, incl. AskPanel/AskSheet, the reader chrome and the tables (−5,056) |
+| Retrieval spine | Deleted end to end: chunk tables, vision PDF parser, indexing + embedding workers, `ask_book`, the similar-books rail and semantic catalog search (−12,223) |
+| Docs | `mcp.md`, `CLAUDE.md`, `STATUS.md` and the `/mcp` landing page brought back in line with 13 tools |
 
 | Not done — carry forward | |
 |---|---|
 | **Key creation UI** | No page on web, no screen on mobile. The routes exist, so today a key can only be minted with curl. **This is what blocks the whole feature from being usable.** |
 | **Key integration test** | Revoke-then-401 and the `LastUsedAt` write are untested. `GuestActivityMiddleware` is dead code precisely because that second test was never written — do not repeat it |
+| **CI** | Never run on any of this. Integration, e2e and docker jobs were not run locally either — they need a live server. This is the largest unknown |
+| **Migrations on production** | `DropBookChat` and `DropRagSpine` both destroy data and have not been applied. Back up first |
 | Read-side MCP tools | `get_my_reading`, `get_book_progress`, `set_book_progress` — none started |
 | `chapterSlug` on `LibraryShelfItemDto` | Not started; the service already selects it |
 | `chapterId` in the `get_book` projection | Not started. `save_highlight`'s description still tells the model to take it from there, which is false |
 | Catalog handoff brief | Still sends `editionId` where the tools require a slug — the catalog Discuss button does not work |
 | Mobile `Linking.openURL` | Still swallows the failure |
-| Branch | Not pushed, no PR |
+| Tutor's worked example | `get_example_sentence` went with the retrieval spine. `VocabularyWord.Sentence` already holds the sentence a word was saved from, so this is a rewire with no retrieval — not started |
 
 ### Found while cutting — decisions still open
 
-1. **`GET /books/{slug}/similar` is a live public feature that dies with the chunks.**
-   `SimilarBooksRail` renders on every book page and is fed by `editions.embedding`, which
-   `EditionEmbeddingUpdater` computes as the mean of that edition's `chapter_chunk` vectors. Measured
-   on production: **4 editions of 1423 have an embedding**, so the rail is already blank on 99.7% of
-   pages — but it is reader-facing and SEO-adjacent (internal linking), which none of the chat
-   surfaces were. Deleting the chunks makes it permanently blank rather than mostly blank.
+1. ~~**`GET /books/{slug}/similar`**~~ — **decided: deleted.** The rail was fed by
+   `editions.embedding`, and **4 editions of 1423 had one**, so it was already blank on 99.7% of book
+   pages. It was the only reader-facing thing in the cut, which is why it was put to the owner rather
+   than assumed. If similar-books is wanted back, genre + author + FTS would serve all 1423 rather
+   than four, and would cost nothing to run — that is a small build, not a restore.
 2. **Three tools are RAG-backed and two of them serve things that stay.**
    `SearchBookTool` (`search_book`) is reachable from Explain via the `EarlierReference` signal;
    `GetExampleSentenceTool` is in Tutor's tool list; `FindEarlierDefinitionTool` has no live caller.
@@ -257,6 +261,14 @@ as an artefact and let it go stale, or write the retirement up as the article �
 measured 26 messages, and replaced them with a protocol" is a better piece than another eval run.
 That is a decision for the owner, not a code question.
 
+### One thing the cut did NOT remove
+
+**pgvector stays.** The `DropRagSpine` migration drops the two chunk tables, `editions.embedding` and
+its HNSW index — not the extension. Vector columns are still live on `vocabulary_words.embedding`
+(concept clustering) and on the drift centroids, so `Pgvector` and `Pgvector.EntityFrameworkCore`
+remain referenced by `Infrastructure`. Anything that reads "pgvector is gone" is shorthand for the
+retrieval vectors, not the type.
+
 ## Defects found along the way
 
 These exist independently of this feature; they were found while tracing it. Also listed in
@@ -355,7 +367,7 @@ Consequences:
 
 ## Links
 
-- [`mcp.md`](mcp.md) — the 14 tools, client setup, authentication
+- [`mcp.md`](mcp.md) — the 13 tools, client setup, authentication
 - [`ADR-015`](../01-architecture/adr/ADR-015-reader-position-model.md) — why position is a text
   anchor, not a pixel
 - `backend/src/Domain/Entities/BookInsight.cs` — the design rationale for "a catalog, not a

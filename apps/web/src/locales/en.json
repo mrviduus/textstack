@@ -418,7 +418,7 @@
       "toolInstallLabel": "terminal"
     },
     "tools": {
-      "heading": "The 14 tools",
+      "heading": "The 13 tools",
       "lead": "What your AI assistant can do once connected:",
       "searchBooks": "Search the public book catalog by query.",
       "getBook": "Fetch a book's metadata and chapter list by slug.",
@@ -431,7 +431,6 @@
       "listMyHighlights": "List your saved highlights (requires sign-in).",
       "saveHighlight": "Save a passage to your highlights (requires sign-in).",
       "listMyVocabulary": "List your saved vocabulary words (requires sign-in).",
-      "askBook": "Ask a question about a book and get a cited, grounded answer.",
       "saveInsight": "Write a conclusion back into a book — against one chapter, or the whole book (requires sign-in).",
       "getMyInsights": "Read back everything already worked out about a book, in reading order (requires sign-in)."
     },
