@@ -179,6 +179,19 @@ public static partial class ServiceCollectionExtensions
                     QueueLimit = 0,
                 });
             });
+            // Connect-key creation — per-IP. Minting a credential is rare and deliberate: a reader
+            // does it once per assistant. The cap exists so a scripted client cannot fill the
+            // per-user key list (McpKeys.MaxKeysPerUser) over and over as fast as it likes.
+            options.AddPolicy("mcp-keys", httpContext =>
+            {
+                var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
+                {
+                    Window = TimeSpan.FromMinutes(5),
+                    PermitLimit = 10,
+                    QueueLimit = 0,
+                });
+            });
             // User book upload — per-IP cap, mirrors the clip zone. Uploads are heavier
             // (file ingestion) so the same conservative bucket applies.
             options.AddPolicy("user-upload", httpContext =>

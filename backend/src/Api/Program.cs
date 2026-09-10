@@ -297,6 +297,11 @@ app.UseRouting();
 //     database work.
 //   * GuestActivity is deliberately BELOW this line: it writes users.LastActiveAt, and a request
 //     the limiter rejected must not reach the database at all.
+// MCP connect keys resolve BEFORE the limiter on purpose: `highlight-write` is partitioned by
+// user id rather than IP precisely because MCP traffic arrives from one container address, and it
+// cannot pick that partition until the key has been resolved. See McpKeyAuthMiddleware.
+app.UseMiddleware<Api.Middleware.McpKeyAuthMiddleware>();
+
 app.UseRateLimiter();
 
 // Guest activity tracking (update LastActiveAt, debounced hourly)
@@ -334,6 +339,7 @@ app.MapAccountEndpoints();
 app.MapUserDataEndpoints();
 app.MapHighlightsEndpoints();
 app.MapInsightsEndpoints();
+app.MapMcpKeysEndpoints();
 app.MapTranslationEndpoints();
 app.MapExplainEndpoints();
 app.MapDictionaryEndpoints();

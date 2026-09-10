@@ -78,6 +78,21 @@ public partial class AppDbContext
             e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
         });
 
+        // McpAccessKey — the long-lived credential a reader pastes into their AI client. Hashed like
+        // PasswordResetToken above; revoked in place rather than deleted, so the row survives as the
+        // record that a connector was switched off.
+        modelBuilder.Entity<McpAccessKey>(e =>
+        {
+            e.HasIndex(x => x.KeyHash).IsUnique();
+            e.Property(x => x.KeyHash).HasMaxLength(128);
+            e.Property(x => x.Prefix).HasMaxLength(16);
+            e.Property(x => x.Name).HasMaxLength(60);
+            // The list-my-keys read. Revoked rows stay, so the index carries them too.
+            e.HasIndex(x => new { x.UserId, x.SiteId });
+            e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Site).WithMany().HasForeignKey(x => x.SiteId).OnDelete(DeleteBehavior.Cascade);
+        });
+
         // DeviceAuthorization (RFC 8628 device-grant). device_code stored hashed.
         modelBuilder.Entity<DeviceAuthorization>(e =>
         {

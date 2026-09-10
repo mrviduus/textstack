@@ -39,8 +39,21 @@ public static class ClaimsPrincipalExtensions
         return string.IsNullOrEmpty(cookieToken) ? null : cookieToken;
     }
 
+    /// <summary>
+    /// The authenticated user for this request, or null.
+    /// <para>
+    /// A connect key (<c>tsk_…</c>) was already resolved by <c>McpKeyAuthMiddleware</c> and left on
+    /// <see cref="HttpContext.Items"/> — checked first because such a bearer is not a JWT and
+    /// <see cref="AuthService.ValidateAccessToken"/> would only reject it. Everything else is a JWT,
+    /// validated here as it always was.
+    /// </para>
+    /// </summary>
     public static Guid? GetUserId(this HttpContext httpContext, AuthService authService)
     {
+        if (httpContext.Items.TryGetValue(Middleware.McpKeyAuthMiddleware.UserIdItemKey, out var fromKey)
+            && fromKey is Guid keyUserId)
+            return keyUserId;
+
         var token = httpContext.GetAccessToken();
         return token == null ? null : authService.ValidateAccessToken(token);
     }
