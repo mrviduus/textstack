@@ -157,6 +157,7 @@ function AppContent() {
           <Stack.Screen name="privacy" />
           <Stack.Screen name="terms" />
           <Stack.Screen name="contact" />
+        <Stack.Screen name="connect" />
           <Stack.Screen name="books" />
           <Stack.Screen name="authors" />
         </Stack>

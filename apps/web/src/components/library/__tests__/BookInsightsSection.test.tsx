@@ -5,10 +5,13 @@ vi.mock('../../../hooks/useTranslation', () => ({
   useTranslation: () => ({ t: (k: string) => k }),
 }))
 
+// Mocks the WEB client, not the shared one. This test used to mock `@textstack/shared`'s
+// `insightsApi`, which is how it stayed green while the component called an api layer the web app
+// never initialises — the mock replaced the broken dependency with a working one. See
+// noSharedApiOnWeb.test.ts for the guard that catches the class rather than the instance.
 const getBookInsights = vi.fn()
-vi.mock('@textstack/shared', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@textstack/shared')>()),
-  insightsApi: { getBookInsights: (...a: unknown[]) => getBookInsights(...a) },
+vi.mock('../../../api/insights', () => ({
+  getBookInsights: (...a: unknown[]) => getBookInsights(...a),
 }))
 
 import { BookInsightsSection } from '../BookInsightsSection'

@@ -107,33 +107,55 @@ Counted against the live database, not estimated.
   the assistant understands where the reader is.
 - **7 indexed books of 1498** settles the RAG question — freeze it.
 
-## Where this stands — 2026-09-10
+## Where this stands — 2026-09-10, end of day
 
-Branch `feat/mcp-connect-key`, six commits, **−21,846 lines across 148 deleted files** (excluding
-generated EF snapshots). Backend, web, admin and mobile all build; 1,234 backend + 18 MCP + 698 web +
-381 mobile tests green.
+Four PRs merged (#596–#599) and deployed. Production is healthy; the manifest serves 13 tools;
+`mcp_access_keys` exists with **0 rows** — nobody has minted a key yet, which is now a choice rather
+than an impossibility.
 
-| Done | |
+**Proved end to end locally, not just unit-tested:** mint a key → call `POST /mcp` with it →
+`list_my_vocabulary` returns the account's data, the same call without it returns "authentication
+required", and `last_used_at` is stamped. That covers the bridge path
+(`HttpContextTokenProvider` → `TextStackApiClient` → API), which the integration tests do not.
+
+| Shipped | |
 |---|---|
-| `McpAccessKey` | Entity, migration, three routes, middleware resolution, 17 unit tests |
-| Study Buddy | Deleted end to end (−1,525) |
-| Librarian | Deleted end to end, incl. DiscoverPage and the mobile Search entry card (−3,074) |
-| Book Chat | Deleted end to end, incl. AskPanel/AskSheet, the reader chrome and the tables (−5,056) |
-| Retrieval spine | Deleted end to end: chunk tables, vision PDF parser, indexing + embedding workers, `ask_book`, the similar-books rail and semantic catalog search (−12,223) |
-| Docs | `mcp.md`, `CLAUDE.md`, `STATUS.md` and the `/mcp` landing page brought back in line with 13 tools |
+| The cut | Six chat surfaces and the whole retrieval spine, −21,846 lines across 148 files |
+| `McpAccessKey` | Long-lived, revocable, SHA-256 stored; middleware above the rate limiter |
+| Connect page | On `/mcp`: create a key, see it once, copy a ready-to-paste config, revoke |
+| Catalog brief | Was handing tools an identifier they reject — the Discuss button had never worked |
+| Web insights | Was calling an API layer the web never initialises — the конспект section had never rendered |
 
-| Not done — carry forward | |
-|---|---|
-| **Key creation UI** | No page on web, no screen on mobile. The routes exist, so today a key can only be minted with curl. **This is what blocks the whole feature from being usable.** |
-| **Key integration test** | Revoke-then-401 and the `LastUsedAt` write are untested. `GuestActivityMiddleware` is dead code precisely because that second test was never written — do not repeat it |
-| **CI** | Never run on any of this. Integration, e2e and docker jobs were not run locally either — they need a live server. This is the largest unknown |
-| **Migrations on production** | `DropBookChat` and `DropRagSpine` both destroy data and have not been applied. Back up first |
-| Read-side MCP tools | `get_my_reading`, `get_book_progress`, `set_book_progress` — none started |
-| `chapterSlug` on `LibraryShelfItemDto` | Not started; the service already selects it |
-| `chapterId` in the `get_book` projection | Not started. `save_highlight`'s description still tells the model to take it from there, which is false |
-| Catalog handoff brief | Still sends `editionId` where the tools require a slug — the catalog Discuss button does not work |
-| Mobile `Linking.openURL` | Still swallows the failure |
-| Tutor's worked example | `get_example_sentence` went with the retrieval spine. `VocabularyWord.Sentence` already holds the sentence a word was saved from, so this is a rewire with no retrieval — not started |
+### What is left, in the order it should be done
+
+1. **Mobile connect screen** — in progress on `feat/mobile-connect-screen`. The key is
+   account-level, so one minted on the phone works in Claude Desktop too, and vice versa.
+2. **The three read tools** — `get_my_reading` (build on the existing `GET /me/library/shelves`),
+   `get_book_progress`, `set_book_progress`. This is the actual ask: "Claude should know what I've
+   read and where I am". Today it knows neither past the opening message.
+   Note `ReadingProgress.MaxChapterNumber` is write-only until `get_book_progress` exists.
+3. **Insight categories** — *Conclusions · Watch for · Discussed · Questions*, tabs in the book, and
+   DELETE (there is none; a bad conclusion is permanent).
+4. **Mobile `Linking.openURL`** still swallows its failure — no app installed means a tap does
+   nothing at all.
+5. **Tutor's wiring** — `ExerciseType` is rendered as a badge while `ReviewCardBuilder` emits
+   `multiple_choice` unconditionally, so the plan never changes the session. It also lost
+   `get_example_sentence` with the RAG cut; `VocabularyWord.Sentence` already holds the sentence a
+   word was saved from, so restoring that needs no retrieval.
+6. **Tech debt, recorded and deliberately untouched** — ten progress-path defects (`LocatorKind` on
+   the catalog path, web and mobile writing different mark-as-read locators, `ReadingProgressDto`
+   mirrored twice in TS, `MayReplace` refusing a write and reporting success) plus five web modules
+   that were already dead before this work. All in `STATUS.md`.
+
+### Only the owner can do these
+
+- **Do the Claude and ChatGPT mobile apps accept custom MCP connectors?** Item 1 above is worth
+  building either way (the key is account-level), but item 4 and the mobile half of the product
+  depend on the answer.
+- **Mint a key on textstack.app and hold a real conversation about a real book**, then check the
+  conclusion comes back. Every test so far has used an empty throwaway account.
+- **Android developer verification, deadline 2026-09-30** — unregistered apps are removed from Play
+  globally. Unrelated to this feature and more urgent than all of it.
 
 ### Left behind by the cut — a follow-up, found 2026-09-10 after PR #596 opened
 

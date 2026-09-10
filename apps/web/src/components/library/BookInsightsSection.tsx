@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { insightsApi, insightChapterLabel, type BookInsight } from '@textstack/shared'
+import { insightChapterLabel, type BookInsight } from '@textstack/shared'
+import { getBookInsights } from '../../api/insights'
 import { useTranslation } from '../../hooks/useTranslation'
 
 /**
@@ -34,10 +35,16 @@ export function BookInsightsSection({ userBookId, editionId }: Props) {
 
     let cancelled = false
     setLoading(true)
-    insightsApi.getBookInsights(target)
+    getBookInsights(target)
       .then(rows => { if (!cancelled) setInsights(rows) })
-      // Silent: this is a supplementary panel and a failure here must never take
-      // the book page down with it. Same posture as BookStatsSection.
+      // Silent: this is a supplementary panel and a failure here must never take the book page
+      // down with it. Same posture as BookStatsSection.
+      //
+      // That posture is also how this section stayed invisible on the web for its whole life: it
+      // used to call the SHARED insights client, which routes through an api layer only the mobile
+      // app initialises, so every call rejected before reaching the network and this catch ate it.
+      // Silence is right for a network failure and wrong for a wiring mistake, and it cannot tell
+      // them apart — hence the web-local client above, whose auth actually works here.
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }

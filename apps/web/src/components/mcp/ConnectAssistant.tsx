@@ -1,14 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useTranslation } from '../../hooks/useTranslation'
-import {
-  listMcpKeys,
-  createMcpKey,
-  revokeMcpKey,
-  claudeDesktopConfig,
-  type McpKey,
-  type CreatedMcpKey,
-} from '../../api/mcpKeys'
+import { listMcpKeys, createMcpKey, revokeMcpKey, type McpKey, type CreatedMcpKey } from '../../api/mcpKeys'
+// Pure, and shared on purpose: a key minted on the phone is the same key here, so both platforms
+// must hand out the same snippet and the same default name.
+import { claudeDesktopConfig, defaultKeyName, liveKeys } from '@textstack/shared'
 
 /**
  * Create and manage the connect keys that let an outside assistant reach the reader's books.
@@ -55,7 +51,7 @@ export function ConnectAssistant() {
     setCreating(true)
     setError(null)
     try {
-      const key = await createMcpKey(defaultKeyName())
+      const key = await createMcpKey(defaultKeyName(new Date()))
       setCreated(key)
       await refresh()
     } catch (e) {
@@ -100,7 +96,7 @@ export function ConnectAssistant() {
     )
   }
 
-  const live = keys.filter(k => !k.revokedAt)
+  const live = liveKeys(keys)
 
   return (
     <section className="mcp-section mcp-connect">
@@ -160,13 +156,4 @@ export function ConnectAssistant() {
       )}
     </section>
   )
-}
-
-/**
- * A label the reader can tell apart later without being asked to invent one now. Asking for a name
- * before the key exists puts a form between them and the thing they came for; the list is editable
- * only by revoking, so a date is the honest default.
- */
-function defaultKeyName(): string {
-  return `Assistant · ${new Date().toISOString().slice(0, 10)}`
 }

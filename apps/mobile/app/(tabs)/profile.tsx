@@ -68,6 +68,9 @@ function BuildFooter() {
 const MENU_ITEMS = [
   { label: 'Reading Stats', icon: 'stats-chart-outline' as const, route: '/stats/' },
   { label: 'Highlights', icon: 'color-wand-outline' as const, route: '/highlights/' },
+  // The key is account-only, and the screen says so itself rather than being hidden — a guest who
+  // never sees the row never learns the capability exists.
+  { label: 'Connect an assistant', icon: 'key-outline' as const, route: '/connect' },
 ]
 
 

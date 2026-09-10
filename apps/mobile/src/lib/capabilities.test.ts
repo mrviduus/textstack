@@ -42,6 +42,7 @@ describe('capabilitiesFor — the whole table', () => {
       canEditIdentity: false,
       canDeleteAccount: false,
       canSyncAcrossDevices: false,
+      canConnectAssistant: false,
       // Vacuous: nothing to sign out of, so nothing to warn about.
       canSignOutSilently: true,
     })
@@ -59,6 +60,7 @@ describe('capabilitiesFor — the whole table', () => {
       canEditIdentity: false,
       canDeleteAccount: false,
       canSyncAcrossDevices: false,
+      canConnectAssistant: false,
       canSignOutSilently: false,
     })
   })
@@ -73,6 +75,7 @@ describe('capabilitiesFor — the whole table', () => {
       canEditIdentity: true,
       canDeleteAccount: true,
       canSyncAcrossDevices: true,
+      canConnectAssistant: true,
       canSignOutSilently: true,
     })
   })
