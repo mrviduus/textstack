@@ -115,7 +115,7 @@ describe('policy flags, one reason each', () => {
     expect(capabilitiesFor(guest).canUseAi).toBe(false)
   })
 
-  it('canUseAi is false for a guest because librarian and tutor call paid inference', () => {
+  it('canUseAi is false for a guest because tutor calls paid inference', () => {
     // Their rate-limit buckets partition on IP only, so an ungated guest path
     // is throttled by IP and by nothing else.
     expect(capabilitiesFor(guest).canUseAi).toBe(false)

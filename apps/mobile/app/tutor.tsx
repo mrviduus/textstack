@@ -18,7 +18,7 @@ import { exerciseLabel } from '../src/lib/agents'
 
 // Smart session (Learning Tutor, AI-Agent-2). Layers the tutor's PLANNING + reasoning over the existing
 // flashcard. Flow: plan view (the showcase) → study (reuse FlashCard) → feedback re-plan → summary.
-// Accounts only, for the same reason as the librarian: paid inference behind an IP-only rate limit,
+// Accounts only: paid inference behind an IP-only rate limit,
 // and guest sessions are free to mint. Plain SRS review stays open to a guest — it costs nothing.
 export default function TutorScreen() {
   const { colors } = useTheme()

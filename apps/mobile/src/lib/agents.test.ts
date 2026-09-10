@@ -1,13 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import {
-  isValidLibrarianQuery,
   buildPlanCard,
   buildQueue,
   isSessionComplete,
   exerciseLabel,
   exerciseBadgeColor,
-  MIN_QUERY_LENGTH,
-  MAX_QUERY_LENGTH,
   type TutorPlanItem,
 } from './agents'
 
@@ -28,30 +25,6 @@ function planItem(overrides: Partial<TutorPlanItem> = {}): TutorPlanItem {
     ...overrides,
   }
 }
-
-describe('isValidLibrarianQuery', () => {
-  it('rejects too-short queries (after trim)', () => {
-    expect(isValidLibrarianQuery('')).toBe(false)
-    expect(isValidLibrarianQuery('a')).toBe(false)
-    expect(isValidLibrarianQuery('   a   ')).toBe(false)
-  })
-
-  it('accepts queries at and above the minimum trimmed length', () => {
-    expect(isValidLibrarianQuery('ab')).toBe(true)
-    expect(isValidLibrarianQuery('  ab  ')).toBe(true)
-    expect(isValidLibrarianQuery('books like 1984')).toBe(true)
-  })
-
-  it('rejects queries longer than the max (raw length, not trimmed)', () => {
-    expect(isValidLibrarianQuery('x'.repeat(MAX_QUERY_LENGTH))).toBe(true)
-    expect(isValidLibrarianQuery('x'.repeat(MAX_QUERY_LENGTH + 1))).toBe(false)
-  })
-
-  it('exposes the documented bounds', () => {
-    expect(MIN_QUERY_LENGTH).toBe(2)
-    expect(MAX_QUERY_LENGTH).toBe(500)
-  })
-})
 
 describe('buildPlanCard', () => {
   it('projects an enriched plan item into a context-mode ReviewCardDto', () => {

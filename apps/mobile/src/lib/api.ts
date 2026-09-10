@@ -165,22 +165,17 @@ export async function enrichUserBook(id: string): Promise<void> {
   }
 }
 
-// AI agent endpoints (Tutor "Smart session" + Librarian "Ask the librarian"). Implemented in ./agents on top of
+// AI agent endpoints (Tutor "Smart session"). Implemented in ./agents on top of
 // the shared `authFetch` (Bearer auth, base URL, error/status handling) — re-exported here so callers reach them
 // through the consolidated api module, alongside the request types.
 export {
   startTutorSession,
   sendTutorFeedback,
-  askLibrarian,
-  isValidLibrarianQuery,
 } from './agents'
 export type {
   TutorPlanItem,
   TutorSessionResponse,
   TutorFeedbackResult,
-  LibrarianSource,
-  LibrarianRecommendation,
-  LibrarianResponse,
 } from './agents'
 
 export { API_URL }

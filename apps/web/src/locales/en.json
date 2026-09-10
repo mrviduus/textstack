@@ -373,7 +373,6 @@
     "discoverMenu": {
       "trendingGenres": "Trending Genres",
       "quickLinks": "Quick Links",
-      "askLibrarian": "Ask the librarian",
       "latestAuthors": "Latest Authors",
       "allBooks": "All Books",
       "topFreeBooks": "Top Free Books",
@@ -873,11 +872,6 @@
     "stats": {
       "practicedToday": "Practiced today"
     }
-  },
-  "librarian": {
-    "thinkingShort": "Thinking…",
-    "openBook": "Open {{title}}",
-    "pagesCount": "{{count}} pages"
   },
   "tutor": {
     "study": {

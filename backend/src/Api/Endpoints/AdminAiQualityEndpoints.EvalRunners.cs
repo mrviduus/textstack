@@ -233,61 +233,6 @@ public static partial class AdminAiQualityEndpoints
         });
     }
 
-    // AI-Agent-3 DoD gate: runs the REAL LibrarianAgent over the librarian golden set and scores recall@k,
-    // constraint-satisfaction (returned library books respect language/length), coverage-decision accuracy
-    // (expand to Open Library exactly when the library is thin), and the hallucination invariant (every
-    // returned library slug genuinely exists in the catalog). Generation goes through the gateway (routed by
-    // FeatureTag librarian.agent → gpt-4.1-mini); the agent's tools hit the live catalog search + DB + Open
-    // Library. Deterministic scoring (no judge — relevance labels are in the golden). Needs a key; run sync.
-    private static async Task<IResult> RunLibrarianEval(
-        HttpContext httpContext,
-        IServiceProvider services,
-        LibrarianEvalRunner runner,
-        LibrarianAgent agent,
-        IAppDbContext db,
-        CancellationToken ct)
-    {
-        try
-        {
-            _ = services.GetRequiredService<ILlmService>();
-        }
-        catch (InvalidOperationException)
-        {
-            return Results.Problem("LLM gateway is not configured (no OpenAI key).", statusCode: 503);
-        }
-
-        // Hallucination probe: confirm a returned library slug is genuinely a published catalog entry.
-        Task<bool> SlugExists(string slug, CancellationToken token) =>
-            db.Editions.AnyAsync(e => e.Slug == slug, token);
-
-        var result = await runner.RunAsync(agent, httpContext.RequestServices, SlugExists, ct);
-
-        return Results.Ok(new
-        {
-            recallAtK = Math.Round(result.RecallAtK, 3),
-            precisionAtK = Math.Round(result.PrecisionAtK, 3),
-            f1AtK = Math.Round(result.F1AtK, 3),
-            constraintSatisfaction = Math.Round(result.ConstraintSatisfaction, 3),
-            coverageDecisionAccuracy = Math.Round(result.CoverageDecisionAccuracy, 3),
-            hallucinationFreeRate = Math.Round(result.HallucinationFreeRate, 3),
-            avgToolCalls = Math.Round(result.AvgToolCalls, 2),
-            n = result.N,
-            cases = result.Cases.Select(c => new
-            {
-                c.Query,
-                c.Returned,
-                c.LibraryReturned,
-                recallAtK = Math.Round(c.RecallAtK, 3),
-                precisionAtK = Math.Round(c.PrecisionAtK, 3),
-                f1AtK = Math.Round(c.F1AtK, 3),
-                c.ConstraintsSatisfied,
-                c.CoverageDecisionCorrect,
-                c.NoHallucination,
-                c.ToolCalls,
-            }),
-        });
-    }
-
     // AI-Agent-2 DoD gate: runs the REAL TutorAgent over the synthetic tutor golden states (an SRS snapshot +
     // reading context per case, served by fake tools) and scores the structural rubric DETERMINISTICALLY (no
     // judge — there is no single ground-truth plan): due-coverage, weak-targeting, difficulty-appropriateness,

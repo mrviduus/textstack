@@ -355,7 +355,6 @@ app.MapBookIndexEndpoints();
 app.MapUserBookAskEndpoints();
 app.MapUserBookIndexEndpoints();
 app.MapBookChatEndpoints();
-app.MapLibrarianEndpoints();
 app.MapTutorEndpoints();
 app.MapVocabularyEndpoints();
 app.MapTtsEndpoints();

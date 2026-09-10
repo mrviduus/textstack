@@ -37,7 +37,6 @@ public static partial class AdminAiQualityEndpoints
         group.MapPost("/evals/toolcalls/run", RunToolCallEval);
         group.MapPost("/evals/pdfvision/run", RunPdfVisionEval);
         group.MapPost("/enrichment/eval", RunEnrichmentEval);
-        group.MapPost("/librarian/eval", RunLibrarianEval);
         group.MapPost("/tutor/eval", RunTutorEval);
         group.MapPost("/evals/criticdefects/run", RunCriticDefectEval);
         group.MapPost("/evals/crew-ab/run", RunCrewAbEval);

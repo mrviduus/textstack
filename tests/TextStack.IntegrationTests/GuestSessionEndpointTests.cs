@@ -461,7 +461,6 @@ public class GuestSessionEndpointTests : IClassFixture<LiveApiFixture>
     /// </summary>
     private static readonly (string Method, string Path, object? Body)[] PaidInferenceEndpoints =
     [
-        ("POST", "/me/librarian", new { query = "something to read" }),
         ("POST", "/me/tutor/session", new { maxItems = 3 }),
         ("POST", $"/books/{Guid.Empty}/ask", new { question = "what happens?" }),
         ("POST", $"/me/books/{Guid.Empty}/ask", new { question = "what happens?" }),

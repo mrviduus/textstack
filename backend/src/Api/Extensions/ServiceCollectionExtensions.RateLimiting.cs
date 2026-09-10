@@ -331,19 +331,8 @@ public static partial class ServiceCollectionExtensions
                     QueueLimit = 0,
                 });
             });
-            // Librarian agent (AI-Agent-3): each run is several LLM calls + maybe external HTTP, so a tight per-IP cap.
-            options.AddPolicy("librarian", httpContext =>
-            {
-                var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-                return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
-                {
-                    Window = TimeSpan.FromMinutes(1),
-                    PermitLimit = 8,
-                    QueueLimit = 0,
-                });
-            });
             // Learning Tutor agent (AI-Agent-2): each planning turn is several LLM calls + DB reads, so a tight per-IP
-            // cap. Mirrors the librarian policy shape.
+            // cap.
             options.AddPolicy("tutor", httpContext =>
             {
                 var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";

@@ -147,15 +147,6 @@ export function DiscoverMenu() {
             <h3 className="discover-menu__col-title">{t('nav.discoverMenu.quickLinks')}</h3>
             <ul className="discover-menu__list">
               <li>
-                <LocalizedLink
-                  to="/discover"
-                  className="discover-menu__link discover-menu__link--librarian"
-                  onClick={() => setOpen(false)}
-                >
-                  {t('nav.discoverMenu.askLibrarian')}
-                </LocalizedLink>
-              </li>
-              <li>
                 <LocalizedLink to="/authors" className="discover-menu__link" onClick={() => setOpen(false)}>
                   {t('nav.discoverMenu.latestAuthors')}
                 </LocalizedLink>

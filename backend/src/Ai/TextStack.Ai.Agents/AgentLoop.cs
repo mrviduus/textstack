@@ -56,7 +56,7 @@ public sealed class AgentLoop(ILlmService llm, IToolRegistry tools, ToolDispatch
         AgentInput input, AgentContext ctx, AgentLoopOptions options,
         [EnumeratorCancellation] CancellationToken ct)
     {
-        // One span per agent run, for every agent (Enrichment / Librarian / Tutor /
+        // One span per agent run, for every agent (Enrichment / Tutor /
         // crews) — RunAsync delegates here, so this is the single seam. `using` is legal in an
         // iterator and disposes on normal completion, `yield break`, a throw, AND consumer
         // abandonment, so the outcome is always recorded. FeatureTag IS the agent identity in this
