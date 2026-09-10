@@ -1,4 +1,4 @@
-// Pure markdown-block helpers for the chat renderer (AskMarkdown). Kept RN-free so the block-detection
+// Pure markdown-block helpers for the `Markdown` renderer. Kept RN-free so the block-detection
 // rules are unit-testable under Vitest (see markdown.test.ts) without bundling React Native.
 
 /**

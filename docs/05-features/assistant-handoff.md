@@ -135,6 +135,23 @@ generated EF snapshots). Backend, web, admin and mobile all build; 1,234 backend
 | Mobile `Linking.openURL` | Still swallows the failure |
 | Tutor's worked example | `get_example_sentence` went with the retrieval spine. `VocabularyWord.Sentence` already holds the sentence a word was saved from, so this is a rewire with no retrieval — not started |
 
+### Left behind by the cut — a follow-up, found 2026-09-10 after PR #596 opened
+
+Removing the chat left inert plumbing on the mobile side. None of it is a correctness risk — the
+modules have no importers and the one live-looking block cannot execute — but it is exactly the
+residue this work exists to remove, so it goes in its own small PR rather than riding along:
+
+- **`apps/mobile/src/lib/sse.ts` and `sseParser.ts` (+ its test) have no consumers at all.** Their
+  only caller was `bookChat.ts`. Note the web's `lib/sse.ts` is NOT dead — `useExplain` still streams
+  through it.
+- **`ReaderShell.tsx` still imports `citationChapterSlug` and `makeSnippet`**, and keeps
+  `pendingCitationRef` + `scrollToCitation` alive at :653-654 and :960-963. The only writer of that
+  ref was the deleted `handleCitation`, so the ref is permanently null and the block at :960 can
+  never run.
+- **`packages/shared/src/reader/citation.ts`** exists for that path only.
+- **`AskCitation`, `AskResponse`, `AskTurnDto`, `AskTarget`** in `packages/shared/src/types/api.ts`
+  are now referenced only by the dead `sseParser` and by `citation.ts`'s own doc comment.
+
 ### Found while cutting — decisions still open
 
 1. ~~**`GET /books/{slug}/similar`**~~ — **decided: deleted.** The rail was fed by

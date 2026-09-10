@@ -3,7 +3,7 @@ import type { MutableRefObject, RefObject } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity, Animated, Linking, BackHandler } from 'react-native'
 import { WebView } from 'react-native-webview'
 import { useRouter, Stack } from 'expo-router'
-import { t, computeBookProgress, estimateTimeLeft, formatMinutesLeft, citationChapterSlug, makeSnippet, plural, resolvePdfResumePage, chapterEndPage } from '@textstack/shared'
+import { t, computeBookProgress, estimateTimeLeft, formatMinutesLeft, plural, resolvePdfResumePage, chapterEndPage } from '@textstack/shared'
 import type { Chapter, BookmarkDto, TextPosition } from '@textstack/shared'
 import { buildReaderHtml, buildPdfViewerHtml } from '../../lib/readerHtml'
 import {
@@ -649,10 +649,6 @@ export function ReaderShell(props: ReaderShellProps) {
     onNavigateChapter(slug)
   }
 
-  // RAG citation (AI-026d): scroll the WebView to the cited passage.
-  const pendingCitationRef = useRef<{ slug: string; snippet: string; charStart: number } | null>(null)
-  const scrollToCitation = (snippet: string, charStart: number) =>
-    injectJs(`window.__textstackScrollToCitation && window.__textstackScrollToCitation(${JSON.stringify(snippet)}, ${charStart})`)
 
   // M2: scroll the reflow WebView to a saved highlight (no chapter navigation →
   // reading position preserved). The Highlights sheet's list is always the
@@ -955,13 +951,6 @@ export function ReaderShell(props: ReaderShellProps) {
             // Scroll-restore is owned by useReaderPersistence — it coordinates
             // this signal with the async saved-position fetch (no race).
             onWebViewLoaded()
-            // A cross-chapter citation jump (AI-026d): once the cited chapter has rendered, scroll
-            // to the passage — after restore (delay) so the explicit jump wins.
-            const pc = pendingCitationRef.current
-            if (pc && pc.slug === activeSlug) {
-              pendingCitationRef.current = null
-              setTimeout(() => scrollToCitation(pc.snippet, pc.charStart), 120)
-            }
           }}
           originWhitelist={['*']}
           // Android's WebView ignores the viewport's user-scalable unless the

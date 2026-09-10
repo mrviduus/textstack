@@ -4,7 +4,7 @@ import { insightsApi, insightChapterLabel, type BookInsight } from '@textstack/s
 import { useTheme } from '../../context/ThemeContext'
 import { useLanguage } from '../../context/LanguageContext'
 import { fonts } from '../../theme/typography'
-import { AskMarkdown } from '../AskMarkdown'
+import { Markdown } from '../Markdown'
 
 /**
  * "What you've worked out" — the conclusions an outside assistant wrote back into
@@ -19,7 +19,7 @@ import { AskMarkdown } from '../AskMarkdown'
  * a tutorial for a feature you can only reach by connecting an assistant, and it
  * would sit on every book screen forever for the readers who never do.
  *
- * Markdown goes through `AskMarkdown`, the renderer the Ask sheet already uses:
+ * Markdown goes through the shared `Markdown` renderer:
  * pure JS, theme-tokenised, OTA-safe, and no raw-HTML path — so assistant output
  * is only ever tokenised, never interpreted.
  */
@@ -71,7 +71,7 @@ export function BookInsightsSection({ userBookId, editionId }: Props) {
           ) : null}
 
           <View style={styles.body}>
-            <AskMarkdown text={insight.text} />
+            <Markdown text={insight.text} />
           </View>
         </View>
       ))}
