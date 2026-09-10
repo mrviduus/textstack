@@ -452,22 +452,22 @@ public class GuestSessionEndpointTests : IClassFixture<LiveApiFixture>
     // --- Paid-inference surface is account-only (server-side, not just the mobile UI flag) ---
 
     /// <summary>
-    /// Every endpoint that spends money on an LLM call or an embedding. The mobile client has its
-    /// own <c>canUseAi = isAccount</c> flag, but that is a UI affordance: a guest session mints a
-    /// valid bearer token, so before the entitlement gate each of these answered a guest with a real
-    /// paid call and an IP rate limit as its only barrier.
+    /// Every endpoint that spends money on an LLM call. The mobile client has its own
+    /// <c>canUseAi = isAccount</c> flag, but that is a UI affordance: a guest session mints a valid
+    /// bearer token, so before the entitlement gate each of these answered a guest with a real paid
+    /// call and an IP rate limit as its only barrier.
+    /// <para>
+    /// One entry, and that is the point of the list rather than a reason to delete it: ask, book chat
+    /// and RAG indexing were removed 2026-09-10, and a matrix that still named them would assert 404
+    /// — "route gone" — while reading like "guest correctly refused". Anything new that spends on
+    /// inference belongs here on the day it ships.
+    /// </para>
     /// Route params are arbitrary GUIDs on purpose — the filter runs before the handler, so the
     /// answer must not depend on whether the book exists.
     /// </summary>
     private static readonly (string Method, string Path, object? Body)[] PaidInferenceEndpoints =
     [
         ("POST", "/me/tutor/session", new { maxItems = 3 }),
-        ("POST", $"/books/{Guid.Empty}/ask", new { question = "what happens?" }),
-        ("POST", $"/me/books/{Guid.Empty}/ask", new { question = "what happens?" }),
-        ("POST", $"/me/chat/{Guid.Empty}/messages", new { content = "hello" }),
-        ("GET", $"/me/chat?editionId={Guid.Empty}", null),
-        ("POST", $"/books/{Guid.Empty}/index", null),
-        ("POST", $"/me/books/{Guid.Empty}/index", null),
     ];
 
     private async Task<HttpResponseMessage> CallAsync(
