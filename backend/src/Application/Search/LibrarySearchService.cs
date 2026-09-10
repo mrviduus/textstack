@@ -33,9 +33,9 @@ public sealed record LibraryBook(
 }
 
 /// <summary>
-/// The shared library-search seam the two Librarian tools (<c>search_library</c>, <c>search_library_semantic</c>)
-/// wrap (AI-Agent-3). It runs the EXISTING catalog search — pure FTS (<see cref="ISearchProvider"/>) or the
-/// AI-057 hybrid (<see cref="HybridCatalogSearch"/>, <c>semantic=true</c>) — collapses the chapter-level hits to
+/// The shared library-search seam behind <c>search_library</c>. It runs the existing catalog search
+/// (pure FTS, <see cref="ISearchProvider"/>) — the semantic half rode on editions.embedding and went with
+/// the chunks — collapses the chapter-level hits to
 /// distinct editions, then ENRICHES each with the metadata the agent needs to post-filter (authors, genres,
 /// language, aggregate word count) in ONE batched DB query. No new index, no new ranking: this is a thin
 /// projection over what the catalog already returns + stores, so the agent's "books like X / about Y under N
@@ -43,7 +43,6 @@ public sealed record LibraryBook(
 /// </summary>
 public sealed class LibrarySearchService(
     ISearchProvider searchProvider,
-    HybridCatalogSearch hybridSearch,
     IAppDbContext db)
 {
     /// <summary>Hard cap on results returned to the agent — keeps the tool observation inside the prompt budget.</summary>
@@ -55,19 +54,10 @@ public sealed class LibrarySearchService(
     /// </summary>
     public Task<IReadOnlyList<LibraryBook>> SearchAsync(
         string query, Guid siteId, string? language, int limit, CancellationToken ct) =>
-        RunAsync(query, siteId, language, limit, semantic: false, ct);
-
-    /// <summary>
-    /// Semantic ("books like X" / conceptual) catalog search via the AI-057 hybrid (FTS + editions.embedding
-    /// cosine fused by RRF). Degrades to FTS-only inside <see cref="HybridCatalogSearch"/> on a keyless/throttled
-    /// host. Same enriched <see cref="LibraryBook"/> shape.
-    /// </summary>
-    public Task<IReadOnlyList<LibraryBook>> SearchSemanticAsync(
-        string query, Guid siteId, string? language, int limit, CancellationToken ct) =>
-        RunAsync(query, siteId, language, limit, semantic: true, ct);
+        RunAsync(query, siteId, language, limit, ct);
 
     private async Task<IReadOnlyList<LibraryBook>> RunAsync(
-        string query, Guid siteId, string? language, int limit, bool semantic, CancellationToken ct)
+        string query, Guid siteId, string? language, int limit, CancellationToken ct)
     {
         var capped = Math.Clamp(limit, 1, MaxResults);
         var request = new SearchRequest(
@@ -78,9 +68,7 @@ public sealed class LibrarySearchService(
             Limit: capped,
             IncludeHighlights: false);
 
-        var result = semantic
-            ? await hybridSearch.SearchAsync(request, language, ct)
-            : await searchProvider.SearchAsync(request, ct);
+        var result = await searchProvider.SearchAsync(request, ct);
 
         // Collapse chapter-level hits to distinct editions, preserving the search rank order (the first hit
         // for an edition wins its position).

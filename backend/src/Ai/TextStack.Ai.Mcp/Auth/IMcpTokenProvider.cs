@@ -2,7 +2,7 @@ namespace TextStack.Ai.Mcp.Auth;
 
 /// <summary>
 /// Supplies the Bearer token the bridge attaches to user-scoped tool calls
-/// (<c>list_my_highlights</c>, <c>list_my_vocabulary</c>, <c>ask_book</c>).
+/// (<c>list_my_highlights</c>, <c>list_my_vocabulary</c>).
 ///
 /// AI-048a shipped a sync <c>string? GetToken()</c> backed by
 /// <see cref="StaticEnvTokenProvider"/> (the reserved <c>TEXTSTACK_MCP_TOKEN</c>

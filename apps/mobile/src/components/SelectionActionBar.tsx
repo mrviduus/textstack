@@ -46,7 +46,6 @@ interface SelectionActionBarProps {
   /** "Ask about this" — opens the Book Chat with the selection attached as a quoted passage
    *  (persistent chat, AI-027). Only wired when the reader has an ask target; shown for
    *  multi-word passages (a single quoted word is redundant with the vocab actions). */
-  onAskAbout?: () => void
   /** Selection is past the 500-character ceiling the speech and translation
    *  endpoints enforce. Those two and Explain are disabled; Copy, Highlight
    *  and Ask still work, which is why the toolbar opens at all. */
@@ -93,7 +92,6 @@ export function SelectionActionBar({
   highlightColor = 'yellow',
   onMarkKnown,
   onRemove,
-  onAskAbout,
   tooLong,
   isSpeaking,
   isTtsLoading,
@@ -291,18 +289,6 @@ export function SelectionActionBar({
           </Text>
         </TouchableOpacity>
 
-        {/* "Ask about this" — quote the passage into the persistent Book Chat. Multi-word only. */}
-        {onAskAbout && isMultiWord && (
-          <TouchableOpacity
-            style={styles.btn}
-            onPress={onAskAbout}
-            accessibilityRole="button"
-            accessibilityLabel="Ask about this passage"
-          >
-            <Ionicons name="chatbubble-ellipses-outline" size={19} color={colors.text} />
-            <Text style={[styles.btnLabel, { color: colors.textSecondary }]}>Ask</Text>
-          </TouchableOpacity>
-        )}
 
         {/* Per-word vocab affordances (save / mark known / stage badge).
             Save is deliberately NOT gated on a session; everything else here is.

@@ -22,7 +22,6 @@ namespace Infrastructure.Migrations
                 .HasAnnotation("ProductVersion", "10.0.8")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
-            NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "vector");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
             modelBuilder.Entity("Domain.Entities.AdminRefreshToken", b =>
@@ -457,81 +456,6 @@ namespace Infrastructure.Migrations
                     b.ToTable("book_collections", (string)null);
                 });
 
-            modelBuilder.Entity("Domain.Entities.BookConversation", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<Guid?>("EditionId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("edition_id");
-
-                    b.Property<Guid>("SiteId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("site_id");
-
-                    b.Property<bool>("SpoilerGateEnabled")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(true)
-                        .HasColumnName("spoiler_gate_enabled");
-
-                    b.Property<int>("SummarizedThroughOrd")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(0)
-                        .HasColumnName("summarized_through_ord");
-
-                    b.Property<string>("Summary")
-                        .HasColumnType("text")
-                        .HasColumnName("summary");
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at");
-
-                    b.Property<Guid?>("UserBookId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("user_book_id");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("user_id");
-
-                    b.HasKey("Id")
-                        .HasName("pk_book_conversation");
-
-                    b.HasIndex("EditionId")
-                        .HasDatabaseName("ix_book_conversation_edition_id");
-
-                    b.HasIndex("SiteId")
-                        .HasDatabaseName("ix_book_conversation_site_id");
-
-                    b.HasIndex("UserBookId")
-                        .HasDatabaseName("ix_book_conversation_user_book_id");
-
-                    b.HasIndex("UserId", "EditionId")
-                        .IsUnique()
-                        .HasDatabaseName("ix_book_conversation_user_id_edition_id")
-                        .HasFilter("edition_id IS NOT NULL");
-
-                    b.HasIndex("UserId", "UserBookId")
-                        .IsUnique()
-                        .HasDatabaseName("ix_book_conversation_user_id_user_book_id")
-                        .HasFilter("user_book_id IS NOT NULL");
-
-                    b.ToTable("book_conversation", null, t =>
-                        {
-                            t.HasCheckConstraint("ck_book_conversation_target", "(edition_id IS NOT NULL AND user_book_id IS NULL) OR (edition_id IS NULL AND user_book_id IS NOT NULL)");
-                        });
-                });
-
             modelBuilder.Entity("Domain.Entities.BookFile", b =>
                 {
                     b.Property<Guid>("Id")
@@ -880,84 +804,6 @@ namespace Infrastructure.Migrations
                     b.ToTable("chapters", (string)null);
                 });
 
-            modelBuilder.Entity("Domain.Entities.ChapterChunk", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<Guid>("ChapterId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("chapter_id");
-
-                    b.Property<int>("ChapterOrd")
-                        .HasColumnType("integer")
-                        .HasColumnName("chapter_ord");
-
-                    b.Property<int>("CharEnd")
-                        .HasColumnType("integer")
-                        .HasColumnName("char_end");
-
-                    b.Property<int>("CharStart")
-                        .HasColumnType("integer")
-                        .HasColumnName("char_start");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at")
-                        .HasDefaultValueSql("now()");
-
-                    b.Property<Guid>("EditionId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("edition_id");
-
-                    b.Property<Vector>("Embedding")
-                        .HasColumnType("vector(1536)")
-                        .HasColumnName("embedding");
-
-                    b.Property<bool>("IsSummary")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(false)
-                        .HasColumnName("is_summary");
-
-                    b.Property<int>("Ord")
-                        .HasColumnType("integer")
-                        .HasColumnName("ord");
-
-                    b.Property<string>("Text")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("text");
-
-                    b.Property<int>("TokenCount")
-                        .HasColumnType("integer")
-                        .HasColumnName("token_count");
-
-                    b.HasKey("Id")
-                        .HasName("pk_chapter_chunk");
-
-                    b.HasIndex("ChapterId")
-                        .HasDatabaseName("ix_chapter_chunk_chapter_id");
-
-                    b.HasIndex("Embedding")
-                        .HasDatabaseName("ix_chapter_chunk_embedding");
-
-                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("Embedding"), "hnsw");
-                    NpgsqlIndexBuilderExtensions.HasOperators(b.HasIndex("Embedding"), new[] { "vector_cosine_ops" });
-
-                    b.HasIndex("EditionId", "ChapterOrd")
-                        .HasDatabaseName("ix_chapter_chunk_summary")
-                        .HasFilter("is_summary");
-
-                    b.HasIndex("EditionId", "ChapterId", "Ord")
-                        .HasDatabaseName("ix_chapter_chunk_edition_id_chapter_id_ord");
-
-                    b.ToTable("chapter_chunk", (string)null);
-                });
-
             modelBuilder.Entity("Domain.Entities.Collection", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1005,50 +851,6 @@ namespace Infrastructure.Migrations
                         .HasDatabaseName("ix_collections_user_id_sort_order");
 
                     b.ToTable("collections", (string)null);
-                });
-
-            modelBuilder.Entity("Domain.Entities.ConversationMessage", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<string>("CitationsJson")
-                        .HasColumnType("jsonb")
-                        .HasColumnName("citations_json");
-
-                    b.Property<string>("Content")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("content");
-
-                    b.Property<Guid>("ConversationId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("conversation_id");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<int>("Ord")
-                        .HasColumnType("integer")
-                        .HasColumnName("ord");
-
-                    b.Property<string>("Role")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)")
-                        .HasColumnName("role");
-
-                    b.HasKey("Id")
-                        .HasName("pk_conversation_message");
-
-                    b.HasIndex("ConversationId", "Ord")
-                        .IsUnique()
-                        .HasDatabaseName("ix_conversation_message_conversation_id_ord");
-
-                    b.ToTable("conversation_message", (string)null);
                 });
 
             modelBuilder.Entity("Domain.Entities.DeviceAuthorization", b =>
@@ -1196,10 +998,6 @@ namespace Infrastructure.Migrations
                         .HasColumnType("text")
                         .HasColumnName("description");
 
-                    b.Property<Vector>("Embedding")
-                        .HasColumnType("vector(1536)")
-                        .HasColumnName("embedding");
-
                     b.Property<bool>("Indexable")
                         .HasColumnType("boolean")
                         .HasColumnName("indexable");
@@ -1217,36 +1015,6 @@ namespace Infrastructure.Migrations
                     b.Property<DateTimeOffset?>("PublishedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("published_at");
-
-                    b.Property<int>("RagChunkCount")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(0)
-                        .HasColumnName("rag_chunk_count");
-
-                    b.Property<int>("RagEmbeddedCount")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(0)
-                        .HasColumnName("rag_embedded_count");
-
-                    b.Property<string>("RagError")
-                        .HasColumnType("text")
-                        .HasColumnName("rag_error");
-
-                    b.Property<DateTimeOffset?>("RagIndexedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("rag_indexed_at");
-
-                    b.Property<DateTimeOffset?>("RagIndexingStartedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("rag_indexing_started_at");
-
-                    b.Property<int>("RagStatus")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(0)
-                        .HasColumnName("rag_status");
 
                     b.Property<string>("SeoDescription")
                         .HasColumnType("text")
@@ -1310,16 +1078,6 @@ namespace Infrastructure.Migrations
 
                     b.HasKey("Id")
                         .HasName("pk_editions");
-
-                    b.HasIndex("Embedding")
-                        .HasDatabaseName("ix_editions_embedding");
-
-                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("Embedding"), "hnsw");
-                    NpgsqlIndexBuilderExtensions.HasOperators(b.HasIndex("Embedding"), new[] { "vector_cosine_ops" });
-
-                    b.HasIndex("RagIndexingStartedAt")
-                        .HasDatabaseName("ix_editions_rag_indexing_started_at")
-                        .HasFilter("rag_status = 1");
 
                     b.HasIndex("SiteId")
                         .HasDatabaseName("ix_editions_site_id");
@@ -1832,6 +1590,67 @@ namespace Infrastructure.Migrations
                         .HasDatabaseName("ix_llm_traces_feature_tag_created_at");
 
                     b.ToTable("llm_traces", (string)null);
+                });
+
+            modelBuilder.Entity("Domain.Entities.McpAccessKey", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("KeyHash")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("key_hash");
+
+                    b.Property<DateTimeOffset?>("LastUsedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_used_at");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("Prefix")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("prefix");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("revoked_at");
+
+                    b.Property<Guid>("SiteId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("site_id");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_mcp_access_keys");
+
+                    b.HasIndex("KeyHash")
+                        .IsUnique()
+                        .HasDatabaseName("ix_mcp_access_keys_key_hash");
+
+                    b.HasIndex("SiteId")
+                        .HasDatabaseName("ix_mcp_access_keys_site_id");
+
+                    b.HasIndex("UserId", "SiteId")
+                        .HasDatabaseName("ix_mcp_access_keys_user_id_site_id");
+
+                    b.ToTable("mcp_access_keys", (string)null);
                 });
 
             modelBuilder.Entity("Domain.Entities.ModelPromotion", b =>
@@ -3363,30 +3182,6 @@ namespace Infrastructure.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("published_year");
 
-                    b.Property<int>("RagChunkCount")
-                        .HasColumnType("integer")
-                        .HasColumnName("rag_chunk_count");
-
-                    b.Property<int>("RagEmbeddedCount")
-                        .HasColumnType("integer")
-                        .HasColumnName("rag_embedded_count");
-
-                    b.Property<string>("RagError")
-                        .HasColumnType("text")
-                        .HasColumnName("rag_error");
-
-                    b.Property<DateTimeOffset?>("RagIndexedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("rag_indexed_at");
-
-                    b.Property<DateTimeOffset?>("RagIndexingStartedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("rag_indexing_started_at");
-
-                    b.Property<int>("RagStatus")
-                        .HasColumnType("integer")
-                        .HasColumnName("rag_status");
-
                     b.Property<DateTimeOffset?>("ReadAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("read_at");
@@ -3465,10 +3260,6 @@ namespace Infrastructure.Migrations
 
                     b.HasKey("Id")
                         .HasName("pk_user_books");
-
-                    b.HasIndex("RagIndexingStartedAt")
-                        .HasDatabaseName("ix_user_books_rag_indexing_started_at")
-                        .HasFilter("rag_status = 1");
 
                     b.HasIndex("Status")
                         .HasDatabaseName("ix_user_books_status");
@@ -3656,99 +3447,6 @@ namespace Infrastructure.Migrations
                         .HasDatabaseName("ix_user_chapters_user_book_id_slug");
 
                     b.ToTable("user_chapters", (string)null);
-                });
-
-            modelBuilder.Entity("Domain.Entities.UserChapterChunk", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<int>("ChapterOrd")
-                        .HasColumnType("integer")
-                        .HasColumnName("chapter_ord");
-
-                    b.Property<int>("CharEnd")
-                        .HasColumnType("integer")
-                        .HasColumnName("char_end");
-
-                    b.Property<int>("CharStart")
-                        .HasColumnType("integer")
-                        .HasColumnName("char_start");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at")
-                        .HasDefaultValueSql("now()");
-
-                    b.Property<Vector>("Embedding")
-                        .HasColumnType("vector(1536)")
-                        .HasColumnName("embedding");
-
-                    b.Property<bool>("IsSummary")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(false)
-                        .HasColumnName("is_summary");
-
-                    b.Property<int>("Ord")
-                        .HasColumnType("integer")
-                        .HasColumnName("ord");
-
-                    b.Property<string>("SectionPath")
-                        .HasColumnType("text")
-                        .HasColumnName("section_path");
-
-                    b.Property<int?>("SourcePage")
-                        .HasColumnType("integer")
-                        .HasColumnName("source_page");
-
-                    b.Property<string>("Text")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("text");
-
-                    b.Property<int>("TokenCount")
-                        .HasColumnType("integer")
-                        .HasColumnName("token_count");
-
-                    b.Property<Guid>("UserBookId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("user_book_id");
-
-                    b.Property<Guid?>("UserChapterId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("user_chapter_id");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("user_id");
-
-                    b.HasKey("Id")
-                        .HasName("pk_user_chapter_chunk");
-
-                    b.HasIndex("Embedding")
-                        .HasDatabaseName("ix_user_chapter_chunk_embedding");
-
-                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("Embedding"), "hnsw");
-                    NpgsqlIndexBuilderExtensions.HasOperators(b.HasIndex("Embedding"), new[] { "vector_cosine_ops" });
-
-                    b.HasIndex("UserChapterId")
-                        .HasDatabaseName("ix_user_chapter_chunk_user_chapter_id");
-
-                    b.HasIndex("UserId", "UserBookId")
-                        .HasDatabaseName("ix_user_chapter_chunk_user_id_user_book_id");
-
-                    b.HasIndex("UserBookId", "UserChapterId", "Ord")
-                        .HasDatabaseName("ix_user_chapter_chunk_user_book_id_user_chapter_id_ord");
-
-                    b.HasIndex("UserId", "UserBookId", "ChapterOrd")
-                        .HasDatabaseName("ix_user_chapter_chunk_summary")
-                        .HasFilter("is_summary");
-
-                    b.ToTable("user_chapter_chunk", (string)null);
                 });
 
             modelBuilder.Entity("Domain.Entities.UserIngestionJob", b =>
@@ -4557,43 +4255,6 @@ namespace Infrastructure.Migrations
                     b.Navigation("Collection");
                 });
 
-            modelBuilder.Entity("Domain.Entities.BookConversation", b =>
-                {
-                    b.HasOne("Domain.Entities.Edition", "Edition")
-                        .WithMany()
-                        .HasForeignKey("EditionId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .HasConstraintName("fk_book_conversation_editions_edition_id");
-
-                    b.HasOne("Domain.Entities.Site", "Site")
-                        .WithMany()
-                        .HasForeignKey("SiteId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_book_conversation_sites_site_id");
-
-                    b.HasOne("Domain.Entities.UserBook", "UserBook")
-                        .WithMany()
-                        .HasForeignKey("UserBookId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .HasConstraintName("fk_book_conversation_user_books_user_book_id");
-
-                    b.HasOne("Domain.Entities.User", "User")
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_book_conversation_users_user_id");
-
-                    b.Navigation("Edition");
-
-                    b.Navigation("Site");
-
-                    b.Navigation("User");
-
-                    b.Navigation("UserBook");
-                });
-
             modelBuilder.Entity("Domain.Entities.BookFile", b =>
                 {
                     b.HasOne("Domain.Entities.Edition", "Edition")
@@ -4713,27 +4374,6 @@ namespace Infrastructure.Migrations
                     b.Navigation("Edition");
                 });
 
-            modelBuilder.Entity("Domain.Entities.ChapterChunk", b =>
-                {
-                    b.HasOne("Domain.Entities.Chapter", "Chapter")
-                        .WithMany()
-                        .HasForeignKey("ChapterId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_chapter_chunk_chapters_chapter_id");
-
-                    b.HasOne("Domain.Entities.Edition", "Edition")
-                        .WithMany()
-                        .HasForeignKey("EditionId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_chapter_chunk_editions_edition_id");
-
-                    b.Navigation("Chapter");
-
-                    b.Navigation("Edition");
-                });
-
             modelBuilder.Entity("Domain.Entities.Collection", b =>
                 {
                     b.HasOne("Domain.Entities.User", "User")
@@ -4744,18 +4384,6 @@ namespace Infrastructure.Migrations
                         .HasConstraintName("fk_collections_users_user_id");
 
                     b.Navigation("User");
-                });
-
-            modelBuilder.Entity("Domain.Entities.ConversationMessage", b =>
-                {
-                    b.HasOne("Domain.Entities.BookConversation", "Conversation")
-                        .WithMany("Messages")
-                        .HasForeignKey("ConversationId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_conversation_message_book_conversation_conversation_id");
-
-                    b.Navigation("Conversation");
                 });
 
             modelBuilder.Entity("Domain.Entities.DeviceAuthorization", b =>
@@ -4940,6 +4568,27 @@ namespace Infrastructure.Migrations
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.SetNull)
                         .HasConstraintName("fk_llm_traces_users_user_id");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Domain.Entities.McpAccessKey", b =>
+                {
+                    b.HasOne("Domain.Entities.Site", "Site")
+                        .WithMany()
+                        .HasForeignKey("SiteId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_mcp_access_keys_sites_site_id");
+
+                    b.HasOne("Domain.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_mcp_access_keys_users_user_id");
+
+                    b.Navigation("Site");
 
                     b.Navigation("User");
                 });
@@ -5323,26 +4972,6 @@ namespace Infrastructure.Migrations
                     b.Navigation("UserBook");
                 });
 
-            modelBuilder.Entity("Domain.Entities.UserChapterChunk", b =>
-                {
-                    b.HasOne("Domain.Entities.UserBook", "UserBook")
-                        .WithMany()
-                        .HasForeignKey("UserBookId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_user_chapter_chunk_user_books_user_book_id");
-
-                    b.HasOne("Domain.Entities.UserChapter", "UserChapter")
-                        .WithMany()
-                        .HasForeignKey("UserChapterId")
-                        .OnDelete(DeleteBehavior.SetNull)
-                        .HasConstraintName("fk_user_chapter_chunk_user_chapters_user_chapter_id");
-
-                    b.Navigation("UserBook");
-
-                    b.Navigation("UserChapter");
-                });
-
             modelBuilder.Entity("Domain.Entities.UserIngestionJob", b =>
                 {
                     b.HasOne("Domain.Entities.UserBookFile", "UserBookFile")
@@ -5626,11 +5255,6 @@ namespace Infrastructure.Migrations
             modelBuilder.Entity("Domain.Entities.Author", b =>
                 {
                     b.Navigation("EditionAuthors");
-                });
-
-            modelBuilder.Entity("Domain.Entities.BookConversation", b =>
-                {
-                    b.Navigation("Messages");
                 });
 
             modelBuilder.Entity("Domain.Entities.BookFile", b =>

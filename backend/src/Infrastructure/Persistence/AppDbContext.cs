@@ -110,15 +110,12 @@ public partial class AppDbContext : DbContext, IAppDbContext
     public DbSet<TutorSession> TutorSessions => Set<TutorSession>();
     public DbSet<DriftCentroid> DriftCentroids => Set<DriftCentroid>();
     public DbSet<PodcastGenerationJob> PodcastGenerationJobs => Set<PodcastGenerationJob>();
-    public DbSet<BookConversation> BookConversations => Set<BookConversation>();
     public DbSet<BookInsight> BookInsights => Set<BookInsight>();
-    public DbSet<ConversationMessage> ConversationMessages => Set<ConversationMessage>();
+    public DbSet<McpAccessKey> McpAccessKeys => Set<McpAccessKey>();
 
     // Phase 4 RAG. Intentionally not on IAppDbContext — retrieval uses raw Npgsql.
-    public DbSet<ChapterChunk> ChapterChunks => Set<ChapterChunk>();
 
     // Phase 2 on-demand RAG over user uploads. Isolated per-user table; not on IAppDbContext.
-    public DbSet<UserChapterChunk> UserChapterChunks => Set<UserChapterChunk>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -138,9 +135,8 @@ public partial class AppDbContext : DbContext, IAppDbContext
         ConfigureAi(modelBuilder);
         ConfigureAgents(modelBuilder);
         ConfigurePodcasts(modelBuilder);
-        ConfigureBookChat(modelBuilder);
         ConfigureInsights(modelBuilder);
-        ConfigureRag(modelBuilder);
+        ConfigureMcpKeys(modelBuilder);
     }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)

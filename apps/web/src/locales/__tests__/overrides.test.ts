@@ -27,10 +27,6 @@ const OVERRIDES: Record<string, string> = {
     'Brand. The website is "TextStack Reader" (index.html, the manifest, SeoHead, the ' +
     'JSON-LD); the app is "TextStack" (app.json). Each names itself.',
 
-  'librarian.openBook':
-    'Different jobs, not different wording. Web passes { title } into "Open {{title}}"; ' +
-    'mobile composes the title itself and uses the string as a bare accessibility label.',
-
   'library.actions.addToCollectionEmpty':
     'Different affordance in view: web points at the sidebar, mobile at a sheet below.',
 

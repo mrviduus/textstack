@@ -44,7 +44,7 @@ public static partial class AdminAiQualityEndpoints
     // AI-045: list persisted agent_run rows for the admin transcript UI. Mirrors GetTraces
     // (newest-first, clamp, paged). The list projection omits StepsJson + Output (both big) and
     // truncates Goal. The `agent` filter matches exact OR prefix (so "crew." narrows to all crew
-    // runs, "crew.autopublish"/"studybuddy" narrow to that one).
+    // runs, "crew.autopublish"/"tutor" narrow to that one).
     private static async Task<IResult> GetAgentRuns(
         AppDbContext db,
         [FromQuery] string? agent,

@@ -8,8 +8,8 @@ namespace Application.Entitlements;
 /// <c>null</c> = uncapped. Defaulted so existing positional constructions keep compiling.
 /// </param>
 /// <param name="AiEnabled">
-/// Whether this tier may reach the paid-inference surface (librarian, tutor, ask, book chat,
-/// study buddy, RAG indexing). <c>null</c> = inherit <c>Default</c>, then allow.
+/// Whether this tier may reach the paid-inference surface (tutor).
+/// <c>null</c> = inherit <c>Default</c>, then allow.
 /// </param>
 public sealed record TierEntitlements(
     long? StorageLimitBytes,

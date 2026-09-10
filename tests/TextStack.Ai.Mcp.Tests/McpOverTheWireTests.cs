@@ -190,47 +190,6 @@ public class McpOverTheWireTests : IAsyncLifetime
         Assert.Equal(StubBackend.ChapterId, anchor.GetProperty("chapterId").GetString());
     }
 
-    // ── 7. ask_book (Bearer) + spoiler-gate variant ──────────────────────────────
-
-    [Fact]
-    public async Task AskBook_OverWire_ForwardsBearer_MapsAnswerAndCitations()
-    {
-        await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
-
-        var result = await CallAsync(client, "ask_book", Args(
-            ("editionId", StubBackend.GoodEdition),
-            ("question", "where does Jonathan Harker travel?"),
-            ("k", 5)));
-
-        Assert.NotEqual(true, result.IsError);
-        var root = Json(result);
-        Assert.Contains("Transylvania", root.GetProperty("answer").GetString());
-        var cite = Assert.Single(root.GetProperty("citations").EnumerateArray());
-        Assert.Equal(1, cite.GetProperty("marker").GetInt32());
-
-        var req = _harness.Stub.Last("ask_book");
-        Assert.Equal("POST", req!.Method);
-        Assert.Equal($"/books/{StubBackend.GoodEdition}/ask", req.PathAndQuery);
-        Assert.Equal($"Bearer {McpServerHarness.TestJwt}", req.Authorization);
-        var sent = JsonDocument.Parse(req.Body).RootElement;
-        Assert.Equal("where does Jonathan Harker travel?", sent.GetProperty("question").GetString());
-        Assert.Equal(5, sent.GetProperty("k").GetInt32());
-    }
-
-    [Fact]
-    public async Task AskBook_SpoilerGate_OverWire_ReturnsCleanText_NotError()
-    {
-        await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
-
-        var result = await CallAsync(client, "ask_book", Args(
-            ("editionId", StubBackend.SpoilerEdition),
-            ("question", "how does the book end?")));
-
-        // Insufficient is expected, not an error — clean relayable text.
-        Assert.NotEqual(true, result.IsError);
-        Assert.Contains("haven't read far enough", TextOf(result));
-    }
-
     // ── 8. protocol: initialize → serverInfo ──────────────────────────────────────
 
     [Fact]
@@ -252,7 +211,7 @@ public class McpOverTheWireTests : IAsyncLifetime
 
         var names = tools.Select(t => t.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray();
         Assert.Equal(
-            ["ask_book", "get_book", "get_chapter", "get_my_book", "get_my_chapter", "get_my_insights", "list_my_book_highlights", "list_my_highlights", "list_my_vocabulary", "save_highlight", "save_insight", "save_my_highlight", "search_books", "search_my_library"],
+            ["get_book", "get_chapter", "get_my_book", "get_my_chapter", "get_my_insights", "list_my_book_highlights", "list_my_highlights", "list_my_vocabulary", "save_highlight", "save_insight", "save_my_highlight", "search_books", "search_my_library"],
             names);
     }
 
@@ -308,14 +267,14 @@ public class McpOverTheWireTests : IAsyncLifetime
     // ── 13. one-session e2e: ONE initialize → list → get_chapter → save → ask ─────
 
     [Fact]
-    public async Task OneSession_OverWire_ListSaveAsk_AllSucceed()
+    public async Task OneSession_OverWire_ListAndSave_AllSucceed()
     {
         // A single client (one initialize handshake) exercises the DoD path:
         // "list chapters, save highlight, ask, one session".
         await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
 
         var tools = await client.ListToolsAsync(cancellationToken: Ct);
-        Assert.Equal(14, tools.Count);
+        Assert.Equal(13, tools.Count);
 
         var chapter = await CallAsync(client, "get_chapter", Args(("slug", "dracula"), ("chapterSlug", "ch-1")));
         Assert.NotEqual(true, chapter.IsError);
@@ -327,15 +286,8 @@ public class McpOverTheWireTests : IAsyncLifetime
         Assert.NotEqual(true, saved.IsError);
         Assert.True(Json(saved).GetProperty("saved").GetBoolean());
 
-        var answer = await CallAsync(client, "ask_book", Args(
-            ("editionId", StubBackend.GoodEdition),
-            ("question", "what is Jonathan Harker doing?")));
-        Assert.NotEqual(true, answer.IsError);
-        Assert.Contains("Transylvania", Json(answer).GetProperty("answer").GetString());
-
-        // All three user-scoped calls forwarded the same session bearer.
+        // The user-scoped call forwarded the session bearer.
         Assert.Equal($"Bearer {McpServerHarness.TestJwt}", _harness.Stub.Last("save_highlight")!.Authorization);
-        Assert.Equal($"Bearer {McpServerHarness.TestJwt}", _harness.Stub.Last("ask_book")!.Authorization);
     }
 
     // ── 14. one-session e2e over the UPLOADED half: search → book → chapter ───────

@@ -85,11 +85,11 @@ export interface Capabilities {
    */
   canUpload: boolean
   /**
-   * Use the LLM features — librarian, tutor, "Ask this book".
+   * Use the LLM features — tutor, "Ask this book".
    *
    * These call paid inference, and every rate-limit bucket that fronts them
    * partitions on IP only (`ServiceCollectionExtensions.RateLimiting.cs`:
-   * `librarian`, `tutor`, `rag.ask`, `studybuddy` all key on
+   * `tutor` and `rag.ask` key on
    * `RemoteIpAddress`). A guest hole here is therefore throttled by IP and by
    * nothing else, and guest sessions are free and unlimited to mint.
    *

@@ -13,7 +13,6 @@ import {
   CriticDefectEvalResult,
   CrewAbEvalResult,
   EnrichmentEvalResult,
-  LibrarianEvalResult,
   TutorEvalResult,
   ShadowSummary,
   ShadowPair,
@@ -445,7 +444,7 @@ function Section({ title, body }: { title: string; body: string | null }) {
 // ─────────────────────────── Transcripts ───────────────────────────
 
 const RUN_PAGE = 25
-const AGENT_FILTERS = ['crew.autopublish', 'crew.seo', 'studybuddy']
+const AGENT_FILTERS = ['crew.autopublish', 'crew.seo', 'tutor']
 
 function isErrorStatus(status: string, hasError?: boolean): boolean {
   return hasError === true || status === 'error' || status === 'budget_exhausted'
@@ -807,8 +806,6 @@ function EvalsTab() {
   const [crewAbResult, setCrewAbResult] = useState<CrewAbEvalResult | null>(null)
   const [enrichmentRunning, setEnrichmentRunning] = useState(false)
   const [enrichmentResult, setEnrichmentResult] = useState<EnrichmentEvalResult | null>(null)
-  const [librarianRunning, setLibrarianRunning] = useState(false)
-  const [librarianResult, setLibrarianResult] = useState<LibrarianEvalResult | null>(null)
   const [tutorRunning, setTutorRunning] = useState(false)
   const [tutorResult, setTutorResult] = useState<TutorEvalResult | null>(null)
 
@@ -896,17 +893,6 @@ function EvalsTab() {
     }
   }
 
-  const runLibrarian = async () => {
-    setError(null)
-    setLibrarianRunning(true)
-    try {
-      setLibrarianResult(await adminApi.runLibrarianEval())
-    } catch (e) {
-      setError(evalError(e, 'Failed to run librarian eval'))
-    } finally {
-      setLibrarianRunning(false)
-    }
-  }
 
   const runTutor = async () => {
     setError(null)
@@ -956,14 +942,6 @@ function EvalsTab() {
         </button>
         <span style={{ fontSize: 12, color: '#6b7280' }}>
           Runs the real EnrichmentAgent over ~30 goldens — calibration, honest-unknown, genre/year accuracy. This can take a minute.
-        </span>
-      </div>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <button onClick={runLibrarian} disabled={librarianRunning} style={rangeBtn(false)}>
-          {librarianRunning ? 'Running…' : 'Run librarian eval'}
-        </button>
-        <span style={{ fontSize: 12, color: '#6b7280' }}>
-          Runs the real LibrarianAgent over the golden queries — recall/precision/F1@k + hallucination-free. This can take a minute.
         </span>
       </div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -1051,47 +1029,6 @@ function EvalsTab() {
                   <td style={{ ...td, color: c.genreCorrect ? '#059669' : '#dc2626' }}>{c.genreCorrect ? '✓' : '✗'}</td>
                   <td style={{ ...td, color: c.yearCorrect ? '#059669' : '#dc2626' }}>{c.yearCorrect ? '✓' : '✗'}</td>
                   <td style={td}>{c.saidUnknown ? 'yes' : '—'}</td>
-                  <td style={td}>{c.toolCalls}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-      {librarianResult && (
-        <div style={card}>
-          <div style={{ fontWeight: 600, fontSize: 15, color: '#111827', marginBottom: 12 }}>Librarian eval</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: '8px 12px' }}>
-            <Metric label="Recall@k" value={`${(librarianResult.recallAtK * 100).toFixed(1)}%`} color="#059669" />
-            <Metric label="Precision@k" value={`${(librarianResult.precisionAtK * 100).toFixed(1)}%`} />
-            <Metric label="F1@k" value={`${(librarianResult.f1AtK * 100).toFixed(1)}%`} />
-            <Metric label="Constraint sat." value={`${(librarianResult.constraintSatisfaction * 100).toFixed(1)}%`} />
-            <Metric label="Coverage acc." value={`${(librarianResult.coverageDecisionAccuracy * 100).toFixed(1)}%`} />
-            <Metric label="Hallucination-free" value={`${(librarianResult.hallucinationFreeRate * 100).toFixed(1)}%`} />
-            <Metric label="Avg tool calls" value={librarianResult.avgToolCalls.toFixed(2)} />
-            <Metric label="N" value={String(librarianResult.n)} />
-          </div>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginTop: 12 }}>
-            <thead>
-              <tr style={{ textAlign: 'left', color: '#6b7280', borderBottom: '1px solid #e5e7eb' }}>
-                <th style={th}>Query</th>
-                <th style={th}>R@k</th>
-                <th style={th}>P@k</th>
-                <th style={th}>F1</th>
-                <th style={th}>Constr</th>
-                <th style={th}>No-halluc</th>
-                <th style={th}>Tools</th>
-              </tr>
-            </thead>
-            <tbody>
-              {librarianResult.cases.map((c, i) => (
-                <tr key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                  <td style={td}>{c.query}</td>
-                  <td style={td}>{c.recallAtK.toFixed(2)}</td>
-                  <td style={td}>{c.precisionAtK.toFixed(2)}</td>
-                  <td style={td}>{c.f1AtK.toFixed(2)}</td>
-                  <td style={{ ...td, color: c.constraintsSatisfied ? '#059669' : '#dc2626' }}>{c.constraintsSatisfied ? '✓' : '✗'}</td>
-                  <td style={{ ...td, color: c.noHallucination ? '#059669' : '#dc2626' }}>{c.noHallucination ? '✓' : '✗'}</td>
                   <td style={td}>{c.toolCalls}</td>
                 </tr>
               ))}

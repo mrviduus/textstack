@@ -81,7 +81,6 @@ export function McpLandingPage() {
     { name: 'list_my_highlights', desc: t('mcp.tools.listMyHighlights') },
     { name: 'save_highlight', desc: t('mcp.tools.saveHighlight') },
     { name: 'list_my_vocabulary', desc: t('mcp.tools.listMyVocabulary') },
-    { name: 'ask_book', desc: t('mcp.tools.askBook') },
     { name: 'save_insight', desc: t('mcp.tools.saveInsight') },
     { name: 'get_my_insights', desc: t('mcp.tools.getMyInsights') },
   ]

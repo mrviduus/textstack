@@ -59,9 +59,6 @@ public record UserBookDetailDto(
     DateTimeOffset UpdatedAt,
     DateTimeOffset? CompletedAt,
     // Phase 2 on-demand RAG index state (mirrors the catalog BookDetailDto).
-    string RagStatus,
-    int RagChunkCount,
-    int RagEmbeddedCount,
     // True when the book has a stored PDF original → enables the reader's "Original layout" view.
     bool HasOriginalPdf,
     // Visible enrichment lifecycle: NotStarted|Pending|Running|Completed|Failed (detail-only).

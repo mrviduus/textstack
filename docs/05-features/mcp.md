@@ -8,25 +8,25 @@ reading, and manage your own highlights and vocabulary — all from the chat.
 This is the canonical reference. The [package README](https://www.nuget.org/packages/TextStack.Mcp)
 and the [landing page](https://textstack.app/en/mcp) point here.
 
-## The 14 tools
+## The 13 tools
 
-The server exposes 14 tools. The public ones need no auth; the user-scoped ones
+The server exposes 13 tools. The public ones need no auth; the user-scoped ones
 require you to be signed in (see [Authentication](#authentication)).
 
 **Two halves, two identifiers.** The public catalog is made of `Edition`s and is
 addressed by `editionId`. The books you uploaded are `UserBook`s — a separate
-aggregate, with its own chapter and chunk tables — and are addressed by `bookId`.
+aggregate, with its own chapter table — and are addressed by `bookId`.
 An upload has no `editionId` and cannot be given one. Passing a `bookId` to
-`ask_book` is a 404, and to `list_my_highlights` an empty list, which reads like
-an empty library rather than a wrong id. The tool names carry the split: `_my_`
-means your uploads.
+`list_my_highlights` returns an empty list, which reads like an empty library
+rather than a wrong id. The tool names carry the split: `_my_` means your
+uploads.
 
 | Tool | What it does | Auth |
 |------|--------------|------|
 | `search_books` | Search the public library for books and chapters matching a query. | Public |
-| `get_book` | Fetch a catalog book by slug: its `editionId` (for `ask_book`), metadata, authors, genres, and chapter list. | Public |
+| `get_book` | Fetch a catalog book by slug: its `editionId`, metadata, authors, genres, and chapter list. | Public |
 | `get_chapter` | Fetch a chapter's plain text (HTML stripped, length-capped) plus its number, title, and prev/next slugs. | Public |
-| `search_my_library` | Full-text search across the books **you uploaded**. Returns one hit per book with its `bookId` and best-matching chapter. Needs no RAG index. | User |
+| `search_my_library` | Full-text search across the books **you uploaded**. Returns one hit per book with its `bookId` and best-matching chapter. | User |
 | `get_my_book` | Fetch one of your uploads by `bookId`: metadata + full chapter list, each chapter carrying its `chapterId`. | User |
 | `get_my_chapter` | Fetch one chapter of your upload as plain text, plus its `chapterId` and prev/next slugs. | User |
 | `save_my_highlight` | Highlight a passage in a book you uploaded. Matched against the chapter text, so the quote must be verbatim. Capped at 200 per book. | User |
@@ -35,17 +35,21 @@ means your uploads.
 | `get_my_insights` | Read back everything already worked out about a book, in reading order. | User |
 | `list_my_highlights` | List your highlights for a given edition. | User |
 | `list_my_vocabulary` | List your saved vocabulary words, optionally filtered by SRS stage or search. | User |
-| `ask_book` | Ask a question about a book you're reading; spoiler-safe (answers only from chapters you've already read). | User |
 | `save_highlight` | Save a passage (text + optional color/note) to your highlights for a catalog book chapter. | User |
 
-All 14 tools are always listed regardless of whether you're signed in — only a
+All 13 tools are always listed regardless of whether you're signed in — only a
 user-scoped *call* fails with a clean "authentication required" message when no
 token is available.
 
 A typical catalog chain is `search_books → get_book` (to get the `editionId` /
-chapter ids) `→ get_chapter` / `ask_book` / `save_highlight`. The chain for your
-own uploads is `search_my_library → get_my_book` (to get the chapter ids)
-`→ get_my_chapter`.
+chapter ids) `→ get_chapter` / `save_highlight`. The chain for your own uploads
+is `search_my_library → get_my_book` (to get the chapter ids) `→ get_my_chapter`.
+
+**There is no question-answering tool.** There used to be — `ask_book`, a
+retrieval-augmented answer over an index we built and paid for. It is gone,
+because your assistant reads `get_chapter` as plain text and reasons over it
+better than our retrieval did, at no cost to us and none to you beyond the
+subscription you already have. Ask it about the chapter; it has the chapter.
 
 ## Limits on what an assistant may write
 
@@ -226,7 +230,7 @@ Before wiring up a client, confirm the tool speaks MCP. This sends
 ```
 
 Expect a response with `serverInfo` naming `textstack` and a `tools/list`
-result containing all 14 tools.
+result containing all 13 tools.
 
 ## Troubleshooting
 

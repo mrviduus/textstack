@@ -52,6 +52,7 @@ public interface IAppDbContext
     DbSet<AutoPublishJob> AutoPublishJobs { get; }
     DbSet<PasswordResetToken> PasswordResetTokens { get; }
     DbSet<DeviceAuthorization> DeviceAuthorizations { get; }
+    DbSet<McpAccessKey> McpAccessKeys { get; }
     DbSet<BookQualityJob> BookQualityJobs { get; }
     DbSet<SeoTemplate> SeoTemplates { get; }
     DbSet<SeoBackfillJob> SeoBackfillJobs { get; }
@@ -67,13 +68,10 @@ public interface IAppDbContext
     DbSet<TutorSession> TutorSessions { get; }
     DbSet<DriftCentroid> DriftCentroids { get; }
     DbSet<PodcastGenerationJob> PodcastGenerationJobs { get; }
-    DbSet<BookConversation> BookConversations { get; }
     DbSet<BookInsight> BookInsights { get; }
-    DbSet<ConversationMessage> ConversationMessages { get; }
     /// <summary>Per-user RAG chunks. Exposed here (not only on the concrete context) because
     /// guest-merge has to re-parent them: UserId is denormalized off UserBook and has no FK to User,
     /// so these rows outlive a deleted guest instead of cascading with it.</summary>
-    DbSet<UserChapterChunk> UserChapterChunks { get; }
 
     Task<int> SaveChangesAsync(CancellationToken ct = default);
 

@@ -1,13 +1,11 @@
 using Application.Agents;
 using Application.Common.Interfaces;
-using Application.Rag;
 using Contracts.Admin;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using TextStack.Ai.Core;
 using TextStack.Ai.EvalSuite;
-using TextStack.Ai.Rag;
 using TextStack.Ai.Tools;
 
 namespace Api.Endpoints;
@@ -116,124 +114,6 @@ public static partial class AdminAiQualityEndpoints
         });
     }
 
-    // ADR-012 S3 DoD gate: runs the PDF vision-RAG eval over the embedded SYNTHETIC table-page fixtures —
-    // self-contained (no seeded book, no DB pollution). Transcribes each page through the gateway pdf.parse
-    // route (→ gpt-4.1) with the shared PdfVisionPrompt, judges transcription + answer fidelity (1–5), and
-    // deterministically scores page-citation + table-structure survival. `judge` = openai (default,
-    // Eval:JudgeModel) | ollama. Persists pdfvision.transcription / .answer / .citation / .tablestructure
-    // EvalRun rows. Needs a key (gateway ILlmService + IEmbeddingService throw keyless) — the scored run
-    // happens on prod; keyless hosts get a clean 503. Admin-triggered only; NOT scheduled.
-    private static async Task<IResult> RunPdfVisionEval(
-        [FromQuery] string? judge,
-        IServiceProvider services,
-        IConfiguration config,
-        PdfVisionEvalRunner runner,
-        IAppDbContext db,
-        CancellationToken ct)
-    {
-        ILlmService vision;
-        IEmbeddingService embedder;
-        IRagAskService ask;
-        try
-        {
-            // The gateway (vision route) + embedder both construct from the OpenAI key; probe them here so a
-            // keyless host returns a clean 503 instead of failing deep in transcription/retrieval.
-            vision = services.GetRequiredService<ILlmService>();
-            embedder = services.GetRequiredService<IEmbeddingService>();
-            ask = services.GetRequiredService<IRagAskService>();
-        }
-        catch (InvalidOperationException)
-        {
-            return Results.Problem("LLM gateway / embeddings are not configured (no OpenAI key).", statusCode: 503);
-        }
-
-        var useOllama = string.Equals(judge, "ollama", StringComparison.OrdinalIgnoreCase);
-        var judgeKey = useOllama ? "ollama" : "openai-judge";
-        var judgeModelId = useOllama ? config["Ollama:Model"] ?? "gemma4:e2b" : config["Eval:JudgeModel"] ?? "gpt-4.1";
-
-        ILlmService judgeClient;
-        try
-        {
-            judgeClient = services.GetRequiredKeyedService<ILlmService>(judgeKey);
-        }
-        catch (InvalidOperationException)
-        {
-            return Results.Problem("Judge LLM is not configured.", statusCode: 503);
-        }
-
-        var gitSha = Environment.GetEnvironmentVariable("GIT_SHA");
-        var result = await runner.RunAsync(
-            vision, embedder, ask, judgeClient, judgeModelId, k: IRagService.DefaultK,
-            persist: true, db, gitSha, ct);
-
-        return Results.Ok(new PdfVisionEvalDto(
-            Math.Round(result.Transcription, 3),
-            Math.Round(result.Answer, 3),
-            Math.Round(result.Citation, 4),
-            Math.Round(result.TableStructure, 4),
-            result.PageN,
-            result.QaN,
-            result.PageCases.Select(c => new PdfVisionPageDto(
-                c.Page, c.Transcribed, Math.Round(c.JudgeScore, 3), c.TableSurvived)).ToList(),
-            result.QaCases.Select(c => new PdfVisionQaDto(
-                c.Question, c.ExpectedPage, Math.Round(c.AnswerScore, 3), c.CitedExpectedPage, c.CitedPages, c.Insufficient)).ToList(),
-            result.Note));
-    }
-
-    // Phase 6 DoD gate (AI-039): runs the Study Buddy agent over the golden passages against a real
-    // edition and scores the answers + records steps/cost. Needs an embedded edition (DDIA) + a key.
-    private static async Task<IResult> RunStudyBuddyEval(
-        [FromQuery] Guid editionId,
-        [FromQuery] string? judge,
-        HttpContext httpContext,
-        IServiceProvider services,
-        IConfiguration config,
-        StudyBuddyEvalRunner runner,
-        StudyBuddyAgent agent,
-        IAppDbContext db,
-        CancellationToken ct)
-    {
-        if (editionId == Guid.Empty)
-            return Results.BadRequest(new { error = "editionId query parameter is required." });
-
-        var useOllama = string.Equals(judge, "ollama", StringComparison.OrdinalIgnoreCase);
-        var judgeKey = useOllama ? "ollama" : "openai-judge";
-        var judgeModelId = useOllama ? config["Ollama:Model"] ?? "gemma4:e2b" : config["Eval:JudgeModel"] ?? "gpt-4.1";
-
-        ILlmService judgeClient;
-        try
-        {
-            judgeClient = services.GetRequiredKeyedService<ILlmService>(judgeKey);
-        }
-        catch (InvalidOperationException)
-        {
-            return Results.Problem("Judge LLM is not configured.", statusCode: 503);
-        }
-
-        var gitSha = Environment.GetEnvironmentVariable("GIT_SHA");
-        // The agent's tools resolve scoped services (db, retrieval) from the request scope.
-        var result = await runner.RunAsync(
-            agent, judgeClient, judgeModelId, editionId, userId: null, httpContext.RequestServices,
-            persist: true, db, gitSha, ct);
-
-        return Results.Ok(new
-        {
-            judgeScore = Math.Round(result.JudgeScore, 3),
-            avgSteps = Math.Round(result.AvgSteps, 2),
-            avgCostUsd = result.AvgCostUsd,
-            n = result.N,
-            cases = result.Cases.Select(c => new
-            {
-                passage = c.Passage.Length > 80 ? c.Passage[..80] + "…" : c.Passage,
-                c.Steps,
-                c.CostUsd,
-                c.JudgeScore,
-                c.Completed,
-                c.OfferedTools,
-            }),
-        });
-    }
-
     // AI-Agent-1 DoD gate: runs the REAL EnrichmentAgent over the enrichment golden set and scores
     // genre/year accuracy, the headline CALIBRATION metric (committed ⇒ correct), the honest-unknown
     // rate, and avg tool calls. Generation goes through the gateway (routed by FeatureTag bookmeta.agent
@@ -283,61 +163,6 @@ public static partial class AdminAiQualityEndpoints
                 c.GenreCorrect,
                 c.YearCorrect,
                 c.SaidUnknown,
-            }),
-        });
-    }
-
-    // AI-Agent-3 DoD gate: runs the REAL LibrarianAgent over the librarian golden set and scores recall@k,
-    // constraint-satisfaction (returned library books respect language/length), coverage-decision accuracy
-    // (expand to Open Library exactly when the library is thin), and the hallucination invariant (every
-    // returned library slug genuinely exists in the catalog). Generation goes through the gateway (routed by
-    // FeatureTag librarian.agent → gpt-4.1-mini); the agent's tools hit the live catalog search + DB + Open
-    // Library. Deterministic scoring (no judge — relevance labels are in the golden). Needs a key; run sync.
-    private static async Task<IResult> RunLibrarianEval(
-        HttpContext httpContext,
-        IServiceProvider services,
-        LibrarianEvalRunner runner,
-        LibrarianAgent agent,
-        IAppDbContext db,
-        CancellationToken ct)
-    {
-        try
-        {
-            _ = services.GetRequiredService<ILlmService>();
-        }
-        catch (InvalidOperationException)
-        {
-            return Results.Problem("LLM gateway is not configured (no OpenAI key).", statusCode: 503);
-        }
-
-        // Hallucination probe: confirm a returned library slug is genuinely a published catalog entry.
-        Task<bool> SlugExists(string slug, CancellationToken token) =>
-            db.Editions.AnyAsync(e => e.Slug == slug, token);
-
-        var result = await runner.RunAsync(agent, httpContext.RequestServices, SlugExists, ct);
-
-        return Results.Ok(new
-        {
-            recallAtK = Math.Round(result.RecallAtK, 3),
-            precisionAtK = Math.Round(result.PrecisionAtK, 3),
-            f1AtK = Math.Round(result.F1AtK, 3),
-            constraintSatisfaction = Math.Round(result.ConstraintSatisfaction, 3),
-            coverageDecisionAccuracy = Math.Round(result.CoverageDecisionAccuracy, 3),
-            hallucinationFreeRate = Math.Round(result.HallucinationFreeRate, 3),
-            avgToolCalls = Math.Round(result.AvgToolCalls, 2),
-            n = result.N,
-            cases = result.Cases.Select(c => new
-            {
-                c.Query,
-                c.Returned,
-                c.LibraryReturned,
-                recallAtK = Math.Round(c.RecallAtK, 3),
-                precisionAtK = Math.Round(c.PrecisionAtK, 3),
-                f1AtK = Math.Round(c.F1AtK, 3),
-                c.ConstraintsSatisfied,
-                c.CoverageDecisionCorrect,
-                c.NoHallucination,
-                c.ToolCalls,
             }),
         });
     }

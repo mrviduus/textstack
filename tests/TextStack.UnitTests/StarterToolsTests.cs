@@ -14,12 +14,12 @@ namespace TextStack.UnitTests;
 public class StarterToolsTests
 {
     private static readonly string[] ExpectedNames =
-        ["get_chapter", "search_book", "lookup_dictionary", "get_user_highlights"];
+        ["get_chapter", "lookup_dictionary", "get_user_highlights"];
 
     private static JsonElement Args(string json) => JsonDocument.Parse(json).RootElement;
 
     [Fact]
-    public void AddAiTools_ScanningApplication_DiscoversAllFourStarterTools()
+    public void AddAiTools_ScanningApplication_DiscoversTheStarterTools()
     {
         var services = new ServiceCollection();
         services.AddAiTools(typeof(GetChapterTool).Assembly);
@@ -29,12 +29,11 @@ public class StarterToolsTests
 
         foreach (var name in ExpectedNames)
             Assert.NotNull(registry.Get(name));
-        // (The exact total — now also the AI-035 Study Buddy tools — is asserted in StudyBuddyToolsTests.)
+        
     }
 
     [Theory]
     [InlineData(typeof(GetChapterTool), """{"chapter_number": 3}""", """{"chapter_number": 0}""")]
-    [InlineData(typeof(SearchBookTool), """{"query": "replication lag"}""", """{"query": "x"}""")]
     [InlineData(typeof(LookupDictionaryTool), """{"word": "quorum", "lang": "en"}""", """{"lang": "en"}""")]
     [InlineData(typeof(GetUserHighlightsTool), """{"query": "lsm", "limit": 5}""", """{"limit": 99}""")]
     public void ArgsSchema_AcceptsHappyPath_RejectsMalformed(Type toolType, string goodArgs, string badArgs)
@@ -47,7 +46,6 @@ public class StarterToolsTests
 
     [Theory]
     [InlineData(typeof(GetChapterTool))]
-    [InlineData(typeof(SearchBookTool))]
     [InlineData(typeof(LookupDictionaryTool))]
     [InlineData(typeof(GetUserHighlightsTool))]
     public void ArgsSchema_RejectsUnknownProperties(Type toolType)

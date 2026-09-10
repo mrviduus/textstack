@@ -10,13 +10,13 @@ namespace TextStack.UnitTests;
 
 /// <summary>
 /// AI-048a — the 5 READ MCP tools appended to the AI-047 catalog: get_book,
-/// get_chapter, list_my_highlights, list_my_vocabulary, ask_book. Verifies
+/// get_chapter, list_my_highlights, list_my_vocabulary. Verifies
 /// tools/list discovery + schemas, per-tool request shape (method/path/Host/Bearer)
 /// and JSON→MCP mapping, arg validation gates, the auth-required fail-clean path,
-/// the ask_book spoiler gate, get_chapter HTML strip + cap, and the shared
+/// get_chapter HTML strip + cap, and the shared
 /// upstream-error wrapper — all against a fake HTTP layer (CI-safe, no network).
 ///
-/// Introduces NO ITool (StudyBuddy set-equality stays green).
+/// Introduces NO ITool (the tool-set assertions in StarterToolsTests stay green).
 /// </summary>
 public class McpReadToolsTests
 {
@@ -84,7 +84,7 @@ public class McpReadToolsTests
         var names = catalog.ListTools().Select(t => t.Name).OrderBy(n => n).ToArray();
 
         Assert.Equal(
-            ["ask_book", "get_book", "get_chapter", "get_my_book", "get_my_chapter", "get_my_insights", "list_my_book_highlights", "list_my_highlights", "list_my_vocabulary", "save_highlight", "save_insight", "save_my_highlight", "search_books", "search_my_library"],
+            ["get_book", "get_chapter", "get_my_book", "get_my_chapter", "get_my_insights", "list_my_book_highlights", "list_my_highlights", "list_my_vocabulary", "save_highlight", "save_insight", "save_my_highlight", "search_books", "search_my_library"],
             names);
     }
 
@@ -114,7 +114,6 @@ public class McpReadToolsTests
         Assert.Equal(["slug", "chapterSlug"], Required(byName["get_chapter"]));
         Assert.Equal(["editionId"], Required(byName["list_my_highlights"]));
         Assert.Empty(Required(byName["list_my_vocabulary"]));
-        Assert.Equal(["editionId", "question"], Required(byName["ask_book"]));
         // The my-library tools are keyed by bookId — never editionId. The schema is
         // where that distinction is enforced, so it is asserted here.
         Assert.Equal(["query"], Required(byName["search_my_library"]));
@@ -123,7 +122,7 @@ public class McpReadToolsTests
     }
 
     [Fact]
-    public void ListTools_VocabularyAndAsk_DeclareBounds()
+    public void ListTools_Vocabulary_DeclaresBounds()
     {
         var (catalog, _) = BuildCatalog(Json("{}"));
         var byName = catalog.ListTools().ToDictionary(t => t.Name);
@@ -131,14 +130,6 @@ public class McpReadToolsTests
         var stage = byName["list_my_vocabulary"].InputSchema.GetProperty("properties").GetProperty("stage");
         Assert.Equal(0, stage.GetProperty("minimum").GetInt32());
         Assert.Equal(4, stage.GetProperty("maximum").GetInt32());
-
-        var q = byName["ask_book"].InputSchema.GetProperty("properties").GetProperty("question");
-        Assert.Equal(3, q.GetProperty("minLength").GetInt32());
-        Assert.Equal(1000, q.GetProperty("maxLength").GetInt32());
-
-        var k = byName["ask_book"].InputSchema.GetProperty("properties").GetProperty("k");
-        Assert.Equal(1, k.GetProperty("minimum").GetInt32());
-        Assert.Equal(20, k.GetProperty("maximum").GetInt32());
     }
 
     // ── get_book: public, no Bearer, maps editionId + metadata ───────────────────
@@ -444,105 +435,6 @@ public class McpReadToolsTests
 
     // ── ask_book: POST Bearer, maps answer + citations, spoiler gate ─────────────
 
-    [Fact]
-    public async Task AskBook_IssuesAuthorizedPost_MapsAnswerAndCitations()
-    {
-        const string body =
-            """
-            {
-              "answer": "Alice falls down a rabbit hole. [1]",
-              "citations": [
-                { "marker": 1, "chunkId": "c", "chapterId": "d", "chapterOrd": 1, "charStart": 0, "charEnd": 9, "preview": "Down, down" }
-              ],
-              "lastReadOrd": 3,
-              "insufficient": false
-            }
-            """;
-        var (catalog, handler) = BuildCatalog(Json(body));
-
-        var result = await catalog.CallAsync(
-            "ask_book",
-            Args($$"""{"editionId":"{{Edition}}","question":"what happens to Alice?","k":5}"""),
-            CancellationToken.None);
-
-        Assert.NotEqual(true, result.IsError);
-        Assert.Equal(HttpMethod.Post, handler.LastRequest!.Method);
-        Assert.Equal($"/books/{Edition}/ask", handler.LastRequest.RequestUri!.PathAndQuery);
-        Assert.Equal(SiteHost, handler.LastRequest.Headers.Host);
-        Assert.Equal("Bearer tok-123", BearerOf(handler.LastRequest));
-
-        var root = JsonDocument.Parse(TextOf(result)).RootElement;
-        Assert.Equal("Alice falls down a rabbit hole. [1]", root.GetProperty("answer").GetString());
-        var cite = Assert.Single(root.GetProperty("citations").EnumerateArray());
-        Assert.Equal(1, cite.GetProperty("marker").GetInt32());
-        Assert.Equal(1, cite.GetProperty("chapterOrd").GetInt32());
-        Assert.Equal("Down, down", cite.GetProperty("preview").GetString());
-    }
-
-    [Fact]
-    public async Task AskBook_PostsQuestionAndK_InBody()
-    {
-        var (catalog, handler) = BuildCatalog(
-            Json("""{"answer":"x","citations":[],"lastReadOrd":1,"insufficient":false}"""));
-
-        await catalog.CallAsync(
-            "ask_book",
-            Args($$"""{"editionId":"{{Edition}}","question":"why?","k":7}"""),
-            CancellationToken.None);
-
-        var sent = JsonDocument.Parse(handler.LastRequestBody!).RootElement;
-        Assert.Equal("why?", sent.GetProperty("question").GetString());
-        Assert.Equal(7, sent.GetProperty("k").GetInt32());
-    }
-
-    [Fact]
-    public async Task AskBook_Insufficient_ReturnsCleanText_NotError()
-    {
-        const string body =
-            """{"answer":"","citations":[],"lastReadOrd":0,"insufficient":true}""";
-        var (catalog, _) = BuildCatalog(Json(body));
-
-        var result = await catalog.CallAsync(
-            "ask_book",
-            Args($$"""{"editionId":"{{Edition}}","question":"spoiler?"}"""),
-            CancellationToken.None);
-
-        Assert.NotEqual(true, result.IsError); // spoiler gate is expected, not an error
-        Assert.Contains("haven't read far enough", TextOf(result));
-    }
-
-    [Theory]
-    [InlineData("""{"editionId":"bad","question":"valid question"}""")]      // bad guid
-    [InlineData("""{"editionId":"33333333-3333-3333-3333-333333333333"}""")] // missing question
-    [InlineData("""{"editionId":"33333333-3333-3333-3333-333333333333","question":"hi"}""")] // question too short
-    [InlineData("""{"editionId":"33333333-3333-3333-3333-333333333333","question":"valid","k":0}""")]  // k below min
-    [InlineData("""{"editionId":"33333333-3333-3333-3333-333333333333","question":"valid","k":21}""")] // k above max
-    [InlineData("""{"editionId":"33333333-3333-3333-3333-333333333333","question":"valid","z":1}""")]  // extra prop
-    public async Task AskBook_InvalidArgs_ReturnsToolError_NeverHitsHttp(string args)
-    {
-        var (catalog, handler) = BuildCatalog(Json("{}"));
-
-        var result = await catalog.CallAsync("ask_book", Args(args), CancellationToken.None);
-
-        Assert.True(result.IsError);
-        Assert.Null(handler.LastRequest);
-    }
-
-    [Fact]
-    public async Task AskBook_NullToken_ReturnsAuthRequired_NeverHitsHttp()
-    {
-        var (catalog, handler) = BuildCatalog(Json("{}"), token: null);
-
-        var result = await catalog.CallAsync(
-            "ask_book",
-            Args($$"""{"editionId":"{{Edition}}","question":"what happens?"}"""),
-            CancellationToken.None);
-
-        Assert.True(result.IsError);
-        Assert.Contains("authentication required", TextOf(result));
-        Assert.Null(handler.LastRequest);
-    }
-
     // ── shared upstream-error wrapper: every tool fails-clean + propagates cancel ─
 
     public static IEnumerable<object[]> ToolCalls()
@@ -551,7 +443,6 @@ public class McpReadToolsTests
         yield return ["get_chapter", """{"slug":"alice","chapterSlug":"ch-1"}"""];
         yield return ["list_my_highlights", $$"""{"editionId":"{{Edition}}"}"""];
         yield return ["list_my_vocabulary", "{}"];
-        yield return ["ask_book", $$"""{"editionId":"{{Edition}}","question":"what happens?"}"""];
     }
 
     [Theory]
@@ -621,39 +512,4 @@ public class McpReadToolsTests
         Assert.Contains("search_books failed", TextOf(result));
     }
 
-    [Fact]
-    public async Task AskBook_NullCitationsArray_ReturnsCleanToolError_DoesNotEscape()
-    {
-        // citations:null → answer.Citations is null → .Select throws
-        // ArgumentNullException (NOT Http/Json/Cancel). Without the catch-all this
-        // escaped CallAsync → SDK -32603. Now contained as a clean tool error.
-        var (catalog, _) = BuildCatalog(Json(
-            """{"answer":"a","citations":null,"lastReadOrd":1,"insufficient":false}"""));
-
-        var result = await catalog.CallAsync(
-            "ask_book",
-            Args($$"""{"editionId":"{{Edition}}","question":"what happens?"}"""),
-            CancellationToken.None);
-
-        Assert.True(result.IsError);
-        Assert.Contains("ask_book failed", TextOf(result));
-    }
-
-    [Fact]
-    public async Task AnyTool_UnexpectedMappingThrow_DoesNotLeakExceptionText()
-    {
-        // The catch-all must NOT echo exception messages / stack traces to the model.
-        var (catalog, _) = BuildCatalog(Json(
-            """{"answer":"a","citations":null,"lastReadOrd":1,"insufficient":false}"""));
-
-        var result = await catalog.CallAsync(
-            "ask_book",
-            Args($$"""{"editionId":"{{Edition}}","question":"what happens?"}"""),
-            CancellationToken.None);
-
-        var text = TextOf(result);
-        Assert.DoesNotContain("ArgumentNullException", text);
-        Assert.DoesNotContain("source", text);
-        Assert.DoesNotContain("at TextStack", text);
-    }
 }

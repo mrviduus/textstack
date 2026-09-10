@@ -1,11 +1,11 @@
 import { authFetch } from '@textstack/shared'
 import type { ReviewCardDto } from '@textstack/shared'
 
-// AI agents shared by the mobile Tutor ("Smart session") and Librarian ("Ask the librarian") screens.
+// The mobile Tutor ("Smart session") client.
 // RN-free on purpose: the DTOs, the typed `authFetch` calls, and the pure helpers below are all unit-testable
 // under Vitest (see agents.test.ts) without bundling React Native. Mirrors the web clients/hooks 1:1
-// (apps/web/src/api/{tutor,librarian}.ts) plus the same hardening (clamp untrusted text, unknown-type fallback,
-// re-plan cap, client-side query guard).
+// (apps/web/src/api/tutor.ts) plus the same hardening (clamp untrusted text, unknown-type fallback,
+// re-plan cap).
 
 // ---------------------------------------------------------------------------
 // Tutor (AI-Agent-2) — types mirror Contracts/Agents/TutorDtos.cs (camelCase via the API)
@@ -94,61 +94,10 @@ export function sendTutorFeedback(
 }
 
 // ---------------------------------------------------------------------------
-// Librarian (AI-Agent-3) — types mirror Contracts/Agents/LibrarianDtos.cs (camelCase via the API)
-// ---------------------------------------------------------------------------
-
-export const MIN_QUERY_LENGTH = 2
-export const MAX_QUERY_LENGTH = 500
-
-/**
- * Where a recommendation came from. `library` → the book IS in the catalog (`slug`/`editionId` set) — link to its
- * page. `open_library` → an external suggestion NOT in the library yet (no slug) — never navigate in-app.
- */
-export type LibrarianSource = 'library' | 'open_library'
-
-/** One ranked recommendation. `why` is the per-item, request-grounded reason. */
-export interface LibrarianRecommendation {
-  source: LibrarianSource
-  editionId?: string | null
-  slug?: string | null
-  title: string
-  authors: string[]
-  why: string
-  language?: string | null
-  year?: number | null
-  pages?: number | null
-}
-
-/**
- * The librarian's response: ranked `recommendations`, the overall `reasoning`, `usedExternal` (did it expand to
- * Open Library because the library was thin?) and the persisted `runId` for replay in the admin UI.
- */
-export interface LibrarianResponse {
-  recommendations: LibrarianRecommendation[]
-  reasoning: string
-  usedExternal: boolean
-  runId: string
-}
-
-/** Run the librarian on a natural-language request. Auth required (`/me/*`); rate-limited server-side. */
-export function askLibrarian(query: string, signal?: AbortSignal): Promise<LibrarianResponse> {
-  return authFetch<LibrarianResponse>('/me/librarian', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query }),
-    signal,
-  })
-}
-
-// ---------------------------------------------------------------------------
 // Pure helpers (RN-free, unit-tested) — shared between hooks/components
 // ---------------------------------------------------------------------------
 
 /** Pure client guard mirroring the backend: ≥2 trimmed chars, ≤500 chars. Returns true when worth an agent run. */
-export function isValidLibrarianQuery(query: string): boolean {
-  const trimmed = query.trim()
-  return trimmed.length >= MIN_QUERY_LENGTH && query.length <= MAX_QUERY_LENGTH
-}
 
 /**
  * Builds a classic-flashcard `ReviewCardDto` directly from an ENRICHED plan item. The backend already validated +

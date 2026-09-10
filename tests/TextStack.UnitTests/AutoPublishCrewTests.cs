@@ -75,7 +75,7 @@ public class AutoPublishCrewTests
             new EditorAgent(llm),
             writer));
 
-    // No tools registered — keep this assembly free of ITool so the StudyBuddy set-equality test is unaffected.
+    // No tools registered — keep this assembly free of ITool so the tool-set assertions in StarterToolsTests are unaffected.
     private static AgentContext Ctx(Guid? editionId = null, Guid? userId = null) =>
         new(userId, editionId, Guid.NewGuid(), new ServiceCollection().BuildServiceProvider());
 

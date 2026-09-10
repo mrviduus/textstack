@@ -8,7 +8,6 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Npgsql;
 using TextStack.Extraction.Extractors;
 using TextStack.Extraction.Registry;
-using TextStack.Ai.Rag;
 using TextStack.Ai.Tools;
 using TextStack.Search;
 using TextStack.Search.Meilisearch;
@@ -89,16 +88,6 @@ builder.Services.AddScoped<IPodcastScriptBuilder, PodcastScriptBuilder>();
 builder.Services.Configure<TtsConfiguration>(builder.Configuration.GetSection("Tts"));
 builder.Services.AddSingleton<ITtsService, EdgeTtsService>();
 builder.Services.AddSingleton<IAudioAssembler, AudioAssembler>();
-// Phase 4 RAG: sentence-aware chunker emits chapter_chunk rows during ingestion.
-builder.Services.AddAiRag();
-// ADR-012 S3: vision PDF→Markdown parser for user-book "Ask this book" indexing.
-builder.Services.AddSingleton<Application.Rag.IPdfVisionParser, Infrastructure.Rag.PdfVisionParser>();
-// Per-chapter summary generator ("S2"): nano route via FeatureTag "rag.summarize" (routed in
-// Worker appsettings — DefaultProvider is Ollama, so the tag MUST be routed to "openai"). Singleton:
-// depends only on the singleton ILlmService gateway, injected into the singleton chunking service.
-builder.Services.AddSingleton<Application.Rag.ChapterSummarizer>();
-// Shared chunking service (ingestion + on-demand "Ask this book" index trigger).
-builder.Services.AddSingleton<Infrastructure.Rag.BookChunkingService>();
 builder.Services.AddSingleton<IngestionWorkerService>();
 // Enrichment-reliability: shared executor (atomic claim + terminal status) used by the ingestion
 // inline-kick and the sweep worker below. Singleton — depends only on the DbContext factory + the
@@ -108,15 +97,7 @@ builder.Services.AddSingleton<UserIngestionService>();
 builder.Services.AddHostedService<IngestionWorker>();
 // Sweep: drains Pending (API re-enrich reaches the worker here) + reclaims stale Running rows.
 builder.Services.AddHostedService<MetadataEnrichmentWorker>();
-// RAG-indexing reliability: on-demand "Ask this book" chunking runs OFF the HTTP path here. The
-// executor (atomic claim + terminal Failed) + the sweep (drain queued / reclaim stale → Failed) mirror
-// the enrichment pair above. Singleton executor — depends only on the DbContext factory + the
-// singleton BookChunkingService.
-builder.Services.AddSingleton<RagIndexingService>();
-builder.Services.AddHostedService<RagIndexingWorker>();
 builder.Services.AddHostedService<PodcastWorker>();
-// Phase 4 RAG: fills chapter_chunk.embedding for chunks the chunker left null.
-builder.Services.AddHostedService<ChapterEmbeddingWorker>();
 
 // SSG Rebuild handled by dedicated ssg_worker container (apps/web/scripts/ssg-worker.mjs)
 

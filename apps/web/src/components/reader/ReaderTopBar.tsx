@@ -11,10 +11,8 @@ interface Props {
   sourceUrl?: string | null // Send to TextStack clips — link to the original article
   sourceDomain?: string | null // hostname of sourceUrl (sans www), shown as the link label
   useLocalizedLink?: boolean // true for public books (uses LocalizedLink), false for user books (uses Link)
-  showAsk?: boolean // catalog editions only — user uploads aren't chunked for RAG
   showSearch?: boolean // hidden in Original-layout PDF (no page-aware search yet)
   showProgress?: boolean // hidden in Original-layout PDF — word-based % reads 0; the page indicator (N/total) is the real progress
-  onAskClick?: () => void
   onSearchClick: () => void
   onTocClick: () => void
   onSettingsClick: () => void
@@ -31,10 +29,8 @@ export function ReaderTopBar({
   sourceUrl,
   sourceDomain,
   useLocalizedLink = true,
-  showAsk = false,
   showSearch = true,
   showProgress = true,
-  onAskClick,
   onSearchClick,
   onTocClick,
   onSettingsClick,
@@ -110,15 +106,6 @@ export function ReaderTopBar({
         </button>
         {/* Ask is appended LAST so it doesn't shift the positional indices that
             the reader e2e tests use (search=0, bookmark=1, toc=2, settings=3). */}
-        {showAsk && (
-          <button onClick={onAskClick} className="reader-top-bar__btn" title="Ask this book">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-              <path d="M9.5 9.5a2.5 2.5 0 1 1 3 2.45V13" strokeWidth="1.6" />
-              <circle cx="12" cy="15.5" r="0.6" fill="currentColor" stroke="none" />
-            </svg>
-          </button>
-        )}
       </div>
     </header>
   )

@@ -42,7 +42,6 @@ var storagePath = builder.Configuration["Storage:RootPath"] ?? "/storage";
 builder.Services
     .AddTextStackPersistence(connectionString, builder.Configuration)
     .AddTextStackSearchStack(connectionString, builder.Configuration)
-    .AddTextStackRag(connectionString)
     .AddTextStackContentServices(builder.Configuration)
     .AddTextStackHostedServices()
     .AddTextStackRateLimiting(builder.Configuration);
@@ -297,6 +296,11 @@ app.UseRouting();
 //     database work.
 //   * GuestActivity is deliberately BELOW this line: it writes users.LastActiveAt, and a request
 //     the limiter rejected must not reach the database at all.
+// MCP connect keys resolve BEFORE the limiter on purpose: `highlight-write` is partitioned by
+// user id rather than IP precisely because MCP traffic arrives from one container address, and it
+// cannot pick that partition until the key has been resolved. See McpKeyAuthMiddleware.
+app.UseMiddleware<Api.Middleware.McpKeyAuthMiddleware>();
+
 app.UseRateLimiter();
 
 // Guest activity tracking (update LastActiveAt, debounced hourly)
@@ -334,6 +338,7 @@ app.MapAccountEndpoints();
 app.MapUserDataEndpoints();
 app.MapHighlightsEndpoints();
 app.MapInsightsEndpoints();
+app.MapMcpKeysEndpoints();
 app.MapTranslationEndpoints();
 app.MapExplainEndpoints();
 app.MapDictionaryEndpoints();
@@ -343,14 +348,6 @@ app.MapCollectionsEndpoints();
 app.MapReadingTrackingEndpoints();
 app.MapAdminBookQualityEndpoints();
 app.MapAdminAiQualityEndpoints();
-app.MapAdminRagEndpoints();
-app.MapAskEndpoints();
-app.MapBookIndexEndpoints();
-app.MapUserBookAskEndpoints();
-app.MapUserBookIndexEndpoints();
-app.MapBookChatEndpoints();
-app.MapStudyBuddyEndpoints();
-app.MapLibrarianEndpoints();
 app.MapTutorEndpoints();
 app.MapVocabularyEndpoints();
 app.MapTtsEndpoints();
@@ -568,21 +565,6 @@ if (args.Length > 0 && args[0] == "reindex-search")
     return;
 }
 
-// CLI: backfill-edition-embeddings — AI-054. Recomputes editions.embedding as the
-// element-wise mean-pool (SQL AVG) of each edition's already-embedded chapter chunks.
-// $0 — reuses existing chunk embeddings, makes NO OpenAI calls. Idempotent.
-if (args.Length > 0 && args[0] == "backfill-edition-embeddings")
-{
-    using var cliScope = app.Services.CreateScope();
-    var db = cliScope.ServiceProvider.GetRequiredService<AppDbContext>();
-    var connection = db.Database.GetDbConnection();
-
-    Console.WriteLine("Backfilling edition embeddings (mean-pool of chunk embeddings, $0 — no OpenAI calls)...");
-    var updated = await Infrastructure.Rag.EditionEmbeddingUpdater.RecomputeAsync(
-        connection, editionId: null, CancellationToken.None);
-    Console.WriteLine($"Done: {updated} edition embedding(s) updated.");
-    return;
-}
 
 // CLI: backfill-vocabulary-embeddings — AI-058. Embeds every vocabulary_words row whose
 // embedding IS NULL (across ALL users), in batches, and writes the vectors back. Unlike

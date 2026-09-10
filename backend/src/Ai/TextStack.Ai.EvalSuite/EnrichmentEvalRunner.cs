@@ -36,7 +36,7 @@ public sealed record EnrichmentEvalResult(
 /// Runs the Phase-1 enrichment eval: for each golden, runs the REAL <see cref="EnrichmentAgent"/> (its
 /// tools hit Open Library; with a fake/offline LLM in tests they return data and the agent still
 /// produces a calibrated result), then scores accuracy + calibration deterministically (no LLM judge —
-/// the ground truth is in the golden). Mirrors <see cref="StudyBuddyEvalRunner"/>'s shape: take the agent
+/// the ground truth is in the golden). Takes the agent
 /// + scoped services, run per case, aggregate.
 /// </summary>
 public sealed class EnrichmentEvalRunner(ILogger<EnrichmentEvalRunner> logger)

@@ -366,12 +366,6 @@ public class AuthService
         // Collection: no unique key beyond Id (duplicate names are allowed), so bulk re-parent.
         // BookCollection hangs off CollectionId, not UserId, so its rows follow with no code here.
         await _db.Collections.Where(x => x.UserId == guestUserId).ExecuteUpdateAsync(s => s.SetProperty(x => x.UserId, realUserId), ct);
-        // UserChapterChunk: UserId is DENORMALIZED off UserBook.UserId and has no FK to User, so these
-        // rows outlive the guest instead of cascading away — worse than an orphan. The book itself
-        // moves to the account (above), but retrieval hard-filters WHERE user_id = @userId while
-        // UserBook.RagStatus still reads Ready, so nothing ever re-indexes it: a silently dead
-        // "Ask this book" on a book the reader can see in their library. No unique key — bulk update.
-        await _db.UserChapterChunks.Where(x => x.UserId == guestUserId).ExecuteUpdateAsync(s => s.SetProperty(x => x.UserId, realUserId), ct);
 
         // Cross-table dedup that no unique index can express: a merged pending row and an existing
         // active row may name the same word. Nothing throws at merge time — but PromotePending

@@ -8,7 +8,7 @@ namespace TextStack.Ai.Mcp.Tools;
 /// The runtime catalog of MCP tools the server exposes. AI-047 shipped
 /// <c>search_books</c>; AI-048a appended 5 READ tools (<c>get_book</c>,
 /// <c>get_chapter</c>, <c>list_my_highlights</c>, <c>list_my_vocabulary</c>,
-/// <c>ask_book</c>); AI-048b appends the first WRITE tool (<c>save_highlight</c>),
+/// AI-048b appends the first WRITE tool (<c>save_highlight</c>),
 /// completing the 7-tool surface. <c>tools/list</c> and <c>tools/call</c> are served
 /// from this list, so adding a tool is a single append + its handler.
 ///
@@ -38,7 +38,6 @@ public sealed class McpToolCatalog
             BuildGetMyChapter(api),
             BuildListMyHighlights(api),
             BuildListMyVocabulary(api),
-            BuildAskBook(api),
             BuildSaveHighlight(api),
             BuildSaveMyHighlight(api),
             BuildListMyBookHighlights(api),
@@ -178,7 +177,7 @@ public sealed class McpToolCatalog
     private static McpToolDescriptor BuildGetBook(TextStackApiClient api) => new()
     {
         Name = "get_book",
-        Description = "Fetch a catalog book by slug: its editionId (for ask_book), metadata, authors, genres, and chapter list.",
+        Description = "Fetch a catalog book by slug: its editionId, metadata, authors, genres, and chapter list.",
         InputSchema = GetBookSchema,
         Handler = (args, ct) =>
         {
@@ -194,7 +193,7 @@ public sealed class McpToolCatalog
 
                 var mapped = new
                 {
-                    // editionId — chainable into ask_book (search → get_book → ask).
+                    // editionId — the catalog identifier the edition-scoped tools take.
                     editionId = book.Id,
                     title = book.Title,
                     slug = book.Slug,
@@ -270,7 +269,7 @@ public sealed class McpToolCatalog
     // only way that matters to a caller: an upload is identified by a `bookId`
     // (UserBook.Id) and has NO editionId, because UserBook and Edition are
     // separate aggregates with separate chapter and chunk tables. Feeding a
-    // bookId to ask_book or list_my_highlights yields a 404 or an empty list —
+    // bookId to list_my_highlights yields an empty list —
     // so every description below says which identifier it returns and what that
     // identifier is good for.
     //
@@ -300,7 +299,7 @@ public sealed class McpToolCatalog
             + "(their private library, not the public catalog — requires authentication). "
             + "Returns one hit per book with its bookId, title, author and the best-matching "
             + "chapter slug and excerpt. Pass the bookId to get_my_book or get_my_chapter. "
-            + "A bookId is NOT an editionId and will not work with ask_book or list_my_highlights.",
+            + "A bookId is NOT an editionId and will not work with list_my_highlights.",
         InputSchema = SearchMyLibrarySchema,
         Handler = (args, ct) =>
         {
@@ -550,58 +549,6 @@ public sealed class McpToolCatalog
 
     // ── ask_book ────────────────────────────────────────────────────────────────
 
-    private static readonly JsonElement AskBookSchema = JsonDocument.Parse(
-        """
-        {
-          "type": "object",
-          "properties": {
-            "editionId": { "type": "string", "format": "uuid" },
-            "question": { "type": "string", "minLength": 3, "maxLength": 1000 },
-            "k": { "type": "integer", "minimum": 1, "maximum": 20 }
-          },
-          "required": ["editionId", "question"],
-          "additionalProperties": false
-        }
-        """).RootElement;
-
-    private static McpToolDescriptor BuildAskBook(TextStackApiClient api) => new()
-    {
-        Name = "ask_book",
-        Description = "Ask a question about a book the user is reading; spoiler-safe (answers only from chapters already read). Requires authentication.",
-        InputSchema = AskBookSchema,
-        Handler = (args, ct) =>
-        {
-            if (!ArgReader.TryObject(args, out var obj, out var err, "editionId", "question", "k")
-                || !ArgReader.TryRequiredGuid(obj, "editionId", out var editionId, out err)
-                || !ArgReader.TryRequiredString(obj, "question", 3, 1000, out var question, out err)
-                || !ArgReader.TryOptionalInt(obj, "k", 1, 20, out var k, out err))
-                return Task.FromResult(Error(err));
-
-            return InvokeAsync("ask_book", ct, async () =>
-            {
-                var answer = await api.AskAsync(editionId, question, k, ct);
-                if (answer is null)
-                    return Error("ask_book failed: upstream unavailable");
-
-                // Spoiler gate: not an error — the user simply hasn't read far
-                // enough. Return clean text so the model relays it as-is.
-                if (answer.Insufficient)
-                    return Text("you haven't read far enough in this book to answer yet");
-
-                var mapped = new
-                {
-                    answer = answer.Answer,
-                    citations = answer.Citations.Select(c => new
-                    {
-                        marker = c.Marker,
-                        chapterOrd = c.ChapterOrd,
-                        preview = c.Preview,
-                    }),
-                };
-                return Text(JsonSerializer.Serialize(mapped));
-            });
-        },
-    };
 
     // ── save_highlight (Bearer, WRITE) ───────────────────────────────────────────
 

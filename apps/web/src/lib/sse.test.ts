@@ -104,7 +104,7 @@ describe('postSse', () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response('', { status: 401 }))
     vi.stubGlobal('fetch', fetchMock)
 
-    await expect(postSse('/me/books/x/studybuddy', {}, () => {})).rejects.toBeInstanceOf(SseUnauthorizedError)
+    await expect(postSse('/books/x/ask', {}, () => {})).rejects.toBeInstanceOf(SseUnauthorizedError)
     expect(fetchMock).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ credentials: 'include' }))
   })
 })

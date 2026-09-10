@@ -19,7 +19,7 @@ namespace TextStack.UnitTests;
 ///   • local JWT exp decode: future → not expired, past/garbage → expired;
 ///   • TokenCache round-trips and writes 0600 on Unix; world-readable file ignored.
 ///
-/// Introduces NO ITool (StudyBuddy set-equality stays green).
+/// Introduces NO ITool (the tool-set assertions in StarterToolsTests stay green).
 /// </summary>
 public class McpDeviceFlowTests
 {

@@ -585,29 +585,6 @@ export interface EnrichmentEvalResult {
     saidUnknown: boolean
   }[]
 }
-// AI-Agent-3: Librarian agent eval (recall/precision/F1 @k, hallucination-free)
-export interface LibrarianEvalResult {
-  recallAtK: number
-  precisionAtK: number
-  f1AtK: number
-  constraintSatisfaction: number
-  coverageDecisionAccuracy: number
-  hallucinationFreeRate: number
-  avgToolCalls: number
-  n: number
-  cases: {
-    query: string
-    returned: number
-    libraryReturned: number
-    recallAtK: number
-    precisionAtK: number
-    f1AtK: number
-    constraintsSatisfied: boolean
-    coverageDecisionCorrect: boolean
-    noHallucination: boolean
-    toolCalls: number
-  }[]
-}
 // AI-Agent-2: Tutor agent eval (due-coverage / weak-targeting / difficulty / thesis-alignment)
 export interface TutorEvalResult {
   dueCoverage: number
@@ -1367,11 +1344,6 @@ export const adminApi = {
     })
   },
 
-  runLibrarianEval: async (): Promise<LibrarianEvalResult> => {
-    return fetchJson<LibrarianEvalResult>('/admin/ai-quality/librarian/eval', {
-      method: 'POST',
-    })
-  },
 
   runTutorEval: async (): Promise<TutorEvalResult> => {
     return fetchJson<TutorEvalResult>('/admin/ai-quality/tutor/eval', {

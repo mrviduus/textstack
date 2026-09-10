@@ -16,7 +16,7 @@ namespace TextStack.UnitTests;
 ///   • Pending → actionable IsError carrying the verification URL + code (no HTTP);
 ///   • Failed → IsError carrying the reason (no HTTP).
 ///
-/// Introduces NO ITool (StudyBuddy set-equality stays green).
+/// Introduces NO ITool (the tool-set assertions in StarterToolsTests stay green).
 /// </summary>
 public class McpTokenProviderTests
 {
@@ -129,8 +129,8 @@ public class McpTokenProviderTests
             Json("[]"));
 
         var result = await catalog.CallAsync(
-            "ask_book",
-            Args($$"""{"editionId":"{{Edition}}","question":"what happens?"}"""),
+            "list_my_highlights",
+            Args($$"""{"editionId":"{{Edition}}"}"""),
             CancellationToken.None);
 
         Assert.True(result.IsError);

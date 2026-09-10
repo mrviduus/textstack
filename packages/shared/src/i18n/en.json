@@ -40,38 +40,6 @@
       "cta": "Sign in"
     }
   },
-  "librarian": {
-    "title": "Ask the librarian",
-    "subtitle": "Describe what you want to read and the librarian reasons over the library to recommend the best fits.",
-    "placeholder": "Describe what you want to read — e.g. 'books like 1984 about surveillance, under 300 pages'",
-    "inputLabel": "What do you want to read?",
-    "ask": "Ask",
-    "thinking": "The librarian is thinking…",
-    "reasoningLabel": "Here's what I found and why",
-    "usedExternalNote": "The library was thin on this, so I reached beyond the catalog for a couple of suggestions.",
-    "suggestionBadge": "Suggestion",
-    "suggestionNote": "Not in your library yet — an outside suggestion.",
-    "openBook": "Open book",
-    "unknownAuthor": "Unknown author",
-    "pages": "pages",
-    "entry": {
-      "hint": "Tell the librarian what you want to read"
-    },
-    "empty": {
-      "title": "Couldn't find a good match",
-      "subtitle": "Try rephrasing your request — add a theme, a comparable book, or a length."
-    },
-    "error": {
-      "title": "Couldn't reach the librarian",
-      "subtitle": "Something went wrong. Please try again.",
-      "retry": "Try again"
-    },
-    "signIn": {
-      "title": "Sign in to ask the librarian",
-      "subtitle": "The librarian recommends books from a natural-language request, with its reasoning.",
-      "cta": "Sign in"
-    }
-  },
   "home": {
     "recentAuthors": {
       "title": "Recently Added Authors",
@@ -583,34 +551,6 @@
     "aiBody2": "Using these features sends the text you selected or asked about, together with the surrounding passage, to our AI providers. See the Privacy Policy for who receives it and what is stored. If a response is offensive or harmful, report it to the contact address below and we will look into it."
   },
   "reader": {
-    "ask": {
-      "title": "Ask this book",
-      "placeholder": "Ask a question about what you've read…",
-      "send": "Ask",
-      "thinking": "Thinking…",
-      "empty": "Ask a question about the book — answers come only from chapters you've read.",
-      "signIn": "Sign in to ask questions about this book.",
-      "signInCta": "Sign in",
-      "indexing": "Indexing this book…",
-      "indexFailed": "Could not index this book.",
-      "indexTimeout": "Indexing is taking too long. Try again.",
-      "retry": "Retry",
-      "notConfigured": "Ask is not available right now.",
-      "insufficient": "Not enough in the book to answer that.",
-      "error": "Could not get an answer",
-      "spoilerToggle": "Spoiler-safe",
-      "clearChat": "Clear chat",
-      "clearConfirm": "Clear this chat? This can't be undone.",
-      "loadingHistory": "Loading chat…",
-      "detachQuote": "Remove quoted passage",
-      "startersTitle": "Try asking",
-      "starters": {
-        "summary": "Summarize what I've read so far",
-        "characters": "Who are the main characters?",
-        "keyIdea": "Explain the key idea so far",
-        "attention": "What should I pay attention to?"
-      }
-    },
     "toastWordAdded": "Added to vocabulary",
     "toastWordAddedCount": "Added · {count} this session",
     "toastTapToReview": "Tap to review",

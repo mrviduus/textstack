@@ -415,7 +415,6 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
     onToggleCurrentBookmark: toggleBookmark,
     onDeleteBookmark: deleteBookmark,
     bookmarkChapterSlug: bookmarkSlug,
-    askTarget: bookId ? { kind: 'userbook', id: bookId } : undefined,
     // ADR-012 S4b/S4c — render the ORIGINAL PDF pixel-perfect when the upload
     // has one, unless a corrupt-PDF fallback dropped us into reflow.
     original: !reflowWrites,

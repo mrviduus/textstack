@@ -6,7 +6,7 @@ namespace Infrastructure.Persistence;
 /// <summary>
 /// <see cref="BookInsight"/> (table <c>book_insight</c>) — conclusions written back into a book by an
 /// outside assistant over MCP. snake_case names come from the global convention (OnConfiguring).
-/// Mirrors the <see cref="BookConversation"/> mapping: XOR CHECK on the book target, ISiteScoped
+/// XOR CHECK on the book target, ISiteScoped
 /// filter, cascade FKs.
 /// </summary>
 public partial class AppDbContext

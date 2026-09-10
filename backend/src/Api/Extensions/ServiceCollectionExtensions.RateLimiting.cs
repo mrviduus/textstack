@@ -179,6 +179,19 @@ public static partial class ServiceCollectionExtensions
                     QueueLimit = 0,
                 });
             });
+            // Connect-key creation — per-IP. Minting a credential is rare and deliberate: a reader
+            // does it once per assistant. The cap exists so a scripted client cannot fill the
+            // per-user key list (McpKeys.MaxKeysPerUser) over and over as fast as it likes.
+            options.AddPolicy("mcp-keys", httpContext =>
+            {
+                var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
+                {
+                    Window = TimeSpan.FromMinutes(5),
+                    PermitLimit = 10,
+                    QueueLimit = 0,
+                });
+            });
             // User book upload — per-IP cap, mirrors the clip zone. Uploads are heavier
             // (file ingestion) so the same conservative bucket applies.
             options.AddPolicy("user-upload", httpContext =>
@@ -318,30 +331,8 @@ public static partial class ServiceCollectionExtensions
                     QueueLimit = 0,
                 });
             });
-            // Study Buddy agent (AI-037): each run is several LLM calls, so a tighter per-IP limit.
-            options.AddPolicy("studybuddy", httpContext =>
-            {
-                var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-                return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
-                {
-                    Window = TimeSpan.FromMinutes(1),
-                    PermitLimit = 8,
-                    QueueLimit = 0,
-                });
-            });
-            // Librarian agent (AI-Agent-3): each run is several LLM calls + maybe external HTTP, so a tight per-IP cap.
-            options.AddPolicy("librarian", httpContext =>
-            {
-                var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-                return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
-                {
-                    Window = TimeSpan.FromMinutes(1),
-                    PermitLimit = 8,
-                    QueueLimit = 0,
-                });
-            });
             // Learning Tutor agent (AI-Agent-2): each planning turn is several LLM calls + DB reads, so a tight per-IP
-            // cap. Mirrors the librarian policy shape.
+            // cap.
             options.AddPolicy("tutor", httpContext =>
             {
                 var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
@@ -353,7 +344,7 @@ public static partial class ServiceCollectionExtensions
                 });
             });
             // AutoPublish crew (AI-042): an admin generate is TWO 4-stage crews = 8 LLM calls, so a tight per-IP cap.
-            // Mirrors the studybuddy policy shape; it sits behind admin auth too, this is just runaway protection.
+            // Mirrors the librarian policy shape; it sits behind admin auth too, this is just runaway protection.
             options.AddPolicy("autopublish.crew", httpContext =>
             {
                 var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";

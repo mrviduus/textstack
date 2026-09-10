@@ -215,24 +215,6 @@
     "badgeNote": "In closed testing — open to anyone with an Android phone."
   },
   "reader": {
-    "ask": {
-      "citation": "ch.{{ch}}",
-      "citationPage": "p. {{page}}",
-      "citationFallback": "source",
-      "prepareCopy": "One-time setup so you can ask about this book.",
-      "prepareCta": "Prepare this book for questions",
-      "preparing": "Preparing this book… {{done}}/{{total}}",
-      "indexRetry": "Retry",
-      "spoilerTooltip": "Answers only use chapters you've read"
-    },
-    "studyBuddy": {
-      "title": "Help me understand this",
-      "thinking": "Investigating…",
-      "calling": "Looking up",
-      "steps": "Steps",
-      "signIn": "Sign in to get help understanding passages.",
-      "signInCta": "Sign in"
-    },
     "wordPopup": {
       "known": "Known",
       "ignore": "Ignore",
@@ -261,8 +243,6 @@
       "highlightBlue": "Highlight blue",
       "translate": "Translate selected text",
       "explain": "Explain in context",
-      "studyBuddy": "Help me understand this",
-      "askAboutThis": "Ask about this",
       "listen": "Listen to pronunciation",
       "copy": "Copy selected text"
     },
@@ -382,7 +362,6 @@
     "discoverMenu": {
       "trendingGenres": "Trending Genres",
       "quickLinks": "Quick Links",
-      "askLibrarian": "Ask the librarian",
       "latestAuthors": "Latest Authors",
       "allBooks": "All Books",
       "topFreeBooks": "Top Free Books",
@@ -439,7 +418,7 @@
       "toolInstallLabel": "terminal"
     },
     "tools": {
-      "heading": "The 14 tools",
+      "heading": "The 13 tools",
       "lead": "What your AI assistant can do once connected:",
       "searchBooks": "Search the public book catalog by query.",
       "getBook": "Fetch a book's metadata and chapter list by slug.",
@@ -452,7 +431,6 @@
       "listMyHighlights": "List your saved highlights (requires sign-in).",
       "saveHighlight": "Save a passage to your highlights (requires sign-in).",
       "listMyVocabulary": "List your saved vocabulary words (requires sign-in).",
-      "askBook": "Ask a question about a book and get a cited, grounded answer.",
       "saveInsight": "Write a conclusion back into a book — against one chapter, or the whole book (requires sign-in).",
       "getMyInsights": "Read back everything already worked out about a book, in reading order (requires sign-in)."
     },
@@ -882,11 +860,6 @@
     "stats": {
       "practicedToday": "Practiced today"
     }
-  },
-  "librarian": {
-    "thinkingShort": "Thinking…",
-    "openBook": "Open {{title}}",
-    "pagesCount": "{{count}} pages"
   },
   "tutor": {
     "study": {

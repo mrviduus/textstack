@@ -19,7 +19,7 @@ namespace TextStack.UnitTests;
 /// MCP_TRANSPORT parses).
 ///
 /// CI-safe: no live server, no network. The http host is started on an ephemeral
-/// loopback port. Introduces NO ITool (StudyBuddy set-equality stays green).
+/// loopback port. Introduces NO ITool (the tool-set assertions in StarterToolsTests stay green).
 /// </summary>
 public class McpHttpTransportTests
 {

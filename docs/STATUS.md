@@ -1,6 +1,6 @@
 # Status
 
-**Last updated: 2026-09-06.** Where the project actually is — not what it does (that's
+**Last updated: 2026-09-10.** Where the project actually is — not what it does (that's
 [`docs/README.md`](README.md)) and not what changed (that's [`CHANGELOG.md`](../CHANGELOG.md)).
 
 If you read one page before picking work back up, read this one. It exists because the changelog
@@ -16,8 +16,8 @@ answers "what happened" and nothing answered "what is half-finished right now".
 | Area | State |
 |---|---|
 | **Reader** (web + mobile) | EPUB + PDF. PDFs are original-first ([ADR-012](01-architecture/adr/ADR-012-pdf-original-first-lazy-parse.md)), page-based progress, highlights, TTS, vocabulary SRS. |
-| **AI platform** | Phases 1–12 complete: RAG, agents (Enrichment / Tutor / Librarian), evals, shadow routing, cost-aware routing, drift detection. |
-| **Book Chat** | Streaming, persistent history, per-chapter summaries, page citations for PDFs. Web + mobile at parity. |
+| **AI platform** | Translate, Explain, dictionary (OpenAI nano); vocabulary distractors, book metadata and tag suggestions (Ollama, local, $0); the SEO publishing crews; the Tutor study planner. Traces, model registry, shadow routing and drift detection still govern those. **The reader-facing chat surfaces were deleted 2026-09-10** — see In flight. |
+| **Assistant handoff (MCP)** | 13 tools over stdio + streamable HTTP. The conversation happens in the reader's own Claude or ChatGPT; conclusions come back as `BookInsight`. [`assistant-handoff.md`](05-features/assistant-handoff.md), [`mcp.md`](05-features/mcp.md). |
 | **Observability** | OpenTelemetry → Aspire, plus Sentry on API + Worker with LLM/provider-routing spans. Mobile Sentry is **armed** since 2026-09-03 — project `textstack-mobile` in the `textstack` org, DSN supplied as an EAS environment variable (`EXPO_PUBLIC_SENTRY_DSN`, production + preview) rather than a repo file, so it reaches OTA bundles as well as store builds. |
 | **Entitlements** | `UserTier { Guest, Free, Supporter, Staff }`, config-driven quotas — now including `AiEnabled` and `DailyEnrichmentCap`, enforced server-side by `RequireAiAccount()` (403 `account_required`). |
 | **Guest sessions** | Web and mobile both mint an anonymous `User` row on demand; the read → save → review loop works with no account, and registering promotes that row in place. [ADR-014](01-architecture/adr/ADR-014-guest-sessions.md). Walked end to end on Android on 2026-09-06 with every request logged ([QA-005 report](qa/reports/2026-09-06-android-guest-loop.md)): promotion-in-place proven by the account's `createdAt` matching the guest mint, both AI walls firing zero requests, and the book still opening when the mint is rate-limited. |
@@ -26,6 +26,26 @@ answers "what happened" and nothing answered "what is half-finished right now".
 | **Build & deps** | One Node version in `.nvmrc` (24.20.0), enforced across CI, four Dockerfiles and the deploy runner. One pnpm workspace with a version catalog — the JS answer to `Directory.Packages.props`. Weekly dependency refresh by pull request. |
 
 ## In flight
+
+- **Assistant handoff** — the bet that the conversation belongs in the reader's own assistant, not in
+  our app. Branch `feat/mcp-connect-key`. Full write-up, measurements and open decisions:
+  [`docs/05-features/assistant-handoff.md`](05-features/assistant-handoff.md).
+
+  **Shipped on the branch:** `McpAccessKey` — a long-lived, revocable connect key, because the remote
+  MCP endpoint had no credential of its own and the 60-minute access token it was documented to take
+  died within the hour. And ~21,800 lines deleted: Study Buddy, the Librarian, Book Chat, and the
+  whole retrieval spine (both chunk tables, pgvector, the vision PDF parser, the indexing and
+  embedding workers, `ask_book`). The numbers that decided it — 26 chat messages lifetime, 7 books of
+  1498 ever indexed, $4.14 of $4.39 lifetime LLM spend on vision transcription — are in the doc.
+
+  **Not done, and it is what blocks the feature:** there is no UI to create a key, on either client,
+  so today one can only be minted with curl. The revoke-then-401 and `LastUsedAt` integration test is
+  also missing — the same gap that left `GuestActivityMiddleware` dead. Then: the read-side tools
+  (`get_my_reading`, `get_book_progress`, `set_book_progress`), and the catalog handoff brief, which
+  sends an `editionId` where the tools require a slug and therefore does not work at all.
+
+  **Not yet run:** CI, and both destructive migrations (`DropBookChat`, `DropRagSpine`) against
+  production. Back up first.
 
 - **Chunked upload** — 1 of 8 steps done (tiers, PR #449). Files over ~100 MB still fail at
   Cloudflare's per-request body cap with a bare `Upload failed: 413`. Plan:

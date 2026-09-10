@@ -84,19 +84,6 @@ public class UserBook
     public string[] SuggestedTags { get; set; } = [];
     public DateTimeOffset? SuggestedTagsAt { get; set; }
 
-    // On-demand RAG index state (Phase 2 "Ask this book" for user uploads). Mirrors Edition's fields.
-    // A user trigger claims (NotIndexed/Failed → Indexing) → chunks → the embedding worker flips Ready.
-    public RagIndexStatus RagStatus { get; set; } = RagIndexStatus.NotIndexed;
-    public int RagChunkCount { get; set; }
-    public int RagEmbeddedCount { get; set; }
-    public DateTimeOffset? RagIndexedAt { get; set; }
-    public string? RagError { get; set; }
-
-    // Stamped by the worker's atomic indexing claim (Indexing + chunk_count=0 + started_at IS NULL →
-    // now()). Mirrors MetadataEnrichmentAt: it is the dead-process/stale detector — a row still
-    // Indexing with started_at older than the stale window means the process that claimed it died
-    // mid-chunk, so the sweep flips it to a terminal Failed (no forever-Indexing dead end).
-    public DateTimeOffset? RagIndexingStartedAt { get; set; }
 
     public User User { get; set; } = null!;
     public ICollection<UserChapter> Chapters { get; set; } = [];

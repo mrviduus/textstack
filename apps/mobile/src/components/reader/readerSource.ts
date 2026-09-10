@@ -1,6 +1,6 @@
 import type { MutableRefObject, RefObject } from 'react'
 import type { WebView } from 'react-native-webview'
-import type { BookmarkDto, AskTarget, TextPosition } from '@textstack/shared'
+import type { BookmarkDto, TextPosition } from '@textstack/shared'
 import type { ReaderSource, ReaderShellChapter } from './ReaderShell'
 
 /**
@@ -130,7 +130,6 @@ export interface ReaderRuntime {
 
   // "Ask this book" target — catalog edition or user-uploaded book (AI-027 P2).
   // Drives the Ask button visibility + which endpoint family the sheet hits.
-  askTarget?: AskTarget
 
   // --- Original-layout PDF (ADR-012 S4b) ------------------------------------
   // Set by `useUserBookReaderSource` when the upload has a renderable PDF and

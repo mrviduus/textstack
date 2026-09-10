@@ -16,13 +16,8 @@ public static partial class ServiceCollectionExtensions
         // pure regression detector, consumed by both the admin trigger and ContinuousEvalWorker.
         services.AddSingleton<Application.Ai.IEvalRunGate, Application.Ai.EvalRunGate>();
         services.AddSingleton<Application.Ai.EvalRegressionDetector>();
-        services.AddSingleton<TextStack.Ai.EvalSuite.RagEvalRunner>();
-        services.AddSingleton<TextStack.Ai.EvalSuite.UserBookRagEvalRunner>();
-        services.AddSingleton<TextStack.Ai.EvalSuite.PdfVisionEvalRunner>();
         services.AddSingleton<TextStack.Ai.EvalSuite.ToolCallEvalRunner>();
-        services.AddSingleton<TextStack.Ai.EvalSuite.StudyBuddyEvalRunner>();
         services.AddSingleton<TextStack.Ai.EvalSuite.EnrichmentEvalRunner>();
-        services.AddSingleton<TextStack.Ai.EvalSuite.LibrarianEvalRunner>();
         services.AddSingleton<TextStack.Ai.EvalSuite.TutorEvalRunner>();
         services.AddSingleton<TextStack.Ai.EvalSuite.CriticDefectEvalRunner>();
         services.AddSingleton<TextStack.Ai.EvalSuite.CrewAbEvalRunner>();
@@ -38,15 +33,12 @@ public static partial class ServiceCollectionExtensions
     {
         // Tool catalogue (AI-029/030): scans Application for ITool impls; dispatch is schema-validated.
         services.AddAiTools(typeof(Application.Tools.GetChapterTool).Assembly);
-        // Agent loop engine (Phase 6, AI-034). Concrete agents (StudyBuddy, AI-035) build on it.
+        // Agent loop engine (Phase 6, AI-034). Concrete agents build on it.
         TextStack.Ai.Agents.ServiceCollectionExtensions.AddAiAgents(services);
-        services.AddScoped<Application.Agents.StudyBuddyAgent>();
         // Enrichment agent (AI-Agent-1): registered in the API too so the admin eval path can run it.
         services.AddScoped<Application.Agents.EnrichmentAgent>();
-        // Librarian agent (AI-Agent-3): NL catalog request → ranked, reasoned recommendations. Scoped (its
-        // search tools resolve the scoped IAppDbContext + LibrarySearchService per request).
+        // Catalog search seam behind the library tools. Scoped: resolves the scoped IAppDbContext.
         services.AddScoped<Application.Search.LibrarySearchService>();
-        services.AddScoped<Application.Agents.LibrarianAgent>();
         // Learning Tutor agent (AI-Agent-2): plans an ordered study set over the learner's SRS + reading state and
         // hands off to the existing vocabulary-review flow. Scoped (its tools resolve the scoped IAppDbContext +
         // IRagService per request).

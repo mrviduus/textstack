@@ -59,27 +59,6 @@ public partial class AppDbContext
             e.Property(x => x.Language).HasMaxLength(8);
             e.Property(x => x.TocJson).HasColumnType("jsonb");
 
-            // On-demand RAG index state (Phase 1). RagStatus persisted as int (enum).
-            e.Property(x => x.RagStatus).HasConversion<int>().HasDefaultValue(RagIndexStatus.NotIndexed);
-            e.Property(x => x.RagChunkCount).HasDefaultValue(0);
-            e.Property(x => x.RagEmbeddedCount).HasDefaultValue(0);
-            // Fix #6: partial index so the RagIndexingWorker's 30s stale-sweep / drain scans
-            // (WHERE rag_status = 1 ...) don't seq-scan every editions row every cycle.
-            e.HasIndex(x => x.RagIndexingStartedAt).HasFilter("rag_status = 1");
-
-            // AI-054: mean-pool edition embedding. Same float[] <-> pgvector vector(1536)
-            // conversion as ChapterChunk.Embedding (see AppDbContext.Rag.cs). Nullable —
-            // editions with no embedded chunks stay NULL. HNSW cosine index for AI-055
-            // similarity (vector_cosine_ops — the stored mean is raw, not L2-normalized).
-            e.Property(x => x.Embedding)
-                .HasColumnType("vector(1536)")
-                .HasConversion(
-                    v => v == null ? null : new Pgvector.Vector(v),
-                    v => v == null ? null : v.ToArray());
-            e.HasIndex(x => x.Embedding)
-                .HasMethod("hnsw")
-                .HasOperators("vector_cosine_ops");
-
             e.HasOne(x => x.Work).WithMany(x => x.Editions).HasForeignKey(x => x.WorkId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.Site).WithMany().HasForeignKey(x => x.SiteId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.SourceEdition).WithMany(x => x.TranslatedEditions).HasForeignKey(x => x.SourceEditionId).OnDelete(DeleteBehavior.SetNull);

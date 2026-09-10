@@ -4,7 +4,6 @@ using Application.Common.Interfaces;
 using Domain.Entities;
 using Domain.Enums;
 using Infrastructure.Persistence;
-using Infrastructure.Rag;
 using Infrastructure.Telemetry;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -26,7 +25,6 @@ public class IngestionWorkerService
     private readonly IExtractorRegistry _extractorRegistry;
     private readonly ISearchIndexer _searchIndexer;
     private readonly IImageOptimizer _imageOptimizer;
-    private readonly BookChunkingService _chunking;
     private readonly ILogger<IngestionWorkerService> _logger;
     private readonly ILogger<AppIngestion.IngestionService> _ingestionLogger;
 
@@ -36,7 +34,6 @@ public class IngestionWorkerService
         IExtractorRegistry extractorRegistry,
         ISearchIndexer searchIndexer,
         IImageOptimizer imageOptimizer,
-        BookChunkingService chunking,
         ILogger<IngestionWorkerService> logger,
         ILogger<AppIngestion.IngestionService> ingestionLogger)
     {
@@ -45,7 +42,6 @@ public class IngestionWorkerService
         _extractorRegistry = extractorRegistry;
         _searchIndexer = searchIndexer;
         _imageOptimizer = imageOptimizer;
-        _chunking = chunking;
         _logger = logger;
         _ingestionLogger = ingestionLogger;
     }
@@ -296,31 +292,6 @@ public class IngestionWorkerService
                 indexActivity?.SetTag("chapters_indexed", parsed.Chapters.Count);
             }
 
-            // Emit RAG chunks (Phase 4). Best-effort: chunks are regenerable and not
-            // required for reading, so a failure here must not fail the ingestion job.
-            using (var chunkActivity = IngestionActivitySource.Source.StartActivity("rag.chunk"))
-            {
-                var chunkCount = await _chunking.ChunkEditionAsync(db, job.EditionId, ct);
-                chunkActivity?.SetTag("chunks_created", chunkCount);
-
-                // Surface freshly-ingested books through the same Indexing→Ready lifecycle as
-                // on-demand triggers: mark Indexing + chunk count now; the embedding worker
-                // flips to Ready once every chunk is embedded. Best-effort — chunkCount 0 means
-                // nothing to index, leave the edition NotIndexed.
-                if (chunkCount > 0)
-                {
-                    var edition = await db.Editions.FirstOrDefaultAsync(e => e.Id == job.EditionId, ct);
-                    if (edition is not null)
-                    {
-                        edition.RagStatus = RagIndexStatus.Indexing;
-                        edition.RagChunkCount = chunkCount;
-                        edition.RagEmbeddedCount = 0;
-                        edition.RagError = null;
-                        edition.RagIndexedAt = null;
-                        await db.SaveChangesAsync(ct);
-                    }
-                }
-            }
 
             // Run linter and save results
             using (var lintActivity = IngestionActivitySource.Source.StartActivity("lint.run"))

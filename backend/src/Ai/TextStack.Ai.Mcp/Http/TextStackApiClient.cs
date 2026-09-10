@@ -195,7 +195,7 @@ public sealed class TextStackApiClient
     // A user's own uploads are a different aggregate from the catalog: UserBook /
     // UserChapter, their own tables, their own chunks. They have NO editionId and
     // cannot be given one, so every tool below is keyed by `bookId` = UserBook.Id.
-    // Passing one of these ids to an edition-scoped tool (ask_book,
+    // Passing one of these ids to an edition-scoped tool (
     // list_my_highlights) is a 404 / an empty list, not a partial answer.
 
     /// <summary>
@@ -385,29 +385,6 @@ public sealed class TextStackApiClient
 
         if (response.StatusCode is HttpStatusCode.Created or HttpStatusCode.OK)
             return await response.Content.ReadFromJsonAsync<BookInsightJson>(JsonOptions, ct);
-
-        return null;
-    }
-
-    // ── ask_book (Bearer) ────────────────────────────────────────────────────────
-
-    /// <summary>
-    /// <c>POST /books/{editionId}/ask</c> with <c>{ question, k }</c>. One POST,
-    /// JSON response (NOT SSE). 401 → <see cref="McpUnauthorizedException"/>; other
-    /// non-success → null (handler maps to a clean upstream error).
-    /// </summary>
-    public async Task<AskJson?> AskAsync(Guid editionId, string question, int? k, CancellationToken ct)
-    {
-        using var request = await AuthorizedRequestAsync(HttpMethod.Post, $"/books/{editionId}/ask", ct);
-        request.Content = JsonContent.Create(new AskRequestJson(question, k), options: JsonOptions);
-
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-
-        if (response.StatusCode is HttpStatusCode.Unauthorized)
-            throw new McpUnauthorizedException();
-
-        if (response.StatusCode is HttpStatusCode.OK)
-            return await response.Content.ReadFromJsonAsync<AskJson>(JsonOptions, ct);
 
         return null;
     }

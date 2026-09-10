@@ -18,7 +18,7 @@ public static class TestEntitlements
     public const long StaffStorageBytes = 5120 * Mb;
 
     /// <summary>Matches appsettings: guests get 50 paid enrichments per UTC day, accounts none —
-    /// and the paid-inference surface (librarian/tutor/ask/chat/index) is closed to them entirely.</summary>
+    /// and the paid-inference surface (tutor) is closed to them entirely.</summary>
     public const int GuestDailyEnrichmentCap = 50;
 
     public static EntitlementOptions Options { get; } = new(

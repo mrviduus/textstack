@@ -6,7 +6,6 @@
   <ItemGroup>
     <ProjectReference Include="..\TextStack.Ai.Evals\TextStack.Ai.Evals.csproj" />
     <ProjectReference Include="..\TextStack.Ai.Llm\TextStack.Ai.Llm.csproj" />
-    <ProjectReference Include="..\TextStack.Ai.Rag\TextStack.Ai.Rag.csproj" />
     <ProjectReference Include="..\..\Application\Application.csproj" />
     <ProjectReference Include="..\TextStack.Ai.Tools\TextStack.Ai.Tools.csproj" />
   </ItemGroup>

@@ -28,23 +28,6 @@ public static partial class ServiceCollectionExtensions
                 _ => () => new NpgsqlConnection(connectionString),
                 options => options.ConnectionString = connectionString);
 
-        // Similar books (AI-055): cosine NN over editions.embedding. Same raw Func<IDbConnection>
-        // factory as RAG — a raw connection casts the vector server-side (no pgvector type registration).
-        services.AddScoped(_ =>
-            new Application.Recommendations.SimilarBooksService(() => new NpgsqlConnection(connectionString)));
-
-        // Hybrid catalog search (AI-057): blends the FTS edition ranking with cosine NN over
-        // editions.embedding via RRF. Only invoked on `semantic=true`; the pure-FTS path never touches it.
-        services.AddScoped(sp =>
-            new HybridCatalogSearch(
-                sp.GetRequiredService<TextStack.Search.Abstractions.ISearchProvider>(),
-                // Lazy: OpenAiEmbeddingClient throws in its ctor on a keyless host. Resolved only when
-                // semantic search actually runs (inside HybridCatalogSearch's try/catch), so non-semantic
-                // /search never constructs it and a keyless stack degrades to FTS instead of 500ing.
-                () => sp.GetRequiredService<global::TextStack.Ai.Core.IEmbeddingService>(),
-                () => new NpgsqlConnection(connectionString),
-                sp.GetRequiredService<ILogger<HybridCatalogSearch>>()));
-
         // Reindex service (used by CLI)
         services.AddScoped<SearchReindexService>();
 

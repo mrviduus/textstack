@@ -14,7 +14,7 @@ namespace TextStack.UnitTests;
 /// search_books handler's request → mapping behaviour against a fake HTTP layer.
 ///
 /// Deliberately does NOT spawn the server process or touch stdin/stdout (CI-safe)
-/// and introduces NO ITool (StudyBuddy set-equality stays green — the MCP catalog
+/// and introduces NO ITool (the tool-set assertions in StarterToolsTests stay green — the MCP catalog
 /// is its own tool model, not an Application ITool).
 /// </summary>
 public class McpServerTests
