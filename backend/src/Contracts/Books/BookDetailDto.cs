@@ -22,15 +22,8 @@ public record BookDetailDto(
     IReadOnlyList<BookAuthorDto> Authors,
     IReadOnlyList<BookGenreDto> Genres,
     IReadOnlyList<RelatedBookDto> MoreByAuthor,
-    IReadOnlyList<TocEntryDto>? Toc = null,
-    // On-demand RAG index state (Phase 1 "Ask this book"). Lets the reader know index state on load.
-    string RagStatus = "NotIndexed",
-    int RagChunkCount = 0,
-    int RagEmbeddedCount = 0
+    IReadOnlyList<TocEntryDto>? Toc = null
 );
-
-/// <summary>On-demand "Ask this book" index state, returned by the index trigger + status endpoints.</summary>
-public record BookIndexStatusDto(string Status, int ChunkCount, int EmbeddedCount);
 
 public record BookGenreDto(Guid Id, string Slug, string Name);
 

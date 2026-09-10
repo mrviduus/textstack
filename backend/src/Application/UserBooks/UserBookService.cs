@@ -288,9 +288,6 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage, IEnt
                 b.CreatedAt,
                 b.UpdatedAt,
                 b.CompletedAt,
-                b.RagStatus,
-                b.RagChunkCount,
-                b.RagEmbeddedCount,
                 b.MetadataEnrichmentStatus,
                 HasOriginalPdf = b.BookFiles.Any(f => f.Format == BookFormat.Pdf),
                 Chapters = b.Chapters
@@ -335,9 +332,6 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage, IEnt
             book.CreatedAt,
             book.UpdatedAt,
             book.CompletedAt,
-            book.RagStatus.ToString(),
-            book.RagChunkCount,
-            book.RagEmbeddedCount,
             book.HasOriginalPdf,
             book.MetadataEnrichmentStatus.ToString()
         );

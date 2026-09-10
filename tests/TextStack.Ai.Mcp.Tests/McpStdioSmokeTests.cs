@@ -53,7 +53,7 @@ public class McpStdioSmokeTests
         Assert.Equal("textstack", client.ServerInfo.Name);
 
         var tools = await client.ListToolsAsync(cancellationToken: ct);
-        Assert.Equal(14, tools.Count);
+        Assert.Equal(13, tools.Count);
     }
 
     // The MCP project is a ProjectReference, so its DLL is built into the test

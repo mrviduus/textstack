@@ -4,7 +4,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Animated, Linking, BackHandle
 import { WebView } from 'react-native-webview'
 import { useRouter, Stack } from 'expo-router'
 import { t, computeBookProgress, estimateTimeLeft, formatMinutesLeft, citationChapterSlug, makeSnippet, plural, resolvePdfResumePage, chapterEndPage } from '@textstack/shared'
-import type { Chapter, BookmarkDto, AskCitation, AskTarget, TextPosition } from '@textstack/shared'
+import type { Chapter, BookmarkDto, TextPosition } from '@textstack/shared'
 import { buildReaderHtml, buildPdfViewerHtml } from '../../lib/readerHtml'
 import {
   pdfDocumentKey, pdfChromeInjectionJs, latchPdfChrome, pdfChromeChanged, type PdfChrome,
@@ -136,7 +136,6 @@ export interface ReaderShellProps {
   explainBookId?: string
   /** "Ask this book" target — catalog edition OR user-uploaded book (AI-027 P2).
    *  Drives the Ask button visibility and which endpoint family the sheet hits. */
-  askTarget?: AskTarget
 
   /** ADR-012 S4b — render the ORIGINAL PDF (pdf.js viewer) instead of the reflow
    *  HTML. Same shell, one branch: the WebView source swaps and the reflow-only
@@ -184,7 +183,7 @@ export function ReaderShell(props: ReaderShellProps) {
     onWebViewLoaded, onRestoreLanded, onDocumentRebuild, beginReflow,
     onChapterLoaded, onRequestNextChapter, onNavigateChapter,
     bookmarks, onToggleCurrentBookmark, onDeleteBookmark, bookmarkChapterSlug,
-    bookTitleRef, wordCount, explainBookId, askTarget,
+    bookTitleRef, wordCount, explainBookId,
     original, originalFileUrl, originalInitialPage,
     originalResumePage, originalResumeReady, persistPdfPage,
     onTogglePageBookmark, isPageBookmarked, onForceReflow,
@@ -671,18 +670,6 @@ export function ReaderShell(props: ReaderShellProps) {
   const activeSlug = (original
     ? chapterSlugForPage(chapters, pdfCurrentPage)
     : visibleChapterSlug) ?? chapterSlug
-  // Same chapter → scroll now; other chapter → navigate, then onLoadEnd injects once it renders.
-  const handleCitation = (c: AskCitation) => {
-    const slug = citationChapterSlug(chapters, c.chapterOrd)
-    if (!slug) return
-    const snippet = makeSnippet(c.preview)
-    if (slug === activeSlug) {
-      scrollToCitation(snippet, c.charStart)
-    } else {
-      pendingCitationRef.current = { slug, snippet, charStart: c.charStart }
-      navigateChapter(slug)
-    }
-  }
   const activeChapter = chapters.find(c => c.slug === activeSlug)
   // Original PDF: the "current" bookmark is the top-visible PAGE, not a chapter.
   const isCurrentBookmarked = original

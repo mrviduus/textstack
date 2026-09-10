@@ -47,9 +47,6 @@ public partial class AppDbContext
             e.Property(x => x.IsClip).HasDefaultValue(false);
             e.Property(x => x.IsRead).HasDefaultValue(false);
             e.HasIndex(x => new { x.UserId, x.IsClip });
-            // Fix #6: partial index so the RagIndexingWorker's 30s stale-sweep / drain scans
-            // (WHERE rag_status = 1 ...) don't seq-scan every user_books row every cycle.
-            e.HasIndex(x => x.RagIndexingStartedAt).HasFilter("rag_status = 1");
             e.HasOne(x => x.User).WithMany(x => x.UserBooks).HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
         });
 

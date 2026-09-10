@@ -2,7 +2,6 @@ using Api.Language;
 using Api.Sites;
 using Application.Books;
 using Application.Common.Interfaces;
-using Application.Recommendations;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -16,7 +15,6 @@ public static class BooksEndpoints
 
         group.MapGet("", GetBooks).WithName("GetBooks");
         group.MapGet("/{slug}", GetBook).WithName("GetBook");
-        group.MapGet("/{slug}/similar", GetSimilar).WithName("GetSimilarBooks");
         group.MapGet("/{slug}/chapters/{chapterSlug}", GetChapter).WithName("GetChapter");
         group.MapGet("/{editionId:guid}/assets/{assetId:guid}", GetAsset).WithName("GetAsset");
     }
@@ -63,23 +61,6 @@ public static class BooksEndpoints
             return Results.NotFound();
 
         return Results.Ok(book);
-    }
-
-    // AI-055: "Similar books" rail. Public, no auth, no app-layer rate limit (nginx covers it).
-    // Subject resolved by (siteId, language, slug) inside the service. null → 404, else 200 (list
-    // may be empty when the subject isn't embedded yet or has no similar editions).
-    private static async Task<IResult> GetSimilar(
-        string slug,
-        HttpContext httpContext,
-        SimilarBooksService similarBooks,
-        [FromQuery] int? limit,
-        CancellationToken ct)
-    {
-        var siteId = httpContext.GetSiteId();
-        var language = httpContext.GetLanguage();
-        var result = await similarBooks.GetSimilarAsync(siteId, slug, language, limit ?? 8, ct);
-
-        return result is null ? Results.NotFound() : Results.Ok(result);
     }
 
     private static async Task<IResult> GetChapter(

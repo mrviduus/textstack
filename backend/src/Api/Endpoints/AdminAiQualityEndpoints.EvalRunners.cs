@@ -1,13 +1,11 @@
 using Application.Agents;
 using Application.Common.Interfaces;
-using Application.Rag;
 using Contracts.Admin;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using TextStack.Ai.Core;
 using TextStack.Ai.EvalSuite;
-using TextStack.Ai.Rag;
 using TextStack.Ai.Tools;
 
 namespace Api.Endpoints;
@@ -114,70 +112,6 @@ public static partial class AdminAiQualityEndpoints
                 c.ParseFailed,
             }),
         });
-    }
-
-    // ADR-012 S3 DoD gate: runs the PDF vision-RAG eval over the embedded SYNTHETIC table-page fixtures —
-    // self-contained (no seeded book, no DB pollution). Transcribes each page through the gateway pdf.parse
-    // route (→ gpt-4.1) with the shared PdfVisionPrompt, judges transcription + answer fidelity (1–5), and
-    // deterministically scores page-citation + table-structure survival. `judge` = openai (default,
-    // Eval:JudgeModel) | ollama. Persists pdfvision.transcription / .answer / .citation / .tablestructure
-    // EvalRun rows. Needs a key (gateway ILlmService + IEmbeddingService throw keyless) — the scored run
-    // happens on prod; keyless hosts get a clean 503. Admin-triggered only; NOT scheduled.
-    private static async Task<IResult> RunPdfVisionEval(
-        [FromQuery] string? judge,
-        IServiceProvider services,
-        IConfiguration config,
-        PdfVisionEvalRunner runner,
-        IAppDbContext db,
-        CancellationToken ct)
-    {
-        ILlmService vision;
-        IEmbeddingService embedder;
-        IRagAskService ask;
-        try
-        {
-            // The gateway (vision route) + embedder both construct from the OpenAI key; probe them here so a
-            // keyless host returns a clean 503 instead of failing deep in transcription/retrieval.
-            vision = services.GetRequiredService<ILlmService>();
-            embedder = services.GetRequiredService<IEmbeddingService>();
-            ask = services.GetRequiredService<IRagAskService>();
-        }
-        catch (InvalidOperationException)
-        {
-            return Results.Problem("LLM gateway / embeddings are not configured (no OpenAI key).", statusCode: 503);
-        }
-
-        var useOllama = string.Equals(judge, "ollama", StringComparison.OrdinalIgnoreCase);
-        var judgeKey = useOllama ? "ollama" : "openai-judge";
-        var judgeModelId = useOllama ? config["Ollama:Model"] ?? "gemma4:e2b" : config["Eval:JudgeModel"] ?? "gpt-4.1";
-
-        ILlmService judgeClient;
-        try
-        {
-            judgeClient = services.GetRequiredKeyedService<ILlmService>(judgeKey);
-        }
-        catch (InvalidOperationException)
-        {
-            return Results.Problem("Judge LLM is not configured.", statusCode: 503);
-        }
-
-        var gitSha = Environment.GetEnvironmentVariable("GIT_SHA");
-        var result = await runner.RunAsync(
-            vision, embedder, ask, judgeClient, judgeModelId, k: IRagService.DefaultK,
-            persist: true, db, gitSha, ct);
-
-        return Results.Ok(new PdfVisionEvalDto(
-            Math.Round(result.Transcription, 3),
-            Math.Round(result.Answer, 3),
-            Math.Round(result.Citation, 4),
-            Math.Round(result.TableStructure, 4),
-            result.PageN,
-            result.QaN,
-            result.PageCases.Select(c => new PdfVisionPageDto(
-                c.Page, c.Transcribed, Math.Round(c.JudgeScore, 3), c.TableSurvived)).ToList(),
-            result.QaCases.Select(c => new PdfVisionQaDto(
-                c.Question, c.ExpectedPage, Math.Round(c.AnswerScore, 3), c.CitedExpectedPage, c.CitedPages, c.Insufficient)).ToList(),
-            result.Note));
     }
 
     // AI-Agent-1 DoD gate: runs the REAL EnrichmentAgent over the enrichment golden set and scores

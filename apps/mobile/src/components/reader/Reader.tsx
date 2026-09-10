@@ -91,7 +91,6 @@ export function Reader({ runtime }: { runtime: ReaderRuntime }) {
       bookTitleRef={runtime.bookTitleRef}
       wordCount={runtime.wordCount}
       explainBookId={runtime.explainBookId}
-      askTarget={runtime.askTarget}
       original={runtime.original}
       originalFileUrl={runtime.originalFileUrl}
       originalInitialPage={runtime.originalInitialPage}

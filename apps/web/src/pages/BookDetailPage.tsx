@@ -28,7 +28,6 @@ import { DiscussWithAssistant } from '../components/library/DiscussWithAssistant
 import { useAuth } from '../context/AuthContext'
 import { BookDetailHero } from '../components/BookDetailHero'
 import { AddToCollectionButton } from '../components/library/AddToCollectionButton'
-import { SimilarBooksRail } from '../components/book/SimilarBooksRail'
 import { isNotFoundError } from '../lib/errorUtils'
 import type { BookDetail, PodcastStatusDto } from '../types/api'
 
@@ -460,7 +459,6 @@ export function BookDetailPage() {
       )}
 
       {/* Similar books (AI-056) — embedding-based, client-side, hides when empty */}
-      <SimilarBooksRail slug={book.slug} />
 
       {/* FAQ */}
       <section className="book-faq">

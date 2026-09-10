@@ -16,7 +16,6 @@ public class LibraryToolsTests
 
     [Theory]
     [InlineData(typeof(SearchLibraryTool), """{"query":"surveillance","language":"en","limit":5}""", """{"query":"x","limit":99}""")]
-    [InlineData(typeof(SearchLibrarySemanticTool), """{"query":"books like 1984"}""", """{}""")]
     public void ArgsSchema_AcceptsHappyPath_RejectsMalformed(Type toolType, string goodArgs, string badArgs)
     {
         var tool = (TextStack.Ai.Core.ITool)Activator.CreateInstance(toolType)!;

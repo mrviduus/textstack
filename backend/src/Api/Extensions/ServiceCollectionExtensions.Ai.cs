@@ -16,9 +16,6 @@ public static partial class ServiceCollectionExtensions
         // pure regression detector, consumed by both the admin trigger and ContinuousEvalWorker.
         services.AddSingleton<Application.Ai.IEvalRunGate, Application.Ai.EvalRunGate>();
         services.AddSingleton<Application.Ai.EvalRegressionDetector>();
-        services.AddSingleton<TextStack.Ai.EvalSuite.RagEvalRunner>();
-        services.AddSingleton<TextStack.Ai.EvalSuite.UserBookRagEvalRunner>();
-        services.AddSingleton<TextStack.Ai.EvalSuite.PdfVisionEvalRunner>();
         services.AddSingleton<TextStack.Ai.EvalSuite.ToolCallEvalRunner>();
         services.AddSingleton<TextStack.Ai.EvalSuite.EnrichmentEvalRunner>();
         services.AddSingleton<TextStack.Ai.EvalSuite.TutorEvalRunner>();

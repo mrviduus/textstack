@@ -36,26 +36,6 @@ public class Edition : ISiteScoped
     // Table of contents (JSON)
     public string? TocJson { get; set; }
 
-    /// <summary>
-    /// AI-054: element-wise mean-pool of this edition's chapter-chunk embeddings
-    /// (pgvector <c>vector(1536)</c>). Populated by the embedding worker once the
-    /// edition is fully embedded, or by the <c>backfill-edition-embeddings</c> CLI.
-    /// NULL until embedded chunks exist. Raw mean (not L2-normalized) — query with
-    /// cosine (AI-055). Modeled as <c>float[]</c> to keep Domain framework-free.
-    /// </summary>
-    public float[]? Embedding { get; set; }
-
-    // On-demand RAG index state (Phase 1 "Ask this book"). Catalog editions imported before RAG
-    // start NotIndexed (0 chunks); a user trigger claims → chunks → embedding worker flips to Ready.
-    public RagIndexStatus RagStatus { get; set; } = RagIndexStatus.NotIndexed;
-    public int RagChunkCount { get; set; }
-    public int RagEmbeddedCount { get; set; }
-    public DateTimeOffset? RagIndexedAt { get; set; }
-    public string? RagError { get; set; }
-
-    // Stamped by the worker's atomic indexing claim (Indexing + chunk_count=0 + started_at IS NULL →
-    // now()); the dead-process/stale detector for the reliability sweep. See UserBook for details.
-    public DateTimeOffset? RagIndexingStartedAt { get; set; }
 
     public Work Work { get; set; } = null!;
     public Site Site { get; set; } = null!;

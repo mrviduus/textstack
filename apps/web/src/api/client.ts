@@ -79,12 +79,6 @@ export function createApi(language: string) {
       return fetchJson<import('../types/api').PodcastStatusDto>(`${langPrefix}/books/${slug}/podcast`)
     },
 
-    getSimilarBooks: (slug: string, limit = 8) => {
-      return fetchJson<import('../types/api').SimilarBook[]>(
-        `${langPrefix}/books/${slug}/similar?limit=${limit}`
-      )
-    },
-
     getChapter: (bookSlug: string, chapterSlug: string) => {
       return fetchJson<import('../types/api').Chapter>(
         `${langPrefix}/books/${bookSlug}/chapters/${chapterSlug}`

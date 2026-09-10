@@ -56,39 +56,6 @@ public class TutorToolSanitizationTests
     }
 
     [Fact]
-    public async Task GetExampleSentence_SavedSentenceWithInjection_IsSanitizedInToolOutput()
-    {
-        var wordId = Guid.NewGuid();
-        var userId = Guid.NewGuid();
-        var ctx = BuildContext(userId, db =>
-        {
-            var words = new List<VocabularyWord>
-            {
-                new()
-                {
-                    Id = wordId,
-                    UserId = userId, // tool scopes by user_id
-                    Word = "ostensibly",
-                    Language = "en",
-                    Sentence = $"He {Injection} walked.",
-                    BookTitle = "My Upload",
-                },
-            };
-            db.Setup(x => x.VocabularyWords).Returns(() => FakeSet(words).Object);
-        });
-
-        var args = JsonDocument.Parse($$"""{"wordId":"{{wordId}}"}""").RootElement;
-        var result = await new GetExampleSentenceTool().InvokeAsync(args, ctx, TestContext.Current.CancellationToken);
-
-        var sentence = SentenceOf(result);
-        Assert.DoesNotContain("ignore all previous instructions", sentence, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("{{", sentence);
-        Assert.DoesNotContain("system:", sentence, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("<|im_start|>", sentence);
-        Assert.Contains("walked", sentence); // benign prose survives
-    }
-
-    [Fact]
     public async Task GetReadingContext_BookTitleWithInjection_IsSanitizedInToolOutput()
     {
         var ubId = Guid.NewGuid();

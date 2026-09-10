@@ -129,8 +129,8 @@ public class McpTokenProviderTests
             Json("[]"));
 
         var result = await catalog.CallAsync(
-            "ask_book",
-            Args($$"""{"editionId":"{{Edition}}","question":"what happens?"}"""),
+            "list_my_highlights",
+            Args($$"""{"editionId":"{{Edition}}"}"""),
             CancellationToken.None);
 
         Assert.True(result.IsError);

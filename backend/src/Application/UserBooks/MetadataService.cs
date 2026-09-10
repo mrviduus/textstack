@@ -50,7 +50,6 @@ public class MetadataService(IAppDbContext db)
                 new UserChapterSummaryDto(c.Id, c.ChapterNumber, c.Slug, c.Title, c.WordCount, c.SourceStartPage)).ToList(),
             null,
             book.CreatedAt, book.UpdatedAt, book.CompletedAt,
-            book.RagStatus.ToString(), book.RagChunkCount, book.RagEmbeddedCount,
             book.BookFiles.Any(f => f.Format == Domain.Enums.BookFormat.Pdf),
             book.MetadataEnrichmentStatus.ToString());
 

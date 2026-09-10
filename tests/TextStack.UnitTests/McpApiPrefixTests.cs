@@ -145,23 +145,6 @@ public class McpApiPrefixTests
 
     // ── end-to-end: POST user-scoped tool (ask_book) keeps /api on the wire ───────
 
-    [Fact]
-    public async Task AskBook_PrefixedBaseUrl_KeepsApiPrefix_OnAbsoluteRequestUri()
-    {
-        var (catalog, handler) = BuildPrefixedCatalog(
-            Json("""{"answer":"x","citations":[],"lastReadOrd":1,"insufficient":false}"""));
-
-        var result = await catalog.CallAsync(
-            "ask_book",
-            Args($$"""{"editionId":"{{Edition}}","question":"what happens?"}"""),
-            CancellationToken.None);
-
-        Assert.NotEqual(true, result.IsError);
-        var uri = handler.LastRequest!.RequestUri!;
-        Assert.True(uri.IsAbsoluteUri);
-        Assert.Equal($"http://localhost/api/books/{Edition}/ask", uri.AbsoluteUri);
-    }
-
     // ── device-flow URLs are fixed the same way (leading slash dropped) ───────────
 
     // Answers /auth/device/code with a valid device code; records the request URI.

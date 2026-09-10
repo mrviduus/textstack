@@ -226,6 +226,5 @@ export function useEditionReaderSource({
     onDeleteBookmark: remove,
     bookmarkChapterSlug: (b) => getSlugFromLocator(b.locator),
     explainBookId: editionIdRef.current || undefined,
-    askTarget: editionId ? { kind: 'edition', id: editionId } : undefined,
   }
 }

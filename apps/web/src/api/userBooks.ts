@@ -1,6 +1,5 @@
 import { authFetch, API_BASE } from './client'
 import { trackBookUploaded } from '../lib/analytics'
-import type { RagIndexStatus } from '../types/api'
 
 export interface UserBook {
   id: string
@@ -68,9 +67,6 @@ export interface UserBookDetail {
   updatedAt: string
   completedAt: string | null
   // On-demand RAG index for "Ask this book" (AI-027 P2). Absent on older payloads → NotIndexed.
-  ragStatus?: RagIndexStatus
-  ragChunkCount?: number
-  ragEmbeddedCount?: number
   /** True when the original upload is a PDF that can be rendered pixel-perfect
    *  in the opt-in "Original layout" view. Absent on older payloads → false. */
   hasOriginalPdf?: boolean

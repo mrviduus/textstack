@@ -19,6 +19,5 @@
     <ProjectReference Include="..\Search\TextStack.Search\TextStack.Search.csproj" />
     <ProjectReference Include="..\Search\TextStack.Search.Meilisearch\TextStack.Search.Meilisearch.csproj" />
     <ProjectReference Include="..\Tts\TextStack.Tts\TextStack.Tts.csproj" />
-    <ProjectReference Include="..\Ai\TextStack.Ai.Rag\TextStack.Ai.Rag.csproj" />
   </ItemGroup>
 </Project>

@@ -30,7 +30,7 @@ public sealed record McpToolDescriptor(string Name, string Description);
 /// <c>TextStack.Ai.Mcp.Tests</c> fails if these diverge from the catalog.
 ///
 /// Order matches the catalog's: the public catalog tools, then the user's own
-/// uploaded library, then their highlights and vocabulary, then <c>ask_book</c>
+/// uploaded library, then their highlights and vocabulary
 /// and the WRITE tool <c>save_highlight</c>.
 ///
 /// Two search tools is deliberate, not duplication. The catalog and a user's
@@ -46,14 +46,14 @@ public static class McpManifestCatalog
         new("search_books",
             "Search the PUBLIC TextStack catalog for books and chapters matching a query. "
             + "This is the shared library of published books, NOT the user's own uploads — for those, use search_my_library."),
-        new("get_book", "Fetch a catalog book by slug: its editionId (for ask_book), metadata, authors, genres, and chapter list."),
+        new("get_book", "Fetch a catalog book by slug: its editionId, metadata, authors, genres, and chapter list."),
         new("get_chapter", "Fetch a chapter's plain text (HTML stripped, length-capped) plus its number, title, and prev/next slugs."),
         new("search_my_library",
             "Full-text search across the books the signed-in user has UPLOADED to TextStack "
             + "(their private library, not the public catalog — requires authentication). "
             + "Returns one hit per book with its bookId, title, author and the best-matching "
             + "chapter slug and excerpt. Pass the bookId to get_my_book or get_my_chapter. "
-            + "A bookId is NOT an editionId and will not work with ask_book or list_my_highlights."),
+            + "A bookId is NOT an editionId and will not work with list_my_highlights."),
         new("get_my_book",
             "Fetch one of the signed-in user's UPLOADED books by bookId (from search_my_library): "
             + "its metadata and its full chapter list (requires authentication). Each chapter "
@@ -71,7 +71,6 @@ public static class McpManifestCatalog
             + "(WRITE on your own account — requires you to be signed in). Pass the editionId "
             + "and chapterId (from get_book), the exact selected text, and optionally a color "
             + "and a note. The highlight is stored and listable via list_my_highlights."),
-        new("ask_book", "Ask a question about a book the user is reading; spoiler-safe (answers only from chapters already read). Requires authentication."),
         new("save_my_highlight",
             "Highlight a passage in one of the books the user UPLOADED (WRITE on their own account — "
             + "requires authentication). Pass the bookId, the chapterId of the chapter the passage is "

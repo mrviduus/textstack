@@ -26,33 +26,3 @@ public class ModelPricingEmbeddingTests
     public void CostUsd_UnknownModel_Zero()
         => Assert.Equal(0m, ModelPricing.CostUsd("text-embedding-unknown", 1_000_000, 0));
 }
-
-public class ChapterEmbeddingWorkerTests
-{
-    [Fact]
-    public void AssignEmbeddings_MatchingCounts_AssignsInOrder()
-    {
-        var chunks = new List<ChapterChunk> { new(), new(), new() };
-        var vectors = new[]
-        {
-            new[] { 1f, 0f },
-            new[] { 0f, 1f },
-            new[] { 1f, 1f },
-        };
-
-        ChapterEmbeddingWorker.AssignEmbeddings(chunks, vectors);
-
-        Assert.Same(vectors[0], chunks[0].Embedding);
-        Assert.Same(vectors[1], chunks[1].Embedding);
-        Assert.Same(vectors[2], chunks[2].Embedding);
-    }
-
-    [Fact]
-    public void AssignEmbeddings_CountMismatch_Throws()
-    {
-        var chunks = new List<ChapterChunk> { new(), new() };
-        var vectors = new[] { new[] { 1f } };
-
-        Assert.Throws<InvalidOperationException>(() => ChapterEmbeddingWorker.AssignEmbeddings(chunks, vectors));
-    }
-}
