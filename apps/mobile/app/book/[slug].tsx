@@ -552,6 +552,11 @@ export default function BookDetailScreen() {
             title={book.title}
             author={book.authors.map(a => a.name).join(', ') || null}
             editionId={book.id}
+            // Both identifiers: the read tools are slug-keyed, the insight tools are editionId-keyed.
+            slug={book.slug}
+            // Already fetched for Continue Reading; the assistant was told none of it until now.
+            progressFraction={continuePct}
+            chapterTitle={book.chapters.find(c => c.slug === continueSlug)?.title ?? null}
           />
         )}
 
