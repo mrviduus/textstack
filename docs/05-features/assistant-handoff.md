@@ -106,6 +106,51 @@ Counted against the live database, not estimated.
   the assistant understands where the reader is.
 - **7 indexed books of 1498** settles the RAG question — freeze it.
 
+## Where this stands — 2026-09-10
+
+Branch `feat/mcp-connect-key`, four commits, **−9,623 lines across 66 deleted files** (excluding
+generated EF snapshots). Backend, web, admin and mobile all build; 1,485 backend + 701 web + 381
+mobile tests green.
+
+| Done | |
+|---|---|
+| `McpAccessKey` | Entity, migration, three routes, middleware resolution, 17 unit tests |
+| Study Buddy | Deleted end to end (−1,525) |
+| Librarian | Deleted end to end, incl. DiscoverPage and the mobile Search entry card (−3,074) |
+| Book Chat | Deleted end to end, incl. AskPanel/AskSheet, the reader chrome and the tables (−5,056) |
+
+| Not done — carry forward | |
+|---|---|
+| **Key creation UI** | No page on web, no screen on mobile. The routes exist, so today a key can only be minted with curl. **This is what blocks the whole feature from being usable.** |
+| **Key integration test** | Revoke-then-401 and the `LastUsedAt` write are untested. `GuestActivityMiddleware` is dead code precisely because that second test was never written — do not repeat it |
+| Read-side MCP tools | `get_my_reading`, `get_book_progress`, `set_book_progress` — none started |
+| `chapterSlug` on `LibraryShelfItemDto` | Not started; the service already selects it |
+| `chapterId` in the `get_book` projection | Not started. `save_highlight`'s description still tells the model to take it from there, which is false |
+| Catalog handoff brief | Still sends `editionId` where the tools require a slug — the catalog Discuss button does not work |
+| Mobile `Linking.openURL` | Still swallows the failure |
+| Branch | Not pushed, no PR |
+
+### Found while cutting — decisions still open
+
+1. **`GET /books/{slug}/similar` is a live public feature that dies with the chunks.**
+   `SimilarBooksRail` renders on every book page and is fed by `editions.embedding`, which
+   `EditionEmbeddingUpdater` computes as the mean of that edition's `chapter_chunk` vectors. Measured
+   on production: **4 editions of 1423 have an embedding**, so the rail is already blank on 99.7% of
+   pages — but it is reader-facing and SEO-adjacent (internal linking), which none of the chat
+   surfaces were. Deleting the chunks makes it permanently blank rather than mostly blank.
+2. **Three tools are RAG-backed and two of them serve things that stay.**
+   `SearchBookTool` (`search_book`) is reachable from Explain via the `EarlierReference` signal;
+   `GetExampleSentenceTool` is in Tutor's tool list; `FindEarlierDefinitionTool` has no live caller.
+   Explain's tool-calling path last fired **2026-06-13**, three months ago, so losing `search_book`
+   costs little in practice — but it means `BookToolSignal.EarlierReference` maps to nothing
+   afterwards.
+3. **Tutor loses its grounded example sentence.** Removing `get_example_sentence` leaves the plan
+   without a worked example on a miss. Worth noting that `VocabularyWord.Sentence` already stores the
+   sentence the word was saved from, so the same capability is available with no retrieval at all —
+   that is a rewire, not a deletion, and it is not in this pass.
+4. **`RagIndexStatus` columns sit on both `Edition` and `UserBook`** (7 columns each). Dropping them
+   is a second migration and touches DTOs both clients read.
+
 ## Sprint TODO
 
 | # | Item | Slice |
