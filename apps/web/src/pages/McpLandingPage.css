@@ -254,3 +254,57 @@
     min-width: 0;
   }
 }
+
+/* Connect key panel (2026-09-10). The key is shown exactly once — the server keeps only a hash — so
+   this is a panel that stays put rather than a toast that takes the value away with it. */
+.mcp-connect__error { color: var(--danger, #dc2626); font-size: 14px; margin: 8px 0; }
+.mcp-connect__fresh {
+  margin: 16px 0;
+  padding: 14px 16px;
+  border: 1px solid var(--accent, #2563eb);
+  border-radius: 8px;
+  background: rgba(37, 99, 235, 0.06);
+}
+.mcp-connect__once { margin: 0 0 10px; font-size: 13px; font-weight: 600; }
+.mcp-connect__keyrow { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 12px; }
+.mcp-connect__key,
+.mcp-connect__config {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--surface-2, rgba(0, 0, 0, 0.05));
+}
+.mcp-connect__config { white-space: pre; margin: 0; }
+.mcp-connect__configlabel { margin: 0 0 6px; font-size: 12px; opacity: 0.75; }
+.mcp-connect__copy,
+.mcp-connect__btn,
+.mcp-connect__revoke {
+  flex-shrink: 0;
+  cursor: pointer;
+  border-radius: 6px;
+  font-size: 13px;
+  padding: 8px 14px;
+  border: 1px solid var(--border, rgba(0, 0, 0, 0.15));
+  background: var(--surface, #fff);
+}
+.mcp-connect__btn { font-weight: 600; }
+.mcp-connect__btn:disabled { opacity: 0.6; cursor: default; }
+.mcp-connect__revoke { border-color: transparent; opacity: 0.7; }
+.mcp-connect__revoke:hover { opacity: 1; color: var(--danger, #dc2626); }
+.mcp-connect__empty { font-size: 13px; opacity: 0.7; margin-top: 12px; }
+.mcp-connect__list { list-style: none; padding: 0; margin: 16px 0 0; }
+.mcp-connect__item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border, rgba(0, 0, 0, 0.08));
+}
+.mcp-connect__name { font-weight: 600; font-size: 14px; margin-right: 8px; }
+.mcp-connect__prefix { font-family: ui-monospace, monospace; font-size: 12px; opacity: 0.7; margin-right: 8px; }
+.mcp-connect__used { font-size: 12px; opacity: 0.6; }

@@ -4,6 +4,7 @@ import { SeoHead } from '../components/SeoHead'
 import { Footer } from '../components/Footer'
 import { useTranslation } from '../hooks/useTranslation'
 import { useLanguage } from '../context/LanguageContext'
+import { ConnectAssistant } from '../components/mcp/ConnectAssistant'
 import './McpLandingPage.css'
 
 const REMOTE_SNIPPET = `https://textstack.app/mcp`
@@ -115,6 +116,8 @@ export function McpLandingPage() {
             </p>
           </div>
         </section>
+
+        <ConnectAssistant />
 
         <section className="mcp-section">
           <h2 className="mcp-section__heading">{t('mcp.local.heading')}</h2>

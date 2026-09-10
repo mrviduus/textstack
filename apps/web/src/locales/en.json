@@ -442,6 +442,23 @@
     },
     "manifest": {
       "label": "Machine-readable manifest:"
+    },
+    "connect": {
+      "heading": "Connect your assistant",
+      "lead": "Create a key, paste it into Claude or ChatGPT once, and it can read the books you upload and write conclusions back. The key does not expire; revoke it here whenever you like.",
+      "signInLead": "Sign in to create a key. It is tied to your account — that is what lets an assistant reach your library and nobody else's.",
+      "signInCta": "Sign in",
+      "createCta": "Create a key",
+      "creating": "Creating…",
+      "shownOnce": "Copy this now — it is shown once and cannot be recovered. We store only a hash of it.",
+      "configLabel": "Claude Desktop — paste into claude_desktop_config.json",
+      "empty": "No keys yet.",
+      "revoke": "Revoke",
+      "usedRecently": "used recently",
+      "neverUsed": "never used",
+      "loadFailed": "Could not load your keys.",
+      "createFailed": "Could not create a key.",
+      "revokeFailed": "Could not revoke that key."
     }
   },
   "contact": {
