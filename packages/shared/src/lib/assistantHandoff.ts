@@ -35,6 +35,15 @@ export interface HandoffBook {
   /** Edition id for a catalog book. */
   editionId?: string
   /**
+   * The catalog book's slug. Required alongside `editionId`, not instead of it: a catalog book needs
+   * BOTH identifiers because the tools disagree about which one they take. `get_book` and
+   * `get_chapter` are keyed by slug (`"required": ["slug"]`, `additionalProperties: false`), while
+   * `save_insight` and `get_my_insights` are keyed by `editionId`. Handing an assistant only the
+   * editionId — which this did until 2026-09-10 — produced a brief naming tools that would reject
+   * every call made from it, so the catalog Discuss button never worked at all.
+   */
+  slug?: string
+  /**
    * How far in, as a FRACTION of the book: 0..1, the way progress is stored
    * everywhere else in this codebase ("the server stores a book-wide fraction",
    * `progressPayload.ts`).
@@ -76,19 +85,22 @@ export function buildHandoffBrief(book: HandoffBook): string {
 
   // The identifier and the tool names. A connected client acts on this; an
   // unconnected one ignores it and the conversation still works.
-  const id = book.bookId
-    ? `bookId ${book.bookId}`
-    : book.editionId
-      ? `editionId ${book.editionId}`
-      : null
-  if (id) {
+  // An upload is addressed by one id everywhere. A catalog book is not: the read tools take a slug
+  // and the insight tools take an editionId, so the brief has to carry both and say which is which.
+  if (book.bookId) {
     lines.push('')
     lines.push(
-      `If you have the TextStack connector, this book is ${id}. ` +
-      (book.bookId
-        ? 'Read it with get_my_book and get_my_chapter, and check get_my_insights first in case we have discussed it before. '
-        : 'Read it with get_book and get_chapter, and check get_my_insights first in case we have discussed it before. ')
-      + 'When we are done, write the conclusions back with save_insight so I find them in the book later.')
+      `If you have the TextStack connector, this book is bookId ${book.bookId}. ` +
+      'Read it with get_my_book and get_my_chapter, and check get_my_insights first in case we have ' +
+      'discussed it before. When we are done, write the conclusions back with save_insight so I find ' +
+      'them in the book later.')
+  } else if (book.editionId && book.slug) {
+    lines.push('')
+    lines.push(
+      `If you have the TextStack connector: read this book with get_book and get_chapter using slug ` +
+      `"${book.slug}", and use editionId ${book.editionId} for get_my_insights and save_insight. ` +
+      'Check get_my_insights first in case we have discussed it before, and write the conclusions ' +
+      'back with save_insight when we are done so I find them in the book later.')
   }
 
   const brief = lines.join('\n')

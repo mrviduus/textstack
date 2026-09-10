@@ -31,14 +31,88 @@ describe('buildHandoffBrief', () => {
     expect(brief).not.toContain('editionId')
   })
 
-  it('names a catalog book by editionId and points at the catalog tools', () => {
+  /**
+   * Which identifier each tool actually accepts, mirroring the JSON schemas in
+   * `McpToolCatalog` — all of which set `additionalProperties: false`, so passing the wrong one is
+   * a rejected call rather than an ignored field.
+   *
+   * This table is the point of the test below. The previous version asserted that the brief string
+   * contained the substring "get_book" — prose checked against prose — and therefore passed happily
+   * while the brief handed `get_book` an editionId it cannot take. The catalog Discuss button did
+   * not work at all, and no test noticed. Keep this in step with the schemas.
+   */
+  const TOOL_IDENTIFIER: Record<string, ReadonlyArray<'slug' | 'editionId' | 'bookId'>> = {
+    get_book: ['slug'],
+    get_chapter: ['slug'],
+    get_my_book: ['bookId'],
+    get_my_chapter: ['bookId'],
+    // The insight tools take EITHER, XOR, keyed by book type: bookId for an upload, editionId for a
+    // catalog book. So they are satisfied by whichever one the brief is carrying.
+    get_my_insights: ['bookId', 'editionId'],
+    save_insight: ['bookId', 'editionId'],
+  }
+
+  /** Every tool the brief names, in order of appearance. */
+  const toolsNamedIn = (brief: string) =>
+    Object.keys(TOOL_IDENTIFIER).filter(name => brief.includes(name))
+
+  it('gives a catalog book BOTH identifiers, each next to the tools that take it', () => {
+    const brief = buildHandoffBrief({
+      title: 'Dracula',
+      editionId: '33333333-3333-3333-3333-333333333333',
+      slug: 'dracula',
+    })
+
+    // Read tools are slug-keyed; insight tools are editionId-keyed. A brief carrying only one of
+    // the two names tools that would reject every call made from it.
+    expect(brief).toContain('"dracula"')
+    expect(brief).toContain('editionId 33333333-3333-3333-3333-333333333333')
+    expect(toolsNamedIn(brief)).toContain('get_book')
+    expect(toolsNamedIn(brief)).toContain('save_insight')
+    expect(brief).not.toContain('bookId')
+  })
+
+  it('never names a tool without the identifier that tool accepts', () => {
+    const cases = [
+      {
+        what: 'catalog',
+        book: { title: 'Dracula', editionId: '33333333-3333-3333-3333-333333333333', slug: 'dracula' },
+        present: { slug: '"dracula"', editionId: 'editionId 33333333-3333-3333-3333-333333333333' },
+      },
+      {
+        what: 'upload',
+        book: { title: 'My PDF', bookId: '22222222-2222-2222-2222-222222222222' },
+        present: { bookId: 'bookId 22222222-2222-2222-2222-222222222222' },
+      },
+    ] as const
+
+    for (const c of cases) {
+      const brief = buildHandoffBrief(c.book)
+      const named = toolsNamedIn(brief)
+      expect(named.length).toBeGreaterThan(0)
+
+      for (const tool of named) {
+        const accepts = TOOL_IDENTIFIER[tool]
+        const carried = accepts.some(id => {
+          const marker = (c.present as Record<string, string | undefined>)[id]
+          return marker !== undefined && brief.includes(marker)
+        })
+        expect(
+          carried,
+          `${c.what} brief names ${tool}, which takes ${accepts.join(' or ')}, but carries none of them`,
+        ).toBe(true)
+      }
+    }
+  })
+
+  it('says nothing about the connector when a catalog book has no slug', () => {
+    // Half the pair is worse than none: it would name slug-keyed tools with nothing to give them.
     const brief = buildHandoffBrief({
       title: 'Dracula',
       editionId: '33333333-3333-3333-3333-333333333333',
     })
-    expect(brief).toContain('editionId 33333333-3333-3333-3333-333333333333')
-    expect(brief).toContain('get_book')
-    expect(brief).not.toContain('bookId')
+    expect(brief).not.toContain('get_book')
+    expect(brief).not.toContain('editionId')
   })
 
   it('asks the assistant to write conclusions back', () => {

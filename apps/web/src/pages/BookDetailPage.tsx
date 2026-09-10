@@ -363,6 +363,12 @@ export function BookDetailPage() {
           title={book.title}
           author={book.authors.map(a => a.name).join(', ') || null}
           editionId={book.id}
+          // A catalog book needs BOTH: get_book/get_chapter take the slug, the insight tools take
+          // the editionId. Sending only the id named tools that would reject every call.
+          slug={book.slug}
+          // The screen already knows where the reader stopped — the Continue Reading button above
+          // is built from it — and used to hand the assistant none of it.
+          chapterTitle={book.chapters.find(c => c.slug === continueSlug)?.title ?? null}
         />
       )}
 
