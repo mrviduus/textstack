@@ -2415,48 +2415,6 @@ html[data-theme="dark"] .vocab-translation-overlay__item {
 button.ask-md__cite:hover { text-decoration: underline; }
 .ask-md__cite--dead { color: var(--reader-secondary); cursor: default; }
 
-/* Study Buddy panel (AI-038): passage echo, answer at top, collapsible step transcript. */
-.study-buddy__passage {
-  margin: 0 0 12px;
-  padding: 8px 10px;
-  font-size: 13px;
-  line-height: 1.45;
-  color: var(--reader-text-muted, #6b7280);
-  border-left: 3px solid var(--reader-accent, #2563eb);
-  background: var(--reader-surface-2, rgba(37, 99, 235, 0.06));
-  border-radius: 0 6px 6px 0;
-  white-space: pre-wrap;
-}
-.study-buddy__answer {
-  margin-bottom: 12px;
-}
-.study-buddy__steps {
-  margin-top: 12px;
-  border-top: 1px solid var(--reader-border, rgba(0, 0, 0, 0.08));
-  padding-top: 8px;
-}
-.study-buddy__steps-toggle {
-  background: none;
-  border: none;
-  padding: 4px 0;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--reader-text-muted, #6b7280);
-  cursor: pointer;
-}
-.study-buddy__step-list {
-  margin: 6px 0 0;
-  padding-left: 18px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--reader-text-muted, #6b7280);
-}
-.study-buddy__step {
-  margin-bottom: 2px;
-}
-.study-buddy__step--tool_result {
-  color: var(--reader-accent, #2563eb);
-}
 .ask-panel__citations {
   display: flex;
   flex-wrap: wrap;

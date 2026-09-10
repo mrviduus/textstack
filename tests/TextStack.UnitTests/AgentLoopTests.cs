@@ -54,7 +54,7 @@ public class AgentLoopTests
         new(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), new ServiceCollection().BuildServiceProvider());
 
     private static AgentInput Input() =>
-        new("Explain this passage.", "You are a study buddy.", ["agent-echo"], "studybuddy");
+        new("Explain this passage.", "You are a reading tutor.", ["agent-echo"], "tutor");
 
     private static ToolCall Call(string name = "agent-echo", string args = "{}") => new("call-1", name, Json(args));
 

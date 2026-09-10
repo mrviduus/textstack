@@ -465,7 +465,6 @@ public class GuestSessionEndpointTests : IClassFixture<LiveApiFixture>
         ("POST", "/me/tutor/session", new { maxItems = 3 }),
         ("POST", $"/books/{Guid.Empty}/ask", new { question = "what happens?" }),
         ("POST", $"/me/books/{Guid.Empty}/ask", new { question = "what happens?" }),
-        ("POST", $"/me/books/{Guid.Empty}/studybuddy", new { passage = "A passage.", chapterNumber = 1 }),
         ("POST", $"/me/chat/{Guid.Empty}/messages", new { content = "hello" }),
         ("GET", $"/me/chat?editionId={Guid.Empty}", null),
         ("POST", $"/books/{Guid.Empty}/index", null),
@@ -500,7 +499,7 @@ public class GuestSessionEndpointTests : IClassFixture<LiveApiFixture>
             // NO 404 escape hatch, deliberately. `RequireAiAccount` runs BEFORE the handler, so a
             // gated route answers 403 whatever the GUID in the path is; a 404 can only mean the
             // filter did not run. Verified against a real account token on the running stack:
-            // /books/{empty}/ask, /me/books/{empty}/ask, /me/books/{empty}/studybuddy,
+            // /books/{empty}/ask, /me/books/{empty}/ask,
             // GET /me/chat, /books/{empty}/index and /me/books/{empty}/index all answer 404 once
             // the handler is reached. Six of the nine routes here would therefore have passed this
             // sweep with their filter deleted, which is the whole point of the sweep.

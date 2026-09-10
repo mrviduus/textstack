@@ -34,7 +34,7 @@ public sealed class LibrarianAgent(AgentLoop loop)
     /// <summary>
     /// Bounded per the design doc: ≤6 iterations (parse → library search(es) → evaluate coverage → optional
     /// external expansion → summarize), a per-step token budget, and a hard per-run cost cap so a stuck loop can
-    /// never burn the budget. Mirrors the StudyBuddy/Enrichment budgets.
+    /// never burn the budget. Mirrors the Enrichment budget.
     /// </summary>
     public static readonly AgentLoopOptions Options = new(MaxSteps: 6, MaxTokensPerStep: 1024, CostCapUsd: 0.04m);
 

@@ -25,7 +25,7 @@ public sealed record AgentEvent(AgentStep? Step, AgentResult<string>? Result)
 /// cap — so it can never loop forever or burn the budget; exhausting either throws
 /// <see cref="AgentBudgetExhaustedException"/>. Every turn is recorded as an <see cref="AgentStep"/>
 /// for a transparent, persistable transcript. Generic over any <see cref="ILlmService"/> + tool set;
-/// concrete agents (e.g. StudyBuddy, AI-035) just supply the prompt, allowed tools and options.
+/// concrete agents just supply the prompt, allowed tools and options.
 /// </summary>
 public sealed class AgentLoop(ILlmService llm, IToolRegistry tools, ToolDispatcher dispatcher)
 {
@@ -56,7 +56,7 @@ public sealed class AgentLoop(ILlmService llm, IToolRegistry tools, ToolDispatch
         AgentInput input, AgentContext ctx, AgentLoopOptions options,
         [EnumeratorCancellation] CancellationToken ct)
     {
-        // One span per agent run, for every agent (Enrichment / Librarian / Tutor / StudyBuddy /
+        // One span per agent run, for every agent (Enrichment / Librarian / Tutor /
         // crews) — RunAsync delegates here, so this is the single seam. `using` is legal in an
         // iterator and disposes on normal completion, `yield break`, a throw, AND consumer
         // abandonment, so the outcome is always recorded. FeatureTag IS the agent identity in this

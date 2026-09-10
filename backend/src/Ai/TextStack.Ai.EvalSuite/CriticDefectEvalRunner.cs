@@ -110,7 +110,7 @@ public sealed class CriticDefectEvalRunner(ILogger<CriticDefectEvalRunner> logge
             {
                 Id = Guid.NewGuid(),
                 Feature = Feature,
-                ModelId = "crew.critic", // the agent does not surface its routed model id (cf. StudyBuddy)
+                ModelId = "crew.critic", // the agent does not surface its routed model id
                 JudgeModelId = "n/a", // deterministic injection + scoring, no judge
                 Score = Math.Round((decimal)catchRate, 3),
                 N = cases.Count,

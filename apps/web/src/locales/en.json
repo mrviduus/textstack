@@ -225,14 +225,6 @@
       "indexRetry": "Retry",
       "spoilerTooltip": "Answers only use chapters you've read"
     },
-    "studyBuddy": {
-      "title": "Help me understand this",
-      "thinking": "Investigating…",
-      "calling": "Looking up",
-      "steps": "Steps",
-      "signIn": "Sign in to get help understanding passages.",
-      "signInCta": "Sign in"
-    },
     "wordPopup": {
       "known": "Known",
       "ignore": "Ignore",
@@ -261,7 +253,6 @@
       "highlightBlue": "Highlight blue",
       "translate": "Translate selected text",
       "explain": "Explain in context",
-      "studyBuddy": "Help me understand this",
       "askAboutThis": "Ask about this",
       "listen": "Listen to pronunciation",
       "copy": "Copy selected text"

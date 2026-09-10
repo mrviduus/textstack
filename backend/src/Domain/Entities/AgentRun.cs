@@ -2,7 +2,7 @@ namespace Domain.Entities;
 
 /// <summary>
 /// Persisted record of one agent run (table <c>agent_run</c>, Phase 6 / AI-036). Written after a
-/// Study Buddy (or future) agent finishes so the reader UI can replay its steps and so runs are
+/// An agent finishes so the reader UI can replay its steps and so runs are
 /// observable (cost / iterations / status). <see cref="StepsJson"/> holds the full transcript as
 /// jsonb — read whole for "show steps", not queried per field. Plain POCO; EF mapping in
 /// AppDbContext.Agents.cs.
@@ -11,7 +11,7 @@ public class AgentRun
 {
     public Guid Id { get; set; }
 
-    /// <summary>Which agent ran, e.g. "studybuddy".</summary>
+    /// <summary>Which agent ran, e.g. "tutor".</summary>
     public required string Agent { get; set; }
 
     public Guid? UserId { get; set; }

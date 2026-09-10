@@ -23,7 +23,7 @@ public class AgentRunRecordFactoryTests
         var result = new AgentResult<string>(
             "Final answer.", [Step(0, "llm_response")], new AgentUsage(2, 30, 12, 0.004m, 850));
 
-        var record = AgentRunRecordFactory.Completed(Id, "studybuddy", User, Edition, "passage", result);
+        var record = AgentRunRecordFactory.Completed(Id, "tutor", User, Edition, "passage", result);
 
         Assert.Equal("completed", record.Status);
         Assert.Equal("Final answer.", record.Output);
@@ -43,7 +43,7 @@ public class AgentRunRecordFactoryTests
             [Step(0, "llm_response"), Step(0, "tool_result")],
             new AgentUsage(1, 50, 20, 0.05m, 1200));
 
-        var record = AgentRunRecordFactory.BudgetExhausted(Id, "studybuddy", User, Edition, "passage", ex);
+        var record = AgentRunRecordFactory.BudgetExhausted(Id, "tutor", User, Edition, "passage", ex);
 
         Assert.Equal("budget_exhausted", record.Status);
         Assert.Null(record.Output);
@@ -56,7 +56,7 @@ public class AgentRunRecordFactoryTests
     public void Failed_EmptyTranscriptZeroUsage_WithError()
     {
         var record = AgentRunRecordFactory.Failed(
-            Id, "studybuddy", User, Edition, "passage", new InvalidOperationException("boom"));
+            Id, "tutor", User, Edition, "passage", new InvalidOperationException("boom"));
 
         Assert.Equal("error", record.Status);
         Assert.Null(record.Output);

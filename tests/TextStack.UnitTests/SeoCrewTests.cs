@@ -73,7 +73,7 @@ public class SeoCrewTests
             new EditorAgent(llm),
             writer));
 
-    // No tools registered — keep this assembly free of ITool so the StudyBuddy set-equality test is unaffected.
+    // No tools registered — keep this assembly free of ITool so the tool-set assertions in StarterToolsTests are unaffected.
     private static AgentContext Ctx(Guid? entityId = null, Guid? userId = null) =>
         new(userId, entityId, Guid.NewGuid(), new ServiceCollection().BuildServiceProvider());
 

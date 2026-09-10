@@ -89,7 +89,7 @@ export interface Capabilities {
    *
    * These call paid inference, and every rate-limit bucket that fronts them
    * partitions on IP only (`ServiceCollectionExtensions.RateLimiting.cs`:
-   * `librarian`, `tutor`, `rag.ask`, `studybuddy` all key on
+   * `librarian`, `tutor`, `rag.ask` all key on
    * `RemoteIpAddress`). A guest hole here is therefore throttled by IP and by
    * nothing else, and guest sessions are free and unlimited to mint.
    *

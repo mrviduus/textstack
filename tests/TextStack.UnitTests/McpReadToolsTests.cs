@@ -16,7 +16,7 @@ namespace TextStack.UnitTests;
 /// the ask_book spoiler gate, get_chapter HTML strip + cap, and the shared
 /// upstream-error wrapper — all against a fake HTTP layer (CI-safe, no network).
 ///
-/// Introduces NO ITool (StudyBuddy set-equality stays green).
+/// Introduces NO ITool (the tool-set assertions in StarterToolsTests stay green).
 /// </summary>
 public class McpReadToolsTests
 {

@@ -141,6 +141,7 @@ public partial class AppDbContext : DbContext, IAppDbContext
         ConfigurePodcasts(modelBuilder);
         ConfigureBookChat(modelBuilder);
         ConfigureInsights(modelBuilder);
+        ConfigureMcpKeys(modelBuilder);
         ConfigureRag(modelBuilder);
     }
 

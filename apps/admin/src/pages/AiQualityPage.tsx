@@ -445,7 +445,7 @@ function Section({ title, body }: { title: string; body: string | null }) {
 // ─────────────────────────── Transcripts ───────────────────────────
 
 const RUN_PAGE = 25
-const AGENT_FILTERS = ['crew.autopublish', 'crew.seo', 'studybuddy']
+const AGENT_FILTERS = ['crew.autopublish', 'crew.seo', 'tutor']
 
 function isErrorStatus(status: string, hasError?: boolean): boolean {
   return hasError === true || status === 'error' || status === 'budget_exhausted'

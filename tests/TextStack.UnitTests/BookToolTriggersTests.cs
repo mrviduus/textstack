@@ -1,23 +1,24 @@
 using Application.Ai;
-using TextStack.Ai.EvalSuite;
 
 namespace TextStack.UnitTests;
 
 /// <summary>
-/// AI-039 — the shared deterministic detector behind both the Explain pre-router and the Study Buddy
-/// per-run tool gate. Every Study Buddy golden passage is self-contained, so it must detect nothing
-/// (the floor that stops the agent over-calling on them by construction); positive wordings must light
-/// up exactly their flag, and a combined sentence ORs them.
+/// AI-039 — the shared deterministic detector behind the Explain pre-router. A self-contained
+/// passage must detect nothing (the floor that stops Explain reaching for tools it does not need);
+/// positive wordings must light up exactly their flag, and a combined sentence ORs them.
 /// </summary>
 public class BookToolTriggersTests
 {
-    [Fact]
-    public void Detect_EveryStudyBuddyGolden_IsNone()
-    {
-        var goldens = StudyBuddyGoldenSet.Load();
-        Assert.NotEmpty(goldens);
-        Assert.All(goldens, g => Assert.Equal(BookToolSignal.None, BookToolTriggers.Detect(g.Passage)));
-    }
+    // Passages that stand on their own: nothing in them refers out to another chapter, to something
+    // said earlier, or to the reader's own marks. These used to come from the Study Buddy golden set;
+    // they are inline now that it is gone, because the floor they pin belongs to Explain either way.
+    [Theory]
+    [InlineData("A distributed system is one in which the failure of a computer you did not know existed can render your own computer unusable.")]
+    [InlineData("Reliability means continuing to work correctly even when things go wrong.")]
+    [InlineData("An index is an additional structure derived from the primary data.")]
+    [InlineData("Encoding is the translation from an in-memory representation to a byte sequence.")]
+    public void Detect_SelfContainedPassage_IsNone(string passage) =>
+        Assert.Equal(BookToolSignal.None, BookToolTriggers.Detect(passage));
 
     [Theory]
     [InlineData("As we saw in Chapter 5, this builds on earlier ideas.")]

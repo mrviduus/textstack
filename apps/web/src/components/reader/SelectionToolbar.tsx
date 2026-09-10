@@ -18,7 +18,7 @@ interface SelectionToolbarProps {
   onHighlight: (color: HighlightColor) => void
   onTranslate?: () => void
   onExplain?: () => void
-  onStudyBuddy?: () => void
+  onAskAbout?: () => void
   onSpeak?: () => void
   onCopy?: () => void
 }
@@ -31,7 +31,7 @@ export function SelectionToolbar({
   onHighlight,
   onTranslate,
   onExplain,
-  onStudyBuddy,
+  onAskAbout,
   onSpeak,
   onCopy,
 }: SelectionToolbarProps) {
@@ -139,16 +139,16 @@ export function SelectionToolbar({
           <ExplainIcon />
         </button>
       )}
-      {onStudyBuddy && (
+      {onAskAbout && (
         <button
           className="selection-toolbar__action"
           onMouseDown={(e) => e.preventDefault()}
           onTouchStart={(e) => e.preventDefault()}
-          onClick={onStudyBuddy}
+          onClick={onAskAbout}
           title={t('reader.selectionToolbar.askAboutThis')}
           aria-label={t('reader.selectionToolbar.askAboutThis')}
         >
-          <StudyBuddyIcon />
+          <AskAboutIcon />
         </button>
       )}
       {onSpeak && text.trim().length <= 500 && (
@@ -209,7 +209,7 @@ function ExplainIcon() {
   )
 }
 
-function StudyBuddyIcon() {
+function AskAboutIcon() {
   // Sparkles — "help me understand" / agent assist.
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

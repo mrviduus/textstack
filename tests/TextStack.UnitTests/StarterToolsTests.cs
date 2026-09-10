@@ -29,7 +29,7 @@ public class StarterToolsTests
 
         foreach (var name in ExpectedNames)
             Assert.NotNull(registry.Get(name));
-        // (The exact total — now also the AI-035 Study Buddy tools — is asserted in StudyBuddyToolsTests.)
+        
     }
 
     [Theory]

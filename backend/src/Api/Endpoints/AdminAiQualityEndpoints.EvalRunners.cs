@@ -180,60 +180,6 @@ public static partial class AdminAiQualityEndpoints
             result.Note));
     }
 
-    // Phase 6 DoD gate (AI-039): runs the Study Buddy agent over the golden passages against a real
-    // edition and scores the answers + records steps/cost. Needs an embedded edition (DDIA) + a key.
-    private static async Task<IResult> RunStudyBuddyEval(
-        [FromQuery] Guid editionId,
-        [FromQuery] string? judge,
-        HttpContext httpContext,
-        IServiceProvider services,
-        IConfiguration config,
-        StudyBuddyEvalRunner runner,
-        StudyBuddyAgent agent,
-        IAppDbContext db,
-        CancellationToken ct)
-    {
-        if (editionId == Guid.Empty)
-            return Results.BadRequest(new { error = "editionId query parameter is required." });
-
-        var useOllama = string.Equals(judge, "ollama", StringComparison.OrdinalIgnoreCase);
-        var judgeKey = useOllama ? "ollama" : "openai-judge";
-        var judgeModelId = useOllama ? config["Ollama:Model"] ?? "gemma4:e2b" : config["Eval:JudgeModel"] ?? "gpt-4.1";
-
-        ILlmService judgeClient;
-        try
-        {
-            judgeClient = services.GetRequiredKeyedService<ILlmService>(judgeKey);
-        }
-        catch (InvalidOperationException)
-        {
-            return Results.Problem("Judge LLM is not configured.", statusCode: 503);
-        }
-
-        var gitSha = Environment.GetEnvironmentVariable("GIT_SHA");
-        // The agent's tools resolve scoped services (db, retrieval) from the request scope.
-        var result = await runner.RunAsync(
-            agent, judgeClient, judgeModelId, editionId, userId: null, httpContext.RequestServices,
-            persist: true, db, gitSha, ct);
-
-        return Results.Ok(new
-        {
-            judgeScore = Math.Round(result.JudgeScore, 3),
-            avgSteps = Math.Round(result.AvgSteps, 2),
-            avgCostUsd = result.AvgCostUsd,
-            n = result.N,
-            cases = result.Cases.Select(c => new
-            {
-                passage = c.Passage.Length > 80 ? c.Passage[..80] + "…" : c.Passage,
-                c.Steps,
-                c.CostUsd,
-                c.JudgeScore,
-                c.Completed,
-                c.OfferedTools,
-            }),
-        });
-    }
-
     // AI-Agent-1 DoD gate: runs the REAL EnrichmentAgent over the enrichment golden set and scores
     // genre/year accuracy, the headline CALIBRATION metric (committed ⇒ correct), the honest-unknown
     // rate, and avg tool calls. Generation goes through the gateway (routed by FeatureTag bookmeta.agent

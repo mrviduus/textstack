@@ -23,7 +23,7 @@ namespace TextStack.UnitTests;
 ///
 /// Existing MCP tests use a prefix-LESS BaseAddress (<c>https://api.example/</c>), so
 /// the bug never manifested there; this file is the missing prefixed-base coverage.
-/// Introduces NO ITool (StudyBuddy set-equality stays green).
+/// Introduces NO ITool (the tool-set assertions in StarterToolsTests stay green).
 /// </summary>
 public class McpApiPrefixTests
 {

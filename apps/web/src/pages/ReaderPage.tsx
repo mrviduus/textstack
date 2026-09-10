@@ -742,7 +742,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
           addHighlight={highlightsApi.addHighlight}
           updateHighlight={highlightsApi.updateHighlight}
           removeHighlight={highlightsApi.removeHighlight}
-          onStudyBuddy={askTarget ? handleAskAboutThis : undefined}
+          onAskAbout={askTarget ? handleAskAboutThis : undefined}
           liveActionsOnly={originalActive}
           onPdfHighlight={originalActive ? handlePdfHighlight : undefined}
         >
