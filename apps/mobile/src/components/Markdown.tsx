@@ -5,14 +5,15 @@ import { fonts } from '../theme/typography'
 import { isTableSeparator } from '../lib/markdown'
 
 /**
- * Small self-contained markdown renderer for assistant chat answers (tutor-register gpt-4.1 output:
+ * Small self-contained markdown renderer. Its content is what an outside assistant wrote back as a
+ * BookInsight (Markdown on the wire:
  * `##` headings, bullets, numbered lists, **bold**, *italic*, `inline code`, fenced code blocks,
  * blockquotes, and GFM tables). Deliberately NOT `react-native-markdown-display` — that dep is
  * unmaintained against RN 0.83 / the new architecture, and adding a native-adjacent parser is a
  * Play Data-Safety + OTA risk for zero upside here. This renderer is ~180 lines, theme-tokenised,
  * and pure-JS (OTA-safe). No raw-HTML path exists — model output is only ever tokenised as markdown.
  *
- * Divergences vs web AskMarkdown: tables degrade to a horizontally-scrollable monospace block
+ * Divergences vs web Markdown: tables degrade to a horizontally-scrollable monospace block
  * (RN has no <table>); inline `[n]` citation markers render as plain text (the citation CHIPS below
  * the answer are the jump surface on mobile). Links render as literal text (the inline pass has no
  * link rule) — intended: answers are grounded in the book, external links are vanishingly rare.
@@ -59,7 +60,7 @@ function renderInline(line: string, colors: InlineColors, keyPrefix: string): Re
 
 const HEADING_SIZE: Record<number, number> = { 1: 22, 2: 19, 3: 17, 4: 15, 5: 14, 6: 13 }
 
-export const AskMarkdown = memo(function AskMarkdown({ text }: { text: string }) {
+export const Markdown = memo(function Markdown({ text }: { text: string }) {
   const { colors } = useTheme()
   const inline: InlineColors = { text: colors.text, code: colors.primary, codeBg: colors.border + '66' }
   const blocks: ReactNode[] = []
