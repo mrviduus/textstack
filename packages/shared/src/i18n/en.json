@@ -652,5 +652,29 @@
     "offline": {
       "body": "Your saved words will be here as soon as you reconnect."
     }
+  },
+  "connect": {
+    "title": "Connect an assistant",
+    "lead": "Create a key and paste it into Claude or ChatGPT once. It can then read the books you upload and write conclusions back into them. The key does not expire — revoke it here whenever you like.",
+    "createCta": "Create a key",
+    "creating": "Creating…",
+    "shownOnce": "Copy this now — it is shown once and cannot be recovered. We store only a hash of it.",
+    "copyKey": "Copy key",
+    "copyConfig": "Copy config",
+    "configLabel": "Claude Desktop config, with your key already in it",
+    "endpointLabel": "Server URL, if your client asks for one",
+    "copied": "Copied",
+    "empty": "No keys yet.",
+    "revoke": "Revoke",
+    "usedRecently": "used recently",
+    "neverUsed": "never used",
+    "loadFailed": "Could not load your keys.",
+    "createFailed": "Could not create a key.",
+    "revokeFailed": "Could not revoke that key.",
+    "signIn": {
+      "title": "Sign in to connect an assistant",
+      "subtitle": "A key reaches your whole library and lasts until you revoke it, so it belongs to an account rather than a guest session.",
+      "cta": "Sign in"
+    }
   }
 }

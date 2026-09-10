@@ -121,6 +121,16 @@ export interface Capabilities {
    */
   canSyncAcrossDevices: boolean
   /**
+   * Mint a connect key for an outside assistant (Claude, ChatGPT).
+   *
+   * Account-only, and for a sharper reason than the others here: a key reaches
+   * the reader's whole library from outside the app and lives until revoked. A
+   * guest's identity is three SecureStore keys that vanish with the app, so a
+   * key minted by one would outlive every means of revoking it — a durable
+   * credential hanging off a session that cannot be recovered.
+   */
+  canConnectAssistant: boolean
+  /**
    * Sign out without a confirmation step.
    *
    * False for a guest: the SecureStore tokens are the ONLY handle on that
@@ -157,6 +167,10 @@ export function capabilitiesFor(user: UserDto | null): Capabilities {
     canEditIdentity: isAccount,
     canDeleteAccount: isAccount,
     canSyncAcrossDevices: isAccount,
+    // A connect key reaches the reader's whole library from outside the app and never expires until
+    // revoked. A guest's identity is three SecureStore keys that vanish with the app, so a key
+    // minted by one would outlive any way of revoking it.
+    canConnectAssistant: isAccount,
     // Note the asymmetry: `!isGuest`, not `isAccount`. Signed out is already
     // signed out; only a guest has something irrecoverable to lose.
     canSignOutSilently: !isGuest,
