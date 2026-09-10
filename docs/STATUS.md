@@ -79,6 +79,14 @@ answers "what happened" and nothing answered "what is half-finished right now".
 
 ## Known-broken / open follow-ups
 
+- **Five web modules and one stylesheet have no importers, and did not before this work either.**
+  `lib/fuzzyMatch.ts`, `lib/wordAtPoint.ts`, `hooks/useOfflineDownload.ts`, `hooks/useSwipe.ts`,
+  `hooks/useVocabLevel.ts`, and `styles/native-language-picker.css` (whose `.native-lang-picker`
+  selector appears in no component). Verified dead on `main` as well, so this is pre-existing rather
+  than fallout from the 2026-09-10 cut — recorded here rather than swept in with it. `useSwipe` and
+  `useOfflineDownload` in particular are documented in this file's own hook inventory as if they were
+  live; they are not.
+
 Each of these is a real defect that is *known and not yet fixed*. They live here rather than in
 someone's memory.
 
