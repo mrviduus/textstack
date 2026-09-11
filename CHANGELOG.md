@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Insights** — a conclusion filed against the wrong chapter can be removed; it used to be permanent — backend, web, mobile · [details](docs/changelog-archive/2026-H2.md#2026-09-10-insights-a-conclusion-can-be-removed)
 - **Progress** — one "mark as finished" across web and mobile, and the first write for a book stops being the exception — backend, web, mobile, shared · [details](docs/changelog-archive/2026-H2.md#2026-09-10-progress-the-same-action-writes-the-same-thing)
 - **MCP** — the assistant can see where you are, and can record a chapter you finished somewhere else — backend · [details](docs/changelog-archive/2026-H2.md#2026-09-10-mcp-the-assistant-can-see-where-you-are)
 - **Mobile** — the assistant handoff and the conclusions it writes back reach the phone, and a percent that was silently a fraction — mobile, web, shared · [details](docs/changelog-archive/2026-H2.md#2026-09-08-mcp-the-book-opens-to-your-assistant-and-the-conclusions-come-back)
