@@ -158,6 +158,11 @@ public static class UserDataEndpoints
         }
         else
         {
+            // Built empty, then filled by the SAME method the update path uses. It used to assign
+            // the columns here by hand, and the copy had drifted: `Percent = request.Percent` with
+            // no unit check, so the FIRST write for an edition kept an untrusted percentage that
+            // every later write would have refused, and CompletedAt was never set on a book finished
+            // in one go. Two code paths writing one row is how that happens; now there is one.
             var progress = new ReadingProgress
             {
                 Id = Guid.NewGuid(),
@@ -166,11 +171,8 @@ public static class UserDataEndpoints
                 EditionId = editionId,
                 ChapterId = request.ChapterId,
                 Locator = request.Locator,
-                PositionJson = ReaderPosition.ToStore(request.PositionJson, request.Locator),
-                Percent = request.Percent,
-                MaxChapterNumber = chapter.ChapterNumber,
-                UpdatedAt = DateTimeOffset.UtcNow
             };
+            ApplyProgressUpdate(progress, request, chapter);
             db.ReadingProgresses.Add(progress);
             existing = progress;
             inserted = progress;

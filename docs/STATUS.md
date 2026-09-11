@@ -79,13 +79,16 @@ answers "what happened" and nothing answered "what is half-finished right now".
 
 ## Known-broken / open follow-ups
 
-- **Five web modules and one stylesheet have no importers, and did not before this work either.**
+- ~~**Five web modules and one stylesheet have no importers.**~~ Deleted 2026-09-10 —
   `lib/fuzzyMatch.ts`, `lib/wordAtPoint.ts`, `hooks/useOfflineDownload.ts`, `hooks/useSwipe.ts`,
-  `hooks/useVocabLevel.ts`, and `styles/native-language-picker.css` (whose `.native-lang-picker`
-  selector appears in no component). Verified dead on `main` as well, so this is pre-existing rather
-  than fallout from the 2026-09-10 cut — recorded here rather than swept in with it. `useSwipe` and
-  `useOfflineDownload` in particular are documented in this file's own hook inventory as if they were
-  live; they are not.
+  `hooks/useVocabLevel.ts`, `styles/native-language-picker.css`. The hook inventory in `CLAUDE.md`
+  listed three of them as live and no longer does.
+
+- **Two progress-path defects are deliberately not being fixed**, and the reasons are worth reading
+  before someone "fixes" them: `LocatorKind` on the catalog path would refuse the mark-as-read
+  sentinel it was meant to protect (catalog books have no second coordinate space at all), and
+  `MaxChapterNumber` now has no reader — its only one was the deleted RAG spoiler gate. Both are
+  written up in [`assistant-handoff.md`](05-features/assistant-handoff.md#defects-found-along-the-way).
 
 Each of these is a real defect that is *known and not yet fixed*. They live here rather than in
 someone's memory.

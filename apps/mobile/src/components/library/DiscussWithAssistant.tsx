@@ -1,6 +1,7 @@
 import { View, Text, StyleSheet, TouchableOpacity, Linking } from 'react-native'
 import { buildHandoffBrief, handoffUrl, type HandoffBook, type Assistant } from '@textstack/shared'
 import { useTheme } from '../../context/ThemeContext'
+import { useToast } from '../../context/ToastContext'
 import { useLanguage } from '../../context/LanguageContext'
 import { fonts } from '../../theme/typography'
 
@@ -17,18 +18,21 @@ import { fonts } from '../../theme/typography'
  * ChatGPT app installed the deep link opens the app; without it, the browser.
  * Either way the conversation starts with the book already named.
  *
- * Failures are swallowed on purpose. `openURL` rejects when nothing can handle
- * the scheme, and there is nothing useful to say about that beyond what not
- * opening already says — an alert here would be an error dialog for "you have no
- * browser", which is not a state worth a modal.
+ * A failure is reported, quietly. `openURL` rejects when nothing on the device can handle the URL,
+ * and the tap then does *nothing at all* — the one outcome a reader cannot tell apart from a broken
+ * button. A toast is the smallest thing that distinguishes "it did not work" from "it did nothing",
+ * without an error modal for "you have no browser".
  */
 export function DiscussWithAssistant(props: HandoffBook) {
   const { colors } = useTheme()
   const { t } = useLanguage()
+  const { show: showToast } = useToast()
   const brief = buildHandoffBrief(props)
 
   const open = (assistant: Assistant) => {
-    Linking.openURL(handoffUrl(assistant, brief)).catch(() => {})
+    Linking.openURL(handoffUrl(assistant, brief)).catch(() => {
+      showToast({ message: t('library.discuss.failed'), variant: 'error' })
+    })
   }
 
   return (

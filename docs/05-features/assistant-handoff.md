@@ -322,20 +322,36 @@ These exist independently of this feature; they were found while tracing it. Als
    (`McpToolCatalog.cs:637`) — which is not true today.
 3. **A refused write reports success.** `LocatorSpace.MayReplace` refusal returns `(true, null)`
    (`UserBookService.cs:551-554`). The caller gets 200 and believes it saved.
-4. **Web and mobile write different locators for the same action.** Web `markAsRead` sends the
-   `{"type":"end"}` sentinel (`apps/web/src/api/auth.ts:235-241`); mobile sends
-   `scroll:<slug>:0` (`apps/mobile/src/hooks/useBookActions.ts:38-66`).
-5. **The catalog INSERT branch stores `Percent` with no unit check** (`UserDataEndpoints.cs:170`)
-   while the UPDATE branch checks (`:244`). The first write for an edition keeps an untrusted
-   percentage; every later one does not.
-6. **The catalog request has no `LocatorKind`** and never calls `LocatorSpace.MayReplace`, so a
-   `scroll:` write freely overwrites `page:16`. Uploads are guarded; catalog books are not.
-7. **`markAsUnread` never lowers `MaxChapterNumber`.** Un-marking a book as read leaves the RAG
-   spoiler gate permanently open.
+4. ~~**Web and mobile write different locators for the same action.**~~ Fixed 2026-09-10. The
+   sentinels are now one definition — `PROGRESS_LOCATOR_END` / `_START` in
+   `packages/shared/src/reader/progressLocators.ts` — and mobile's "mark finished" goes through
+   `markProgressFinished` instead of sending `scroll:<lastSlug>:0`, which reopened a finished book at
+   the top of its last chapter.
+5. ~~**The catalog INSERT branch stores `Percent` with no unit check.**~~ Fixed 2026-09-10: the
+   insert builds an empty row and hands it to `ApplyProgressUpdate`, the same method the update path
+   uses, so there is one copy of the rule instead of two that had already drifted. It also fixes a
+   second consequence nobody had named — a book finished in a single write never got a `CompletedAt`.
+   Covered by `ProgressUnitEndpointTests`, which fails against the old build.
+6. **The catalog request has no `LocatorKind`** and never calls `LocatorSpace.MayReplace`.
+   **Deliberately not fixed, 2026-09-10.** The guard exists because an upload can be read two ways —
+   Original-layout PDF (`page:<n>`) and reflow (`scroll:…`). A catalog edition has no PDF and no
+   second space, so there is nothing for the guard to protect. Worse, it would break what it was
+   meant to protect: `MayReplace` refuses any write whose locator belongs to no space, and
+   `{"type":"end"}` — the mark-as-read sentinel both clients now write — is exactly that. Revisit
+   only if catalog books ever render as originals.
+7. **`markAsUnread` never lowers `MaxChapterNumber`** — **moot since 2026-09-10.** The only reader
+   of that column was the RAG spoiler gate, which was deleted with `ask_book`. It is now written by
+   two code paths and read by none: a drop candidate, not a bug. Left in place because dropping a
+   column on a production table to delete a value nobody reads is the more expensive mistake.
 8. **An untrusted percent unit is discarded silently** — `ProgressUnit.IsTrusted` false, the write
-   succeeds, the number is absent, no error is returned.
-9. **`ReadingProgressDto` is mirrored twice in TypeScript and the copies are not linked** —
-   `packages/shared/src/types/api.ts:140` and `apps/web/src/api/auth.ts:180`.
+   succeeds, the number is absent, no error is returned. **Kept**, and the reason is in `ProgressUnit`
+   itself: the callers that omit the unit are installed builds that cannot act on an error and would
+   retry into it. What changed on 2026-09-10 is that the one caller who CAN act — an assistant over
+   MCP — always declares `"book"`, so it never lands in this branch. The refusal that *is* worth
+   reporting (`MayReplace`) now is.
+9. ~~**`ReadingProgressDto` is mirrored twice in TypeScript.**~~ Fixed 2026-09-10: web imports the
+   shared type and re-exports it, so the twenty-odd `from '../api/auth'` imports keep working against
+   one definition.
 10. **`ReadingProgressDto.ChapterSlug` lags under infinite scroll** (#496/#500/#501), which is why
     `continueReading.ts:150` prefers the locator via `resumeChapterSlug`. Anything reading the slug
     directly reads a stale value.
