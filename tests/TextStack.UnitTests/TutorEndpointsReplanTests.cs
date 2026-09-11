@@ -191,4 +191,89 @@ public class TutorEndpointsReplanTests
         Assert.True(TutorEndpoints.ReachedTurnCap(TutorEndpoints.MaxTurns));
         Assert.True(TutorEndpoints.ReachedTurnCap(TutorEndpoints.MaxTurns + 1));
     }
+
+    // ---- the exercise type has to change the card, not just the badge ------------------------------
+
+    private static TutorPlan PlanWith(string exerciseType, Guid id) =>
+        new([new TutorPlanItem(id, "alacrity", 3, exerciseType, TutorPlanItem.DifficultyHard, "why")],
+            "rationale", "keep reading");
+
+    [Fact]
+    public void EnrichPlanItems_Recognition_GivesFourOptionsAndNoSentencePrompt()
+    {
+        // "Which word means this" — options, but no cloze. The sentence still travels (the card can
+        // show it after the answer); what must be absent is the BLANKED one, which would turn a
+        // recognition exercise into a context one.
+        var dtos = TutorEndpoints.EnrichPlanItems(
+            PlanWith(TutorPlanItem.ExerciseRecognition, A),
+            [Card(A, "[\"sloth\",\"reluctance\",\"delay\"]")]);
+
+        var dto = Assert.Single(dtos);
+        Assert.NotNull(dto.Options);
+        Assert.Equal(4, dto.Options!.Count);
+        Assert.Equal("alacrity", dto.Options[dto.CorrectOptionIndex!.Value]);
+        Assert.Null(dto.BlankSentence);
+    }
+
+    [Fact]
+    public void EnrichPlanItems_Recall_HasNoOptionsAtAll()
+    {
+        // Recall is a flashcard the learner grades themselves. Four options would make it a
+        // recognition exercise wearing a recall label — easier, and mis-scored against the stage.
+        var dtos = TutorEndpoints.EnrichPlanItems(
+            PlanWith(TutorPlanItem.ExerciseRecall, A),
+            [Card(A, "[\"sloth\",\"reluctance\",\"delay\"]")]);
+
+        var dto = Assert.Single(dtos);
+        Assert.Null(dto.Options);
+        Assert.Null(dto.CorrectOptionIndex);
+        Assert.Null(dto.BlankSentence);
+    }
+
+    [Fact]
+    public void EnrichPlanItems_Context_BlanksTheWordOutOfItsOwnSentence()
+    {
+        var dtos = TutorEndpoints.EnrichPlanItems(
+            PlanWith(TutorPlanItem.ExerciseContext, A),
+            [Card(A, "[\"sloth\",\"reluctance\",\"delay\"]")]);
+
+        var dto = Assert.Single(dtos);
+        Assert.NotNull(dto.Options);
+        Assert.Equal("alacrity", dto.Options![dto.CorrectOptionIndex!.Value]);
+        Assert.NotNull(dto.BlankSentence);
+        // The answer must not survive inside the prompt that asks for it.
+        Assert.DoesNotContain("alacrity", dto.BlankSentence!, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void EnrichPlanItems_ContextWithNoSentence_DegradesToPlainOptions_NotAnEmptyCloze()
+    {
+        // CalibrateForStage downgrades this case to recall before it reaches here, so it should be
+        // unreachable — but an empty blank with nothing around it is the one outcome that would be
+        // worse than a plain card, so it is pinned rather than trusted.
+        var noSentence = Card(A, "[\"sloth\",\"reluctance\",\"delay\"]");
+        noSentence.Sentence = null;
+
+        var dtos = TutorEndpoints.EnrichPlanItems(PlanWith(TutorPlanItem.ExerciseContext, A), [noSentence]);
+
+        var dto = Assert.Single(dtos);
+        Assert.NotNull(dto.Options);
+        Assert.Null(dto.BlankSentence);
+    }
+
+    [Fact]
+    public void EnrichPlanItems_DistractorsComeFromTheOtherCardsInTheSession()
+    {
+        // A distractor the learner has actually met is a real choice; a hardcoded filler is a
+        // giveaway. With no LLM distractors on the row, the session's own words are the pool.
+        var target = Card(A);
+        var other = Card(B);
+        other.Word = "sloth";
+
+        var dtos = TutorEndpoints.EnrichPlanItems(PlanWith(TutorPlanItem.ExerciseRecognition, A), [target, other]);
+
+        var dto = Assert.Single(dtos);
+        Assert.Contains("sloth", dto.Options!);
+    }
 }
+

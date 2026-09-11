@@ -7,9 +7,13 @@ import { authFetch } from './client'
 // --- Types (mirror Contracts/Agents/TutorDtos.cs, camelCase via the API) ---
 
 /**
- * One planned study item. The backend now ENRICHES each item with the full card payload (translation,
- * definition, sentence, bookTitle, hint, distractors), so the UI renders cards straight from the plan —
- * no separate vocab fetch + join. References a REAL vocab card by `wordId`, with per-item `why` reasoning.
+ * One planned study item. The backend ENRICHES each item with the full card payload, so the UI renders
+ * cards straight from the plan — no separate vocab fetch + join. References a REAL vocab card by
+ * `wordId`, with per-item `why` reasoning.
+ *
+ * The SHAPE of the exercise is decided server-side too: `options` / `correctOptionIndex` /
+ * `blankSentence` follow `exerciseType`, built by the same option builder the review flow uses.
+ * `recall` carries no options on purpose — it is a flashcard the learner grades themselves.
  */
 export interface TutorPlanItem {
   wordId: string
@@ -24,6 +28,11 @@ export interface TutorPlanItem {
   bookTitle?: string | null
   hint?: string | null
   distractors: string[] // [] when none, never null
+  /** Four shuffled choices. Null for `recall`, which has no options by design. */
+  options?: string[] | null
+  correctOptionIndex?: number | null
+  /** The saved sentence with the word removed — `context` only. */
+  blankSentence?: string | null
 }
 
 /** The tutor's response: the persisted session, the ordered plan, and the surfaced reasoning. */

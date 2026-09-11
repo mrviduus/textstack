@@ -9,6 +9,8 @@ using Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 using TextStack.Ai.Agents;
 using TextStack.Ai.Core;
+using TextStack.Vocabulary;
+using TextStack.Vocabulary.Contracts;
 
 namespace Api.Endpoints;
 
@@ -276,12 +278,55 @@ public static class TutorEndpoints
         {
             if (!byId.TryGetValue(i.WordId, out var card))
                 continue; // planned id isn't one of the caller's cards → drop (anti-hallucination re-check)
+            var (options, correctIndex, blankSentence) = ShapeExercise(i.ExerciseType, card, cards);
+
             result.Add(new TutorPlanItemDto(
                 i.WordId, i.Word, i.Stage, i.ExerciseType, i.Difficulty, i.Why,
                 card.Translation, card.Definition, card.Sentence, card.BookTitle, card.Hint,
-                ParseDistractors(card.Distractors)));
+                ParseDistractors(card.Distractors),
+                options, correctIndex, blankSentence));
         }
         return result;
+    }
+
+    /// <summary>
+    /// Turns the calibrated exercise type into the card the learner actually gets.
+    ///
+    /// <para>This is the step that was missing. The type was computed from the card's SRS stage,
+    /// carried all the way to the client, and then rendered as a badge over a flashcard that was the
+    /// same for all three — so a calibration the server had reasoned about changed nothing at all.
+    /// </para>
+    ///
+    /// <para>Options come from <see cref="McOptions"/>, the same builder the vocabulary-review flow
+    /// uses, rather than a second implementation on each client. The distractor pool is the OTHER
+    /// words in this session: the learner's own vocabulary, which is what the review flow falls back
+    /// to as well, and better than a hardcoded list because a distractor they have met is a real
+    /// choice rather than an obvious filler.</para>
+    ///
+    /// <para><c>context</c> without a sentence cannot happen — <c>CalibrateForStage</c> downgrades
+    /// that case to <c>recall</c> before it reaches here — but if it ever did, the cloze would be a
+    /// blank with nothing around it, so it degrades to a plain four-option card rather than a broken
+    /// one.</para>
+    /// </summary>
+    internal static (IReadOnlyList<string>? Options, int? CorrectIndex, string? BlankSentence) ShapeExercise(
+        string exerciseType, VocabularyWord card, IReadOnlyList<VocabularyWord> sessionCards)
+    {
+        // Recall is a flashcard: the learner says whether they knew it. Handing them four options
+        // would make it a recognition exercise wearing a recall label.
+        if (exerciseType == TutorPlanItem.ExerciseRecall) return (null, null, null);
+
+        var pool = sessionCards
+            .Where(c => c.Id != card.Id)
+            .Select(c => new DistractorPoolEntry(c.Word, c.Language))
+            .ToList();
+
+        var (options, correctIndex) = McOptions.Build(card.Word, card.Language, card.Distractors, pool);
+
+        var blank = exerciseType == TutorPlanItem.ExerciseContext && card.Sentence != null
+            ? SentenceHelper.ReplaceWordInSentence(card.Sentence, card.Word)
+            : null;
+
+        return (options, correctIndex, blank);
     }
 
     /// <summary>

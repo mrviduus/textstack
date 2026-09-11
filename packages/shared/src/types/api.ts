@@ -320,8 +320,9 @@ export interface ReviewCardDto {
    * (`apps/mobile/src/lib/reviewMode.ts`, added in #562, and
    * `apps/web/src/pages/VocabularyReviewPage.tsx`), whose `ReviewMode` is
    * `'blitz' | 'classic'` — a different vocabulary that only happens to share the
-   * name. The one place `'context'` is asserted is a unit test of the tutor's
-   * local card projection.
+   * name. Nothing asserts a particular value any more: the tutor's projection
+   * test now checks `options` / `blankSentence`, which is what the card is drawn
+   * from.
    *
    * `'context'` also cannot arrive over the wire. `SrsEngine.GetReviewMode` can
    * return it for stages 3-4 with a sentence, but `ReviewCardBuilder` builds MC

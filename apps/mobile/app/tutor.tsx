@@ -13,6 +13,7 @@ import { fonts } from '../src/theme/typography'
 import { EmptyState } from '../src/components/ui/EmptyState'
 import { PressableScale } from '../src/components/ui/PressableScale'
 import { FlashCard } from '../src/components/vocabulary/FlashCard'
+import { MultipleChoiceCard } from '../src/components/vocabulary/MultipleChoiceCard'
 import { TutorPlanView } from '../src/components/vocabulary/TutorPlanView'
 import { exerciseLabel } from '../src/lib/agents'
 
@@ -229,13 +230,26 @@ export default function TutorScreen() {
         </View>
 
         <View style={styles.cardArea}>
-          <FlashCard
-            key={entry.item.wordId + tutor.currentIndex}
-            card={entry.card}
-            onAnswer={(isCorrect, responseTimeMs) => handleAnswer(isCorrect, responseTimeMs)}
-            onSpeak={handleSpeak}
-            onFlip={() => haptics.play('flip')}
-          />
+          {/* The exercise the tutor planned, actually rendered. `recognition` and `context` arrive
+              with four options (the cloze prompt is what separates them); `recall` arrives with none,
+              because grading yourself is the point of that stage. Chosen from the payload rather than
+              the type string, so a card can never claim options it does not carry. */}
+          {entry.card.options ? (
+            <MultipleChoiceCard
+              key={entry.item.wordId + tutor.currentIndex}
+              card={entry.card}
+              onAnswer={(isCorrect, responseTimeMs) => handleAnswer(isCorrect, responseTimeMs)}
+              onSpeak={handleSpeak}
+            />
+          ) : (
+            <FlashCard
+              key={entry.item.wordId + tutor.currentIndex}
+              card={entry.card}
+              onAnswer={(isCorrect, responseTimeMs) => handleAnswer(isCorrect, responseTimeMs)}
+              onSpeak={handleSpeak}
+              onFlip={() => haptics.play('flip')}
+            />
+          )}
         </View>
       </SafeAreaView>
     </>

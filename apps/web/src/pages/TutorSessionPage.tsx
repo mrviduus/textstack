@@ -7,6 +7,7 @@ import { useTutorSession } from '../hooks/useTutorSession'
 import { useTts } from '../hooks/useTts'
 import { useSoundEffects } from '../hooks/useSoundEffects'
 import { FlashCard } from '../components/vocabulary/FlashCard'
+import { MultipleChoiceCard } from '../components/vocabulary/MultipleChoiceCard'
 import { TutorPlanView } from '../components/vocabulary/TutorPlanView'
 import { exerciseLabel, exerciseBadgeClass } from '../components/vocabulary/tutorLabels'
 import { SeoHead } from '../components/SeoHead'
@@ -169,14 +170,28 @@ export function TutorSessionPage() {
         <span className="tutor-study__why-text tutor-clamp tutor-clamp--3">{entry.item.why}</span>
       </div>
 
-      <FlashCard
-        key={entry.item.wordId + tutor.currentIndex}
-        card={entry.card}
-        onAnswer={handleAnswer}
-        onSpeak={handleSpeak}
-        onFlip={() => playSound('flip')}
-        t={t}
-      />
+      {/* The exercise the tutor planned, actually rendered. `recognition` and `context` arrive with
+          four options (the cloze prompt is the difference between them); `recall` arrives with none,
+          because grading yourself is the point of that stage. Chosen from the payload rather than
+          from the type string, so a card can never claim options it does not carry. */}
+      {entry.card.options ? (
+        <MultipleChoiceCard
+          key={entry.item.wordId + tutor.currentIndex}
+          card={entry.card}
+          onAnswer={handleAnswer}
+          onSpeak={handleSpeak}
+          t={t}
+        />
+      ) : (
+        <FlashCard
+          key={entry.item.wordId + tutor.currentIndex}
+          card={entry.card}
+          onAnswer={handleAnswer}
+          onSpeak={handleSpeak}
+          onFlip={() => playSound('flip')}
+          t={t}
+        />
+      )}
     </div>
   )
 }
