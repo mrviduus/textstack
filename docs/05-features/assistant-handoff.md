@@ -160,22 +160,15 @@ required", and `last_used_at` is stamped. That covers the bridge path
   to-do here in error. **Do not re-raise it** — the earlier wording here has already misled one agent
   into reporting it as an urgent deadline.
 
-### Left behind by the cut — a follow-up, found 2026-09-10 after PR #596 opened
+### Left behind by the cut — ~~a follow-up~~ done in PR #597
 
-Removing the chat left inert plumbing on the mobile side. None of it is a correctness risk — the
-modules have no importers and the one live-looking block cannot execute — but it is exactly the
-residue this work exists to remove, so it goes in its own small PR rather than riding along:
-
-- **`apps/mobile/src/lib/sse.ts` and `sseParser.ts` (+ its test) have no consumers at all.** Their
-  only caller was `bookChat.ts`. Note the web's `lib/sse.ts` is NOT dead — `useExplain` still streams
-  through it.
-- **`ReaderShell.tsx` still imports `citationChapterSlug` and `makeSnippet`**, and keeps
-  `pendingCitationRef` + `scrollToCitation` alive at :653-654 and :960-963. The only writer of that
-  ref was the deleted `handleCitation`, so the ref is permanently null and the block at :960 can
-  never run.
-- **`packages/shared/src/reader/citation.ts`** exists for that path only.
-- **`AskCitation`, `AskResponse`, `AskTurnDto`, `AskTarget`** in `packages/shared/src/types/api.ts`
-  are now referenced only by the dead `sseParser` and by `citation.ts`'s own doc comment.
+Removing the chat left inert plumbing on the mobile side: `apps/mobile/src/lib/sse.ts` and
+`sseParser.ts` (+ its test), `ReaderShell`'s `citationChapterSlug` / `makeSnippet` imports and its
+permanently-null `pendingCitationRef`, `packages/shared/src/reader/citation.ts`, and the `AskCitation`
+/ `AskResponse` / `AskTurnDto` / `AskTarget` types. **All removed in #597** — verified 2026-09-10:
+every one of those names now has zero references anywhere in `apps/` or `packages/`, and the files
+are gone. The list is kept struck through rather than deleted because the reasoning (the web's own
+`lib/sse.ts` is NOT dead — `useExplain` still streams through it) is the part worth not re-deriving.
 
 ### Found while cutting — decisions still open
 
