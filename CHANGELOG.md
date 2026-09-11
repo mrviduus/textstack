@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Genres** — opening any genre on the phone showed nothing, because the endpoint never sent the authors both clients read — backend, mobile, shared · [details](docs/changelog-archive/2026-H2.md#2026-09-11-genres-a-field-two-clients-used-and-the-server-never-sent)
 - **Tutor** — the exercise it plans is now the card you actually get, not a badge over one flashcard — backend, web, mobile · [details](docs/changelog-archive/2026-H2.md#2026-09-11-tutor-the-planned-exercise-becomes-the-card)
 - **Tutor** — the planner was being told to call a tool deleted months ago, on every run — backend · [details](docs/changelog-archive/2026-H2.md#2026-09-11-tutor-an-instruction-that-could-not-be-obeyed)
 - **Guests** — the middleware that keeps an active reader from being deleted had never run once — backend · [details](docs/changelog-archive/2026-H2.md#2026-09-11-guests-a-middleware-that-never-ran)

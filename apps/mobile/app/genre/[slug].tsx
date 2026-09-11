@@ -117,7 +117,11 @@ export default function GenreScreen() {
                 <BookCard
                   key={ed.id}
                   title={ed.title}
-                  author={ed.authors.map(a => a.name).join(', ')}
+                  // `?? []` is not defensive noise: an OTA and an API deploy are separate events, so
+                  // this bundle can run against a server that predates authors being sent here. It
+                  // threw `Cannot read property 'map' of undefined` on every genre with books until
+                  // 2026-09-11, because the shared type promised a field the endpoint never sent.
+                  author={(ed.authors ?? []).map(a => a.name).join(', ')}
                   coverUrl={getStorageUrl(ed.coverPath)}
                   onPress={() => router.push(`/book/${ed.slug}`)}
                 />
