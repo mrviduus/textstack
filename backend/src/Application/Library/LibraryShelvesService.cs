@@ -105,6 +105,12 @@ public class LibraryShelvesService(IAppDbContext db)
                 e.Language,
                 Progress = latestProgress.Percent ?? 0,
                 CurrentChapterId = (Guid?)latestProgress.ChapterId,
+                // Resolved here rather than by the caller: the id is useless to a client, and a
+                // second round trip per book is what this shelf existed to avoid.
+                CurrentChapterSlug = db.Chapters
+                    .Where(c => c.Id == latestProgress.ChapterId)
+                    .Select(c => c.Slug)
+                    .FirstOrDefault(),
                 CurrentLocator = latestProgress.Locator,
                 CurrentPositionJson = latestProgress.PositionJson,
                 LastOpened = (DateTimeOffset?)latestProgress.UpdatedAt,
@@ -130,7 +136,7 @@ public class LibraryShelvesService(IAppDbContext db)
                     u.Id, "userbook", u.Title, u.Author, u.CoverPath, u.Slug, u.Language,
                     p, u.LastOpened, u.CreatedAt,
                     EstimateRemaining(u.TotalWordCount, p, pace),
-                    u.ProgressLocator, u.ProgressPositionJson);
+                    u.ProgressLocator, u.ProgressPositionJson, u.ProgressChapterSlug);
             })
             .Concat(saved.Select(s =>
             {
@@ -139,7 +145,7 @@ public class LibraryShelvesService(IAppDbContext db)
                     s.Id, "savedbook", s.Title, s.Author, s.CoverPath, s.Slug, s.Language,
                     p, s.LastOpened, s.CreatedAt,
                     EstimateRemaining(s.TotalWordCount, p, pace),
-                    s.CurrentLocator, s.CurrentPositionJson);
+                    s.CurrentLocator, s.CurrentPositionJson, s.CurrentChapterSlug);
             }))
             .OrderByDescending(i => i.LastOpenedAt ?? DateTimeOffset.MinValue)
             .Take(ShelfLimit)
@@ -199,6 +205,9 @@ public class LibraryShelvesService(IAppDbContext db)
                 ul.CreatedAt,
                 LatestProgress = latest != null ? latest.Percent : null,
                 CurrentChapterId = latest != null ? (Guid?)latest.ChapterId : null,
+                CurrentChapterSlug = latest != null
+                    ? db.Chapters.Where(c => c.Id == latest.ChapterId).Select(c => c.Slug).FirstOrDefault()
+                    : null,
                 CurrentLocator = latest != null ? latest.Locator : null,
                 CurrentPositionJson = latest != null ? latest.PositionJson : null,
                 LastOpened = latest != null ? (DateTimeOffset?)latest.UpdatedAt : null,
@@ -215,7 +224,7 @@ public class LibraryShelvesService(IAppDbContext db)
                     u.Id, "userbook", u.Title, u.Author, u.CoverPath, u.Slug, u.Language,
                     p, u.LastOpened, u.CreatedAt,
                     EstimateRemaining(u.TotalWordCount, p, pace),
-                    u.ProgressLocator, u.ProgressPositionJson);
+                    u.ProgressLocator, u.ProgressPositionJson, u.ProgressChapterSlug);
             })
             .Concat(saved.Select(s =>
             {
@@ -224,7 +233,7 @@ public class LibraryShelvesService(IAppDbContext db)
                     s.Id, "savedbook", s.Title, s.Author, s.CoverPath, s.Slug, s.Language,
                     p, s.LastOpened, s.CreatedAt,
                     EstimateRemaining(s.TotalWordCount, p, pace),
-                    s.CurrentLocator, s.CurrentPositionJson);
+                    s.CurrentLocator, s.CurrentPositionJson, s.CurrentChapterSlug);
             }))
             .OrderByDescending(i => i.CreatedAt)
             .Take(ShelfLimit)
@@ -290,6 +299,9 @@ public class LibraryShelvesService(IAppDbContext db)
                 e.Language,
                 Progress = (latest != null ? latest.Percent : null) ?? 0,
                 CurrentChapterId = latest != null ? (Guid?)latest.ChapterId : null,
+                CurrentChapterSlug = latest != null
+                    ? db.Chapters.Where(c => c.Id == latest.ChapterId).Select(c => c.Slug).FirstOrDefault()
+                    : null,
                 CurrentLocator = latest != null ? latest.Locator : null,
                 CurrentPositionJson = latest != null ? latest.PositionJson : null,
                 LastOpened = latest != null ? (DateTimeOffset?)latest.UpdatedAt : null,

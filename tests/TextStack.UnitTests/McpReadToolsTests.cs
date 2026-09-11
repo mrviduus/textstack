@@ -84,7 +84,7 @@ public class McpReadToolsTests
         var names = catalog.ListTools().Select(t => t.Name).OrderBy(n => n).ToArray();
 
         Assert.Equal(
-            ["get_book", "get_chapter", "get_my_book", "get_my_chapter", "get_my_insights", "list_my_book_highlights", "list_my_highlights", "list_my_vocabulary", "save_highlight", "save_insight", "save_my_highlight", "search_books", "search_my_library"],
+            ["get_book", "get_book_progress", "get_chapter", "get_my_book", "get_my_chapter", "get_my_insights", "get_my_reading", "list_my_book_highlights", "list_my_highlights", "list_my_vocabulary", "save_highlight", "save_insight", "save_my_highlight", "search_books", "search_my_library", "set_book_progress"],
             names);
     }
 
@@ -147,7 +147,7 @@ public class McpReadToolsTests
               "description": "A tale.",
               "authors": [{ "id": "1", "slug": "lc", "name": "Lewis Carroll", "role": "author" }],
               "genres": [{ "id": "2", "slug": "fantasy", "name": "Fantasy" }],
-              "chapters": [{ "id": "9", "chapterNumber": 1, "slug": "ch-1", "title": "Down", "wordCount": 1200 }]
+              "chapters": [{ "id": "44444444-4444-4444-4444-444444444444", "chapterNumber": 1, "slug": "ch-1", "title": "Down", "wordCount": 1200 }]
             }
             """;
         var (catalog, handler) = BuildCatalog(Json(body));
@@ -169,6 +169,9 @@ public class McpReadToolsTests
         Assert.Equal(1, ch.GetProperty("chapterNumber").GetInt32());
         Assert.Equal("ch-1", ch.GetProperty("slug").GetString());
         Assert.Equal(1200, ch.GetProperty("wordCount").GetInt32());
+        // The chapter GUID save_highlight's own description tells the model to take "from get_book".
+        // The projection used to drop it, so following that instruction was impossible.
+        Assert.Equal("44444444-4444-4444-4444-444444444444", ch.GetProperty("chapterId").GetString());
     }
 
     [Fact]

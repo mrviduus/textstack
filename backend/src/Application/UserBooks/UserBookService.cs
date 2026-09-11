@@ -544,9 +544,25 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage, IEnt
         // snapshot as the locator.
         if (!LocatorSpace.MayReplace(book.ProgressLocator, request.Locator, request.LocatorKind))
         {
-            // Silent, like the stale-write branch below used to be: an old client
-            // cannot act on an error and would only retry into it.
-            return (true, null);
+            // Reported, not silent. This used to return (true, null) on the reasoning that an old
+            // client cannot act on an error and would only retry into it — true of a reader's app,
+            // and exactly wrong for an assistant writing progress over MCP, which will report
+            // "recorded" to a person on the strength of a 200 that recorded nothing. A refusal here
+            // means the write carried a position in a coordinate space the stored one is not in.
+            return (false, "This book's position is stored in a different coordinate space. "
+                         + "Declare locatorKind to move it between them.");
+        }
+
+        // Validated, not trusted. This was a raw assignment, so an assistant that invented a chapter
+        // slug had it stored verbatim — and every later read would resolve it to nothing. The
+        // bookmark path in this same file has always checked (AddBookmarkAsync); progress never did.
+        // Null stays legal: a chapterless PDF in Original layout has a page, not a chapter.
+        if (!string.IsNullOrWhiteSpace(request.ChapterSlug))
+        {
+            var known = await db.UserChapters
+                .AnyAsync(c => c.UserBookId == bookId && c.Slug == request.ChapterSlug, ct);
+            if (!known)
+                return (false, $"No chapter '{request.ChapterSlug}' in this book");
         }
 
         book.ProgressChapterSlug = request.ChapterSlug;

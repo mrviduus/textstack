@@ -19,6 +19,12 @@ public class UserBookProgressServiceTests
     {
         public List<User> Users { get; } = [];
         public List<UserBook> UserBooks { get; } = [];
+
+        /// <summary>
+        /// The book's chapters. Progress writes are validated against these: a slug that names no
+        /// chapter is refused rather than stored, so a test that writes one must seed it.
+        /// </summary>
+        public List<UserChapter> UserChapters { get; } = [];
         public UserBookService Service { get; }
 
         public Harness()
@@ -26,12 +32,13 @@ public class UserBookProgressServiceTests
             var db = new Mock<IAppDbContext>();
             db.Setup(x => x.Users).Returns(() => FakeSet(Users).Object);
             db.Setup(x => x.UserBooks).Returns(() => FakeSet(UserBooks).Object);
+            db.Setup(x => x.UserChapters).Returns(() => FakeSet(UserChapters).Object);
             db.Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(0);
 
             Service = new UserBookService(db.Object, new Mock<IFileStorageService>().Object, TestEntitlements.Resolver);
         }
 
-        public UserBook SeedBook(Guid userId)
+        public UserBook SeedBook(Guid userId, params string[] chapterSlugs)
         {
             var b = new UserBook
             {
@@ -45,6 +52,18 @@ public class UserBookProgressServiceTests
                 UpdatedAt = DateTimeOffset.UtcNow
             };
             UserBooks.Add(b);
+            foreach (var slug in chapterSlugs)
+                UserChapters.Add(new UserChapter
+                {
+                    Id = Guid.NewGuid(),
+                    UserBookId = b.Id,
+                    ChapterNumber = UserChapters.Count,
+                    Slug = slug,
+                    Title = slug,
+                    Html = "<p/>",
+                    PlainText = "",
+                    CreatedAt = DateTimeOffset.UtcNow,
+                });
             return b;
         }
     }
@@ -97,7 +116,7 @@ public class UserBookProgressServiceTests
     {
         var h = new Harness();
         var userId = Guid.NewGuid();
-        var book = h.SeedBook(userId);
+        var book = h.SeedBook(userId, "chapter-3");
 
         var req = new UpsertUserBookProgressRequest(
             ChapterSlug: "chapter-3", Locator: "word:42", Percent: 0.5, UpdatedAt: null, PercentUnit: ProgressUnit.Book);
@@ -142,7 +161,7 @@ public class UserBookProgressServiceTests
         // bottom of every chapter.
         var h = new Harness();
         var userId = Guid.NewGuid();
-        var book = h.SeedBook(userId);
+        var book = h.SeedBook(userId, "ch-3", "ch-4");
 
         await h.Service.UpsertProgressAsync(userId, book.Id, new UpsertUserBookProgressRequest(
             ChapterSlug: "ch-3", Locator: "scroll:ch-3:1200", Percent: 0.42, UpdatedAt: null, PercentUnit: ProgressUnit.Book),
@@ -162,7 +181,7 @@ public class UserBookProgressServiceTests
     {
         var h = new Harness();
         var userId = Guid.NewGuid();
-        var book = h.SeedBook(userId);
+        var book = h.SeedBook(userId, "ch-1");
 
         await h.Service.UpsertProgressAsync(userId, book.Id, new UpsertUserBookProgressRequest(
             ChapterSlug: "ch-1", Locator: "scroll:ch-1:10", Percent: null, UpdatedAt: null, PercentUnit: ProgressUnit.Book),
@@ -192,7 +211,7 @@ public class UserBookProgressServiceTests
         // scale, so the position it reports is honoured and the number is not.
         var h = new Harness();
         var userId = Guid.NewGuid();
-        var book = h.SeedBook(userId);
+        var book = h.SeedBook(userId, "ch-1", "ch-9");
 
         await h.Service.UpsertProgressAsync(userId, book.Id, new UpsertUserBookProgressRequest(
             ChapterSlug: "ch-1", Locator: "scroll:ch-1:10", Percent: 0.30, UpdatedAt: null, PercentUnit: ProgressUnit.Book),
@@ -221,7 +240,7 @@ public class UserBookProgressServiceTests
         // installed build still does.
         var h = new Harness();
         var userId = Guid.NewGuid();
-        var book = h.SeedBook(userId);
+        var book = h.SeedBook(userId, "2-the-mom-test");
 
         await h.Service.UpsertProgressAsync(userId, book.Id, new UpsertUserBookProgressRequest(
             ChapterSlug: null, Locator: "page:16", Percent: 0.139, UpdatedAt: null,
@@ -243,7 +262,7 @@ public class UserBookProgressServiceTests
         // legitimately in scroll space, which is why the rule is not a ranking.
         var h = new Harness();
         var userId = Guid.NewGuid();
-        var book = h.SeedBook(userId);
+        var book = h.SeedBook(userId, "ch-2");
 
         await h.Service.UpsertProgressAsync(userId, book.Id, new UpsertUserBookProgressRequest(
             ChapterSlug: null, Locator: "page:16", Percent: 0.139, UpdatedAt: null,
@@ -265,7 +284,7 @@ public class UserBookProgressServiceTests
         // of their reading positions.
         var h = new Harness();
         var userId = Guid.NewGuid();
-        var book = h.SeedBook(userId);
+        var book = h.SeedBook(userId, "ch-1", "ch-4");
 
         await h.Service.UpsertProgressAsync(userId, book.Id, new UpsertUserBookProgressRequest(
             ChapterSlug: "ch-1", Locator: "scroll:ch-1:10", Percent: 0.1, UpdatedAt: null,
@@ -310,7 +329,7 @@ public class UserBookProgressServiceTests
         // was silently dropped. One clock per column, and the gate is gone with it.
         var h = new Harness();
         var userId = Guid.NewGuid();
-        var book = h.SeedBook(userId);
+        var book = h.SeedBook(userId, "ch-1", "ch-2");
 
         await h.Service.UpsertProgressAsync(userId, book.Id, new UpsertUserBookProgressRequest(
             ChapterSlug: "ch-1", Locator: "scroll:ch-1:10", Percent: 0.1,
@@ -337,7 +356,7 @@ public class UserBookProgressServiceTests
     {
         var h = new Harness();
         var userId = Guid.NewGuid();
-        var book = h.SeedBook(userId);
+        var book = h.SeedBook(userId, "2-act-i");
 
         var req = new UpsertUserBookProgressRequest(
             ChapterSlug: "2-act-i", Locator: "scroll:2-act-i:4200", Percent: 0.31, UpdatedAt: null,
@@ -361,7 +380,7 @@ public class UserBookProgressServiceTests
         // leave the row contradicting itself for as long as that device kept reading.
         var h = new Harness();
         var userId = Guid.NewGuid();
-        var book = h.SeedBook(userId);
+        var book = h.SeedBook(userId, "2-act-i");
         book.ProgressLocator = "scroll:2-act-i:4200";
         book.ProgressPositionJson = Anchor;
 
@@ -404,7 +423,7 @@ public class UserBookProgressServiceTests
         // the write, so it must not be the one field that leaks through.
         var h = new Harness();
         var userId = Guid.NewGuid();
-        var book = h.SeedBook(userId);
+        var book = h.SeedBook(userId, "1-intro");
         book.ProgressLocator = "page:16";
         book.ProgressPositionJson = null;
 
@@ -412,11 +431,38 @@ public class UserBookProgressServiceTests
             ChapterSlug: "1-intro", Locator: "scroll:1-intro:0", Percent: 0.04, UpdatedAt: null,
             PercentUnit: ProgressUnit.Book, PositionJson: Anchor);   // undeclared cross-space
 
-        var (success, _) = await h.Service.UpsertProgressAsync(userId, book.Id, req, CancellationToken.None);
+        var (success, error) = await h.Service.UpsertProgressAsync(userId, book.Id, req, CancellationToken.None);
 
-        Assert.True(success);                       // refusals are silent
+        // Reported, not silent. Silence was defensible while the only callers were readers' apps,
+        // which cannot act on an error and would retry into it. It stopped being defensible when an
+        // assistant became a caller over MCP: a 200 that stored nothing has it tell a person their
+        // progress was recorded.
+        Assert.False(success);
+        Assert.Contains("coordinate space", error);
         Assert.Equal("page:16", book.ProgressLocator);
         Assert.Null(book.ProgressPositionJson);
+    }
+
+    [Fact]
+    public async Task UpsertProgressAsync_UnknownChapterSlug_IsRefused_AndNothingIsStored()
+    {
+        // The slug used to be assigned raw. An assistant that invented one had it stored verbatim,
+        // and every later read — resume, shelf card, the reader itself — resolved it to nothing.
+        // The bookmark path in this same service has always checked; progress never did.
+        var h = new Harness();
+        var userId = Guid.NewGuid();
+        var book = h.SeedBook(userId, "1-intro");
+        book.ProgressChapterSlug = "1-intro";
+
+        var req = new UpsertUserBookProgressRequest(
+            ChapterSlug: "chapter-the-model-made-up", Locator: "scroll:chapter-the-model-made-up:0",
+            Percent: 0.5, UpdatedAt: null, PercentUnit: ProgressUnit.Book);
+
+        var (success, error) = await h.Service.UpsertProgressAsync(userId, book.Id, req, CancellationToken.None);
+
+        Assert.False(success);
+        Assert.Contains("chapter-the-model-made-up", error);
+        Assert.Equal("1-intro", book.ProgressChapterSlug);
     }
 
     [Fact]
@@ -427,7 +473,7 @@ public class UserBookProgressServiceTests
         // percentage still land.
         var h = new Harness();
         var userId = Guid.NewGuid();
-        var book = h.SeedBook(userId);
+        var book = h.SeedBook(userId, "2-act-i");
 
         var req = new UpsertUserBookProgressRequest(
             ChapterSlug: "2-act-i", Locator: "scroll:2-act-i:4200", Percent: 0.31, UpdatedAt: null,

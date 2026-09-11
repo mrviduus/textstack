@@ -99,5 +99,31 @@ public static class McpManifestCatalog
             + "reading order (requires authentication). Give EITHER bookId (an uploaded book) OR "
             + "editionId (a catalog book). Call this FIRST when starting to work on a book the reader "
             + "has discussed before — it is what stops the next session repeating the last one."),
+
+        new("get_my_reading",
+            "List what the reader is reading right now and what they recently finished, with titles "
+            + "and how far in they are (requires authentication). Takes no arguments. Call this FIRST "
+            + "when you do not already have a bookId or editionId — nothing else here can find a book "
+            + "without one. `source` says which: \"userbook\" means a book they uploaded, addressed by "
+            + "`bookId` in the _my_ tools; \"savedbook\" is a catalog book, addressed by `slug` in "
+            + "get_book/get_chapter and by `editionId` in the insight tools. `chapterSlug` is where "
+            + "they stopped. `allBooks` lists every upload including ones never opened."),
+
+        new("get_book_progress",
+            "How far the reader has got in one book, and which chapter they stopped in (requires "
+            + "authentication). Give EITHER bookId (a book they uploaded) OR editionId (a catalog "
+            + "book). Ask this before discussing a book you have not just been told the position of "
+            + "— it is what lets you avoid spoiling what they have not reached yet. A book they have "
+            + "never opened has no progress and says so."),
+
+        new("set_book_progress",
+            "Record that the reader has FINISHED a chapter, including one they read or listened to "
+            + "somewhere else — an audiobook, paper, another app (requires authentication). Give "
+            + "EITHER bookId (a book they uploaded) OR slug (a catalog book), plus the chapterSlug "
+            + "they finished; get_my_reading and get_book list the slugs. The app then resumes them "
+            + "at the START of the next chapter and its progress becomes chapters-finished over "
+            + "chapters-total; finishing the last chapter marks the book complete. Only call this "
+            + "when the reader says they finished something — it overwrites the exact position their "
+            + "reader had stored, and it cannot be undone from here."),
     ];
 }

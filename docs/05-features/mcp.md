@@ -8,9 +8,9 @@ reading, and manage your own highlights and vocabulary — all from the chat.
 This is the canonical reference. The [package README](https://www.nuget.org/packages/TextStack.Mcp)
 and the [landing page](https://textstack.app/en/mcp) point here.
 
-## The 13 tools
+## The 16 tools
 
-The server exposes 13 tools. The public ones need no auth; the user-scoped ones
+The server exposes 16 tools. The public ones need no auth; the user-scoped ones
 require you to be signed in (see [Authentication](#authentication)).
 
 **Two halves, two identifiers.** The public catalog is made of `Edition`s and is
@@ -36,10 +36,23 @@ uploads.
 | `list_my_highlights` | List your highlights for a given edition. | User |
 | `list_my_vocabulary` | List your saved vocabulary words, optionally filtered by SRS stage or search. | User |
 | `save_highlight` | Save a passage (text + optional color/note) to your highlights for a catalog book chapter. | User |
+| `get_my_reading` | The shelf, with no arguments: what you are reading now, what you finished recently, every upload. The only tool that needs no id — it is how the assistant finds one. | User |
+| `get_book_progress` | How far you have got in one book, and the chapter you stopped in. | User |
+| `set_book_progress` | Record that you finished a chapter — including one you read or listened to somewhere else. | User |
 
-All 13 tools are always listed regardless of whether you're signed in — only a
+All 16 tools are always listed regardless of whether you're signed in — only a
 user-scoped *call* fails with a clean "authentication required" message when no
 token is available.
+
+**Where the reader is.** `get_my_reading` takes no arguments and is the entry point:
+it answers "what am I reading" with titles, the chapter you stopped in, and the id
+each other tool takes — `bookId` for an upload, `editionId` *and* `slug` for a catalog
+book. `get_book_progress` answers the same for one book, which is what lets an
+assistant avoid spoiling what you have not reached. `set_book_progress` closes the
+loop the other way: tell it you finished a chapter in an audiobook or on paper and
+the app resumes you at the next one, with progress recorded as chapters-finished
+over chapters-total. It is the only tool here that changes where your reader opens,
+so it acts only when you say you finished something.
 
 A typical catalog chain is `search_books → get_book` (to get the `editionId` /
 chapter ids) `→ get_chapter` / `save_highlight`. The chain for your own uploads
@@ -230,7 +243,7 @@ Before wiring up a client, confirm the tool speaks MCP. This sends
 ```
 
 Expect a response with `serverInfo` naming `textstack` and a `tools/list`
-result containing all 13 tools.
+result containing all 16 tools.
 
 ## Troubleshooting
 

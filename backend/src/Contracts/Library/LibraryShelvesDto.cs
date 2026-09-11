@@ -32,5 +32,20 @@ public record LibraryShelfItemDto(
     /// </para>
     /// </summary>
     string? CurrentLocator = null,
-    string? PositionJson = null
+    string? PositionJson = null,
+    /// <summary>
+    /// The chapter the reader stopped in, by slug.
+    /// <para>
+    /// Both queries have always SELECTED this — the upload one directly, the catalog one as a chapter
+    /// id — and then dropped it, for the same reason the locator was dropped: the DTO had nowhere to
+    /// put it. That is why <c>continueReading.ts</c> exists: its own doc comment says the shelves
+    /// payload "carries no chapterSlug, so a shelf tap structurally cannot resume at the right
+    /// chapter", and every client has been making a second request per book to find out.
+    /// </para>
+    /// <para>
+    /// Null for a chapterless PDF read in Original layout (ADR-012), whose position is a page in
+    /// <see cref="CurrentLocator"/> rather than a chapter.
+    /// </para>
+    /// </summary>
+    string? ChapterSlug = null
 );
