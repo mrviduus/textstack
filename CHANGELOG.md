@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Tutor** — the planner was being told to call a tool deleted months ago, on every run — backend · [details](docs/changelog-archive/2026-H2.md#2026-09-11-tutor-an-instruction-that-could-not-be-obeyed)
 - **Guests** — the middleware that keeps an active reader from being deleted had never run once — backend · [details](docs/changelog-archive/2026-H2.md#2026-09-11-guests-a-middleware-that-never-ran)
 - **Insights** — each conclusion says when you settled it, and the four-category enum was dropped before it was built — web, mobile, shared · [details](docs/changelog-archive/2026-H2.md#2026-09-10-insights-a-conclusion-can-be-removed)
 - **Insights** — a conclusion filed against the wrong chapter can be removed; it used to be permanent — backend, web, mobile · [details](docs/changelog-archive/2026-H2.md#2026-09-10-insights-a-conclusion-can-be-removed)

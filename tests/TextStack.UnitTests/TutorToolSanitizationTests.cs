@@ -10,9 +10,10 @@ using TextStack.Ai.Core;
 namespace TextStack.UnitTests;
 
 /// <summary>
-/// AI-Agent-2 — the prompt-injection boundary on INBOUND book text. <c>get_example_sentence</c> (saved
-/// sentence, which can come from a user-uploaded book) and <c>get_reading_context</c> (book title) feed their
-/// text into the planner prompt as tool observations. Both must run it through
+/// AI-Agent-2 — the prompt-injection boundary on INBOUND book text. <c>get_reading_context</c> feeds a book
+/// title into the planner prompt as a tool observation, and a user-uploaded title is user-controlled text.
+/// (<c>get_example_sentence</c> used to sit beside it here; it was deleted with the retrieval spine and its
+/// last references went on 2026-09-11.) It must run through
 /// <see cref="ExternalTextSanitizer"/> first so a crafted "ignore previous instructions" payload reaches the
 /// model as neutered DATA, never as instructions. Driven over a Moq <see cref="IAppDbContext"/> (async LINQ via
 /// TestAsyncEnumerable) — the production context can't load on EF InMemory; deeper DB-query coverage is in
