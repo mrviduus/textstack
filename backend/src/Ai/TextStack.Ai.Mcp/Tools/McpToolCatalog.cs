@@ -1071,8 +1071,11 @@ public sealed class McpToolCatalog
                         ? (object)new { source = "userbook", bookId = id, opened = false }
                         : new
                         {
-                            source = "userbook", bookId = id, opened = true,
-                            chapterSlug = p.ChapterSlug, progressPercent = p.Percent,
+                            source = "userbook",
+                            bookId = id,
+                            opened = true,
+                            chapterSlug = p.ChapterSlug,
+                            progressPercent = p.Percent,
                             lastReadAt = p.UpdatedAt,
                         }));
                 }
@@ -1082,9 +1085,13 @@ public sealed class McpToolCatalog
                     ? (object)new { source = "edition", editionId, opened = false }
                     : new
                     {
-                        source = "edition", editionId, opened = true,
-                        chapterSlug = e.ChapterSlug, progressPercent = e.Percent,
-                        lastReadAt = e.UpdatedAt, finishedAt = e.CompletedAt,
+                        source = "edition",
+                        editionId,
+                        opened = true,
+                        chapterSlug = e.ChapterSlug,
+                        progressPercent = e.Percent,
+                        lastReadAt = e.UpdatedAt,
+                        finishedAt = e.CompletedAt,
                     }));
             });
         },
@@ -1161,9 +1168,12 @@ public sealed class McpToolCatalog
                     return ok
                         ? Text(JsonSerializer.Serialize(new
                         {
-                            bookId = id, finishedChapterSlug = chapterSlug,
-                            resumeChapterSlug = resumeSlug, progressPercent = percent,
-                            bookFinished = finished, saved = true,
+                            bookId = id,
+                            finishedChapterSlug = chapterSlug,
+                            resumeChapterSlug = resumeSlug,
+                            progressPercent = percent,
+                            bookFinished = finished,
+                            saved = true,
                         }))
                         : Error("set_book_progress failed: the position was refused. The book's stored "
                               + "position may be in a coordinate space this write cannot replace.");
@@ -1189,9 +1199,12 @@ public sealed class McpToolCatalog
                 return saved
                     ? Text(JsonSerializer.Serialize(new
                     {
-                        editionId = edition.Id, finishedChapterSlug = chapterSlug,
-                        resumeChapterSlug = list[resume].Slug, progressPercent = pct,
-                        bookFinished = done, saved = true,
+                        editionId = edition.Id,
+                        finishedChapterSlug = chapterSlug,
+                        resumeChapterSlug = list[resume].Slug,
+                        progressPercent = pct,
+                        bookFinished = done,
+                        saved = true,
                     }))
                     : Error("set_book_progress failed: the position could not be saved");
             });
