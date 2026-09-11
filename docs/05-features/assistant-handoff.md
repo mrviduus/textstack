@@ -154,8 +154,10 @@ required", and `last_used_at` is stamped. That covers the bridge path
   depend on the answer.
 - **Mint a key on textstack.app and hold a real conversation about a real book**, then check the
   conclusion comes back. Every test so far has used an empty throwaway account.
-- **Android developer verification, deadline 2026-09-30** — unregistered apps are removed from Play
-  globally. Unrelated to this feature and more urgent than all of it.
+- ~~Android developer verification~~ — **already done**, verified in the console 2026-09-10:
+  `app.textstack.mobile` is Registered with both signing keys, last updated 2026-05-15, and Identity
+  is filled from the developer account. The September notification is informational; it was read as a
+  to-do here in error.
 
 ### Left behind by the cut — a follow-up, found 2026-09-10 after PR #596 opened
 
@@ -198,13 +200,13 @@ residue this work exists to remove, so it goes in its own small PR rather than r
 
 | # | Item | Slice |
 |---|---|---|
-| 1 | `get_my_reading` — the shelf, over the existing `GET /me/library/shelves` | 1 |
-| 2 | `get_book_progress` — where am I in this book | 1 |
-| 3 | `set_book_progress` — record progress made on another medium | 1 |
-| 4 | `chapterSlug` on `LibraryShelfItemDto` — the service already selects it | 1 |
-| 5 | Restore `chapterId` to the `get_book` projection (defect 2 below) | 1 |
-| 6 | Validate the chapter slug on upload progress writes (defect 1) | 1 |
-| 7 | Stop reporting success when `MayReplace` refused the write (defect 3) | 1 |
+| 1 | ~~`get_my_reading` — the shelf, over the existing `GET /me/library/shelves`~~ — shipped 2026-09-10 | 1 |
+| 2 | ~~`get_book_progress` — where am I in this book~~ — shipped 2026-09-10 | 1 |
+| 3 | ~~`set_book_progress` — record progress made on another medium~~ — shipped 2026-09-10 | 1 |
+| 4 | ~~`chapterSlug` on `LibraryShelfItemDto` — the service already selects it~~ — shipped 2026-09-10 | 1 |
+| 5 | ~~Restore `chapterId` to the `get_book` projection (defect 2 below)~~ — shipped 2026-09-10 | 1 |
+| 6 | ~~Validate the chapter slug on upload progress writes (defect 1)~~ — shipped 2026-09-10 | 1 |
+| 7 | ~~Stop reporting success when `MayReplace` refused the write (defect 3)~~ — shipped 2026-09-10 | 1 |
 | 8 | Brief names highlights and vocabulary, within the 1200-char budget | 1 |
 | 9 | Catalog screens pass progress into the handoff | 1 |
 | 10 | Mobile handoff stops swallowing the open failure | 1 |
@@ -313,15 +315,16 @@ retrieval vectors, not the type.
 These exist independently of this feature; they were found while tracing it. Also listed in
 [`STATUS.md`](../STATUS.md).
 
-1. **No slug validation on upload progress writes.** `UserBookService.cs:556` assigns
-   `book.ProgressChapterSlug = request.ChapterSlug` raw. An invented slug is stored silently. The
-   bookmark path in the same file (`:640-646`) does validate.
-2. **Catalog MCP tools drop `chapterId`.** `get_book` and `get_chapter` project chapters without the
-   Guid (`McpToolCatalog.cs:195-212`, `:253-261`) though the server DTOs carry it. Meanwhile
-   `save_highlight`'s description tells the model to take `chapterId` "from get_book"
-   (`McpToolCatalog.cs:637`) — which is not true today.
-3. **A refused write reports success.** `LocatorSpace.MayReplace` refusal returns `(true, null)`
-   (`UserBookService.cs:551-554`). The caller gets 200 and believes it saved.
+1. ~~**No slug validation on upload progress writes.**~~ Fixed 2026-09-10: the write is checked
+   against `UserChapters` for that book and an unknown slug is refused, the way `AddBookmarkAsync`
+   always has been.
+2. ~~**Catalog MCP tools drop `chapterId`.**~~ Fixed 2026-09-10 for `get_book`, which is the one
+   `save_highlight`'s description names and the one `set_book_progress` needs to resolve a slug to
+   the GUID the catalog route requires. `get_chapter` still projects without it — it carries the
+   chapter the caller already asked for by slug, so nothing is unreachable through it.
+3. ~~**A refused write reports success.**~~ Fixed 2026-09-10: the refusal returns `(false, …)` and
+   the endpoint answers 400 with the reason, so `set_book_progress` reports a failure instead of
+   telling a person their progress was recorded.
 4. **Web and mobile write different locators for the same action.** Web `markAsRead` sends the
    `{"type":"end"}` sentinel (`apps/web/src/api/auth.ts:235-241`); mobile sends
    `scroll:<slug>:0` (`apps/mobile/src/hooks/useBookActions.ts:38-66`).

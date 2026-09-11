@@ -29,6 +29,15 @@ public sealed class StubBackend : IAsyncDisposable
     public const string UserBookId = "77777777-7777-7777-7777-777777777777";
     public const string UserChapterId = "88888888-8888-8888-8888-888888888888";
     public const string InsightId = "99999999-9999-9999-9999-999999999999";
+
+    // An upload whose progress write is REFUSED upstream (the shape LocatorSpace.MayReplace
+    // produces: a position in a coordinate space this write may not replace). It exists because a
+    // refusal that a tool reports as success is worse than no tool at all.
+    public const string RefusingBookId = "cccccccc-cccc-cccc-cccc-cccccccccccc";
+
+    // An edition the reader has never opened: GET progress 404s, which is not an error and must
+    // come back as "not started" rather than as a failure.
+    public const string UnopenedEdition = "dddddddd-dddd-dddd-dddd-dddddddddddd";
     public const string NewHighlightId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
 
     private readonly WebApplication _app;
@@ -112,6 +121,9 @@ public sealed class StubBackend : IAsyncDisposable
         {
             await RecordAsync("get_my_book", ctx);
             if (!HasBearer(ctx)) { ctx.Response.StatusCode = StatusCodes.Status401Unauthorized; return; }
+            var bookId = (string?)ctx.Request.RouteValues["id"];
+            if (string.Equals(bookId, RefusingBookId, StringComparison.OrdinalIgnoreCase))
+            { await WriteJsonAsync(ctx, MyBookBody.Replace(UserBookId, RefusingBookId)); return; }
             await WriteJsonAsync(ctx, MyBookBody);
         });
 
@@ -169,6 +181,58 @@ public sealed class StubBackend : IAsyncDisposable
             await RecordAsync("save_insight", ctx);
             if (!HasBearer(ctx)) { ctx.Response.StatusCode = StatusCodes.Status401Unauthorized; return; }
             await WriteJsonAsync(ctx, SavedInsightBody, StatusCodes.Status201Created);
+        });
+
+        // GET /me/library/shelves → the shelf, both book kinds.
+        _app.MapGet("/me/library/shelves", async ctx =>
+        {
+            await RecordAsync("get_shelves", ctx);
+            if (!HasBearer(ctx)) { ctx.Response.StatusCode = StatusCodes.Status401Unauthorized; return; }
+            await WriteJsonAsync(ctx, ShelvesBody);
+        });
+
+        // GET /me/books → every upload, not paged.
+        _app.MapGet("/me/books", async ctx =>
+        {
+            await RecordAsync("get_my_books", ctx);
+            if (!HasBearer(ctx)) { ctx.Response.StatusCode = StatusCodes.Status401Unauthorized; return; }
+            await WriteJsonAsync(ctx, MyBooksBody);
+        });
+
+        // GET /me/progress/{editionId} → 404 for the edition never opened.
+        _app.MapGet("/me/progress/{editionId}", async ctx =>
+        {
+            await RecordAsync("get_edition_progress", ctx);
+            if (!HasBearer(ctx)) { ctx.Response.StatusCode = StatusCodes.Status401Unauthorized; return; }
+            if (string.Equals((string?)ctx.Request.RouteValues["editionId"], UnopenedEdition, StringComparison.OrdinalIgnoreCase))
+            { ctx.Response.StatusCode = StatusCodes.Status404NotFound; return; }
+            await WriteJsonAsync(ctx, EditionProgressBody);
+        });
+
+        // GET /me/books/{id}/progress.
+        _app.MapGet("/me/books/{id}/progress", async ctx =>
+        {
+            await RecordAsync("get_my_book_progress", ctx);
+            if (!HasBearer(ctx)) { ctx.Response.StatusCode = StatusCodes.Status401Unauthorized; return; }
+            await WriteJsonAsync(ctx, UserBookProgressBody);
+        });
+
+        // PUT /me/progress/{editionId} → 200 with the stored row.
+        _app.MapPut("/me/progress/{editionId}", async ctx =>
+        {
+            await RecordAsync("set_edition_progress", ctx);
+            if (!HasBearer(ctx)) { ctx.Response.StatusCode = StatusCodes.Status401Unauthorized; return; }
+            await WriteJsonAsync(ctx, EditionProgressBody);
+        });
+
+        // PUT /me/books/{id}/progress → 400 for the refusing book, else 204.
+        _app.MapPut("/me/books/{id}/progress", async ctx =>
+        {
+            await RecordAsync("set_my_book_progress", ctx);
+            if (!HasBearer(ctx)) { ctx.Response.StatusCode = StatusCodes.Status401Unauthorized; return; }
+            if (string.Equals((string?)ctx.Request.RouteValues["id"], RefusingBookId, StringComparison.OrdinalIgnoreCase))
+            { ctx.Response.StatusCode = StatusCodes.Status400BadRequest; return; }
+            ctx.Response.StatusCode = StatusCodes.Status204NoContent;
         });
 
         // POST /books/{editionId}/ask → 401 if no bearer; spoiler edition → Insufficient.
@@ -455,6 +519,112 @@ public sealed class StubBackend : IAsyncDisposable
           "version": 1,
           "createdAt": "2026-01-01T00:00:00+00:00",
           "updatedAt": "2026-01-01T00:00:00+00:00"
+        }
+        """;
+
+    private const string ShelvesBody =
+        """
+        {
+          "continueReading": [
+            {
+              "id": "77777777-7777-7777-7777-777777777777",
+              "type": "userbook",
+              "title": "Designing Data-Intensive Applications",
+              "author": "Martin Kleppmann",
+              "coverPath": null,
+              "slug": "designing-data-intensive-applications",
+              "language": "en",
+              "progressPercent": 0.35,
+              "lastOpenedAt": "2026-09-01T10:00:00+00:00",
+              "createdAt": "2026-08-01T10:00:00+00:00",
+              "estimatedMinutesRemaining": 420,
+              "chapterSlug": "replication"
+            },
+            {
+              "id": "33333333-3333-3333-3333-333333333333",
+              "type": "savedbook",
+              "title": "Dracula",
+              "author": "Bram Stoker",
+              "coverPath": null,
+              "slug": "dracula",
+              "language": "en",
+              "progressPercent": 0.5,
+              "lastOpenedAt": "2026-09-02T10:00:00+00:00",
+              "createdAt": "2026-08-01T10:00:00+00:00",
+              "estimatedMinutesRemaining": 120,
+              "chapterSlug": "ch-1"
+            }
+          ],
+          "recentlyAdded": [],
+          "quickReads": [],
+          "finishedThisMonth": []
+        }
+        """;
+
+    private const string MyBooksBody =
+        """
+        [
+          {
+            "id": "77777777-7777-7777-7777-777777777777",
+            "title": "Designing Data-Intensive Applications",
+            "slug": "designing-data-intensive-applications",
+            "language": "en",
+            "author": "Martin Kleppmann",
+            "description": null, "coverPath": null, "genre": "Computing",
+            "status": "Ready", "errorMessage": null,
+            "chapterCount": 12, "totalWordCount": 210000,
+            "createdAt": "2026-08-01T10:00:00+00:00",
+            "completedAt": null,
+            "progressPercent": 0.35,
+            "progressUpdatedAt": "2026-09-01T10:00:00+00:00",
+            "progressChapterSlug": "replication",
+            "tags": [], "suggestedTags": [],
+            "sourceUrl": null, "isClip": false, "isRead": false, "readAt": null,
+            "hasOriginalPdf": false
+          },
+          {
+            "id": "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+            "title": "The Mom Test",
+            "slug": "the-mom-test",
+            "language": "en",
+            "author": "Rob Fitzpatrick",
+            "description": null, "coverPath": null, "genre": null,
+            "status": "Ready", "errorMessage": null,
+            "chapterCount": 9, "totalWordCount": 30000,
+            "createdAt": "2026-08-20T10:00:00+00:00",
+            "completedAt": null,
+            "progressPercent": null,
+            "progressUpdatedAt": null,
+            "progressChapterSlug": null,
+            "tags": [], "suggestedTags": [],
+            "sourceUrl": null, "isClip": false, "isRead": false, "readAt": null,
+            "hasOriginalPdf": false
+          }
+        ]
+        """;
+
+    private const string EditionProgressBody =
+        """
+        {
+          "editionId": "33333333-3333-3333-3333-333333333333",
+          "chapterId": "44444444-4444-4444-4444-444444444444",
+          "chapterSlug": "ch-1",
+          "locator": "scroll:ch-1:1200",
+          "percent": 0.5,
+          "updatedAt": "2026-09-02T10:00:00+00:00",
+          "completedAt": null,
+          "positionJson": null
+        }
+        """;
+
+    private const string UserBookProgressBody =
+        """
+        {
+          "chapterSlug": "replication",
+          "locator": "scroll:replication:900",
+          "percent": 0.35,
+          "updatedAt": "2026-09-01T10:00:00+00:00",
+          "positionJson": null
         }
         """;
 

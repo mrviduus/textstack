@@ -38,11 +38,15 @@ answers "what happened" and nothing answered "what is half-finished right now".
   embedding workers, `ask_book`). The numbers that decided it — 26 chat messages lifetime, 7 books of
   1498 ever indexed, $4.14 of $4.39 lifetime LLM spend on vision transcription — are in the doc.
 
-  **Not done, and it is what blocks the feature:** there is no UI to create a key, on either client,
-  so today one can only be minted with curl. The revoke-then-401 and `LastUsedAt` integration test is
-  also missing — the same gap that left `GuestActivityMiddleware` dead. Then: the read-side tools
-  (`get_my_reading`, `get_book_progress`, `set_book_progress`), and the catalog handoff brief, which
-  sends an `editionId` where the tools require a slug and therefore does not work at all.
+  **Since shipped:** key UI on both clients, the revoke-then-401 + `LastUsedAt` integration test, the
+  catalog handoff brief (which used to send an `editionId` where the tools require a slug), and the
+  three read-side tools — `get_my_reading`, `get_book_progress`, `set_book_progress` — with the four
+  progress-path defects they could not work around (unvalidated chapter slug, a refusal reporting
+  success, `chapterId` missing from `get_book`, `chapterSlug` selected by the shelf and discarded).
+
+  **Not done:** insight categories (Conclusions · Watch for · Discussed · Questions) with tabs and a
+  DELETE, so a wrong conclusion can be removed; and the owner-only check that the mobile Claude and
+  ChatGPT apps accept a custom connector at all.
 
   **Not yet run:** CI, and both destructive migrations (`DropBookChat`, `DropRagSpine`) against
   production. Back up first.
