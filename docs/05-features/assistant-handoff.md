@@ -154,8 +154,10 @@ required", and `last_used_at` is stamped. That covers the bridge path
   depend on the answer.
 - **Mint a key on textstack.app and hold a real conversation about a real book**, then check the
   conclusion comes back. Every test so far has used an empty throwaway account.
-- **Android developer verification, deadline 2026-09-30** — unregistered apps are removed from Play
-  globally. Unrelated to this feature and more urgent than all of it.
+- ~~**Android developer verification, deadline 2026-09-30**~~ — **already done**, verified in the
+  Play Console 2026-09-10: `app.textstack.mobile` is Registered with both signing keys, updated
+  2026-05-15. The September notification was informational and was recorded here as a deadline by
+  mistake. Do not re-raise it. (It has already misled one agent reading this file.)
 
 ### Left behind by the cut — a follow-up, found 2026-09-10 after PR #596 opened
 

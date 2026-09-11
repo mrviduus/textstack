@@ -23,6 +23,10 @@ export async function getBookInsights(target: InsightTarget): Promise<BookInsigh
     ? `userBookId=${encodeURIComponent(target.userBookId)}`
     : `editionId=${encodeURIComponent(target.editionId)}`
 
-  const res = await authFetch<{ items: BookInsight[] }>(`/me/insights?${query}`)
-  return res.items
+  // A bare array, NOT `{ items: [...] }`. `GET /me/insights` returns `Results.Ok(dtos)` over a
+  // List<BookInsightDto> (InsightsEndpoints.cs) — the envelope belongs to `/me/mcp/keys`, which is
+  // where this line was copied from. Unwrapping `.items` here handed the component `undefined`, and
+  // the very next render read `.length` off it: every signed-in book page threw, with or without
+  // insights, in the change that was supposed to make this section appear at all.
+  return authFetch<BookInsight[]>(`/me/insights?${query}`)
 }
