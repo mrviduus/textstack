@@ -59,7 +59,12 @@ public class SentryBootstrapTests
     [Fact]
     public void Resolve_Development_DefaultsToFullSampling()
     {
-        var settings = SentryBootstrap.Resolve(Config(("SENTRY_DSN", "https://k@e.ingest.sentry.io/1")), "Development");
+        // Development reports nothing by default now, so the sampling rule is only reachable through
+        // the opt-in — the rule itself is unchanged: when you ARE looking at dev traces, you want all
+        // of them, not one in five.
+        var settings = SentryBootstrap.Resolve(
+            Config(("SENTRY_DSN", "https://k@e.ingest.sentry.io/1"), ("Sentry:EnableInDevelopment", "true")),
+            "Development");
 
         Assert.Equal(1.0, settings!.TracesSampleRate);
     }
@@ -101,4 +106,49 @@ public class SentryBootstrapTests
     [Fact]
     public void SampleRateFor_HttpRequest_UsesBaseRate() =>
         Assert.Equal(0.2, SentryBootstrap.SampleRateFor("GET /books", "http.server", 0.2));
+
+    // ---- Development is not reported ---------------------------------------------------------
+
+    [Fact]
+    public void Resolve_Development_ReturnsNull_EvenWithADsn()
+    {
+        // The local `.env` legitimately carries a DSN — the integration is developed against it. What
+        // must not happen is a developer machine writing into the account: a stale local OpenAI key
+        // put 141 `invalid_api_key` events there over a month, and they were eventually read as a
+        // production outage. Null here is what keeps the hosts from engaging the SDK at all.
+        var settings = SentryBootstrap.Resolve(
+            Config(("SENTRY_DSN", "https://key@example.ingest.sentry.io/1")), "Development");
+
+        Assert.Null(settings);
+    }
+
+    [Theory]
+    [InlineData("development")]
+    [InlineData("DEVELOPMENT")]
+    public void Resolve_Development_IsMatchedRegardlessOfCase(string environmentName) =>
+        Assert.Null(SentryBootstrap.Resolve(
+            Config(("SENTRY_DSN", "https://key@example.ingest.sentry.io/1")), environmentName));
+
+    [Fact]
+    public void Resolve_Development_WithExplicitOptIn_StillReports()
+    {
+        // The escape hatch exists so this integration can be worked on locally. Without it the only
+        // way to test a change to the Sentry wiring would be to ship it.
+        var settings = SentryBootstrap.Resolve(
+            Config(("SENTRY_DSN", "https://key@example.ingest.sentry.io/1"),
+                   ("Sentry:EnableInDevelopment", "true")), "Development");
+
+        Assert.NotNull(settings);
+        Assert.Equal("Development", settings.Environment);
+    }
+
+    [Fact]
+    public void Resolve_NonDevelopmentEnvironments_AreUnaffected()
+    {
+        // The change must cost nothing anywhere else — Staging and Production report exactly as before.
+        foreach (var env in new[] { "Staging", "Production", "production-like-thing" })
+            Assert.NotNull(SentryBootstrap.Resolve(
+                Config(("SENTRY_DSN", "https://key@example.ingest.sentry.io/1")), env));
+    }
 }
+

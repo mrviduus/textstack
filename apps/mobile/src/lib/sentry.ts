@@ -1,6 +1,7 @@
 import * as Sentry from '@sentry/react-native'
 import Constants from 'expo-constants'
 import * as Updates from 'expo-updates'
+import { sentryEnabled } from './sentryEnabled'
 import { scrubEvent, scrubUrl } from './sentryScrub'
 
 /**
@@ -24,12 +25,14 @@ import { scrubEvent, scrubUrl } from './sentryScrub'
  * DSN is supplied through `EXPO_PUBLIC_SENTRY_DSN`.
  */
 
-export const isSentryEnabled = (): boolean => !!process.env.EXPO_PUBLIC_SENTRY_DSN
+/** See {@link sentryEnabled} — the rule lives in its own module so it can be tested. */
+export const isSentryEnabled = (): boolean =>
+  sentryEnabled(process.env.EXPO_PUBLIC_SENTRY_DSN, __DEV__, process.env.EXPO_PUBLIC_SENTRY_IN_DEV)
 
 export function initSentry(): void {
   const dsn = process.env.EXPO_PUBLIC_SENTRY_DSN
   // No DSN, no SDK. Same contract as the backend: absent config is not an error.
-  if (!dsn) return
+  if (!dsn || !isSentryEnabled()) return
 
   Sentry.init({
     dsn,

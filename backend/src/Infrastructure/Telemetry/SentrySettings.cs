@@ -38,6 +38,18 @@ public static class SentryBootstrap
             return null;
 
         var isDevelopment = string.Equals(environmentName, "Development", StringComparison.OrdinalIgnoreCase);
+
+        // A developer machine does not belong in the error tracker. This is not tidiness: a stale
+        // OpenAI key in a local `.env` put 141 `invalid_api_key` events into the account over a
+        // month, they sat at the top of the feed, and on 2026-09-11 they were read as a production
+        // outage and chased as one. Dev noise in an error tracker is how a real error gets lost —
+        // and every one of those events was indistinguishable from the real thing at a glance.
+        //
+        // The DSN stays in the local `.env` on purpose: the point is that having it configured is
+        // harmless, not that it must be deleted and re-pasted. Set `Sentry:EnableInDevelopment=true`
+        // to work ON this integration locally, which is the only case that wants the events.
+        if (isDevelopment && !configuration.GetValue("Sentry:EnableInDevelopment", false))
+            return null;
         var configured = configuration.GetValue<double?>("Sentry:TracesSampleRate");
         var rate = configured ?? (isDevelopment ? 1.0 : DefaultProductionTracesSampleRate);
         rate = Math.Clamp(rate, 0.0, 1.0);
