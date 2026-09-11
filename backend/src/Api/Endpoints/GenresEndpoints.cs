@@ -79,7 +79,18 @@ public static class GenresEndpoints
                         e.Slug,
                         e.Title,
                         e.Language,
-                        e.CoverPath
+                        e.CoverPath,
+                        // Same projection the book list uses (BookService), ordered the same way, so a
+                        // book's authors read identically wherever it appears.
+                        e.EditionAuthors
+                            .OrderBy(ea => ea.Order)
+                            .Select(ea => new Contracts.Books.BookAuthorDto(
+                                ea.Author.Id,
+                                ea.Author.Slug,
+                                ea.Author.Name,
+                                ea.Role.ToString()
+                            ))
+                            .ToList()
                     ))
                     .ToList()
             ))

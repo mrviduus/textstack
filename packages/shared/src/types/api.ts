@@ -101,7 +101,8 @@ export interface AuthorDetail extends Author {
   seoRelevanceText: string | null
   seoThemesJson: string | null
   seoFaqsJson: string | null
-  editions: Edition[]
+  /** The same narrow shape a genre page gets — see {@link ListedEdition}. */
+  editions: ListedEdition[]
 }
 
 export interface Genre {
@@ -112,8 +113,31 @@ export interface Genre {
   bookCount: number
 }
 
+/**
+ * One book as a genre or author page lists it — NOT the full `Edition`.
+ *
+ * The endpoints project a narrow shape (`GenreEditionDto` / the author equivalent), and these two
+ * pages were typed as `Edition[]` anyway. The compiler therefore blessed `ed.authors.map(...)` on
+ * the mobile genre screen, which threw `Cannot read property 'map' of undefined` on every genre with
+ * books, and `ed.authors || []` on the web, which quietly rendered an empty "Popular authors"
+ * section for a year. A type that describes something the server does not send is worse than no type
+ * at all: it moves the error from the compiler to the reader's phone.
+ *
+ * `authors` is now genuinely sent for genres. It is declared optional here because a device can run
+ * a JS bundle older or newer than the server it is talking to — an OTA and an API deploy are
+ * separate events, and this is exactly the seam where that bites.
+ */
+export interface ListedEdition {
+  id: string
+  slug: string
+  title: string
+  language: string
+  coverPath: string | null
+  authors?: { id: string; slug: string; name: string; role: string }[]
+}
+
 export interface GenreDetail extends Genre {
-  editions: Edition[]
+  editions: ListedEdition[]
 }
 
 // Auth
