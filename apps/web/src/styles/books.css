@@ -8334,7 +8334,13 @@ a.read-later__title:hover { text-decoration: underline; }
 .book-insights__lead { margin: 0 0 16px; font-size: 13px; color: var(--color-text-secondary, #666); }
 .book-insights__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 20px; }
 .book-insights__item { padding-left: 14px; border-left: 3px solid var(--color-border, #e0d8c8); }
+.book-insights__head { display: flex; align-items: center; gap: 8px; }
 .book-insights__scope { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-text-secondary, #666); }
+/* Pushed to the end of the eyebrow row rather than given a corner of its own: removing a note
+   is a rare correction, not an action the panel should advertise. */
+.book-insights__remove { margin-left: auto; border: 0; background: none; cursor: pointer; font-size: 18px; line-height: 1; padding: 0 4px; color: var(--color-text-secondary, #666); }
+.book-insights__remove:hover:not(:disabled) { color: var(--color-error, #c0392b); }
+.book-insights__remove:disabled { opacity: 0.4; cursor: default; }
 /* The question is the provenance stamp — what you were trying to work out. It is
    what makes the answer below worth returning to, so it reads as a heading. */
 .book-insights__question { margin-top: 2px; font-size: 15px; font-weight: 600; }

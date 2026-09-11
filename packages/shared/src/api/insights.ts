@@ -38,3 +38,8 @@ export function getBookInsights(
     : `editionId=${encodeURIComponent(target.editionId)}`
   return authFetch<BookInsight[]>(`/me/insights?${query}`)
 }
+
+/** Remove one insight — the reader's own only. No assistant-side counterpart, by design. */
+export function deleteBookInsight(id: string): Promise<void> {
+  return authFetch<void>(`/me/insights/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}

@@ -30,3 +30,13 @@ export async function getBookInsights(target: InsightTarget): Promise<BookInsigh
   // insights, in the change that was supposed to make this section appear at all.
   return authFetch<BookInsight[]>(`/me/insights?${query}`)
 }
+
+/**
+ * Remove one insight. The reader's own only — the server answers 404 for anyone else's id.
+ *
+ * <p>There is no assistant-side counterpart on purpose: an outside model may write conclusions and
+ * replace its own, but removing them is the reader's call.</p>
+ */
+export async function deleteBookInsight(id: string): Promise<void> {
+  await authFetch<void>(`/me/insights/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}

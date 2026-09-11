@@ -161,7 +161,8 @@
     "insights": {
       "title": "What you've worked out",
       "lead": "Conclusions your assistant wrote back into this book. Read these instead of re-reading the book.",
-      "wholeBook": "This book"
+      "wholeBook": "This book",
+      "remove": "Remove this note"
     },
     "discuss": {
       "label": "Talk this book over",
