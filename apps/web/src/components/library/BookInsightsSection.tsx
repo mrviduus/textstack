@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { insightChapterLabel, type BookInsight } from '@textstack/shared'
+import { insightChapterLabel, insightDateLabel, type BookInsight } from '@textstack/shared'
 import { getBookInsights, deleteBookInsight } from '../../api/insights'
 import { useTranslation } from '../../hooks/useTranslation'
 
@@ -84,6 +84,13 @@ export function BookInsightsSection({ userBookId, editionId }: Props) {
               <div className="book-insights__scope">
                 {insightChapterLabel(insight) ?? t('library.insights.wholeBook')}
               </div>
+              {/* When it was last written. A конспект is read months later, and without a date it
+                  cannot answer "is this what I thought then, or what I think now". */}
+              {insightDateLabel(insight) && (
+                <time className="book-insights__date" dateTime={insight.updatedAt}>
+                  {insightDateLabel(insight)}
+                </time>
+              )}
               {/* A conclusion filed against the wrong chapter is never revisited by the assistant —
                   it only ever replaces its own row for the chapter it MEANT. Removing it is the
                   reader's, and only the reader's. Its own element, not inside the label: the label

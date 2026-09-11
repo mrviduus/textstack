@@ -30,3 +30,26 @@ export function insightChapterLabel(insight: InsightScopeInput): string | null {
   if (insight.chapterSlug === null) return null
   return insight.chapterTitle ?? insight.chapterSlug
 }
+
+/**
+ * When the conclusion was last written, as a plain calendar date.
+ *
+ * <p>The panel is something a reader comes back to after a month — that was the whole ask — and a
+ * list of conclusions with no dates cannot answer "is this what I thought then, or what I think
+ * now". A re-run replaces the row and moves `updatedAt`, so this is genuinely the age of the
+ * *current* text rather than of the conversation that started it.</p>
+ *
+ * <p>Absolute, not relative. "3 days ago" is the right register for a shelf of things in progress
+ * and the wrong one here: the question a конспект answers is *when did I settle this*, and by the
+ * time it matters the answer is months, where relative time stops being informative. ISO rather
+ * than a locale format because this package holds no locale — the clients render it verbatim, and
+ * the value is unambiguous in every one of them.</p>
+ *
+ * <p>Returns null for a timestamp that does not parse, so a bad row loses its date rather than
+ * printing `Invalid Date` next to a conclusion.</p>
+ */
+export function insightDateLabel(insight: { updatedAt: string }): string | null {
+  const at = new Date(insight.updatedAt)
+  if (Number.isNaN(at.getTime())) return null
+  return at.toISOString().slice(0, 10)
+}

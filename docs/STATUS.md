@@ -44,9 +44,14 @@ answers "what happened" and nothing answered "what is half-finished right now".
   progress-path defects they could not work around (unvalidated chapter slug, a refusal reporting
   success, `chapterId` missing from `get_book`, `chapterSlug` selected by the shelf and discarded).
 
-  **Not done:** insight categories (Conclusions · Watch for · Discussed · Questions) with tabs and a
-  DELETE, so a wrong conclusion can be removed; and the owner-only check that the mobile Claude and
-  ChatGPT apps accept a custom connector at all.
+  **Since decided:** insight categories are **not being built**. A three-way consilium argued it out
+  and the owner's answer settled it — the return path is per-book ("I open Dracula and see what I
+  worked out"), which a chapter label and reading order already serve. DELETE shipped (the part all
+  three voices agreed on); a date on each note shipped in place of the enum. Revisit only if
+  retrieval turns cross-book.
+
+  **Not done:** the owner-only check that the mobile Claude and ChatGPT apps accept a custom
+  connector at all.
 
   **Not yet run:** CI, and both destructive migrations (`DropBookChat`, `DropRagSpine`) against
   production. Back up first.

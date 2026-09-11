@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native'
-import { insightsApi, insightChapterLabel, type BookInsight } from '@textstack/shared'
+import { insightsApi, insightChapterLabel, insightDateLabel, type BookInsight } from '@textstack/shared'
 import { useTheme } from '../../context/ThemeContext'
 import { useLanguage } from '../../context/LanguageContext'
 import { Ionicons } from '@expo/vector-icons'
@@ -84,6 +84,10 @@ export function BookInsightsSection({ userBookId, editionId }: Props) {
             <Text style={[styles.scope, { color: colors.textSecondary }]}>
               {(insightChapterLabel(insight) ?? t('library.insights.wholeBook')).toUpperCase()}
             </Text>
+            {/* When it was last written — a конспект is read months later. */}
+            {insightDateLabel(insight) ? (
+              <Text style={[styles.date, { color: colors.textSecondary }]}>{insightDateLabel(insight)}</Text>
+            ) : null}
             <TouchableOpacity
               onPress={() => remove(insight.id)}
               disabled={removing === insight.id}
@@ -118,7 +122,8 @@ const styles = StyleSheet.create({
   title: { fontSize: 18, fontFamily: fonts.sansBold, marginBottom: 2 },
   lead: { fontSize: 13, fontFamily: fonts.sans, marginBottom: 16, lineHeight: 18 },
   item: { paddingLeft: 12, borderLeftWidth: 3, marginBottom: 20 },
-  head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  head: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  date: { fontSize: 11, fontFamily: fonts.sans, opacity: 0.75, marginRight: 'auto' },
   scope: { fontSize: 11, fontFamily: fonts.sansBold, letterSpacing: 0.6 },
   question: { fontSize: 15, fontFamily: fonts.sansBold, marginTop: 2, lineHeight: 20 },
   body: { marginTop: 6 },

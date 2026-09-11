@@ -160,22 +160,15 @@ required", and `last_used_at` is stamped. That covers the bridge path
   to-do here in error. **Do not re-raise it** — the earlier wording here has already misled one agent
   into reporting it as an urgent deadline.
 
-### Left behind by the cut — a follow-up, found 2026-09-10 after PR #596 opened
+### Left behind by the cut — ~~a follow-up~~ done in PR #597
 
-Removing the chat left inert plumbing on the mobile side. None of it is a correctness risk — the
-modules have no importers and the one live-looking block cannot execute — but it is exactly the
-residue this work exists to remove, so it goes in its own small PR rather than riding along:
-
-- **`apps/mobile/src/lib/sse.ts` and `sseParser.ts` (+ its test) have no consumers at all.** Their
-  only caller was `bookChat.ts`. Note the web's `lib/sse.ts` is NOT dead — `useExplain` still streams
-  through it.
-- **`ReaderShell.tsx` still imports `citationChapterSlug` and `makeSnippet`**, and keeps
-  `pendingCitationRef` + `scrollToCitation` alive at :653-654 and :960-963. The only writer of that
-  ref was the deleted `handleCitation`, so the ref is permanently null and the block at :960 can
-  never run.
-- **`packages/shared/src/reader/citation.ts`** exists for that path only.
-- **`AskCitation`, `AskResponse`, `AskTurnDto`, `AskTarget`** in `packages/shared/src/types/api.ts`
-  are now referenced only by the dead `sseParser` and by `citation.ts`'s own doc comment.
+Removing the chat left inert plumbing on the mobile side: `apps/mobile/src/lib/sse.ts` and
+`sseParser.ts` (+ its test), `ReaderShell`'s `citationChapterSlug` / `makeSnippet` imports and its
+permanently-null `pendingCitationRef`, `packages/shared/src/reader/citation.ts`, and the `AskCitation`
+/ `AskResponse` / `AskTurnDto` / `AskTarget` types. **All removed in #597** — verified 2026-09-10:
+every one of those names now has zero references anywhere in `apps/` or `packages/`, and the files
+are gone. The list is kept struck through rather than deleted because the reasoning (the web's own
+`lib/sse.ts` is NOT dead — `useExplain` still streams through it) is the part worth not re-deriving.
 
 ### Found while cutting — decisions still open
 
@@ -212,7 +205,7 @@ residue this work exists to remove, so it goes in its own small PR rather than r
 | 9 | Catalog screens pass progress into the handoff | 1 |
 | 10 | Mobile handoff stops swallowing the open failure | 1 |
 | 11a | ~~DELETE for an insight~~ — shipped 2026-09-10, reader-only, no MCP counterpart | 2 |
-| 11b | Insight categories (**Conclusions · Watch for · Discussed · Questions**) — **open, see below** | 2 |
+| 11b | ~~Insight categories~~ — **not being built**, owner chose per-book retrieval; see below | 2 |
 | 12 | Hide the six chats and the RAG UI behind a flag | 3 |
 | 13 | One mark-as-read locator across web and mobile (defect 4) | later |
 | 14 | `LocatorKind` + `MayReplace` on the catalog path (defects 5, 6) | later |
@@ -459,11 +452,21 @@ over the lifecycle. They disagreed on the answer and converged on the question.
   documents at once. Facet → key later is a free re-index on tens of rows; key → facet later forces
   you to choose which row per chapter survives.
 
-**Open, and only the owner can answer it.** Both voices arrived at the same question from opposite
-directions: **is the return path per-book or cross-book?** Opening *Dracula* and seeing four buckets
-needs no categories — a label and reading order carry it. Seeing every open question across all 33
-books cannot be done without a typed field, and also needs a `/me/insights` route with no book
-filter, which today answers 400.
+**Answered by the owner, 2026-09-10 — and the answer removes the work.** Asked concretely, both
+questions came back the way that needs no schema:
+
+- **The return path is per-book.** "I open *Dracula* and see what I worked out about it." Categories
+  buy nothing there: a chapter label and reading order carry it, and both already ship. No column, no
+  migration, no tabs.
+- **One insight per chapter, refined over time** — so even if a category is ever added, it stays a
+  label and the unique key does not move. Re-running keeps refreshing the конспект instead of
+  accumulating four rows per chapter.
+
+So the category enum is **not being built**. What the panel was actually missing for "come back a
+month later" was a date, which is one pure function and no schema — shipped instead. Revisit only if
+the retrieval ever turns cross-book ("every open question across all 33 books"), which is the one
+shape that genuinely needs a typed field, and which would also need the filter-less `/me/insights`
+route that answers 400 today.
 
 **Two findings from the lifecycle read, not yet acted on:**
 

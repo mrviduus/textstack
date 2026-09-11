@@ -8338,6 +8338,7 @@ a.read-later__title:hover { text-decoration: underline; }
 .book-insights__scope { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-text-secondary, #666); }
 /* Pushed to the end of the eyebrow row rather than given a corner of its own: removing a note
    is a rare correction, not an action the panel should advertise. */
+.book-insights__date { font-size: 11px; font-variant-numeric: tabular-nums; color: var(--color-text-secondary, #666); opacity: 0.75; }
 .book-insights__remove { margin-left: auto; border: 0; background: none; cursor: pointer; font-size: 18px; line-height: 1; padding: 0 4px; color: var(--color-text-secondary, #666); }
 .book-insights__remove:hover:not(:disabled) { color: var(--color-error, #c0392b); }
 .book-insights__remove:disabled { opacity: 0.4; cursor: default; }
