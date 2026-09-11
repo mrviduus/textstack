@@ -212,7 +212,7 @@ residue this work exists to remove, so it goes in its own small PR rather than r
 | 9 | Catalog screens pass progress into the handoff | 1 |
 | 10 | Mobile handoff stops swallowing the open failure | 1 |
 | 11a | ~~DELETE for an insight~~ — shipped 2026-09-10, reader-only, no MCP counterpart | 2 |
-| 11b | Insight categories (**Conclusions · Watch for · Discussed · Questions**) — **open, see below** | 2 |
+| 11b | ~~Insight categories~~ — **not being built**, owner chose per-book retrieval; see below | 2 |
 | 12 | Hide the six chats and the RAG UI behind a flag | 3 |
 | 13 | One mark-as-read locator across web and mobile (defect 4) | later |
 | 14 | `LocatorKind` + `MayReplace` on the catalog path (defects 5, 6) | later |
@@ -459,11 +459,21 @@ over the lifecycle. They disagreed on the answer and converged on the question.
   documents at once. Facet → key later is a free re-index on tens of rows; key → facet later forces
   you to choose which row per chapter survives.
 
-**Open, and only the owner can answer it.** Both voices arrived at the same question from opposite
-directions: **is the return path per-book or cross-book?** Opening *Dracula* and seeing four buckets
-needs no categories — a label and reading order carry it. Seeing every open question across all 33
-books cannot be done without a typed field, and also needs a `/me/insights` route with no book
-filter, which today answers 400.
+**Answered by the owner, 2026-09-10 — and the answer removes the work.** Asked concretely, both
+questions came back the way that needs no schema:
+
+- **The return path is per-book.** "I open *Dracula* and see what I worked out about it." Categories
+  buy nothing there: a chapter label and reading order carry it, and both already ship. No column, no
+  migration, no tabs.
+- **One insight per chapter, refined over time** — so even if a category is ever added, it stays a
+  label and the unique key does not move. Re-running keeps refreshing the конспект instead of
+  accumulating four rows per chapter.
+
+So the category enum is **not being built**. What the panel was actually missing for "come back a
+month later" was a date, which is one pure function and no schema — shipped instead. Revisit only if
+the retrieval ever turns cross-book ("every open question across all 33 books"), which is the one
+shape that genuinely needs a typed field, and which would also need the filter-less `/me/insights`
+route that answers 400 today.
 
 **Two findings from the lifecycle read, not yet acted on:**
 
