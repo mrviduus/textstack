@@ -1,5 +1,5 @@
 import { PERCENT_UNIT_BOOK, PROGRESS_LOCATOR_END, PROGRESS_LOCATOR_START } from '@textstack/shared'
-import type { ReadingProgressDto } from '@textstack/shared'
+import type { ReadingProgressDto, GuestMergeSkipReason } from '@textstack/shared'
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
 
@@ -17,6 +17,11 @@ export interface User {
 
 export interface AuthResponse {
   user: User
+  /**
+   * Set when the sign-in did NOT carry the reader's pre-sign-in work across — see
+   * `GuestMergeSkipReason` in the shared types. Absent on the ordinary path.
+   */
+  guestMergeSkipped?: GuestMergeSkipReason | null
 }
 
 async function authFetch<T>(path: string, options?: RequestInit): Promise<T> {

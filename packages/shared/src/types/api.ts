@@ -151,14 +151,31 @@ export interface UserDto {
   nativeLanguage: string | null
 }
 
+/**
+ * Why a sign-in completed WITHOUT carrying the reader's pre-sign-in work across.
+ *
+ * Mirrors `AuthEndpoints.GuestMergeSkipReason`. Null/absent is the ordinary case, and by far the
+ * common one. Both values mean the same thing to the reader — what they did before signing in is
+ * not in this account — and they differ only for whoever reads the logs.
+ */
+export type GuestMergeSkipReason = 'invalid_token' | 'merge_conflict'
+
 export interface AuthResponse {
   user: UserDto
+  /**
+   * Set when the guest merge was abandoned. **Read it**: the server has reported this since guest
+   * sessions shipped and no client looked, so a reader whose highlights and progress stayed behind
+   * was shown "your progress is saved" — a reassurance that was false exactly when it mattered.
+   */
+  guestMergeSkipped?: GuestMergeSkipReason | null
 }
 
 export interface MobileAuthResponse {
   user: UserDto
   accessToken: string
   refreshToken: string
+  /** See {@link AuthResponse.guestMergeSkipped}. */
+  guestMergeSkipped?: GuestMergeSkipReason | null
 }
 
 // Reading Progress (matches backend ReadingProgressDto)

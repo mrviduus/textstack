@@ -10,6 +10,8 @@ import { GoogleSignin } from '@react-native-google-signin/google-signin'
 import Constants from 'expo-constants'
 import { useAuth } from '../../src/context/AuthContext'
 import { useTheme } from '../../src/context/ThemeContext'
+import { useToast } from '../../src/context/ToastContext'
+import { useLanguage } from '../../src/context/LanguageContext'
 import { fonts } from '../../src/theme/typography'
 import { trackLogin, trackSignUp } from '../../src/lib/analytics'
 
@@ -52,6 +54,24 @@ export default function LoginScreen() {
   const { colors } = useTheme()
   const router = useRouter()
   const { signInWithTokens } = useAuth()
+  const { show: showToast } = useToast()
+  const { t: translate } = useLanguage()
+
+  /**
+   * Says so when the sign-in did not bring the reader's earlier work across.
+   *
+   * <p>The server has reported this since guest sessions shipped and no client read it, so someone
+   * whose highlights and progress stayed on the abandoned guest row was simply landed in their new
+   * account as if nothing had happened. It is indistinguishable, from their side, from the data
+   * having been deleted — and silence is the one response that makes it look deliberate.</p>
+   *
+   * <p>Long, because it asks the reader to notice something rather than confirming what they just
+   * did. Not a blocking dialog: they ARE signed in, and there is nothing for them to decide here.</p>
+   */
+  const warnIfNothingCarried = (skipped: string | null | undefined) => {
+    if (!skipped) return
+    showToast({ message: translate('guest.progressNotCarried'), variant: 'error', duration: 9000 })
+  }
   const [loading, setLoading] = useState(false)
   // Which tab this screen opens on.
   //
@@ -115,11 +135,13 @@ export default function LoginScreen() {
       } else if (mode === 'register') {
         const result = await authApi.registerWithEmail(email.trim(), password, name.trim() || undefined)
         await signInWithTokens(result.accessToken, result.refreshToken, result.user)
+        warnIfNothingCarried(result.guestMergeSkipped)
         trackSignUp('email')
         landAfterAuth(result.user)
       } else {
         const result = await authApi.loginWithEmail(email.trim(), password)
         await signInWithTokens(result.accessToken, result.refreshToken, result.user)
+        warnIfNothingCarried(result.guestMergeSkipped)
         trackLogin('email')
         landAfterAuth(result.user)
       }
@@ -176,6 +198,7 @@ export default function LoginScreen() {
 
       const result = await authApi.loginWithGoogle(idToken)
       await signInWithTokens(result.accessToken, result.refreshToken, result.user)
+      warnIfNothingCarried(result.guestMergeSkipped)
       if (isFreshAccount(result.user.createdAt)) trackSignUp('google')
       else trackLogin('google')
       landAfterAuth(result.user)

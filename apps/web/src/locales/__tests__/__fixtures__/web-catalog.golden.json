@@ -246,6 +246,7 @@
   "guest.banner": "A free account keeps your books, highlights and vocabulary if you lose this phone — and lets you upload your own.",
   "guest.createAccount": "Create free account",
   "guest.signOut": "Sign out",
+  "guest.progressNotCarried": "Signed in — but what you read before signing in stayed on the previous session and is not in this account.",
   "guest.signOutCancel": "Keep reading",
   "guest.signOutConfirm": "Sign out and lose it",
   "guest.signOutMessage": "You're reading as a guest, so this phone is the only key to your account — there's no email or password to get back in with. Sign out and your saved books, highlights, vocabulary and reading progress are gone for good, and we can't recover them for you either.",
