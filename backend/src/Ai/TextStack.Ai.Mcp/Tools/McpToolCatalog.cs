@@ -43,6 +43,9 @@ public sealed class McpToolCatalog
             BuildListMyBookHighlights(api),
             BuildSaveInsight(api),
             BuildGetMyInsights(api),
+            BuildGetMyReading(api),
+            BuildGetBookProgress(api),
+            BuildSetBookProgress(api),
         };
         _byName = tools.ToDictionary(t => t.Name, StringComparer.Ordinal);
     }
@@ -203,6 +206,9 @@ public sealed class McpToolCatalog
                     genres = (book.Genres ?? []).Select(g => g.Name).ToArray(),
                     chapters = (book.Chapters ?? []).Select(c => new
                     {
+                        // save_highlight is keyed by chapterId and its description says to get it
+                        // from here. Omitting it made that instruction impossible to follow.
+                        chapterId = c.Id,
                         chapterNumber = c.ChapterNumber,
                         slug = c.Slug,
                         title = c.Title,
@@ -940,6 +946,307 @@ public sealed class McpToolCatalog
             return false;
 
         return true;
+    }
+
+    // ── get_my_reading ──────────────────────────────────────────────────────────
+
+    private static readonly JsonElement GetMyReadingSchema = JsonDocument.Parse(
+        """
+        {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
+        """).RootElement;
+
+    /// <summary>
+    /// The shelf, with no arguments. Everything else here needs an id the model does not have yet;
+    /// this is the tool that gives it one, and the only answer to "what have I been reading".
+    /// </summary>
+    private static McpToolDescriptor BuildGetMyReading(TextStackApiClient api) => new()
+    {
+        Name = "get_my_reading",
+        Description =
+            "List what the reader is reading right now and what they recently finished, with titles "
+            + "and how far in they are (requires authentication). Takes no arguments. Call this FIRST "
+            + "when you do not already have a bookId or editionId — nothing else here can find a book "
+            + "without one. `source` says which: \"userbook\" means a book they uploaded, addressed by "
+            + "`bookId` in the _my_ tools; \"savedbook\" is a catalog book, addressed by `slug` in "
+            + "get_book/get_chapter and by `editionId` in the insight tools. `chapterSlug` is where "
+            + "they stopped. `allBooks` lists every upload including ones never opened.",
+        InputSchema = GetMyReadingSchema,
+        Handler = (args, ct) =>
+        {
+            if (!ArgReader.TryObject(args, out _, out var err))
+                return Task.FromResult(Error(err));
+
+            return InvokeAsync("get_my_reading", ct, async () =>
+            {
+                var shelves = await api.GetShelvesAsync(ct);
+                if (shelves is null) return Error("get_my_reading failed: the shelf is unavailable");
+
+                // The shelf is capped and filtered to in-progress, so it answers "right now" but not
+                // "everything I have". The upload list is neither, and is one more call.
+                var all = await api.GetMyBooksAsync(ct);
+
+                var mapped = new
+                {
+                    reading = (shelves.ContinueReading ?? []).Select(Shelf),
+                    finishedRecently = (shelves.FinishedThisMonth ?? []).Select(Shelf),
+                    allBooks = (all ?? []).Select(b => new
+                    {
+                        source = "userbook",
+                        bookId = b.Id,
+                        title = b.Title,
+                        author = b.Author ?? "",
+                        status = b.Status,
+                        chapterCount = b.ChapterCount,
+                        progressPercent = b.ProgressPercent,
+                        chapterSlug = b.ProgressChapterSlug,
+                        finishedAt = b.CompletedAt,
+                    }),
+                };
+                return Text(JsonSerializer.Serialize(mapped));
+            });
+        },
+    };
+
+    private static object Shelf(ShelfItemJson i) => new
+    {
+        source = i.Type,
+        // Deliberately named for what the other tools take, so the model does not have to guess
+        // which id belongs where: an upload is a bookId, a catalog book is an editionId AND a slug.
+        bookId = i.Type == "userbook" ? (Guid?)i.Id : null,
+        editionId = i.Type == "savedbook" ? (Guid?)i.Id : null,
+        slug = i.Slug,
+        title = i.Title,
+        author = i.Author ?? "",
+        progressPercent = i.ProgressPercent,
+        chapterSlug = i.ChapterSlug,
+        lastOpenedAt = i.LastOpenedAt,
+    };
+
+    // ── get_book_progress ───────────────────────────────────────────────────────
+
+    private static readonly JsonElement GetBookProgressSchema = JsonDocument.Parse(
+        """
+        {
+          "type": "object",
+          "properties": {
+            "bookId": { "type": "string", "format": "uuid" },
+            "editionId": { "type": "string", "format": "uuid" }
+          },
+          "required": [],
+          "additionalProperties": false
+        }
+        """).RootElement;
+
+    /// <summary>
+    /// Where the reader is in one book. Nothing exposed this before: the position used to leak only
+    /// as <c>ask_book</c>'s spoiler refusal, which named no chapter and is now deleted.
+    /// </summary>
+    private static McpToolDescriptor BuildGetBookProgress(TextStackApiClient api) => new()
+    {
+        Name = "get_book_progress",
+        Description =
+            "How far the reader has got in one book, and which chapter they stopped in (requires "
+            + "authentication). Give EITHER bookId (a book they uploaded) OR editionId (a catalog "
+            + "book). Ask this before discussing a book you have not just been told the position of "
+            + "— it is what lets you avoid spoiling what they have not reached yet. A book they have "
+            + "never opened has no progress and says so.",
+        InputSchema = GetBookProgressSchema,
+        Handler = (args, ct) =>
+        {
+            if (!ArgReader.TryObject(args, out var obj, out var err, "bookId", "editionId")
+                || !TryReadInsightTarget(obj, out var editionId, out var bookId, out err))
+                return Task.FromResult(Error(err));
+
+            return InvokeAsync("get_book_progress", ct, async () =>
+            {
+                if (bookId is { } id)
+                {
+                    var p = await api.GetUserBookProgressAsync(id, ct);
+                    return Text(JsonSerializer.Serialize(p is null
+                        ? (object)new { source = "userbook", bookId = id, opened = false }
+                        : new
+                        {
+                            source = "userbook",
+                            bookId = id,
+                            opened = true,
+                            chapterSlug = p.ChapterSlug,
+                            progressPercent = p.Percent,
+                            lastReadAt = p.UpdatedAt,
+                        }));
+                }
+
+                var e = await api.GetEditionProgressAsync(editionId!.Value, ct);
+                return Text(JsonSerializer.Serialize(e is null
+                    ? (object)new { source = "edition", editionId, opened = false }
+                    : new
+                    {
+                        source = "edition",
+                        editionId,
+                        opened = true,
+                        chapterSlug = e.ChapterSlug,
+                        progressPercent = e.Percent,
+                        lastReadAt = e.UpdatedAt,
+                        finishedAt = e.CompletedAt,
+                    }));
+            });
+        },
+    };
+
+    // ── set_book_progress ───────────────────────────────────────────────────────
+
+    private static readonly JsonElement SetBookProgressSchema = JsonDocument.Parse(
+        """
+        {
+          "type": "object",
+          "properties": {
+            "bookId": { "type": "string", "format": "uuid" },
+            "slug": { "type": "string", "minLength": 1, "maxLength": 300 },
+            "chapterSlug": { "type": "string", "minLength": 1, "maxLength": 300 }
+          },
+          "required": ["chapterSlug"],
+          "additionalProperties": false
+        }
+        """).RootElement;
+
+    /// <summary>
+    /// Record that the reader finished a chapter somewhere else — an audiobook, paper, another app.
+    /// The position lives here whether or not the reading did.
+    /// </summary>
+    private static McpToolDescriptor BuildSetBookProgress(TextStackApiClient api) => new()
+    {
+        Name = "set_book_progress",
+        Description =
+            "Record that the reader has FINISHED a chapter, including one they read or listened to "
+            + "somewhere else — an audiobook, paper, another app (requires authentication). Give "
+            + "EITHER bookId (a book they uploaded) OR slug (a catalog book), plus the chapterSlug "
+            + "they finished; get_my_reading and get_book list the slugs. The app then resumes them "
+            + "at the START of the next chapter and its progress becomes chapters-finished over "
+            + "chapters-total; finishing the last chapter marks the book complete. Only call this "
+            + "when the reader says they finished something — it overwrites the exact position their "
+            + "reader had stored, and it cannot be undone from here.",
+        InputSchema = SetBookProgressSchema,
+        Handler = (args, ct) =>
+        {
+            if (!ArgReader.TryObject(args, out var obj, out var err, "bookId", "slug", "chapterSlug")
+                || !ArgReader.TryRequiredString(obj, "chapterSlug", 1, 300, out var chapterSlug, out err)
+                || !ArgReader.TryOptionalGuid(obj, "bookId", out var bookId, out err)
+                || !ArgReader.TryOptionalString(obj, "slug", 300, out var bookSlug, out err))
+                return Task.FromResult(Error(err));
+
+            if ((bookId is null) == (bookSlug is null))
+                return Task.FromResult(Error(
+                    "Pass either 'bookId' (an uploaded book) or 'slug' (a catalog book), not both."));
+
+            return InvokeAsync("set_book_progress", ct, async () =>
+            {
+                if (bookId is { } id)
+                {
+                    var book = await api.GetMyBookAsync(id, ct);
+                    if (book is null) return Error($"set_book_progress failed: no uploaded book '{id}'");
+
+                    var chapters = book.Chapters ?? [];
+                    var at = IndexOfChapter(chapters.Select(c => c.Slug), chapterSlug);
+                    if (at < 0)
+                        return Error($"set_book_progress failed: no chapter '{chapterSlug}' in '{book.Title}'");
+
+                    var (resumeAt, percent, finished) = AfterFinishing(at, chapters.Count);
+                    var resumeSlug = chapters[resumeAt].Slug;
+
+                    // Uploads live in scroll space (`scroll:<slug>:<offset>` — progressPayload.ts),
+                    // and the kind is declared because a book last read as an Original-layout PDF
+                    // has a `page:<n>` stored: without the declaration LocatorSpace.MayReplace drops
+                    // the whole write. Declaring it is the documented way to say "this caller knows
+                    // coordinate spaces exist" — which is also why it costs that reader their page.
+                    var ok = await api.SetUserBookProgressAsync(
+                        id, resumeSlug, $"scroll:{resumeSlug}:0", percent, LocatorSpaceScroll, ct);
+
+                    return ok
+                        ? Text(JsonSerializer.Serialize(new
+                        {
+                            bookId = id,
+                            finishedChapterSlug = chapterSlug,
+                            resumeChapterSlug = resumeSlug,
+                            progressPercent = percent,
+                            bookFinished = finished,
+                            saved = true,
+                        }))
+                        : Error("set_book_progress failed: the position was refused. The book's stored "
+                              + "position may be in a coordinate space this write cannot replace.");
+                }
+
+                // The catalog write is keyed by chapter GUID, so the slug has to be resolved first.
+                // get_book carries the ids for exactly this.
+                var edition = await api.GetBookAsync(bookSlug!, ct);
+                if (edition is null) return Error($"set_book_progress failed: no catalog book '{bookSlug}'");
+
+                var list = edition.Chapters ?? [];
+                var found = IndexOfChapter(list.Select(c => c.Slug), chapterSlug);
+                if (found < 0)
+                    return Error($"set_book_progress failed: no chapter '{chapterSlug}' in '{bookSlug}'");
+
+                var (resume, pct, done) = AfterFinishing(found, list.Count);
+                // The app's own two sentinels, not a sixth locator format: end-of-book is what
+                // "mark as read" writes, and start-of-chapter is where the next chapter begins.
+                // An assistant knows the chapter; it never knows a scroll offset.
+                var saved = await api.SetEditionProgressAsync(
+                    edition.Id, list[resume].Id, done ? EndOfBook : StartOfChapter, pct, ct);
+
+                return saved
+                    ? Text(JsonSerializer.Serialize(new
+                    {
+                        editionId = edition.Id,
+                        finishedChapterSlug = chapterSlug,
+                        resumeChapterSlug = list[resume].Slug,
+                        progressPercent = pct,
+                        bookFinished = done,
+                        saved = true,
+                    }))
+                    : Error("set_book_progress failed: the position could not be saved");
+            });
+        },
+    };
+
+    /// <summary>The app's own mark-as-read sentinel (`auth.ts markAsRead`), reused rather than reinvented.</summary>
+    private const string EndOfBook = """{"type":"end"}""";
+
+    /// <summary>The start of a chapter — the same sentinel `markAsUnread` writes.</summary>
+    private const string StartOfChapter = """{"type":"start"}""";
+
+    /// <summary>Mirrors `LocatorSpace.Scroll`, which lives in Application and is not referenced here.</summary>
+    private const string LocatorSpaceScroll = "scroll";
+
+    private static int IndexOfChapter(IEnumerable<string?> slugs, string wanted)
+    {
+        var i = 0;
+        foreach (var slug in slugs)
+        {
+            if (string.Equals(slug, wanted, StringComparison.Ordinal)) return i;
+            i++;
+        }
+        return -1;
+    }
+
+    /// <summary>
+    /// Where the reader is once they have finished chapter <paramref name="at"/>: the START of the
+    /// next one, because "I finished chapter 2" means the app should open chapter 3 — not drop them
+    /// back into what they just finished. On the last chapter there is nowhere forward to go, so the
+    /// position stays and the book is simply complete.
+    ///
+    /// <para>The percentage is chapters-done over chapters-total. It is a book-wide fraction, which
+    /// is the only unit the server stores (<c>ProgressUnit</c>), and it is sent rather than omitted
+    /// because the catalog path ASSIGNS the column — a write carrying no number blanks the one that
+    /// was there.</para>
+    /// </summary>
+    private static (int ResumeIndex, double Percent, bool Finished) AfterFinishing(int at, int total)
+    {
+        var done = at + 1;
+        var finished = done >= total;
+        return (finished ? at : done, total > 0 ? (double)done / total : 0, finished);
     }
 
     // ── MCP result helpers ──────────────────────────────────────────────────────

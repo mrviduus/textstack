@@ -154,10 +154,11 @@ required", and `last_used_at` is stamped. That covers the bridge path
   depend on the answer.
 - **Mint a key on textstack.app and hold a real conversation about a real book**, then check the
   conclusion comes back. Every test so far has used an empty throwaway account.
-- ~~**Android developer verification, deadline 2026-09-30**~~ — **already done**, verified in the
-  Play Console 2026-09-10: `app.textstack.mobile` is Registered with both signing keys, updated
-  2026-05-15. The September notification was informational and was recorded here as a deadline by
-  mistake. Do not re-raise it. (It has already misled one agent reading this file.)
+- ~~Android developer verification~~ — **already done**, verified in the console 2026-09-10:
+  `app.textstack.mobile` is Registered with both signing keys, last updated 2026-05-15, and Identity
+  is filled from the developer account. The September notification is informational; it was read as a
+  to-do here in error. **Do not re-raise it** — the earlier wording here has already misled one agent
+  into reporting it as an urgent deadline.
 
 ### Left behind by the cut — a follow-up, found 2026-09-10 after PR #596 opened
 
@@ -200,17 +201,18 @@ residue this work exists to remove, so it goes in its own small PR rather than r
 
 | # | Item | Slice |
 |---|---|---|
-| 1 | `get_my_reading` — the shelf, over the existing `GET /me/library/shelves` | 1 |
-| 2 | `get_book_progress` — where am I in this book | 1 |
-| 3 | `set_book_progress` — record progress made on another medium | 1 |
-| 4 | `chapterSlug` on `LibraryShelfItemDto` — the service already selects it | 1 |
-| 5 | Restore `chapterId` to the `get_book` projection (defect 2 below) | 1 |
-| 6 | Validate the chapter slug on upload progress writes (defect 1) | 1 |
-| 7 | Stop reporting success when `MayReplace` refused the write (defect 3) | 1 |
+| 1 | ~~`get_my_reading` — the shelf, over the existing `GET /me/library/shelves`~~ — shipped 2026-09-10 | 1 |
+| 2 | ~~`get_book_progress` — where am I in this book~~ — shipped 2026-09-10 | 1 |
+| 3 | ~~`set_book_progress` — record progress made on another medium~~ — shipped 2026-09-10 | 1 |
+| 4 | ~~`chapterSlug` on `LibraryShelfItemDto` — the service already selects it~~ — shipped 2026-09-10 | 1 |
+| 5 | ~~Restore `chapterId` to the `get_book` projection (defect 2 below)~~ — shipped 2026-09-10 | 1 |
+| 6 | ~~Validate the chapter slug on upload progress writes (defect 1)~~ — shipped 2026-09-10 | 1 |
+| 7 | ~~Stop reporting success when `MayReplace` refused the write (defect 3)~~ — shipped 2026-09-10 | 1 |
 | 8 | Brief names highlights and vocabulary, within the 1200-char budget | 1 |
 | 9 | Catalog screens pass progress into the handoff | 1 |
 | 10 | Mobile handoff stops swallowing the open failure | 1 |
-| 11 | Insight categories (**Conclusions · Watch for · Discussed · Questions**) + tabs + DELETE | 2 |
+| 11a | ~~DELETE for an insight~~ — shipped 2026-09-10, reader-only, no MCP counterpart | 2 |
+| 11b | Insight categories (**Conclusions · Watch for · Discussed · Questions**) — **open, see below** | 2 |
 | 12 | Hide the six chats and the RAG UI behind a flag | 3 |
 | 13 | One mark-as-read locator across web and mobile (defect 4) | later |
 | 14 | `LocatorKind` + `MayReplace` on the catalog path (defects 5, 6) | later |
@@ -315,15 +317,17 @@ retrieval vectors, not the type.
 These exist independently of this feature; they were found while tracing it. Also listed in
 [`STATUS.md`](../STATUS.md).
 
-1. **No slug validation on upload progress writes.** `UserBookService.cs:556` assigns
-   `book.ProgressChapterSlug = request.ChapterSlug` raw. An invented slug is stored silently. The
-   bookmark path in the same file (`:640-646`) does validate.
-2. **Catalog MCP tools drop `chapterId`.** `get_book` and `get_chapter` project chapters without the
-   Guid (`McpToolCatalog.cs:195-212`, `:253-261`) though the server DTOs carry it. Meanwhile
-   `save_highlight`'s description tells the model to take `chapterId` "from get_book"
-   (`McpToolCatalog.cs:637`) — which is not true today.
-3. **A refused write reports success.** `LocatorSpace.MayReplace` refusal returns `(true, null)`
-   (`UserBookService.cs:551-554`). The caller gets 200 and believes it saved.
+
+1. ~~**No slug validation on upload progress writes.**~~ Fixed 2026-09-10: the write is checked
+   against `UserChapters` for that book and an unknown slug is refused, the way `AddBookmarkAsync`
+   always has been.
+2. ~~**Catalog MCP tools drop `chapterId`.**~~ Fixed 2026-09-10 for `get_book`, which is the one
+   `save_highlight`'s description names and the one `set_book_progress` needs to resolve a slug to
+   the GUID the catalog route requires. `get_chapter` still projects without it — it carries the
+   chapter the caller already asked for by slug, so nothing is unreachable through it.
+3. ~~**A refused write reports success.**~~ Fixed 2026-09-10: the refusal returns `(false, …)` and
+   the endpoint answers 400 with the reason, so `set_book_progress` reports a failure instead of
+   telling a person their progress was recorded.
 4. ~~**Web and mobile write different locators for the same action.**~~ Fixed 2026-09-10. The
    sentinels are now one definition — `PROGRESS_LOCATOR_END` / `_START` in
    `packages/shared/src/reader/progressLocators.ts` — and mobile's "mark finished" goes through
@@ -345,6 +349,7 @@ These exist independently of this feature; they were found while tracing it. Als
    of that column was the RAG spoiler gate, which was deleted with `ask_book`. It is now written by
    two code paths and read by none: a drop candidate, not a bug. Left in place because dropping a
    column on a production table to delete a value nobody reads is the more expensive mistake.
+
 8. **An untrusted percent unit is discarded silently** — `ProgressUnit.IsTrusted` false, the write
    succeeds, the number is absent, no error is returned. **Kept**, and the reason is in `ProgressUnit`
    itself: the callers that omit the unit are installed builds that cannot act on an error and would
@@ -429,3 +434,41 @@ Consequences:
   anchor, not a pixel
 - `backend/src/Domain/Entities/BookInsight.cs` — the design rationale for "a catalog, not a
   transcript" lives in the entity's own doc comment
+
+## Insight categories — what the consilium settled, and what it did not
+
+Three independent readings of the code (2026-09-10), arguing for fixed categories, against them, and
+over the lifecycle. They disagreed on the answer and converged on the question.
+
+**Settled, and shipped:**
+
+- **DELETE first, reader-only.** All three agreed, for the same reason: replacing covers a poor
+  conclusion about the *right* chapter, and nothing covers one filed against the *wrong* chapter.
+  Shipped as `DELETE /me/insights/{id}` with an affordance on both clients.
+- **No MCP delete tool.** The asymmetry is categorical: `save_insight`'s worst case is one bad
+  paragraph removed in a tap; a delete tool's worst case is a year of конспект gone, from a stateless
+  bridge that cannot confirm intent, against a table with no soft-delete and no trash.
+- **Not tabs.** Both sides refused them independently. The panel renders *nothing* when empty, on
+  purpose; a tab bar must render before you know what is behind it, and at ≤10 insights per book
+  three of four tabs are empty. It also replaces reading order — the ordering this design committed
+  to — with a grouping of four.
+- **If a category column ever lands, it stays OUT of the unique index.** In the key, the write
+  ceiling the entity exists to hold goes from `1 × chapters` to `4 × chapters` (a 40-chapter book:
+  41 rows → 164 — "approximately two hundred notes", which is the number the entity comment names as
+  the thing being prevented), and the replace promise in the tool description becomes false in five
+  documents at once. Facet → key later is a free re-index on tens of rows; key → facet later forces
+  you to choose which row per chapter survives.
+
+**Open, and only the owner can answer it.** Both voices arrived at the same question from opposite
+directions: **is the return path per-book or cross-book?** Opening *Dracula* and seeing four buckets
+needs no categories — a label and reading order carry it. Seeing every open question across all 33
+books cannot be done without a typed field, and also needs a `/me/insights` route with no book
+filter, which today answers 400.
+
+**Two findings from the lifecycle read, not yet acted on:**
+
+- `Source` is write-once-constant: hardcoded `"mcp"` at save and untouched on replace. It is the
+  field any future scoping would key on, so it has to become honest before it is relied upon.
+- The Edition FK is `OnDelete(Cascade)`: deleting one catalog edition hard-deletes every reader's
+  insights about it. Low risk today (re-ingestion deletes chapters, not editions), but it is
+  destruction of user content triggered by an admin action.

@@ -24,6 +24,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 ## [Unreleased]
 
 - **Progress** — one "mark as finished" across web and mobile, and the first write for a book stops being the exception — backend, web, mobile, shared · [details](docs/changelog-archive/2026-H2.md#2026-09-10-progress-the-same-action-writes-the-same-thing)
+- **MCP** — the assistant can see where you are, and can record a chapter you finished somewhere else — backend · [details](docs/changelog-archive/2026-H2.md#2026-09-10-mcp-the-assistant-can-see-where-you-are)
 - **Mobile** — the assistant handoff and the conclusions it writes back reach the phone, and a percent that was silently a fraction — mobile, web, shared · [details](docs/changelog-archive/2026-H2.md#2026-09-08-mcp-the-book-opens-to-your-assistant-and-the-conclusions-come-back)
 - **MCP** — TextStack.Mcp 1.1.0 on NuGet: the tool ships the uploaded-library and write-back tools — backend · [details](docs/changelog-archive/2026-H2.md#2026-09-08-mcp-the-book-opens-to-your-assistant-and-the-conclusions-come-back)
 - **Library** — searching your own library answered 500 on every call and always had, behind an empty-looking result — backend · [details](docs/changelog-archive/2026-H2.md#2026-09-08-mcp-the-book-opens-to-your-assistant-and-the-conclusions-come-back)

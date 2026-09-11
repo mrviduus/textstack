@@ -389,6 +389,109 @@ public sealed class TextStackApiClient
         return null;
     }
 
+    // ── reading state (Bearer) ───────────────────────────────────────────────────
+
+    /// <summary>
+    /// <c>GET /me/library/shelves</c> — the reader's shelf, both book kinds in one response with
+    /// titles and progress already joined. This is the only endpoint that answers "what am I
+    /// reading" without the caller stitching three others together.
+    /// </summary>
+    public async Task<ShelvesJson?> GetShelvesAsync(CancellationToken ct)
+    {
+        using var request = await AuthorizedRequestAsync(HttpMethod.Get, "/me/library/shelves", ct);
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+
+        if (response.StatusCode is HttpStatusCode.Unauthorized) throw new McpUnauthorizedException();
+        if (response.StatusCode is HttpStatusCode.OK)
+            return await response.Content.ReadFromJsonAsync<ShelvesJson>(JsonOptions, ct);
+
+        return null;
+    }
+
+    /// <summary>
+    /// <c>GET /me/books</c> — every upload, not paged. The shelves response is capped and filtered to
+    /// in-progress, so this is what answers "everything I have", including books never opened.
+    /// </summary>
+    public async Task<IReadOnlyList<MyBookJson>?> GetMyBooksAsync(CancellationToken ct)
+    {
+        using var request = await AuthorizedRequestAsync(HttpMethod.Get, "/me/books", ct);
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+
+        if (response.StatusCode is HttpStatusCode.Unauthorized) throw new McpUnauthorizedException();
+        if (response.StatusCode is HttpStatusCode.OK)
+            return await response.Content.ReadFromJsonAsync<IReadOnlyList<MyBookJson>>(JsonOptions, ct);
+
+        return null;
+    }
+
+    /// <summary><c>GET /me/progress/{editionId}</c>. 404 when the reader has never opened it.</summary>
+    public async Task<EditionProgressJson?> GetEditionProgressAsync(Guid editionId, CancellationToken ct)
+    {
+        using var request = await AuthorizedRequestAsync(HttpMethod.Get, $"/me/progress/{editionId}", ct);
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+
+        if (response.StatusCode is HttpStatusCode.Unauthorized) throw new McpUnauthorizedException();
+        if (response.StatusCode is HttpStatusCode.OK)
+            return await response.Content.ReadFromJsonAsync<EditionProgressJson>(JsonOptions, ct);
+
+        return null;
+    }
+
+    /// <summary><c>GET /me/books/{id}/progress</c>. 404 when the reader has never opened it.</summary>
+    public async Task<UserBookProgressJson?> GetUserBookProgressAsync(Guid bookId, CancellationToken ct)
+    {
+        using var request = await AuthorizedRequestAsync(HttpMethod.Get, $"/me/books/{bookId}/progress", ct);
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+
+        if (response.StatusCode is HttpStatusCode.Unauthorized) throw new McpUnauthorizedException();
+        if (response.StatusCode is HttpStatusCode.OK)
+            return await response.Content.ReadFromJsonAsync<UserBookProgressJson>(JsonOptions, ct);
+
+        return null;
+    }
+
+    /// <summary>
+    /// <c>PUT /me/progress/{editionId}</c> — move a catalog book's position.
+    /// <para>
+    /// <c>percentUnit: "book"</c> is not optional decoration: without it <c>ProgressUnit.IsTrusted</c>
+    /// is false and the server stores the position while silently discarding the number.
+    /// </para>
+    /// </summary>
+    public async Task<bool> SetEditionProgressAsync(
+        Guid editionId, Guid chapterId, string locator, double? percent, CancellationToken ct)
+    {
+        using var request = await AuthorizedRequestAsync(HttpMethod.Put, $"/me/progress/{editionId}", ct);
+        request.Content = JsonContent.Create(
+            new SetEditionProgressJson(chapterId, locator, percent, "book"), options: JsonOptions);
+
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        if (response.StatusCode is HttpStatusCode.Unauthorized) throw new McpUnauthorizedException();
+        return response.IsSuccessStatusCode;
+    }
+
+    /// <summary>
+    /// <c>PUT /me/books/{id}/progress</c> — move an upload's position. Slug-native, so no chapter-id
+    /// lookup is needed here; the server validates the slug against the book.
+    /// <para>
+    /// <paramref name="locatorKind"/> is what makes the write land on a book last read as a PDF in
+    /// Original layout: the stored position is then <c>page:&lt;n&gt;</c>, and
+    /// <c>LocatorSpace.MayReplace</c> drops an undeclared write from another coordinate space
+    /// entirely — silently, from the caller's point of view, before this change reported it.
+    /// </para>
+    /// </summary>
+    public async Task<bool> SetUserBookProgressAsync(
+        Guid bookId, string? chapterSlug, string locator, double? percent, string? locatorKind,
+        CancellationToken ct)
+    {
+        using var request = await AuthorizedRequestAsync(HttpMethod.Put, $"/me/books/{bookId}/progress", ct);
+        request.Content = JsonContent.Create(
+            new SetUserBookProgressJson(chapterSlug, locator, percent, "book", locatorKind), options: JsonOptions);
+
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        if (response.StatusCode is HttpStatusCode.Unauthorized) throw new McpUnauthorizedException();
+        return response.IsSuccessStatusCode;
+    }
+
     // ── request builders ─────────────────────────────────────────────────────────
 
     // Public route: Host header only (site + EN default-language resolution).
@@ -505,7 +608,10 @@ public sealed record BookAuthorJson(string Name);
 
 public sealed record BookGenreJson(string Name);
 
-public sealed record ChapterSummaryJson(int ChapterNumber, string? Slug, string Title, int? WordCount);
+// `Id` is deserialized because save_highlight needs a chapterId and its description tells the model
+// to take it from get_book. That was false for as long as this record omitted the field: the server
+// DTO (Contracts.Books.ChapterSummaryDto) has always carried it, the bridge just dropped it.
+public sealed record ChapterSummaryJson(Guid Id, int ChapterNumber, string? Slug, string Title, int? WordCount);
 
 // GET /books/{slug}/chapters/{chapterSlug} → Contracts.Books.ChapterDto (subset).
 public sealed record ChapterJson(
@@ -650,3 +756,58 @@ public sealed record SaveInsightJson(
     string? ChapterSlug,
     string Text,
     string? Question);
+
+
+// GET /me/library/shelves → LibraryShelvesDto. Only the shelves an assistant needs to answer
+// "what am I reading" and "what did I just finish".
+public sealed record ShelvesJson(
+    IReadOnlyList<ShelfItemJson>? ContinueReading,
+    IReadOnlyList<ShelfItemJson>? RecentlyAdded,
+    IReadOnlyList<ShelfItemJson>? FinishedThisMonth);
+
+public sealed record ShelfItemJson(
+    Guid Id,
+    // "userbook" (an upload, addressed by bookId) or "savedbook" (a catalog edition, editionId).
+    // The two halves of the tool catalog split on exactly this.
+    string Type,
+    string Title,
+    string? Author,
+    string? Slug,
+    double ProgressPercent,
+    DateTimeOffset? LastOpenedAt,
+    string? ChapterSlug);
+
+// GET /me/books → UserBookListDto[] (the subset that answers "what is on my shelf").
+public sealed record MyBookJson(
+    Guid Id,
+    string Title,
+    string Slug,
+    string? Author,
+    string Status,
+    int ChapterCount,
+    double? ProgressPercent,
+    string? ProgressChapterSlug,
+    DateTimeOffset? CompletedAt);
+
+// GET /me/progress/{editionId} → ReadingProgressDto.
+public sealed record EditionProgressJson(
+    Guid EditionId,
+    Guid ChapterId,
+    string? ChapterSlug,
+    string Locator,
+    double? Percent,
+    DateTimeOffset UpdatedAt,
+    DateTimeOffset? CompletedAt);
+
+// GET /me/books/{id}/progress → UserBookProgressDto.
+public sealed record UserBookProgressJson(
+    string? ChapterSlug,
+    string? Locator,
+    double? Percent,
+    DateTimeOffset? UpdatedAt);
+
+public sealed record SetEditionProgressJson(
+    Guid ChapterId, string Locator, double? Percent, string PercentUnit);
+
+public sealed record SetUserBookProgressJson(
+    string? ChapterSlug, string? Locator, double? Percent, string PercentUnit, string? LocatorKind);

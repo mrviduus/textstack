@@ -43,6 +43,10 @@ public class McpOverTheWireTests : IAsyncLifetime
 
     private static JsonElement Json(CallToolResult result) => JsonDocument.Parse(TextOf(result)).RootElement;
 
+    /// <summary>Asserts the call succeeded, and puts the tool's own message in the failure.</summary>
+    private static void AssertOk(CallToolResult result) =>
+        Assert.False(result.IsError == true, TextOf(result));
+
     private async Task<CallToolResult> CallAsync(McpClient client, string tool, Dictionary<string, object?> args) =>
         await client.CallToolAsync(tool, args!, cancellationToken: Ct);
 
@@ -211,7 +215,7 @@ public class McpOverTheWireTests : IAsyncLifetime
 
         var names = tools.Select(t => t.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray();
         Assert.Equal(
-            ["get_book", "get_chapter", "get_my_book", "get_my_chapter", "get_my_insights", "list_my_book_highlights", "list_my_highlights", "list_my_vocabulary", "save_highlight", "save_insight", "save_my_highlight", "search_books", "search_my_library"],
+            ["get_book", "get_book_progress", "get_chapter", "get_my_book", "get_my_chapter", "get_my_insights", "get_my_reading", "list_my_book_highlights", "list_my_highlights", "list_my_vocabulary", "save_highlight", "save_insight", "save_my_highlight", "search_books", "search_my_library", "set_book_progress"],
             names);
     }
 
@@ -274,7 +278,7 @@ public class McpOverTheWireTests : IAsyncLifetime
         await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
 
         var tools = await client.ListToolsAsync(cancellationToken: Ct);
-        Assert.Equal(13, tools.Count);
+        Assert.Equal(16, tools.Count);
 
         var chapter = await CallAsync(client, "get_chapter", Args(("slug", "dracula"), ("chapterSlug", "ch-1")));
         Assert.NotEqual(true, chapter.IsError);
@@ -367,4 +371,193 @@ public class McpOverTheWireTests : IAsyncLifetime
 
         Assert.Equal($"Bearer {McpServerHarness.TestJwt}", _harness.Stub.Last("save_insight")!.Authorization);
     }
+
+    // ── 15. reading state: the shelf, the position, and moving it ─────────────────
+
+    [Fact]
+    public async Task GetMyReading_OverWire_ReturnsBothBookKinds_WithTitlesAndTheIdsTheOtherToolsTake()
+    {
+        // The whole reason this tool exists: with no arguments it is the only way into everything
+        // else, so it has to hand back an id each other tool actually accepts — a bookId for an
+        // upload, an editionId AND a slug for a catalog book. Handing back the wrong one reads as
+        // "book not found" three calls later, far from the cause.
+        await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
+
+        var result = await CallAsync(client, "get_my_reading", Args());
+
+        AssertOk(result);
+        var reading = Json(result).GetProperty("reading").EnumerateArray().ToArray();
+        Assert.Equal(2, reading.Length);
+
+        var upload = reading.Single(r => r.GetProperty("source").GetString() == "userbook");
+        Assert.Equal("Designing Data-Intensive Applications", upload.GetProperty("title").GetString());
+        Assert.Equal(StubBackend.UserBookId, upload.GetProperty("bookId").GetString());
+        Assert.Equal(JsonValueKind.Null, upload.GetProperty("editionId").ValueKind);
+        Assert.Equal("replication", upload.GetProperty("chapterSlug").GetString());
+
+        var catalog = reading.Single(r => r.GetProperty("source").GetString() == "savedbook");
+        Assert.Equal(StubBackend.GoodEdition, catalog.GetProperty("editionId").GetString());
+        Assert.Equal("dracula", catalog.GetProperty("slug").GetString());
+        Assert.Equal(JsonValueKind.Null, catalog.GetProperty("bookId").ValueKind);
+
+        // The shelf is capped and filtered to in-progress, so a book never opened appears only here.
+        var all = Json(result).GetProperty("allBooks").EnumerateArray().ToArray();
+        Assert.Equal(2, all.Length);
+        Assert.Contains(all, b => b.GetProperty("title").GetString() == "The Mom Test");
+    }
+
+    [Fact]
+    public async Task GetMyReading_NoBearer_OverWire_AuthRequired()
+    {
+        await using var client = await _harness.ConnectAsync(bearer: null, Ct);
+
+        var result = await CallAsync(client, "get_my_reading", Args());
+
+        Assert.True(result.IsError);
+        Assert.Contains("authentication required", TextOf(result));
+    }
+
+    [Fact]
+    public async Task GetBookProgress_OverWire_UploadAndCatalog_ReportWhereTheReaderStopped()
+    {
+        await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
+
+        var upload = await CallAsync(client, "get_book_progress", Args(("bookId", StubBackend.UserBookId)));
+        AssertOk(upload);
+        Assert.True(Json(upload).GetProperty("opened").GetBoolean());
+        Assert.Equal("replication", Json(upload).GetProperty("chapterSlug").GetString());
+
+        var catalog = await CallAsync(client, "get_book_progress", Args(("editionId", StubBackend.GoodEdition)));
+        AssertOk(catalog);
+        Assert.Equal("ch-1", Json(catalog).GetProperty("chapterSlug").GetString());
+        Assert.Equal($"/me/progress/{StubBackend.GoodEdition}", _harness.Stub.Last("get_edition_progress")!.PathAndQuery);
+    }
+
+    [Fact]
+    public async Task GetBookProgress_NeverOpened_OverWire_SaysNotStarted_NotAnError()
+    {
+        // 404 here means "this reader has not opened this book", which is an answer. Reporting it as
+        // a failure would have the model tell a reader their library is broken.
+        await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
+
+        var result = await CallAsync(client, "get_book_progress", Args(("editionId", StubBackend.UnopenedEdition)));
+
+        AssertOk(result);
+        Assert.False(Json(result).GetProperty("opened").GetBoolean());
+    }
+
+    [Fact]
+    public async Task GetBookProgress_BothIds_OverWire_Refused_NoUpstreamCall()
+    {
+        await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
+
+        var result = await CallAsync(client, "get_book_progress",
+            Args(("bookId", StubBackend.UserBookId), ("editionId", StubBackend.GoodEdition)));
+
+        Assert.True(result.IsError);
+        Assert.Equal(0, _harness.Stub.TotalRequests);
+    }
+
+    [Fact]
+    public async Task SetBookProgress_CatalogMidBook_OverWire_ResumesAtTheNextChapter_WithABookWidePercent()
+    {
+        // "I finished chapter 1" must not drop the reader back into chapter 1. The stored position
+        // becomes the START of chapter 2 — the app's own markAsUnread sentinel — and the percentage
+        // is chapters-done over chapters-total, declared as a BOOK fraction because a number without
+        // a declared unit is silently discarded (ProgressUnit).
+        await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
+
+        var result = await CallAsync(client, "set_book_progress", Args(("slug", "dracula"), ("chapterSlug", "ch-1")));
+
+        AssertOk(result);
+        Assert.Equal("ch-2", Json(result).GetProperty("resumeChapterSlug").GetString());
+        Assert.False(Json(result).GetProperty("bookFinished").GetBoolean());
+
+        var put = _harness.Stub.Last("set_edition_progress")!;
+        Assert.Equal("PUT", put.Method);
+        var body = JsonDocument.Parse(put.Body).RootElement;
+        Assert.Equal("66666666-6666-6666-6666-666666666666", body.GetProperty("chapterId").GetString());
+        Assert.Equal("{\"type\":\"start\"}", body.GetProperty("locator").GetString());
+        Assert.Equal(0.5, body.GetProperty("percent").GetDouble());
+        Assert.Equal("book", body.GetProperty("percentUnit").GetString());
+    }
+
+    [Fact]
+    public async Task SetBookProgress_CatalogLastChapter_OverWire_MarksTheBookFinished()
+    {
+        await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
+
+        var result = await CallAsync(client, "set_book_progress", Args(("slug", "dracula"), ("chapterSlug", "ch-2")));
+
+        AssertOk(result);
+        Assert.True(Json(result).GetProperty("bookFinished").GetBoolean());
+
+        var body = JsonDocument.Parse(_harness.Stub.Last("set_edition_progress")!.Body).RootElement;
+        // The app's own mark-as-read sentinel, and the 1.0 the server turns into CompletedAt.
+        Assert.Equal("{\"type\":\"end\"}", body.GetProperty("locator").GetString());
+        Assert.Equal(1d, body.GetProperty("percent").GetDouble());
+    }
+
+    [Fact]
+    public async Task SetBookProgress_Upload_OverWire_WritesAScrollLocator_AndDeclaresTheSpace()
+    {
+        // Uploads are slug-native, and the locator has to stay in the coordinate space the reader's
+        // own app writes. The declared kind is what lets the write land on a book last read as an
+        // Original-layout PDF, whose stored position is `page:<n>` — LocatorSpace.MayReplace drops
+        // an undeclared cross-space write whole.
+        await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
+
+        var result = await CallAsync(client, "set_book_progress",
+            Args(("bookId", StubBackend.UserBookId), ("chapterSlug", "replication")));
+
+        AssertOk(result);
+        var body = JsonDocument.Parse(_harness.Stub.Last("set_my_book_progress")!.Body).RootElement;
+        Assert.Equal("replication", body.GetProperty("chapterSlug").GetString());
+        Assert.Equal("scroll:replication:0", body.GetProperty("locator").GetString());
+        Assert.Equal("scroll", body.GetProperty("locatorKind").GetString());
+        Assert.Equal("book", body.GetProperty("percentUnit").GetString());
+    }
+
+    [Fact]
+    public async Task SetBookProgress_UnknownChapter_OverWire_Refused_WithoutWritingAnything()
+    {
+        // The defect this closes: an invented slug used to be stored verbatim, and every later read
+        // resolved it to nothing. The tool must refuse before the write, not after.
+        await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
+
+        var result = await CallAsync(client, "set_book_progress",
+            Args(("slug", "dracula"), ("chapterSlug", "ch-99")));
+
+        Assert.True(result.IsError);
+        Assert.Contains("no chapter 'ch-99'", TextOf(result));
+        Assert.Null(_harness.Stub.Last("set_edition_progress"));
+    }
+
+    [Fact]
+    public async Task SetBookProgress_UpstreamRefusal_OverWire_ReportsFailure_NotSuccess()
+    {
+        // The other half of the same defect, on the server side: MayReplace used to answer (true,
+        // null), so the API returned 200 having stored nothing and an assistant told a person their
+        // progress was recorded. A non-2xx must surface as a tool error.
+        await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
+
+        var result = await CallAsync(client, "set_book_progress",
+            Args(("bookId", StubBackend.RefusingBookId), ("chapterSlug", "replication")));
+
+        Assert.True(result.IsError);
+        Assert.Contains("refused", TextOf(result));
+    }
+
+    [Fact]
+    public async Task SetBookProgress_BothBookIdAndSlug_OverWire_Refused_NoUpstreamCall()
+    {
+        await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
+
+        var result = await CallAsync(client, "set_book_progress",
+            Args(("bookId", StubBackend.UserBookId), ("slug", "dracula"), ("chapterSlug", "replication")));
+
+        Assert.True(result.IsError);
+        Assert.Equal(0, _harness.Stub.TotalRequests);
+    }
+
 }
