@@ -788,7 +788,29 @@ public class AuthService
 
     private static string HashToken(string token) => DeviceCodes.HashToken(token);
 
-    public Guid? ValidateAccessToken(string accessToken)
+    /// <summary>
+    /// Marks an access token as a guest's. Minted in <c>BuildClaims</c>, read by
+    /// <c>ValidateAccessTokenIdentity</c> — one definition so the two cannot drift, which is the
+    /// failure that left the guest-activity middleware inert.
+    /// </summary>
+    public const string GuestClaimType = "is_guest";
+
+    public Guid? ValidateAccessToken(string accessToken) => ValidateAccessTokenIdentity(accessToken).UserId;
+
+    /// <summary>
+    /// The user this token belongs to, AND whether it is a guest's.
+    ///
+    /// <para>The <c>is_guest</c> claim has been minted into every guest's access token since guest
+    /// sessions shipped (see <see cref="BuildClaims"/>), and until now nothing could read it: this
+    /// API registers no ASP.NET authentication middleware at all — every endpoint resolves identity
+    /// by hand through <c>GetUserId</c> — so <c>HttpContext.User</c> is permanently empty. Anything
+    /// reaching for the claim through <c>context.User</c> silently saw nothing, which is exactly how
+    /// <c>GuestActivityMiddleware</c> spent its whole life returning early on every request.</para>
+    ///
+    /// <para>Returns <c>(null, false)</c> for a token that does not validate, so a caller cannot
+    /// mistake an expired token for an account.</para>
+    /// </summary>
+    public (Guid? UserId, bool IsGuest) ValidateAccessTokenIdentity(string accessToken)
     {
         var tokenHandler = new JwtSecurityTokenHandler();
         var key = Encoding.UTF8.GetBytes(_jwtSettings.SecretKey);
@@ -807,11 +829,14 @@ public class AuthService
             }, out _);
 
             var userIdClaim = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            return userIdClaim != null ? Guid.Parse(userIdClaim) : null;
+            if (userIdClaim == null) return (null, false);
+
+            var isGuest = principal.FindFirst(GuestClaimType)?.Value == "true";
+            return (Guid.Parse(userIdClaim), isGuest);
         }
         catch
         {
-            return null;
+            return (null, false);
         }
     }
 
@@ -859,7 +884,7 @@ public class AuthService
             new(ClaimTypes.Name, user.Name ?? user.Email)
         };
         if (user.IsGuest)
-            claims.Add(new Claim("is_guest", "true"));
+            claims.Add(new Claim(GuestClaimType, "true"));
 
         var token = new JwtSecurityToken(
             issuer: _jwtSettings.Issuer,
