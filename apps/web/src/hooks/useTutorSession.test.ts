@@ -23,12 +23,39 @@ const planItem = (id: string, word: string, over: Partial<TutorPlanItem> = {}): 
 })
 
 describe('tutor pure logic', () => {
-  it('buildPlanCard projects an enriched plan item onto a classic (context) card', () => {
+  it('buildPlanCard projects an enriched plan item onto a flashcard when it carries no options', () => {
     const card = buildPlanCard(planItem('w1', 'foo'))
     expect(card).toMatchObject({
-      wordId: 'w1', word: 'foo', translation: 'foo-tr', reviewMode: 'context',
+      wordId: 'w1', word: 'foo', translation: 'foo-tr',
       originalSentence: 'a foo sentence', bookTitle: 'Some Book',
     })
+    expect(card.options).toBeNull()
+  })
+
+  it('buildPlanCard carries the options and the cloze the server built', () => {
+    // The whole point of the change: exerciseType is calibrated server-side and used to be rendered
+    // as a badge over a card that was identical for all three types. The options and the blanked
+    // sentence now come down with the item, and this projection must not drop them — dropping them
+    // is exactly what it used to do, with `options: null` hardcoded.
+    const card = buildPlanCard(planItem('w1', 'foo', {
+      exerciseType: 'context',
+      options: ['bar', 'foo', 'baz', 'qux'],
+      correctOptionIndex: 1,
+      blankSentence: 'a ____ sentence',
+    }))
+
+    expect(card.options).toEqual(['bar', 'foo', 'baz', 'qux'])
+    expect(card.correctOptionIndex).toBe(1)
+    expect(card.blankSentence).toBe('a ____ sentence')
+  })
+
+  it('buildPlanCard ignores a correct index that arrives without options', () => {
+    // An index into a list that is not there would index `undefined` in the card component. Better
+    // to render the flashcard the payload actually supports.
+    const card = buildPlanCard(planItem('w1', 'foo', { correctOptionIndex: 2 }))
+
+    expect(card.options).toBeNull()
+    expect(card.correctOptionIndex).toBeNull()
   })
 
   it('buildPlanCard tolerates missing optional fields (null, not undefined)', () => {

@@ -29,95 +29,22 @@ public sealed class ReviewCardBuilder : IReviewCardBuilder
             int? correctIndex = null;
             string? blankSentence = null;
 
-            if (reviewMode == "multiple_choice")
+            // Both modes end up as a four-option card; the difference is only the prompt. Context
+            // shows the sentence with the word removed, so the options ARE the cloze; plain MC shows
+            // the definition or translation. They used to build their options from two copies of the
+            // same forty lines — see McOptions for why that is now one.
+            if (reviewMode is "multiple_choice" or "context")
             {
-                var llmDistractors = ParseDistractors(w.DistractorsJson);
-
                 if (w.Sentence != null)
                     blankSentence = SentenceHelper.ReplaceWordInSentence(w.Sentence, w.Word);
 
-                var correct = w.Word;
-                List<string> distractors;
+                var pool = poolByLang.GetValueOrDefault(w.Language, []);
+                (options, var index) = McOptions.Build(w.Word, w.Language, w.DistractorsJson, pool);
+                correctIndex = index;
 
-                if (llmDistractors?.Count >= 3)
-                {
-                    distractors = llmDistractors
-                        .Where(d => !d.Equals(w.Word, StringComparison.OrdinalIgnoreCase))
-                        .OrderBy(_ => Random.Shared.Next())
-                        .Take(3)
-                        .ToList();
-                }
-                else
-                {
-                    var pool = poolByLang.GetValueOrDefault(w.Language, []);
-                    distractors = pool
-                        .Where(d => d.Word != w.Word)
-                        .OrderBy(_ => Random.Shared.Next())
-                        .Take(3)
-                        .Select(d => d.Word)
-                        .ToList();
-                }
-
-                if (distractors.Count < 3)
-                {
-                    foreach (var fb in DistractorWords.ForLanguage(w.Language).OrderBy(_ => Random.Shared.Next()))
-                    {
-                        if (distractors.Count >= 3) break;
-                        if (fb != correct && !distractors.Contains(fb))
-                            distractors.Add(fb);
-                    }
-                }
-
-                options = distractors.Take(3).Append(correct).OrderBy(_ => Random.Shared.Next()).ToList();
-                correctIndex = options.IndexOf(correct);
-            }
-
-            if (reviewMode == "context")
-            {
-                // Context mode now uses MC instead of typing
-                if (w.Sentence != null)
-                    blankSentence = SentenceHelper.ReplaceWordInSentence(w.Sentence, w.Word);
-
-                if (options == null)
-                {
-                    // Build MC options for context cloze
-                    var llmDistractors = ParseDistractors(w.DistractorsJson);
-                    var correct = w.Word;
-                    List<string> distractors;
-
-                    if (llmDistractors?.Count >= 3)
-                    {
-                        distractors = llmDistractors
-                            .Where(d => !d.Equals(w.Word, StringComparison.OrdinalIgnoreCase))
-                            .OrderBy(_ => Random.Shared.Next())
-                            .Take(3)
-                            .ToList();
-                    }
-                    else
-                    {
-                        var pool = poolByLang.GetValueOrDefault(w.Language, []);
-                        distractors = pool
-                            .Where(d => d.Word != w.Word)
-                            .OrderBy(_ => Random.Shared.Next())
-                            .Take(3)
-                            .Select(d => d.Word)
-                            .ToList();
-                    }
-
-                    if (distractors.Count < 3)
-                    {
-                        foreach (var fb in DistractorWords.ForLanguage(w.Language).OrderBy(_ => Random.Shared.Next()))
-                        {
-                            if (distractors.Count >= 3) break;
-                            if (fb != correct && !distractors.Contains(fb))
-                                distractors.Add(fb);
-                        }
-                    }
-
-                    options = distractors.Take(3).Append(correct).OrderBy(_ => Random.Shared.Next()).ToList();
-                    correctIndex = options.IndexOf(correct);
-                    reviewMode = "multiple_choice"; // Context cloze uses MC UI
-                }
+                // Context cloze is rendered by the MC card, so it travels as one. The mode a client
+                // reads must describe the card it is about to draw, not the SRS stage behind it.
+                reviewMode = "multiple_choice";
             }
 
             var isNew = w.Stage == 0 && w.TotalReviews == 0;
@@ -131,14 +58,4 @@ public sealed class ReviewCardBuilder : IReviewCardBuilder
         return cards;
     }
 
-    private static List<string>? ParseDistractors(string? json)
-    {
-        if (string.IsNullOrEmpty(json)) return null;
-        try
-        {
-            var list = JsonSerializer.Deserialize<List<string>>(json);
-            return list?.Where(w => w.Length > 1 && w.Any(char.IsLetter)).ToList();
-        }
-        catch { return null; }
-    }
 }

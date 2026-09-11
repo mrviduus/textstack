@@ -29,6 +29,11 @@ export interface TutorPlanItem {
   bookTitle?: string | null
   hint?: string | null
   distractors: string[] // [] when none, never null
+  /** Four shuffled choices, built server-side. Null for `recall`, which has no options by design. */
+  options?: string[] | null
+  correctOptionIndex?: number | null
+  /** The saved sentence with the word removed — `context` only. */
+  blankSentence?: string | null
 }
 
 /** The tutor's response: the persisted session, the ordered plan, and the surfaced reasoning. */
@@ -104,20 +109,23 @@ export function sendTutorFeedback(
  * enriched every item, so there's no vocab fetch + join — the plan item is self-sufficient. Pure projection.
  */
 export function buildPlanCard(item: TutorPlanItem): ReviewCardDto {
+  const options = item.options ?? null
   return {
     wordId: item.wordId,
     word: item.word,
     translation: item.translation ?? null,
     definition: item.definition ?? null,
-    reviewMode: 'context',
-    blankSentence: null,
+    // Vestigial by contract — see the field's comment in packages/shared/src/types/api.ts. The
+    // component is chosen from `options`, never from this.
+    reviewMode: options ? 'multiple_choice' : 'context',
+    blankSentence: item.blankSentence ?? null,
     originalSentence: item.sentence ?? null,
     bookTitle: item.bookTitle ?? null,
     hint: item.hint ?? null,
     explanation: null,
     isNew: false,
-    options: null,
-    correctOptionIndex: null,
+    options,
+    correctOptionIndex: options ? item.correctOptionIndex ?? null : null,
   }
 }
 

@@ -29,25 +29,34 @@ const EMPTY_STATS: TutorSessionStats = { studied: 0, correct: 0 }
 const MAX_ROUNDS = 8
 
 /**
- * Builds a classic-flashcard `ReviewCardDto` directly from an ENRICHED plan item. The backend already
- * validated + enriched every item (translation/definition/sentence/bookTitle/hint/distractors), so there's
- * no vocab fetch + join anymore — the plan item is self-sufficient. Pure projection, unit-tested.
+ * Projects an ENRICHED plan item into the card the learner is shown. Pure, unit-tested.
+ *
+ * <p>This used to hardcode `options: null` and `blankSentence: null` and hand everything to a
+ * flashcard — so the exercise type the server had calibrated from the SRS stage reached the screen as
+ * a coloured badge and changed nothing else. The options and the cloze are now built server-side, by
+ * the same builder the review flow uses, and this is the projection that carries them.</p>
+ *
+ * <p>The component is chosen from `options`, never from `reviewMode` — that field is vestigial by
+ * contract (see its comment in the shared DTO) and nothing may be built on it.</p>
  */
 export function buildPlanCard(item: TutorPlanItem): ReviewCardDto {
+  const options = item.options ?? null
   return {
     wordId: item.wordId,
     word: item.word,
     translation: item.translation ?? null,
     definition: item.definition ?? null,
-    reviewMode: 'context',
-    blankSentence: null,
+    // Vestigial by contract — see the field's comment in packages/shared/src/types/api.ts. Nothing
+    // reads it; the component is chosen from `options`. Kept truthful anyway rather than constant.
+    reviewMode: options ? 'multiple_choice' : 'context',
+    blankSentence: item.blankSentence ?? null,
     originalSentence: item.sentence ?? null,
     bookTitle: item.bookTitle ?? null,
     hint: item.hint ?? null,
     explanation: null,
     isNew: false,
-    options: null,
-    correctOptionIndex: null,
+    options,
+    correctOptionIndex: options ? item.correctOptionIndex ?? null : null,
   }
 }
 
