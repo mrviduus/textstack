@@ -176,7 +176,6 @@ public sealed class TutorEvalRunner(ILogger<TutorEvalRunner> logger)
             new FixedCardTool("get_due_vocabulary", due),
             new FixedCardTool("get_weak_vocabulary", weak),
             new FixedJsonTool("get_reading_context", ReadingJson(g)),
-            new FixedJsonTool("get_example_sentence", """{"found":false,"message":"no sentence in eval"}"""),
         ];
 
         var registry = new ToolRegistry(tools);

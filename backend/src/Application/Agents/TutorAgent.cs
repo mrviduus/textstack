@@ -9,8 +9,8 @@ namespace Application.Agents;
 /// <summary>
 /// The Learning Tutor agent (AI-Agent-2): reasons over the learner's REAL state — due SRS cards
 /// (<c>get_due_vocabulary</c>), weakest words (<c>get_weak_vocabulary</c>), recent reading
-/// (<c>get_reading_context</c>) and a grounded example sentence on a miss (<c>get_example_sentence</c>) — and
-/// PLANS an ordered, bounded study set over the existing vocabulary-review flow. It does NOT drill: the plan
+/// (<c>get_reading_context</c>) — and PLANS an ordered, bounded study set over the existing
+/// vocabulary-review flow. It does NOT drill: the plan
 /// is capped, exercises are calibrated to each card's SRS stage, and the session ends with a reading nudge
 /// (the product thesis). On the HITL feedback turn it RE-PLANS the remainder: surface missed cards with an
 /// easier context exercise, advance the ones the learner got right.
@@ -30,12 +30,24 @@ public sealed class TutorAgent(AgentLoop loop)
     /// <summary>Agent name persisted on the <c>agent_run</c> row.</summary>
     public const string AgentName = "tutor";
 
+    /// <summary>
+    /// <c>get_example_sentence</c> was removed from this list on 2026-09-11, having been deleted with
+    /// the retrieval spine. <see cref="IToolRegistry.SchemasFor"/> silently skips a name it does not
+    /// know, so the model was never offered the tool — while the system prompt went on ordering it to
+    /// call it on every miss. An instruction that cannot be obeyed is worse than a missing feature:
+    /// it is spent on every run and can only degrade the plan.
+    ///
+    /// <para>If grounding a miss in a real sentence is wanted back, it needs no new tool and no
+    /// retrieval: <c>VocabularyWord.Sentence</c> already holds the sentence the word was saved from,
+    /// and <c>get_due_vocabulary</c> already reports <c>hasSentence</c> per card — the sentence itself
+    /// would go in that same projection, costing one round-trip fewer than a dedicated tool.</para>
+    /// </summary>
     private static readonly string[] AllTools =
-        ["get_due_vocabulary", "get_weak_vocabulary", "get_reading_context", "get_example_sentence"];
+        ["get_due_vocabulary", "get_weak_vocabulary", "get_reading_context"];
 
     /// <summary>
     /// Bounded per the design doc: each turn (initial plan OR a feedback re-plan) is a fresh ≤4-iteration loop
-    /// — reason → fetch due/weak/reading → optional example sentence → plan — with a per-step token budget and
+    /// — reason → fetch due/weak/reading → plan — with a per-step token budget and
     /// a hard per-run cost cap. Session = many cheap bounded turns, never one unbounded loop.
     /// </summary>
     public static readonly AgentLoopOptions Options = new(MaxSteps: 4, MaxTokensPerStep: 1024, CostCapUsd: 0.02m);
@@ -86,9 +98,7 @@ public sealed class TutorAgent(AgentLoop loop)
         "should study next over their real spaced-repetition state — not to run an endless drill. Reading is " +
         "the core; practice reinforces words from the learner's own books.\n" +
         "Call get_due_vocabulary and get_weak_vocabulary to see the cards; prioritize the WEAKEST and the " +
-        "genuinely-due. Call get_reading_context to keep the session tied to what they're reading. On a word " +
-        "the learner missed (or a hard context-stage card), call get_example_sentence to ground it in a real " +
-        "sentence from their reading.\n" +
+        "genuinely-due. Call get_reading_context to keep the session tied to what they're reading.\n" +
         "Calibrate each item to the card's SRS stage: stage 0-1 → a 'recognition' exercise (easy), stage 2 → " +
         "'recall' (medium), stage 3-4 → 'context' (hard, cloze in a real sentence). Never schedule a jarring " +
         "jump (e.g. a context cloze on a brand-new word).\n" +
