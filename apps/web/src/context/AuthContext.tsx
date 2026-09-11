@@ -6,6 +6,8 @@ import {
   deleteAccount as deleteAccountApi,
   createGuestSession as createGuestSessionApi,
 } from '../api/auth'
+import type { GuestMergeSkipReason } from '@textstack/shared'
+import { authToastFor } from '../lib/authToast'
 import { flushLocalProgress } from '../lib/progressSync'
 import { trackLogin, trackSignUp } from '../lib/analytics'
 
@@ -32,6 +34,16 @@ interface AuthContextValue {
   /** Set to true after a successful register/login. Consumer shows toast then calls dismissAuthSuccessToast. */
   authSuccessToast: boolean
   dismissAuthSuccessToast: () => void
+  /**
+   * Set when the sign-in did NOT bring the reader's pre-sign-in work across.
+   *
+   * <p>Mutually exclusive with {@link authSuccessToast} on purpose: that one says "your progress is
+   * saved", which is precisely the sentence that must not be shown to someone whose progress was
+   * left behind. The server has reported this since guest sessions shipped; no client read it, so
+   * the reassurance was shown anyway.</p>
+   */
+  guestMergeSkipped: GuestMergeSkipReason | null
+  dismissGuestMergeSkipped: () => void
 }
 
 const AuthContext = createContext<AuthContextValue>({
@@ -54,6 +66,8 @@ const AuthContext = createContext<AuthContextValue>({
   deleteAccount: async () => {},
   authSuccessToast: false,
   dismissAuthSuccessToast: () => {},
+  guestMergeSkipped: null,
+  dismissGuestMergeSkipped: () => {},
 })
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID
@@ -68,6 +82,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [showAuthModal, setShowAuthModal] = useState(false)
   const [authSuccessToast, setAuthSuccessToast] = useState(false)
   const dismissAuthSuccessToast = useCallback(() => setAuthSuccessToast(false), [])
+  const [guestMergeSkipped, setGuestMergeSkipped] = useState<GuestMergeSkipReason | null>(null)
+  const dismissGuestMergeSkipped = useCallback(() => setGuestMergeSkipped(null), [])
 
   // Google callback - stable ref to avoid stale closures
   const handleGoogleCallback = useCallback(async (response: google.accounts.id.CredentialResponse) => {
@@ -76,8 +92,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const authResponse = await loginWithGoogle(response.credential)
       // Capture prev before setUser — if a real user logs in again (re-auth), no toast.
       setUser(prev => {
-        const wasGuestOrAnon = prev === null || prev.isGuest
-        if (wasGuestOrAnon) setAuthSuccessToast(true)
+        const toast = authToastFor(prev === null || prev.isGuest, authResponse.guestMergeSkipped)
+        if (toast === 'merge-skipped') setGuestMergeSkipped(authResponse.guestMergeSkipped!)
+        else if (toast === 'success') setAuthSuccessToast(true)
         return authResponse.user
       })
       setShowAuthModal(false)
@@ -226,15 +243,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const closeAuthModal = useCallback(() => setShowAuthModal(false), [])
 
   const authenticateAndClose = useCallback(async (
-    apiCall: () => Promise<{ user: User }>,
+    apiCall: () => Promise<{ user: User; guestMergeSkipped?: GuestMergeSkipReason | null }>,
     kind: 'login' | 'sign_up',
   ) => {
     const response = await apiCall()
     // Only show the "progress kept" reassurance when user actually transitioned from
     // anonymous/guest to real. A returning real user re-authenticating had nothing at risk.
     setUser(prev => {
-      const wasGuestOrAnon = prev === null || prev.isGuest
-      if (wasGuestOrAnon) setAuthSuccessToast(true)
+      const toast = authToastFor(prev === null || prev.isGuest, response.guestMergeSkipped)
+      if (toast === 'merge-skipped') setGuestMergeSkipped(response.guestMergeSkipped!)
+      else if (toast === 'success') setAuthSuccessToast(true)
       return response.user
     })
     setShowAuthModal(false)
@@ -325,6 +343,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         deleteAccount,
         authSuccessToast,
         dismissAuthSuccessToast,
+        guestMergeSkipped,
+        dismissGuestMergeSkipped,
       }}
     >
       {children}

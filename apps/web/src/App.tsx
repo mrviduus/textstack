@@ -64,6 +64,27 @@ function AuthSuccessToast() {
   return <Toast message={t('auth.progressSavedToast')} duration={4000} onClose={dismissAuthSuccessToast} />
 }
 
+/**
+ * The other half of the sentence above.
+ *
+ * The server has reported a skipped guest merge since guest sessions shipped, and no client read it
+ * — so a reader whose highlights and progress did NOT come across was shown "your progress was
+ * kept" all the same. The two are mutually exclusive in AuthContext; this one is deliberately the
+ * slower read, because it is the one that asks the reader to notice something.
+ */
+function GuestMergeSkippedToast() {
+  const { guestMergeSkipped, dismissGuestMergeSkipped } = useAuth()
+  const { t } = useTranslation()
+  if (!guestMergeSkipped) return null
+  return (
+    <Toast
+      message={t('guest.progressNotCarried')}
+      duration={9000}
+      onClose={dismissGuestMergeSkipped}
+    />
+  )
+}
+
 function LanguageRoutes() {
   const { lang } = useParams<{ lang: string }>()
   const location = useLocation()
@@ -81,6 +102,7 @@ function LanguageRoutes() {
     <LanguageProvider>
       {!isReaderPage && !isUserBookReaderPage && <Header />}
       <AuthSuccessToast />
+      <GuestMergeSkippedToast />
       {!isReaderPage && !isUserBookReaderPage && <GlobalDropZone />}
       <CommandPaletteProvider />
       <Suspense fallback={null}>
