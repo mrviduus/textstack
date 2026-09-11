@@ -303,6 +303,92 @@ public class InsightsEndpointTests : IClassFixture<LiveApiFixture>, IClassFixtur
         }
     }
 
+    // ── delete ──────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task DeleteInsight_RemovesIt_AndTheRowIsGoneFromTheBook()
+    {
+        // The failure this closes: a conclusion filed against the WRONG chapter. Replacing covers a
+        // poor conclusion about the right one — the assistant re-runs and overwrites its own row —
+        // but nothing ever revisits a slot the model did not mean to write, so until this endpoint
+        // existed a misfiled note was permanent.
+        Assert.SkipUnless(_auth.IsAuthenticated, "test-login unavailable (ENABLE_TEST_AUTH)");
+        var seed = await FindSeededChapterAsync();
+        Assert.SkipWhen(seed is null, "no seeded book with a slugged chapter");
+        var (editionId, chapterSlug) = seed!.Value;
+
+        var saved = await SaveAsync(new { editionId, chapterSlug, text = "Filed against the wrong chapter." });
+        var id = saved.GetProperty("id").GetGuid();
+
+        var del = await _auth.Client.SendAsync(_auth.CreateRequest(HttpMethod.Delete, $"/me/insights/{id}"), Ct);
+        Assert.Equal(HttpStatusCode.NoContent, del.StatusCode);
+
+        var listReq = _auth.CreateRequest(HttpMethod.Get, $"/me/insights?editionId={editionId}");
+        var list = await (await _auth.Client.SendAsync(listReq, Ct))
+            .Content.ReadFromJsonAsync<JsonElement>(cancellationToken: Ct);
+
+        Assert.DoesNotContain(list.EnumerateArray(), row => row.GetProperty("id").GetGuid() == id);
+    }
+
+    [Fact]
+    public async Task DeleteInsight_Twice_IsNotFoundTheSecondTime()
+    {
+        // Hard delete, matching the entity's stance: a конспект, not a log. A second DELETE must be
+        // a plain 404 rather than a 204 that suggests something was there to remove.
+        Assert.SkipUnless(_auth.IsAuthenticated, "test-login unavailable (ENABLE_TEST_AUTH)");
+        var seed = await FindSeededChapterAsync();
+        Assert.SkipWhen(seed is null, "no seeded book with a slugged chapter");
+        var (editionId, chapterSlug) = seed!.Value;
+
+        var saved = await SaveAsync(new { editionId, chapterSlug, text = "Gone in a moment." });
+        var id = saved.GetProperty("id").GetGuid();
+
+        Assert.Equal(HttpStatusCode.NoContent,
+            (await _auth.Client.SendAsync(_auth.CreateRequest(HttpMethod.Delete, $"/me/insights/{id}"), Ct)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound,
+            (await _auth.Client.SendAsync(_auth.CreateRequest(HttpMethod.Delete, $"/me/insights/{id}"), Ct)).StatusCode);
+    }
+
+    [Fact]
+    public async Task DeleteInsight_AnotherUsersRow_Is404_AndTheRowSurvives()
+    {
+        // 404 rather than 403, so the endpoint cannot be used to learn that an id exists. The
+        // survival assertion is the one that matters: this is someone else's конспект.
+        Assert.SkipUnless(_auth.IsAuthenticated, "test-login unavailable (ENABLE_TEST_AUTH)");
+        var seed = await FindSeededChapterAsync();
+        Assert.SkipWhen(seed is null, "no seeded book with a slugged chapter");
+        var (editionId, chapterSlug) = seed!.Value;
+
+        var saved = await SaveAsync(new { editionId, chapterSlug, text = "Mine, and it stays mine." });
+        var id = saved.GetProperty("id").GetGuid();
+
+        var registerReq = _fixture.CreateRequest(HttpMethod.Post, "/auth/register");
+        registerReq.Content = JsonContent.Create(new
+        {
+            email = $"insight-delete-{Guid.NewGuid():N}@example.test",
+            password = "Test12345!",
+            name = "Insight Delete",
+        });
+        var otherUser = await _fixture.Client.SendAsync(registerReq, Ct);
+        Assert.SkipWhen(otherUser.StatusCode == HttpStatusCode.TooManyRequests,
+            "user-login rate limited (RateLimits:UserLoginPermitLimit)");
+        Assert.True(otherUser.IsSuccessStatusCode, $"register returned {(int)otherUser.StatusCode}");
+
+        var cookie = string.Join("; ", otherUser.Headers.GetValues("Set-Cookie")
+            .Select(c => c.Split(';')[0].Trim()));
+
+        var attack = _fixture.CreateRequest(HttpMethod.Delete, $"/me/insights/{id}");
+        attack.Headers.Add("Cookie", cookie);
+        Assert.Equal(HttpStatusCode.NotFound, (await _fixture.Client.SendAsync(attack, Ct)).StatusCode);
+
+        var listReq = _auth.CreateRequest(HttpMethod.Get, $"/me/insights?editionId={editionId}");
+        var list = await (await _auth.Client.SendAsync(listReq, Ct))
+            .Content.ReadFromJsonAsync<JsonElement>(cancellationToken: Ct);
+        Assert.Contains(list.EnumerateArray(), row => row.GetProperty("id").GetGuid() == id);
+
+        await _auth.Client.SendAsync(_auth.CreateRequest(HttpMethod.Delete, $"/me/insights/{id}"), Ct);
+    }
+
     // ── isolation ───────────────────────────────────────────────────────────────
 
     [Fact]

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { insightChapterLabel, type BookInsight } from '@textstack/shared'
-import { getBookInsights } from '../../api/insights'
+import { getBookInsights, deleteBookInsight } from '../../api/insights'
 import { useTranslation } from '../../hooks/useTranslation'
 
 /**
@@ -28,6 +28,8 @@ export function BookInsightsSection({ userBookId, editionId }: Props) {
   const { t } = useTranslation()
   const [insights, setInsights] = useState<BookInsight[]>([])
   const [loading, setLoading] = useState(true)
+  // The id being removed, so the row can say so and cannot be double-submitted.
+  const [removing, setRemoving] = useState<string | null>(null)
 
   useEffect(() => {
     const target = userBookId ? { userBookId } : editionId ? { editionId } : null
@@ -50,6 +52,21 @@ export function BookInsightsSection({ userBookId, editionId }: Props) {
     return () => { cancelled = true }
   }, [userBookId, editionId])
 
+  // Removed here as well as on the server: the section disappears when the last one goes, and a
+  // list that still shows a row the server no longer has is worse than a slow one.
+  const remove = async (id: string) => {
+    setRemoving(id)
+    try {
+      await deleteBookInsight(id)
+      setInsights(prev => prev.filter(i => i.id !== id))
+    } catch {
+      // Same posture as the load: a supplementary panel never takes the book page down. The row
+      // stays, which is the honest outcome — it is still there.
+    } finally {
+      setRemoving(null)
+    }
+  }
+
   if (loading || insights.length === 0) return null
 
   return (
@@ -63,8 +80,24 @@ export function BookInsightsSection({ userBookId, editionId }: Props) {
             {/* Which chapter, decided once in the shared package — never the
                 number, and falling back to the slug when a re-ingest left the
                 title unresolvable. See insightScope.ts for why both matter. */}
-            <div className="book-insights__scope">
-              {insightChapterLabel(insight) ?? t('library.insights.wholeBook')}
+            <div className="book-insights__head">
+              <div className="book-insights__scope">
+                {insightChapterLabel(insight) ?? t('library.insights.wholeBook')}
+              </div>
+              {/* A conclusion filed against the wrong chapter is never revisited by the assistant —
+                  it only ever replaces its own row for the chapter it MEANT. Removing it is the
+                  reader's, and only the reader's. Its own element, not inside the label: the label
+                  is what says which chapter this is, and it should read as only that. */}
+              <button
+                type="button"
+                className="book-insights__remove"
+                onClick={() => remove(insight.id)}
+                disabled={removing === insight.id}
+                aria-label={t('library.insights.remove')}
+                title={t('library.insights.remove')}
+              >
+                ×
+              </button>
             </div>
 
             {insight.question && (

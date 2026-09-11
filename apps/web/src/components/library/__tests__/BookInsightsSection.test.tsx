@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
-import { render, screen, cleanup, waitFor } from '@testing-library/react'
+import { render, screen, cleanup, waitFor, fireEvent } from '@testing-library/react'
 
 vi.mock('../../../hooks/useTranslation', () => ({
   useTranslation: () => ({ t: (k: string) => k }),
@@ -10,8 +10,10 @@ vi.mock('../../../hooks/useTranslation', () => ({
 // never initialises — the mock replaced the broken dependency with a working one. See
 // noSharedApiOnWeb.test.ts for the guard that catches the class rather than the instance.
 const getBookInsights = vi.fn()
+const deleteBookInsight = vi.fn()
 vi.mock('../../../api/insights', () => ({
   getBookInsights: (...a: unknown[]) => getBookInsights(...a),
+  deleteBookInsight: (...a: unknown[]) => deleteBookInsight(...a),
 }))
 
 import { BookInsightsSection } from '../BookInsightsSection'
@@ -24,7 +26,7 @@ const insight = (over: Partial<Record<string, unknown>> = {}) => ({
   ...over,
 })
 
-beforeEach(() => getBookInsights.mockReset())
+beforeEach(() => { getBookInsights.mockReset(); deleteBookInsight.mockReset() })
 afterEach(() => cleanup())
 
 describe('BookInsightsSection', () => {
@@ -103,5 +105,37 @@ describe('BookInsightsSection', () => {
     getBookInsights.mockResolvedValue([])
     render(<BookInsightsSection editionId="e9" />)
     await waitFor(() => expect(getBookInsights).toHaveBeenCalledWith({ editionId: 'e9' }))
+  })
+
+  it('removing a note takes the row away, and the section with it when it was the last one', async () => {
+    // The failure this exists for: a conclusion filed against the WRONG chapter. The assistant only
+    // ever replaces its own row for the chapter it meant, so nothing revisits the mistake — the
+    // reader has to be able to remove it, and see that it went.
+    getBookInsights.mockResolvedValue([insight({ chapterTitle: 'Replication', chapterSlug: 'r' })])
+    deleteBookInsight.mockResolvedValue(undefined)
+
+    const { container } = render(<BookInsightsSection userBookId="b1" />)
+    await waitFor(() => expect(screen.getByText('Replication')).toBeTruthy())
+
+    fireEvent.click(screen.getByLabelText('library.insights.remove'))
+
+    await waitFor(() => expect(container.querySelector('.book-insights')).toBeNull())
+    expect(deleteBookInsight).toHaveBeenCalledWith('i1')
+  })
+
+  it('keeps the row when the server refuses — it is still there', async () => {
+    // Silence on failure is right for this panel, but silence must not mean "pretend it is gone".
+    // Dropping it from the list on a failed delete would show the reader a book with a note they
+    // would find again on the next load.
+    getBookInsights.mockResolvedValue([insight({ chapterTitle: 'Replication', chapterSlug: 'r' })])
+    deleteBookInsight.mockRejectedValue(new Error('nope'))
+
+    render(<BookInsightsSection userBookId="b1" />)
+    await waitFor(() => expect(screen.getByText('Replication')).toBeTruthy())
+
+    fireEvent.click(screen.getByLabelText('library.insights.remove'))
+
+    await waitFor(() => expect(deleteBookInsight).toHaveBeenCalled())
+    expect(screen.getByText('Replication')).toBeTruthy()
   })
 })

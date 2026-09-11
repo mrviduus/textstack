@@ -1,6 +1,7 @@
 import { authFetch, jsonBody } from './client'
 import type { ReadingProgressDto } from '../types/api'
 import { PERCENT_UNIT_BOOK } from '../reader/progressPayload'
+import { PROGRESS_LOCATOR_END, PROGRESS_LOCATOR_START } from '../reader/progressLocators'
 
 export function getProgress(editionId: string) {
   return authFetch<ReadingProgressDto>(`/me/progress/${editionId}`)
@@ -46,4 +47,25 @@ export function updateProgress(
 export async function getAllProgress() {
   const res = await authFetch<{ total: number; items: ReadingProgressDto[] }>('/me/progress')
   return res.items
+}
+
+/**
+ * Mark a catalog book finished, or put it back at the start.
+ *
+ * <p>Separate from {@link updateProgress} because it is not a position: marking a book finished says
+ * nothing about where in the last chapter the reader is, and this client used to say it anyway —
+ * `scroll:<lastSlug>:0`, which reopened the book at the top of its last chapter. Web has always
+ * written the sentinel for the same action. Both now write the same thing.</p>
+ */
+export function markProgressFinished(
+  editionId: string,
+  data: { chapterId: string; finished: boolean },
+) {
+  return authFetch<void>(`/me/progress/${editionId}`, jsonBody('PUT', {
+    chapterId: data.chapterId,
+    locator: data.finished ? PROGRESS_LOCATOR_END : PROGRESS_LOCATOR_START,
+    percent: data.finished ? 1 : 0,
+    percentUnit: PERCENT_UNIT_BOOK,
+    updatedAt: new Date().toISOString(),
+  }))
 }

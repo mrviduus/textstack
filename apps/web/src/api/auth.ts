@@ -1,4 +1,5 @@
-import { PERCENT_UNIT_BOOK } from '@textstack/shared'
+import { PERCENT_UNIT_BOOK, PROGRESS_LOCATOR_END, PROGRESS_LOCATOR_START } from '@textstack/shared'
+import type { ReadingProgressDto } from '@textstack/shared'
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
 
@@ -177,20 +178,10 @@ export async function deleteAccount(): Promise<void> {
 }
 
 // Reading Progress API
-export interface ReadingProgressDto {
-  editionId: string
-  chapterId: string
-  chapterSlug: string | null
-  locator: string
-  percent: number | null
-  updatedAt: string
-  /** Non-null once the book is finished. Read this instead of comparing
-   *  `percent` against a threshold of your own. */
-  completedAt?: string | null
-  /** Where the reader is IN THE TEXT, serialised (ADR-015). Prefer it over
-   *  `locator`: a pixel offset stops being true the moment the text reflows. */
-  positionJson?: string | null
-}
+// One definition, in the shared package. This file used to carry a second copy with nothing linking
+// the two, so a field added to the server DTO could reach mobile and quietly miss web — and did.
+// Re-exported rather than replaced so the twenty-odd `from '../api/auth'` imports keep working.
+export type { ReadingProgressDto }
 
 export interface UpsertProgressRequest {
   chapterId: string
@@ -235,7 +226,7 @@ export async function upsertProgress(editionId: string, data: UpsertProgressRequ
 export async function markAsRead(editionId: string, chapterId: string): Promise<ReadingProgressDto> {
   return upsertProgress(editionId, {
     chapterId,
-    locator: '{"type":"end"}',
+    locator: PROGRESS_LOCATOR_END,
     percent: 1,
   })
 }
@@ -244,7 +235,7 @@ export async function markAsRead(editionId: string, chapterId: string): Promise<
 export async function markAsUnread(editionId: string, chapterId: string): Promise<ReadingProgressDto> {
   return upsertProgress(editionId, {
     chapterId,
-    locator: '{"type":"start"}',
+    locator: PROGRESS_LOCATOR_START,
     percent: 0,
   })
 }

@@ -24,6 +24,14 @@ namespace Api.Endpoints;
 ///   <item><c>POST /me/insights</c> — save one. An existing insight for the same
 ///   (user, book, chapter) is REPLACED, so running the pass again refreshes the конспект rather than
 ///   duplicating it.</item>
+///   <item><c>DELETE /me/insights/{id}</c> — remove one. <b>The reader's, and only the reader's.</b>
+///   Replacing covers the common miss (a poor conclusion about the RIGHT chapter — the model re-runs
+///   and overwrites its own row), but not the one that matters: a conclusion filed against the WRONG
+///   chapter. Nothing revisits that slot, and until now nothing could remove it. Deliberately NOT
+///   mirrored as an MCP tool: <c>save_insight</c>'s worst case is one bad paragraph the reader
+///   removes in a tap, while a delete tool's worst case is a year of конспект gone, driven by a
+///   stateless bridge that cannot confirm intent and against a table with no soft-delete and no
+///   trash. The asymmetry is categorical, not a matter of degree.</item>
 /// </list>
 ///
 /// <para>One flat group rather than a user-book route plus a catalog twin, because the entity's
@@ -45,6 +53,7 @@ public static class InsightsEndpoints
         group.MapGet("", GetInsights).WithName("GetInsights");
         group.MapPost("", SaveInsight).WithName("SaveInsight")
             .RequireRateLimiting("insights");
+        group.MapDelete("/{id:guid}", DeleteInsight).WithName("DeleteInsight");
     }
 
     private static async Task<IResult> GetInsights(
@@ -222,6 +231,34 @@ public static class InsightsEndpoints
         await db.SaveChangesAsync(ct);
 
         return Results.Created($"/me/insights/{insight.Id}", ToDto(insight));
+    }
+
+    /// <summary>
+    /// Remove one insight. 404 — never 403 — when the row belongs to someone else, so the endpoint
+    /// cannot be used to learn that an id exists.
+    /// </summary>
+    private static async Task<IResult> DeleteInsight(
+        Guid id,
+        HttpContext httpContext,
+        AuthService authService,
+        IAppDbContext db,
+        CancellationToken ct = default)
+    {
+        var userId = httpContext.GetUserId(authService);
+        if (userId == null) return Results.Unauthorized();
+
+        var insight = await db.BookInsights
+            .FirstOrDefaultAsync(i => i.Id == id && i.UserId == userId.Value, ct);
+
+        if (insight is null) return Results.NotFound();
+
+        // Hard delete, matching the entity's stated posture: a конспект, not a log. A soft-delete
+        // column would also have to enter both partial unique index filters, which is where the
+        // NULLS NOT DISTINCT rule that protects the book-level row lives.
+        db.BookInsights.Remove(insight);
+        await db.SaveChangesAsync(ct);
+
+        return Results.NoContent();
     }
 
     private static BookInsightDto ToDto(BookInsight i) => new(

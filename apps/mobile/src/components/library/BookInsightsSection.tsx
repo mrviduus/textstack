@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { View, Text, StyleSheet } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native'
 import { insightsApi, insightChapterLabel, type BookInsight } from '@textstack/shared'
 import { useTheme } from '../../context/ThemeContext'
 import { useLanguage } from '../../context/LanguageContext'
+import { Ionicons } from '@expo/vector-icons'
 import { fonts } from '../../theme/typography'
 import { Markdown } from '../Markdown'
 
@@ -34,6 +35,8 @@ export function BookInsightsSection({ userBookId, editionId }: Props) {
   const { t } = useLanguage()
   const [insights, setInsights] = useState<BookInsight[]>([])
   const [loading, setLoading] = useState(true)
+  // The id being removed, so the row cannot be double-tapped into two requests.
+  const [removing, setRemoving] = useState<string | null>(null)
 
   useEffect(() => {
     const target = userBookId ? { userBookId } : editionId ? { editionId } : null
@@ -50,6 +53,21 @@ export function BookInsightsSection({ userBookId, editionId }: Props) {
     return () => { cancelled = true }
   }, [userBookId, editionId])
 
+  // A conclusion filed against the WRONG chapter is never revisited by the assistant — it only ever
+  // replaces its own row for the chapter it meant. Removing it is the reader's, and only the
+  // reader's: there is no assistant-side delete, by design.
+  const remove = async (id: string) => {
+    setRemoving(id)
+    try {
+      await insightsApi.deleteBookInsight(id)
+      setInsights(prev => prev.filter(i => i.id !== id))
+    } catch {
+      // The row stays, which is the honest outcome — it is still on the server.
+    } finally {
+      setRemoving(null)
+    }
+  }
+
   if (loading || insights.length === 0) return null
 
   return (
@@ -62,9 +80,25 @@ export function BookInsightsSection({ userBookId, editionId }: Props) {
           {/* Which chapter, decided once in the shared package — never the
               number, and falling back to the slug when a re-ingest left the
               title unresolvable. See insightScope.ts for why both matter. */}
-          <Text style={[styles.scope, { color: colors.textSecondary }]}>
-            {(insightChapterLabel(insight) ?? t('library.insights.wholeBook')).toUpperCase()}
-          </Text>
+          <View style={styles.head}>
+            <Text style={[styles.scope, { color: colors.textSecondary }]}>
+              {(insightChapterLabel(insight) ?? t('library.insights.wholeBook')).toUpperCase()}
+            </Text>
+            <TouchableOpacity
+              onPress={() => remove(insight.id)}
+              disabled={removing === insight.id}
+              accessibilityRole="button"
+              accessibilityLabel={t('library.insights.remove')}
+              // The tap target the text alone would not give it.
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Ionicons
+                name="close"
+                size={16}
+                color={removing === insight.id ? colors.border : colors.textSecondary}
+              />
+            </TouchableOpacity>
+          </View>
 
           {insight.question ? (
             <Text style={[styles.question, { color: colors.text }]}>{insight.question}</Text>
@@ -84,6 +118,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 18, fontFamily: fonts.sansBold, marginBottom: 2 },
   lead: { fontSize: 13, fontFamily: fonts.sans, marginBottom: 16, lineHeight: 18 },
   item: { paddingLeft: 12, borderLeftWidth: 3, marginBottom: 20 },
+  head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   scope: { fontSize: 11, fontFamily: fonts.sansBold, letterSpacing: 0.6 },
   question: { fontSize: 15, fontFamily: fonts.sansBold, marginTop: 2, lineHeight: 20 },
   body: { marginTop: 6 },

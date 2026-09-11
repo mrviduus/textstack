@@ -42,10 +42,12 @@ export function useBookActions() {
           const book = await api.getBook(item.slug)
           if (book.chapters.length === 0) return
           const ch = isFinished ? book.chapters[0] : book.chapters[book.chapters.length - 1]
-          await readingProgressApi.updateProgress(item.editionId, {
+          // Not updateProgress: "finished" is not a position, and sending one as `scroll:<slug>:0`
+          // reopened the book at the top of its last chapter — where web, doing the same thing from
+          // the same menu, wrote a sentinel instead.
+          await readingProgressApi.markProgressFinished(item.editionId, {
             chapterId: ch.id,
-            chapterSlug: ch.slug,
-            progress: isFinished ? 0 : 1,
+            finished: !isFinished,
           })
           ctx.setProgressMap(prev => ({
             ...prev,

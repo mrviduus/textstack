@@ -157,7 +157,8 @@ required", and `last_used_at` is stamped. That covers the bridge path
 - ~~Android developer verification~~ — **already done**, verified in the console 2026-09-10:
   `app.textstack.mobile` is Registered with both signing keys, last updated 2026-05-15, and Identity
   is filled from the developer account. The September notification is informational; it was read as a
-  to-do here in error.
+  to-do here in error. **Do not re-raise it** — the earlier wording here has already misled one agent
+  into reporting it as an urgent deadline.
 
 ### Left behind by the cut — a follow-up, found 2026-09-10 after PR #596 opened
 
@@ -210,7 +211,8 @@ residue this work exists to remove, so it goes in its own small PR rather than r
 | 8 | Brief names highlights and vocabulary, within the 1200-char budget | 1 |
 | 9 | Catalog screens pass progress into the handoff | 1 |
 | 10 | Mobile handoff stops swallowing the open failure | 1 |
-| 11 | Insight categories (**Conclusions · Watch for · Discussed · Questions**) + tabs + DELETE | 2 |
+| 11a | ~~DELETE for an insight~~ — shipped 2026-09-10, reader-only, no MCP counterpart | 2 |
+| 11b | Insight categories (**Conclusions · Watch for · Discussed · Questions**) — **open, see below** | 2 |
 | 12 | Hide the six chats and the RAG UI behind a flag | 3 |
 | 13 | One mark-as-read locator across web and mobile (defect 4) | later |
 | 14 | `LocatorKind` + `MayReplace` on the catalog path (defects 5, 6) | later |
@@ -315,6 +317,7 @@ retrieval vectors, not the type.
 These exist independently of this feature; they were found while tracing it. Also listed in
 [`STATUS.md`](../STATUS.md).
 
+
 1. ~~**No slug validation on upload progress writes.**~~ Fixed 2026-09-10: the write is checked
    against `UserChapters` for that book and an unknown slug is refused, the way `AddBookmarkAsync`
    always has been.
@@ -325,20 +328,37 @@ These exist independently of this feature; they were found while tracing it. Als
 3. ~~**A refused write reports success.**~~ Fixed 2026-09-10: the refusal returns `(false, …)` and
    the endpoint answers 400 with the reason, so `set_book_progress` reports a failure instead of
    telling a person their progress was recorded.
-4. **Web and mobile write different locators for the same action.** Web `markAsRead` sends the
-   `{"type":"end"}` sentinel (`apps/web/src/api/auth.ts:235-241`); mobile sends
-   `scroll:<slug>:0` (`apps/mobile/src/hooks/useBookActions.ts:38-66`).
-5. **The catalog INSERT branch stores `Percent` with no unit check** (`UserDataEndpoints.cs:170`)
-   while the UPDATE branch checks (`:244`). The first write for an edition keeps an untrusted
-   percentage; every later one does not.
-6. **The catalog request has no `LocatorKind`** and never calls `LocatorSpace.MayReplace`, so a
-   `scroll:` write freely overwrites `page:16`. Uploads are guarded; catalog books are not.
-7. **`markAsUnread` never lowers `MaxChapterNumber`.** Un-marking a book as read leaves the RAG
-   spoiler gate permanently open.
+4. ~~**Web and mobile write different locators for the same action.**~~ Fixed 2026-09-10. The
+   sentinels are now one definition — `PROGRESS_LOCATOR_END` / `_START` in
+   `packages/shared/src/reader/progressLocators.ts` — and mobile's "mark finished" goes through
+   `markProgressFinished` instead of sending `scroll:<lastSlug>:0`, which reopened a finished book at
+   the top of its last chapter.
+5. ~~**The catalog INSERT branch stores `Percent` with no unit check.**~~ Fixed 2026-09-10: the
+   insert builds an empty row and hands it to `ApplyProgressUpdate`, the same method the update path
+   uses, so there is one copy of the rule instead of two that had already drifted. It also fixes a
+   second consequence nobody had named — a book finished in a single write never got a `CompletedAt`.
+   Covered by `ProgressUnitEndpointTests`, which fails against the old build.
+6. **The catalog request has no `LocatorKind`** and never calls `LocatorSpace.MayReplace`.
+   **Deliberately not fixed, 2026-09-10.** The guard exists because an upload can be read two ways —
+   Original-layout PDF (`page:<n>`) and reflow (`scroll:…`). A catalog edition has no PDF and no
+   second space, so there is nothing for the guard to protect. Worse, it would break what it was
+   meant to protect: `MayReplace` refuses any write whose locator belongs to no space, and
+   `{"type":"end"}` — the mark-as-read sentinel both clients now write — is exactly that. Revisit
+   only if catalog books ever render as originals.
+7. **`markAsUnread` never lowers `MaxChapterNumber`** — **moot since 2026-09-10.** The only reader
+   of that column was the RAG spoiler gate, which was deleted with `ask_book`. It is now written by
+   two code paths and read by none: a drop candidate, not a bug. Left in place because dropping a
+   column on a production table to delete a value nobody reads is the more expensive mistake.
+
 8. **An untrusted percent unit is discarded silently** — `ProgressUnit.IsTrusted` false, the write
-   succeeds, the number is absent, no error is returned.
-9. **`ReadingProgressDto` is mirrored twice in TypeScript and the copies are not linked** —
-   `packages/shared/src/types/api.ts:140` and `apps/web/src/api/auth.ts:180`.
+   succeeds, the number is absent, no error is returned. **Kept**, and the reason is in `ProgressUnit`
+   itself: the callers that omit the unit are installed builds that cannot act on an error and would
+   retry into it. What changed on 2026-09-10 is that the one caller who CAN act — an assistant over
+   MCP — always declares `"book"`, so it never lands in this branch. The refusal that *is* worth
+   reporting (`MayReplace`) now is.
+9. ~~**`ReadingProgressDto` is mirrored twice in TypeScript.**~~ Fixed 2026-09-10: web imports the
+   shared type and re-exports it, so the twenty-odd `from '../api/auth'` imports keep working against
+   one definition.
 10. **`ReadingProgressDto.ChapterSlug` lags under infinite scroll** (#496/#500/#501), which is why
     `continueReading.ts:150` prefers the locator via `resumeChapterSlug`. Anything reading the slug
     directly reads a stale value.
@@ -414,3 +434,41 @@ Consequences:
   anchor, not a pixel
 - `backend/src/Domain/Entities/BookInsight.cs` — the design rationale for "a catalog, not a
   transcript" lives in the entity's own doc comment
+
+## Insight categories — what the consilium settled, and what it did not
+
+Three independent readings of the code (2026-09-10), arguing for fixed categories, against them, and
+over the lifecycle. They disagreed on the answer and converged on the question.
+
+**Settled, and shipped:**
+
+- **DELETE first, reader-only.** All three agreed, for the same reason: replacing covers a poor
+  conclusion about the *right* chapter, and nothing covers one filed against the *wrong* chapter.
+  Shipped as `DELETE /me/insights/{id}` with an affordance on both clients.
+- **No MCP delete tool.** The asymmetry is categorical: `save_insight`'s worst case is one bad
+  paragraph removed in a tap; a delete tool's worst case is a year of конспект gone, from a stateless
+  bridge that cannot confirm intent, against a table with no soft-delete and no trash.
+- **Not tabs.** Both sides refused them independently. The panel renders *nothing* when empty, on
+  purpose; a tab bar must render before you know what is behind it, and at ≤10 insights per book
+  three of four tabs are empty. It also replaces reading order — the ordering this design committed
+  to — with a grouping of four.
+- **If a category column ever lands, it stays OUT of the unique index.** In the key, the write
+  ceiling the entity exists to hold goes from `1 × chapters` to `4 × chapters` (a 40-chapter book:
+  41 rows → 164 — "approximately two hundred notes", which is the number the entity comment names as
+  the thing being prevented), and the replace promise in the tool description becomes false in five
+  documents at once. Facet → key later is a free re-index on tens of rows; key → facet later forces
+  you to choose which row per chapter survives.
+
+**Open, and only the owner can answer it.** Both voices arrived at the same question from opposite
+directions: **is the return path per-book or cross-book?** Opening *Dracula* and seeing four buckets
+needs no categories — a label and reading order carry it. Seeing every open question across all 33
+books cannot be done without a typed field, and also needs a `/me/insights` route with no book
+filter, which today answers 400.
+
+**Two findings from the lifecycle read, not yet acted on:**
+
+- `Source` is write-once-constant: hardcoded `"mcp"` at save and untouched on replace. It is the
+  field any future scoping would key on, so it has to become honest before it is relied upon.
+- The Edition FK is `OnDelete(Cascade)`: deleting one catalog edition hard-deletes every reader's
+  insights about it. Low risk today (re-ingestion deletes chapters, not editions), but it is
+  destruction of user content triggered by an admin action.
