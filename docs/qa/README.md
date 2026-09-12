@@ -76,6 +76,7 @@ Each scenario includes:
 | QA-003 | [SSG Rebuild Admin](scenarios/QA-003-ssg-rebuild.md) | Admin, SSG |
 | QA-004 | [Bookmarks & Autosave](scenarios/QA-004-bookmarks-autosave.md) | Reader, Bookmarks |
 | QA-005 | [Guest Loop](scenarios/QA-005-guest-loop.md) | Auth, Reader, Vocabulary, Profile — Android only |
+| QA-006 | [Assistant handoff & the September fixes](scenarios/QA-006-assistant-handoff-and-september-fixes.md) | MCP key, Insights, Tutor, Genres, Guest merge — Android only, **not yet run** |
 
 Runs live in [`reports/`](reports/); the most recent is
 [2026-09-06 — QA-005 on the Android emulator](reports/2026-09-06-android-guest-loop.md).
