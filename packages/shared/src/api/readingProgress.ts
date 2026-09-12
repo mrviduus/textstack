@@ -66,6 +66,14 @@ export function markProgressFinished(
     locator: data.finished ? PROGRESS_LOCATOR_END : PROGRESS_LOCATOR_START,
     percent: data.finished ? 1 : 0,
     percentUnit: PERCENT_UNIT_BOOK,
-    updatedAt: new Date().toISOString(),
+    // NO `updatedAt`, deliberately — and web's markAsRead has never sent one either.
+    //
+    // The server treats it as a last-write-wins guard: a timestamp that is not newer than the
+    // stored one makes the whole write a no-op, answered 200 with the row untouched
+    // (UserDataEndpoints.UpsertProgress). That guard is for a queued background sync, where an old
+    // queued write must not overwrite a fresh one. This is neither queued nor background: the
+    // reader just tapped "mark as finished" and the shelf has already flipped optimistically. On a
+    // device whose clock runs a minute behind the server — ordinary, and invisible to the reader —
+    // the tap did nothing and said it worked.
   }))
 }

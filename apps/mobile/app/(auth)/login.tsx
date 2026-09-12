@@ -247,6 +247,7 @@ export default function LoginScreen() {
       )
 
       await signInWithTokens(result.accessToken, result.refreshToken, result.user)
+      warnIfNothingCarried(result.guestMergeSkipped)
       if (isFreshAccount(result.user.createdAt)) trackSignUp('apple')
       else trackLogin('apple')
       landAfterAuth(result.user)

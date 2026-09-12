@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **QA** — three regressions found in code shipped the day before, and a guard taught to read prose — backend, mobile, shared · [details](docs/changelog-archive/2026-H2.md#2026-09-12-qa-three-regressions-in-code-shipped-the-day-before)
 - **Guests** — a sign-in that left your reading behind no longer tells you it was kept — web, mobile, shared · [details](docs/changelog-archive/2026-H2.md#2026-09-11-guests-the-reader-is-told-when-their-work-did-not-come-across)
 - **Sentry** — a laptop's stale API key had been filing production-looking incidents for a month — backend, mobile · [details](docs/changelog-archive/2026-H2.md#2026-09-11-sentry-a-developer-machine-is-not-an-incident)
 - **Genres** — opening any genre on the phone showed nothing, because the endpoint never sent the authors both clients read — backend, mobile, shared · [details](docs/changelog-archive/2026-H2.md#2026-09-11-genres-a-field-two-clients-used-and-the-server-never-sent)
