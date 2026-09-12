@@ -98,7 +98,14 @@ public sealed class StubBackend : IAsyncDisposable
         _app.MapGet("/books/{slug}", async ctx =>
         {
             await RecordAsync("get_book", ctx);
-            await WriteJsonAsync(ctx, BookDetailBody);
+            // One extra canned book, for the percentage only. Dracula's two chapters are almost the
+            // same length, so chapters-done/total and a word-weighted fraction agree to within two
+            // points there — a fixture that cannot tell the two formulas apart.
+            var slug = (string?)ctx.Request.RouteValues["slug"];
+            await WriteJsonAsync(ctx,
+                string.Equals(slug, FrontMatterSlug, StringComparison.Ordinal)
+                    ? FrontMatterBookDetailBody
+                    : BookDetailBody);
         });
 
         // GET /books/{slug}/chapters/{chapterSlug} → ChapterDto (html, prev/next).
@@ -341,6 +348,38 @@ public sealed class StubBackend : IAsyncDisposable
           ]
         }
         """;
+
+    /// <summary>
+    /// A book whose chapters are NOT the same size: five short front-matter chapters and one long
+    /// body chapter, which is the ordinary shape of a non-fiction upload. It exists so the
+    /// percentage <c>set_book_progress</c> writes can be compared against the word-weighted one the
+    /// app's own <c>computeBookProgress</c> produces for the same position.
+    /// </summary>
+    public const string FrontMatterSlug = "front-matter";
+
+    private const string FrontMatterBookDetailBody =
+        """
+        {
+          "id": "33333333-3333-3333-3333-333333333333",
+          "slug": "front-matter",
+          "title": "A Book With Front Matter",
+          "language": "en",
+          "description": "Five short chapters and one long one.",
+          "authors": [{ "id": "1", "slug": "an", "name": "A. N. Other", "role": "author" }],
+          "genres": [{ "id": "2", "slug": "nonfiction", "name": "Non-fiction" }],
+          "chapters": [
+            { "id": "10000000-0000-0000-0000-000000000001", "chapterNumber": 1, "slug": "title-page", "title": "Title Page", "wordCount": 14 },
+            { "id": "10000000-0000-0000-0000-000000000002", "chapterNumber": 2, "slug": "copyright", "title": "Copyright", "wordCount": 333 },
+            { "id": "10000000-0000-0000-0000-000000000003", "chapterNumber": 3, "slug": "dedication", "title": "Dedication", "wordCount": 125 },
+            { "id": "10000000-0000-0000-0000-000000000004", "chapterNumber": 4, "slug": "contents", "title": "Contents", "wordCount": 232 },
+            { "id": "10000000-0000-0000-0000-000000000005", "chapterNumber": 5, "slug": "preface", "title": "Preface", "wordCount": 1184 },
+            { "id": "10000000-0000-0000-0000-000000000006", "chapterNumber": 6, "slug": "the-book-itself", "title": "The Book Itself", "wordCount": 43310 }
+          ]
+        }
+        """;
+
+    /// <summary>Word counts of <see cref="FrontMatterBookDetailBody"/>, in order.</summary>
+    public static readonly int[] FrontMatterWordCounts = [14, 333, 125, 232, 1184, 43310];
 
     private const string ChapterBody =
         """

@@ -86,7 +86,12 @@ public sealed class TutorAgent(AgentLoop loop)
                 sb.Append($"- card {f.WordId} → {verdict} ({f.ResponseTimeMs}ms)\n");
             }
             sb.Append($"\nFetch the current due / weak cards again, drop cards they already got right, re-surface the ones they MISSED ");
-            sb.Append("with an easier context exercise (pull a real example sentence for a miss), and order up to ");
+            // "pull a real example sentence for a miss" lived here until 2026-09-12. It named
+            // get_example_sentence, which was deleted with the retrieval spine — #605 removed the
+            // instruction from AllowedTools and from SystemPrompt and missed this copy, which is
+            // sent on EVERY re-plan turn. The guard could not see it: it reflects over the tool
+            // list, not over the words.
+            sb.Append("with an easier context exercise, and order up to ");
             sb.Append($"{cap} items.\n");
         }
         sb.Append("Only plan cards a tool returned — never invent a word or card id.");
