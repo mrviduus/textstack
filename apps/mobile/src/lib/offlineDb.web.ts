@@ -86,3 +86,76 @@ export async function getAllCachedBooks(): Promise<CachedBookMeta[]> {
 export async function isBookFullyCached(): Promise<boolean> {
   return false
 }
+
+// ---- User-uploaded books ----
+//
+// Same no-op contract as above, mirroring the native module's surface so the
+// web bundle resolves every import. Offline reading of uploads is a native
+// feature: the cache is SQLite, and web has no equivalent here yet.
+
+export interface CachedUserChapter {
+  bookId: string
+  chapterSlug: string
+  chapterId: string
+  html: string
+  title: string
+  wordCount: number | null
+  chapterNumber: number | null
+  sourceStartPage: number | null
+  prev: { chapterNumber: number; slug: string; title: string } | null
+  next: { chapterNumber: number; slug: string; title: string } | null
+  cachedAt: number
+}
+
+export interface CachedUserBookMeta {
+  bookId: string
+  title: string
+  author: string | null
+  coverPath: string | null
+  language: string | null
+  totalChapters: number
+  cachedChapters: number
+  totalWordCount: number | null
+  isPdf: boolean
+  cachedAt: number
+}
+
+export async function getCachedUserChapter(): Promise<CachedUserChapter | null> {
+  return null
+}
+
+export async function cacheUserChapter(): Promise<void> {
+  /* no-op on web */
+}
+
+export async function listCachedUserChapters(): Promise<CachedUserChapter[]> {
+  return []
+}
+
+export async function getCachedUserBookMeta(): Promise<CachedUserBookMeta | null> {
+  return null
+}
+
+export async function setCachedUserBookMeta(_meta: CachedUserBookMeta): Promise<void> {
+  /* no-op */
+}
+
+export async function updateCachedUserChapterCount(): Promise<void> {
+  /* no-op */
+}
+
+export async function deleteCachedUserBook(): Promise<void> {
+  /* no-op */
+}
+
+export async function getAllCachedUserBooks(): Promise<CachedUserBookMeta[]> {
+  return []
+}
+
+export async function clearCachedUserBooks(): Promise<void> {
+  /* no-op */
+}
+
+export async function isUserBookFullyCached(): Promise<boolean> {
+  return false
+}
