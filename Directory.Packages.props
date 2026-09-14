@@ -60,8 +60,8 @@
          IEvaluator/EvaluationMetric + Reporting (response cache, HTML report).
          Used by tests/TextStack.AiEvals; see docs/eval-migration.md. -->
     <PackageVersion Include="Microsoft.Extensions.AI" Version="10.6.0" />
-    <PackageVersion Include="Microsoft.Extensions.AI.Evaluation" Version="10.6.0" />
-    <PackageVersion Include="Microsoft.Extensions.AI.Evaluation.Quality" Version="10.6.0" />
+    <PackageVersion Include="Microsoft.Extensions.AI.Evaluation" Version="10.10.0" />
+    <PackageVersion Include="Microsoft.Extensions.AI.Evaluation.Quality" Version="10.10.0" />
     <PackageVersion Include="Microsoft.Extensions.AI.Evaluation.Reporting" Version="10.6.0" />
     <!-- pgvector (Phase 4 RAG). EF maps the `vector` column type + DDL; retrieval
          stays raw Npgsql so the spoiler gate lives in SQL. Pgvector.EF 0.3.0 needs
