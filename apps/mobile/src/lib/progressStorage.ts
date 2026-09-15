@@ -96,24 +96,78 @@ export async function clearAllLocalProgress(): Promise<void> {
   }
 }
 
-/** Lightweight per-user-book cache for ContinueReadingCard. We don't need
- *  the full LocalProgress shape (server handles chapterSlug / locator
- *  resume) — just the book-percent the reader computed last time. */
+/** Per-user-book cache. Two jobs:
+ *
+ *  1. `bookPercent` for ContinueReadingCard, which is all this held originally —
+ *     the server stores chapter-level percent for uploads, so "% of book" has to
+ *     be computed by the reader and remembered here.
+ *  2. Everything needed to REOPEN the book where it was left, for a book being
+ *     read offline. The server is the resume authority whenever it can be
+ *     reached; these fields are what the reader falls back to when `GET
+ *     /me/books/{id}/progress` cannot be made at all. Without them an offline
+ *     reader reopened every downloaded book at chapter one.
+ */
 export interface UserBookLocalProgress {
-  bookPercent: number
+  /** 0..1 across the whole book. Optional because the reader does not know it
+   *  until the chapter list resolves — which, offline, can be after the first
+   *  save. Omitted means "keep what is already stored", never "reset to zero". */
+  bookPercent?: number | null
   updatedAt: number
+  /** Chapter last read. Null/absent for a PDF read in Original layout. */
+  chapterSlug?: string | null
+  /** How far through THAT chapter (0..1) — the chapter-space twin of bookPercent. */
+  chapterPercent?: number
+  /** Pixel scroll offset inside the chapter. */
+  scrollOffset?: number
+  /** Serialised TextPosition (see @textstack/shared textPosition) — the only
+   *  resume coordinate that survives a reflow, so it is tried first. */
+  positionJson?: string
+  /** 1-based page, when the book was last read as an Original-layout PDF. */
+  page?: number
 }
 
+/** Persist an upload's local progress.
+ *
+ *  `bookPercent` is carried forward when omitted, for the same reason it is in
+ *  `saveLocalProgress`: callers pass `undefined` to mean "not known right now",
+ *  which is every save made before the chapter list resolves — and offline,
+ *  every save. Every OTHER field is assigned, never carried forward: a stale
+ *  chapter slug left beside a fresh page number is a record that contradicts
+ *  itself, which is the failure the position model exists to end. */
 export async function saveUserBookLocalProgress(bookId: string, data: UserBookLocalProgress): Promise<void> {
   try {
-    await AsyncStorage.setItem(`${USERBOOK_KEY_PREFIX}${bookId}`, JSON.stringify(data))
+    let toWrite = data
+    if (data.bookPercent == null) {
+      const prev = await getUserBookLocalProgress(bookId)
+      if (prev && typeof prev.bookPercent === 'number') {
+        toWrite = { ...data, bookPercent: prev.bookPercent }
+      }
+    }
+    await AsyncStorage.setItem(`${USERBOOK_KEY_PREFIX}${bookId}`, JSON.stringify(toWrite))
   } catch {
     // Out of space — non-fatal; reader still saves to server.
   }
 }
 
-export async function getAllUserBookLocalProgress(): Promise<Map<string, UserBookLocalProgress>> {
-  const map = new Map<string, UserBookLocalProgress>()
+export async function getUserBookLocalProgress(bookId: string): Promise<UserBookLocalProgress | null> {
+  try {
+    const raw = await AsyncStorage.getItem(`${USERBOOK_KEY_PREFIX}${bookId}`)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed.updatedAt !== 'number') return null
+    return parsed as UserBookLocalProgress
+  } catch {
+    return null
+  }
+}
+
+/** A stored row that is known to carry a book-percent. The map below filters
+ *  out the ones that do not, so its callers — the resume card and the discover
+ *  card, both of which exist to render that number — never have to re-check. */
+export type UserBookProgressWithPercent = UserBookLocalProgress & { bookPercent: number }
+
+export async function getAllUserBookLocalProgress(): Promise<Map<string, UserBookProgressWithPercent>> {
+  const map = new Map<string, UserBookProgressWithPercent>()
   try {
     const keys = await AsyncStorage.getAllKeys()
     const ubKeys = keys.filter(k => k.startsWith(USERBOOK_KEY_PREFIX))
@@ -124,7 +178,7 @@ export async function getAllUserBookLocalProgress(): Promise<Map<string, UserBoo
       try {
         const parsed = JSON.parse(v)
         if (!parsed || typeof parsed.bookPercent !== 'number' || typeof parsed.updatedAt !== 'number') continue
-        map.set(k.slice(USERBOOK_KEY_PREFIX.length), parsed as UserBookLocalProgress)
+        map.set(k.slice(USERBOOK_KEY_PREFIX.length), parsed as UserBookProgressWithPercent)
       } catch {
         // Skip corrupted entry — next save overwrites it.
       }

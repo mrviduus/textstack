@@ -1,6 +1,9 @@
 # Offline Reading
 
-PWA-style offline reading via IndexedDB chapter caching.
+Two implementations of one idea: cache the chapters, read without a connection.
+**Web** uses IndexedDB and covers catalogue editions (below). **Mobile** uses
+SQLite and covers *both* catalogue editions and the reader's own uploads
+([Mobile](#mobile), added 2026-09-14).
 
 ## Architecture
 
@@ -160,3 +163,70 @@ Kindle-style 3-dots menu:
 - [ ] Compression (gzip cached HTML)
 - [ ] Smart preloading (next N chapters)
 - [ ] Automatic stale cache cleanup
+
+---
+
+## Mobile
+
+`apps/mobile`. Same shape as web, different store — `expo-sqlite`, in
+`src/lib/offlineDb.ts` (with a no-op `offlineDb.web.ts` twin, because this app
+also builds for web and expo-sqlite's web shim cannot be bundled there; **every
+export must exist in both files** or the web bundle fails to resolve).
+
+### Tables
+
+| Table | Key | Holds |
+|---|---|---|
+| `chapters` | `(edition_id, chapter_slug)` | Catalogue chapter HTML |
+| `cached_books` | `edition_id` | Catalogue download meta |
+| `user_chapters` | `(book_id, chapter_slug)` | Upload chapter HTML + ordinal + source page |
+| `cached_user_books` | `book_id` | Upload download meta, incl. `is_pdf` |
+
+The two pairs are parallel rather than one pair with a discriminator: an edition
+id is public and shared, an upload id is private to one account, and the
+catalogue rows carry a route slug an upload has no use for.
+
+The schema script is all `CREATE TABLE IF NOT EXISTS` and runs on every cold
+start, so **adding a table is the whole migration** for an install that already
+has the others.
+
+### What is cached, and what is not
+
+Chapters. Not the original PDF of a PDF upload: the Original-layout viewer
+streams it with Range requests and a Bearer token (ADR-012), which has no
+offline form. Offline, a PDF upload opens in the reflow reader over its
+extracted text, and the download button says so *before* the tap.
+
+That fallback has a hazard worth knowing about. The offline session produces a
+chapter-space position (`scroll:<slug>:<offset>`) while the book's stored
+position is a page (`page:<N>`). If the connection returns mid-chapter, an
+ordinary progress write would overwrite the reader's real page with a coordinate
+from a different space. `useUserBookReaderSource` suppresses the **server** write
+for exactly that case (`offlineReflowOfPdfRef`) and keeps the local one, so the
+offline session still resumes itself.
+
+### Resume, offline
+
+`src/lib/progressStorage.ts` holds chapter slug, chapter percent, scroll offset,
+serialised `TextPosition` and PDF page per upload. The server is the resume
+authority whenever it can be reached; this record answers only when the request
+cannot be made at all. Every field except `bookPercent` is assigned rather than
+carried forward — a stale chapter slug beside a fresh page number is a record
+that contradicts itself.
+
+### Sign-out
+
+Catalogue downloads survive it (an edition is public; the download belongs to the
+device). Cached **uploads are wiped** — one account's private file must not be
+left on disk for whoever signs in next.
+
+### Key files
+
+| File | Purpose |
+|---|---|
+| `apps/mobile/src/lib/offlineDb.ts` | SQLite operations (+ `.web.ts` stub) |
+| `apps/mobile/src/context/DownloadContext.tsx` | One download loop for both libraries |
+| `apps/mobile/src/lib/userBookChapters.ts` | The chapter key the download and the reader route must agree on |
+| `apps/mobile/src/lib/cachedUserBookDetail.ts` | Rebuilds the detail payload from the cache |
+| `apps/mobile/src/lib/exportEpub.ts` | Authenticated EPUB export → share sheet |
+| `apps/mobile/src/components/reader/useUserBookReaderSource.ts` | Cache fallbacks for chapter, TOC, resume |

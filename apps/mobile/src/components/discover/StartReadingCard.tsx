@@ -30,7 +30,7 @@ import { demoBookRoute } from '../../lib/demoBook'
 import { decideStartReadingCard } from '../../lib/firstRun'
 import {
   getAllLocalProgress, getAllUserBookLocalProgress,
-  type LocalProgress, type UserBookLocalProgress,
+  type LocalProgress, type UserBookProgressWithPercent,
 } from '../../lib/progressStorage'
 
 export function StartReadingCard() {
@@ -52,7 +52,7 @@ export function StartReadingCard() {
         // other half of the answer (same reasoning as useContinueReadingList).
         const [catalog, userBooks] = await Promise.all([
           getAllLocalProgress().catch(() => new Map<string, LocalProgress>()),
-          getAllUserBookLocalProgress().catch(() => new Map<string, UserBookLocalProgress>()),
+          getAllUserBookLocalProgress().catch(() => new Map<string, UserBookProgressWithPercent>()),
         ])
         if (cancelled) return
         setFractions([

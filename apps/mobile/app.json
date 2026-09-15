@@ -105,7 +105,8 @@
           "project": "textstack-mobile",
           "disableAutoUpload": true
         }
-      ]
+      ],
+      "expo-sharing"
     ],
     "developmentClient": {
       "silentLaunch": true

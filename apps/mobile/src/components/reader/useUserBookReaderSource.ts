@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'expo-router'
 import { WebView } from 'react-native-webview'
-import { userBooksApi, parseScrollLocator, buildUserBookProgressPayload, buildPdfProgressPayload, parsePdfPageLocator, parseTextPosition, serializeTextPosition } from '@textstack/shared'
+import { userBooksApi, isOfflineError, parseScrollLocator, buildUserBookProgressPayload, buildPdfProgressPayload, parsePdfPageLocator, parseTextPosition, serializeTextPosition } from '@textstack/shared'
 import type { UserBookChapterDto, BookmarkDto, TextPosition } from '@textstack/shared'
 import { API_URL } from '../../lib/api'
-import { saveUserBookLocalProgress } from '../../lib/progressStorage'
+import { getUserBookLocalProgress, saveUserBookLocalProgress } from '../../lib/progressStorage'
+import { getCachedUserChapter, getCachedUserBookMeta, listCachedUserChapters } from '../../lib/offlineDb'
+import { userBookChapterSlug } from '../../lib/userBookChapters'
 import { reflowWritesEnabled } from '../../lib/readerWriteMode'
 import {
   pdfFlushDecision, shouldFlushOnClose, PDF_FLUSH_DEBOUNCE_MS,
@@ -62,6 +64,19 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
   // ADR-012 S4b — Original-layout PDF. `hasOriginalPdf` gates the pdf.js viewer;
   // sourceStartPage per chapter drives the open page when a chapter is chosen.
   const [hasOriginalPdf, setHasOriginalPdf] = useState(false)
+  /**
+   * True while a PDF upload is being read offline, as its extracted text.
+   *
+   * It exists to STOP the server progress write. The position such a session
+   * produces is a chapter-space one (`scroll:<slug>:<offset>`), while the book's
+   * stored position is a page (`page:<N>`) — and if the connection comes back
+   * mid-chapter, that PUT would overwrite the page the reader is actually on in
+   * Original layout with a coordinate from a different space. The same
+   * corruption `readerWriteMode.ts` was written to prevent, arriving by the one
+   * door it does not watch. Local progress is still written, so the offline
+   * session resumes itself correctly.
+   */
+  const offlineReflowOfPdfRef = useRef(false)
   const sourceStartPageBySlugRef = useRef<Record<string, number>>({})
   // S4c — corrupt-PDF fallback: flip out of Original layout into the reflow
   // reader (only offered when the book has reflow chapters).
@@ -75,24 +90,60 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
 
   useEffect(() => { userBookIdRef.current = bookId || null }, [bookId])
 
-  // Load the current chapter.
+  /**
+   * Load the current chapter — network first, then the offline cache.
+   *
+   * The cache read is what makes a downloaded upload readable on a plane. Note
+   * the error it reports when BOTH fail: this used to say `'notfound'`
+   * unconditionally, so a reader with no signal was told their book did not
+   * exist. `isOfflineError` separates "never reached the server" from "the
+   * server says there is no such chapter", which are different screens.
+   */
   useEffect(() => {
     if (!bookId || !chapterSlug) return
     let cancelled = false
     setLoading(true)
     setChapterError(null)
-    userBooksApi.getUserBookChapter(bookId, chapterSlug)
-      .then(ch => {
+    ;(async () => {
+      let onlineError: unknown = null
+      try {
+        const ch = await userBooksApi.getUserBookChapter(bookId, chapterSlug)
         if (cancelled) return
         setChapter(ch)
         wordCountRef.current = ch.wordCount || 0
-      })
-      .catch(e => {
+        setLoading(false)
+        return
+      } catch (e) {
+        onlineError = e
+      }
+
+      try {
+        const cached = await getCachedUserChapter(bookId, chapterSlug)
         if (cancelled) return
-        console.warn('Failed to load user book chapter:', e)
-        setChapterError('notfound')
-      })
-      .finally(() => { if (!cancelled) setLoading(false) })
+        if (cached) {
+          setChapter({
+            id: cached.chapterId,
+            slug: cached.chapterSlug,
+            title: cached.title,
+            html: cached.html,
+            wordCount: cached.wordCount,
+            prev: cached.prev,
+            next: cached.next,
+            sourceStartPage: cached.sourceStartPage,
+          })
+          wordCountRef.current = cached.wordCount || 0
+          setLoading(false)
+          return
+        }
+      } catch (cacheErr) {
+        if (!cancelled) console.warn('Offline user-book chapter read failed:', cacheErr)
+      }
+
+      if (cancelled) return
+      console.warn('Failed to load user book chapter:', onlineError)
+      setChapterError(isOfflineError(onlineError) ? 'offline' : 'notfound')
+      setLoading(false)
+    })()
     return () => { cancelled = true }
   }, [bookId, chapterSlug])
 
@@ -112,9 +163,10 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
       bookTitleRef.current = b.title || null
       setBookTitle(b.title || null)
       setHasOriginalPdf(b.hasOriginalPdf === true)
+      offlineReflowOfPdfRef.current = false
       const pageBySlug: Record<string, number> = {}
       const mapped: ReaderChapterMeta[] = b.chapters.map(ch => {
-        const slug = ch.slug || `chapter-${ch.chapterNumber}`
+        const slug = userBookChapterSlug(ch)
         const startPage = typeof ch.sourceStartPage === 'number' && ch.sourceStartPage >= 1 ? ch.sourceStartPage : null
         if (startPage) pageBySlug[slug] = startPage
         return {
@@ -129,8 +181,38 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
       setChapters(mapped)
       const summed = mapped.reduce((s, c) => s + (c.wordCount || 0), 0)
       totalWordCountRef.current = (typeof b.totalWordCount === 'number' && b.totalWordCount > 0) ? b.totalWordCount : summed
-    }).catch(e => {
+    }).catch(async e => {
       console.warn('Failed to load user-book chapter list:', e)
+      // Offline fallback: the downloaded copy carries the title, the TOC and the
+      // word counts the footer's "N min left" is computed from. Without this the
+      // reader opened a cached chapter inside an untitled book with an empty
+      // table of contents.
+      try {
+        const [meta, cachedChapters] = await Promise.all([
+          getCachedUserBookMeta(bookId),
+          listCachedUserChapters(bookId),
+        ])
+        if (!meta) return
+        bookTitleRef.current = meta.title || null
+        setBookTitle(meta.title || null)
+        // False whatever the upload was. A PDF's Original layout streams the
+        // file with Range requests and a Bearer token (ADR-012) — there is no
+        // offline form of it, so offline the book reads as its extracted text.
+        setHasOriginalPdf(false)
+        offlineReflowOfPdfRef.current = meta.isPdf
+        const mapped: ReaderChapterMeta[] = cachedChapters.map((ch, idx) => ({
+          slug: ch.chapterSlug,
+          title: ch.title,
+          chapterNumber: ch.chapterNumber ?? idx,
+          wordCount: typeof ch.wordCount === 'number' && ch.wordCount > 0 ? ch.wordCount : 0,
+          sourceStartPage: ch.sourceStartPage,
+        }))
+        setChapters(mapped)
+        const summed = mapped.reduce((s, c) => s + (c.wordCount || 0), 0)
+        totalWordCountRef.current = (meta.totalWordCount && meta.totalWordCount > 0) ? meta.totalWordCount : summed
+      } catch (cacheErr) {
+        console.warn('Offline user-book meta read failed:', cacheErr)
+      }
     }).finally(() => { setChaptersLoading(false) })
   }, [bookId])
 
@@ -150,15 +232,33 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
       // stored one rather than leaving it beside a fresher pixel offset.
       positionJson: serializeTextPosition(snap.position) ?? undefined,
     })
-    if (payload) {
+    if (payload && !offlineReflowOfPdfRef.current) {
       userBooksApi.updateUserBookProgress(bookId, payload)
         .catch(e => { if (__DEV__) console.warn('[user-book-progress] PUT failed:', e) })
     }
-    if (typeof snap.bookPercent === 'number') {
-      saveUserBookLocalProgress(bookId, { bookPercent: snap.bookPercent, updatedAt: snap.updatedAt }).catch(() => {})
-    }
+    // Always written, not only when the server write succeeds — this record is
+    // what reopens the book at the right place when the PUT above could not be
+    // made at all. `bookPercent` is carried forward by the store when it is not
+    // known yet (it never is offline: it needs the chapter list).
+    saveUserBookLocalProgress(bookId, {
+      bookPercent: snap.bookPercent,
+      updatedAt: snap.updatedAt,
+      chapterSlug: snap.chapterSlug,
+      chapterPercent: snap.chapterPercent,
+      scrollOffset: snap.scrollOffset,
+      positionJson: serializeTextPosition(snap.position) ?? undefined,
+    }).catch(() => {})
   }, [bookId, chapters])
 
+  /**
+   * Where to reopen this chapter.
+   *
+   * Server first — it is the only copy that knows about the other device. When
+   * it cannot be reached, the local record written by `persist` answers instead,
+   * in the same order of preference (anchor → offset → percent). Before this,
+   * the `catch` swallowed the failure and returned "nowhere", so every offline
+   * reopen landed at the top of the chapter.
+   */
   const loadPosition = useCallback(async (slug: string): Promise<SavedPosition> => {
     try {
       const prog = await userBooksApi.getUserBookProgress(bookId)
@@ -173,6 +273,25 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
         // "returns to top" bug); now shared with catalog so it can't drift.
         if (typeof prog.percent === 'number' && prog.percent > 0.005 && prog.percent < 0.999) {
           return { position: null, offset: null, percent: prog.percent }
+        }
+      }
+      // The server answered and had nothing for this chapter. That is an answer:
+      // do not overrule it with a local record it may have already superseded.
+      return { position: null, offset: null, percent: null }
+    } catch {
+      // Fall through to the local copy — the request never reached the server.
+    }
+
+    try {
+      const local = await getUserBookLocalProgress(bookId)
+      if (local && local.chapterSlug === slug) {
+        const position = parseTextPosition(local.positionJson)
+        if (position && position.chapterSlug === slug) return { position, offset: null, percent: null }
+        if (typeof local.scrollOffset === 'number' && local.scrollOffset > 0) {
+          return { position: null, offset: local.scrollOffset, percent: null }
+        }
+        if (typeof local.chapterPercent === 'number' && local.chapterPercent > 0.005 && local.chapterPercent < 0.999) {
+          return { position: null, offset: null, percent: local.chapterPercent }
         }
       }
     } catch {}
@@ -206,11 +325,31 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
     const next = nextChapterRef.current
     if (!next || !bookId) return
     try {
-      const ch = await userBooksApi.getUserBookChapter(bookId, next.slug)
-      injectJs(`appendChapter(${JSON.stringify({ html: ch.html, title: ch.title, slug: ch.slug })})`)
-      wordCountRef.current += ch.wordCount || 0
-      nextChapterRef.current = ch.next || null
-      if (!ch.next) injectJs('disableInfiniteScroll()')
+      let html: string
+      let title: string
+      let slug: string
+      let wordCount: number | null
+      let following: { slug: string; title: string } | null
+      try {
+        const ch = await userBooksApi.getUserBookChapter(bookId, next.slug)
+        ;({ html, title, slug, wordCount } = ch)
+        following = ch.next
+      } catch (onlineErr) {
+        // Same cache fallback as the first chapter: without it, reading a
+        // downloaded book offline stopped dead at the end of chapter one, which
+        // is where infinite scroll takes over from the initial load.
+        const cached = await getCachedUserChapter(bookId, next.slug)
+        if (!cached) throw onlineErr
+        html = cached.html
+        title = cached.title
+        slug = cached.chapterSlug
+        wordCount = cached.wordCount
+        following = cached.next
+      }
+      injectJs(`appendChapter(${JSON.stringify({ html, title, slug })})`)
+      wordCountRef.current += wordCount || 0
+      nextChapterRef.current = following
+      if (!following) injectJs('disableInfiniteScroll()')
     } catch (e) {
       console.warn('Failed to load next user-book chapter:', e)
       injectJs('disableInfiniteScroll()')
@@ -255,7 +394,16 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
       .catch(e => { if (__DEV__) console.warn('[user-book-pdf-progress] PUT failed:', e) })
     // Local book-% cache so ContinueReadingCard renders the same "% of book" UX
     // as reflow books (page fraction === book fraction for a chapterless PDF).
-    saveUserBookLocalProgress(bookId, { bookPercent: payload.percent, updatedAt: Date.now() }).catch(() => {})
+    // `page` rides along and `chapterSlug` is explicitly null: an Original-layout
+    // PDF has no chapter, and leaving a slug from an earlier reflow read beside a
+    // fresh page number is exactly the self-contradicting record this store's
+    // no-carry-forward rule exists to prevent.
+    saveUserBookLocalProgress(bookId, {
+      bookPercent: payload.percent,
+      updatedAt: Date.now(),
+      chapterSlug: null,
+      page,
+    }).catch(() => {})
   }, [bookId])
 
   const flushPdfProgress = useCallback(() => {

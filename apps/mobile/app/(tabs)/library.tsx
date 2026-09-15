@@ -18,7 +18,8 @@ import { useCollectionsVersion } from '../../src/hooks/useCollections'
 import { SkeletonLoader } from '../../src/components/ui/SkeletonLoader'
 import { EmptyState } from '../../src/components/ui/EmptyState'
 import { OfflineBanner } from '../../src/components/ui/OfflineBanner'
-import { getAllCachedBooks } from '../../src/lib/offlineDb'
+import { getAllCachedBooks, getAllCachedUserBooks } from '../../src/lib/offlineDb'
+import { getAllUserBookLocalProgress, type UserBookProgressWithPercent } from '../../src/lib/progressStorage'
 import { FirstBookState } from '../../src/components/library/FirstBookState'
 import { LibraryViewSheet, type LibrarySource } from '../../src/components/library/LibraryViewSheet'
 import { useSheetMount } from '../../src/hooks/useSheetMount'
@@ -116,15 +117,44 @@ export default function LibraryScreen() {
       console.error('Library load error:', e)
       const offline = isOfflineError(e)
       setLoadError(offline ? 'offline' : 'failed')
-      // Offline: fall back to what is genuinely on the device. Downloaded books
-      // carry title and cover in SQLite — the same rehydration app/book/[slug].tsx
-      // has always done. Uploads and saved-but-not-downloaded books are not
-      // cached at all, so the banner says the list is partial rather than
-      // pretending it is whole.
+      // Offline: fall back to what is genuinely on the device. A downloaded book
+      // — catalog or upload — carries its title and cover in SQLite, the same
+      // rehydration app/book/[slug].tsx has always done. Books that were saved
+      // but never downloaded are not on the device at all, so the banner still
+      // says the list is partial rather than pretending it is whole.
       if (offline) {
         try {
-          const cached = await getAllCachedBooks()
+          // Both libraries, from the device. Uploads could not be cached at all
+          // until they became downloadable, so an offline reader's own books —
+          // the ones this product is mostly about — were the half missing here.
+          const [cached, cachedUploads, localProgress] = await Promise.all([
+            getAllCachedBooks(),
+            getAllCachedUserBooks(),
+            getAllUserBookLocalProgress().catch(() => new Map<string, UserBookProgressWithPercent>()),
+          ])
           if (myGen !== loadGenRef.current) return
+          setUserBooks(prev => (prev.length > 0 ? prev : cachedUploads.map(c => ({
+            id: c.bookId,
+            title: c.title,
+            author: c.author,
+            language: c.language ?? 'en',
+            coverPath: c.coverPath,
+            genre: null,
+            totalWordCount: c.totalWordCount,
+            // A cached copy only ever exists for a book that finished processing.
+            status: 'Ready',
+            chapterCount: c.totalChapters,
+            createdAt: new Date(c.cachedAt).toISOString(),
+            completedAt: null,
+            errorMessage: null,
+            progressPercent: localProgress.get(c.bookId)?.bookPercent ?? null,
+            progressUpdatedAt: localProgress.get(c.bookId)
+              ? new Date(localProgress.get(c.bookId)!.updatedAt).toISOString()
+              : null,
+            progressChapterSlug: localProgress.get(c.bookId)?.chapterSlug ?? null,
+            // False whatever the upload was: offline it reads as text (ADR-012).
+            hasOriginalPdf: false,
+          }))))
           setLibrary(prev => (prev.length > 0 ? prev : cached.map(c => ({
             editionId: c.editionId,
             slug: c.slug,

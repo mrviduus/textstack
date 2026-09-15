@@ -469,6 +469,8 @@ Also: the windows are 1–5 minutes, so **two overlapping runs throttle each oth
 
 **API**: Single `apps/mobile/src/lib/api.ts` module (consolidated, not split like web).
 
+**Offline** (`src/lib/offlineDb.ts`, SQLite): covers BOTH catalogue editions and the reader's own uploads (uploads since 2026-09-14). Chapters only — a PDF upload's original file is not cached (ADR-012 streams it with Range + Bearer), so offline it opens in the reflow reader over its extracted text and the server progress write is suppressed to stop a chapter-space position overwriting a `page:<N>` one. `offlineDb.web.ts` is a no-op twin and **every export must exist in both** or the web bundle (which mobile e2e runs against) fails to resolve. Sign-out wipes cached uploads, never catalogue downloads. Details: `docs/05-features/offline-reading.md#mobile`.
+
 **E2E**: 15 Playwright specs in `apps/mobile/e2e/` — navigation, books, search, library, vocabulary, highlights, stats, auth.
 
 **Build**: EAS Build (cloud) for dev/prod. OTA updates via `expo-updates`.

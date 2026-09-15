@@ -1,23 +1,74 @@
 import { useCallback, useEffect, useState, useRef } from 'react'
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, ActivityIndicator, Alert, Share, Linking } from 'react-native'
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, ActivityIndicator, Alert, Share } from 'react-native'
 import { Image } from 'expo-image'
 import { useFocusEffect, useLocalSearchParams, useRouter, Stack } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
-import { userBooksApi, getStorageUrl, getApiConfig, storedBookPercent, formatBookPercent, resumeChapterSlug, isOfflineError, plural } from '@textstack/shared'
+import { userBooksApi, getStorageUrl, storedBookPercent, formatBookPercent, resumeChapterSlug, isOfflineError, plural } from '@textstack/shared'
 import type { UserBookDetailResponse } from '@textstack/shared'
 import { enrichUserBook } from '../../src/lib/api'
 import { useTheme } from '../../src/context/ThemeContext'
 import { useToast } from '../../src/context/ToastContext'
 import { useLanguage } from '../../src/context/LanguageContext'
+import { useDownload } from '../../src/context/DownloadContext'
 import { fonts } from '../../src/theme/typography'
 import { useReconnectCount } from '../../src/hooks/useOnline'
 import { LoadingScreen } from '../../src/components/ui/LoadingScreen'
 import { EmptyState } from '../../src/components/ui/EmptyState'
+import { OfflineBanner } from '../../src/components/ui/OfflineBanner'
+import { downloadUserBookEpub } from '../../src/lib/exportEpub'
+import { cachedUserBookDetail } from '../../src/lib/cachedUserBookDetail'
+import { getCachedUserBookMeta, listCachedUserChapters, isUserBookFullyCached } from '../../src/lib/offlineDb'
+import { getUserBookLocalProgress } from '../../src/lib/progressStorage'
+import { userBookChapterSlug } from '../../src/lib/userBookChapters'
 import { trackBookOpened } from '../../src/lib/analytics'
 import { AddToCollectionSheet } from '../../src/components/library/AddToCollectionSheet'
 import { BookInsightsSection } from '../../src/components/library/BookInsightsSection'
 import { DiscussWithAssistant } from '../../src/components/library/DiscussWithAssistant'
 import { useSheetMount } from '../../src/hooks/useSheetMount'
+
+/**
+ * Everything this screen needs, read off the device: the book payload rebuilt
+ * from the download, and the last position the reader wrote locally.
+ *
+ * Returns null when there is no usable copy — no meta row, or a meta row with
+ * no chapters behind it (a download cancelled on its first chapter). The caller
+ * then falls through to the real error state, because in that case there is
+ * genuinely nothing to show.
+ */
+async function rehydrateFromCache(bookId: string): Promise<{
+  book: UserBookDetailResponse
+  progress: { chapterSlug: string | null; percent: number | null; locator: string | null } | null
+  /** The upload was a PDF, so what is about to be rendered is its extracted
+   *  text rather than the pages. The screen says so rather than letting the
+   *  reader discover it. */
+  isPdf: boolean
+} | null> {
+  try {
+    const meta = await getCachedUserBookMeta(bookId)
+    if (!meta) return null
+    const [chapters, local] = await Promise.all([
+      listCachedUserChapters(bookId),
+      getUserBookLocalProgress(bookId),
+    ])
+    if (chapters.length === 0) return null
+    return {
+      book: cachedUserBookDetail(meta, chapters),
+      isPdf: meta.isPdf,
+      progress: local
+        ? {
+            chapterSlug: local.chapterSlug ?? null,
+            percent: typeof local.bookPercent === 'number' ? local.bookPercent : null,
+            // The same `page:<N>` shape the server would have returned, so
+            // `resumeChapterSlug` and `storedBookPercent` read it unchanged.
+            locator: typeof local.page === 'number' ? `page:${local.page}` : null,
+          }
+        : null,
+    }
+  } catch (err) {
+    console.warn('Offline user-book rehydrate failed:', err)
+    return null
+  }
+}
 
 export default function UserBookDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
@@ -36,6 +87,15 @@ export default function UserBookDetailScreen() {
   const [collectionSheetOpen, setCollectionSheetOpen] = useState(false)
   // Same reason as everywhere else this sheet appears — see useSheetMount.
   const collectionSheetMounted = useSheetMount(collectionSheetOpen)
+  const { downloads, startUserBookDownload, cancelDownload, removeUserBookDownload, retryFailed } = useDownload()
+  // Is the whole book on the device? Answered from SQLite rather than from the
+  // download map, which is in-memory and empty after an app restart.
+  const [cached, setCached] = useState(false)
+  /** Rendering the cached copy because the server could not be reached. */
+  const [offlineMode, setOfflineMode] = useState(false)
+  /** …and that cached copy is a PDF's extracted text. */
+  const [cachedIsPdf, setCachedIsPdf] = useState(false)
+  const [epubBusy, setEpubBusy] = useState(false)
   const pollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const unmountedRef = useRef(false)
 
@@ -61,9 +121,30 @@ export default function UserBookDetailScreen() {
         setBook(b)
         if (p) setSavedProgress({ chapterSlug: p.chapterSlug, percent: p.percent, locator: p.locator ?? null })
         setLoadError(null)
+        setOfflineMode(false)
+        try {
+          setCached(await isUserBookFullyCached(id))
+        } catch (err) {
+          console.warn('isUserBookFullyCached failed:', err)
+        }
       } catch (e) {
         console.error('Failed to load user book:', e)
-        if (!unmountedRef.current) setLoadError(isOfflineError(e) ? 'offline' : 'failed')
+        if (unmountedRef.current) return
+        // Unreachable server, but the book may be on the device. Render the
+        // downloaded copy rather than the "couldn't load" screen — this is the
+        // whole point of having downloaded it.
+        const rehydrated = await rehydrateFromCache(id)
+        if (unmountedRef.current) return
+        if (rehydrated) {
+          setBook(rehydrated.book)
+          setSavedProgress(rehydrated.progress)
+          setCached(true)
+          setOfflineMode(true)
+          setCachedIsPdf(rehydrated.isPdf)
+          setLoadError(null)
+        } else {
+          setLoadError(isOfflineError(e) ? 'offline' : 'failed')
+        }
       } finally {
         if (!unmountedRef.current) setLoading(false)
       }
@@ -180,6 +261,13 @@ export default function UserBookDetailScreen() {
     return () => clearInterval(interval)
   }, [book?.metadataEnrichmentStatus, id])
 
+  // Download state for this book, if one has been started this session.
+  const dl = book ? downloads.get(book.id) : undefined
+  const isDownloadingBook = dl?.status === 'downloading'
+  const downloadPct = dl && dl.totalChapters > 0
+    ? Math.round((dl.downloadedChapters / dl.totalChapters) * 100)
+    : 0
+
   const isReady = book?.status.toLowerCase() === 'ready'
   const isFailed = book?.status.toLowerCase() === 'failed'
   const isProcessing = book && !isReady && !isFailed
@@ -245,23 +333,36 @@ export default function UserBookDetailScreen() {
     }
   }
 
+  /**
+   * Export the book as EPUB and hand it to the share sheet.
+   *
+   * This used to open the export URL in the system browser, which carries none
+   * of the app's credentials — and the endpoint requires a Bearer token, so
+   * every tap ended on "not authorized". The download now happens in-process
+   * with the token attached; see `src/lib/exportEpub.ts`.
+   */
   const handleDownloadEpub = async () => {
-    if (!id) return
+    if (!id || epubBusy) return
+    setEpubBusy(true)
     try {
-      const { baseUrl } = getApiConfig()
-      const url = `${baseUrl}/me/books/${id}/export/epub`
-      // iOS/Android will hand the URL off to the system browser or a PDF/EPUB
-      // reader. Linking.openURL can reject if no handler exists — surface a
-      // toast rather than failing silently (B-76).
-      const supported = await Linking.canOpenURL(url)
-      if (!supported) {
-        showToast({ message: "Can't open EPUB download on this device", variant: 'error' })
-        return
+      const outcome = await downloadUserBookEpub(id, book?.title ?? null)
+      switch (outcome.status) {
+        case 'shared':
+          break
+        case 'saved':
+          showToast({ message: 'Saved to this device', variant: 'success', duration: 2600 })
+          break
+        case 'unauthorized':
+          showToast({ message: 'Sign in again to download this book', variant: 'error', duration: 2800 })
+          break
+        case 'notfound':
+          showToast({ message: "This book can't be exported yet", variant: 'error', duration: 2600 })
+          break
+        default:
+          showToast({ message: 'Could not download the EPUB', variant: 'error', duration: 2600 })
       }
-      await Linking.openURL(url)
-    } catch (e) {
-      console.warn('Download EPUB failed:', e)
-      showToast({ message: 'Could not start EPUB download', variant: 'error' })
+    } finally {
+      setEpubBusy(false)
     }
   }
 
@@ -365,6 +466,16 @@ export default function UserBookDetailScreen() {
           </View>
         </View>
 
+        {offlineMode && (
+          <OfflineBanner
+            message={
+              cachedIsPdf
+                ? "You're offline — reading the downloaded text of this PDF."
+                : "You're offline — reading the downloaded copy."
+            }
+          />
+        )}
+
         {/* Description */}
         {book.description && (
           <View style={styles.descSection}>
@@ -459,7 +570,8 @@ export default function UserBookDetailScreen() {
             <TouchableOpacity
               style={[styles.readBtn, { backgroundColor: colors.primary }]}
               onPress={() => {
-                const slug = continueSlug || book.chapters[0]?.slug || `chapter-${book.chapters[0]?.chapterNumber}`
+                const first = book.chapters[0]
+                const slug = continueSlug || (first ? userBookChapterSlug(first) : '')
                 trackBookOpened({ source: 'userbook', userBookId: id })
                 router.push(`/my-books/read/${id}/${slug}`)
               }}
@@ -501,14 +613,80 @@ export default function UserBookDetailScreen() {
                 {book.completedAt ? 'Mark as unread' : 'Mark as read'}
               </Text>
             </TouchableOpacity>
+            {/* Offline download. Same four states as a catalog book — the two
+                libraries now share one download engine (DownloadContext). */}
+            {cached ? (
+              <TouchableOpacity
+                style={[styles.secondaryBtn, { borderColor: colors.success }]}
+                onPress={() => removeUserBookDownload(book.id).then(() => setCached(false))}
+                accessibilityRole="button"
+                accessibilityLabel="Remove offline download"
+              >
+                <Ionicons name="cloud-done-outline" size={18} color={colors.success} />
+                <Text style={[styles.secondaryBtnText, { color: colors.success }]}>Downloaded — Remove</Text>
+              </TouchableOpacity>
+            ) : isDownloadingBook ? (
+              <TouchableOpacity
+                style={[styles.secondaryBtn, { borderColor: colors.primary }]}
+                onPress={() => cancelDownload(book.id)}
+                accessibilityRole="button"
+                accessibilityLabel="Cancel download"
+              >
+                <Ionicons name="cloud-download-outline" size={18} color={colors.primary} />
+                <Text style={[styles.secondaryBtnText, { color: colors.primary }]}>
+                  Downloading {downloadPct}% — Cancel
+                </Text>
+              </TouchableOpacity>
+            ) : dl?.status === 'error' && dl.failedChapters > 0 ? (
+              <TouchableOpacity
+                style={[styles.secondaryBtn, { borderColor: colors.warning }]}
+                onPress={() => retryFailed(book.id)}
+                accessibilityRole="button"
+                accessibilityLabel="Retry failed chapters"
+              >
+                <Ionicons name="refresh" size={18} color={colors.warning} />
+                <Text style={[styles.secondaryBtnText, { color: colors.warning }]}>
+                  {plural(dl.failedChapters, 'chapter', 'chapters', 'Retry {n} failed {noun}')}
+                </Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={[styles.secondaryBtn, { borderColor: colors.border }]}
+                onPress={async () => {
+                  await startUserBookDownload(book)
+                  setCached(await isUserBookFullyCached(book.id).catch(() => false))
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Download for offline reading"
+              >
+                <Ionicons name="cloud-download-outline" size={18} color={colors.text} />
+                <Text style={[styles.secondaryBtnText, { color: colors.text }]}>Download for Offline</Text>
+              </TouchableOpacity>
+            )}
+
+            {/* Said before the download, not discovered after it: the Original
+                layout streams the PDF from the server (ADR-012), so what goes on
+                the device is the extracted text. */}
+            {book.hasOriginalPdf === true && !offlineMode && (
+              <Text style={[styles.offlineNote, { color: colors.textSecondary }]}>
+                Offline, this PDF opens as text — the original pages need a connection.
+              </Text>
+            )}
+
             <TouchableOpacity
-              style={[styles.secondaryBtn, { borderColor: colors.border }]}
+              style={[styles.secondaryBtn, { borderColor: colors.border, opacity: epubBusy ? 0.6 : 1 }]}
               onPress={handleDownloadEpub}
+              disabled={epubBusy || offlineMode}
               accessibilityRole="button"
               accessibilityLabel="Download EPUB"
+              accessibilityState={{ disabled: epubBusy || offlineMode }}
             >
-              <Ionicons name="download-outline" size={18} color={colors.text} />
-              <Text style={[styles.secondaryBtnText, { color: colors.text }]}>Download EPUB</Text>
+              {epubBusy
+                ? <ActivityIndicator size="small" color={colors.text} />
+                : <Ionicons name="download-outline" size={18} color={colors.text} />}
+              <Text style={[styles.secondaryBtnText, { color: colors.text }]}>
+                {epubBusy ? 'Preparing EPUB…' : 'Download EPUB'}
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.secondaryBtn, { borderColor: colors.border }]}
@@ -565,7 +743,7 @@ export default function UserBookDetailScreen() {
                 <TouchableOpacity
                   key={ch.id}
                   style={[styles.chapterRow, { borderBottomColor: colors.border }]}
-                  onPress={() => router.push(`/my-books/read/${id}/${ch.slug || `chapter-${ch.chapterNumber}`}`)}
+                  onPress={() => router.push(`/my-books/read/${id}/${userBookChapterSlug(ch)}`)}
                 >
                   <Text style={[styles.chapterNumber, { color: isCurrentChapter ? colors.primary : colors.textSecondary }]}>{i + 1}</Text>
                   <View style={{ flex: 1 }}>
@@ -672,6 +850,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 6,
   },
+  offlineNote: { fontFamily: fonts.sans, fontSize: 12, lineHeight: 17, paddingHorizontal: 2, marginTop: -2 },
   secondaryBtnText: { fontSize: 14, fontFamily: fonts.sansMedium },
   statusFail: { fontSize: 12, marginTop: 6, fontFamily: fonts.sansMedium },
   statusPending: { fontSize: 12, marginTop: 6, fontFamily: fonts.sansMedium },
