@@ -66,14 +66,14 @@ allowBuilds:
 catalog:
   '@playwright/test': ^1.63.0
   '@types/react': ^19.2.14
-  '@types/react-dom': ^19.2.7
+  '@types/react-dom': ^19.3.0
   '@vitejs/plugin-react': ^4.7.0
   '@vitest/coverage-v8': ^4.1.11
   jsdom: ^28.1.0
   pdfjs-dist: 4.10.38
   react: 19.2.0
   react-dom: 19.2.0
-  react-router-dom: ^7.15.1
+  react-router-dom: ^7.18.4
   typescript: ~5.9.2
   vite: ^6.4.2
   vitest: ^4.1.11
