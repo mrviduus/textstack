@@ -3,6 +3,16 @@ name: CI
 on:
   pull_request:
     branches: [main]
+  # Also on a push to the bot's own branches. A pull request opened by
+  # `peter-evans/create-pull-request` under GITHUB_TOKEN fires no
+  # `pull_request` event — by design, so a workflow cannot trigger itself into
+  # a loop — so the four required contexts never appeared and every
+  # deps-refresh PR sat BLOCKED with nothing to run. The checks land on the
+  # head SHA either way, which is all branch protection reads. Only
+  # `mobile-runtime` is PR-only (it diffs against the base) and the catalog
+  # lane already reports the fingerprint itself.
+  push:
+    branches: ['deps/**']
   workflow_call:
 
 # Opt JS actions into Node 24 ahead of June 2026 forced cutover.
@@ -150,6 +160,11 @@ jobs:
       - name: Pack MCP global tool
         run: dotnet pack backend/src/Ai/TextStack.Ai.Mcp -c Release
 
+      # See the same step in `frontend`. Free here: restore has already run, and
+      # `dotnet list package --outdated` reads the assets file it wrote.
+      - name: Drift report
+        run: node scripts/report-drift.mjs nuget
+
   frontend:
     runs-on: ubuntu-latest
     # 1m45 typical.
@@ -213,10 +228,18 @@ jobs:
 
       # scripts/ has its own tests and no vitest project would otherwise find
       # them — the web config's include does not reach outside apps/web, so
-      # without this step they exist and never run. They cover the weekly
-      # dependency job, which edits pnpm-workspace.yaml unattended.
+      # without this step they exist and never run. They cover the semiannual
+      # dependency job, which edits pnpm-workspace.yaml and
+      # Directory.Packages.props unattended.
       - name: Repo script tests
         run: pnpm test:scripts
+
+      # A gauge, not a gate — it cannot fail the build. The bump lane runs twice
+      # a year now (deps-refresh.yml), and a calendar that quiet needs something
+      # in between it, or the first sign that a minor became a major is a January
+      # pull request nobody can review. Free here: the workspace is installed.
+      - name: Drift report
+        run: node scripts/report-drift.mjs js
 
   # apps/mobile is npm + its own lockfile, not part of the pnpm workspace, so it
   # gets its own job rather than another step in `frontend`. @textstack/shared is
@@ -273,6 +296,13 @@ jobs:
       - name: Bundle (Metro)
         working-directory: apps/mobile
         run: npx expo export --platform android --output-dir /tmp/ci-bundle
+
+      # expo, react-native and react are excluded from every bump lane — they
+      # decide the OTA runtime fingerprint — so nothing would ever mention how
+      # far behind they are. This says it, along with the only dependency drift
+      # that carries a deadline and a consequence: Play's required target API.
+      - name: Drift report
+        run: node scripts/report-drift.mjs mobile
 
   # Does this change still ship as an OTA, or does it need a Play build?
   #
