@@ -1,41 +1,45 @@
-name: Dependencies (weekly)
+name: Dependencies (semiannual)
 
-# Two lanes, opened as pull requests and merged only on green.
+# One pull request, twice a year, for everything that is only about not falling
+# behind. Security is deliberately NOT here: Dependabot security updates open
+# their own pull request the day an advisory lands, `dotnet list package
+# --vulnerable` gates the backend job and `pnpm audit` gates `advisories` in
+# ci.yml. Separating the two is what lets this lane be this quiet — a calendar is
+# the wrong instrument for a vulnerability, and a vulnerability is the only
+# reason a calendar would need to be fast.
 #
-# There is a workflow in four sibling repositories that bumps NuGet packages and
-# pushes straight to `main`, verified inside the job. That is right there and
-# wrong here: in those repos a push to main publishes a package, and in this one
-# **a merge to main deploys production**. So the PR is not ceremony — it is the
-# gate, and CI (1328 unit tests, e2e, both images built) is what opens it.
+# Three things move, in one commit:
 #
-#   refresh — re-resolve the lockfile inside the ranges already declared.
-#             Nothing in any package.json changes.
-#   catalog — raise the shared version catalog by patch and minor.
-#             Majors are reported and left alone.
+#   lockfile — re-resolve inside the ranges already declared. No package.json
+#              changes. This is the one that mattered: dompurify shipped a known
+#              vulnerable XSS sanitiser to every visitor for months while
+#              apps/web/package.json already declared a range that allowed the
+#              fix. The range was right; nothing re-resolved it.
+#   catalog  — raise the shared versions in pnpm-workspace.yaml by patch and minor.
+#   nuget    — raise Directory.Packages.props by patch and minor.
 #
-# `refresh` is first because it is the one that mattered. dompurify shipped a
-# known-vulnerable XSS sanitiser to every visitor for months while
-# `apps/web/package.json` already declared a range that allowed the fix — the
-# range was right, the lockfile was old, and nothing re-resolved it. That is not
-# a version-bump problem and no amount of bumping would have found it.
+# Majors are reported and left for a person, in all three.
 #
 # What this must never touch is expo, react-native and react. Those decide the
 # mobile runtime fingerprint. A bot bump passes CI — tsc and the unit tests do
 # not know what an SDK compatibility matrix is — and then every installed app
 # stops receiving OTA updates, because mobile-ota.yml correctly refuses to
 # publish into a runtime nobody is running. scripts/catalogBump.mjs holds the
-# list; `refresh` cannot reach them because it never changes a declared range.
+# list; the lockfile lane cannot reach them because it never changes a declared
+# range. `scripts/report-drift.mjs mobile` is what reports them instead, on
+# every pull request, since nothing else will.
+#
+# There is a workflow in four sibling repositories that bumps NuGet packages and
+# pushes straight to `main`, verified inside the job. That is right there and
+# wrong here: in those repos a push to main publishes a package, and in this one
+# **a merge to main deploys production**. So the PR is not ceremony — it is the
+# gate, and CI is what opens it.
 
 on:
   schedule:
-    - cron: '0 6 * * 1'   # Monday, before anyone is looking
+    - cron: '0 6 1 1,7 *'   # 1 January and 1 July, before anyone is looking
   workflow_dispatch:
     inputs:
-      lane:
-        description: Which lane to run
-        type: choice
-        options: [both, refresh, catalog]
-        default: both
       dry_run:
         description: Report what would change and stop
         type: boolean
@@ -50,10 +54,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  refresh:
-    if: ${{ inputs.lane == null || inputs.lane == 'both' || inputs.lane == 'refresh' }}
+  bump:
     runs-on: ubuntu-latest
-    # An install and a lockfile re-resolve.
+    # Two installs and a restore. No verification — see the note further down.
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
@@ -65,47 +68,88 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
 
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      # The pull request body is assembled as the job goes: each bumper prints
+      # the same markdown it puts in the job summary. Kept in RUNNER_TEMP so it
+      # cannot end up committed.
+      - name: Start the proposal
+        run: |
+          {
+            echo 'Raised twice a year, patch and minor only. Majors are listed below and left for a person.'
+            echo
+            echo 'Merging this deploys production, so CI is the gate — it runs on this branch because'
+            echo '`ci.yml` also triggers on a push to `deps/**` (a bot pull request fires no'
+            echo '`pull_request` event, which is what left every earlier proposal BLOCKED with nothing'
+            echo 'to run).'
+            echo
+          } > "$RUNNER_TEMP/proposal.md"
+
       # No --frozen-lockfile: re-resolving inside the declared ranges is the
       # entire point. Every package.json is left exactly as it is.
       - name: Re-resolve the lockfile
-        id: resolve
         run: |
           set -euo pipefail
           pnpm install --no-frozen-lockfile
-          if git diff --quiet -- pnpm-lock.yaml; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo '### Lockfile already current' >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-            {
-              echo '### Lockfile re-resolved'
-              echo
-              echo 'No declared range changed — these are versions the ranges already allowed.'
+          {
+            echo '### Lockfile'
+            echo
+            if git diff --quiet -- pnpm-lock.yaml; then
+              echo 'Already current.'
+            else
+              echo 'Re-resolved inside the ranges already declared — no `package.json` changed.'
               echo
               echo '```'
               git diff --stat -- pnpm-lock.yaml
               echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
+            fi
+            echo
+          } | tee -a "$RUNNER_TEMP/proposal.md" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Verify
-        if: steps.resolve.outputs.changed == 'true'
+      - name: Raise the catalog
         run: |
           set -euo pipefail
-          pnpm --filter textstack-web build
-          pnpm --filter textstack-admin build
-          pnpm --filter textstack-web test
-          pnpm --filter @textstack/shared test
-          pnpm --filter mobile typecheck
-          pnpm --filter mobile test
+          node scripts/bump-catalog.mjs ${{ inputs.dry_run == true && '--dry-run' || '' }} \
+            | tee -a "$RUNNER_TEMP/proposal.md"
+          echo >> "$RUNNER_TEMP/proposal.md"
 
-      # tsc and the unit tests pass while the app cannot be bundled — a broken
-      # module resolution only shows up when Metro walks the graph, and a
-      # dependency refresh is exactly what moves module resolution.
-      - name: Bundle (Metro)
-        if: steps.resolve.outputs.changed == 'true'
-        working-directory: apps/mobile
-        run: npx expo export --platform android --output-dir "$RUNNER_TEMP/bundle"
+      # The catalog rewrite changes declared versions, so the lockfile has to
+      # follow it. Skipped on a dry run, where nothing was written.
+      - name: Install the raised versions
+        if: inputs.dry_run != true
+        run: pnpm install --no-frozen-lockfile
+
+      # `dotnet list package --outdated` reads the assets file, so restore first.
+      - name: Raise the NuGet manifest
+        run: |
+          set -euo pipefail
+          dotnet restore
+          node scripts/bump-nuget.mjs ${{ inputs.dry_run == true && '--dry-run' || '' }} \
+            | tee -a "$RUNNER_TEMP/proposal.md"
+          echo >> "$RUNNER_TEMP/proposal.md"
+
+      # One question, asked once, instead of three `changed` outputs to combine.
+      - name: Anything to propose?
+        id: state
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo '### Nothing to raise' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # This job verifies nothing itself, and that is new. It used to re-run both
+      # site builds, the unit suites, typecheck and a Metro bundle by hand,
+      # because a pull request opened by a bot got no CI: GITHUB_TOKEN fires no
+      # `pull_request` event, so the four required contexts never appeared and
+      # every proposal sat BLOCKED. ci.yml now also triggers on a push to
+      # `deps/**`, so the real suite runs on this branch — including the two
+      # checks that were the actual reason for verifying here, `expo install
+      # --check` against the SDK matrix and the Metro bundle. Duplicating them
+      # would buy ten minutes of nothing.
 
       # NOTE: this step needs a REPOSITORY SETTING, not a token. Without
       # Settings → Actions → General → Workflow permissions → "Allow GitHub
@@ -116,90 +160,17 @@ jobs:
       # deps/catalog held two verified bumps that nobody saw, while Dependabot,
       # which needs no such permission, filed five that could not merge.
       - name: Open a pull request
-        if: steps.resolve.outputs.changed == 'true' && inputs.dry_run != true
+        if: steps.state.outputs.changed == 'true' && inputs.dry_run != true
         uses: peter-evans/create-pull-request@v8
         with:
-          branch: deps/lockfile-refresh
+          branch: deps/semiannual
           delete-branch: true
-          title: 'chore(deps): re-resolve the lockfile'
+          title: 'chore(deps): semiannual dependency raise'
           commit-message: |
-            chore(deps): re-resolve the lockfile
+            chore(deps): semiannual dependency raise
 
-            Versions the declared ranges already allowed. No package.json
-            changed. This is the lane that would have shipped the dompurify
-            fix months before anyone noticed it was missing.
-          body: |
-            Re-resolved `pnpm-lock.yaml` inside the ranges already declared. **No `package.json` changed.**
-
-            This lane exists because of dompurify: a known-vulnerable XSS sanitiser shipped to every
-            visitor for months while `apps/web/package.json` already declared a range that allowed the
-            patched version. The range was right; nothing re-resolved it.
-
-            Verified in the job: both site builds, 1328 unit tests, `tsc`, and a full Metro bundle.
-            CI has to pass here as well — merging this deploys production.
-          labels: dependencies
-
-  catalog:
-    # No `needs: refresh`. The lanes are independent — one re-resolves inside
-    # existing ranges, the other changes the ranges — and chaining them would
-    # skip this one whenever the other had nothing to do.
-    if: ${{ inputs.lane == null || inputs.lane == 'both' || inputs.lane == 'catalog' }}
-    runs-on: ubuntu-latest
-    # An install, a verify and a Metro bundle.
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: pnpm/action-setup@v6
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-
-      - name: Install
-        run: pnpm install --frozen-lockfile
-
-      - name: Raise the catalog
-        id: bump
-        run: node scripts/bump-catalog.mjs ${{ inputs.dry_run == true && '--dry-run' || '' }}
-
-      - name: Install the raised versions
-        if: steps.bump.outputs.changed == 'true'
-        run: pnpm install --no-frozen-lockfile
-
-      - name: Verify
-        if: steps.bump.outputs.changed == 'true'
-        run: |
-          set -euo pipefail
-          pnpm --filter textstack-web build
-          pnpm --filter textstack-admin build
-          pnpm --filter textstack-web test
-          pnpm --filter @textstack/shared test
-          pnpm --filter mobile typecheck
-          pnpm --filter mobile test
-
-      - name: Bundle (Metro)
-        if: steps.bump.outputs.changed == 'true'
-        working-directory: apps/mobile
-        run: npx expo export --platform android --output-dir "$RUNNER_TEMP/bundle"
-
-      - name: Open a pull request
-        if: steps.bump.outputs.changed == 'true'
-        uses: peter-evans/create-pull-request@v8
-        with:
-          branch: deps/catalog
-          delete-branch: true
-          title: ${{ steps.bump.outputs.title }}
-          commit-message: ${{ steps.bump.outputs.title }}
-          body: |
-            Raised the shared catalog in `pnpm-workspace.yaml` by patch and minor. Majors are listed
-            in the job summary and left for a person.
-
-            One entry moves every workspace member, which is what makes this worth automating — and
-            also why `react`, `react-dom` and `@types/react` are excluded: they decide the mobile
-            runtime fingerprint, and a bump there passes CI and then stops every installed app from
-            receiving OTA updates.
-
-            Verified in the job: both site builds, 1328 unit tests, `tsc`, and a full Metro bundle.
+            Lockfile re-resolved inside declared ranges, pnpm catalog and
+            Directory.Packages.props raised by patch and minor. Majors reported,
+            not taken. Security fixes do not wait for this lane.
+          body-path: ${{ runner.temp }}/proposal.md
           labels: dependencies

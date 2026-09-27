@@ -1,17 +1,22 @@
-# Nothing was watching. Dependabot alerts are disabled on this repository, so a
+# Nothing was watching. Dependabot alerts were disabled on this repository, so a
 # JS advisory had no way to reach anyone — the vulnerable dompurify that shipped
 # to every visitor was found by running `pnpm audit` by hand, months after the
 # patch existed. It was not even a hard fix: the declared range already allowed
 # the patched version, and only a stale lockfile held it back.
 #
-# Alerts themselves are a repository setting (Settings → Advanced Security),
-# not a file. This file is the other half: scheduled update PRs.
+# Alerts are on now, and so are Dependabot **security updates** — the second
+# half, which is what actually opens a pull request when an advisory lands.
+# Both are repository settings rather than file entries, and
+# scripts/check-advisories.mjs asserts them on every pull request, because a
+# setting somebody can switch off is not a check.
 #
-# Note on the catalog: shared versions live in pnpm-workspace.yaml under
-# `catalog:`, and Dependabot's support for catalogs is limited. Expect it to
-# raise the packages declared directly in a package.json and to be quiet about
-# the catalogued ones — treat it as a signal to go and bump the catalog, not as
-# complete coverage. `pnpm audit` from the root is the check that sees everything.
+# What this file is for, after that: almost nothing. Version updates on a
+# calendar moved to .github/workflows/deps-refresh.yml, which runs twice a year
+# and proposes the lockfile, the pnpm catalog and Directory.Packages.props in
+# ONE pull request. Splitting the two was the point — a vulnerability must not
+# wait for a calendar, and not-falling-behind does not need a weekly one.
+# `scripts/report-drift.mjs` prints how far behind we are on every pull request,
+# so the quiet lane stays visible between runs.
 version: 2
 updates:
   # No npm entry, on the evidence of two weeks that said the same thing. Written
@@ -27,43 +32,50 @@ updates:
   # in the app imports. Four of the five had green type checks and green unit
   # tests, because tsc does not know what an SDK compatibility matrix is.
   #
-  # The catalog lane in deps-refresh.yml covers the same ground with the gates
-  # Dependabot cannot have: `expo install --check` against the SDK matrix, the
-  # runtime-fingerprint report, and a full Metro bundle per proposal. Running
-  # both means the one without gates files first.
-  #
-  # Security advisories are a separate mechanism (Settings → Advanced Security)
-  # and are not affected by this file. Those are worth having; unreviewed
-  # version churn against a pinned SDK is not.
+  # deps-refresh.yml covers the same ground with the gates Dependabot cannot
+  # have: the runtime-fingerprint report and a full Metro bundle per proposal.
+  # Running both means the one without gates files first.
 
+  # NuGet: security updates only. `open-pull-requests-limit: 0` switches off
+  # version updates for an ecosystem while leaving security updates untouched —
+  # that is the documented meaning of 0, not "no PRs at all".
+  #
+  # Version bumps come from deps-refresh.yml instead, for one reason worth
+  # naming: this lane produced five open pull requests in a fortnight, all green,
+  # all ignored, and their only content was Dapper and four Microsoft.Extensions
+  # patches. That is not a risk anybody needed a weekly reminder about, and the
+  # noise is what made the queue unreadable when something did matter.
   - package-ecosystem: nuget
     directory: /
     schedule:
       interval: weekly
       day: monday
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0
     ignore:
-      # ImageSharp v4 is not a version we can take: the build fails with "No Six
-      # Labors license found. Set $(SixLaborsLicenseKey) ... obtain a license
-      # from sixlabors.com/pricing". v3 is the last release usable under the
-      # split licence on our terms, and this repository is BUSL-1.1 with paid
+      # Applies to security updates too, which is why it stays. ImageSharp v4 is
+      # not a version we can take: the build fails with "No Six Labors license
+      # found. Set $(SixLaborsLicenseKey) ... obtain a license from
+      # sixlabors.com/pricing". v3 is the last release usable under the split
+      # licence on our terms, and this repository is BUSL-1.1 with paid
       # inference behind it — a per-seat image library is a business decision,
-      # not a dependency bump. Without this, Dependabot reopens the same
-      # unmergeable PR every week forever.
+      # not a dependency bump.
       - dependency-name: SixLabors.ImageSharp
         update-types: [version-update:semver-major]
-    # Deliberately ungrouped. The grouped version produced "Bump Dapper and 20
-    # others" — a PR that passes or fails as a unit and so says nothing about
-    # which member did it. Its failure turned out to belong to none of the
-    # twenty: Directory.Packages.props pinned Microsoft.Extensions.* below what
-    # a transitive dependency required. One package per PR is more PRs and less
-    # time.
 
   # The workflows in this repo pin action majors (actions/checkout@v5). Those
   # move rarely and silently, and one of them is what installs the Node version
   # everything else now depends on.
+  #
+  # This is the one lane that CANNOT move to deps-refresh.yml: GITHUB_TOKEN is
+  # refused permission to push changes under .github/workflows/**, so a workflow
+  # of ours physically cannot raise an action pin. Grouped into a single pull
+  # request and left monthly — action majors move rarely enough that monthly is
+  # silent most months anyway.
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: monthly
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 1
+    groups:
+      actions:
+        patterns: ['*']
