@@ -177,8 +177,8 @@ importers:
         specifier: ~55.0.4
         version: 55.0.6(react-native@0.83.10(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.0))(react@19.2.0)
       expo-updates:
-        specifier: ~55.0.20
-        version: 55.0.30(expo@55.0.31)(react-native@0.83.10(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.0))(react@19.2.0)
+        specifier: ~55.0.31
+        version: 55.0.31(expo@55.0.31)(react-native@0.83.10(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.0))(react@19.2.0)
       pdfjs-dist:
         specifier: 4.10.38
         version: 4.10.38
@@ -3349,8 +3349,8 @@ packages:
     peerDependencies:
       expo: '*'
 
-  expo-updates@55.0.30:
-    resolution: {integrity: sha512-flqq8aDvyh7j+MmrqXCLCuRf2r03dJYRHw+kGgAFkXwlzvGHQxwnC3vXBNltUb0Q08zUCHWSNuWLWgxbtr3y/Q==}
+  expo-updates@55.0.31:
+    resolution: {integrity: sha512-sMcxRw1xzwtZelXP92x1at9zJ1kjMVlwDZGehIBGInovh0oWnK38EHSmi/J6HaM90uk3+hQKBUva5+py9AHsuw==}
     hasBin: true
     peerDependencies:
       expo: '*'
@@ -8617,7 +8617,7 @@ snapshots:
     dependencies:
       expo: 55.0.31(@babel/core@7.29.7)(@expo/dom-webview@55.0.6)(@expo/metro-runtime@55.0.12)(expo-router@55.0.18)(react-dom@19.2.0(react@19.2.0))(react-native-webview@13.16.0(react-native@0.83.10(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.0))(react@19.2.0))(react-native@0.83.10(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.0))(react@19.2.0)(typescript@5.9.3)
 
-  expo-updates@55.0.30(expo@55.0.31)(react-native@0.83.10(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.0))(react@19.2.0):
+  expo-updates@55.0.31(expo@55.0.31)(react-native@0.83.10(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.0))(react@19.2.0):
     dependencies:
       '@expo/code-signing-certificates': 0.0.6
       '@expo/plist': 0.5.4
