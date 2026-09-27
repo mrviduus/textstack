@@ -179,8 +179,12 @@ below uses `expo-sharing` — a native module with a config plugin — so the ru
 fingerprint moved, and `app.json` sets `runtimeVersion: { policy: "fingerprint" }`:
 an OTA can only reach builds whose fingerprint matches. `mobile-ota.yml` refused
 correctly the same night and the feature waited twelve days for somebody to notice a
-failed run. It ships in **build 28**, dispatched 2026-09-27 to Internal and then
-submitted to Closed. Since then a refusal starts the build itself rather than
+failed run. It ships in **build 28** (2026-09-27), submitted to Internal. Getting it
+to the Closed track is a **promotion in Play Console**, not a second submit: Play
+identifies a release by `versionCode`, so `eas submit` on an already-uploaded build
+fails with "You've already submitted this version of the app." One build reaches one
+track per upload — which is why 2026-09-11 shows two submissions and they were two
+different builds, 26 and 27. Since then a refusal starts the build itself rather than
 reporting that one is needed. If you add a native
 module here, that is the path your change takes too: a build, and testers have to
 install it before any later update can reach them.
