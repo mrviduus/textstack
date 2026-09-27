@@ -50,6 +50,16 @@ on:
     paths:
       - 'apps/mobile/**'
       - 'packages/**'          # consumed from source by Metro, so it ships in the bundle
+      # The fingerprint resolves through the workspace root, so these two move the
+      # mobile runtime without a single file under apps/mobile changing — the pnpm
+      # migration moved 122 of 135 fingerprint sources for exactly this reason. They
+      # were missing here while the only thing that edited them was a human; the
+      # semiannual dependency lane now edits both, unattended, twice a year. Without
+      # them a lockfile bump moves the runtime, `mobile-runtime` warns on the pull
+      # request, and nothing at all happens on the merge. Kept in step with that
+      # job's own diff filter in ci.yml.
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
       - '.github/workflows/mobile-ota.yml'
   workflow_dispatch:
     inputs:
