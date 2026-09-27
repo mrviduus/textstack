@@ -241,8 +241,13 @@ jobs:
       - name: Drift report
         run: node scripts/report-drift.mjs js
 
-  # apps/mobile is npm + its own lockfile, not part of the pnpm workspace, so it
-  # gets its own job rather than another step in `frontend`. @textstack/shared is
+  # apps/mobile gets its own job rather than another step in `frontend` because it
+  # installs and checks a different app, not because it uses a different package
+  # manager — it is a pnpm workspace member with eight `catalog:` specifiers and no
+  # lockfile of its own, which is why the steps below are `pnpm --filter mobile`.
+  # (This comment used to claim npm and a local lockfile; the job it introduces has
+  # contradicted that ever since #514 moved mobile into the workspace.)
+  # @textstack/shared is
   # consumed from source via Metro watchFolders + tsconfig paths, so the checkout
   # already carries it and only the app's own deps need installing.
   #

@@ -173,6 +173,22 @@ Kindle-style 3-dots menu:
 also builds for web and expo-sqlite's web shim cannot be bundled there; **every
 export must exist in both files** or the web bundle fails to resolve).
 
+**Delivery: this needed a Play build, not an update, and that is why it was late.**
+Landing on `main` (#612, 2026-09-14) put it on nobody's phone. The EPUB share sheet
+below uses `expo-sharing` — a native module with a config plugin — so the runtime
+fingerprint moved, and `app.json` sets `runtimeVersion: { policy: "fingerprint" }`:
+an OTA can only reach builds whose fingerprint matches. `mobile-ota.yml` refused
+correctly the same night and the feature waited twelve days for somebody to notice a
+failed run. It ships in **build 28** (2026-09-27), submitted to Internal. Getting it
+to the Closed track is a **promotion in Play Console**, not a second submit: Play
+identifies a release by `versionCode`, so `eas submit` on an already-uploaded build
+fails with "You've already submitted this version of the app." One build reaches one
+track per upload — which is why 2026-09-11 shows two submissions and they were two
+different builds, 26 and 27. Since then a refusal starts the build itself rather than
+reporting that one is needed. If you add a native
+module here, that is the path your change takes too: a build, and testers have to
+install it before any later update can reach them.
+
 ### Tables
 
 | Table | Key | Holds |
