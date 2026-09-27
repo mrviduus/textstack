@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Ops** — a backup verifier that failed on its own race, not on the backup — infra · [details](docs/changelog-archive/2026-H2.md#2026-09-27-ops-a-backup-verifier-that-failed-on-its-own-race-not-on-the-backup)
 - **Offline** — your own uploads download for offline reading, and "Download EPUB" stops answering "not authorised" — mobile · [details](docs/changelog-archive/2026-H2.md#2026-09-14-offline-your-own-books-download-and-a-download-button-that-was-never-authorised)
 - **QA** — three regressions found in code shipped the day before, and a guard taught to read prose — backend, mobile, shared · [details](docs/changelog-archive/2026-H2.md#2026-09-12-qa-three-regressions-in-code-shipped-the-day-before)
 - **Guests** — a sign-in that left your reading behind no longer tells you it was kept — web, mobile, shared · [details](docs/changelog-archive/2026-H2.md#2026-09-11-guests-the-reader-is-told-when-their-work-did-not-come-across)

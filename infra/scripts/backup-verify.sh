@@ -69,9 +69,29 @@ diagnose_startup_failure() {
 }
 
 echo "[verify] waiting for postgres to accept connections ..."
+# Probe over TCP (-h 127.0.0.1), never the unix socket. The postgres entrypoint
+# starts a *bootstrap* server first — initdb, CREATE DATABASE, initdb.d — with
+# listen_addresses='' , i.e. unix socket only, then shuts it down before the
+# real start. `pg_isready` with no -h talks to that socket, so it answers
+# "ready" during bootstrap. That is what failed the 2026-09-27 backup: the wait
+# broke out on the bootstrap server and the old re-probe below landed inside
+# its ~0.3s shutdown window, reporting "did not become ready after 120s" after
+# 1.3 seconds. A TCP listener exists only on the real server, so this cannot
+# see the bootstrap one at all.
+#
+# READY counts *consecutive* hits and resets on a miss: two hits a second apart
+# are required, so no single transient listener can satisfy the wait. The old
+# break-then-re-probe pattern is gone — it was the race, not a safety net.
+READY=0
+ELAPSED=0
 for i in {1..120}; do
-  if docker exec "$CONTAINER" pg_isready -U "$PG_USER" -d "$PG_DB" >/dev/null 2>&1; then
-    break
+  if docker exec "$CONTAINER" pg_isready -h 127.0.0.1 -p 5432 -U "$PG_USER" -d "$PG_DB" >/dev/null 2>&1; then
+    READY=$((READY + 1))
+    if [[ "$READY" -ge 2 ]]; then
+      break
+    fi
+  else
+    READY=0
   fi
   # Bail early if the container has already exited — no point waiting 120s.
   if [[ -z "$(docker ps -q --filter "name=$CONTAINER" 2>/dev/null)" ]]; then
@@ -80,12 +100,17 @@ for i in {1..120}; do
     exit 1
   fi
   sleep 1
+  ELAPSED=$((ELAPSED + 1))
 done
-if ! docker exec "$CONTAINER" pg_isready -U "$PG_USER" -d "$PG_DB" >/dev/null 2>&1; then
-  echo "[verify] FAIL: postgres did not become ready after 120s" >&2
+if [[ "$READY" -lt 2 ]]; then
+  # Report the real elapsed wait. The old message said "after 120s" no matter
+  # how long it had actually waited, which sent the first investigation looking
+  # for a slow or full disk instead of a race.
+  echo "[verify] FAIL: postgres did not accept TCP connections after ${ELAPSED}s" >&2
   diagnose_startup_failure
   exit 1
 fi
+echo "[verify] postgres ready after ${ELAPSED}s"
 
 echo "[verify] pre-creating roles referenced by dump ..."
 docker exec "$CONTAINER" psql -U "$PG_USER" -d "$PG_DB" -c \
