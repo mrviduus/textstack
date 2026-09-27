@@ -28,10 +28,17 @@ name: Mobile OTA (auto)
 # feature sat on main and on nobody's phone until 2026-09-27 while the failed run
 # scrolled out of sight. A failed run is not a task list.
 #
-# So a mismatch now ships itself — a build, submitted to `internal` only. That
-# track's audience is testers and its submission needs no review. `closed` and
-# `production` stay manual in mobile-release.yml, because they have an audience
-# that did not ask to be a test.
+# So a mismatch now ships itself — a build, submitted to `closed` (Play's `alpha`).
+# That is where the testers actually are: six of them opted in, while the Internal
+# track's list is empty, and a build sent somewhere nobody is subscribed repeats
+# this outage in a quieter way. `production` stays manual in mobile-release.yml,
+# because it has an audience that did not ask to be a test.
+#
+# One track, not two. Play identifies a release by `versionCode` and refuses a
+# second upload of the same one — submitting build 28 to `internal` and then to
+# `closed` failed with "You've already submitted this version of the app", and
+# reaching the second track meant promoting it by hand in Play Console. So the
+# automatic path picks the track with an audience and sends the build there once.
 #
 # Android only. iOS has no released build for an update to land on.
 #
@@ -234,13 +241,13 @@ jobs:
         if: ${{ steps.fp.outputs.hash != steps.build.outputs.runtime && inputs.dry_run != true }}
         run: rm -rf android
 
-      - name: Build and submit to Internal, since no update can reach anyone
+      - name: Build and submit to Closed testing, since no update can reach anyone
         id: ship
         if: ${{ steps.fp.outputs.hash != steps.build.outputs.runtime && inputs.dry_run != true }}
         run: |
           set -euo pipefail
           eas build --platform android --profile production \
-            --auto-submit-with-profile internal --non-interactive --no-wait
+            --auto-submit-with-profile closed --non-interactive --no-wait
 
       - name: Say a build went out instead of an update
         if: ${{ steps.fp.outputs.hash != steps.build.outputs.runtime }}
@@ -260,12 +267,14 @@ jobs:
             if [ "${{ inputs.dry_run }}" = "true" ]; then
               echo "Dry run: nothing was built."
             else
-              echo "An EAS build was started and will submit itself to the **internal**"
-              echo "track when it finishes — \`--no-wait\`, so this run ends before it does."
+              echo "An EAS build was started and will submit itself to **closed testing**"
+              echo "(Play's \`alpha\`) when it finishes — \`--no-wait\`, so this run ends first."
+              echo "That is the track with testers on it; Internal's list is empty."
               echo "Permissions were checked at the **source** manifest level only."
               echo
-              echo "\`closed\` and \`production\` are still a human click:"
-              echo "**mobile-release.yml → submit**."
+              echo "A build reaches ONE track per upload — Play refuses a second submit of the"
+              echo "same \`versionCode\`. Another track means promoting it in Play Console, or"
+              echo "another build. \`production\` is still a human click: **mobile-release.yml**."
             fi
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
