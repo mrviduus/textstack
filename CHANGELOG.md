@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Mobile** — offline reading had been on `main` and on nobody's phone for twelve days; a refused update now starts the build it was asking for — mobile · [details](docs/changelog-archive/2026-H2.md#2026-09-27-mobile-a-refusal-that-was-correct-for-twelve-days-now-ships-the-build-itself)
 - **Deps** — two package families that Dependabot had split a version at a time, put back on one version — backend · [details](docs/changelog-archive/2026-H2.md#2026-09-27-deps-two-package-families-that-dependabot-split-one-at-a-time)
 - **Deps** — one dependency proposal twice a year instead of six unread pull requests, and a vulnerability that no longer waits for the calendar — infra · [details](docs/changelog-archive/2026-H2.md#2026-09-27-deps-one-proposal-twice-a-year-and-a-vulnerability-that-does-not-wait-for-it)
 - **Infra** — a patch-level dependency drift had blocked every deploy — mobile · [details](docs/changelog-archive/2026-H2.md#2026-09-27-infra-a-patch-level-dependency-drift-had-blocked-every-deploy)

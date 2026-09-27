@@ -19,9 +19,19 @@ name: Mobile OTA (auto)
 # worse here because nothing else would ever notice.
 #
 # So: compute the fingerprint, compare it with the runtime of the newest
-# finished production build, and publish only on a match. A mismatch FAILS the
-# run rather than skipping quietly — "this merge did not reach anyone, it needs
-# a build" is information, and a silent skip looks exactly like a success.
+# finished production build, and publish only on a match.
+#
+# A mismatch used to FAIL the run, on the reasoning that "this merge did not
+# reach anyone" is information and a silent skip looks like a success. The
+# reasoning was right and the outcome was still a twelve-day outage: offline
+# reading landed 2026-09-14, this step refused correctly the same night, and the
+# feature sat on main and on nobody's phone until 2026-09-27 while the failed run
+# scrolled out of sight. A failed run is not a task list.
+#
+# So a mismatch now ships itself — a build, submitted to `internal` only. That
+# track's audience is testers and its submission needs no review. `closed` and
+# `production` stay manual in mobile-release.yml, because they have an audience
+# that did not ask to be a test.
 #
 # Android only. iOS has no released build for an update to land on.
 #
@@ -200,14 +210,46 @@ jobs:
           echo "runtime=$rt" >> "$GITHUB_OUTPUT"
           echo "id=$id" >> "$GITHUB_OUTPUT"
 
-      - name: Refuse to publish into a runtime nobody is running
+      # The source-level permission check, before anything is built. It reads the
+      # manifest our own config produces — app.json plus the config plugins — which
+      # is where a new permission from `blockedPermissions` drifting out of date
+      # would appear. It is NOT the merged manifest: library-injected permissions
+      # need `gradlew :app:processReleaseMainManifest`, ten minutes and an Android
+      # SDK, and the summary below says which level ran so nobody reads more into
+      # it than that. Android's permission strategy here is blocklist-only, with no
+      # allowlist, so this is the cheapest place a surprise shows up.
+      - name: Check the permissions this build would declare
+        if: ${{ steps.fp.outputs.hash != steps.build.outputs.runtime && inputs.dry_run != true }}
+        run: |
+          set -euo pipefail
+          npx expo prebuild --platform android --clean
+          pnpm check:permissions
+
+      # And then delete it again. A leftover `android/` makes EAS treat the project
+      # as bare: it skips its own prebuild, builds from these local files, and the
+      # runtime fingerprint of the result is no longer the one measured two steps
+      # ago — the exact poisoning docs/03-ops/play-store-release.md warns about for
+      # local fingerprint runs, with a build attached.
+      - name: Put the tree back the way EAS expects it
+        if: ${{ steps.fp.outputs.hash != steps.build.outputs.runtime && inputs.dry_run != true }}
+        run: rm -rf android
+
+      - name: Build and submit to Internal, since no update can reach anyone
+        id: ship
+        if: ${{ steps.fp.outputs.hash != steps.build.outputs.runtime && inputs.dry_run != true }}
+        run: |
+          set -euo pipefail
+          eas build --platform android --profile production \
+            --auto-submit-with-profile internal --non-interactive --no-wait
+
+      - name: Say a build went out instead of an update
         if: ${{ steps.fp.outputs.hash != steps.build.outputs.runtime }}
         run: |
           {
-            echo "### OTA not published"
+            echo "### Built instead of updated"
             echo
             echo "This commit's runtime does not match the installed build, so an update"
-            echo "would publish to a runtime no one has and report success."
+            echo "would have published to a runtime no one has and reported success."
             echo
             echo "| | |"
             echo "|---|---|"
@@ -215,10 +257,17 @@ jobs:
             echo "| newest production build | \`${{ steps.build.outputs.runtime }}\` (\`${{ steps.build.outputs.id }}\`) |"
             echo
             echo "Something native changed — a dependency, an Expo plugin, or app.json."
-            echo "Ship it with **mobile-release.yml → build-submit**, not an update."
+            if [ "${{ inputs.dry_run }}" = "true" ]; then
+              echo "Dry run: nothing was built."
+            else
+              echo "An EAS build was started and will submit itself to the **internal**"
+              echo "track when it finishes — \`--no-wait\`, so this run ends before it does."
+              echo "Permissions were checked at the **source** manifest level only."
+              echo
+              echo "\`closed\` and \`production\` are still a human click:"
+              echo "**mobile-release.yml → submit**."
+            fi
           } | tee -a "$GITHUB_STEP_SUMMARY"
-          echo "::error::Runtime mismatch — this change needs a build, not an OTA update."
-          exit 1
 
       # Commit subject only, passed through the environment rather than
       # interpolated into the script: a commit message is attacker-controlled

@@ -22,7 +22,7 @@ answers "what happened" and nothing answered "what is half-finished right now".
 | **Entitlements** | `UserTier { Guest, Free, Supporter, Staff }`, config-driven quotas — now including `AiEnabled` and `DailyEnrichmentCap`, enforced server-side by `RequireAiAccount()` (403 `account_required`). |
 | **Guest sessions** | Web and mobile both mint an anonymous `User` row on demand; the read → save → review loop works with no account, and registering promotes that row in place. [ADR-014](01-architecture/adr/ADR-014-guest-sessions.md). Walked end to end on Android on 2026-09-06 with every request logged ([QA-005 report](qa/reports/2026-09-06-android-guest-loop.md)): promotion-in-place proven by the account's `createdAt` matching the guest mint, both AI walls firing zero requests, and the book still opening when the mint is rate-limited. |
 | **SEO / SSG** | Prerendered pages, sitemap, IndexNow. Four incidents since 2026-08-11 ([dead five weeks](incidents/2026-08-11-ssg-dead-five-weeks.md), [deploy wiped a running rebuild](incidents/2026-08-31-deploy-wiped-a-running-ssg-rebuild.md), [worker lost its output path](incidents/2026-09-01-ssg-worker-lost-its-output-path.md), [a prompt stranded the swap](incidents/2026-09-02-corepack-prompt-stranded-the-ssg.md)), each invisible from outside because humans get the SPA and it renders fine. Now watched three ways: the deploy refuses to promote a rebuild that lost its files, `/health/ready` reports rebuild age and failure, and the health check asks a crawler's question every five minutes. |
-| **Mobile** | Android on Play Internal Testing (`versionCode 24`). OTA via `expo-updates`, published automatically on merge — and refused automatically when the runtime fingerprint has moved. |
+| **Mobile** | Android on Play Internal + Closed testing (`versionCode 27`, 2026-09-11). OTA via `expo-updates` on merge; when the runtime fingerprint has moved an update cannot reach anyone, so the same workflow builds and submits to Internal instead. |
 | **Build & deps** | One Node version in `.nvmrc` (24.20.0), enforced across CI, four Dockerfiles and the deploy runner. One pnpm workspace with a version catalog — the JS answer to `Directory.Packages.props`. Weekly dependency refresh by pull request. |
 
 ## In flight
@@ -67,8 +67,16 @@ answers "what happened" and nothing answered "what is half-finished right now".
   switch has landed, so builds no longer share one runtime. Still owner-only: promote the current
   build to Closed and recruit 14 testers.
 
-  **Build 24** (`versionCode 24`, 2026-09-02) is on Internal Testing, carrying the selection-speech
-  fixes (#509). It exists because the pnpm workspace migration moved the runtime fingerprint — 122 of
+  **Build 27** (`versionCode 27`, 2026-09-11, commit `50a1a987`) is the newest finished build and went
+  to both Internal and Closed testing that day. It was built from a laptop rather than through
+  `mobile-release.yml`, which is why the workflow's run history shows only one successful release —
+  worth knowing before reading that history as the record of what testers hold. Note what build 27
+  predates: **offline reading (#612, 2026-09-14) is in none of these builds.** It added `expo-sharing`,
+  which moved the fingerprint, so the OTA correctly refused on the night it merged and the feature sat
+  undelivered for twelve days. Fixed two ways on 2026-09-27: build 28 was dispatched, and a refusal now
+  starts a build instead of only reporting one is needed.
+
+  **Build 24** (`versionCode 24`, 2026-09-02) carried the selection-speech fixes (#509). It exists because the pnpm workspace migration moved the runtime fingerprint — 122 of
   135 fingerprint sources now resolve through the workspace root — so the OTA that had been verified
   working an hour earlier could no longer reach the installed build. The six-step checklist in
   [`docs/qa/reports/2026-09-01-android-tts-selection.md`](qa/reports/2026-09-01-android-tts-selection.md)
