@@ -56,7 +56,7 @@ jobs:
       run:
         working-directory: apps/mobile
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       # Before the expo action, so a missing token says so instead of surfacing
       # as an authentication failure three steps later. Read from env rather
