@@ -340,3 +340,24 @@ export async function evictToBudget(
     return 0
   }
 }
+
+/** Ids of uploads whose original is on this device. One directory listing
+ *  instead of a filesystem probe per book — the automatic sweep asks this for
+ *  the whole library at once. */
+export async function listStoredOriginalIds(): Promise<Set<string>> {
+  if (Platform.OS === 'web') return new Set()
+  try {
+    const dir = originalsDirectory()
+    if (!dir.exists) return new Set()
+    const ids = new Set<string>()
+    for (const entry of dir.list()) {
+      const name = entry.name
+      if (!name || name.endsWith(PART_SUFFIX)) continue
+      ids.add(name.replace(/\.(pdf|epub)$/i, ''))
+    }
+    return ids
+  } catch (err) {
+    console.warn('[originals] listing failed:', err)
+    return new Set()
+  }
+}
