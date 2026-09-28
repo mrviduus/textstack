@@ -650,6 +650,10 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         )
         for (const id of orphans) {
           try {
+            // Cancel first, the same order `removeUserBookDownload` uses: a
+            // download still running would otherwise have its rows deleted and
+            // then write more of them straight back.
+            cancelledRef.current.add(id)
             await deleteCachedUserBook(id)
             await deleteOriginal(id, 'pdf')
             // Not `declineDownload` — the book is gone, so there is nothing to
