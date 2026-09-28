@@ -196,6 +196,14 @@ export async function deleteOriginal(bookId: string, format: OriginalFormat): Pr
     if (file.exists) file.delete()
     const part = new (fs().File)(originalsDirectory(), `${originalFileName(bookId, format)}${PART_SUFFIX}`)
     if (part.exists) part.delete()
+    // And its place in the eviction order. `evictToBudget` prunes the index for
+    // the files it deletes itself; this path did not, so every book removed by
+    // hand left a timestamp behind for the life of the install.
+    const lastUsed = await readLastUsed()
+    if (bookId in lastUsed) {
+      delete lastUsed[bookId]
+      await AsyncStorage.setItem(LAST_USED_KEY, JSON.stringify(lastUsed))
+    }
   } catch (err) {
     console.warn('[originals] delete failed:', err)
   }

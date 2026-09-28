@@ -15,6 +15,7 @@ import type { Chapter } from '@textstack/shared'
 export interface CachedChapter {
   editionId: string
   chapterSlug: string
+  chapterId: string | null
   html: string
   title: string
   wordCount: number | null
@@ -45,6 +46,10 @@ export async function getDb(): Promise<null> {
 
 export async function getCachedChapter(): Promise<CachedChapter | null> {
   return null
+}
+
+export async function refreshCachedChapter(_editionId: string, _chapter: Chapter): Promise<void> {
+  // no-op
 }
 
 export async function cacheChapter(_editionId: string, _chapter: Chapter): Promise<void> {
@@ -122,6 +127,10 @@ export interface CachedUserBookMeta {
 
 export async function getCachedUserChapter(): Promise<CachedUserChapter | null> {
   return null
+}
+
+export async function refreshCachedUserChapter(): Promise<void> {
+  // no-op
 }
 
 export async function cacheUserChapter(): Promise<void> {

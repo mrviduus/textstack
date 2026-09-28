@@ -4,6 +4,10 @@ import type { Chapter, ChapterNav, UserBookChapterDto } from '@textstack/shared'
 export interface CachedChapter {
   editionId: string
   chapterSlug: string
+  /** The server's chapter id. Null on rows cached before 2026-09-28, when the
+   *  column did not exist — highlights, bookmarks, vocabulary and the server
+   *  progress write are all keyed by it, so a row without one can only be read. */
+  chapterId: string | null
   html: string
   title: string
   wordCount: number | null
@@ -89,6 +93,16 @@ export async function getDb(): Promise<any> {
           cached_at INTEGER NOT NULL
         );
       `)
+      // The only column added after the fact. `CREATE TABLE IF NOT EXISTS`
+      // cannot bring it to an install that already has the table, and SQLite
+      // has no `ADD COLUMN IF NOT EXISTS` — so the duplicate-column error is
+      // the check. Rows written before it existed keep a NULL id and stay
+      // readable; only writing needs one.
+      try {
+        await opened.execAsync('ALTER TABLE chapters ADD COLUMN chapter_id TEXT')
+      } catch {
+        // Already there.
+      }
       return opened
     })().catch(err => {
       // A failed open must not poison every later call — drop the promise so
@@ -111,6 +125,7 @@ export async function getCachedChapter(
   const row = await d.getFirstAsync('SELECT * FROM chapters WHERE edition_id = ? AND chapter_slug = ?', [editionId, chapterSlug]) as {
     edition_id: string
     chapter_slug: string
+    chapter_id: string | null
     html: string
     title: string
     word_count: number | null
@@ -123,6 +138,7 @@ export async function getCachedChapter(
   return {
     editionId: row.edition_id,
     chapterSlug: row.chapter_slug,
+    chapterId: row.chapter_id ?? null,
     html: row.html,
     title: row.title,
     wordCount: row.word_count,
@@ -136,17 +152,48 @@ export async function cacheChapter(editionId: string, chapter: Chapter): Promise
   const d = await getDb()
   if (!d) return
   await d.runAsync(
-    `INSERT OR REPLACE INTO chapters (edition_id, chapter_slug, html, title, word_count, prev_json, next_json, cached_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO chapters (edition_id, chapter_slug, chapter_id, html, title, word_count, prev_json, next_json, cached_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       editionId,
       chapter.slug,
+      chapter.id || null,
       chapter.html,
       chapter.title,
       chapter.wordCount,
       chapter.prev ? JSON.stringify(chapter.prev) : null,
       chapter.next ? JSON.stringify(chapter.next) : null,
       Date.now(),
+    ],
+  )
+}
+
+/**
+ * Update a cached chapter's content in place, leaving `cached_at` alone.
+ *
+ * An `UPDATE` rather than `INSERT OR REPLACE`, and that is the whole point of
+ * having a second function: a refresh must not create a row (only a download
+ * decides what this device keeps) and must not restamp `cached_at`, which
+ * `listCachedChapters` uses as its ordering key for want of a chapter number.
+ * Re-caching with the insert would have sent every chapter the reader visited to
+ * the bottom of the offline table of contents.
+ */
+export async function refreshCachedChapter(editionId: string, chapter: Chapter): Promise<void> {
+  const d = await getDb()
+  if (!d) return
+  await d.runAsync(
+    `UPDATE chapters
+        SET chapter_id = ?, html = ?, title = ?, word_count = ?, prev_json = ?, next_json = ?
+      WHERE edition_id = ? AND chapter_slug = ?`,
+    [
+      chapter.id || null,
+      chapter.html,
+      chapter.title,
+      chapter.wordCount,
+      chapter.prev ? JSON.stringify(chapter.prev) : null,
+      chapter.next ? JSON.stringify(chapter.next) : null,
+      editionId,
+      chapter.slug,
     ],
   )
 }
@@ -409,6 +456,33 @@ export async function cacheUserChapter(
       chapter.prev ? JSON.stringify(chapter.prev) : null,
       chapter.next ? JSON.stringify(chapter.next) : null,
       Date.now(),
+    ],
+  )
+}
+
+/** The same in-place refresh for an upload's chapter. `chapter_number` and
+ *  `cached_at` are deliberately not in the SET list: the number came from the
+ *  book payload at download time and is what `listCachedUserChapters` orders by. */
+export async function refreshCachedUserChapter(
+  bookId: string,
+  chapter: UserBookChapterDto,
+): Promise<void> {
+  const d = await getDb()
+  if (!d) return
+  await d.runAsync(
+    `UPDATE user_chapters
+        SET chapter_id = ?, html = ?, title = ?, word_count = ?, source_start_page = ?, prev_json = ?, next_json = ?
+      WHERE book_id = ? AND chapter_slug = ?`,
+    [
+      chapter.id,
+      chapter.html,
+      chapter.title,
+      chapter.wordCount,
+      chapter.sourceStartPage ?? null,
+      chapter.prev ? JSON.stringify(chapter.prev) : null,
+      chapter.next ? JSON.stringify(chapter.next) : null,
+      bookId,
+      chapter.slug,
     ],
   )
 }

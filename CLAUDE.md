@@ -466,6 +466,23 @@ Also: the windows are 1–5 minutes, so **two overlapping runs throttle each oth
 
 **Offline** (`src/lib/offlineDb.ts`, SQLite): covers BOTH catalogue editions and the reader's own uploads (uploads since 2026-09-14). Chapters **and, since 2026-09-27, a PDF upload's original file** (`src/lib/originalFileCache.ts`, under `Paths.document/originals/`, 2 GB budget with LRU eviction) — so a PDF opens offline in the same Original layout it has online instead of being substituted with its extracted text. When the original is missing it still falls back to reflow, and the server progress write is suppressed there to stop a chapter-space position overwriting a `page:<N>` one. `offlineDb.web.ts` is a no-op twin and **every export must exist in both** or the web bundle (which mobile e2e runs against) fails to resolve. Sign-out wipes cached uploads, never catalogue downloads. Details: `docs/05-features/offline-reading.md#mobile`.
 
+**The reading path waits for neither a token nor a network, and that is a rule rather than a
+property.** Both chapter loaders (`src/hooks/useReaderChapter.ts`, `src/components/reader/useUserBookReaderSource.ts`)
+read SQLite **first** and only then ask the server, whose answer refreshes the stored row in place
+(`refreshCachedChapter`, an `UPDATE` that leaves `cached_at` alone — the insert would reorder the
+offline table of contents) and never re-renders the chapter under someone reading it. Network-first
+was not wrong on a plane, where `fetch` rejects at once; it was wrong on every network that is
+present but useless — a captive portal, a tunnel — where the reader waited out the socket timeout in
+front of a book already on the phone. `chapterLoadOrder.test.ts` pins the ordering, because nothing
+in CI can feel it.
+
+**What an account is still for**, now that reading needs none: cross-device sync, the upload quota,
+and **wiping one account's private files when it signs out** — without that last one a reader's PDF
+stays on the phone for whoever signs in next. Nothing on the reading path may grow a fourth reason.
+An automatic sweep also removes downloads whose book the account no longer has
+(`chooseOrphanedDownloads`), which is only safe because the listing it compares against either
+succeeded or threw.
+
 **E2E**: 15 Playwright specs in `apps/mobile/e2e/` — navigation, books, search, library, vocabulary, highlights, stats, auth.
 
 **Build**: EAS Build (cloud) for dev/prod. OTA updates via `expo-updates`.
