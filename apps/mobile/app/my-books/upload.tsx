@@ -8,9 +8,22 @@ import { colors } from '../../src/theme/colors'
 import { trackBookUploaded } from '../../src/lib/analytics'
 import { useAuth } from '../../src/context/AuthContext'
 import { capabilitiesFor } from '../../src/lib/capabilities'
+import { SessionGate } from '../../src/components/SessionGate'
 
 
-export default function UploadScreen() {
+export default function UploadRoute() {
+  // Settles the session before the screen mounts, exactly as the reader routes
+  // do. Choosing to upload a book is a commitment signal, and a guest is
+  // allowed to upload — the screen below used to offer an account instead,
+  // purely because nothing on this path had ever minted one.
+  return (
+    <SessionGate>
+      <UploadScreen />
+    </SessionGate>
+  )
+}
+
+function UploadScreen() {
   const router = useRouter()
   const { user } = useAuth()
   const { canUpload } = capabilitiesFor(user)
@@ -178,11 +191,16 @@ export default function UploadScreen() {
   // being hidden, which stopped being enough once `FirstBookState` on an empty
   // Library started routing straight here. It keeps its own guard.
   //
-  // What the guard catches changed on 2026-09-06 (ADR-014 §3): a guest passes it
-  // now and uploads on the `Guest` tier. What is left below is the reader with no
-  // session at all — mobile mints a guest only when a book is opened — for whom
-  // there is genuinely no row to attach a file to, and for whom the honest and
-  // only actionable next step is an account.
+  // What the guard catches changed twice. On 2026-09-06 (ADR-014 §3) a guest
+  // began passing it and uploading on the `Guest` tier. On 2026-09-28 the route
+  // gained a `SessionGate`, so a reader arriving without a session now gets one
+  // minted before this runs — the previous note said the honest next step was an
+  // account, but that was circular: there was no row to attach a file to only
+  // because nothing here had asked for one.
+  //
+  // What is left below is the case where minting genuinely failed — offline,
+  // rate limited, or a wedged bootstrap. Then an account IS the only actionable
+  // step, and saying so is honest rather than a default.
   if (!canUpload) {
     return (
       <>

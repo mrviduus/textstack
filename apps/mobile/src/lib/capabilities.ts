@@ -76,7 +76,7 @@ export interface Capabilities {
    *
    * `hasSession`, not `true`, because `POST /me/books/upload` needs a bearer
    * token and mobile mints a guest from exactly one trigger — opening a book
-   * (`ReaderSessionGate`). An install that has only ever browsed the catalog has
+   * (`SessionGate`, which also wraps the upload route). An install that has only ever browsed the catalog has
    * no session and no row to hang a file on, so for it this is still false and
    * the affordance still asks for an account. See "Open" in the ADR.
    *

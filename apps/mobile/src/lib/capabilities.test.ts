@@ -104,7 +104,7 @@ describe('policy flags, one reason each', () => {
 
   it('canUpload is false with no session at all, because the upload needs a bearer token', () => {
     // Not `true` unconditionally: mobile mints a guest from one trigger only
-    // (opening a book, via ReaderSessionGate), so an install that has only
+    // (opening a book or starting an upload, via SessionGate), so an install that has only
     // browsed the catalog has no row to hang a file on. This is the line that
     // keeps `/my-books/upload` and the "+" tab asking for an account there.
     expect(capabilitiesFor(null).canUpload).toBe(false)
