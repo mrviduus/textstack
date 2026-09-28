@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { sweepTtsCache } from '../src/lib/deviceStorage'
 import { AppState, View } from 'react-native'
 import { Stack, useRouter, usePathname } from 'expo-router'
 import { trackAppResumedFromBackground } from '../src/lib/analytics'
@@ -174,6 +175,15 @@ function RootLayout() {
       console.log('[TextStack] RootLayout mounted, fontsLoaded:', fontsLoaded, 'fontError:', fontError)
     }
   }, [fontsLoaded, fontError])
+
+  // Trim the speech cache once per launch. `useTts` has been filling
+  // ${cacheDirectory}tts/ since it was written and deletes from it only when a
+  // download fails, so it grows for the life of the install and shrinks only
+  // when Android reclaims the whole cache directory. Fire-and-forget and
+  // deliberately not awaited: a housekeeping sweep must never delay a launch.
+  useEffect(() => {
+    sweepTtsCache().catch(err => console.warn('TTS cache sweep failed:', err))
+  }, [])
 
   useEffect(() => {
     if (fontsLoaded || fontError) {

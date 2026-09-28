@@ -21,7 +21,8 @@ import {
   type CachedUserBookMeta,
 } from '../lib/offlineDb'
 import { userBookChapterSlug } from '../lib/userBookChapters'
-import { deleteAllOriginals, deleteOriginal, downloadOriginal } from '../lib/originalFileCache'
+import { deleteAllOriginals, deleteOriginal, downloadOriginal, evictToBudget } from '../lib/originalFileCache'
+import { isOutOfSpaceError } from '../lib/originalFilePolicy'
 import { useAuth } from './AuthContext'
 
 export type DownloadStatus = 'idle' | 'downloading' | 'complete' | 'error' | 'cancelled'
@@ -186,6 +187,13 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         await store(task)
         return true
       } catch (err) {
+        // A full device is not going to clear in 1.6 seconds. Retrying it three
+        // times per chapter meant a 120-chapter book spent about three minutes
+        // failing the 110 that were left, and then advised "Tap Retry", which
+        // cannot help. Thrown so the loop can stop at the first one and say
+        // what is actually wrong — the web side has done this since it was
+        // written (`QuotaExceededError` → stop, "Storage full").
+        if (isOutOfSpaceError(err)) throw err
         if (attempt === MAX_ATTEMPTS) {
           console.warn(`Chapter ${task.slug} failed after ${MAX_ATTEMPTS} attempts:`, err)
           return false
@@ -224,7 +232,25 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         return
       }
 
-      const ok = await downloadChapter(bookKey, task, store)
+      let ok: boolean
+      try {
+        ok = await downloadChapter(bookKey, task, store)
+      } catch (err) {
+        // Only a full device reaches here — `downloadChapter` rethrows that one
+        // case and swallows everything else into `false`. Stop at the first,
+        // keep what is already cached, and say the thing that is true.
+        console.warn('Download stopped — the device is out of space:', err)
+        await saveCount(downloaded)
+        updateDownload(bookKey, {
+          status: 'error',
+          downloadedChapters: downloaded,
+          failedChapters: failed.length,
+          failedChapterSlugs: [...failed],
+          errorMessage: 'This device is out of space. Remove a download to finish this one.',
+        })
+        await refreshCachedBooks()
+        return
+      }
       if (ok) downloaded++
       else failed.push(task)
 
@@ -390,6 +416,14 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         // belonging to a book that no longer has a download.
         await deleteOriginal(bookId, 'pdf')
         return
+      } else {
+        // Evicting a file does NOT lose the reading position — that lives in
+        // progressStorage and on the server — so the budget is enforced at the
+        // cost of bytes only. The one just downloaded is protected explicitly,
+        // because it is the reason we are over budget and deleting it here
+        // would be a loop. Everything else is ordered by last open, so the book
+        // being read is the last thing LRU reaches.
+        await evictToBudget(new Set([bookId]))
       }
     }
     if (cancelledRef.current.has(bookId)) return

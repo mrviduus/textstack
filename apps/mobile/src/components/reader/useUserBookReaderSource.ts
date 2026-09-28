@@ -7,7 +7,7 @@ import { API_URL } from '../../lib/api'
 import { getUserBookLocalProgress, saveUserBookLocalProgress } from '../../lib/progressStorage'
 import { getCachedUserChapter, getCachedUserBookMeta, listCachedUserChapters } from '../../lib/offlineDb'
 import { userBookChapterSlug } from '../../lib/userBookChapters'
-import { getCachedOriginalUri } from '../../lib/originalFileCache'
+import { getCachedOriginalUri, touchOriginal } from '../../lib/originalFileCache'
 import { reflowWritesEnabled } from '../../lib/readerWriteMode'
 import {
   pdfFlushDecision, shouldFlushOnClose, PDF_FLUSH_DEBOUNCE_MS,
@@ -189,6 +189,10 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
         ? await getCachedOriginalUri(bookId, 'pdf').catch(() => null)
         : null
       if (cancelled) return
+      // Reading is what makes a file worth keeping. Without this the eviction
+      // order would be download time, which throws away the book someone opens
+      // daily in favour of one grabbed yesterday and never read.
+      if (localOriginal) void touchOriginal(bookId)
       setLocalOriginalUri(localOriginal)
       setHasOriginalPdf(b.hasOriginalPdf === true)
       const pageBySlug: Record<string, number> = {}
@@ -228,6 +232,7 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
         // does not, the old substitution still applies: extracted text, and the
         // server write held back because the two positions disagree.
         const localOriginal = meta.isPdf ? await getCachedOriginalUri(bookId, 'pdf') : null
+        if (localOriginal) void touchOriginal(bookId)
         setLocalOriginalUri(localOriginal)
         setHasOriginalPdf(Boolean(localOriginal))
         offlineReflowOfPdfRef.current = meta.isPdf && !localOriginal
