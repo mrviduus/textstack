@@ -77,6 +77,7 @@
         }
       ],
       "./plugins/with-adi-registration",
+      "./plugins/with-gradle-metaspace",
       [
         "expo-audio",
         {
