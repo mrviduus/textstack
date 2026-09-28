@@ -14,7 +14,7 @@
 
 import pg from 'pg';
 import { spawn } from 'child_process';
-import { writeFileSync, unlinkSync, existsSync, readdirSync } from 'fs';
+import { writeFileSync, unlinkSync, existsSync, readdirSync, readFileSync } from 'fs';
 import { rename, rm } from 'fs/promises';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
@@ -269,6 +269,15 @@ async function processJob(job) {
 async function submitToIndexNow(host, routes) {
   const key = process.env.INDEXNOW_KEY;
   if (!key || !host) return;
+
+  // IndexNow verifies ownership by fetching https://<host>/<key>.txt. If that file isn't ours, nginx
+  // answers with the SPA's index.html and every submission is a 403 — which is what happened from
+  // 2026-02 to 2026-09: prod's INDEXNOW_KEY and the committed key file were two different keys.
+  const keyFile = join(DIST_DIR, `${key}.txt`);
+  if (!existsSync(keyFile) || readFileSync(keyFile, 'utf8').trim() !== key) {
+    console.error(`IndexNow: skipped — ${key}.txt is missing from apps/web/public or doesn't contain the key; INDEXNOW_KEY and the key file disagree`);
+    return;
+  }
 
   const urlList = routes.map(r => `https://${host}${r}`);
   const BATCH_SIZE = 10000; // IndexNow limit
