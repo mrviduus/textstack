@@ -496,9 +496,6 @@ export interface UserBookDto {
   /** True when the original upload is a PDF → the card can open "Original layout".
    *  Absent on older payloads → false. */
   hasOriginalPdf?: boolean
-  /** Size of the original the device would download (detail payload only): the
-   *  download button shows it, and the cellular-confirm rule reads it. */
-  originalFileBytes?: number | null
 }
 
 export interface UserBookChapterDto {

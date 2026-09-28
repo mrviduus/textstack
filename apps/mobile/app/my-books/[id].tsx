@@ -3,6 +3,7 @@ import { View, Text, ScrollView, StyleSheet, TouchableOpacity, ActivityIndicator
 import { Image } from 'expo-image'
 import { useFocusEffect, useLocalSearchParams, useRouter, Stack } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
+import NetInfo from '@react-native-community/netinfo'
 import { userBooksApi, getStorageUrl, storedBookPercent, formatBookPercent, resumeChapterSlug, isOfflineError, plural } from '@textstack/shared'
 import type { UserBookDetailResponse } from '@textstack/shared'
 import { enrichUserBook } from '../../src/lib/api'
@@ -18,6 +19,7 @@ import { OfflineBanner } from '../../src/components/ui/OfflineBanner'
 import { downloadUserBookEpub } from '../../src/lib/exportEpub'
 import { cachedUserBookDetail } from '../../src/lib/cachedUserBookDetail'
 import { getCachedOriginalUri } from '../../src/lib/originalFileCache'
+import { formatBytes, shouldConfirmOnCellular } from '../../src/lib/originalFilePolicy'
 import { getCachedUserBookMeta, listCachedUserChapters, isUserBookFullyCached } from '../../src/lib/offlineDb'
 import { getUserBookLocalProgress } from '../../src/lib/progressStorage'
 import { userBookChapterSlug } from '../../src/lib/userBookChapters'
@@ -72,6 +74,48 @@ async function rehydrateFromCache(bookId: string): Promise<{
     console.warn('Offline user-book rehydrate failed:', err)
     return null
   }
+}
+
+
+/**
+ * One question before a large download on a metered connection.
+ *
+ * Not a refusal: blocking mobile data outright is what infuriates someone
+ * deliberately grabbing a book before a flight. The connection type is read at
+ * the moment of the tap rather than tracked — that is the only moment it
+ * matters, and `useOnline` deliberately exposes reachability, not the kind of
+ * link. Resolves true when the download should proceed.
+ */
+async function confirmDownloadOnCellular(book: UserBookDetailResponse): Promise<boolean> {
+  const bytes = typeof book.originalFileBytes === 'number' ? book.originalFileBytes : null
+  // Only an original makes a download big enough to be worth asking about;
+  // chapters are text.
+  if (book.hasOriginalPdf !== true) return true
+
+  let cellular = false
+  try {
+    const state = await NetInfo.fetch()
+    cellular = state.type === 'cellular'
+  } catch {
+    // Unknown connection: do not invent a prompt for a link we cannot see.
+    return true
+  }
+  if (!shouldConfirmOnCellular(bytes, cellular)) return true
+
+  const size = formatBytes(bytes)
+  return new Promise<boolean>(resolve => {
+    Alert.alert(
+      'Download over mobile data?',
+      size
+        ? `This book's original pages are ${size}.`
+        : "This book's original pages may be large.",
+      [
+        { text: 'Not now', style: 'cancel', onPress: () => resolve(false) },
+        { text: 'Download', onPress: () => resolve(true) },
+      ],
+      { cancelable: true, onDismiss: () => resolve(false) },
+    )
+  })
 }
 
 export default function UserBookDetailScreen() {
@@ -267,6 +311,10 @@ export default function UserBookDetailScreen() {
 
   // Download state for this book, if one has been started this session.
   const dl = book ? downloads.get(book.id) : undefined
+  /** What the button is about to spend, when the server said. */
+  const downloadSize = formatBytes(
+    typeof book?.originalFileBytes === 'number' ? book.originalFileBytes : null,
+  )
   const isDownloadingBook = dl?.status === 'downloading'
   const downloadPct = dl && dl.totalChapters > 0
     ? Math.round((dl.downloadedChapters / dl.totalChapters) * 100)
@@ -657,6 +705,7 @@ export default function UserBookDetailScreen() {
               <TouchableOpacity
                 style={[styles.secondaryBtn, { borderColor: colors.border }]}
                 onPress={async () => {
+                  if (!(await confirmDownloadOnCellular(book))) return
                   await startUserBookDownload(book)
                   setCached(await isUserBookFullyCached(book.id).catch(() => false))
                 }}
@@ -664,7 +713,9 @@ export default function UserBookDetailScreen() {
                 accessibilityLabel="Download for offline reading"
               >
                 <Ionicons name="cloud-download-outline" size={18} color={colors.text} />
-                <Text style={[styles.secondaryBtnText, { color: colors.text }]}>Download for Offline</Text>
+                <Text style={[styles.secondaryBtnText, { color: colors.text }]}>
+                  {downloadSize ? `Download for Offline · ${downloadSize}` : 'Download for Offline'}
+                </Text>
               </TouchableOpacity>
             )}
 
