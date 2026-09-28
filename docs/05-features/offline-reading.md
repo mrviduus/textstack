@@ -204,22 +204,57 @@ catalogue rows carry a route slug an upload has no use for.
 
 The schema script is all `CREATE TABLE IF NOT EXISTS` and runs on every cold
 start, so **adding a table is the whole migration** for an install that already
-has the others.
+has the others. A new **column** is not: `chapters.chapter_id` (2026-09-28) is
+declared in the `CREATE` for fresh installs and added by an `ALTER TABLE` in a
+`try` for every install that already had the table, which is how SQLite does
+`ADD COLUMN IF NOT EXISTS`. Rows written before it keep a NULL and stay readable.
 
 ### What is cached, and what is not
 
-Chapters. Not the original PDF of a PDF upload: the Original-layout viewer
-streams it with Range requests and a Bearer token (ADR-012), which has no
-offline form. Offline, a PDF upload opens in the reflow reader over its
-extracted text, and the download button says so *before* the tap.
+Chapters **and, since 2026-09-27, the original file of a PDF upload**
+(`src/lib/originalFileCache.ts`, `Paths.document/originals/<bookId>.pdf`, 2 GB
+budget with LRU eviction). A PDF therefore opens offline in the same
+Original layout it has online — same coordinate space, nothing suppressed, no
+images missing. It used to be substituted with its extracted text, which was
+worse than it sounds: ADR-012 also dropped inline image extraction, on the
+reasoning that the PDF renders its own images — true only while the PDF is the
+thing being rendered.
 
-That fallback has a hazard worth knowing about. The offline session produces a
+The reflow substitution is still the fallback when the original is absent
+(evicted, or a download that failed), and that fallback has a hazard worth
+knowing about. The offline session produces a
 chapter-space position (`scroll:<slug>:<offset>`) while the book's stored
 position is a page (`page:<N>`). If the connection returns mid-chapter, an
 ordinary progress write would overwrite the reader's real page with a coordinate
 from a different space. `useUserBookReaderSource` suppresses the **server** write
 for exactly that case (`offlineReflowOfPdfRef`) and keeps the local one, so the
 offline session still resumes itself.
+
+### Reading order: device first, always
+
+Both chapter loaders read SQLite **before** the network, and the server's answer
+only refreshes the stored row (`refreshCachedChapter`, an `UPDATE` that leaves
+`cached_at` alone — the insert-or-replace would reorder the offline table of
+contents, which has no chapter number to sort by). The rendered chapter is never
+swapped, or position restoration re-runs under someone mid-page.
+
+This was network-first until 2026-09-28, with the cache as the failure path. That
+is fine on a plane, where `fetch` rejects in milliseconds, and wrong on every
+network that is *present but useless* — a captive portal, a tunnel, hotel Wi-Fi
+that opens the socket and never answers — where the reader waited out the whole
+timeout in front of a downloaded book. Infinite scroll was worse: the catalogue
+appender read no cache at all, and its failure branch is
+`disableInfiniteScroll()`, so a downloaded catalogue book scrolled to the bottom
+of chapter one and then quietly stopped. `chapterLoadOrder.test.ts` pins all four
+call sites, because nothing in CI can feel any of this.
+
+### Deleted elsewhere, deleted here
+
+The automatic sweep removes downloads whose book the account no longer has
+(`chooseOrphanedDownloads`). Its safety is entirely in *where* it runs: the one
+place that has just asked the server what the library is, where a failed listing
+throws rather than returning an empty one — so an empty answer means the reader
+deleted everything, not that the server was unreachable.
 
 ### Resume, offline
 
@@ -244,5 +279,8 @@ left on disk for whoever signs in next.
 | `apps/mobile/src/context/DownloadContext.tsx` | One download loop for both libraries |
 | `apps/mobile/src/lib/userBookChapters.ts` | The chapter key the download and the reader route must agree on |
 | `apps/mobile/src/lib/cachedUserBookDetail.ts` | Rebuilds the detail payload from the cache |
-| `apps/mobile/src/lib/exportEpub.ts` | Authenticated EPUB export → share sheet |
-| `apps/mobile/src/components/reader/useUserBookReaderSource.ts` | Cache fallbacks for chapter, TOC, resume |
+| `apps/mobile/src/lib/shareOriginal.ts` | Hands back the uploaded file — from disk when it is there, so no network |
+| `apps/mobile/src/components/reader/useUserBookReaderSource.ts` | Cache-first chapter, TOC and resume for uploads |
+| `apps/mobile/src/hooks/useReaderChapter.ts` | Cache-first chapter for the catalogue |
+| `apps/mobile/src/lib/originalFileCache.ts` | Stored originals: download, LRU touch, eviction |
+| `apps/mobile/src/lib/autoDownloadPolicy.ts` | What to fetch unasked, and what to remove |

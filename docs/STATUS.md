@@ -1,6 +1,6 @@
 # Status
 
-**Last updated: 2026-09-10.** Where the project actually is — not what it does (that's
+**Last updated: 2026-09-28.** Where the project actually is — not what it does (that's
 [`docs/README.md`](README.md)) and not what changed (that's [`CHANGELOG.md`](../CHANGELOG.md)).
 
 If you read one page before picking work back up, read this one. It exists because the changelog
@@ -22,10 +22,28 @@ answers "what happened" and nothing answered "what is half-finished right now".
 | **Entitlements** | `UserTier { Guest, Free, Supporter, Staff }`, config-driven quotas — now including `AiEnabled` and `DailyEnrichmentCap`, enforced server-side by `RequireAiAccount()` (403 `account_required`). |
 | **Guest sessions** | Web and mobile both mint an anonymous `User` row on demand; the read → save → review loop works with no account, and registering promotes that row in place. [ADR-014](01-architecture/adr/ADR-014-guest-sessions.md). Walked end to end on Android on 2026-09-06 with every request logged ([QA-005 report](qa/reports/2026-09-06-android-guest-loop.md)): promotion-in-place proven by the account's `createdAt` matching the guest mint, both AI walls firing zero requests, and the book still opening when the mint is rate-limited. |
 | **SEO / SSG** | Prerendered pages, sitemap, IndexNow. Four incidents since 2026-08-11 ([dead five weeks](incidents/2026-08-11-ssg-dead-five-weeks.md), [deploy wiped a running rebuild](incidents/2026-08-31-deploy-wiped-a-running-ssg-rebuild.md), [worker lost its output path](incidents/2026-09-01-ssg-worker-lost-its-output-path.md), [a prompt stranded the swap](incidents/2026-09-02-corepack-prompt-stranded-the-ssg.md)), each invisible from outside because humans get the SPA and it renders fine. Now watched three ways: the deploy refuses to promote a rebuild that lost its files, `/health/ready` reports rebuild age and failure, and the health check asks a crawler's question every five minutes. |
-| **Mobile** | Android on Play Internal + Closed testing (`versionCode 27`, 2026-09-11). OTA via `expo-updates` on merge; when the runtime fingerprint has moved an update cannot reach anyone, so the same workflow builds and submits to Internal instead. |
+| **Mobile** | Android on Play Internal + Closed testing (`versionCode 28`, 2026-09-27). OTA via `expo-updates` on merge; when the runtime fingerprint has moved an update cannot reach anyone, so the same workflow builds and submits to Internal instead. |
 | **Build & deps** | One Node version in `.nvmrc` (24.20.0), enforced across CI, four Dockerfiles and the deploy runner. One pnpm workspace with a version catalog — the JS answer to `Directory.Packages.props`. Weekly dependency refresh by pull request. |
 
 ## In flight
+
+- **Offline by default (mobile)** — reading stopped being something the app goes online for. Shipped
+  across five merges on 2026-09-27/28: the reader's own uploaded file is stored on the device
+  (`originalFileCache.ts`, 2 GB budget with LRU eviction, disk-full handled rather than retried), the
+  whole library downloads itself on Wi-Fi without being asked, the shelf shows and changes each book's
+  state, both chapter loaders and both infinite-scroll appenders read the device before the network,
+  and the download button hands back the original file instead of a re-encoded EPUB. Auth left the
+  reading path; an account is now for sync, quota and wiping private files at sign-out, and
+  `CLAUDE.md` says so as a rule.
+
+  **Not done — the device pass.** Everything is verified by build, types and unit tests, which for
+  this feature is the weakest part of the evidence: three native modules load through `require` in a
+  `try/catch`, so breaking them passes tsc, unit tests and Metro alike. What needs a real phone:
+  sign in on a clean device → library arrives on Wi-Fi → airplane mode → any book opens, a PDF in
+  Original layout → share the file with no network. Plus the budget (fill past 2 GB, confirm the book
+  being read is never evicted) and the full-disk stop.
+
+  **Then Expo SDK 56**, deliberately after that pass and not before.
 
 - **Assistant handoff** — the bet that the conversation belongs in the reader's own assistant, not in
   our app. Branch `feat/mcp-connect-key`. Full write-up, measurements and open decisions:
