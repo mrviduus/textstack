@@ -129,7 +129,7 @@ API → Application → Domain ← Infrastructure
 - **Infrastructure**: EF Core (snake_case naming), storage implementations
 - **API/Worker**: Orchestration, DI
 
-**Backend class libraries** (`backend/src/`, beyond the layers above): `Extraction` (EPUB/PDF parsers), `Search` (FTS providers), `Tts` (Edge TTS), `Vocabulary` (DistractorGenerator), `Epub` (`TextStack.Epub` — EPUB *builder*: `EpubBuilder`, `HtmlToXhtmlConverter`, used by export).
+**Backend class libraries** (`backend/src/`, beyond the layers above): `Extraction` (EPUB/PDF parsers), `Search` (FTS providers), `Tts` (Edge TTS), `Vocabulary` (DistractorGenerator). There is no EPUB *builder* any more — `TextStack.Epub` was deleted 2026-09-28 with the export it existed for.
 
 ### Shared Frontend Packages (`packages/`)
 
@@ -253,10 +253,9 @@ Upload EPUB/PDF → BookFile (stored) → IngestionJob (queued)
 - PasswordResetToken entity, ResetPasswordPage frontend
 - Config: Resend API key
 
-**Export**: EPUB export of user highlights and notes.
-- EpubExportService (`Application/Export/EpubExportService.cs`)
-- ExportEndpoints (`Api/Endpoints/ExportEndpoints.cs`)
-- **Deprecated 2026-04-15**: public book EPUB download (route `GET /{lang}/books/{slug}/export/epub` + UI anchor on `BookDetailPage`) hidden from UI; may be fully removed. Backend route + `EpubExportService` still live but unreachable from the app.
+**Export — deleted 2026-09-28.** ~~EPUB export~~. Two routes existed (`GET /me/books/{id}/export/epub`, owner-scoped, and `GET /books/{slug}/export/epub`, anonymous) and **neither ever exported highlights or notes**, whatever this file said for five months: both re-encoded the book's *chapters* into a fresh EPUB, which a test asserted in as many words. The public one was unreachable from any UI from 2026-04-15; the mobile one 401'd on every tap for its whole life, because it was opened in the system browser.
+
+What replaced it: the app hands back **the file the reader uploaded**, from the device when the book is downloaded (`apps/mobile/src/lib/shareOriginal.ts` → `GET /me/books/{id}/file`). A re-encoding of extracted text is a worse copy of a book we already have byte for byte. `EpubExportService`, `ExportEndpoints` and the whole `TextStack.Epub` library went with it.
 
 **Highlights Review**: Spaced review of saved highlights.
 - HighlightReviewPage — review highlights with spaced repetition
@@ -307,11 +306,9 @@ Upload EPUB/PDF → BookFile (stored) → IngestionJob (queued)
 
 **User**: `GET/POST /me/library`, `/me/progress/{editionId}` (GET/PUT/DELETE), `/me/bookmarks`, `/me/highlights/{editionId}`
 
-**Export**: `GET /me/export/epub`
-
 **Reading Tracking**: `POST /me/reading/sessions`, `GET /me/reading/sessions`, `GET /me/reading/stats`, `GET /me/reading/stats/daily`, `GET/POST /me/reading/goals`, `DELETE /me/reading/goals/{id}`, `GET /me/reading/achievements`
 
-**User Books**: `POST /me/books/upload`, `GET /me/books`, `GET /me/books/quota`, `GET /me/books/{id}`, `GET /me/books/{id}/chapters/{slug}`, `GET/PUT /me/books/{id}/progress`, `GET/POST/DELETE /me/books/{id}/bookmarks`, `POST /me/books/{id}/retry`, `DELETE /me/books/{id}`
+**User Books**: `POST /me/books/upload`, `GET /me/books`, `GET /me/books/quota`, `GET /me/books/{id}`, `GET /me/books/{id}/chapters/{slug}`, `GET /me/books/{id}/file` (the stored original, any format, Range-enabled), `GET/PUT /me/books/{id}/progress`, `GET/POST/DELETE /me/books/{id}/bookmarks`, `POST /me/books/{id}/retry`, `DELETE /me/books/{id}`
 
 **Vocabulary**: `POST /me/vocabulary/words`, `GET /me/vocabulary/words?filter=&sort=&search=&limit=&offset=`, `PUT /me/vocabulary/words/{id}`, `DELETE /me/vocabulary/words/{id}`, `GET /me/vocabulary/review?limit=`, `POST /me/vocabulary/review`, `GET /me/vocabulary/stats`
 
@@ -376,8 +373,6 @@ Upload EPUB/PDF → BookFile (stored) → IngestionJob (queued)
 | SSG Periodic Worker | `backend/src/Api/Services/SsgPeriodicRebuildWorker.cs` |
 | SSG | `apps/web/scripts/prerender.mjs` |
 | nginx config | `infra/nginx/textstack.conf` |
-| Export | `backend/src/Application/Export/EpubExportService.cs` |
-| Export API | `backend/src/Api/Endpoints/ExportEndpoints.cs` |
 | Profile API | `backend/src/Api/Endpoints/ProfileEndpoints.cs` |
 | Guest Context | `apps/web/src/context/GuestLimitsContext.tsx` |
 | Native Lang Context | `apps/web/src/context/NativeLanguageContext.tsx` |
@@ -469,7 +464,7 @@ Also: the windows are 1–5 minutes, so **two overlapping runs throttle each oth
 
 **API**: Single `apps/mobile/src/lib/api.ts` module (consolidated, not split like web).
 
-**Offline** (`src/lib/offlineDb.ts`, SQLite): covers BOTH catalogue editions and the reader's own uploads (uploads since 2026-09-14). Chapters only — a PDF upload's original file is not cached (ADR-012 streams it with Range + Bearer), so offline it opens in the reflow reader over its extracted text and the server progress write is suppressed to stop a chapter-space position overwriting a `page:<N>` one. `offlineDb.web.ts` is a no-op twin and **every export must exist in both** or the web bundle (which mobile e2e runs against) fails to resolve. Sign-out wipes cached uploads, never catalogue downloads. Details: `docs/05-features/offline-reading.md#mobile`.
+**Offline** (`src/lib/offlineDb.ts`, SQLite): covers BOTH catalogue editions and the reader's own uploads (uploads since 2026-09-14). Chapters **and, since 2026-09-27, a PDF upload's original file** (`src/lib/originalFileCache.ts`, under `Paths.document/originals/`, 2 GB budget with LRU eviction) — so a PDF opens offline in the same Original layout it has online instead of being substituted with its extracted text. When the original is missing it still falls back to reflow, and the server progress write is suppressed there to stop a chapter-space position overwriting a `page:<N>` one. `offlineDb.web.ts` is a no-op twin and **every export must exist in both** or the web bundle (which mobile e2e runs against) fails to resolve. Sign-out wipes cached uploads, never catalogue downloads. Details: `docs/05-features/offline-reading.md#mobile`.
 
 **E2E**: 15 Playwright specs in `apps/mobile/e2e/` — navigation, books, search, library, vocabulary, highlights, stats, auth.
 

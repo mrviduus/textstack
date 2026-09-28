@@ -1,5 +1,5 @@
 /**
- * A file name for an exported EPUB that every platform will accept.
+ * A file name for a book leaving the app that every platform will accept.
  *
  * The title comes from the upload, which means it comes from whatever the file
  * was called when the reader found it: slashes, colons, quotes, emoji and 300
@@ -20,7 +20,14 @@
  */
 const ILLEGAL_FILENAME_CHARS = new RegExp('[\\u0000-\\u001f\\u007f\\\\/:*?"<>|]', 'g')
 
-export function epubFileName(title: string | null | undefined, bookId: string): string {
+export function bookFileName(
+  title: string | null | undefined,
+  bookId: string,
+  /** The extension to hand the sharing app, without a dot. Was hardcoded to
+   *  `epub` while the only thing leaving was a re-encoded EPUB; a reader now
+   *  shares the file they uploaded, which is usually a PDF. */
+  extension: string = 'epub',
+): string {
   const cleaned = (title ?? '')
     .replace(ILLEGAL_FILENAME_CHARS, ' ')
     // Leading dots would hide the file on Unix (and `..` would climb).
@@ -32,5 +39,5 @@ export function epubFileName(title: string | null | undefined, bookId: string): 
     .slice(0, 80)
     .trim()
 
-  return `${cleaned || bookId}.epub`
+  return `${cleaned || bookId}.${extension}`
 }
