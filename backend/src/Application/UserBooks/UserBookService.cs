@@ -290,6 +290,13 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage, IEnt
                 b.CompletedAt,
                 b.MetadataEnrichmentStatus,
                 HasOriginalPdf = b.BookFiles.Any(f => f.Format == BookFormat.Pdf),
+                // Size of the file /me/books/{id}/file would serve — same "newest
+                // upload, any format" pick as the endpoint. Correlated subquery on
+                // the join that is already here, not a second round trip.
+                OriginalFileBytes = b.BookFiles
+                    .OrderByDescending(f => f.UploadedAt)
+                    .Select(f => (long?)f.FileSize)
+                    .FirstOrDefault(),
                 Chapters = b.Chapters
                     .OrderBy(c => c.ChapterNumber)
                     .Select(c => new UserChapterSummaryDto(
@@ -333,7 +340,8 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage, IEnt
             book.UpdatedAt,
             book.CompletedAt,
             book.HasOriginalPdf,
-            book.MetadataEnrichmentStatus.ToString()
+            book.MetadataEnrichmentStatus.ToString(),
+            book.OriginalFileBytes
         );
     }
 

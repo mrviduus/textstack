@@ -311,5 +311,66 @@ public class UserBookOriginalFileEndpointTests
         Assert.Equal(HttpStatusCode.NotFound, afterResp.StatusCode);
     }
 
+    [Fact]
+    public async Task GetBook_WithOriginalUpload_ReturnsOriginalFileBytes()
+    {
+        Assert.SkipUnless(_auth.IsAuthenticated, "test auth unavailable");
+
+        // The detail payload said whether an original exists but not how big it is,
+        // so the mobile download button could not name the cost and the
+        // ask-before-mobile-data rule had to assume every file was large.
+        var bookId = await UploadPdfAsync();
+        Assert.SkipWhen(bookId is null, "pdf upload unavailable");
+
+        var request = _auth.CreateRequest(HttpMethod.Get, $"/me/books/{bookId}");
+        var response = await _auth.Client.SendAsync(request, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var detail = await response.Content.ReadFromJsonAsync<DetailResponse>(
+            cancellationToken: TestContext.Current.CancellationToken);
+        Assert.True(detail!.HasOriginalPdf);
+        // Exactly the fixture's length — and exactly what /file streams.
+        Assert.Equal(SamplePdfBytes().Length, detail.OriginalFileBytes);
+    }
+
+    [Fact]
+    public async Task GetBook_WithNoStoredOriginal_ReturnsNullOriginalFileBytes()
+    {
+        Assert.SkipUnless(_auth.IsAuthenticated, "test auth unavailable");
+        Assert.SkipWhen(DbConn is null, "TEST_DB_CONNECTION not set");
+        var ct = TestContext.Current.CancellationToken;
+
+        // Every book created through the API gets a UserBookFile, so "no original"
+        // is only reachable by removing the row — same DB-driven approach as the
+        // takedown case above. It is a real state: a purge or a failed save.
+        var bookId = await UploadPdfAsync();
+        Assert.SkipWhen(bookId is null, "pdf upload unavailable");
+
+        await using (var conn = new NpgsqlConnection(DbConn))
+        {
+            await conn.OpenAsync(ct);
+            // The ingestion job FKs the file row, so it goes first.
+            await using var jobs = new NpgsqlCommand(
+                "DELETE FROM user_ingestion_jobs WHERE user_book_id = @id", conn);
+            jobs.Parameters.AddWithValue("id", bookId!.Value);
+            await jobs.ExecuteNonQueryAsync(ct);
+
+            await using var files = new NpgsqlCommand(
+                "DELETE FROM user_book_files WHERE user_book_id = @id", conn);
+            files.Parameters.AddWithValue("id", bookId.Value);
+            Assert.Equal(1, await files.ExecuteNonQueryAsync(ct));
+        }
+
+        var request = _auth.CreateRequest(HttpMethod.Get, $"/me/books/{bookId}");
+        var response = await _auth.Client.SendAsync(request, ct);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var detail = await response.Content.ReadFromJsonAsync<DetailResponse>(cancellationToken: ct);
+        Assert.False(detail!.HasOriginalPdf);
+        Assert.Null(detail.OriginalFileBytes);
+    }
+
     private record UploadResponse(Guid UserBookId, Guid JobId, string Status);
+
+    private record DetailResponse(bool HasOriginalPdf, long? OriginalFileBytes);
 }
