@@ -176,7 +176,11 @@ function UploadScreen() {
       // next, so fetch it now rather than waiting for the next reconnect. Not
       // awaited: the screen closes immediately, the sweep runs behind it, and
       // it is Wi-Fi-gated and budget-gated like every other automatic fetch.
-      void syncOfflineLibrary()
+      // Not awaited — the screen closes immediately — but not unguarded either:
+      // `runAutoDownload` has no catch of its own, so a list request failing as
+      // the connection drops mid-upload would surface as an unhandled rejection
+      // exactly when the screen pops.
+      void syncOfflineLibrary().catch(err => console.warn('[auto-download] post-upload sweep failed:', err))
       router.back()
     } catch (e: any) {
       if (unmountedRef.current) return

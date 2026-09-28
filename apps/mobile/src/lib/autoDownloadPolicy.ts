@@ -19,6 +19,10 @@ export interface AutoDownloadCandidate {
   progressUpdatedAt: string | null
   /** ISO timestamp of the upload. */
   createdAt: string
+  /** How many chapters the server says this book has. A `Ready` book with none
+   *  can never satisfy "fully cached", so without this it would be re-queued on
+   *  every sweep for the life of the install. */
+  chapterCount?: number | null
 }
 
 const time = (iso: string | null): number => {
@@ -49,9 +53,18 @@ const time = (iso: string | null): number => {
 export function chooseAutoDownloads(
   books: readonly AutoDownloadCandidate[],
   alreadyCached: ReadonlySet<string>,
+  /** Books the reader removed from this device on purpose. Never fetched
+   *  automatically again: someone who frees space and then watches the book
+   *  come back on the next Wi-Fi is being overruled by their own app. */
+  declined: ReadonlySet<string> = new Set(),
 ): string[] {
   return books
-    .filter(b => b.status === 'Ready' && !alreadyCached.has(b.id))
+    .filter(b =>
+      b.status === 'Ready'
+      && !alreadyCached.has(b.id)
+      && !declined.has(b.id)
+      // Nothing to fetch, and "fully cached" is unreachable for it.
+      && (b.chapterCount ?? 0) > 0)
     .slice()
     .sort((a, b) => {
       const byRead = time(b.progressUpdatedAt) - time(a.progressUpdatedAt)

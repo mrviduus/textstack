@@ -136,3 +136,31 @@ export async function clearTtsCache(): Promise<number> {
     return 0
   }
 }
+
+/** The SQLite database holding cached chapter HTML, as `expo-sqlite` names it. */
+const OFFLINE_DB = 'textstack-offline'
+
+/**
+ * Everything the offline library occupies: stored originals **and** the chapter
+ * database.
+ *
+ * `originalsTotalBytes()` alone was the wrong number to budget against. It
+ * counts PDF originals, and nothing else — so for a reader whose uploads are
+ * all EPUB it reads zero forever, and an automatic sweep measuring against it
+ * is effectively unbounded: it would fetch every book until a write failed with
+ * the device full. Chapter HTML is the bulk of that library and lives in
+ * SQLite, so it has to be on the scale too.
+ */
+export async function offlineStorageBytes(): Promise<number> {
+  if (Platform.OS === 'web') return 0
+  let dbBytes = 0
+  try {
+    const { File, Paths } = fs()
+    const db = new File(Paths.document, 'SQLite', OFFLINE_DB)
+    if (db.exists) dbBytes = db.size ?? 0
+  } catch {
+    // An unreadable database is not a reason to refuse to measure the rest;
+    // under-reporting here only makes the budget more generous, never less.
+  }
+  return (await originalsTotalBytes()) + dbBytes
+}

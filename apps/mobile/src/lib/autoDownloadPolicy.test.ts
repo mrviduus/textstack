@@ -5,6 +5,7 @@ const book = (over: Partial<AutoDownloadCandidate> & { id: string }): AutoDownlo
   status: 'Ready',
   progressUpdatedAt: null,
   createdAt: '2026-01-01T00:00:00Z',
+  chapterCount: 3,
   ...over,
 })
 
@@ -86,5 +87,29 @@ describe('mayAutoDownload', () => {
     expect(mayAutoDownload({ ...base, usedBytes: 100 })).toBe(false)
     expect(mayAutoDownload({ ...base, usedBytes: 101 })).toBe(false)
     expect(mayAutoDownload({ ...base, usedBytes: 99 })).toBe(true)
+  })
+})
+
+describe('chooseAutoDownloads — what it must not do', () => {
+  const ready = (id: string): AutoDownloadCandidate => ({
+    id, status: 'Ready', progressUpdatedAt: null,
+    createdAt: '2026-01-01T00:00:00Z', chapterCount: 3,
+  })
+
+  it('never re-fetches a book the reader removed on purpose', () => {
+    // Freeing space and then watching the book come back on the next Wi-Fi is
+    // the app overruling the person using it.
+    expect(chooseAutoDownloads([ready('kept'), ready('removed')], new Set(), new Set(['removed'])))
+      .toEqual(['kept'])
+  })
+
+  it('skips a Ready book with no chapters instead of queueing it forever', () => {
+    // "Fully cached" is cachedChapters >= totalChapters AND > 0, which such a
+    // book can never satisfy — so without this it returns on every sweep.
+    const chosen = chooseAutoDownloads(
+      [{ ...ready('empty'), chapterCount: 0 }, { ...ready('missing'), chapterCount: null }, ready('real')],
+      new Set(),
+    )
+    expect(chosen).toEqual(['real'])
   })
 })
