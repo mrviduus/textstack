@@ -19,8 +19,18 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
+  # Not the whole suite. The pull request already ran it; what this adds is the
+  # one thing a pull request cannot prove under `strict: false` branch
+  # protection — that the MERGED tree still compiles and passes. That is
+  # `backend` and `frontend`; `ci.yml` explains what is skipped and why,
+  # including the deliberate omission of `e2e`.
+  #
+  # It used to run all nine jobs, and the server then rebuilt the images itself
+  # anyway, so a deploy spent about thirty minutes re-proving the pull request.
   ci:
     uses: ./.github/workflows/ci.yml
+    with:
+      scope: merged-tree
 
   deploy:
     needs: ci

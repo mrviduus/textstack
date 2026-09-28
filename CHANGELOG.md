@@ -24,6 +24,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 ## [Unreleased]
 
 - **Offline** — your own books arrive on the device without being asked twice — mobile · [details](docs/changelog-archive/2026-H2.md#2026-09-28-offline-the-library-fetches-itself)
+- **CI** — a deploy stops re-running the whole suite the pull request just passed — infra · [details](docs/changelog-archive/2026-H2.md#2026-09-28-ci-a-deploy-that-re-proved-the-pull-request)
 - **Auth** — every launch restored your session and then minted a new guest over it, stranding the library on the server — mobile · [details](docs/changelog-archive/2026-H2.md#2026-09-28-auth-a-session-restored-and-immediately-replaced)
 - **Uploads** — a fresh install was told to create an account to upload, for want of a session nothing had asked for — mobile · [details](docs/changelog-archive/2026-H2.md#2026-09-28-uploads-a-sign-up-wall-that-only-existed-because-nothing-had-asked)
 - **Offline** — the app now has a budget for what it keeps on your phone, and a deleted book stops leaving its file behind — mobile · [details](docs/changelog-archive/2026-H2.md#2026-09-28-offline-a-budget-for-the-phone-and-two-bugs-only-a-device-could-show)
