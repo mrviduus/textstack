@@ -25,7 +25,9 @@ type Options = {
  * When the cache answers, the request still goes out — but only to refresh the
  * stored copy for the *next* open. Swapping the document under someone who has
  * started reading would re-run scroll restoration on a chapter they are already
- * inside.
+ * inside. The one exception is a row cached before `chapter_id` existed: it can
+ * be read but not written to, so this session adopts the fresh copy to get an
+ * id, and the refresh means it only ever happens once per chapter.
  *
  * Surfaces `chapterError` so the screen can swap the eternal spinner for a real
  * empty-state on offline-miss / 404 (R-4).
@@ -63,15 +65,16 @@ export function useReaderChapter({ bookSlug, chapterSlug, language, editionIdRef
       }
 
       let served = false
+      /** Served from a row written before `chapter_id` existed. Readable, but
+       *  every write is keyed by that id — highlights do not even load without
+       *  one — so this row is worth showing and not worth keeping. */
+      let servedIdless = false
       if (editionId) {
         try {
           const cached = await getCachedChapter(editionId, chapterSlug)
           if (cancelled) return
           if (cached) {
             setChapter({
-              // Null for rows written before the id column existed. Highlights
-              // and the server progress write are keyed by it and already treat
-              // an empty id as "nothing to send".
               id: cached.chapterId ?? '',
               chapterNumber: 0,
               slug: cached.chapterSlug,
@@ -84,6 +87,7 @@ export function useReaderChapter({ bookSlug, chapterSlug, language, editionIdRef
             wordCountRef.current = cached.wordCount || 0
             setLoading(false)
             served = true
+            servedIdless = !cached.chapterId
           }
         } catch (e) {
           if (!cancelled) console.warn('Offline cache read failed:', e)
@@ -94,18 +98,20 @@ export function useReaderChapter({ bookSlug, chapterSlug, language, editionIdRef
         const api = createBooksApi(language)
         const ch = await api.getChapter(bookSlug, chapterSlug)
         if (cancelled) return
-        if (served) {
-          // Refresh the stored copy — including the id, which an older row may
-          // be missing — and leave the rendered chapter alone.
-          if (editionId) void refreshCachedChapter(editionId, ch).catch(() => {})
-          return
-        }
+        if (editionId) void refreshCachedChapter(editionId, ch).catch(() => {})
+        // The rendered chapter stays put — unless what is rendered came from a
+        // legacy row with no id, in which case adopting the fresh copy is the
+        // only way this session can highlight anything. It costs one re-render,
+        // once: the refresh above gives the row an id, so every later open takes
+        // the fast path and keeps it.
+        if (served && !servedIdless) return
         setChapter(ch)
         wordCountRef.current = ch.wordCount || 0
         setLoading(false)
       } catch (err) {
         // Already reading from the device: a failed refresh is not the reader's
-        // problem and must not paint an error over a chapter they can see.
+        // problem and must not paint an error over a chapter they can see. A
+        // legacy row included — read-only beats an error screen.
         if (cancelled || served) return
         const status = (err as { status?: number } | null)?.status
         setChapter(null)
