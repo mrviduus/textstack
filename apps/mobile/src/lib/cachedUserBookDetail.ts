@@ -15,15 +15,19 @@ import type { CachedUserBookMeta, CachedUserChapter } from './offlineDb'
  * - `status: 'Ready'`. The book is on the device, chapter by chapter; there is
  *   nothing left to process. A cached copy can only exist for a book that
  *   finished processing, because that is the only kind the download offers.
- * - `hasOriginalPdf: false`, whatever the upload was. The Original-layout viewer
- *   streams the PDF with Range requests and a Bearer token (ADR-012) and has no
- *   offline form, so offline a PDF reads as its extracted text. `meta.isPdf` is
- *   kept separately so the UI can say that out loud instead of quietly handing
- *   the reader a different-looking book.
+ * - `hasOriginalPdf` — no longer a flat false. It is true when the original
+ *   file is on this device, because then the offline reader opens the very same
+ *   Original layout it would online. It is false when the file is absent (a
+ *   book downloaded before originals existed, or a download that failed), which
+ *   is the only case left where offline means extracted text. The caller
+ *   establishes it, because only the caller can touch the filesystem;
+ *   `meta.isPdf` stays separate so the UI can still say which kind of book this
+ *   is when there is no file.
  */
 export function cachedUserBookDetail(
   meta: CachedUserBookMeta,
   chapters: CachedUserChapter[],
+  hasStoredOriginal = false,
 ): UserBookDetailResponse {
   const cachedAtIso = new Date(meta.cachedAt).toISOString()
   return {
@@ -53,6 +57,6 @@ export function cachedUserBookDetail(
     createdAt: cachedAtIso,
     updatedAt: cachedAtIso,
     completedAt: null,
-    hasOriginalPdf: false,
+    hasOriginalPdf: hasStoredOriginal,
   }
 }

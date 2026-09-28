@@ -34,8 +34,12 @@ describe('cachedUserBookDetail', () => {
     expect(cachedUserBookDetail(meta, [chapter('a', 0)]).status).toBe('Ready')
   })
 
-  it('reports hasOriginalPdf false for a PDF: offline it reads as text', () => {
+  it('reports hasOriginalPdf false when the original is not on the device', () => {
     expect(cachedUserBookDetail(meta, [chapter('a', 0)]).hasOriginalPdf).toBe(false)
+  })
+
+  it('reports hasOriginalPdf true once the file is stored — offline it is the same book', () => {
+    expect(cachedUserBookDetail(meta, [chapter('a', 0)], true).hasOriginalPdf).toBe(true)
   })
 
   it('carries title, author, cover and word count across', () => {

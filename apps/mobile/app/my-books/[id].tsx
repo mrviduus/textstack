@@ -17,6 +17,7 @@ import { EmptyState } from '../../src/components/ui/EmptyState'
 import { OfflineBanner } from '../../src/components/ui/OfflineBanner'
 import { downloadUserBookEpub } from '../../src/lib/exportEpub'
 import { cachedUserBookDetail } from '../../src/lib/cachedUserBookDetail'
+import { getCachedOriginalUri } from '../../src/lib/originalFileCache'
 import { getCachedUserBookMeta, listCachedUserChapters, isUserBookFullyCached } from '../../src/lib/offlineDb'
 import { getUserBookLocalProgress } from '../../src/lib/progressStorage'
 import { userBookChapterSlug } from '../../src/lib/userBookChapters'
@@ -51,8 +52,11 @@ async function rehydrateFromCache(bookId: string): Promise<{
       getUserBookLocalProgress(bookId),
     ])
     if (chapters.length === 0) return null
+    // Whether the Original layout is available offline is a question about the
+    // filesystem, which the pure rebuilder cannot ask.
+    const storedOriginal = meta.isPdf ? await getCachedOriginalUri(bookId, 'pdf') : null
     return {
-      book: cachedUserBookDetail(meta, chapters),
+      book: cachedUserBookDetail(meta, chapters, storedOriginal !== null),
       isPdf: meta.isPdf,
       progress: local
         ? {
