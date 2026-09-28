@@ -21,6 +21,7 @@ import {
   type CachedUserBookMeta,
 } from '../lib/offlineDb'
 import { userBookChapterSlug } from '../lib/userBookChapters'
+import { deleteAllOriginals, deleteOriginal, downloadOriginal } from '../lib/originalFileCache'
 import { useAuth } from './AuthContext'
 
 export type DownloadStatus = 'idle' | 'downloading' | 'complete' | 'error' | 'cancelled'
@@ -125,6 +126,11 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         cancelledRef.current.add(editionId)
       }
       clearCachedUserBooks().catch(err => console.warn('Clearing cached uploads failed:', err))
+      // The SQLite rows are not the whole of it any more: an upload's original
+      // is a real file on disk. Same fire-and-forget shape as above — a failed
+      // wipe must not block sign-out — and the same weakness, that it reports
+      // only to the console.
+      deleteAllOriginals().catch(err => console.warn('Clearing stored originals failed:', err))
       setDownloads(new Map())
       setCachedBooks([])
       setCachedUserBooks([])
@@ -309,13 +315,17 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   }, [storeFor, runDownload])
 
   /**
-   * Cache an upload for offline reading.
+   * Cache an upload for offline reading: its chapters AND, for a PDF, the
+   * original file.
    *
-   * Chapters only. The original PDF of a PDF upload is not downloaded: the
-   * Original-layout viewer streams it with Range requests and a Bearer token
-   * (ADR-012), which is a network path with no offline form. Offline such a
-   * book opens in the reflow reader over exactly these chapters, and the button
-   * that starts this says so.
+   * The original is what makes an offline PDF look like the book instead of
+   * like its extracted text — which mattered more than it sounded, because
+   * ADR-012 also dropped inline image extraction on the grounds that "the PDF
+   * renders its own images". Offline it could not, so the substitute had the
+   * figures stripped out of exactly the books that are mostly figures.
+   *
+   * Chapters are still downloaded for a PDF: search, the table of contents and
+   * the corrupt-file fallback all read them. The file is added, not swapped in.
    */
   const startUserBookDownload = useCallback(async (book: UserBookDetailResponse) => {
     const bookId = book.id
@@ -363,6 +373,17 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       saveCount,
       n => `${plural(n, 'chapter', 'chapters')} failed. Tap Retry to finish the download.`,
     )
+
+    // After the chapters, and only if the reader did not cancel meanwhile. One
+    // request, no per-byte progress — see the note on `downloadOriginal`. A
+    // failure here is not a failed download: the book is still readable offline
+    // as text, which is exactly what it was before this existed.
+    if (book.hasOriginalPdf === true && !cancelledRef.current.has(bookId)) {
+      const outcome = await downloadOriginal(bookId, 'pdf')
+      if (outcome.status !== 'downloaded') {
+        console.warn(`[originals] ${bookId}: ${outcome.status}`)
+      }
+    }
   }, [storeFor, runDownload])
 
   /**
@@ -419,6 +440,9 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     // the rows and then have the loop write more of them back.
     cancelledRef.current.add(bookId)
     await deleteCachedUserBook(bookId)
+    // The file too — "Remove" that leaves twenty megabytes on disk is a lie,
+    // and this one is visible to a file manager.
+    await deleteOriginal(bookId, 'pdf')
     forgetDownload(bookId)
     await refreshCachedBooks()
   }, [forgetDownload, refreshCachedBooks])

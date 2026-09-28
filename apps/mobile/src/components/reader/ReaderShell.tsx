@@ -260,8 +260,20 @@ export function ReaderShell(props: ReaderShellProps) {
   // resume logic must not run again and pull the reader back to the chapter start.
   const pdfIsReloadRef = useRef(false)
 
+  /** A downloaded original is read off the disk: no Bearer, no Range stream, no
+   *  silent-401 recovery. Everything below branches on this one fact. */
+  const isLocalOriginal = !!originalFileUrl && originalFileUrl.startsWith('file://')
+
   useEffect(() => {
     if (!original) return
+    if (isLocalOriginal) {
+      // Nothing to wait for. Without this the viewer would sit on the blank
+      // placeholder until a token arrived for a request it never makes —
+      // offline, that means until the refresh times out.
+      setPdfToken(null)
+      setPdfTokenReady(true)
+      return
+    }
     let cancelled = false
     getAccessToken().then(tok => {
       if (cancelled) return
@@ -269,7 +281,7 @@ export function ReaderShell(props: ReaderShellProps) {
       setPdfTokenReady(true)
     })
     return () => { cancelled = true }
-  }, [original])
+  }, [original, isLocalOriginal])
 
   const topBarHeight = 56 + insets.top
   // Measured, not assumed. This was `60 + insets.bottom`, but the footer grows a
@@ -852,7 +864,15 @@ export function ReaderShell(props: ReaderShellProps) {
     }
     pdfChromeRef.current = chrome
     pdfAppliedChromeRef.current = chrome  // a fresh document already has it
-    return buildPdfViewerHtml(originalFileUrl, pdfToken, {
+    // Same-origin, both ways. Streaming: an absolute API URL with `baseUrl` set
+    // to the API origin. Local: the bare filename with `baseUrl` set to the
+    // file's own directory — a `file://` document may read a sibling file, but
+    // not one reached from an http(s) base, and the alternative
+    // (allowUniversalAccessFromFileURLs) opens the whole disk to the page.
+    const documentUrl = isLocalOriginal
+      ? originalFileUrl.slice(originalFileUrl.lastIndexOf('/') + 1)
+      : originalFileUrl
+    return buildPdfViewerHtml(documentUrl, pdfToken, {
       theme: {
         fontSize: settings.fontSize,
         lineHeight: settings.lineHeight,
@@ -881,14 +901,19 @@ export function ReaderShell(props: ReaderShellProps) {
       if (!pdfTokenReady) {
         return { html: `<!DOCTYPE html><html><body style="background:${resolvedTheme.backgroundColor};margin:0"></body></html>` }
       }
-      return { html: pdfHtml, baseUrl: API_URL }
+      return {
+        html: pdfHtml,
+        baseUrl: isLocalOriginal
+          ? originalFileUrl.slice(0, originalFileUrl.lastIndexOf('/') + 1)
+          : API_URL,
+      }
     }
     return { html }
     // `resolvedTheme.backgroundColor` only paints the pre-token placeholder, and
     // is intentionally NOT a dependency: once the token is ready this object must
     // change only when `pdfHtml` does, or a theme switch reloads the document.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [original, pdfTokenReady, pdfHtml, html])
+  }, [original, pdfTokenReady, pdfHtml, html, isLocalOriginal, originalFileUrl])
 
   // Chrome changes reach the OPEN document instead of rebuilding it. This is the
   // other half of the fix: the memo above stopped depending on insets and theme,
@@ -953,6 +978,13 @@ export function ReaderShell(props: ReaderShellProps) {
             onWebViewLoaded()
           }}
           originWhitelist={['*']}
+          // Android denies a WebView any file access by default, and denies a
+          // file:// document XHR to a sibling file even when it can load one.
+          // pdf.js needs both to open a downloaded book. Scoped by the base URL
+          // above to the originals directory — NOT allowUniversalAccessFromFileURLs,
+          // which would let the page read anything the app can.
+          allowFileAccess
+          allowFileAccessFromFileURLs
           // Android's WebView ignores the viewport's user-scalable unless the
           // built-in zoom is enabled; the on-screen +/- controls are suppressed
           // so only the pinch gesture is exposed. PDF only — see the viewport

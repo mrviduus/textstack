@@ -664,12 +664,13 @@ export default function UserBookDetailScreen() {
               </TouchableOpacity>
             )}
 
-            {/* Said before the download, not discovered after it: the Original
-                layout streams the PDF from the server (ADR-012), so what goes on
-                the device is the extracted text. */}
+            {/* Said before the download, not discovered after it. It used to
+                warn that an offline PDF opens as text; the download now takes
+                the original file too, so the promise is the opposite one — and
+                the honest part to state up front is the size. */}
             {book.hasOriginalPdf === true && !offlineMode && (
               <Text style={[styles.offlineNote, { color: colors.textSecondary }]}>
-                Offline, this PDF opens as text — the original pages need a connection.
+                Downloads the original pages, so this book looks the same offline.
               </Text>
             )}
 
