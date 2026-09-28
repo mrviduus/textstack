@@ -11,9 +11,17 @@ interface EmptyStateProps {
   subtitle?: string
   buttonLabel?: string
   onButtonPress?: () => void
+  /** A quieter second way out, under the button. Added because an empty
+   *  library has two honest answers — add a book, or sign in to find the ones
+   *  you already added — and offering only one of them sent a reader who just
+   *  wanted to upload into a sign-up flow they did not need. */
+  secondaryLabel?: string
+  onSecondaryPress?: () => void
 }
 
-export function EmptyState({ icon, title, subtitle, buttonLabel, onButtonPress }: EmptyStateProps) {
+export function EmptyState({
+  icon, title, subtitle, buttonLabel, onButtonPress, secondaryLabel, onSecondaryPress,
+}: EmptyStateProps) {
   const { colors } = useTheme()
   return (
     <View style={styles.center}>
@@ -28,6 +36,13 @@ export function EmptyState({ icon, title, subtitle, buttonLabel, onButtonPress }
           onPress={onButtonPress}
         >
           <Text style={[styles.buttonText, { color: colors.primary }]}>{buttonLabel}</Text>
+        </TouchableOpacity>
+      ) : null}
+      {secondaryLabel && onSecondaryPress ? (
+        <TouchableOpacity onPress={onSecondaryPress} style={{ marginTop: 10 }} accessibilityRole="button">
+          <Text style={[styles.subtitle, { color: colors.textSecondary, textDecorationLine: 'underline' }]}>
+            {secondaryLabel}
+          </Text>
         </TouchableOpacity>
       ) : null}
     </View>
