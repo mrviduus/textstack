@@ -67,8 +67,13 @@ allowBuilds:
 # actually exercises it.
 catalog:
   '@playwright/test': ^1.63.0
-  '@types/react': ^19.2.14
-  '@types/react-dom': ^19.2.7
+  # Tilde, not caret, and the reason is Expo. `expo install --check` pins the
+  # types to React's own line — SDK 57 wants `@types/react` `~19.2.4` — while a
+  # caret let a fresh resolution take 19.3.0 the day it was published and fail
+  # the mobile lane. React itself is 19.2.3 here, so types from the 19.3 line
+  # describe a React this repo does not have.
+  '@types/react': ~19.2.18
+  '@types/react-dom': ~19.2.7
   '@vitejs/plugin-react': ^4.7.0
   '@vitest/coverage-v8': ^4.1.11
   jsdom: ^28.1.0
