@@ -182,7 +182,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const stored = await SecureStore.getItemAsync('user')
         if (stored) {
-          setUser(JSON.parse(stored))
+          const restored = JSON.parse(stored) as UserDto
+          // The ref is written HERE, synchronously, and not left to the render
+          // that `setUser` schedules. `sessionReadyRef.resolve()` below runs in
+          // this same tick and releases everything parked in
+          // `waitForSession()`; those continuations resume as microtasks, which
+          // is BEFORE React commits. `decideMint` reads `userRef.current`, so
+          // it would see null for a reader who does have a stored session — and
+          // mint a fresh guest over the top of it.
+          //
+          // That is not theoretical. Five guest users appeared on production
+          // from one device in two hours: each launch restored a session and
+          // then immediately minted a new one, orphaning the previous guest's
+          // library on the server while the reader watched their books vanish.
+          // `authBootstrapOrder.test.ts` fails if this line is removed, because
+          // it looks redundant next to the `userRef.current = user` a few lines
+          // above and is exactly what a later cleanup deletes.
+          userRef.current = restored
+          setUser(restored)
         }
       } catch {
         // ignore
