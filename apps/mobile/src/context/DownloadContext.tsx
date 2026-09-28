@@ -163,6 +163,20 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     setCachedUserBooks(uploads)
   }, [])
 
+  /**
+   * Read what is on the device once, at startup.
+   *
+   * Nothing did. Both lists started empty and were only ever filled by an event
+   * *in this process* — a download finishing, a removal, the sweep — so after a
+   * cold start the shelf said "Download" about every book on the phone until the
+   * reader happened to download something else. Found on a device: a book that
+   * had just reported "On this device" said "Download" again after a restart,
+   * offline, with its chapters and its original file both sitting in place.
+   */
+  useEffect(() => {
+    refreshCachedBooks().catch(err => console.warn('[downloads] initial cache read failed:', err))
+  }, [refreshCachedBooks])
+
   const updateDownload = useCallback((editionId: string, update: Partial<DownloadInfo>) => {
     setDownloads(prev => {
       const next = new Map(prev)
