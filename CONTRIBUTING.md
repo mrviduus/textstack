@@ -56,8 +56,11 @@ reference (tests, migrations, mobile, lint).
   `{Method}_{Scenario}_{Expected}`.
 - **Frontend** — React 19 functional components, hooks. CSS variables for
   theming (no CSS-in-JS). No Redux/Zustand — React Context is enough.
-- **Mobile** — Expo 55, React Native 0.83. Match web patterns where
+- **Mobile** — Expo 57, React Native 0.86. Match web patterns where
   possible.
+- **Editor** — optional. Neovim users: [mrviduus/nvim-config](https://github.com/mrviduus/nvim-config)
+  is a Visual Studio-style LazyVim setup; `projects/textstack.lazy.lua` there matches this repo's
+  formatting (C# via Roslyn like `dotnet format` in CI, no format-on-save for the frontend).
 
 ## What I care about
 
