@@ -14,7 +14,37 @@ on:
   push:
     branches: ['deps/**']
   workflow_call:
+    inputs:
+      scope:
+        description: >-
+          `full` (the default, and what a pull request gets) or `merged-tree`.
+          See the note below.
+        type: string
+        default: full
 
+# **Two scopes, because deploy.yml was running this entire file a second time.**
+#
+# Every merge used to pay for the whole suite twice: once on the pull request,
+# then again inside `deploy.yml`, which calls this workflow before shipping —
+# and then the server rebuilt the images itself anyway (`up -d --build`), so
+# even the docker job was built twice over. Thirty minutes of deploy, most of it
+# re-proving what the pull request had just proved.
+#
+# What the second run genuinely adds is narrow: branch protection here is
+# `strict: false`, so a pull request may have been tested against a base older
+# than main's tip. The insurance worth buying is "does the MERGED tree still
+# compile and pass its tests" — which is `backend` and `frontend`. The rest
+# either does not affect what gets deployed (`mobile`, `mobile-runtime`,
+# `extension`), or re-does work the server repeats (`docker`), or re-asks a
+# question whose answer cannot change by merging (`node-version`,
+# `advisories`).
+#
+# So `scope: merged-tree` runs those two. `e2e` is the deliberate omission and
+# the one with a real cost: a regression only it catches would reach production
+# without it having run on the exact merged tree. It ran on the pull request's
+# head, and with one merge at a time the difference between the two is the
+# previous merge. That is the trade, stated rather than discovered.
+#
 # Opt JS actions into Node 24 ahead of June 2026 forced cutover.
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
@@ -29,6 +59,7 @@ jobs:
   # an EAS workflow pinned to Node 20 could not install eas-cli 23, and finding
   # that out cost two round trips. See scripts/check-node-version.mjs.
   node-version:
+    if: inputs.scope != 'merged-tree'
     runs-on: ubuntu-latest
     # 6s typical.
     timeout-minutes: 10
@@ -49,6 +80,7 @@ jobs:
   # file would ever look at it. Its README documented a check and asked a person
   # to remember it; nothing ran it, and it could not have failed if it had.
   extension:
+    if: inputs.scope != 'merged-tree'
     runs-on: ubuntu-latest
     # 12s typical.
     timeout-minutes: 10
@@ -68,6 +100,7 @@ jobs:
   # off is not a check, so this asks the same question here, where turning it off
   # is a diff. See scripts/check-advisories.mjs.
   advisories:
+    if: inputs.scope != 'merged-tree'
     runs-on: ubuntu-latest
     # 2m typical.
     timeout-minutes: 10
@@ -255,6 +288,7 @@ jobs:
   # build in a Pixel-sized viewport — it exercises no native code path, so running
   # it in CI would buy confidence it cannot actually provide.
   mobile:
+    if: inputs.scope != 'merged-tree'
     runs-on: ubuntu-latest
     # 1m10 typical.
     timeout-minutes: 15
@@ -321,7 +355,7 @@ jobs:
     runs-on: ubuntu-latest
     # 12s when it skips; an install and a fingerprint when it does not.
     timeout-minutes: 30
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && inputs.scope != 'merged-tree'
     steps:
       - uses: actions/checkout@v7
         with:
@@ -386,6 +420,7 @@ jobs:
             "${{ steps.head.outputs.runtime }}"
 
   docker:
+    if: inputs.scope != 'merged-tree'
     runs-on: ubuntu-latest
     # 12m typical.
     timeout-minutes: 30
@@ -477,6 +512,7 @@ jobs:
         run: docker compose down
 
   e2e:
+    if: inputs.scope != 'merged-tree'
     runs-on: ubuntu-latest
     # 11m typical.
     timeout-minutes: 30
