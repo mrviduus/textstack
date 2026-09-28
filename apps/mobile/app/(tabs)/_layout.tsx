@@ -160,16 +160,19 @@ export default function TabLayout() {
           // custom "+" button (it owns navigation via router.push); everyone
           // else gets the tab hidden via href: null.
           //
-          // `canUpload`, not `isAuthenticated`: since the 2026-09-06 reversal
-          // (ADR-014 §3) those two agree for a guest — a guest HAS a session and
-          // the `Guest` entitlement tier grants one book at 50 MB — but they part
-          // company for an install with no session at all, which is the case this
-          // predicate still hides the "+" from. Keep reading the capability, not
-          // the auth flag: the next capability to move across that line will move
-          // in `lib/capabilities.ts` and nowhere else.
-          ...(caps.canUpload
-            ? { tabBarButton: () => <UploadTabButton /> }
-            : { href: null }),
+          // Always shown, as of 2026-09-28. It used to be gated on
+          // `caps.canUpload`, which is `hasSession` — and that had become the
+          // same circular reasoning the upload screen itself was carrying: the
+          // entrance was hidden because there was no session, and the session
+          // is created by walking through the entrance. Since #628 the route is
+          // wrapped in `SessionGate` and mints a guest on arrival, so the only
+          // install this used to hide the button from is precisely the one it
+          // now works for.
+          //
+          // `canUpload` is still the right question for anything that acts on
+          // the server, and still lives in `lib/capabilities.ts`. It is just
+          // the wrong question for a door.
+          tabBarButton: () => <UploadTabButton />,
         }}
       />
       <Tabs.Screen

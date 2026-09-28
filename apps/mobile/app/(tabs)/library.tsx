@@ -234,14 +234,22 @@ export default function LibraryScreen() {
   }
 
   if (!isAuthenticated) {
+    // Two honest answers for an empty shelf, and until 2026-09-28 only the
+    // second was offered. A reader with no session was sent to Sign In — the
+    // one thing that was never required to add a book, since a guest may
+    // upload (ADR-014 §3a) and the upload route mints the session itself. The
+    // account is for carrying a library between phones, which is a real reason
+    // and a secondary one.
     return (
       <View style={[styles.center, { backgroundColor: colors.background }]}>
         <EmptyState
           icon="library-outline"
           title={t('library.title')}
-          subtitle={t('library.signInPrompt')}
-          buttonLabel="Sign In"
-          onButtonPress={() => router.push('/(auth)/login')}
+          subtitle="Add a book and start reading. An account is only needed to carry your library to another phone."
+          buttonLabel="Upload a book"
+          onButtonPress={() => router.push('/my-books/upload')}
+          secondaryLabel="Sign in"
+          onSecondaryPress={() => router.push('/(auth)/login')}
         />
       </View>
     )
