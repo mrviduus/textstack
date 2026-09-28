@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Offline** — "+" no longer asks a fresh install to sign in, and a book you just uploaded arrives without leaving the app — mobile · [details](docs/changelog-archive/2026-H2.md#2026-09-28-offline-the-door-and-the-book-that-was-not-ready)
 - **CI** — the advisory check stopped going through a package manager, and learned to say "could not check" instead of failing silently — infra · [details](docs/changelog-archive/2026-H2.md#2026-09-28-advisories-a-check-that-can-say-it-failed)
 - **Mobile** — Expo 55 → 57 and React Native 0.83 → 0.86, in one step rather than two — mobile · [details](docs/changelog-archive/2026-H2.md#2026-09-28-mobile-expo-55-to-57)
 - **Guests** — opening a chapter no longer creates an account, which is how crawlers made 7,147 of the 7,263 guest rows on production — web · [details](docs/changelog-archive/2026-H2.md#2026-09-28-guests-a-render-is-not-a-commitment)

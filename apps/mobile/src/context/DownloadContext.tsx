@@ -601,6 +601,9 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   const autoRunningRef = useRef(false)
   const autoCancelledRef = useRef(false)
   const autoRerunRef = useRef(false)
+  /** Timer and budget for the "a book is still being processed" re-check. */
+  const processingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const processingTriesRef = useRef(0)
   /** Wi-Fi, budget and session, asked fresh. Once before the queue is built and
    *  again between books: the budget moves as the loop fills it, and a reader
    *  can walk out of Wi-Fi halfway through a library. */
@@ -615,6 +618,42 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       budgetBytes: CACHE_BUDGET_BYTES,
     })
   }, [isAuthenticated])
+
+/**
+ * How long to keep looking after a sweep that found a book still being
+ * processed, and how often.
+ *
+ * Extraction happens in the Worker, so a book uploaded a second ago is
+ * `Processing`, and `chooseAutoDownloads` takes `Ready` books only — correctly.
+ * The sweep the upload screen asks for therefore finds nothing, and before this
+ * nothing ran again until the reader backgrounded the app or the network
+ * changed. Found on a device: upload a book, stay in the app, and your own
+ * just-added book sits on the shelf saying "Download".
+ *
+ * Bounded by a real condition rather than a timer for its own sake: it stops the
+ * moment nothing is processing, and the ceiling is there for a book whose
+ * ingestion failed in a way that leaves it processing forever.
+ */
+const PROCESSING_RECHECK_MS = 12_000
+const PROCESSING_RECHECK_LIMIT = 25
+
+  /** One pending re-check at a time, and never more than the ceiling. The timer
+   *  is cleared on sign-out and unmount with everything else. */
+  const scheduleProcessingRecheck = useCallback((isCancelled: () => boolean) => {
+    if (processingTimerRef.current) return
+    if (processingTriesRef.current >= PROCESSING_RECHECK_LIMIT) return
+    processingTriesRef.current += 1
+    processingTimerRef.current = setTimeout(() => {
+      processingTimerRef.current = null
+      if (isCancelled()) return
+      void runAutoDownloadRef.current?.(isCancelled)
+    }, PROCESSING_RECHECK_MS)
+  }, [])
+
+  /** `runAutoDownload` refers to the scheduler and the scheduler calls it back;
+   *  a ref breaks the cycle without making either of them depend on the other's
+   *  identity. */
+  const runAutoDownloadRef = useRef<((isCancelled: () => boolean) => Promise<void>) | null>(null)
 
   const runAutoDownload = useCallback(async (isCancelled: () => boolean) => {
     // A sweep already running is not a reason to drop this request — the caller
@@ -684,6 +723,11 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
           await refreshCachedBooks()
         }
 
+        // A book the server has not finished with yet is not a book this sweep
+        // can fetch — but it is a reason to come back. See
+        // PROCESSING_RECHECK_MS.
+        const stillProcessing = books.some(b => b.status?.toLowerCase() === 'processing')
+
         // One line on the happy path, so "it ran and found nothing" stays
         // distinguishable from "it never ran" — the exact ambiguity that made
         // the cancellation bug take a device and a database query to find.
@@ -704,6 +748,9 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
             console.warn(`[auto-download] ${id} skipped:`, err)
           }
         }
+        if (stillProcessing && !isCancelled()) scheduleProcessingRecheck(isCancelled)
+        else processingTriesRef.current = 0
+
         // A restart re-reads the library and re-filters what is already cached,
         // so nothing is downloaded twice; the cost of repeating is one list
         // request, which is the right price for not stranding a new book.
@@ -711,7 +758,9 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     } finally {
       autoRunningRef.current = false
     }
-  }, [autoDownloadAllowed, startUserBookDownload, forgetDownload, refreshCachedBooks])
+  }, [autoDownloadAllowed, startUserBookDownload, forgetDownload, refreshCachedBooks, scheduleProcessingRecheck])
+
+  runAutoDownloadRef.current = runAutoDownload
 
   /**
    * Scheduled on the two moments that change the answer — "there is a session
@@ -764,6 +813,11 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
 
     return () => {
       autoCancelledRef.current = true
+      if (processingTimerRef.current) {
+        clearTimeout(processingTimerRef.current)
+        processingTimerRef.current = null
+      }
+      processingTriesRef.current = 0
       offNet()
       offApp.remove()
     }
