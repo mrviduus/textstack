@@ -65,7 +65,7 @@ export function useEditionReaderSource({
   })
 
   const { enableForChapter, loadNext } = useReaderInfiniteScroll({
-    bookSlug, language, injectJs, wordCountRef,
+    bookSlug, language, injectJs, wordCountRef, editionIdRef,
   })
 
   // The chapter list, in a ref so `persist` can read it without being rebuilt on every change —

@@ -382,21 +382,23 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
       let slug: string
       let wordCount: number | null
       let following: { slug: string; title: string } | null
-      try {
-        const ch = await userBooksApi.getUserBookChapter(bookId, next.slug)
-        ;({ html, title, slug, wordCount } = ch)
-        following = ch.next
-      } catch (onlineErr) {
-        // Same cache fallback as the first chapter: without it, reading a
-        // downloaded book offline stopped dead at the end of chapter one, which
-        // is where infinite scroll takes over from the initial load.
-        const cached = await getCachedUserChapter(bookId, next.slug)
-        if (!cached) throw onlineErr
+      // Device first, like the initial load. Without any cache read at all,
+      // reading a downloaded book offline stopped dead at the end of chapter
+      // one, which is where infinite scroll takes over; reading it second meant
+      // a network that never answers stalled the reader mid-book and then hit
+      // the `disableInfiniteScroll()` in the catch, turning scrolling off with
+      // no error and nothing to retry.
+      const cached = await getCachedUserChapter(bookId, next.slug)
+      if (cached) {
         html = cached.html
         title = cached.title
         slug = cached.chapterSlug
         wordCount = cached.wordCount
         following = cached.next
+      } else {
+        const ch = await userBooksApi.getUserBookChapter(bookId, next.slug)
+        ;({ html, title, slug, wordCount } = ch)
+        following = ch.next
       }
       injectJs(`appendChapter(${JSON.stringify({ html, title, slug })})`)
       wordCountRef.current += wordCount || 0

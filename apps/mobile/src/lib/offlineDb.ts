@@ -44,11 +44,13 @@ export async function getDb(): Promise<any> {
       const opened = await SQLite.openDatabaseAsync('textstack-offline')
       // Every statement is CREATE TABLE IF NOT EXISTS and runs on every cold
       // start, so adding a table here is the whole migration for an install
-      // that already has the first two.
+      // that already has the first two. A new *column* is not — see the ALTER
+      // below it.
       await opened.execAsync(`
         CREATE TABLE IF NOT EXISTS chapters (
           edition_id TEXT NOT NULL,
           chapter_slug TEXT NOT NULL,
+          chapter_id TEXT,
           html TEXT NOT NULL,
           title TEXT NOT NULL,
           word_count INTEGER,
@@ -93,11 +95,12 @@ export async function getDb(): Promise<any> {
           cached_at INTEGER NOT NULL
         );
       `)
-      // The only column added after the fact. `CREATE TABLE IF NOT EXISTS`
-      // cannot bring it to an install that already has the table, and SQLite
-      // has no `ADD COLUMN IF NOT EXISTS` — so the duplicate-column error is
-      // the check. Rows written before it existed keep a NULL id and stay
-      // readable; only writing needs one.
+      // `chapters.chapter_id` is in the CREATE above for a fresh install and
+      // here for every install that already has the table — `CREATE TABLE IF
+      // NOT EXISTS` does nothing for those, and SQLite has no `ADD COLUMN IF
+      // NOT EXISTS`, so the duplicate-column error is the check. Rows written
+      // before the column existed keep a NULL id and stay readable; only the
+      // writes that follow one need it.
       try {
         await opened.execAsync('ALTER TABLE chapters ADD COLUMN chapter_id TEXT')
       } catch {

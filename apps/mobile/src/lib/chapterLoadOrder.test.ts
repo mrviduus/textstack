@@ -31,6 +31,36 @@ const LOADERS = [
   },
 ]
 
+/**
+ * Infinite scroll is the same question one chapter later, and its failure branch
+ * is `disableInfiniteScroll()` — so getting the order wrong there does not show
+ * an error, it silently stops the book from scrolling. The catalogue path had no
+ * cache read at all until 2026-09-28.
+ */
+const APPENDERS = [
+  {
+    file: 'src/hooks/useReaderInfiniteScroll.ts',
+    cache: 'getCachedChapter(',
+    network: 'api.getChapter(',
+  },
+  {
+    file: 'src/components/reader/useUserBookReaderSource.ts',
+    cache: 'getCachedUserChapter(bookId, next.slug)',
+    network: 'getUserBookChapter(bookId, next.slug)',
+  },
+]
+
+describe.each(APPENDERS)('$file — appending the next chapter', ({ file, cache, network }) => {
+  const source = readFileSync(resolve(__dirname, '../..', file), 'utf8')
+
+  it('reads the cache before it reaches for the network', () => {
+    const cacheAt = source.indexOf(cache)
+    const networkAt = source.indexOf(network)
+    expect(cacheAt).toBeGreaterThan(-1)
+    expect(networkAt).toBeGreaterThan(cacheAt)
+  })
+})
+
 describe.each(LOADERS)('$file', ({ file, cache, network, refresh }) => {
   const source = readFileSync(resolve(__dirname, '../..', file), 'utf8')
 
