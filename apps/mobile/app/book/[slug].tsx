@@ -88,7 +88,7 @@ export default function BookDetailScreen() {
    *
    * It used to be, and the session-dependent follow-ups lived inside this
    * `.then`. That made a guest's first book open fetch `GET /books/{slug}`
-   * twice: `ReaderSessionGate` mints an anonymous session the moment the reader
+   * twice: `SessionGate` mints an anonymous session the moment the reader
    * mounts, `isAuthenticated` flips false→true GLOBALLY, and this screen is
    * still mounted underneath (the reader is pushed, not replaced) — so it
    * re-fetched the same public book at the exact moment the gate was fetching

@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Uploads** — a fresh install was told to create an account to upload, for want of a session nothing had asked for — mobile · [details](docs/changelog-archive/2026-H2.md#2026-09-28-uploads-a-sign-up-wall-that-only-existed-because-nothing-had-asked)
 - **Offline** — the app now has a budget for what it keeps on your phone, and a deleted book stops leaving its file behind — mobile · [details](docs/changelog-archive/2026-H2.md#2026-09-28-offline-a-budget-for-the-phone-and-two-bugs-only-a-device-could-show)
 - **Offline** — a downloaded PDF opens offline as the book, not as text with the figures stripped out — mobile, backend, shared · [details](docs/changelog-archive/2026-H2.md#2026-09-27-offline-the-book-you-downloaded-is-the-book-you-get)
 - **Mobile** — offline reading had been on `main` and on nobody's phone for twelve days; a refused update now starts the build it was asking for — mobile · [details](docs/changelog-archive/2026-H2.md#2026-09-27-mobile-a-refusal-that-was-correct-for-twelve-days-now-ships-the-build-itself)

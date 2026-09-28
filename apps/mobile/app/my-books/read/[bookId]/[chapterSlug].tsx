@@ -1,7 +1,7 @@
 import { useLocalSearchParams } from 'expo-router'
 import { useToast } from '../../../../src/context/ToastContext'
 import { Reader } from '../../../../src/components/reader/Reader'
-import { ReaderSessionGate } from '../../../../src/components/reader/ReaderSessionGate'
+import { SessionGate } from '../../../../src/components/SessionGate'
 import { useUserBookReaderSource } from '../../../../src/components/reader/useUserBookReaderSource'
 
 /**
@@ -18,9 +18,9 @@ import { useUserBookReaderSource } from '../../../../src/components/reader/useUs
  */
 export default function UserBookReaderScreen() {
   return (
-    <ReaderSessionGate>
+    <SessionGate>
       <UserBookReader />
-    </ReaderSessionGate>
+    </SessionGate>
   )
 }
 
