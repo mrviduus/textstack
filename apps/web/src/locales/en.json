@@ -672,7 +672,6 @@
     "seoDesc": "Browse our list of authors | TextStack Reader"
   },
   "bookDetail": {
-    "downloadEpub": "Download EPUB",
     "moreByAuthor": "More by this author",
     "similarBooks": "Similar books",
     "faqFreeAnswer": "Yes, {title} is available to read for free on TextStack Reader.",

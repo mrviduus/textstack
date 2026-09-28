@@ -27,6 +27,10 @@ const FORBIDDEN: { pattern: RegExp; why: string }[] = [
     pattern: /['"`]\/books\/\$\{/,
     why: "no such route — `/books` is the list; the detail screen is `/book/{slug}`",
   },
+  {
+    pattern: /export\/epub/,
+    why: 'deleted 2026-09-28 (both routes) — the app shares the stored original instead, via `shareOriginal.ts`',
+  },
 ]
 
 function walk(dir: string, out: string[] = []): string[] {

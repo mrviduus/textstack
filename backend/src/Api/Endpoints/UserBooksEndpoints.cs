@@ -1,7 +1,6 @@
 using Api.Extensions;
 using Application.Auth;
 using Application.Common.Interfaces;
-using Application.Export;
 using Application.UserBooks;
 using Contracts.UserBooks;
 using Domain.Enums;
@@ -44,7 +43,6 @@ public static class UserBooksEndpoints
         group.MapPost("/{id:guid}/enrich", EnrichBook).WithName("EnrichUserBook")
             .RequireRateLimiting("enrich");
         group.MapPost("/{id:guid}/cancel", CancelBook).WithName("CancelUserBook");
-        group.MapGet("/{id:guid}/export/epub", ExportEpub).WithName("ExportUserBookEpub");
         group.MapDelete("/{id:guid}", DeleteBook).WithName("DeleteUserBook");
         group.MapPut("/{id:guid}/metadata", UpdateMetadata).WithName("UpdateUserBookMetadata");
         group.MapPut("/{id:guid}/tags", SetTags).WithName("SetUserBookTags");
@@ -642,23 +640,6 @@ public static class UserBooksEndpoints
             return Results.BadRequest(new { error });
 
         return Results.Ok(new { status = "Cancelled" });
-    }
-
-    private static async Task<IResult> ExportEpub(
-        Guid id,
-        HttpContext httpContext,
-        AuthService authService,
-        EpubExportService epubExport,
-        CancellationToken ct)
-    {
-        var userId = httpContext.GetUserId(authService);
-        if (userId == null) return Results.Unauthorized();
-
-        var result = await epubExport.ExportUserBookAsync(userId.Value, id, ct);
-        if (result is null) return Results.NotFound();
-
-        var (stream, fileName) = result.Value;
-        return Results.File(stream, "application/epub+zip", fileName);
     }
 
     private static async Task<IResult> DeleteBook(

@@ -1,5 +1,5 @@
 import { Platform } from 'react-native'
-import { initApi } from '@textstack/shared'
+import { initApi, isTokenExpiring } from '@textstack/shared'
 import { emitAuthFailure } from './authEvents'
 
 // SecureStore shim: native → expo-secure-store, web → localStorage
@@ -111,6 +111,23 @@ export async function onUnauthorized(): Promise<string | null> {
   })()
 
   return refreshPromise
+}
+
+/**
+ * A token that is good to spend on a file download, refreshed first if it is
+ * close to expiry.
+ *
+ * `File.downloadFileAsync` reports every failure as a thrown error with no
+ * status, so a 401 from it is indistinguishable from the device being offline —
+ * there is no "retry after the refresh" to fall back on. Refreshing before
+ * spending is the only order that works, and both file callers
+ * (`originalFileCache.ts`, `shareOriginal.ts`) had grown their own identical
+ * copy of it.
+ */
+export async function freshAccessToken(): Promise<string | null> {
+  const token = await getAccessToken()
+  if (token && !isTokenExpiring(token)) return token
+  return onUnauthorized()
 }
 
 /** Reset the latch so a re-login in the same process can trigger signOut again later. */

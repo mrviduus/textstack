@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Uploads** — "Download EPUB" gave back a text-only re-encoding; it now hands over the file you uploaded, from the device when the book is already there — mobile · [details](docs/changelog-archive/2026-H2.md#2026-09-28-uploads-the-button-gives-back-your-file)
 - **Offline** — the library shelf says what is on your phone, what is arriving, and what still needs a connection — mobile · [details](docs/changelog-archive/2026-H2.md#2026-09-28-offline-the-shelf-says-where-each-book-is)
 - **Offline** — your own books arrive on the device without being asked twice — mobile · [details](docs/changelog-archive/2026-H2.md#2026-09-28-offline-the-library-fetches-itself)
 - **CI** — a deploy stops re-running the whole suite the pull request just passed — infra · [details](docs/changelog-archive/2026-H2.md#2026-09-28-ci-a-deploy-that-re-proved-the-pull-request)

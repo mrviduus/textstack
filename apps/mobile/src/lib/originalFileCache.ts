@@ -1,6 +1,5 @@
 import { Platform } from 'react-native'
-import { isTokenExpiring } from '@textstack/shared'
-import { API_URL, getAccessToken, onUnauthorized } from './api'
+import { API_URL, freshAccessToken } from './api'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import {
   CACHE_BUDGET_BYTES,
@@ -52,15 +51,6 @@ export type OriginalDownloadOutcome =
  *  the mobile e2e suite runs against) never pulls a filesystem module in. */
 function fs() {
   return require('expo-file-system') as typeof import('expo-file-system')
-}
-
-async function freshToken(): Promise<string | null> {
-  const token = await getAccessToken()
-  // Refreshed BEFORE it is spent rather than after a 401: the download API
-  // reports failures as a thrown error with no status, so a 401 is
-  // indistinguishable from being offline. Same reasoning as exportEpub.ts.
-  if (token && !isTokenExpiring(token)) return token
-  return onUnauthorized()
 }
 
 function originalsDirectory() {
@@ -135,7 +125,7 @@ async function downloadOriginalOnce(
   format: OriginalFormat,
 ): Promise<OriginalDownloadOutcome> {
 
-  const token = await freshToken()
+  const token = await freshAccessToken()
   if (!token) return { status: 'unauthorized' }
 
   const { File } = fs()

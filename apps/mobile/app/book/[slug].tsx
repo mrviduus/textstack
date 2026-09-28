@@ -491,12 +491,11 @@ export default function BookDetailScreen() {
         </View>
 
         {/*
-          Share only. Public-book EPUB download was deprecated on the web
-          2026-04-15 (see CLAUDE.md) — the backend route still responds but
-          the UI anchor is gone. Mobile aligns: button removed to avoid
-          surfacing a dead path to users. If re-enabled, open the URL
-          `${baseUrl}/${language}/books/${slug}/export/epub` via Linking
-          wrapped in try/catch + toast on failure (B-76).
+          Share only. There is no public-book file download any more: the route
+          was hidden from the web UI on 2026-04-15 and deleted on 2026-09-28,
+          along with the EPUB builder behind it. A catalogue book is read in the
+          app, and the only file this app hands back is one the reader uploaded
+          themselves (`src/lib/shareOriginal.ts`).
         */}
         <View style={{ paddingHorizontal: 16, marginBottom: 16, gap: 10 }}>
           {inLibrary && (

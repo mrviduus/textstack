@@ -351,7 +351,6 @@ app.MapAdminAiQualityEndpoints();
 app.MapTutorEndpoints();
 app.MapVocabularyEndpoints();
 app.MapTtsEndpoints();
-app.MapExportEndpoints();
 app.MapInternalEndpoints();
 app.MapInternalSeoEndpoints();
 

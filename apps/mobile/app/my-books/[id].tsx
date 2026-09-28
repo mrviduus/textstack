@@ -16,7 +16,7 @@ import { useReconnectCount } from '../../src/hooks/useOnline'
 import { LoadingScreen } from '../../src/components/ui/LoadingScreen'
 import { EmptyState } from '../../src/components/ui/EmptyState'
 import { OfflineBanner } from '../../src/components/ui/OfflineBanner'
-import { downloadUserBookEpub } from '../../src/lib/exportEpub'
+import { shareOriginalFile } from '../../src/lib/shareOriginal'
 import { cachedUserBookDetail } from '../../src/lib/cachedUserBookDetail'
 import { getCachedOriginalUri } from '../../src/lib/originalFileCache'
 import { shouldConfirmOnCellular } from '../../src/lib/originalFilePolicy'
@@ -144,7 +144,7 @@ export default function UserBookDetailScreen() {
   const [offlineMode, setOfflineMode] = useState(false)
   /** …and that cached copy is a PDF's extracted text. */
   const [cachedIsPdf, setCachedIsPdf] = useState(false)
-  const [epubBusy, setEpubBusy] = useState(false)
+  const [fileBusy, setFileBusy] = useState(false)
   const pollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const unmountedRef = useRef(false)
 
@@ -400,18 +400,23 @@ export default function UserBookDetailScreen() {
   }
 
   /**
-   * Export the book as EPUB and hand it to the share sheet.
+   * Give the reader back the file they uploaded.
    *
-   * This used to open the export URL in the system browser, which carries none
-   * of the app's credentials — and the endpoint requires a Bearer token, so
-   * every tap ended on "not authorized". The download now happens in-process
-   * with the token attached; see `src/lib/exportEpub.ts`.
+   * Two things used to be wrong here. The button opened the export URL in the
+   * system browser — a process holding none of the app's credentials, against an
+   * endpoint that requires a Bearer token, so every tap landed on a 401. And
+   * what it asked for was a re-encoded EPUB of the extracted text, without the
+   * images, while the original sat on the device untouched. It now shares the
+   * original, from disk when the book is downloaded; see `src/lib/shareOriginal.ts`.
    */
-  const handleDownloadEpub = async () => {
-    if (!id || epubBusy) return
-    setEpubBusy(true)
+  const handleShareOriginal = async () => {
+    if (!id || fileBusy) return
+    setFileBusy(true)
     try {
-      const outcome = await downloadUserBookEpub(id, book?.title ?? null)
+      // Uploads are EPUB or PDF and nothing else (`UserBookService.DetectFormat`
+      // rejects the rest), so the one flag the payload carries settles it.
+      const format = book?.hasOriginalPdf === true ? 'pdf' : 'epub'
+      const outcome = await shareOriginalFile(id, book?.title ?? null, format)
       switch (outcome.status) {
         case 'shared':
           break
@@ -419,16 +424,16 @@ export default function UserBookDetailScreen() {
           showToast({ message: 'Saved to this device', variant: 'success', duration: 2600 })
           break
         case 'unauthorized':
-          showToast({ message: 'Sign in again to download this book', variant: 'error', duration: 2800 })
+          showToast({ message: 'Sign in again to get this file', variant: 'error', duration: 2800 })
           break
         case 'notfound':
-          showToast({ message: "This book can't be exported yet", variant: 'error', duration: 2600 })
+          showToast({ message: 'The original file is no longer on the server', variant: 'error', duration: 2800 })
           break
         default:
-          showToast({ message: 'Could not download the EPUB', variant: 'error', duration: 2600 })
+          showToast({ message: 'Could not get the file', variant: 'error', duration: 2600 })
       }
     } finally {
-      setEpubBusy(false)
+      setFileBusy(false)
     }
   }
 
@@ -746,19 +751,22 @@ export default function UserBookDetailScreen() {
               </Text>
             )}
 
+            {/* Enabled offline when the book is on the device: the file is right
+                there, and asking the server for a copy of it would be the exact
+                round trip the offline work exists to remove. */}
             <TouchableOpacity
-              style={[styles.secondaryBtn, { borderColor: colors.border, opacity: epubBusy ? 0.6 : 1 }]}
-              onPress={handleDownloadEpub}
-              disabled={epubBusy || offlineMode}
+              style={[styles.secondaryBtn, { borderColor: colors.border, opacity: fileBusy ? 0.6 : 1 }]}
+              onPress={handleShareOriginal}
+              disabled={fileBusy || (offlineMode && !cached)}
               accessibilityRole="button"
-              accessibilityLabel="Download EPUB"
-              accessibilityState={{ disabled: epubBusy || offlineMode }}
+              accessibilityLabel="Save a copy of the file you uploaded"
+              accessibilityState={{ disabled: fileBusy || (offlineMode && !cached) }}
             >
-              {epubBusy
+              {fileBusy
                 ? <ActivityIndicator size="small" color={colors.text} />
                 : <Ionicons name="download-outline" size={18} color={colors.text} />}
               <Text style={[styles.secondaryBtnText, { color: colors.text }]}>
-                {epubBusy ? 'Preparing EPUB…' : 'Download EPUB'}
+                {fileBusy ? 'Preparing…' : 'Save a copy'}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
