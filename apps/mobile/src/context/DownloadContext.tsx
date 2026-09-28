@@ -107,6 +107,11 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   const [cachedBooks, setCachedBooks] = useState<CachedBookMeta[]>([])
   const [cachedUserBooks, setCachedUserBooks] = useState<CachedUserBookMeta[]>([])
   const cancelledRef = useRef<Set<string>>(new Set())
+  /** Books whose ORIGINAL file failed while their chapters succeeded. Kept apart
+   *  from `failedChapterSlugs` because it is not a chapter and cannot be
+   *  expressed as one, and Retry has to cover it or the promise on the book
+   *  screen is not kept. */
+  const originalFailedRef = useRef<Set<string>>(new Set())
   const { isAuthenticated } = useAuth()
   const wasAuthenticatedRef = useRef(isAuthenticated)
 
@@ -364,6 +369,31 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       cachedAt: Date.now(),
     })
 
+    // The file FIRST, then the chapters. Not an ordering preference: the status
+    // set above is `downloading`, and `runDownload` flips it to `complete` when
+    // it returns. Fetching the file afterwards left the button rendering its
+    // idle "Download for Offline" state for the whole of a 21 MB transfer, so a
+    // reader who saw nothing happen and tapped again started a second one.
+    // (They now join rather than race — `downloadOriginal` is single-flighted —
+    // but a button that lies about what it is doing is the actual defect.)
+    if (book.hasOriginalPdf === true && !cancelledRef.current.has(bookId)) {
+      const outcome = await downloadOriginal(bookId, 'pdf')
+      if (outcome.status !== 'downloaded') {
+        // Not swallowed. The screen has already promised that this book will
+        // look the same offline, and the chapters alone will finish and render
+        // "Downloaded — Remove" — the reader would find out on the plane.
+        console.warn(`[originals] ${bookId}: ${outcome.status}`)
+        originalFailedRef.current.add(bookId)
+      } else if (cancelledRef.current.has(bookId)) {
+        // Removed or cancelled while the file was in flight. Nothing aborts the
+        // transfer, so it lands after the row deletion and would sit on disk
+        // belonging to a book that no longer has a download.
+        await deleteOriginal(bookId, 'pdf')
+        return
+      }
+    }
+    if (cancelledRef.current.has(bookId)) return
+
     const { store, saveCount } = storeFor(info)
     await runDownload(
       bookId,
@@ -374,17 +404,13 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       n => `${plural(n, 'chapter', 'chapters')} failed. Tap Retry to finish the download.`,
     )
 
-    // After the chapters, and only if the reader did not cancel meanwhile. One
-    // request, no per-byte progress — see the note on `downloadOriginal`. A
-    // failure here is not a failed download: the book is still readable offline
-    // as text, which is exactly what it was before this existed.
-    if (book.hasOriginalPdf === true && !cancelledRef.current.has(bookId)) {
-      const outcome = await downloadOriginal(bookId, 'pdf')
-      if (outcome.status !== 'downloaded') {
-        console.warn(`[originals] ${bookId}: ${outcome.status}`)
-      }
+    if (originalFailedRef.current.has(bookId)) {
+      updateDownload(bookId, {
+        status: 'error',
+        errorMessage: 'The original pages did not download. Tap Retry — the text is already saved.',
+      })
     }
-  }, [storeFor, runDownload])
+  }, [storeFor, runDownload, updateDownload])
 
   /**
    * Retry just the chapters we failed to cache on the previous run, rather
@@ -395,7 +421,8 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     const current = downloads.get(id)
     if (!current) return
     const toRetry = [...current.failedChapterSlugs]
-    if (toRetry.length === 0) return
+    const originalFailed = originalFailedRef.current.has(id)
+    if (toRetry.length === 0 && !originalFailed) return
 
     cancelledRef.current.delete(id)
     updateDownload(id, {
@@ -404,6 +431,25 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       failedChapterSlugs: [],
       errorMessage: undefined,
     })
+
+    // The file first, same reasoning as the initial download: while it is in
+    // flight the status must not read as finished.
+    if (originalFailed) {
+      const outcome = await downloadOriginal(id, 'pdf')
+      if (outcome.status === 'downloaded') {
+        originalFailedRef.current.delete(id)
+      } else if (toRetry.length === 0) {
+        updateDownload(id, {
+          status: 'error',
+          errorMessage: 'The original pages still did not download. Check your connection and retry.',
+        })
+        return
+      }
+    }
+    if (toRetry.length === 0) {
+      updateDownload(id, { status: 'complete' })
+      return
+    }
 
     const { store, saveCount } = storeFor(current)
     await runDownload(

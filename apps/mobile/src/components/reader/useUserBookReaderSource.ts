@@ -172,18 +172,25 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
       console.warn('Failed to load user-book bookmarks:', e)
     })
     setChaptersLoading(true)
-    userBooksApi.getUserBook(bookId).then(b => {
+    let cancelled = false
+    userBooksApi.getUserBook(bookId).then(async b => {
       bookTitleRef.current = b.title || null
       setBookTitle(b.title || null)
-      setHasOriginalPdf(b.hasOriginalPdf === true)
       offlineReflowOfPdfRef.current = false
       // Online, but read from disk if the reader downloaded it: faster to open
       // than a Range stream, and it keeps this path in daily use.
-      if (b.hasOriginalPdf === true) {
-        getCachedOriginalUri(bookId, 'pdf').then(uri => { setLocalOriginalUri(uri) })
-      } else {
-        setLocalOriginalUri(null)
-      }
+      //
+      // Awaited BEFORE `hasOriginalPdf` is published, not resolved alongside
+      // it. Publishing first and filling the URI in afterwards builds the
+      // viewer twice — once against the streaming URL (a token fetch and a
+      // Range stream, both wasted) and again when the file arrives, with the
+      // resume path running a second time.
+      const localOriginal = b.hasOriginalPdf === true
+        ? await getCachedOriginalUri(bookId, 'pdf').catch(() => null)
+        : null
+      if (cancelled) return
+      setLocalOriginalUri(localOriginal)
+      setHasOriginalPdf(b.hasOriginalPdf === true)
       const pageBySlug: Record<string, number> = {}
       const mapped: ReaderChapterMeta[] = b.chapters.map(ch => {
         const slug = userBookChapterSlug(ch)
@@ -237,7 +244,8 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
       } catch (cacheErr) {
         console.warn('Offline user-book meta read failed:', cacheErr)
       }
-    }).finally(() => { setChaptersLoading(false) })
+    }).finally(() => { if (!cancelled) setChaptersLoading(false) })
+    return () => { cancelled = true }
   }, [bookId])
 
   const persist = useCallback((snap: ProgressSnapshot) => {
@@ -389,7 +397,21 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
     setPdfResumePage(null)
     userBooksApi.getUserBookProgress(bookId)
       .then(p => { if (!cancelled) setPdfResumePage(parsePdfPageLocator(p?.locator)) })
-      .catch(() => { /* offline → falls back to chapter page / page 1 */ })
+      .catch(async () => {
+        // Offline. This used to fall through to page 1, which was survivable
+        // only because an offline PDF was not opened in Original layout at all
+        // — the reflow reader has its own local fallback in `loadPosition`.
+        // Now that a downloaded PDF opens as itself, reaching page 1 would mean
+        // the headline case of the feature (read on a plane, close, reopen)
+        // loses the place it kept before. `writePdfProgress` has been storing
+        // the page locally all along; nothing had ever read it back.
+        try {
+          const local = await getUserBookLocalProgress(bookId)
+          if (!cancelled && typeof local?.page === 'number' && local.page >= 1) {
+            setPdfResumePage(local.page)
+          }
+        } catch { /* no local record either → page 1, as before */ }
+      })
       .finally(() => { if (!cancelled) setPdfResumeReady(true) })
     return () => { cancelled = true }
   }, [hasOriginalPdf, bookId])

@@ -103,16 +103,44 @@ export async function downloadOriginal(
   format: OriginalFormat,
 ): Promise<OriginalDownloadOutcome> {
   if (Platform.OS === 'web') return { status: 'failed' }
+  // One download per book at a time. Two of them share a `.part` path, and the
+  // second one's opening `delete()` removes the file the first is still
+  // streaming into — whichever finishes last renames a truncated document onto
+  // the real name, where it clears the size floor and opens as garbage. A
+  // second tap now joins the first instead of racing it.
+  const inFlight = downloadsInFlight.get(bookId)
+  if (inFlight) return inFlight
+  const run = downloadOriginalOnce(bookId, format)
+  downloadsInFlight.set(bookId, run)
+  try {
+    return await run
+  } finally {
+    downloadsInFlight.delete(bookId)
+  }
+}
+
+const downloadsInFlight = new Map<string, Promise<OriginalDownloadOutcome>>()
+
+async function downloadOriginalOnce(
+  bookId: string,
+  format: OriginalFormat,
+): Promise<OriginalDownloadOutcome> {
 
   const token = await freshToken()
   if (!token) return { status: 'unauthorized' }
 
   const { File } = fs()
-  const dir = originalsDirectory()
+  let dir: ReturnType<typeof originalsDirectory>
+  let name: string
   try {
+    // `originalFileName` throws on an id that could escape the directory. Every
+    // other caller wraps it; this one must too, or the rejection travels out
+    // through `startUserBookDownload` into an onPress handler.
+    name = originalFileName(bookId, format)
+    dir = originalsDirectory()
     if (!dir.exists) dir.create({ intermediates: true })
   } catch (err) {
-    console.warn('[originals] could not create the directory:', err)
+    console.warn('[originals] could not prepare the directory:', err)
     return { status: 'failed' }
   }
 
@@ -120,7 +148,7 @@ export async function downloadOriginal(
   // halfway otherwise leaves a truncated file that `getCachedOriginalUri` would
   // accept as long as it cleared the size floor — a book that opens to garbage
   // is worse than one that opens over the network.
-  const destination = new File(dir, `${originalFileName(bookId, format)}${PART_SUFFIX}`)
+  const destination = new File(dir, `${name}${PART_SUFFIX}`)
   try { if (destination.exists) destination.delete() } catch { /* best effort */ }
 
   let downloaded: InstanceType<typeof File>
@@ -139,7 +167,10 @@ export async function downloadOriginal(
   let bytes = 0
   try { bytes = downloaded.size ?? 0 } catch { bytes = 0 }
   if (bytes < MIN_PLAUSIBLE_BYTES) {
-    // A 404's JSON body arrives as a written file with a 200-shaped result.
+    // Not the 404 path: `downloadFileAsync` rejects on any non-2xx and writes
+    // nothing, so a missing book arrives at the `catch` above as `failed`.
+    // What this catches is a file that downloaded successfully and is too small
+    // to be a document — a truncated response, or an empty stored file.
     try { downloaded.delete() } catch { /* best effort */ }
     return { status: 'notfound' }
   }
@@ -197,6 +228,9 @@ export async function originalsTotalBytes(): Promise<number> {
     if (!dir.exists) return 0
     let total = 0
     for (const entry of dir.list()) {
+      // Half-downloads are bytes no reader can open. Counting them inflates the
+      // figure the storage screen reports and the budget eviction will spend.
+      if (entry.name?.endsWith(PART_SUFFIX)) continue
       const size = (entry as { size?: number | null }).size
       if (typeof size === 'number') total += size
     }

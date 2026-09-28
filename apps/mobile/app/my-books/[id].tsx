@@ -311,10 +311,13 @@ export default function UserBookDetailScreen() {
 
   // Download state for this book, if one has been started this session.
   const dl = book ? downloads.get(book.id) : undefined
-  /** What the button is about to spend, when the server said. */
-  const downloadSize = formatBytes(
-    typeof book?.originalFileBytes === 'number' ? book.originalFileBytes : null,
-  )
+  /** What the button is about to spend, when the server said — and only for a
+   *  book whose original is actually fetched. The server reports the size of
+   *  the newest stored file of ANY format, so an EPUB upload or an HTML clip
+   *  has one too, while the download takes only their chapter text. */
+  const downloadSize = book?.hasOriginalPdf === true
+    ? formatBytes(typeof book.originalFileBytes === 'number' ? book.originalFileBytes : null)
+    : null
   const isDownloadingBook = dl?.status === 'downloading'
   const downloadPct = dl && dl.totalChapters > 0
     ? Math.round((dl.downloadedChapters / dl.totalChapters) * 100)
@@ -521,7 +524,10 @@ export default function UserBookDetailScreen() {
         {offlineMode && (
           <OfflineBanner
             message={
-              cachedIsPdf
+              // A PDF whose original is stored offline opens as itself, so the
+              // old wording ("the downloaded text") now contradicts the reader
+              // one tap away. Only a PDF WITHOUT its file still reads as text.
+              cachedIsPdf && book?.hasOriginalPdf !== true
                 ? "You're offline — reading the downloaded text of this PDF."
                 : "You're offline — reading the downloaded copy."
             }

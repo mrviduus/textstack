@@ -51,7 +51,17 @@ public class MetadataService(IAppDbContext db)
             null,
             book.CreatedAt, book.UpdatedAt, book.CompletedAt,
             book.BookFiles.Any(f => f.Format == Domain.Enums.BookFormat.Pdf),
-            book.MetadataEnrichmentStatus.ToString());
+            book.MetadataEnrichmentStatus.ToString(),
+            // Carried, not defaulted. This response replaces the client's detail
+            // state (the web app already refreshes from it), so leaving the new
+            // field at null would silently drop the size from a book the reader
+            // had just renamed — and on mobile that turns the download button's
+            // size off and starts prompting on every cellular download, because
+            // an unknown size is treated as large.
+            book.BookFiles
+                .OrderByDescending(f => f.UploadedAt)
+                .Select(f => (long?)f.FileSize)
+                .FirstOrDefault());
 
         return (dto, null);
     }

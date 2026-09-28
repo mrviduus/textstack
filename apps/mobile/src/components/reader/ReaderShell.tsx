@@ -980,9 +980,16 @@ export function ReaderShell(props: ReaderShellProps) {
           originWhitelist={['*']}
           // Android denies a WebView any file access by default, and denies a
           // file:// document XHR to a sibling file even when it can load one.
-          // pdf.js needs both to open a downloaded book. Scoped by the base URL
-          // above to the originals directory — NOT allowUniversalAccessFromFileURLs,
-          // which would let the page read anything the app can.
+          // pdf.js needs both to open a downloaded book.
+          //
+          // These are WebView-wide, not per-document: they apply to the reflow
+          // reader in this same component, which renders user-supplied EPUB and
+          // clip HTML. What keeps that safe is the base URL, not these flags —
+          // the reflow document is mounted with no baseUrl, so it has no file
+          // origin to read from, and giving it one later would hand user
+          // content the app's own files. Still narrower than
+          // allowUniversalAccessFromFileURLs, which grants a file page every
+          // origin including http(s).
           allowFileAccess
           allowFileAccessFromFileURLs
           // Android's WebView ignores the viewport's user-scalable unless the
