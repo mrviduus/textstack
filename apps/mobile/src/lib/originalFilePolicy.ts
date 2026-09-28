@@ -53,24 +53,6 @@ export function shouldConfirmOnCellular(sizeBytes: number | null, isCellular: bo
   return sizeBytes > CELLULAR_WARN_BYTES
 }
 
-/** "21.4 MB" — for the download button, which says what it is about to spend. */
-export function formatBytes(bytes: number | null): string | null {
-  if (bytes === null || !Number.isFinite(bytes) || bytes < 0) return null
-  if (bytes < 1024) return `${bytes} B`
-  const kb = bytes / 1024
-  if (kb < 1024) return `${Math.round(kb)} KB`
-  const mb = kb / 1024
-  if (mb < 1024) return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`
-  return `${(mb / 1024).toFixed(1)} GB`
-}
-
-/** How much of the device we are willing to hold, across every stored original.
- *
- *  Two gigabytes, level with the largest real tier (Supporter): a reader whose
- *  whole server-side library fits in their plan also fits on their phone, and
- *  eviction is for the tail rather than the norm. The measured figures it is
- *  set against: an upload is capped at 80 MB by the platform, the reference
- *  document is 21 MB, and a real reader's whole library was 167 MB. */
 export const CACHE_BUDGET_BYTES = 2 * 1024 * 1024 * 1024
 
 /** One stored file, as the evictor sees it. `lastUsedAt` is the file's mtime:

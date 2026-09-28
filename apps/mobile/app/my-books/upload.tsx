@@ -2,18 +2,13 @@ import { useState, useEffect, useRef } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView } from 'react-native'
 import { useRouter, Stack } from 'expo-router'
 import * as DocumentPicker from 'expo-document-picker'
+import { formatBytes } from '../../src/lib/formatBytes'
 import { userBooksApi, getApiConfig } from '@textstack/shared'
 import { colors } from '../../src/theme/colors'
 import { trackBookUploaded } from '../../src/lib/analytics'
 import { useAuth } from '../../src/context/AuthContext'
 import { capabilitiesFor } from '../../src/lib/capabilities'
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
-}
 
 export default function UploadScreen() {
   const router = useRouter()

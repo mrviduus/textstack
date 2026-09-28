@@ -19,7 +19,8 @@ import { OfflineBanner } from '../../src/components/ui/OfflineBanner'
 import { downloadUserBookEpub } from '../../src/lib/exportEpub'
 import { cachedUserBookDetail } from '../../src/lib/cachedUserBookDetail'
 import { getCachedOriginalUri } from '../../src/lib/originalFileCache'
-import { formatBytes, shouldConfirmOnCellular } from '../../src/lib/originalFilePolicy'
+import { shouldConfirmOnCellular } from '../../src/lib/originalFilePolicy'
+import { formatBytes } from '../../src/lib/formatBytes'
 import { getCachedUserBookMeta, listCachedUserChapters, isUserBookFullyCached } from '../../src/lib/offlineDb'
 import { getUserBookLocalProgress } from '../../src/lib/progressStorage'
 import { userBookChapterSlug } from '../../src/lib/userBookChapters'
@@ -344,6 +345,16 @@ export default function UserBookDetailScreen() {
           setDeleting(true)
           try {
             await userBooksApi.deleteUserBook(id)
+            // The copy on THIS device goes with it. Deleting the book server-side
+            // used to leave its downloaded original sitting in the app's
+            // document directory — tens of megabytes of the reader's own private
+            // file, belonging to a book that no longer exists, with nothing left
+            // in the UI that could ever remove it. Found on a device, because
+            // "Remove download" and "Delete book" are different buttons and only
+            // the first one cleaned up.
+            await removeUserBookDownload(id).catch(err => {
+              console.warn('Clearing the local copy of a deleted book failed:', err)
+            })
             // Don't reset `deleting` on success — the screen unmounts on router.back()
             // and any lingering state change would warn. (P2-2)
             router.back()

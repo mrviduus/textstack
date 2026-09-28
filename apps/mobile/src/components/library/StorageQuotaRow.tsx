@@ -4,6 +4,9 @@ import { userBooksApi } from '@textstack/shared'
 import { useTheme } from '../../context/ThemeContext'
 import { useLanguage } from '../../context/LanguageContext'
 import { fonts } from '../../theme/typography'
+import { formatBytes } from '../../lib/formatBytes'
+
+export { formatBytes }
 
 /**
  * How much upload space is left.
@@ -21,12 +24,7 @@ import { fonts } from '../../theme/typography'
 /** Show the Library warning from this fill level up. */
 export const QUOTA_WARN_AT = 0.8
 
-export function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
-}
+
 
 interface Props {
   /** 'full' — always render (Profile). 'warning' — only when nearly full (Library). */

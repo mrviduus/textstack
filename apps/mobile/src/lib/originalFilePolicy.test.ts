@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest'
 import {
   CELLULAR_WARN_BYTES,
   chooseEvictions,
-  formatBytes,
   isOutOfSpaceError,
   originalFileName,
   shouldConfirmOnCellular,
@@ -40,24 +39,6 @@ describe('shouldConfirmOnCellular', () => {
 
   it('treats an unknown size as large — the silent guess must not cost money', () => {
     expect(shouldConfirmOnCellular(null, true)).toBe(true)
-  })
-})
-
-describe('formatBytes', () => {
-  it('reads the way a download button should', () => {
-    expect(formatBytes(512)).toBe('512 B')
-    expect(formatBytes(2048)).toBe('2 KB')
-    // A decimal only while it carries information: under 10 MB.
-    expect(formatBytes(1536 * 1024)).toBe('1.5 MB')
-    expect(formatBytes(21 * 1024 * 1024)).toBe('21 MB')
-    expect(formatBytes(80 * 1024 * 1024)).toBe('80 MB')
-    expect(formatBytes(3 * 1024 * 1024 * 1024)).toBe('3.0 GB')
-  })
-
-  it('says nothing rather than something wrong when the size is unknown', () => {
-    expect(formatBytes(null)).toBeNull()
-    expect(formatBytes(-1)).toBeNull()
-    expect(formatBytes(Number.NaN)).toBeNull()
   })
 })
 
