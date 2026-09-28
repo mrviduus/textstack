@@ -54,7 +54,7 @@ export const styles = StyleSheet.create({
   },
   cover: { width: 70, height: 105, borderRadius: 6 },
   processingOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(0,0,0,0.4)',
     borderRadius: 6,
     justifyContent: 'center',

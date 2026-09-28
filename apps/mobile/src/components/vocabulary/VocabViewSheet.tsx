@@ -142,7 +142,7 @@ export function VocabViewSheet({
 }
 
 const styles = StyleSheet.create({
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.4)' },
+  backdrop: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.4)' },
   sheet: {
     position: 'absolute', left: 0, right: 0, bottom: 0,
     maxHeight: '80%',

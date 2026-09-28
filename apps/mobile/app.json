@@ -14,11 +14,6 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "scheme": "textstack",
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#FDFDFB"
-    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "app.textstack.mobile",
@@ -73,6 +68,14 @@
       "expo-sqlite",
       "@react-native-google-signin/google-signin",
       "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#FDFDFB"
+        }
+      ],
       "./plugins/with-adi-registration",
       [
         "expo-audio",
@@ -117,7 +120,7 @@
         "projectId": "204518f7-24cf-4984-962d-f636508be861"
       },
       "googleAuth": {
-        "_comment": "iosClientId: OAuth 2.0 Client ID of type 'iOS' from Google Cloud Console. webClientId: OAuth 2.0 Client ID of type 'Web application' — required for Android sign-in and the audience the backend verifies against (must match GOOGLE_CLIENT_ID env var on the API). A separate Android OAuth client (linked by package + SHA-1 of Play App Signing key) also exists in Google Cloud Console; Google Play Services attaches it implicitly, so its ID is not referenced from code.",
+        "_comment": "iosClientId: OAuth 2.0 Client ID of type 'iOS' from Google Cloud Console. webClientId: OAuth 2.0 Client ID of type 'Web application' \u2014 required for Android sign-in and the audience the backend verifies against (must match GOOGLE_CLIENT_ID env var on the API). A separate Android OAuth client (linked by package + SHA-1 of Play App Signing key) also exists in Google Cloud Console; Google Play Services attaches it implicitly, so its ID is not referenced from code.",
         "iosClientId": "301013894506-7ouh9ops30ubjg6s6govpeep19h26r6q.apps.googleusercontent.com",
         "webClientId": "726577729877-0lc197ngqf9qb297tvgh22q2k7g72l4l.apps.googleusercontent.com"
       }

@@ -48,7 +48,7 @@ answers "what happened" and nothing answered "what is half-finished right now".
   **Still not verified on a device:** the automatic Wi-Fi sweep fetching a library it does not
   already hold, the 2 GB budget and its eviction order, and the full-disk stop.
 
-  **Then Expo SDK 56**, deliberately after that pass and not before.
+  **Expo SDK 57** landed 2026-09-28, after the device pass above (55 → 57 in one step; 56 and 57 carry identical third-party native modules).
 
 - **Assistant handoff** — the bet that the conversation belongs in the reader's own assistant, not in
   our app. Branch `feat/mcp-connect-key`. Full write-up, measurements and open decisions:

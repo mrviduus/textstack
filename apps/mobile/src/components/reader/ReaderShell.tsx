@@ -1369,7 +1369,7 @@ const styles = StyleSheet.create({
   progressBar: { height: 4, borderRadius: 0 },
   progressFill: { height: 4, borderRadius: 0 },
   pdfErrorOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     zIndex: 150,
     justifyContent: 'center',
     alignItems: 'center',
@@ -1381,7 +1381,7 @@ const styles = StyleSheet.create({
   pdfErrorBtn: { marginTop: 16, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 20 },
   pdfErrorBtnText: { fontFamily: fonts.sansMedium, fontSize: 15, color: '#fff' },
   exitSummaryOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     zIndex: 200,
     justifyContent: 'center',
     alignItems: 'center',
