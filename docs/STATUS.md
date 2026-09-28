@@ -278,12 +278,19 @@ someone's memory.
   2026-09-03: the reporter ran all six steps of
   [`2026-09-01-android-tts-selection.md`](qa/reports/2026-09-01-android-tts-selection.md) on the
   Galaxy S24 that produced the original bug. That was the last thing this report was waiting on.
-- **Three dependency advisories have no fix to apply.** `extract-zip@2.0.1` inside puppeteer wants
-  `>=2.0.2`, and **2.0.2 has never been published**; `decode-uri-component` and `uuid` sit inside
+- **Two dependency advisories have no fix to apply.** `decode-uri-component` and `uuid` sit inside
   Expo's own tree, where forcing a version to quiet an audit is how a working mobile build stops
-  working. None ships in the app. They are dismissed on GitHub with those reasons and written down in
-  `scripts/check-advisories.mjs`, which fails CI on any advisory that is *not* one of them — and also
-  fails if one of them stops being reported, because then the excuse has expired.
+  working. Neither ships in the app. (It was three until puppeteer 25 dropped `extract-zip`, whose
+  advisory demanded a `2.0.2` that was never published.) They are dismissed on GitHub with those
+  reasons and written down in `scripts/check-advisories.mjs`, which fails CI on any advisory that is
+  *not* one of them — and also fails if one of them stops being reported, because then the excuse has
+  expired.
+- **The advisory check no longer goes through a package manager** (2026-09-28). It reads
+  `pnpm-lock.yaml` and asks the npm registry directly, and it has a third outcome — **COULD NOT
+  CHECK** — that is neither a pass nor a finding. Before that it shelled out to `pnpm audit`, which on
+  the Expo SDK 57 tree produced no report and never exited: CI killed the job at its ceiling with an
+  empty log, and a red cross meaning "we did not check" is indistinguishable from one meaning "we
+  found something".
 - **`@sentry/react-native` is ahead of the Expo SDK pin** — 8.24 against `~7.11`. Recorded in
   `expo.install.exclude` as deliberate, but nobody now remembers whether it was.
 - **Play's Data Safety form still holds the pre-2026-08-20 answers**, which now contradict the

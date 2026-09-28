@@ -3,8 +3,8 @@ name: Dependencies (semiannual)
 # One pull request, twice a year, for everything that is only about not falling
 # behind. Security is deliberately NOT here: Dependabot security updates open
 # their own pull request the day an advisory lands, `dotnet list package
-# --vulnerable` gates the backend job and `pnpm audit` gates `advisories` in
-# ci.yml. Separating the two is what lets this lane be this quiet — a calendar is
+# --vulnerable` gates the backend job and `scripts/check-advisories.mjs` gates
+# `advisories` in ci.yml. Separating the two is what lets this lane be this quiet — a calendar is
 # the wrong instrument for a vulnerability, and a vulnerability is the only
 # reason a calendar would need to be fast.
 #

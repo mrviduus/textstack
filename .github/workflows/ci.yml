@@ -102,16 +102,19 @@ jobs:
   advisories:
     if: inputs.scope != 'merged-tree'
     runs-on: ubuntu-latest
-    # 2m typical.
-    timeout-minutes: 10
+    # Under a second in practice. The ceiling is low on purpose: this job used to
+    # sit for ten minutes while `pnpm audit` declined to exit, and a ten-minute
+    # wait for no information is the shape of failure worth making impossible.
+    timeout-minutes: 3
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
+      # No pnpm. The check reads pnpm-lock.yaml itself and asks the npm registry
+      # directly, so there is no package manager in this lane at all — which is
+      # the point: it cannot be broken by one.
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
-          # `pnpm audit` reads the lockfile, not node_modules, so this job needs
-          # pnpm on PATH and nothing installed.
+          # Nothing is installed here; the lockfile is the input.
           package-manager-cache: false
       - run: node scripts/check-advisories.mjs
 
