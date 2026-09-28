@@ -22,6 +22,7 @@ import { getLanguage } from '../../src/data/languages'
 import { LanguagePickerModal } from '../../src/components/LanguagePickerModal'
 import { VocabReminderSettingsRow } from '../../src/components/profile/VocabReminderSettingsRow'
 import { StorageQuotaRow } from '../../src/components/library/StorageQuotaRow'
+import { DeviceStorageRow } from '../../src/components/library/DeviceStorageRow'
 import { authApi, getStorageUrl, getAnonymousReader } from '@textstack/shared'
 import { deleteAccount } from '../../src/lib/api'
 import { getAnonAvatarSource } from '../../src/lib/anonAvatarSource'
@@ -356,6 +357,12 @@ export default function ProfileScreen() {
             `StorageQuotaRow` fetches `/me/books/quota` on mount — unconditional,
             this fires a token-less request that can only 401. */}
         {canUpload && <StorageQuotaRow />}
+
+        {/* The device figure, next to the server one. Not gated on `canUpload`:
+            what is already on this phone is worth showing to anyone who has
+            something on it, and the component renders nothing when there is
+            nothing — it reads the filesystem, so it cannot 401. */}
+        <DeviceStorageRow />
 
         {MENU_ITEMS.map(item => (
           <TouchableOpacity
