@@ -59,7 +59,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
   // For userbook mode, chapterSlug comes from the :chapterSlug param
   const chapterIdentifier = mode === 'public' ? chapterSlug : userChapterSlug
 
-  const { isAuthenticated, ensureSession } = useAuth()
+  const { isAuthenticated } = useAuth()
   const { language, getLocalizedPath } = useLanguage()
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -138,15 +138,26 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
   const [bookCompleted, setBookCompleted] = useState(false)
   const { setCurrentBook: setGuestCurrentBook } = useGuestLimits()
 
-  // Pre-warm guest session on reader mount so first-word-tap doesn't race
-  // ensureSession mid-popup, which would flip isAuthenticated and re-run the
-  // chapter-fetch effect (reader reload + dropped popup). Single-flight inside.
-  useEffect(() => {
-    if (!isAuthenticated) {
-      ensureSession().catch(() => {})
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional one-shot on mount
-  }, [])
+  // There is deliberately NO guest pre-warm here. Opening a chapter used to mint
+  // one (ead5f446, 2026-04-19) so that the first word tap would not race
+  // `ensureSession` mid-popup — a flip of `isAuthenticated` re-ran the
+  // chapter-fetch effect and dropped the popup. That race was fixed at its own
+  // source a week later: `useReaderChapter` skips a refetch whose key it has
+  // already loaded (6b1c1d17). The pre-warm has been redundant ever since, and
+  // it was not free.
+  //
+  // A *render* is not a commitment. Every client that executes JS on a chapter
+  // URL got a real `User` row, and the reader's progress write immediately made
+  // that row permanent — `GuestCleanupWorker` spares any guest holding progress.
+  // Undeclared crawlers walking the catalogue with rotating desktop-Chrome user
+  // agents produced 7,147 of the 7,263 guest accounts on production; 5,600 of
+  // them lived under five seconds and hold exactly one progress row each.
+  //
+  // So the mint is back where ADR-014 put it: a commitment signal. On this page
+  // that is the first word tap (`useReaderVocabulary`), which calls
+  // `ensureSession` itself. Until then an anonymous reader's progress goes to
+  // localStorage and `flushLocalProgress` delivers it the moment a session
+  // exists. Do not re-add a mint on mount.
 
   const libraryAddedRef = useRef(false)
 

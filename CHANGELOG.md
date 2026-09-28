@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Guests** — opening a chapter no longer creates an account, which is how crawlers made 7,147 of the 7,263 guest rows on production — web · [details](docs/changelog-archive/2026-H2.md#2026-09-28-guests-a-render-is-not-a-commitment)
 - **Offline** — a downloaded book opens from the phone instead of waiting out a network that never answers, keeps scrolling past chapter one offline, and a book deleted elsewhere stops taking up space here — mobile · [details](docs/changelog-archive/2026-H2.md#2026-09-28-offline-a-downloaded-book-stops-waiting-for-the-network)
 - **Uploads** — "Download EPUB" gave back a text-only re-encoding; it now hands over the file you uploaded, from the device when the book is already there — mobile · [details](docs/changelog-archive/2026-H2.md#2026-09-28-uploads-the-button-gives-back-your-file)
 - **Offline** — the library shelf says what is on your phone, what is arriving, and what still needs a connection — mobile · [details](docs/changelog-archive/2026-H2.md#2026-09-28-offline-the-shelf-says-where-each-book-is)

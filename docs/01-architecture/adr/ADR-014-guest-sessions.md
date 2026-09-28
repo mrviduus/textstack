@@ -45,10 +45,21 @@ accounts get `RefreshTokenExpiryDays`). Everything downstream of it — `/me/pro
 `/me/highlights`, `/me/vocabulary/*` — works unchanged, because from the API's point of view nothing
 about the request is unusual.
 
-**On demand, never at launch.** Web mints from three triggers (reader mount, upload, the third
-pending vocabulary word). Mobile mints from exactly one: opening a book, through
-`ReaderSessionGate`. Minting at launch would create a row for every install that browses the catalog
-and leaves.
+**On demand, never at launch.** Web mints from two triggers: upload, and the third pending
+vocabulary word. Mobile mints from exactly one: opening a book, through `ReaderSessionGate`. Minting
+at launch would create a row for every install that browses the catalog and leaves.
+
+**Reader mount was a third web trigger until 2026-09-28, and it was the mistake this paragraph was
+written to prevent — one level down.** Minting on render creates a row for every *client that
+executes JavaScript*, which on a public catalogue is mostly crawlers. On production it produced
+**7,147 of 7,263** guest accounts, and they were unreapable: the reader writes progress immediately,
+and `GuestCleanupWorker` spares any guest holding progress. 5,600 of those rows were alive for under
+five seconds.
+
+The rule that survives it: **a render is not a commitment.** A guest row is durable server state and
+may only be created by something the reader chose to do. On the web an anonymous reader's progress
+goes to localStorage until then, and `flushLocalProgress` delivers it the moment a session exists —
+so waiting costs nothing.
 
 ### 2. Registration promotes that row in place; sign-in merges it
 
