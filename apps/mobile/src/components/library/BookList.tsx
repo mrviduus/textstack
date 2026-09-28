@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { View, Text, FlatList, TouchableOpacity, RefreshControl, useWindowDimensions } from 'react-native'
 import { Image } from 'expo-image'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -7,7 +7,7 @@ import { Ionicons } from '@expo/vector-icons'
 import {
   getStorageUrl,
   entryKey, entryTitle, entryAuthor, entryCoverPath, entryProgress, resumeChapterSlug,
-  type LibraryEntry, type UserLibraryItem, type ReadingProgressDto, formatTimeAgo } from '@textstack/shared'
+  type LibraryEntry, type UserLibraryItem, type ReadingProgressDto, formatTimeAgo, userBooksApi } from '@textstack/shared'
 import { useTheme } from '../../context/ThemeContext'
 import { useLanguage } from '../../context/LanguageContext'
 import { useToast } from '../../context/ToastContext'
@@ -18,6 +18,10 @@ import { BookStatusBadge } from './BookStatusBadge'
 import { GeneratedCover } from './GeneratedCover'
 import { useBookActions } from '../../hooks/useBookActions'
 import { styles, type ViewMode } from './shared'
+import { useDownload } from '../../context/DownloadContext'
+import { OfflineStateBadge } from './OfflineStateBadge'
+import { downloadPercent, offlineStateFor } from '../../lib/offlineState'
+import { listStoredOriginalIds } from '../../lib/originalFileCache'
 
 /**
  * The reader's books — all of them, in one list.
@@ -69,6 +73,55 @@ export function BookList({
   const numColumns = viewMode === 'grid' ? Math.max(2, Math.floor(width / 130)) : 1
 
   const { showSavedActions, showUploadActions } = useBookActions()
+  // Where each book actually is. The library downloads itself now, and until
+  // this arrived nothing on the shelf admitted it — the reader could not tell
+  // what was on the phone from what still needed a connection.
+  const { downloads, cachedUserBooks, startUserBookDownload } = useDownload()
+
+  // Which uploads have their original file here. One directory listing for the
+  // whole shelf, refreshed when the cache set changes — asking per row would be
+  // a filesystem probe per row, and guessing from `isPdf` would be reasoning in
+  // a circle: that flag says the book HAS an original, never that we hold it.
+  const [storedOriginals, setStoredOriginals] = useState<ReadonlySet<string>>(new Set())
+  useEffect(() => {
+    let cancelled = false
+    listStoredOriginalIds()
+      .then(ids => { if (!cancelled) setStoredOriginals(ids) })
+      .catch(() => { /* an unreadable directory just means no badge upgrade */ })
+    return () => { cancelled = true }
+  }, [cachedUserBooks])
+
+  /** The row's own answer, and the tap that changes it. Uploads only: a
+   *  catalogue edition's download needs a payload this list does not carry, and
+   *  inventing a second path to it here would be the duplication this slice is
+   *  meant to remove. */
+  const offlineFor = (e: LibraryEntry) => {
+    if (e.kind !== 'upload') return null
+    const id = e.book.id
+    const dl = downloads.get(id)
+    const meta = cachedUserBooks.find(b => b.bookId === id)
+    const state = offlineStateFor({
+      download: dl ? { status: dl.status, downloadedChapters: dl.downloadedChapters, totalChapters: dl.totalChapters } : null,
+      cached: meta ? { cachedChapters: meta.cachedChapters, totalChapters: meta.totalChapters } : null,
+      needsOriginal: meta?.isPdf === true,
+      hasOriginal: storedOriginals.has(id),
+    })
+    const ready = e.book.status.toLowerCase() === 'ready'
+    return {
+      state,
+      percent: dl ? downloadPercent(dl) : null,
+      onDownload: ready && (state === 'in-cloud' || state === 'partial')
+        ? async () => {
+            try {
+              const detail = await userBooksApi.getUserBook(id)
+              await startUserBookDownload(detail)
+            } catch {
+              showToast({ message: "Couldn't start the download. Try again.", variant: 'error' })
+            }
+          }
+        : undefined,
+    }
+  }
   const [collectionTarget, setCollectionTarget] = useState<LibraryEntry | null>(null)
   // Same reason as everywhere else this sheet appears — see useSheetMount.
   const collectionSheetMounted = useSheetMount(!!collectionTarget)
@@ -226,6 +279,21 @@ export function BookList({
                 {t('library.lastRead')} {formatTimeAgo(lastRead)}
               </Text>
             )}
+
+            {/* Where the book is, and the tap that changes it — on the shelf,
+                not three taps inside the book. The original objection to the
+                old design was exactly that you had to go in to find this. */}
+            {(() => {
+              const offline = offlineFor(e)
+              if (!offline || isFailed) return null
+              return (
+                <OfflineStateBadge
+                  state={offline.state}
+                  percent={offline.percent}
+                  onDownload={offline.onDownload}
+                />
+              )
+            })()}
 
             {continueSlug ? (
               <TouchableOpacity
