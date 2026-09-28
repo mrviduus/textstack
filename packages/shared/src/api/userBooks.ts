@@ -34,6 +34,10 @@ export interface UserBookDetailResponse {
   /** True when the original upload is a PDF that can be rendered in the opt-in
    *  "Original layout" view. Absent on older payloads → false. */
   hasOriginalPdf?: boolean
+  /** Size of the original file the device would download. The download button
+   *  shows it, and the ask-before-mobile-data rule reads it. Null when the book
+   *  has no stored original; absent on older payloads. */
+  originalFileBytes?: number | null
   /** LLM metadata enrichment lifecycle (genre/year/description generation).
    *  "NotStarted" | "Pending" | "Running" | "Completed" | "Failed".
    *  Absent on older payloads → treat as no enrichment in flight. */

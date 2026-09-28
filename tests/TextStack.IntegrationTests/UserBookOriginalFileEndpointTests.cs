@@ -7,13 +7,14 @@ using Npgsql;
 namespace TextStack.IntegrationTests;
 
 /// <summary>
-/// GET /me/books/{id}/file — the range-capable original-PDF stream backing the
-/// reader's "Original layout" view. PDF.js issues Range requests, so the endpoint
-/// must serve 206 Partial Content for ranges and advertise Accept-Ranges: bytes on
-/// a full request. Owner-scoped; 404 for non-owner / no-PDF-original.
+/// GET /me/books/{id}/file — the range-capable original-upload stream. It backs the
+/// web reader's "Original layout" view (PDF.js issues Range requests, so the endpoint
+/// must serve 206 Partial Content for ranges and advertise Accept-Ranges: bytes on a
+/// full request) and the mobile reader's offline copy of the file. Serves any stored
+/// format with a matching content type; owner-scoped, 404 for non-owner.
 ///
-/// The upload path stores the UserBookFile (Format=Pdf) synchronously, so /file is
-/// serviceable immediately — no need to wait for the worker to finish extraction.
+/// The upload path stores the UserBookFile synchronously, so /file is serviceable
+/// immediately — no need to wait for the worker to finish extraction.
 /// </summary>
 public class UserBookOriginalFileEndpointTests
     : IClassFixture<LiveApiFixture>, IClassFixture<AuthenticatedApiFixture>
@@ -29,13 +30,17 @@ public class UserBookOriginalFileEndpointTests
 
     // Minimal .pdf payload — the endpoint only streams bytes; validity is irrelevant.
     // Padded well past 1 KiB so a bytes=0-1023 range returns a full 1024-byte slice.
+    // The startxref/%%EOF tail is not decoration: PdfUploadSanity rejects a PDF
+    // without it at upload, which used to make every PDF case here skip silently.
     private static byte[] SamplePdfBytes()
     {
         var header = Encoding.ASCII.GetBytes("%PDF-1.4\n% test original layout fixture\n");
+        var trailer = Encoding.ASCII.GetBytes("\nstartxref\n0\n%%EOF\n");
         var body = new byte[4096];
         Array.Copy(header, body, header.Length);
-        for (var i = header.Length; i < body.Length; i++)
+        for (var i = header.Length; i < body.Length - trailer.Length; i++)
             body[i] = (byte)('A' + (i % 26));
+        Array.Copy(trailer, 0, body, body.Length - trailer.Length, trailer.Length);
         return body;
     }
 
@@ -43,7 +48,7 @@ public class UserBookOriginalFileEndpointTests
     private static byte[] SampleEpubBytes()
     {
         // "PK" zip magic so it looks vaguely like an epub container; content is
-        // irrelevant to the /file endpoint, which filters on Format==Pdf.
+        // irrelevant to the /file endpoint, which only streams bytes.
         var b = new byte[2048];
         b[0] = (byte)'P';
         b[1] = (byte)'K';
@@ -125,11 +130,13 @@ public class UserBookOriginalFileEndpointTests
     }
 
     [Fact]
-    public async Task GetOriginalFile_ClipWithNoPdfOriginal_Returns404()
+    public async Task GetOriginalFile_HtmlClip_Returns200WithOctetStream()
     {
         Assert.SkipUnless(_auth.IsAuthenticated, "test auth unavailable");
 
-        // A clip is an HTML UserBook with no PDF original → /file must 404.
+        // A clip stores its article HTML as a Format=Html UserBookFile. With the
+        // format filter gone the owner can fetch it — but as octet-stream, never
+        // text/html: user HTML executing on the API origin would be self-XSS.
         var seed = _auth.CreateRequest(HttpMethod.Post, "/me/books/clip");
         seed.Content = JsonContent.Create(new
         {
@@ -144,7 +151,8 @@ public class UserBookOriginalFileEndpointTests
 
         var request = _auth.CreateRequest(HttpMethod.Get, $"/me/books/{clip!.UserBookId}/file");
         var response = await _auth.Client.SendAsync(request, TestContext.Current.CancellationToken);
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("application/octet-stream", response.Content.Headers.ContentType?.MediaType);
     }
 
     [Fact]
@@ -227,18 +235,22 @@ public class UserBookOriginalFileEndpointTests
     }
 
     [Fact]
-    public async Task GetOriginalFile_EpubFormatBook_Returns404()
+    public async Task GetOriginalFile_EpubUpload_Returns200WithEpubContentType()
     {
         Assert.SkipUnless(_auth.IsAuthenticated, "test auth unavailable");
 
-        // A book whose stored original is EPUB (Format != Pdf) has no "Original
-        // layout" — the Format==Pdf filter must exclude it → 404.
+        // Was 404 while the endpoint filtered Format==Pdf. The mobile reader stores
+        // the original on the device, so every format must be fetchable — nothing
+        // renders an original EPUB yet, this only stops being the thing in the way.
         var bookId = await UploadEpubAsync();
         Assert.SkipWhen(bookId is null, "epub upload unavailable");
 
         var request = _auth.CreateRequest(HttpMethod.Get, $"/me/books/{bookId}/file");
         var response = await _auth.Client.SendAsync(request, TestContext.Current.CancellationToken);
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("application/epub+zip", response.Content.Headers.ContentType?.MediaType);
+        Assert.Equal(2048, response.Content.Headers.ContentLength);
     }
 
     [Fact]
@@ -299,5 +311,66 @@ public class UserBookOriginalFileEndpointTests
         Assert.Equal(HttpStatusCode.NotFound, afterResp.StatusCode);
     }
 
+    [Fact]
+    public async Task GetBook_WithOriginalUpload_ReturnsOriginalFileBytes()
+    {
+        Assert.SkipUnless(_auth.IsAuthenticated, "test auth unavailable");
+
+        // The detail payload said whether an original exists but not how big it is,
+        // so the mobile download button could not name the cost and the
+        // ask-before-mobile-data rule had to assume every file was large.
+        var bookId = await UploadPdfAsync();
+        Assert.SkipWhen(bookId is null, "pdf upload unavailable");
+
+        var request = _auth.CreateRequest(HttpMethod.Get, $"/me/books/{bookId}");
+        var response = await _auth.Client.SendAsync(request, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var detail = await response.Content.ReadFromJsonAsync<DetailResponse>(
+            cancellationToken: TestContext.Current.CancellationToken);
+        Assert.True(detail!.HasOriginalPdf);
+        // Exactly the fixture's length — and exactly what /file streams.
+        Assert.Equal(SamplePdfBytes().Length, detail.OriginalFileBytes);
+    }
+
+    [Fact]
+    public async Task GetBook_WithNoStoredOriginal_ReturnsNullOriginalFileBytes()
+    {
+        Assert.SkipUnless(_auth.IsAuthenticated, "test auth unavailable");
+        Assert.SkipWhen(DbConn is null, "TEST_DB_CONNECTION not set");
+        var ct = TestContext.Current.CancellationToken;
+
+        // Every book created through the API gets a UserBookFile, so "no original"
+        // is only reachable by removing the row — same DB-driven approach as the
+        // takedown case above. It is a real state: a purge or a failed save.
+        var bookId = await UploadPdfAsync();
+        Assert.SkipWhen(bookId is null, "pdf upload unavailable");
+
+        await using (var conn = new NpgsqlConnection(DbConn))
+        {
+            await conn.OpenAsync(ct);
+            // The ingestion job FKs the file row, so it goes first.
+            await using var jobs = new NpgsqlCommand(
+                "DELETE FROM user_ingestion_jobs WHERE user_book_id = @id", conn);
+            jobs.Parameters.AddWithValue("id", bookId!.Value);
+            await jobs.ExecuteNonQueryAsync(ct);
+
+            await using var files = new NpgsqlCommand(
+                "DELETE FROM user_book_files WHERE user_book_id = @id", conn);
+            files.Parameters.AddWithValue("id", bookId.Value);
+            Assert.Equal(1, await files.ExecuteNonQueryAsync(ct));
+        }
+
+        var request = _auth.CreateRequest(HttpMethod.Get, $"/me/books/{bookId}");
+        var response = await _auth.Client.SendAsync(request, ct);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var detail = await response.Content.ReadFromJsonAsync<DetailResponse>(cancellationToken: ct);
+        Assert.False(detail!.HasOriginalPdf);
+        Assert.Null(detail.OriginalFileBytes);
+    }
+
     private record UploadResponse(Guid UserBookId, Guid JobId, string Status);
+
+    private record DetailResponse(bool HasOriginalPdf, long? OriginalFileBytes);
 }

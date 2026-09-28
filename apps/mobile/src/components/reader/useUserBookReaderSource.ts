@@ -7,6 +7,7 @@ import { API_URL } from '../../lib/api'
 import { getUserBookLocalProgress, saveUserBookLocalProgress } from '../../lib/progressStorage'
 import { getCachedUserChapter, getCachedUserBookMeta, listCachedUserChapters } from '../../lib/offlineDb'
 import { userBookChapterSlug } from '../../lib/userBookChapters'
+import { getCachedOriginalUri } from '../../lib/originalFileCache'
 import { reflowWritesEnabled } from '../../lib/readerWriteMode'
 import {
   pdfFlushDecision, shouldFlushOnClose, PDF_FLUSH_DEBOUNCE_MS,
@@ -65,7 +66,19 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
   // sourceStartPage per chapter drives the open page when a chapter is chosen.
   const [hasOriginalPdf, setHasOriginalPdf] = useState(false)
   /**
-   * True while a PDF upload is being read offline, as its extracted text.
+   * The downloaded original on this device, as a `file://` URI, or null.
+   *
+   * Preferred over the network URL whenever it exists — online too, because a
+   * file already on disk opens faster than a Range stream and keeps the offline
+   * path exercised rather than reserved for emergencies.
+   */
+  const [localOriginalUri, setLocalOriginalUri] = useState<string | null>(null)
+  /**
+   * True while a PDF upload is being read offline, as its extracted text —
+   * which now happens ONLY when the original was never downloaded to this
+   * device (a book cached before originals existed, or a file that failed to
+   * download). With the file present the reader stays in Original layout and
+   * this stays false.
    *
    * It exists to STOP the server progress write. The position such a session
    * produces is a chapter-space one (`scroll:<slug>:<offset>`), while the book's
@@ -159,11 +172,25 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
       console.warn('Failed to load user-book bookmarks:', e)
     })
     setChaptersLoading(true)
-    userBooksApi.getUserBook(bookId).then(b => {
+    let cancelled = false
+    userBooksApi.getUserBook(bookId).then(async b => {
       bookTitleRef.current = b.title || null
       setBookTitle(b.title || null)
-      setHasOriginalPdf(b.hasOriginalPdf === true)
       offlineReflowOfPdfRef.current = false
+      // Online, but read from disk if the reader downloaded it: faster to open
+      // than a Range stream, and it keeps this path in daily use.
+      //
+      // Awaited BEFORE `hasOriginalPdf` is published, not resolved alongside
+      // it. Publishing first and filling the URI in afterwards builds the
+      // viewer twice — once against the streaming URL (a token fetch and a
+      // Range stream, both wasted) and again when the file arrives, with the
+      // resume path running a second time.
+      const localOriginal = b.hasOriginalPdf === true
+        ? await getCachedOriginalUri(bookId, 'pdf').catch(() => null)
+        : null
+      if (cancelled) return
+      setLocalOriginalUri(localOriginal)
+      setHasOriginalPdf(b.hasOriginalPdf === true)
       const pageBySlug: Record<string, number> = {}
       const mapped: ReaderChapterMeta[] = b.chapters.map(ch => {
         const slug = userBookChapterSlug(ch)
@@ -195,11 +222,15 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
         if (!meta) return
         bookTitleRef.current = meta.title || null
         setBookTitle(meta.title || null)
-        // False whatever the upload was. A PDF's Original layout streams the
-        // file with Range requests and a Bearer token (ADR-012) — there is no
-        // offline form of it, so offline the book reads as its extracted text.
-        setHasOriginalPdf(false)
-        offlineReflowOfPdfRef.current = meta.isPdf
+        // The original, if this device has it. When it does, an offline PDF
+        // opens in the SAME Original layout as online — same coordinate space,
+        // so nothing has to be suppressed and no images go missing. When it
+        // does not, the old substitution still applies: extracted text, and the
+        // server write held back because the two positions disagree.
+        const localOriginal = meta.isPdf ? await getCachedOriginalUri(bookId, 'pdf') : null
+        setLocalOriginalUri(localOriginal)
+        setHasOriginalPdf(Boolean(localOriginal))
+        offlineReflowOfPdfRef.current = meta.isPdf && !localOriginal
         const mapped: ReaderChapterMeta[] = cachedChapters.map((ch, idx) => ({
           slug: ch.chapterSlug,
           title: ch.title,
@@ -213,7 +244,8 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
       } catch (cacheErr) {
         console.warn('Offline user-book meta read failed:', cacheErr)
       }
-    }).finally(() => { setChaptersLoading(false) })
+    }).finally(() => { if (!cancelled) setChaptersLoading(false) })
+    return () => { cancelled = true }
   }, [bookId])
 
   const persist = useCallback((snap: ProgressSnapshot) => {
@@ -365,7 +397,21 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
     setPdfResumePage(null)
     userBooksApi.getUserBookProgress(bookId)
       .then(p => { if (!cancelled) setPdfResumePage(parsePdfPageLocator(p?.locator)) })
-      .catch(() => { /* offline → falls back to chapter page / page 1 */ })
+      .catch(async () => {
+        // Offline. This used to fall through to page 1, which was survivable
+        // only because an offline PDF was not opened in Original layout at all
+        // — the reflow reader has its own local fallback in `loadPosition`.
+        // Now that a downloaded PDF opens as itself, reaching page 1 would mean
+        // the headline case of the feature (read on a plane, close, reopen)
+        // loses the place it kept before. `writePdfProgress` has been storing
+        // the page locally all along; nothing had ever read it back.
+        try {
+          const local = await getUserBookLocalProgress(bookId)
+          if (!cancelled && typeof local?.page === 'number' && local.page >= 1) {
+            setPdfResumePage(local.page)
+          }
+        } catch { /* no local record either → page 1, as before */ }
+      })
       .finally(() => { if (!cancelled) setPdfResumeReady(true) })
     return () => { cancelled = true }
   }, [hasOriginalPdf, bookId])
@@ -566,7 +612,11 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
     // ADR-012 S4b/S4c — render the ORIGINAL PDF pixel-perfect when the upload
     // has one, unless a corrupt-PDF fallback dropped us into reflow.
     original: !reflowWrites,
-    originalFileUrl: hasOriginalPdf && bookId ? userBooksApi.getUserBookFileUrl(bookId, API_URL) : null,
+    // The downloaded file when there is one, the streaming URL otherwise. The
+    // shell tells them apart by scheme: a `file://` needs no Bearer.
+    originalFileUrl: hasOriginalPdf && bookId
+      ? (localOriginalUri ?? userBooksApi.getUserBookFileUrl(bookId, API_URL))
+      : null,
     originalInitialPage: sourceStartPageBySlugRef.current[chapterSlug] ?? null,
     originalResumePage: pdfResumePage,
     originalResumeReady: pdfResumeReady,

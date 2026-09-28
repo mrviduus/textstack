@@ -62,7 +62,14 @@ public record UserBookDetailDto(
     // True when the book has a stored PDF original → enables the reader's "Original layout" view.
     bool HasOriginalPdf,
     // Visible enrichment lifecycle: NotStarted|Pending|Running|Completed|Failed (detail-only).
-    string MetadataEnrichmentStatus
+    string MetadataEnrichmentStatus,
+    /// <summary>
+    /// Size in bytes of what <c>GET /me/books/{id}/file</c> will stream (the newest
+    /// stored original, any format), or null when the book has none. The mobile
+    /// download button shows it, and the "ask before spending mobile data" rule
+    /// needs it — without a size every file has to be assumed large.
+    /// </summary>
+    long? OriginalFileBytes = null
 );
 
 public record UserChapterSummaryDto(

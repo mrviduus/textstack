@@ -3,6 +3,7 @@ import { View, Text, ScrollView, StyleSheet, TouchableOpacity, ActivityIndicator
 import { Image } from 'expo-image'
 import { useFocusEffect, useLocalSearchParams, useRouter, Stack } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
+import NetInfo from '@react-native-community/netinfo'
 import { userBooksApi, getStorageUrl, storedBookPercent, formatBookPercent, resumeChapterSlug, isOfflineError, plural } from '@textstack/shared'
 import type { UserBookDetailResponse } from '@textstack/shared'
 import { enrichUserBook } from '../../src/lib/api'
@@ -17,6 +18,8 @@ import { EmptyState } from '../../src/components/ui/EmptyState'
 import { OfflineBanner } from '../../src/components/ui/OfflineBanner'
 import { downloadUserBookEpub } from '../../src/lib/exportEpub'
 import { cachedUserBookDetail } from '../../src/lib/cachedUserBookDetail'
+import { getCachedOriginalUri } from '../../src/lib/originalFileCache'
+import { formatBytes, shouldConfirmOnCellular } from '../../src/lib/originalFilePolicy'
 import { getCachedUserBookMeta, listCachedUserChapters, isUserBookFullyCached } from '../../src/lib/offlineDb'
 import { getUserBookLocalProgress } from '../../src/lib/progressStorage'
 import { userBookChapterSlug } from '../../src/lib/userBookChapters'
@@ -51,8 +54,11 @@ async function rehydrateFromCache(bookId: string): Promise<{
       getUserBookLocalProgress(bookId),
     ])
     if (chapters.length === 0) return null
+    // Whether the Original layout is available offline is a question about the
+    // filesystem, which the pure rebuilder cannot ask.
+    const storedOriginal = meta.isPdf ? await getCachedOriginalUri(bookId, 'pdf') : null
     return {
-      book: cachedUserBookDetail(meta, chapters),
+      book: cachedUserBookDetail(meta, chapters, storedOriginal !== null),
       isPdf: meta.isPdf,
       progress: local
         ? {
@@ -68,6 +74,48 @@ async function rehydrateFromCache(bookId: string): Promise<{
     console.warn('Offline user-book rehydrate failed:', err)
     return null
   }
+}
+
+
+/**
+ * One question before a large download on a metered connection.
+ *
+ * Not a refusal: blocking mobile data outright is what infuriates someone
+ * deliberately grabbing a book before a flight. The connection type is read at
+ * the moment of the tap rather than tracked — that is the only moment it
+ * matters, and `useOnline` deliberately exposes reachability, not the kind of
+ * link. Resolves true when the download should proceed.
+ */
+async function confirmDownloadOnCellular(book: UserBookDetailResponse): Promise<boolean> {
+  const bytes = typeof book.originalFileBytes === 'number' ? book.originalFileBytes : null
+  // Only an original makes a download big enough to be worth asking about;
+  // chapters are text.
+  if (book.hasOriginalPdf !== true) return true
+
+  let cellular = false
+  try {
+    const state = await NetInfo.fetch()
+    cellular = state.type === 'cellular'
+  } catch {
+    // Unknown connection: do not invent a prompt for a link we cannot see.
+    return true
+  }
+  if (!shouldConfirmOnCellular(bytes, cellular)) return true
+
+  const size = formatBytes(bytes)
+  return new Promise<boolean>(resolve => {
+    Alert.alert(
+      'Download over mobile data?',
+      size
+        ? `This book's original pages are ${size}.`
+        : "This book's original pages may be large.",
+      [
+        { text: 'Not now', style: 'cancel', onPress: () => resolve(false) },
+        { text: 'Download', onPress: () => resolve(true) },
+      ],
+      { cancelable: true, onDismiss: () => resolve(false) },
+    )
+  })
 }
 
 export default function UserBookDetailScreen() {
@@ -263,6 +311,13 @@ export default function UserBookDetailScreen() {
 
   // Download state for this book, if one has been started this session.
   const dl = book ? downloads.get(book.id) : undefined
+  /** What the button is about to spend, when the server said — and only for a
+   *  book whose original is actually fetched. The server reports the size of
+   *  the newest stored file of ANY format, so an EPUB upload or an HTML clip
+   *  has one too, while the download takes only their chapter text. */
+  const downloadSize = book?.hasOriginalPdf === true
+    ? formatBytes(typeof book.originalFileBytes === 'number' ? book.originalFileBytes : null)
+    : null
   const isDownloadingBook = dl?.status === 'downloading'
   const downloadPct = dl && dl.totalChapters > 0
     ? Math.round((dl.downloadedChapters / dl.totalChapters) * 100)
@@ -469,7 +524,10 @@ export default function UserBookDetailScreen() {
         {offlineMode && (
           <OfflineBanner
             message={
-              cachedIsPdf
+              // A PDF whose original is stored offline opens as itself, so the
+              // old wording ("the downloaded text") now contradicts the reader
+              // one tap away. Only a PDF WITHOUT its file still reads as text.
+              cachedIsPdf && book?.hasOriginalPdf !== true
                 ? "You're offline — reading the downloaded text of this PDF."
                 : "You're offline — reading the downloaded copy."
             }
@@ -653,6 +711,7 @@ export default function UserBookDetailScreen() {
               <TouchableOpacity
                 style={[styles.secondaryBtn, { borderColor: colors.border }]}
                 onPress={async () => {
+                  if (!(await confirmDownloadOnCellular(book))) return
                   await startUserBookDownload(book)
                   setCached(await isUserBookFullyCached(book.id).catch(() => false))
                 }}
@@ -660,16 +719,19 @@ export default function UserBookDetailScreen() {
                 accessibilityLabel="Download for offline reading"
               >
                 <Ionicons name="cloud-download-outline" size={18} color={colors.text} />
-                <Text style={[styles.secondaryBtnText, { color: colors.text }]}>Download for Offline</Text>
+                <Text style={[styles.secondaryBtnText, { color: colors.text }]}>
+                  {downloadSize ? `Download for Offline · ${downloadSize}` : 'Download for Offline'}
+                </Text>
               </TouchableOpacity>
             )}
 
-            {/* Said before the download, not discovered after it: the Original
-                layout streams the PDF from the server (ADR-012), so what goes on
-                the device is the extracted text. */}
+            {/* Said before the download, not discovered after it. It used to
+                warn that an offline PDF opens as text; the download now takes
+                the original file too, so the promise is the opposite one — and
+                the honest part to state up front is the size. */}
             {book.hasOriginalPdf === true && !offlineMode && (
               <Text style={[styles.offlineNote, { color: colors.textSecondary }]}>
-                Offline, this PDF opens as text — the original pages need a connection.
+                Downloads the original pages, so this book looks the same offline.
               </Text>
             )}
 
