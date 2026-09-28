@@ -59,10 +59,12 @@ allowBuilds:
 # pair. The web suite failed 26 tests with "Invalid hook call … more than one
 # copy of React".
 #
-# So one React for the workspace. React Native 0.83.2 declares
-# `react: ^19.2.0`, which 19.2.8 satisfies; Expo's exact pin is what
-# `expo install` writes, not a floor the runtime enforces. Re-verified with a
-# full Metro bundle, which is the check that actually exercises it.
+# So one React for the workspace, and it tracks whatever the current Expo SDK
+# pins — 19.2.3 for SDK 57. That is the version `expo install` writes, not a
+# floor the runtime enforces (React Native 0.86.3 declares `react: ^19.2.0`), but
+# matching it keeps `expo install --check` quiet and costs the web nothing at
+# patch level. Re-verified with a full Metro bundle, which is the check that
+# actually exercises it.
 catalog:
   '@playwright/test': ^1.63.0
   '@types/react': ^19.2.14
@@ -71,8 +73,8 @@ catalog:
   '@vitest/coverage-v8': ^4.1.11
   jsdom: ^28.1.0
   pdfjs-dist: 4.10.38
-  react: 19.2.0
-  react-dom: 19.2.0
+  react: 19.2.3
+  react-dom: 19.2.3
   react-router-dom: ^7.15.1
   typescript: ~5.9.2
   vite: ^6.4.2

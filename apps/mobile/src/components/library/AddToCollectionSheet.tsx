@@ -147,7 +147,7 @@ export function AddToCollectionSheet({ visible, bookId, bookType, onClose, onAdd
 }
 
 const styles = StyleSheet.create({
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.4)' },
+  backdrop: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.4)' },
   sheet: {
     position: 'absolute',
     bottom: 0,

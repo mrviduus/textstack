@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { Redirect, Tabs } from 'expo-router'
-import { Platform, Animated } from 'react-native'
+import { Platform, Animated, type ColorValue } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
 import { useTheme } from '../../src/context/ThemeContext'
@@ -14,7 +14,11 @@ import { typography } from '../../src/theme/typography'
 import { UploadTabButton } from '../../src/components/UploadTabButton'
 
 function AnimatedTabIcon({ name, size, color, focused }: {
-  name: keyof typeof Ionicons.glyphMap; size: number; color: string; focused: boolean
+  // `ColorValue`, not `string`: React Native 0.86 widened the colour the tab bar
+  // hands its icon renderer, and it can now be a platform-opaque value (a
+  // PlatformColor / DynamicColorIOS token) rather than a CSS string. Ionicons
+  // takes the same union, so this is a widening and nothing else.
+  name: keyof typeof Ionicons.glyphMap; size: number; color: ColorValue; focused: boolean
 }) {
   const scale = useRef(new Animated.Value(1)).current
   useEffect(() => {

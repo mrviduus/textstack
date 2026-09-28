@@ -454,7 +454,11 @@ Also: the windows are 1–5 minutes, so **two overlapping runs throttle each oth
 
 ### Mobile App Architecture
 
-**Framework**: Expo 55, React Native 0.83.2, Expo Router (file-based routing).
+**Framework**: Expo 57, React Native 0.86.3, Expo Router (file-based routing). Upgraded 55 → 57 in one
+step on 2026-09-28: SDK 56 and 57 bundle the *same* third-party native modules, so stopping at 56
+would have bought a second upgrade for no reduction in risk. TypeScript is deliberately held at the
+workspace catalog's 5.9 and listed in `expo.install.exclude` — the SDK asks for 6.0, which is a major
+across web, admin and packages too and belongs in its own change.
 
 **Pages** (`apps/mobile/app/`): 27 screens — tabs (home, search, library, profile), auth, book detail, reader, highlights + review, stats, vocabulary + review, user book upload/read.
 
