@@ -5,7 +5,7 @@ import { userBooksApi, isOfflineError, parseScrollLocator, buildUserBookProgress
 import type { UserBookChapterDto, BookmarkDto, TextPosition } from '@textstack/shared'
 import { API_URL } from '../../lib/api'
 import { getUserBookLocalProgress, saveUserBookLocalProgress } from '../../lib/progressStorage'
-import { getCachedUserChapter, getCachedUserBookMeta, listCachedUserChapters } from '../../lib/offlineDb'
+import { getCachedUserChapter, refreshCachedUserChapter, getCachedUserBookMeta, listCachedUserChapters } from '../../lib/offlineDb'
 import { userBookChapterSlug } from '../../lib/userBookChapters'
 import { getCachedOriginalUri, touchOriginal } from '../../lib/originalFileCache'
 import { reflowWritesEnabled } from '../../lib/readerWriteMode'
@@ -104,13 +104,25 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
   useEffect(() => { userBookIdRef.current = bookId || null }, [bookId])
 
   /**
-   * Load the current chapter — network first, then the offline cache.
+   * Load the current chapter — **device first**, network second.
    *
-   * The cache read is what makes a downloaded upload readable on a plane. Note
-   * the error it reports when BOTH fail: this used to say `'notfound'`
-   * unconditionally, so a reader with no signal was told their book did not
-   * exist. `isOfflineError` separates "never reached the server" from "the
-   * server says there is no such chapter", which are different screens.
+   * The order was the other way round, with the cache as the fallback for a
+   * failed request. That works on a plane, where `fetch` rejects immediately,
+   * and fails on every network that is present but useless: a captive portal, a
+   * tunnel, a hotel Wi-Fi that opens the socket and never answers. There the
+   * reader waited out the whole timeout in front of a book the app had already
+   * downloaded in full — which is the opposite of the promise the automatic
+   * download makes.
+   *
+   * When the cache answers, the request still goes out, and its only job is to
+   * refresh the stored copy for the next open. Replacing the document under
+   * someone mid-chapter would re-run position restoration on a page they are
+   * already reading.
+   *
+   * The error when there is neither: `isOfflineError` separates "never reached
+   * the server" from "the server says there is no such chapter", which are
+   * different screens. Saying `notfound` unconditionally once told readers with
+   * no signal that their book did not exist.
    */
   useEffect(() => {
     if (!bookId || !chapterSlug) return
@@ -118,18 +130,7 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
     setLoading(true)
     setChapterError(null)
     ;(async () => {
-      let onlineError: unknown = null
-      try {
-        const ch = await userBooksApi.getUserBookChapter(bookId, chapterSlug)
-        if (cancelled) return
-        setChapter(ch)
-        wordCountRef.current = ch.wordCount || 0
-        setLoading(false)
-        return
-      } catch (e) {
-        onlineError = e
-      }
-
+      let served = false
       try {
         const cached = await getCachedUserChapter(bookId, chapterSlug)
         if (cancelled) return
@@ -146,16 +147,30 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
           })
           wordCountRef.current = cached.wordCount || 0
           setLoading(false)
-          return
+          served = true
         }
       } catch (cacheErr) {
         if (!cancelled) console.warn('Offline user-book chapter read failed:', cacheErr)
       }
 
-      if (cancelled) return
-      console.warn('Failed to load user book chapter:', onlineError)
-      setChapterError(isOfflineError(onlineError) ? 'offline' : 'notfound')
-      setLoading(false)
+      try {
+        const ch = await userBooksApi.getUserBookChapter(bookId, chapterSlug)
+        if (cancelled) return
+        if (served) {
+          void refreshCachedUserChapter(bookId, ch).catch(() => {})
+          return
+        }
+        setChapter(ch)
+        wordCountRef.current = ch.wordCount || 0
+        setLoading(false)
+      } catch (e) {
+        // Already reading from the device: a failed refresh is not the reader's
+        // problem and must not paint an error over a chapter they can see.
+        if (cancelled || served) return
+        console.warn('Failed to load user book chapter:', e)
+        setChapterError(isOfflineError(e) ? 'offline' : 'notfound')
+        setLoading(false)
+      }
     })()
     return () => { cancelled = true }
   }, [bookId, chapterSlug])

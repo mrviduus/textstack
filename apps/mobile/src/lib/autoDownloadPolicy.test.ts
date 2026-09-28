@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { chooseAutoDownloads, mayAutoDownload, type AutoDownloadCandidate } from './autoDownloadPolicy'
+import { chooseAutoDownloads, chooseOrphanedDownloads, mayAutoDownload, type AutoDownloadCandidate } from './autoDownloadPolicy'
 
 const book = (over: Partial<AutoDownloadCandidate> & { id: string }): AutoDownloadCandidate => ({
   status: 'Ready',
@@ -111,5 +111,28 @@ describe('chooseAutoDownloads — what it must not do', () => {
       new Set(),
     )
     expect(chosen).toEqual(['real'])
+  })
+})
+
+describe('chooseOrphanedDownloads', () => {
+  it('names what is here and not in the account any more', () => {
+    expect(chooseOrphanedDownloads(['kept', 'deleted-elsewhere'], new Set(['kept'])))
+      .toEqual(['deleted-elsewhere'])
+  })
+
+  it('treats an empty account as an empty account', () => {
+    // The reader deleted everything. That is an answer, not an error — the
+    // caller is responsible for never passing this after a failed request.
+    expect(chooseOrphanedDownloads(['a', 'b'], new Set())).toEqual(['a', 'b'])
+  })
+
+  it('reports a book once even when both its rows and its file are local', () => {
+    // The caller feeds it the SQLite ids and the stored-original ids together,
+    // and a downloaded PDF is in both.
+    expect(chooseOrphanedDownloads(['gone', 'gone'], new Set())).toEqual(['gone'])
+  })
+
+  it('leaves everything alone when the account still has it all', () => {
+    expect(chooseOrphanedDownloads(['a', 'b'], new Set(['a', 'b', 'c']))).toEqual([])
   })
 })

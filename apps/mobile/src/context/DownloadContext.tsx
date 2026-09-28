@@ -22,7 +22,7 @@ import {
 } from '../lib/offlineDb'
 import { userBookChapterSlug } from '../lib/userBookChapters'
 import { deleteAllOriginals, deleteOriginal, downloadOriginal, evictToBudget, originalsTotalBytes } from '../lib/originalFileCache'
-import { chooseAutoDownloads, mayAutoDownload } from '../lib/autoDownloadPolicy'
+import { chooseAutoDownloads, chooseOrphanedDownloads, mayAutoDownload } from '../lib/autoDownloadPolicy'
 import { offlineStorageBytes } from '../lib/deviceStorage'
 import { listStoredOriginalIds } from '../lib/originalFileCache'
 import { declineDownload, listDeclinedDownloads, undeclineDownload } from '../lib/declinedDownloads'
@@ -638,6 +638,34 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
             .map(b => b.bookId),
         )
 
+        // Books this device holds that the account no longer has — deleted from
+        // another phone or from the web. Done here rather than on a schedule
+        // because this is the one place that has just asked the server what the
+        // library IS, and the listing succeeded: `Promise.all` above rejects
+        // otherwise, so an empty `books` means empty, not unreachable. That
+        // distinction is the whole safety of this.
+        const orphans = chooseOrphanedDownloads(
+          [...metas.map(m => m.bookId), ...storedOriginals],
+          new Set(books.map(b => b.id)),
+        )
+        for (const id of orphans) {
+          try {
+            await deleteCachedUserBook(id)
+            await deleteOriginal(id, 'pdf')
+            // Not `declineDownload` — the book is gone, so there is nothing to
+            // decline, and an entry for a dead id would sit in that list for the
+            // life of the install.
+            await undeclineDownload(id)
+            forgetDownload(id)
+          } catch (err) {
+            console.warn(`[auto-download] could not remove orphaned ${id}:`, err)
+          }
+        }
+        if (orphans.length > 0) {
+          console.warn(`[auto-download] removed ${orphans.length} download(s) deleted elsewhere`)
+          await refreshCachedBooks()
+        }
+
         // One line on the happy path, so "it ran and found nothing" stays
         // distinguishable from "it never ran" — the exact ambiguity that made
         // the cancellation bug take a device and a database query to find.
@@ -665,7 +693,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     } finally {
       autoRunningRef.current = false
     }
-  }, [autoDownloadAllowed, startUserBookDownload])
+  }, [autoDownloadAllowed, startUserBookDownload, forgetDownload, refreshCachedBooks])
 
   /**
    * Scheduled on the two moments that change the answer — "there is a session
