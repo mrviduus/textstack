@@ -569,57 +569,74 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
    */
   const autoRunningRef = useRef(false)
   const autoCancelledRef = useRef(false)
+  const autoRerunRef = useRef(false)
+  /** Wi-Fi, budget and session, asked fresh. Once before the queue is built and
+   *  again between books: the budget moves as the loop fills it, and a reader
+   *  can walk out of Wi-Fi halfway through a library. */
+  const autoDownloadAllowed = useCallback(async () => {
+    const [net, used] = await Promise.all([NetInfo.fetch(), originalsTotalBytes()])
+    return mayAutoDownload({
+      connectionType: net.type ?? null,
+      hasSession: true,
+      usedBytes: used,
+      budgetBytes: CACHE_BUDGET_BYTES,
+    })
+  }, [])
+
   const runAutoDownload = useCallback(async (isCancelled: () => boolean) => {
-    if (autoRunningRef.current) return
+    // A sweep already running is not a reason to drop this request — the caller
+    // may know something the running sweep does not, which is exactly the case
+    // after an upload. Record the ask; the sweep in flight repeats itself once
+    // it finishes rather than the new book waiting for the next reconnect.
+    if (autoRunningRef.current) {
+      autoRerunRef.current = true
+      return
+    }
     autoRunningRef.current = true
     try {
-      const [net, used] = await Promise.all([NetInfo.fetch(), originalsTotalBytes()])
-      if (!mayAutoDownload({
-        connectionType: net.type ?? null,
-        hasSession: true,
-        usedBytes: used,
-        budgetBytes: CACHE_BUDGET_BYTES,
-      })) return
+      do {
+        autoRerunRef.current = false
+        if (!(await autoDownloadAllowed())) return
 
-      const books = await userBooksApi.getUserBooks()
-      const cached = new Set(
-        (await getAllCachedUserBooks())
-          .filter(b => b.cachedChapters > 0 && b.cachedChapters >= b.totalChapters)
-          .map(b => b.bookId),
-      )
+        // Not paginated, on purpose and with a ceiling in mind: this is the
+        // reader's OWN library, which the server caps at a tier's worth of
+        // uploads, not the 1,498-edition catalogue. If that stops being true
+        // the fix is a page size here, not a second downloader.
+        const books = await userBooksApi.getUserBooks()
+        const cached = new Set(
+          (await getAllCachedUserBooks())
+            .filter(b => b.cachedChapters > 0 && b.cachedChapters >= b.totalChapters)
+            .map(b => b.bookId),
+        )
 
-      // One line on the happy path, so "it ran and found nothing" stays
-      // distinguishable from "it never ran" — the exact ambiguity that made the
-      // cancellation bug above take a device and a database query to find.
-      const queue = chooseAutoDownloads(books, cached)
-      if (__DEV__) console.log(`[auto-download] ${queue.length} of ${books.length} book(s) to fetch`)
+        // One line on the happy path, so "it ran and found nothing" stays
+        // distinguishable from "it never ran" — the exact ambiguity that made
+        // the cancellation bug take a device and a database query to find.
+        const queue = chooseAutoDownloads(books, cached)
+        if (__DEV__) console.log(`[auto-download] ${queue.length} of ${books.length} book(s) to fetch`)
 
-      for (const id of queue) {
-        if (isCancelled()) return
-        // Re-asked between books, not once at the start: the budget moves as
-        // this loop fills it, and a reader can walk out of Wi-Fi mid-library.
-        const [nowNet, nowUsed] = await Promise.all([NetInfo.fetch(), originalsTotalBytes()])
-        if (!mayAutoDownload({
-          connectionType: nowNet.type ?? null,
-          hasSession: true,
-          usedBytes: nowUsed,
-          budgetBytes: CACHE_BUDGET_BYTES,
-        })) return
-
-        try {
-          const detail = await userBooksApi.getUserBook(id)
+        for (const id of queue) {
           if (isCancelled()) return
-          await startUserBookDownload(detail)
-        } catch (err) {
-          // One book failing is not the queue failing. The next may well
-          // succeed, and this one is retried on the next reconnect.
-          console.warn(`[auto-download] ${id} skipped:`, err)
+          if (!(await autoDownloadAllowed())) return
+
+          try {
+            const detail = await userBooksApi.getUserBook(id)
+            if (isCancelled()) return
+            await startUserBookDownload(detail)
+          } catch (err) {
+            // One book failing is not the queue failing. The next may well
+            // succeed, and this one is retried on the next sweep.
+            console.warn(`[auto-download] ${id} skipped:`, err)
+          }
         }
-      }
+        // A restart re-reads the library and re-filters what is already cached,
+        // so nothing is downloaded twice; the cost of repeating is one list
+        // request, which is the right price for not stranding a new book.
+      } while (autoRerunRef.current && !isCancelled())
     } finally {
       autoRunningRef.current = false
     }
-  }, [startUserBookDownload])
+  }, [autoDownloadAllowed, startUserBookDownload])
 
   /**
    * Scheduled on the two moments that change the answer — "there is a session
