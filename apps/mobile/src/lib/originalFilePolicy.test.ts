@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import {
   CELLULAR_WARN_BYTES,
+  chooseEvictions,
   formatBytes,
+  isOutOfSpaceError,
   originalFileName,
   shouldConfirmOnCellular,
 } from './originalFilePolicy'
@@ -56,5 +58,64 @@ describe('formatBytes', () => {
     expect(formatBytes(null)).toBeNull()
     expect(formatBytes(-1)).toBeNull()
     expect(formatBytes(Number.NaN)).toBeNull()
+  })
+})
+
+describe('chooseEvictions', () => {
+  const entry = (bookId: string, bytes: number, lastUsedAt = 0) =>
+    ({ name: `${bookId}.pdf`, bookId, bytes, lastUsedAt })
+
+  it('does nothing while the cache is inside its budget', () => {
+    expect(chooseEvictions([entry('a', 10), entry('b', 10)], 100, new Set())).toEqual([])
+    // Exactly at budget is inside it.
+    expect(chooseEvictions([entry('a', 100)], 100, new Set())).toEqual([])
+  })
+
+  it('evicts oldest first, and stops as soon as it is under budget', () => {
+    const chosen = chooseEvictions(
+      [entry('new', 60, 300), entry('old', 60, 100), entry('mid', 60, 200)],
+      120,
+      new Set(),
+    )
+    expect(chosen.map(e => e.bookId)).toEqual(['old'])
+  })
+
+  it('takes more than one when one is not enough', () => {
+    const chosen = chooseEvictions(
+      [entry('a', 50, 100), entry('b', 50, 200), entry('c', 50, 300)],
+      60,
+      new Set(),
+    )
+    expect(chosen.map(e => e.bookId)).toEqual(['a', 'b'])
+  })
+
+  it('never evicts a protected book, even when it is the oldest', () => {
+    const chosen = chooseEvictions(
+      [entry('reading', 60, 1), entry('other', 60, 999)],
+      60,
+      new Set(['reading']),
+    )
+    expect(chosen.map(e => e.bookId)).toEqual(['other'])
+  })
+
+  it('stays over budget rather than evicting a protected book', () => {
+    // The only thing large enough to help is the one being read.
+    const chosen = chooseEvictions([entry('reading', 500, 1)], 100, new Set(['reading']))
+    expect(chosen).toEqual([])
+  })
+})
+
+describe('isOutOfSpaceError', () => {
+  it('recognises the shapes a full device actually throws', () => {
+    expect(isOutOfSpaceError(new Error('SQLITE_FULL: database or disk is full'))).toBe(true)
+    expect(isOutOfSpaceError(new Error('write ENOSPC: no space left on device'))).toBe(true)
+    expect(isOutOfSpaceError('QuotaExceededError')).toBe(true)
+  })
+
+  it('does not mistake an ordinary failure for one', () => {
+    expect(isOutOfSpaceError(new Error('Network request failed'))).toBe(false)
+    expect(isOutOfSpaceError(new Error('401 Unauthorized'))).toBe(false)
+    expect(isOutOfSpaceError(null)).toBe(false)
+    expect(isOutOfSpaceError(undefined)).toBe(false)
   })
 })

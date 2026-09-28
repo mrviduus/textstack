@@ -1,7 +1,16 @@
 import { Platform } from 'react-native'
 import { isTokenExpiring } from '@textstack/shared'
 import { API_URL, getAccessToken, onUnauthorized } from './api'
-import { ORIGINALS_DIR, PART_SUFFIX, originalFileName, type OriginalFormat } from './originalFilePolicy'
+import AsyncStorage from '@react-native-async-storage/async-storage'
+import {
+  CACHE_BUDGET_BYTES,
+  ORIGINALS_DIR,
+  PART_SUFFIX,
+  chooseEvictions,
+  originalFileName,
+  type CacheEntry,
+  type OriginalFormat,
+} from './originalFilePolicy'
 
 /**
  * The reader's own uploaded file, kept on the device.
@@ -185,6 +194,7 @@ async function downloadOriginalOnce(
     return { status: 'failed' }
   }
 
+  await touchOriginal(bookId)
   return { status: 'downloaded', uri: final.uri, bytes }
 }
 
@@ -212,6 +222,7 @@ export async function deleteOriginal(bookId: string, format: OriginalFormat): Pr
 export async function deleteAllOriginals(): Promise<void> {
   if (Platform.OS === 'web') return
   try {
+    await AsyncStorage.removeItem(LAST_USED_KEY).catch(() => {})
     const dir = originalsDirectory()
     if (dir.exists) dir.delete()
   } catch (err) {
@@ -237,6 +248,95 @@ export async function originalsTotalBytes(): Promise<number> {
     return total
   } catch (err) {
     console.warn('[originals] size scan failed:', err)
+    return 0
+  }
+}
+
+/**
+ * When each stored original was last opened.
+ *
+ * Kept in AsyncStorage rather than on the files themselves. The modern
+ * `expo-file-system` cannot touch an mtime — the trick `EdgeTtsService` uses
+ * server-side — and a file's own timestamp is when it was DOWNLOADED, which
+ * would evict the book someone reads every day in favour of one they grabbed
+ * yesterday and never opened. Adding a column to the SQLite meta was the other
+ * option and is worse: the schema is `CREATE TABLE IF NOT EXISTS` with no
+ * migration path, so a new column silently never appears on an install that
+ * already has the table.
+ */
+const LAST_USED_KEY = 'originals:lastUsed'
+
+async function readLastUsed(): Promise<Record<string, number>> {
+  try {
+    const raw = await AsyncStorage.getItem(LAST_USED_KEY)
+    const parsed = raw ? JSON.parse(raw) : null
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, number>) : {}
+  } catch {
+    // A corrupt index costs eviction order, not correctness — start over.
+    return {}
+  }
+}
+
+/** Record that this book was just opened from disk. Cheap enough to call on
+ *  every open; the map holds one number per downloaded book. */
+export async function touchOriginal(bookId: string): Promise<void> {
+  if (Platform.OS === 'web') return
+  try {
+    const map = await readLastUsed()
+    map[bookId] = Date.now()
+    await AsyncStorage.setItem(LAST_USED_KEY, JSON.stringify(map))
+  } catch (err) {
+    console.warn('[originals] could not record use:', err)
+  }
+}
+
+/**
+ * Delete the least recently opened originals until the cache is under budget.
+ *
+ * `protectedBookIds` is honoured absolutely — see `chooseEvictions`. Returns
+ * the number of bytes freed, which is 0 both when nothing needed doing and when
+ * nothing COULD be done because everything over budget is protected. The caller
+ * must not read 0 as a failure.
+ */
+export async function evictToBudget(
+  protectedBookIds: ReadonlySet<string> = new Set(),
+  budgetBytes: number = CACHE_BUDGET_BYTES,
+): Promise<number> {
+  if (Platform.OS === 'web') return 0
+  try {
+    const dir = originalsDirectory()
+    if (!dir.exists) return 0
+
+    const lastUsed = await readLastUsed()
+    const entries: CacheEntry[] = []
+    for (const item of dir.list()) {
+      const name = item.name
+      if (!name || name.endsWith(PART_SUFFIX)) continue
+      const bytes = (item as { size?: number | null }).size
+      if (typeof bytes !== 'number') continue
+      const bookId = name.replace(/\.(pdf|epub)$/i, '')
+      entries.push({ name, bookId, bytes, lastUsedAt: lastUsed[bookId] ?? 0 })
+    }
+
+    const doomed = chooseEvictions(entries, budgetBytes, protectedBookIds)
+    let freed = 0
+    for (const entry of doomed) {
+      try {
+        const file = new (fs().File)(dir, entry.name)
+        if (file.exists) file.delete()
+        freed += entry.bytes
+        delete lastUsed[entry.bookId]
+      } catch (err) {
+        console.warn(`[originals] could not evict ${entry.name}:`, err)
+      }
+    }
+    if (doomed.length > 0) {
+      await AsyncStorage.setItem(LAST_USED_KEY, JSON.stringify(lastUsed))
+      console.warn(`[originals] evicted ${doomed.length} file(s), ${freed} bytes, to stay under budget`)
+    }
+    return freed
+  } catch (err) {
+    console.warn('[originals] eviction failed:', err)
     return 0
   }
 }
