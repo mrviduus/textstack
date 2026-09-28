@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Offline** — your own books arrive on the device without being asked twice — mobile · [details](docs/changelog-archive/2026-H2.md#2026-09-28-offline-the-library-fetches-itself)
 - **Uploads** — a fresh install was told to create an account to upload, for want of a session nothing had asked for — mobile · [details](docs/changelog-archive/2026-H2.md#2026-09-28-uploads-a-sign-up-wall-that-only-existed-because-nothing-had-asked)
 - **Offline** — the app now has a budget for what it keeps on your phone, and a deleted book stops leaving its file behind — mobile · [details](docs/changelog-archive/2026-H2.md#2026-09-28-offline-a-budget-for-the-phone-and-two-bugs-only-a-device-could-show)
 - **Offline** — a downloaded PDF opens offline as the book, not as text with the figures stripped out — mobile, backend, shared · [details](docs/changelog-archive/2026-H2.md#2026-09-27-offline-the-book-you-downloaded-is-the-book-you-get)

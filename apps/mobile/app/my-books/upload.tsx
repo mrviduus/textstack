@@ -7,6 +7,7 @@ import { userBooksApi, getApiConfig } from '@textstack/shared'
 import { colors } from '../../src/theme/colors'
 import { trackBookUploaded } from '../../src/lib/analytics'
 import { useAuth } from '../../src/context/AuthContext'
+import { useDownload } from '../../src/context/DownloadContext'
 import { capabilitiesFor } from '../../src/lib/capabilities'
 import { SessionGate } from '../../src/components/SessionGate'
 
@@ -26,6 +27,7 @@ export default function UploadRoute() {
 function UploadScreen() {
   const router = useRouter()
   const { user } = useAuth()
+  const { syncOfflineLibrary } = useDownload()
   const { canUpload } = capabilitiesFor(user)
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
@@ -170,6 +172,11 @@ function UploadScreen() {
       if (unmountedRef.current) return
       const format = file.name.split('.').pop()?.toLowerCase() || 'unknown'
       trackBookUploaded({ format, sizeBytes: file.size ?? 0 })
+      // The book the reader just added is the one they are most likely to open
+      // next, so fetch it now rather than waiting for the next reconnect. Not
+      // awaited: the screen closes immediately, the sweep runs behind it, and
+      // it is Wi-Fi-gated and budget-gated like every other automatic fetch.
+      void syncOfflineLibrary()
       router.back()
     } catch (e: any) {
       if (unmountedRef.current) return

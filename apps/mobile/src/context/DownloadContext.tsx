@@ -21,9 +21,12 @@ import {
   type CachedUserBookMeta,
 } from '../lib/offlineDb'
 import { userBookChapterSlug } from '../lib/userBookChapters'
-import { deleteAllOriginals, deleteOriginal, downloadOriginal, evictToBudget } from '../lib/originalFileCache'
-import { isOutOfSpaceError } from '../lib/originalFilePolicy'
+import { deleteAllOriginals, deleteOriginal, downloadOriginal, evictToBudget, originalsTotalBytes } from '../lib/originalFileCache'
+import { chooseAutoDownloads, mayAutoDownload } from '../lib/autoDownloadPolicy'
+import NetInfo from '@react-native-community/netinfo'
+import { CACHE_BUDGET_BYTES, isOutOfSpaceError } from '../lib/originalFilePolicy'
 import { useAuth } from './AuthContext'
+import { useReconnectCount } from '../hooks/useOnline'
 
 export type DownloadStatus = 'idle' | 'downloading' | 'complete' | 'error' | 'cancelled'
 
@@ -80,6 +83,8 @@ interface DownloadContextValue {
   isDownloading: (id: string) => boolean
   isCached: (editionId: string) => Promise<boolean>
   isUserBookCached: (bookId: string) => Promise<boolean>
+  /** Fetch anything of the reader's own that is not on the device yet. */
+  syncOfflineLibrary: () => Promise<void>
   refreshCachedBooks: () => Promise<void>
 }
 
@@ -96,6 +101,7 @@ const DownloadContext = createContext<DownloadContextValue>({
   isDownloading: () => false,
   isCached: async () => false,
   isUserBookCached: async () => false,
+  syncOfflineLibrary: async () => {},
   refreshCachedBooks: async () => {},
 })
 
@@ -114,6 +120,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
    *  screen is not kept. */
   const originalFailedRef = useRef<Set<string>>(new Set())
   const { isAuthenticated } = useAuth()
+  const reconnectCount = useReconnectCount()
   const wasAuthenticatedRef = useRef(isAuthenticated)
 
   // When the auth state flips from true → false (explicit sign out OR a
@@ -539,6 +546,118 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     return isUserBookFullyCached(bookId)
   }, [])
 
+  /**
+   * The library fetches itself.
+   *
+   * Offline used to be a feature you had to find: walk into a book, press
+   * "Download for Offline". Someone who uploaded a book to us already said they
+   * want it, and asking again is asking twice — so their own books now arrive
+   * on their own.
+   *
+   * Four rules, each a decision rather than an implementation detail:
+   *
+   * - **Wi-Fi only.** A library of 80 MB uploads over a metered connection is a
+   *   bill nobody agreed to. Manual download still works on any network,
+   *   because it asks first — that is the whole difference.
+   * - **It never evicts.** The budget stops the queue; it does not make room.
+   *   Deleting a book the reader chose to keep, to fit one they never asked
+   *   for, would be the app arguing with them.
+   * - **Their own uploads only.** The catalogue is 1,498 editions and stays a
+   *   deliberate tap.
+   * - **One at a time.** Each download is awaited in turn, so a manual one the
+   *   reader is watching never races a background one for the connection.
+   */
+  const autoRunningRef = useRef(false)
+  const autoCancelledRef = useRef(false)
+  const runAutoDownload = useCallback(async (isCancelled: () => boolean) => {
+    if (autoRunningRef.current) return
+    autoRunningRef.current = true
+    try {
+      const [net, used] = await Promise.all([NetInfo.fetch(), originalsTotalBytes()])
+      if (!mayAutoDownload({
+        connectionType: net.type ?? null,
+        hasSession: true,
+        usedBytes: used,
+        budgetBytes: CACHE_BUDGET_BYTES,
+      })) return
+
+      const books = await userBooksApi.getUserBooks()
+      const cached = new Set(
+        (await getAllCachedUserBooks())
+          .filter(b => b.cachedChapters > 0 && b.cachedChapters >= b.totalChapters)
+          .map(b => b.bookId),
+      )
+
+      // One line on the happy path, so "it ran and found nothing" stays
+      // distinguishable from "it never ran" — the exact ambiguity that made the
+      // cancellation bug above take a device and a database query to find.
+      const queue = chooseAutoDownloads(books, cached)
+      if (__DEV__) console.log(`[auto-download] ${queue.length} of ${books.length} book(s) to fetch`)
+
+      for (const id of queue) {
+        if (isCancelled()) return
+        // Re-asked between books, not once at the start: the budget moves as
+        // this loop fills it, and a reader can walk out of Wi-Fi mid-library.
+        const [nowNet, nowUsed] = await Promise.all([NetInfo.fetch(), originalsTotalBytes()])
+        if (!mayAutoDownload({
+          connectionType: nowNet.type ?? null,
+          hasSession: true,
+          usedBytes: nowUsed,
+          budgetBytes: CACHE_BUDGET_BYTES,
+        })) return
+
+        try {
+          const detail = await userBooksApi.getUserBook(id)
+          if (isCancelled()) return
+          await startUserBookDownload(detail)
+        } catch (err) {
+          // One book failing is not the queue failing. The next may well
+          // succeed, and this one is retried on the next reconnect.
+          console.warn(`[auto-download] ${id} skipped:`, err)
+        }
+      }
+    } finally {
+      autoRunningRef.current = false
+    }
+  }, [startUserBookDownload])
+
+  /**
+   * Scheduled on the two moments that change the answer — "there is a session
+   * now" and "there is a network now". Both are events, so this is not a timer.
+   *
+   * **`runAutoDownload` is deliberately NOT a dependency, and that is the whole
+   * bug this shape exists to avoid.** It is a `useCallback` over
+   * `startUserBookDownload`, which is itself over three more; any of them
+   * changing identity re-runs this effect, whose cleanup cancels the sweep in
+   * flight — while the re-entry returns immediately, because a sweep IS still
+   * running. The queue then never reaches its first book. Found on a device:
+   * the book sat Ready on the server and nothing was ever fetched, with no
+   * error anywhere, because every participant was behaving correctly.
+   *
+   * Cancellation therefore keys on the session, not on the render: the sweep
+   * stops when the provider unmounts or the reader signs out, which are the
+   * only two times stopping it is right.
+   */
+  useEffect(() => {
+    if (!isAuthenticated) return
+    autoCancelledRef.current = false
+    runAutoDownload(() => autoCancelledRef.current)
+      .catch(err => console.warn('[auto-download] stopped:', err))
+    return () => { autoCancelledRef.current = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, reconnectCount])
+
+  /**
+   * The third moment is not an event anyone can subscribe to: the reader just
+   * added a book. The upload screen calls this when one lands, so a book
+   * finishes uploading and is simply already on the device.
+   */
+  const syncOfflineLibrary = useCallback(async () => {
+    if (!isAuthenticated) return
+    autoCancelledRef.current = false
+    await runAutoDownload(() => autoCancelledRef.current)
+  }, [isAuthenticated, runAutoDownload])
+
   return (
     <DownloadContext.Provider
       value={{
@@ -554,6 +673,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         isDownloading,
         isCached,
         isUserBookCached,
+        syncOfflineLibrary,
         refreshCachedBooks,
       }}
     >
