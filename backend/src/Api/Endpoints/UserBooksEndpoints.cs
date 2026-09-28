@@ -486,12 +486,17 @@ public static class UserBooksEndpoints
     }
 
     /// <summary>
-    /// Streams the original PDF upload with HTTP Range support so the reader's
-    /// "Original layout" view can render it with PDF.js (which issues ranged
-    /// requests). Owner-scoped; 404 for non-owner, taken-down, missing-on-disk,
-    /// or a book with no PDF original (e.g. an EPUB upload). The physical-path
+    /// Streams the stored original of an upload — <em>any</em> format — with HTTP
+    /// Range support. Two callers: the web reader's "Original layout" view renders
+    /// a PDF with PDF.js (which issues ranged requests), and the mobile reader
+    /// copies the whole file to the device so the book opens offline in the layout
+    /// it has online instead of being substituted with its extracted text. That
+    /// second caller is why the format filter is gone: which formats a client can
+    /// render is the client's business, not this endpoint's.
+    /// <para>Owner-scoped; 404 for non-owner, taken-down or missing-on-disk. The
+    /// physical-path
     /// <see cref="Results.File(string, string?, string?, DateTimeOffset?, EntityTagHeaderValue?, bool)"/>
-    /// overload emits Accept-Ranges/ETag and serves 206 Partial Content for ranges.
+    /// overload emits Accept-Ranges/ETag and serves 206 Partial Content for ranges.</para>
     /// </summary>
     private static async Task<IResult> GetOriginalFile(
         Guid id,
@@ -506,11 +511,10 @@ public static class UserBooksEndpoints
 
         var file = await db.UserBookFiles
             .Where(f => f.UserBookId == id
-                        && f.Format == BookFormat.Pdf
                         && f.UserBook.UserId == userId.Value
                         && f.UserBook.TakedownAt == null)
             .OrderByDescending(f => f.UploadedAt)
-            .Select(f => new { f.StoragePath, f.UploadedAt, f.Sha256 })
+            .Select(f => new { f.StoragePath, f.UploadedAt, f.Sha256, f.Format })
             .FirstOrDefaultAsync(ct);
 
         if (file is null) return Results.NotFound();
@@ -523,9 +527,18 @@ public static class UserBooksEndpoints
             ? null
             : new EntityTagHeaderValue($"\"{file.Sha256}\"");
 
+        // Fb2/Html/Other fall through to octet-stream on purpose: a clip's stored
+        // HTML served as text/html from the API origin would be XSS on our own host.
+        var contentType = file.Format switch
+        {
+            BookFormat.Pdf => "application/pdf",
+            BookFormat.Epub => "application/epub+zip",
+            _ => "application/octet-stream"
+        };
+
         return Results.File(
             fullPath,
-            contentType: "application/pdf",
+            contentType: contentType,
             lastModified: file.UploadedAt,
             entityTag: etag,
             enableRangeProcessing: true);
