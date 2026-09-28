@@ -36,12 +36,17 @@ answers "what happened" and nothing answered "what is half-finished right now".
   reading path; an account is now for sync, quota and wiping private files at sign-out, and
   `CLAUDE.md` says so as a rule.
 
-  **Not done — the device pass.** Everything is verified by build, types and unit tests, which for
-  this feature is the weakest part of the evidence: three native modules load through `require` in a
-  `try/catch`, so breaking them passes tsc, unit tests and Metro alike. What needs a real phone:
-  sign in on a clean device → library arrives on Wi-Fi → airplane mode → any book opens, a PDF in
-  Original layout → share the file with no network. Plus the budget (fill past 2 GB, confirm the book
-  being read is never evicted) and the full-disk stop.
+  **Device pass, 2026-09-28, Pixel 7 Pro emulator against production** (release build, guest session,
+  airplane mode for the offline half). Passed: one-tap download from the shelf; the shelf still
+  says "On this device" after a cold restart; offline the library lists downloaded books and the
+  detail screen says it is reading the downloaded copy; **Save a copy** hands over `auto-check.pdf`
+  through the share sheet with no network; a PDF opens offline in Original layout; a downloaded
+  catalogue book opens offline **and keeps scrolling from chapter VI into VII**. Two bugs were found
+  by doing it and are fixed in the same PR — the shelf forgetting the device after a restart, and
+  infinite scroll never reading the cache at all.
+
+  **Still not verified on a device:** the automatic Wi-Fi sweep fetching a library it does not
+  already hold, the 2 GB budget and its eviction order, and the full-disk stop.
 
   **Then Expo SDK 56**, deliberately after that pass and not before.
 
