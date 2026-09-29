@@ -318,12 +318,23 @@ jobs:
           # mcp-server is localhost-only on :8090; nginx fronts /mcp.
           curl -sf http://localhost:8090/health || { echo "FAIL: mcp-server /health down"; exit 1; }
           echo "mcp-server /health OK"
-          # MCP streamable endpoint through nginx (Host-routed, like a real client).
-          CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Host: textstack.app" \
+          # MCP endpoint through nginx (Host-routed, like a real client). Since OAuth (ADR-017) every
+          # client must sign in, so an anonymous initialize is a 401 carrying the resource-metadata
+          # challenge — which is exactly what proves both the nginx route and the auth gate. A 200
+          # here would mean the gate is gone; anything else, that routing is broken.
+          HDRS=$(curl -s -o /dev/null -D - -X POST -H "Host: textstack.app" \
             -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" \
             -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"deploy-check","version":"1"}}}' \
             http://localhost/mcp)
-          [ "$CODE" = "200" ] && echo "nginx /mcp → MCP initialize 200 OK" || { echo "FAIL: /mcp returned $CODE"; exit 1; }
+          echo "$HDRS" | head -1 | grep -q " 401" \
+            && echo "$HDRS" | grep -qi '^www-authenticate: Bearer resource_metadata=' \
+            && echo "nginx /mcp → 401 + OAuth challenge OK" \
+            || { echo "FAIL: /mcp did not answer 401 with the OAuth challenge:"; echo "$HDRS"; exit 1; }
+          # Discovery documents must be JSON, not the SPA's index.html.
+          for P in /.well-known/oauth-protected-resource/mcp /.well-known/oauth-authorization-server; do
+            CT=$(curl -s -o /dev/null -w '%{content_type}' -H "Host: textstack.app" "http://localhost$P")
+            case "$CT" in application/json*) echo "$P → JSON OK" ;; *) echo "FAIL: $P served $CT"; exit 1 ;; esac
+          done
 
       - name: Verify SEO setup
         run: |
