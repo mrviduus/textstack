@@ -40,6 +40,10 @@ public sealed class StubBackend : IAsyncDisposable
     public const string UnopenedEdition = "dddddddd-dddd-dddd-dddd-dddddddddddd";
     public const string NewHighlightId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
 
+    // OAuth access tokens the stub's /oauth/token-status knows: live → 204, anything else → 401.
+    public const string LiveOAuthToken = "tso_live";
+    public const string RejectedOAuthToken = "tso_expired";
+
     private readonly WebApplication _app;
     private readonly Dictionary<string, RecordedRequest> _records = new(StringComparer.Ordinal);
     private readonly object _gate = new();
@@ -87,6 +91,15 @@ public sealed class StubBackend : IAsyncDisposable
 
     private void MapRoutes()
     {
+        // GET /oauth/token-status → the API's "is this bearer still good" probe.
+        _app.MapGet("/oauth/token-status", async ctx =>
+        {
+            await RecordAsync("token_status", ctx);
+            ctx.Response.StatusCode = ctx.Request.Headers.Authorization == $"Bearer {LiveOAuthToken}"
+                ? StatusCodes.Status204NoContent
+                : StatusCodes.Status401Unauthorized;
+        });
+
         // GET /search → search page (Dracula hit).
         _app.MapGet("/search", async ctx =>
         {

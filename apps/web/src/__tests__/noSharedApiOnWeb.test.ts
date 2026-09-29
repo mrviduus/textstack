@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url'
  */
 const API_CLIENTS = [
   'insightsApi', 'vocabularyApi', 'readingProgressApi', 'libraryApi',
-  'highlightsApi', 'userBooksApi', 'authApi', 'createBooksApi',
+  'highlightsApi', 'userBooksApi', 'authApi', 'createBooksApi', 'mcpKeysApi', 'oauthGrantsApi',
 ]
 
 function* sourceFiles(dir: string): Generator<string> {

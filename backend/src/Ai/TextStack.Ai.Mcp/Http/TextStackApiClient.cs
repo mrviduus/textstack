@@ -575,6 +575,18 @@ public sealed class TextStackApiClient
     // verification URL/code for Pending, or the message for Failed) up front so
     // the HTTP call never leaves the process. The catalog maps it to an
     // actionable IsError.
+    /// <summary>
+    /// <c>GET /oauth/token-status</c> with this request's bearer: true only on a definite 401. Lets
+    /// the http host answer an expired OAuth token with a 401 challenge — the signal MCP clients
+    /// refresh on — instead of a 200 whose every tool call fails. Transport faults throw.
+    /// </summary>
+    public async Task<bool> IsTokenRejectedAsync(CancellationToken ct)
+    {
+        using var request = await AuthorizedRequestAsync(HttpMethod.Get, "/oauth/token-status", ct);
+        using var response = await _http.SendAsync(request, ct);
+        return response.StatusCode is HttpStatusCode.Unauthorized;
+    }
+
     private async Task<HttpRequestMessage> AuthorizedRequestAsync(HttpMethod method, string url, CancellationToken ct)
     {
         var token = await _tokenProvider.GetTokenAsync(ct);

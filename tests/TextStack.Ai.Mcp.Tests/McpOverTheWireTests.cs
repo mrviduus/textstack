@@ -55,7 +55,7 @@ public class McpOverTheWireTests : IAsyncLifetime
     [Fact]
     public async Task SearchBooks_OverWire_ReturnsDraculaHit_AndStubSawPublicGet()
     {
-        await using var client = await _harness.ConnectAsync(bearer: null, Ct);
+        await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
 
         var result = await CallAsync(client, "search_books", Args(("query", "dracula"), ("limit", 5)));
 
@@ -78,7 +78,7 @@ public class McpOverTheWireTests : IAsyncLifetime
     [Fact]
     public async Task GetBook_OverWire_MapsEditionId_AndStubSawPublicGet()
     {
-        await using var client = await _harness.ConnectAsync(bearer: null, Ct);
+        await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
 
         var result = await CallAsync(client, "get_book", Args(("slug", "dracula")));
 
@@ -100,7 +100,7 @@ public class McpOverTheWireTests : IAsyncLifetime
     [Fact]
     public async Task GetChapter_OverWire_StripsHtml_AndStubSawPublicGet()
     {
-        await using var client = await _harness.ConnectAsync(bearer: null, Ct);
+        await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
 
         var result = await CallAsync(client, "get_chapter", Args(("slug", "dracula"), ("chapterSlug", "ch-1")));
 
@@ -199,7 +199,7 @@ public class McpOverTheWireTests : IAsyncLifetime
     [Fact]
     public async Task Initialize_OverWire_ServerInfoNameIsTextstack()
     {
-        await using var client = await _harness.ConnectAsync(bearer: null, Ct);
+        await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
 
         Assert.Equal("textstack", client.ServerInfo.Name);
     }
@@ -209,7 +209,7 @@ public class McpOverTheWireTests : IAsyncLifetime
     [Fact]
     public async Task ListTools_OverWire_ReturnsExactlyTheExpectedTools()
     {
-        await using var client = await _harness.ConnectAsync(bearer: null, Ct);
+        await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
 
         var tools = await client.ListToolsAsync(cancellationToken: Ct);
 
@@ -219,19 +219,107 @@ public class McpOverTheWireTests : IAsyncLifetime
             names);
     }
 
-    // ── 10. negative: user-scoped WITHOUT bearer → IsError, zero upstream hits ─────
+    // ── 9b. directory review: every tool carries a title and honest hints ──────────
 
     [Fact]
-    public async Task UserScopedTool_NoBearer_OverWire_AuthRequired_StubGotZeroHits()
+    public async Task ListTools_OverWire_EveryToolHasTitleAndHints_WritesAreNotReadOnly()
     {
-        await using var client = await _harness.ConnectAsync(bearer: null, Ct);
+        await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
 
-        var result = await CallAsync(client, "list_my_highlights", Args(("editionId", StubBackend.GoodEdition)));
+        var tools = (await client.ListToolsAsync(cancellationToken: Ct)).Select(t => t.ProtocolTool).ToList();
 
-        Assert.True(result.IsError);
-        Assert.Contains("authentication required", TextOf(result));
-        // The bridge never issued the upstream call (no token → fail-clean up front).
+        string[] writes = ["save_highlight", "save_my_highlight", "save_insight", "save_chapter_review", "set_book_progress"];
+        foreach (var tool in tools)
+        {
+            Assert.False(string.IsNullOrWhiteSpace(tool.Title), tool.Name);
+            var a = tool.Annotations;
+            Assert.NotNull(a);
+            Assert.Equal(tool.Title, a!.Title);
+            Assert.Equal(!writes.Contains(tool.Name), a.ReadOnlyHint);
+            Assert.False(a.OpenWorldHint);
+            Assert.NotNull(a.DestructiveHint);
+            if (a.ReadOnlyHint == true) Assert.False(a.DestructiveHint);
+        }
+        Assert.True(tools.Single(t => t.Name == "save_insight").Annotations!.DestructiveHint); // replaces on re-save
+        Assert.False(tools.Single(t => t.Name == "save_highlight").Annotations!.DestructiveHint); // only adds
+    }
+
+    // ── 10. negative: NO bearer → HTTP 401 + OAuth challenge, zero upstream hits ──
+
+    private async Task<HttpResponseMessage> PostInitializeAsync(string? authorization)
+    {
+        using var http = new HttpClient();
+        using var req = new HttpRequestMessage(HttpMethod.Post, _harness.McpEndpoint)
+        {
+            Content = new StringContent(
+                """{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"probe","version":"1"}}}""",
+                System.Text.Encoding.UTF8, "application/json"),
+        };
+        req.Headers.Accept.ParseAdd("application/json");
+        req.Headers.Accept.ParseAdd("text/event-stream");
+        if (authorization is not null) req.Headers.TryAddWithoutValidation("Authorization", authorization);
+        return await http.SendAsync(req, Ct);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("Bearer ")]
+    [InlineData("Basic dXNlcjpwYXNz")]
+    public async Task Mcp_NoBearer_Returns401WithResourceMetadataChallenge(string? authorization)
+    {
+        using var resp = await PostInitializeAsync(authorization);
+
+        Assert.Equal(System.Net.HttpStatusCode.Unauthorized, resp.StatusCode);
+        var challenge = Assert.Single(resp.Headers.WwwAuthenticate);
+        Assert.Equal("Bearer", challenge.Scheme);
+        Assert.Contains(
+            "resource_metadata=\"https://textstack.app/.well-known/oauth-protected-resource/mcp\"",
+            challenge.Parameter);
+        Assert.DoesNotContain("error=", challenge.Parameter); // no credentials sent → no error code (RFC 6750 §3.1)
         Assert.Equal(0, _harness.Stub.TotalRequests);
+    }
+
+    [Fact]
+    public async Task Mcp_WithBearer_Initializes()
+    {
+        using var resp = await PostInitializeAsync($"Bearer {McpServerHarness.TestJwt}");
+
+        Assert.Equal(System.Net.HttpStatusCode.OK, resp.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("/.well-known/oauth-protected-resource/mcp")]
+    [InlineData("/.well-known/oauth-protected-resource")]
+    public async Task ProtectedResourceMetadata_BothPaths_ServeTheSameDocument(string path)
+    {
+        using var http = new HttpClient();
+        var origin = _harness.McpEndpoint[..^"/mcp".Length];
+
+        using var resp = await http.GetAsync(origin + path, Ct);
+
+        Assert.Equal(System.Net.HttpStatusCode.OK, resp.StatusCode);
+        var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(Ct)).RootElement;
+        Assert.Equal("https://textstack.app/mcp", doc.GetProperty("resource").GetString());
+        Assert.Equal("https://textstack.app", Assert.Single(doc.GetProperty("authorization_servers").EnumerateArray()).GetString());
+        Assert.Contains(doc.GetProperty("scopes_supported").EnumerateArray(), s => s.GetString() == "offline_access");
+    }
+
+    [Fact]
+    public async Task Mcp_ExpiredOAuthToken_Returns401InvalidToken_SoTheClientRefreshes()
+    {
+        using var resp = await PostInitializeAsync($"Bearer {StubBackend.RejectedOAuthToken}");
+
+        Assert.Equal(System.Net.HttpStatusCode.Unauthorized, resp.StatusCode);
+        Assert.Contains("error=\"invalid_token\"", Assert.Single(resp.Headers.WwwAuthenticate).Parameter);
+    }
+
+    [Fact]
+    public async Task Mcp_LiveOAuthToken_Initializes()
+    {
+        using var resp = await PostInitializeAsync($"Bearer {StubBackend.LiveOAuthToken}");
+
+        Assert.Equal(System.Net.HttpStatusCode.OK, resp.StatusCode);
+        Assert.Equal($"Bearer {StubBackend.LiveOAuthToken}", _harness.Stub.Last("token_status")!.Authorization);
     }
 
     // ── 10b. personal connect URL (/mcp/k/<key>) — how ChatGPT connects ─────────────
@@ -268,7 +356,7 @@ public class McpOverTheWireTests : IAsyncLifetime
     [Fact]
     public async Task SearchBooks_MissingQuery_OverWire_ToolError_NoUpstreamCall()
     {
-        await using var client = await _harness.ConnectAsync(bearer: null, Ct);
+        await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
 
         var result = await CallAsync(client, "search_books", Args());
 
@@ -286,7 +374,7 @@ public class McpOverTheWireTests : IAsyncLifetime
         // shared wrapper), NOT a JSON-RPC -32603 protocol fault that would break the
         // SDK call. Proves the wire protocol stays intact on backend failure.
         await using var broken = await McpServerHarness.StartWithUnreachableUpstreamAsync(Ct);
-        await using var client = await broken.ConnectAsync(bearer: null, Ct);
+        await using var client = await broken.ConnectAsync(McpServerHarness.TestJwt, Ct);
 
         var result = await client.CallToolAsync(
             "get_book", new Dictionary<string, object?> { ["slug"] = "dracula" }!, cancellationToken: Ct);
@@ -433,17 +521,6 @@ public class McpOverTheWireTests : IAsyncLifetime
         var all = Json(result).GetProperty("allBooks").EnumerateArray().ToArray();
         Assert.Equal(2, all.Length);
         Assert.Contains(all, b => b.GetProperty("title").GetString() == "The Mom Test");
-    }
-
-    [Fact]
-    public async Task GetMyReading_NoBearer_OverWire_AuthRequired()
-    {
-        await using var client = await _harness.ConnectAsync(bearer: null, Ct);
-
-        var result = await CallAsync(client, "get_my_reading", Args());
-
-        Assert.True(result.IsError);
-        Assert.Contains("authentication required", TextOf(result));
     }
 
     [Fact]

@@ -22,6 +22,7 @@ import { DmcaPage } from './pages/DmcaPage'
 import { DeleteAccountPage } from './pages/DeleteAccountPage'
 import { ContactPage } from './pages/ContactPage'
 import { McpLandingPage } from './pages/McpLandingPage'
+import { OAuthConsentPage } from './pages/OAuthConsentPage'
 import { ResetPasswordPage } from './pages/ResetPasswordPage'
 import { DeviceVerifyPage } from './pages/DeviceVerifyPage'
 import { SitemapPage } from './pages/SitemapPage'
@@ -123,6 +124,8 @@ function LanguageRoutes() {
           <Route path="/delete-account" element={<DeleteAccountPage />} />
           <Route path="/contact" element={<ContactPage />} />
           <Route path="/mcp" element={<McpLandingPage />} />
+          {/* OAuth consent (ADR-017): /oauth/authorize 302s here. Not in /ssg/routes, noindex. */}
+          <Route path="/oauth/consent" element={<OAuthConsentPage />} />
           <Route path="/library" element={<LibraryPage />} />
           <Route path="/library/shelf/:shelfId" element={<LibraryShelfPage />} />
           <Route path="/stats" element={<StatsPage />} />

@@ -309,3 +309,7 @@
 .mcp-connect__name { font-weight: 600; font-size: 14px; margin-right: 8px; }
 .mcp-connect__prefix { font-family: ui-monospace, monospace; font-size: 12px; opacity: 0.7; margin-right: 8px; }
 .mcp-connect__used { font-size: 12px; opacity: 0.6; }
+
+/* "For developers" — keys + local config, collapsed by default */
+.mcp-dev__summary { cursor: pointer; list-style: revert; }
+.mcp-dev[open] .mcp-dev__summary { margin-bottom: 16px; }

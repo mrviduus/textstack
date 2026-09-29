@@ -46,6 +46,10 @@ builder.Services
     .AddTextStackHostedServices()
     .AddTextStackRateLimiting(builder.Configuration);
 
+// OAuth CIMD fetches go to URLs strangers choose — SSRF-guarded handler (ADR-017).
+builder.Services.AddHttpClient<Api.Services.ClientMetadataFetcher>(http => http.Timeout = TimeSpan.FromSeconds(5))
+    .ConfigurePrimaryHttpMessageHandler(Api.Services.ClientMetadataFetcher.CreateHandler);
+
 // Validate required config at startup
 if (!builder.Environment.IsEnvironment("Test"))
 {
@@ -340,6 +344,7 @@ app.MapHighlightsEndpoints();
 app.MapInsightsEndpoints();
 app.MapChapterReviewEndpoints();
 app.MapMcpKeysEndpoints();
+app.MapOAuthEndpoints();
 app.MapTranslationEndpoints();
 app.MapExplainEndpoints();
 app.MapDictionaryEndpoints();

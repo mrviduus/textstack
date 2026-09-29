@@ -18,6 +18,21 @@ public sealed class McpToolDescriptor
 
     public required string Description { get; init; }
 
+    /// <summary>Human title (MCP <c>title</c> + annotation). Directory review requires one per tool.</summary>
+    public required string Title { get; init; }
+
+    /// <summary>
+    /// <c>readOnlyHint</c>. Required, so a new tool cannot ship without deciding. Every tool here is
+    /// closed-world (it only touches TextStack), so <c>openWorldHint</c> is always false.
+    /// </summary>
+    public required bool ReadOnly { get; init; }
+
+    /// <summary><c>destructiveHint</c> for a write: true when it overwrites (replace-on-save), not just adds.</summary>
+    public bool Destructive { get; init; }
+
+    /// <summary><c>idempotentHint</c> for a write: the same call twice leaves the same state.</summary>
+    public bool Idempotent { get; init; }
+
     /// <summary>JSON Schema (draft 2020-12) for the tool's arguments object.</summary>
     public required JsonElement InputSchema { get; init; }
 
@@ -33,7 +48,16 @@ public sealed class McpToolDescriptor
     public Tool ToProtocolTool() => new()
     {
         Name = Name,
+        Title = Title,
         Description = Description,
         InputSchema = InputSchema,
+        Annotations = new ToolAnnotations
+        {
+            Title = Title,
+            ReadOnlyHint = ReadOnly,
+            DestructiveHint = !ReadOnly && Destructive,
+            IdempotentHint = ReadOnly || Idempotent,
+            OpenWorldHint = false,
+        },
     };
 }

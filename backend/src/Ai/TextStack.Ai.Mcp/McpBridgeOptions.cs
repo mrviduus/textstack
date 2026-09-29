@@ -42,6 +42,13 @@ public sealed class McpBridgeOptions
     /// </summary>
     public McpTransport Transport { get; init; } = McpTransport.Stdio;
 
+    /// <summary>
+    /// Public origin of the site (http mode): the OAuth issuer and the base of the MCP resource URL
+    /// advertised in the 401 challenge and the protected-resource metadata. Must match the API's
+    /// <c>App:BaseUrl</c>. Env: <c>TEXTSTACK_PUBLIC_URL</c>.
+    /// </summary>
+    public string PublicBaseUrl { get; init; } = "https://textstack.app";
+
     public static McpBridgeOptions FromEnvironment(string[]? args = null)
     {
         var apiUrl = Environment.GetEnvironmentVariable("TEXTSTACK_API_URL");
@@ -61,6 +68,8 @@ public sealed class McpBridgeOptions
             TokenCachePath = Environment.GetEnvironmentVariable("TEXTSTACK_MCP_TOKEN_CACHE"),
             Transport = ResolveTransport(
                 Environment.GetEnvironmentVariable("MCP_TRANSPORT"), args),
+            PublicBaseUrl = (Environment.GetEnvironmentVariable("TEXTSTACK_PUBLIC_URL") is { Length: > 0 } pub
+                ? pub : "https://textstack.app").TrimEnd('/'),
         };
     }
 

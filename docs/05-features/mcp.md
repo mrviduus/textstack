@@ -167,8 +167,11 @@ No install needed. Point a streamable-HTTP MCP client at the hosted endpoint:
 https://textstack.app/mcp
 ```
 
-For user-scoped tools over HTTP, send a **connect key** as
-`Authorization: Bearer tsk_…` on each request. Create one on
+Clients that speak MCP OAuth (claude.ai, Claude Desktop/mobile, Claude Code, ChatGPT) need nothing
+else: paste the URL, sign in to TextStack, approve — see [Authentication](#authentication). Every
+request to `/mcp` needs a bearer; without one the host answers `401`.
+
+Clients that don't do OAuth send a **connect key** as `Authorization: Bearer tsk_…` on each request. Create one on
 [textstack.app/en/mcp](https://textstack.app/en/mcp) (or the app's *Connect assistant* screen);
 it does not expire and is revoked there. A device-flow JWT (see
 [Authentication](#authentication)) also works but expires within the hour. The remote host is
@@ -178,7 +181,8 @@ token cache).
 ### ChatGPT (and any client that can't send a header) — the personal connect URL
 
 ChatGPT's connector settings offer "No authentication" or OAuth, and nothing that sends a bearer.
-Until TextStack has OAuth, the key goes **in the URL**:
+With OAuth (ADR-017) the plain `https://textstack.app/mcp` + **OAuth** is the way in; for anything
+that can do neither, the key goes **in the URL**:
 
 ```
 https://textstack.app/mcp/k/tsk_…
@@ -226,8 +230,43 @@ Same stdio transport as the global tool.
 
 ## Authentication
 
-Catalog tools (`search_books`, `get_book`, `get_chapter`) need no auth. The
-user-scoped tools use the **OAuth 2.0 Device Authorization Grant**
+### Remote endpoint — OAuth 2.1 (ADR-017)
+
+The hosted `https://textstack.app/mcp` requires a bearer on **every** request, catalog tools
+included. Three kinds are accepted: an OAuth access token (`tso_…`), a connect key (`tsk_…`, header or
+`/mcp/k/<key>`), or a device-flow JWT. [ADR-017](../01-architecture/adr/ADR-017-mcp-oauth-authorization-server.md)
+has the why.
+
+```
+POST /mcp (no bearer)                         → 401  WWW-Authenticate: Bearer resource_metadata=".../.well-known/oauth-protected-resource/mcp", scope="library"
+GET  /.well-known/oauth-protected-resource/mcp → {resource: https://textstack.app/mcp, authorization_servers: [https://textstack.app]}   (MCP host)
+GET  /.well-known/oauth-authorization-server   → RFC 8414 metadata: S256, auth method "none", CIMD + DCR, iss param   (API)
+POST /oauth/register                           → DCR, public client (or: client_id is a CIMD https URL, fetched + cached 24 h)
+GET  /oauth/authorize?…&code_challenge&resource → 302 /en/oauth/consent?req=<id>
+GET  /oauth/requests/{id}                      → {clientName, redirectHost, scope, scopeDescription, status}
+POST /oauth/authorize/approve {requestId}      → {redirect: <redirect_uri>?code&state&iss}   (web sign-in; guest → 403 account_required)
+POST /oauth/authorize/deny {requestId}         → {redirect: <redirect_uri>?error=access_denied&state&iss}
+POST /oauth/token (form)                       → tso_ (1 h) + tsr_ (90 d sliding, rotated each use)
+POST /oauth/revoke (form, RFC 7009)            → 200 always
+GET  /me/oauth/grants · DELETE /me/oauth/grants/{id}   → "Connected apps"; revoke is effective on the next request
+```
+
+- Redirect hosts: `OAuth:AllowedRedirectHosts` (claude.ai, claude.com, chatgpt.com) over https, or
+  loopback on any port. Anything else is refused at register and at authorize.
+- A `tso_` token is **library-only**: account management (`/me/account`, `/me/profile`, `/auth/*`,
+  `/me/mcp/keys`, `/me/oauth/grants`, OAuth approve/deny) answers `403 insufficient_scope`.
+- Reconnecting the same app (same name + redirect host) replaces its previous grant. Reusing a
+  rotated refresh token revokes the whole grant.
+- An expired or revoked `tso_` is answered by the MCP host with `401 error="invalid_token"` (it asks
+  the API's `GET /oauth/token-status`), which is what makes a client refresh.
+- Rate limits, per IP: `oauth-browser` 30/min (authorize, consent), `oauth-server` 120/min (token,
+  register, revoke — sized for a whole platform's egress IP).
+- The MCP host needs `TEXTSTACK_PUBLIC_URL` only if the site is not `https://textstack.app`; it must
+  equal the API's `App:BaseUrl`.
+
+### Local tool — device flow
+
+The user-scoped tools of the **local** (stdio) tool use the **OAuth 2.0 Device Authorization Grant**
 ([RFC 8628](https://www.rfc-editor.org/rfc/rfc8628)):
 
 1. The first user-scoped tool call returns a clean message:
@@ -244,10 +283,7 @@ a group/world-readable cache is treated as compromised and ignored). The CLI
 refreshes the access token itself and re-runs the device flow only when the
 refresh token is gone.
 
-This applies to the **local** (stdio) tool. For the **remote** (HTTP) endpoint,
-there is no device flow on the server side — the bearer is supplied per request
-by your client's connector config. Run the local tool once to obtain a JWT via
-the device flow, then paste it into the remote client.
+This applies to the **local** (stdio) tool only; the remote endpoint uses OAuth (above).
 
 ## Configuration
 
@@ -260,6 +296,7 @@ All configuration is environment-driven (set under `env` in your client config).
 | `TEXTSTACK_MCP_TOKEN` | *(unset)* | Optional static bearer for user-scoped tools (CI / escape hatch). When set, it overrides the device flow. |
 | `TEXTSTACK_MCP_TOKEN_CACHE` | *(see auth)* | Explicit file path for the device-flow token cache, overriding the default location. |
 | `TEXTSTACK_MCP_TIMEOUT_SECONDS` | `15` | Upstream HTTP timeout per tool call. |
+| `TEXTSTACK_PUBLIC_URL` | `https://textstack.app` | http mode: OAuth issuer + MCP resource URL advertised in the 401 challenge and protected-resource metadata. Must equal the API's `App:BaseUrl`. |
 | `MCP_TRANSPORT` | `stdio` | Transport: `stdio` (local desktop client) or `http` (remote streamable HTTP host). The `--http` CLI flag also selects http. |
 
 ## Verify / smoke test

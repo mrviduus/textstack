@@ -19,7 +19,7 @@ public static class ProfileEndpoints
 
     public static void MapProfileEndpoints(this WebApplication app)
     {
-        var group = app.MapGroup("/me/profile").WithTags("Profile");
+        var group = app.MapGroup("/me/profile").WithTags("Profile").RejectOAuthTokens();
 
         group.MapGet("/", GetProfile).WithName("GetProfile");
         group.MapPut("/", UpdateProfile).WithName("UpdateProfile");

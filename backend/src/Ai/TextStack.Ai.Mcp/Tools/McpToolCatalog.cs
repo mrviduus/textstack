@@ -142,6 +142,8 @@ public sealed class McpToolCatalog
     private static McpToolDescriptor BuildSearchBooks(TextStackApiClient api) => new()
     {
         Name = "search_books",
+        Title = "Search the catalog",
+        ReadOnly = true,
         Description = "Search the PUBLIC TextStack catalog for books and chapters matching a query. This is the shared library of published books, NOT the user's own uploads — for those, use search_my_library.",
         InputSchema = SearchBooksSchema,
         Handler = (args, ct) =>
@@ -182,6 +184,8 @@ public sealed class McpToolCatalog
     private static McpToolDescriptor BuildGetBook(TextStackApiClient api) => new()
     {
         Name = "get_book",
+        Title = "Get a catalog book",
+        ReadOnly = true,
         Description = "Fetch a catalog book by slug: its editionId, metadata, authors, genres, and chapter list.",
         InputSchema = GetBookSchema,
         Handler = (args, ct) =>
@@ -240,6 +244,8 @@ public sealed class McpToolCatalog
     private static McpToolDescriptor BuildGetChapter(TextStackApiClient api) => new()
     {
         Name = "get_chapter",
+        Title = "Read a catalog chapter",
+        ReadOnly = true,
         Description = "Fetch a chapter's plain text (HTML stripped, length-capped) plus its number, title, and prev/next slugs.",
         InputSchema = GetChapterSchema,
         Handler = (args, ct) =>
@@ -302,6 +308,8 @@ public sealed class McpToolCatalog
     private static McpToolDescriptor BuildSearchMyLibrary(TextStackApiClient api) => new()
     {
         Name = "search_my_library",
+        Title = "Search my uploaded books",
+        ReadOnly = true,
         Description =
             "Full-text search across the books the signed-in user has UPLOADED to TextStack "
             + "(their private library, not the public catalog — requires authentication). "
@@ -356,6 +364,8 @@ public sealed class McpToolCatalog
     private static McpToolDescriptor BuildGetMyBook(TextStackApiClient api) => new()
     {
         Name = "get_my_book",
+        Title = "Get one of my uploaded books",
+        ReadOnly = true,
         Description =
             "Fetch one of the signed-in user's UPLOADED books by bookId (from search_my_library): "
             + "its metadata and its full chapter list (requires authentication). Each chapter "
@@ -426,6 +436,8 @@ public sealed class McpToolCatalog
     private static McpToolDescriptor BuildGetMyChapter(TextStackApiClient api) => new()
     {
         Name = "get_my_chapter",
+        Title = "Read a chapter of my uploaded book",
+        ReadOnly = true,
         Description =
             "Fetch one chapter of a book the signed-in user UPLOADED: its plain text "
             + "(HTML stripped, length-capped) plus its chapterId, number, title and prev/next "
@@ -481,6 +493,8 @@ public sealed class McpToolCatalog
     private static McpToolDescriptor BuildListMyHighlights(TextStackApiClient api) => new()
     {
         Name = "list_my_highlights",
+        Title = "List my highlights",
+        ReadOnly = true,
         Description = "List the signed-in user's highlights for a given edition (requires authentication).",
         InputSchema = ListMyHighlightsSchema,
         Handler = (args, ct) =>
@@ -526,6 +540,8 @@ public sealed class McpToolCatalog
     private static McpToolDescriptor BuildListMyVocabulary(TextStackApiClient api) => new()
     {
         Name = "list_my_vocabulary",
+        Title = "List my vocabulary",
+        ReadOnly = true,
         Description = "List the signed-in user's saved vocabulary words, optionally filtered by SRS stage or search (requires authentication).",
         InputSchema = ListMyVocabularySchema,
         Handler = (args, ct) =>
@@ -586,6 +602,8 @@ public sealed class McpToolCatalog
     private static McpToolDescriptor BuildSaveHighlight(TextStackApiClient api) => new()
     {
         Name = "save_highlight",
+        Title = "Save a highlight",
+        ReadOnly = false,
         Description =
             "Saves a highlight to YOUR TextStack library for the given catalog book chapter "
             + "(WRITE on your own account — requires you to be signed in). Pass the editionId "
@@ -661,6 +679,8 @@ public sealed class McpToolCatalog
     private static McpToolDescriptor BuildSaveMyHighlight(TextStackApiClient api) => new()
     {
         Name = "save_my_highlight",
+        Title = "Save a highlight in my uploaded book",
+        ReadOnly = false,
         Description =
             "Highlight a passage in one of the books the user UPLOADED (WRITE on their own account — "
             + "requires authentication). Pass the bookId, the chapterId of the chapter the passage is "
@@ -726,6 +746,8 @@ public sealed class McpToolCatalog
     private static McpToolDescriptor BuildListMyBookHighlights(TextStackApiClient api) => new()
     {
         Name = "list_my_book_highlights",
+        Title = "List highlights in my uploaded book",
+        ReadOnly = true,
         Description =
             "List the highlights already saved in one of the books the user UPLOADED, by bookId "
             + "(requires authentication). Use it before highlighting to see what is already marked. "
@@ -781,6 +803,10 @@ public sealed class McpToolCatalog
     private static McpToolDescriptor BuildSaveInsight(TextStackApiClient api) => new()
     {
         Name = "save_insight",
+        Title = "Save an insight",
+        ReadOnly = false,
+        Destructive = true,
+        Idempotent = true,
         Description =
             "Write a conclusion back into a book so the reader finds it there later (WRITE on their "
             + "own account — requires authentication). Give EITHER bookId (a book they uploaded) OR "
@@ -838,6 +864,8 @@ public sealed class McpToolCatalog
     private static McpToolDescriptor BuildGetMyInsights(TextStackApiClient api) => new()
     {
         Name = "get_my_insights",
+        Title = "Get my insights",
+        ReadOnly = true,
         Description =
             "Read back everything already worked out about a book and saved with save_insight, in "
             + "reading order (requires authentication). Give EITHER bookId (an uploaded book) OR "
@@ -904,6 +932,8 @@ public sealed class McpToolCatalog
     private static McpToolDescriptor BuildGetChapterReview(TextStackApiClient api) => new()
     {
         Name = "get_chapter_review",
+        Title = "Get a chapter review",
+        ReadOnly = true,
         Description =
             "Start a TextStack chapter review — everything in one call (requires authentication). "
             + "Give EITHER bookId (an uploaded book) OR editionId (a catalog book), plus chapterSlug. "
@@ -994,6 +1024,10 @@ public sealed class McpToolCatalog
     private static McpToolDescriptor BuildSaveChapterReview(TextStackApiClient api) => new()
     {
         Name = "save_chapter_review",
+        Title = "Save a chapter review",
+        ReadOnly = false,
+        Destructive = true,
+        Idempotent = true,
         Description =
             "Save a finished TextStack chapter review (WRITE on the reader's account — requires "
             + "authentication). Same book/chapter ids as get_chapter_review. `review` must follow the "
@@ -1122,6 +1156,8 @@ public sealed class McpToolCatalog
     private static McpToolDescriptor BuildGetMyReading(TextStackApiClient api) => new()
     {
         Name = "get_my_reading",
+        Title = "Get my reading shelf",
+        ReadOnly = true,
         Description =
             "List what the reader is reading right now and what they recently finished, with titles "
             + "and how far in they are (requires authentication). Takes no arguments. Call this FIRST "
@@ -1204,6 +1240,8 @@ public sealed class McpToolCatalog
     private static McpToolDescriptor BuildGetBookProgress(TextStackApiClient api) => new()
     {
         Name = "get_book_progress",
+        Title = "Get book progress",
+        ReadOnly = true,
         Description =
             "How far the reader has got in one book, and which chapter they stopped in (requires "
             + "authentication). Give EITHER bookId (a book they uploaded) OR editionId (a catalog "
@@ -1275,6 +1313,10 @@ public sealed class McpToolCatalog
     private static McpToolDescriptor BuildSetBookProgress(TextStackApiClient api) => new()
     {
         Name = "set_book_progress",
+        Title = "Mark a chapter finished",
+        ReadOnly = false,
+        Destructive = true,
+        Idempotent = true,
         Description =
             "Record that the reader has FINISHED a chapter, including one they read or listened to "
             + "somewhere else — an audiobook, paper, another app (requires authentication). Give "

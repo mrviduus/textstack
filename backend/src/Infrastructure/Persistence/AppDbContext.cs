@@ -113,6 +113,9 @@ public partial class AppDbContext : DbContext, IAppDbContext
     public DbSet<BookInsight> BookInsights => Set<BookInsight>();
     public DbSet<ReviewQuestion> ReviewQuestions => Set<ReviewQuestion>();
     public DbSet<McpAccessKey> McpAccessKeys => Set<McpAccessKey>();
+    public DbSet<OAuthClient> OAuthClients => Set<OAuthClient>();
+    public DbSet<OAuthAuthorizationRequest> OAuthAuthorizationRequests => Set<OAuthAuthorizationRequest>();
+    public DbSet<OAuthGrant> OAuthGrants => Set<OAuthGrant>();
 
     // Phase 4 RAG. Intentionally not on IAppDbContext — retrieval uses raw Npgsql.
 
@@ -138,6 +141,7 @@ public partial class AppDbContext : DbContext, IAppDbContext
         ConfigurePodcasts(modelBuilder);
         ConfigureInsights(modelBuilder);
         ConfigureMcpKeys(modelBuilder);
+        ConfigureOAuth(modelBuilder);
     }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
