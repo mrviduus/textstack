@@ -79,6 +79,13 @@ answers "what happened" and nothing answered "what is half-finished right now".
   **Not yet run:** CI, and both destructive migrations (`DropBookChat`, `DropRagSpine`) against
   production. Back up first.
 
+- **Chapter review** — the reader's assistant reviews a chapter by our method, the result comes home as
+  structure ([`chapter-review.md`](05-features/chapter-review.md), ADR-016). PR 1 (backend + MCP:
+  `get_chapter_review` / `save_chapter_review`, `review_question` SRS queue) built 2026-09-29; PRs 2–4
+  (button + summary page, reader badges, Practice section, mobile) not started. **Follow-up slice:** PDF
+  chapter extraction reads outline level 1 only, so the owner's DDIA has 8 "chapters" that are its
+  Parts — extract from level 2 and re-extract.
+
 - **Chunked upload** — 1 of 8 steps done (tiers, PR #449). Files over ~100 MB still fail at
   Cloudflare's per-request body cap with a bare `Upload failed: 413`. Plan:
   `~/.claude/plans/claude-code-task-shimmering-brook.md`.

@@ -190,6 +190,29 @@ public sealed class StubBackend : IAsyncDisposable
             await WriteJsonAsync(ctx, SavedInsightBody, StatusCodes.Status201Created);
         });
 
+        // GET /me/chapter-review → part 1 context, part ≥ 2 book+chapter only, or the spoiler gate's
+        // 409 for the chapter the reader has not reached.
+        _app.MapGet("/me/chapter-review", async ctx =>
+        {
+            await RecordAsync("get_chapter_review", ctx);
+            if (!HasBearer(ctx)) { ctx.Response.StatusCode = StatusCodes.Status401Unauthorized; return; }
+            if (ctx.Request.Query["chapterSlug"] == NotReachedSlug)
+            { await WriteJsonAsync(ctx, ChapterNotReachedBody, StatusCodes.Status409Conflict); return; }
+            await WriteJsonAsync(ctx, ctx.Request.Query["part"] == "2" ? ChapterReviewPart2Body : ChapterReviewBody);
+        });
+
+        // PUT /me/chapter-review → 400 with every problem when the review has fewer than 3 blocks,
+        // else 200 saved.
+        _app.MapPut("/me/chapter-review", async ctx =>
+        {
+            await RecordAsync("save_chapter_review", ctx);
+            if (!HasBearer(ctx)) { ctx.Response.StatusCode = StatusCodes.Status401Unauthorized; return; }
+            using var doc = await System.Text.Json.JsonDocument.ParseAsync(ctx.Request.Body);
+            var blocks = doc.RootElement.GetProperty("review").TryGetProperty("blocks", out var b) ? b.GetArrayLength() : 0;
+            if (blocks < 3) { await WriteJsonAsync(ctx, ReviewInvalidBody, StatusCodes.Status400BadRequest); return; }
+            await WriteJsonAsync(ctx, ReviewSavedBody);
+        });
+
         // GET /me/library/shelves → the shelf, both book kinds.
         _app.MapGet("/me/library/shelves", async ctx =>
         {
@@ -500,6 +523,55 @@ public sealed class StubBackend : IAsyncDisposable
             "updatedAt": "2026-01-01T00:00:00+00:00"
           }
         ]
+        """;
+
+    public const string NotReachedSlug = "leader-election";
+
+    private const string ChapterReviewBody =
+        """
+        {
+          "book": { "kind": "userbook", "bookId": "77777777-7777-7777-7777-777777777777", "editionId": null,
+                    "title": "Designing Data-Intensive Applications", "author": "Martin Kleppmann" },
+          "chapter": { "slug": "replication", "title": "Replication", "part": 1, "partCount": 2,
+                       "text": "Replication means keeping a copy of the same data on multiple machines." },
+          "method": "# TextStack chapter review — method v1", "methodVersion": 1,
+          "highlights": [ { "id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "text": "a quorum of replicas", "note": null } ],
+          "words": [], "openThreads": [], "existingReview": null,
+          "recallRequired": false, "saveWith": "save_chapter_review"
+        }
+        """;
+
+    private const string ChapterReviewPart2Body =
+        """
+        {
+          "book": { "kind": "userbook", "bookId": "77777777-7777-7777-7777-777777777777", "editionId": null,
+                    "title": "Designing Data-Intensive Applications", "author": "Martin Kleppmann" },
+          "chapter": { "slug": "replication", "title": "Replication", "part": 2, "partCount": 2,
+                       "text": "Leaders and followers." }
+        }
+        """;
+
+    private const string ChapterNotReachedBody =
+        """
+        { "error": "chapter_not_reached",
+          "message": "The reader has not reached 'Leader Election' in TextStack (they are at 'Replication'). If they finished it elsewhere — audiobook, paper — confirm with them, call set_book_progress for this chapter, then retry.",
+          "errors": null, "currentChapterSlug": "replication", "currentChapterTitle": "Replication" }
+        """;
+
+    private const string ReviewInvalidBody =
+        """
+        { "error": "review_invalid",
+          "message": "2 problems — fix all of them and call save_chapter_review again.",
+          "errors": [
+            { "path": "blocks", "code": "count", "message": "must have 3–6 blocks (got 1)" },
+            { "path": "blocks[0].rootCause", "code": "multiline", "message": "must be one line (≤300 chars)" }
+          ] }
+        """;
+
+    private const string ReviewSavedBody =
+        """
+        { "saved": true, "insightId": "99999999-9999-9999-9999-999999999999", "chapterSlug": "replication",
+          "questionCount": 3, "openThreads": [], "closedThreadIds": [], "updatedAt": "2026-01-02T00:00:00+00:00" }
         """;
 
     private const string InsightsBody =

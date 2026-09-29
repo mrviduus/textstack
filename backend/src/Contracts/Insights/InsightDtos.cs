@@ -1,3 +1,5 @@
+using Contracts.ChapterReview;
+
 namespace Contracts.Insights;
 
 /// <summary>
@@ -12,6 +14,10 @@ namespace Contracts.Insights;
 /// failure: the text is still worth having.
 /// </param>
 /// <param name="ChapterTitle">Likewise resolved at read time; null when the slug no longer resolves.</param>
+/// <param name="Review">
+/// The structured chapter review when this insight is one (ADR-016); <c>Text</c> then holds its
+/// rendered Markdown. Null for a plain insight. Appended last so the record stays additive.
+/// </param>
 public record BookInsightDto(
     Guid Id,
     Guid? EditionId,
@@ -23,7 +29,8 @@ public record BookInsightDto(
     string? Question,
     string Source,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt
+    DateTimeOffset UpdatedAt,
+    ChapterReviewDto? Review = null
 );
 
 /// <summary>

@@ -215,7 +215,7 @@ public class McpOverTheWireTests : IAsyncLifetime
 
         var names = tools.Select(t => t.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray();
         Assert.Equal(
-            ["get_book", "get_book_progress", "get_chapter", "get_my_book", "get_my_chapter", "get_my_insights", "get_my_reading", "list_my_book_highlights", "list_my_highlights", "list_my_vocabulary", "save_highlight", "save_insight", "save_my_highlight", "search_books", "search_my_library", "set_book_progress"],
+            ["get_book", "get_book_progress", "get_chapter", "get_chapter_review", "get_my_book", "get_my_chapter", "get_my_insights", "get_my_reading", "list_my_book_highlights", "list_my_highlights", "list_my_vocabulary", "save_chapter_review", "save_highlight", "save_insight", "save_my_highlight", "search_books", "search_my_library", "set_book_progress"],
             names);
     }
 
@@ -307,7 +307,7 @@ public class McpOverTheWireTests : IAsyncLifetime
         await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
 
         var tools = await client.ListToolsAsync(cancellationToken: Ct);
-        Assert.Equal(16, tools.Count);
+        Assert.Equal(18, tools.Count);
 
         var chapter = await CallAsync(client, "get_chapter", Args(("slug", "dracula"), ("chapterSlug", "ch-1")));
         Assert.NotEqual(true, chapter.IsError);
@@ -589,4 +589,103 @@ public class McpOverTheWireTests : IAsyncLifetime
         Assert.Equal(0, _harness.Stub.TotalRequests);
     }
 
+    // ── chapter review ───────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task GetChapterReview_OverWire_ReturnsTheApiDtoUnchanged_AndForwardsPart()
+    {
+        await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
+
+        var first = await CallAsync(client, "get_chapter_review",
+            Args(("bookId", StubBackend.UserBookId), ("chapterSlug", "replication")));
+        AssertOk(first);
+        var body = Json(first);
+        Assert.Equal(2, body.GetProperty("chapter").GetProperty("partCount").GetInt32());
+        Assert.Equal("save_chapter_review", body.GetProperty("saveWith").GetString());
+        // Non-ASCII reaches the model as itself, not as — — six characters per letter otherwise.
+        Assert.Contains("review — method", TextOf(first));
+        var sent = _harness.Stub.Last("get_chapter_review")!;
+        Assert.Contains($"userBookId={StubBackend.UserBookId}", sent.PathAndQuery);
+        Assert.Contains("chapterSlug=replication", sent.PathAndQuery);
+        Assert.DoesNotContain("part=", sent.PathAndQuery);
+        Assert.Equal($"Bearer {McpServerHarness.TestJwt}", sent.Authorization);
+
+        var second = await CallAsync(client, "get_chapter_review",
+            Args(("bookId", StubBackend.UserBookId), ("chapterSlug", "replication"), ("part", 2)));
+        AssertOk(second);
+        Assert.Equal(2, Json(second).GetProperty("chapter").GetProperty("part").GetInt32());
+        Assert.Contains("part=2", _harness.Stub.Last("get_chapter_review")!.PathAndQuery);
+    }
+
+    [Fact]
+    public async Task GetChapterReview_ChapterNotReached_OverWire_RelaysTheServerInstruction()
+    {
+        // The spoiler gate's message is the whole point of the refusal: it tells the model to confirm
+        // with the reader and call set_book_progress. Collapsed into "not found" it would be useless.
+        await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
+
+        var result = await CallAsync(client, "get_chapter_review",
+            Args(("bookId", StubBackend.UserBookId), ("chapterSlug", StubBackend.NotReachedSlug)));
+
+        Assert.True(result.IsError);
+        Assert.Contains("set_book_progress", TextOf(result));
+    }
+
+    [Fact]
+    public async Task GetChapterReview_PartOutOfRange_OverWire_Refused_NoUpstreamCall()
+    {
+        await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
+
+        var result = await CallAsync(client, "get_chapter_review",
+            Args(("bookId", StubBackend.UserBookId), ("chapterSlug", "replication"), ("part", 21)));
+
+        Assert.True(result.IsError);
+        Assert.Equal(0, _harness.Stub.TotalRequests);
+    }
+
+    [Fact]
+    public async Task SaveChapterReview_Refused_OverWire_ErrorTextContainsEveryPath()
+    {
+        await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
+        var review = JsonDocument.Parse("""{ "blocks": [ { "title": "x" } ], "applications": ["y"] }""").RootElement;
+
+        var result = await CallAsync(client, "save_chapter_review",
+            Args(("bookId", StubBackend.UserBookId), ("chapterSlug", "replication"), ("review", review)));
+
+        Assert.True(result.IsError);
+        var text = TextOf(result);
+        Assert.Contains("fix all of them", text);
+        Assert.Contains("blocks: must have 3–6 blocks", text);
+        Assert.Contains("blocks[0].rootCause: must be one line", text);
+    }
+
+    [Fact]
+    public async Task SaveChapterReview_Valid_OverWire_ForwardsReviewUntouched_AndReturnsSaved()
+    {
+        await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
+        var review = JsonDocument.Parse("""{ "blocks": [ {}, {}, {} ], "applications": ["y"], "extra": 1 }""").RootElement;
+
+        var result = await CallAsync(client, "save_chapter_review",
+            Args(("bookId", StubBackend.UserBookId), ("chapterSlug", "replication"), ("review", review)));
+
+        AssertOk(result);
+        Assert.True(Json(result).GetProperty("saved").GetBoolean());
+        var sent = JsonDocument.Parse(_harness.Stub.Last("save_chapter_review")!.Body).RootElement;
+        Assert.Equal(StubBackend.UserBookId, sent.GetProperty("userBookId").GetString());
+        Assert.Equal("replication", sent.GetProperty("chapterSlug").GetString());
+        // The bridge is not a validator: even an unknown key reaches the server, which names it.
+        Assert.Equal(1, sent.GetProperty("review").GetProperty("extra").GetInt32());
+    }
+
+    [Fact]
+    public async Task SaveChapterReview_ReviewNotAnObject_OverWire_Refused_NoUpstreamCall()
+    {
+        await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
+
+        var result = await CallAsync(client, "save_chapter_review",
+            Args(("bookId", StubBackend.UserBookId), ("chapterSlug", "replication"), ("review", "text")));
+
+        Assert.True(result.IsError);
+        Assert.Equal(0, _harness.Stub.TotalRequests);
+    }
 }

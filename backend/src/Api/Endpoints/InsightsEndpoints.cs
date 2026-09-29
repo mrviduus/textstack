@@ -1,7 +1,9 @@
 using Api.Extensions;
 using Api.Sites;
 using Application.Auth;
+using Application.ChapterReview;
 using Application.Common.Interfaces;
+using Contracts.ChapterReview;
 using Contracts.Insights;
 using Domain.Entities;
 using Microsoft.AspNetCore.Mvc;
@@ -128,7 +130,8 @@ public static class InsightsEndpoints
                 return new BookInsightDto(
                     r.Id, r.EditionId, r.UserBookId, r.ChapterSlug,
                     resolved?.Number, resolved?.Title,
-                    r.Text, r.Question, r.Source, r.CreatedAt, r.UpdatedAt);
+                    r.Text, r.Question, r.Source, r.CreatedAt, r.UpdatedAt,
+                    ChapterReviewService.ReadStored(r.ReviewJson));
             })
             // Reading order: the book-level overview first, then chapters by number. An insight whose
             // slug no longer resolves keeps its text and sorts to the end rather than vanishing.
@@ -205,6 +208,14 @@ public static class InsightsEndpoints
 
         if (existing is not null)
         {
+            // A structured review owns this slot (ADR-016 §3). Overwriting it here would silently
+            // drop review_json and orphan the chapter's SRS questions, so refuse and name the fix.
+            if (existing.ReviewJson is not null)
+                return Results.Json(new ReviewErrorDto(
+                    "review_exists",
+                    "This chapter has a structured review; replace it with save_chapter_review."),
+                    statusCode: StatusCodes.Status409Conflict);
+
             existing.Text = request.Text;
             existing.Question = request.Question;
             existing.UpdatedAt = now;

@@ -65,6 +65,13 @@ public class BookInsight : ISiteScoped
     /// <summary>Where it came from: <c>"mcp"</c> today; the app itself later.</summary>
     public string Source { get; set; } = "mcp";
 
+    /// <summary>
+    /// The structured chapter review, when this insight is one (jsonb; <c>Contracts.ChapterReview.ChapterReviewDto</c>).
+    /// <see cref="Text"/> then holds its server-rendered Markdown, so every reader of <c>Text</c> keeps
+    /// working. Null for a plain insight. See ADR-016.
+    /// </summary>
+    public string? ReviewJson { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 

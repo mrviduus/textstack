@@ -46,6 +46,8 @@ public sealed class McpToolCatalog
             BuildGetMyReading(api),
             BuildGetBookProgress(api),
             BuildSetBookProgress(api),
+            BuildGetChapterReview(api),
+            BuildSaveChapterReview(api),
         };
         _byName = tools.ToDictionary(t => t.Name, StringComparer.Ordinal);
     }
@@ -786,7 +788,8 @@ public sealed class McpToolCatalog
             + "and leave it out when it is about the whole book — that book-level one is the конспект's "
             + "overview. `text` is Markdown; `question` records what was being worked out, which is "
             + "what makes it worth coming back to. Saving again for the same chapter REPLACES the "
-            + "previous one, so a second pass refreshes the notes rather than duplicating them.",
+            + "previous one, so a second pass refreshes the notes rather than duplicating them. "
+            + "A chapter that has a structured review cannot be overwritten here — use save_chapter_review.",
         InputSchema = SaveInsightSchema,
         Handler = (args, ct) =>
         {
@@ -801,7 +804,8 @@ public sealed class McpToolCatalog
             {
                 var saved = await api.SaveInsightAsync(editionId, bookId, chapterSlug, text, question, ct);
                 if (saved is null)
-                    return Error("save_insight failed: the book was not found, or that chapter slug does not exist in it");
+                    return Error("save_insight failed: the book was not found, that chapter slug does not exist in it, "
+                        + "or the chapter has a structured review (replace that with save_chapter_review)");
 
                 var mapped = new
                 {
@@ -866,6 +870,157 @@ public sealed class McpToolCatalog
                     updatedAt = i.UpdatedAt,
                 });
                 return Text(JsonSerializer.Serialize(new { insights = mapped }));
+            });
+        },
+    };
+
+    // ── chapter review ──────────────────────────────────────────────────────────
+    // docs/05-features/chapter-review.md. One upstream call each; the API's DTO is the tool text, and
+    // a refusal comes back with the server's own message (every validation problem, or the spoiler
+    // gate's instruction), because that message is what the model acts on.
+
+    // Re-serialized unescaped: the default encoder writes every non-ASCII character (Cyrillic, an em
+    // dash, curly quotes) as \uXXXX, which multiplies a 40k-char chapter part in the model's context.
+    private static readonly JsonSerializerOptions UnescapedJson = new()
+    {
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
+
+    private static readonly JsonElement GetChapterReviewSchema = JsonDocument.Parse(
+        """
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["chapterSlug"],
+          "properties": {
+            "bookId": { "type": "string", "format": "uuid" },
+            "editionId": { "type": "string", "format": "uuid" },
+            "chapterSlug": { "type": "string", "minLength": 1, "maxLength": 300 },
+            "part": { "type": "integer", "minimum": 1, "maximum": 20 }
+          }
+        }
+        """).RootElement;
+
+    private static McpToolDescriptor BuildGetChapterReview(TextStackApiClient api) => new()
+    {
+        Name = "get_chapter_review",
+        Description =
+            "Start a TextStack chapter review — everything in one call (requires authentication). "
+            + "Give EITHER bookId (an uploaded book) OR editionId (a catalog book), plus chapterSlug. "
+            + "Returns the review METHOD to follow, the chapter text, the reader's highlights in it, "
+            + "their saved words from this book, open threads from earlier chapters and any previous "
+            + "review of this chapter. If chapter.partCount > 1, call again with part = 2..partCount "
+            + "before writing. Follow the method exactly and save with save_chapter_review. Do not use "
+            + "or reveal anything from later chapters.",
+        InputSchema = GetChapterReviewSchema,
+        Handler = (args, ct) =>
+        {
+            if (!ArgReader.TryObject(args, out var obj, out var err, "bookId", "editionId", "chapterSlug", "part")
+                || !TryReadInsightTarget(obj, out var editionId, out var bookId, out err)
+                || !ArgReader.TryRequiredString(obj, "chapterSlug", 1, 300, out var chapterSlug, out err)
+                || !ArgReader.TryOptionalInt(obj, "part", 1, 20, out var part, out err))
+                return Task.FromResult(Error(err));
+
+            return InvokeAsync("get_chapter_review", ct, async () =>
+            {
+                var result = await api.GetChapterReviewAsync(editionId, bookId, chapterSlug, part, ct);
+                return result.Error is { } e
+                    ? Error($"get_chapter_review: {e}")
+                    : Text(JsonSerializer.Serialize(result.Value, UnescapedJson));
+            });
+        },
+    };
+
+    private static readonly JsonElement SaveChapterReviewSchema = JsonDocument.Parse(
+        """
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["chapterSlug", "review"],
+          "properties": {
+            "bookId": { "type": "string", "format": "uuid" },
+            "editionId": { "type": "string", "format": "uuid" },
+            "chapterSlug": { "type": "string", "minLength": 1, "maxLength": 300 },
+            "review": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["blocks", "applications"],
+              "properties": {
+                "recall": { "type": "string", "maxLength": 3000 },
+                "blocks": {
+                  "type": "array", "minItems": 3, "maxItems": 6,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["title", "problem", "rootCause", "rule", "highlightIds", "question"],
+                    "properties": {
+                      "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+                      "problem": { "type": "string", "minLength": 1, "maxLength": 1200 },
+                      "rootCause": { "type": "string", "minLength": 1, "maxLength": 300 },
+                      "rule": { "type": "string", "minLength": 1, "maxLength": 300 },
+                      "highlightIds": { "type": "array", "maxItems": 20, "items": { "type": "string", "format": "uuid" } },
+                      "question": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["prompt", "answer"],
+                        "properties": {
+                          "prompt": { "type": "string", "minLength": 1, "maxLength": 500 },
+                          "answer": { "type": "string", "minLength": 1, "maxLength": 1500 }
+                        }
+                      }
+                    }
+                  }
+                },
+                "applications": {
+                  "type": "array", "minItems": 1, "maxItems": 5,
+                  "items": { "type": "string", "minLength": 1, "maxLength": 400 }
+                },
+                "openThreads": {
+                  "type": "array", "maxItems": 10,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["text"],
+                    "properties": { "text": { "type": "string", "minLength": 1, "maxLength": 300 } }
+                  }
+                },
+                "closedThreadIds": { "type": "array", "maxItems": 20, "items": { "type": "string", "maxLength": 20 } }
+              }
+            }
+          }
+        }
+        """).RootElement;
+
+    private static McpToolDescriptor BuildSaveChapterReview(TextStackApiClient api) => new()
+    {
+        Name = "save_chapter_review",
+        Description =
+            "Save a finished TextStack chapter review (WRITE on the reader's account — requires "
+            + "authentication). Same book/chapter ids as get_chapter_review. `review` must follow the "
+            + "method get_chapter_review returned: 3–6 blocks, each with a concrete problem, a one-line "
+            + "rootCause, a rule to memorize, the ids of the reader's highlights it covers (never invent "
+            + "ids) and one question with its answer; plus applications and threads. Saving again "
+            + "REPLACES the chapter's review. If the save is refused, the error lists every problem — "
+            + "fix all of them and save again.",
+        InputSchema = SaveChapterReviewSchema,
+        Handler = (args, ct) =>
+        {
+            if (!ArgReader.TryObject(args, out var obj, out var err, "bookId", "editionId", "chapterSlug", "review")
+                || !TryReadInsightTarget(obj, out var editionId, out var bookId, out err)
+                || !ArgReader.TryRequiredString(obj, "chapterSlug", 1, 300, out var chapterSlug, out err))
+                return Task.FromResult(Error(err));
+
+            // Only the envelope is checked here; the review's contents are the server's to validate,
+            // so every problem arrives in one refusal instead of being split across two layers.
+            if (!obj.TryGetProperty("review", out var review) || review.ValueKind != JsonValueKind.Object)
+                return Task.FromResult(Error("'review' is required and must be an object."));
+
+            return InvokeAsync("save_chapter_review", ct, async () =>
+            {
+                var result = await api.SaveChapterReviewAsync(editionId, bookId, chapterSlug, review, ct);
+                return result.Error is { } e
+                    ? Error($"save_chapter_review refused: {e}")
+                    : Text(JsonSerializer.Serialize(result.Value, UnescapedJson));
             });
         },
     };
