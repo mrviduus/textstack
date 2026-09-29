@@ -23,8 +23,8 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
-- **SEO** — IndexNow now reaches Yandex even while Bing refuses the site, and the worker logs why a submission failed — web · [details](docs/changelog-archive/2026-H2.md#2026-09-28-seo-indexnow-bing-refuses-separately)
-- **SEO** — IndexNow was refused (403) on every rebuild since it was switched on in February: prod's key and the key file on the site were two different keys — web · [details](docs/changelog-archive/2026-H2.md#2026-09-28-seo-indexnow-refused-on-every-rebuild)
+- **SEO** — IndexNow reaches Bing through Yandex while Bing refuses direct submissions, and the worker logs why a submission failed — web · [details](docs/changelog-archive/2026-H2.md#2026-09-28-seo-indexnow-bing-refuses-separately)
+- **SEO** — IndexNow had been refused (403) on every rebuild since late April: prod's key and the key file on the site were two different keys — web · [details](docs/changelog-archive/2026-H2.md#2026-09-28-seo-indexnow-refused-on-every-rebuild)
 - **Docs** — CONTRIBUTING links an optional Neovim setup that matches the repo's formatting rules — docs
 - **Offline** — "+" no longer asks a fresh install to sign in, and a book you just uploaded arrives without leaving the app — mobile · [details](docs/changelog-archive/2026-H2.md#2026-09-28-offline-the-door-and-the-book-that-was-not-ready)
 - **CI** — the advisory check stopped going through a package manager, and learned to say "could not check" instead of failing silently — infra · [details](docs/changelog-archive/2026-H2.md#2026-09-28-advisories-a-check-that-can-say-it-failed)

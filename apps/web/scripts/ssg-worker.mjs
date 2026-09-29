@@ -272,7 +272,7 @@ async function submitToIndexNow(host, routes) {
 
   // IndexNow verifies ownership by fetching https://<host>/<key>.txt. If that file isn't ours, nginx
   // answers with the SPA's index.html and every submission is a 403 — which is what happened from
-  // 2026-02 to 2026-09: prod's INDEXNOW_KEY and the committed key file were two different keys.
+  // late April to 2026-09: prod's INDEXNOW_KEY and the committed key file were two different keys.
   const keyFile = join(DIST_DIR, `${key}.txt`);
   if (!existsSync(keyFile) || readFileSync(keyFile, 'utf8').trim() !== key) {
     console.error(`IndexNow: skipped — ${key}.txt is missing from apps/web/public or doesn't contain the key; INDEXNOW_KEY and the key file disagree`);
@@ -284,7 +284,8 @@ async function submitToIndexNow(host, routes) {
 
   // api.indexnow.org answers with Bing's verdict, and a URL is shared with the other engines only once
   // it is accepted — so while Bing refuses, Yandex hears nothing. Submitting to Yandex directly
-  // decouples them; a duplicate once Bing accepts is harmless.
+  // decouples them — and Yandex shares what it accepts, so Bing gets the URLs that way. A duplicate
+  // once Bing accepts directly is harmless.
   const endpoints = ['https://api.indexnow.org/indexnow', 'https://yandex.com/indexnow'];
 
   for (let i = 0; i < urlList.length; i += BATCH_SIZE) {
@@ -302,7 +303,7 @@ async function submitToIndexNow(host, routes) {
           })
         });
         // The body carries the reason (e.g. Bing's "UserForbiddedToAccessSite"); a bare status hid
-        // two different 403s behind one log line for eight months.
+        // two different 403s behind one log line.
         const detail = res.ok ? '' : ` ${(await res.text()).slice(0, 200)}`;
         console.log(`IndexNow ${new URL(endpoint).host}: ${batch.length} URLs → ${res.status}${detail}`);
       } catch (err) {
