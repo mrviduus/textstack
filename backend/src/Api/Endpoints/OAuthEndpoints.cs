@@ -17,7 +17,7 @@ namespace Api.Endpoints;
 /// <code>
 /// client ─ GET  /.well-known/oauth-authorization-server   metadata (RFC 8414)
 ///        ─ POST /oauth/register                            DCR (RFC 7591), or a CIMD https client_id
-/// browser─ GET  /oauth/authorize                           validate → 302 web /en/oauth/consent?req=
+/// browser─ GET  /oauth/authorize                           validate → 302 web /en/oauth/consent/?req=
 /// SPA    ─ GET  /oauth/requests/{id}                       what to show
 ///        ─ POST /oauth/authorize/approve | deny            signed-in reader decides → { redirect }
 /// client ─ POST /oauth/token                               code+PKCE → tso_/tsr_; refresh rotates
@@ -139,7 +139,7 @@ public static class OAuthEndpoints
         db.OAuthAuthorizationRequests.Add(request);
         await db.SaveChangesAsync(ct);
 
-        return Results.Redirect($"{issuer}/en/oauth/consent?req={request.Id}");
+        return Results.Redirect($"{issuer}/en/oauth/consent/?req={request.Id}"); // trailing slash: nginx would 301 to it
     }
 
     private static async Task<IResult> GetRequest(Guid id, IAppDbContext db, CancellationToken ct)
