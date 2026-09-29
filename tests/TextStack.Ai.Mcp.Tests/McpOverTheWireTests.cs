@@ -234,6 +234,35 @@ public class McpOverTheWireTests : IAsyncLifetime
         Assert.Equal(0, _harness.Stub.TotalRequests);
     }
 
+    // ── 10b. personal connect URL (/mcp/k/<key>) — how ChatGPT connects ─────────────
+
+    private const string UrlKey = "tsk_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_abcde";
+
+    [Fact]
+    public async Task ConnectUrl_NoHeader_KeyInPath_ForwardedAsBearer()
+    {
+        await using var client = await _harness.ConnectViaUrlAsync(UrlKey, Ct);
+
+        var result = await CallAsync(client, "list_my_highlights", Args(("editionId", StubBackend.GoodEdition)));
+
+        AssertOk(result);
+        Assert.Equal($"Bearer {UrlKey}", _harness.Stub.Last("list_my_highlights")!.Authorization);
+    }
+
+    [Theory]
+    [InlineData("tsk_short")]                                          // wrong length
+    [InlineData("jwt-abc.def.ghi")]                                    // not a connect key
+    [InlineData("tsk_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789+/abcde")]   // plain base64, not base64url
+    public async Task ConnectUrl_MalformedKey_404_NeverReachesMcp(string key)
+    {
+        using var http = new HttpClient();
+        using var resp = await http.PostAsync($"{_harness.McpEndpoint}/k/{Uri.EscapeDataString(key)}",
+            new StringContent("{}", System.Text.Encoding.UTF8, "application/json"), Ct);
+
+        Assert.Equal(System.Net.HttpStatusCode.NotFound, resp.StatusCode);
+        Assert.Equal(0, _harness.Stub.TotalRequests);
+    }
+
     // ── 11. negative: invalid args (missing required) → IsError, no upstream call ──
 
     [Fact]

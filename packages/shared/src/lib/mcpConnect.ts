@@ -51,6 +51,18 @@ export function claudeDesktopConfig(key: string): string {
 }
 
 /**
+ * The personal connect URL: the key inside the path, for clients that cannot send a header.
+ *
+ * <p>ChatGPT's connector settings offer "No authentication" or OAuth and nothing between, so without
+ * OAuth the only place a key can go is the URL. The bridge lifts it back into a bearer
+ * (`ConnectUrl.cs`), after which it is the same key with the same revocation. The URL is therefore a
+ * password — anyone holding it reads and writes as this reader until the key is revoked.</p>
+ */
+export function chatgptConnectorUrl(key: string): string {
+  return `${MCP_ENDPOINT}/k/${key}`
+}
+
+/**
  * A label the reader can tell apart later without being asked to invent one now.
  *
  * <p>Asking for a name before the key exists puts a form between them and the thing they came for.

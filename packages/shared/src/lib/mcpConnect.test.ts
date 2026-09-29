@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { claudeDesktopConfig, defaultKeyName, liveKeys, MCP_ENDPOINT, type McpKey } from './mcpConnect'
+import { chatgptConnectorUrl, claudeDesktopConfig, defaultKeyName, liveKeys, MCP_ENDPOINT, type McpKey } from './mcpConnect'
 
 const key = (over: Partial<McpKey> = {}): McpKey => ({
   id: 'k1',
@@ -68,5 +68,19 @@ describe('liveKeys', () => {
     const rows = [key({ id: 'a' }), key({ id: 'b', revokedAt: 'x' })]
     liveKeys(rows)
     expect(rows).toHaveLength(2)
+  })
+})
+
+describe('chatgptConnectorUrl', () => {
+  it('puts the key in the path the bridge rewrites', () => {
+    // The bridge only recognises /mcp/k/<key> (ConnectUrl.cs); any other shape is a 404, so a URL
+    // that drifts from it fails in ChatGPT with nothing that names the cause.
+    const raw = 'tsk_abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG'
+    expect(chatgptConnectorUrl(raw)).toBe(`https://textstack.app/mcp/k/${raw}`)
+  })
+
+  it('leaves base64url characters as they are', () => {
+    // `-` and `_` are legal in a URL path; encoding them would change the key.
+    expect(chatgptConnectorUrl('tsk_-_-_aA09-_zZ')).toBe(`${MCP_ENDPOINT}/k/tsk_-_-_aA09-_zZ`)
   })
 })

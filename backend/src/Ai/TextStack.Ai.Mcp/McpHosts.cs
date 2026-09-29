@@ -105,6 +105,12 @@ public static class McpHosts
             o.ValidateOnBuild = true;
         });
 
+        // The personal connect URL (/mcp/k/<key>, see ConnectUrl) carries a secret in the path, and
+        // these two categories log the raw request path at Information — the hosting one before any
+        // middleware runs. Warning keeps errors and drops the per-request lines.
+        builder.Logging.AddFilter("Microsoft.AspNetCore.Hosting.Diagnostics", LogLevel.Warning);
+        builder.Logging.AddFilter("Microsoft.AspNetCore.Routing", LogLevel.Warning);
+
         builder.Services.AddSingleton(options);
         builder.Services.AddHttpContextAccessor();
 
@@ -124,6 +130,19 @@ public static class McpHosts
             .WithHttpTransport(t => t.Stateless = true);
 
         var app = builder.Build();
+
+        // /mcp/k/<key> → Authorization: Bearer <key> on /mcp. Must run BEFORE routing picks an
+        // endpoint, hence the explicit UseRouting below (minimal hosting otherwise routes first).
+        app.Use(async (ctx, next) =>
+        {
+            if (!ConnectUrl.TryRewrite(ctx.Request))
+            {
+                ctx.Response.StatusCode = StatusCodes.Status404NotFound;
+                return;
+            }
+            await next();
+        });
+        app.UseRouting();
 
         // Docker healthcheck — plain 200, no auth, no MCP framing.
         app.MapGet("/health", () => Results.Ok("ok"));

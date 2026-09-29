@@ -4,7 +4,7 @@ import { useTranslation } from '../../hooks/useTranslation'
 import { listMcpKeys, createMcpKey, revokeMcpKey, type McpKey, type CreatedMcpKey } from '../../api/mcpKeys'
 // Pure, and shared on purpose: a key minted on the phone is the same key here, so both platforms
 // must hand out the same snippet and the same default name.
-import { claudeDesktopConfig, defaultKeyName, liveKeys } from '@textstack/shared'
+import { chatgptConnectorUrl, claudeDesktopConfig, defaultKeyName, liveKeys } from '@textstack/shared'
 
 /**
  * Create and manage the connect keys that let an outside assistant reach the reader's books.
@@ -27,7 +27,7 @@ export function ConnectAssistant() {
   const [creating, setCreating] = useState(false)
   const [created, setCreated] = useState<CreatedMcpKey | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [copied, setCopied] = useState<'key' | 'config' | null>(null)
+  const [copied, setCopied] = useState<'key' | 'config' | 'url' | null>(null)
 
   // Deliberately does NOT clear `error` on success. The mount refresh and a user action overlap:
   // a create that failed at 200ms would have its message wiped by a list that succeeded at 300ms,
@@ -74,7 +74,7 @@ export function ConnectAssistant() {
     }
   }
 
-  const copy = async (text: string, which: 'key' | 'config') => {
+  const copy = async (text: string, which: 'key' | 'config' | 'url') => {
     try {
       await navigator.clipboard.writeText(text)
       setCopied(which)
@@ -127,6 +127,22 @@ export function ConnectAssistant() {
               {copied === 'config' ? t('mcp.copied') : t('mcp.copy')}
             </button>
           </div>
+
+          {/* ChatGPT can't send a header, so the same key goes in the URL (ConnectUrl.cs). The
+              strings are shared with the mobile screen: one key, one set of instructions. */}
+          <p className="mcp-connect__configlabel">{t('connect.chatgptLabel')}</p>
+          <div className="mcp-connect__keyrow">
+            <code className="mcp-connect__key">{chatgptConnectorUrl(created.key)}</code>
+            <button
+              type="button"
+              className="mcp-connect__copy"
+              onClick={() => copy(chatgptConnectorUrl(created.key), 'url')}
+            >
+              {copied === 'url' ? t('mcp.copied') : t('mcp.copy')}
+            </button>
+          </div>
+          <p className="mcp-connect__hint">{t('connect.chatgptHow')}</p>
+          <p className="mcp-connect__once" role="note">{t('connect.chatgptWarning')}</p>
         </div>
       )}
 

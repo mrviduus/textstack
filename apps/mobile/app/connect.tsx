@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons'
 import * as Clipboard from 'expo-clipboard'
 import {
   mcpKeysApi,
+  chatgptConnectorUrl,
   claudeDesktopConfig,
   defaultKeyName,
   liveKeys,
@@ -157,6 +158,22 @@ export default function ConnectScreen() {
               <Ionicons name="copy-outline" size={16} color={colors.text} />
               <Text style={[styles.btnText, { color: colors.text }]}>{t('connect.copyConfig')}</Text>
             </TouchableOpacity>
+
+            {/* ChatGPT can't send a header, so the same key travels in the URL (ConnectUrl.cs). */}
+            <Text style={[styles.configLabel, { color: colors.textSecondary }]}>{t('connect.chatgptLabel')}</Text>
+            <Text selectable style={[styles.key, { color: colors.text, backgroundColor: colors.background }]}>
+              {chatgptConnectorUrl(created.key)}
+            </Text>
+            <TouchableOpacity
+              style={[styles.btn, { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1 }]}
+              onPress={() => copy(chatgptConnectorUrl(created.key))}
+              accessibilityRole="button"
+            >
+              <Ionicons name="copy-outline" size={16} color={colors.text} />
+              <Text style={[styles.btnText, { color: colors.text }]}>{t('connect.copyUrl')}</Text>
+            </TouchableOpacity>
+            <Text style={[styles.configLabel, { color: colors.textSecondary }]}>{t('connect.chatgptHow')}</Text>
+            <Text style={[styles.once, { color: colors.text }]}>{t('connect.chatgptWarning')}</Text>
           </View>
         )}
 

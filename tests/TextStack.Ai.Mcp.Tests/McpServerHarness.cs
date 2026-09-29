@@ -96,6 +96,20 @@ public sealed class McpServerHarness : IAsyncDisposable
         return await McpClient.CreateAsync(transport, cancellationToken: ct);
     }
 
+    /// <summary>
+    /// Connects the way ChatGPT does: no header at all, the key in the path
+    /// (<c>/mcp/k/&lt;key&gt;</c>, see <c>ConnectUrl</c>).
+    /// </summary>
+    public async Task<McpClient> ConnectViaUrlAsync(string key, CancellationToken ct)
+    {
+        var transport = new HttpClientTransport(new HttpClientTransportOptions
+        {
+            Endpoint = new Uri($"{McpEndpoint}/k/{key}"),
+            TransportMode = HttpTransportMode.StreamableHttp,
+        });
+        return await McpClient.CreateAsync(transport, cancellationToken: ct);
+    }
+
     private static int FreeTcpPort()
     {
         var listener = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
