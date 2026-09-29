@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **CI** — an Expo patch release upstream no longer turns every pull request red; minor/major SDK drift still fails — infra
 - **Uploads** — a PDF whose outline groups chapters under parts is split into its chapters, not its parts (DDIA: 3 parts of 150–240 pages → 12 chapters) — worker · [details](docs/changelog-archive/2026-H2.md#2026-09-29-uploads-pdf-chapters-under-parts)
 - **MCP** — chapter review: the reader's own assistant reviews a chapter by the TextStack method (`get_chapter_review` / `save_chapter_review`), the result lands in the chapter's insight as structure and its questions get their own SRS queue — backend · [details](docs/changelog-archive/2026-H2.md#2026-09-29-mcp-chapter-review)
 - **MCP** — ChatGPT can reach your library: a connect key now also comes as a personal URL, because ChatGPT's connectors can't send a header — backend, web, mobile, infra · [details](docs/changelog-archive/2026-H2.md#2026-09-29-mcp-chatgpt-connects-with-a-personal-url)

@@ -327,9 +327,14 @@ jobs:
       # tests pass" into "and the app is built out of parts that were tested
       # together". @sentry/react-native is deliberately ahead and recorded in
       # expo.install.exclude.
+      #
+      # Wrapped so that a PATCH lag is a warning, not a failure: Expo ships
+      # patches constantly, and the fix `--check` demands moves the OTA runtime
+      # fingerprint — against the twice-a-year policy. Minor/major drift and
+      # output it can't read still fail. See scripts/check-expo-alignment.mjs.
       - name: Expo SDK version alignment
         working-directory: apps/mobile
-        run: npx expo install --check
+        run: node ../../scripts/check-expo-alignment.mjs
 
       # tsc and unit tests both passed while the app could not be bundled at
       # all — a broken import or a bad module resolution only surfaces when
