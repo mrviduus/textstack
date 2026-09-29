@@ -65,12 +65,7 @@ public static class PdfChapterDetector
             if (!document.TryGetBookmarks(out var bookmarks))
                 return [];
 
-            // Use only top-level bookmarks (Roots). PdfPig.GetNodes() flattens
-            // the tree which conflates real chapters with their subsections —
-            // O'Reilly-style books would produce 30+ "chapters" instead of ~10.
-            var chapters = new List<(string Title, int PageNumber)>();
-            foreach (var root in bookmarks.Roots)
-                CollectTopLevelChapter(root, chapters);
+            var chapters = SelectChapters(bookmarks.Roots.Select(ToOutline).ToList());
 
             if (chapters.Count < 2)
                 return [];
@@ -98,35 +93,66 @@ public static class PdfChapterDetector
         }
     }
 
-    /// <summary>
-    /// Most roots are DocumentBookmarkNode (leaf with a page target). A few PDFs
-    /// have a "section header" root with no page of its own — descend to its first
-    /// descendant with a page so we don't lose the entire branch.
-    /// </summary>
-    private static void CollectTopLevelChapter(
-        BookmarkNode node,
-        List<(string Title, int PageNumber)> chapters)
-    {
-        if (node is DocumentBookmarkNode docNode && docNode.PageNumber > 0)
-        {
-            var title = docNode.Title?.Trim();
-            if (!string.IsNullOrWhiteSpace(title))
-                chapters.Add((title, docNode.PageNumber));
-            return;
-        }
+    /// <summary>A bookmark reduced to what chapter selection needs; <c>Page</c> 0 = no page target.</summary>
+    internal sealed record OutlineNode(string Title, int Page, IReadOnlyList<OutlineNode> Children);
 
-        foreach (var child in node.Children)
+    private static OutlineNode ToOutline(BookmarkNode node) => new(
+        node.Title?.Trim() ?? string.Empty,
+        node is DocumentBookmarkNode doc ? doc.PageNumber : 0,
+        node.Children.Select(ToOutline).ToList());
+
+    // "Part I", "Part One", "Частина 2", "Book III" — a grouping level above chapters.
+    private static readonly Regex PartTitle = new(
+        @"^(part|частина|часть|book|книга)\s+(\d+|[IVXLCDM]+|one|two|three|four|five|six|seven|eight|nine|ten)\b",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    /// <summary>
+    /// Chapters from the top of the outline. Top-level only by default: flattening the tree conflates
+    /// chapters with their subsections, and an O'Reilly-style book would produce 30+ "chapters"
+    /// instead of ~10.
+    /// <para>
+    /// Except when a top-level entry is a PART: DDIA's roots are "Part I. Foundations of Data Systems"
+    /// (pp. 23–166) with "Chapter 1…4" beneath, so top-level-only gave three 150–240-page "chapters"
+    /// and the real chapters vanished. A root is expanded into its children when it reads like a part,
+    /// or when at least two of its children read like chapters ("Chapter 5", "5. Replication") — the
+    /// second covers books whose part roots carry no "Part" word. A chapter's subsections ("Leaders and
+    /// Followers") read like neither, so ordinary chapter roots stay whole. The part's own opening
+    /// pages are folded into its first chapter rather than becoming a two-page chapter of their own.
+    /// </para>
+    /// </summary>
+    internal static List<(string Title, int PageNumber)> SelectChapters(IReadOnlyList<OutlineNode> roots)
+    {
+        var chapters = new List<(string Title, int PageNumber)>();
+        foreach (var root in roots)
         {
-            if (child is DocumentBookmarkNode childDoc && childDoc.PageNumber > 0)
+            var paged = root.Children.Where(c => c.Page > 0 && c.Title.Length > 0).ToList();
+            var isPart = PartTitle.IsMatch(root.Title)
+                || paged.Count(c => ChapterPattern.IsMatch(c.Title) || NumberedHeading.IsMatch(c.Title)) >= 2;
+
+            if (isPart && paged.Count >= 2)
             {
-                var title = (node.Title?.Trim() is { Length: > 0 } parentTitle)
-                    ? parentTitle
-                    : childDoc.Title?.Trim();
-                if (!string.IsNullOrWhiteSpace(title))
-                    chapters.Add((title, childDoc.PageNumber));
-                return;
+                for (var i = 0; i < paged.Count; i++)
+                {
+                    var page = i == 0 && root.Page > 0 ? Math.Min(root.Page, paged[0].Page) : paged[i].Page;
+                    chapters.Add((paged[i].Title, page));
+                }
+                continue;
             }
+
+            if (root.Page > 0)
+            {
+                if (root.Title.Length > 0)
+                    chapters.Add((root.Title, root.Page));
+                continue;
+            }
+
+            // A "section header" root with no page of its own: take its first child's page so the
+            // branch isn't lost, titled by the root when it has a title.
+            var first = paged.FirstOrDefault();
+            if (first is not null)
+                chapters.Add((root.Title.Length > 0 ? root.Title : first.Title, first.Page));
         }
+        return chapters;
     }
 
     private static List<ChapterRange> TryDetectFromHeadings(PdfDocument document, int pageCount)
