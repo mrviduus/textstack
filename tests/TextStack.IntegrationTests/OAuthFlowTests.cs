@@ -413,7 +413,7 @@ public class OAuthFlowTests : IClassFixture<LiveApiFixture>, IDisposable
         var resp = await _http.SendAsync(Get(AuthorizeUrl(clientId, verifier, state)), Ct);
         Assert.Equal(HttpStatusCode.Redirect, resp.StatusCode);
         var location = resp.Headers.Location!;
-        Assert.Equal("https://textstack.app/en/oauth/consent", location.GetLeftPart(UriPartial.Path));
+        Assert.Equal("https://textstack.app/en/oauth/consent/", location.GetLeftPart(UriPartial.Path)); // slashed: nginx would 301 an unslashed /en/* path
         return Guid.Parse(HttpUtility.ParseQueryString(location.Query)["req"]!);
     }
 
