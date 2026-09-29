@@ -253,6 +253,10 @@ GET  /me/oauth/grants · DELETE /me/oauth/grants/{id}   → "Connected apps"; re
 
 - Redirect hosts: `OAuth:AllowedRedirectHosts` (claude.ai, claude.com, chatgpt.com) over https, or
   loopback on any port. Anything else is refused at register and at authorize.
+- A `tso_` token is **library-only**: account management (`/me/account`, `/me/profile`, `/auth/*`,
+  `/me/mcp/keys`, `/me/oauth/grants`, OAuth approve/deny) answers `403 insufficient_scope`.
+- Reconnecting the same app (same name + redirect host) replaces its previous grant. Reusing a
+  rotated refresh token revokes the whole grant.
 - An expired or revoked `tso_` is answered by the MCP host with `401 error="invalid_token"` (it asks
   the API's `GET /oauth/token-status`), which is what makes a client refresh.
 - Rate limits, per IP: `oauth-browser` 30/min (authorize, consent), `oauth-server` 120/min (token,

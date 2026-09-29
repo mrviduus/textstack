@@ -37,8 +37,8 @@ public static class OAuthEndpoints
         var oauth = app.MapGroup("/oauth").WithTags("OAuth");
         oauth.MapGet("/authorize", Authorize).RequireRateLimiting("oauth-browser");
         oauth.MapGet("/requests/{id:guid}", GetRequest).RequireRateLimiting("oauth-browser");
-        oauth.MapPost("/authorize/approve", Approve).RequireRateLimiting("oauth-browser");
-        oauth.MapPost("/authorize/deny", Deny).RequireRateLimiting("oauth-browser");
+        oauth.MapPost("/authorize/approve", Approve).RequireRateLimiting("oauth-browser").RejectOAuthTokens();
+        oauth.MapPost("/authorize/deny", Deny).RequireRateLimiting("oauth-browser").RejectOAuthTokens();
         oauth.MapPost("/token", Token).RequireRateLimiting("oauth-server");
         oauth.MapPost("/register", Register).RequireRateLimiting("oauth-server");
         oauth.MapPost("/revoke", Revoke).RequireRateLimiting("oauth-server");
@@ -48,7 +48,7 @@ public static class OAuthEndpoints
         oauth.MapGet("/token-status", (HttpContext http, AuthService auth) =>
             http.GetUserId(auth) is null ? Results.Unauthorized() : Results.NoContent()).ExcludeFromDescription();
 
-        var grants = app.MapGroup("/me/oauth/grants").WithTags("OAuth");
+        var grants = app.MapGroup("/me/oauth/grants").WithTags("OAuth").RejectOAuthTokens();
         grants.MapGet("", ListGrants).WithName("ListOAuthGrants");
         grants.MapDelete("/{id:guid}", RevokeGrant).WithName("RevokeOAuthGrant");
     }
@@ -258,6 +258,16 @@ public static class OAuthEndpoints
         if (!OAuth.VerifyPkce(f("code_verifier"), r.CodeChallenge)) return Error("invalid_grant", "PKCE verification failed");
         if (!OAuth.ResourceMatches(f("resource"), r.Resource)) return Error("invalid_target", "resource does not match");
 
+        // One grant per app: reconnecting replaces the previous grant(s) for the same app — matched on
+        // (user, client name, redirect host), not client_id, because DCR mints a new client_id on every
+        // connect. Revoked in the same SaveChanges as the insert, so the swap is atomic.
+        var host = OAuth.DisplayHost(r.RedirectUri);
+        var previous = await db.OAuthGrants
+            .Where(g => g.UserId == r.UserId.Value && g.ClientName == r.ClientName && g.RevokedAt == null)
+            .ToListAsync(ct);
+        foreach (var old in previous.Where(g => OAuth.DisplayHost(g.RedirectUri) == host))
+            old.RevokedAt = now;
+
         var access = OAuth.NewToken(OAuth.AccessTokenPrefix);
         var refresh = OAuth.NewToken(OAuth.RefreshTokenPrefix);
         db.OAuthGrants.Add(new OAuthGrant
@@ -291,8 +301,17 @@ public static class OAuthEndpoints
         var grant = await db.OAuthGrants.AsNoTracking()
             .FirstOrDefaultAsync(g => g.RefreshTokenHash == oldHash && g.RevokedAt == null, ct);
 
-        // Unknown covers "already rotated": the previous refresh token's hash was overwritten.
-        if (grant is null || grant.RefreshTokenExpiresAt <= now) return Error("invalid_grant", "refresh token is invalid or expired");
+        if (grant is null)
+        {
+            // An already-rotated refresh token coming back means two parties hold the chain — the
+            // standard breach response (RFC 9700 §4.14.2) is to kill the whole grant, both tokens.
+            // ponytail: remembers one generation back; an older token is refused but not treated as reuse.
+            await db.OAuthGrants
+                .Where(g => g.PreviousRefreshTokenHash == oldHash && g.RevokedAt == null)
+                .ExecuteUpdateAsync(s => s.SetProperty(g => g.RevokedAt, now), ct);
+            return Error("invalid_grant", "refresh token is invalid or expired");
+        }
+        if (grant.RefreshTokenExpiresAt <= now) return Error("invalid_grant", "refresh token is invalid or expired");
         if (f("client_id") is { } clientId && clientId != grant.ClientId)
             return Error("invalid_grant", "refresh token was issued to another client");
         if (!OAuth.ResourceMatches(f("resource"), grant.Resource)) return Error("invalid_target", "resource does not match");
@@ -308,6 +327,7 @@ public static class OAuthEndpoints
             .ExecuteUpdateAsync(s => s
                 .SetProperty(g => g.AccessTokenHash, accessHash)
                 .SetProperty(g => g.AccessTokenExpiresAt, now + OAuth.AccessTokenLifetime)
+                .SetProperty(g => g.PreviousRefreshTokenHash, oldHash)
                 .SetProperty(g => g.RefreshTokenHash, refreshHash)
                 .SetProperty(g => g.RefreshTokenExpiresAt, now + OAuth.RefreshTokenLifetime)
                 .SetProperty(g => g.LastUsedAt, now), ct);

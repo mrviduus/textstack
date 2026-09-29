@@ -61,10 +61,17 @@ client would never have started a sign-in).
 - Claude (web, desktop, mobile, Code) and ChatGPT can connect by URL alone; directory submission is
   unblocked on the auth side (tool `title` + `readOnlyHint`/`destructiveHint`/`openWorldHint` were
   added at the same time).
-- A `tso_` token is accepted by every API endpoint, as a `tsk_` key is — the bridge reaches the API
-  directly, so the API cannot tell a bridged call from a direct one. The practical surface is the 18
-  tools; a stolen token is as strong as a stolen key until revoked or, at most, for an hour.
-- Refresh-token reuse is refused but does not revoke the grant (no token-family tracking). Revisit if
-  a leak is ever suspected.
+- **A `tso_` token reaches the library, never the account** (owner decision). Account-management
+  route groups carry `.RejectOAuthTokens()` (`Api/Extensions/OAuthTokenPolicy.cs`) and answer
+  `403 insufficient_scope`: `/me/account`, `/me/profile`, `/auth`, `/auth/device`, `/me/mcp/keys`,
+  `/me/oauth/grants`, and OAuth approve/deny (a token must not mint a broader credential). It is a
+  deny-list on whole groups, so an endpoint added to one of them is covered; a NEW account group must
+  add the call. `tsk_` keys are unchanged.
+- **One grant per app**: approving again for the same (user, client name, redirect host) revokes the
+  previous grant in the same save — not matched on client_id, which DCR re-mints per connect.
+- **Refresh-token reuse revokes the whole grant** (RFC 9700 §4.14.2): the grant remembers the refresh
+  token it rotated away (`previous_refresh_token_hash`); presenting it revokes access and refresh.
+  One generation back only — an older token is refused but not treated as reuse.
 - nginx must route `/.well-known/oauth-protected-resource[/mcp]` → MCP host and
   `/.well-known/oauth-authorization-server` + `/oauth/` → API; without that they answer the SPA's HTML.
+  `deploy.yml` ("Sync nginx config") applies `infra/nginx/textstack.conf` on deploy.

@@ -67,6 +67,7 @@ namespace Infrastructure.Migrations
                     access_token_expires_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                     refresh_token_hash = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false),
                     refresh_token_expires_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    previous_refresh_token_hash = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: true),
                     created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                     last_used_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
                     revoked_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true)
@@ -104,6 +105,11 @@ namespace Infrastructure.Migrations
                 table: "oauth_grants",
                 column: "access_token_hash",
                 unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "ix_oauth_grants_previous_refresh_token_hash",
+                table: "oauth_grants",
+                column: "previous_refresh_token_hash");
 
             migrationBuilder.CreateIndex(
                 name: "ix_oauth_grants_refresh_token_hash",

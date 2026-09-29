@@ -97,14 +97,14 @@ public class OAuthFlowTests : IClassFixture<LiveApiFixture>, IDisposable
         });
         await AssertOAuthErrorAsync(replay, "invalid_grant");
 
-        // the access token authenticates an ordinary endpoint, and the grant is listed + stamped
-        var grants = await ListGrantsAsync(access);
+        // the access token authenticates, and the grant is listed (to the account) + stamped
+        Assert.Equal(HttpStatusCode.NoContent, await TokenStatusAsync(access));
+        var grants = await ListGrantsAsync(owner!);
         var grant = Assert.Single(grants.EnumerateArray());
         Assert.Equal("Integration Claude", grant.GetProperty("clientName").GetString());
         Assert.Equal("claude.ai", grant.GetProperty("redirectHost").GetString());
         Assert.NotEqual(JsonValueKind.Null, grant.GetProperty("lastUsedAt").ValueKind);
         var grantId = grant.GetProperty("id").GetString();
-        Assert.Equal(HttpStatusCode.NoContent, await TokenStatusAsync(access));
 
         // refresh rotates both tokens
         var refreshed = await RefreshAsync(refresh, clientId);
@@ -115,8 +115,7 @@ public class OAuthFlowTests : IClassFixture<LiveApiFixture>, IDisposable
         Assert.NotEqual(access, access2);
         Assert.NotEqual(refresh, refresh2);
 
-        // the old refresh token is dead on reuse, and so is the old access token
-        await AssertOAuthErrorAsync(await RefreshAsync(refresh, clientId), "invalid_grant");
+        // the old access token died with the rotation (reuse of the old refresh: its own test)
         Assert.Equal(HttpStatusCode.Unauthorized, await TokenStatusAsync(access));
         Assert.Equal(HttpStatusCode.NoContent, await TokenStatusAsync(access2));
 
@@ -143,6 +142,84 @@ public class OAuthFlowTests : IClassFixture<LiveApiFixture>, IDisposable
         Assert.Equal(HttpStatusCode.Unauthorized, await TokenStatusAsync(access));
         // Unknown tokens are 200 as well (RFC 7009 §2.2) — no oracle.
         Assert.Equal(HttpStatusCode.OK, (await PostFormAsync("/oauth/revoke", new() { ["token"] = "tsr_nope" })).StatusCode);
+    }
+
+    [Fact]
+    public async Task Refresh_ReuseOfRotatedToken_RevokesTheWholeGrant()
+    {
+        var owner = await SignUpAsync();
+        Assert.SkipWhen(owner is null, "registration unavailable");
+        var (_, refresh, clientId) = await FullGrantAsync(owner!);
+
+        var rotated = await (await RefreshAsync(refresh, clientId)).Content.ReadFromJsonAsync<JsonElement>(Ct);
+        var access2 = rotated.GetProperty("access_token").GetString()!;
+        var refresh2 = rotated.GetProperty("refresh_token").GetString()!;
+        Assert.Equal(HttpStatusCode.NoContent, await TokenStatusAsync(access2));
+
+        // The old refresh token comes back: someone else holds the chain.
+        await AssertOAuthErrorAsync(await RefreshAsync(refresh, clientId), "invalid_grant");
+
+        // ...so the NEW pair is dead too.
+        Assert.Equal(HttpStatusCode.Unauthorized, await TokenStatusAsync(access2));
+        await AssertOAuthErrorAsync(await RefreshAsync(refresh2, clientId), "invalid_grant");
+        Assert.Equal(0, (await ListGrantsAsync(owner!)).GetArrayLength());
+    }
+
+    [Fact]
+    public async Task Approve_SameAppAgain_ReplacesThePreviousGrant()
+    {
+        var owner = await SignUpAsync();
+        Assert.SkipWhen(owner is null, "registration unavailable");
+
+        // Two connects of "the same app": same name + redirect host, DIFFERENT DCR client_ids.
+        var (first, _, firstClient) = await FullGrantAsync(owner!);
+        var (second, _, secondClient) = await FullGrantAsync(owner!);
+        Assert.NotEqual(firstClient, secondClient);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, await TokenStatusAsync(first));
+        Assert.Equal(HttpStatusCode.NoContent, await TokenStatusAsync(second));
+        Assert.Single((await ListGrantsAsync(owner!)).EnumerateArray());
+    }
+
+    // ── an assistant's token reaches the library, never the account ─────────────
+
+    [Fact]
+    public async Task OAuthToken_AccountManagement_403_LibraryAllowed_JwtUnaffected()
+    {
+        var owner = await SignUpAsync();
+        Assert.SkipWhen(owner is null, "registration unavailable");
+        var (access, _, _) = await FullGrantAsync(owner!);
+
+        async Task<HttpResponseMessage> Send(HttpMethod method, string path, string bearer)
+        {
+            var req = Get(path, bearer);
+            req.Method = method;
+            return await _http.SendAsync(req, Ct);
+        }
+
+        foreach (var (method, path) in new[]
+        {
+            (HttpMethod.Delete, "/me/account"),
+            (HttpMethod.Get, "/me/mcp/keys"),
+            (HttpMethod.Get, "/me/oauth/grants"),
+            (HttpMethod.Get, "/me/profile"),
+            (HttpMethod.Get, "/auth/me"),
+        })
+        {
+            var resp = await Send(method, path, access);
+            Assert.True(resp.StatusCode == HttpStatusCode.Forbidden, $"{method} {path} → {(int)resp.StatusCode}");
+            Assert.Equal("insufficient_scope", (await resp.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("error").GetString());
+        }
+
+        // The library is what the token is for.
+        Assert.Equal(HttpStatusCode.OK, (await Send(HttpMethod.Get, "/me/books", access)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await Send(HttpMethod.Get, "/me/library/shelves", access)).StatusCode);
+
+        // The account's own JWT is unaffected — including the delete, which really deletes.
+        Assert.Equal(HttpStatusCode.OK, (await Send(HttpMethod.Get, "/me/mcp/keys", owner!)).StatusCode);
+        var delete = await Send(HttpMethod.Delete, "/me/account", owner!);
+        Assert.True(delete.IsSuccessStatusCode, $"JWT delete → {(int)delete.StatusCode}");
+        Assert.Equal(HttpStatusCode.Unauthorized, await TokenStatusAsync(access)); // grant cascaded with the user
     }
 
     // ── refusals ────────────────────────────────────────────────────────────────

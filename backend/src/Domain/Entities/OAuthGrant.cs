@@ -7,7 +7,7 @@ namespace Domain.Entities;
 ///
 /// <para><b>Opaque, hashed tokens</b>, like <see cref="McpAccessKey"/>: only SHA-256 hex is stored.
 /// Access (<c>tso_</c>) lives an hour; refresh (<c>tsr_</c>) rotates on every use and slides 90 days.
-/// Rotation overwrites <see cref="RefreshTokenHash"/>, so a reused refresh token matches no row.</para>
+/// Presenting the refresh token that was just rotated away revokes the whole grant (reuse detection).</para>
 ///
 /// <para><b>Revoked, not deleted</b> — the row survives as the record that access was withdrawn.
 /// The auth middleware checks <see cref="RevokedAt"/> in the lookup query, so revocation is
@@ -34,6 +34,12 @@ public class OAuthGrant
     public DateTimeOffset AccessTokenExpiresAt { get; set; }
     public string RefreshTokenHash { get; set; } = "";
     public DateTimeOffset RefreshTokenExpiresAt { get; set; }
+
+    /// <summary>
+    /// Hash of the refresh token this one replaced. If it is ever presented again, someone else holds
+    /// the chain and the whole grant is revoked (refresh-reuse detection).
+    /// </summary>
+    public string? PreviousRefreshTokenHash { get; set; }
 
     public DateTimeOffset CreatedAt { get; set; }
 

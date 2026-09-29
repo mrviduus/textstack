@@ -14,7 +14,7 @@ using Pgvector;
 namespace Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260929174143_AddOAuth")]
+    [Migration("20260929194441_AddOAuth")]
     partial class AddOAuth
     {
         /// <inheritdoc />
@@ -2019,6 +2019,11 @@ namespace Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("last_used_at");
 
+                    b.Property<string>("PreviousRefreshTokenHash")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("previous_refresh_token_hash");
+
                     b.Property<string>("RedirectUri")
                         .IsRequired()
                         .HasMaxLength(2048)
@@ -2061,6 +2066,9 @@ namespace Infrastructure.Migrations
                     b.HasIndex("AccessTokenHash")
                         .IsUnique()
                         .HasDatabaseName("ix_oauth_grants_access_token_hash");
+
+                    b.HasIndex("PreviousRefreshTokenHash")
+                        .HasDatabaseName("ix_oauth_grants_previous_refresh_token_hash");
 
                     b.HasIndex("RefreshTokenHash")
                         .IsUnique()

@@ -46,6 +46,8 @@ public partial class AppDbContext
             e.Property(x => x.Scope).HasMaxLength(200);
             e.Property(x => x.AccessTokenHash).HasMaxLength(128);
             e.Property(x => x.RefreshTokenHash).HasMaxLength(128);
+            e.HasIndex(x => x.PreviousRefreshTokenHash); // reuse detection
+            e.Property(x => x.PreviousRefreshTokenHash).HasMaxLength(128);
             e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
         });
     }

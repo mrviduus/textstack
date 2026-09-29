@@ -37,6 +37,9 @@ public sealed class McpKeyAuthMiddleware(RequestDelegate next)
     /// <summary>Key on <see cref="HttpContext.Items"/>. Internal contract with <c>GetUserId</c>.</summary>
     public const string UserIdItemKey = "mcp_key_user_id";
 
+    /// <summary>Present when the user came from an OAuth access token (<c>tso_</c>). See <see cref="Extensions.OAuthTokenPolicy"/>.</summary>
+    public const string OAuthTokenItemKey = "oauth_access_token";
+
     public async Task InvokeAsync(HttpContext context, IAppDbContext db, IConfiguration config)
     {
         var token = context.GetAccessToken();
@@ -93,6 +96,8 @@ public sealed class McpKeyAuthMiddleware(RequestDelegate next)
         if (grant is null) return;
 
         context.Items[UserIdItemKey] = grant.UserId;
+        // Marks the request as library-scoped; OAuthTokenPolicy refuses account management for it.
+        context.Items[OAuthTokenItemKey] = true;
 
         if (grant.LastUsedAt is null || now - grant.LastUsedAt.Value >= McpKeys.LastUsedWriteInterval)
         {
