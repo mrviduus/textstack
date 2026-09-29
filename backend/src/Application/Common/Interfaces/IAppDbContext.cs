@@ -69,6 +69,7 @@ public interface IAppDbContext
     DbSet<DriftCentroid> DriftCentroids { get; }
     DbSet<PodcastGenerationJob> PodcastGenerationJobs { get; }
     DbSet<BookInsight> BookInsights { get; }
+    DbSet<ReviewQuestion> ReviewQuestions { get; }
     /// <summary>Per-user RAG chunks. Exposed here (not only on the concrete context) because
     /// guest-merge has to re-parent them: UserId is denormalized off UserBook and has no FK to User,
     /// so these rows outlive a deleted guest instead of cascading with it.</summary>

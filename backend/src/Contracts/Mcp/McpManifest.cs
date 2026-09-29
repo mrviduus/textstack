@@ -93,7 +93,8 @@ public static class McpManifestCatalog
             + "and leave it out when it is about the whole book — that book-level one is the конспект's "
             + "overview. `text` is Markdown; `question` records what was being worked out, which is "
             + "what makes it worth coming back to. Saving again for the same chapter REPLACES the "
-            + "previous one, so a second pass refreshes the notes rather than duplicating them."),
+            + "previous one, so a second pass refreshes the notes rather than duplicating them. "
+            + "A chapter that has a structured review cannot be overwritten here — use save_chapter_review."),
         new("get_my_insights",
             "Read back everything already worked out about a book and saved with save_insight, in "
             + "reading order (requires authentication). Give EITHER bookId (an uploaded book) OR "
@@ -125,5 +126,23 @@ public static class McpManifestCatalog
             + "chapters-total; finishing the last chapter marks the book complete. Only call this "
             + "when the reader says they finished something — it overwrites the exact position their "
             + "reader had stored, and it cannot be undone from here."),
+
+        new("get_chapter_review",
+            "Start a TextStack chapter review — everything in one call (requires authentication). "
+            + "Give EITHER bookId (an uploaded book) OR editionId (a catalog book), plus chapterSlug. "
+            + "Returns the review METHOD to follow, the chapter text, the reader's highlights in it, "
+            + "their saved words from this book, open threads from earlier chapters and any previous "
+            + "review of this chapter. If chapter.partCount > 1, call again with part = 2..partCount "
+            + "before writing. Follow the method exactly and save with save_chapter_review. Do not use "
+            + "or reveal anything from later chapters."),
+
+        new("save_chapter_review",
+            "Save a finished TextStack chapter review (WRITE on the reader's account — requires "
+            + "authentication). Same book/chapter ids as get_chapter_review. `review` must follow the "
+            + "method get_chapter_review returned: 3–6 blocks, each with a concrete problem, a one-line "
+            + "rootCause, a rule to memorize, the ids of the reader's highlights it covers (never invent "
+            + "ids) and one question with its answer; plus applications and threads. Saving again "
+            + "REPLACES the chapter's review. If the save is refused, the error lists every problem — "
+            + "fix all of them and save again."),
     ];
 }

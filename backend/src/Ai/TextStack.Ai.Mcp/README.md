@@ -5,14 +5,13 @@ library to Claude Desktop, Cursor, or any [Model Context Protocol](https://model
 client. Ask your books questions, read chapters, and manage your highlights and
 vocabulary straight from your AI assistant.
 
-It exposes **14 tools**:
+It exposes **18 tools**:
 
 | Tool | What it does |
 |------|--------------|
 | `search_books` | Search the public book catalog by query |
 | `get_book` | Fetch a book's metadata and chapter list by slug |
 | `get_chapter` | Fetch the full text of a single chapter |
-| `ask_book` | Ask a question about a book and get a cited, grounded answer |
 | `search_my_library` | Search the books **you uploaded** (requires sign-in) |
 | `get_my_book` | Fetch one of your uploads: metadata + chapter list (requires sign-in) |
 | `get_my_chapter` | Fetch the full text of one chapter of your upload (requires sign-in) |
@@ -23,6 +22,11 @@ It exposes **14 tools**:
 | `list_my_highlights` | List your saved highlights (requires sign-in) |
 | `save_highlight` | Save a passage to your highlights (requires sign-in) |
 | `list_my_vocabulary` | List your saved vocabulary words (requires sign-in) |
+| `get_my_reading` | What you are reading now and every upload — no arguments (requires sign-in) |
+| `get_book_progress` | How far you have got in one book (requires sign-in) |
+| `set_book_progress` | Record a chapter you finished, here or elsewhere (requires sign-in) |
+| `get_chapter_review` | Start a chapter review: method, chapter text, your highlights and words, open threads (requires sign-in) |
+| `save_chapter_review` | Save the finished review; its questions join your practice queue (requires sign-in) |
 
 ## Install
 

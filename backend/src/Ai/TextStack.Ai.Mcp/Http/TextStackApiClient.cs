@@ -389,6 +389,68 @@ public sealed class TextStackApiClient
         return null;
     }
 
+    // ── chapter review (Bearer) ──────────────────────────────────────────────────
+
+    /// <summary>
+    /// <c>GET /me/chapter-review</c> — the whole review context in one call. Unlike the reads above,
+    /// a refusal is NOT collapsed into null: the server's message (spoiler gate, unknown slug, bad
+    /// part) is what tells the model what to do next, so it comes back as <see cref="ApiResult{T}.Error"/>.
+    /// </summary>
+    public async Task<ApiResult<JsonElement>> GetChapterReviewAsync(
+        Guid? editionId, Guid? userBookId, string chapterSlug, int? part, CancellationToken ct)
+    {
+        var url = (editionId is { } e ? $"/me/chapter-review?editionId={e}" : $"/me/chapter-review?userBookId={userBookId}")
+            + $"&chapterSlug={Uri.EscapeDataString(chapterSlug)}"
+            + (part is { } p ? $"&part={p}" : "");
+
+        using var request = await AuthorizedRequestAsync(HttpMethod.Get, url, ct);
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        return await ReadResultAsync(response, ct);
+    }
+
+    /// <summary>
+    /// <c>PUT /me/chapter-review</c>. <paramref name="review"/> is forwarded untouched — the server is
+    /// the only validator, and a 400 carries every problem, which is relayed line by line.
+    /// </summary>
+    public async Task<ApiResult<JsonElement>> SaveChapterReviewAsync(
+        Guid? editionId, Guid? userBookId, string chapterSlug, JsonElement review, CancellationToken ct)
+    {
+        using var request = await AuthorizedRequestAsync(HttpMethod.Put, "/me/chapter-review", ct);
+        request.Content = JsonContent.Create(
+            new SaveChapterReviewJson(editionId, userBookId, chapterSlug, review), options: JsonOptions);
+
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        return await ReadResultAsync(response, ct);
+    }
+
+    // 200 → the body; 401 → McpUnauthorizedException; a structured refusal → its message plus one
+    // "path: message" line per field error; anything else → a bare status line.
+    private static async Task<ApiResult<JsonElement>> ReadResultAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        if (response.StatusCode is HttpStatusCode.Unauthorized)
+            throw new McpUnauthorizedException();
+
+        if (response.StatusCode is HttpStatusCode.OK)
+            return new(await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions, ct), null);
+
+        var body = await response.Content.ReadAsStringAsync(ct);
+        try
+        {
+            var err = JsonSerializer.Deserialize<ReviewErrorJson>(body, JsonOptions);
+            if (err?.Message is { Length: > 0 } message)
+            {
+                var lines = (err.Errors ?? []).Select(e => $"{e.Path}: {e.Message}");
+                return new(default, string.Join("\n", lines.Prepend(message)));
+            }
+        }
+        catch (JsonException)
+        {
+            // Not our error shape (a proxy page, an empty body) — fall through to the status line.
+        }
+
+        return new(default, $"upstream answered {(int)response.StatusCode}");
+    }
+
     // ── reading state (Bearer) ───────────────────────────────────────────────────
 
     /// <summary>
@@ -756,6 +818,21 @@ public sealed record SaveInsightJson(
     string? ChapterSlug,
     string Text,
     string? Question);
+
+/// <summary>A call that either produced a value or a message worth showing the model.</summary>
+public sealed record ApiResult<T>(T? Value, string? Error);
+
+// PUT /me/chapter-review request → SaveChapterReviewRequest.
+public sealed record SaveChapterReviewJson(
+    Guid? EditionId,
+    Guid? UserBookId,
+    string ChapterSlug,
+    JsonElement Review);
+
+// Every non-2xx from the chapter-review routes → ReviewErrorDto.
+public sealed record ReviewErrorJson(string? Error, string? Message, List<ReviewFieldErrorJson>? Errors);
+
+public sealed record ReviewFieldErrorJson(string Path, string Code, string Message);
 
 
 // GET /me/library/shelves → LibraryShelvesDto. Only the shelves an assistant needs to answer

@@ -111,6 +111,7 @@ public partial class AppDbContext : DbContext, IAppDbContext
     public DbSet<DriftCentroid> DriftCentroids => Set<DriftCentroid>();
     public DbSet<PodcastGenerationJob> PodcastGenerationJobs => Set<PodcastGenerationJob>();
     public DbSet<BookInsight> BookInsights => Set<BookInsight>();
+    public DbSet<ReviewQuestion> ReviewQuestions => Set<ReviewQuestion>();
     public DbSet<McpAccessKey> McpAccessKeys => Set<McpAccessKey>();
 
     // Phase 4 RAG. Intentionally not on IAppDbContext — retrieval uses raw Npgsql.

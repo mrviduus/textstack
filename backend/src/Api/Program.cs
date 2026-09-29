@@ -338,6 +338,7 @@ app.MapAccountEndpoints();
 app.MapUserDataEndpoints();
 app.MapHighlightsEndpoints();
 app.MapInsightsEndpoints();
+app.MapChapterReviewEndpoints();
 app.MapMcpKeysEndpoints();
 app.MapTranslationEndpoints();
 app.MapExplainEndpoints();

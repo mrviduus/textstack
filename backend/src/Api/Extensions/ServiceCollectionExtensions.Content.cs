@@ -48,6 +48,10 @@ public static partial class ServiceCollectionExtensions
         services.AddScoped<Application.UserBooks.UserBookSearchService>();
         services.AddScoped<Application.Library.LibraryShelvesService>();
 
+        // Chapter review (docs/05-features/chapter-review.md)
+        services.AddScoped<Application.ChapterReview.ChapterReviewService>();
+        services.AddScoped<Application.ChapterReview.ReviewQuestionService>();
+
         // Standard Ebooks sync
         services.AddHttpClient<StandardEbooksSyncService>();
         services.AddScoped<StandardEbooksSyncService>();

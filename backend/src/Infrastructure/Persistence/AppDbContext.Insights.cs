@@ -7,7 +7,8 @@ namespace Infrastructure.Persistence;
 /// <see cref="BookInsight"/> (table <c>book_insight</c>) — conclusions written back into a book by an
 /// outside assistant over MCP. snake_case names come from the global convention (OnConfiguring).
 /// XOR CHECK on the book target, ISiteScoped
-/// filter, cascade FKs.
+/// filter, cascade FKs. Also <see cref="ReviewQuestion"/> (table <c>review_question</c>), the SRS state
+/// of a chapter review's questions (ADR-016).
 /// </summary>
 public partial class AppDbContext
 {
@@ -26,6 +27,7 @@ public partial class AppDbContext
             e.Property(x => x.Question).HasMaxLength(1000);
             e.Property(x => x.Source).HasMaxLength(32).HasDefaultValue("mcp");
             e.Property(x => x.ChapterSlug).HasMaxLength(300);
+            e.Property(x => x.ReviewJson).HasColumnType("jsonb");
 
             // One insight per user + book + chapter, so a re-run replaces rather than accumulates
             // (see the entity docs).
@@ -66,6 +68,40 @@ public partial class AppDbContext
             e.HasOne(x => x.UserBook)
                 .WithMany()
                 .HasForeignKey(x => x.UserBookId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            e.HasQueryFilter(x => x.SiteId == _currentSite.Id);
+        });
+
+        // A chapter review's SRS questions (ADR-016 §4). Cascades with the insight, so deleting a
+        // review never leaves orphaned questions in the due queue.
+        modelBuilder.Entity<ReviewQuestion>(e =>
+        {
+            e.ToTable("review_question");
+
+            e.Property(x => x.Prompt).HasMaxLength(500);
+            e.Property(x => x.Answer).HasMaxLength(1500);
+            e.Property(x => x.PromptHash).HasMaxLength(16);
+            e.Property(x => x.IsRetired).HasDefaultValue(false);
+
+            // A re-save matches questions by prompt, so a prompt appears once per review.
+            e.HasIndex(x => new { x.BookInsightId, x.PromptHash }).IsUnique();
+            // The due queue: GET /me/review-questions/due.
+            e.HasIndex(x => new { x.UserId, x.IsRetired, x.NextReviewAt });
+
+            e.HasOne(x => x.User)
+                .WithMany()
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            e.HasOne(x => x.Site)
+                .WithMany()
+                .HasForeignKey(x => x.SiteId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            e.HasOne(x => x.BookInsight)
+                .WithMany()
+                .HasForeignKey(x => x.BookInsightId)
                 .OnDelete(DeleteBehavior.Cascade);
 
             e.HasQueryFilter(x => x.SiteId == _currentSite.Id);

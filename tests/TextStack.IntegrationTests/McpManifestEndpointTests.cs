@@ -33,6 +33,8 @@ public class McpManifestEndpointTests : IClassFixture<LiveApiFixture>
         "get_my_reading",
         "get_book_progress",
         "set_book_progress",
+        "get_chapter_review",
+        "save_chapter_review",
     ];
 
     public McpManifestEndpointTests(LiveApiFixture fixture)
@@ -82,7 +84,7 @@ public class McpManifestEndpointTests : IClassFixture<LiveApiFixture>
             cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotNull(manifest);
-        Assert.Equal(16, manifest.Tools.Count);
+        Assert.Equal(18, manifest.Tools.Count);
 
         var names = manifest.Tools.Select(t => t.Name).ToHashSet();
         Assert.Equal(ExpectedToolNames.ToHashSet(), names);

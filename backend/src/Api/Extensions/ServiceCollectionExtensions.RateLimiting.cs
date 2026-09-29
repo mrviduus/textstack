@@ -168,11 +168,18 @@ public static partial class ServiceCollectionExtensions
             // reading session. Cheap for us (one row, no inference), so the cap is not about cost:
             // it is about a runaway agent loop rewriting a book's конспект thousands of times. 60/min
             // clears a model working chapter by chapter through a long book in one pass and stops a
-            // loop dead.
+            // loop dead. Also covers PUT /me/chapter-review.
+            //
+            // Partitioned by user, like highlight-write and for the same reason: every MCP write
+            // arrives from the bridge's one container address, so an IP key made 60/min a budget
+            // shared by every MCP user in the deployment.
             options.AddPolicy("insights", httpContext =>
             {
-                var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-                return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
+                var auth = httpContext.RequestServices.GetRequiredService<Application.Auth.AuthService>();
+                var key = httpContext.GetUserId(auth)?.ToString()
+                    ?? httpContext.Connection.RemoteIpAddress?.ToString()
+                    ?? "unknown";
+                return RateLimitPartition.GetFixedWindowLimiter(key, _ => new FixedWindowRateLimiterOptions
                 {
                     Window = TimeSpan.FromMinutes(1),
                     PermitLimit = 60,
