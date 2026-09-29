@@ -27,9 +27,10 @@ export function SavedBookListItem({
   // Recorded completion beats a threshold guess. `percent >= 1` was one of four
   // different answers to "is this finished?" before editions had the field.
   const isFinished = progress?.completedAt != null || percent >= 1
-  const destination = progress?.chapterSlug
-    ? `/${item.language}/books/${item.slug}/${progress.chapterSlug}`
-    : `/${item.language}/books/${item.slug}`
+  // The row opens the book's page; "Continue" goes straight into the text.
+  const destination = `/${item.language}/books/${item.slug}`
+  const continueHref = progress?.chapterSlug ? `${destination}/${progress.chapterSlug}` : null
+  const showContinue = !!continueHref && !isFinished
   return (
     <article className="library-list-item">
       <Link to={destination} className="library-list-item__cover">
@@ -74,6 +75,9 @@ export function SavedBookListItem({
         </div>
       </div>
       <div className="library-list-item__actions">
+        {showContinue && (
+          <Link to={continueHref!} className="library-continue">{t('library.continue')}</Link>
+        )}
         <BookActionMenu
           type="saved"
           book={item}

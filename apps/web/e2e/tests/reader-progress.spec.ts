@@ -69,11 +69,11 @@ test.describe('QA-001: Reading Progress', () => {
     // Wait for auto-save
     await page.waitForTimeout(3500)
 
-    // Go to library and click the book
+    // Go to library and resume via Continue (the title opens the book page)
     await page.goto('/en/library')
     await page.waitForLoadState('networkidle')
 
-    const bookLink = page.locator('.library-list-item__title, .library-card__title').first()
+    const bookLink = page.locator('.library-continue').first()
     if (await bookLink.isVisible()) {
       await bookLink.click()
       await page.waitForURL(/\/books\//)
