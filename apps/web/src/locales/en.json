@@ -472,6 +472,7 @@
     "enrichRetry": "Retry"
   },
   "library": {
+    "continue": "Continue",
     "empty": {
       "uploads": {
         "title": "Drop your first book here",

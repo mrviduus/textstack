@@ -26,9 +26,10 @@ export function SavedBookGridCard({
   // Recorded completion beats a threshold guess. `percent >= 1` was one of four
   // different answers to "is this finished?" before editions had the field.
   const isFinished = progress?.completedAt != null || percent >= 1
-  const destination = progress?.chapterSlug
-    ? `/${item.language}/books/${item.slug}/${progress.chapterSlug}`
-    : `/${item.language}/books/${item.slug}`
+  // The card opens the book's page; "Continue" goes straight into the text.
+  const destination = `/${item.language}/books/${item.slug}`
+  const continueHref = progress?.chapterSlug ? `${destination}/${progress.chapterSlug}` : null
+  const showContinue = !!continueHref && !isFinished
   return (
     <div className="library-card">
       <Link to={destination} className="library-card__cover" title={`Read ${item.title} online`}>
@@ -78,6 +79,9 @@ export function SavedBookGridCard({
             )}
             <OfflineBadge editionId={item.editionId} />
           </div>
+          {showContinue && (
+            <Link to={continueHref!} className="library-continue">{t('library.continue')}</Link>
+          )}
         </div>
         <BookActionMenu
           type="saved"

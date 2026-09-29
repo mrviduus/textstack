@@ -103,18 +103,25 @@ export function UserBookCard({ book, onDelete, onRetry, onCancel, onUpdate, prog
 
   const targetSlug = excerptChapterSlug || progress?.chapterSlug
   const readerBase = `/${language}/library/my/${book.id}`
-  const baseDestination = !readable
+  // Where "Continue" goes: straight into the text at the reader's position.
+  const continueHref = !readable
     ? '#'
     : targetSlug
       ? `${readerBase}/read/${targetSlug}`      // resume a known chapter/progress
       : hasOriginalPdf
         ? `${readerBase}/read`                   // chapterless Original (instant read)
-        : isReady
-          ? readerBase                            // EPUB, no progress → detail page
-          : '#'
-  const destination = excerpt && excerptQuery && isReady
-    ? `${baseDestination}?find=${encodeURIComponent(excerptQuery)}`
-    : baseDestination
+        : readerBase
+  // The card itself opens the book's page — cover, description, chapters, its own Continue — rather
+  // than dropping the reader into the text with no idea what they opened. The one exception is a
+  // search hit: clicking a matched excerpt means "show me that place", so it still goes to the text.
+  const isSearchHit = !!(excerpt && excerptQuery && isReady)
+  const destination = !readable
+    ? '#'
+    : isSearchHit
+      ? `${continueHref}?find=${encodeURIComponent(excerptQuery!)}`
+      : readerBase
+  const hasPosition = percent > 0 || !!progress?.chapterSlug
+  const showContinue = readable && hasPosition && !book.completedAt && !isSearchHit
 
   const cardClasses = [
     'user-book-card',
@@ -290,6 +297,11 @@ export function UserBookCard({ book, onDelete, onRetry, onCancel, onUpdate, prog
               </span>
             )}
           </div>
+          {showContinue && (
+            <Link to={continueHref} className="library-continue">
+              {t('library.continue')}
+            </Link>
+          )}
         </div>
 
         <BookActionMenu type="userbook" book={book} onChange={onChange} />

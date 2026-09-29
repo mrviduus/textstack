@@ -21,9 +21,15 @@ export function UploadBookListItem({
 }) {
   const isReady = book.status === 'Ready'
   const percent = book.progressPercent ?? 0
-  const destination = isReady
-    ? (book.progressChapterSlug ? `/${language}/library/my/${book.id}/read/${book.progressChapterSlug}` : `/${language}/library/my/${book.id}`)
-    : '#'
+  // The row opens the book's page; "Continue" goes straight into the text.
+  const destination = isReady ? `/${language}/library/my/${book.id}` : '#'
+  // A PDF's position is a page, not a chapter — its Original reader resumes it from /read.
+  const continueHref = book.progressChapterSlug
+    ? `/${language}/library/my/${book.id}/read/${book.progressChapterSlug}`
+    : book.hasOriginalPdf && percent > 0
+      ? `/${language}/library/my/${book.id}/read`
+      : null
+  const showContinue = isReady && !!continueHref && !book.completedAt
   const coverUrl = getUserBookCoverUrl(book.coverPath)
   return (
     <article data-book-id={book.id} className={`library-list-item${highlighted ? ' library-list-item--highlighted' : ''}`}>
@@ -116,6 +122,9 @@ export function UploadBookListItem({
         </div>
       </div>
       <div className="library-list-item__actions">
+        {showContinue && (
+          <Link to={continueHref!} className="library-continue">{t('library.continue')}</Link>
+        )}
         <BookActionMenu type="userbook" book={book} onChange={onChange} />
       </div>
     </article>

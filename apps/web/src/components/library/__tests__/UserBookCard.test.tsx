@@ -67,14 +67,51 @@ describe('UserBookCard PDF progress', () => {
     expect(fill.style.width).toBe('42%')
   })
 
-  it('links continue-reading to the chapterless Original reader', () => {
+  it('opens the book page from the title, and Continue goes to the chapterless Original reader', () => {
+    // The card is the way into the BOOK (cover, chapters, notes); Continue is the way into the text.
     renderCard(makeBook({ status: 'Processing', hasOriginalPdf: true }))
     const title = screen.getByText('My PDF').closest('a') as HTMLAnchorElement
-    expect(title.getAttribute('href')).toBe('/en/library/my/pdf-1/read')
+    expect(title.getAttribute('href')).toBe('/en/library/my/pdf-1')
+    const cont = screen.getByText('library.continue').closest('a') as HTMLAnchorElement
+    expect(cont.getAttribute('href')).toBe('/en/library/my/pdf-1/read')
   })
 
   it('does NOT show progress for a non-PDF book still Processing', () => {
     renderCard(makeBook({ status: 'Processing', hasOriginalPdf: false }))
     expect(screen.queryByText('42% read')).toBeNull()
+  })
+})
+
+describe('UserBookCard destinations', () => {
+  it('Continue resumes the chapter in progress; the title still opens the book page', () => {
+    renderCard(makeBook({ id: 'b1', status: 'Ready', chapterCount: 10, progressChapterSlug: 'ch-5' }))
+    expect((screen.getByText('My PDF').closest('a') as HTMLAnchorElement).getAttribute('href')).toBe('/en/library/my/b1')
+    expect((screen.getByText('library.continue').closest('a') as HTMLAnchorElement).getAttribute('href')).toBe('/en/library/my/b1/read/ch-5')
+  })
+
+  it('shows no Continue before the reader has started — Start Reading lives on the book page', () => {
+    renderCard(makeBook({ status: 'Ready', chapterCount: 10, progressPercent: 0 }))
+    expect(screen.queryByText('library.continue')).toBeNull()
+  })
+
+  it('shows no Continue on a finished book', () => {
+    renderCard(makeBook({ status: 'Ready', chapterCount: 10, completedAt: '2026-09-01T00:00:00Z', progressChapterSlug: 'ch-9' }))
+    expect(screen.queryByText('library.continue')).toBeNull()
+  })
+
+  it('a content-search hit still goes to the matched place in the text', () => {
+    render(
+      <MemoryRouter>
+        <UserBookCard
+          book={makeBook({ id: 'b2', status: 'Ready', chapterCount: 10 })}
+          onDelete={() => {}}
+          excerpt="the <mark>leader</mark> election"
+          excerptChapterSlug="ch-8"
+          excerptQuery="leader"
+        />
+      </MemoryRouter>,
+    )
+    expect((screen.getByText('My PDF').closest('a') as HTMLAnchorElement).getAttribute('href')).toBe('/en/library/my/b2/read/ch-8?find=leader')
+    expect(screen.queryByText('library.continue')).toBeNull()
   })
 })

@@ -426,6 +426,7 @@
   "library.bulk.selectAll": "Select all",
   "library.bulk.selectedCount": "{n} selected",
   "library.bulk.tagPlaceholder": "Tag name…",
+  "library.continue": "Continue",
   "library.chapters": "chapters",
   "library.collections.add": "Add",
   "library.collections.all": "All books",

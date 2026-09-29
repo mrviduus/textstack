@@ -173,11 +173,11 @@ test.describe('QA-004: Autosave', () => {
     await page.goto('/en/books')
     await page.waitForLoadState('domcontentloaded')
 
-    // Go to library → click book (resume without ?direct=1)
+    // Go to library → Continue (resume without ?direct=1); the title opens the book page
     await page.goto('/en/library')
     await page.waitForLoadState('domcontentloaded')
 
-    const bookLink = page.locator('.library-list-item__title, .library-card__title').first()
+    const bookLink = page.locator('.library-continue').first()
     if (await bookLink.isVisible({ timeout: 5000 }).catch(() => false)) {
       await bookLink.click()
       await page.waitForURL(/\/books\//)
