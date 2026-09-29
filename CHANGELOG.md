@@ -23,8 +23,8 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
-- **MCP** — ChatGPT can reach your library: a connect key now also comes as a personal URL, because ChatGPT's connectors can't send a header — backend, web, mobile, infra · [details](docs/changelog-archive/2026-H2.md#2026-09-29-mcp-chatgpt-connects-with-a-personal-url)
 - **MCP** — chapter review: the reader's own assistant reviews a chapter by the TextStack method (`get_chapter_review` / `save_chapter_review`), the result lands in the chapter's insight as structure and its questions get their own SRS queue — backend · [details](docs/changelog-archive/2026-H2.md#2026-09-29-mcp-chapter-review)
+- **MCP** — ChatGPT can reach your library: a connect key now also comes as a personal URL, because ChatGPT's connectors can't send a header — backend, web, mobile, infra · [details](docs/changelog-archive/2026-H2.md#2026-09-29-mcp-chatgpt-connects-with-a-personal-url)
 - **SEO** — Bing accepts IndexNow again: it only takes the key it first verified, so prod is back on the February key — infra · [details](docs/changelog-archive/2026-H2.md#2026-09-28-seo-indexnow-bing-refuses-separately)
 - **SEO** — IndexNow reaches Bing through Yandex while Bing refuses direct submissions, and the worker logs why a submission failed — web · [details](docs/changelog-archive/2026-H2.md#2026-09-28-seo-indexnow-bing-refuses-separately)
 - **SEO** — IndexNow had been refused (403) on every rebuild since late April: prod's key and the key file on the site were two different keys — web · [details](docs/changelog-archive/2026-H2.md#2026-09-28-seo-indexnow-refused-on-every-rebuild)
