@@ -669,7 +669,6 @@
     "chatgptWarning": "This URL is a password: anyone who has it can read and write your library. Don't share it. Lost or leaked? Revoke the key below and create a new one.",
     "copyUrl": "Copy URL",
     "configLabel": "Claude Desktop config, with your key already in it",
-    "endpointLabel": "Server URL, if your client asks for one",
     "copied": "Copied",
     "empty": "No keys yet.",
     "revoke": "Revoke",
@@ -682,6 +681,28 @@
       "title": "Sign in to connect an assistant",
       "subtitle": "A key reaches your whole library and lasts until you revoke it, so it belongs to an account rather than a guest session.",
       "cta": "Sign in"
+    },
+    "oneStep": {
+      "heading": "Connect in one step",
+      "lead": "Paste this address into your assistant, sign in to TextStack and allow. No key to copy.",
+      "claudeLabel": "Claude",
+      "claudeHow": "Settings → Connectors → Add custom connector → paste the URL → Allow",
+      "chatgptLabel": "ChatGPT",
+      "chatgptHow": "Plugins → Add → paste the URL → Allow (Developer mode)"
+    },
+    "apps": {
+      "heading": "Connected apps",
+      "empty": "No apps connected yet.",
+      "returnsTo": "returns to",
+      "connectedOn": "connected",
+      "lastUsed": "last used",
+      "disconnect": "Disconnect",
+      "loadFailed": "Could not load your connected apps.",
+      "disconnectFailed": "Could not disconnect that app."
+    },
+    "developers": {
+      "heading": "For developers",
+      "lead": "Cursor, Claude Code, scripts — anything that takes a key instead of signing in. Keys you already made keep working."
     }
   }
 }

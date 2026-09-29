@@ -1,13 +1,11 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { MCP_ENDPOINT } from '@textstack/shared'
 import { SeoHead } from '../components/SeoHead'
 import { Footer } from '../components/Footer'
 import { useTranslation } from '../hooks/useTranslation'
-import { useLanguage } from '../context/LanguageContext'
 import { ConnectAssistant } from '../components/mcp/ConnectAssistant'
+import { ConnectedApps } from '../components/mcp/ConnectedApps'
 import './McpLandingPage.css'
-
-const REMOTE_SNIPPET = `https://textstack.app/mcp`
 
 const CLAUDE_LOCAL_NOW = `{
   "mcpServers": {
@@ -68,7 +66,6 @@ function CodeBlock({ code, label }: { code: string; label?: string }) {
 
 export function McpLandingPage() {
   const { t } = useTranslation()
-  const { getLocalizedPath } = useLanguage()
 
   const tools: Array<{ name: string; desc: string }> = [
     { name: 'search_books', desc: t('mcp.tools.searchBooks') },
@@ -84,6 +81,11 @@ export function McpLandingPage() {
     { name: 'list_my_vocabulary', desc: t('mcp.tools.listMyVocabulary') },
     { name: 'save_insight', desc: t('mcp.tools.saveInsight') },
     { name: 'get_my_insights', desc: t('mcp.tools.getMyInsights') },
+    { name: 'get_my_reading', desc: t('mcp.tools.getMyReading') },
+    { name: 'get_book_progress', desc: t('mcp.tools.getBookProgress') },
+    { name: 'set_book_progress', desc: t('mcp.tools.setBookProgress') },
+    { name: 'get_chapter_review', desc: t('mcp.tools.getChapterReview') },
+    { name: 'save_chapter_review', desc: t('mcp.tools.saveChapterReview') },
   ]
 
   return (
@@ -97,41 +99,49 @@ export function McpLandingPage() {
           <p className="mcp-page__intro">{t('mcp.intro')}</p>
         </header>
 
+        {/* One step: paste the URL, sign in, allow (OAuth, ADR-017). */}
         <section className="mcp-section">
-          <h2 className="mcp-section__heading">{t('mcp.remote.heading')}</h2>
-          <p className="mcp-section__lead">{t('mcp.remote.lead')}</p>
-          <CodeBlock code={REMOTE_SNIPPET} label={t('mcp.remote.endpointLabel')} />
+          <h2 className="mcp-section__heading">{t('connect.oneStep.heading')}</h2>
+          <p className="mcp-section__lead">{t('connect.oneStep.lead')}</p>
+          <CodeBlock code={MCP_ENDPOINT} label={t('mcp.remote.endpointLabel')} />
           <ul className="mcp-list">
-            <li>{t('mcp.remote.transport')}</li>
-            <li>{t('mcp.remote.addServer')}</li>
-            <li>{t('mcp.remote.publicTools')}</li>
+            <li><strong>{t('connect.oneStep.claudeLabel')}:</strong> {t('connect.oneStep.claudeHow')}</li>
+            <li><strong>{t('connect.oneStep.chatgptLabel')}:</strong> {t('connect.oneStep.chatgptHow')}</li>
           </ul>
-          <div className="mcp-note">
-            <span className="material-icons-outlined">lock</span>
-            <p>
-              {t('mcp.remote.authNote')}{' '}
-              <Link to={getLocalizedPath('/device')} className="mcp-link">
-                {t('mcp.remote.deviceLink')}
-              </Link>
-            </p>
-          </div>
         </section>
 
-        <ConnectAssistant />
+        <ConnectedApps />
 
-        <section className="mcp-section">
-          <h2 className="mcp-section__heading">{t('mcp.local.heading')}</h2>
-          <p className="mcp-section__lead">{t('mcp.local.lead')}</p>
+        {/* Keys stay for clients without OAuth (Cursor, Claude Code, scripts); existing ones keep working. */}
+        <details className="mcp-section mcp-dev">
+          <summary className="mcp-section__heading mcp-dev__summary">{t('connect.developers.heading')}</summary>
+          <p className="mcp-section__lead">{t('connect.developers.lead')}</p>
 
-          <h3 className="mcp-section__subheading">{t('mcp.local.nowLabel')}</h3>
-          <p className="mcp-section__hint">{t('mcp.local.nowHint')}</p>
-          <CodeBlock code={CLAUDE_LOCAL_NOW} label="claude_desktop_config.json" />
+          <ConnectAssistant />
 
-          <h3 className="mcp-section__subheading">{t('mcp.local.toolLabel')}</h3>
-          <p className="mcp-section__hint">{t('mcp.local.toolHint')}</p>
-          <CodeBlock code={TOOL_INSTALL} label={t('mcp.local.toolInstallLabel')} />
-          <CodeBlock code={CLAUDE_LOCAL_TOOL} label="claude_desktop_config.json" />
-        </section>
+          <section className="mcp-section">
+            <h2 className="mcp-section__heading">{t('mcp.local.heading')}</h2>
+            <p className="mcp-section__lead">{t('mcp.local.lead')}</p>
+
+            <h3 className="mcp-section__subheading">{t('mcp.local.nowLabel')}</h3>
+            <p className="mcp-section__hint">{t('mcp.local.nowHint')}</p>
+            <CodeBlock code={CLAUDE_LOCAL_NOW} label="claude_desktop_config.json" />
+
+            <h3 className="mcp-section__subheading">{t('mcp.local.toolLabel')}</h3>
+            <p className="mcp-section__hint">{t('mcp.local.toolHint')}</p>
+            <CodeBlock code={TOOL_INSTALL} label={t('mcp.local.toolInstallLabel')} />
+            <CodeBlock code={CLAUDE_LOCAL_TOOL} label="claude_desktop_config.json" />
+          </section>
+
+          <section className="mcp-section">
+            <h2 className="mcp-section__heading">{t('mcp.steps.heading')}</h2>
+            <ol className="mcp-steps">
+              <li>{t('mcp.steps.step1')}</li>
+              <li>{t('mcp.steps.step2')}</li>
+              <li>{t('mcp.steps.step3')}</li>
+            </ol>
+          </section>
+        </details>
 
         <section className="mcp-section">
           <h2 className="mcp-section__heading">{t('mcp.tools.heading')}</h2>
@@ -144,15 +154,6 @@ export function McpLandingPage() {
               </li>
             ))}
           </ul>
-        </section>
-
-        <section className="mcp-section">
-          <h2 className="mcp-section__heading">{t('mcp.steps.heading')}</h2>
-          <ol className="mcp-steps">
-            <li>{t('mcp.steps.step1')}</li>
-            <li>{t('mcp.steps.step2')}</li>
-            <li>{t('mcp.steps.step3')}</li>
-          </ol>
         </section>
 
         <p className="mcp-manifest">

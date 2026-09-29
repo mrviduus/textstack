@@ -28,6 +28,18 @@ export interface CreatedMcpKey extends Omit<McpKey, 'lastUsedAt' | 'revokedAt'> 
   key: string
 }
 
+/**
+ * One "Connected apps" row: an assistant the reader approved over OAuth (`GET /me/oauth/grants`).
+ * `redirectHost` is where the approval sent the reader back — shown so an unfamiliar host stands out.
+ */
+export interface OAuthGrant {
+  id: string
+  clientName: string
+  redirectHost: string
+  createdAt: string
+  lastUsedAt: string | null
+}
+
 /** The remote endpoint. nginx routes all of `/mcp/*` to the bridge container. */
 export const MCP_ENDPOINT = 'https://textstack.app/mcp'
 
