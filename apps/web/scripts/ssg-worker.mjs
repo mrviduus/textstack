@@ -282,23 +282,33 @@ async function submitToIndexNow(host, routes) {
   const urlList = routes.map(r => `https://${host}${r}`);
   const BATCH_SIZE = 10000; // IndexNow limit
 
+  // api.indexnow.org answers with Bing's verdict, and a URL is shared with the other engines only once
+  // it is accepted — so while Bing refuses, Yandex hears nothing. Submitting to Yandex directly
+  // decouples them; a duplicate once Bing accepts is harmless.
+  const endpoints = ['https://api.indexnow.org/indexnow', 'https://yandex.com/indexnow'];
+
   for (let i = 0; i < urlList.length; i += BATCH_SIZE) {
     const batch = urlList.slice(i, i + BATCH_SIZE);
-    try {
-      const res = await fetch('https://api.indexnow.org/indexnow', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          host,
-          key,
-          keyLocation: `https://${host}/${key}.txt`,
-          urlList: batch
-        })
-      });
-      console.log(`IndexNow: ${batch.length} URLs → ${res.status}`);
-    } catch (err) {
-      console.error('IndexNow error:', err.message);
-      // Don't fail SSG if IndexNow fails
+    for (const endpoint of endpoints) {
+      try {
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json; charset=utf-8' },
+          body: JSON.stringify({
+            host,
+            key,
+            keyLocation: `https://${host}/${key}.txt`,
+            urlList: batch
+          })
+        });
+        // The body carries the reason (e.g. Bing's "UserForbiddedToAccessSite"); a bare status hid
+        // two different 403s behind one log line for eight months.
+        const detail = res.ok ? '' : ` ${(await res.text()).slice(0, 200)}`;
+        console.log(`IndexNow ${new URL(endpoint).host}: ${batch.length} URLs → ${res.status}${detail}`);
+      } catch (err) {
+        console.error(`IndexNow ${new URL(endpoint).host} error:`, err.message);
+        // Don't fail SSG if IndexNow fails
+      }
     }
   }
 }
