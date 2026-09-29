@@ -189,6 +189,31 @@ public static partial class ServiceCollectionExtensions
             // Connect-key creation — per-IP. Minting a credential is rare and deliberate: a reader
             // does it once per assistant. The cap exists so a scripted client cannot fill the
             // per-user key list (McpKeys.MaxKeysPerUser) over and over as fast as it likes.
+            // OAuth AS (ADR-017), per IP. Two shapes: "browser" is a reader's own address hitting
+            // authorize/consent — one connect is a handful of requests. "server" is token/register/
+            // revoke, called from Anthropic's and OpenAI's egress, so ONE IP stands for every user of
+            // that platform: the ceiling is sized for the platform, not the person.
+            // ponytail: fixed per-IP ceilings; make them RateLimits knobs if a platform nears 120/min.
+            options.AddPolicy("oauth-browser", httpContext =>
+            {
+                var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
+                {
+                    Window = TimeSpan.FromMinutes(1),
+                    PermitLimit = 30,
+                    QueueLimit = 0,
+                });
+            });
+            options.AddPolicy("oauth-server", httpContext =>
+            {
+                var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
+                {
+                    Window = TimeSpan.FromMinutes(1),
+                    PermitLimit = 120,
+                    QueueLimit = 0,
+                });
+            });
             options.AddPolicy("mcp-keys", httpContext =>
             {
                 var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";

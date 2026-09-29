@@ -53,6 +53,9 @@ public interface IAppDbContext
     DbSet<PasswordResetToken> PasswordResetTokens { get; }
     DbSet<DeviceAuthorization> DeviceAuthorizations { get; }
     DbSet<McpAccessKey> McpAccessKeys { get; }
+    DbSet<OAuthClient> OAuthClients { get; }
+    DbSet<OAuthAuthorizationRequest> OAuthAuthorizationRequests { get; }
+    DbSet<OAuthGrant> OAuthGrants { get; }
     DbSet<BookQualityJob> BookQualityJobs { get; }
     DbSet<SeoTemplate> SeoTemplates { get; }
     DbSet<SeoBackfillJob> SeoBackfillJobs { get; }

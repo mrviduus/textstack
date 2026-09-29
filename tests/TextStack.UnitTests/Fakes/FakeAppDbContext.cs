@@ -99,4 +99,7 @@ internal sealed class FakeAppDbContext : IAppDbContext
     public DbSet<BookInsight> BookInsights => throw new NotSupportedException();
     public DbSet<ReviewQuestion> ReviewQuestions => throw new NotSupportedException();
     public DbSet<McpAccessKey> McpAccessKeys => throw new NotSupportedException();
+    public DbSet<OAuthClient> OAuthClients => throw new NotSupportedException();
+    public DbSet<OAuthAuthorizationRequest> OAuthAuthorizationRequests => throw new NotSupportedException();
+    public DbSet<OAuthGrant> OAuthGrants => throw new NotSupportedException();
 }

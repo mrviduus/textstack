@@ -37,9 +37,16 @@ public sealed class McpKeyAuthMiddleware(RequestDelegate next)
     /// <summary>Key on <see cref="HttpContext.Items"/>. Internal contract with <c>GetUserId</c>.</summary>
     public const string UserIdItemKey = "mcp_key_user_id";
 
-    public async Task InvokeAsync(HttpContext context, IAppDbContext db)
+    public async Task InvokeAsync(HttpContext context, IAppDbContext db, IConfiguration config)
     {
         var token = context.GetAccessToken();
+        if (OAuth.LooksLikeAccessToken(token))
+        {
+            await ResolveOAuthTokenAsync(context, db, config, token!);
+            await next(context);
+            return;
+        }
+
         if (!McpKeys.LooksLikeKey(token))
         {
             await next(context);
@@ -68,5 +75,29 @@ public sealed class McpKeyAuthMiddleware(RequestDelegate next)
         }
 
         await next(context);
+    }
+
+    /// <summary>
+    /// An OAuth access token (<c>tso_</c>, ADR-017). Same shape as a key — hash, one indexed lookup,
+    /// revocation in the query — plus the two things a key does not have: expiry, and the audience
+    /// (RFC 8707). A token is only good for the resource it was issued for, the MCP endpoint.
+    /// </summary>
+    private static async Task ResolveOAuthTokenAsync(HttpContext context, IAppDbContext db, IConfiguration config, string token)
+    {
+        var hash = DeviceCodes.HashToken(token);
+        var now = DateTimeOffset.UtcNow;
+        var resource = Endpoints.OAuthEndpoints.Resource(config);
+
+        var grant = await db.OAuthGrants.FirstOrDefaultAsync(
+            OAuth.LiveAccessToken(hash, resource, now), context.RequestAborted);
+        if (grant is null) return;
+
+        context.Items[UserIdItemKey] = grant.UserId;
+
+        if (grant.LastUsedAt is null || now - grant.LastUsedAt.Value >= McpKeys.LastUsedWriteInterval)
+        {
+            grant.LastUsedAt = now;
+            await db.SaveChangesAsync(context.RequestAborted);
+        }
     }
 }

@@ -11,7 +11,7 @@ public class SiteContextMiddleware
         _resolver = resolver;
     }
 
-    private static readonly string[] SkipPaths = ["/admin", "/auth/", "/health", "/openapi", "/scalar", "/debug", "/storage"];
+    private static readonly string[] SkipPaths = ["/admin", "/auth/", "/health", "/openapi", "/scalar", "/debug", "/storage", "/oauth/", "/.well-known/"];
 
     private static bool ShouldSkip(string path)
     {

@@ -35,7 +35,7 @@ public static class McpManifestEndpoints
             Description: "Query your TextStack reading library from any MCP client.",
             Transport: "streamable-http",
             Endpoint: $"{baseUrl}/mcp",
-            Auth: new McpManifestAuth(Type: "oauth-device", HowTo: docsUrl),
+            Auth: new McpManifestAuth(Type: "oauth2", HowTo: docsUrl), // ADR-017: authorization code + PKCE; device flow still serves stdio
             Documentation: docsUrl,
             Tools: McpManifestCatalog.Tools);
 

@@ -69,7 +69,7 @@ public class McpManifestEndpointTests : IClassFixture<LiveApiFixture>
         Assert.Equal("streamable-http", manifest.Transport);
         Assert.EndsWith("/mcp", manifest.Endpoint);
         Assert.False(string.IsNullOrWhiteSpace(manifest.Documentation));
-        Assert.Equal("oauth-device", manifest.Auth.Type);
+        Assert.Equal("oauth2", manifest.Auth.Type);
     }
 
     [Fact]

@@ -5,6 +5,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
 using TextStack.Ai.Mcp.Auth;
+using TextStack.Ai.Mcp.Http;
 using TextStack.Ai.Mcp.Tools;
 
 namespace TextStack.Ai.Mcp;
@@ -142,13 +143,57 @@ public static class McpHosts
             }
             await next();
         });
+
+        // Login required for ALL of /mcp (ADR-017): no bearer → 401 + challenge, which is what starts
+        // the OAuth sign-in in Claude/ChatGPT. Runs after the connect-URL rewrite, so /mcp/k/<key>
+        // arrives here already carrying its bearer.
+        app.Use(async (ctx, next) =>
+        {
+            if (ctx.Request.Path.StartsWithSegments("/mcp"))
+            {
+                var bearer = OAuthChallenge.Bearer(ctx.Request);
+                if (bearer is null)
+                {
+                    OAuthChallenge.Write(ctx.Response, options.PublicBaseUrl);
+                    return;
+                }
+                if (bearer.StartsWith("tso_", StringComparison.Ordinal) && await IsRejectedAsync(ctx))
+                {
+                    OAuthChallenge.Write(ctx.Response, options.PublicBaseUrl, "invalid_token");
+                    return;
+                }
+            }
+            await next();
+        });
         app.UseRouting();
 
         // Docker healthcheck — plain 200, no auth, no MCP framing.
         app.MapGet("/health", () => Results.Ok("ok"));
 
+        // Protected Resource Metadata (RFC 9728): path-suffixed form (what the challenge names) and
+        // the root form clients try as a fallback. Same document.
+        var prm = OAuthChallenge.Metadata(options.PublicBaseUrl);
+        app.MapGet(OAuthChallenge.ResourceMetadataPath + "/mcp", () => Results.Json(prm));
+        app.MapGet(OAuthChallenge.ResourceMetadataPath, () => Results.Json(prm));
+
         app.MapMcp("/mcp");
 
         return app;
+    }
+
+    // Asks the API whether this request's OAuth token is still good. Fails OPEN on a transport fault:
+    // an unreachable API already turns every tool call into a clean error, and a 401 here would send
+    // the client into a sign-in loop over an outage.
+    private static async Task<bool> IsRejectedAsync(HttpContext ctx)
+    {
+        try
+        {
+            return await ctx.RequestServices.GetRequiredService<TextStackApiClient>()
+                .IsTokenRejectedAsync(ctx.RequestAborted);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !ctx.RequestAborted.IsCancellationRequested)
+        {
+            return false;
+        }
     }
 }
