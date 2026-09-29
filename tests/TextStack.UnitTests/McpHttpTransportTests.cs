@@ -64,6 +64,67 @@ public class McpHttpTransportTests
         return new FakeHttpContextAccessor(ctx);
     }
 
+    // ── ConnectUrl: /mcp/k/<key> → Bearer on /mcp ────────────────────────────────
+
+    private const string ValidKey = "tsk_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_abcde";
+
+    private static HttpRequest RequestAt(string path, string? authorization = null)
+    {
+        var ctx = new DefaultHttpContext();
+        ctx.Request.Path = path;
+        if (authorization is not null)
+            ctx.Request.Headers.Authorization = authorization;
+        return ctx.Request;
+    }
+
+    [Theory]
+    [InlineData("/mcp/k/" + ValidKey)]
+    [InlineData("/mcp/k/" + ValidKey + "/")]
+    public void ConnectUrl_ValidKey_SetsBearer_RewritesToMcp(string path)
+    {
+        var req = RequestAt(path);
+
+        Assert.True(ConnectUrl.TryRewrite(req));
+        Assert.Equal("/mcp", req.Path.Value);
+        Assert.Equal($"Bearer {ValidKey}", req.Headers.Authorization.ToString());
+    }
+
+    [Fact]
+    public void ConnectUrl_ExplicitHeaderWins_OverUrlKey()
+    {
+        var req = RequestAt("/mcp/k/" + ValidKey, "Bearer header-jwt");
+
+        Assert.True(ConnectUrl.TryRewrite(req));
+        Assert.Equal("/mcp", req.Path.Value);
+        Assert.Equal("Bearer header-jwt", req.Headers.Authorization.ToString());
+    }
+
+    [Theory]
+    [InlineData("/mcp/k/")]
+    [InlineData("/mcp/k/tsk_short")]
+    [InlineData("/mcp/k/not-a-key")]
+    [InlineData("/mcp/k/" + ValidKey + "/extra")]
+    public void ConnectUrl_MalformedKey_ReturnsFalse_LeavesRequestAlone(string path)
+    {
+        var req = RequestAt(path);
+
+        Assert.False(ConnectUrl.TryRewrite(req));
+        Assert.Equal(path, req.Path.Value);
+        Assert.True(string.IsNullOrEmpty(req.Headers.Authorization));
+    }
+
+    [Theory]
+    [InlineData("/mcp")]
+    [InlineData("/health")]
+    [InlineData("/mcpx/k/" + ValidKey)]
+    public void ConnectUrl_OtherPaths_Untouched(string path)
+    {
+        var req = RequestAt(path);
+
+        Assert.True(ConnectUrl.TryRewrite(req));
+        Assert.Equal(path, req.Path.Value);
+    }
+
     // ── HttpContextTokenProvider: header → TokenResult ───────────────────────────
 
     [Fact]

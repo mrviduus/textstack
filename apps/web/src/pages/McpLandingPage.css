@@ -280,6 +280,7 @@
 }
 .mcp-connect__config { white-space: pre; margin: 0; }
 .mcp-connect__configlabel { margin: 0 0 6px; font-size: 12px; opacity: 0.75; }
+.mcp-connect__hint { margin: -4px 0 10px; font-size: 13px; line-height: 1.45; }
 .mcp-connect__copy,
 .mcp-connect__btn,
 .mcp-connect__revoke {

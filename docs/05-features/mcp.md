@@ -165,17 +165,44 @@ No install needed. Point a streamable-HTTP MCP client at the hosted endpoint:
 https://textstack.app/mcp
 ```
 
-For user-scoped tools over HTTP, the bearer comes from the
-`Authorization: Bearer <jwt>` header on each request — paste a device-flow JWT
-(see [Authentication](#authentication)) into your client's connector config.
-The remote host is multi-user: each connection authenticates with its own
-bearer (there is no shared server-side token cache).
+For user-scoped tools over HTTP, send a **connect key** as
+`Authorization: Bearer tsk_…` on each request. Create one on
+[textstack.app/en/mcp](https://textstack.app/en/mcp) (or the app's *Connect assistant* screen);
+it does not expire and is revoked there. A device-flow JWT (see
+[Authentication](#authentication)) also works but expires within the hour. The remote host is
+multi-user: each connection authenticates with its own bearer (there is no shared server-side
+token cache).
 
-### ChatGPT custom connector
+### ChatGPT (and any client that can't send a header) — the personal connect URL
 
-Add a custom MCP connector pointing at `https://textstack.app/mcp`. Public
-tools work immediately; for user-scoped tools, supply a bearer token in the
-connector's auth settings.
+ChatGPT's connector settings offer "No authentication" or OAuth, and nothing that sends a bearer.
+Until TextStack has OAuth, the key goes **in the URL**:
+
+```
+https://textstack.app/mcp/k/tsk_…
+```
+
+Creating a key on the connect page shows this URL next to the Claude Desktop config, with a Copy
+button. In ChatGPT, add a custom connector (Developer mode), paste the URL, and choose
+**No authentication**.
+
+How it works: the MCP host rewrites `/mcp/k/<key>` to `/mcp` with `Authorization: Bearer <key>`
+(`backend/src/Ai/TextStack.Ai.Mcp/Auth/ConnectUrl.cs`) before routing, so from there on it is the
+ordinary bearer path — same key, same instant revocation. A malformed key is a 404, never an
+anonymous session. An explicit `Authorization` header wins over the URL.
+
+**The URL is a password.** Anyone holding it reads and writes the library as you until the key
+is revoked. What we do to keep it out of logs:
+
+- the MCP host logs `Microsoft.AspNetCore.Hosting.Diagnostics` and `…Routing` at Warning, so the
+  per-request "Request starting …" line (written before any middleware) never records the path;
+- nginx has `access_log off` and `error_log … crit` for `location /mcp/k/`.
+
+Not covered: **Cloudflare**, in front of both, sees the full URL. Accepted until OAuth.
+
+Not yet verified by hand (owner step): whether Developer mode is available on the account's
+ChatGPT plan, and what ChatGPT asks before a write call (`save_highlight`, `save_insight`). Record
+the answer here.
 
 ### Local, via the built DLL (running from source)
 
