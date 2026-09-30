@@ -536,3 +536,24 @@ export interface ChapterReviewDto {
   openThreads: ChapterReviewThread[]
   closedThreadIds: string[]
 }
+
+// ── Review questions — `/me/review-questions/*`; mirrors DueReviewQuestionsDto & co. ──
+
+export interface DueReviewQuestion {
+  id: string
+  prompt: string
+  answer: string
+  blockTitle: string | null
+  rule: string | null
+  bookTitle: string
+  chapterTitle: string | null
+  chapterSlug: string | null
+  userBookId: string | null
+  editionId: string | null
+}
+
+export interface DueReviewQuestions { totalDue: number; items: DueReviewQuestion[] }
+
+export type ReviewSelfAssessment = 'forgot' | 'almost' | 'knew'
+
+export interface AnswerReviewQuestionResponse { stage: number; nextReviewAt: string; retired: boolean }

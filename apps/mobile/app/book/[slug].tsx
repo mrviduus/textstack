@@ -583,7 +583,7 @@ export default function BookDetailScreen() {
             {isAuthenticated && !offlineMode && (
               <ChapterReviewAction
                 book={{ title: book.title, author: book.authors.map(a => a.name).join(', ') || null, editionId: book.id, slug: book.slug }}
-                chapter={{ slug: ch.slug, title: ch.title }}
+                chapter={{ slug: ch.slug, title: ch.title, wordCount: ch.wordCount }}
                 reviewed={reviews.has(ch.slug)}
               />
             )}

@@ -5,14 +5,15 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom'
 const getUserBook = vi.fn()
 const getBookInsights = vi.fn()
 const getUserBookHighlights = vi.fn()
+const getPublicHighlights = vi.fn()
 vi.mock('../../api/userBooks', () => ({ getUserBook: (...a: unknown[]) => getUserBook(...a) }))
 vi.mock('../../api/insights', () => ({ getBookInsights: (...a: unknown[]) => getBookInsights(...a) }))
 vi.mock('../../api/userData', () => ({
   getUserBookHighlights: (...a: unknown[]) => getUserBookHighlights(...a),
-  getPublicHighlights: vi.fn(),
+  getPublicHighlights: (...a: unknown[]) => getPublicHighlights(...a),
 }))
 vi.mock('../../api/oauth', () => ({ listOAuthGrants: () => Promise.resolve([]) }))
-const stableApi = {}
+const stableApi: { getBook?: unknown } = {}
 vi.mock('../../hooks/useApi', () => ({ useApi: () => stableApi }))
 vi.mock('../../context/AuthContext', () => ({
   useAuth: () => ({ isAuthenticated: true, isLoading: false, openAuthModal: vi.fn() }),
@@ -152,6 +153,36 @@ describe('ChapterReviewPage', () => {
     renderAt('rag')
     await screen.findByRole('heading', { level: 1, name: 'RAG and Agents' })
     expect(screen.queryByText(/^Next:/)).toBeNull()
+  })
+
+  it('a quote opens the reader at that highlight; a PDF highlight opens the Original view', async () => {
+    getUserBookHighlights.mockResolvedValue([
+      { id: 'h-live', selectedText: 'one flat sequence of tokens', anchorJson: '{"exact":"one"}', userChapterId: 'c2' },
+      { id: 'h-pdf', selectedText: 'a page quote', anchorJson: '{"v":1,"kind":"pdf","page":7,"rects":[{"x":1,"y":2,"w":3,"h":4}],"exact":"a"}', userChapterId: null },
+    ])
+    getBookInsights.mockResolvedValue([insight('prompts', review({ blocks: [block({ highlightIds: ['h-live', 'h-pdf', 'h-gone'] })] }))])
+    renderAt('prompts')
+    expect(await screen.findByRole('link', { name: 'one flat sequence of tokens' }))
+      .toHaveAttribute('href', '/en/library/my/bk/read/prompts?direct=1&highlight=h-live')
+    expect(screen.getByRole('link', { name: 'a page quote' }))
+      .toHaveAttribute('href', '/en/library/my/bk/read?direct=1&highlight=h-pdf')
+    // A removed highlight has nothing to open.
+    expect(screen.getByText('highlight removed').closest('a')).toBeNull()
+  })
+
+  it('catalog quote opens /books/:slug/:chapter (no /read/ segment)', async () => {
+    stableApi.getBook = vi.fn().mockResolvedValue({
+      id: 'ed', slug: 'dials', title: 'The Seven Dials Mystery', authors: [], chapters: [{ slug: 'clocks', title: 'Alarm Clocks' }],
+    })
+    getPublicHighlights.mockResolvedValue([{ id: 'h-live', selectedText: 'eight alarm clocks', anchorJson: '{}' }])
+    getBookInsights.mockResolvedValue([{ ...insight('clocks', review({ blocks: [block({ highlightIds: ['h-live'] })] })), editionId: 'ed', userBookId: null }])
+    render(
+      <MemoryRouter initialEntries={['/en/books/dials/review/clocks']}>
+        <Routes><Route path="/:lang/books/:bookSlug/review/:chapterSlug" element={<ChapterReviewPage />} /></Routes>
+      </MemoryRouter>,
+    )
+    expect(await screen.findByRole('link', { name: 'eight alarm clocks' }))
+      .toHaveAttribute('href', '/en/books/dials/clocks?direct=1&highlight=h-live')
   })
 
   it('unknown chapter → not found', async () => {

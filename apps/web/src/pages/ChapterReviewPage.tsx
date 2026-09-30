@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import {
-  insightDateLabel, nextChapterAfter, resolveReviewHighlights, type ChapterReviewBlock,
+  insightDateLabel, isPdfAnchor, nextChapterAfter, resolveReviewHighlights, type ChapterReviewBlock,
 } from '@textstack/shared'
 import { useApi } from '../hooks/useApi'
 import { useAuth } from '../context/AuthContext'
@@ -137,7 +137,13 @@ export function ChapterReviewPage() {
           )}
 
           {review.blocks.map((block, i) => (
-            <ReviewBlockCard key={i} index={i} block={block} highlights={highlights} />
+            <ReviewBlockCard
+              key={i}
+              index={i}
+              block={block}
+              highlights={highlights}
+              quotePath={h => quoteReaderPath(book.target, chapterSlug, h)}
+            />
           ))}
 
           {review.applications.length > 0 && (
@@ -192,14 +198,31 @@ export function ChapterReviewPage() {
   )
 }
 
-function ReviewBlockCard({ index, block, highlights }: {
+/**
+ * Where a quote opens the reader: the highlight's chapter with `?highlight=` (the HighlightsPage
+ * deep-link query). A PDF highlight is page geometry, so it opens the Original view, which scrolls to its
+ * page.
+ */
+function quoteReaderPath(target: ReviewBook['target'], chapterSlug: string, h: PublicHighlight): string {
+  const q = `?direct=1&highlight=${encodeURIComponent(h.id)}`
+  const slug = encodeURIComponent(chapterSlug)
+  // Catalog reader is `/books/:bookSlug/:chapterSlug` — no `/read/` segment (that is uploads only).
+  if (!('userBookId' in target)) return `/books/${target.bookSlug}/${slug}${q}`
+  let pdf = false
+  try { pdf = isPdfAnchor(JSON.parse(h.anchorJson)) } catch { /* not JSON → reflow */ }
+  return pdf ? `/library/my/${target.userBookId}/read${q}` : `/library/my/${target.userBookId}/read/${slug}${q}`
+}
+
+function ReviewBlockCard({ index, block, highlights, quotePath }: {
   index: number
   block: ChapterReviewBlock
   highlights: PublicHighlight[] | null
+  quotePath: (h: PublicHighlight) => string
 }) {
   const { t } = useTranslation()
   const [shown, setShown] = useState(false)
   const quotes = highlights ? resolveReviewHighlights(block.highlightIds, highlights) : null
+  const byId = new Map((highlights ?? []).map(h => [h.id.toLowerCase(), h]))
 
   return (
     <article className="chapter-review__card">
@@ -217,7 +240,9 @@ function ReviewBlockCard({ index, block, highlights }: {
         <ul className="chapter-review__quotes">
           {quotes.map(q => (
             <li key={q.id}>
-              {q.text ?? <span className="chapter-review__removed">{t('chapterReview.summary.highlightRemoved')}</span>}
+              {q.text === null
+                ? <span className="chapter-review__removed">{t('chapterReview.summary.highlightRemoved')}</span>
+                : <LocalizedLink to={quotePath(byId.get(q.id.toLowerCase())!)} className="chapter-review__quote-link">{q.text}</LocalizedLink>}
             </li>
           ))}
         </ul>

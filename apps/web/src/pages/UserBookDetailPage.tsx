@@ -523,7 +523,7 @@ export function UserBookDetailPage() {
                 {chapter.slug && (
                   <ChapterReviewAction
                     book={{ title: book.title, author: book.author, userBookId: book.id }}
-                    chapter={{ slug: chapter.slug, title: chapter.title }}
+                    chapter={{ slug: chapter.slug, title: chapter.title, wordCount: chapter.wordCount }}
                     reviewed={reviews.has(chapter.slug)}
                   />
                 )}

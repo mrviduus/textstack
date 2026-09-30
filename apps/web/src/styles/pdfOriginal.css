@@ -240,3 +240,13 @@
 .pdf-hl-popup__swatch--active {
   border-color: var(--reader-fg, #18181b);
 }
+
+/* Chapter review: Reviewed dot after a PDF highlight's last rect (PdfHighlightLayer). */
+.pdf-hl-dot {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--reader-reviewed-dot, #16a34a);
+  pointer-events: none;
+}

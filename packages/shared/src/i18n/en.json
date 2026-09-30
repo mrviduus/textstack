@@ -745,6 +745,22 @@
       "notFound": "Chapter not found.",
       "signIn": "Sign in to see your chapter reviews."
     },
-    "openReview": "Open review →"
+    "openReview": "Open review →",
+    "questions": {
+      "title": "Chapter questions",
+      "due": "{{count}} due",
+      "start": "Start",
+      "showAnswer": "Show answer",
+      "forgot": "Forgot",
+      "almost": "Almost",
+      "knew": "Knew",
+      "doneTitle": "Done for now",
+      "doneLead": "You answered {{count}}. Each comes back when it's due.",
+      "empty": "No chapter questions due right now.",
+      "back": "Back to Practice",
+      "loadFailed": "Couldn't load your questions.",
+      "answerFailed": "Couldn't save that answer. Try again.",
+      "signIn": "Sign in to practice your chapter questions."
+    }
   }
 }

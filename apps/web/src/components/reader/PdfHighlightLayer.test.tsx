@@ -3,6 +3,7 @@ import { render } from '@testing-library/react'
 import { PdfHighlightLayer, hitTestHighlightRects, hasActiveSelection } from './PdfHighlightLayer'
 import type { StoredHighlight } from '../../lib/offlineDb'
 import type { PdfAnchor } from '@textstack/shared'
+import { ReviewedMarksContext } from './ReviewedMarks'
 
 function pdfHighlight(id: string, page: number, rects: PdfAnchor['rects']): StoredHighlight {
   return {
@@ -130,5 +131,39 @@ describe('hasActiveSelection (M2 selection guard)', () => {
 
   it('is true for a live non-empty selection (so click-to-edit stands down)', () => {
     expect(hasActiveSelection(sel(false, 'picked text'))).toBe(true)
+  })
+})
+
+describe('PdfHighlightLayer reviewed dot', () => {
+  const marks = {
+    marks: new Map([['b', { chapterSlug: 'ch', blockTitle: 'Chat templates', rule: 'Print the prompt' }]]),
+    reviewPath: (s: string) => `/r/${s}`,
+  }
+
+  it('paints a dot only for reviewed ids, just after the LAST rect, scaled', () => {
+    const highlights = [
+      pdfHighlight('a', 1, [{ x: 0, y: 0, w: 10, h: 5 }]),
+      pdfHighlight('B', 1, [{ x: 0, y: 0, w: 10, h: 5 }, { x: 5, y: 10, w: 20, h: 6 }]),
+    ]
+    const { container } = render(
+      <ReviewedMarksContext.Provider value={marks}>
+        <PdfHighlightLayer page={1} highlights={highlights} scale={2} />
+      </ReviewedMarksContext.Provider>,
+    )
+    const dots = container.querySelectorAll<HTMLElement>('.pdf-hl-dot')
+    expect(dots).toHaveLength(1)
+    expect(dots[0].dataset.reviewedId).toBe('B')
+    // last rect at scale 2: left 10, width 40 → dot at 10 + 40 + 1; top 20
+    expect(dots[0].style.left).toBe('51px')
+    expect(dots[0].style.top).toBe('20px')
+    // the dot is not a hit target
+    expect(container.querySelectorAll('.pdf-hl-rect')).toHaveLength(3)
+  })
+
+  it('no provider → no dots', () => {
+    const { container } = render(
+      <PdfHighlightLayer page={1} highlights={[pdfHighlight('b', 1, [{ x: 0, y: 0, w: 1, h: 1 }])]} scale={1} />,
+    )
+    expect(container.querySelector('.pdf-hl-dot')).toBeNull()
   })
 })

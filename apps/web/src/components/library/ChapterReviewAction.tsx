@@ -1,3 +1,4 @@
+import { isReviewableChapter } from '@textstack/shared'
 import { useTranslation } from '../../hooks/useTranslation'
 import { chapterReviewPath } from '../../hooks/useBookReviews'
 import { LocalizedLink } from '../LocalizedLink'
@@ -10,7 +11,7 @@ import { ReviewChapterButton } from './ReviewChapterButton'
  */
 interface Props {
   book: { title: string; author?: string | null } & ({ userBookId: string } | { editionId: string; bookSlug: string })
-  chapter: { slug: string; title: string }
+  chapter: { slug: string; title: string; wordCount?: number | null }
   reviewed: boolean
 }
 
@@ -31,6 +32,9 @@ export function ChapterReviewAction({ book, chapter, reviewed }: Props) {
       </LocalizedLink>
     )
   }
+
+  // Front/back matter and thin chapters get no Review button (a reviewed one keeps its link above).
+  if (!isReviewableChapter(chapter)) return null
 
   return (
     <ReviewChapterButton

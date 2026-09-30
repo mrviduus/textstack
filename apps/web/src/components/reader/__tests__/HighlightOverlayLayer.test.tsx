@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, cleanup } from '@testing-library/react'
 import { createRef, useEffect, useState } from 'react'
 import { HighlightOverlayLayer } from '../HighlightOverlayLayer'
+import { ReviewedMarksContext } from '../ReviewedMarks'
 import type { StoredHighlight } from '../../../lib/offlineDb'
 
 class NoopResizeObserver {
@@ -172,6 +173,27 @@ describe('HighlightOverlayLayer', () => {
       new MouseEvent('click', { clientX: 500, clientY: 500, bubbles: true }),
     )
     expect(onClick).not.toHaveBeenCalled()
+  })
+
+  it('draws a reviewed dot only for highlights a review cited; a tap still opens the highlight', () => {
+    const onClick = vi.fn()
+    const marks = {
+      marks: new Map([['h2', { chapterSlug: 'ch', blockTitle: 'B', rule: 'R' }]]),
+      reviewPath: (s: string) => `/r/${s}`,
+    }
+    const { container } = render(
+      <ReviewedMarksContext.Provider value={marks}>
+        <Host html="<p>Hello world</p>" highlights={[makeHighlight('h1', 'Hello'), makeHighlight('H2', 'world')]} onHighlightClick={onClick} />
+      </ReviewedMarksContext.Provider>,
+    )
+    const dots = container.querySelectorAll('svg[data-reader-overlay="true"] > g.reviewed-mark circle')
+    expect(dots).toHaveLength(1)
+    // rect (10,20) 80x16 → r = 2.5 (clamped), cx = right + r + 1
+    expect(dots[0].getAttribute('cx')).toBe(String(90 + 2.5 + 1))
+    // Both entries share the stubbed rect; the topmost one is the reviewed mark — the click must still resolve.
+    ;(container.firstChild as HTMLElement).dispatchEvent(new MouseEvent('click', { clientX: 50, clientY: 25, bubbles: true }))
+    expect(onClick).toHaveBeenCalledTimes(1)
+    expect(onClick.mock.calls[0][0].id).toBe('H2')
   })
 
   it('cleans up SVG on unmount', () => {

@@ -34,6 +34,9 @@ import { WordHint } from '../components/reader/WordHint'
 import { getUserBooks, getUserBookFileUrl, getUserBookProgress } from '../api/userBooks'
 import { parsePdfPageLocator, computeBookProgress, clampPage, isPdfAnchor, type PdfAnchor } from '@textstack/shared'
 import { useHighlights } from '../hooks/useHighlights'
+import { useBookReviews, chapterReviewPath } from '../hooks/useBookReviews'
+import { reviewedHighlightMarks } from '@textstack/shared'
+import { ReviewedMarksContext, type ReviewedMarks } from '../components/reader/ReviewedMarks'
 import type { HighlightColor, StoredHighlight } from '../lib/offlineDb'
 import { sourceDomain } from '../components/library/ReadLaterShelf'
 import '../styles/micro-practice.css'
@@ -209,6 +212,17 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
     mode === 'userbook' ? id : undefined,
     { isAuthenticated },
   )
+  // Reviewed-highlight badges (chapter-review.md §12): one /me/insights read per book.
+  const reviewTarget = !isAuthenticated ? null
+    : mode === 'userbook' ? (id ? { userBookId: id } : null)
+    : (book?.id ? { editionId: book.id } : null)
+  const { insights: reviewInsights } = useBookReviews(reviewTarget)
+  const reviewedMarks = useMemo<ReviewedMarks>(() => ({
+    marks: reviewedHighlightMarks(reviewInsights),
+    reviewPath: (slug: string) => mode === 'userbook'
+      ? chapterReviewPath({ userBookId: id ?? '' }, slug)
+      : chapterReviewPath({ bookSlug: bookSlug ?? '' }, slug),
+  }), [reviewInsights, mode, id, bookSlug])
   const handlePdfHighlight = useCallback(
     (anchor: PdfAnchor, text: string, color: HighlightColor) =>
       highlightsApi.addHighlight(anchor, color, text),
@@ -610,6 +624,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
   const originalClass = originalActive ? 'reader-page--original' : ''
 
   return (
+    <ReviewedMarksContext.Provider value={reviewedMarks}>
     <div className={`reader-page ${immersiveClass} ${originalClass}`}>
       <SeoHead title={seoTitle} description={seoDescription} noindex />
       <a href="#reader-content" className="skip-link">Skip to content</a>
@@ -829,5 +844,6 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
       <WordHint containerRef={scrollContainerRef} />
 
     </div>
+    </ReviewedMarksContext.Provider>
   )
 }

@@ -62,3 +62,19 @@ html.dark .chapter-review__rule { background: #3a3210; color: #fff3c4; }
 .chapter-review__empty { text-align: center; padding: 40px 16px; }
 .chapter-review__empty .review-chapter__btn { font-size: 15px; padding: 8px 18px; }
 .book-insights__review-link { font-size: 13px; }
+
+/* Quote → reader (PR 3) */
+.chapter-review__quote-link { color: inherit; text-decoration: underline dotted; text-underline-offset: 3px; }
+.chapter-review__quote-link:hover { text-decoration-style: solid; }
+
+/* Chapter questions: Practice card + session (chapter-review.md §11) */
+.chapter-questions-card { flex-direction: row; align-items: center; justify-content: space-between; margin-top: 1rem; }
+.chapter-questions-card__text { display: flex; flex-direction: column; gap: 2px; }
+.chapter-questions-card__due { font-size: 0.875rem; color: var(--color-text-secondary); }
+.chapter-questions-card__start { text-decoration: none; font-size: 1rem; padding: 0.6rem 1.25rem; }
+.question-review__progress { text-align: center; font-size: 14px; color: var(--color-text-secondary, #666); margin-bottom: 12px; }
+.question-review__prompt { font-size: 1.15rem; font-weight: 600; margin: 4px 0 16px !important; }
+.question-review__source { font-size: 13px; color: var(--color-text-secondary, #666); margin-top: 10px !important; }
+.question-review__assess { display: flex; gap: 8px; margin-top: 16px; }
+.question-review__assess > button { flex: 1; }
+.question-review__error { color: #b42318; font-size: 14px; }

@@ -1,5 +1,6 @@
 import { paintRect, isPdfAnchor } from '@textstack/shared'
 import type { HighlightColor, StoredHighlight } from '../../lib/offlineDb'
+import { isReviewed, useReviewedMarks } from './ReviewedMarks'
 
 // Persistent PDF highlights for ONE rendered page. Absolutely-positioned tinted
 // <div>s painted from the stored quad-rects (page-relative, unscaled) scaled by
@@ -68,6 +69,7 @@ export function hasActiveSelection(sel: Selection | null): boolean {
 }
 
 export function PdfHighlightLayer({ page, highlights, scale, invert }: Props) {
+  const reviewed = useReviewedMarks()
   const pageHls = highlights.filter((h) => isPdfAnchor(h.anchor) && h.anchor.page === page)
   if (pageHls.length === 0) return null
 
@@ -77,7 +79,19 @@ export function PdfHighlightLayer({ page, highlights, scale, invert }: Props) {
         // Guarded by the filter above — narrow for the rects.
         const anchor = h.anchor
         if (!isPdfAnchor(anchor)) return null
-        return anchor.rects.map((r, i) => {
+        // "Reviewed" dot just after the last rect (chapter-review.md §12). Not a `.pdf-hl-rect`, so
+        // hit-testing ignores it; a tap on the highlight opens the popup with the review row.
+        const last = anchor.rects[anchor.rects.length - 1]
+        const dotBox = last && isReviewed(reviewed, h.id) ? paintRect(last, scale) : null
+        const dot = dotBox && (
+          <div
+            key={`${h.id}:dot`}
+            className="pdf-hl-dot"
+            data-reviewed-id={h.id}
+            style={{ left: dotBox.left + dotBox.width + 1, top: dotBox.top, pointerEvents: 'none' }}
+          />
+        )
+        return [...anchor.rects.map((r, i) => {
           const box = paintRect(r, scale)
           return (
             <div
@@ -96,7 +110,7 @@ export function PdfHighlightLayer({ page, highlights, scale, invert }: Props) {
               }}
             />
           )
-        })
+        }), dot]
       })}
     </div>
   )

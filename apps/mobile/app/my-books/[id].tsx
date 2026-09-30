@@ -848,7 +848,7 @@ export default function UserBookDetailScreen() {
                   {!!ch.slug?.trim() && (
                     <ChapterReviewAction
                       book={{ title: book.title, author: book.author, userBookId: book.id }}
-                      chapter={{ slug: ch.slug, title: ch.title }}
+                      chapter={{ slug: ch.slug, title: ch.title, wordCount: ch.wordCount }}
                       reviewed={reviews.has(ch.slug)}
                     />
                   )}

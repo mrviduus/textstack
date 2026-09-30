@@ -16,6 +16,7 @@ import { PendingQueueList } from '../components/vocabulary/PendingQueueList'
 import { LookupHistoryList } from '../components/vocabulary/LookupHistoryList'
 import { VocabSettingsModal } from '../components/vocabulary/VocabSettingsModal'
 import { ClusterBonusCard } from '../components/vocabulary/ClusterBonusCard'
+import { ChapterQuestionsCard } from '../components/vocabulary/ChapterQuestionsCard'
 import { EmptyState } from '../components/EmptyState'
 
 function StageBadge({ stage, t }: { stage: number; t: (k: string) => string }) {
@@ -134,6 +135,8 @@ export function VocabularyPage() {
         <SeoHead title={t('vocabulary.title')} noindex />
         <div className="vocab-page">
           <h1>{t('vocabulary.title')}</h1>
+          {/* No words yet can still mean chapter questions due. */}
+          {isAuthenticated && <ChapterQuestionsCard />}
           <EmptyState
             icon="📚"
             title={t('vocabulary.emptyPage.title')}
@@ -355,6 +358,9 @@ export function VocabularyPage() {
             </div>
           </div>
         )}
+
+        {/* Chapter-review questions — a separate queue from the words (chapter-review.md §11) */}
+        {isAuthenticated && <ChapterQuestionsCard />}
 
         {/* Weekly activity — area chart (from Practice) */}
         {isAuthenticated && stats && totalWords > 0 && dailyStats.length > 0 && (
