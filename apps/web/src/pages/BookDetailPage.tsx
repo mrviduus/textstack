@@ -24,7 +24,8 @@ import {
 } from '../lib/bookSeo'
 import { ShareButtons } from '../components/ShareButtons'
 import { BookInsightsSection } from '../components/library/BookInsightsSection'
-import { DiscussWithAssistant } from '../components/library/DiscussWithAssistant'
+import { AssistantMenu } from '../components/library/AssistantMenu'
+import { currentReviewChapter } from '@textstack/shared'
 import { ChapterReviewAction } from '../components/library/ChapterReviewAction'
 import { useBookReviews } from '../hooks/useBookReviews'
 import { useAuth } from '../context/AuthContext'
@@ -302,6 +303,19 @@ export function BookDetailPage() {
               </LocalizedLink>
             )}
 
+            {/* Signed out too: launching explains that TextStack must be connected (and signed in). */}
+            <AssistantMenu
+              book={{
+                title: book.title,
+                author: book.authors.map(a => a.name).join(', ') || null,
+                editionId: book.id,
+                // A catalog book needs BOTH: get_book/get_chapter take the slug, the insight tools the editionId.
+                slug: book.slug,
+                chapterTitle: book.chapters.find(c => c.slug === continueSlug)?.title ?? null,
+              }}
+              current={currentReviewChapter(book.chapters, continueSlug, reviews)}
+            />
+
             {podcast?.status === 'Succeeded' && podcast.audioUrl && (
               <BookPodcastPlayer
                 src={podcast.audioUrl}
@@ -362,20 +376,6 @@ export function BookDetailPage() {
           this page is also prerendered for crawlers, and an anonymous visit
           firing a 401 is noise on the SEO path. */}
       {isAuthenticated && <BookInsightsSection editionId={book.id} bookSlug={book.slug} />}
-      {isAuthenticated && (
-        <DiscussWithAssistant
-          title={book.title}
-          author={book.authors.map(a => a.name).join(', ') || null}
-          editionId={book.id}
-          // A catalog book needs BOTH: get_book/get_chapter take the slug, the insight tools take
-          // the editionId. Sending only the id named tools that would reject every call.
-          slug={book.slug}
-          // The screen already knows where the reader stopped — the Continue Reading button above
-          // is built from it — and used to hand the assistant none of it.
-          chapterTitle={book.chapters.find(c => c.slug === continueSlug)?.title ?? null}
-        />
-      )}
-
       {/* Chapters */}
       <section className="book-tabs">
         <div className="book-tabs__panel">

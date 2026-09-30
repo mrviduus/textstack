@@ -32,7 +32,7 @@ const PROTECTED: Record<string, string> = {
 /** `namespace.child` paths that are equally off-limits. */
 const PROTECTED_PATHS: Record<string, string> = {
   'library.insights': 'Tells the reader what came back from the assistant; drifted once already.',
-  'library.discuss': 'Tells the reader what the handoff button does; drifted once already.',
+  'library.assistant': 'The handoff menu copy lives in one place; the old discuss copy drifted once already.',
 }
 
 describe('web overlay does not shadow shared legal copy', () => {

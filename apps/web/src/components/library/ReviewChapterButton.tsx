@@ -1,48 +1,18 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import {
-  MCP_ENDPOINT, REVIEW_ASSISTANT_KEY, buildChapterReviewBrief, chooseChat, connectedAssistants, handoffUrl, parseAssistant,
-  type Assistant, type ChapterReviewBriefInput, type OAuthGrant,
-} from '@textstack/shared'
-import { listOAuthGrants } from '../../api/oauth'
+import { MCP_ENDPOINT, buildChapterReviewBrief, type ChapterReviewBriefInput } from '@textstack/shared'
+import { useAssistantLauncher, __resetAssistantGrants } from '../../hooks/useAssistantLauncher'
 import { useTranslation } from '../../hooks/useTranslation'
 import { LocalizedLink } from '../LocalizedLink'
 
 /**
  * "Review" — opens the reader's own Claude or ChatGPT with a chapter-review brief (chapter-review.md §12).
- *
- * Which chat: `/me/oauth/grants`. One assistant connected → straight there; both → the remembered
- * one (or a two-item menu the first time), with a ▾ beside the button to switch — the new pick is
- * remembered per device; none → a connect dialog instead of a chat that cannot reach TextStack.
- *
- * The grants are fetched once per page and shared by every button on it (a chapter list has dozens),
- * and kept synchronously so the click can `window.open` inside the user gesture — an open after an
- * await is what popup blockers eat.
+ * Which chat is `useAssistantLauncher` (shared with the book page's Assistant menu); with both
+ * connected a ▾ beside the button switches — the new pick is remembered per device.
  */
-let cachedGrants: OAuthGrant[] | null = null
-let grantsPromise: Promise<OAuthGrant[]> | null = null
-
-function loadGrants(): Promise<OAuthGrant[]> {
-  grantsPromise ??= listOAuthGrants()
-    .then(g => (cachedGrants = g))
-    // A guest (no account → no grants) or a failed call both mean "nothing we can open".
-    .catch(() => (cachedGrants = []))
-  return grantsPromise
-}
-
-/** Forget the grants — after the connect dialog, the reader may be about to connect one. */
-function resetGrants() { cachedGrants = null; grantsPromise = null }
 
 /** Test seam. */
-export const __resetReviewGrants = resetGrants
-
-function rememberedAssistant(): Assistant | null {
-  try { return parseAssistant(localStorage.getItem(REVIEW_ASSISTANT_KEY)) } catch { return null }
-}
-
-function openChat(assistant: Assistant, brief: string) {
-  window.open(handoffUrl(assistant, brief), '_blank', 'noopener,noreferrer')
-}
+export const __resetReviewGrants = __resetAssistantGrants
 
 interface Props extends ChapterReviewBriefInput {
   /** Button text; defaults to "Review". */
@@ -52,69 +22,40 @@ interface Props extends ChapterReviewBriefInput {
 
 export function ReviewChapterButton({ label, className, ...input }: Props) {
   const { t } = useTranslation()
-  const [menu, setMenu] = useState(false)
-  const [connect, setConnect] = useState(false)
-  // Rendered state, so the ▾ appears once we know both assistants are connected.
-  const [grants, setGrants] = useState<OAuthGrant[] | null>(cachedGrants)
-
-  useEffect(() => {
-    let live = true
-    void loadGrants().then(g => { if (live) setGrants(g) })
-    return () => { live = false }
-  }, [])
-  const canSwitch = !!grants && connectedAssistants(grants).length === 2
-
+  const launcher = useAssistantLauncher()
   const brief = () => buildChapterReviewBrief(input)
-
-  const decide = (grants: OAuthGrant[]) => {
-    const choice = chooseChat(grants, rememberedAssistant())
-    if (choice.kind === 'open') openChat(choice.assistant, brief())
-    else if (choice.kind === 'pick') setMenu(m => !m)
-    else { resetGrants(); setConnect(true) }
-  }
-
-  const onClick = () => {
-    if (cachedGrants) decide(cachedGrants)
-    else void loadGrants().then(decide)
-  }
-
-  const pick = (assistant: Assistant) => {
-    try { localStorage.setItem(REVIEW_ASSISTANT_KEY, assistant) } catch { /* private mode: just don't remember */ }
-    setMenu(false)
-    openChat(assistant, brief())
-  }
 
   return (
     <span className="review-chapter">
       <button
         type="button"
         className={className ?? 'review-chapter__btn'}
-        onClick={onClick}
+        onClick={() => { if (launcher.pending) launcher.cancelPick(); else void launcher.launch(brief) }}
         aria-label={label ? undefined : t('chapterReview.reviewAria', { title: input.chapterTitle })}
-        aria-haspopup={menu ? 'menu' : undefined}
+        aria-haspopup={launcher.pending ? 'menu' : undefined}
       >
         {label ?? t('chapterReview.review')}
       </button>
-      {canSwitch && (
+      {launcher.canSwitch && (
         <button
           type="button"
           className="review-chapter__switch"
-          onClick={() => setMenu(m => !m)}
+          onClick={() => launcher.choose(brief)}
           aria-label={t('chapterReview.switchAria')}
           aria-haspopup="menu"
-          aria-expanded={menu}
+          aria-expanded={launcher.pending}
         >
           ▾
         </button>
       )}
-      {menu && (
+      {launcher.pending && (
         <span className="review-chapter__menu" role="menu" aria-label={t('chapterReview.pickTitle')}>
           <span className="review-chapter__menu-title">{t('chapterReview.pickTitle')}</span>
-          <button type="button" role="menuitem" onClick={() => pick('claude')}>{t('library.discuss.claude')}</button>
-          <button type="button" role="menuitem" onClick={() => pick('chatgpt')}>{t('library.discuss.chatgpt')}</button>
+          <button type="button" role="menuitem" onClick={() => launcher.pick('claude')}>{t('library.assistant.claude')}</button>
+          <button type="button" role="menuitem" onClick={() => launcher.pick('chatgpt')}>{t('library.assistant.chatgpt')}</button>
         </span>
       )}
-      {connect && <ConnectAssistantDialog onClose={() => setConnect(false)} />}
+      {launcher.connect && <ConnectAssistantDialog onClose={launcher.closeConnect} />}
     </span>
   )
 }

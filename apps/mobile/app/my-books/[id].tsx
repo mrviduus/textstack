@@ -4,7 +4,7 @@ import { Image } from 'expo-image'
 import { useFocusEffect, useLocalSearchParams, useRouter, Stack } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import NetInfo from '@react-native-community/netinfo'
-import { userBooksApi, getStorageUrl, storedBookPercent, formatBookPercent, resumeChapterSlug, isOfflineError, plural } from '@textstack/shared'
+import { userBooksApi, currentReviewChapter, getStorageUrl, storedBookPercent, formatBookPercent, resumeChapterSlug, isOfflineError, plural } from '@textstack/shared'
 import type { UserBookDetailResponse } from '@textstack/shared'
 import { enrichUserBook } from '../../src/lib/api'
 import { useTheme } from '../../src/context/ThemeContext'
@@ -27,7 +27,7 @@ import { userBookChapterSlug } from '../../src/lib/userBookChapters'
 import { trackBookOpened } from '../../src/lib/analytics'
 import { AddToCollectionSheet } from '../../src/components/library/AddToCollectionSheet'
 import { BookInsightsSection } from '../../src/components/library/BookInsightsSection'
-import { DiscussWithAssistant } from '../../src/components/library/DiscussWithAssistant'
+import { AssistantMenu } from '../../src/components/library/AssistantMenu'
 import { ChapterReviewAction } from '../../src/components/library/ReviewChapterButton'
 import { useBookReviews } from '../../src/hooks/useBookReviews'
 import { useSheetMount } from '../../src/hooks/useSheetMount'
@@ -644,18 +644,29 @@ export default function UserBookDetailScreen() {
         {/* Action buttons */}
         {isReady && book.chapters.length > 0 && (
           <View style={styles.actions}>
-            <TouchableOpacity
-              style={[styles.readBtn, { backgroundColor: colors.primary }]}
-              onPress={() => {
-                const first = book.chapters[0]
-                const slug = continueSlug || (first ? userBookChapterSlug(first) : '')
-                trackBookOpened({ source: 'userbook', userBookId: id })
-                router.push(`/my-books/read/${id}/${slug}`)
+            <AssistantMenu
+              book={{
+                title: book.title,
+                author: book.author,
+                bookId: book.id,
+                progressFraction: bookPct,
+                chapterTitle: book.chapters.find(c => c.slug === continueSlug)?.title ?? null,
               }}
+              current={currentReviewChapter(book.chapters, continueSlug, reviews)}
             >
-              <Ionicons name={continueSlug ? 'play' : 'book'} size={18} color="#fff" />
-              <Text style={styles.readBtnText}>{continueSlug ? 'Continue Reading' : 'Start Reading'}</Text>
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.readBtn, { backgroundColor: colors.primary }]}
+                onPress={() => {
+                  const first = book.chapters[0]
+                  const slug = continueSlug || (first ? userBookChapterSlug(first) : '')
+                  trackBookOpened({ source: 'userbook', userBookId: id })
+                  router.push(`/my-books/read/${id}/${slug}`)
+                }}
+              >
+                <Ionicons name={continueSlug ? 'play' : 'book'} size={18} color="#fff" />
+                <Text style={styles.readBtnText}>{continueSlug ? 'Continue Reading' : 'Start Reading'}</Text>
+              </TouchableOpacity>
+            </AssistantMenu>
           </View>
         )}
 
@@ -804,18 +815,6 @@ export default function UserBookDetailScreen() {
         {/* Above the chapter list on purpose: coming back to a book, what you
             already worked out is more use than the table of contents. */}
         {isReady && <BookInsightsSection userBookId={book.id} />}
-
-        {/* Directly under it: the section shows what came back, this is how you
-            go and get more. */}
-        {isReady && (
-          <DiscussWithAssistant
-            title={book.title}
-            author={book.author}
-            bookId={book.id}
-            progressFraction={bookPct}
-            chapterTitle={book.chapters.find(c => c.slug === continueSlug)?.title ?? null}
-          />
-        )}
 
         {/* Chapter list */}
         {isReady && book.chapters.length > 0 && (
