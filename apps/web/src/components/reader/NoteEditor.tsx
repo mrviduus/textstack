@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react'
 import type { StoredHighlight } from '../../lib/offlineDb'
 import { useTranslation } from '../../hooks/useTranslation'
+import { ReviewedRow } from './ReviewedMarks'
 
 interface NoteEditorProps {
   highlight: StoredHighlight
@@ -116,6 +117,7 @@ export function NoteEditor({
         touchAction: 'none',
       }}
     >
+      <ReviewedRow highlightId={highlight.id} />
       <div
         className="note-editor__header"
         style={{ borderLeftColor: colorMap[highlight.color] || colorMap.yellow }}

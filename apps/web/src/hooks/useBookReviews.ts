@@ -12,6 +12,9 @@ import { getBookInsights } from '../api/insights'
  * a flag is still false on the render where the target first appears, and for that one frame the
  * summary page rendered "not reviewed yet" with a Review button for a chapter that has a review.
  */
+// One empty array, so a consumer memoizing on `insights` doesn't recompute every render while loading.
+const NO_INSIGHTS: BookInsight[] = []
+
 export function useBookReviews(target: { userBookId: string } | { editionId: string } | null) {
   const key = target ? ('userBookId' in target ? `u:${target.userBookId}` : `e:${target.editionId}`) : null
   const [state, setState] = useState<{ key: string | null; insights: BookInsight[]; error: boolean }>(
@@ -28,7 +31,7 @@ export function useBookReviews(target: { userBookId: string } | { editionId: str
   }, [key])
 
   const current = key !== null && state.key === key
-  const insights = current ? state.insights : []
+  const insights = current ? state.insights : NO_INSIGHTS
   return { insights, reviews: reviewsBySlug(insights), loading: key !== null && !current, error: current && state.error }
 }
 

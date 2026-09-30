@@ -2562,3 +2562,16 @@ button.ask-md__cite:hover { text-decoration: underline; }
   background-color: rgba(37, 99, 235, 0.25);
   border-radius: 2px;
 }
+
+/* Chapter review: Reviewed row at the top of the highlight popup (HTML + PDF). The dot itself is
+   SVG (HighlightOverlayLayer.reviewedDot) / .pdf-hl-dot (pdfOriginal.css). */
+.reviewed-row {
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--reader-text);
+  border-bottom: 1px solid var(--reader-border);
+}
+.reviewed-row__title { font-weight: 600; color: var(--reader-reviewed-dot, #16a34a); }
+.reviewed-row__rule { margin-top: 2px; }
+.reviewed-row__link { display: inline-block; margin-top: 4px; font-weight: 500; }

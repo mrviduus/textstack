@@ -106,17 +106,8 @@ export function HighlightsPage({ embedded }: { embedded?: boolean } = {}) {
   }
 
   const navigateToHighlight = (h: HighlightListItem) => {
-    if (h.editionId && h.editionSlug && h.chapterSlug) {
-      navigate(getLocalizedPath(`/books/${h.editionSlug}/read/${h.chapterSlug}?direct=1&highlight=${h.id}`))
-    } else if (h.editionId && h.editionSlug) {
-      navigate(getLocalizedPath(`/books/${h.editionSlug}`))
-    } else if (h.userBookId && h.userChapterSlug) {
-      navigate(getLocalizedPath(`/library/my/${h.userBookId}/read/${h.userChapterSlug}?direct=1&highlight=${h.id}`))
-    } else if (h.userBookId) {
-      // Chapterless (Original-layout PDF) highlight — no userChapterSlug. Open the
-      // PDF reader; ReaderPage reads ?highlight and scrolls to the anchor's page.
-      navigate(getLocalizedPath(`/library/my/${h.userBookId}/read?direct=1&highlight=${h.id}`))
-    }
+    const path = highlightReaderPath(h)
+    if (path) navigate(getLocalizedPath(path))
   }
 
   if (!embedded && !isAuthenticated) {
@@ -271,4 +262,17 @@ export function HighlightsPage({ embedded }: { embedded?: boolean } = {}) {
       <Footer />
     </>
   )
+}
+
+/**
+ * Where a highlight opens (unprefixed). The catalog reader is `/books/:slug/:chapter` — there is no
+ * `/read/` segment there (that is uploads only); the old `/books/:slug/read/:chapter` was a 404.
+ */
+export function highlightReaderPath(h: HighlightListItem): string | null {
+  if (h.editionId && h.editionSlug && h.chapterSlug) return `/books/${h.editionSlug}/${h.chapterSlug}?direct=1&highlight=${h.id}`
+  if (h.editionId && h.editionSlug) return `/books/${h.editionSlug}`
+  if (h.userBookId && h.userChapterSlug) return `/library/my/${h.userBookId}/read/${h.userChapterSlug}?direct=1&highlight=${h.id}`
+  // Chapterless (Original-layout PDF) highlight — ReaderPage reads ?highlight and scrolls to the anchor's page.
+  if (h.userBookId) return `/library/my/${h.userBookId}/read?direct=1&highlight=${h.id}`
+  return null
 }

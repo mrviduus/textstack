@@ -1262,5 +1262,19 @@
   "chapterReview.summary.notFound": "Chapter not found.",
   "chapterReview.summary.signIn": "Sign in to see your chapter reviews.",
   "chapterReview.openReview": "Open review →",
-  "chapterReview.switchAria": "Choose Claude or ChatGPT"
+  "chapterReview.switchAria": "Choose Claude or ChatGPT",
+  "chapterReview.questions.title": "Chapter questions",
+  "chapterReview.questions.due": "{{count}} due",
+  "chapterReview.questions.start": "Start",
+  "chapterReview.questions.showAnswer": "Show answer",
+  "chapterReview.questions.forgot": "Forgot",
+  "chapterReview.questions.almost": "Almost",
+  "chapterReview.questions.knew": "Knew",
+  "chapterReview.questions.doneTitle": "Done for now",
+  "chapterReview.questions.doneLead": "You answered {{count}}. Each comes back when it's due.",
+  "chapterReview.questions.empty": "No chapter questions due right now.",
+  "chapterReview.questions.back": "Back to Practice",
+  "chapterReview.questions.loadFailed": "Couldn't load your questions.",
+  "chapterReview.questions.answerFailed": "Couldn't save that answer. Try again.",
+  "chapterReview.questions.signIn": "Sign in to practice your chapter questions."
 }

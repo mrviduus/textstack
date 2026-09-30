@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
-import { Overlayer } from '@textstack/reader-overlay'
+import { Overlayer, type DrawFn } from '@textstack/reader-overlay'
 import { useOverlayAnnotations, type AnnotationSpec } from '../../hooks/useOverlayAnnotations'
 import { useOverlayReflow } from '../../hooks/useOverlayReflow'
 import { findTextByAnchor } from '../../lib/textAnchor'
 import type { HighlightColor, StoredHighlight } from '../../lib/offlineDb'
+import { isReviewed, useReviewedMarks } from './ReviewedMarks'
 
 // Highlights via the shared SVG Overlayer. Positions the overlayer SVG as a
 // viewport-fixed sibling so raw range.getClientRects() coords land 1:1 on
@@ -19,6 +20,28 @@ const COLOR_MAP: Record<HighlightColor, string> = {
   pink: 'var(--reader-overlay-hl-pink, rgba(251, 207, 232, 0.5))',
   blue: 'var(--reader-overlay-hl-blue, rgba(191, 219, 254, 0.5))',
 }
+
+/**
+ * "Reviewed" badge: a small dot just after the highlight's last rect (chapter-review.md §12). A
+ * custom DrawFn on its own namespace — no engine change. The entry's hit rects are the highlight's,
+ * so a tap on the text still resolves (see the click handler).
+ */
+export const reviewedDot: DrawFn = (rects) => {
+  const g = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+  g.setAttribute('class', 'reviewed-mark')
+  g.style.fill = 'var(--reader-reviewed-dot, #16a34a)'
+  const last = rects[rects.length - 1]
+  if (!last) return g
+  const r = Math.max(2.5, Math.min(4, last.height * 0.15))
+  const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle')
+  dot.setAttribute('cx', String(last.right + r + 1))
+  dot.setAttribute('cy', String(last.top + r + 1))
+  dot.setAttribute('r', String(r))
+  g.append(dot)
+  return g
+}
+
+const HL_PREFIXES = ['user-hl:', 'reviewed-mark:']
 
 interface Props {
   highlights: StoredHighlight[]
@@ -63,6 +86,18 @@ export function HighlightOverlayLayer({ highlights, containerRef, onHighlightCli
     map,
   })
 
+  const reviewed = useReviewedMarks()
+  const reviewedHighlights = useMemo(
+    () => (reviewed ? highlights.filter((h) => isReviewed(reviewed, h.id)) : []),
+    [highlights, reviewed],
+  )
+  useOverlayAnnotations<StoredHighlight>(overlayer, {
+    namespace: 'reviewed-mark',
+    items: reviewedHighlights,
+    draw: reviewedDot,
+    map,
+  })
+
   useOverlayReflow(overlayer, containerRef)
 
   useEffect(() => {
@@ -71,8 +106,9 @@ export function HighlightOverlayLayer({ highlights, containerRef, onHighlightCli
     if (!container) return
     const handler = (e: MouseEvent): void => {
       const [key, range] = overlayer.hitTest({ x: e.clientX, y: e.clientY })
-      if (!key || !range || !key.startsWith('user-hl:')) return
-      const id = key.slice('user-hl:'.length)
+      const prefix = key && HL_PREFIXES.find((p) => key.startsWith(p))
+      if (!key || !range || !prefix) return
+      const id = key.slice(prefix.length)
       const h = highlights.find((hh) => hh.id === id)
       if (!h) return
       onHighlightClick(h, range.getBoundingClientRect())

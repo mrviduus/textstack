@@ -38,6 +38,7 @@ const VocabularyReviewPage = lazy(() => import('./pages/VocabularyReviewPage').t
 const TutorSessionPage = lazy(() => import('./pages/TutorSessionPage').then(m => ({ default: m.TutorSessionPage })))
 const HighlightsPage = lazy(() => import('./pages/HighlightsPage').then(m => ({ default: m.HighlightsPage })))
 const ChapterReviewPage = lazy(() => import('./pages/ChapterReviewPage').then(m => ({ default: m.ChapterReviewPage })))
+const ChapterQuestionReviewPage = lazy(() => import('./pages/ChapterQuestionReviewPage').then(m => ({ default: m.ChapterQuestionReviewPage })))
 const HighlightReviewPage = lazy(() => import('./pages/HighlightReviewPage').then(m => ({ default: m.HighlightReviewPage })))
 import { Header } from './components/Header'
 import { DownloadProgressBar } from './components/DownloadProgressBar'
@@ -138,6 +139,8 @@ function LanguageRoutes() {
           <Route path="/vocabulary/tutor" element={<TutorSessionPage />} />
           <Route path="/highlights" element={<HighlightsPage />} />
           <Route path="/highlights/review" element={<HighlightReviewPage />} />
+          {/* Chapter questions session (chapter-review.md §11): signed-in, noindex, not in /ssg/routes. */}
+          <Route path="/review/questions" element={<ChapterQuestionReviewPage />} />
           <Route path="/library/my/:id" element={<UserBookDetailPage />} />
           <Route path="/library/my/:id/review/:chapterSlug" element={<ChapterReviewPage />} />
           {/* Chapterless Original-layout route — a PDF opens instantly here before

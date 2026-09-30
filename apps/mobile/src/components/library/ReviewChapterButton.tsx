@@ -4,7 +4,7 @@ import { router } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import * as Clipboard from 'expo-clipboard'
 import {
-  MCP_ENDPOINT, buildChapterReviewBrief, chooseChat, connectedAssistants, handoffUrl, oauthGrantsApi,
+  MCP_ENDPOINT, buildChapterReviewBrief, chooseChat, connectedAssistants, handoffUrl, isReviewableChapter, oauthGrantsApi,
   type Assistant, type ChapterReviewBriefInput, type OAuthGrant,
 } from '@textstack/shared'
 import { useTheme } from '../../context/ThemeContext'
@@ -163,7 +163,7 @@ export function ConnectAssistantSheet({ visible, onClose }: { visible: boolean; 
  */
 export function ChapterReviewAction({ book, chapter, reviewed }: {
   book: { title: string; author?: string | null } & ReviewBookRef
-  chapter: { slug: string; title: string }
+  chapter: { slug: string; title: string; wordCount?: number | null }
   reviewed: boolean
 }) {
   const { colors } = useTheme()
@@ -182,6 +182,8 @@ export function ChapterReviewAction({ book, chapter, reviewed }: {
       </TouchableOpacity>
     )
   }
+  // Front/back matter and thin chapters get no Review button (a reviewed one keeps its link above).
+  if (!isReviewableChapter(chapter)) return null
   return (
     <ReviewChapterButton
       title={book.title}
