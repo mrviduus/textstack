@@ -39,7 +39,7 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage, IEnt
             originalFileName: fileName,
             storedFileName: $"original{Path.GetExtension(fileName)}",
             format: format,
-            title: title ?? Path.GetFileNameWithoutExtension(fileName),
+            title: title ?? TitleFromFileName(fileName),
             author: null,
             language: language ?? "en",
             sourceUrl: null,
@@ -697,6 +697,18 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage, IEnt
         db.UserBookBookmarks.Remove(bookmark);
         await db.SaveChangesAsync(ct);
         return (true, null);
+    }
+
+    /// <summary>
+    /// Placeholder title from the upload's filename, until ingestion reads real metadata.
+    /// Cleaned, because shadow-library filenames carry "(z-library.sk, 1lib.sk)" and a PDF
+    /// with no metadata title keeps this one forever.
+    /// </summary>
+    public static string TitleFromFileName(string fileName)
+    {
+        var raw = Path.GetFileNameWithoutExtension(fileName);
+        var cleaned = global::TextStack.Extraction.Utilities.BookTitleCleaner.Clean(raw);
+        return string.IsNullOrWhiteSpace(cleaned) ? raw : cleaned;
     }
 
     private static BookFormat DetectFormat(string fileName)

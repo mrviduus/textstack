@@ -58,8 +58,8 @@ describe('ReviewChapterButton', () => {
     await waitFor(() => expect(open).toHaveBeenCalledTimes(1))
     const url = open.mock.calls[0][0] as string
     expect(url.startsWith('https://chatgpt.com/?q=')).toBe(true)
-    expect(decodeURIComponent(url)).toContain('get_chapter_review')
-    expect(decodeURIComponent(url)).toContain('bookId b1')
+    expect(decodeURIComponent(url)).toContain('Let\'s review the chapter "Prompt Engineering"')
+    expect(decodeURIComponent(url)).toContain('(TextStack: book b1, chapter prompts)')
   })
 
   it('both connected → menu; the pick is remembered and opened', async () => {

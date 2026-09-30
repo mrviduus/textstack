@@ -51,6 +51,7 @@ public class McpStdioSmokeTests
         await using var client = await McpClient.CreateAsync(transport, cancellationToken: ct);
 
         Assert.Equal("textstack", client.ServerInfo.Name);
+        Assert.Contains("save_insight", client.ServerInstructions); // stdio sends the same instructions as http
 
         var tools = await client.ListToolsAsync(cancellationToken: ct);
         Assert.Equal(18, tools.Count);

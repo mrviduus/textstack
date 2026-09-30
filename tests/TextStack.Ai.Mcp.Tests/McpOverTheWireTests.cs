@@ -204,6 +204,17 @@ public class McpOverTheWireTests : IAsyncLifetime
         Assert.Equal("textstack", client.ServerInfo.Name);
     }
 
+    [Fact]
+    public async Task Initialize_OverWire_ReturnsServerInstructionsNamingTheWorkflowTools()
+    {
+        await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
+
+        var instructions = client.ServerInstructions;
+        Assert.False(string.IsNullOrWhiteSpace(instructions));
+        foreach (var tool in new[] { "search_my_library", "get_my_insights", "save_insight", "get_chapter_review", "save_chapter_review" })
+            Assert.Contains(tool, instructions);
+    }
+
     // ── 9. protocol: tools/list → exactly the advertised surface ─────────────────
 
     [Fact]

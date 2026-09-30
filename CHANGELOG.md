@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **MCP** — Discuss / Review open the chat with one human sentence and a short id line; the how-to-work rules moved into the MCP server's instructions; upload titles lose trailing shadow-library domains like "(z-library.sk, 1lib.sk)" — backend, web, mobile, worker · [details](docs/changelog-archive/2026-H2.md#2026-09-30-human-handoff-briefs)
 - **MCP** — the review method stopped sending readers to a chapter-review page and a Practice section that don't exist yet (method v2) — backend
 - **Library** — chapter review, UI: every chapter row on a book page gets Review (opens your connected Claude/ChatGPT with the brief, or a connect dialog if none) or ✓ Reviewed → its summary page — problem, why, rule, your highlights, check-yourself questions, threads, Next — web + mobile · [details](docs/changelog-archive/2026-H2.md#2026-09-30-chapter-review-ui)
 - **MCP** — ChatGPT couldn't connect: its client document declares private_key_jwt and also supports "none", and we refused it on the declared field alone — backend

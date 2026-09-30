@@ -2,10 +2,12 @@ import { describe, it, expect } from 'vitest'
 import { buildHandoffBrief, handoffUrl, MAX_BRIEF_CHARS } from './assistantHandoff'
 
 /**
- * The handoff is a LINK, and a link has a length limit that nothing else in the
- * app has. These tests pin the two things that break silently: a brief that grows
- * past what a URL can carry, and an identifier that names the wrong id space.
+ * The handoff is a LINK the reader sees prefilled. These tests pin what breaks silently: a brief
+ * that grows past what a URL can carry, an id that goes missing, and internals (tool names,
+ * "connector") leaking back into a message written for a person.
  */
+const TOOL_NAMES = ['get_book', 'get_chapter', 'get_my_book', 'get_my_chapter', 'get_my_insights', 'save_insight', 'connector']
+
 describe('buildHandoffBrief', () => {
   const book = {
     title: 'Designing Data-Intensive Applications',
@@ -15,117 +17,42 @@ describe('buildHandoffBrief', () => {
     chapterTitle: 'Replication',
   }
 
-  it('names the book, the author and where the reader stopped', () => {
-    const brief = buildHandoffBrief(book)
-    expect(brief).toContain('Designing Data-Intensive Applications')
-    expect(brief).toContain('Martin Kleppmann')
-    expect(brief).toContain('42%')
-    expect(brief).toContain('Replication')
+  it('is one human sentence plus the id line for an upload', () => {
+    expect(buildHandoffBrief(book)).toBe(
+      'Let\'s discuss "Designing Data-Intensive Applications" by Martin Kleppmann in TextStack. ' +
+      'I\'m about 42% in, at "Replication".\n\n' +
+      '(TextStack: book 77777777-7777-7777-7777-777777777777)')
   })
 
-  it('names an upload by bookId and points at the my-library tools', () => {
-    const brief = buildHandoffBrief(book)
-    expect(brief).toContain('bookId 77777777-7777-7777-7777-777777777777')
-    expect(brief).toContain('get_my_book')
-    // An upload has no editionId; offering one would send the assistant to a 404.
-    expect(brief).not.toContain('editionId')
+  it('names no tools and does not mention the connector', () => {
+    const briefs = [
+      buildHandoffBrief(book),
+      buildHandoffBrief({ title: 'Dracula', editionId: '33333333-3333-3333-3333-333333333333', slug: 'dracula' }),
+    ]
+    for (const b of briefs) for (const t of TOOL_NAMES) expect(b).not.toContain(t)
   })
 
-  /**
-   * Which identifier each tool actually accepts, mirroring the JSON schemas in
-   * `McpToolCatalog` — all of which set `additionalProperties: false`, so passing the wrong one is
-   * a rejected call rather than an ignored field.
-   *
-   * This table is the point of the test below. The previous version asserted that the brief string
-   * contained the substring "get_book" — prose checked against prose — and therefore passed happily
-   * while the brief handed `get_book` an editionId it cannot take. The catalog Discuss button did
-   * not work at all, and no test noticed. Keep this in step with the schemas.
-   */
-  const TOOL_IDENTIFIER: Record<string, ReadonlyArray<'slug' | 'editionId' | 'bookId'>> = {
-    get_book: ['slug'],
-    get_chapter: ['slug'],
-    get_my_book: ['bookId'],
-    get_my_chapter: ['bookId'],
-    // The insight tools take EITHER, XOR, keyed by book type: bookId for an upload, editionId for a
-    // catalog book. So they are satisfied by whichever one the brief is carrying.
-    get_my_insights: ['bookId', 'editionId'],
-    save_insight: ['bookId', 'editionId'],
-  }
-
-  /** Every tool the brief names, in order of appearance. */
-  const toolsNamedIn = (brief: string) =>
-    Object.keys(TOOL_IDENTIFIER).filter(name => brief.includes(name))
-
-  it('gives a catalog book BOTH identifiers, each next to the tools that take it', () => {
+  it('gives a catalog book BOTH slug and editionId — read tools take one, insight tools the other', () => {
     const brief = buildHandoffBrief({
       title: 'Dracula',
       editionId: '33333333-3333-3333-3333-333333333333',
       slug: 'dracula',
     })
-
-    // Read tools are slug-keyed; insight tools are editionId-keyed. A brief carrying only one of
-    // the two names tools that would reject every call made from it.
-    expect(brief).toContain('"dracula"')
-    expect(brief).toContain('editionId 33333333-3333-3333-3333-333333333333')
-    expect(toolsNamedIn(brief)).toContain('get_book')
-    expect(toolsNamedIn(brief)).toContain('save_insight')
-    expect(brief).not.toContain('bookId')
+    expect(brief).toContain('(TextStack: catalog dracula, edition 33333333-3333-3333-3333-333333333333)')
+    expect(brief).not.toContain('book ')
   })
 
-  it('never names a tool without the identifier that tool accepts', () => {
-    const cases = [
-      {
-        what: 'catalog',
-        book: { title: 'Dracula', editionId: '33333333-3333-3333-3333-333333333333', slug: 'dracula' },
-        present: { slug: '"dracula"', editionId: 'editionId 33333333-3333-3333-3333-333333333333' },
-      },
-      {
-        what: 'upload',
-        book: { title: 'My PDF', bookId: '22222222-2222-2222-2222-222222222222' },
-        present: { bookId: 'bookId 22222222-2222-2222-2222-222222222222' },
-      },
-    ] as const
-
-    for (const c of cases) {
-      const brief = buildHandoffBrief(c.book)
-      const named = toolsNamedIn(brief)
-      expect(named.length).toBeGreaterThan(0)
-
-      for (const tool of named) {
-        const accepts = TOOL_IDENTIFIER[tool]
-        const carried = accepts.some(id => {
-          const marker = (c.present as Record<string, string | undefined>)[id]
-          return marker !== undefined && brief.includes(marker)
-        })
-        expect(
-          carried,
-          `${c.what} brief names ${tool}, which takes ${accepts.join(' or ')}, but carries none of them`,
-        ).toBe(true)
-      }
-    }
+  it('an upload carries no edition', () => {
+    expect(buildHandoffBrief(book)).not.toContain('edition')
   })
 
-  it('says nothing about the connector when a catalog book has no slug', () => {
-    // Half the pair is worse than none: it would name slug-keyed tools with nothing to give them.
-    const brief = buildHandoffBrief({
-      title: 'Dracula',
-      editionId: '33333333-3333-3333-3333-333333333333',
-    })
-    expect(brief).not.toContain('get_book')
-    expect(brief).not.toContain('editionId')
-  })
-
-  it('asks the assistant to write conclusions back', () => {
-    // Without this line the conversation happens and nothing comes home, which is
-    // the entire failure mode the feature exists to fix.
-    expect(buildHandoffBrief(book)).toContain('save_insight')
+  it('omits the id line when there is no id', () => {
+    expect(buildHandoffBrief({ title: 'Dracula' })).toBe('Let\'s discuss "Dracula" in TextStack.')
   })
 
   it('reads the fraction as a fraction — the defect this field is named after', () => {
-    // Progress is stored as 0..1 everywhere in this codebase. Taking it as
-    // "0-100" made Math.round(0.42) === 0, so a reader 42% into a book opened a
-    // chat that said "about 0% in". It only shows when there IS progress, which
-    // is why the first pass missed it.
+    // Progress is stored as 0..1 everywhere in this codebase. Taking it as "0-100" made
+    // Math.round(0.42) === 0, so a reader 42% in opened a chat that said "about 0% in".
     expect(buildHandoffBrief({ title: 'D', progressFraction: 0.424 })).toContain('42%')
     expect(buildHandoffBrief({ title: 'D', progressFraction: 0.07 })).toContain('7%')
     expect(buildHandoffBrief({ title: 'D', progressFraction: 1 })).toContain('100%')
@@ -137,13 +64,15 @@ describe('buildHandoffBrief', () => {
     }
   })
 
-  it('caps the brief, because it has to survive being a URL', () => {
+  it('caps the brief and keeps the id when every text field is huge', () => {
     const brief = buildHandoffBrief({
       title: 'T'.repeat(5000),
       author: 'A'.repeat(5000),
+      chapterTitle: 'C'.repeat(5000),
       bookId: '77777777-7777-7777-7777-777777777777',
     })
     expect(brief.length).toBeLessThanOrEqual(MAX_BRIEF_CHARS)
+    expect(brief).toContain('(TextStack: book 77777777-7777-7777-7777-777777777777)')
   })
 
   it('keeps the encoded URL inside the safe ~2000-character floor', () => {
