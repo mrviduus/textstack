@@ -704,5 +704,47 @@
       "heading": "For developers",
       "lead": "Cursor, Claude Code, scripts — anything that takes a key instead of signing in. Keys you already made keep working."
     }
+  },
+  "chapterReview": {
+    "review": "Review",
+    "reviewed": "Reviewed",
+    "reviewAria": "Review “{{title}}” with your assistant",
+    "openReviewAria": "Open the review of “{{title}}”",
+    "pickTitle": "Review with",
+    "switchAria": "Choose Claude or ChatGPT",
+    "openFailed": "Couldn't open the assistant.",
+    "connect": {
+      "title": "Connect Claude or ChatGPT in a minute",
+      "lead": "The review runs in your own assistant, which needs TextStack connected once. Paste this address, sign in and allow:",
+      "copy": "Copy URL",
+      "copied": "Copied",
+      "more": "Open the connect page",
+      "close": "Close"
+    },
+    "summary": {
+      "title": "Chapter review",
+      "reviewedOn": "reviewed {{date}}",
+      "problem": "Problem",
+      "why": "Why",
+      "rule": "Rule",
+      "highlights": "Your highlights",
+      "noHighlights": "none",
+      "highlightRemoved": "highlight removed",
+      "check": "Check yourself",
+      "show": "Show",
+      "hide": "Hide",
+      "recall": "What you remembered",
+      "applications": "Where this shows up in your work",
+      "openThreads": "Open threads ({{count}})",
+      "closedThreads": "Closed in this chapter",
+      "again": "Review again",
+      "next": "Next: {{title}} →",
+      "emptyTitle": "This chapter hasn't been reviewed yet",
+      "emptyLead": "Press Review and your assistant goes through it with you by the TextStack method. The result comes back here.",
+      "loadFailed": "Couldn't load this review.",
+      "notFound": "Chapter not found.",
+      "signIn": "Sign in to see your chapter reviews."
+    },
+    "openReview": "Open review →"
   }
 }

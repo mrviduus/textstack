@@ -36,6 +36,18 @@ describe('getBookInsights', () => {
     expect(rows[0].chapterTitle).toBe('Replication')
   })
 
+  it('shares one request between concurrent callers, and refetches once it settles', async () => {
+    // The book page and BookInsightsSection both ask on mount; that must be one request.
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, text: async () => '[]' })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await Promise.all([getBookInsights({ userBookId: 'dup' }), getBookInsights({ userBookId: 'dup' })])
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    await getBookInsights({ userBookId: 'dup' })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
   it('returns an empty array when the reader has no insights yet', async () => {
     // The common case by far — 0 insights exist in production — and the one where a wrong unwrap
     // still looks like "nothing to show" instead of a crash. It must be an array, not undefined.

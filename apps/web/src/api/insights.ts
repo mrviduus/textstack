@@ -28,7 +28,22 @@ export async function getBookInsights(target: InsightTarget): Promise<BookInsigh
   // where this line was copied from. Unwrapping `.items` here handed the component `undefined`, and
   // the very next render read `.length` off it: every signed-in book page threw, with or without
   // insights, in the change that was supposed to make this section appear at all.
-  return authFetch<BookInsight[]>(`/me/insights?${query}`)
+  return inFlight(query, () => authFetch<BookInsight[]>(`/me/insights?${query}`))
+}
+
+/**
+ * One request per book at a time: the book page (which chapters are reviewed) and
+ * `BookInsightsSection` both ask for the same list on mount. In-flight only — cleared as soon as it
+ * settles — so a later call (after a delete, on the next visit) always goes to the network.
+ */
+const pending = new Map<string, Promise<BookInsight[]>>()
+function inFlight(key: string, load: () => Promise<BookInsight[]>): Promise<BookInsight[]> {
+  let p = pending.get(key)
+  if (!p) {
+    p = load().finally(() => pending.delete(key))
+    pending.set(key, p)
+  }
+  return p
 }
 
 /**

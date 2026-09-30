@@ -28,6 +28,8 @@ import { trackBookOpened } from '../../src/lib/analytics'
 import { AddToCollectionSheet } from '../../src/components/library/AddToCollectionSheet'
 import { BookInsightsSection } from '../../src/components/library/BookInsightsSection'
 import { DiscussWithAssistant } from '../../src/components/library/DiscussWithAssistant'
+import { ChapterReviewAction } from '../../src/components/library/ReviewChapterButton'
+import { useBookReviews } from '../../src/hooks/useBookReviews'
 import { useSheetMount } from '../../src/hooks/useSheetMount'
 
 /**
@@ -325,6 +327,7 @@ export default function UserBookDetailScreen() {
     : 0
 
   const isReady = book?.status.toLowerCase() === 'ready'
+  const { reviews } = useBookReviews(isReady && book ? { userBookId: book.id } : null)
   const isFailed = book?.status.toLowerCase() === 'failed'
   const isProcessing = book && !isReady && !isFailed
 
@@ -841,6 +844,14 @@ export default function UserBookDetailScreen() {
                     )}
                   </View>
                   {isCurrentChapter && <Ionicons name="play-circle" size={18} color={colors.primary} />}
+                  {/* A review is keyed by the real slug; a slugless legacy chapter cannot be reviewed. */}
+                  {!!ch.slug?.trim() && (
+                    <ChapterReviewAction
+                      book={{ title: book.title, author: book.author, userBookId: book.id }}
+                      chapter={{ slug: ch.slug, title: ch.title }}
+                      reviewed={reviews.has(ch.slug)}
+                    />
+                  )}
                 </TouchableOpacity>
               )
             })}

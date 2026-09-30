@@ -13,6 +13,8 @@ import { useToast } from '../../src/context/ToastContext'
 import { AddToCollectionSheet } from '../../src/components/library/AddToCollectionSheet'
 import { BookInsightsSection } from '../../src/components/library/BookInsightsSection'
 import { DiscussWithAssistant } from '../../src/components/library/DiscussWithAssistant'
+import { ChapterReviewAction } from '../../src/components/library/ReviewChapterButton'
+import { useBookReviews } from '../../src/hooks/useBookReviews'
 import { useSheetMount } from '../../src/hooks/useSheetMount'
 import {
   isBookFullyCached,
@@ -293,6 +295,8 @@ export default function BookDetailScreen() {
     }, [book?.id, isAuthenticated, offlineMode]),
   )
 
+  const { reviews } = useBookReviews(isAuthenticated && !offlineMode && book ? { editionId: book.id } : null)
+
   const dl = book ? downloads.get(book.id) : undefined
   const isDownloading = dl?.status === 'downloading'
   const progress = dl ? Math.round((dl.downloadedChapters / dl.totalChapters) * 100) : 0
@@ -545,7 +549,7 @@ export default function BookDetailScreen() {
             over MCP can name either book type, so both have to show it or catalog
             insights would be write-only. Behind isAuthenticated because a signed-out
             reader would only be firing a 401 at every book they open. */}
-        {isAuthenticated && <BookInsightsSection editionId={book.id} />}
+        {isAuthenticated && <BookInsightsSection editionId={book.id} bookSlug={book.slug} />}
         {isAuthenticated && (
           <DiscussWithAssistant
             title={book.title}
@@ -576,6 +580,13 @@ export default function BookDetailScreen() {
                 </Text>
               )}
             </View>
+            {isAuthenticated && !offlineMode && (
+              <ChapterReviewAction
+                book={{ title: book.title, author: book.authors.map(a => a.name).join(', ') || null, editionId: book.id, slug: book.slug }}
+                chapter={{ slug: ch.slug, title: ch.title }}
+                reviewed={reviews.has(ch.slug)}
+              />
+            )}
             <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
           </TouchableOpacity>
         ))}
