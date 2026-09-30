@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **MCP** — the review method stopped sending readers to a chapter-review page and a Practice section that don't exist yet (method v2) — backend
 - **MCP** — ChatGPT couldn't connect: its client document declares private_key_jwt and also supports "none", and we refused it on the declared field alone — backend
 - **Web** — nginx's trailing-slash redirect dropped every query string, so the OAuth consent page lost its request id and always said "expired" — infra, backend
 - **Deploy** — the MCP health check expected an anonymous 200, which OAuth made a 401 by design; it now checks for the 401 + challenge and JSON discovery documents — infra
