@@ -274,6 +274,29 @@ public class OAuthTests
     }
 
     [Fact]
+    public void Parse_ChatGptDocument_DeclaresPrivateKeyJwtButSupportsNone_Accepted()
+    {
+        // Shape of https://chatgpt.com/oauth/client.json (2026-09-30). Refusing it blocked every
+        // ChatGPT connection: "none" is in its supported list, and it is all we advertise.
+        const string chatgpt = "https://chatgpt.com/oauth/client.json";
+        var (doc, error) = ClientMetadataFetcher.Parse(chatgpt, Encoding.UTF8.GetBytes(
+            $$"""{"client_id":"{{chatgpt}}","redirect_uris":["https://chatgpt.com/connector_platform_oauth_redirect"],"token_endpoint_auth_method":"private_key_jwt","token_endpoint_auth_methods_supported":["none","private_key_jwt"],"client_name":"ChatGPT","jwks_uri":"https://chatgpt.com/oauth/jwks.json"}"""));
+
+        Assert.Null(error);
+        Assert.Equal("ChatGPT", doc!.ClientName);
+        Assert.Equal(["https://chatgpt.com/connector_platform_oauth_redirect"], doc.RedirectUris);
+    }
+
+    [Fact]
+    public void Parse_ConfidentialOnlyDocument_Refused()
+    {
+        var (doc, error) = ClientMetadataFetcher.Parse(Url, Encoding.UTF8.GetBytes(
+            $$"""{"client_id":"{{Url}}","redirect_uris":["https://claude.ai/cb"],"token_endpoint_auth_method":"private_key_jwt","token_endpoint_auth_methods_supported":["private_key_jwt"]}"""));
+        Assert.Null(doc);
+        Assert.NotNull(error);
+    }
+
+    [Fact]
     public void Parse_NoName_FallsBackToHost()
     {
         var (doc, _) = ClientMetadataFetcher.Parse(Url, Encoding.UTF8.GetBytes(
