@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **MCP** — ChatGPT couldn't connect: its client document declares private_key_jwt and also supports "none", and we refused it on the declared field alone — backend
 - **Web** — nginx's trailing-slash redirect dropped every query string, so the OAuth consent page lost its request id and always said "expired" — infra, backend
 - **Deploy** — the MCP health check expected an anonymous 200, which OAuth made a 401 by design; it now checks for the 401 + challenge and JSON discovery documents — infra
 - **Library** — clicking a book opens its page (cover, description, chapters) instead of dropping you into the text; a Continue button on the card still goes straight back to where you were — web

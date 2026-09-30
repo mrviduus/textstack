@@ -69,6 +69,15 @@ public sealed class ClientMetadataFetcher(HttpClient http)
         }
     }
 
+    private static bool SupportsNone(JsonElement root)
+    {
+        var declared = root.TryGetProperty("token_endpoint_auth_method", out var m) ? m.GetString() : null;
+        if (declared is null or "none") return true;
+        return root.TryGetProperty("token_endpoint_auth_methods_supported", out var list)
+            && list.ValueKind == JsonValueKind.Array
+            && list.EnumerateArray().Any(x => x.ValueKind == JsonValueKind.String && x.GetString() == "none");
+    }
+
     /// <summary>The document must name itself (client_id == URL) and list redirect URIs.</summary>
     internal static (Document? Doc, string? Error) Parse(string clientId, ReadOnlySpan<byte> json)
     {
@@ -79,8 +88,12 @@ public sealed class ClientMetadataFetcher(HttpClient http)
         if (!root.TryGetProperty("client_id", out var id) || id.GetString() != clientId)
             return (null, "client metadata client_id does not match its URL");
 
-        if (root.TryGetProperty("token_endpoint_auth_method", out var method)
-            && method.GetString() is { } m && m != "none")
+        // We only run public clients (PKCE, no client secret or assertion). A document qualifies when
+        // "none" is its declared method OR one it supports: ChatGPT's declares private_key_jwt but
+        // lists ["none","private_key_jwt"] as supported, and since our metadata advertises only
+        // "none", that is what it uses with us. Refusing it on the declared field alone blocked
+        // every ChatGPT connection (2026-09-30).
+        if (!SupportsNone(root))
             return (null, "only public clients (token_endpoint_auth_method=none) are supported");
 
         if (!root.TryGetProperty("redirect_uris", out var uris) || uris.ValueKind != JsonValueKind.Array)
