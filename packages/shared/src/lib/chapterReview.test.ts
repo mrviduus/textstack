@@ -12,26 +12,29 @@ const upload = {
 }
 
 describe('buildChapterReviewBrief', () => {
-  it('names book, author, chapter, the upload id, the slug and both tools', () => {
-    const b = buildChapterReviewBrief(upload)
-    for (const s of ['AI Engineering', 'Chip Huyen', 'Prompt Engineering', `bookId ${upload.bookId}`,
-      'chapterSlug "prompt-engineering"', 'get_chapter_review', 'save_chapter_review', 'follow the method exactly']) {
-      expect(b).toContain(s)
-    }
-    expect(b).not.toContain('editionId')
+  it('is one human sentence plus the id line', () => {
+    expect(buildChapterReviewBrief(upload)).toBe(
+      'Let\'s review the chapter "Prompt Engineering" of "AI Engineering" by Chip Huyen in TextStack.\n\n' +
+      `(TextStack: book ${upload.bookId}, chapter prompt-engineering)`)
   })
 
-  it('keys a catalog book by editionId', () => {
+  it('names no tools and does not mention the connector — the method is in the server instructions', () => {
+    const b = buildChapterReviewBrief(upload)
+    for (const t of ['get_chapter_review', 'save_chapter_review', 'connector', 'bookId', 'chapterSlug']) {
+      expect(b).not.toContain(t)
+    }
+  })
+
+  it('keys a catalog book by edition', () => {
     const b = buildChapterReviewBrief({ title: 'Dracula', editionId: 'e1', chapterSlug: 'ch-1', chapterTitle: 'I' })
-    expect(b).toContain('editionId e1')
-    expect(b).not.toContain('bookId')
+    expect(b).toContain('(TextStack: edition e1, chapter ch-1)')
+    expect(b).not.toContain('book ')
   })
 
   it('stays within the URL budget and keeps the ids when titles are huge', () => {
     const b = buildChapterReviewBrief({ ...upload, title: 'T'.repeat(5000), author: 'A'.repeat(5000), chapterTitle: 'C'.repeat(5000) })
     expect(b.length).toBeLessThanOrEqual(MAX_BRIEF_CHARS)
-    expect(b).toContain(upload.bookId)
-    expect(b).toContain('save_chapter_review')
+    expect(b).toContain(`(TextStack: book ${upload.bookId}, chapter prompt-engineering)`)
   })
 })
 

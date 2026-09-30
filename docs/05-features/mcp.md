@@ -110,6 +110,30 @@ reason the reading position is a text anchor (ADR-015).
 START of a session about a book that has been discussed before. It is what stops
 the next conversation repeating the last one.
 
+## Server instructions — the "how to work" rules live on the server
+
+Both transports send `instructions` at `initialize` (`McpBridgeCore.Instructions`,
+wired as `McpServerOptions.ServerInstructions` in both hosts). They tell the model:
+find the book (from the id line, else `search_my_library` / `get_my_reading`),
+check `get_my_insights` first, read with `get_my_book`/`get_my_chapter` (catalog:
+`get_book`/`get_chapter`), save conclusions with `save_insight`, run a chapter review
+via `get_chapter_review` → `save_chapter_review`, and never run ahead of the
+reader's position.
+
+That is why the Discuss and Review buttons prefill only a human sentence plus an
+id line — the reader sees that message:
+
+```
+Let's discuss "AI Engineering" by Chip Huyen in TextStack.
+
+(TextStack: book a1751e58-25f1-496d-b571-1041f0a31e62)
+```
+
+Id line vocabulary: `book <bookId>` (upload), `catalog <slug>, edition <editionId>`
+(catalog book — read tools take the slug, insight tools the editionId),
+`chapter <chapterSlug>` (review). Builders: `packages/shared/src/lib/assistantHandoff.ts`,
+`chapterReview.ts`. Pinned by `Initialize_OverWire_ReturnsServerInstructionsNamingTheWorkflowTools`.
+
 ## Quick start — Claude Desktop
 
 The most common path: run the published .NET global tool locally over stdio.

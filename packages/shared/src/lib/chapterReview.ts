@@ -4,7 +4,7 @@
  * ChatGPT over MCP (get_chapter_review → save_chapter_review); we only open the chat and show what
  * came back.
  */
-import { MAX_BRIEF_CHARS, type Assistant } from './assistantHandoff'
+import { MAX_BRIEF_CHARS, clipText as clip, textStackIdLine, type Assistant } from './assistantHandoff'
 import type { ChapterReviewDto } from '../types/api'
 
 export interface ChapterReviewBriefInput {
@@ -18,21 +18,17 @@ export interface ChapterReviewBriefInput {
   chapterTitle: string
 }
 
-// Titles are the only unbounded input; clipping them keeps the ids and tool names — the part a
-// connected assistant acts on — inside the URL budget whatever the book is called.
-const clip = (s: string, n: number) => (s.length <= n ? s : `${s.slice(0, n - 1).trimEnd()}…`)
-
-/** The opening message for a chapter review. ≤ MAX_BRIEF_CHARS. */
+/**
+ * The opening message for a chapter review. ≤ MAX_BRIEF_CHARS. A human sentence plus the id line;
+ * the method (get_chapter_review → save_chapter_review) is in the MCP server instructions. Titles
+ * are clipped so the id line survives the cap whatever the book is called.
+ */
 export function buildChapterReviewBrief(input: ChapterReviewBriefInput): string {
   const author = input.author ? ` by ${clip(input.author, 120)}` : ''
-  const id = input.bookId ? `bookId ${input.bookId}` : `editionId ${input.editionId}`
+  const id = textStackIdLine({ bookId: input.bookId, editionId: input.editionId, chapterSlug: input.chapterSlug })
   const brief = [
-    `Let's review a chapter I've finished: "${clip(input.chapterTitle, 200)}" from "${clip(input.title, 200)}"${author}.`,
-    '',
-    `Using TextStack, call get_chapter_review for this chapter (${id}, chapterSlug "${clip(input.chapterSlug, 300)}"), ` +
-      'follow the method exactly, save with save_chapter_review.',
-    '',
-    "If you don't have the TextStack connector, tell me so I can connect it at https://textstack.app/mcp.",
+    `Let's review the chapter "${clip(input.chapterTitle, 200)}" of "${clip(input.title, 200)}"${author} in TextStack.`,
+    ...(id ? ['', id] : []),
   ].join('\n')
   return brief.length <= MAX_BRIEF_CHARS ? brief : brief.slice(0, MAX_BRIEF_CHARS).trimEnd()
 }

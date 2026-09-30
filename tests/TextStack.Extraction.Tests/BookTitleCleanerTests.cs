@@ -53,6 +53,24 @@ public class BookTitleCleanerTests
         Assert.Equal(expected, BookTitleCleaner.Clean(input));
     }
 
+    // Shadow-library watermarks: a trailing group made only of domains goes; anything else stays.
+    [Theory]
+    [InlineData("AI Engineering Building Applications with Foundation Models (Chip Huyen) (z-library.sk, 1lib.sk, z-lib.sk)",
+        "AI Engineering Building Applications with Foundation Models (Chip Huyen)")]
+    [InlineData("Clean Code (Robert C. Martin) [libgen.rs]", "Clean Code (Robert C. Martin)")]
+    [InlineData("Dune (pdfdrive.com)", "Dune")]
+    [InlineData("Dune (z-lib.org,libgen.li)", "Dune")]
+    [InlineData("The C Programming Language (2nd Edition)", "The C Programming Language (2nd Edition)")]
+    [InlineData("Learning (Node.js)", "Learning (Node.js)")]
+    [InlineData("Programming (ASP.NET)", "Programming (ASP.NET)")]
+    [InlineData("Guide (Vol. 2)", "Guide (Vol. 2)")]
+    [InlineData("Mixed (Chip Huyen, z-lib.sk)", "Mixed (Chip Huyen, z-lib.sk)")]
+    [InlineData("Book (z-lib.sk) Part 2", "Book (z-lib.sk) Part 2")]
+    public void Clean_ShadowLibraryDomainTail_StripsOnlyAllDomainGroup(string input, string expected)
+    {
+        Assert.Equal(expected, BookTitleCleaner.Clean(input));
+    }
+
     // Invisible / format-only chars that EPUB metadata pipelines leave behind.
     [Theory]
     [InlineData("Title (for ​)")]   // zero-width space

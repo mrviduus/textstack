@@ -59,6 +59,15 @@ public static class BookTitleCleaner
         @"\s+copy(\s+\d+(?:[.\-]\d+)*)?\s*$",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+    // Trailing "(z-library.sk, 1lib.sk, z-lib.sk)" / "[libgen.rs]" — a group whose EVERY
+    // comma-separated item is a lowercase domain. Shadow-library watermarks, stamped into
+    // the filename and often the PDF title. Lowercase TLD of 2+ letters, and not a code
+    // extension, so "(Node.js)", "(ASP.NET)", "(2nd Ed.)", "(Vol. 2)" survive.
+    private const string Domain = @"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9-]+)*\.(?!(?:js|ts|py|rb|cs|md)\b)[a-z]{2,}";
+    private static readonly Regex DomainListTail = new(
+        @"\s*[(\[]\s*" + Domain + @"(?:\s*,\s*" + Domain + @")*\s*[)\]]\s*$",
+        RegexOptions.Compiled);
+
     /// <summary>
     /// Returns a cleaned title or the input unchanged. Null/empty pass through.
     /// </summary>
@@ -75,6 +84,7 @@ public static class BookTitleCleaner
         s = WordExportPrefix.Replace(s, string.Empty);
         s = FileExtensionSuffix.Replace(s, string.Empty);
         s = CopyVersionSuffix.Replace(s, string.Empty);
+        s = DomainListTail.Replace(s, string.Empty);
 
         // Strip leftover template placeholders before re-checking parens —
         // catches "X (for ${var})" → "X (for )" → trailing-paren rule.

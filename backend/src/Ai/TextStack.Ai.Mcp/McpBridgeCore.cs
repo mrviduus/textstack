@@ -76,6 +76,22 @@ internal static class McpBridgeCore
     /// <summary>Tools-only capability set (no prompts/resources).</summary>
     public static ServerCapabilities Capabilities() => new() { Tools = new ToolsCapability() };
 
+    /// <summary>
+    /// Server-level <c>instructions</c> sent at <c>initialize</c> by both transports. The "how to
+    /// work" rules live here rather than in the message our Discuss / Review buttons prefill: that
+    /// message is read by a person, so it carries one sentence and the ids, nothing else.
+    /// </summary>
+    public const string Instructions =
+        "TextStack is the user's reading app: the books they uploaded (\"my library\") plus a public catalog. "
+        + "When the user mentions a TextStack book, find it first. A message may end with an id line such as "
+        + "\"(TextStack: book <bookId>, chapter <chapterSlug>)\": \"book\" is an upload's bookId, \"catalog\" a catalog "
+        + "book's slug, \"edition\" its editionId. Without ids, use search_my_library or get_my_reading. "
+        + "Before discussing a book, call get_my_insights for conclusions from earlier conversations. "
+        + "Read uploads with get_my_book / get_my_chapter, catalog books with get_book / get_chapter. "
+        + "At the end of a discussion, save the conclusions with save_insight so the user finds them in the book. "
+        + "For a chapter review, call get_chapter_review, follow its method exactly, and save with save_chapter_review. "
+        + "Never run ahead of the reader's position: do not reveal or discuss chapters they have not reached yet.";
+
     // Rebuilds the MCP-supplied args dictionary into a single JSON object element so
     // the catalog handler can validate/read it as one schema-shaped value.
     private static JsonElement? ToArgumentsObject(IDictionary<string, JsonElement>? arguments)

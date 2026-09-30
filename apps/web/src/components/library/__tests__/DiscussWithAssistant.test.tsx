@@ -31,20 +31,15 @@ describe('DiscussWithAssistant', () => {
     }
   })
 
-  it('names an upload by bookId, and a catalog book by BOTH slug and editionId', () => {
+  it('names an upload by book id, and a catalog book by BOTH slug and edition id', () => {
     const { unmount } = render(<DiscussWithAssistant title="D" bookId="b-1" />)
-    expect(decodeURIComponent(hrefOf('library.discuss.claude'))).toContain('bookId b-1')
-    expect(decodeURIComponent(hrefOf('library.discuss.claude'))).not.toContain('editionId')
+    expect(decodeURIComponent(hrefOf('library.discuss.claude'))).toContain('(TextStack: book b-1)')
     unmount()
 
     // A catalog book needs both: get_book/get_chapter are slug-keyed, the insight tools are
-    // editionId-keyed. Sending only the id named tools that reject every call made from it, which
-    // is why the catalog button did not work at all until 2026-09-10.
+    // editionId-keyed. Sending only the id left the catalog button broken until 2026-09-10.
     render(<DiscussWithAssistant title="D" editionId="e-1" slug="dracula" />)
-    const brief = decodeURIComponent(hrefOf('library.discuss.claude'))
-    expect(brief).toContain('editionId e-1')
-    expect(brief).toContain('"dracula"')
-    expect(brief).not.toContain('bookId')
+    expect(decodeURIComponent(hrefOf('library.discuss.claude'))).toContain('(TextStack: catalog dracula, edition e-1)')
   })
 
   it('reads progress as a fraction, not as a percentage', () => {

@@ -47,6 +47,7 @@ public static class McpHosts
             {
                 o.ServerInfo = McpBridgeCore.ServerInfo();
                 o.Capabilities = McpBridgeCore.Capabilities();
+                o.ServerInstructions = McpBridgeCore.Instructions;
                 o.Handlers = McpBridgeCore.BuildHandlers();
             })
             .WithStdioServerTransport();
@@ -126,6 +127,7 @@ public static class McpHosts
             {
                 o.ServerInfo = McpBridgeCore.ServerInfo();
                 o.Capabilities = McpBridgeCore.Capabilities();
+                o.ServerInstructions = McpBridgeCore.Instructions;
                 o.Handlers = McpBridgeCore.BuildHandlers();
             })
             .WithHttpTransport(t => t.Stateless = true);
