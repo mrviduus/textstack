@@ -20,6 +20,8 @@ describe('isReviewableChapter', () => {
     expect(isReviewableChapter({ title: 'Preface', wordCount: 800 })).toBe(true)
     expect(isReviewableChapter({ title: 'Preface', wordCount: null })).toBe(true)
     expect(isReviewableChapter({ title: 'Preface' })).toBe(true)
+    // PDF chapters often have no word count: hidden by title only.
+    expect(isReviewableChapter({ title: 'Index', wordCount: null })).toBe(false)
   })
 })
 
