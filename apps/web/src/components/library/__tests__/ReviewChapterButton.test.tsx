@@ -80,4 +80,27 @@ describe('ReviewChapterButton', () => {
     expect(screen.queryByRole('menu')).toBeNull()
     expect((open.mock.calls[0][0] as string).startsWith('https://chatgpt.com/')).toBe(true)
   })
+
+  it('shows the ▾ switch only when both assistants are connected', async () => {
+    listOAuthGrants.mockResolvedValue([{ id: 'g', clientName: 'Claude' }])
+    renderButton()
+    await clickReview()
+    expect(screen.queryByRole('button', { name: 'Choose Claude or ChatGPT' })).toBeNull()
+  })
+
+  it('▾ with both connected: picking the other switches, opens it and is remembered', async () => {
+    localStorage.setItem('chapterReview.assistant', 'claude')
+    listOAuthGrants.mockResolvedValue([{ id: '1', clientName: 'Claude' }, { id: '2', clientName: 'ChatGPT' }])
+    renderButton()
+    fireEvent.click(await screen.findByRole('button', { name: 'Choose Claude or ChatGPT' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /ChatGPT/ }))
+    expect(localStorage.getItem('chapterReview.assistant')).toBe('chatgpt')
+    expect((open.mock.calls[0][0] as string).startsWith('https://chatgpt.com/')).toBe(true)
+
+    // The main button now goes straight to the new choice.
+    fireEvent.click(screen.getByRole('button', { name: /Review “/ }))
+    expect(open).toHaveBeenCalledTimes(2)
+    expect((open.mock.calls[1][0] as string).startsWith('https://chatgpt.com/')).toBe(true)
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
 })

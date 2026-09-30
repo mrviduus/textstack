@@ -711,6 +711,7 @@
     "reviewAria": "Review “{{title}}” with your assistant",
     "openReviewAria": "Open the review of “{{title}}”",
     "pickTitle": "Review with",
+    "switchAria": "Choose Claude or ChatGPT",
     "openFailed": "Couldn't open the assistant.",
     "connect": {
       "title": "Connect Claude or ChatGPT in a minute",

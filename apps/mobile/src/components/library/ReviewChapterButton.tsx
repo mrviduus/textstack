@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity, Linking, Alert, Modal, Pressable } from 'react-native'
 import { router } from 'expo-router'
+import { Ionicons } from '@expo/vector-icons'
 import * as Clipboard from 'expo-clipboard'
 import {
-  MCP_ENDPOINT, buildChapterReviewBrief, chooseChat, handoffUrl, oauthGrantsApi,
+  MCP_ENDPOINT, buildChapterReviewBrief, chooseChat, connectedAssistants, handoffUrl, oauthGrantsApi,
   type Assistant, type ChapterReviewBriefInput, type OAuthGrant,
 } from '@textstack/shared'
 import { useTheme } from '../../context/ThemeContext'
@@ -11,17 +12,19 @@ import { useLanguage } from '../../context/LanguageContext'
 import { useToast } from '../../context/ToastContext'
 import { useAuth } from '../../context/AuthContext'
 import { capabilitiesFor } from '../../lib/capabilities'
-import { chapterReviewRoute, loadReviewAssistant, saveReviewAssistant, type ReviewBookRef } from '../../lib/chapterReviewLaunch'
+import {
+  chapterReviewRoute, loadGrantsCached, loadReviewAssistant, resetGrantsCache, saveReviewAssistant, type ReviewBookRef,
+} from '../../lib/chapterReviewLaunch'
 import { fonts } from '../../theme/typography'
 
 /**
  * "Review" — opens the reader's own Claude or ChatGPT with a chapter-review brief
- * (docs/05-features/chapter-review.md §12). One assistant connected → straight there; both → a
- * native two-button choice, remembered on this device; none → a connect sheet, never a chat that
+ * (docs/05-features/chapter-review.md §12). One assistant connected → straight there; both → the
+ * remembered one (a native two-button choice the first time), with a chevron beside the button to
+ * switch — the new pick is remembered on this device; none → a connect sheet, never a chat that
  * cannot reach TextStack. A failed `Linking.openURL` is surfaced (handoff TODO #10), not swallowed.
  *
- * Grants are fetched on press, not per row: a chapter list has dozens of these and the OS link
- * opener, unlike a browser popup blocker, does not care that we awaited first.
+ * Grants come from one cached request shared by every button (`loadGrantsCached`).
  */
 interface Props extends ChapterReviewBriefInput {
   label?: string
@@ -37,6 +40,20 @@ export function ReviewChapterButton({ label, primary, ...input }: Props) {
   const { canConnectAssistant } = capabilitiesFor(user)
   const [connect, setConnect] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [grants, setGrants] = useState<OAuthGrant[]>([])
+
+  // A guest cannot connect an assistant (account-only), so it has none — skip the 403.
+  const fetchGrants = () => canConnectAssistant
+    ? loadGrantsCached(oauthGrantsApi.listOAuthGrants)
+    : Promise.resolve([] as OAuthGrant[])
+
+  useEffect(() => {
+    let live = true
+    void fetchGrants().then(g => { if (live) setGrants(g) })
+    return () => { live = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canConnectAssistant])
+  const canSwitch = connectedAssistants(grants).length === 2
 
   const open = (assistant: Assistant) => {
     Linking.openURL(handoffUrl(assistant, buildChapterReviewBrief(input))).catch(() => {
@@ -44,25 +61,23 @@ export function ReviewChapterButton({ label, primary, ...input }: Props) {
     })
   }
 
+  const choose = () => {
+    const pick = (a: Assistant) => { void saveReviewAssistant(a); open(a) }
+    Alert.alert(t('chapterReview.pickTitle'), undefined, [
+      { text: t('library.discuss.claude'), onPress: () => pick('claude') },
+      { text: t('library.discuss.chatgpt'), onPress: () => pick('chatgpt') },
+      { text: t('chapterReview.connect.close'), style: 'cancel' },
+    ])
+  }
+
   const onPress = async () => {
     if (busy) return
     setBusy(true)
     try {
-      // A guest cannot connect an assistant (account-only), so it has none — skip the 403.
-      const grants: OAuthGrant[] = canConnectAssistant
-        ? await oauthGrantsApi.listOAuthGrants().catch(() => [])
-        : []
-      const choice = chooseChat(grants, await loadReviewAssistant())
+      const choice = chooseChat(await fetchGrants(), await loadReviewAssistant())
       if (choice.kind === 'open') open(choice.assistant)
-      else if (choice.kind === 'none') setConnect(true)
-      else {
-        const pick = (a: Assistant) => { void saveReviewAssistant(a); open(a) }
-        Alert.alert(t('chapterReview.pickTitle'), undefined, [
-          { text: t('library.discuss.claude'), onPress: () => pick('claude') },
-          { text: t('library.discuss.chatgpt'), onPress: () => pick('chatgpt') },
-          { text: t('chapterReview.connect.close'), style: 'cancel' },
-        ])
-      }
+      else if (choice.kind === 'none') { resetGrantsCache(); setConnect(true) }
+      else choose()
     } finally {
       setBusy(false)
     }
@@ -70,12 +85,12 @@ export function ReviewChapterButton({ label, primary, ...input }: Props) {
 
   const text = label ?? t('chapterReview.review')
   return (
-    <>
+    <View style={[styles.row, primary && styles.rowPrimary]}>
       <TouchableOpacity
         onPress={onPress}
         disabled={busy}
         style={[
-          primary ? styles.primary : styles.pill,
+          primary ? [styles.primary, { flex: 1 }] : styles.pill,
           primary ? { backgroundColor: colors.primary } : { borderColor: colors.border, backgroundColor: colors.surface },
         ]}
         accessibilityRole="button"
@@ -83,8 +98,19 @@ export function ReviewChapterButton({ label, primary, ...input }: Props) {
       >
         <Text style={[primary ? styles.primaryText : styles.pillText, { color: primary ? colors.background : colors.text }]}>{text}</Text>
       </TouchableOpacity>
+      {canSwitch && (
+        <TouchableOpacity
+          onPress={choose}
+          style={[styles.switch, { borderColor: colors.border, backgroundColor: primary ? 'transparent' : colors.surface }]}
+          accessibilityRole="button"
+          accessibilityLabel={t('chapterReview.switchAria')}
+          hitSlop={6}
+        >
+          <Ionicons name="chevron-down" size={primary ? 18 : 12} color={colors.textSecondary} />
+        </TouchableOpacity>
+      )}
       <ConnectAssistantSheet visible={connect} onClose={() => setConnect(false)} />
-    </>
+    </View>
   )
 }
 
@@ -170,6 +196,9 @@ export function ChapterReviewAction({ book, chapter, reviewed }: {
 const styles = StyleSheet.create({
   pill: { paddingVertical: 4, paddingHorizontal: 10, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, marginLeft: 8 },
   pillText: { fontSize: 12, fontFamily: fonts.sansMedium },
+  row: { flexDirection: 'row', alignItems: 'center' },
+  rowPrimary: { alignSelf: 'stretch' },
+  switch: { marginLeft: 4, paddingVertical: 4, paddingHorizontal: 6, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, justifyContent: 'center' },
   primary: { paddingVertical: 12, paddingHorizontal: 18, borderRadius: 10, alignItems: 'center' },
   primaryText: { fontSize: 15, fontFamily: fonts.sansMedium },
   reviewed: { fontSize: 12, fontFamily: fonts.sansMedium, marginLeft: 8 },

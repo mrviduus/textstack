@@ -1261,5 +1261,6 @@
   "chapterReview.summary.loadFailed": "Couldn't load this review.",
   "chapterReview.summary.notFound": "Chapter not found.",
   "chapterReview.summary.signIn": "Sign in to see your chapter reviews.",
-  "chapterReview.openReview": "Open review →"
+  "chapterReview.openReview": "Open review →",
+  "chapterReview.switchAria": "Choose Claude or ChatGPT"
 }

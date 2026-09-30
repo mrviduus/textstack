@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
-  MCP_ENDPOINT, REVIEW_ASSISTANT_KEY, buildChapterReviewBrief, chooseChat, handoffUrl, parseAssistant,
+  MCP_ENDPOINT, REVIEW_ASSISTANT_KEY, buildChapterReviewBrief, chooseChat, connectedAssistants, handoffUrl, parseAssistant,
   type Assistant, type ChapterReviewBriefInput, type OAuthGrant,
 } from '@textstack/shared'
 import { listOAuthGrants } from '../../api/oauth'
@@ -11,7 +11,8 @@ import { LocalizedLink } from '../LocalizedLink'
 /**
  * "Review" — opens the reader's own Claude or ChatGPT with a chapter-review brief (chapter-review.md §12).
  *
- * Which chat: `/me/oauth/grants`. One assistant connected → straight there; both → a two-item menu,
+ * Which chat: `/me/oauth/grants`. One assistant connected → straight there; both → the remembered
+ * one (or a two-item menu the first time), with a ▾ beside the button to switch — the new pick is
  * remembered per device; none → a connect dialog instead of a chat that cannot reach TextStack.
  *
  * The grants are fetched once per page and shared by every button on it (a chapter list has dozens),
@@ -53,8 +54,15 @@ export function ReviewChapterButton({ label, className, ...input }: Props) {
   const { t } = useTranslation()
   const [menu, setMenu] = useState(false)
   const [connect, setConnect] = useState(false)
+  // Rendered state, so the ▾ appears once we know both assistants are connected.
+  const [grants, setGrants] = useState<OAuthGrant[] | null>(cachedGrants)
 
-  useEffect(() => { void loadGrants() }, [])
+  useEffect(() => {
+    let live = true
+    void loadGrants().then(g => { if (live) setGrants(g) })
+    return () => { live = false }
+  }, [])
+  const canSwitch = !!grants && connectedAssistants(grants).length === 2
 
   const brief = () => buildChapterReviewBrief(input)
 
@@ -87,6 +95,18 @@ export function ReviewChapterButton({ label, className, ...input }: Props) {
       >
         {label ?? t('chapterReview.review')}
       </button>
+      {canSwitch && (
+        <button
+          type="button"
+          className="review-chapter__switch"
+          onClick={() => setMenu(m => !m)}
+          aria-label={t('chapterReview.switchAria')}
+          aria-haspopup="menu"
+          aria-expanded={menu}
+        >
+          ▾
+        </button>
+      )}
       {menu && (
         <span className="review-chapter__menu" role="menu" aria-label={t('chapterReview.pickTitle')}>
           <span className="review-chapter__menu-title">{t('chapterReview.pickTitle')}</span>

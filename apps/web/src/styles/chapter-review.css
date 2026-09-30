@@ -11,6 +11,11 @@
   padding: 4px 12px; border-radius: 999px; font-size: 13px; cursor: pointer; white-space: nowrap;
   border: 1px solid var(--color-border, #e0d8c8); background: var(--color-bg, #fff); color: var(--color-text, #111);
 }
+.review-chapter__switch {
+  margin-left: 2px; padding: 4px 6px; border-radius: 999px; font-size: 12px; cursor: pointer; line-height: 1;
+  border: 1px solid var(--color-border, #e0d8c8); background: var(--color-bg, #fff); color: var(--color-text-secondary, #666);
+}
+.review-chapter__switch:hover,
 .review-chapter__btn:hover { background: var(--color-bg-secondary, #f5f0e8); }
 .review-chapter__menu {
   position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; display: flex; flex-direction: column; min-width: 140px;
@@ -19,7 +24,7 @@
 }
 .review-chapter__menu-title { font-size: 11px; color: var(--color-text-secondary, #666); padding: 2px 8px 4px; }
 .review-chapter__menu button {
-  text-align: left; padding: 6px 8px; border: 0; background: none; border-radius: 6px; cursor: pointer; color: inherit; font-size: 14px;
+  text-align: left; white-space: nowrap; padding: 6px 8px; border: 0; background: none; border-radius: 6px; cursor: pointer; color: inherit; font-size: 14px;
 }
 .review-chapter__menu button:hover { background: var(--color-bg-secondary, #f5f0e8); }
 

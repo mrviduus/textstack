@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup, fireEvent } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 
 const getUserBook = vi.fn()
@@ -69,13 +69,12 @@ describe('ChapterReviewPage', () => {
   it('renders a block: problem, why, rule, highlights (incl. removed) and a hidden answer', async () => {
     getBookInsights.mockResolvedValue([insight('prompts', review())])
     renderAt('prompts')
-    // Generous timeout: three chained fetches (book → insights → highlights) under a loaded full-suite run.
-    expect(await screen.findByRole('heading', { level: 1, name: 'Prompt Engineering' }, { timeout: 3000 })).toBeInTheDocument()
-    expect(screen.getByText('1. The model sees one blob')).toBeInTheDocument()
+    expect(await screen.findByText('1. The model sees one blob')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: 'Prompt Engineering' })).toBeInTheDocument()
     expect(screen.getByText('Chat templates differ.')).toBeInTheDocument()
     expect(screen.getByText('Tokens are flat.')).toBeInTheDocument()
     expect(screen.getByText(/Always render the template\./)).toBeInTheDocument()
-    expect(await screen.findByText('one flat sequence of tokens', {}, { timeout: 3000 })).toBeInTheDocument()
+    expect(await screen.findByText('one flat sequence of tokens')).toBeInTheDocument()
     expect(screen.getByText('highlight removed')).toBeInTheDocument()
     expect(screen.getByText('reviewed 2026-09-30')).toBeInTheDocument()
     expect(screen.getByText('Your RAG service')).toBeInTheDocument()
@@ -88,6 +87,24 @@ describe('ChapterReviewPage', () => {
     expect(screen.getByText('Because the model sees one string.')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Hide' }))
     expect(screen.queryByText('Because the model sees one string.')).toBeNull()
+  })
+
+  it('never flashes the "not reviewed yet" state while the insights are still loading', async () => {
+    // The old hook set `loading` in its effect, so on the render where the book first arrived it was
+    // still false with no insights: the page showed the empty state (and its h1) for a reviewed
+    // chapter. That frame is what made the first test flaky — its h1 query resolved on it and the
+    // block query that followed ran before the insights did.
+    // Checked from INSIDE the fetch call: it runs in the effect right after the commit in question,
+    // before any follow-up state update can paint over it.
+    let sawEmptyState: boolean | null = null
+    getBookInsights.mockImplementation(() => {
+      sawEmptyState = !!screen.queryByText("This chapter hasn't been reviewed yet")
+      return Promise.resolve([insight('prompts', review())])
+    })
+    renderAt('prompts')
+    await waitFor(() => expect(getBookInsights).toHaveBeenCalled())
+    expect(sawEmptyState).toBe(false)
+    expect(await screen.findByText('1. The model sees one blob')).toBeInTheDocument()
   })
 
   it('recall-only review: shows what was remembered and "none" for blocks without highlights', async () => {

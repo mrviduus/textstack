@@ -5,7 +5,7 @@
  * and builds the summary screen's route.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { REVIEW_ASSISTANT_KEY, parseAssistant, type Assistant } from '@textstack/shared'
+import { REVIEW_ASSISTANT_KEY, parseAssistant, type Assistant, type OAuthGrant } from '@textstack/shared'
 
 export async function loadReviewAssistant(): Promise<Assistant | null> {
   try {
@@ -34,3 +34,27 @@ export function chapterReviewRoute(book: ReviewBookRef, chapterSlug: string) {
       : { editionId: book.editionId, slug: book.slug, chapterSlug },
   }
 }
+
+/**
+ * The reader's OAuth grants, shared by every Review button on screen (a chapter list has dozens, and
+ * each needs to know whether to draw the ▾ switch). One request in flight at a time, reused for
+ * `GRANTS_TTL_MS`; a failure counts as "none connected" and is not cached.
+ */
+export const GRANTS_TTL_MS = 60_000
+let grantsCache: { at: number; promise: Promise<OAuthGrant[]> } | null = null
+
+export function loadGrantsCached(fetch: () => Promise<OAuthGrant[]>, now = Date.now()): Promise<OAuthGrant[]> {
+  if (grantsCache && now - grantsCache.at < GRANTS_TTL_MS) return grantsCache.promise
+  const entry = {
+    at: now,
+    promise: fetch().catch(() => {
+      if (grantsCache === entry) grantsCache = null
+      return [] as OAuthGrant[]
+    }),
+  }
+  grantsCache = entry
+  return entry.promise
+}
+
+/** Forget the grants — after the connect sheet, the reader may be about to connect one. */
+export function resetGrantsCache() { grantsCache = null }

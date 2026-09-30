@@ -3,26 +3,28 @@ import { insightsApi, reviewsBySlug, type BookInsight } from '@textstack/shared'
 
 /**
  * The book's insights and which chapters have a structured review (ADR-016: one `/me/insights`
- * call, no separate read endpoint). Pass null to skip (signed out, book not loaded).
+ * call, shared with `BookInsightsSection` by the in-flight dedupe in the shared client). Pass null
+ * to skip (signed out, book not loaded).
+ *
+ * `loading` is derived from which target the data belongs to — a flag set in the effect is still
+ * false on the render where the target first appears, which flashed "not reviewed yet".
  */
 export function useBookReviews(target: { userBookId: string } | { editionId: string } | null) {
-  const [insights, setInsights] = useState<BookInsight[]>([])
-  const [loading, setLoading] = useState(!!target)
-  const [error, setError] = useState(false)
   const key = target ? ('userBookId' in target ? `u:${target.userBookId}` : `e:${target.editionId}`) : null
+  const [state, setState] = useState<{ key: string | null; insights: BookInsight[]; error: boolean }>(
+    { key: null, insights: [], error: false })
 
   useEffect(() => {
-    if (!target) { setLoading(false); return }
+    if (!target) return
     let cancelled = false
-    setLoading(true)
-    setError(false)
     insightsApi.getBookInsights(target)
-      .then(rows => { if (!cancelled) setInsights(rows) })
-      .catch(() => { if (!cancelled) setError(true) })
-      .finally(() => { if (!cancelled) setLoading(false) })
+      .then(rows => { if (!cancelled) setState({ key, insights: rows, error: false }) })
+      .catch(() => { if (!cancelled) setState({ key, insights: [], error: true }) })
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by id, not object identity
   }, [key])
 
-  return { insights, reviews: reviewsBySlug(insights), loading, error }
+  const current = key !== null && state.key === key
+  const insights = current ? state.insights : []
+  return { insights, reviews: reviewsBySlug(insights), loading: key !== null && !current, error: current && state.error }
 }

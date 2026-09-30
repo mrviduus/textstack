@@ -4,29 +4,32 @@ import { getBookInsights } from '../api/insights'
 
 /**
  * The book's insights and, from them, which chapters have a structured review. One `/me/insights`
- * call — the same list `BookInsightsSection` renders (ADR-016: no separate read endpoint).
+ * call — the same list `BookInsightsSection` renders (ADR-016: no separate read endpoint); the two
+ * share one request through the in-flight dedupe in `api/insights.ts`.
  * Pass null to skip (signed out, book not loaded yet).
+ *
+ * `loading` is derived from WHICH target the data belongs to, not from a flag set in the effect:
+ * a flag is still false on the render where the target first appears, and for that one frame the
+ * summary page rendered "not reviewed yet" with a Review button for a chapter that has a review.
  */
 export function useBookReviews(target: { userBookId: string } | { editionId: string } | null) {
-  const [insights, setInsights] = useState<BookInsight[]>([])
-  const [loading, setLoading] = useState(!!target)
-  const [error, setError] = useState(false)
   const key = target ? ('userBookId' in target ? `u:${target.userBookId}` : `e:${target.editionId}`) : null
+  const [state, setState] = useState<{ key: string | null; insights: BookInsight[]; error: boolean }>(
+    { key: null, insights: [], error: false })
 
   useEffect(() => {
-    if (!target) { setLoading(false); return }
+    if (!target) return
     let cancelled = false
-    setLoading(true)
-    setError(false)
     getBookInsights(target)
-      .then(rows => { if (!cancelled) setInsights(rows) })
-      .catch(() => { if (!cancelled) setError(true) })
-      .finally(() => { if (!cancelled) setLoading(false) })
+      .then(rows => { if (!cancelled) setState({ key, insights: rows, error: false }) })
+      .catch(() => { if (!cancelled) setState({ key, insights: [], error: true }) })
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by id, not object identity
   }, [key])
 
-  return { insights, reviews: reviewsBySlug(insights), loading, error }
+  const current = key !== null && state.key === key
+  const insights = current ? state.insights : []
+  return { insights, reviews: reviewsBySlug(insights), loading: key !== null && !current, error: current && state.error }
 }
 
 /** Where a chapter's review summary lives (unprefixed; pass through LocalizedLink). */

@@ -39,7 +39,19 @@ export function getBookInsights(
   const query = 'userBookId' in target
     ? `userBookId=${encodeURIComponent(target.userBookId)}`
     : `editionId=${encodeURIComponent(target.editionId)}`
-  return authFetch<BookInsight[]>(`/me/insights?${query}`)
+  return inFlight(query, () => authFetch<BookInsight[]>(`/me/insights?${query}`))
+}
+
+// One request per book at a time — the book screen and BookInsightsSection both ask on mount.
+// In-flight only (cleared on settle), so nothing is ever served stale.
+const pending = new Map<string, Promise<BookInsight[]>>()
+function inFlight(key: string, load: () => Promise<BookInsight[]>): Promise<BookInsight[]> {
+  let p = pending.get(key)
+  if (!p) {
+    p = load().finally(() => pending.delete(key))
+    pending.set(key, p)
+  }
+  return p
 }
 
 /** Remove one insight — the reader's own only. No assistant-side counterpart, by design. */
