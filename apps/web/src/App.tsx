@@ -37,6 +37,7 @@ const VocabularyPage = lazy(() => import('./pages/VocabularyPage').then(m => ({ 
 const VocabularyReviewPage = lazy(() => import('./pages/VocabularyReviewPage').then(m => ({ default: m.VocabularyReviewPage })))
 const TutorSessionPage = lazy(() => import('./pages/TutorSessionPage').then(m => ({ default: m.TutorSessionPage })))
 const HighlightsPage = lazy(() => import('./pages/HighlightsPage').then(m => ({ default: m.HighlightsPage })))
+const ChapterReviewPage = lazy(() => import('./pages/ChapterReviewPage').then(m => ({ default: m.ChapterReviewPage })))
 const HighlightReviewPage = lazy(() => import('./pages/HighlightReviewPage').then(m => ({ default: m.HighlightReviewPage })))
 import { Header } from './components/Header'
 import { DownloadProgressBar } from './components/DownloadProgressBar'
@@ -53,6 +54,7 @@ import './styles/books.css'
 import './styles/stats.css'
 import './styles/vocabulary.css'
 import './styles/highlights.css'
+import './styles/chapter-review.css'
 import './styles/auth.css'
 import './styles/profile.css'
 import './styles/dropzone.css'
@@ -113,6 +115,8 @@ function LanguageRoutes() {
           <Route path="/books" element={<BooksPage />} />
           <Route path="/books/:bookSlug" element={<BookDetailPage />} />
           <Route path="/books/:bookSlug/:chapterSlug" element={<ReaderPage />} />
+          {/* Chapter review summary (chapter-review.md §12): signed-in, noindex, not in /ssg/routes. */}
+          <Route path="/books/:bookSlug/review/:chapterSlug" element={<ChapterReviewPage />} />
           <Route path="/authors" element={<AuthorsPage />} />
           <Route path="/authors/:slug" element={<AuthorDetailPage />} />
           <Route path="/genres" element={<GenresPage />} />
@@ -135,6 +139,7 @@ function LanguageRoutes() {
           <Route path="/highlights" element={<HighlightsPage />} />
           <Route path="/highlights/review" element={<HighlightReviewPage />} />
           <Route path="/library/my/:id" element={<UserBookDetailPage />} />
+          <Route path="/library/my/:id/review/:chapterSlug" element={<ChapterReviewPage />} />
           {/* Chapterless Original-layout route — a PDF opens instantly here before
               extraction produces chapters (ADR-012). */}
           <Route path="/library/my/:id/read" element={<ReaderPage mode="userbook" />} />

@@ -25,6 +25,8 @@ import {
 import { ShareButtons } from '../components/ShareButtons'
 import { BookInsightsSection } from '../components/library/BookInsightsSection'
 import { DiscussWithAssistant } from '../components/library/DiscussWithAssistant'
+import { ChapterReviewAction } from '../components/library/ChapterReviewAction'
+import { useBookReviews } from '../hooks/useBookReviews'
 import { useAuth } from '../context/AuthContext'
 import { BookDetailHero } from '../components/BookDetailHero'
 import { AddToCollectionButton } from '../components/library/AddToCollectionButton'
@@ -79,6 +81,8 @@ export function BookDetailPage() {
   const [isOffline, setIsOffline] = useState(false)
   const [showAllChapters, setShowAllChapters] = useState(false)
   const [podcast, setPodcast] = useState<PodcastStatusDto | null>(null)
+  // Which chapters have a review — signed-in only; this page is also prerendered for crawlers.
+  const { reviews } = useBookReviews(isAuthenticated && book?.id ? { editionId: book.id } : null)
 
   useEffect(() => {
     if (!bookSlug) return
@@ -357,7 +361,7 @@ export function BookDetailPage() {
           catalog insights would be write-only. Behind isAuthenticated because
           this page is also prerendered for crawlers, and an anonymous visit
           firing a 401 is noise on the SEO path. */}
-      {isAuthenticated && <BookInsightsSection editionId={book.id} />}
+      {isAuthenticated && <BookInsightsSection editionId={book.id} bookSlug={book.slug} />}
       {isAuthenticated && (
         <DiscussWithAssistant
           title={book.title}
@@ -377,8 +381,8 @@ export function BookDetailPage() {
         <div className="book-tabs__panel">
           <div className="book-chapters__list">
             {visibleChapters.map((ch) => (
+              <div key={ch.id} className="book-chapters__row">
               <LocalizedLink
-                key={ch.id}
                 to={`/books/${book.slug}/${ch.slug}?direct=1`}
                 className="book-chapters__item"
                 title={t('bookDetail.readChapter').replace('{title}', ch.title)}
@@ -394,6 +398,14 @@ export function BookDetailPage() {
                   <span className="book-chapters__arrow material-icons-outlined">arrow_forward_ios</span>
                 </div>
               </LocalizedLink>
+              {isAuthenticated && (
+                <ChapterReviewAction
+                  book={{ title: book.title, author: book.authors.map(a => a.name).join(', ') || null, editionId: book.id, bookSlug: book.slug }}
+                  chapter={{ slug: ch.slug, title: ch.title }}
+                  reviewed={reviews.has(ch.slug)}
+                />
+              )}
+              </div>
             ))}
           </div>
 

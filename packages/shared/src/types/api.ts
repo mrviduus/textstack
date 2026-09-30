@@ -509,3 +509,30 @@ export interface UserBookChapterDto {
   /** 1-based PDF page where this chapter starts. Null for EPUBs / unknown. */
   sourceStartPage?: number | null
 }
+
+// ── Chapter review (ADR-016) — `BookInsight.review`; mirrors Contracts/ChapterReview/ChapterReviewDtos.cs ──
+
+export interface ChapterReviewQuestion { prompt: string; answer: string }
+
+export interface ChapterReviewBlock {
+  title: string
+  problem: string
+  rootCause: string
+  /** The line to memorize verbatim. */
+  rule: string
+  /** Ids of the reader's highlights this block covers; a deleted highlight no longer resolves. */
+  highlightIds: string[]
+  question: ChapterReviewQuestion
+}
+
+export interface ChapterReviewThread { id: string; text: string }
+
+export interface ChapterReviewDto {
+  methodVersion: number
+  /** What the reader remembered, in their words — the no-highlights (audiobook) path. */
+  recall: string | null
+  blocks: ChapterReviewBlock[]
+  applications: string[]
+  openThreads: ChapterReviewThread[]
+  closedThreadIds: string[]
+}

@@ -4,6 +4,8 @@ import remarkGfm from 'remark-gfm'
 import { insightChapterLabel, insightDateLabel, type BookInsight } from '@textstack/shared'
 import { getBookInsights, deleteBookInsight } from '../../api/insights'
 import { useTranslation } from '../../hooks/useTranslation'
+import { chapterReviewPath } from '../../hooks/useBookReviews'
+import { LocalizedLink } from '../LocalizedLink'
 
 /**
  * "What you've worked out" — the conclusions an outside assistant wrote back into
@@ -22,9 +24,11 @@ interface Props {
   /** Exactly one of these. */
   userBookId?: string
   editionId?: string
+  /** A catalog book's slug — where a reviewed row's summary page lives. */
+  bookSlug?: string
 }
 
-export function BookInsightsSection({ userBookId, editionId }: Props) {
+export function BookInsightsSection({ userBookId, editionId, bookSlug }: Props) {
   const { t } = useTranslation()
   const [insights, setInsights] = useState<BookInsight[]>([])
   const [loading, setLoading] = useState(true)
@@ -109,6 +113,16 @@ export function BookInsightsSection({ userBookId, editionId }: Props) {
 
             {insight.question && (
               <div className="book-insights__question">{insight.question}</div>
+            )}
+
+            {/* A structured review has its own page; the Markdown below is its fallback rendering. */}
+            {insight.review && insight.chapterSlug && (userBookId || bookSlug) && (
+              <LocalizedLink
+                className="book-insights__review-link"
+                to={chapterReviewPath(userBookId ? { userBookId } : { bookSlug: bookSlug! }, insight.chapterSlug)}
+              >
+                {t('chapterReview.openReview')}
+              </LocalizedLink>
             )}
 
             {/* react-markdown does not parse raw HTML (no rehype-raw), so assistant

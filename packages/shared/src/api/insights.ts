@@ -1,4 +1,5 @@
 import { authFetch } from './client'
+import type { ChapterReviewDto } from '../types/api'
 
 /**
  * Insights — the conclusions an outside assistant wrote back into a book over MCP.
@@ -27,6 +28,8 @@ export interface BookInsight {
   source: string
   createdAt: string
   updatedAt: string
+  /** The structured chapter review when this insight is one (ADR-016); `text` then holds its Markdown. */
+  review?: ChapterReviewDto | null
 }
 
 /** Everything already worked out about one book. Pass exactly one id. */

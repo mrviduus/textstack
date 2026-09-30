@@ -1,6 +1,6 @@
 # Chapter review — the reader's assistant reviews a chapter, the result comes home as structure
 
-**Status:** Slices A+B (backend + MCP) built 2026-09-29, PR 1; UI slices C–G next. Stage 2 of TextStack × ChatGPT/Claude.
+**Status:** Slices A+B (backend + MCP) built 2026-09-29, PR 1; C+D (button on every chapter row + summary page, web + mobile) built 2026-09-30, PR 2; E–G next. Stage 2 of TextStack × ChatGPT/Claude.
 **Depends on** stage 1 (personal connect URL `/mcp/k/<tsk_key>`), built separately — assumed present.
 **Decision record:** [ADR-016](../01-architecture/adr/ADR-016-chapter-review-lives-in-book-insight.md).
 Context: [assistant-handoff.md](assistant-handoff.md), [mcp.md](mcp.md).

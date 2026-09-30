@@ -10,6 +10,8 @@ import { ShareButtons } from '../components/ShareButtons'
 import { BookStatsSection } from '../components/library/BookStatsSection'
 import { BookInsightsSection } from '../components/library/BookInsightsSection'
 import { DiscussWithAssistant } from '../components/library/DiscussWithAssistant'
+import { ChapterReviewAction } from '../components/library/ChapterReviewAction'
+import { useBookReviews } from '../hooks/useBookReviews'
 import { emitDataChanges } from '../lib/dataEvents'
 import { AddToCollectionButton } from '../components/library/AddToCollectionButton'
 import { useTranslation } from '../hooks/useTranslation'
@@ -43,6 +45,7 @@ export function UserBookDetailPage() {
   // popup and the prior loud red-circle visual.
   const [pendingDelete, setPendingDelete] = useState(false)
   const pendingTimeoutRef = useRef<number | null>(null)
+  const { reviews } = useBookReviews(isAuthenticated && book?.status === 'Ready' ? { userBookId: book.id } : null)
 
   // Get saved progress from localStorage
   const savedProgress = useMemo((): SavedProgress | null => {
@@ -516,6 +519,14 @@ export function UserBookDetailPage() {
                     </span>
                   )}
                 </Link>
+                {/* A review is keyed by slug; a slugless legacy chapter cannot be reviewed. */}
+                {chapter.slug && (
+                  <ChapterReviewAction
+                    book={{ title: book.title, author: book.author, userBookId: book.id }}
+                    chapter={{ slug: chapter.slug, title: chapter.title }}
+                    reviewed={reviews.has(chapter.slug)}
+                  />
+                )}
               </li>
             ))}
           </ul>

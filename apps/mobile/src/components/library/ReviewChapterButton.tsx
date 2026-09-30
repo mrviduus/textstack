@@ -1,0 +1,184 @@
+import { useState } from 'react'
+import { View, Text, StyleSheet, TouchableOpacity, Linking, Alert, Modal, Pressable } from 'react-native'
+import { router } from 'expo-router'
+import * as Clipboard from 'expo-clipboard'
+import {
+  MCP_ENDPOINT, buildChapterReviewBrief, chooseChat, handoffUrl, oauthGrantsApi,
+  type Assistant, type ChapterReviewBriefInput, type OAuthGrant,
+} from '@textstack/shared'
+import { useTheme } from '../../context/ThemeContext'
+import { useLanguage } from '../../context/LanguageContext'
+import { useToast } from '../../context/ToastContext'
+import { useAuth } from '../../context/AuthContext'
+import { capabilitiesFor } from '../../lib/capabilities'
+import { chapterReviewRoute, loadReviewAssistant, saveReviewAssistant, type ReviewBookRef } from '../../lib/chapterReviewLaunch'
+import { fonts } from '../../theme/typography'
+
+/**
+ * "Review" — opens the reader's own Claude or ChatGPT with a chapter-review brief
+ * (docs/05-features/chapter-review.md §12). One assistant connected → straight there; both → a
+ * native two-button choice, remembered on this device; none → a connect sheet, never a chat that
+ * cannot reach TextStack. A failed `Linking.openURL` is surfaced (handoff TODO #10), not swallowed.
+ *
+ * Grants are fetched on press, not per row: a chapter list has dozens of these and the OS link
+ * opener, unlike a browser popup blocker, does not care that we awaited first.
+ */
+interface Props extends ChapterReviewBriefInput {
+  label?: string
+  /** Larger, filled style (summary screen); the default is the small chapter-row pill. */
+  primary?: boolean
+}
+
+export function ReviewChapterButton({ label, primary, ...input }: Props) {
+  const { colors } = useTheme()
+  const { t } = useLanguage()
+  const { show: showToast } = useToast()
+  const { user } = useAuth()
+  const { canConnectAssistant } = capabilitiesFor(user)
+  const [connect, setConnect] = useState(false)
+  const [busy, setBusy] = useState(false)
+
+  const open = (assistant: Assistant) => {
+    Linking.openURL(handoffUrl(assistant, buildChapterReviewBrief(input))).catch(() => {
+      showToast({ message: t('chapterReview.openFailed'), variant: 'error' })
+    })
+  }
+
+  const onPress = async () => {
+    if (busy) return
+    setBusy(true)
+    try {
+      // A guest cannot connect an assistant (account-only), so it has none — skip the 403.
+      const grants: OAuthGrant[] = canConnectAssistant
+        ? await oauthGrantsApi.listOAuthGrants().catch(() => [])
+        : []
+      const choice = chooseChat(grants, await loadReviewAssistant())
+      if (choice.kind === 'open') open(choice.assistant)
+      else if (choice.kind === 'none') setConnect(true)
+      else {
+        const pick = (a: Assistant) => { void saveReviewAssistant(a); open(a) }
+        Alert.alert(t('chapterReview.pickTitle'), undefined, [
+          { text: t('library.discuss.claude'), onPress: () => pick('claude') },
+          { text: t('library.discuss.chatgpt'), onPress: () => pick('chatgpt') },
+          { text: t('chapterReview.connect.close'), style: 'cancel' },
+        ])
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const text = label ?? t('chapterReview.review')
+  return (
+    <>
+      <TouchableOpacity
+        onPress={onPress}
+        disabled={busy}
+        style={[
+          primary ? styles.primary : styles.pill,
+          primary ? { backgroundColor: colors.primary } : { borderColor: colors.border, backgroundColor: colors.surface },
+        ]}
+        accessibilityRole="button"
+        accessibilityLabel={label ?? t('chapterReview.reviewAria').replace('{{title}}', input.chapterTitle)}
+      >
+        <Text style={[primary ? styles.primaryText : styles.pillText, { color: primary ? colors.background : colors.text }]}>{text}</Text>
+      </TouchableOpacity>
+      <ConnectAssistantSheet visible={connect} onClose={() => setConnect(false)} />
+    </>
+  )
+}
+
+/** Nothing connected: the connect screen's one-step text, Copy URL, and a way to the full screen. */
+export function ConnectAssistantSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+  const { colors } = useTheme()
+  const { t } = useLanguage()
+  const { show: showToast } = useToast()
+
+  const copy = async () => {
+    await Clipboard.setStringAsync(MCP_ENDPOINT)
+    showToast({ message: t('chapterReview.connect.copied'), variant: 'success' })
+  }
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel={t('chapterReview.connect.close')} />
+      <View style={[styles.sheet, { backgroundColor: colors.background, borderColor: colors.border }]}>
+        <Text style={[styles.sheetTitle, { color: colors.text }]}>{t('chapterReview.connect.title')}</Text>
+        <Text style={[styles.body, { color: colors.textSecondary }]}>{t('chapterReview.connect.lead')}</Text>
+        <View style={[styles.urlRow, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Text selectable style={[styles.url, { color: colors.text }]}>{MCP_ENDPOINT}</Text>
+          <TouchableOpacity onPress={copy} accessibilityRole="button">
+            <Text style={[styles.link, { color: colors.primary }]}>{t('chapterReview.connect.copy')}</Text>
+          </TouchableOpacity>
+        </View>
+        <Text style={[styles.body, { color: colors.text }]}>
+          <Text style={{ fontFamily: fonts.sansMedium }}>{t('connect.oneStep.claudeLabel')}: </Text>
+          {t('connect.oneStep.claudeHow')}
+        </Text>
+        <Text style={[styles.body, { color: colors.text }]}>
+          <Text style={{ fontFamily: fonts.sansMedium }}>{t('connect.oneStep.chatgptLabel')}: </Text>
+          {t('connect.oneStep.chatgptHow')}
+        </Text>
+        <View style={styles.sheetActions}>
+          <TouchableOpacity onPress={() => { onClose(); router.push('/connect') }} accessibilityRole="link">
+            <Text style={[styles.link, { color: colors.primary }]}>{t('chapterReview.connect.more')}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={onClose} accessibilityRole="button">
+            <Text style={[styles.link, { color: colors.textSecondary }]}>{t('chapterReview.connect.close')}</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  )
+}
+
+/**
+ * End of a chapter row: "✓ Reviewed →" to the summary, or the small Review button.
+ */
+export function ChapterReviewAction({ book, chapter, reviewed }: {
+  book: { title: string; author?: string | null } & ReviewBookRef
+  chapter: { slug: string; title: string }
+  reviewed: boolean
+}) {
+  const { colors } = useTheme()
+  const { t } = useLanguage()
+  const ref: ReviewBookRef = 'userBookId' in book ? { userBookId: book.userBookId } : { editionId: book.editionId, slug: book.slug }
+
+  if (reviewed) {
+    return (
+      <TouchableOpacity
+        onPress={() => router.push(chapterReviewRoute(ref, chapter.slug))}
+        accessibilityRole="link"
+        accessibilityLabel={t('chapterReview.openReviewAria').replace('{{title}}', chapter.title)}
+        hitSlop={8}
+      >
+        <Text style={[styles.reviewed, { color: colors.success }]}>✓ {t('chapterReview.reviewed')} →</Text>
+      </TouchableOpacity>
+    )
+  }
+  return (
+    <ReviewChapterButton
+      title={book.title}
+      author={book.author}
+      {...('userBookId' in book ? { bookId: book.userBookId } : { editionId: book.editionId })}
+      chapterSlug={chapter.slug}
+      chapterTitle={chapter.title}
+    />
+  )
+}
+
+const styles = StyleSheet.create({
+  pill: { paddingVertical: 4, paddingHorizontal: 10, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, marginLeft: 8 },
+  pillText: { fontSize: 12, fontFamily: fonts.sansMedium },
+  primary: { paddingVertical: 12, paddingHorizontal: 18, borderRadius: 10, alignItems: 'center' },
+  primaryText: { fontSize: 15, fontFamily: fonts.sansMedium },
+  reviewed: { fontSize: 12, fontFamily: fonts.sansMedium, marginLeft: 8 },
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)' },
+  sheet: { padding: 20, paddingBottom: 36, borderTopLeftRadius: 16, borderTopRightRadius: 16, borderWidth: StyleSheet.hairlineWidth, gap: 10 },
+  sheetTitle: { fontSize: 18, fontFamily: fonts.serifBold },
+  body: { fontSize: 14, lineHeight: 20, fontFamily: fonts.sans },
+  urlRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 10, borderRadius: 8, borderWidth: StyleSheet.hairlineWidth },
+  url: { fontSize: 13, fontFamily: fonts.sans, flexShrink: 1 },
+  link: { fontSize: 14, fontFamily: fonts.sansMedium },
+  sheetActions: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 },
+})

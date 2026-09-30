@@ -6,6 +6,8 @@ import { useLanguage } from '../../context/LanguageContext'
 import { Ionicons } from '@expo/vector-icons'
 import { fonts } from '../../theme/typography'
 import { Markdown } from '../Markdown'
+import { router } from 'expo-router'
+import { chapterReviewRoute } from '../../lib/chapterReviewLaunch'
 
 /**
  * "What you've worked out" — the conclusions an outside assistant wrote back into
@@ -28,9 +30,11 @@ interface Props {
   /** Exactly one of these. */
   userBookId?: string
   editionId?: string
+  /** A catalog book's slug — the review screen fetches the book by it. */
+  bookSlug?: string
 }
 
-export function BookInsightsSection({ userBookId, editionId }: Props) {
+export function BookInsightsSection({ userBookId, editionId, bookSlug }: Props) {
   const { colors } = useTheme()
   const { t } = useLanguage()
   const [insights, setInsights] = useState<BookInsight[]>([])
@@ -106,6 +110,19 @@ export function BookInsightsSection({ userBookId, editionId }: Props) {
 
           {insight.question ? (
             <Text style={[styles.question, { color: colors.text }]}>{insight.question}</Text>
+          ) : null}
+
+          {/* A structured review has its own screen; the Markdown below is its fallback. */}
+          {insight.review && insight.chapterSlug && (userBookId || (editionId && bookSlug)) ? (
+            <TouchableOpacity
+              accessibilityRole="link"
+              onPress={() => router.push(chapterReviewRoute(
+                userBookId ? { userBookId } : { editionId: editionId!, slug: bookSlug! },
+                insight.chapterSlug!,
+              ))}
+            >
+              <Text style={[styles.question, { color: colors.primary }]}>{t('chapterReview.openReview')}</Text>
+            </TouchableOpacity>
           ) : null}
 
           <View style={styles.body}>
