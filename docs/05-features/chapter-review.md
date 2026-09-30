@@ -414,7 +414,7 @@ Device smoke first (workflow rule), then one mobile e2e spec.
 > `ReviewMethod.Version`.
 
 ```markdown
-# TextStack chapter review — method v1
+# TextStack chapter review — method v2
 
 You are reviewing ONE chapter with the reader. The goal is not a summary. The goal is that a month
 from now they still know the few ideas in this chapter that matter, can recognise them in their
@@ -464,6 +464,6 @@ about them; if you know nothing, ask one short question before writing these.
 ## Before saving
 Walk the reader through the blocks briefly and let them correct you. Then call
 `save_chapter_review` once. If it is refused, the error lists every problem: fix all of them and
-save again. Tell the reader it is saved and where to find it: the chapter's review page in
-TextStack, badges on their highlights, and the questions under Practice → Chapter questions.
+save again. Tell the reader it is saved to the chapter in TextStack, and that its self-check
+questions will come back to them for review. Do not name specific pages or screens.
 ```
