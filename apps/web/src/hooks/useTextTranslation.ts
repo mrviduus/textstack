@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo } from 'react'
 import { translate as translateApi, type LanguageInfo } from '../api/translation'
-import { LANGUAGES } from '../data/languages'
+import { LANGUAGES } from '@textstack/shared'
 import { getCachedTranslation, cacheTranslation, clearOldTranslations } from '../lib/offlineDb'
 
 // Full native-language catalogue → the {code,name} shape TranslationPopup's

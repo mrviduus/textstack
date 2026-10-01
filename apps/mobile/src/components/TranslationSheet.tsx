@@ -7,7 +7,7 @@ import { useNativeLanguage } from '../context/NativeLanguageContext'
 import { useTargetLanguage } from '../hooks/useTargetLanguage'
 import { useNeedsNativeLanguage } from '../hooks/useNeedsNativeLanguage'
 import { LanguageList } from './LanguageList'
-import { getLanguage } from '../data/languages'
+import { getLanguage } from '@textstack/shared'
 import { fonts } from '../theme/typography'
 import { cachedTranslate } from '../lib/translateCache'
 

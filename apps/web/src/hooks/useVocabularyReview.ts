@@ -8,7 +8,7 @@ import {
   type SubmitReviewResponse,
   type WeeklyProgressDto,
 } from '../api/vocabulary'
-import { type ReviewMode } from '../lib/vocabularyConstants'
+import { type ReviewMode } from '@textstack/shared'
 
 export type { ReviewMode }
 

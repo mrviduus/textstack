@@ -2,15 +2,14 @@
  * Defensive parse of the `SeoThemesJson` DB column.
  *
  * Historically a `string[]`, but SEO backfill / older imports wrote
- * `Array<{ theme, description }>` for some rows. Both BookDetailPage and
- * AuthorDetailPage map themes straight into a string render — feeding the
- * object form to React triggers "Objects are not valid as a React child"
- * and the page-level ErrorBoundary surfaces a generic "Something went
- * wrong" (saw it live on /en/books/father-goriot).
+ * `Array<{ theme, description }>` for some rows. Web detail pages and the
+ * admin Edition/Author editors map themes straight into a string render —
+ * feeding the object form to React triggers "Objects are not valid as a
+ * React child" (saw it live on /en/books/father-goriot).
  *
  * Coerce any non-string element to its `theme` field (preferred) or to
  * `String(item)` as a last resort. Safe to remove once the DB is
- * normalized — keep it in lockstep with apps/admin/src/utils/seoThemes.ts.
+ * normalized. Shared by web and admin (admin imports it by deep path).
  */
 export function parseSeoThemes(raw: string | null | undefined): string[] {
   if (!raw) return []

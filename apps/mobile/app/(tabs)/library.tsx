@@ -28,7 +28,7 @@ import { LibraryStatusTabs } from '../../src/components/library/LibraryStatusTab
 import { useLibrarySort } from '../../src/hooks/useLibrarySort'
 import { useLibraryStatus } from '../../src/hooks/useLibraryStatus'
 import { useLibrarySearch } from '../../src/hooks/useLibrarySearch'
-import { matchesQuery } from '../../src/lib/searchUtils'
+import { matchesQuery } from '@textstack/shared'
 import { ResumeHero } from '../../src/components/library/ResumeHero'
 import { useContinueReadingList } from '../../src/hooks/useContinueReadingList'
 import { BookList } from '../../src/components/library/BookList'

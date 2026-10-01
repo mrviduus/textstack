@@ -14,12 +14,11 @@ import { LibraryStatsHeader } from '../components/library/LibraryStatsHeader'
 import { LibraryStatusTabs } from '../components/library/LibraryStatusTabs'
 import { LibrarySearch } from '../components/library/LibrarySearch'
 import { useLibrarySort } from '../hooks/useLibrarySort'
-import {
-  filterLibraryItems, filterUserBooks, countsForLibrary, countsForUploads,
-} from '../hooks/useLibraryFilter'
 import { useLibraryStatus } from '../hooks/useLibraryStatus'
 import { useLibrarySearch } from '../hooks/useLibrarySearch'
-import { matchesQuery, parseQuery } from '../lib/searchUtils'
+import {
+  matchesQuery, parseQuery, buildLibraryEntries, countEntries, filterEntries, sortEntries, type LibraryEntry,
+} from '@textstack/shared'
 import { UserBookCard } from '../components/library/UserBookCard'
 import { CollectionChips } from '../components/library/CollectionChips'
 import { collectionsApi } from '@textstack/shared'
@@ -249,86 +248,19 @@ export function LibraryPage() {
       .catch(() => {})
   }, [isAuthenticated])
 
-  const savedCounts = countsForLibrary(items, progressMap)
-  const uploadsCounts = countsForUploads(userBooks)
-  // Combined counts for unified status tabs
-  const combinedCounts = {
-    all: (showSavedBlock ? savedCounts.all : 0) + (showUploadsBlock ? uploadsCounts.all : 0),
-    reading: (showSavedBlock ? savedCounts.reading : 0) + (showUploadsBlock ? uploadsCounts.reading : 0),
-    finished: (showSavedBlock ? savedCounts.finished : 0) + (showUploadsBlock ? uploadsCounts.finished : 0),
-    notStarted: (showSavedBlock ? savedCounts.notStarted : 0) + (showUploadsBlock ? uploadsCounts.notStarted : 0),
-    failed: (showSavedBlock ? savedCounts.failed : 0) + (showUploadsBlock ? uploadsCounts.failed : 0),
-  }
-  const filteredItems = filterLibraryItems(items, status, progressMap)
-  const filteredUserBooks = filterUserBooks(userBooks, status)
-  const searchedItems = queryD ? filteredItems.filter(i => matchesQuery({ title: i.title, author: i.author ?? undefined }, queryD)) : filteredItems
-  const searchedUserBooks = queryD ? filteredUserBooks.filter(b => matchesQuery({ title: b.title, author: b.author, tags: b.tags }, queryD)) : filteredUserBooks
-  const collectionFilteredItems = activeCollectionId && collectionSavedIds
-    ? searchedItems.filter(i => collectionSavedIds.has(i.editionId))
-    : searchedItems
-  const collectionFilteredUserBooks = activeCollectionId && collectionUploadIds
-    ? searchedUserBooks.filter(b => collectionUploadIds.has(b.id))
-    : searchedUserBooks
-  // Unified merge-sort: tag each item by kind and apply a single comparator so
-  // saved + uploads can be interleaved correctly by the chosen sort key.
-  type CombinedItem =
-    | { kind: 'saved'; item: typeof items[number] }
-    | { kind: 'upload'; book: UserBook }
-  const combinedCollator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
-  const timeOf = (s: string | null | undefined): number => {
-    if (!s) return 0
-    const t = Date.parse(s)
-    return Number.isNaN(t) ? 0 : t
-  }
-  const combinedItems: CombinedItem[] = [
-    ...(showSavedBlock ? collectionFilteredItems.map((item) => ({ kind: 'saved' as const, item })) : []),
-    ...(showUploadsBlock ? collectionFilteredUserBooks.map((book) => ({ kind: 'upload' as const, book })) : []),
-  ]
-  const attentionRank = (c: CombinedItem): number => {
-    if (c.kind === 'upload' && c.book.status !== 'Ready') return 0
-    return 1
-  }
-  const compareCombined = (a: CombinedItem, b: CombinedItem): number => {
-    const ar = attentionRank(a)
-    const br = attentionRank(b)
-    if (ar !== br) return ar - br
-    switch (sort) {
-      case 'title': {
-        const ta = a.kind === 'saved' ? a.item.title : a.book.title
-        const tb = b.kind === 'saved' ? b.item.title : b.book.title
-        return combinedCollator.compare(ta || '', tb || '')
-      }
-      case 'author': {
-        const aa = a.kind === 'saved' ? (a.item.author || '') : (a.book.author || '')
-        const ab = b.kind === 'saved' ? (b.item.author || '') : (b.book.author || '')
-        if (!aa && !ab) return 0
-        if (!aa) return 1
-        if (!ab) return -1
-        return combinedCollator.compare(aa, ab)
-      }
-      case 'added': {
-        const da = a.kind === 'saved' ? a.item.createdAt : a.book.createdAt
-        const db = b.kind === 'saved' ? b.item.createdAt : b.book.createdAt
-        return timeOf(db) - timeOf(da)
-      }
-      case 'progress': {
-        const pa = a.kind === 'saved' ? (progressMap[a.item.editionId]?.percent ?? 0) : (a.book.progressPercent ?? 0)
-        const pb = b.kind === 'saved' ? (progressMap[b.item.editionId]?.percent ?? 0) : (b.book.progressPercent ?? 0)
-        return pb - pa
-      }
-      case 'recent':
-      default: {
-        const ta = a.kind === 'saved'
-          ? (timeOf(progressMap[a.item.editionId]?.updatedAt) || timeOf(a.item.createdAt))
-          : timeOf(a.book.progressUpdatedAt || a.book.createdAt)
-        const tb = b.kind === 'saved'
-          ? (timeOf(progressMap[b.item.editionId]?.updatedAt) || timeOf(b.item.createdAt))
-          : timeOf(b.book.progressUpdatedAt || b.book.createdAt)
-        return tb - ta
-      }
+  // Shared semantics (packages/shared library/entries) — same as mobile.
+  type CombinedItem = LibraryEntry<typeof items[number], UserBook>
+  const sourceEntries = buildLibraryEntries(items, userBooks, librarySource.source)
+  const combinedCounts = countEntries(sourceEntries, progressMap)
+  const combinedItems = filterEntries(sourceEntries, status, progressMap).filter((c) => {
+    if (c.kind === 'saved') {
+      if (queryD && !matchesQuery({ title: c.item.title, author: c.item.author ?? undefined }, queryD)) return false
+      return !(activeCollectionId && collectionSavedIds) || collectionSavedIds.has(c.item.editionId)
     }
-  }
-  const combinedSorted: CombinedItem[] = [...combinedItems].sort(compareCombined)
+    if (queryD && !matchesQuery({ title: c.book.title, author: c.book.author, tags: c.book.tags }, queryD)) return false
+    return !(activeCollectionId && collectionUploadIds) || collectionUploadIds.has(c.book.id)
+  })
+  const combinedSorted: CombinedItem[] = sortEntries(combinedItems, sort, progressMap)
 
   // FTS content-search override: replace combined list with upload-only FTS hits
   // (saved books don't have content FTS, so showing them mixed in would be misleading).

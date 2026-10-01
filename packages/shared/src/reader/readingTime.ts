@@ -14,11 +14,13 @@
 
 import type { ChapterWithCount } from './bookProgress'
 
-/** Used when the server has no per-user pace yet. Deliberately conservative:
- *  this app is read in a second language, where 200+ wpm native prose speeds
- *  do not apply, and an estimate that runs long is kinder than one that runs
- *  short. */
-export const FALLBACK_WPM = 150
+/**
+ * The one pace rule, web and mobile: the reader's personal words-per-minute
+ * from `GET /me/reading/pace` when there is one, otherwise this. Matches the
+ * server's own fallback (`ReadingStatsService.FallbackPaceWpm`), so a reader
+ * with too few sessions sees the same number before and after the fetch lands.
+ */
+export const FALLBACK_WPM = 200
 
 /** Below this, an estimate is noise — render "less than a minute" instead. */
 const SUB_MINUTE = 1
@@ -67,11 +69,27 @@ export function wordsRemaining(
   return { chapter: Math.round(chapterLeft), book: Math.round(chapterLeft + after) }
 }
 
-/** Minutes for a word count at a given pace. Never negative, always an integer. */
-export function minutesForWords(words: number, wpm: number): number {
+/** Minutes for a word count at a given pace (missing/invalid pace → `FALLBACK_WPM`).
+ *  Never negative, always an integer. */
+export function minutesForWords(words: number, wpm: number | null | undefined): number {
   if (!Number.isFinite(words) || words <= 0) return 0
-  const pace = Number.isFinite(wpm) && wpm > 0 ? wpm : FALLBACK_WPM
+  const pace = typeof wpm === 'number' && Number.isFinite(wpm) && wpm > 0 ? wpm : FALLBACK_WPM
   return Math.max(0, Math.round(words / pace))
+}
+
+/**
+ * Minutes left in a whole book from its total word count and 0..1 progress —
+ * library cards and the reader's book-level estimate. `null` when the book has
+ * no word count to reason about.
+ */
+export function bookMinutesLeft(
+  totalWords: number | null | undefined,
+  progress: number | null | undefined,
+  wpm: number | null | undefined,
+): number | null {
+  if (typeof totalWords !== 'number' || !Number.isFinite(totalWords) || totalWords <= 0) return null
+  const p = typeof progress === 'number' && Number.isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0
+  return minutesForWords(totalWords * (1 - p), wpm)
 }
 
 /**

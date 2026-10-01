@@ -4,6 +4,7 @@ import {
   minutesForWords,
   estimateTimeLeft,
   formatMinutesLeft,
+  bookMinutesLeft,
   FALLBACK_WPM,
 } from './readingTime'
 
@@ -131,5 +132,28 @@ describe('formatMinutesLeft', () => {
 
   it('degrades to the under-a-minute label on a non-finite input', () => {
     expect(formatMinutesLeft(NaN, labels)).toBe('Less than a minute left')
+  })
+})
+
+describe('bookMinutesLeft', () => {
+  it('falls back to 200 wpm — the owner-set rule, same as the server', () => {
+    expect(FALLBACK_WPM).toBe(200)
+    expect(bookMinutesLeft(4000, null, null)).toBe(20)
+    expect(bookMinutesLeft(1000, 0, 0)).toBe(5)
+  })
+
+  it('uses the personal pace when present', () => {
+    expect(bookMinutesLeft(100_000, 0, 250)).toBe(400)
+  })
+
+  it('reduces by progress, clamped to 0..1', () => {
+    expect(bookMinutesLeft(10_000, 0.5, 200)).toBe(25)
+    expect(bookMinutesLeft(1000, 1, 200)).toBe(0)
+    expect(bookMinutesLeft(1000, 1.5, 200)).toBe(0)
+  })
+
+  it('null without a word count', () => {
+    expect(bookMinutesLeft(null, 0.1, 200)).toBeNull()
+    expect(bookMinutesLeft(0, 0, 200)).toBeNull()
   })
 })

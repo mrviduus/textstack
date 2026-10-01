@@ -1,6 +1,7 @@
+import type { LibraryEntrySort } from '@textstack/shared'
 import { useCallback, useEffect, useState } from 'react'
 
-export type LibrarySortKey = 'recent' | 'added' | 'title' | 'author' | 'progress'
+export type LibrarySortKey = LibraryEntrySort
 export type LibraryTab = 'saved' | 'uploads'
 
 const VALID_KEYS: LibrarySortKey[] = ['recent', 'added', 'title', 'author', 'progress']

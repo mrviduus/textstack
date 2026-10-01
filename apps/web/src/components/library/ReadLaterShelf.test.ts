@@ -67,10 +67,11 @@ describe('sourceDomain', () => {
 })
 
 describe('estReadMinutes', () => {
-  it('~200 wpm, floored at 1', () => {
+  it('personal pace else ~200 wpm, floored at 1', () => {
     expect(estReadMinutes(2400)).toBe(12)
     expect(estReadMinutes(0)).toBe(1)
     expect(estReadMinutes(null)).toBe(1)
+    expect(estReadMinutes(2400, 300)).toBe(8)
   })
 })
 

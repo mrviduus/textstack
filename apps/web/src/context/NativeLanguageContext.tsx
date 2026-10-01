@@ -1,17 +1,6 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react'
-import { LANGUAGES, POPULAR_LANGUAGES } from '../data/languages'
+import { LANGUAGES } from '@textstack/shared'
 import { useAuth } from './AuthContext'
-
-export interface NativeLang {
-  code: string
-  label: string
-}
-
-// Backwards-compat: old consumers expect NATIVE_LANGUAGES = popular list with { code, label }
-export const NATIVE_LANGUAGES: NativeLang[] = POPULAR_LANGUAGES.map((l) => ({
-  code: l.code,
-  label: l.englishName,
-}))
 
 const STORAGE_KEY = 'textstack_native_language'
 const CONFIRMED_KEY = 'textstack_native_language_confirmed'

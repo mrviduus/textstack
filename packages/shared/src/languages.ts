@@ -1,5 +1,6 @@
-// Native language catalogue — single source of truth for language picker.
-// Flag derived from ISO 3166 country code → Twemoji SVG (works on all platforms).
+// Native language catalogue — single source of truth for the language picker,
+// web and mobile. Flag rendering stays per platform (web: Twemoji, see
+// apps/web/src/data/flags.ts); mobile renders names only.
 
 export interface LanguageEntry {
   code: string          // BCP 47 / ISO 639-1 lang code ('hi')
@@ -7,22 +8,6 @@ export interface LanguageEntry {
   nativeName: string    // 'हिन्दी'
   flagCountry: string   // ISO 3166 country code ('IN')
   popular?: boolean
-}
-
-const TWEMOJI_BASE = 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/svg'
-
-function countryToTwemojiSlug(cc: string): string {
-  if (!cc || cc.length !== 2) return ''
-  const a = 0x1f1e6 + cc.toUpperCase().charCodeAt(0) - 65
-  const b = 0x1f1e6 + cc.toUpperCase().charCodeAt(1) - 65
-  return `${a.toString(16)}-${b.toString(16)}`
-}
-
-export function getFlagUrl(code: string): string {
-  const lang = LANGUAGES.find((l) => l.code === code)
-  if (!lang) return ''
-  const slug = countryToTwemojiSlug(lang.flagCountry)
-  return slug ? `${TWEMOJI_BASE}/${slug}.svg` : ''
 }
 
 export function getLanguage(code: string): LanguageEntry | undefined {

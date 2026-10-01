@@ -18,7 +18,7 @@ vi.mock('../../api/translation', () => ({
 }))
 
 import { useTextTranslation } from '../useTextTranslation'
-import { LANGUAGES } from '../../data/languages'
+import { LANGUAGES } from '@textstack/shared'
 
 describe('useTextTranslation — language catalogue', () => {
   it('maps the full LANGUAGES catalogue to {code,name} synchronously', () => {

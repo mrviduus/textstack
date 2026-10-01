@@ -2,22 +2,8 @@ import { createContext, useContext, useState, useEffect, useCallback, useRef, ty
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { confirmationFor } from '../lib/languageOnboarding'
 import { NativeModules, Platform } from 'react-native'
-import { authApi } from '@textstack/shared'
-import { LANGUAGES, POPULAR_LANGUAGES, getFlagEmoji } from '../data/languages'
+import { authApi, LANGUAGES } from '@textstack/shared'
 import { useAuth } from './AuthContext'
-
-export interface NativeLang {
-  code: string
-  flag: string
-  label: string
-}
-
-// Backwards-compat: old consumers expect NATIVE_LANGUAGES = popular list with { code, flag, label }
-export const NATIVE_LANGUAGES: NativeLang[] = POPULAR_LANGUAGES.map((l) => ({
-  code: l.code,
-  flag: getFlagEmoji(l.code),
-  label: l.englishName,
-}))
 
 // There is no TARGET_LANGUAGES any more. It was NATIVE_LANGUAGES.filter(code ===
 // 'en') — one entry — and it backed a Profile row of chips with a single,

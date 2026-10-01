@@ -1,6 +1,6 @@
 import type { AchievementDto } from '../../api/readingTracking'
 import { useTranslation } from '../../hooks/useTranslation'
-import { AchievementDefinitions } from '../../lib/achievementDefinitions'
+import { ACHIEVEMENTS } from '@textstack/shared'
 
 interface Props {
   achievements: AchievementDto[]
@@ -14,7 +14,7 @@ export function StatsAchievementsTab({ achievements }: Props) {
     <section className="stats-section">
       <h2>{t('stats.achievements')}</h2>
       <div className="stats-achievements">
-        {Object.entries(AchievementDefinitions).map(([code, def]) => {
+        {Object.entries(ACHIEVEMENTS).map(([code, def]) => {
           const unlocked = unlockedCodes.has(code)
           const achievement = achievements.find(a => a.code === code)
           return (

@@ -1,8 +1,8 @@
 import { useCallback, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import type { LibraryFilterKey } from './useLibraryFilter'
+import type { LibraryEntryStatus } from '@textstack/shared'
 
-export type LibraryStatus = LibraryFilterKey
+export type LibraryStatus = LibraryEntryStatus
 export const DEFAULT_STATUS: LibraryStatus = 'all'
 
 const VALID: LibraryStatus[] = ['all', 'reading', 'finished', 'notStarted', 'failed']
