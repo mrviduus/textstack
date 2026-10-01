@@ -587,6 +587,10 @@
       "minutes": "{minutes} min left",
       "hours": "{hours} hr left",
       "hoursMinutes": "{hours} hr {minutes} min left"
+    },
+    "exitSummary": {
+      "reviewNow": "Review Now",
+      "later": "Later"
     }
   },
   "vocabulary": {

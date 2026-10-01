@@ -224,6 +224,10 @@ export function ReaderShell(props: ReaderShellProps) {
   // progress messages. A condition of the one-shot "bring your own book" ask —
   // see latchChapterEnd for why it is latched rather than sampled on exit.
   const finishedChapterRef = useRef(false)
+  // WHICH chapter was finished — the one "Discuss this chapter" offers. The shell survives chapter
+  // navigation (navigateChapter resets refs by hand), so the opened slug alone would name the
+  // chapter they moved on to, not the one they finished.
+  const finishedSlugRef = useRef<string | null>(null)
 
   // --- ADR-012 S4b: Original-layout PDF viewer state ------------------------
   // The Bearer token is fetched once and injected into pdf.js httpHeaders via
@@ -308,15 +312,15 @@ export function ReaderShell(props: ReaderShellProps) {
     autoHideTrigger: true,
   })
 
-  // "Discuss this chapter" on the way out — the opened chapter, which is the one `latchChapterEnd`
-  // vouches for (ponytail: after reading on through several appended chapters it still offers the
-  // first; track the last finished slug if that matters). Same rules as the chapter-row button.
-  const discussCh = chapters.find(c => c.slug === chapterSlug)
+  // "Discuss this chapter" on the way out — the last chapter this session finished (ponytail: after
+  // reading on through several appended chapters it offers the opened one). Same rules as the
+  // chapter-row button.
+  const discussCh = chapters.find(c => c.slug === finishedSlugRef.current)
   const discussBrief = source.id && discussCh && isReviewableChapter(discussCh)
     ? () => buildChapterDiscussBrief({
         title: bookTitle ?? '',
         ...(source.kind === 'edition' ? { editionId: source.id!, slug: source.slug } : { bookId: source.id! }),
-        chapterSlug, chapterTitle: discussCh.title,
+        chapterSlug: discussCh.slug, chapterTitle: discussCh.title,
       })
     : null
   const launcher = useAssistantLauncher({ eager: false })
@@ -542,11 +546,13 @@ export function ReaderShell(props: ReaderShellProps) {
           currentChapterSlugRef.current = data.chapterSlug
           setVisibleChapterSlug(data.chapterSlug)
         }
-        finishedChapterRef.current = latchChapterEnd(finishedChapterRef.current, {
+        const endEvent = {
           chapterProgress: data.progress,
           visibleChapterSlug: data.chapterSlug ?? currentChapterSlugRef.current,
           openedChapterSlug: chapterSlug,
-        })
+        }
+        finishedChapterRef.current = latchChapterEnd(finishedChapterRef.current, endEvent)
+        if (latchChapterEnd(false, endEvent)) finishedSlugRef.current = chapterSlug
         const activeSlugForCalc = data.chapterSlug || currentChapterSlugRef.current || chapterSlug || null
         const bp = computeBookProgress(chapters, activeSlugForCalc, data.progress, totalWordCountRef.current)
         bookProgressRef.current = bp
@@ -670,6 +676,9 @@ export function ReaderShell(props: ReaderShellProps) {
     saveProgress()
     progressRef.current = 0
     scrollOffsetRef.current = 0
+    // Otherwise the first progress message without a slug reads the old chapter as "visible",
+    // and latchChapterEnd takes visible ≠ opened for having read past the new one.
+    currentChapterSlugRef.current = null
     setProgress(0)
     if (chapters.length > 0) {
       const bp = computeBookProgress(chapters, slug, 0, totalWordCountRef.current)
@@ -1303,7 +1312,7 @@ export function ReaderShell(props: ReaderShellProps) {
                   onPress={handleExitLater}
                   accessibilityRole="button"
                 >
-                  <Text style={[styles.exitSummaryBtnText, { color: barText }]}>Later</Text>
+                  <Text style={[styles.exitSummaryBtnText, { color: barText }]}>{t(language, 'reader.exitSummary.later')}</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -1327,13 +1336,13 @@ export function ReaderShell(props: ReaderShellProps) {
                   style={[styles.exitSummaryBtn, { backgroundColor: colors.primary }]}
                   onPress={handleExitReview}
                 >
-                  <Text style={[styles.exitSummaryBtnText, { color: '#fff' }]}>Review Now</Text>
+                  <Text style={[styles.exitSummaryBtnText, { color: '#fff' }]}>{t(language, 'reader.exitSummary.reviewNow')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.exitSummaryBtn, { backgroundColor: barText + '15' }]}
                   onPress={handleExitLater}
                 >
-                  <Text style={[styles.exitSummaryBtnText, { color: barText }]}>Later</Text>
+                  <Text style={[styles.exitSummaryBtnText, { color: barText }]}>{t(language, 'reader.exitSummary.later')}</Text>
                 </TouchableOpacity>
               </View>
               {finishedChapterRef.current && discussBrief && (

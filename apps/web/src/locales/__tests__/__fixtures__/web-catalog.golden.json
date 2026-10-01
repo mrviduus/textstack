@@ -1280,5 +1280,7 @@
   "chapterReview.questions.loadFailed": "Couldn't load your questions.",
   "chapterReview.questions.answerFailed": "Couldn't save that answer. Try again.",
   "chapterReview.questions.signIn": "Sign in to practice your chapter questions.",
-  "chapterReview.discussChapter": "Discuss this chapter"
+  "chapterReview.discussChapter": "Discuss this chapter",
+  "reader.exitSummary.reviewNow": "Review Now",
+  "reader.exitSummary.later": "Later"
 }

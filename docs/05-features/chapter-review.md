@@ -292,9 +292,12 @@ gets a new id and a dangling close is ignored. No table (ADR-016 alt. F).
 
 **`backend/src/Application/ChapterReview/ReviewMethod.md`**, `<EmbeddedResource>` in
 `Application.csproj` (pattern: `Infrastructure.csproj:30`), read once by
-`Application/ChapterReview/ReviewMethod.cs` (`public static string Text`, `public const int Version = 1`).
+`Application/ChapterReview/ReviewMethod.cs` (`public static string Text`, `public const int Version`,
+`TextSha256` pinned by a test — edit the text, bump both). ~~`Version = 1`~~ — v2 (2026-09-30, stopped
+naming screens that didn't exist yet), **v3** (2026-10-01, "If you have already been talking", §1a).
 Served inside `get_chapter_review` → changing it is an API deploy, not an MCP rebuild or a manifest
-change. Stamped into each saved review. Draft: **Appendix A**.
+change. Stamped into each saved review. **Appendix A is the original v1 draft, kept for history — the
+live text is the `.md` file.**
 
 ## 10. Long chapters — `part`
 
@@ -428,6 +431,8 @@ Device smoke first (workflow rule), then one mobile e2e spec.
 6. **No highlights card** on Practice.
 
 ## Appendix A — `ReviewMethod.md`, draft v1
+
+> **Historical.** Superseded by v2 and v3 — read `backend/src/Application/ChapterReview/ReviewMethod.md` for the text the server actually sends.
 
 > Lives at `backend/src/Application/ChapterReview/ReviewMethod.md`. Edit there only; bump
 > `ReviewMethod.Version`.
