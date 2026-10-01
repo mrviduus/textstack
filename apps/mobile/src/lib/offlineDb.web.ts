@@ -40,10 +40,6 @@ export interface CachedChapterSummary {
   cachedAt: number
 }
 
-export async function getDb(): Promise<null> {
-  return null
-}
-
 export async function getCachedChapter(): Promise<CachedChapter | null> {
   return null
 }
@@ -56,16 +52,8 @@ export async function cacheChapter(_editionId: string, _chapter: Chapter): Promi
   /* no-op on web */
 }
 
-export async function countCachedChapters(): Promise<number> {
-  return 0
-}
-
 export async function listCachedChapters(): Promise<CachedChapterSummary[]> {
   return []
-}
-
-export async function deleteChaptersByEdition(): Promise<void> {
-  /* no-op */
 }
 
 export async function getCachedBookMeta(): Promise<CachedBookMeta | null> {

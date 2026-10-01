@@ -15,7 +15,6 @@ import { useReconnectCount } from '../../src/hooks/useOnline'
 import { BookCard } from '../../src/components/ui/BookCard'
 import { EmptyState } from '../../src/components/ui/EmptyState'
 import { StartReadingCard } from '../../src/components/discover/StartReadingCard'
-import { trackSearchPerformed } from '../../src/lib/analytics'
 
 /** Renders HTML search highlights with <b> tags as bold Text spans */
 function HighlightText({ html, style, boldStyle, numberOfLines }: {
@@ -198,7 +197,6 @@ export default function DiscoverScreen() {
       setSearchOffline(false)
       setResults(items)
       saveRecent(q)
-      trackSearchPerformed({ query: q, resultsCount: items.length })
     } catch (e) {
       if (gen !== searchGenRef.current) return
       console.error('Search failed:', e)
@@ -290,7 +288,6 @@ export default function DiscoverScreen() {
   }
 
   const showRecent = !searched && !loading && query.length === 0 && recentSearches.length > 0
-  const showCatalog = !searched && !loading
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>

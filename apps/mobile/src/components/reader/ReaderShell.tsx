@@ -27,7 +27,6 @@ import { useReaderHighlights } from '../../hooks/useReaderHighlights'
 import { useReaderVocabMap } from '../../hooks/useReaderVocabMap'
 import { useReaderVocabActions } from '../../hooks/useReaderVocabActions'
 import { useReaderSelection } from '../../hooks/useReaderSelection'
-import { useReaderOverlayV2Active } from '../../hooks/useReaderOverlayV2Active'
 import { useReadingSession } from '../../hooks/useReadingSession'
 import { useTts } from '../../hooks/useTts'
 import { useQuickStats } from '../../hooks/useQuickStats'
@@ -53,7 +52,6 @@ import { Ionicons } from '@expo/vector-icons'
 import { fonts } from '../../theme/typography'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { StatusBar } from 'expo-status-bar'
-import { capabilitiesFor } from '../../lib/capabilities'
 import { latchChapterEnd, shouldInterceptReaderBack } from '../../lib/firstRun'
 
 /** Lightweight {key} interpolation — shared `t()` returns raw keys, we fill them in here. */
@@ -136,9 +134,6 @@ export interface ReaderShellProps {
   wordCount: number
   /** Explain sheet "bookId" — editionId for public, undefined for user-book. */
   explainBookId?: string
-  /** "Ask this book" target — catalog edition OR user-uploaded book (AI-027 P2).
-   *  Drives the Ask button visibility and which endpoint family the sheet hits. */
-
   /** ADR-012 S4b — render the ORIGINAL PDF (pdf.js viewer) instead of the reflow
    *  HTML. Same shell, one branch: the WebView source swaps and the reflow-only
    *  scroll/progress/infinite-scroll message branches go inert. */
@@ -194,7 +189,6 @@ export function ReaderShell(props: ReaderShellProps) {
   const router = useRouter()
   const { isAuthenticated, user } = useAuth()
   const { settings, update: updateSettings, resolvedFontFamily, resolvedTheme } = useReaderSettings()
-  const overlayV2 = useReaderOverlayV2Active()
   const { colors } = useTheme()
   const { language } = useLanguage()
   const { nativeLanguage } = useNativeLanguage()
@@ -213,7 +207,6 @@ export function ReaderShell(props: ReaderShellProps) {
   const [highlightsOpen, setHighlightsOpen] = useState(false)
   const [translateOpen, setTranslateOpen] = useState(false)
   const [explainOpen, setExplainOpen] = useState(false)
-  /** Passage attached to the Ask sheet via the selection toolbar's "Ask about this" action. */
   const [tocOpen, setTocOpen] = useState(false)
   const [progress, setProgress] = useState(0)
   const [bookProgress, setBookProgress] = useState<number | null>(null)
@@ -816,7 +809,6 @@ export function ReaderShell(props: ReaderShellProps) {
   const documentKey = readerDocumentKey({
     chapterSlug: htmlChapterSlug ?? '',
     fontFaceKey: fontFaceKey(resolvedFontFamily),
-    overlayV2,
     htmlLength: chapter.html.length,
   })
 
@@ -845,7 +837,7 @@ export function ReaderShell(props: ReaderShellProps) {
         textAlign: typography.textAlign,
         backgroundColor: chrome.backgroundColor,
         textColor: chrome.textColor,
-      }, htmlChapterSlug, chrome.safeArea, { overlayV2 })
+      }, htmlChapterSlug, chrome.safeArea)
     },
     // Keyed on document identity ONLY. Insets, colours and typography are absent
     // on purpose; readerChrome.test.ts asserts that absence.

@@ -9,14 +9,13 @@ import { scrubEvent, scrubUrl } from './sentryScrub'
  *
  * Why this exists: until now a JS crash on a tester's device produced a fallback
  * screen and a `console.error` that reached nobody. Play Console reports native
- * crashes and ANRs, but not a caught React error, and `src/lib/analytics.ts` is a
- * complete event taxonomy wired to nothing. Going into a 14-day closed test with
- * that setup means a tester says "it crashed" and there is no way to find out why.
+ * crashes and ANRs, but not a caught React error, and the app sends no telemetry
+ * of its own. Going into a 14-day closed test with that setup means a tester says "it crashed" and there is no way to find out why.
  *
  * Why Sentry and not Crashlytics: the backend already runs Sentry across API and
  * Worker with LLM and provider-routing spans, so this puts mobile in the same issue
- * stream — and lets a Book Chat failure be one trace from tap to OpenAI call rather
- * than two unrelated haystacks. Crashlytics would drag in Firebase, a
+ * stream — and lets a failing AI call be one trace from tap to OpenAI rather than
+ * two unrelated haystacks. Crashlytics would drag in Firebase, a
  * `google-services.json`, and the Advertising ID question, for a strictly worse Data
  * Safety posture and a second observability vendor.
  *

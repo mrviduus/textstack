@@ -1,7 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { AppState } from 'react-native'
 import { readingTrackingApi } from '@textstack/shared'
-import { trackReadingSessionEnd } from '../lib/analytics'
 
 const HEARTBEAT_MS = 30_000
 const MIN_SECONDS = 10
@@ -56,14 +55,6 @@ export function useReadingSession(config: SessionConfig) {
     if (config.userBookId) data.userBookId = config.userBookId
 
     readingTrackingApi.submitSession(data).catch(() => {})
-    trackReadingSessionEnd({
-      durationSeconds: data.durationSeconds,
-      wordsRead,
-      startPercent: startPercentRef.current,
-      endPercent: currentPercentRef.current,
-      editionId: config.editionId,
-      userBookId: config.userBookId,
-    })
   }, [config.isAuthenticated, config.editionId, config.userBookId, config.wordCount])
 
   const clearAutoEndTimer = useCallback(() => {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { View, Text, ScrollView, StyleSheet, FlatList, Share, TouchableOpacity } from 'react-native'
+import { View, Text, ScrollView, StyleSheet, Share, TouchableOpacity } from 'react-native'
 import { Image } from 'expo-image'
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'

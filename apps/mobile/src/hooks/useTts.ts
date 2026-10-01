@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { API_URL } from '../lib/api'
-import { trackTtsPlayed } from '../lib/analytics'
 import { ttsRequestDecision, TtsPhase } from '../lib/ttsRequest'
 
 // Lazy + safe loads — these native modules ship with the dev build only
@@ -178,11 +177,6 @@ export function useTts() {
       releasePlayer()
       currentTextRef.current = trimmed
       setPhase('loading')
-
-      const spaceCount = trimmed.split(/\s+/).length
-      const kind: 'word' | 'sentence' | 'selection' =
-        spaceCount === 1 ? 'word' : spaceCount <= 20 ? 'sentence' : 'selection'
-      trackTtsPlayed({ language: bcp47.split('-')[0], kind })
 
       await audioModeReady(audio)
       const file = await getOrFetchAudio(fs, trimmed, bcp47, rate)

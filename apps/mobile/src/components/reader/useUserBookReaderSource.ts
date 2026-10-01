@@ -13,7 +13,6 @@ import {
   pdfFlushDecision, shouldFlushOnClose, PDF_FLUSH_DEBOUNCE_MS,
 } from '../../lib/pdfWritePolicy'
 import { useReaderPersistence } from '../../hooks/useReaderPersistence'
-import { trackBookOpened } from '../../lib/analytics'
 import type { ProgressSnapshot, ReaderChapterMeta, ReaderRuntime, SavedPosition } from './readerSource'
 
 type ToastFn = (t: { message: string; variant: 'error' | 'success' | 'info' }) => void
@@ -175,14 +174,9 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
     return () => { cancelled = true }
   }, [bookId, chapterSlug])
 
-  // Load bookmarks + chapter list (TOC + book-wide word count) + analytics.
-  const bookOpenedFiredRef = useRef(false)
+  // Load bookmarks + chapter list (TOC + book-wide word count).
   useEffect(() => {
     if (!bookId) return
-    if (!bookOpenedFiredRef.current) {
-      bookOpenedFiredRef.current = true
-      trackBookOpened({ source: 'userbook', userBookId: bookId })
-    }
     userBooksApi.getUserBookBookmarks(bookId).then(setBookmarks).catch(e => {
       console.warn('Failed to load user-book bookmarks:', e)
     })

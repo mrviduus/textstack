@@ -1,8 +1,7 @@
-import { useEffect, useRef, useState, MutableRefObject } from 'react'
+import { useEffect, useState, MutableRefObject } from 'react'
 import { createBooksApi, bookmarksApi } from '@textstack/shared'
 import type { ChapterSummary, Language, BookmarkDto } from '@textstack/shared'
 import { getAllCachedBooks } from '../lib/offlineDb'
-import { trackBookOpened } from '../lib/analytics'
 
 type Options = {
   bookSlug: string | undefined
@@ -25,7 +24,6 @@ type Options = {
  *
  * Side effects (intentional, mirror the previous inline effect):
  * - Mutates `editionIdRef`, `bookTitleRef`, `totalWordCountRef`
- * - Fires the one-shot `book_opened` analytics event
  * - Loads bookmarks via `setBookmarks` for authed users
  */
 export function useReaderBook({
@@ -46,7 +44,6 @@ export function useReaderBook({
   // Drives TocSheet's loading vs empty state — without it an empty chapters
   // array looks the same whether fetch is in-flight or actually returned 0.
   const [chaptersLoading, setChaptersLoading] = useState(true)
-  const bookOpenedFiredRef = useRef(false)
 
   useEffect(() => {
     if (!bookSlug) return
@@ -60,10 +57,6 @@ export function useReaderBook({
         setEditionId(b.id)
         bookTitleRef.current = b.title
         setBookTitle(b.title)
-        if (!bookOpenedFiredRef.current) {
-          bookOpenedFiredRef.current = true
-          trackBookOpened({ source: 'library', editionId: b.id, language })
-        }
         if (b.chapters) {
           setChapters(b.chapters)
           // Null-guard on wordCount so a chapter missing the field doesn't

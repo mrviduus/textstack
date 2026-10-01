@@ -13,7 +13,6 @@ import {
 import { useAuth } from '../../src/context/AuthContext'
 import { useTheme } from '../../src/context/ThemeContext'
 import { useLanguage } from '../../src/context/LanguageContext'
-import { useToast } from '../../src/context/ToastContext'
 import { useCollectionsVersion } from '../../src/hooks/useCollections'
 import { SkeletonLoader } from '../../src/components/ui/SkeletonLoader'
 import { EmptyState } from '../../src/components/ui/EmptyState'
@@ -47,7 +46,6 @@ export default function LibraryScreen() {
   const { isAuthenticated } = useAuth()
   const { colors } = useTheme()
   const { t } = useLanguage()
-  const { show: showToast } = useToast()
   const router = useRouter()
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [source, setSource] = useState<LibrarySource>('all')
@@ -322,10 +320,7 @@ export default function LibraryScreen() {
   // Everything above the first book row. Three blocks: resume, search, filters.
   // It used to be thirteen — roughly 2.4 screens of chrome a reader scrolled
   // past to reach their own books.
-  // What "a filter is on" means, in one place. It was implicit before, and the
-  // Clear button only knew about two of the four things that can hide a book.
   const sourceFiltered = source !== 'all' || activeCollectionId != null
-  const anyFilterActive = sourceFiltered || status !== 'all' || !!debouncedQuery
   const clearAllFilters = () => {
     setSource('all')
     setActiveCollectionId(null)

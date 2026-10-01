@@ -18,38 +18,6 @@ export const colors = {
   readerDark: '#1A1A2E',
 }
 
-// Deterministic pastel palette used by the home "Collections" carousel.
-// Kept outside `colors` because it's a fixed wheel (cards pick by slug
-// hash) rather than a semantic token. Dark variants are desaturated /
-// darkened equivalents of each light pastel so the same slug still maps
-// to a visually related card across themes.
-export const collectionTilesLight = [
-  '#FDE7E3', // blush
-  '#E3F0FD', // sky
-  '#E8F3E6', // sage
-  '#FFF4D6', // butter
-  '#F1E7FB', // lilac
-  '#FEE5D1', // apricot
-  '#E3F4F1', // mint
-  '#FBE7F2', // rose
-]
-
-export const collectionTilesDark = [
-  '#4A2B26', // blush → deep terracotta
-  '#1F2E42', // sky → midnight blue
-  '#2A3A26', // sage → forest
-  '#4A3F1D', // butter → bronze
-  '#2E2340', // lilac → plum
-  '#4A2F1D', // apricot → burnt sienna
-  '#1D3A36', // mint → teal
-  '#402334', // rose → mulberry
-]
-
-export const collectionTileText = {
-  light: '#1F2937',
-  dark: '#F4EAD5',
-}
-
 export const darkColors: typeof colors = {
   primary: '#D4885F',
   primaryLight: '#3D2A1E',

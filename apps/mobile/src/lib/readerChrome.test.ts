@@ -29,7 +29,6 @@ const typography: ReaderTypography = {
 const doc = {
   chapterSlug: '1-book-i',
   fontFaceKey: 'std',
-  overlayV2: true,
   htmlLength: 42_000,
 }
 

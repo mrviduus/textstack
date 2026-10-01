@@ -1,10 +1,7 @@
 /**
  * Which of the six things a "list of my stuff" screen can be showing.
  *
- * `loadState.ts` next door answers a narrower question — content vs banner vs
- * empty, once a request has already been made. It has no notion of a reader
- * without a session, because when it was written the screens it served all
- * assumed one. Vocabulary and Stats did not check at all: they fired
+ * Vocabulary and Stats did not check at all: they fired
  * `/me/vocabulary/words` and `/me/reading/stats` on mount, took the 401, ran it
  * through `isOfflineError` (false — a 401 is a perfectly good response), and
  * landed on `failed`. The reader was told "Something went wrong on our side"

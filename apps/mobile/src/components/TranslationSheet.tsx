@@ -9,7 +9,6 @@ import { useNeedsNativeLanguage } from '../hooks/useNeedsNativeLanguage'
 import { LanguageList } from './LanguageList'
 import { getLanguage } from '../data/languages'
 import { fonts } from '../theme/typography'
-import { trackTranslationUsed } from '../lib/analytics'
 import { cachedTranslate } from '../lib/translateCache'
 
 interface TranslationSheetProps {
@@ -65,7 +64,6 @@ export function TranslationSheet({ visible, text, onClose, onSpeak, fromLang: fr
     setLoading(true)
     setError('')
     setTranslated('')
-    trackTranslationUsed({ fromLang, toLang: translationTarget, kind: text.includes(' ') ? 'selection' : 'word' })
     // `cachedTranslate`, not `translationApi.translate`. This sheet is opened
     // from the selection toolbar, which has ALREADY fetched and memoized the
     // gloss for exactly this text — going direct re-bought a paid

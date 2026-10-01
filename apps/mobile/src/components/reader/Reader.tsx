@@ -58,50 +58,7 @@ export function Reader({ runtime }: { runtime: ReaderRuntime }) {
     )
   }
 
-  return (
-    <ReaderShell
-      source={runtime.source}
-      webViewRef={runtime.webViewRef}
-      injectJs={runtime.injectJs}
-      chapter={runtime.chapter}
-      chapterSlug={runtime.chapterSlug}
-      htmlChapterSlug={runtime.htmlChapterSlug}
-      bookTitle={runtime.bookTitle}
-      chapters={runtime.chapters}
-      chaptersLoading={runtime.chaptersLoading}
-      progressRef={runtime.progressRef}
-      scrollOffsetRef={runtime.scrollOffsetRef}
-      currentChapterSlugRef={runtime.currentChapterSlugRef}
-      bookProgressRef={runtime.bookProgressRef}
-      positionRef={runtime.positionRef}
-      totalWordCountRef={runtime.totalWordCountRef}
-      bumpProgress={runtime.bumpProgress}
-      saveProgress={runtime.saveProgress}
-      onWebViewLoaded={runtime.onWebViewLoaded}
-      onRestoreLanded={runtime.onRestoreLanded}
-      onDocumentRebuild={runtime.onDocumentRebuild}
-      beginReflow={runtime.beginReflow}
-      onChapterLoaded={runtime.onChapterLoaded}
-      onRequestNextChapter={runtime.onRequestNextChapter}
-      onNavigateChapter={runtime.onNavigateChapter}
-      bookmarks={runtime.bookmarks}
-      onToggleCurrentBookmark={runtime.onToggleCurrentBookmark}
-      onDeleteBookmark={runtime.onDeleteBookmark}
-      bookmarkChapterSlug={runtime.bookmarkChapterSlug}
-      bookTitleRef={runtime.bookTitleRef}
-      wordCount={runtime.wordCount}
-      explainBookId={runtime.explainBookId}
-      original={runtime.original}
-      originalFileUrl={runtime.originalFileUrl}
-      originalInitialPage={runtime.originalInitialPage}
-      originalResumePage={runtime.originalResumePage}
-      originalResumeReady={runtime.originalResumeReady}
-      persistPdfPage={runtime.persistPdfPage}
-      onTogglePageBookmark={runtime.onTogglePageBookmark}
-      isPageBookmarked={runtime.isPageBookmarked}
-      onForceReflow={runtime.onForceReflow}
-    />
-  )
+  return <ReaderShell {...runtime} chapter={runtime.chapter} />
 }
 
 const styles = StyleSheet.create({

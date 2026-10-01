@@ -47,7 +47,7 @@ export type OriginalDownloadOutcome =
   | { status: 'notfound' }
   | { status: 'failed' }
 
-/** Native only. Mirrors `exportEpub.ts`: required lazily so the web bundle (which
+/** Native only. Required lazily so the web bundle (which
  *  the mobile e2e suite runs against) never pulls a filesystem module in. */
 function fs() {
   return require('expo-file-system') as typeof import('expo-file-system')
