@@ -476,7 +476,7 @@ export default function BookDetailScreen() {
           <DownloadButton
             dl={dl}
             cached={offlineMode || cached}
-            onRemove={() => removeDownload(book.id)}
+            onRemove={() => removeDownload(book.id).then(() => setCached(false))}
             onCancel={() => cancelDownload(book.id)}
             onRetry={() => retryFailed(book.id)}
             onStart={() => startDownload(book, language)}
