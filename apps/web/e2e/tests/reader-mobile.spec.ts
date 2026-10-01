@@ -9,9 +9,7 @@ test.describe('Mobile Reader', () => {
     await page.goto(`/en/books/${enBook.slug}/${enBook.firstChapterSlug}`)
     await waitForReaderLoad(page)
 
-    // v2 (default) mounts .reader-section; legacy mounts .scroll-reader.
-    // Either shape counts as "scroll mode working."
-    const container = page.locator('.reader-section, .scroll-reader').first()
+    const container = page.locator('.reader-section').first()
     await expect(container).toBeVisible()
 
     // Legacy pagination artefacts must be gone

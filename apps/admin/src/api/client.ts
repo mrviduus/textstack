@@ -816,10 +816,6 @@ export const adminApi = {
     return fetchJson<IngestionJob[]>('/admin/ingestion/jobs')
   },
 
-  getJob: async (id: string): Promise<IngestionJob> => {
-    return fetchJson<IngestionJob>(`/admin/ingestion/jobs/${id}`)
-  },
-
   // Stats
   getStats: async (params?: { siteId?: string }): Promise<AdminStats> => {
     const query = new URLSearchParams()

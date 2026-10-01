@@ -85,7 +85,6 @@ export interface BookDetail {
   authors: BookAuthor[]
   genres: BookGenre[]
   moreByAuthor: RelatedBook[]
-  // On-demand RAG index for "Ask this book" (AI-027 P1). Absent on older payloads → treat as NotIndexed.
 }
 
 export interface SearchEdition {

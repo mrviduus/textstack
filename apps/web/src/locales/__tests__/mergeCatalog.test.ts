@@ -64,9 +64,10 @@ describe('the real catalogue', () => {
   it('left the shared catalogue untouched', () => {
     // Guards the same hazard as the unit test above, but against the real module
     // graph: if `catalog.ts` ever mutates on merge, this is what notices.
-    expect((shared.en as TranslationNode).common).not.toHaveProperty('__merged')
-    const sharedCommon = (shared.en as TranslationNode).common as TranslationNode
-    const mergedCommon = catalog.common as TranslationNode
-    expect(mergedCommon).not.toBe(sharedCommon)
+    // `library` exists in both files, so the merge must have built a new node for it.
+    expect((shared.en as TranslationNode).library).not.toHaveProperty('__merged')
+    const sharedLibrary = (shared.en as TranslationNode).library as TranslationNode
+    const mergedLibrary = catalog.library as TranslationNode
+    expect(mergedLibrary).not.toBe(sharedLibrary)
   })
 })

@@ -194,7 +194,7 @@ export function UserBookCard({ book, onDelete, onRetry, onCancel, onUpdate, prog
             )
           )}
           {/* Failed extraction on a readable PDF is NOT scary — the book still
-              opens in Original; only text features (search/TOC/chat) are gone. */}
+              opens in Original; only text features (search/TOC) are gone. */}
           {isFailed && !hasOriginalPdf && (
             <BookStatusBadge
               variant="failed"

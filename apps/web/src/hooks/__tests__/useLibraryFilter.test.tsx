@@ -1,9 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest'
-import { renderHook, act } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
-import type { ReactNode } from 'react'
+import { describe, it, expect } from 'vitest'
 import {
-  useLibraryFilter,
   filterLibraryItems,
   filterUserBooks,
   countsForLibrary,
@@ -25,43 +21,6 @@ const ub = (id: string, opts: Partial<UserBook> = {}): UserBook => ({
   language: 'en', coverPath: null, genre: null, totalWordCount: null,
   progressPercent: null, progressUpdatedAt: null, progressChapterSlug: null,
   ...opts,
-})
-
-const wrapper = (initial = '/library') => ({ children }: { children: ReactNode }) => (
-  <MemoryRouter initialEntries={[initial]}>{children}</MemoryRouter>
-)
-
-describe('useLibraryFilter', () => {
-  beforeEach(() => { localStorage.clear() })
-
-  it('defaults to "all"', () => {
-    const { result } = renderHook(() => useLibraryFilter('saved'), { wrapper: wrapper() })
-    expect(result.current.filter).toBe('all')
-  })
-
-  it('reads filter from URL on mount', () => {
-    const { result } = renderHook(() => useLibraryFilter('saved'), { wrapper: wrapper('/library?filter=reading') })
-    expect(result.current.filter).toBe('reading')
-  })
-
-  it('persists per-tab and restores on remount', () => {
-    const { result, rerender } = renderHook(
-      ({ tab }: { tab: 'saved' | 'uploads' }) => useLibraryFilter(tab),
-      { wrapper: wrapper(), initialProps: { tab: 'saved' as 'saved' | 'uploads' } },
-    )
-    act(() => result.current.setFilter('reading'))
-    rerender({ tab: 'uploads' })
-    expect(result.current.filter).toBe('all')
-    act(() => result.current.setFilter('failed'))
-    rerender({ tab: 'saved' })
-    expect(result.current.filter).toBe('reading')
-  })
-
-  it('ignores invalid stored values', () => {
-    localStorage.setItem('textstack_library_filter_saved', 'garbage')
-    const { result } = renderHook(() => useLibraryFilter('saved'), { wrapper: wrapper() })
-    expect(result.current.filter).toBe('all')
-  })
 })
 
 describe('filterLibraryItems', () => {

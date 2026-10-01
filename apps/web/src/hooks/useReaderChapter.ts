@@ -26,7 +26,6 @@ export interface NormalizedBook {
   title: string
   totalWordCount?: number | null
   chapters: TocChapter[]
-  // On-demand RAG index for "Ask this book" (AI-027 P2 — user uploads). Seeds the Ask panel.
   /** User-uploaded PDF that supports the opt-in Original-layout view. */
   hasOriginalPdf?: boolean
 }

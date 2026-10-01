@@ -66,7 +66,6 @@ export interface UserBookDetail {
   createdAt: string
   updatedAt: string
   completedAt: string | null
-  // On-demand RAG index for "Ask this book" (AI-027 P2). Absent on older payloads → NotIndexed.
   /** True when the original upload is a PDF that can be rendered pixel-perfect
    *  in the opt-in "Original layout" view. Absent on older payloads → false. */
   hasOriginalPdf?: boolean
