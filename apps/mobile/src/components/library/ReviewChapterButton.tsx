@@ -1,30 +1,19 @@
-import { useEffect, useState } from 'react'
-import { View, Text, StyleSheet, TouchableOpacity, Linking, Alert, Modal, Pressable } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, Modal, Pressable } from 'react-native'
 import { router } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import * as Clipboard from 'expo-clipboard'
-import {
-  MCP_ENDPOINT, buildChapterReviewBrief, chooseChat, connectedAssistants, handoffUrl, isReviewableChapter, oauthGrantsApi,
-  type Assistant, type ChapterReviewBriefInput, type OAuthGrant,
-} from '@textstack/shared'
+import { MCP_ENDPOINT, buildChapterReviewBrief, isReviewableChapter, type ChapterReviewBriefInput } from '@textstack/shared'
 import { useTheme } from '../../context/ThemeContext'
 import { useLanguage } from '../../context/LanguageContext'
 import { useToast } from '../../context/ToastContext'
-import { useAuth } from '../../context/AuthContext'
-import { capabilitiesFor } from '../../lib/capabilities'
-import {
-  chapterReviewRoute, loadGrantsCached, loadReviewAssistant, resetGrantsCache, saveReviewAssistant, type ReviewBookRef,
-} from '../../lib/chapterReviewLaunch'
+import { useAssistantLauncher } from '../../hooks/useAssistantLauncher'
+import { chapterReviewRoute, type ReviewBookRef } from '../../lib/chapterReviewLaunch'
 import { fonts } from '../../theme/typography'
 
 /**
  * "Review" — opens the reader's own Claude or ChatGPT with a chapter-review brief
- * (docs/05-features/chapter-review.md §12). One assistant connected → straight there; both → the
- * remembered one (a native two-button choice the first time), with a chevron beside the button to
- * switch — the new pick is remembered on this device; none → a connect sheet, never a chat that
- * cannot reach TextStack. A failed `Linking.openURL` is surfaced (handoff TODO #10), not swallowed.
- *
- * Grants come from one cached request shared by every button (`loadGrantsCached`).
+ * (docs/05-features/chapter-review.md §12). Which chat is `useAssistantLauncher` (shared with the
+ * book screen's Assistant menu); with both connected a chevron beside the button switches.
  */
 interface Props extends ChapterReviewBriefInput {
   label?: string
@@ -35,60 +24,15 @@ interface Props extends ChapterReviewBriefInput {
 export function ReviewChapterButton({ label, primary, ...input }: Props) {
   const { colors } = useTheme()
   const { t } = useLanguage()
-  const { show: showToast } = useToast()
-  const { user } = useAuth()
-  const { canConnectAssistant } = capabilitiesFor(user)
-  const [connect, setConnect] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [grants, setGrants] = useState<OAuthGrant[]>([])
-
-  // A guest cannot connect an assistant (account-only), so it has none — skip the 403.
-  const fetchGrants = () => canConnectAssistant
-    ? loadGrantsCached(oauthGrantsApi.listOAuthGrants)
-    : Promise.resolve([] as OAuthGrant[])
-
-  useEffect(() => {
-    let live = true
-    void fetchGrants().then(g => { if (live) setGrants(g) })
-    return () => { live = false }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canConnectAssistant])
-  const canSwitch = connectedAssistants(grants).length === 2
-
-  const open = (assistant: Assistant) => {
-    Linking.openURL(handoffUrl(assistant, buildChapterReviewBrief(input))).catch(() => {
-      showToast({ message: t('chapterReview.openFailed'), variant: 'error' })
-    })
-  }
-
-  const choose = () => {
-    const pick = (a: Assistant) => { void saveReviewAssistant(a); open(a) }
-    Alert.alert(t('chapterReview.pickTitle'), undefined, [
-      { text: t('library.discuss.claude'), onPress: () => pick('claude') },
-      { text: t('library.discuss.chatgpt'), onPress: () => pick('chatgpt') },
-      { text: t('chapterReview.connect.close'), style: 'cancel' },
-    ])
-  }
-
-  const onPress = async () => {
-    if (busy) return
-    setBusy(true)
-    try {
-      const choice = chooseChat(await fetchGrants(), await loadReviewAssistant())
-      if (choice.kind === 'open') open(choice.assistant)
-      else if (choice.kind === 'none') { resetGrantsCache(); setConnect(true) }
-      else choose()
-    } finally {
-      setBusy(false)
-    }
-  }
+  const launcher = useAssistantLauncher()
+  const brief = () => buildChapterReviewBrief(input)
 
   const text = label ?? t('chapterReview.review')
   return (
     <View style={[styles.row, primary && styles.rowPrimary]}>
       <TouchableOpacity
-        onPress={onPress}
-        disabled={busy}
+        onPress={() => void launcher.launch(brief)}
+        disabled={launcher.busy}
         style={[
           primary ? [styles.primary, { flex: 1 }] : styles.pill,
           primary ? { backgroundColor: colors.primary } : { borderColor: colors.border, backgroundColor: colors.surface },
@@ -98,9 +42,9 @@ export function ReviewChapterButton({ label, primary, ...input }: Props) {
       >
         <Text style={[primary ? styles.primaryText : styles.pillText, { color: primary ? colors.background : colors.text }]}>{text}</Text>
       </TouchableOpacity>
-      {canSwitch && (
+      {launcher.canSwitch && (
         <TouchableOpacity
-          onPress={choose}
+          onPress={() => launcher.choose(brief)}
           style={[styles.switch, { borderColor: colors.border, backgroundColor: primary ? 'transparent' : colors.surface }]}
           accessibilityRole="button"
           accessibilityLabel={t('chapterReview.switchAria')}
@@ -109,7 +53,7 @@ export function ReviewChapterButton({ label, primary, ...input }: Props) {
           <Ionicons name="chevron-down" size={primary ? 18 : 12} color={colors.textSecondary} />
         </TouchableOpacity>
       )}
-      <ConnectAssistantSheet visible={connect} onClose={() => setConnect(false)} />
+      <ConnectAssistantSheet visible={launcher.connect} onClose={launcher.closeConnect} />
     </View>
   )
 }

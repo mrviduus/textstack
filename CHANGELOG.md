@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Library** — one "✦ Assistant ▾" button beside Continue Reading on every book page: Discuss this book / Review current chapter (or open its review), through the same connected-chat logic as the chapter-row Review; the "Open in Claude / ChatGPT" links and connector hint are gone — web, mobile · [details](docs/changelog-archive/2026-H2.md#2026-09-30-one-assistant-button)
 - **MCP** — Discuss / Review open the chat with one human sentence and a short id line; the how-to-work rules moved into the MCP server's instructions; upload titles lose trailing shadow-library domains like "(z-library.sk, 1lib.sk)" — backend, web, mobile, worker · [details](docs/changelog-archive/2026-H2.md#2026-09-30-human-handoff-briefs)
 - **Library** — chapter review in the reader and Practice: a dot on every highlight a review used (HTML + PDF), tapping it shows the block, the rule and Open review; quotes on the summary open the text at that highlight; a Chapter questions card on Practice with its own Forgot/Almost/Knew session; no Review button on front/back matter or chapters under 800 words — web (+ mobile for the last) · [details](docs/changelog-archive/2026-H2.md#2026-09-30-chapter-review-reader)
 - **MCP** — the review method stopped sending readers to a chapter-review page and a Practice section that don't exist yet (method v2) — backend

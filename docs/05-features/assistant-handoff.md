@@ -40,7 +40,7 @@ conversation about a real book — the reader just carries the outcome back by h
 |---|---|
 | **MCP bridge** | 13 tools, stdio + streamable HTTP. Auth by connect key (`tsk_…`) or device flow. `textstack.app/mcp` |
 | **`BookInsight`** | Conclusions written back, keyed by `(user, book, chapterSlug)`. One per target — a re-run replaces rather than accumulates |
-| **`DiscussWithAssistant`** | Button on 4 screens: catalog + upload detail, web + mobile. Opens `claude.ai/new?q=…` or `chatgpt.com/?q=…` with a prepared brief |
+| **`AssistantMenu`** ("✦ Assistant ▾", was `DiscussWithAssistant` until 2026-09-30) | Beside Continue Reading on 4 screens: catalog + upload detail, web + mobile. Items: Discuss this book, Review current chapter. Opens `claude.ai/new?q=…` or `chatgpt.com/?q=…` via `useAssistantLauncher` (same grant-based choice as `ReviewChapterButton`) |
 | **`BookInsightsSection`** | Renders the conclusions on the same 4 screens |
 
 ## What is missing

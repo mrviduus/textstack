@@ -6,6 +6,7 @@
  */
 import { MAX_BRIEF_CHARS, clipText as clip, textStackIdLine, type Assistant } from './assistantHandoff'
 import type { ChapterReviewDto } from '../types/api'
+import { isReviewableChapter } from './chapterReviewUi'
 
 export interface ChapterReviewBriefInput {
   title: string
@@ -92,4 +93,24 @@ export function resolveReviewHighlights(
 ): { id: string; text: string | null }[] {
   const byId = new Map(highlights.map(h => [h.id.toLowerCase(), h.selectedText]))
   return ids.map(id => ({ id, text: byId.get(id.toLowerCase()) ?? null }))
+}
+
+/**
+ * The "Review current chapter" item of the book page's Assistant menu: the chapter the reader's
+ * progress points at, and whether it already has a review (→ "Open review" instead). Null — item
+ * hidden — with no progress, a slugless chapter (reviews are keyed by slug), or a chapter the rows
+ * would not offer Review on (`isReviewableChapter`) unless it already has a review — same rule as
+ * the chapter rows.
+ */
+export function currentReviewChapter<C extends { slug?: string | null; title: string; wordCount?: number | null }>(
+  chapters: readonly C[],
+  currentSlug: string | null | undefined,
+  reviewed: { has(slug: string): boolean },
+): { slug: string; title: string; reviewed: boolean } | null {
+  if (!currentSlug) return null
+  const ch = chapters.find(c => c.slug === currentSlug)
+  if (!ch?.slug) return null
+  const done = reviewed.has(ch.slug)
+  if (!done && !isReviewableChapter(ch)) return null
+  return { slug: ch.slug, title: ch.title, reviewed: done }
 }

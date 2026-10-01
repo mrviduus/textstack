@@ -1,9 +1,32 @@
 import { describe, it, expect } from 'vitest'
 import {
-  buildChapterReviewBrief, chooseChat, connectedAssistants, nextChapterAfter, parseAssistant,
+  buildChapterReviewBrief, chooseChat, connectedAssistants, currentReviewChapter, nextChapterAfter, parseAssistant,
   resolveReviewHighlights, reviewsBySlug,
 } from './chapterReview'
 import { MAX_BRIEF_CHARS } from './assistantHandoff'
+
+describe('currentReviewChapter', () => {
+  const chapters = [
+    { slug: 'contents', title: 'Contents' },
+    { slug: 'prompts', title: '5. Prompt Engineering', wordCount: 5000 },
+    { slug: 'short', title: 'Interlude', wordCount: 100 },
+    { slug: null, title: 'Legacy' },
+  ]
+  const none = new Set<string>()
+  it('no progress / unknown slug → null', () => {
+    expect(currentReviewChapter(chapters, null, none)).toBeNull()
+    expect(currentReviewChapter(chapters, 'gone', none)).toBeNull()
+  })
+  it('not reviewable (front matter, too short) → null, unless it already has a review', () => {
+    expect(currentReviewChapter(chapters, 'contents', none)).toBeNull()
+    expect(currentReviewChapter(chapters, 'short', none)).toBeNull()
+    expect(currentReviewChapter(chapters, 'short', new Set(['short']))?.reviewed).toBe(true)
+  })
+  it('the current chapter, reviewed or not', () => {
+    expect(currentReviewChapter(chapters, 'prompts', none)).toEqual({ slug: 'prompts', title: '5. Prompt Engineering', reviewed: false })
+    expect(currentReviewChapter(chapters, 'prompts', new Set(['prompts']))?.reviewed).toBe(true)
+  })
+})
 
 const upload = {
   title: 'AI Engineering', author: 'Chip Huyen',

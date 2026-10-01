@@ -3,7 +3,7 @@ import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Share } from 'rea
 import { Image } from 'expo-image'
 import { useFocusEffect, useLocalSearchParams, useRouter, Stack } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
-import { createBooksApi, formatBookPercent, getStorageUrl, libraryApi, plural, readingProgressApi, resumeChapterSlug, storedBookPercent } from '@textstack/shared'
+import { createBooksApi, currentReviewChapter, formatBookPercent, getStorageUrl, libraryApi, plural, readingProgressApi, resumeChapterSlug, storedBookPercent } from '@textstack/shared'
 import type { BookDetail } from '@textstack/shared'
 import { useDownload } from '../../src/context/DownloadContext'
 import { useAuth } from '../../src/context/AuthContext'
@@ -12,7 +12,7 @@ import { useLanguage } from '../../src/context/LanguageContext'
 import { useToast } from '../../src/context/ToastContext'
 import { AddToCollectionSheet } from '../../src/components/library/AddToCollectionSheet'
 import { BookInsightsSection } from '../../src/components/library/BookInsightsSection'
-import { DiscussWithAssistant } from '../../src/components/library/DiscussWithAssistant'
+import { AssistantMenu } from '../../src/components/library/AssistantMenu'
 import { ChapterReviewAction } from '../../src/components/library/ReviewChapterButton'
 import { useBookReviews } from '../../src/hooks/useBookReviews'
 import { useSheetMount } from '../../src/hooks/useSheetMount'
@@ -363,6 +363,22 @@ export default function BookDetailScreen() {
     )
   }
 
+  const readButton = book.chapters.length > 0 ? (
+    <TouchableOpacity
+      style={[styles.readButton, { backgroundColor: colors.primary }]}
+      onPress={() => {
+        const target = continueSlug || book.chapters[0].slug
+        router.push(`/reader/${slug}/${target}`)
+      }}
+      activeOpacity={0.85}
+    >
+      <Ionicons name={continueSlug ? 'play' : 'book-outline'} size={18} color="#fff" />
+      <Text style={styles.readButtonText}>
+        {continueSlug ? 'Continue Reading' : 'Start Reading'}
+      </Text>
+    </TouchableOpacity>
+  ) : null
+
   return (
     <>
       <Stack.Screen options={{
@@ -409,20 +425,22 @@ export default function BookDetailScreen() {
               </Text>
             </View>
           )}
-          {book.chapters.length > 0 && (
-            <TouchableOpacity
-              style={[styles.readButton, { backgroundColor: colors.primary }]}
-              onPress={() => {
-                const target = continueSlug || book.chapters[0].slug
-                router.push(`/reader/${slug}/${target}`)
+          {offlineMode ? readButton : (
+            // Signed out too: launching explains that TextStack must be connected (and signed in).
+            <AssistantMenu
+              book={{
+                title: book.title,
+                author: book.authors.map(a => a.name).join(', ') || null,
+                editionId: book.id,
+                // Both identifiers: the read tools are slug-keyed, the insight tools are editionId-keyed.
+                slug: book.slug,
+                progressFraction: continuePct,
+                chapterTitle: book.chapters.find(c => c.slug === continueSlug)?.title ?? null,
               }}
-              activeOpacity={0.85}
+              current={currentReviewChapter(book.chapters, continueSlug, reviews)}
             >
-              <Ionicons name={continueSlug ? 'play' : 'book-outline'} size={18} color="#fff" />
-              <Text style={styles.readButtonText}>
-                {continueSlug ? 'Continue Reading' : 'Start Reading'}
-              </Text>
-            </TouchableOpacity>
+              {readButton}
+            </AssistantMenu>
           )}
 
           {isAuthenticated && !offlineMode && (
@@ -550,18 +568,6 @@ export default function BookDetailScreen() {
             insights would be write-only. Behind isAuthenticated because a signed-out
             reader would only be firing a 401 at every book they open. */}
         {isAuthenticated && <BookInsightsSection editionId={book.id} bookSlug={book.slug} />}
-        {isAuthenticated && (
-          <DiscussWithAssistant
-            title={book.title}
-            author={book.authors.map(a => a.name).join(', ') || null}
-            editionId={book.id}
-            // Both identifiers: the read tools are slug-keyed, the insight tools are editionId-keyed.
-            slug={book.slug}
-            // Already fetched for Continue Reading; the assistant was told none of it until now.
-            progressFraction={continuePct}
-            chapterTitle={book.chapters.find(c => c.slug === continueSlug)?.title ?? null}
-          />
-        )}
 
         <Text style={[styles.sectionTitle, { color: colors.text }]}>Chapters</Text>
         {(showAllChapters ? book.chapters : book.chapters.slice(0, 10)).map((ch) => (

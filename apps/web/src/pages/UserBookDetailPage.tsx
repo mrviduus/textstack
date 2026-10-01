@@ -9,7 +9,8 @@ import { stringToColor } from '../utils/colors'
 import { ShareButtons } from '../components/ShareButtons'
 import { BookStatsSection } from '../components/library/BookStatsSection'
 import { BookInsightsSection } from '../components/library/BookInsightsSection'
-import { DiscussWithAssistant } from '../components/library/DiscussWithAssistant'
+import { AssistantMenu } from '../components/library/AssistantMenu'
+import { currentReviewChapter } from '@textstack/shared'
 import { ChapterReviewAction } from '../components/library/ChapterReviewAction'
 import { useBookReviews } from '../hooks/useBookReviews'
 import { emitDataChanges } from '../lib/dataEvents'
@@ -382,6 +383,19 @@ export function UserBookDetailPage() {
               </Link>
             )}
 
+            {isReady && (
+              <AssistantMenu
+                book={{
+                  title: book.title,
+                  author: book.author,
+                  bookId: book.id,
+                  progressFraction: savedProgress?.percent ?? null,
+                  chapterTitle: book.chapters.find(c => c.slug === continueReadingSlug)?.title ?? null,
+                }}
+                current={currentReviewChapter(book.chapters, continueReadingSlug, reviews)}
+              />
+            )}
+
             {isReady && !book.completedAt && (
               <button
                 onClick={async () => {
@@ -484,20 +498,6 @@ export function UserBookDetailPage() {
           already worked out is more use than the table of contents. */}
       {isReady && book && (
         <BookInsightsSection userBookId={book.id} />
-      )}
-
-      {/* Directly under the insights: the section shows what came back, this is
-          how you go and get more. */}
-      {isReady && book && (
-        <DiscussWithAssistant
-          title={book.title}
-          author={book.author}
-          bookId={book.id}
-          progressFraction={savedProgress?.percent ?? null}
-          chapterTitle={
-            book.chapters.find(c => c.slug === savedProgress?.chapterSlug)?.title ?? null
-          }
-        />
       )}
 
       {isReady && book.chapters.length > 0 && (

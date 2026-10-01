@@ -36,7 +36,7 @@ TextStack: book_insight.review_json + Text (markdown) · review_question rows (o
 | Bridge error handling | `Http/TextStackApiClient.cs:373-392` | **any non-2xx → null**; server error text never reaches the model |
 | `get_my_chapter` cap | `Tools/HtmlText.cs:18` `DefaultMaxChars = 40_000` | DDIA chapter (~15–20k words ≈ 100–130k chars) is **already truncated today** |
 | Tool count 16, asserted 4× | `McpManifestDriftTests.cs:59`, `McpStdioSmokeTests.cs:56`, `McpOverTheWireTests.cs:281`, `IntegrationTests/McpManifestEndpointTests.cs:85`; mirror `Contracts/Mcp/McpManifest.cs` | → 18 |
-| Handoff | `packages/shared/src/lib/assistantHandoff.ts:28` (1200 chars), `:113` `handoffUrl` | `DiscussWithAssistant` web + mobile |
+| Handoff | `packages/shared/src/lib/assistantHandoff.ts:28` (1200 chars), `:113` `handoffUrl` | `AssistantMenu` web + mobile |
 | Insight UI | `BookInsightsSection` web + mobile, on `BookDetailPage:360`, `UserBookDetailPage:483`, mobile `book/[slug].tsx:548`, `my-books/[id].tsx:803` | |
 | Upload progress | `UserBook.ProgressChapterSlug/ProgressLocator` (`UserBook.cs:25-26`); write `UserBookService.cs:576` | |
 | **PDF progress has no chapter** | `packages/shared/src/reader/pdfProgress.ts:49-55`: `chapterSlug: null, locator: "page:<N>"` | chapter derived from page |
@@ -304,7 +304,7 @@ word session. Word SRS (`VocabularyWord`, `SrsEngine`, `ReviewCardBuilder`, `/me
 
 ## 12. UI surfaces (slices C–G)
 
-- **Button** — `ReviewChapterButton` beside `DiscussWithAssistant` on the 4 detail screens: chapter
+- **Button** — `ReviewChapterButton` on chapter rows; the book-level `AssistantMenu` on the 4 detail screens: chapter
   picker (default = position chapter; titles only) + Claude/ChatGPT links. Shared
   `buildChapterReviewBrief({title, author, bookId|editionId, chapterSlug, chapterTitle})` (≤1200
   chars) names both tools and says what to do without a connector. Reader-menu entry later (E).

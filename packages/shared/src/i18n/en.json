@@ -165,12 +165,15 @@
       "wholeBook": "This book",
       "remove": "Remove this note"
     },
-    "discuss": {
-      "label": "Talk this book over",
-      "claude": "Open in Claude",
-      "chatgpt": "Open in ChatGPT",
-      "hint": "Opens a new chat with an opening message about this book. Connect TextStack as a connector and your assistant can read the book and write its conclusions back here.",
-      "failed": "Nothing on this device could open that link."
+    "assistant": {
+      "button": "Assistant",
+      "discuss": "Discuss this book",
+      "reviewCurrent": "Review current chapter",
+      "openCurrentReview": "Open review of current chapter",
+      "chatIn": "Chat in",
+      "pickTitle": "Open in",
+      "claude": "Claude",
+      "chatgpt": "ChatGPT"
     },
     "chapters": "chapters",
     "processing": "Processing...",
@@ -715,7 +718,7 @@
     "openFailed": "Couldn't open the assistant.",
     "connect": {
       "title": "Connect Claude or ChatGPT in a minute",
-      "lead": "The review runs in your own assistant, which needs TextStack connected once. Paste this address, sign in and allow:",
+      "lead": "TextStack works inside your own Claude or ChatGPT — connect it once, it takes a minute. Paste this address, sign in and allow:",
       "copy": "Copy URL",
       "copied": "Copied",
       "more": "Open the connect page",
