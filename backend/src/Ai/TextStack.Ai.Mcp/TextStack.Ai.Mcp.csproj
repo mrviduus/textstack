@@ -38,6 +38,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Tool descriptions live once, in Contracts' McpManifestCatalog (dependency-free). -->
+    <ProjectReference Include="../../Contracts/Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Unit tests drive the device-flow provider's internal test seams
          (WaitForBackgroundPollAsync, ReadExp). -->
     <InternalsVisibleTo Include="TextStack.UnitTests" />

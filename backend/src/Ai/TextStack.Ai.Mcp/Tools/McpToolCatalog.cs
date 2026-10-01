@@ -144,7 +144,7 @@ public sealed class McpToolCatalog
         Name = "search_books",
         Title = "Search the catalog",
         ReadOnly = true,
-        Description = "Search the PUBLIC TextStack catalog for books and chapters matching a query. This is the shared library of published books, NOT the user's own uploads — for those, use search_my_library.",
+        Description = global::Contracts.Mcp.McpManifestCatalog.Describe("search_books"),
         InputSchema = SearchBooksSchema,
         Handler = (args, ct) =>
         {
@@ -186,7 +186,7 @@ public sealed class McpToolCatalog
         Name = "get_book",
         Title = "Get a catalog book",
         ReadOnly = true,
-        Description = "Fetch a catalog book by slug: its editionId, metadata, authors, genres, and chapter list.",
+        Description = global::Contracts.Mcp.McpManifestCatalog.Describe("get_book"),
         InputSchema = GetBookSchema,
         Handler = (args, ct) =>
         {
@@ -246,7 +246,7 @@ public sealed class McpToolCatalog
         Name = "get_chapter",
         Title = "Read a catalog chapter",
         ReadOnly = true,
-        Description = "Fetch a chapter's plain text (HTML stripped, length-capped) plus its number, title, and prev/next slugs.",
+        Description = global::Contracts.Mcp.McpManifestCatalog.Describe("get_chapter"),
         InputSchema = GetChapterSchema,
         Handler = (args, ct) =>
         {
@@ -310,12 +310,7 @@ public sealed class McpToolCatalog
         Name = "search_my_library",
         Title = "Search my uploaded books",
         ReadOnly = true,
-        Description =
-            "Full-text search across the books the signed-in user has UPLOADED to TextStack "
-            + "(their private library, not the public catalog — requires authentication). "
-            + "Returns one hit per book with its bookId, title, author and the best-matching "
-            + "chapter slug and excerpt. Pass the bookId to get_my_book or get_my_chapter. "
-            + "A bookId is NOT an editionId and will not work with list_my_highlights.",
+        Description = global::Contracts.Mcp.McpManifestCatalog.Describe("search_my_library"),
         InputSchema = SearchMyLibrarySchema,
         Handler = (args, ct) =>
         {
@@ -366,11 +361,7 @@ public sealed class McpToolCatalog
         Name = "get_my_book",
         Title = "Get one of my uploaded books",
         ReadOnly = true,
-        Description =
-            "Fetch one of the signed-in user's UPLOADED books by bookId (from search_my_library): "
-            + "its metadata and its full chapter list (requires authentication). Each chapter "
-            + "carries a chapterId and a slug — the slug goes to get_my_chapter, the chapterId to "
-            + "save_my_highlight.",
+        Description = global::Contracts.Mcp.McpManifestCatalog.Describe("get_my_book"),
         InputSchema = GetMyBookSchema,
         Handler = (args, ct) =>
         {
@@ -438,11 +429,7 @@ public sealed class McpToolCatalog
         Name = "get_my_chapter",
         Title = "Read a chapter of my uploaded book",
         ReadOnly = true,
-        Description =
-            "Fetch one chapter of a book the signed-in user UPLOADED: its plain text "
-            + "(HTML stripped, length-capped) plus its chapterId, number, title and prev/next "
-            + "slugs (requires authentication). The chapterId it returns is what save_my_highlight "
-            + "needs.",
+        Description = global::Contracts.Mcp.McpManifestCatalog.Describe("get_my_chapter"),
         InputSchema = GetMyChapterSchema,
         Handler = (args, ct) =>
         {
@@ -495,7 +482,7 @@ public sealed class McpToolCatalog
         Name = "list_my_highlights",
         Title = "List my highlights",
         ReadOnly = true,
-        Description = "List the signed-in user's highlights for a given edition (requires authentication).",
+        Description = global::Contracts.Mcp.McpManifestCatalog.Describe("list_my_highlights"),
         InputSchema = ListMyHighlightsSchema,
         Handler = (args, ct) =>
         {
@@ -542,7 +529,7 @@ public sealed class McpToolCatalog
         Name = "list_my_vocabulary",
         Title = "List my vocabulary",
         ReadOnly = true,
-        Description = "List the signed-in user's saved vocabulary words, optionally filtered by SRS stage or search (requires authentication).",
+        Description = global::Contracts.Mcp.McpManifestCatalog.Describe("list_my_vocabulary"),
         InputSchema = ListMyVocabularySchema,
         Handler = (args, ct) =>
         {
@@ -601,11 +588,7 @@ public sealed class McpToolCatalog
         Name = "save_highlight",
         Title = "Save a highlight",
         ReadOnly = false,
-        Description =
-            "Saves a highlight to YOUR TextStack library for the given catalog book chapter "
-            + "(WRITE on your own account — requires you to be signed in). Pass the editionId "
-            + "and chapterId (from get_book), the exact selected text, and optionally a color "
-            + "and a note. The highlight is stored and listable via list_my_highlights.",
+        Description = global::Contracts.Mcp.McpManifestCatalog.Describe("save_highlight"),
         InputSchema = SaveHighlightSchema,
         Handler = (args, ct) =>
         {
@@ -678,17 +661,7 @@ public sealed class McpToolCatalog
         Name = "save_my_highlight",
         Title = "Save a highlight in my uploaded book",
         ReadOnly = false,
-        Description =
-            "Highlight a passage in one of the books the user UPLOADED (WRITE on their own account — "
-            + "requires authentication). Pass the bookId, the chapterId of the chapter the passage is "
-            + "in (from get_my_book or get_my_chapter), and the exact text as it appears in that "
-            + "chapter — it is matched against the chapter text to place the highlight, so quote it "
-            + "verbatim. Optionally a color and a note. The highlight is listed by "
-            + "list_my_book_highlights and appears in the reader — EXCEPT on a book get_my_book "
-            + "reports as rendersAsOriginalPdf, where it is saved and listed but not drawn over the "
-            + "page, because a PDF highlight is placed by page geometry this tool cannot produce. "
-            + "Highlight what is worth returning to, not every interesting line: a book marked end "
-            + "to end is a book with no marks, and there is a hard limit of 200 per book.",
+        Description = global::Contracts.Mcp.McpManifestCatalog.Describe("save_my_highlight"),
         InputSchema = SaveMyHighlightSchema,
         Handler = (args, ct) =>
         {
@@ -745,10 +718,7 @@ public sealed class McpToolCatalog
         Name = "list_my_book_highlights",
         Title = "List highlights in my uploaded book",
         ReadOnly = true,
-        Description =
-            "List the highlights already saved in one of the books the user UPLOADED, by bookId "
-            + "(requires authentication). Use it before highlighting to see what is already marked. "
-            + "For a book from the public catalog use list_my_highlights with its editionId instead.",
+        Description = global::Contracts.Mcp.McpManifestCatalog.Describe("list_my_book_highlights"),
         InputSchema = ListMyBookHighlightsSchema,
         Handler = (args, ct) =>
         {
@@ -804,15 +774,7 @@ public sealed class McpToolCatalog
         ReadOnly = false,
         Destructive = true,
         Idempotent = true,
-        Description =
-            "Write a conclusion back into a book so the reader finds it there later (WRITE on their "
-            + "own account — requires authentication). Give EITHER bookId (a book they uploaded) OR "
-            + "editionId (a catalog book). Pass chapterSlug when the conclusion is about one chapter, "
-            + "and leave it out when it is about the whole book — that book-level one is the конспект's "
-            + "overview. `text` is Markdown; `question` records what was being worked out, which is "
-            + "what makes it worth coming back to. Saving again for the same chapter REPLACES the "
-            + "previous one, so a second pass refreshes the notes rather than duplicating them. "
-            + "A chapter that has a structured review cannot be overwritten here — use save_chapter_review.",
+        Description = global::Contracts.Mcp.McpManifestCatalog.Describe("save_insight"),
         InputSchema = SaveInsightSchema,
         Handler = (args, ct) =>
         {
@@ -863,11 +825,7 @@ public sealed class McpToolCatalog
         Name = "get_my_insights",
         Title = "Get my insights",
         ReadOnly = true,
-        Description =
-            "Read back everything already worked out about a book and saved with save_insight, in "
-            + "reading order (requires authentication). Give EITHER bookId (an uploaded book) OR "
-            + "editionId (a catalog book). Call this FIRST when starting to work on a book the reader "
-            + "has discussed before — it is what stops the next session repeating the last one.",
+        Description = global::Contracts.Mcp.McpManifestCatalog.Describe("get_my_insights"),
         InputSchema = GetMyInsightsSchema,
         Handler = (args, ct) =>
         {
@@ -931,15 +889,7 @@ public sealed class McpToolCatalog
         Name = "get_chapter_review",
         Title = "Get a chapter review",
         ReadOnly = true,
-        Description =
-            "Start a TextStack chapter review — everything in one call (requires authentication). "
-            + "Give EITHER bookId (an uploaded book) OR editionId (a catalog book), plus chapterSlug. "
-            + "Returns the review METHOD to follow, the chapter text, the reader's highlights in it, "
-            + "their saved words from this book, open threads from earlier chapters and any previous "
-            + "review of this chapter. If chapter.partCount > 1, call again with part = 2..partCount "
-            + "before writing. Follow the method exactly and save with save_chapter_review. Usually called "
-            + "after a conversation, once the reader agreed to a review. The review covers this chapter "
-            + "only: later chapters may come up in conversation, but the review is built from this chapter.",
+        Description = global::Contracts.Mcp.McpManifestCatalog.Describe("get_chapter_review"),
         InputSchema = GetChapterReviewSchema,
         Handler = (args, ct) =>
         {
@@ -1026,14 +976,7 @@ public sealed class McpToolCatalog
         ReadOnly = false,
         Destructive = true,
         Idempotent = true,
-        Description =
-            "Save a finished TextStack chapter review (WRITE on the reader's account — requires "
-            + "authentication). Same book/chapter ids as get_chapter_review. `review` must follow the "
-            + "method get_chapter_review returned: 3–6 blocks, each with a concrete problem, a one-line "
-            + "rootCause, a rule to memorize, the ids of the reader's highlights it covers (never invent "
-            + "ids) and one question with its answer; plus applications and threads. Saving again "
-            + "REPLACES the chapter's review. If the save is refused, the error lists every problem — "
-            + "fix all of them and save again.",
+        Description = global::Contracts.Mcp.McpManifestCatalog.Describe("save_chapter_review"),
         InputSchema = SaveChapterReviewSchema,
         Handler = (args, ct) =>
         {
@@ -1156,14 +1099,7 @@ public sealed class McpToolCatalog
         Name = "get_my_reading",
         Title = "Get my reading shelf",
         ReadOnly = true,
-        Description =
-            "List what the reader is reading right now and what they recently finished, with titles "
-            + "and how far in they are (requires authentication). Takes no arguments. Call this FIRST "
-            + "when you do not already have a bookId or editionId — nothing else here can find a book "
-            + "without one. `source` says which: \"userbook\" means a book they uploaded, addressed by "
-            + "`bookId` in the _my_ tools; \"savedbook\" is a catalog book, addressed by `slug` in "
-            + "get_book/get_chapter and by `editionId` in the insight tools. `chapterSlug` is where "
-            + "they stopped. `allBooks` lists every upload including ones never opened.",
+        Description = global::Contracts.Mcp.McpManifestCatalog.Describe("get_my_reading"),
         InputSchema = GetMyReadingSchema,
         Handler = (args, ct) =>
         {
@@ -1240,12 +1176,7 @@ public sealed class McpToolCatalog
         Name = "get_book_progress",
         Title = "Get book progress",
         ReadOnly = true,
-        Description =
-            "How far the reader has got in one book, and which chapter they stopped in (requires "
-            + "authentication). Give EITHER bookId (a book they uploaded) OR editionId (a catalog "
-            + "book). Ask this before discussing a book you have not just been told the position of "
-            + "— it is what lets you avoid spoiling what they have not reached yet. A book they have "
-            + "never opened has no progress and says so.",
+        Description = global::Contracts.Mcp.McpManifestCatalog.Describe("get_book_progress"),
         InputSchema = GetBookProgressSchema,
         Handler = (args, ct) =>
         {
@@ -1315,15 +1246,7 @@ public sealed class McpToolCatalog
         ReadOnly = false,
         Destructive = true,
         Idempotent = true,
-        Description =
-            "Record that the reader has FINISHED a chapter, including one they read or listened to "
-            + "somewhere else — an audiobook, paper, another app (requires authentication). Give "
-            + "EITHER bookId (a book they uploaded) OR slug (a catalog book), plus the chapterSlug "
-            + "they finished; get_my_reading and get_book list the slugs. The app then resumes them "
-            + "at the START of the next chapter and its progress becomes chapters-finished over "
-            + "chapters-total; finishing the last chapter marks the book complete. Only call this "
-            + "when the reader says they finished something — it overwrites the exact position their "
-            + "reader had stored, and it cannot be undone from here.",
+        Description = global::Contracts.Mcp.McpManifestCatalog.Describe("set_book_progress"),
         InputSchema = SetBookProgressSchema,
         Handler = (args, ct) =>
         {
