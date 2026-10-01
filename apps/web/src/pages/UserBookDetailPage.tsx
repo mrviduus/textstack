@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
-import { getUserBook, deleteUserBook, retryUserBook, enrichUserBook, markUserBookComplete, unmarkUserBookComplete, getUserBookCoverUrl, type UserBookDetail } from '../api/userBooks'
+import { getUserBook, getUserBookProgress, deleteUserBook, retryUserBook, enrichUserBook, markUserBookComplete, unmarkUserBookComplete, getUserBookCoverUrl, type UserBookDetail } from '../api/userBooks'
 import { SeoHead } from '../components/SeoHead'
 import { Footer } from '../components/Footer'
 import { stringToColor } from '../utils/colors'
@@ -48,9 +48,22 @@ export function UserBookDetailPage() {
   const pendingTimeoutRef = useRef<number | null>(null)
   const { reviews, insights, remove: removeInsight } = useBookReviews(isAuthenticated && book?.status === 'Ready' ? { userBookId: book.id } : null)
 
-  // Get saved progress from localStorage
+  // The server's position is the truth (the library card already shows it); localStorage only
+  // knows what THIS browser read, so on any other device a 44%-read book said "Start Reading" and
+  // the Assistant menu had no current chapter.
+  const [serverProgress, setServerProgress] = useState<{ chapterSlug: string | null; percent: number | null } | null>(null)
+  useEffect(() => {
+    if (!id || !isAuthenticated) return
+    let live = true
+    getUserBookProgress(id).then(p => { if (live) setServerProgress(p) })
+    return () => { live = false }
+  }, [id, isAuthenticated])
+
   const savedProgress = useMemo((): SavedProgress | null => {
     if (!id) return null
+    if (serverProgress?.chapterSlug) {
+      return { chapterSlug: serverProgress.chapterSlug, page: 0, percent: serverProgress.percent ?? 0 }
+    }
     try {
       const stored = localStorage.getItem(`userbook.progress.${id}`)
       if (!stored) return null
@@ -58,7 +71,7 @@ export function UserBookDetailPage() {
     } catch {
       return null
     }
-  }, [id])
+  }, [id, serverProgress])
 
   // Determine continue reading target
   const continueReadingSlug = useMemo(() => {

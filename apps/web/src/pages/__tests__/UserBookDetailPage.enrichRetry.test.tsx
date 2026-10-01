@@ -7,6 +7,7 @@ const getUserBook = vi.fn()
 const enrichUserBook = vi.fn()
 
 vi.mock('../../api/userBooks', () => ({
+  getUserBookProgress: () => Promise.resolve(null),
   getUserBook: (...a: unknown[]) => getUserBook(...a),
   enrichUserBook: (...a: unknown[]) => enrichUserBook(...a),
   deleteUserBook: vi.fn(),
