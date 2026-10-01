@@ -52,7 +52,7 @@ public class TagSuggestionGenerator : ITagSuggestionGenerator
         return (system, prompt);
     }
 
-    private static string TruncateToWords(string s, int maxWords)
+    internal static string TruncateToWords(string s, int maxWords)
     {
         if (string.IsNullOrEmpty(s)) return string.Empty;
         var words = s.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);

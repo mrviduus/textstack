@@ -191,7 +191,7 @@ public class AdminAuthService
         {
             Id = Guid.NewGuid(),
             AdminUserId = adminUserId,
-            Token = GenerateSecureToken(),
+            Token = DeviceCodes.GenerateSecureToken(),
             ExpiresAt = DateTimeOffset.UtcNow.AddDays(expiryDays),
             CreatedAt = DateTimeOffset.UtcNow
         };
@@ -199,13 +199,5 @@ public class AdminAuthService
         _db.AdminRefreshTokens.Add(token);
         await _db.SaveChangesAsync(ct);
         return token.Token;
-    }
-
-    private static string GenerateSecureToken()
-    {
-        var bytes = new byte[64];
-        using var rng = RandomNumberGenerator.Create();
-        rng.GetBytes(bytes);
-        return Convert.ToBase64String(bytes);
     }
 }

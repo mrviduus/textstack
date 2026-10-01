@@ -53,7 +53,7 @@ public sealed class ContinuousEvalWorker(
         while (await WaitNextAsync(timer, stoppingToken));
     }
 
-    private static async Task<bool> WaitNextAsync(PeriodicTimer timer, CancellationToken ct)
+    internal static async Task<bool> WaitNextAsync(PeriodicTimer timer, CancellationToken ct)
     {
         try { return await timer.WaitForNextTickAsync(ct); }
         catch (OperationCanceledException) { return false; }
@@ -109,7 +109,7 @@ public sealed class ContinuousEvalWorker(
         {
             // Cross-replica guard: only one replica runs the scheduled eval per due-window.
             conn = await OpenConnectionAsync(db, ct);
-            advisoryHeld = await TryAdvisoryLockAsync(conn, ct);
+            advisoryHeld = await TryAdvisoryLockAsync(conn, AdvisoryLockKey, ct);
             if (!advisoryHeld)
             {
                 logger.LogInformation("Scheduled eval skipped: advisory lock held by another replica");
@@ -125,7 +125,7 @@ public sealed class ContinuousEvalWorker(
             // otherwise the unlock SQL is skipped and the lock leaks onto a pooled connection,
             // poisoning it for later requests until the session is physically dropped.
             if (advisoryHeld && conn is not null)
-                await UnlockAsync(conn);
+                await UnlockAsync(conn, AdvisoryLockKey);
             gate.Exit();
         }
     }
@@ -206,7 +206,8 @@ public sealed class ContinuousEvalWorker(
             .ToList();
     }
 
-    private static async Task<DbConnection> OpenConnectionAsync(IAppDbContext db, CancellationToken ct)
+    // Shared with DriftDetectionWorker (each passes its own key).
+    internal static async Task<DbConnection> OpenConnectionAsync(IAppDbContext db, CancellationToken ct)
     {
         var conn = db.Database.GetDbConnection();
         if (conn.State != System.Data.ConnectionState.Open)
@@ -214,19 +215,19 @@ public sealed class ContinuousEvalWorker(
         return conn;
     }
 
-    private static async Task<bool> TryAdvisoryLockAsync(DbConnection conn, CancellationToken ct)
+    internal static async Task<bool> TryAdvisoryLockAsync(DbConnection conn, long key, CancellationToken ct)
     {
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT pg_try_advisory_lock(@key)";
         var p = cmd.CreateParameter();
         p.ParameterName = "key";
-        p.Value = AdvisoryLockKey;
+        p.Value = key;
         cmd.Parameters.Add(p);
         var result = await cmd.ExecuteScalarAsync(ct);
         return result is bool b && b;
     }
 
-    private static async Task UnlockAsync(DbConnection conn)
+    internal static async Task UnlockAsync(DbConnection conn, long key)
     {
         try
         {
@@ -234,7 +235,7 @@ public sealed class ContinuousEvalWorker(
             cmd.CommandText = "SELECT pg_advisory_unlock(@key)";
             var p = cmd.CreateParameter();
             p.ParameterName = "key";
-            p.Value = AdvisoryLockKey;
+            p.Value = key;
             cmd.Parameters.Add(p);
             // CancellationToken.None on purpose: releasing the lock must not be cancellable by the
             // shutdown token, or the lock leaks onto the pooled connection.

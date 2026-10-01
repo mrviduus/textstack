@@ -37,7 +37,7 @@ public static partial class ReadingTrackingEndpoints
 
     // --- Helpers ---
 
-    private static TimeSpan ParseTzOffset(string? tz)
+    internal static TimeSpan ParseTzOffset(string? tz)
     {
         if (string.IsNullOrEmpty(tz)) return TimeSpan.Zero;
         if (int.TryParse(tz, out var minutes))

@@ -54,13 +54,7 @@ public sealed class DriftDetectionWorker(
                 logger.LogError(ex, "Drift detection tick failed");
             }
         }
-        while (await WaitNextAsync(timer, stoppingToken));
-    }
-
-    private static async Task<bool> WaitNextAsync(PeriodicTimer timer, CancellationToken ct)
-    {
-        try { return await timer.WaitForNextTickAsync(ct); }
-        catch (OperationCanceledException) { return false; }
+        while (await ContinuousEvalWorker.WaitNextAsync(timer, stoppingToken));
     }
 
     // internal (not private) so a unit test can drive a single tick and prove the disabled
@@ -83,8 +77,8 @@ public sealed class DriftDetectionWorker(
         try
         {
             // Cross-replica guard: only one replica runs the drift sweep per tick.
-            conn = await OpenConnectionAsync(db, ct);
-            advisoryHeld = await TryAdvisoryLockAsync(conn, ct);
+            conn = await ContinuousEvalWorker.OpenConnectionAsync(db, ct);
+            advisoryHeld = await ContinuousEvalWorker.TryAdvisoryLockAsync(conn, AdvisoryLockKey, ct);
             if (!advisoryHeld)
             {
                 logger.LogInformation("Drift sweep skipped: advisory lock held by another replica");
@@ -113,7 +107,7 @@ public sealed class DriftDetectionWorker(
             // CancellationToken.None (NOT the tick token, which may be cancelled on shutdown) so the
             // unlock SQL always runs — otherwise the lock leaks onto the pooled connection.
             if (advisoryHeld && conn is not null)
-                await UnlockAsync(conn);
+                await ContinuousEvalWorker.UnlockAsync(conn, AdvisoryLockKey);
         }
     }
 
@@ -309,45 +303,5 @@ public sealed class DriftDetectionWorker(
             // Malformed trace — skip it.
         }
         return null;
-    }
-
-    private static async Task<DbConnection> OpenConnectionAsync(IAppDbContext db, CancellationToken ct)
-    {
-        var conn = db.Database.GetDbConnection();
-        if (conn.State != System.Data.ConnectionState.Open)
-            await conn.OpenAsync(ct);
-        return conn;
-    }
-
-    private static async Task<bool> TryAdvisoryLockAsync(DbConnection conn, CancellationToken ct)
-    {
-        await using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT pg_try_advisory_lock(@key)";
-        var p = cmd.CreateParameter();
-        p.ParameterName = "key";
-        p.Value = AdvisoryLockKey;
-        cmd.Parameters.Add(p);
-        var result = await cmd.ExecuteScalarAsync(ct);
-        return result is bool b && b;
-    }
-
-    private static async Task UnlockAsync(DbConnection conn)
-    {
-        try
-        {
-            await using var cmd = conn.CreateCommand();
-            cmd.CommandText = "SELECT pg_advisory_unlock(@key)";
-            var p = cmd.CreateParameter();
-            p.ParameterName = "key";
-            p.Value = AdvisoryLockKey;
-            cmd.Parameters.Add(p);
-            // CancellationToken.None on purpose: releasing the lock must not be cancellable by the
-            // shutdown token, or the lock leaks onto the pooled connection.
-            await cmd.ExecuteScalarAsync(CancellationToken.None);
-        }
-        catch
-        {
-            // Connection drop releases the session lock anyway; best-effort unlock.
-        }
     }
 }

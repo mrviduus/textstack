@@ -579,7 +579,7 @@ public class AuthService
         if (user == null)
             return null; // Don't reveal if email exists
 
-        var rawToken = GenerateSecureToken();
+        var rawToken = DeviceCodes.GenerateSecureToken();
         var tokenHash = HashToken(rawToken);
 
         var resetToken = new PasswordResetToken
@@ -907,7 +907,7 @@ public class AuthService
         {
             Id = Guid.NewGuid(),
             UserId = userId,
-            Token = GenerateSecureToken(),
+            Token = DeviceCodes.GenerateSecureToken(),
             ExpiresAt = DateTimeOffset.UtcNow.AddDays(ttlDays),
             CreatedAt = DateTimeOffset.UtcNow
         };
@@ -915,14 +915,6 @@ public class AuthService
         _db.UserRefreshTokens.Add(token);
         await _db.SaveChangesAsync(ct);
         return token.Token;
-    }
-
-    private static string GenerateSecureToken()
-    {
-        var bytes = new byte[64];
-        using var rng = RandomNumberGenerator.Create();
-        rng.GetBytes(bytes);
-        return Convert.ToBase64String(bytes);
     }
 
     private (string? subject, string? email) ValidateAppleToken(string identityToken)

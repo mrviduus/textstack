@@ -7,6 +7,7 @@ using Contracts.Common;
 using Domain.Entities;
 using Domain.Enums;
 using Domain.Utilities;
+using static TextStack.Extraction.Utilities.HtmlCleaner;
 using Microsoft.EntityFrameworkCore;
 using Application.UserBooks;
 
@@ -85,24 +86,5 @@ public partial class AdminService
 
         await db.SaveChangesAsync(ct);
         return (true, null);
-    }
-
-    private static string StripHtml(string html)
-    {
-        if (string.IsNullOrEmpty(html))
-            return string.Empty;
-
-        // Simple regex-based HTML stripping
-        var text = System.Text.RegularExpressions.Regex.Replace(html, "<[^>]+>", " ");
-        text = System.Net.WebUtility.HtmlDecode(text);
-        text = System.Text.RegularExpressions.Regex.Replace(text, @"\s+", " ");
-        return text.Trim();
-    }
-
-    private static int CountWords(string text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-            return 0;
-        return text.Split([' ', '\n', '\r', '\t'], StringSplitOptions.RemoveEmptyEntries).Length;
     }
 }

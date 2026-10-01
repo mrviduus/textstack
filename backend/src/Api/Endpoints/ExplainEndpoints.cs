@@ -58,8 +58,9 @@ public static class ExplainEndpoints
             return Results.BadRequest($"Sentence exceeds {maxSentenceLength} chars");
 
         var targetLang = string.IsNullOrWhiteSpace(request.TargetLang) ? "en" : request.TargetLang.Split('-')[0];
-        var genre = await ResolveGenreAsync(request, db, logger, ct);
-        var cache = new ExplainCache(config, logger);
+        var genre = await ResolveGenreAsync(request.Genre, request.BookId, db, logger, ct);
+        var cache = new FileJsonCache<ExplainResponse>(
+            config.GetValue<string>("Explain:CachePath") ?? "/tmp/explain-cache", config.GetValue("Explain:CacheTtlDays", 30), logger);
         var cacheKey = ComputeCacheKey(request.Word, request.Sentence, genre, targetLang);
 
         // Function-calling (AI-031b): which tools this request may use. Book tools need an edition in
@@ -105,11 +106,11 @@ public static class ExplainEndpoints
 
     private static async Task<IResult> ExplainJson(
         string word, string systemPrompt, string userPrompt,
-        ExplainCache cache, string cacheKey, ILlmService llm,
+        FileJsonCache<ExplainResponse> cache, string cacheKey, ILlmService llm,
         ToolCallingSession toolSession, IReadOnlyList<ToolSchema> tools, ToolContext toolCtx,
         ILogger logger, CancellationToken ct)
     {
-        if (await cache.TryReadAsync(cacheKey, ct) is { } cachedText)
+        if (await ReadCachedAsync(cache, cacheKey, ct) is { } cachedText)
             return Results.Ok(new ExplainResponse(cachedText, word, Cached: true));
 
         try
@@ -133,7 +134,7 @@ public static class ExplainEndpoints
             // Tool-grounded answers can be user-specific (highlights, progress-gated search) —
             // never write them to the shared cache.
             if (!usedTools)
-                await cache.WriteAsync(cacheKey, text, ct);
+                await WriteCachedAsync(cache, cacheKey, text, ct);
             return Results.Ok(new ExplainResponse(text, word, Cached: false));
         }
         catch (TaskCanceledException)
@@ -151,7 +152,7 @@ public static class ExplainEndpoints
 
     private static IResult ExplainSse(
         string word, string systemPrompt, string userPrompt,
-        ExplainCache cache, string cacheKey, ILlmService llm,
+        FileJsonCache<ExplainResponse> cache, string cacheKey, ILlmService llm,
         ToolCallingSession toolSession, IReadOnlyList<ToolSchema> tools, ToolContext toolCtx,
         HttpContext httpContext, ILogger logger)
     {
@@ -170,8 +171,8 @@ public static class ExplainEndpoints
                 onToolRound: () => usedTools = true, ct),
             fallback: async ct =>
                 (await llm.CompleteAsync(BuildRequest(systemPrompt, userPrompt, RetryOutputTokens), ct)).Text,
-            readCache: ct => cache.TryReadAsync(cacheKey, ct),
-            persist: (text, ct) => usedTools ? Task.CompletedTask : cache.WriteAsync(cacheKey, text, ct),
+            readCache: ct => ReadCachedAsync(cache, cacheKey, ct),
+            persist: (text, ct) => usedTools ? Task.CompletedTask : WriteCachedAsync(cache, cacheKey, text, ct),
             onException: ex => logger.LogError(ex, "Explain stream failed"),
             ct: httpContext.RequestAborted));
     }
@@ -290,88 +291,93 @@ public static class ExplainEndpoints
 
     // ---- shared pieces ----
 
+    private static async Task<string?> ReadCachedAsync(FileJsonCache<ExplainResponse> cache, string key, CancellationToken ct) =>
+        (await cache.TryReadAsync(key, ct))?.Explanation is { } e && !string.IsNullOrWhiteSpace(e) ? e : null;
+
+    // Word/Cached mirror what the JSON path historically persisted; readers flip Cached on hit.
+    private static Task WriteCachedAsync(FileJsonCache<ExplainResponse> cache, string key, string explanation, CancellationToken ct) =>
+        cache.WriteAsync(key, new ExplainResponse(explanation, "", false), ct);
+
     private static LlmRequest BuildRequest(
         string systemPrompt, string userPrompt, int maxTokens, IReadOnlyList<ToolSchema>? tools = null) =>
         new(systemPrompt, [new LlmMessage("user", userPrompt)], maxTokens,
             Tools: tools is { Count: > 0 } ? tools : null, FeatureTag: FeatureTag);
 
-    private static async Task<string?> ResolveGenreAsync(
-        ExplainRequest request, IAppDbContext db, ILogger logger, CancellationToken ct)
+    /// <summary>
+    /// Genre for the domain prompt: explicit request value → catalog Edition → user upload. Shared with
+    /// Translate. Fail-soft: a lookup error logs and returns null (the no-domain prompt), never a 500.
+    /// </summary>
+    internal static async Task<string?> ResolveGenreAsync(
+        string? genre, string? bookIdText, IAppDbContext db, ILogger logger, CancellationToken ct)
     {
-        if (!string.IsNullOrWhiteSpace(request.Genre))
-            return request.Genre;
-        if (string.IsNullOrWhiteSpace(request.BookId) || !Guid.TryParse(request.BookId, out var bookId))
+        if (!string.IsNullOrWhiteSpace(genre))
+            return genre;
+        if (string.IsNullOrWhiteSpace(bookIdText) || !Guid.TryParse(bookIdText, out var bookId))
             return null;
 
         try
         {
-            var genre = await db.Editions
+            var resolved = await db.Editions
                 .Where(e => e.Id == bookId)
                 .SelectMany(e => e.Genres.Select(g => g.Name))
                 .FirstOrDefaultAsync(ct);
-            if (string.IsNullOrWhiteSpace(genre))
+            if (string.IsNullOrWhiteSpace(resolved))
             {
-                genre = await db.UserBooks
+                resolved = await db.UserBooks
                     .Where(ub => ub.Id == bookId)
                     .Select(ub => ub.Genre)
                     .FirstOrDefaultAsync(ct);
             }
-            return genre;
+            return resolved;
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Explain genre lookup failed, using 'general' domain");
+            logger.LogWarning(ex, "Genre lookup failed, using 'general' domain");
             return null;
         }
     }
 
     private static string ComputeCacheKey(string word, string sentence, string? genre, string targetLang)
     {
-        var payload = $"{word.ToLowerInvariant()}|{sentence}|{genre ?? ""}|{targetLang}";
-        var bytes = Encoding.UTF8.GetBytes(payload);
-        var hash = SHA256.HashData(bytes);
-        return Convert.ToHexString(hash).ToLowerInvariant();
+        return FileJsonCache<ExplainResponse>.Key($"{word.ToLowerInvariant()}|{sentence}|{genre ?? ""}|{targetLang}");
+    }
+}
+
+/// <summary>
+/// SHA256-keyed JSON file cache shared by Explain + Translate: TTL in days (file mtime), best-effort IO —
+/// any failure logs and behaves as a miss / no-op. DictionaryCache is deliberately separate (stale-serving).
+/// </summary>
+internal sealed class FileJsonCache<T>(string path, int ttlDays, ILogger logger) where T : class
+{
+    public static string Key(string payload) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload))).ToLowerInvariant();
+
+    public async Task<T?> TryReadAsync(string key, CancellationToken ct)
+    {
+        try
+        {
+            var file = Path.Combine(path, key + ".json");
+            if (!File.Exists(file) || new FileInfo(file).LastWriteTimeUtc <= DateTime.UtcNow.AddDays(-ttlDays))
+                return null;
+            return JsonSerializer.Deserialize<T>(await File.ReadAllTextAsync(file, ct));
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "{Type} cache read failed, falling through to LLM", typeof(T).Name);
+            return null;
+        }
     }
 
-    /// <summary>The SHA256-keyed file cache (unchanged semantics: TTL days, best-effort IO).</summary>
-    private sealed class ExplainCache(IConfiguration config, ILogger logger)
+    public async Task WriteAsync(string key, T value, CancellationToken ct)
     {
-        private readonly string _path = config.GetValue<string>("Explain:CachePath") ?? "/tmp/explain-cache";
-        private readonly int _ttlDays = config.GetValue("Explain:CacheTtlDays", 30);
-
-        public async Task<string?> TryReadAsync(string key, CancellationToken ct)
+        try
         {
-            try
-            {
-                var file = Path.Combine(_path, key + ".json");
-                if (!File.Exists(file))
-                    return null;
-                if (new FileInfo(file).LastWriteTimeUtc <= DateTime.UtcNow.AddDays(-_ttlDays))
-                    return null;
-                var cached = JsonSerializer.Deserialize<ExplainResponse>(await File.ReadAllTextAsync(file, ct));
-                return string.IsNullOrWhiteSpace(cached?.Explanation) ? null : cached.Explanation;
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "Explain cache read failed, falling through to LLM");
-                return null;
-            }
+            Directory.CreateDirectory(path);
+            await File.WriteAllTextAsync(Path.Combine(path, key + ".json"), JsonSerializer.Serialize(value), ct);
         }
-
-        public async Task WriteAsync(string key, string explanation, CancellationToken ct)
+        catch (Exception ex)
         {
-            try
-            {
-                Directory.CreateDirectory(_path);
-                var file = Path.Combine(_path, key + ".json");
-                // Word/Cached mirror what the JSON path historically persisted; readers flip Cached on hit.
-                await File.WriteAllTextAsync(
-                    file, JsonSerializer.Serialize(new ExplainResponse(explanation, "", false)), ct);
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "Explain cache write failed");
-            }
+            logger.LogWarning(ex, "{Type} cache write failed", typeof(T).Name);
         }
     }
 }

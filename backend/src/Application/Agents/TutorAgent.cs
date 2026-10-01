@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using Application.Common;
 using Application.Tools;
 using TextStack.Ai.Agents;
 using TextStack.Ai.Core;
@@ -154,7 +155,7 @@ public sealed class TutorAgent(AgentLoop loop)
     {
         var cap = Math.Clamp(maxItems, 1, MaxPlanItems);
 
-        var json = ExtractJson(rawAnswer);
+        var json = JsonDefaults.ExtractJson(rawAnswer);
         if (json is null)
             return TutorPlan.Empty(Truncate(rawAnswer));
 
@@ -224,32 +225,6 @@ public sealed class TutorAgent(AgentLoop loop)
         if (string.IsNullOrWhiteSpace(raw)) return "No study plan could be produced.";
         var t = raw.Trim();
         return t.Length > 500 ? t[..500] : t;
-    }
-
-    /// <summary>Pulls the first balanced JSON object out of the answer (tolerates ```json fences + prose).</summary>
-    public static string? ExtractJson(string? raw)
-    {
-        if (string.IsNullOrWhiteSpace(raw)) return null;
-        var start = raw.IndexOf('{');
-        if (start < 0) return null;
-        var depth = 0;
-        var inString = false;
-        var escaped = false;
-        for (var i = start; i < raw.Length; i++)
-        {
-            var c = raw[i];
-            if (inString)
-            {
-                if (escaped) escaped = false;
-                else if (c == '\\') escaped = true;
-                else if (c == '"') inString = false;
-            }
-            else if (c == '"') inString = true;
-            else if (c == '{') depth++;
-            else if (c == '}' && --depth == 0)
-                return raw[start..(i + 1)];
-        }
-        return null;
     }
 }
 

@@ -291,7 +291,7 @@ public class IngestionWorkerService
                 jobId, parsed.Chapters.Count);
 
             // Auto-queue quality validation if enabled
-            await TryQueueQualityJobAsync(db, job.EditionId, null, ct);
+            await TryQueueQualityJobAsync(db, job.EditionId, null, _logger, ct);
 
             // Record success metric
             stopwatch.Stop();
@@ -442,7 +442,8 @@ public class IngestionWorkerService
         };
     }
 
-    private async Task TryQueueQualityJobAsync(AppDbContext db, Guid? editionId, Guid? userBookId, CancellationToken ct)
+    // Shared with UserIngestionService (editionId null => user book).
+    internal static async Task TryQueueQualityJobAsync(AppDbContext db, Guid? editionId, Guid? userBookId, ILogger logger, CancellationToken ct)
     {
         try
         {
@@ -463,13 +464,13 @@ public class IngestionWorkerService
             });
             await db.SaveChangesAsync(ct);
 
-            _logger.LogInformation("Queued quality validation for {Type} {Id}",
+            logger.LogInformation("Queued quality validation for {Type} {Id}",
                 editionId.HasValue ? "edition" : "user book",
                 editionId ?? userBookId);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to queue quality job — non-blocking");
+            logger.LogWarning(ex, "Failed to queue quality job — non-blocking");
         }
     }
 }

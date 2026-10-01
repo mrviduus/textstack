@@ -86,7 +86,7 @@ public static class DictionaryPolicy
 }
 
 /// <summary>
-/// SHA256-keyed file cache for dictionary lookups. Same shape as <c>ExplainCache</c> (hex key,
+/// SHA256-keyed file cache for dictionary lookups. Same shape as <c>FileJsonCache</c> (hex key,
 /// one JSON file per entry, best-effort IO that degrades to "no cache" rather than failing the
 /// request) with two differences that the fallback depends on:
 /// <list type="bullet">

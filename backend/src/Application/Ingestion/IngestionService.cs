@@ -6,6 +6,7 @@ using Domain.Utilities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using TextStack.Extraction.Quality;
+using static TextStack.Extraction.Utilities.TextProcessingUtils;
 
 namespace Application.Ingestion;
 
@@ -185,8 +186,4 @@ public class IngestionService(
 
         await db.SaveChangesAsync(ct);
     }
-
-    // Remove NULL bytes that PostgreSQL rejects (common in PDF extraction)
-    private static string SanitizeText(string? text)
-        => text?.Replace("\0", "") ?? "";
 }
