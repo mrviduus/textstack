@@ -3,7 +3,7 @@ import type { MutableRefObject, RefObject } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity, Animated, Linking, BackHandler } from 'react-native'
 import { WebView } from 'react-native-webview'
 import { useRouter, Stack } from 'expo-router'
-import { t, computeBookProgress, estimateTimeLeft, formatMinutesLeft, plural, resolvePdfResumePage, chapterEndPage } from '@textstack/shared'
+import { t, computeBookProgress, estimateTimeLeft, formatMinutesLeft, plural, resolvePdfResumePage, chapterEndPage, buildChapterDiscussBrief, isReviewableChapter } from '@textstack/shared'
 import type { Chapter, BookmarkDto, TextPosition } from '@textstack/shared'
 import { buildReaderHtml, buildPdfViewerHtml } from '../../lib/readerHtml'
 import {
@@ -21,6 +21,8 @@ import { useReaderBars } from '../../hooks/useReaderBars'
 import { useKeepReaderAwake } from '../../hooks/useKeepReaderAwake'
 import { useReadingPace } from '../../hooks/useReadingPace'
 import { useReaderExitSummary } from '../../hooks/useReaderExitSummary'
+import { useAssistantLauncher } from '../../hooks/useAssistantLauncher'
+import { ConnectAssistantSheet } from '../library/ReviewChapterButton'
 import { useReaderHighlights } from '../../hooks/useReaderHighlights'
 import { useReaderVocabMap } from '../../hooks/useReaderVocabMap'
 import { useReaderVocabActions } from '../../hooks/useReaderVocabActions'
@@ -63,7 +65,7 @@ function interpolate(template: string, vars: Record<string, string | number>): s
  *  vocab and reading-session — the ONLY thing that genuinely differs between the
  *  public-library reader and the user-uploaded-book reader. */
 export type ReaderSource =
-  | { kind: 'edition'; id: string | null; idRef: MutableRefObject<string | null> }
+  | { kind: 'edition'; id: string | null; idRef: MutableRefObject<string | null>; slug: string }
   | { kind: 'userbook'; id: string | null; idRef: MutableRefObject<string | null> }
 
 /** A loaded chapter, normalised across both data sources. */
@@ -306,6 +308,19 @@ export function ReaderShell(props: ReaderShellProps) {
     autoHideTrigger: true,
   })
 
+  // "Discuss this chapter" on the way out — the opened chapter, which is the one `latchChapterEnd`
+  // vouches for (ponytail: after reading on through several appended chapters it still offers the
+  // first; track the last finished slug if that matters). Same rules as the chapter-row button.
+  const discussCh = chapters.find(c => c.slug === chapterSlug)
+  const discussBrief = source.id && discussCh && isReviewableChapter(discussCh)
+    ? () => buildChapterDiscussBrief({
+        title: bookTitle ?? '',
+        ...(source.kind === 'edition' ? { editionId: source.id!, slug: source.slug } : { bookId: source.id! }),
+        chapterSlug, chapterTitle: discussCh.title,
+      })
+    : null
+  const launcher = useAssistantLauncher({ eager: false })
+
   const {
     sessionWordCount,
     setSessionWordCount,
@@ -315,12 +330,15 @@ export function ReaderShell(props: ReaderShellProps) {
     exitToReview: handleExitReview,
     exitToUpload: handleExitUpload,
     exitLater: handleExitLater,
+    holdExit,
   } = useReaderExitSummary({
     router,
     saveProgress,
     sourceKind: source.kind,
     finishedChapterRef,
+    canDiscussChapter: !!discussBrief,
   })
+  const discuss = () => { if (!discussBrief) return; holdExit(); void launcher.launch(discussBrief) }
 
   const { vocabMapRef, flushToCache: flushVocabMap, bumpVocab } = useReaderVocabMap({
     user,
@@ -1263,6 +1281,36 @@ export function ReaderShell(props: ReaderShellProps) {
           </View>
         )}
 
+        {/* The finished chapter, handed to the reader's own Claude/ChatGPT. On the words card too
+            (below) when the chapter was finished. Always "Discuss", never "Reviewed": the reader
+            holds no review state and one /me/insights per open is not worth it. */}
+        {exitPrompt === 'discuss-chapter' && discussCh && (
+          <View style={styles.exitSummaryOverlay}>
+            <View style={[styles.exitSummaryCard, styles.askCard, { backgroundColor: barBg }]}>
+              <Ionicons name="checkmark-circle" size={40} color={colors.success} />
+              <Text style={[styles.exitSummaryText, { color: barText, textAlign: 'center' }]} numberOfLines={2}>{discussCh.title}</Text>
+              <View style={styles.askButtons}>
+                <TouchableOpacity
+                  style={[styles.exitSummaryBtn, styles.askBtn, { backgroundColor: colors.primary }]}
+                  onPress={discuss}
+                  disabled={launcher.busy}
+                  accessibilityRole="button"
+                >
+                  <Text style={[styles.exitSummaryBtnText, { color: '#fff' }]}>✦ {t(language, 'chapterReview.discussChapter')}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.exitSummaryBtn, styles.askBtn, { backgroundColor: barText + '15' }]}
+                  onPress={handleExitLater}
+                  accessibilityRole="button"
+                >
+                  <Text style={[styles.exitSummaryBtnText, { color: barText }]}>Later</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        )}
+        <ConnectAssistantSheet visible={launcher.connect} onClose={launcher.closeConnect} />
+
         {exitPrompt === 'review-words' && (
           <View style={styles.exitSummaryOverlay}>
             {/* Follows the READER theme (barBg/barText), not the app theme — this
@@ -1288,6 +1336,11 @@ export function ReaderShell(props: ReaderShellProps) {
                   <Text style={[styles.exitSummaryBtnText, { color: barText }]}>Later</Text>
                 </TouchableOpacity>
               </View>
+              {finishedChapterRef.current && discussBrief && (
+                <TouchableOpacity onPress={discuss} disabled={launcher.busy} accessibilityRole="button" hitSlop={8}>
+                  <Text style={[styles.exitSummaryBtnText, { color: colors.primary }]}>✦ {t(language, 'chapterReview.discussChapter')}</Text>
+                </TouchableOpacity>
+              )}
             </View>
           </View>
         )}

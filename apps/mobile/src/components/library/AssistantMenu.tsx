@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native'
 import { router } from 'expo-router'
-import { buildChapterReviewBrief, buildHandoffBrief, type Assistant, type HandoffBook } from '@textstack/shared'
+import { buildChapterDiscussBrief, buildHandoffBrief, type Assistant, type HandoffBook } from '@textstack/shared'
 import { useTheme } from '../../context/ThemeContext'
 import { useLanguage } from '../../context/LanguageContext'
 import { useAssistantLauncher } from '../../hooks/useAssistantLauncher'
@@ -12,14 +12,14 @@ import { fonts } from '../../theme/typography'
 /**
  * "✦ Assistant ▾" beside Continue Reading (`children`) — the one way from a book screen into the
  * reader's own Claude or ChatGPT. Expands inline under the row (no modal: a second Modal for the
- * connect sheet, opened while the first is dismissing, is unreliable on iOS). Two items: Discuss
- * this book, and Review (or open the review of) the current chapter. Both go through
- * `useAssistantLauncher`, the same path as the chapter-row Review.
+ * connect sheet, opened while the first is dismissing, is unreliable on iOS). ONE Discuss item:
+ * the current chapter when there is one (plus "Open review" once it is reviewed), else the whole
+ * book — never both. Goes through `useAssistantLauncher`, the same path as the chapter-row Discuss.
  */
 interface Props {
   /** Upload: bookId; catalog: editionId + slug. */
   book: HandoffBook
-  /** From `currentReviewChapter`; null hides the Review item. */
+  /** From `currentReviewChapter`; null → Discuss the book instead of the chapter. */
   current: { slug: string; title: string; reviewed: boolean } | null
   /** The Continue / Start Reading button, laid out to the left. */
   children?: ReactNode
@@ -34,8 +34,8 @@ export function AssistantMenu({ book, current, children }: Props) {
   const toggle = () => { if (!open) void launcher.prefetch(); setOpen(o => !o) }
   const run = (brief: () => string) => { setOpen(false); void launcher.launch(brief, t('library.assistant.pickTitle')) }
 
-  const reviewBrief = (c: { slug: string; title: string }) => () => buildChapterReviewBrief({
-    title: book.title, author: book.author, bookId: book.bookId, editionId: book.editionId,
+  const chapterBrief = (c: { slug: string; title: string }) => () => buildChapterDiscussBrief({
+    title: book.title, author: book.author, bookId: book.bookId, editionId: book.editionId, slug: book.slug,
     chapterSlug: c.slug, chapterTitle: c.title,
   })
   const openReview = (slug: string) => {
@@ -67,10 +67,12 @@ export function AssistantMenu({ book, current, children }: Props) {
       </View>
       {open && (
         <View style={[styles.panel, { borderColor: colors.border, backgroundColor: colors.surface }]} accessibilityRole="menu">
-          <Item label={t('library.assistant.discuss')} onPress={() => run(() => buildHandoffBrief(book))} />
-          {current && (current.reviewed
-            ? <Item label={t('library.assistant.openCurrentReview')} sub={current.title} onPress={() => openReview(current.slug)} />
-            : <Item label={t('library.assistant.reviewCurrent')} sub={current.title} onPress={() => run(reviewBrief(current))} />)}
+          {current
+            ? <Item label={t('library.assistant.reviewCurrent')} sub={current.title} onPress={() => run(chapterBrief(current))} />
+            : <Item label={t('library.assistant.discuss')} onPress={() => run(() => buildHandoffBrief(book))} />}
+          {current?.reviewed && (
+            <Item label={t('library.assistant.openCurrentReview')} sub={current.title} onPress={() => openReview(current.slug)} />
+          )}
           {launcher.canSwitch && (
             <View style={[styles.chatRow, { borderTopColor: colors.border }]}>
               <Text style={[styles.sub, { color: colors.textSecondary }]}>{t('library.assistant.chatIn')}</Text>

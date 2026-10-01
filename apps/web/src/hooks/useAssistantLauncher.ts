@@ -6,8 +6,8 @@ import {
 import { listOAuthGrants } from '../api/oauth'
 
 /**
- * Which chat a handoff opens — ONE code path for every assistant button (chapter-row Review, the
- * book page's Assistant menu: Discuss + Review current chapter). Decision in `chooseChat`
+ * Which chat a handoff opens — ONE code path for every assistant button (chapter-row Discuss, the
+ * book page's Assistant menu: Discuss the book / current chapter). Decision in `chooseChat`
  * (@textstack/shared): one assistant connected → straight there; both → the remembered one, or a
  * pick the first time; none → the connect dialog instead of a chat that cannot reach TextStack.
  *

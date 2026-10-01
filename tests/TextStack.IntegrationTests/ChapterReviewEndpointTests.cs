@@ -306,7 +306,7 @@ public class ChapterReviewEndpointTests : IClassFixture<LiveApiFixture>, IClassF
         var insights = await (await SendAsync(HttpMethod.Get, $"/me/insights?editionId={seed.EditionId}"))
             .Content.ReadFromJsonAsync<JsonElement>(Ct);
         var row = insights.EnumerateArray().Single(i => i.GetProperty("id").GetGuid() == insightId);
-        Assert.Equal(1, row.GetProperty("review").GetProperty("methodVersion").GetInt32());
+        Assert.Equal(Application.ChapterReview.ReviewMethod.Version, row.GetProperty("review").GetProperty("methodVersion").GetInt32());
         Assert.Equal(highlightId, row.GetProperty("review").GetProperty("blocks")[0].GetProperty("highlightIds")[0].GetGuid());
         Assert.Contains("> **Rule:** Remember rule 0.", row.GetProperty("text").GetString());
         Assert.Equal("Chapter review", row.GetProperty("question").GetString());

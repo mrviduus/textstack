@@ -44,28 +44,31 @@ describe('AssistantMenu', () => {
     expect(screen.queryByRole('menu')).toBeNull()
   })
 
-  it('two items; the Review item names the current chapter', async () => {
+  it('current chapter → ONE discuss item, naming the chapter; no book item', async () => {
     listOAuthGrants.mockResolvedValue([])
     renderMenu()
     await openMenu()
-    expect(screen.getAllByRole('menuitem')).toHaveLength(2)
-    expect(item(/Discuss this book/)).toBeInTheDocument()
-    expect(item(/Review current chapter/)).toHaveTextContent('5. Prompt Engineering')
+    expect(screen.getAllByRole('menuitem')).toHaveLength(1)
+    expect(item(/Discuss current chapter/)).toHaveTextContent('5. Prompt Engineering')
+    expect(screen.queryByRole('menuitem', { name: /Discuss the book/ })).toBeNull()
   })
 
-  it('no current chapter → Review item hidden', async () => {
+  it('no current chapter → only "Discuss the book"', async () => {
     listOAuthGrants.mockResolvedValue([])
     renderMenu({ current: null })
     await openMenu()
     expect(screen.getAllByRole('menuitem')).toHaveLength(1)
+    expect(item(/Discuss the book/)).toBeInTheDocument()
   })
 
-  it('current chapter already reviewed → "Open review" link to its summary', async () => {
+  it('current chapter already reviewed → "Open review" link + discuss the chapter again', async () => {
     listOAuthGrants.mockResolvedValue([])
     renderMenu({ current: { ...current, reviewed: true } })
     await openMenu()
+    expect(screen.getAllByRole('menuitem')).toHaveLength(2)
     expect(item(/Open review of current chapter/)).toHaveAttribute('href', '/en/library/my/b1/review/prompts')
-    expect(screen.queryByRole('menuitem', { name: /^Review current chapter/ })).toBeNull()
+    expect(item(/Discuss current chapter/)).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: /Discuss the book/ })).toBeNull()
   })
 
   it('catalog book: the review link uses the slug', async () => {
@@ -82,11 +85,11 @@ describe('AssistantMenu', () => {
     expect(screen.queryByText(/Open in Claude|Open in ChatGPT|connector/)).toBeNull()
   })
 
-  for (const which of ['Discuss this book', 'Review current chapter']) {
+  for (const [which, cur] of [['Discuss the book', null], ['Discuss current chapter', current]] as const) {
     describe(which, () => {
       it('0 grants → connect dialog, nothing opened', async () => {
         listOAuthGrants.mockResolvedValue([])
-        renderMenu()
+        renderMenu({ current: cur })
         await openMenu()
         fireEvent.click(item(new RegExp(which)))
         expect(await screen.findByRole('dialog')).toHaveTextContent('Connect Claude or ChatGPT in a minute')
@@ -95,7 +98,7 @@ describe('AssistantMenu', () => {
 
       it('1 grant → opens it', async () => {
         listOAuthGrants.mockResolvedValue([{ id: 'g', clientName: 'Claude' }])
-        renderMenu()
+        renderMenu({ current: cur })
         await openMenu()
         fireEvent.click(item(new RegExp(which)))
         expect(open).toHaveBeenCalledTimes(1)
@@ -105,7 +108,7 @@ describe('AssistantMenu', () => {
 
       it('2 grants, nothing remembered → pick, remembered, opened', async () => {
         listOAuthGrants.mockResolvedValue([{ id: '1', clientName: 'Claude' }, { id: '2', clientName: 'ChatGPT' }])
-        renderMenu()
+        renderMenu({ current: cur })
         await openMenu()
         fireEvent.click(item(new RegExp(which)))
         expect(open).not.toHaveBeenCalled()
@@ -116,20 +119,31 @@ describe('AssistantMenu', () => {
     })
   }
 
-  it('the briefs: Discuss is the humanized handoff, Review names the chapter', async () => {
+  it('the briefs: book discuss is the humanized handoff, chapter discuss names the chapter', async () => {
     listOAuthGrants.mockResolvedValue([{ id: 'g', clientName: 'Claude' }])
-    renderMenu()
+    const { unmount } = renderMenu({ current: null })
     await openMenu()
-    fireEvent.click(item(/Discuss/))
+    fireEvent.click(item(/Discuss the book/))
     const discuss = decodeURIComponent(open.mock.calls[0][0] as string)
     expect(discuss).toContain('Let\'s discuss "AI Engineering" by Chip Huyen in TextStack. I\'m about 42% in, at "5. Prompt Engineering".')
     expect(discuss).toContain('(TextStack: book b1)')
     expect((open.mock.calls[0][0] as string).length).toBeLessThanOrEqual(2000)
 
-    await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
+    unmount()
+    renderMenu()
     await openMenu()
-    fireEvent.click(item(/Review current chapter/))
-    expect(decodeURIComponent(open.mock.calls[1][0] as string)).toContain('(TextStack: book b1, chapter prompts)')
+    fireEvent.click(item(/Discuss current chapter/))
+    const chapter = decodeURIComponent(open.mock.calls[1][0] as string)
+    expect(chapter).toContain('at the chapter "5. Prompt Engineering". Let\'s talk about it.')
+    expect(chapter).toContain('(TextStack: book b1, chapter prompts)')
+  })
+
+  it('catalog chapter brief carries slug + edition id', async () => {
+    listOAuthGrants.mockResolvedValue([{ id: 'g', clientName: 'Claude' }])
+    renderMenu({ book: { title: 'Dracula', editionId: 'e1', slug: 'dracula' } })
+    await openMenu()
+    fireEvent.click(item(/Discuss current chapter/))
+    expect(decodeURIComponent(open.mock.calls[0][0] as string)).toContain('catalog dracula, edition e1')
   })
 
   it('both connected: the "Chat in" toggle switches the remembered chat', async () => {

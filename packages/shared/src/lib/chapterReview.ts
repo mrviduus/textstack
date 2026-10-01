@@ -15,20 +15,23 @@ export interface ChapterReviewBriefInput {
   bookId?: string
   /** Edition id (a catalog book). */
   editionId?: string
+  /** Catalog slug — read tools (get_chapter) take it, insight tools the editionId. */
+  slug?: string
   chapterSlug: string
   chapterTitle: string
 }
 
 /**
- * The opening message for a chapter review. ≤ MAX_BRIEF_CHARS. A human sentence plus the id line;
- * the method (get_chapter_review → save_chapter_review) is in the MCP server instructions. Titles
- * are clipped so the id line survives the cap whatever the book is called.
+ * The opening message for discussing a chapter — the one entry point (talk freely, then the
+ * assistant offers the review). ≤ MAX_BRIEF_CHARS. A human sentence plus the id line; the behaviour
+ * (soft spoilers, offering get_chapter_review → save_chapter_review) is in the MCP server
+ * instructions. Titles are clipped so the id line survives the cap whatever the book is called.
  */
-export function buildChapterReviewBrief(input: ChapterReviewBriefInput): string {
+export function buildChapterDiscussBrief(input: ChapterReviewBriefInput): string {
   const author = input.author ? ` by ${clip(input.author, 120)}` : ''
-  const id = textStackIdLine({ bookId: input.bookId, editionId: input.editionId, chapterSlug: input.chapterSlug })
+  const id = textStackIdLine({ bookId: input.bookId, editionId: input.editionId, slug: input.slug, chapterSlug: input.chapterSlug })
   const brief = [
-    `Let's review the chapter "${clip(input.chapterTitle, 200)}" of "${clip(input.title, 200)}"${author} in TextStack.`,
+    `I'm reading "${clip(input.title, 200)}"${author} in TextStack, at the chapter "${clip(input.chapterTitle, 200)}". Let's talk about it.`,
     ...(id ? ['', id] : []),
   ].join('\n')
   return brief.length <= MAX_BRIEF_CHARS ? brief : brief.slice(0, MAX_BRIEF_CHARS).trimEnd()

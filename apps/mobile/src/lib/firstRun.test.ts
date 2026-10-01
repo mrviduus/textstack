@@ -111,6 +111,13 @@ describe('decideReaderExitPrompt', () => {
     expect(decideReaderExitPrompt(input({ sessionWordCount: 0, finishedChapter: true }))).toBe('none')
   })
 
+  it('offers Discuss for a finished, discussable chapter with no words saved — and only then', () => {
+    expect(decideReaderExitPrompt(input({ sessionWordCount: 0, finishedChapter: true, canDiscussChapter: true }))).toBe('discuss-chapter')
+    expect(decideReaderExitPrompt(input({ sessionWordCount: 0, finishedChapter: false, canDiscussChapter: true }))).toBe('none')
+    // Words saved: the words summary wins (it carries its own Discuss button).
+    expect(decideReaderExitPrompt(input({ finishedChapter: true, canDiscussChapter: true, ownBookAskSeen: true }))).toBe('review-words')
+  })
+
   it('never asks someone who is already reading a book of their own', () => {
     expect(decideReaderExitPrompt(input({ sourceKind: 'userbook' }))).toBe('review-words')
   })

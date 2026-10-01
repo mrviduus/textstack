@@ -35,7 +35,8 @@ import { getUserBooks, getUserBookFileUrl, getUserBookProgress } from '../api/us
 import { parsePdfPageLocator, computeBookProgress, clampPage, isPdfAnchor, type PdfAnchor } from '@textstack/shared'
 import { useHighlights } from '../hooks/useHighlights'
 import { useBookReviews, chapterReviewPath } from '../hooks/useBookReviews'
-import { reviewedHighlightMarks } from '@textstack/shared'
+import { reviewedHighlightMarks, isReviewableChapter } from '@textstack/shared'
+import { ReviewChapterButton } from '../components/library/ReviewChapterButton'
 import { ReviewedMarksContext, type ReviewedMarks } from '../components/reader/ReviewedMarks'
 import type { HighlightColor, StoredHighlight } from '../lib/offlineDb'
 import { sourceDomain } from '../components/library/ReadLaterShelf'
@@ -216,7 +217,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
   const reviewTarget = !isAuthenticated ? null
     : mode === 'userbook' ? (id ? { userBookId: id } : null)
     : (book?.id ? { editionId: book.id } : null)
-  const { insights: reviewInsights } = useBookReviews(reviewTarget)
+  const { insights: reviewInsights, reviews: chapterReviews } = useBookReviews(reviewTarget)
   const reviewedMarks = useMemo<ReviewedMarks>(() => ({
     marks: reviewedHighlightMarks(reviewInsights),
     reviewPath: (slug: string) => mode === 'userbook'
@@ -723,6 +724,26 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
                   settings={settings}
                   onTap={() => { readingSession.recordActivity(); showImmersiveBars() }}
                 />
+                {/* End-of-chapter Discuss (chapter-review.md §12). Signed-in only, like the chapter-row
+                    action: the launcher fetches grants on mount, a 401 for every anonymous reader. */}
+                {reviewTarget && (chapterReviews.has(chapter.identifier) ? (
+                  <div className="reader-discuss">
+                    <LocalizedLink to={reviewedMarks.reviewPath(chapter.identifier)} className="chapter-review-action chapter-review-action--done">
+                      ✓ {t('chapterReview.reviewed')} · {t('chapterReview.openReview')}
+                    </LocalizedLink>
+                  </div>
+                ) : isReviewableChapter(chapter) && (
+                  <div className="reader-discuss">
+                    <ReviewChapterButton
+                      title={book?.title ?? ''}
+                      author={publicBook?.authors.map(a => a.name).join(', ') || null}
+                      {...(mode === 'userbook' ? { bookId: id } : { editionId: book?.id, slug: bookSlug })}
+                      chapterSlug={chapter.identifier}
+                      chapterTitle={chapter.title}
+                      label={`✦ ${t('chapterReview.discussChapter')}`}
+                    />
+                  </div>
+                ))}
                 <ReaderNav
                   chapterTitle={chapter.title}
                   // Positional 1-based index — catalog chapterNumber is 0-based

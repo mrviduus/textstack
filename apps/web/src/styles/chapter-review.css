@@ -78,3 +78,8 @@ html.dark .chapter-review__rule { background: #3a3210; color: #fff3c4; }
 .question-review__assess { display: flex; gap: 8px; margin-top: 16px; }
 .question-review__assess > button { flex: 1; }
 .question-review__error { color: #b42318; font-size: 14px; }
+
+/* Reader: end-of-chapter Discuss, inline above the prev/next nav. */
+.reader-discuss { display: flex; justify-content: center; margin: 32px 0 8px; }
+.reader-discuss .review-chapter__btn { font-size: 14px; padding: 6px 16px; }
+.reader-discuss .review-chapter__menu { right: auto; left: 0; }

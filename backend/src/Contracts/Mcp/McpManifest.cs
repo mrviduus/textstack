@@ -133,8 +133,9 @@ public static class McpManifestCatalog
             + "Returns the review METHOD to follow, the chapter text, the reader's highlights in it, "
             + "their saved words from this book, open threads from earlier chapters and any previous "
             + "review of this chapter. If chapter.partCount > 1, call again with part = 2..partCount "
-            + "before writing. Follow the method exactly and save with save_chapter_review. Do not use "
-            + "or reveal anything from later chapters."),
+            + "before writing. Follow the method exactly and save with save_chapter_review. Usually called "
+            + "after a conversation, once the reader agreed to a review. The review covers this chapter "
+            + "only: later chapters may come up in conversation, but the review is built from this chapter."),
 
         new("save_chapter_review",
             "Save a finished TextStack chapter review (WRITE on the reader's account — requires "

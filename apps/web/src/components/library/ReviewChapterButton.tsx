@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { MCP_ENDPOINT, buildChapterReviewBrief, type ChapterReviewBriefInput } from '@textstack/shared'
+import { MCP_ENDPOINT, buildChapterDiscussBrief, type ChapterReviewBriefInput } from '@textstack/shared'
 import { useAssistantLauncher, __resetAssistantGrants } from '../../hooks/useAssistantLauncher'
 import { useTranslation } from '../../hooks/useTranslation'
 import { LocalizedLink } from '../LocalizedLink'
 
 /**
- * "Review" — opens the reader's own Claude or ChatGPT with a chapter-review brief (chapter-review.md §12).
+ * "Discuss" — opens the reader's own Claude or ChatGPT with a chapter brief (talk, then the review) (chapter-review.md §12).
  * Which chat is `useAssistantLauncher` (shared with the book page's Assistant menu); with both
  * connected a ▾ beside the button switches — the new pick is remembered per device.
  */
@@ -15,7 +15,7 @@ import { LocalizedLink } from '../LocalizedLink'
 export const __resetReviewGrants = __resetAssistantGrants
 
 interface Props extends ChapterReviewBriefInput {
-  /** Button text; defaults to "Review". */
+  /** Button text; defaults to "Discuss". */
   label?: string
   className?: string
 }
@@ -23,7 +23,7 @@ interface Props extends ChapterReviewBriefInput {
 export function ReviewChapterButton({ label, className, ...input }: Props) {
   const { t } = useTranslation()
   const launcher = useAssistantLauncher()
-  const brief = () => buildChapterReviewBrief(input)
+  const brief = () => buildChapterDiscussBrief(input)
 
   return (
     <span className="review-chapter">

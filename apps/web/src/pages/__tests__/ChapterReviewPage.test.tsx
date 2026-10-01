@@ -133,7 +133,7 @@ describe('ChapterReviewPage', () => {
     getBookInsights.mockResolvedValue([])
     renderAt('intro')
     expect(await screen.findByText("This chapter hasn't been reviewed yet")).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Review “Introduction”/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Discuss “Introduction”/ })).toBeInTheDocument()
   })
 
   it('next chapter: its summary when reviewed, otherwise a Review button for it', async () => {

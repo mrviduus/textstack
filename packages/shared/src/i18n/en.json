@@ -104,8 +104,8 @@
     "signOutTitle": "Sign out and lose everything?",
     "signOutMessage": "You're reading as a guest, so this phone is the only key to your account — there's no email or password to get back in with. Sign out and your saved books, highlights, vocabulary and reading progress are gone for good, and we can't recover them for you either.",
     "signOutCancel": "Keep reading",
-"progressNotCarried": "Signed in — but what you read before signing in stayed on the previous session and is not in this account.",
-        "signOutConfirm": "Sign out and lose it"
+    "progressNotCarried": "Signed in — but what you read before signing in stayed on the previous session and is not in this account.",
+    "signOutConfirm": "Sign out and lose it"
   },
   "footer": {
     "privacy": "Privacy Policy",
@@ -167,8 +167,8 @@
     },
     "assistant": {
       "button": "Assistant",
-      "discuss": "Discuss this book",
-      "reviewCurrent": "Review current chapter",
+      "discuss": "Discuss the book",
+      "reviewCurrent": "Discuss current chapter",
       "openCurrentReview": "Open review of current chapter",
       "chatIn": "Chat in",
       "pickTitle": "Open in",
@@ -709,11 +709,11 @@
     }
   },
   "chapterReview": {
-    "review": "Review",
+    "review": "Discuss",
     "reviewed": "Reviewed",
-    "reviewAria": "Review “{{title}}” with your assistant",
+    "reviewAria": "Discuss “{{title}}” with your assistant",
     "openReviewAria": "Open the review of “{{title}}”",
-    "pickTitle": "Review with",
+    "pickTitle": "Discuss in",
     "switchAria": "Choose Claude or ChatGPT",
     "openFailed": "Couldn't open the assistant.",
     "connect": {
@@ -740,10 +740,10 @@
       "applications": "Where this shows up in your work",
       "openThreads": "Open threads ({{count}})",
       "closedThreads": "Closed in this chapter",
-      "again": "Review again",
+      "again": "Discuss again",
       "next": "Next: {{title}} →",
       "emptyTitle": "This chapter hasn't been reviewed yet",
-      "emptyLead": "Press Review and your assistant goes through it with you by the TextStack method. The result comes back here.",
+      "emptyLead": "Press Discuss and talk the chapter over with your assistant. When you're done, it reviews the chapter by the TextStack method and the result comes back here.",
       "loadFailed": "Couldn't load this review.",
       "notFound": "Chapter not found.",
       "signIn": "Sign in to see your chapter reviews."
@@ -764,6 +764,7 @@
       "loadFailed": "Couldn't load your questions.",
       "answerFailed": "Couldn't save that answer. Try again.",
       "signIn": "Sign in to practice your chapter questions."
-    }
+    },
+    "discussChapter": "Discuss this chapter"
   }
 }

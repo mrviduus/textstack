@@ -128,6 +128,8 @@ export type ReaderExitPrompt =
   | 'review-words'
   /** Ask them to bring a book of their own. */
   | 'own-book'
+  /** No words saved, but a chapter was finished: offer "Discuss this chapter". */
+  | 'discuss-chapter'
 
 export interface ReaderExitInput {
   /** Words saved to vocabulary during this reading session. */
@@ -138,6 +140,8 @@ export interface ReaderExitInput {
   finishedChapter: boolean
   /** The one-shot flag above. Treat an unread flag as `true` — never ask twice. */
   ownBookAskSeen: boolean
+  /** The finished chapter can be handed to the reader's assistant (reviewable, book has an id). */
+  canDiscussChapter?: boolean
 }
 
 /**
@@ -154,7 +158,9 @@ export interface ReaderExitInput {
  * than the single session in which the ask replaces it.
  */
 export function decideReaderExitPrompt(input: ReaderExitInput): ReaderExitPrompt {
-  if (input.sessionWordCount <= 0) return 'none'
+  // No word saved: the only thing worth a card is the chapter just finished. The words summary
+  // carries its own Discuss button, so the two never compete.
+  if (input.sessionWordCount <= 0) return input.finishedChapter && input.canDiscussChapter ? 'discuss-chapter' : 'none'
   if (input.sourceKind === 'userbook') return 'review-words'
   if (input.ownBookAskSeen) return 'review-words'
   if (!input.finishedChapter) return 'review-words'

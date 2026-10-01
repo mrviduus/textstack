@@ -19,6 +19,8 @@ type Options = {
   /** Latched by the caller with `latchChapterEnd` on each progress message.
    *  A ref, not a value: it is only ever read at the instant of leaving. */
   finishedChapterRef: MutableRefObject<boolean>
+  /** The opened chapter can be discussed with the reader's assistant (see decideReaderExitPrompt). */
+  canDiscussChapter: boolean
 }
 
 /**
@@ -49,6 +51,7 @@ export function useReaderExitSummary({
   autoDismissMs = 5000,
   sourceKind,
   finishedChapterRef,
+  canDiscussChapter,
 }: Options) {
   const [sessionWordCount, setSessionWordCount] = useState(0)
   const [prompt, setPrompt] = useState<Exclude<ReaderExitPrompt, 'none'> | null>(null)
@@ -79,7 +82,8 @@ export function useReaderExitSummary({
     sourceKind,
     finishedChapter: finishedChapterRef.current,
     ownBookAskSeen: askSeen,
-  }), [sessionWordCount, sourceKind, finishedChapterRef, askSeen])
+    canDiscussChapter,
+  }), [sessionWordCount, sourceKind, finishedChapterRef, askSeen, canDiscussChapter])
 
   const exit = useCallback(() => {
     saveProgress()
@@ -114,6 +118,13 @@ export function useReaderExitSummary({
     router.replace('/my-books/upload')
   }, [router])
 
+  /** Stop the auto-dismiss — the reader is handing the chapter to their assistant (or connecting
+   *  one), and the screen must not pop under the sheet. "Later" still leaves. */
+  const holdExit = useCallback(() => {
+    if (exitTimerRef.current) clearTimeout(exitTimerRef.current)
+    exitTimerRef.current = null
+  }, [])
+
   const exitLater = useCallback(() => {
     if (exitTimerRef.current) clearTimeout(exitTimerRef.current)
     router.back()
@@ -129,5 +140,6 @@ export function useReaderExitSummary({
     exitToReview,
     exitToUpload,
     exitLater,
+    holdExit,
   }
 }

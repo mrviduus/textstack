@@ -40,7 +40,7 @@ export function ChapterReviewAction({ book, chapter, reviewed }: Props) {
     <ReviewChapterButton
       title={book.title}
       author={book.author}
-      {...('userBookId' in book ? { bookId: book.userBookId } : { editionId: book.editionId })}
+      {...('userBookId' in book ? { bookId: book.userBookId } : { editionId: book.editionId, slug: book.bookSlug })}
       chapterSlug={chapter.slug}
       chapterTitle={chapter.title}
     />
