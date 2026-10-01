@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
-import type { MutableRefObject, RefObject } from 'react'
+import type { MutableRefObject, ReactNode, RefObject } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity, Animated, Linking, BackHandler } from 'react-native'
 import { WebView } from 'react-native-webview'
 import { useRouter, Stack } from 'expo-router'
@@ -7,7 +7,7 @@ import { t, computeBookProgress, estimateTimeLeft, formatMinutesLeft, plural, re
 import type { Chapter, BookmarkDto, TextPosition } from '@textstack/shared'
 import { buildReaderHtml, buildPdfViewerHtml } from '../../lib/readerHtml'
 import {
-  pdfDocumentKey, pdfChromeInjectionJs, latchPdfChrome, pdfChromeChanged, type PdfChrome,
+  pdfDocumentKey, pdfChromeInjectionJs,
 } from '../../lib/pdfViewerChrome'
 import {
   readerDocumentKey, readerChromeInjectionJs, latchReaderChrome, readerChromeChanged, type ReaderChrome,
@@ -210,6 +210,12 @@ export function ReaderShell(props: ReaderShellProps) {
   const [tocOpen, setTocOpen] = useState(false)
   const [progress, setProgress] = useState(0)
   const [bookProgress, setBookProgress] = useState<number | null>(null)
+  const updateBookProgress = (slug: string | null, chapterProgress: number) => {
+    const bp = computeBookProgress(chapters, slug, chapterProgress, totalWordCountRef.current)
+    bookProgressRef.current = bp
+    setBookProgress(bp)
+    return bp
+  }
   const [visibleChapterSlug, setVisibleChapterSlug] = useState<string | null>(null)
 
   const sessionWordCountRef = useRef(0)
@@ -232,16 +238,15 @@ export function ReaderShell(props: ReaderShellProps) {
   const [pdfReloadNonce, setPdfReloadNonce] = useState(0)
   const currentPdfPageRef = useRef<number | null>(null)
   const pdfInitialPageRef = useRef<number | null>(originalInitialPage ?? null)
-  // Safe-area padding + theme colours for the PDF document. A REF, not a memo
-  // dependency: these change while the document is open (the status bar hides
-  // with the bars, the reader switches theme) and letting them rebuild the
-  // template reloads the WebView at page 1. Latched to the largest insets seen,
-  // then pushed to the live DOM by the effect below. See pdfViewerChrome.ts.
-  const readerChromeRef = useRef<ReaderChrome | null>(null)
-  const readerAppliedChromeRef = useRef<ReaderChrome | null>(null)
+  // Safe-area padding + theme colours for whichever document is open (reflow or
+  // PDF). A REF, not a memo dependency: these change while the document is open
+  // (the status bar hides with the bars, the reader switches theme) and letting
+  // them rebuild the template reloads the WebView (PDF: at page 1). Latched to
+  // the largest insets seen, then pushed to the live DOM by the effect below.
+  // See readerChrome.ts / pdfViewerChrome.ts.
+  const chromeRef = useRef<ReaderChrome | null>(null)
+  const appliedChromeRef = useRef<ReaderChrome | null>(null)
   const readerAppliedTypographyRef = useRef<ReaderTypography | null>(null)
-  const pdfChromeRef = useRef<PdfChrome | null>(null)
-  const pdfAppliedChromeRef = useRef<PdfChrome | null>(null)
   // S4c — top-visible page + page count for the PDF chrome + page-bookmark
   // state. Kept in React state (not just the ref) so the chrome + bookmark icon
   // re-render as the user scrolls.
@@ -547,9 +552,7 @@ export function ReaderShell(props: ReaderShellProps) {
         finishedChapterRef.current = latchChapterEnd(finishedChapterRef.current, endEvent)
         if (latchChapterEnd(false, endEvent)) finishedSlugRef.current = chapterSlug
         const activeSlugForCalc = data.chapterSlug || currentChapterSlugRef.current || chapterSlug || null
-        const bp = computeBookProgress(chapters, activeSlugForCalc, data.progress, totalWordCountRef.current)
-        bookProgressRef.current = bp
-        setBookProgress(bp)
+        const bp = updateBookProgress(activeSlugForCalc, data.progress)
         // The reading session wants BOOK progress, and it must be computed
         // before we report it — this used to pass the chapter fraction from two
         // lines above. `ReadingSession.EndPercent >= 0.99` is how the server
@@ -673,11 +676,7 @@ export function ReaderShell(props: ReaderShellProps) {
     // and latchChapterEnd takes visible ≠ opened for having read past the new one.
     currentChapterSlugRef.current = null
     setProgress(0)
-    if (chapters.length > 0) {
-      const bp = computeBookProgress(chapters, slug, 0, totalWordCountRef.current)
-      bookProgressRef.current = bp
-      setBookProgress(bp)
-    }
+    if (chapters.length > 0) updateBookProgress(slug, 0)
     onNavigateChapter(slug)
   }
 
@@ -800,10 +799,8 @@ export function ReaderShell(props: ReaderShellProps) {
   // 'progress' messages fire before the chapter list resolves.
   useEffect(() => {
     if (chapters.length === 0) return
-    const slug = currentChapterSlugRef.current || chapterSlug || null
-    const bp = computeBookProgress(chapters, slug, progressRef.current, totalWordCountRef.current)
-    bookProgressRef.current = bp
-    setBookProgress(bp)
+    updateBookProgress(currentChapterSlugRef.current || chapterSlug || null, progressRef.current)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chapters, chapterSlug])
 
   const documentKey = readerDocumentKey({
@@ -816,13 +813,13 @@ export function ReaderShell(props: ReaderShellProps) {
     () => {
       // Chrome and typography are read from refs, deliberately outside the
       // dependency list — see readerChrome.ts for what a rebuild costs here.
-      const chrome = readerChromeRef.current ?? {
+      const chrome = chromeRef.current ?? {
         safeArea: { top: insets.top, bottom: insets.bottom },
         backgroundColor: resolvedTheme.backgroundColor,
         textColor: resolvedTheme.textColor,
       }
-      readerChromeRef.current = chrome
-      readerAppliedChromeRef.current = chrome  // a fresh document already has it
+      chromeRef.current = chrome
+      appliedChromeRef.current = chrome  // a fresh document already has it
       const typography = {
         fontFamily: resolvedFontFamily,
         fontSize: settings.fontSize,
@@ -876,13 +873,13 @@ export function ReaderShell(props: ReaderShellProps) {
   const pdfHtml = useMemo(() => {
     if (!original || !originalFileUrl) return ''
     // Chrome is read from the ref, deliberately outside the dependency list.
-    const chrome = pdfChromeRef.current ?? {
+    const chrome = chromeRef.current ?? {
       safeArea: { top: insets.top, bottom: insets.bottom },
       backgroundColor: resolvedTheme.backgroundColor,
       textColor: resolvedTheme.textColor,
     }
-    pdfChromeRef.current = chrome
-    pdfAppliedChromeRef.current = chrome  // a fresh document already has it
+    chromeRef.current = chrome
+    appliedChromeRef.current = chrome  // a fresh document already has it
     // Same-origin, both ways. Streaming: an absolute API URL with `baseUrl` set
     // to the API origin. Local: the bare filename with `baseUrl` set to the
     // file's own directory — a `file://` document may read a sibling file, but
@@ -938,31 +935,16 @@ export function ReaderShell(props: ReaderShellProps) {
   // other half of the fix: the memo above stopped depending on insets and theme,
   // so something still has to apply them when they change mid-read — the status
   // bar hiding with the bars, or the reader switching to dark mode.
-  // The reflow twin of the PDF chrome effect below.
   useEffect(() => {
-    if (original) return
-    const next = latchReaderChrome(readerChromeRef.current, {
+    const next = latchReaderChrome(chromeRef.current, {
       safeArea: { top: insets.top, bottom: insets.bottom },
       backgroundColor: resolvedTheme.backgroundColor,
       textColor: resolvedTheme.textColor,
     })
-    readerChromeRef.current = next
-    if (!readerChromeChanged(readerAppliedChromeRef.current, next)) return
-    readerAppliedChromeRef.current = next
-    injectJs(readerChromeInjectionJs(next))
-  }, [original, insets.top, insets.bottom, resolvedTheme.backgroundColor, resolvedTheme.textColor, injectJs])
-
-  useEffect(() => {
-    if (!original) return
-    const next = latchPdfChrome(pdfChromeRef.current, {
-      safeArea: { top: insets.top, bottom: insets.bottom },
-      backgroundColor: resolvedTheme.backgroundColor,
-      textColor: resolvedTheme.textColor,
-    })
-    pdfChromeRef.current = next
-    if (!pdfChromeChanged(pdfAppliedChromeRef.current, next)) return
-    pdfAppliedChromeRef.current = next
-    injectJs(pdfChromeInjectionJs(next))
+    chromeRef.current = next
+    if (!readerChromeChanged(appliedChromeRef.current, next)) return
+    appliedChromeRef.current = next
+    injectJs(original ? pdfChromeInjectionJs(next) : readerChromeInjectionJs(next))
   }, [original, insets.top, insets.bottom, resolvedTheme.backgroundColor, resolvedTheme.textColor, injectJs])
 
   const barBg = resolvedTheme.backgroundColor
@@ -1288,64 +1270,26 @@ export function ReaderShell(props: ReaderShellProps) {
             (below) when the chapter was finished. Always "Discuss", never "Reviewed": the reader
             holds no review state and one /me/insights per open is not worth it. */}
         {exitPrompt === 'discuss-chapter' && discussCh && (
-          <View style={styles.exitSummaryOverlay}>
-            <View style={[styles.exitSummaryCard, styles.askCard, { backgroundColor: barBg }]}>
-              <Ionicons name="checkmark-circle" size={40} color={colors.success} />
-              <Text style={[styles.exitSummaryText, { color: barText, textAlign: 'center' }]} numberOfLines={2}>{discussCh.title}</Text>
-              <View style={styles.askButtons}>
-                <TouchableOpacity
-                  style={[styles.exitSummaryBtn, styles.askBtn, { backgroundColor: colors.primary }]}
-                  onPress={discuss}
-                  disabled={launcher.busy}
-                  accessibilityRole="button"
-                >
-                  <Text style={[styles.exitSummaryBtnText, { color: '#fff' }]}>✦ {t(language, 'chapterReview.discussChapter')}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.exitSummaryBtn, styles.askBtn, { backgroundColor: barText + '15' }]}
-                  onPress={handleExitLater}
-                  accessibilityRole="button"
-                >
-                  <Text style={[styles.exitSummaryBtnText, { color: barText }]}>{t(language, 'reader.exitSummary.later')}</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
+          <ExitCard
+            bg={barBg} fg={barText} stacked title={discussCh.title} titleLines={2}
+            primary={{ label: `✦ ${t(language, 'chapterReview.discussChapter')}`, onPress: discuss, disabled: launcher.busy }}
+            secondary={{ label: t(language, 'reader.exitSummary.later'), onPress: handleExitLater }}
+          />
         )}
         <ConnectAssistantSheet visible={launcher.connect} onClose={launcher.closeConnect} />
 
         {exitPrompt === 'review-words' && (
-          <View style={styles.exitSummaryOverlay}>
-            {/* Follows the READER theme (barBg/barText), not the app theme — this
-                card sits over the page the user was just reading, and a white card
-                over a dark chapter is a flashbang. The "Later" button used to be
-                white-on-white here: rgba(255,255,255,0.15) fill under #fff text. */}
-            <View style={[styles.exitSummaryCard, { backgroundColor: barBg }]}>
-              <Ionicons name="checkmark-circle" size={40} color={colors.success} />
-              <Text style={[styles.exitSummaryText, { color: barText }]}>
-                {plural(sessionWordCount, 'word', 'words', '{n} {noun} saved')}
-              </Text>
-              <View style={styles.exitSummaryButtons}>
-                <TouchableOpacity
-                  style={[styles.exitSummaryBtn, { backgroundColor: colors.primary }]}
-                  onPress={handleExitReview}
-                >
-                  <Text style={[styles.exitSummaryBtnText, { color: '#fff' }]}>{t(language, 'reader.exitSummary.reviewNow')}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.exitSummaryBtn, { backgroundColor: barText + '15' }]}
-                  onPress={handleExitLater}
-                >
-                  <Text style={[styles.exitSummaryBtnText, { color: barText }]}>{t(language, 'reader.exitSummary.later')}</Text>
-                </TouchableOpacity>
-              </View>
-              {finishedChapterRef.current && discussBrief && (
-                <TouchableOpacity onPress={discuss} disabled={launcher.busy} accessibilityRole="button" hitSlop={8}>
-                  <Text style={[styles.exitSummaryBtnText, { color: colors.primary }]}>✦ {t(language, 'chapterReview.discussChapter')}</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          </View>
+          <ExitCard
+            bg={barBg} fg={barText}
+            title={plural(sessionWordCount, 'word', 'words', '{n} {noun} saved')}
+            primary={{ label: t(language, 'reader.exitSummary.reviewNow'), onPress: handleExitReview }}
+            secondary={{ label: t(language, 'reader.exitSummary.later'), onPress: handleExitLater }}
+            footer={finishedChapterRef.current && discussBrief ? (
+              <TouchableOpacity onPress={discuss} disabled={launcher.busy} accessibilityRole="button" hitSlop={8}>
+                <Text style={[styles.exitSummaryBtnText, { color: colors.primary }]}>✦ {t(language, 'chapterReview.discussChapter')}</Text>
+              </TouchableOpacity>
+            ) : null}
+          />
         )}
 
         {/* The ask, once per install: they have just finished a chapter and saved
@@ -1354,46 +1298,62 @@ export function ReaderShell(props: ReaderShellProps) {
             something they can judge. Not gated on `canUpload` here on purpose:
             the upload screen owns that policy and states it in its own words. */}
         {exitPrompt === 'own-book' && (
-          <View style={styles.exitSummaryOverlay}>
-            <View style={[styles.exitSummaryCard, styles.askCard, { backgroundColor: barBg }]}>
-              <Ionicons name="checkmark-circle" size={40} color={colors.success} />
-              <Text style={[styles.exitSummaryText, { color: barText }]}>
-                {plural(sessionWordCount, 'word', 'words', '{n} {noun} saved')}
-              </Text>
-              <Text style={[styles.askTitle, { color: barText }]}>
-                {t(language, 'reader.ownBookAsk.title')}
-              </Text>
-              <Text style={[styles.askBody, { color: barText + 'B3' }]}>
-                {t(language, 'reader.ownBookAsk.body')}
-              </Text>
-              {/* Stacked, not side by side: these two labels are sentences, and
-                  the row layout the summary uses squeezes them onto a narrow
-                  phone. */}
-              <View style={styles.askButtons}>
-                <TouchableOpacity
-                  style={[styles.exitSummaryBtn, styles.askBtn, { backgroundColor: colors.primary }]}
-                  onPress={handleExitUpload}
-                  accessibilityRole="button"
-                >
-                  <Text style={[styles.exitSummaryBtnText, styles.askBtnText, { color: '#fff' }]}>
-                    {t(language, 'reader.ownBookAsk.cta')}
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.exitSummaryBtn, styles.askBtn, { backgroundColor: barText + '15' }]}
-                  onPress={handleExitLater}
-                  accessibilityRole="button"
-                >
-                  <Text style={[styles.exitSummaryBtnText, styles.askBtnText, { color: barText }]}>
-                    {t(language, 'reader.ownBookAsk.dismiss')}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
+          <ExitCard
+            bg={barBg} fg={barText} stacked
+            title={plural(sessionWordCount, 'word', 'words', '{n} {noun} saved')}
+            primary={{ label: t(language, 'reader.ownBookAsk.cta'), onPress: handleExitUpload }}
+            secondary={{ label: t(language, 'reader.ownBookAsk.dismiss'), onPress: handleExitLater }}
+          >
+            <Text style={[styles.askTitle, { color: barText }]}>{t(language, 'reader.ownBookAsk.title')}</Text>
+            <Text style={[styles.askBody, { color: barText + 'B3' }]}>{t(language, 'reader.ownBookAsk.body')}</Text>
+          </ExitCard>
         )}
       </View>
     </>
+  )
+}
+
+interface ExitAction { label: string; onPress: () => void; disabled?: boolean }
+
+/** The exit prompts' shared card. Follows the READER theme (bg/fg), not the app
+ *  theme — it sits over the page just read, and a white card over a dark chapter
+ *  is a flashbang. `stacked`: sentence-length labels, full-width buttons, since a
+ *  row squeezes them on a narrow phone. */
+function ExitCard({ bg, fg, title, titleLines, stacked, primary, secondary, children, footer }: {
+  bg: string
+  fg: string
+  title: string
+  titleLines?: number
+  stacked?: boolean
+  primary: ExitAction
+  secondary: ExitAction
+  children?: ReactNode
+  footer?: ReactNode
+}) {
+  const { colors } = useTheme()
+  const button = (a: ExitAction, fill: string, color: string) => (
+    <TouchableOpacity
+      style={[styles.exitSummaryBtn, stacked && styles.askBtn, { backgroundColor: fill }]}
+      onPress={a.onPress}
+      disabled={a.disabled}
+      accessibilityRole="button"
+    >
+      <Text style={[styles.exitSummaryBtnText, stacked && styles.askBtnText, { color }]}>{a.label}</Text>
+    </TouchableOpacity>
+  )
+  return (
+    <View style={styles.exitSummaryOverlay}>
+      <View style={[styles.exitSummaryCard, stacked && styles.askCard, { backgroundColor: bg }]}>
+        <Ionicons name="checkmark-circle" size={40} color={colors.success} />
+        <Text style={[styles.exitSummaryText, { color: fg, textAlign: 'center' }]} numberOfLines={titleLines}>{title}</Text>
+        {children}
+        <View style={stacked ? styles.askButtons : styles.exitSummaryButtons}>
+          {button(primary, colors.primary, '#fff')}
+          {button(secondary, fg + '15', fg)}
+        </View>
+        {footer}
+      </View>
+    </View>
   )
 }
 

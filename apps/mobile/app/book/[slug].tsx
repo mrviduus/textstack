@@ -11,6 +11,7 @@ import { useTheme } from '../../src/context/ThemeContext'
 import { useLanguage } from '../../src/context/LanguageContext'
 import { useToast } from '../../src/context/ToastContext'
 import { AddToCollectionSheet } from '../../src/components/library/AddToCollectionSheet'
+import { DownloadButton } from '../../src/components/library/DownloadButton'
 import { BookInsightsSection } from '../../src/components/library/BookInsightsSection'
 import { AssistantMenu } from '../../src/components/library/AssistantMenu'
 import { ChapterReviewAction } from '../../src/components/library/ReviewChapterButton'
@@ -298,8 +299,6 @@ export default function BookDetailScreen() {
   const { reviews } = useBookReviews(isAuthenticated && !offlineMode && book ? { editionId: book.id } : null)
 
   const dl = book ? downloads.get(book.id) : undefined
-  const isDownloading = dl?.status === 'downloading'
-  const progress = dl ? Math.round((dl.downloadedChapters / dl.totalChapters) * 100) : 0
 
   if (loading) {
     return (
@@ -472,43 +471,19 @@ export default function BookDetailScreen() {
             </TouchableOpacity>
           )}
 
-          {offlineMode ? (
-            // Cached-only view: the only thing that makes sense is
-            // "remove download" — other states need a fresh book payload
-            // we can't fetch right now.
-            <TouchableOpacity style={[styles.secondaryButton, { borderColor: colors.success }]} onPress={() => removeDownload(book.id)} activeOpacity={0.85}>
-              <Ionicons name="cloud-done-outline" size={18} color={colors.success} />
-              <Text style={[styles.secondaryButtonText, { color: colors.success }]}>Downloaded — Remove</Text>
-            </TouchableOpacity>
-          ) : cached ? (
-            <TouchableOpacity style={[styles.secondaryButton, { borderColor: colors.success }]} onPress={() => removeDownload(book.id)} activeOpacity={0.85}>
-              <Ionicons name="cloud-done-outline" size={18} color={colors.success} />
-              <Text style={[styles.secondaryButtonText, { color: colors.success }]}>Downloaded — Remove</Text>
-            </TouchableOpacity>
-          ) : isDownloading ? (
-            <TouchableOpacity style={[styles.secondaryButton, { borderColor: colors.primary }]} onPress={() => cancelDownload(book.id)} activeOpacity={0.85}>
-              <Ionicons name="cloud-download-outline" size={18} color={colors.primary} />
-              <Text style={[styles.secondaryButtonText, { color: colors.primary }]}>Downloading {progress}% — Cancel</Text>
-            </TouchableOpacity>
-          ) : dl?.status === 'error' && dl.failedChapters > 0 ? (
-            <>
-              <TouchableOpacity style={[styles.secondaryButton, { borderColor: '#F59E0B' }]} onPress={() => retryFailed(book.id)} activeOpacity={0.85}>
-                <Ionicons name="refresh" size={18} color="#F59E0B" />
-                <Text style={[styles.secondaryButtonText, { color: '#F59E0B' }]}>
-                  {plural(dl.failedChapters, 'chapter', 'chapters', 'Retry {n} failed {noun}')}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.secondaryButton, { borderColor: colors.border }]} onPress={() => startDownload(book, language)} activeOpacity={0.85}>
-                <Ionicons name="refresh-circle-outline" size={18} color={colors.textSecondary} />
-                <Text style={[styles.secondaryButtonText, { color: colors.text }]}>Re-download from scratch</Text>
-              </TouchableOpacity>
-            </>
-          ) : (
-            <TouchableOpacity style={[styles.secondaryButton, { borderColor: colors.border }]} onPress={() => startDownload(book, language)} activeOpacity={0.85}>
-              <Ionicons name="download-outline" size={18} color={colors.textSecondary} />
-              <Text style={[styles.secondaryButtonText, { color: colors.text }]}>Download for Offline</Text>
-            </TouchableOpacity>
-          )}
+          {/* Offline: the cached-only view can only offer "remove" — other
+              states need a fresh book payload we can't fetch right now. */}
+          <DownloadButton
+            dl={dl}
+            cached={offlineMode || cached}
+            onRemove={() => removeDownload(book.id)}
+            onCancel={() => cancelDownload(book.id)}
+            onRetry={() => retryFailed(book.id)}
+            onStart={() => startDownload(book, language)}
+            onRestart={() => startDownload(book, language)}
+            buttonStyle={styles.secondaryButton}
+            textStyle={styles.secondaryButtonText}
+          />
         </View>
 
         {/*

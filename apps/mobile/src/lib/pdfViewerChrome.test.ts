@@ -3,12 +3,10 @@ import {
   pdfChromeCss,
   pdfChromeInjectionJs,
   pdfDocumentKey,
-  latchPdfChrome,
-  pdfChromeChanged,
-  type PdfChrome,
 } from './pdfViewerChrome'
+import type { ReaderChrome } from './readerChrome'
 
-const chrome: PdfChrome = {
+const chrome: ReaderChrome = {
   safeArea: { top: 24, bottom: 16 },
   backgroundColor: '#FBF7F0',
   textColor: '#1A1A1A',
@@ -69,39 +67,5 @@ describe('template and injection agree', () => {
     // injectJavaScript; a stray backtick would terminate it. This has bitten
     // readerHtml.ts before.
     expect(pdfChromeInjectionJs(chrome)).not.toContain('`')
-  })
-})
-
-describe('latchPdfChrome', () => {
-  it('keeps the larger inset when the status bar hides', () => {
-    // The top bar is an absolute overlay: it comes back. Dropping the padding
-    // would reflow the page under it and move the reader's position.
-    const latched = latchPdfChrome(chrome, { ...chrome, safeArea: { top: 0, bottom: 16 } })
-    expect(latched.safeArea.top).toBe(24)
-  })
-
-  it('absorbs the zero insets Android reports on the first frame', () => {
-    const latched = latchPdfChrome(
-      { ...chrome, safeArea: { top: 0, bottom: 0 } },
-      { ...chrome, safeArea: { top: 24, bottom: 16 } },
-    )
-    expect(latched.safeArea).toEqual({ top: 24, bottom: 16 })
-  })
-
-  it('lets a theme change through', () => {
-    // Unlike insets, this is a change the reader asked for.
-    const dark = { ...chrome, backgroundColor: '#111', textColor: '#EEE' }
-    expect(latchPdfChrome(chrome, dark).backgroundColor).toBe('#111')
-  })
-})
-
-describe('pdfChromeChanged', () => {
-  it('is true on first application and false for an identical value', () => {
-    expect(pdfChromeChanged(null, chrome)).toBe(true)
-    expect(pdfChromeChanged(chrome, { ...chrome, safeArea: { ...chrome.safeArea } })).toBe(false)
-  })
-
-  it('notices a theme switch', () => {
-    expect(pdfChromeChanged(chrome, { ...chrome, backgroundColor: '#111' })).toBe(true)
   })
 })
