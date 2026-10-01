@@ -8,8 +8,9 @@ vi.mock('../../context/AuthContext', () => ({
   useAuth: () => useAuthMock(),
 }))
 
-vi.mock('../../api/library', () => ({
-  getLibraryShelves: () => getLibraryShelvesMock(),
+vi.mock('@textstack/shared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@textstack/shared')>()),
+  libraryApi: { getLibraryShelves: () => getLibraryShelvesMock() },
 }))
 
 import { useLibraryShelves, clearLibraryShelvesCache } from '../useLibraryShelves'

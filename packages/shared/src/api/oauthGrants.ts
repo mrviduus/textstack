@@ -1,10 +1,7 @@
 import { authFetch } from './client'
 import type { OAuthGrant } from '../lib/mcpConnect'
 
-/**
- * "Connected apps" over the shared client — the mobile path. The web has its own copy in
- * `apps/web/src/api/oauth.ts` for the same cookie-vs-bearer reason as `./mcpKeys`.
- */
+/** "Connected apps" — OAuth grants the reader gave an assistant (ADR-017). Web and mobile. */
 
 export async function listOAuthGrants(): Promise<OAuthGrant[]> {
   const res = await authFetch<{ items: OAuthGrant[] }>('/me/oauth/grants')

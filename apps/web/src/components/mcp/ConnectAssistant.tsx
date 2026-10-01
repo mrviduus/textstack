@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useTranslation } from '../../hooks/useTranslation'
-import { listMcpKeys, createMcpKey, revokeMcpKey, type McpKey, type CreatedMcpKey } from '../../api/mcpKeys'
 // Pure, and shared on purpose: a key minted on the phone is the same key here, so both platforms
 // must hand out the same snippet and the same default name.
-import { chatgptConnectorUrl, claudeDesktopConfig, defaultKeyName, liveKeys } from '@textstack/shared'
+import { chatgptConnectorUrl, claudeDesktopConfig, defaultKeyName, liveKeys, mcpKeysApi, type McpKey, type CreatedMcpKey } from '@textstack/shared'
 
 /**
  * Create and manage the connect keys that let an outside assistant reach the reader's books.
@@ -35,7 +34,7 @@ export function ConnectAssistant() {
   const refresh = useCallback(async () => {
     setLoading(true)
     try {
-      setKeys(await listMcpKeys())
+      setKeys(await mcpKeysApi.listMcpKeys())
     } catch {
       setError(t('mcp.connect.loadFailed'))
     } finally {
@@ -51,7 +50,7 @@ export function ConnectAssistant() {
     setCreating(true)
     setError(null)
     try {
-      const key = await createMcpKey(defaultKeyName(new Date()))
+      const key = await mcpKeysApi.createMcpKey(defaultKeyName(new Date()))
       setCreated(key)
       await refresh()
     } catch (e) {
@@ -64,7 +63,7 @@ export function ConnectAssistant() {
   const revoke = async (id: string) => {
     setError(null)
     try {
-      await revokeMcpKey(id)
+      await mcpKeysApi.revokeMcpKey(id)
       // A revoked key stops authenticating immediately; if the one on screen was just revoked, the
       // panel must go with it rather than keep offering a dead string to copy.
       if (created && created.id === id) setCreated(null)

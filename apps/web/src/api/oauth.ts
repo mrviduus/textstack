@@ -1,5 +1,5 @@
 import { authFetch, API_BASE, ApiError } from './client'
-import type { OAuthGrant } from '@textstack/shared'
+import { oauthGrantsApi, type OAuthGrant } from '@textstack/shared'
 
 export type { OAuthGrant }
 
@@ -41,11 +41,5 @@ const decide = async (path: string, requestId: string): Promise<string> => {
 export const approveOAuthRequest = (requestId: string) => decide('/oauth/authorize/approve', requestId)
 export const denyOAuthRequest = (requestId: string) => decide('/oauth/authorize/deny', requestId)
 
-export async function listOAuthGrants(): Promise<OAuthGrant[]> {
-  const res = await authFetch<{ items: OAuthGrant[] }>('/me/oauth/grants')
-  return res.items
-}
-
-export async function revokeOAuthGrant(id: string): Promise<void> {
-  await authFetch<void>(`/me/oauth/grants/${encodeURIComponent(id)}`, { method: 'DELETE' })
-}
+// "Connected apps" — the shared client (cookie mode on web, see ./client).
+export const { listOAuthGrants, revokeOAuthGrant } = oauthGrantsApi

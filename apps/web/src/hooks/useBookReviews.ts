@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { reviewsBySlug, type BookInsight } from '@textstack/shared'
-import { getBookInsights, deleteBookInsight } from '../api/insights'
+import { reviewsBySlug, insightsApi, type BookInsight } from '@textstack/shared'
 
 /**
  * The book's insights and, from them, which chapters have a structured review. One `/me/insights`
@@ -24,7 +23,7 @@ export function useBookReviews(target: { userBookId: string } | { editionId: str
   useEffect(() => {
     if (!target) return
     let cancelled = false
-    getBookInsights(target)
+    insightsApi.getBookInsights(target)
       .then(rows => { if (!cancelled) setState({ key, insights: rows, error: false }) })
       .catch(() => { if (!cancelled) setState({ key, insights: [], error: true }) })
     return () => { cancelled = true }
@@ -33,7 +32,7 @@ export function useBookReviews(target: { userBookId: string } | { editionId: str
 
   /** Delete on the server, then from this list. Rejects (list untouched) when the server refuses. */
   const remove = useCallback(async (id: string) => {
-    await deleteBookInsight(id)
+    await insightsApi.deleteBookInsight(id)
     setState(prev => ({ ...prev, insights: prev.insights.filter(i => i.id !== id) }))
   }, [])
 

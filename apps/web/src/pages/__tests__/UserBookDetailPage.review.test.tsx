@@ -12,9 +12,9 @@ vi.mock('../../api/userBooks', () => ({
   markUserBookComplete: vi.fn(), unmarkUserBookComplete: vi.fn(),
   getUserBookCoverUrl: (p: string) => p,
 }))
-vi.mock('../../api/insights', () => ({
-  getBookInsights: (...a: unknown[]) => getBookInsights(...a),
-  deleteBookInsight: vi.fn(),
+vi.mock('@textstack/shared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@textstack/shared')>()),
+  insightsApi: { getBookInsights: (...a: unknown[]) => getBookInsights(...a), deleteBookInsight: vi.fn() },
 }))
 vi.mock('../../api/oauth', () => ({ listOAuthGrants: () => Promise.resolve([]) }))
 vi.mock('../../context/AuthContext', () => ({ useAuth: () => ({ isAuthenticated: true }) }))

@@ -7,7 +7,10 @@ const getBookInsights = vi.fn()
 const getUserBookHighlights = vi.fn()
 const getPublicHighlights = vi.fn()
 vi.mock('../../api/userBooks', () => ({ getUserBook: (...a: unknown[]) => getUserBook(...a) }))
-vi.mock('../../api/insights', () => ({ getBookInsights: (...a: unknown[]) => getBookInsights(...a) }))
+vi.mock('@textstack/shared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@textstack/shared')>()),
+  insightsApi: { getBookInsights: (...a: unknown[]) => getBookInsights(...a) },
+}))
 vi.mock('../../api/userData', () => ({
   getUserBookHighlights: (...a: unknown[]) => getUserBookHighlights(...a),
   getPublicHighlights: (...a: unknown[]) => getPublicHighlights(...a),

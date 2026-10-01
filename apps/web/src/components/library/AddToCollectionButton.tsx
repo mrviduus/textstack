@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from '../../hooks/useTranslation'
 import { useCollections, invalidateCollectionsCache } from '../../hooks/useCollections'
-import { addBookToCollection, type BookType } from '../../api/collections'
+import { collectionsApi, type CollectionBookType as BookType } from '@textstack/shared'
 
 export type Toast = { msg: string; tone: 'success' | 'error' }
 
@@ -77,7 +77,7 @@ export function AddToCollectionButton(props: Props) {
     if (busy) return
     setBusy(true)
     try {
-      await addBookToCollection(collectionId, props.bookId, props.bookType)
+      await collectionsApi.addBookToCollection(collectionId, props.bookId, props.bookType)
       invalidateCollectionsCache()
       emitToast({ msg: t('library.actions.addedToCollection', { name }), tone: 'success' })
       setExpanded(false)
@@ -97,7 +97,7 @@ export function AddToCollectionButton(props: Props) {
     setBusy(true)
     try {
       const c = await create(trimmed)
-      await addBookToCollection(c.id, props.bookId, props.bookType)
+      await collectionsApi.addBookToCollection(c.id, props.bookId, props.bookType)
       invalidateCollectionsCache()
       emitToast({ msg: t('library.actions.addedToCollection', { name: c.name }), tone: 'success' })
       setExpanded(false)

@@ -13,10 +13,10 @@ const { auth, api } = vi.hoisted(() => ({
 }))
 
 vi.mock('../../../context/AuthContext', () => ({ useAuth: () => auth }))
-vi.mock('../../../api/mcpKeys', async () => {
-  const actual = await vi.importActual<typeof import('../../../api/mcpKeys')>('../../../api/mcpKeys')
-  return { ...actual, ...api }
-})
+vi.mock('@textstack/shared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@textstack/shared')>()),
+  mcpKeysApi: api,
+}))
 
 import { ConnectAssistant } from '../ConnectAssistant'
 

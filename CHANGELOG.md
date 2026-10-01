@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Refactor** — web runs `@textstack/shared`'s api client in cookie mode (`initApi({ credentials: 'include' })`, 401 → refresh → retry kept): one `authFetch` for both apps; web copies of collections, library shelves, insights, MCP keys, OAuth grants and the tutor client deleted (tutor now shared with mobile) — web, mobile, shared
 - **Library** — an upload's book page read its position from this browser's localStorage only, so a book 44% read elsewhere said "Start Reading" and the Assistant menu offered the whole book instead of the current chapter; it now asks the server first — web
 - **Refactor** — backend dead-code sweep (~1.8k lines): RAG/PDF-vision leftovers (providers, routes, rate limits, config, DTOs, multimodal path, datasets), five agent tools nothing offered, internal chapter `/split` endpoints, unused NuGet packages; no behaviour change — backend, infra
 - **Refactor** — web dead code out: ~1.8k lines of orphaned CSS (Ask/RAG panel, scroll reader, home sections, shelves, language picker), 13 unreferenced components, 10 unused `offlineDb` functions, 92 dead web + 5 shared i18n keys (new web unused-key guard), test-only library sort/filter helpers, admin `@dnd-kit/*`; privacy/terms stop naming Book Chat and the librarian — web, admin

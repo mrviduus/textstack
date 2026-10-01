@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { getBookInsights } from '../insights'
+import '../client' // cookie-mode initApi
+import { insightsApi } from '@textstack/shared'
+const { getBookInsights } = insightsApi
 
 /**
  * The shape on the wire, pinned.

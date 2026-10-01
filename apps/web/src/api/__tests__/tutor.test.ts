@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { startTutorSession, sendTutorFeedback } from '../tutor'
+import '../client' // cookie-mode initApi
+import { startTutorSession, sendTutorFeedback } from '@textstack/shared'
 
 function mockOk(body: unknown) {
   return vi.fn().mockResolvedValue({

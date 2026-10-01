@@ -8,6 +8,13 @@ export interface ApiConfig {
    * refresh.
    */
   onUnauthorized: () => Promise<string | null>
+  /**
+   * Cookie mode (web): `'include'` sends the session cookie on every request.
+   * `getAccessToken` then returns null and `onUnauthorized` returns `''` after
+   * a successful refresh — "retry with the cookie alone". Unset = Bearer mode
+   * (mobile), where `''` still means "no token".
+   */
+  credentials?: RequestCredentials
 }
 
 let config: ApiConfig | null = null
@@ -86,7 +93,7 @@ async function errorFromResponse(res: Response, fallbackStatus = res.status): Pr
 }
 
 export async function authFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const { baseUrl, getAccessToken, onUnauthorized } = getApiConfig()
+  const { baseUrl, getAccessToken, onUnauthorized, credentials } = getApiConfig()
 
   const token = await getAccessToken()
   const headers: Record<string, string> = {
@@ -96,13 +103,13 @@ export async function authFetch<T>(path: string, options?: RequestInit): Promise
     headers['Authorization'] = `Bearer ${token}`
   }
 
-  const res = await safeFetch(`${baseUrl}${path}`, { ...options, headers })
+  const res = await safeFetch(`${baseUrl}${path}`, { ...options, headers, ...(credentials && { credentials }) })
 
   if (res.status === 401) {
     const newToken = await onUnauthorized()
-    if (newToken) {
-      headers['Authorization'] = `Bearer ${newToken}`
-      const retry = await safeFetch(`${baseUrl}${path}`, { ...options, headers })
+    if (newToken || (credentials && newToken === '')) {
+      if (newToken) headers['Authorization'] = `Bearer ${newToken}`
+      const retry = await safeFetch(`${baseUrl}${path}`, { ...options, headers, ...(credentials && { credentials }) })
       if (!retry.ok) {
         // Surface the *real* status/message from the retry, not a
         // generic "Unauthorized". Otherwise a 403/5xx after a
@@ -122,9 +129,9 @@ export async function authFetch<T>(path: string, options?: RequestInit): Promise
 }
 
 export async function publicFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const { baseUrl } = getApiConfig()
+  const { baseUrl, credentials } = getApiConfig()
 
-  const res = await safeFetch(`${baseUrl}${path}`, options)
+  const res = await safeFetch(`${baseUrl}${path}`, credentials ? { ...options, credentials } : options)
 
   if (!res.ok) {
     throw await errorFromResponse(res)
