@@ -31,7 +31,7 @@ public static class SearchEndpoints
         var group = app.MapGroup("/search").WithTags("Search");
 
         // Two endpoints: full-text search and autocomplete suggestions.
-        group.MapGet("", Search).WithName("Search").RequireRateLimiting("search-semantic");
+        group.MapGet("", Search).WithName("Search");
         group.MapGet("/suggest", Suggest).WithName("SearchSuggest");
     }
 

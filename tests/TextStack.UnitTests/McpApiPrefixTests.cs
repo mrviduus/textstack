@@ -143,8 +143,6 @@ public class McpApiPrefixTests
         Assert.Equal("Bearer tok-123", handler.LastRequest.Headers.Authorization?.ToString());
     }
 
-    // ── end-to-end: POST user-scoped tool (ask_book) keeps /api on the wire ───────
-
     // ── device-flow URLs are fixed the same way (leading slash dropped) ───────────
 
     // Answers /auth/device/code with a valid device code; records the request URI.

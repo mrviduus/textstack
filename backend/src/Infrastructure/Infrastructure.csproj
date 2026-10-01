@@ -14,8 +14,6 @@
     <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
     <PackageReference Include="OpenTelemetry.Exporter.Console" />
     <PackageReference Include="SixLabors.ImageSharp" />
-    <!-- ADR-012 S3: render PDF pages → JPEG for the vision-RAG parser (same lib as extraction). -->
-    <PackageReference Include="PDFtoImage" />
     <PackageReference Include="Sentry" />
     <!-- Worker host has no request pipeline: Sentry rides the ILogger provider. -->
     <PackageReference Include="Sentry.Extensions.Logging" />

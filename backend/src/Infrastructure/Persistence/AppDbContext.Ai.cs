@@ -118,8 +118,8 @@ public partial class AppDbContext
 
             e.Property(x => x.Feature).HasMaxLength(64);
 
-            // float[] (framework-free Domain) <-> pgvector vector(1536), mirroring
-            // chapter_chunk.embedding. Nullable: an `insufficient` row has no centroid.
+            // float[] (framework-free Domain) <-> pgvector vector(1536).
+            // Nullable: an `insufficient` row has no centroid.
             e.Property(x => x.Centroid)
                 .HasColumnType("vector(1536)")
                 .HasConversion(

@@ -9,12 +9,12 @@ namespace TextStack.UnitTests;
 /// <summary>
 /// AI-030 starter tools — the parts testable without a DB/network: discovery via the assembly scan,
 /// schema validity (each tool's ArgsSchema accepts its happy path and rejects malformed args through
-/// the same validator the dispatcher uses), and the dictionary payload parser.
+/// the same validator the dispatcher uses).
 /// </summary>
 public class StarterToolsTests
 {
     private static readonly string[] ExpectedNames =
-        ["get_chapter", "lookup_dictionary", "get_user_highlights"];
+        ["get_chapter", "get_user_highlights"];
 
     private static JsonElement Args(string json) => JsonDocument.Parse(json).RootElement;
 
@@ -34,7 +34,6 @@ public class StarterToolsTests
 
     [Theory]
     [InlineData(typeof(GetChapterTool), """{"chapter_number": 3}""", """{"chapter_number": 0}""")]
-    [InlineData(typeof(LookupDictionaryTool), """{"word": "quorum", "lang": "en"}""", """{"lang": "en"}""")]
     [InlineData(typeof(GetUserHighlightsTool), """{"query": "lsm", "limit": 5}""", """{"limit": 99}""")]
     public void ArgsSchema_AcceptsHappyPath_RejectsMalformed(Type toolType, string goodArgs, string badArgs)
     {
@@ -46,45 +45,10 @@ public class StarterToolsTests
 
     [Theory]
     [InlineData(typeof(GetChapterTool))]
-    [InlineData(typeof(LookupDictionaryTool))]
     [InlineData(typeof(GetUserHighlightsTool))]
     public void ArgsSchema_RejectsUnknownProperties(Type toolType)
     {
         var tool = (ITool)Activator.CreateInstance(toolType)!;
         Assert.NotNull(ToolDispatcher.ValidateArgs(tool.ArgsSchema, Args("""{"hallucinated_arg": true}""")));
-    }
-
-    // ---- LookupDictionaryTool.ParseEntry (pure) ----
-
-    [Fact]
-    public void ParseEntry_CompactsPhoneticAndMeanings()
-    {
-        var payload = Args("""
-            [{
-              "word": "quorum",
-              "phonetic": "/ˈkwɔːɹəm/",
-              "meanings": [
-                { "partOfSpeech": "noun",
-                  "definitions": [ {"definition": "The minimum number of members required."},
-                                   {"definition": "A select group."},
-                                   {"definition": "A third definition that should be cut."} ] }
-              ]
-            }]
-            """);
-
-        var result = LookupDictionaryTool.ParseEntry(payload, "quorum");
-
-        Assert.True(result.GetProperty("found").GetBoolean());
-        Assert.Equal("/ˈkwɔːɹəm/", result.GetProperty("phonetic").GetString());
-        var meaning = result.GetProperty("meanings")[0];
-        Assert.Equal("noun", meaning.GetProperty("partOfSpeech").GetString());
-        Assert.Equal(2, meaning.GetProperty("definitions").GetArrayLength()); // capped at 2 per meaning
-    }
-
-    [Fact]
-    public void ParseEntry_EmptyPayload_NotFound()
-    {
-        var result = LookupDictionaryTool.ParseEntry(Args("[]"), "ghost");
-        Assert.False(result.GetProperty("found").GetBoolean());
     }
 }

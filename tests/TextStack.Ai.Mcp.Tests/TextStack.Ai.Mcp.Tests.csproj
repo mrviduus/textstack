@@ -23,7 +23,7 @@
 
   <ItemGroup>
     <!-- ONLY the bridge under test. NO Application / Tools reference → zero ITool in
-         this assembly (StudyBuddy set-equality stays safe by construction). -->
+         this assembly. -->
     <ProjectReference Include="..\..\backend\src\Ai\TextStack.Ai.Mcp\TextStack.Ai.Mcp.csproj" />
     <!-- Contracts (no ITool) — for the AI-052 manifest-vs-catalog drift test: this
          assembly can see BOTH the runtime catalog (Mcp) and the advertised tool

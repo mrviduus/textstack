@@ -18,6 +18,6 @@ public static class AiProviderKeys
 
     public static readonly string[] Registered =
     [
-        "openai", "ollama", "openai-judge", "openai-explain", "openai-rag", "openai-pdf",
+        "openai", "ollama", "openai-judge", "openai-explain",
     ];
 }

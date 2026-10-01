@@ -571,9 +571,6 @@ public sealed class McpToolCatalog
         },
     };
 
-    // ── ask_book ────────────────────────────────────────────────────────────────
-
-
     // ── save_highlight (Bearer, WRITE) ───────────────────────────────────────────
 
     // The agent-providable fields only. No DOM-anchor blob is accepted — Claude

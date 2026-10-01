@@ -40,7 +40,7 @@ public interface IRouteAlarm
 /// </summary>
 public sealed class SentryRouteAlarm : IRouteAlarm
 {
-    private static readonly string[] DefaultWatchedTasks = ["pdf.parse", "rag.summarize", "podcast.script"];
+    private static readonly string[] DefaultWatchedTasks = ["podcast.script"];
 
     private readonly HashSet<string> _watched;
     private readonly AlarmThrottle _throttle;

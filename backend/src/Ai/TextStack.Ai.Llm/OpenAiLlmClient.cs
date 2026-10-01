@@ -53,8 +53,7 @@ public sealed class OpenAiLlmClient : ILlmService
         _client = new OpenAIClient(apiKey).GetChatClient(_model);
     }
 
-    // internal (not private) so the multimodal seam is unit-testable (ADR-012 S3) via InternalsVisibleTo.
-    internal static List<ChatMessage> BuildMessages(LlmRequest request)
+    private static List<ChatMessage> BuildMessages(LlmRequest request)
     {
         var messages = new List<ChatMessage> { new SystemChatMessage(request.SystemPrompt) };
         foreach (var m in request.Messages)
@@ -73,29 +72,10 @@ public sealed class OpenAiLlmClient : ILlmService
                         : throw new InvalidOperationException("A 'tool' message must carry its ToolCall (for the call id)."),
                     m.Content),
                 "system" => new SystemChatMessage(m.Content),
-                // A multimodal user turn (ADR-012 pdf.parse): text prompt + one or more page images.
-                // Text-only user messages (every other feature) take the plain-string ctor unchanged.
-                _ when m.Images is { Count: > 0 } => new UserChatMessage(BuildUserParts(m)),
                 _ => new UserChatMessage(m.Content),
             });
         }
         return messages;
-    }
-
-    /// <summary>
-    /// Builds the content parts for a multimodal user message: the text prompt first (when non-empty),
-    /// then one image part per <see cref="LlmImage"/> (bytes + media type). Used only by the vision
-    /// <c>pdf.parse</c> path; the text-only path never allocates parts.
-    /// </summary>
-    private static List<ChatMessageContentPart> BuildUserParts(LlmMessage m)
-    {
-        var parts = new List<ChatMessageContentPart>();
-        if (!string.IsNullOrEmpty(m.Content))
-            parts.Add(ChatMessageContentPart.CreateTextPart(m.Content));
-        foreach (var image in m.Images!)
-            parts.Add(ChatMessageContentPart.CreateImagePart(
-                BinaryData.FromBytes(image.Bytes), image.MediaType));
-        return parts;
     }
 
     private ChatCompletionOptions BuildOptions(LlmRequest request)

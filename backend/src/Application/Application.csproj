@@ -1,19 +1,16 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <PackageReference Include="BCrypt.Net-Next" />
-    <!-- AI-055: raw-Npgsql cosine NN over editions.embedding (SimilarBooksService). -->
-    <PackageReference Include="Dapper" />
     <PackageReference Include="Google.Apis.Auth" />
     <PackageReference Include="HtmlAgilityPack" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
-    <!-- IHttpClientFactory for tools that call external APIs (AI-030 LookupDictionaryTool) -->
+    <!-- IHttpClientFactory for tools that call external APIs (OpenLibrary tools) -->
     <PackageReference Include="Microsoft.Extensions.Http" />
     <PackageReference Include="Microsoft.Extensions.Options" />
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
     <PackageReference Include="Microsoft.IdentityModel.Tokens" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
-    <PackageReference Include="OpenAI" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
   </ItemGroup>
 

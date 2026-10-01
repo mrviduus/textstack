@@ -549,53 +549,6 @@ public class TextStackImportService
         return normalized;
     }
 
-    private async Task IndexChaptersAsync(Guid editionId, Guid siteId, string language, CancellationToken ct)
-    {
-        var edition = await _db.Editions
-            .Include(e => e.Chapters)
-            .Include(e => e.EditionAuthors)
-                .ThenInclude(ea => ea.Author)
-            .FirstOrDefaultAsync(e => e.Id == editionId, ct);
-
-        if (edition is null)
-            return;
-
-        var searchLang = language switch
-        {
-            "en" => SearchLanguage.En,
-            _ => SearchLanguage.Auto
-        };
-
-        var authors = string.Join(", ", edition.EditionAuthors.OrderBy(ea => ea.Order).Select(ea => ea.Author.Name));
-
-        var documents = edition.Chapters.Select(chapter => new IndexDocument(
-            Id: chapter.Id.ToString(),
-            Title: chapter.Title,
-            Content: chapter.PlainText,
-            Language: searchLang,
-            SiteId: siteId,
-            Metadata: new Dictionary<string, object>
-            {
-                ["chapterId"] = chapter.Id,
-                ["chapterSlug"] = chapter.Slug ?? string.Empty,
-                ["chapterTitle"] = chapter.Title,
-                ["chapterNumber"] = chapter.ChapterNumber,
-                ["editionId"] = edition.Id,
-                ["editionSlug"] = edition.Slug,
-                ["editionTitle"] = edition.Title,
-                ["language"] = edition.Language,
-                ["authors"] = authors,
-                ["coverPath"] = edition.CoverPath ?? string.Empty
-            }
-        )).ToList();
-
-        if (documents.Count > 0)
-        {
-            await _searchIndexer.IndexBatchAsync(documents, ct);
-            _logger.LogInformation("Indexed {Count} chapters for edition {EditionId}", documents.Count, editionId);
-        }
-    }
-
     private static string SanitizeText(string? text)
         => text?.Replace("\0", "") ?? "";
 

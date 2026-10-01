@@ -76,7 +76,6 @@ services:
       # GDPR delete test legitimately deletes four times.
       RateLimits__ClipPermitLimit: ${CLIP_PERMIT_LIMIT:-20}
       RateLimits__AccountDeletePermitLimit: ${ACCOUNT_DELETE_PERMIT_LIMIT:-3}
-      RateLimits__RagAskPermitLimit: ${RAG_ASK_PERMIT_LIMIT:-30}
       # New vocabulary words a GUEST may push through paid LLM enrichment per UTC day. Production
       # keeps 50 (appsettings). CI lowers it so the cap is reachable in a test: proving that
       # promoting a parked lookup respects it takes `cap` real saves, and 50 is not testable.

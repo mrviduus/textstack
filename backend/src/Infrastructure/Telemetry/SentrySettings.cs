@@ -21,10 +21,10 @@ public static class SentryBootstrap
     /// single loudest thing in the account and says nothing a failing probe wouldn't.</summary>
     public static readonly string[] IgnoredTransactionPaths = ["/health", "/health/ready"];
 
-    /// <summary>Operations that always sample at 1.0: they are rare (one per agent run / book index)
+    /// <summary>Operations that always sample at 1.0: they are rare (one per agent run)
     /// and they are the entire point of this integration — sampling them at 0.2 would throw away 4 of
     /// every 5 traces we added Sentry to see.</summary>
-    public static readonly string[] AlwaysSampledOperations = ["ai.agent", "rag.index"];
+    public static readonly string[] AlwaysSampledOperations = ["ai.agent"];
 
     public const double DefaultProductionTracesSampleRate = 0.2;
 

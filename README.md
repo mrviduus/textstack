@@ -127,11 +127,10 @@ out; only technical vocabulary gets surfaced.
 
 TextStack is also a **Model Context Protocol (MCP) server** — connect it to
 Claude Desktop, Cursor, or ChatGPT and your AI client can search the library,
-read chapters, ask grounded questions, and manage your highlights and
-vocabulary. Run it locally (`dotnet tool install -g TextStack.Mcp`) or point a
-client at the hosted endpoint `https://textstack.app/mcp`.
+read chapters, and manage your highlights and vocabulary. Run it locally
+(`dotnet tool install -g TextStack.Mcp`) or point a client at the hosted endpoint `https://textstack.app/mcp`.
 
-Setup, the 7 tools, auth, and troubleshooting: [docs/05-features/mcp.md](docs/05-features/mcp.md).
+Setup, the 18 tools, auth, and troubleshooting: [docs/05-features/mcp.md](docs/05-features/mcp.md).
 
 ---
 

@@ -60,7 +60,7 @@ public sealed class AgentLoop(ILlmService llm, IToolRegistry tools, ToolDispatch
         // crews) — RunAsync delegates here, so this is the single seam. `using` is legal in an
         // iterator and disposes on normal completion, `yield break`, a throw, AND consumer
         // abandonment, so the outcome is always recorded. FeatureTag IS the agent identity in this
-        // codebase (bookmeta.agent / librarian.agent / tutor.agent) and is the same key Ai:Routes is
+        // codebase (bookmeta.agent / tutor.agent) and is the same key Ai:Routes is
         // indexed by, which makes the tag joinable with the routing config.
         using var trace = TraceScope
             .Start("agent.run", "ai.agent")

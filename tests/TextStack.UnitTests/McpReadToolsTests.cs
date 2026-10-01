@@ -436,8 +436,6 @@ public class McpReadToolsTests
         Assert.Null(handler.LastRequest);
     }
 
-    // ── ask_book: POST Bearer, maps answer + citations, spoiler gate ─────────────
-
     // ── shared upstream-error wrapper: every tool fails-clean + propagates cancel ─
 
     public static IEnumerable<object[]> ToolCalls()

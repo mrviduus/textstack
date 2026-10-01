@@ -11,8 +11,8 @@ namespace TextStack.Ai.Mcp.Http;
 ///
 /// AI-047 shipped <see cref="SearchBooksAsync"/>. AI-048a adds the read tools:
 /// <see cref="GetBookAsync"/> + <see cref="GetChapterAsync"/> (public) and
-/// <see cref="GetHighlightsAsync"/> / <see cref="GetVocabularyAsync"/> /
-/// <see cref="AskAsync"/> (Bearer, token from <see cref="IMcpTokenProvider"/>).
+/// <see cref="GetHighlightsAsync"/> / <see cref="GetVocabularyAsync"/>
+/// (Bearer, token from <see cref="IMcpTokenProvider"/>).
 /// The MCP server reuses the real endpoints — their validation, site resolution,
 /// auth, and spoiler gate — instead of touching the DB.
 ///
@@ -734,17 +734,6 @@ public sealed record VocabWordJson(
     int Stage,
     string? BookTitle,
     DateTimeOffset NextReviewAt);
-
-// POST /books/{editionId}/ask request + response → Contracts.Books.Ask* (subset).
-public sealed record AskRequestJson(string Question, int? K);
-
-public sealed record AskJson(
-    string Answer,
-    IReadOnlyList<AskCitationJson> Citations,
-    int LastReadOrd,
-    bool Insufficient);
-
-public sealed record AskCitationJson(int Marker, int ChapterOrd, string Preview);
 
 // ── my-library DTOs (uploads). Mirror Contracts.UserBooks.*; deliberately a
 //    separate family from the catalog's Book*/Chapter* records above, because

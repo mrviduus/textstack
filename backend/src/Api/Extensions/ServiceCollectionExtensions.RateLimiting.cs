@@ -319,50 +319,6 @@ public static partial class ServiceCollectionExtensions
                     QueueLimit = 0,
                 });
             });
-            // Hybrid catalog search (AI-057): semantic=true embeds the query (one paid OpenAI embedding
-            // call per request) before the $0 pgvector scan, so it gets its own per-IP throttle. CRITICAL:
-            // this policy is a NO-OP unless `semantic` is truthy — the pure-FTS path (semantic absent/false)
-            // consumes no partition and stays completely unthrottled (zero new cost/latency).
-            options.AddPolicy("search-semantic", httpContext =>
-            {
-                var semantic = httpContext.Request.Query["semantic"].ToString();
-                var isSemantic = semantic.Equals("true", StringComparison.OrdinalIgnoreCase)
-                                 || semantic == "1";
-                if (!isSemantic)
-                    return RateLimitPartition.GetNoLimiter("search-fts");
-
-                var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-                return RateLimitPartition.GetFixedWindowLimiter("semantic:" + ip, _ => new FixedWindowRateLimiterOptions
-                {
-                    Window = TimeSpan.FromMinutes(1),
-                    PermitLimit = 20,
-                    QueueLimit = 0,
-                });
-            });
-            // "Ask this book" (RAG) — one LLM call per request, per-user reading. 30/min per IP is
-            // generous for genuine use and caps scripted abuse.
-            options.AddPolicy("rag.ask", httpContext =>
-            {
-                var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-                return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
-                {
-                    Window = TimeSpan.FromMinutes(1),
-                    PermitLimit = rateLimits.EffectiveRagAskPermitLimit,
-                    QueueLimit = 0,
-                });
-            });
-            // On-demand "Ask this book" index trigger (Phase 1): per-IP cap so a user can't mass-index
-            // the whole catalog. ~20/hour — generous for legit "index this book then poll" flows.
-            options.AddPolicy("rag.index", httpContext =>
-            {
-                var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-                return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
-                {
-                    Window = TimeSpan.FromHours(1),
-                    PermitLimit = 20,
-                    QueueLimit = 0,
-                });
-            });
             // Learning Tutor agent (AI-Agent-2): each planning turn is several LLM calls + DB reads, so a tight per-IP
             // cap.
             options.AddPolicy("tutor", httpContext =>
@@ -376,7 +332,7 @@ public static partial class ServiceCollectionExtensions
                 });
             });
             // AutoPublish crew (AI-042): an admin generate is TWO 4-stage crews = 8 LLM calls, so a tight per-IP cap.
-            // Mirrors the librarian policy shape; it sits behind admin auth too, this is just runaway protection.
+            // It sits behind admin auth too, this is just runaway protection.
             options.AddPolicy("autopublish.crew", httpContext =>
             {
                 var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
