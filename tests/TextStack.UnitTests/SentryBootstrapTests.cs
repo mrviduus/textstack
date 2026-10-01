@@ -99,7 +99,6 @@ public class SentryBootstrapTests
 
     [Theory]
     [InlineData("ai.agent")]
-    [InlineData("rag.index")]
     public void SampleRateFor_AiOperation_IsAlwaysSampled(string operation) =>
         Assert.Equal(1.0, SentryBootstrap.SampleRateFor("agent.run", operation, 0.2));
 

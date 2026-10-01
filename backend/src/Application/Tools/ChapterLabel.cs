@@ -1,6 +1,3 @@
-using Application.Common.Interfaces;
-using Microsoft.EntityFrameworkCore;
-
 namespace Application.Tools;
 
 /// <summary>
@@ -44,31 +41,5 @@ public static class ChapterLabel
             return $"Chapter {number} (part {part} of {total})";
 
         return $"Chapter {number}";
-    }
-
-    /// <summary>
-    /// Labels for a set of chapters, by id — for tools that hold retrieved chunks rather than
-    /// chapters. A chunk carries only <c>ChapterOrd</c>, which is a copy of the same doubly-wrong
-    /// ordinal, so the parts have to be read back from the chapters themselves.
-    /// </summary>
-    public static async Task<Dictionary<Guid, string>> ForChaptersAsync(
-        IAppDbContext db,
-        IReadOnlyCollection<Guid> chapterIds,
-        CancellationToken ct)
-    {
-        if (chapterIds.Count == 0) return [];
-
-        var rows = await db.Chapters
-            .Where(c => chapterIds.Contains(c.Id))
-            .Select(c => new { c.Id, c.ChapterNumber, c.OriginalChapterNumber, c.PartNumber, c.TotalParts })
-            .ToListAsync(ct);
-
-        var labels = new Dictionary<Guid, string>();
-        foreach (var r in rows)
-        {
-            var label = For(r.ChapterNumber, r.OriginalChapterNumber, r.PartNumber, r.TotalParts);
-            if (label is not null) labels[r.Id] = label;
-        }
-        return labels;
     }
 }

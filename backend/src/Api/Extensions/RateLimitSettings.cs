@@ -79,23 +79,6 @@ public sealed class RateLimitSettings
 
     /// <summary>Shared normalization: a configured 0 or negative is a typo, and a zero permit limit
     /// is an outage, so it degrades to the production default rather than to a lockout.</summary>
-    /// <summary>"Ask this book" / book-chat requests allowed per IP per minute. Production
-    /// default is 30.</summary>
-    /// <remarks>
-    /// Same cause as the two above. Four test classes (Ask, RAG, user-book RAG, book chat) plus the
-    /// paid-inference sweep all share this policy and one CI host, so the sweep reached it already
-    /// drained and read 429 where it expected 403. That is not a false alarm to silence: the limiter
-    /// now runs BEFORE the endpoint filter, so a throttled request never reaches
-    /// <c>RequireAiAccount</c> — a 429 would mask a deleted filter, and the sweep exists precisely
-    /// to catch a deleted filter.
-    /// </remarks>
-    public int RagAskPermitLimit { get; set; } = DefaultRagAskPermitLimit;
-
-    public const int DefaultRagAskPermitLimit = 30;
-
-    /// <inheritdoc cref="EffectiveGuestSessionPermitLimit"/>
-    public int EffectiveRagAskPermitLimit => Effective(RagAskPermitLimit, DefaultRagAskPermitLimit);
-
     private static int Effective(int configured, int productionDefault) =>
         configured > 0 ? configured : productionDefault;
 }

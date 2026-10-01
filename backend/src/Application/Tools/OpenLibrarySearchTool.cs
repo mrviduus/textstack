@@ -8,7 +8,7 @@ namespace Application.Tools;
 /// Enrichment agent tool (AI-Agent-1): searches Open Library's keyless catalog for a title (+ optional
 /// author) and returns the top few candidate works — their author(s), first-publish year, subjects and
 /// the work key the agent passes to <see cref="OpenLibraryWorkTool"/> for a description. Following the
-/// <see cref="LookupDictionaryTool"/> shape, "no match" / HTTP error / timeout are returned as data
+/// tool-error-as-data shape, "no match" / HTTP error / timeout are returned as data
 /// (<c>found:false</c>), never thrown, so the agent degrades to its own knowledge instead of dying.
 /// External text is untrusted: every free-text field is run through <see cref="ExternalTextSanitizer"/>
 /// before it can reach the model as an observation.

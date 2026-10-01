@@ -203,7 +203,7 @@ public static class TutorEndpoints
         string goalLabel, CancellationToken ct)
     {
         var runId = Guid.NewGuid();
-        // The agent's tools resolve scoped services (IAppDbContext, IRagService) from the request scope.
+        // The agent's tools resolve scoped services (IAppDbContext) from the request scope.
         var ctx = new AgentContext(userId, null, runId, services);
 
         TutorRun? outcome = null;

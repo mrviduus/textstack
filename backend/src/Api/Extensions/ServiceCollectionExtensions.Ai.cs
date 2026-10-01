@@ -26,8 +26,8 @@ public static partial class ServiceCollectionExtensions
 
     /// <summary>
     /// Tool catalogue + agent-loop engine + concrete agents and content crews.
-    /// Lifetimes mirror Program.cs exactly (scoped agents resolve scoped IAppDbContext /
-    /// IRagService per request; stateless single-call specialists are singletons).
+    /// Lifetimes mirror Program.cs exactly (scoped agents resolve scoped IAppDbContext per request;
+    /// stateless single-call specialists are singletons).
     /// </summary>
     public static IServiceCollection AddTextStackAgents(this IServiceCollection services)
     {
@@ -37,11 +37,9 @@ public static partial class ServiceCollectionExtensions
         TextStack.Ai.Agents.ServiceCollectionExtensions.AddAiAgents(services);
         // Enrichment agent (AI-Agent-1): registered in the API too so the admin eval path can run it.
         services.AddScoped<Application.Agents.EnrichmentAgent>();
-        // Catalog search seam behind the library tools. Scoped: resolves the scoped IAppDbContext.
-        services.AddScoped<Application.Search.LibrarySearchService>();
         // Learning Tutor agent (AI-Agent-2): plans an ordered study set over the learner's SRS + reading state and
-        // hands off to the existing vocabulary-review flow. Scoped (its tools resolve the scoped IAppDbContext +
-        // IRagService per request).
+        // hands off to the existing vocabulary-review flow. Scoped (its tools resolve the scoped IAppDbContext
+        // per request).
         services.AddScoped<Application.Agents.TutorAgent>();
         // Crew specialists (Phase 7, AI-041): single-call IAgent<TIn,TOut> sub-agents the content crews
         // (AI-042/043) compose via CrewTasks.Of. Stateless + ILlmService is a singleton, so singleton is fine.

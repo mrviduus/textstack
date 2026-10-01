@@ -16,8 +16,7 @@ public static class ExplainToolTriggers
     /// The tool names this sentence's wording justifies offering, in stable order. Empty when the
     /// sentence carries no tool-worthy signal — the common case, which then skips the tool round
     /// entirely. <paramref name="hasUser"/> gates the highlights tool (needs a signed-in user).
-    /// (lookup_dictionary is intentionally never offered by Explain; EarlierReference maps to nothing
-    /// since search_book was deleted with the RAG spine — such sentences are answered directly.)
+    /// (lookup_dictionary is intentionally never offered by Explain.)
     /// </summary>
     public static IReadOnlyList<string> TriggeredTools(string sentence, bool hasUser)
     {

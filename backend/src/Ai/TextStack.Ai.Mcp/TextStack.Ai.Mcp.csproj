@@ -22,7 +22,7 @@
     <!-- Run on .NET 10 AND future majors — don't pin users to one runtime. -->
     <RollForward>Major</RollForward>
     <Authors>TextStack</Authors>
-    <Description>TextStack MCP server — work with your TextStack reading library from Claude Desktop / Cursor / any MCP client. Search and read both the public catalog and the books you uploaded, ask grounded questions, manage highlights and vocabulary — and write conclusions back into a book so they are still there when you return. Speaks stdio or remote HTTP.</Description>
+    <Description>TextStack MCP server — work with your TextStack reading library from Claude Desktop / Cursor / any MCP client. Search and read both the public catalog and the books you uploaded, manage highlights and vocabulary — and write conclusions back into a book so they are still there when you return. Speaks stdio or remote HTTP.</Description>
     <PackageTags>mcp;modelcontextprotocol;ai;textstack;reading</PackageTags>
     <RepositoryUrl>https://github.com/mrviduus/textstack</RepositoryUrl>
     <RepositoryType>git</RepositoryType>

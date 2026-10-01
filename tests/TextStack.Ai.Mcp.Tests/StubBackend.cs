@@ -17,10 +17,7 @@ namespace TextStack.Ai.Mcp.Tests;
 /// </summary>
 public sealed class StubBackend : IAsyncDisposable
 {
-    // Two canned editions: the "good" one answers ask_book; the "spoiler" one
-    // returns Insufficient=true (the spoiler-gate variant).
     public const string GoodEdition = "33333333-3333-3333-3333-333333333333";
-    public const string SpoilerEdition = "55555555-5555-5555-5555-555555555555";
     public const string ChapterId = "44444444-4444-4444-4444-444444444444";
 
     // An UPLOADED book (UserBook) and one of its chapters. Deliberately different
@@ -276,18 +273,6 @@ public sealed class StubBackend : IAsyncDisposable
             if (string.Equals((string?)ctx.Request.RouteValues["id"], RefusingBookId, StringComparison.OrdinalIgnoreCase))
             { ctx.Response.StatusCode = StatusCodes.Status400BadRequest; return; }
             ctx.Response.StatusCode = StatusCodes.Status204NoContent;
-        });
-
-        // POST /books/{editionId}/ask → 401 if no bearer; spoiler edition → Insufficient.
-        _app.MapPost("/books/{editionId}/ask", async ctx =>
-        {
-            await RecordAsync("ask_book", ctx);
-            if (!HasBearer(ctx)) { ctx.Response.StatusCode = StatusCodes.Status401Unauthorized; return; }
-            var editionId = (string?)ctx.Request.RouteValues["editionId"];
-            await WriteJsonAsync(ctx,
-                string.Equals(editionId, SpoilerEdition, StringComparison.OrdinalIgnoreCase)
-                    ? AskInsufficientBody
-                    : AskBody);
         });
     }
 
@@ -750,22 +735,5 @@ public sealed class StubBackend : IAsyncDisposable
           "updatedAt": "2026-09-01T10:00:00+00:00",
           "positionJson": null
         }
-        """;
-
-    private const string AskBody =
-        """
-        {
-          "answer": "Jonathan Harker travels to Transylvania to meet Count Dracula. [1]",
-          "citations": [
-            { "marker": 1, "chunkId": "c", "chapterId": "44444444-4444-4444-4444-444444444444", "chapterOrd": 1, "charStart": 0, "charEnd": 9, "preview": "Left Munich at 8:35 P.M." }
-          ],
-          "lastReadOrd": 2,
-          "insufficient": false
-        }
-        """;
-
-    private const string AskInsufficientBody =
-        """
-        { "answer": "", "citations": [], "lastReadOrd": 0, "insufficient": true }
         """;
 }

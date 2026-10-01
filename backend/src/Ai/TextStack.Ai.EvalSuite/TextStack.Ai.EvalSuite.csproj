@@ -13,7 +13,5 @@
   <ItemGroup>
     <!-- Goldens ship inside the assembly so API + tests load them identically. -->
     <EmbeddedResource Include="Datasets\*.json" />
-    <!-- Synthetic PDF-vision fixture images (ADR-012 S3 pdfvision gate) — original table pages, no copyrighted content. -->
-    <EmbeddedResource Include="Datasets\pdfvision\*.jpg" />
   </ItemGroup>
 </Project>

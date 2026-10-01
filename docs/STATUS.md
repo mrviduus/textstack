@@ -189,7 +189,10 @@ someone's memory.
   stay hard-plural until the i18n layer accepts a count.
 - **iOS Universal Links were never configured.** No `associatedDomains` in `app.json`, empty
   entitlements — the iOS half of this work does not exist yet, on either side.
-- **Agent tools still describe themselves more strongly than their payloads support.** An audit of all
+- ~~**Agent tools still describe themselves more strongly than their payloads support.**~~ Moot
+  2026-10-01 — every tool named below is deleted (`find_earlier_definition`, `get_example_sentence`,
+  `search_library_semantic` with RAG on 2026-09-10; `LibraryToolShared`, `get_user_vocabulary` in the
+  backend dead-code sweep, no agent offered them). An audit of all
   eleven found the same shape as the "you keep missing this word" incident in several more places, and
   three were fixed (history claims, invisible row truncation, chapter numbering). Left, in order of
   how badly each could mislead a reader: `find_earlier_definition` asserts a term was "first introduced"

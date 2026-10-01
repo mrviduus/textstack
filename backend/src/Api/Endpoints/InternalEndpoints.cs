@@ -28,7 +28,6 @@ public static class InternalEndpoints
         app.MapGet("/internal/editions/{id:guid}/chapters/{n:int}/content", GetEditionChapterContent).ExcludeFromDescription();
         app.MapPut("/internal/editions/{id:guid}/chapters/{n:int}", UpdateEditionChapter).ExcludeFromDescription();
         app.MapDelete("/internal/editions/{id:guid}/chapters/{n:int}", DeleteEditionChapter).ExcludeFromDescription();
-        app.MapPost("/internal/editions/{id:guid}/chapters/{n:int}/split", SplitEditionChapter).ExcludeFromDescription();
         app.MapPost("/internal/editions/{id:guid}/chapters/merge", MergeEditionChapters).ExcludeFromDescription();
 
         // Chapter CRUD for quality validation (user books)
@@ -36,7 +35,6 @@ public static class InternalEndpoints
         app.MapGet("/internal/user-books/{id:guid}/chapters/{n:int}/content", GetUserBookChapterContent).ExcludeFromDescription();
         app.MapPut("/internal/user-books/{id:guid}/chapters/{n:int}", UpdateUserBookChapter).ExcludeFromDescription();
         app.MapDelete("/internal/user-books/{id:guid}/chapters/{n:int}", DeleteUserBookChapter).ExcludeFromDescription();
-        app.MapPost("/internal/user-books/{id:guid}/chapters/{n:int}/split", SplitUserBookChapter).ExcludeFromDescription();
         app.MapPost("/internal/user-books/{id:guid}/chapters/merge", MergeUserBookChapters).ExcludeFromDescription();
 
         // Quality job status
@@ -172,60 +170,6 @@ public static class InternalEndpoints
         return Results.Ok();
     }
 
-    private static async Task<IResult> SplitEditionChapter(
-        Guid id, int n, [FromBody] SplitChapterRequest req,
-        HttpContext ctx, IAppDbContext db, CancellationToken ct)
-    {
-        if (!IsLocalRequest(ctx)) return Results.StatusCode(403);
-        if (string.IsNullOrWhiteSpace(req.SplitAtHtml))
-            return Results.BadRequest(new { error = "splitAtHtml required" });
-
-        var ch = await db.Chapters.FirstOrDefaultAsync(c => c.EditionId == id && c.ChapterNumber == n, ct);
-        if (ch is null) return Results.NotFound();
-
-        var idx = ch.Html.IndexOf(req.SplitAtHtml, StringComparison.Ordinal);
-        if (idx < 0) return Results.BadRequest(new { error = "splitAtHtml not found in chapter HTML" });
-
-        var htmlBefore = ch.Html[..idx].TrimEnd();
-        var htmlAfter = ch.Html[idx..].TrimStart();
-
-        // Shift all chapters after current one up by 1
-        var after = await db.Chapters
-            .Where(c => c.EditionId == id && c.ChapterNumber > n)
-            .OrderByDescending(c => c.ChapterNumber)
-            .ToListAsync(ct);
-
-        foreach (var a in after)
-        {
-            a.ChapterNumber++;
-            a.UpdatedAt = DateTimeOffset.UtcNow;
-        }
-
-        // Update existing chapter with first half
-        ch.Html = htmlBefore;
-        ch.PlainText = StripHtml(htmlBefore);
-        ch.WordCount = CountWords(ch.PlainText);
-        ch.UpdatedAt = DateTimeOffset.UtcNow;
-
-        // Create new chapter with second half
-        var newCh = new Chapter
-        {
-            Id = Guid.NewGuid(),
-            EditionId = id,
-            ChapterNumber = n + 1,
-            Title = req.NewTitle ?? ch.Title,
-            Html = htmlAfter,
-            PlainText = StripHtml(htmlAfter),
-            CreatedAt = DateTimeOffset.UtcNow,
-            UpdatedAt = DateTimeOffset.UtcNow,
-        };
-        newCh.WordCount = CountWords(newCh.PlainText);
-        db.Chapters.Add(newCh);
-
-        await db.SaveChangesAsync(ct);
-        return Results.Ok(new { firstChapter = n, secondChapter = n + 1 });
-    }
-
     private static async Task<IResult> MergeEditionChapters(
         Guid id, [FromBody] MergeChaptersRequest req,
         HttpContext ctx, IAppDbContext db, CancellationToken ct)
@@ -350,52 +294,6 @@ public static class InternalEndpoints
 
         await db.SaveChangesAsync(ct);
         return Results.Ok();
-    }
-
-    private static async Task<IResult> SplitUserBookChapter(
-        Guid id, int n, [FromBody] SplitChapterRequest req,
-        HttpContext ctx, IAppDbContext db, CancellationToken ct)
-    {
-        if (!IsLocalRequest(ctx)) return Results.StatusCode(403);
-        if (string.IsNullOrWhiteSpace(req.SplitAtHtml))
-            return Results.BadRequest(new { error = "splitAtHtml required" });
-
-        var ch = await db.UserChapters.FirstOrDefaultAsync(c => c.UserBookId == id && c.ChapterNumber == n, ct);
-        if (ch is null) return Results.NotFound();
-
-        var idx = ch.Html.IndexOf(req.SplitAtHtml, StringComparison.Ordinal);
-        if (idx < 0) return Results.BadRequest(new { error = "splitAtHtml not found in chapter HTML" });
-
-        var htmlBefore = ch.Html[..idx].TrimEnd();
-        var htmlAfter = ch.Html[idx..].TrimStart();
-
-        var after = await db.UserChapters
-            .Where(c => c.UserBookId == id && c.ChapterNumber > n)
-            .OrderByDescending(c => c.ChapterNumber)
-            .ToListAsync(ct);
-
-        foreach (var a in after)
-            a.ChapterNumber++;
-
-        ch.Html = htmlBefore;
-        ch.PlainText = StripHtml(htmlBefore);
-        ch.WordCount = CountWords(ch.PlainText);
-
-        var newCh = new UserChapter
-        {
-            Id = Guid.NewGuid(),
-            UserBookId = id,
-            ChapterNumber = n + 1,
-            Title = req.NewTitle ?? ch.Title,
-            Html = htmlAfter,
-            PlainText = StripHtml(htmlAfter),
-            CreatedAt = DateTimeOffset.UtcNow,
-        };
-        newCh.WordCount = CountWords(newCh.PlainText);
-        db.UserChapters.Add(newCh);
-
-        await db.SaveChangesAsync(ct);
-        return Results.Ok(new { firstChapter = n, secondChapter = n + 1 });
     }
 
     private static async Task<IResult> MergeUserBookChapters(
@@ -525,7 +423,6 @@ public static class InternalEndpoints
 }
 
 public record UpdateInternalChapterRequest(string? Title = null, string? Html = null);
-public record SplitChapterRequest(string SplitAtHtml, string? NewTitle = null);
 public record MergeChaptersRequest(List<int> ChapterNumbers);
 public record UpdateQualityJobRequest(
     int? Status = null,

@@ -73,14 +73,6 @@
          Npgsql.EFCore.PostgreSQL >=9.0.1 — satisfied by our 10.0.1. -->
     <PackageVersion Include="Pgvector" Version="0.3.2" />
     <PackageVersion Include="Pgvector.EntityFrameworkCore" Version="0.3.0" />
-    <!-- Tokenizer (Phase 4 RAG chunker). Exact cl100k tiktoken counts matching
-         text-embedding-3-small; the Data.Cl100kBase package ships the vocab so
-         TiktokenTokenizer.CreateForModel works offline (no download). -->
-    <PackageVersion Include="Microsoft.ML.Tokenizers" Version="2.0.0" />
-    <PackageVersion Include="Microsoft.ML.Tokenizers.Data.Cl100kBase" Version="2.0.0" />
-    <!-- Override transitive (ML.Tokenizers pulls 9.0.4) to clear NU1903 high-sev
-         advisory GHSA-73j8-2gch-69rq; 10.0.9 aligns with our other 10.0.x packages. -->
-    <PackageVersion Include="Microsoft.Bcl.Memory" Version="10.0.9" />
     <!-- HDBSCAN density clustering (AI-058 concept clusterer). Real HDBSCAN* in pure
          .NET (targets netstandard2.0 → runs on net10); cosine distance over OpenAI
          word embeddings. Replaces the hand-rolled cosine-threshold union-find. MIT. -->
@@ -126,7 +118,6 @@
     <!-- Testing -->
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
     <PackageVersion Include="xunit.v3" Version="2.0.2" />
-    <PackageVersion Include="LoadSurge" Version="1.0.1" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="4.0.0" />
     <PackageVersion Include="coverlet.collector" Version="10.0.1" />
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.8" />

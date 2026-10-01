@@ -2,7 +2,7 @@
 
 The **TextStack MCP server** — connect your [TextStack](https://textstack.app) reading
 library to Claude Desktop, Cursor, or any [Model Context Protocol](https://modelcontextprotocol.io)
-client. Ask your books questions, read chapters, and manage your highlights and
+client. Search and read your books, and manage your highlights and
 vocabulary straight from your AI assistant.
 
 It exposes **18 tools**:

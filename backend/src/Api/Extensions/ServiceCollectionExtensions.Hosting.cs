@@ -17,7 +17,6 @@ namespace Api.Extensions;
 ///   - .Ai.cs             AI eval runners, agents, tools, crews
 ///   - .Persistence.cs    ICurrentSite, DbContext, file storage
 ///   - .Search.cs         search providers, similar/hybrid catalog, reindex
-///   - .Rag.cs            RAG retrieval, chunking, context/ask services
 ///   - .Content.cs        vocabulary, images, sites, user books, email, TTS
 ///   - .HostedServices.cs background workers
 ///   - .RateLimiting.cs   rate-limiter policies

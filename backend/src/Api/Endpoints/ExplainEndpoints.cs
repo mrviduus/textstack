@@ -91,10 +91,9 @@ public static class ExplainEndpoints
             return [];
 
         // Deterministic pre-routing (AI-033): tools are offered ONLY when the sentence's wording
-        // contains a matching lexical signal (chapter number / "discussed earlier" / "my highlights").
+        // contains a matching lexical signal (chapter number / "my highlights").
         // The eval showed nano can't hold both sides of this decision in-prompt — code decides IF,
         // the prompt steers WHICH. No book in context → no book to fetch from → no tools at all.
-        // (lookup_dictionary was dropped from Explain entirely; it stays in the registry for agents/MCP.)
         if (editionId is null)
             return [];
 

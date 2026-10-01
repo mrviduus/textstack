@@ -14,8 +14,7 @@ namespace TextStack.Ai.Mcp.Tests;
 /// (method / path+query / Bearer).
 ///
 /// Hermetic: loopback only (no Docker, no live API, no external network). References
-/// only the bridge under test → zero ITool in this assembly (StudyBuddy set-equality
-/// safe by construction). The AI-047..050 unit tests use fake HttpMessageHandlers and
+/// only the bridge under test → zero ITool in this assembly. The AI-047..050 unit tests use fake HttpMessageHandlers and
 /// never exercise the SDK wire — this suite closes that gap.
 /// </summary>
 public class McpOverTheWireTests : IAsyncLifetime

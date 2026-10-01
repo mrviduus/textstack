@@ -169,30 +169,12 @@ public static class DependencyInjection
 
         // Explain runs a STRONGER generation model than the nano default (OpenAI:Explain:Model,
         // default gpt-4.1-mini). Routed per-feature (Ai:Routes:explain[.toolcall] → openai-explain)
-        // so translate / podcast / rag stay on nano. This model is also the distillation teacher.
+        // so translate / podcast stay on nano. This model is also the distillation teacher.
         services.AddKeyedSingleton<global::TextStack.Ai.Core.ILlmService>("openai-explain-raw", (sp, key) =>
             new global::TextStack.Ai.Llm.OpenAiLlmClient(
                 sp.GetRequiredService<IConfiguration>(),
                 sp.GetRequiredService<ILogger<global::TextStack.Ai.Llm.OpenAiLlmClient>>(),
                 sp.GetRequiredService<IConfiguration>()["OpenAI:Explain:Model"] ?? "gpt-4.1-mini"));
-
-        // "Ask this book" (rag.ask) runs a STRONGER conversational model than the nano default
-        // (OpenAI:RagAsk:Model, default gpt-4.1-mini) for the warm reading-companion experience.
-        // Routed per-feature (Ai:Routes:rag.ask → openai-rag) so translate / podcast stay on nano.
-        services.AddKeyedSingleton<global::TextStack.Ai.Core.ILlmService>("openai-rag-raw", (sp, key) =>
-            new global::TextStack.Ai.Llm.OpenAiLlmClient(
-                sp.GetRequiredService<IConfiguration>(),
-                sp.GetRequiredService<ILogger<global::TextStack.Ai.Llm.OpenAiLlmClient>>(),
-                sp.GetRequiredService<IConfiguration>()["OpenAI:RagAsk:Model"] ?? "gpt-4.1-mini"));
-
-        // ADR-012 S3: PDF vision→Markdown parse (pdf.parse) runs a full multimodal model (OpenAI:Pdf:Model,
-        // default gpt-4.1) — vision + faithful table transcription. Routed per-feature (Ai:Routes:pdf.parse
-        // → openai-pdf) so it never affects the text-only features. Mirrors the judge/rag registration.
-        services.AddKeyedSingleton<global::TextStack.Ai.Core.ILlmService>("openai-pdf-raw", (sp, key) =>
-            new global::TextStack.Ai.Llm.OpenAiLlmClient(
-                sp.GetRequiredService<IConfiguration>(),
-                sp.GetRequiredService<ILogger<global::TextStack.Ai.Llm.OpenAiLlmClient>>(),
-                sp.GetRequiredService<IConfiguration>()["OpenAI:Pdf:Model"] ?? "gpt-4.1"));
 
         // Decorated providers (keyed): TracingDecorator wraps each raw provider.
         foreach (var providerKey in global::TextStack.Ai.Llm.AiProviderKeys.Registered)
@@ -253,7 +235,7 @@ public static class DependencyInjection
         services.AddScoped<Ai.ModelPromotionService>();
 
         // Silent-fallback alarm (Sentry): an EXPENSIVE task resolving via Ai:DefaultProvider instead
-        // of an explicit route is the 2026-07-14 pdf.parse → Ollama incident. Throttled per
+        // of an explicit route is the 2026-07-14 pdf.parse → Ollama incident (since deleted). Throttled per
         // (task, provider) so a 106-page PDF raises one event, not 106. Also sets the shared
         // cooldown used by LlmFailureAlarm.
         services.AddSingleton<global::TextStack.Ai.Llm.IRouteAlarm>(sp =>
