@@ -1,11 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
-import {
-  listCollections,
-  createCollection as apiCreate,
-  updateCollection as apiUpdate,
-  deleteCollection as apiDelete,
-  type Collection,
-} from '../api/collections'
+import { collectionsApi, type Collection } from '@textstack/shared'
+
+const { listCollections, createCollection: apiCreate, updateCollection: apiUpdate, deleteCollection: apiDelete } = collectionsApi
 
 let cache: { ts: number; data: Collection[] } | null = null
 let inflight: Promise<Collection[]> | null = null

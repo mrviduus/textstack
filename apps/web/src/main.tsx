@@ -1,3 +1,4 @@
+import './api/client' // initApi (cookie mode) before anything can call the shared api clients
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'

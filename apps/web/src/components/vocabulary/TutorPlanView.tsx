@@ -1,5 +1,5 @@
-import type { TutorPlanItem } from '../../api/tutor'
-import { exerciseLabel, exerciseBadgeClass } from './tutorLabels'
+import { exerciseLabel, type TutorPlanItem } from '@textstack/shared'
+import { exerciseBadgeClass } from './tutorLabels'
 
 interface Props {
   rationale: string

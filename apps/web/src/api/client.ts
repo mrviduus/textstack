@@ -1,53 +1,28 @@
+import { initApi } from '@textstack/shared'
 import { refreshToken } from './auth'
 import { fetchJsonWithRetry, type FetchOptions } from '../lib/fetchWithRetry'
 
 export const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
+
+// One authFetch for both apps (the shared one). Web runs it in cookie mode: no
+// Bearer, `credentials: 'include'`, and a 401 refreshes the cookie (single-flight
+// in `refreshToken`) then retries once — `''` means "retry, cookie only".
+// Initialised on import so every caller, tests included, gets it before first use.
+initApi({
+  baseUrl: API_BASE,
+  getAccessToken: async () => null,
+  onUnauthorized: () => refreshToken().then(() => '', () => null),
+  credentials: 'include',
+})
+
+export { authFetch, ApiError } from '@textstack/shared'
+
 const STORAGE_BASE = import.meta.env.VITE_STORAGE_URL || API_BASE
 
 /** Build full URL for storage files (covers, photos) */
 export function getStorageUrl(path: string | null | undefined): string | undefined {
   if (!path) return undefined
   return `${STORAGE_BASE}/storage/${path}`
-}
-
-export class ApiError extends Error {
-  status: number
-  constructor(status: number, message: string) {
-    super(message)
-    this.status = status
-    this.name = 'ApiError'
-  }
-}
-
-/** Authenticated fetch w/ auto token refresh on 401, error message parsing */
-export async function authFetch<T>(path: string, options?: RequestInit, retry = true): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    credentials: 'include',
-  })
-
-  if (!res.ok) {
-    if (res.status === 401 && retry) {
-      try {
-        await refreshToken()
-        return authFetch<T>(path, options, false)
-      } catch {
-        throw new ApiError(401, 'Unauthorized')
-      }
-    }
-    if (res.status === 401) throw new ApiError(401, 'Unauthorized')
-    const text = await res.text()
-    let error = `API error: ${res.status}`
-    try {
-      const json = JSON.parse(text)
-      if (json.error) error = json.error
-    } catch {}
-    throw new ApiError(res.status, error)
-  }
-
-  const text = await res.text()
-  if (!text) return {} as T
-  return JSON.parse(text)
 }
 
 async function fetchJson<T>(path: string, options?: FetchOptions): Promise<T> {

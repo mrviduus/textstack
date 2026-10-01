@@ -1,15 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, act, waitFor } from '@testing-library/react'
 
-vi.mock('../api/tutor', () => ({
+vi.mock('@textstack/shared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@textstack/shared')>()),
   startTutorSession: vi.fn(),
   sendTutorAnswer: vi.fn(),
   sendTutorFeedback: vi.fn(),
 }))
 vi.mock('../lib/dataEvents', () => ({ emitDataChange: vi.fn() }))
 
-import { startTutorSession, sendTutorAnswer, sendTutorFeedback, type TutorPlanItem } from '../api/tutor'
-import { useTutorSession, buildPlanCard, buildQueue, isSessionComplete } from './useTutorSession'
+import {
+  startTutorSession, sendTutorAnswer, sendTutorFeedback, buildPlanCard, buildQueue, isSessionComplete,
+  type TutorPlanItem,
+} from '@textstack/shared'
+import { useTutorSession } from './useTutorSession'
 
 const mockStart = startTutorSession as unknown as ReturnType<typeof vi.fn>
 const mockFeedback = sendTutorFeedback as unknown as ReturnType<typeof vi.fn>

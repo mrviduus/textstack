@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
-import { getLibraryShelves, type LibraryShelves } from '../api/library'
+import { libraryApi, type LibraryShelves } from '@textstack/shared'
 import { useDataChange } from '../lib/dataEvents'
 
 const CACHE_TTL_MS = 60_000
@@ -33,7 +33,7 @@ export function useLibraryShelves(): UseLibraryShelves {
     let cancelled = false
     setLoading(true)
     setError(null)
-    getLibraryShelves()
+    libraryApi.getLibraryShelves()
       .then((value) => {
         if (cancelled) return
         cache = { value, at: Date.now() }

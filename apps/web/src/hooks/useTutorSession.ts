@@ -3,10 +3,12 @@ import {
   startTutorSession,
   sendTutorAnswer,
   sendTutorFeedback,
+  buildQueue,
+  isSessionComplete,
   type TutorPlanItem,
   type TutorSessionResponse,
   type TutorFeedbackResult,
-} from '../api/tutor'
+} from '@textstack/shared'
 import { type ReviewCardDto } from '../api/vocabulary'
 import { emitDataChange } from '../lib/dataEvents'
 
@@ -27,48 +29,6 @@ const EMPTY_STATS: TutorSessionStats = { studied: 0, correct: 0 }
 
 // Belt-and-suspenders cap on the re-plan loop. The server also caps turns, but never trust it to stop.
 const MAX_ROUNDS = 8
-
-/**
- * Projects an ENRICHED plan item into the card the learner is shown. Pure, unit-tested.
- *
- * <p>This used to hardcode `options: null` and `blankSentence: null` and hand everything to a
- * flashcard — so the exercise type the server had calibrated from the SRS stage reached the screen as
- * a coloured badge and changed nothing else. The options and the cloze are now built server-side, by
- * the same builder the review flow uses, and this is the projection that carries them.</p>
- *
- * <p>The component is chosen from `options`, never from `reviewMode` — that field is vestigial by
- * contract (see its comment in the shared DTO) and nothing may be built on it.</p>
- */
-export function buildPlanCard(item: TutorPlanItem): ReviewCardDto {
-  const options = item.options ?? null
-  return {
-    wordId: item.wordId,
-    word: item.word,
-    translation: item.translation ?? null,
-    definition: item.definition ?? null,
-    // Vestigial by contract — see the field's comment in packages/shared/src/types/api.ts. Nothing
-    // reads it; the component is chosen from `options`. Kept truthful anyway rather than constant.
-    reviewMode: options ? 'multiple_choice' : 'context',
-    blankSentence: item.blankSentence ?? null,
-    originalSentence: item.sentence ?? null,
-    bookTitle: item.bookTitle ?? null,
-    hint: item.hint ?? null,
-    explanation: null,
-    isNew: false,
-    options,
-    correctOptionIndex: options ? item.correctOptionIndex ?? null : null,
-  }
-}
-
-/** Projects an enriched plan into renderable study entries — one card per item, nothing dropped. */
-export function buildQueue(plan: TutorPlanItem[]): { item: TutorPlanItem; card: ReviewCardDto }[] {
-  return plan.map(item => ({ item, card: buildPlanCard(item) }))
-}
-
-/** A re-plan with no items means the tutor decided the session is done. */
-export function isSessionComplete(plan: TutorPlanItem[]): boolean {
-  return plan.length === 0
-}
 
 export interface TutorTurn {
   rationale: string

@@ -3,9 +3,12 @@ import { renderHook, waitFor, act } from '@testing-library/react'
 
 const getBookInsights = vi.fn()
 const deleteBookInsight = vi.fn()
-vi.mock('../../api/insights', () => ({
-  getBookInsights: (...a: unknown[]) => getBookInsights(...a),
-  deleteBookInsight: (...a: unknown[]) => deleteBookInsight(...a),
+vi.mock('@textstack/shared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@textstack/shared')>()),
+  insightsApi: {
+    getBookInsights: (...a: unknown[]) => getBookInsights(...a),
+    deleteBookInsight: (...a: unknown[]) => deleteBookInsight(...a),
+  },
 }))
 
 import { useBookReviews } from '../useBookReviews'

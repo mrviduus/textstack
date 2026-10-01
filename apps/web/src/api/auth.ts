@@ -1,7 +1,13 @@
 import { PERCENT_UNIT_BOOK, PROGRESS_LOCATOR_END, PROGRESS_LOCATOR_START } from '@textstack/shared'
 import type { ReadingProgressDto, GuestMergeSkipReason } from '@textstack/shared'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
+import { authFetch as meFetch, API_BASE } from './client'
+
+/** /me/* data calls: the shared cookie-mode client (401 → refresh → retry). The session
+ *  flow below (login/refresh/logout/guest/device) stays on the local `authFetch`, which
+ *  never refreshes — refresh going through refresh-on-401 would recurse. */
+const json = (method: string, data: unknown): RequestInit =>
+  ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
 
 export interface User {
   id: string
@@ -152,34 +158,22 @@ export interface UpdateProfilePayload {
 }
 
 export async function updateProfile(payload: UpdateProfilePayload): Promise<AuthResponse> {
-  return authFetch<AuthResponse>('/me/profile', {
-    method: 'PUT',
-    body: JSON.stringify(payload),
-  })
+  return meFetch<AuthResponse>('/me/profile', json('PUT', payload))
 }
 
 export async function uploadAvatar(file: File): Promise<AuthResponse> {
   const formData = new FormData()
   formData.append('file', file)
-  const res = await fetch(`${API_BASE}/me/profile/avatar`, {
-    method: 'POST',
-    credentials: 'include',
-    body: formData,
-  })
-  if (!res.ok) {
-    const data = await res.json().catch(() => null)
-    throw new Error(data?.error || 'Upload failed')
-  }
-  return res.json()
+  return meFetch<AuthResponse>('/me/profile/avatar', { method: 'POST', body: formData })
 }
 
 export async function deleteAvatar(): Promise<void> {
-  await authFetch<void>('/me/profile/avatar', { method: 'DELETE' })
+  await meFetch<void>('/me/profile/avatar', { method: 'DELETE' })
 }
 
 // Permanently deletes the authenticated user and ALL their data. Backend → 204.
 export async function deleteAccount(): Promise<void> {
-  await authFetch<void>('/me/account', { method: 'DELETE' })
+  await meFetch<void>('/me/account', { method: 'DELETE' })
 }
 
 // Reading Progress API
@@ -202,7 +196,7 @@ export interface UpsertProgressRequest {
 
 export async function getProgress(editionId: string): Promise<ReadingProgressDto | null> {
   try {
-    return await authFetch<ReadingProgressDto>(`/me/progress/${editionId}`)
+    return await meFetch<ReadingProgressDto>(`/me/progress/${editionId}`)
   } catch {
     return null
   }
@@ -214,17 +208,14 @@ export interface AllProgressResponse {
 }
 
 export async function getAllProgress(): Promise<AllProgressResponse> {
-  return authFetch<AllProgressResponse>('/me/progress')
+  return meFetch<AllProgressResponse>('/me/progress')
 }
 
 export async function upsertProgress(editionId: string, data: UpsertProgressRequest): Promise<ReadingProgressDto> {
-  return authFetch<ReadingProgressDto>(`/me/progress/${editionId}`, {
-    method: 'PUT',
-    // Every web writer funnels through here, so the unit is declared once. The
-    // server stores a percentage only when it knows what it is a fraction of —
-    // see Application.ReadingTracking.ProgressUnit.
-    body: JSON.stringify({ ...data, percentUnit: PERCENT_UNIT_BOOK }),
-  })
+  // Every web writer funnels through here, so the unit is declared once. The
+  // server stores a percentage only when it knows what it is a fraction of —
+  // see Application.ReadingTracking.ProgressUnit.
+  return meFetch<ReadingProgressDto>(`/me/progress/${editionId}`, json('PUT', { ...data, percentUnit: PERCENT_UNIT_BOOK }))
 }
 
 // Mark book as fully read (100%)
@@ -262,17 +253,17 @@ export interface LibraryResponse {
 }
 
 export async function getLibrary(): Promise<LibraryResponse> {
-  return authFetch<LibraryResponse>('/me/library')
+  return meFetch<LibraryResponse>('/me/library')
 }
 
 export async function addToLibrary(editionId: string): Promise<LibraryItem> {
-  return authFetch<LibraryItem>(`/me/library/${editionId}`, {
+  return meFetch<LibraryItem>(`/me/library/${editionId}`, {
     method: 'POST',
   })
 }
 
 export async function removeFromLibrary(editionId: string): Promise<void> {
-  await authFetch<void>(`/me/library/${editionId}`, {
+  await meFetch<void>(`/me/library/${editionId}`, {
     method: 'DELETE',
   })
 }

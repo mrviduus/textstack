@@ -22,7 +22,7 @@ import { useLibrarySearch } from '../hooks/useLibrarySearch'
 import { matchesQuery, parseQuery } from '../lib/searchUtils'
 import { UserBookCard } from '../components/library/UserBookCard'
 import { CollectionChips } from '../components/library/CollectionChips'
-import { getCollectionBookIds } from '../api/collections'
+import { collectionsApi } from '@textstack/shared'
 import { BulkActionBar } from '../components/library/BulkActionBar'
 import { useLibrarySelection } from '../hooks/useLibrarySelection'
 import { invalidateUserTagsCache } from '../hooks/useUserTags'
@@ -89,8 +89,8 @@ export function LibraryPage() {
     }
     let cancelled = false
     Promise.all([
-      getCollectionBookIds(activeCollectionId, 'savedbook').catch(() => [] as string[]),
-      getCollectionBookIds(activeCollectionId, 'userbook').catch(() => [] as string[]),
+      collectionsApi.getCollectionBookIds(activeCollectionId, 'savedbook').catch(() => [] as string[]),
+      collectionsApi.getCollectionBookIds(activeCollectionId, 'userbook').catch(() => [] as string[]),
     ]).then(([saved, uploads]) => {
       if (cancelled) return
       setCollectionSavedIds(new Set(saved))

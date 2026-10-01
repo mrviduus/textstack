@@ -32,7 +32,7 @@ describe('deleteAccount', () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: false,
       status: 500,
-      json: async () => ({ error: 'boom' }),
+      text: async () => JSON.stringify({ error: 'boom' }),
     })
     vi.stubGlobal('fetch', fetchMock)
 

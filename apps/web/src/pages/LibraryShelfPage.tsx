@@ -10,7 +10,7 @@ import { EmptyState } from '../components/EmptyState'
 import { getStorageUrl } from '../api/client'
 import { getUserBookCoverUrl } from '../api/userBooks'
 import { stringToColor } from '../utils/colors'
-import type { LibraryShelfItem, LibraryShelves as Shelves } from '../api/library'
+import type { LibraryShelfItem, LibraryShelves as Shelves } from '@textstack/shared'
 
 type ShelfId = keyof Shelves
 
