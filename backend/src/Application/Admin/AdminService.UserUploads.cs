@@ -9,9 +9,6 @@ using Domain.Enums;
 using Domain.Utilities;
 using Microsoft.EntityFrameworkCore;
 using Application.UserBooks;
-using TextStack.Search.Abstractions;
-using TextStack.Search.Contracts;
-using TextStack.Search.Enums;
 
 namespace Application.Admin;
 

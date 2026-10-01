@@ -9,7 +9,6 @@ COPY backend/src/Domain/Domain.csproj backend/src/Domain/
 COPY backend/src/Contracts/Contracts.csproj backend/src/Contracts/
 COPY backend/src/Application/Application.csproj backend/src/Application/
 COPY backend/src/Search/TextStack.Search/TextStack.Search.csproj backend/src/Search/TextStack.Search/
-COPY backend/src/Search/TextStack.Search.Meilisearch/TextStack.Search.Meilisearch.csproj backend/src/Search/TextStack.Search.Meilisearch/
 COPY backend/src/Extraction/TextStack.Extraction/TextStack.Extraction.csproj backend/src/Extraction/TextStack.Extraction/
 COPY backend/src/Tts/TextStack.Tts/TextStack.Tts.csproj backend/src/Tts/TextStack.Tts/
 RUN dotnet restore backend/src/Api/Api.csproj

@@ -9,9 +9,6 @@ using Domain.Enums;
 using Domain.Utilities;
 using Microsoft.EntityFrameworkCore;
 using Application.UserBooks;
-using TextStack.Search.Abstractions;
-using TextStack.Search.Contracts;
-using TextStack.Search.Enums;
 
 namespace Application.Admin;
 
@@ -104,7 +101,7 @@ public record ChapterPreviewDto(int ChapterNumber, string Title, string Preview,
 /// above. Splits use C# `partial` — compile-identical to the original
 /// monolithic file.
 /// </summary>
-public partial class AdminService(IAppDbContext db, IFileStorageService storage, ISearchIndexer searchIndexer, SsgRebuildService ssgRebuildService, UserBookService userBookService)
+public partial class AdminService(IAppDbContext db, IFileStorageService storage, SsgRebuildService ssgRebuildService, UserBookService userBookService)
 {
     private static readonly string[] AllowedExtensions = [".epub", ".pdf"];
     private const long MaxFileSize = 100 * 1024 * 1024;

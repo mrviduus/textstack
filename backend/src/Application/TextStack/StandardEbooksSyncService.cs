@@ -3,7 +3,6 @@ using System.Text.Json;
 using Application.Common.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using TextStack.Search.Abstractions;
 
 namespace Application.TextStack;
 
@@ -35,20 +34,17 @@ public class StandardEbooksSyncService
 
     private readonly IAppDbContext _db;
     private readonly IFileStorageService _storage;
-    private readonly ISearchIndexer _searchIndexer;
     private readonly ILogger<StandardEbooksSyncService> _logger;
     private readonly HttpClient _httpClient;
 
     public StandardEbooksSyncService(
         IAppDbContext db,
         IFileStorageService storage,
-        ISearchIndexer searchIndexer,
         ILogger<StandardEbooksSyncService> logger,
         HttpClient httpClient)
     {
         _db = db;
         _storage = storage;
-        _searchIndexer = searchIndexer;
         _logger = logger;
         _httpClient = httpClient;
 
@@ -186,7 +182,7 @@ public class StandardEbooksSyncService
             total, alreadyImportedCount, missing.Count);
 
         // 4. Clone and import missing books
-        var importService = new TextStackImportService(_db, _storage, _searchIndexer,
+        var importService = new TextStackImportService(_db, _storage,
             _logger as ILogger<TextStackImportService> ??
             Microsoft.Extensions.Logging.Abstractions.NullLogger<TextStackImportService>.Instance);
 

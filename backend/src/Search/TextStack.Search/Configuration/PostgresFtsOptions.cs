@@ -19,12 +19,6 @@ public sealed class PostgresFtsOptions
     public string? ConnectionString { get; set; }
 
     /// <summary>
-    /// Table name for search documents.
-    /// Default: uses existing chapters table.
-    /// </summary>
-    public string? TableName { get; set; }
-
-    /// <summary>
     /// Highlight options for ts_headline.
     /// </summary>
     public HighlightOptions Highlights { get; set; } = HighlightOptions.Default;

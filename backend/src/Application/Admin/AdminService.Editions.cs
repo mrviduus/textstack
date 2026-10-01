@@ -9,9 +9,6 @@ using Domain.Enums;
 using Domain.Utilities;
 using Microsoft.EntityFrameworkCore;
 using Application.UserBooks;
-using TextStack.Search.Abstractions;
-using TextStack.Search.Contracts;
-using TextStack.Search.Enums;
 
 namespace Application.Admin;
 
@@ -293,11 +290,7 @@ public partial class AdminService
 
     public async Task<(bool Success, string? Error)> PublishEditionAsync(Guid id, CancellationToken ct)
     {
-        var edition = await db.Editions
-            .Include(e => e.Chapters)
-            .Include(e => e.EditionAuthors)
-                .ThenInclude(ea => ea.Author)
-            .FirstOrDefaultAsync(e => e.Id == id, ct);
+        var edition = await db.Editions.FirstOrDefaultAsync(e => e.Id == id, ct);
 
         if (edition is null)
             return (false, "Edition not found");
@@ -305,7 +298,7 @@ public partial class AdminService
         if (edition.Status == EditionStatus.Published)
             return (false, "Edition is already published");
 
-        if (edition.Chapters.Count == 0)
+        if (!await db.Chapters.AnyAsync(c => c.EditionId == id, ct))
             return (false, "Cannot publish edition with no chapters");
 
         edition.Status = EditionStatus.Published;
@@ -314,50 +307,10 @@ public partial class AdminService
 
         await db.SaveChangesAsync(ct);
 
-        // Index chapters for search
-        await IndexChaptersAsync(edition, ct);
-
         // Trigger SSG rebuild for this book (fire and forget)
         _ = EnqueueSsgSafe(edition.SiteId, bookSlugs: [edition.Slug]);
 
         return (true, null);
-    }
-
-    private async Task IndexChaptersAsync(Edition edition, CancellationToken ct)
-    {
-        var searchLang = edition.Language switch
-        {
-            "en" => SearchLanguage.En,
-            _ => SearchLanguage.Auto
-        };
-
-        var authors = string.Join(", ", edition.EditionAuthors.OrderBy(ea => ea.Order).Select(ea => ea.Author.Name));
-
-        var documents = edition.Chapters.Select(chapter => new IndexDocument(
-            Id: chapter.Id.ToString(),
-            Title: chapter.Title,
-            Content: chapter.PlainText,
-            Language: searchLang,
-            SiteId: edition.SiteId,
-            Metadata: new Dictionary<string, object>
-            {
-                ["chapterId"] = chapter.Id,
-                ["chapterSlug"] = chapter.Slug ?? string.Empty,
-                ["chapterTitle"] = chapter.Title,
-                ["chapterNumber"] = chapter.ChapterNumber,
-                ["editionId"] = edition.Id,
-                ["editionSlug"] = edition.Slug,
-                ["editionTitle"] = edition.Title,
-                ["language"] = edition.Language,
-                ["authors"] = authors,
-                ["coverPath"] = edition.CoverPath ?? string.Empty
-            }
-        )).ToList();
-
-        if (documents.Count > 0)
-        {
-            await searchIndexer.IndexBatchAsync(documents, ct);
-        }
     }
 
     public async Task<(bool Success, string? Error)> UnpublishEditionAsync(Guid id, CancellationToken ct)

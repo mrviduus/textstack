@@ -11,9 +11,6 @@ using TextStack.Extraction.Contracts;
 using TextStack.Extraction.Enums;
 using TextStack.Extraction.Lint;
 using TextStack.Extraction.Registry;
-using TextStack.Search.Abstractions;
-using TextStack.Search.Contracts;
-using TextStack.Search.Enums;
 using AppIngestion = Application.Ingestion;
 
 namespace Worker.Services;
@@ -23,7 +20,6 @@ public class IngestionWorkerService
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly IFileStorageService _storage;
     private readonly IExtractorRegistry _extractorRegistry;
-    private readonly ISearchIndexer _searchIndexer;
     private readonly IImageOptimizer _imageOptimizer;
     private readonly ILogger<IngestionWorkerService> _logger;
     private readonly ILogger<AppIngestion.IngestionService> _ingestionLogger;
@@ -32,7 +28,6 @@ public class IngestionWorkerService
         IDbContextFactory<AppDbContext> dbFactory,
         IFileStorageService storage,
         IExtractorRegistry extractorRegistry,
-        ISearchIndexer searchIndexer,
         IImageOptimizer imageOptimizer,
         ILogger<IngestionWorkerService> logger,
         ILogger<AppIngestion.IngestionService> ingestionLogger)
@@ -40,7 +35,6 @@ public class IngestionWorkerService
         _dbFactory = dbFactory;
         _storage = storage;
         _extractorRegistry = extractorRegistry;
-        _searchIndexer = searchIndexer;
         _imageOptimizer = imageOptimizer;
         _logger = logger;
         _ingestionLogger = ingestionLogger;
@@ -285,13 +279,6 @@ public class IngestionWorkerService
                 persistActivity?.SetTag("chapters_count", parsed.Chapters.Count);
             }
 
-            // Index chapters for search
-            using (var indexActivity = IngestionActivitySource.Source.StartActivity("search.index"))
-            {
-                await IndexChaptersForSearchAsync(db, job.EditionId, ct);
-                indexActivity?.SetTag("chapters_indexed", parsed.Chapters.Count);
-            }
-
 
             // Run linter and save results
             using (var lintActivity = IngestionActivitySource.Source.StartActivity("lint.run"))
@@ -393,61 +380,6 @@ public class IngestionWorkerService
             result.Diagnostics.Confidence,
             warnings
         );
-    }
-
-    private async Task IndexChaptersForSearchAsync(AppDbContext db, Guid editionId, CancellationToken ct)
-    {
-        var edition = await db.Editions
-            .Include(e => e.Chapters)
-            .Include(e => e.Work)
-            .Include(e => e.EditionAuthors)
-                .ThenInclude(ea => ea.Author)
-            .FirstOrDefaultAsync(e => e.Id == editionId, ct);
-
-        if (edition is null)
-        {
-            _logger.LogWarning("Edition {EditionId} not found for search indexing", editionId);
-            return;
-        }
-
-        var language = MapLanguageToSearchLanguage(edition.Language);
-        var authors = string.Join(", ", edition.EditionAuthors.OrderBy(ea => ea.Order).Select(ea => ea.Author.Name));
-
-        var documents = edition.Chapters.Select(chapter => new IndexDocument(
-            Id: chapter.Id.ToString(),
-            Title: chapter.Title ?? $"Chapter {chapter.ChapterNumber}",
-            Content: chapter.PlainText ?? string.Empty,
-            Language: language,
-            SiteId: edition.Work.SiteId,
-            Metadata: new Dictionary<string, object>
-            {
-                ["chapterId"] = chapter.Id,
-                ["chapterSlug"] = chapter.Slug ?? string.Empty,
-                ["chapterTitle"] = chapter.Title ?? string.Empty,
-                ["chapterNumber"] = chapter.ChapterNumber,
-                ["editionId"] = edition.Id,
-                ["editionSlug"] = edition.Slug,
-                ["editionTitle"] = edition.Title,
-                ["language"] = edition.Language,
-                ["authors"] = authors,
-                ["coverPath"] = edition.CoverPath ?? string.Empty
-            }
-        )).ToList();
-
-        if (documents.Count > 0)
-        {
-            await _searchIndexer.IndexBatchAsync(documents, ct);
-            _logger.LogInformation("Indexed {Count} chapters for edition {EditionId}", documents.Count, editionId);
-        }
-    }
-
-    private static SearchLanguage MapLanguageToSearchLanguage(string language)
-    {
-        return language.ToLowerInvariant() switch
-        {
-            "en" => SearchLanguage.En,
-            _ => SearchLanguage.Auto
-        };
     }
 
     private async Task RunLinterAsync(

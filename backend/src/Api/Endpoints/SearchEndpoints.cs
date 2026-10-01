@@ -10,7 +10,6 @@
 
 using Api.Language;
 using Api.Sites;
-using Application.Search;
 using Contracts.Common;
 using Microsoft.AspNetCore.Mvc;
 using TextStack.Search.Abstractions;

@@ -87,7 +87,7 @@ backend/src/
   Infrastructure/ # EF Core, storage, adapters
   Worker/         # Ingestion + SSG polling + GC
   Extraction/     # EPUB/PDF parsers
-  Search/         # Postgres FTS (Meilisearch provider optional)
+  Search/         # Postgres FTS
 
 apps/
   web/            # Public reader (React + Vite)

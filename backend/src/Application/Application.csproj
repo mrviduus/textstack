@@ -18,7 +18,6 @@
     <ProjectReference Include="..\Domain\Domain.csproj" />
     <ProjectReference Include="..\Contracts\Contracts.csproj" />
     <ProjectReference Include="..\Extraction\TextStack.Extraction\TextStack.Extraction.csproj" />
-    <ProjectReference Include="..\Search\TextStack.Search\TextStack.Search.csproj" />
     <ProjectReference Include="..\Vocabulary\TextStack.Vocabulary\TextStack.Vocabulary.csproj" />
     <ProjectReference Include="..\Ai\TextStack.Ai.Core\TextStack.Ai.Core.csproj" />
     <ProjectReference Include="..\Ai\TextStack.Ai.Llm\TextStack.Ai.Llm.csproj" />

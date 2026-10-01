@@ -6,7 +6,6 @@ using Api.Sites;
 using Application;
 using Application.AdminAuth;
 using Application.Common.Interfaces;
-using Application.Search;
 using Application.TextStack;
 using Domain.Enums;
 using Infrastructure.Persistence;
@@ -41,7 +40,7 @@ var storagePath = builder.Configuration["Storage:RootPath"] ?? "/storage";
 // Persistence, search, RAG, product services, workers, and rate-limiting.
 builder.Services
     .AddTextStackPersistence(connectionString, builder.Configuration)
-    .AddTextStackSearchStack(connectionString, builder.Configuration)
+    .AddTextStackSearchStack(connectionString)
     .AddTextStackContentServices(builder.Configuration)
     .AddTextStackHostedServices()
     .AddTextStackRateLimiting(builder.Configuration);
@@ -557,19 +556,6 @@ if (args.Length > 0 && args[0] == "create-admin")
 
     return;
 }
-
-// CLI: reindex-search command
-if (args.Length > 0 && args[0] == "reindex-search")
-{
-    using var cliScope = app.Services.CreateScope();
-    var reindexService = cliScope.ServiceProvider.GetRequiredService<SearchReindexService>();
-
-    Console.WriteLine("Starting search reindex...");
-    var (editions, chapters) = await reindexService.ReindexAllAsync(CancellationToken.None);
-    Console.WriteLine($"Done: {editions} editions, {chapters} chapters indexed");
-    return;
-}
-
 
 // CLI: backfill-vocabulary-embeddings — AI-058. Embeds every vocabulary_words row whose
 // embedding IS NULL (across ALL users), in batches, and writes the vectors back. Unlike

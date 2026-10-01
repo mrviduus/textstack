@@ -6,7 +6,6 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using TextStack.Search.Abstractions;
 
 namespace Worker.Services;
 
@@ -79,10 +78,9 @@ public class TextStackWatcher : BackgroundService
         await using var db = await dbFactory.CreateDbContextAsync(ct);
 
         var storage = scope.ServiceProvider.GetRequiredService<IFileStorageService>();
-        var searchIndexer = scope.ServiceProvider.GetRequiredService<ISearchIndexer>();
         var logger = scope.ServiceProvider.GetRequiredService<ILogger<TextStackImportService>>();
 
-        var importService = new TextStackImportService(db, storage, searchIndexer, logger);
+        var importService = new TextStackImportService(db, storage, logger);
 
         var imported = 0;
         var skipped = 0;

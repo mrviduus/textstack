@@ -4,9 +4,6 @@ using Domain.Enums;
 using Domain.Utilities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using TextStack.Search.Abstractions;
-using TextStack.Search.Contracts;
-using TextStack.Search.Enums;
 
 namespace Application.TextStack;
 
@@ -16,18 +13,15 @@ public class TextStackImportService
 {
     private readonly IAppDbContext _db;
     private readonly IFileStorageService _storage;
-    private readonly ISearchIndexer _searchIndexer;
     private readonly ILogger<TextStackImportService> _logger;
 
     public TextStackImportService(
         IAppDbContext db,
         IFileStorageService storage,
-        ISearchIndexer searchIndexer,
         ILogger<TextStackImportService> logger)
     {
         _db = db;
         _storage = storage;
-        _searchIndexer = searchIndexer;
         _logger = logger;
     }
 
