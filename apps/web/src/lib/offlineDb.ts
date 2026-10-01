@@ -1,5 +1,5 @@
 import type { Chapter, ChapterNav } from '../types/api'
-import { isPdfAnchor, type PdfAnchor } from '@textstack/shared'
+import type { PdfAnchor } from '@textstack/shared'
 
 export interface CachedChapter {
   key: string // `${editionId}:${chapterSlug}`
@@ -253,28 +253,6 @@ export async function cacheChapter(
   })
 }
 
-export async function deleteChaptersByEdition(editionId: string): Promise<void> {
-  const db = await openOfflineDb()
-
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(CHAPTERS_STORE, 'readwrite')
-    const store = tx.objectStore(CHAPTERS_STORE)
-    const index = store.index('editionId')
-    const request = index.openCursor(IDBKeyRange.only(editionId))
-
-    request.onsuccess = () => {
-      const cursor = request.result
-      if (cursor) {
-        cursor.delete()
-        cursor.continue()
-      } else {
-        resolve()
-      }
-    }
-    request.onerror = () => reject(request.error)
-  })
-}
-
 export async function countCachedChapters(editionId: string): Promise<number> {
   const db = await openOfflineDb()
 
@@ -319,7 +297,31 @@ export async function setCachedBookMeta(meta: CachedBookMeta): Promise<void> {
   })
 }
 
-export async function deleteCachedBookMeta(editionId: string): Promise<void> {
+// ============ CLEANUP ============
+
+async function deleteChaptersByEdition(editionId: string): Promise<void> {
+  const db = await openOfflineDb()
+
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(CHAPTERS_STORE, 'readwrite')
+    const store = tx.objectStore(CHAPTERS_STORE)
+    const index = store.index('editionId')
+    const request = index.openCursor(IDBKeyRange.only(editionId))
+
+    request.onsuccess = () => {
+      const cursor = request.result
+      if (cursor) {
+        cursor.delete()
+        cursor.continue()
+      } else {
+        resolve()
+      }
+    }
+    request.onerror = () => reject(request.error)
+  })
+}
+
+async function deleteCachedBookMeta(editionId: string): Promise<void> {
   const db = await openOfflineDb()
 
   return new Promise((resolve, reject) => {
@@ -332,19 +334,11 @@ export async function deleteCachedBookMeta(editionId: string): Promise<void> {
   })
 }
 
-// ============ CLEANUP ============
-
 export async function deleteAllCachedData(editionId: string): Promise<void> {
   await Promise.all([
     deleteChaptersByEdition(editionId),
     deleteCachedBookMeta(editionId),
   ])
-}
-
-export async function isBookFullyCached(editionId: string): Promise<boolean> {
-  const meta = await getCachedBookMeta(editionId)
-  if (!meta) return false
-  return meta.cachedChapters >= meta.totalChapters
 }
 
 // ============ HIGHLIGHTS ============
@@ -365,46 +359,6 @@ export async function getHighlightsForEdition(
       highlights.sort((a, b) => b.createdAt - a.createdAt)
       resolve(highlights)
     }
-    request.onerror = () => reject(request.error)
-  })
-}
-
-export async function getHighlightsForChapter(
-  editionId: string,
-  chapterId: string
-): Promise<StoredHighlight[]> {
-  const db = await openOfflineDb()
-
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(HIGHLIGHTS_STORE, 'readonly')
-    const store = tx.objectStore(HIGHLIGHTS_STORE)
-    const index = store.index('editionChapter')
-    const request = index.getAll([editionId, chapterId])
-
-    request.onsuccess = () => {
-      const highlights = request.result as StoredHighlight[]
-      // PDF anchors have no startOffset — sort them first (offset 0) so the
-      // reflow ordering is undisturbed. (PDF highlights are chapterless, so
-      // this chapter-scoped query rarely returns them.)
-      const off = (h: StoredHighlight) => (isPdfAnchor(h.anchor) ? 0 : h.anchor.startOffset)
-      highlights.sort((a, b) => off(a) - off(b))
-      resolve(highlights)
-    }
-    request.onerror = () => reject(request.error)
-  })
-}
-
-export async function getHighlightById(
-  id: string
-): Promise<StoredHighlight | null> {
-  const db = await openOfflineDb()
-
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(HIGHLIGHTS_STORE, 'readonly')
-    const store = tx.objectStore(HIGHLIGHTS_STORE)
-    const request = store.get(id)
-
-    request.onsuccess = () => resolve(request.result || null)
     request.onerror = () => reject(request.error)
   })
 }
@@ -437,28 +391,6 @@ export async function deleteHighlight(id: string): Promise<void> {
   })
 }
 
-export async function deleteHighlightsByEdition(editionId: string): Promise<void> {
-  const db = await openOfflineDb()
-
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(HIGHLIGHTS_STORE, 'readwrite')
-    const store = tx.objectStore(HIGHLIGHTS_STORE)
-    const index = store.index('editionId')
-    const request = index.openCursor(IDBKeyRange.only(editionId))
-
-    request.onsuccess = () => {
-      const cursor = request.result
-      if (cursor) {
-        cursor.delete()
-        cursor.continue()
-      } else {
-        resolve()
-      }
-    }
-    request.onerror = () => reject(request.error)
-  })
-}
-
 export async function getHighlightsForUserBook(
   userBookId: string
 ): Promise<StoredHighlight[]> {
@@ -473,46 +405,6 @@ export async function getHighlightsForUserBook(
     request.onsuccess = () => {
       const highlights = request.result as StoredHighlight[]
       highlights.sort((a, b) => b.createdAt - a.createdAt)
-      resolve(highlights)
-    }
-    request.onerror = () => reject(request.error)
-  })
-}
-
-export async function deleteHighlightsByUserBook(userBookId: string): Promise<void> {
-  const db = await openOfflineDb()
-
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(HIGHLIGHTS_STORE, 'readwrite')
-    const store = tx.objectStore(HIGHLIGHTS_STORE)
-    const index = store.index('userBookId')
-    const request = index.openCursor(IDBKeyRange.only(userBookId))
-
-    request.onsuccess = () => {
-      const cursor = request.result
-      if (cursor) {
-        cursor.delete()
-        cursor.continue()
-      } else {
-        resolve()
-      }
-    }
-    request.onerror = () => reject(request.error)
-  })
-}
-
-export async function getPendingHighlights(): Promise<StoredHighlight[]> {
-  const db = await openOfflineDb()
-
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(HIGHLIGHTS_STORE, 'readonly')
-    const store = tx.objectStore(HIGHLIGHTS_STORE)
-    const request = store.getAll()
-
-    request.onsuccess = () => {
-      const highlights = (request.result as StoredHighlight[]).filter(
-        (h) => h.syncStatus === 'pending'
-      )
       resolve(highlights)
     }
     request.onerror = () => reject(request.error)
@@ -588,17 +480,12 @@ export async function cacheTranslation(
   })
 }
 
-export async function clearOldTranslations(maxAgeMs = 7 * 24 * 60 * 60 * 1000): Promise<void> {
+async function deleteOlderThan(storeName: string, maxAgeMs: number): Promise<void> {
   const db = await openOfflineDb()
-  const cutoff = Date.now() - maxAgeMs
+  const range = IDBKeyRange.upperBound(Date.now() - maxAgeMs)
 
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(TRANSLATIONS_STORE, 'readwrite')
-    const store = tx.objectStore(TRANSLATIONS_STORE)
-    const index = store.index('cachedAt')
-    const range = IDBKeyRange.upperBound(cutoff)
-    const request = index.openCursor(range)
-
+    const request = db.transaction(storeName, 'readwrite').objectStore(storeName).index('cachedAt').openCursor(range)
     request.onsuccess = () => {
       const cursor = request.result
       if (cursor) {
@@ -610,6 +497,17 @@ export async function clearOldTranslations(maxAgeMs = 7 * 24 * 60 * 60 * 1000): 
     }
     request.onerror = () => reject(request.error)
   })
+}
+
+export function clearOldTranslations(maxAgeMs = 7 * 24 * 60 * 60 * 1000): Promise<void> {
+  return deleteOlderThan(TRANSLATIONS_STORE, maxAgeMs)
+}
+
+/** Evict dictionary / TTS / explain entries past their 30-day TTL. Reads already skip them;
+ *  this frees the storage. Called once per app start (main.tsx). */
+export async function clearExpiredCaches(): Promise<void> {
+  const ttl = 30 * 24 * 60 * 60 * 1000
+  await Promise.allSettled([DICTIONARY_STORE, TTS_STORE, EXPLAIN_STORE].map(s => deleteOlderThan(s, ttl)))
 }
 
 // ============ DICTIONARY CACHE ============
@@ -669,30 +567,6 @@ export async function cacheDictionaryEntry(
   })
 }
 
-export async function clearOldDictionaryEntries(maxAgeMs = 30 * 24 * 60 * 60 * 1000): Promise<void> {
-  const db = await openOfflineDb()
-  const cutoff = Date.now() - maxAgeMs
-
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(DICTIONARY_STORE, 'readwrite')
-    const store = tx.objectStore(DICTIONARY_STORE)
-    const index = store.index('cachedAt')
-    const range = IDBKeyRange.upperBound(cutoff)
-    const request = index.openCursor(range)
-
-    request.onsuccess = () => {
-      const cursor = request.result
-      if (cursor) {
-        cursor.delete()
-        cursor.continue()
-      } else {
-        resolve()
-      }
-    }
-    request.onerror = () => reject(request.error)
-  })
-}
-
 // ============ TTS AUDIO CACHE ============
 
 function makeTtsKey(lang: string, text: string): string {
@@ -746,30 +620,6 @@ export async function cacheTtsAudio(
   })
 }
 
-export async function clearOldTtsAudio(maxAgeMs = 30 * 24 * 60 * 60 * 1000): Promise<void> {
-  const db = await openOfflineDb()
-  const cutoff = Date.now() - maxAgeMs
-
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(TTS_STORE, 'readwrite')
-    const store = tx.objectStore(TTS_STORE)
-    const index = store.index('cachedAt')
-    const range = IDBKeyRange.upperBound(cutoff)
-    const request = index.openCursor(range)
-
-    request.onsuccess = () => {
-      const cursor = request.result
-      if (cursor) {
-        cursor.delete()
-        cursor.continue()
-      } else {
-        resolve()
-      }
-    }
-    request.onerror = () => reject(request.error)
-  })
-}
-
 // ============ PENDING VOCAB WORDS (anonymous accumulator) ============
 
 export async function addPendingVocabWord(word: PendingVocabWord): Promise<void> {
@@ -812,17 +662,6 @@ export async function deletePendingVocabWord(id: string): Promise<void> {
     const tx = db.transaction(PENDING_VOCAB_STORE, 'readwrite')
     const store = tx.objectStore(PENDING_VOCAB_STORE)
     const request = store.delete(id)
-    request.onsuccess = () => resolve()
-    request.onerror = () => reject(request.error)
-  })
-}
-
-export async function clearPendingVocabWords(): Promise<void> {
-  const db = await openOfflineDb()
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(PENDING_VOCAB_STORE, 'readwrite')
-    const store = tx.objectStore(PENDING_VOCAB_STORE)
-    const request = store.clear()
     request.onsuccess = () => resolve()
     request.onerror = () => reject(request.error)
   })
@@ -883,30 +722,6 @@ export async function cacheExplain(
     const store = tx.objectStore(EXPLAIN_STORE)
     const request = store.put(cached)
     request.onsuccess = () => resolve()
-    request.onerror = () => reject(request.error)
-  })
-}
-
-export async function clearOldExplains(maxAgeMs = EXPLAIN_TTL_MS): Promise<void> {
-  const db = await openOfflineDb()
-  const cutoff = Date.now() - maxAgeMs
-
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(EXPLAIN_STORE, 'readwrite')
-    const store = tx.objectStore(EXPLAIN_STORE)
-    const index = store.index('cachedAt')
-    const range = IDBKeyRange.upperBound(cutoff)
-    const request = index.openCursor(range)
-
-    request.onsuccess = () => {
-      const cursor = request.result
-      if (cursor) {
-        cursor.delete()
-        cursor.continue()
-      } else {
-        resolve()
-      }
-    }
     request.onerror = () => reject(request.error)
   })
 }

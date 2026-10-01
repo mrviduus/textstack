@@ -1,55 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
 import type { LibraryItem, ReadingProgressDto } from '../api/auth'
 import type { UserBook } from '../api/userBooks'
 
 export type LibraryFilterKey = 'all' | 'reading' | 'finished' | 'notStarted' | 'failed'
-export type LibraryTab = 'saved' | 'uploads'
 
-const STORAGE_PREFIX = 'textstack_library_filter_'
-const VALID: LibraryFilterKey[] = ['all', 'reading', 'finished', 'notStarted', 'failed']
 const FINISHED_THRESHOLD = 0.95
-
-function isValid(v: unknown): v is LibraryFilterKey {
-  return typeof v === 'string' && (VALID as string[]).includes(v)
-}
-
-function readStored(tab: LibraryTab): LibraryFilterKey {
-  try {
-    const raw = localStorage.getItem(STORAGE_PREFIX + tab)
-    return isValid(raw) ? raw : 'all'
-  } catch {
-    return 'all'
-  }
-}
-
-export function useLibraryFilter(tab: LibraryTab) {
-  const [searchParams, setSearchParams] = useSearchParams()
-  const [filter, setFilterState] = useState<LibraryFilterKey>(() => {
-    const fromUrl = searchParams.get('filter')
-    if (isValid(fromUrl)) return fromUrl
-    return readStored(tab)
-  })
-  const skipNextTabSync = useRef(true)
-
-  useEffect(() => {
-    if (skipNextTabSync.current) { skipNextTabSync.current = false; return }
-    setFilterState(readStored(tab))
-  }, [tab])
-
-  const setFilter = useCallback((next: LibraryFilterKey) => {
-    setFilterState(next)
-    try { localStorage.setItem(STORAGE_PREFIX + tab, next) } catch { /* private mode etc — non-fatal */ }
-    setSearchParams(prev => {
-      const sp = new URLSearchParams(prev)
-      if (next === 'all') sp.delete('filter')
-      else sp.set('filter', next)
-      return sp
-    }, { replace: true })
-  }, [tab, setSearchParams])
-
-  return { filter, setFilter }
-}
 
 function progressOf(item: LibraryItem, progressMap: Record<string, ReadingProgressDto>): number {
   return progressMap[item.editionId]?.percent ?? 0

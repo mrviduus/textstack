@@ -30,14 +30,6 @@ export const getRouteTypeBadge = (type: string) => {
   return <span className={classes[type] || 'badge'}>{type}</span>
 }
 
-export const getHttpStatusClass = (status: number): string => {
-  if (status >= 200 && status < 300) return 'badge badge--success'
-  if (status >= 300 && status < 400) return 'badge badge--redirect'
-  if (status >= 400 && status < 500) return 'badge badge--client-error'
-  if (status >= 500) return 'badge badge--server-error'
-  return 'badge'
-}
-
 export const formatDate = (date: string | null): string => {
   if (!date) return '-'
   return new Date(date).toLocaleString()

@@ -1,39 +1,3 @@
-/* Words Page (Vocabulary + Highlights tabs) */
-.words-page {
-  max-width: 800px;
-  margin: 0 auto;
-  padding: 2rem 1rem;
-}
-
-.words-page__tabs {
-  display: flex;
-  gap: 0;
-  border-bottom: 2px solid var(--color-border, rgba(0, 0, 0, 0.08));
-  margin-bottom: 0;
-}
-
-.words-page__tab {
-  padding: 10px 20px;
-  border: none;
-  background: none;
-  font-size: 15px;
-  font-weight: 500;
-  color: var(--color-text-secondary, #666);
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -2px;
-  transition: color 0.15s, border-color 0.15s;
-}
-
-.words-page__tab:hover {
-  color: var(--color-text, #191919);
-}
-
-.words-page__tab--active {
-  color: var(--color-brand, #c9a227);
-  border-bottom-color: var(--color-brand, #c9a227);
-}
-
 /* Practice Page — Apple-like */
 .practice-page {
   max-width: 520px;
@@ -76,61 +40,6 @@
   color: var(--color-text, #191919);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
   font-weight: 600;
-}
-
-/* Practice sections */
-.practice-section {
-  background: var(--color-bg-card, #fff);
-  border: 1px solid var(--color-border, rgba(0, 0, 0, 0.08));
-  border-radius: 16px;
-  padding: 24px;
-  margin-bottom: 16px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
-}
-
-.practice-section__title {
-  font-size: 17px;
-  font-weight: 600;
-  margin: 0 0 6px;
-  color: var(--color-text, #191919);
-}
-
-.practice-section__desc {
-  font-size: 14px;
-  color: var(--color-text-secondary, #666);
-  margin: 0 0 16px;
-}
-
-.practice-section__actions {
-  display: flex;
-  gap: 10px;
-}
-
-.practice-section__btn {
-  padding: 10px 24px;
-  border: none;
-  border-radius: 12px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  background: var(--color-primary, #c9a227);
-  color: var(--color-bg, #fff);
-  transition: opacity 0.15s;
-}
-
-.practice-section__btn:hover:not(:disabled) {
-  opacity: 0.9;
-}
-
-.practice-section__btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.practice-section__btn--secondary {
-  background: transparent;
-  color: var(--color-primary, #c9a227);
-  border: 1.5px solid var(--color-primary, #c9a227);
 }
 
 /* Vocabulary Page */
@@ -2164,8 +2073,6 @@
   .review-summary__stat-big { font-size: 1.75rem; }
   .review-summary__banner { padding: 24px 16px; }
   .review-summary__banner-message { font-size: 1.25rem; }
-  .practice-section__actions { flex-direction: column; }
-  .practice-section__btn { width: 100%; text-align: center; }
 }
 
 /* F3: Cluster bonus card */

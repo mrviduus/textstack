@@ -36,9 +36,7 @@
       "brandLine": "TextStack — a reader for developers, students, and curious minds.",
       "seoTitle": "TextStack — A reader that helps you finish dense books",
       "seoDescription": "Finish the tech book, paper, or classic you keep quitting. Contextual word explanations tied to the book's domain. Capped weekly SRS, offline reading. EPUB, PDF.",
-      "description": "TextStack is a reader for dense tech books, papers, and literary classics. Contextual word explanations tied to the book's domain, a capped weekly SRS queue, and detailed reading stats — all in one place.",
       "ctaPrimary": "Start reading",
-      "ctaSecondary": "Upload your book",
       "ctaReturning": "Continue where you left off",
       "searchPlaceholder": "Search by title, author, or genre...",
       "yourLanguage": "your language"
@@ -52,9 +50,6 @@
       "title": "Classic literature",
       "subtitle": "Free, public-domain books — thousands ready to read.",
       "viewAll": "View all books"
-    },
-    "seo": {
-      "content": "TextStack is a reader built for people who want to finish the book they keep quitting — from dense tech books and papers to classic literature. Every word you tap gets a contextual explanation tied to the book's domain, not a generic dictionary. Save words to a capped weekly SRS queue, track reading stats, and sync across web and mobile."
     },
     "continueReading": {
       "label": "Continue Reading"
@@ -85,48 +80,6 @@
       "tts": {
         "title": "Natural voices",
         "description": "Built-in text-to-speech. Hear native pronunciation while you read."
-      }
-    },
-    "howItWorks": {
-      "heading": "How it works",
-      "step1Title": "Pick a book",
-      "step1Body": "Choose from thousands of classics — or upload your own.",
-      "step2Title": "Tap to translate",
-      "step2Body": "One tap reveals translation, definition, and TTS pronunciation.",
-      "step3Title": "Master with flashcards",
-      "step3Body": "Saved words become SRS cards. Review daily to make them stick."
-    },
-    "devices": {
-      "heading": "Read anywhere",
-      "body": "Your library, progress, and vocabulary — synced across web and mobile."
-    },
-    "testimonials": {
-      "heading": "Loved by language learners",
-      "subheading": "Real readers, real progress.",
-      "reader1": {
-        "quote": "I finished my first English novel in two weeks. The tap-to-translate feature is a game changer — I never lose momentum.",
-        "name": "Maria K.",
-        "role": "Learning English, B1 level"
-      },
-      "reader2": {
-        "quote": "The SRS flashcards actually work. I went from forgetting every word to recognizing them in real conversations.",
-        "name": "Tomas R.",
-        "role": "University student, Czech Republic"
-      },
-      "reader3": {
-        "quote": "I switched from Kindle because I wanted vocabulary tools built into the reader. TextStack nails it.",
-        "name": "Yuki S.",
-        "role": "Software engineer, Japan"
-      },
-      "reader4": {
-        "quote": "Being able to upload my own books and read them with translation is incredible. And it is free!",
-        "name": "Elena V.",
-        "role": "Teacher, Ukraine"
-      },
-      "reader5": {
-        "quote": "The reading stats keep me motivated — my streak is 47 days and counting. Best reading app I have used.",
-        "name": "Carlos M.",
-        "role": "Learning English, A2 level"
       }
     },
     "faq": {
@@ -193,9 +146,6 @@
         "stats": "Reading statistics",
         "free": "Free to use"
       }
-    },
-    "about": {
-      "title": "What TextStack is"
     }
   },
   "cookieBanner": {
@@ -216,16 +166,11 @@
   },
   "reader": {
     "wordPopup": {
-      "known": "Known",
       "ignore": "Ignore",
-      "save": "Save",
       "savedStatus": "Saved to vocabulary",
-      "remove": "Remove",
-      "saving": "Saving...",
       "loading": "...",
       "translatingTo": "Translating to",
       "change": "Change",
-      "definitionMode": "Definition",
       "definitionModeHint": "Definition only — pick a different native language to see translations",
       "needsNativeLang": "Pick your native language to save words",
       "translateTo": "Translate to...",
@@ -294,8 +239,7 @@
     }
   },
   "onboarding": {
-    "ghostHintLabel": "Tap any word",
-    "hintLabel": "Try tapping a word"
+    "ghostHintLabel": "Tap any word"
   },
   "auth": {
     "progressSavedToast": "Your reading progress and saved words were kept."
@@ -372,16 +316,11 @@
     "errorGeneric": "Something went wrong. Please try again.",
     "errorNotSignedIn": "Please sign in first."
   },
-  "common": {
-    "home": "Home"
-  },
   "nav": {
-    "books": "Books",
     "search": "Search",
     "highlights": "Highlights",
     "brandTitle": "TextStack Reader - Learn languages through reading",
     "genres": "Genres",
-    "browseGenres": "Browse genres",
     "aboutTextStack": "About TextStack Reader",
     "discoverMenu": {
       "trendingGenres": "Trending Genres",
@@ -498,14 +437,9 @@
     "empty": {
       "uploads": {
         "title": "Drop your first book here",
-        "subtitle": "EPUB or PDF",
         "cta": "Or browse files",
         "shortcut": "or press ⌘U from anywhere"
       }
-    },
-    "continueShelf": {
-      "scrollLeft": "Scroll left",
-      "scrollRight": "Scroll right"
     },
     "readLater": {
       "tab": "Read later",
@@ -518,9 +452,6 @@
       "deleteConfirm": "Delete this clip?",
       "openOriginal": "Open original article",
       "empty": "Nothing saved yet — install the Send to TextStack extension to clip articles."
-    },
-    "shelves": {
-      "viewAll": "View all"
     },
     "badge": {
       "indexing": "Indexing…",
@@ -556,12 +487,9 @@
     "tags": {
       "add": "Tags",
       "placeholder": "Add tag…",
-      "limit": "Tag limit reached (20)",
-      "dropdown": "All tags",
-      "clear": "Clear tag filter"
+      "limit": "Tag limit reached (20)"
     },
     "suggestedTags": {
-      "pill": "✨ Suggested tags",
       "title": "AI-suggested tags",
       "subtitle": "Pick the ones you want to keep.",
       "add": "Add selected",
@@ -593,39 +521,6 @@
         "books": "Finish your first book"
       }
     },
-    "palette": {
-      "title": "Command palette",
-      "placeholder": "Jump to a page, book, or run a command…",
-      "empty": "No matches",
-      "groups": {
-        "recent": "Recent",
-        "pages": "Pages",
-        "actions": "Actions",
-        "books": "Your books"
-      },
-      "pages": {
-        "home": "Home",
-        "library": "My library",
-        "discover": "Discover books",
-        "search": "Search",
-        "vocabulary": "Vocabulary",
-        "vocabularyReview": "Vocabulary review",
-        "highlights": "Highlights",
-        "stats": "Reading stats",
-        "about": "About"
-      },
-      "actions": {
-        "upload": "Upload a book",
-        "toggleTheme": "Toggle theme",
-        "signOut": "Sign out",
-        "signIn": "Sign in"
-      },
-      "kbd": {
-        "navigate": "navigate",
-        "select": "select",
-        "close": "close"
-      }
-    },
     "collections": {
       "new": "New collection"
     },
@@ -649,10 +544,6 @@
       "addToCollection": "Add to collection",
       "addTag": "Add tag",
       "delete": "Delete",
-      "confirmDeleteTitle": "Delete {n} books?",
-      "confirmDeleteList": "and {n} more",
-      "confirmDelete": "Delete",
-      "doneSummary": "{ok} done, {fail} failed",
       "tagPlaceholder": "Tag name…"
     }
   },
@@ -696,7 +587,6 @@
   },
   "bookDetail": {
     "moreByAuthor": "More by this author",
-    "similarBooks": "Similar books",
     "faqFreeAnswer": "Yes, {title} is available to read for free on TextStack Reader.",
     "faqLanguagesYes": "Yes, {title} is available in {count} language(s) on TextStack Reader.",
     "faqLanguagesNo": "Currently {title} is only available in {lang} on TextStack Reader."
@@ -751,7 +641,6 @@
       "subtitle": "Select text in any book to save a highlight.",
       "cta": "Browse library"
     },
-    "emptyFiltered": "No highlights yet. Select text while reading to highlight it.",
     "signInPrompt": "Sign in to view your highlights.",
     "all": "All",
     "libraryBooks": "Library",
@@ -769,26 +658,12 @@
     "filterByColor": "Filter by color",
     "loadMore": "Load more"
   },
-  "words": {
-    "tabs": {
-      "vocabulary": "Vocabulary",
-      "highlights": "Highlights"
-    }
-  },
   "practice": {
-    "title": "Practice",
     "empty": {
       "title": "Nothing to review yet",
       "subtitle": "Save a few words from any book — they become flashcards here.",
       "cta": "Browse library"
-    },
-    "vocabReview": "Vocabulary Review",
-    "highlightReview": "Highlight Review",
-    "wordsDue": "{count} words due for review",
-    "noWordsDue": "No words due right now",
-    "startReview": "Start Review",
-    "practiceMode": "Practice All Words",
-    "highlightDesc": "Review your highlighted passages"
+    }
   },
   "vocabulary": {
     "emptyPage": {
@@ -901,9 +776,6 @@
     }
   },
   "tutor": {
-    "study": {
-      "why": "Why this card"
-    },
     "signIn": {
       "ctaBrowse": "Browse books"
     }
@@ -913,14 +785,6 @@
     "books": "Books",
     "authors": "Authors",
     "genres": "Genres"
-  },
-  "tts": {
-    "listen": "Listen",
-    "speed": "Speed",
-    "voice": "Voice",
-    "settings": "Pronunciation",
-    "unavailable": "Pronunciation unavailable",
-    "test": "Test"
   },
   "share": {
     "share": "Share",

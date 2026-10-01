@@ -50,7 +50,6 @@ interface ReaderHighlightsProps {
   addHighlight: (anchor: HighlightAnchor, color: HighlightColor, selectedText: string) => Promise<StoredHighlight>
   updateHighlight: (id: string, updates: { color?: HighlightColor; noteText?: string | null }) => Promise<StoredHighlight | null>
   removeHighlight: (id: string) => Promise<void>
-  /** Open the Study Buddy panel for a highlighted passage (AI-038b). Catalog editions only. */
   /**
    * Original-layout PDF mode: keep the live selection actions (translate /
    * explain / TTS / copy / vocab-save) but drop persistent visual layers —
@@ -439,7 +438,6 @@ export function ReaderHighlights({
     explainPopup.openFromSelection(selection.text, selection.range, selection.rect)
   }, [explainPopup, selection.text, selection.range, selection.rect])
 
-  // --- Study Buddy: hand the whole selected passage up to the reader's panel ---
   // --- Selection toolbar ---
   const handleHighlight = useCallback(
     async (color: HighlightColor) => {
