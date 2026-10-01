@@ -26,6 +26,25 @@ chat ─▶ save_chapter_review(…, review) ── 400 with EVERY error ─▶ 
 TextStack: book_insight.review_json + Text (markdown) · review_question rows (own SRS queue)
 ```
 
+## 1a. One flow: Discuss, then review (2026-10-01)
+
+"Discuss book" and "Review chapter" are now one entry: **Discuss** on a chapter. The prefilled
+message is `I'm reading "<book>" by <author> in TextStack, at the chapter "<chapter>". Let's talk
+about it.` plus the id line (`(TextStack: book <id>, chapter <slug>)` or `(TextStack: catalog
+<slug>, edition <id>, chapter <slug>)`). The rules live in the MCP server `instructions`
+(`McpBridgeCore.Instructions`), not in the message:
+
+- **Conversation first, free.** Any topic, jump around.
+- **Soft spoilers.** The assistant may go to later chapters but warns and asks first.
+- **The assistant offers the review** when the talk winds down or the reader says done; only on
+  yes does it run `get_chapter_review` → method → `save_chapter_review`. Method v3 builds the
+  blocks from the chapter *and* the conversation and skips "what do you remember?" when the talk
+  already showed it.
+- Conclusions not about the chapter → `save_insight` without `chapterSlug`. No chapter in the id
+  line (not started) → plain book discussion, `save_insight`.
+- **Server frontier unchanged:** `get_chapter_review` / `save_chapter_review` still refuse chapters
+  past the reader's position (§7). The review itself covers this chapter only.
+
 ## 2. What exists (verified)
 
 | Seam | Where | Note |
@@ -273,9 +292,12 @@ gets a new id and a dangling close is ignored. No table (ADR-016 alt. F).
 
 **`backend/src/Application/ChapterReview/ReviewMethod.md`**, `<EmbeddedResource>` in
 `Application.csproj` (pattern: `Infrastructure.csproj:30`), read once by
-`Application/ChapterReview/ReviewMethod.cs` (`public static string Text`, `public const int Version = 1`).
+`Application/ChapterReview/ReviewMethod.cs` (`public static string Text`, `public const int Version`,
+`TextSha256` pinned by a test — edit the text, bump both). ~~`Version = 1`~~ — v2 (2026-09-30, stopped
+naming screens that didn't exist yet), **v3** (2026-10-01, "If you have already been talking", §1a).
 Served inside `get_chapter_review` → changing it is an API deploy, not an MCP rebuild or a manifest
-change. Stamped into each saved review. Draft: **Appendix A**.
+change. Stamped into each saved review. **Appendix A is the original v1 draft, kept for history — the
+live text is the `.md` file.**
 
 ## 10. Long chapters — `part`
 
@@ -409,6 +431,8 @@ Device smoke first (workflow rule), then one mobile e2e spec.
 6. **No highlights card** on Practice.
 
 ## Appendix A — `ReviewMethod.md`, draft v1
+
+> **Historical.** Superseded by v2 and v3 — read `backend/src/Application/ChapterReview/ReviewMethod.md` for the text the server actually sends.
 
 > Lives at `backend/src/Application/ChapterReview/ReviewMethod.md`. Edit there only; bump
 > `ReviewMethod.Version`.

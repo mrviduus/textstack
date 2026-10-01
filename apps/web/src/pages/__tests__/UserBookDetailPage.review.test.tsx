@@ -54,7 +54,7 @@ describe('UserBookDetailPage chapter list — review actions', () => {
     expect(reviewed).toHaveTextContent('✓ Reviewed →')
 
     const list = document.querySelector('.user-book-detail__chapter-list') as HTMLElement
-    expect(within(list).getByRole('button', { name: 'Review “Prompt Engineering” with your assistant' })).toBeInTheDocument()
+    expect(within(list).getByRole('button', { name: 'Discuss “Prompt Engineering” with your assistant' })).toBeInTheDocument()
     expect(within(list).queryByRole('button', { name: /Introduction/ })).toBeNull()
   })
 })

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { buildChapterReviewBrief, buildHandoffBrief, type Assistant, type HandoffBook } from '@textstack/shared'
+import { buildChapterDiscussBrief, buildHandoffBrief, type Assistant, type HandoffBook } from '@textstack/shared'
 import { useAssistantLauncher } from '../../hooks/useAssistantLauncher'
 import { useTranslation } from '../../hooks/useTranslation'
 import { chapterReviewPath } from '../../hooks/useBookReviews'
@@ -8,13 +8,14 @@ import { ConnectAssistantDialog } from './ReviewChapterButton'
 
 /**
  * "✦ Assistant ▾" next to Continue Reading — the one way from a book page into the reader's own
- * Claude or ChatGPT. Two items: Discuss this book, and Review (or open the review of) the chapter the
- * reader is on. Both go through `useAssistantLauncher`, the same path as the chapter-row Review.
+ * Claude or ChatGPT. ONE discuss item: the chapter the reader is on when there is one (plus "Open
+ * review" when it is reviewed — re-discussing overwrites it), else the whole book. Never both.
+ * Both go through `useAssistantLauncher`, the same path as the chapter-row Discuss.
  */
 interface Props {
   /** The book and where the reader is — `buildHandoffBrief` input. Upload: bookId; catalog: editionId + slug. */
   book: HandoffBook
-  /** From `currentReviewChapter`; null hides the Review item. */
+  /** From `currentReviewChapter`; null → discuss the whole book instead. */
   current: { slug: string; title: string; reviewed: boolean } | null
 }
 
@@ -50,8 +51,8 @@ export function AssistantMenu({ book, current }: Props) {
   }
 
   const discuss = () => buildHandoffBrief(book)
-  const review = (slug: string, title: string) => () => buildChapterReviewBrief({
-    title: book.title, author: book.author, bookId: book.bookId, editionId: book.editionId,
+  const discussChapter = (slug: string, title: string) => () => buildChapterDiscussBrief({
+    title: book.title, author: book.author, bookId: book.bookId, editionId: book.editionId, slug: book.slug,
     chapterSlug: slug, chapterTitle: title,
   })
   const reviewPath = (slug: string) => book.bookId
@@ -85,21 +86,25 @@ export function AssistantMenu({ book, current }: Props) {
             </>
           ) : (
             <>
-              <button type="button" role="menuitem" className="assistant-menu__item" onClick={() => void run(discuss)}>
-                {t('library.assistant.discuss')}
-              </button>
-              {current && (current.reviewed ? (
-                <LocalizedLink to={reviewPath(current.slug)} role="menuitem" className="assistant-menu__item" onClick={() => setOpen(false)}>
-                  {t('library.assistant.openCurrentReview')}
-                  <span className="assistant-menu__sub">{current.title}</span>
-                </LocalizedLink>
+              {current ? (
+                <>
+                  {current.reviewed && (
+                    <LocalizedLink to={reviewPath(current.slug)} role="menuitem" className="assistant-menu__item" onClick={() => setOpen(false)}>
+                      {t('library.assistant.openCurrentReview')}
+                      <span className="assistant-menu__sub">{current.title}</span>
+                    </LocalizedLink>
+                  )}
+                  <button type="button" role="menuitem" className="assistant-menu__item"
+                    onClick={() => void run(discussChapter(current.slug, current.title))}>
+                    {t('library.assistant.reviewCurrent')}
+                    <span className="assistant-menu__sub">{current.title}</span>
+                  </button>
+                </>
               ) : (
-                <button type="button" role="menuitem" className="assistant-menu__item"
-                  onClick={() => void run(review(current.slug, current.title))}>
-                  {t('library.assistant.reviewCurrent')}
-                  <span className="assistant-menu__sub">{current.title}</span>
+                <button type="button" role="menuitem" className="assistant-menu__item" onClick={() => void run(discuss)}>
+                  {t('library.assistant.discuss')}
                 </button>
-              ))}
+              )}
               {launcher.canSwitch && (
                 <div className="assistant-menu__chat" role="group" aria-label={t('library.assistant.chatIn')}>
                   <span>{t('library.assistant.chatIn')}</span>

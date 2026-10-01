@@ -30,7 +30,7 @@ async function clickReview() {
   // Let the mount prefetch land so the click takes the synchronous (popup-safe) path.
   await waitFor(() => expect(listOAuthGrants).toHaveBeenCalled())
   await Promise.resolve()
-  fireEvent.click(screen.getByRole('button', { name: /Review/ }))
+  fireEvent.click(screen.getByRole('button', { name: /Discuss/ }))
 }
 
 describe('ReviewChapterButton', () => {
@@ -58,7 +58,7 @@ describe('ReviewChapterButton', () => {
     await waitFor(() => expect(open).toHaveBeenCalledTimes(1))
     const url = open.mock.calls[0][0] as string
     expect(url.startsWith('https://chatgpt.com/?q=')).toBe(true)
-    expect(decodeURIComponent(url)).toContain('Let\'s review the chapter "Prompt Engineering"')
+    expect(decodeURIComponent(url)).toContain('at the chapter "Prompt Engineering". Let\'s talk about it.')
     expect(decodeURIComponent(url)).toContain('(TextStack: book b1, chapter prompts)')
   })
 
@@ -98,7 +98,7 @@ describe('ReviewChapterButton', () => {
     expect((open.mock.calls[0][0] as string).startsWith('https://chatgpt.com/')).toBe(true)
 
     // The main button now goes straight to the new choice.
-    fireEvent.click(screen.getByRole('button', { name: /Review “/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Discuss “/ }))
     expect(open).toHaveBeenCalledTimes(2)
     expect((open.mock.calls[1][0] as string).startsWith('https://chatgpt.com/')).toBe(true)
     expect(screen.queryByRole('menu')).toBeNull()

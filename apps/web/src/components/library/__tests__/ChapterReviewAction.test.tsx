@@ -16,15 +16,15 @@ const renderRow = (chapter: { slug: string; title: string; wordCount?: number | 
 afterEach(cleanup)
 
 describe('ChapterReviewAction', () => {
-  it('no Review button on front/back matter or a thin chapter', () => {
+  it('no Discuss button on front/back matter or a thin chapter', () => {
     renderRow({ slug: 'idx', title: 'Index', wordCount: 9000 })
     renderRow({ slug: 'short', title: 'Preface', wordCount: 300 })
-    expect(screen.queryByRole('button', { name: /Review/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Discuss/ })).toBeNull()
   })
 
   it('a real chapter keeps it', () => {
     renderRow({ slug: 'c1', title: '1. Reliable Applications', wordCount: 9000 })
-    expect(screen.getByRole('button', { name: /Review/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Discuss/ })).toBeInTheDocument()
   })
 
   it('a reviewed service section still links to its review', () => {

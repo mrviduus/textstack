@@ -98,7 +98,7 @@ export default function ChapterReviewScreen() {
   const chapterTitle = chapter?.title ?? insight?.chapterTitle ?? chapterSlug
   const briefBook = {
     title: book.title, author: book.author,
-    ...('userBookId' in book.ref ? { bookId: book.ref.userBookId } : { editionId: book.ref.editionId }),
+    ...('userBookId' in book.ref ? { bookId: book.ref.userBookId } : { editionId: book.ref.editionId, slug: book.ref.slug }),
   }
   const next = nextChapterAfter(book.chapters, chapterSlug)
   const review = insight?.review

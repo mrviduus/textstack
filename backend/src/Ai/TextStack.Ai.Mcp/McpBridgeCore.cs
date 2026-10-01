@@ -78,7 +78,7 @@ internal static class McpBridgeCore
 
     /// <summary>
     /// Server-level <c>instructions</c> sent at <c>initialize</c> by both transports. The "how to
-    /// work" rules live here rather than in the message our Discuss / Review buttons prefill: that
+    /// work" rules live here rather than in the message our Discuss button prefills: that
     /// message is read by a person, so it carries one sentence and the ids, nothing else.
     /// </summary>
     public const string Instructions =
@@ -88,9 +88,12 @@ internal static class McpBridgeCore
         + "book's slug, \"edition\" its editionId. Without ids, use search_my_library or get_my_reading. "
         + "Before discussing a book, call get_my_insights for conclusions from earlier conversations. "
         + "Read uploads with get_my_book / get_my_chapter, catalog books with get_book / get_chapter. "
-        + "At the end of a discussion, save the conclusions with save_insight so the user finds them in the book. "
-        + "For a chapter review, call get_chapter_review, follow its method exactly, and save with save_chapter_review. "
-        + "Never run ahead of the reader's position: do not reveal or discuss chapters they have not reached yet.";
+        + "A message with a chapter in its id line opens a conversation about that chapter: talk freely, follow the reader "
+        + "anywhere. Spoilers are soft: before discussing a chapter they have not reached, say so and ask first (\"that's from "
+        + "chapter N — want me to go there?\"). When the conversation winds down or the reader says they are done, offer: "
+        + "\"Review this chapter and save it to TextStack?\" Only on yes, call get_chapter_review, follow its method exactly "
+        + "and save with save_chapter_review. Save conclusions not about that chapter with save_insight without chapterSlug. "
+        + "Without a chapter in the id line it is a book discussion: save its conclusions with save_insight.";
 
     // Rebuilds the MCP-supplied args dictionary into a single JSON object element so
     // the catalog handler can validate/read it as one schema-shaped value.

@@ -3,7 +3,7 @@ import type { MutableRefObject, RefObject } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity, Animated, Linking, BackHandler } from 'react-native'
 import { WebView } from 'react-native-webview'
 import { useRouter, Stack } from 'expo-router'
-import { t, computeBookProgress, estimateTimeLeft, formatMinutesLeft, plural, resolvePdfResumePage, chapterEndPage } from '@textstack/shared'
+import { t, computeBookProgress, estimateTimeLeft, formatMinutesLeft, plural, resolvePdfResumePage, chapterEndPage, buildChapterDiscussBrief, isReviewableChapter } from '@textstack/shared'
 import type { Chapter, BookmarkDto, TextPosition } from '@textstack/shared'
 import { buildReaderHtml, buildPdfViewerHtml } from '../../lib/readerHtml'
 import {
@@ -21,6 +21,8 @@ import { useReaderBars } from '../../hooks/useReaderBars'
 import { useKeepReaderAwake } from '../../hooks/useKeepReaderAwake'
 import { useReadingPace } from '../../hooks/useReadingPace'
 import { useReaderExitSummary } from '../../hooks/useReaderExitSummary'
+import { useAssistantLauncher } from '../../hooks/useAssistantLauncher'
+import { ConnectAssistantSheet } from '../library/ReviewChapterButton'
 import { useReaderHighlights } from '../../hooks/useReaderHighlights'
 import { useReaderVocabMap } from '../../hooks/useReaderVocabMap'
 import { useReaderVocabActions } from '../../hooks/useReaderVocabActions'
@@ -63,7 +65,7 @@ function interpolate(template: string, vars: Record<string, string | number>): s
  *  vocab and reading-session — the ONLY thing that genuinely differs between the
  *  public-library reader and the user-uploaded-book reader. */
 export type ReaderSource =
-  | { kind: 'edition'; id: string | null; idRef: MutableRefObject<string | null> }
+  | { kind: 'edition'; id: string | null; idRef: MutableRefObject<string | null>; slug: string }
   | { kind: 'userbook'; id: string | null; idRef: MutableRefObject<string | null> }
 
 /** A loaded chapter, normalised across both data sources. */
@@ -222,6 +224,10 @@ export function ReaderShell(props: ReaderShellProps) {
   // progress messages. A condition of the one-shot "bring your own book" ask —
   // see latchChapterEnd for why it is latched rather than sampled on exit.
   const finishedChapterRef = useRef(false)
+  // WHICH chapter was finished — the one "Discuss this chapter" offers. The shell survives chapter
+  // navigation (navigateChapter resets refs by hand), so the opened slug alone would name the
+  // chapter they moved on to, not the one they finished.
+  const finishedSlugRef = useRef<string | null>(null)
 
   // --- ADR-012 S4b: Original-layout PDF viewer state ------------------------
   // The Bearer token is fetched once and injected into pdf.js httpHeaders via
@@ -306,6 +312,19 @@ export function ReaderShell(props: ReaderShellProps) {
     autoHideTrigger: true,
   })
 
+  // "Discuss this chapter" on the way out — the last chapter this session finished (ponytail: after
+  // reading on through several appended chapters it offers the opened one). Same rules as the
+  // chapter-row button.
+  const discussCh = chapters.find(c => c.slug === finishedSlugRef.current)
+  const discussBrief = source.id && discussCh && isReviewableChapter(discussCh)
+    ? () => buildChapterDiscussBrief({
+        title: bookTitle ?? '',
+        ...(source.kind === 'edition' ? { editionId: source.id!, slug: source.slug } : { bookId: source.id! }),
+        chapterSlug: discussCh.slug, chapterTitle: discussCh.title,
+      })
+    : null
+  const launcher = useAssistantLauncher({ eager: false })
+
   const {
     sessionWordCount,
     setSessionWordCount,
@@ -315,12 +334,15 @@ export function ReaderShell(props: ReaderShellProps) {
     exitToReview: handleExitReview,
     exitToUpload: handleExitUpload,
     exitLater: handleExitLater,
+    holdExit,
   } = useReaderExitSummary({
     router,
     saveProgress,
     sourceKind: source.kind,
     finishedChapterRef,
+    canDiscussChapter: !!discussBrief,
   })
+  const discuss = () => { if (!discussBrief) return; holdExit(); void launcher.launch(discussBrief) }
 
   const { vocabMapRef, flushToCache: flushVocabMap, bumpVocab } = useReaderVocabMap({
     user,
@@ -524,11 +546,13 @@ export function ReaderShell(props: ReaderShellProps) {
           currentChapterSlugRef.current = data.chapterSlug
           setVisibleChapterSlug(data.chapterSlug)
         }
-        finishedChapterRef.current = latchChapterEnd(finishedChapterRef.current, {
+        const endEvent = {
           chapterProgress: data.progress,
           visibleChapterSlug: data.chapterSlug ?? currentChapterSlugRef.current,
           openedChapterSlug: chapterSlug,
-        })
+        }
+        finishedChapterRef.current = latchChapterEnd(finishedChapterRef.current, endEvent)
+        if (latchChapterEnd(false, endEvent)) finishedSlugRef.current = chapterSlug
         const activeSlugForCalc = data.chapterSlug || currentChapterSlugRef.current || chapterSlug || null
         const bp = computeBookProgress(chapters, activeSlugForCalc, data.progress, totalWordCountRef.current)
         bookProgressRef.current = bp
@@ -652,6 +676,9 @@ export function ReaderShell(props: ReaderShellProps) {
     saveProgress()
     progressRef.current = 0
     scrollOffsetRef.current = 0
+    // Otherwise the first progress message without a slug reads the old chapter as "visible",
+    // and latchChapterEnd takes visible ≠ opened for having read past the new one.
+    currentChapterSlugRef.current = null
     setProgress(0)
     if (chapters.length > 0) {
       const bp = computeBookProgress(chapters, slug, 0, totalWordCountRef.current)
@@ -1263,6 +1290,36 @@ export function ReaderShell(props: ReaderShellProps) {
           </View>
         )}
 
+        {/* The finished chapter, handed to the reader's own Claude/ChatGPT. On the words card too
+            (below) when the chapter was finished. Always "Discuss", never "Reviewed": the reader
+            holds no review state and one /me/insights per open is not worth it. */}
+        {exitPrompt === 'discuss-chapter' && discussCh && (
+          <View style={styles.exitSummaryOverlay}>
+            <View style={[styles.exitSummaryCard, styles.askCard, { backgroundColor: barBg }]}>
+              <Ionicons name="checkmark-circle" size={40} color={colors.success} />
+              <Text style={[styles.exitSummaryText, { color: barText, textAlign: 'center' }]} numberOfLines={2}>{discussCh.title}</Text>
+              <View style={styles.askButtons}>
+                <TouchableOpacity
+                  style={[styles.exitSummaryBtn, styles.askBtn, { backgroundColor: colors.primary }]}
+                  onPress={discuss}
+                  disabled={launcher.busy}
+                  accessibilityRole="button"
+                >
+                  <Text style={[styles.exitSummaryBtnText, { color: '#fff' }]}>✦ {t(language, 'chapterReview.discussChapter')}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.exitSummaryBtn, styles.askBtn, { backgroundColor: barText + '15' }]}
+                  onPress={handleExitLater}
+                  accessibilityRole="button"
+                >
+                  <Text style={[styles.exitSummaryBtnText, { color: barText }]}>{t(language, 'reader.exitSummary.later')}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        )}
+        <ConnectAssistantSheet visible={launcher.connect} onClose={launcher.closeConnect} />
+
         {exitPrompt === 'review-words' && (
           <View style={styles.exitSummaryOverlay}>
             {/* Follows the READER theme (barBg/barText), not the app theme — this
@@ -1279,15 +1336,20 @@ export function ReaderShell(props: ReaderShellProps) {
                   style={[styles.exitSummaryBtn, { backgroundColor: colors.primary }]}
                   onPress={handleExitReview}
                 >
-                  <Text style={[styles.exitSummaryBtnText, { color: '#fff' }]}>Review Now</Text>
+                  <Text style={[styles.exitSummaryBtnText, { color: '#fff' }]}>{t(language, 'reader.exitSummary.reviewNow')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.exitSummaryBtn, { backgroundColor: barText + '15' }]}
                   onPress={handleExitLater}
                 >
-                  <Text style={[styles.exitSummaryBtnText, { color: barText }]}>Later</Text>
+                  <Text style={[styles.exitSummaryBtnText, { color: barText }]}>{t(language, 'reader.exitSummary.later')}</Text>
                 </TouchableOpacity>
               </View>
+              {finishedChapterRef.current && discussBrief && (
+                <TouchableOpacity onPress={discuss} disabled={launcher.busy} accessibilityRole="button" hitSlop={8}>
+                  <Text style={[styles.exitSummaryBtnText, { color: colors.primary }]}>✦ {t(language, 'chapterReview.discussChapter')}</Text>
+                </TouchableOpacity>
+              )}
             </View>
           </View>
         )}

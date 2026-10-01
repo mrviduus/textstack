@@ -2,7 +2,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Modal, Pressable } from 'reac
 import { router } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import * as Clipboard from 'expo-clipboard'
-import { MCP_ENDPOINT, buildChapterReviewBrief, isReviewableChapter, type ChapterReviewBriefInput } from '@textstack/shared'
+import { MCP_ENDPOINT, buildChapterDiscussBrief, isReviewableChapter, type ChapterReviewBriefInput } from '@textstack/shared'
 import { useTheme } from '../../context/ThemeContext'
 import { useLanguage } from '../../context/LanguageContext'
 import { useToast } from '../../context/ToastContext'
@@ -11,7 +11,7 @@ import { chapterReviewRoute, type ReviewBookRef } from '../../lib/chapterReviewL
 import { fonts } from '../../theme/typography'
 
 /**
- * "Review" — opens the reader's own Claude or ChatGPT with a chapter-review brief
+ * "Discuss" — opens the reader's own Claude or ChatGPT with a chapter-discuss brief
  * (docs/05-features/chapter-review.md §12). Which chat is `useAssistantLauncher` (shared with the
  * book screen's Assistant menu); with both connected a chevron beside the button switches.
  */
@@ -25,7 +25,7 @@ export function ReviewChapterButton({ label, primary, ...input }: Props) {
   const { colors } = useTheme()
   const { t } = useLanguage()
   const launcher = useAssistantLauncher()
-  const brief = () => buildChapterReviewBrief(input)
+  const brief = () => buildChapterDiscussBrief(input)
 
   const text = label ?? t('chapterReview.review')
   return (
@@ -132,7 +132,7 @@ export function ChapterReviewAction({ book, chapter, reviewed }: {
     <ReviewChapterButton
       title={book.title}
       author={book.author}
-      {...('userBookId' in book ? { bookId: book.userBookId } : { editionId: book.editionId })}
+      {...('userBookId' in book ? { bookId: book.userBookId } : { editionId: book.editionId, slug: book.slug })}
       chapterSlug={chapter.slug}
       chapterTitle={chapter.title}
     />

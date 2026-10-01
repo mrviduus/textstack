@@ -201,7 +201,7 @@ export function useEditionReaderSource({
   }, [chapters, saveProgress])
 
   return {
-    source: { kind: 'edition', id: editionId, idRef: editionIdRef },
+    source: { kind: 'edition', id: editionId, idRef: editionIdRef, slug: bookSlug },
     webViewRef,
     injectJs,
     chapter: chapter

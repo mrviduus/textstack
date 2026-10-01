@@ -97,7 +97,7 @@ export function ChapterReviewPage() {
   const briefBook = {
     title: book.title,
     author: book.author,
-    ...('userBookId' in book.target ? { bookId: book.target.userBookId } : { editionId: book.target.editionId }),
+    ...('userBookId' in book.target ? { bookId: book.target.userBookId } : { editionId: book.target.editionId, slug: book.target.bookSlug }),
   }
   const pathBook = 'userBookId' in book.target ? { userBookId: book.target.userBookId } : { bookSlug: book.target.bookSlug }
   const backTo = 'userBookId' in book.target ? `/library/my/${book.target.userBookId}` : `/books/${book.target.bookSlug}`

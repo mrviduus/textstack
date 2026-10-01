@@ -9,13 +9,13 @@ namespace Application.ChapterReview;
 public static class ReviewMethod
 {
     /// <summary>Bump whenever <c>ReviewMethod.md</c> changes; <see cref="TextSha256"/> forces it.</summary>
-    public const int Version = 2;
+    public const int Version = 3;
 
     /// <summary>
     /// sha256 of <see cref="Text"/>, pinned beside <see cref="Version"/>. A test compares them, so an
     /// edit to the method that forgets the version bump fails the build.
     /// </summary>
-    public const string TextSha256 = "c19109e36ce370f2b6a135dcf742518d463e3d16d33f72f862fcad8d73cd7390";
+    public const string TextSha256 = "f399ec60a82243ff192066ec71b3596ef9e10bc0126ac0b94f16fd14c89fd83e";
 
     private const string ResourceName = "Application.ChapterReview.ReviewMethod.md";
 
