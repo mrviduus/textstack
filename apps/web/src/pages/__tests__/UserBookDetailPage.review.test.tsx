@@ -4,8 +4,10 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom'
 
 const getUserBook = vi.fn()
 const getBookInsights = vi.fn()
+const getUserBookProgress = vi.fn(() => Promise.resolve(null as unknown))
 vi.mock('../../api/userBooks', () => ({
   getUserBook: (...a: unknown[]) => getUserBook(...a),
+  getUserBookProgress: () => getUserBookProgress(),
   enrichUserBook: vi.fn(), deleteUserBook: vi.fn(), retryUserBook: vi.fn(),
   markUserBookComplete: vi.fn(), unmarkUserBookComplete: vi.fn(),
   getUserBookCoverUrl: (p: string) => p,
@@ -56,5 +58,18 @@ describe('UserBookDetailPage chapter list — review actions', () => {
     const list = document.querySelector('.user-book-detail__chapter-list') as HTMLElement
     expect(within(list).getByRole('button', { name: 'Discuss “Prompt Engineering” with your assistant' })).toBeInTheDocument()
     expect(within(list).queryByRole('button', { name: /Introduction/ })).toBeNull()
+  })
+
+  it('server progress wins over this browser: Continue Reading + current chapter in the Assistant menu', async () => {
+    localStorage.clear()
+    getUserBookProgress.mockResolvedValueOnce({ chapterSlug: 'prompts', locator: null, percent: 0.44, updatedAt: null })
+    getBookInsights.mockResolvedValue([])
+    render(
+      <MemoryRouter initialEntries={['/en/library/my/bk']}>
+        <Routes><Route path="/:lang/library/my/:id" element={<UserBookDetailPage />} /></Routes>
+      </MemoryRouter>,
+    )
+    const cont = await screen.findByText('Continue Reading')
+    expect(cont.closest('a')).toHaveAttribute('href', '/en/library/my/bk/read/prompts')
   })
 })
