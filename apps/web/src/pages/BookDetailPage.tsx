@@ -83,7 +83,7 @@ export function BookDetailPage() {
   const [showAllChapters, setShowAllChapters] = useState(false)
   const [podcast, setPodcast] = useState<PodcastStatusDto | null>(null)
   // Which chapters have a review — signed-in only; this page is also prerendered for crawlers.
-  const { reviews } = useBookReviews(isAuthenticated && book?.id ? { editionId: book.id } : null)
+  const { reviews, insights, remove: removeInsight } = useBookReviews(isAuthenticated && book?.id ? { editionId: book.id } : null)
 
   useEffect(() => {
     if (!bookSlug) return
@@ -375,7 +375,7 @@ export function BookDetailPage() {
           catalog insights would be write-only. Behind isAuthenticated because
           this page is also prerendered for crawlers, and an anonymous visit
           firing a 401 is noise on the SEO path. */}
-      {isAuthenticated && <BookInsightsSection editionId={book.id} bookSlug={book.slug} />}
+      {isAuthenticated && <BookInsightsSection insights={insights} onRemove={removeInsight} bookSlug={book.slug} />}
       {/* Chapters */}
       <section className="book-tabs">
         <div className="book-tabs__panel">

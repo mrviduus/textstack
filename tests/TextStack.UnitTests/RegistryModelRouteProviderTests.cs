@@ -90,8 +90,12 @@ public class RegistryModelRouteProviderTests
         h.AddPrimary("explain", "openai-explain");
         h.Models.Add(new ModelRegistration
         {
-            Id = Guid.NewGuid(), FeatureTag = "explain", ProviderKey = "ollama",
-            ModelId = "m", Status = ModelStatus.Shadow, CreatedAt = DateTimeOffset.UtcNow,
+            Id = Guid.NewGuid(),
+            FeatureTag = "explain",
+            ProviderKey = "ollama",
+            ModelId = "m",
+            Status = ModelStatus.Shadow,
+            CreatedAt = DateTimeOffset.UtcNow,
         });
 
         Assert.Equal("openai-explain", h.Provider.PrimaryProviderKey("explain")); // shadow ignored
@@ -140,14 +144,20 @@ public class RegistryModelRouteProviderTests
         var h = new Harness();
         h.Models.Add(new ModelRegistration
         {
-            Id = Guid.NewGuid(), FeatureTag = "explain", ProviderKey = "openai-explain",
-            ModelId = "m", Status = ModelStatus.Primary,
+            Id = Guid.NewGuid(),
+            FeatureTag = "explain",
+            ProviderKey = "openai-explain",
+            ModelId = "m",
+            Status = ModelStatus.Primary,
             CreatedAt = DateTimeOffset.UtcNow.AddDays(-2), // older → wins
         });
         h.Models.Add(new ModelRegistration
         {
-            Id = Guid.NewGuid(), FeatureTag = "explain", ProviderKey = "ollama",
-            ModelId = "m", Status = ModelStatus.Primary,
+            Id = Guid.NewGuid(),
+            FeatureTag = "explain",
+            ProviderKey = "ollama",
+            ModelId = "m",
+            Status = ModelStatus.Primary,
             CreatedAt = DateTimeOffset.UtcNow.AddDays(-1),
         });
 

@@ -39,7 +39,6 @@ export function RareWordNotice({ kind, tapsRemaining, busy, onAddAnyway }: Props
 
 const styles = StyleSheet.create({
   wrap: {
-    marginHorizontal: 12,
     marginBottom: 8,
     padding: 12,
     borderRadius: 10,

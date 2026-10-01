@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { formatTimeAgo } from '@textstack/shared'
 import type { UserBook } from '../../api/userBooks'
 import { deleteUserBook, markUserBookRead, getUserBookCoverUrl } from '../../api/userBooks'
 import { emitDataChanges } from '../../lib/dataEvents'
@@ -50,19 +51,6 @@ export function isHttpUrl(url: string | null | undefined): url is string {
   } catch {
     return false
   }
-}
-
-function relativeTime(dateStr: string, t: (key: string) => string): string {
-  const diffMs = Date.now() - new Date(dateStr).getTime()
-  const mins = Math.floor(diffMs / 60000)
-  const hours = Math.floor(mins / 60)
-  const days = Math.floor(hours / 24)
-  if (mins < 1) return t('library.timeJustNow')
-  if (mins < 60) return `${mins} ${t('library.timeMinAgo')}`
-  if (hours < 24) return `${hours} ${t('library.timeHoursAgo')}`
-  if (days === 1) return t('library.timeYesterday')
-  if (days < 7) return `${days} ${t('library.timeDaysAgo')}`
-  return new Date(dateStr).toLocaleDateString()
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -167,7 +155,7 @@ function ReadLaterCard({ book, language, busy, onMarkRead, onDelete, t }: CardPr
   const metaParts: string[] = []
   if (domain) metaParts.push(domain)
   metaParts.push(`${estReadMinutes(book.totalWordCount)} ${t('library.readLater.min')}`)
-  metaParts.push(relativeTime(book.createdAt, t))
+  metaParts.push(formatTimeAgo(book.createdAt))
 
   const Thumb = (
     <div className={`read-later__thumb${state.kind === 'processing' ? ' read-later__thumb--processing' : ''}`}>

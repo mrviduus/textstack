@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { reviewsBySlug, type BookInsight } from '@textstack/shared'
-import { getBookInsights } from '../api/insights'
+import { getBookInsights, deleteBookInsight } from '../api/insights'
 
 /**
  * The book's insights and, from them, which chapters have a structured review. One `/me/insights`
- * call — the same list `BookInsightsSection` renders (ADR-016: no separate read endpoint); the two
- * share one request through the in-flight dedupe in `api/insights.ts`.
+ * call — the same list `BookInsightsSection` renders (ADR-016: no separate read endpoint). The page
+ * owns this one copy and hands `insights` + `remove` to the section, so a delete there also clears
+ * the chapter row's "Reviewed" badge.
  * Pass null to skip (signed out, book not loaded yet).
  *
  * `loading` is derived from WHICH target the data belongs to, not from a flag set in the effect:
@@ -30,9 +31,15 @@ export function useBookReviews(target: { userBookId: string } | { editionId: str
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by id, not object identity
   }, [key])
 
+  /** Delete on the server, then from this list. Rejects (list untouched) when the server refuses. */
+  const remove = useCallback(async (id: string) => {
+    await deleteBookInsight(id)
+    setState(prev => ({ ...prev, insights: prev.insights.filter(i => i.id !== id) }))
+  }, [])
+
   const current = key !== null && state.key === key
   const insights = current ? state.insights : NO_INSIGHTS
-  return { insights, reviews: reviewsBySlug(insights), loading: key !== null && !current, error: current && state.error }
+  return { insights, reviews: reviewsBySlug(insights), loading: key !== null && !current, error: current && state.error, remove }
 }
 
 /** Where a chapter's review summary lives (unprefixed; pass through LocalizedLink). */

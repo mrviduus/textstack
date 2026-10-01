@@ -15,7 +15,10 @@ public class ChapterReviewValidatorTests
         TargetChapterNumber: 5,
         BookHighlights: new Dictionary<Guid, int?>
         {
-            [TargetHighlight] = 5, [EarlierHighlight] = 2, [LaterHighlight] = 7, [UnplacedHighlight] = null,
+            [TargetHighlight] = 5,
+            [EarlierHighlight] = 2,
+            [LaterHighlight] = 7,
+            [UnplacedHighlight] = null,
         },
         TargetHighlightIds: chapterHasHighlights ? new HashSet<Guid> { TargetHighlight } : new HashSet<Guid>(),
         OpenThreads: open);

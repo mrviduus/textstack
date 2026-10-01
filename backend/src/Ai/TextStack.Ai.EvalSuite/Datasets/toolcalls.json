@@ -21,11 +21,11 @@
   { "word": "two-phase commit", "sentence": "Two-phase commit, which Chapter 9 examines closely, coordinates atomic commits across nodes.", "expectedTool": "get_chapter", "expectedArgFragments": { "chapter_number": "9" } },
   { "word": "stream processing", "sentence": "Chapter 11 turns to stream processing, where inputs are unbounded and arrive over time.", "expectedTool": "get_chapter", "expectedArgFragments": { "chapter_number": "11" } },
 
-  { "word": "write amplification", "sentence": "As we discussed earlier, write amplification is one effect of repeated compaction.", "expectedTool": "search_book", "expectedArgFragments": { "query": "write amplification" } },
-  { "word": "read repair", "sentence": "Read repair, mentioned before, fixes stale values during reads.", "expectedTool": "search_book", "expectedArgFragments": { "query": "read repair" } },
-  { "word": "split brain", "sentence": "Earlier we discussed split brain, where two nodes both believe they are the leader.", "expectedTool": "search_book", "expectedArgFragments": { "query": "split brain" } },
-  { "word": "leader election", "sentence": "Leader election, covered earlier in this book, decides which replica accepts writes.", "expectedTool": "search_book", "expectedArgFragments": { "query": "leader election" } },
-  { "word": "skew", "sentence": "We touched on skew earlier — some partitions receive far more load than others.", "expectedTool": "search_book", "expectedArgFragments": { "query": "skew" } },
+  { "word": "write amplification", "sentence": "As we discussed earlier, write amplification is one effect of repeated compaction.", "expectedTool": null },
+  { "word": "read repair", "sentence": "Read repair, mentioned before, fixes stale values during reads.", "expectedTool": null },
+  { "word": "split brain", "sentence": "Earlier we discussed split brain, where two nodes both believe they are the leader.", "expectedTool": null },
+  { "word": "leader election", "sentence": "Leader election, covered earlier in this book, decides which replica accepts writes.", "expectedTool": null },
+  { "word": "skew", "sentence": "We touched on skew earlier — some partitions receive far more load than others.", "expectedTool": null },
 
   { "word": "ephemeral", "sentence": "ZooKeeper stores membership in ephemeral nodes that vanish when a session ends.", "expectedTool": null },
   { "word": "monotonic", "sentence": "A monotonic clock always moves forward, unlike a time-of-day clock.", "expectedTool": null },

@@ -154,7 +154,7 @@ jobs:
 
       # The JS half of this question is scripts/check-advisories.mjs; this is the
       # .NET half, and it is free here because restore has already run. Currently
-      # clean across all 15 projects — cheap to keep that way, and the command
+      # clean across every project — cheap to keep that way, and the command
       # reports success without failing, so the grep is what makes it a gate.
       - name: Vulnerable packages
         run: |
@@ -185,11 +185,16 @@ jobs:
       - name: MCP integration tests
         run: dotnet test tests/TextStack.Ai.Mcp.Tests --no-build
 
-      # Unit tests (incl. the AI-047..050 MCP unit suites) are NOT in textstack.sln,
-      # so the Build step doesn't compile them — run WITHOUT --no-build. This closes a
-      # real CI gap: these were never executed by an explicit dotnet test step before.
       - name: Unit tests
-        run: dotnet test tests/TextStack.UnitTests
+        run: dotnet test tests/TextStack.UnitTests --no-build
+
+      - name: Extraction tests
+        run: dotnet test tests/TextStack.Extraction.Tests --no-build
+
+      # Deterministic eval-runner paths on fake LLMs. The live MEAI evals skip
+      # themselves without OPENAI_API_KEY (not set in CI) / a reachable Ollama.
+      - name: AI eval tests
+        run: dotnet test tests/TextStack.AiEvals --no-build
 
       # AI-051: keep the MCP global-tool packaging green (no publish, no secret).
       # Owner publishes manually via `dotnet nuget push` with their nuget.org key.

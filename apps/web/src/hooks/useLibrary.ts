@@ -6,8 +6,10 @@ import { getLibrary, addToLibrary, removeFromLibrary, LibraryItem } from '../api
 import { deleteAllCachedData } from '../lib/offlineDb'
 import { emitDataChanges, useDataChange } from '../lib/dataEvents'
 
-export function useLibrary() {
-  const { isAuthenticated } = useAuth()
+/** `enabled: false` skips loading /me/library (e.g. reader on an upload, which is never a library item). */
+export function useLibrary({ enabled = true }: { enabled?: boolean } = {}) {
+  const { isAuthenticated: authed } = useAuth()
+  const isAuthenticated = authed && enabled
   const { startDownload, cancelDownload } = useDownload()
   const { language } = useLanguage()
   const [items, setItems] = useState<LibraryItem[]>([])

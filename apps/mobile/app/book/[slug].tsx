@@ -457,8 +457,7 @@ export default function BookDetailScreen() {
                   } else {
                     await libraryApi.addToLibrary(book.id)
                   }
-                  // Library membership changed — drop the cached shelves so the
-                  // book appears in / disappears from the shelves on next focus.
+                  // No shelf cache to drop: the Library tab refetches on focus.
                 } catch (err) {
                   console.warn('library toggle failed:', err)
                   setInLibrary(wasInLibrary)
@@ -570,14 +569,15 @@ export default function BookDetailScreen() {
         {isAuthenticated && <BookInsightsSection editionId={book.id} bookSlug={book.slug} />}
 
         <Text style={[styles.sectionTitle, { color: colors.text }]}>Chapters</Text>
-        {(showAllChapters ? book.chapters : book.chapters.slice(0, 10)).map((ch) => (
+        {(showAllChapters ? book.chapters : book.chapters.slice(0, 10)).map((ch, idx) => (
           <TouchableOpacity
             key={ch.id}
             style={[styles.chapterItem, { borderBottomColor: colors.border }]}
             onPress={() => router.push(`/reader/${slug}/${ch.slug}`)}
             activeOpacity={0.7}
           >
-            <Text style={[styles.chapterNumber, { color: colors.textSecondary }]}>{ch.chapterNumber}</Text>
+            {/* Position, not chapterNumber: that is an ordering key and starts at 0 on prod. */}
+            <Text style={[styles.chapterNumber, { color: colors.textSecondary }]}>{idx + 1}</Text>
             <View style={{ flex: 1 }}>
               <Text style={[styles.chapterTitle, { color: colors.text }]} numberOfLines={1}>{ch.title}</Text>
               {ch.wordCount != null && ch.wordCount > 0 && (

@@ -29,7 +29,7 @@ public class StarterToolsTests
 
         foreach (var name in ExpectedNames)
             Assert.NotNull(registry.Get(name));
-        
+
     }
 
     [Theory]

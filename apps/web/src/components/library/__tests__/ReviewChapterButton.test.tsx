@@ -8,6 +8,9 @@ vi.mock('../../../context/LanguageContext', () => ({
   useLanguage: () => ({ language: 'en', getLocalizedPath: (p: string) => `/en${p}` }),
 }))
 
+let isGuest = false
+vi.mock('../../../context/AuthContext', () => ({ useAuth: () => ({ isGuest }) }))
+
 import { ReviewChapterButton, __resetReviewGrants } from '../ReviewChapterButton'
 
 const props = { title: 'AI Engineering', bookId: 'b1', chapterSlug: 'prompts', chapterTitle: 'Prompt Engineering' }
@@ -19,6 +22,7 @@ function renderButton() {
 
 beforeEach(() => {
   __resetReviewGrants()
+  isGuest = false
   listOAuthGrants.mockReset()
   open.mockReset()
   vi.stubGlobal('open', open)
@@ -41,6 +45,15 @@ describe('ReviewChapterButton', () => {
     expect(await screen.findByRole('dialog')).toHaveTextContent('Connect Claude or ChatGPT in a minute')
     expect(screen.getByText('https://textstack.app/mcp')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Open the connect page' })).toHaveAttribute('href', '/en/mcp')
+    expect(open).not.toHaveBeenCalled()
+  })
+
+  it('a guest never asks for grants (account-only, 403) → connect dialog', async () => {
+    isGuest = true
+    renderButton()
+    fireEvent.click(screen.getByRole('button', { name: /Discuss/ }))
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    expect(listOAuthGrants).not.toHaveBeenCalled()
     expect(open).not.toHaveBeenCalled()
   })
 

@@ -8,6 +8,7 @@ import { useLanguage } from '../context/LanguageContext'
 import { useTargetLanguage } from '../hooks/useTargetLanguage'
 import { useNeedsNativeLanguage } from '../hooks/useNeedsNativeLanguage'
 import { fonts } from '../theme/typography'
+import { RareWordNotice } from './reader/RareWordNotice'
 
 const STAGE_LABELS: Record<number, { label: string; color: string }> = {
   0: { label: 'New', color: '#3b82f6' },
@@ -65,6 +66,10 @@ interface SelectionActionBarProps {
    *  bug sweep). Optional for back-compat with screens that haven't wired
    *  it yet — those just lose the close affordance. */
   onClose?: () => void
+  /** Set when the save came back `lookup`/`lookup_pending` (rare word): the
+   *  bar shows RareWordNotice with "Add to SRS anyway". Web: WordPopup lookupInfo. */
+  lookup?: { kind: 'lookup' | 'lookup_pending'; tapsRemaining: number | null; busy: boolean } | null
+  onAddAnyway?: () => void
 }
 
 /**
@@ -100,6 +105,8 @@ export function SelectionActionBar({
   isAuthenticated,
   bottomOffset = 0,
   onClose,
+  lookup,
+  onAddAnyway,
 }: SelectionActionBarProps) {
   const { colors } = useTheme()
   const { t } = useLanguage()
@@ -166,6 +173,15 @@ export function SelectionActionBar({
         },
       ]}
     >
+      {lookup && onAddAnyway && (
+        <RareWordNotice
+          kind={lookup.kind}
+          tapsRemaining={lookup.tapsRemaining}
+          busy={lookup.busy}
+          onAddAnyway={onAddAnyway}
+        />
+      )}
+
       {/* Where the gloss would be, when we do not yet know what to gloss into.
           Opens the same sheet the Translate button does — which asks. */}
       {!isMultiWord && isSameLang && needsLanguage && (
@@ -332,7 +348,9 @@ export function SelectionActionBar({
             {/* Manual save — tap = look, this commits. Tint is a frequency
                 RECOMMENDATION (learnable/rare = accent, common = muted), never
                 a gate: any word can still be saved. */}
-            {!stage && !wordSaved && onSaveWord && (
+            {/* Hidden while the rare-word notice shows (web WordPopup parity) — a
+                second tap would just re-send the save. */}
+            {!stage && !wordSaved && !lookup && onSaveWord && (
               <TouchableOpacity
                 style={styles.btn}
                 onPress={onSaveWord}

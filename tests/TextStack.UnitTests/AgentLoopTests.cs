@@ -148,7 +148,7 @@ public class AgentLoopTests
 
         // step (llm) → step (tool) → step (llm) → done; exactly one terminal result.
         Assert.Equal(3, events.Count(e => e.Step is not null));
-        var done = Assert.Single(events.Where(e => e.Result is not null));
+        var done = Assert.Single(events, e => e.Result is not null);
         Assert.Equal("Final.", done.Result!.Output);
         Assert.Equal(2, done.Result.Usage.Iterations);
         Assert.Same(events[^1], done); // done is the last event

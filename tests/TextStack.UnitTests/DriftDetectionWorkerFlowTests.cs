@@ -142,8 +142,12 @@ public class DriftDetectionWorkerFlowTests
         var now = Day0.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
         db.DriftStore.Add(new DriftCentroid
         {
-            Id = Guid.NewGuid(), Feature = Feature, Day = Day0,
-            AlertState = "ok", SampleSize = 12, CreatedAt = now,
+            Id = Guid.NewGuid(),
+            Feature = Feature,
+            Day = Day0,
+            AlertState = "ok",
+            SampleSize = 12,
+            CreatedAt = now,
         });
         for (var i = 0; i < 12; i++)
             db.TraceStore.Add(MakeTrace("A:hello", now.AddMinutes(-i)));
