@@ -48,7 +48,7 @@ public class PodcastScriptBuilder(IAppDbContext db, ILlmServiceFactory llmFactor
         if (edition is null)
             return null;
 
-        var excerpt = TruncateToWords(string.Join("\n\n", edition.Chapters), MaxExcerptWords);
+        var excerpt = TagSuggestionGenerator.TruncateToWords(string.Join("\n\n", edition.Chapters), MaxExcerptWords);
         // Need at least one anchor — the curated overview or some opening text.
         if (string.IsNullOrWhiteSpace(edition.Description) && string.IsNullOrWhiteSpace(excerpt))
             return null;
@@ -103,11 +103,4 @@ public class PodcastScriptBuilder(IAppDbContext db, ILlmServiceFactory llmFactor
 
     private static string CanonicalHost(string speaker) =>
         speaker.Trim().Equals("Aria", StringComparison.OrdinalIgnoreCase) ? "Aria" : "Guy";
-
-    private static string TruncateToWords(string s, int maxWords)
-    {
-        if (string.IsNullOrEmpty(s)) return string.Empty;
-        var words = s.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-        return words.Length <= maxWords ? s : string.Join(' ', words.Take(maxWords));
-    }
 }

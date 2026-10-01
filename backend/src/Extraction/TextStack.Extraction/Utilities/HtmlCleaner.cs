@@ -135,6 +135,17 @@ public partial class HtmlCleaner
         return text.Split([' ', '\t', '\n', '\r'], StringSplitOptions.RemoveEmptyEntries).Length;
     }
 
+    /// <summary>Tags → spaces, entities decoded, whitespace collapsed. Empty/null → "".</summary>
+    public static string StripHtml(string? html)
+    {
+        if (string.IsNullOrEmpty(html))
+            return string.Empty;
+        var text = Regex.Replace(html, "<[^>]+>", " ");
+        text = System.Net.WebUtility.HtmlDecode(text);
+        text = Regex.Replace(text, @"\s+", " ");
+        return text.Trim();
+    }
+
     /// <summary>
     /// Fixes self-closing non-void tags that break HAP parsing.
     /// HAP incorrectly parses &lt;script/&gt; and &lt;title/&gt; as unclosed, swallowing subsequent content.

@@ -8,6 +8,7 @@ using Domain.Entities;
 using Domain.Enums;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using static TextStack.Extraction.Utilities.HtmlCleaner;
 
 namespace Api.Endpoints;
 
@@ -404,21 +405,6 @@ public static class InternalEndpoints
         if (bytes[0] == 10) return true;
 
         return false;
-    }
-
-    private static string StripHtml(string html)
-    {
-        if (string.IsNullOrEmpty(html)) return string.Empty;
-        var text = Regex.Replace(html, "<[^>]+>", " ");
-        text = System.Net.WebUtility.HtmlDecode(text);
-        text = Regex.Replace(text, @"\s+", " ");
-        return text.Trim();
-    }
-
-    private static int CountWords(string text)
-    {
-        if (string.IsNullOrWhiteSpace(text)) return 0;
-        return text.Split([' ', '\n', '\r', '\t'], StringSplitOptions.RemoveEmptyEntries).Length;
     }
 }
 

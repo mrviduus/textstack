@@ -7,6 +7,9 @@ namespace TextStack.Extraction.Utilities;
 /// </summary>
 public static class TextProcessingUtils
 {
+    /// <summary>Removes NULL bytes, which PostgreSQL rejects in text (common in PDF extraction). Null → "".</summary>
+    public static string SanitizeText(string? text) => text?.Replace("\0", "") ?? "";
+
     /// <summary>
     /// Normalizes text by converting line endings to LF, trimming trailing whitespace,
     /// and collapsing multiple blank lines.

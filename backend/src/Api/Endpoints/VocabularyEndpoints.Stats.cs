@@ -146,14 +146,6 @@ public static partial class VocabularyEndpoints
 
     // --- Daily Stats ---
 
-    private static TimeSpan ParseTzOffset(string? tz)
-    {
-        if (string.IsNullOrEmpty(tz)) return TimeSpan.Zero;
-        if (int.TryParse(tz, out var minutes))
-            return TimeSpan.FromMinutes(minutes);
-        return TimeSpan.Zero;
-    }
-
     private static async Task<IResult> GetDailyStats(
         HttpContext httpContext,
         AuthService authService,
@@ -166,7 +158,7 @@ public static partial class VocabularyEndpoints
         if (!TryGetAuth(httpContext, authService, out var userId, out var siteId))
             return Results.Unauthorized();
 
-        var tzOffset = ParseTzOffset(tz);
+        var tzOffset = ReadingTrackingEndpoints.ParseTzOffset(tz);
         var now = DateTimeOffset.UtcNow;
         var start = from ?? now.AddDays(-365);
         var end = to ?? now;

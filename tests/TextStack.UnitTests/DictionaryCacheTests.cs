@@ -250,7 +250,7 @@ public class DictionaryCacheTests
     [Fact]
     public async Task TryReadAsync_ExpiredEntry_StillReturnsItForStaleFallback()
     {
-        // The one place this cache deliberately differs from ExplainCache: expiry is decided by the
+        // The one place this cache deliberately differs from FileJsonCache: expiry is decided by the
         // POLICY, not by the reader dropping the file. If the read swallowed expired entries the
         // outage fallback would have nothing to serve.
         using var dir = new TempDir();

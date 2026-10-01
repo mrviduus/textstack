@@ -1,12 +1,8 @@
-using System.Security.Cryptography;
-using System.Text;
-using System.Text.Json;
 using Application.Ai;
 using Application.Common.Interfaces;
 using Application.Vocabulary;
 using Domain.LLM;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace Api.Endpoints;
 
@@ -83,57 +79,14 @@ public static class TranslationEndpoints
             }
         }
 
-        // Resolve genre from request → Editions (catalog book) → UserBooks (user
-        // upload). Mirrors ExplainEndpoints. Fail-soft: a lookup error logs and
-        // falls through to the no-domain prompt rather than 500'ing the request.
-        var genre = request.Genre;
-        if (string.IsNullOrWhiteSpace(genre) && !string.IsNullOrWhiteSpace(request.BookId)
-            && Guid.TryParse(request.BookId, out var bookId))
-        {
-            try
-            {
-                genre = await db.Editions
-                    .Where(e => e.Id == bookId)
-                    .SelectMany(e => e.Genres.Select(g => g.Name))
-                    .FirstOrDefaultAsync(ct);
-                if (string.IsNullOrWhiteSpace(genre))
-                {
-                    genre = await db.UserBooks
-                        .Where(ub => ub.Id == bookId)
-                        .Select(ub => ub.Genre)
-                        .FirstOrDefaultAsync(ct);
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "Translate genre lookup failed, using 'general' domain");
-            }
-        }
+        var genre = await ExplainEndpoints.ResolveGenreAsync(request.Genre, request.BookId, db, logger, ct);
 
+        var cache = new FileJsonCache<TranslateResponse>(cachePath, cacheTtlDays, logger);
         var cacheKey = ComputeCacheKey(request.Text, srcLang, tgtLang, genre, sentence);
-        var cacheFile = Path.Combine(cachePath, cacheKey + ".json");
-
-        try
-        {
-            Directory.CreateDirectory(cachePath);
-            if (File.Exists(cacheFile))
-            {
-                var info = new FileInfo(cacheFile);
-                if (info.LastWriteTimeUtc > DateTime.UtcNow.AddDays(-cacheTtlDays))
-                {
-                    var cached = await File.ReadAllTextAsync(cacheFile, ct);
-                    var cachedResp = JsonSerializer.Deserialize<TranslateResponse>(cached);
-                    if (cachedResp != null && !string.IsNullOrWhiteSpace(cachedResp.TranslatedText))
-                        // Re-attach a fresh category — it's word-only (cache key
-                        // also varies by sentence/genre, so don't trust the stored one).
-                        return Results.Ok(cachedResp with { Category = category });
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Translate cache read failed, falling through to LLM");
-        }
+        if (await cache.TryReadAsync(cacheKey, ct) is { } cachedResp && !string.IsNullOrWhiteSpace(cachedResp.TranslatedText))
+            // Re-attach a fresh category — it's word-only (cache key
+            // also varies by sentence/genre, so don't trust the stored one).
+            return Results.Ok(cachedResp with { Category = category });
 
         var systemPrompt = TranslatePrompt.BuildSystemPrompt(srcLang, tgtLang, genre, sentence);
 
@@ -151,14 +104,7 @@ public static class TranslationEndpoints
 
             var resp = new TranslateResponse(translated, request.SourceLang, request.TargetLang, category);
 
-            try
-            {
-                await File.WriteAllTextAsync(cacheFile, JsonSerializer.Serialize(resp), ct);
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "Translate cache write failed");
-            }
+            await cache.WriteAsync(cacheKey, resp, ct);
 
             return Results.Ok(resp);
         }
@@ -180,13 +126,8 @@ public static class TranslationEndpoints
     /// "polling" in a CS book does not poison the cache for the same word in a
     /// political-news article.
     /// </summary>
-    private static string ComputeCacheKey(string text, string srcLang, string tgtLang, string? genre, string? sentence)
-    {
-        var payload = $"{srcLang}|{tgtLang}|{genre ?? ""}|{sentence ?? ""}|{text}";
-        var bytes = Encoding.UTF8.GetBytes(payload);
-        var hash = SHA256.HashData(bytes);
-        return Convert.ToHexString(hash).ToLowerInvariant();
-    }
+    private static string ComputeCacheKey(string text, string srcLang, string tgtLang, string? genre, string? sentence) =>
+        FileJsonCache<TranslateResponse>.Key($"{srcLang}|{tgtLang}|{genre ?? ""}|{sentence ?? ""}|{text}");
 
     private static IResult GetLanguages()
     {

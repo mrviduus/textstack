@@ -10,6 +10,8 @@ using TextStack.Extraction.Contracts;
 using TextStack.Extraction.Enums;
 using TextStack.Extraction.Quality;
 using TextStack.Extraction.Registry;
+using static TextStack.Extraction.Utilities.HtmlCleaner;
+using static TextStack.Extraction.Utilities.TextProcessingUtils;
 
 namespace Worker.Services;
 
@@ -349,7 +351,7 @@ public class UserIngestionService
                 jobId, result.Units.Count);
 
             // Auto-queue quality validation if enabled
-            await TryQueueQualityJobAsync(db, job.UserBook.Id, ct);
+            await IngestionWorkerService.TryQueueQualityJobAsync(db, null, job.UserBook.Id, _logger, ct);
         }
         catch (Exception ex)
         {
@@ -379,43 +381,4 @@ public class UserIngestionService
         _ =>
             "This file format is not supported."
     };
-
-    private static string SanitizeText(string? text)
-        => text?.Replace("\0", "") ?? "";
-
-    private static string StripHtml(string html)
-    {
-        if (string.IsNullOrEmpty(html))
-            return string.Empty;
-        var text = System.Text.RegularExpressions.Regex.Replace(html, "<[^>]+>", " ");
-        text = System.Net.WebUtility.HtmlDecode(text);
-        text = System.Text.RegularExpressions.Regex.Replace(text, @"\s+", " ");
-        return text.Trim();
-    }
-
-    private async Task TryQueueQualityJobAsync(AppDbContext db, Guid userBookId, CancellationToken ct)
-    {
-        try
-        {
-            var enabled = await db.AdminSettings
-                .Where(s => s.Key == "quality.autoQueueForUserBooks")
-                .Select(s => s.Value)
-                .FirstOrDefaultAsync(ct);
-
-            if (enabled != "true") return;
-
-            db.BookQualityJobs.Add(new BookQualityJob
-            {
-                Id = Guid.NewGuid(),
-                UserBookId = userBookId,
-                CreatedAt = DateTimeOffset.UtcNow,
-            });
-            await db.SaveChangesAsync(ct);
-            _logger.LogInformation("Queued quality validation for user book {BookId}", userBookId);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to queue quality job — non-blocking");
-        }
-    }
 }
