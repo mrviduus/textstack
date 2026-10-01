@@ -1,4 +1,4 @@
-.PHONY: up down restart logs status backup restore backup-list backup-verify rebuild-ssg clean-ssg deploy nginx-setup build rebuild fix-permissions test lint reindex-search seo-publish-setup seo-publish-status seo-publish-logs seo-publish-restart seo-publish-stop quality-poll-setup quality-poll-status quality-poll-logs quality-poll-restart quality-poll-stop
+.PHONY: up down restart logs status backup restore backup-list backup-verify rebuild-ssg clean-ssg deploy nginx-setup build rebuild fix-permissions test lint seo-publish-setup seo-publish-status seo-publish-logs seo-publish-restart seo-publish-stop quality-poll-setup quality-poll-status quality-poll-logs quality-poll-restart quality-poll-stop
 
 # ============================================================
 # Docker Services
@@ -77,9 +77,6 @@ rebuild-ssg:
 clean-ssg:
 	rm -rf apps/web/dist/ssg apps/web/dist/ssg-new apps/web/dist/ssg-old
 	@echo "SSG cleaned"
-
-reindex-search:
-	docker compose exec api dotnet Api.dll reindex-search
 
 # ============================================================
 # Testing & Linting

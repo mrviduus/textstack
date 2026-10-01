@@ -42,7 +42,6 @@ make build                    # docker compose up -d --build
 make rebuild                  # full rebuild --no-cache
 make clean-ssg                # remove dist/ssg*
 make fix-permissions          # Fix volume permissions
-make reindex-search           # Rebuild search indexes
 
 # After editing .env, `docker compose restart <svc>` does NOT re-read env vars
 # (they are baked in at container creation). Use force-recreate:
@@ -355,7 +354,6 @@ What replaced it: the app hands back **the file the reader uploaded**, from the 
 | TTS API | `backend/src/Api/Endpoints/TtsEndpoints.cs` |
 | TTS Hook | `apps/web/src/hooks/useTts.ts` |
 | TTS E2E | `apps/web/e2e/tests/tts.spec.ts` |
-| Meilisearch | `backend/src/Search/TextStack.Search.Meilisearch/` |
 | Book Metadata | `backend/src/Worker/Services/BookMetadataGenerator.cs` |
 | Auto Publish API | `backend/src/Api/Endpoints/AdminAutoPublishEndpoints.cs` |
 | Auto Publish Entity | `backend/src/Domain/Entities/AutoPublishJob.cs` |
@@ -394,14 +392,10 @@ What replaced it: the app hands back **the file the reader uploaded**, from the 
 
 ## Search
 
-Two providers, swappable via `SEARCH_PROVIDER` env var (default: `postgres`):
-- **PostgreSQL FTS**: Raw SQL (Dapper) in `TextStack.Search/Providers/PostgresFts/PostgresSearchProvider.cs`
-- **Meilisearch** (optional): `TextStack.Search.Meilisearch/`. Not in default compose — add service manually if used
-
-Reindex: `make reindex-search`
+PostgreSQL FTS only: raw SQL (Dapper) in `TextStack.Search/Providers/PostgresFts/PostgresSearchProvider.cs`, querying `chapters`/`editions` directly. `chapters.search_vector` is maintained by a DB trigger — there is no indexer and nothing to reindex. (The write-only `search_documents` copy, its `reindex-search` CLI and the never-deployed Meilisearch provider were deleted 2026-10-01.)
 
 After schema changes:
-1. Update the relevant search provider
+1. Update `PostgresSearchProvider`
 2. Run `dotnet test tests/TextStack.IntegrationTests --filter SearchEndpoint`
 3. Test: `https://textstack.app/en/search?q=test`
 
@@ -525,7 +519,7 @@ Docker services: `db` (postgres:16), `migrator`, `api`, `worker`, `admin`, `ssg-
 
 **Systemd services**: `seo-publish-poller` (auto-publish with SEO generation).
 
-**Notable env vars** (beyond `.env.example` basics): `SEARCH_PROVIDER=postgres` (or `meilisearch` if running a Meilisearch container manually), `INDEXNOW_KEY`, `INDEXNOW_ENABLED`.
+**Notable env vars** (beyond `.env.example` basics): `INDEXNOW_KEY`, `INDEXNOW_ENABLED`.
 
 ## Extraction Pipeline
 

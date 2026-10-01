@@ -87,7 +87,6 @@ services:
       Jwt__Audience: ${JWT_AUDIENCE}
       Google__ClientId: ${GOOGLE_CLIENT_ID}
       Google__LegacyClientIds: ${GOOGLE_LEGACY_CLIENT_IDS:-}
-      Search__Provider: ${SEARCH_PROVIDER:-postgres}
       Tts__CachePath: /data/tts-cache
       Explain__CachePath: /data/explain-cache
       Dictionary__CachePath: /data/dictionary-cache
@@ -142,7 +141,6 @@ services:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       ConnectionStrings__Default: "Host=db;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
       Storage__RootPath: /storage
-      Search__Provider: ${SEARCH_PROVIDER:-postgres}
       # The worker routes podcast.script generation to OpenAI (Ai:Routes), so it
       # needs the key too — without it OpenAiLlmClient throws on an empty key and
       # podcast jobs fail. The 'api' service already has this; the worker was missed.
