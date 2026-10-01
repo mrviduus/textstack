@@ -1,7 +1,7 @@
 # 425 author pages returned 404 to Google while working perfectly for people
 
 **Date:** 2026-08-31
-**Status:** Resolved
+**Status:** Resolved — recurred 2026-10-01, see Addendum
 
 ## Impact
 
@@ -121,3 +121,19 @@ the answer.
 The thing that resolved it was refusing to sample from the API listing and going to the database
 instead. 716 authors in `authors`, 185 in the public list — a gap that no public endpoint could have
 revealed, because every public endpoint is downstream of the filter.
+
+## Addendum — 2026-10-01: it came back, as predicted
+
+The health-check smoke (the detection added above) failed on 2026-10-01: André Gide, Mary De Morgan
+and Grimmelshausen answered 404 to a crawler. A full SSG rebuild did not help. 14 authors were
+hidden with a published book, every one created 2026-03-16 and published by auto-publish between
+2026-09-11 and 09-14.
+
+The August backfill flipped only the artefact rows that **already** had a published book; the
+"102 remain false and should" were artefacts too — they just had no book yet. Auto-publish then gave
+them books, and nothing re-evaluates an author's flag when one of their books is published.
+
+Fix: migration `BackfillAuthorIndexableArtefacts` sets `indexable = true` on every `false` row
+created before 2026-03-17 — the whole artefact pool, not the 14 that surfaced. After it, `false`
+can only mean an admin hid the author. Lesson: a backfill that fixes the rows that *currently*
+misbehave leaves the latent ones armed; fix the class of rows that carry the accidental value.
