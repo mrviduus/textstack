@@ -1,6 +1,8 @@
 # Mobile App — Bug Register
 
-Полный срез багов и UX-дефектов мобильного приложения TextStack (Expo SDK 55 + React Native 0.83.2). Документ делится на три раздела: уже исправленное в этой и предыдущей сессиях, активные дефекты (с приоритетом P0–P3) и риски, требующие более глубокой проработки.
+> **Historical register (reviewed 2026-10-01).** Many file paths below no longer exist — `src/components/WordCard.tsx`, `DictionarySheet.tsx`, `src/components/home/`, the Home tab (`app/(tabs)/index.tsx` is now a redirect), and the per-route readers (both now go through `src/components/reader/ReaderShell.tsx`). Read rows as a record of what was fixed then, not as a map of the code now.
+
+Полный срез багов и UX-дефектов мобильного приложения TextStack (~~Expo SDK 55 + React Native 0.83.2~~ — stale 2026-10-01: app is on Expo 57 / RN 0.86.3, see `package.json`). Документ делится на три раздела: уже исправленное в этой и предыдущей сессиях, активные дефекты (с приоритетом P0–P3) и риски, требующие более глубокой проработки.
 
 ---
 
@@ -91,7 +93,7 @@
 
 ## 2. Открытые дефекты
 
-*Нет открытых дефектов P0–P3.* Все пункты из предыдущих срезов закрыты, см. таблицу выше (B-22..B-79). `tsc --noEmit` по всему `apps/mobile` проходит чисто.
+~~*Нет открытых дефектов P0–P3.*~~ — stale 2026-10-01: the 2026-10 audit found new ones (rare-word Save silent no-op, catalog chapter list showing raw `chapterNumber` from 0) — fixed on branch `fix/audit-bugs-ci`; this register is no longer maintained, track open work in `docs/STATUS.md`. Все пункты из предыдущих срезов закрыты, см. таблицу выше (B-22..B-79). `tsc --noEmit` по всему `apps/mobile` проходит чисто.
 
 **Note по B-77**: пользователь сообщил видимую регрессию (нативное меню вместо `WordCard`, `WordCard` не появлялся, перевод не работал, ErrorBoundary "Rendered more hooks than during the previous render"). Корень — placement двух `useMemo` после ранних `if (loading) return` / `if (!chapter) return` в reader (введено в B-36). Хуки подняты выше, фикс верифицирован `tsc --noEmit`.
 

@@ -1090,6 +1090,8 @@ export function ReaderShell(props: ReaderShellProps) {
               injectJs('try{window.getSelection&&window.getSelection().removeAllRanges()}catch(e){};try{window.__tsClearWordMark&&window.__tsClearWordMark()}catch(e){}')
               setSelection(null)
             }}
+            lookup={lookupState}
+            onAddAnyway={lookupState ? () => { void vocabActions.addAnyway(lookupState) } : undefined}
           />
         )}
 

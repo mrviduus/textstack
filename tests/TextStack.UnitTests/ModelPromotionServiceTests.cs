@@ -117,7 +117,7 @@ public class ModelPromotionServiceTests
         Assert.Equal(PromotionAction.Promote, result.Action);
 
         // Exactly one feature has a Primary (invariant).
-        Assert.Single(h.Models.Where(m => m is { FeatureTag: "explain", Status: ModelStatus.Primary }));
+        Assert.Single(h.Models, m => m is { FeatureTag: "explain", Status: ModelStatus.Primary });
 
         // Audit row with denormalized keys + admin.
         var audit = Assert.Single(h.Promotions);
@@ -197,7 +197,7 @@ public class ModelPromotionServiceTests
         Assert.Equal(PromotionAction.Rollback, result.Action);
 
         // Invariant holds + a Rollback audit row was appended.
-        Assert.Single(h.Models.Where(m => m is { FeatureTag: "explain", Status: ModelStatus.Primary }));
+        Assert.Single(h.Models, m => m is { FeatureTag: "explain", Status: ModelStatus.Primary });
         Assert.Equal(2, h.Promotions.Count);
         Assert.Equal(PromotionAction.Rollback, h.Promotions[^1].Action);
         Assert.Equal(2, h.Routes.InvalidateCount); // promote + rollback

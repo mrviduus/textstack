@@ -1,8 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { insightChapterLabel, insightDateLabel, type BookInsight } from '@textstack/shared'
-import { getBookInsights, deleteBookInsight } from '../../api/insights'
 import { useTranslation } from '../../hooks/useTranslation'
 import { chapterReviewPath } from '../../hooks/useBookReviews'
 import { LocalizedLink } from '../LocalizedLink'
@@ -21,57 +20,34 @@ import { LocalizedLink } from '../LocalizedLink'
  * belongs next to the connect prompt, not on every book page.
  */
 interface Props {
-  /** Exactly one of these. */
+  /** From the page's `useBookReviews` — one copy, so a delete here also clears the chapter rows' badge. */
+  insights: BookInsight[]
+  /** Deletes on the server and from `insights`; rejects when the server refuses. */
+  onRemove: (id: string) => Promise<void>
+  /** Exactly one of these — where a reviewed row's summary page lives. */
   userBookId?: string
-  editionId?: string
-  /** A catalog book's slug — where a reviewed row's summary page lives. */
   bookSlug?: string
 }
 
-export function BookInsightsSection({ userBookId, editionId, bookSlug }: Props) {
+export function BookInsightsSection({ insights, onRemove, userBookId, bookSlug }: Props) {
   const { t } = useTranslation()
-  const [insights, setInsights] = useState<BookInsight[]>([])
-  const [loading, setLoading] = useState(true)
   // The id being removed, so the row can say so and cannot be double-submitted.
   const [removing, setRemoving] = useState<string | null>(null)
 
-  useEffect(() => {
-    const target = userBookId ? { userBookId } : editionId ? { editionId } : null
-    if (!target) return
-
-    let cancelled = false
-    setLoading(true)
-    getBookInsights(target)
-      .then(rows => { if (!cancelled) setInsights(rows) })
-      // Silent: this is a supplementary panel and a failure here must never take the book page
-      // down with it. Same posture as BookStatsSection.
-      //
-      // That posture is also how this section stayed invisible on the web for its whole life: it
-      // used to call the SHARED insights client, which routes through an api layer only the mobile
-      // app initialises, so every call rejected before reaching the network and this catch ate it.
-      // Silence is right for a network failure and wrong for a wiring mistake, and it cannot tell
-      // them apart — hence the web-local client above, whose auth actually works here.
-      .catch(() => {})
-      .finally(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
-  }, [userBookId, editionId])
-
-  // Removed here as well as on the server: the section disappears when the last one goes, and a
-  // list that still shows a row the server no longer has is worse than a slow one.
+  // The page's list drops the row on success: the section disappears when the last one goes.
   const remove = async (id: string) => {
     setRemoving(id)
     try {
-      await deleteBookInsight(id)
-      setInsights(prev => prev.filter(i => i.id !== id))
+      await onRemove(id)
     } catch {
-      // Same posture as the load: a supplementary panel never takes the book page down. The row
-      // stays, which is the honest outcome — it is still there.
+      // A supplementary panel never takes the book page down. The row stays, which is the honest
+      // outcome — it is still there.
     } finally {
       setRemoving(null)
     }
   }
 
-  if (loading || insights.length === 0) return null
+  if (insights.length === 0) return null
 
   return (
     <section className="book-insights" aria-label={t('library.insights.title')}>

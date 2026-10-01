@@ -137,7 +137,8 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
       book,
       isAuthenticated,
     })
-  const { add: addToLibrary, isInLibrary } = useLibrary()
+  // /me/library holds editions only; an upload is already the reader's own.
+  const { add: addToLibrary, isInLibrary } = useLibrary({ enabled: mode === 'public' })
   const [toastMessage, setToastMessage] = useState<string | null>(null)
   const [bookCompleted, setBookCompleted] = useState(false)
   const { setCurrentBook: setGuestCurrentBook } = useGuestLimits()
@@ -453,7 +454,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
 
   // Auto-add to library after 1% overall progress
   useEffect(() => {
-    if (!book?.id || libraryAddedRef.current) return
+    if (mode !== 'public' || !book?.id || libraryAddedRef.current) return
     if (overallProgress < 0.01) return
     if (isInLibrary(book.id)) {
       libraryAddedRef.current = true
@@ -463,7 +464,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
     addToLibrary(book.id)
       .then(() => setToastMessage('Added to library'))
       .catch(() => {}) // silent fail
-  }, [overallProgress, book?.id, isInLibrary, addToLibrary])
+  }, [mode, overallProgress, book?.id, isInLibrary, addToLibrary])
 
   // Search hook needs chapter html, use empty string until loaded
   const chapterHtml = chapter?.html || ''

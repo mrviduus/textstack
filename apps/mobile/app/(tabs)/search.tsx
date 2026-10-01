@@ -255,7 +255,7 @@ export default function DiscoverScreen() {
         <View style={styles.info}>
           <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>{item.title}</Text>
           <Text style={[styles.chapter, { color: colors.textSecondary }]} numberOfLines={1}>
-            Ch. {item.bestMatch.chapterNumber}: {item.bestMatch.chapterTitle}
+            {item.bestMatch.chapterTitle}
           </Text>
           {highlights.map((h, i) => (
             <HighlightText key={i} html={h} style={[styles.highlight, { color: colors.textSecondary }]} boldStyle={{ color: colors.text }} numberOfLines={2} />
@@ -277,7 +277,7 @@ export default function DiscoverScreen() {
           {isExpanded && item.otherMatches.map((m, i) => (
             <View key={i} style={[styles.subMatch, { borderTopColor: colors.border }]}>
               <Text style={[styles.chapter, { color: colors.textSecondary }]} numberOfLines={1}>
-                Ch. {m.chapterNumber}: {m.chapterTitle}
+                {m.chapterTitle}
               </Text>
               {(m.highlights || []).slice(0, 2).map((h, hi) => (
                 <HighlightText key={hi} html={h} style={[styles.highlight, { color: colors.textSecondary }]} boldStyle={{ color: colors.text }} numberOfLines={2} />

@@ -31,9 +31,6 @@ public static class ExplainPrompt
                 "never on the word being explained:\n" +
                 "- The sentence mentions a chapter NUMBER (\"Chapter 5\", \"see Chapter 9\", \"Chapter 11 turns to\") " +
                 "-> ALWAYS call get_chapter with that number.\n" +
-                "- The sentence says the topic was covered earlier/before/previously in the book " +
-                "(\"as we discussed earlier\", \"mentioned before\", \"covered earlier\") and gives no chapter number " +
-                "-> ALWAYS call search_book for that topic.\n" +
                 "- The sentence mentions the user's own highlights, notes, or things they marked/saved " +
                 "-> ALWAYS call get_user_highlights.\n" +
                 "If the sentence contains NONE of these signals, do NOT call any tool - answer directly from the " +

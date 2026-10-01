@@ -44,7 +44,8 @@ describe('ConnectedApps', () => {
     render(<ConnectedApps />)
     await screen.findByText('Claude')
     fireEvent.click(screen.getAllByText('connect.apps.disconnect')[0])
-    await waitFor(() => expect(screen.queryByText('Claude')).toBeNull())
+    // 3s, not the 1s default: on a loaded CI runner this took 1035ms and failed a deploy (2026-10-01).
+    await waitFor(() => expect(screen.queryByText('Claude')).toBeNull(), { timeout: 3000 })
     expect(api.revokeOAuthGrant).toHaveBeenCalledWith('g1')
     expect(screen.getByText('ChatGPT')).toBeTruthy()
   })

@@ -178,11 +178,6 @@
     "chapters": "chapters",
     "processing": "Processing...",
     "failed": "Failed",
-    "timeJustNow": "just now",
-    "timeMinAgo": "min ago",
-    "timeHoursAgo": "hours ago",
-    "timeYesterday": "yesterday",
-    "timeDaysAgo": "days ago",
     "sidebar": {
       "all": "All books",
       "uploads": "My uploads",

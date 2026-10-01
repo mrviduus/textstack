@@ -32,7 +32,7 @@ public class McOptionsTests
         // shows the answer twice, the learner has been told.
         var (options, _) = McOptions.Build("quorum", "en", Json("quorum", "QUORUM", "replica", "partition"), []);
 
-        Assert.Single(options.Where(o => o.Equals("quorum", StringComparison.OrdinalIgnoreCase)));
+        Assert.Single(options, o => o.Equals("quorum", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]

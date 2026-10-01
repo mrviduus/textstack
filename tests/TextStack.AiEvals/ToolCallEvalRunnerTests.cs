@@ -17,7 +17,7 @@ public class ToolCallEvalRunnerTests
     private static readonly IReadOnlyList<ToolCallGolden> Goldens = ToolCallGoldenSet.Load();
     private static readonly JsonElement AnySchema = JsonDocument.Parse("""{"type":"object"}""").RootElement;
 
-    /// <summary>A registry stub exposing the four Explain tool names (schemas only — never invoked).</summary>
+    /// <summary>A registry stub exposing the Explain tool names (schemas only — never invoked).</summary>
     private sealed class SchemaTool(string name) : ITool
     {
         public string Name => name;
@@ -29,7 +29,7 @@ public class ToolCallEvalRunnerTests
 
     private static IToolRegistry Registry() => new ToolRegistry(
     [
-        new SchemaTool("get_chapter"), new SchemaTool("search_book"), new SchemaTool("get_user_highlights"),
+        new SchemaTool("get_chapter"), new SchemaTool("get_user_highlights"),
     ]);
 
     /// <summary>Answers each golden EXACTLY as expected (right tool + expected fragments, or no tool).</summary>
@@ -128,7 +128,6 @@ public class ToolCallEvalRunnerTests
         Assert.True(Goldens.Count >= 30, $"DoD wants a 30-example set; got {Goldens.Count}");
         Assert.Contains(Goldens, g => g.ExpectedTool is null);                    // no-tool cases present
         Assert.Contains(Goldens, g => g.ExpectedTool == "get_chapter");
-        Assert.Contains(Goldens, g => g.ExpectedTool == "search_book");
         Assert.Contains(Goldens, g => g.ExpectedTool == "get_user_highlights");
         Assert.All(Goldens, g => Assert.False(string.IsNullOrWhiteSpace(g.Sentence)));
     }

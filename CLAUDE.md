@@ -60,7 +60,7 @@ docker compose exec db psql -U app books   # DB shell
 docker compose down -v                      # Reset all (loses data)
 
 # Tests
-dotnet test                                 # All tests (LoadTests auto-skipped via .runsettings)
+dotnet test                                 # All tests (.runsettings excludes Category=Load; none exist today)
 dotnet test tests/TextStack.UnitTests
 dotnet test tests/TextStack.IntegrationTests
 dotnet test tests/TextStack.Extraction.Tests
@@ -413,7 +413,8 @@ tests/
 ├── TextStack.IntegrationTests/    # API tests against running server (LiveApiFixture → localhost:8080, override via API_URL env)
 ├── TextStack.Extraction.Tests/    # Book parsing (EPUB/PDF)
 ├── TextStack.Search.Tests/        # Search logic
-├── TextStack.LoadTests/           # Load tests — auto-skipped by .runsettings on `dotnet test`
+├── TextStack.AiEvals/             # Eval runners on fake LLMs; live evals skip w/o OPENAI_API_KEY
+├── TextStack.Ai.Mcp.Tests/        # MCP over-the-wire (loopback)
 apps/web/e2e/                      # Playwright E2E (chromium, mobile, admin projects) — 11 specs
 apps/mobile/e2e/                   # Mobile Playwright E2E — 16 specs
 ```

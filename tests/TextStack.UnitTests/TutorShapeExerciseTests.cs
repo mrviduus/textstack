@@ -114,7 +114,7 @@ public class TutorShapeExerciseTests
             TutorEndpoints.ShapeExercise(TutorPlanItem.ExerciseRecognition, card, session);
 
         Assert.NotNull(options);
-        Assert.Single(options!.Where(o => o.Equals("latency", StringComparison.OrdinalIgnoreCase)));
+        Assert.Single(options!, o => o.Equals("latency", StringComparison.OrdinalIgnoreCase));
         Assert.Equal("latency", options[correctIndex!.Value]);
         // The learner's own words beat the hardcoded filler list.
         Assert.All(options.Where((_, i) => i != correctIndex.Value),

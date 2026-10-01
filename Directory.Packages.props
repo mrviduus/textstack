@@ -22,6 +22,11 @@
     <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.8" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.8" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.8" />
+    <!-- Transitive pin (EF Sqlite, tests only): 2.1.11 carries GHSA-2m69-gcr7-jv3q. Drop when EF ships >= 2.1.12. -->
+    <PackageVersion Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.13" />
+    <PackageVersion Include="SQLitePCLRaw.core" Version="2.1.13" />
+    <PackageVersion Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.13" />
+    <PackageVersion Include="SQLitePCLRaw.provider.e_sqlite3" Version="2.1.13" />
     <!-- Must be >= what Npgsql.EntityFrameworkCore.PostgreSQL requires (10.0.1 needs
          >= 10.0.2). It was declared 9.0.3 while resolution quietly upgraded it, so the
          version in the manifest was not the version that shipped. -->

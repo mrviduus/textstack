@@ -191,6 +191,28 @@ export function useReaderVocabActions({
     }
   }, [isAuthenticated, language, bookTitleRef, editionIdRef, userBookIdRef, chapter, showToast, setLookupState, setSelection, onWordSaved])
 
+  /**
+   * "Add to SRS anyway" on the rare-word notice: promotes the WordLookup row
+   * into a VocabularyWord (bypasses the frequency filter) and runs the normal
+   * post-save flow so the word is underlined + translated. Web parity:
+   * ReaderHighlights.handleAddAnyway.
+   */
+  const addAnyway = useCallback(async (lookup: LookupState) => {
+    if (lookup.busy) return
+    setLookupState({ ...lookup, busy: true })
+    try {
+      const saved = await vocabularyApi.promoteLookup(lookup.id)
+      setLookupState(null)
+      onWordSaved(saved, saved.word)
+      setSelection(null)
+      showToast({ message: t(language, 'reader.vocab.addedToSrs'), variant: 'success' })
+    } catch (e) {
+      console.warn('Promote lookup failed:', e)
+      setLookupState({ ...lookup, busy: false })
+      showToast({ message: t(language, 'reader.vocab.addAnywayFailed'), variant: 'error' })
+    }
+  }, [setLookupState, setSelection, onWordSaved, showToast, language])
+
   const markKnown = useCallback(async (selection: Selection) => {
     if (!isAuthenticated) return
     const key = selection.text.toLowerCase()
@@ -236,5 +258,5 @@ export function useReaderVocabActions({
     }
   }, [isAuthenticated, vocabMapRef, injectJs, bumpVocab, setWordSaved, setSelection, showToast])
 
-  return { saveWord, markKnown, removeWord }
+  return { saveWord, addAnyway, markKnown, removeWord }
 }

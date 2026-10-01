@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom'
 import { getUserBookCoverUrl, type UserBook } from '../../api/userBooks'
 import { BookActionMenu } from './BookActionMenu'
 import { stringToColor } from '../../utils/colors'
-import { formatTimeAgo } from './timeAgo'
+import { formatTimeAgo } from '@textstack/shared'
 
 export function UploadBookListItem({
   book,
@@ -20,20 +20,23 @@ export function UploadBookListItem({
   t: (key: string) => string
 }) {
   const isReady = book.status === 'Ready'
+  // Readability is DERIVED (ADR-012): a PDF opens in Original layout once its file exists, whatever
+  // the extraction status — same rule as the grid card (UserBookCard).
+  const readable = isReady || !!book.hasOriginalPdf
   const percent = book.progressPercent ?? 0
   // The row opens the book's page; "Continue" goes straight into the text.
-  const destination = isReady ? `/${language}/library/my/${book.id}` : '#'
+  const destination = readable ? `/${language}/library/my/${book.id}` : '#'
   // A PDF's position is a page, not a chapter — its Original reader resumes it from /read.
   const continueHref = book.progressChapterSlug
     ? `/${language}/library/my/${book.id}/read/${book.progressChapterSlug}`
     : book.hasOriginalPdf && percent > 0
       ? `/${language}/library/my/${book.id}/read`
       : null
-  const showContinue = isReady && !!continueHref && !book.completedAt
+  const showContinue = readable && !!continueHref && !book.completedAt
   const coverUrl = getUserBookCoverUrl(book.coverPath)
   return (
     <article data-book-id={book.id} className={`library-list-item${highlighted ? ' library-list-item--highlighted' : ''}`}>
-      {isReady ? (
+      {readable ? (
         <Link to={destination} className="library-list-item__cover">
           {coverUrl ? (
             <img
@@ -67,21 +70,21 @@ export function UploadBookListItem({
         </div>
       )}
       <div className="library-list-item__content">
-        {isReady ? (
+        {readable ? (
           <Link to={destination} className="library-list-item__title">
             {book.title}
           </Link>
         ) : (
           <span className="library-list-item__title">{book.title}</span>
         )}
-        {isReady && book.completedAt && (
+        {readable && book.completedAt && (
           <div className="library-list-item__progress">
             <div className="library-list-item__progress-header">
               <span className="library-list-item__completed-text">Read</span>
             </div>
           </div>
         )}
-        {isReady && !book.completedAt && (
+        {readable && !book.completedAt && (
           <div className="library-list-item__progress">
             <div className="library-list-item__progress-header">
               <span>{t('library.readingProgress')}</span>
@@ -101,10 +104,10 @@ export function UploadBookListItem({
               {book.chapterCount} {t('library.chapters')}
             </span>
           )}
-          {isReady && book.progressUpdatedAt && (
+          {readable && book.progressUpdatedAt && (
             <span className="library-list-item__info-item">
               <span className="material-icons-outlined">schedule</span>
-              {t('library.lastRead')} {formatTimeAgo(book.progressUpdatedAt, t)}
+              {t('library.lastRead')} {formatTimeAgo(book.progressUpdatedAt)}
             </span>
           )}
           {book.status === 'Processing' && (

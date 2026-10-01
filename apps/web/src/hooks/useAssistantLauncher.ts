@@ -4,6 +4,7 @@ import {
   type Assistant, type ChatChoice, type OAuthGrant,
 } from '@textstack/shared'
 import { listOAuthGrants } from '../api/oauth'
+import { useAuth } from '../context/AuthContext'
 
 /**
  * Which chat a handoff opens — ONE code path for every assistant button (chapter-row Discuss, the
@@ -15,13 +16,14 @@ import { listOAuthGrants } from '../api/oauth'
  * and kept synchronously so the click can `window.open` inside the user gesture — an open after an
  * await is what popup blockers eat.
  */
+const NO_GRANTS: OAuthGrant[] = []
 let cachedGrants: OAuthGrant[] | null = null
 let grantsPromise: Promise<OAuthGrant[]> | null = null
 
 function loadGrants(): Promise<OAuthGrant[]> {
   grantsPromise ??= listOAuthGrants()
     .then(g => (cachedGrants = g))
-    // A guest (no account → no grants) or a failed call both mean "nothing we can open".
+    // A failed call means "nothing we can open".
     .catch(() => (cachedGrants = []))
   return grantsPromise
 }
@@ -44,20 +46,26 @@ type Brief = () => string
  * where a mount-time call is only a 401.
  */
 export function useAssistantLauncher({ eager = true }: { eager?: boolean } = {}) {
-  const [grants, setGrants] = useState<OAuthGrant[] | null>(cachedGrants)
+  // `/me/oauth/grants` is account-only (403 for a guest). A guest has no grants by definition, so
+  // never ask: "none connected" → the connect dialog. Mirrors mobile's canConnectAssistant gate.
+  const { isGuest } = useAuth()
+  const known = () => (isGuest ? NO_GRANTS : cachedGrants) // read live: another button may have loaded them
+  const load = () => (isGuest ? Promise.resolve(NO_GRANTS) : loadGrants())
+  const [grants, setGrants] = useState<OAuthGrant[] | null>(known)
   const [remembered, setRemembered] = useState<Assistant | null>(readRemembered)
   // Both connected, nothing remembered: the brief waits here for the reader's pick.
   const [pending, setPending] = useState<{ brief: Brief } | null>(null)
   const [connect, setConnect] = useState(false)
 
-  const prefetch = () => loadGrants().then(g => { setGrants(g); return g })
+  const prefetch = () => load().then(g => { setGrants(g); return g })
 
   useEffect(() => {
     if (!eager) return
     let live = true
-    void loadGrants().then(g => { if (live) setGrants(g) })
+    void load().then(g => { if (live) setGrants(g) })
     return () => { live = false }
-  }, [eager])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `load` only varies with isGuest
+  }, [eager, isGuest])
 
   const canSwitch = !!grants && connectedAssistants(grants).length === 2
 
@@ -78,8 +86,10 @@ export function useAssistantLauncher({ eager = true }: { eager?: boolean } = {})
   }
 
   /** Open the chat for this brief. Synchronous when the grants are already known (popup-safe). */
-  const launch = (brief: Brief): Promise<ChatChoice['kind']> =>
-    cachedGrants ? Promise.resolve(decide(cachedGrants, brief)) : loadGrants().then(g => decide(g, brief))
+  const launch = (brief: Brief): Promise<ChatChoice['kind']> => {
+    const g = known()
+    return g ? Promise.resolve(decide(g, brief)) : loadGrants().then(g2 => decide(g2, brief))
+  }
 
   /** The pick for a pending brief: remembered, then opened. */
   const pick = (assistant: Assistant) => {

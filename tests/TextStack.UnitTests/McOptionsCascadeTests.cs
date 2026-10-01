@@ -73,7 +73,7 @@ public class McOptionsCascadeTests
 
         Assert.Equal(McOptions.Choices, options.Count);
         Assert.Equal("latency", options[correct]);
-        Assert.Single(options.Where(o => o.Equals("latency", StringComparison.OrdinalIgnoreCase)));
+        Assert.Single(options, o => o.Equals("latency", StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>
@@ -107,7 +107,7 @@ public class McOptionsCascadeTests
 
         Assert.Equal(McOptions.Choices, options.Count);
         Assert.Equal("river", options[correct]);
-        Assert.Single(options.Where(o => o.Equals("river", StringComparison.OrdinalIgnoreCase)));
+        Assert.Single(options, o => o.Equals("river", StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>

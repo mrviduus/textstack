@@ -46,7 +46,7 @@ export function UserBookDetailPage() {
   // popup and the prior loud red-circle visual.
   const [pendingDelete, setPendingDelete] = useState(false)
   const pendingTimeoutRef = useRef<number | null>(null)
-  const { reviews } = useBookReviews(isAuthenticated && book?.status === 'Ready' ? { userBookId: book.id } : null)
+  const { reviews, insights, remove: removeInsight } = useBookReviews(isAuthenticated && book?.status === 'Ready' ? { userBookId: book.id } : null)
 
   // Get saved progress from localStorage
   const savedProgress = useMemo((): SavedProgress | null => {
@@ -497,7 +497,7 @@ export function UserBookDetailPage() {
       {/* Above the chapter list on purpose: coming back to a book, what you
           already worked out is more use than the table of contents. */}
       {isReady && book && (
-        <BookInsightsSection userBookId={book.id} />
+        <BookInsightsSection insights={insights} onRemove={removeInsight} userBookId={book.id} />
       )}
 
       {isReady && book.chapters.length > 0 && (

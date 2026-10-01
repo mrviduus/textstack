@@ -6,7 +6,7 @@ import type { LibraryItem, ReadingProgressDto } from '../../api/auth'
 import { OfflineBadge } from '../OfflineBadge'
 import { BookActionMenu } from './BookActionMenu'
 import { stringToColor } from '../../utils/colors'
-import { formatTimeAgo } from './timeAgo'
+import { formatTimeAgo } from '@textstack/shared'
 
 export function SavedBookListItem({
   item,
@@ -68,7 +68,7 @@ export function SavedBookListItem({
           {progress?.updatedAt && (
             <span className="library-list-item__info-item">
               <span className="material-icons-outlined">schedule</span>
-              {t('library.lastRead')} {formatTimeAgo(progress.updatedAt, t)}
+              {t('library.lastRead')} {formatTimeAgo(progress.updatedAt)}
             </span>
           )}
           <OfflineBadge editionId={item.editionId} />
