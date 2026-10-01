@@ -480,17 +480,12 @@ export async function cacheTranslation(
   })
 }
 
-export async function clearOldTranslations(maxAgeMs = 7 * 24 * 60 * 60 * 1000): Promise<void> {
+async function deleteOlderThan(storeName: string, maxAgeMs: number): Promise<void> {
   const db = await openOfflineDb()
-  const cutoff = Date.now() - maxAgeMs
+  const range = IDBKeyRange.upperBound(Date.now() - maxAgeMs)
 
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(TRANSLATIONS_STORE, 'readwrite')
-    const store = tx.objectStore(TRANSLATIONS_STORE)
-    const index = store.index('cachedAt')
-    const range = IDBKeyRange.upperBound(cutoff)
-    const request = index.openCursor(range)
-
+    const request = db.transaction(storeName, 'readwrite').objectStore(storeName).index('cachedAt').openCursor(range)
     request.onsuccess = () => {
       const cursor = request.result
       if (cursor) {
@@ -502,6 +497,17 @@ export async function clearOldTranslations(maxAgeMs = 7 * 24 * 60 * 60 * 1000): 
     }
     request.onerror = () => reject(request.error)
   })
+}
+
+export function clearOldTranslations(maxAgeMs = 7 * 24 * 60 * 60 * 1000): Promise<void> {
+  return deleteOlderThan(TRANSLATIONS_STORE, maxAgeMs)
+}
+
+/** Evict dictionary / TTS / explain entries past their 30-day TTL. Reads already skip them;
+ *  this frees the storage. Called once per app start (main.tsx). */
+export async function clearExpiredCaches(): Promise<void> {
+  const ttl = 30 * 24 * 60 * 60 * 1000
+  await Promise.allSettled([DICTIONARY_STORE, TTS_STORE, EXPLAIN_STORE].map(s => deleteOlderThan(s, ttl)))
 }
 
 // ============ DICTIONARY CACHE ============
