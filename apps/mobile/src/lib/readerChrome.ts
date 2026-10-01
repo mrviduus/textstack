@@ -113,20 +113,18 @@ export function readerTypographyChanged(a: ReaderTypography | null, b: ReaderTyp
  * The identity of a reflow document. Insets, colours and typography are absent
  * on purpose — that absence is the fix, and an absence is what a reviewer stops
  * seeing. What remains is what genuinely cannot be injected: the chapter the
- * document was built from, whether the overlay script was emitted into it, and
- * whether the OpenDyslexic `@font-face` was inlined.
+ * document was built from and whether the OpenDyslexic `@font-face` was inlined.
  */
 export function readerDocumentKey(d: {
   chapterSlug: string
   /** 'dyslexic' when the document must carry an inlined @font-face, else 'std'.
    *  NOT the family itself: serif↔sans is pure CSS and is injected. */
   fontFaceKey: string
-  overlayV2: boolean
   /** Length is enough to notice a different chapter without hashing it. */
   htmlLength: number
 }): string {
   return [
-    d.chapterSlug, d.fontFaceKey, d.overlayV2 ? 'v2' : 'v1', String(d.htmlLength),
+    d.chapterSlug, d.fontFaceKey, String(d.htmlLength),
   ].join(' ')
 }
 

@@ -49,7 +49,6 @@ export default function StatsScreen() {
   // Goals detail → back) or change the `year` filter quickly; without
   // this, a stale 7-way response would overwrite the fresh one.
   const genRef = useRef(0)
-  const { show: showToast } = useToast()
 
   const loadData = useCallback(async () => {
     // Seven /me/* endpoints. Signed out, every one of them 401s, and a 401 is

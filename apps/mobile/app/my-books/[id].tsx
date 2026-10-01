@@ -24,7 +24,6 @@ import { formatBytes } from '../../src/lib/formatBytes'
 import { getCachedUserBookMeta, listCachedUserChapters, isUserBookFullyCached } from '../../src/lib/offlineDb'
 import { getUserBookLocalProgress } from '../../src/lib/progressStorage'
 import { userBookChapterSlug } from '../../src/lib/userBookChapters'
-import { trackBookOpened } from '../../src/lib/analytics'
 import { AddToCollectionSheet } from '../../src/components/library/AddToCollectionSheet'
 import { BookInsightsSection } from '../../src/components/library/BookInsightsSection'
 import { AssistantMenu } from '../../src/components/library/AssistantMenu'
@@ -659,7 +658,6 @@ export default function UserBookDetailScreen() {
                 onPress={() => {
                   const first = book.chapters[0]
                   const slug = continueSlug || (first ? userBookChapterSlug(first) : '')
-                  trackBookOpened({ source: 'userbook', userBookId: id })
                   router.push(`/my-books/read/${id}/${slug}`)
                 }}
               >

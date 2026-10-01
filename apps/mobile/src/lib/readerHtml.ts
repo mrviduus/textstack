@@ -16,13 +16,6 @@ export interface ReaderTheme {
   textColor: string
 }
 
-export interface ReaderHtmlOptions {
-  // Slice 8b — opt-in SVG overlayer for user highlights. Vocab underlines
-  // stay on CSS.highlights (glyph-aware text-decoration beats SVG rects).
-  // Default off until device verification + mobile E2E land.
-  overlayV2?: boolean
-}
-
 const defaultTheme: ReaderTheme = {
   fontSize: 18,
   lineHeight: 1.65,
@@ -48,7 +41,7 @@ function buildFontFace(fontFamily: string): string {
   }`
 }
 
-export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaultTheme, initialChapterSlug?: string, safeArea?: { top: number; bottom: number }, options?: ReaderHtmlOptions): string {
+export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaultTheme, initialChapterSlug?: string, safeArea?: { top: number; bottom: number }): string {
   const fontFace = buildFontFace(theme.fontFamily)
   // Chrome comes from the same values `readerChromeInjectionJs` later applies to
   // the LIVE document, so hiding the bars or switching theme no longer has to
@@ -59,14 +52,10 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
     backgroundColor: theme.backgroundColor,
     textColor: theme.textColor,
   }
-  const overlayV2 = options?.overlayV2 === true
-  // Only inline the overlayer script when flag is on — zero bytes otherwise.
-  const overlayScript = overlayV2 ? READER_OVERLAY_SCRIPT : ''
-  // Always, unlike the overlay. The reading position is resolved from a text
-  // anchor on every chapter open and has no legacy path behind it; without the
-  // resolver `hlFindAnchor` degrades to a bare indexOf. 3.6KB.
+  // The reading position is resolved from a text anchor on every chapter open
+  // and has no legacy path behind it; without the resolver `hlFindAnchor`
+  // degrades to a bare indexOf. 3.6KB.
   const anchorScript = READER_ANCHOR_SCRIPT
-  const overlayFlagSetter = overlayV2 ? 'window.__textstackOverlayV2Mobile = true;' : ''
 
   return `<!DOCTYPE html>
 <html>
@@ -179,7 +168,6 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
     ::highlight(vocab-context) { text-decoration: underline; text-decoration-thickness: 2px; text-decoration-skip-ink: all; text-underline-offset: 0.18em; text-decoration-color: rgba(34,197,94,0.4); }
     ::highlight(vocab-mastered) { text-decoration: underline; text-decoration-thickness: 2px; text-decoration-skip-ink: all; text-underline-offset: 0.18em; text-decoration-color: rgba(34,197,94,0.25); }
     ::highlight(vocab-active) { text-decoration: underline; text-decoration-thickness: 2px; text-decoration-skip-ink: all; text-underline-offset: 0.18em; text-decoration-color: rgba(59,130,246,0.7); }
-    ::highlight(rag-citation) { background-color: rgba(37,99,235,0.25); border-radius: 2px; }
 
     .vocab-translation-overlay { position: absolute; top: 0; left: 0; width: 0; height: 0; pointer-events: none; z-index: 1; }
     .vocab-translation-overlay__item { position: absolute; top: 0; left: 0; transform: translate3d(0,0,0); white-space: nowrap; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; font-size: 0.42em; font-style: italic; font-weight: 400; letter-spacing: 0.015em; color: #6b6b6b; opacity: 0.85; line-height: 1; pointer-events: none; user-select: none; max-width: 160px; overflow: hidden; text-overflow: ellipsis; will-change: transform; }
@@ -187,13 +175,8 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
     /* Progress tracking via scroll */
     html { scroll-behavior: smooth; }
   </style>
-  <script>
-    // Slice 8b — flag that downstream code checks to route highlights through
-    // the SVG overlayer. Set before the overlayer IIFE so init can read it.
-    ${overlayFlagSetter}
-  </script>
   <script>${anchorScript}</script>
-  ${overlayScript ? `<script>${overlayScript}</script>` : ''}
+  <script>${READER_OVERLAY_SCRIPT}</script>
   <script>${READER_SELECTION_BRIDGE}</script>
   <script>
     let lastProgress = 0;
@@ -675,45 +658,6 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
       } catch (e) {}
     };
 
-    // Scroll to a RAG citation (AI-026d): find a short snippet of the chunk in the rendered text
-    // (offsets are into PlainText, not this DOM, so we locate by text) and center it; else scroll
-    // proportionally by the char offset. Mirror of the web citationScroll strategy, in-WebView.
-    window.__textstackScrollToCitation = function(snippet, charStart) {
-      try {
-        var range = null;
-        if (snippet) {
-          var needle = String(snippet).toLowerCase();
-          var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
-          var node;
-          while ((node = walker.nextNode())) {
-            var p = node.parentElement, skip = false;
-            while (p) {
-              if (p.classList && (p.classList.contains('vocab-inline-translation') || p.hasAttribute('data-vocab-overlay'))) { skip = true; break; }
-              p = p.parentElement;
-            }
-            if (skip) continue;
-            var idx = (node.nodeValue || '').toLowerCase().indexOf(needle);
-            if (idx >= 0) { range = document.createRange(); range.setStart(node, idx); range.setEnd(node, idx + needle.length); break; }
-          }
-        }
-        if (range) {
-          var rect = range.getBoundingClientRect();
-          var top = window.scrollY + rect.top - window.innerHeight / 2 + rect.height / 2;
-          window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
-          if (window.Highlight && window.CSS && CSS.highlights) {
-            try {
-              CSS.highlights.set('rag-citation', new Highlight(range));
-              setTimeout(function() { CSS.highlights.delete('rag-citation'); }, 2400);
-            } catch (e) {}
-          }
-          return;
-        }
-        var len = (document.body.textContent || '').length || 1;
-        var frac = Math.min(1, Math.max(0, (Number(charStart) || 0) / len));
-        window.scrollTo({ top: Math.round(document.documentElement.scrollHeight * frac), behavior: 'smooth' });
-      } catch (e) {}
-    };
-
     // Scroll to a saved highlight (M2): the Highlights sheet resolves a reflow
     // highlight's anchor to its DOM range and centers it — WITHOUT navigating
     // the chapter, so the reader's scroll position/progress is preserved. The
@@ -924,10 +868,8 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
 
     // Slice 8b — SVG overlayer dispatcher for highlights. Vocab underlines
     // stay on CSS.highlights (text-decoration is glyph-aware, beats SVG rects).
-    // Flag-gated via window.__textstackOverlayV2Mobile (set by buildReaderHtml
-    // options.overlayV2). Legacy <mark> path is the default fallback.
     function hlOverlayEnabled() {
-      return !!(window.__textstackOverlayV2Mobile && window.__TSOverlayer && typeof window.__TSOverlayer.create === 'function');
+      return !!(window.__TSOverlayer && typeof window.__TSOverlayer.create === 'function');
     }
     function hlEnsureOverlayer() {
       if (_hlOverlayer) return _hlOverlayer;
@@ -1030,64 +972,12 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
       try { _hlOverlayer.remove('user-hl:' + id); return true; } catch (e) { return false; }
     }
 
-    // Paint a highlight by wrapping each text node the range intersects in
-    // its own <mark>. Handles multi-node ranges that surroundContents can't.
-    // Returns { ok, painted, total } so the caller can see partial paints.
-    function hlPaintRange(range, id, color) {
-      var bg = HIGHLIGHT_BG[color] || HIGHLIGHT_BG.yellow;
-      var walker = document.createTreeWalker(
-        range.commonAncestorContainer,
-        NodeFilter.SHOW_TEXT,
-        { acceptNode: function(n) { return range.intersectsNode(n) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT; } }
-      );
-      var targets = [];
-      var n;
-      while (n = walker.nextNode()) targets.push(n);
-      if (targets.length === 0 && range.commonAncestorContainer.nodeType === 3) {
-        targets.push(range.commonAncestorContainer);
-      }
-      if (targets.length === 0) return { ok: false, painted: 0, total: 0 };
-      var painted = 0, attempted = 0;
-      for (var i = 0; i < targets.length; i++) {
-        var tn = targets[i];
-        var startOff = (tn === range.startContainer) ? range.startOffset : 0;
-        var endOff = (tn === range.endContainer) ? range.endOffset : (tn.nodeValue ? tn.nodeValue.length : 0);
-        if (endOff <= startOff) continue;
-        attempted++;
-        var subRange = document.createRange();
-        try { subRange.setStart(tn, startOff); subRange.setEnd(tn, endOff); } catch (e) { continue; }
-        var mark = document.createElement('mark');
-        mark.dataset.highlightId = id;
-        mark.style.backgroundColor = bg;
-        mark.style.borderRadius = '2px';
-        mark.style.cursor = 'pointer';
-        mark.addEventListener('click', function(e) {
-          e.stopPropagation();
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'highlightTap', highlightId: id }));
-        });
-        try { subRange.surroundContents(mark); painted++; } catch (e) { /* skip, report at caller */ }
-      }
-      return { ok: painted > 0, painted: painted, total: attempted };
-    }
-
     // Public entry. Accepts either an anchor object/JSON (preferred) or a
-    // bare selectedText string for back-compat. Idempotent: wipes prior
-    // segments for this id before repainting.
+    // bare selectedText string for back-compat. Idempotent: the overlayer
+    // replaces an existing key.
     function renderHighlight(id, anchor, color, fallbackText) {
       if (!color) { console.warn('[diag] renderHighlight: missing color', id); return; }
       var snippet = '';
-      try {
-        // Drop stale segments so re-renders (chapter reload) don't double-paint.
-        var existing = document.querySelectorAll('mark[data-highlight-id="' + CSS.escape(id) + '"]');
-        if (existing.length) {
-          existing.forEach(function(m) {
-            var p = m.parentNode;
-            while (m.firstChild) p.insertBefore(m.firstChild, m);
-            p.removeChild(m);
-            if (p.normalize) p.normalize();
-          });
-        }
-      } catch (e) {}
       var anchorObj = null;
       if (typeof anchor === 'string') {
         try { anchorObj = JSON.parse(anchor); } catch (e) { anchorObj = { exact: anchor }; }
@@ -1101,24 +991,13 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
       snippet = anchorObj.exact.length > 30 ? anchorObj.exact.slice(0, 30) + '…' : anchorObj.exact;
       var range = hlBuildRange(anchorObj);
       if (!range) { console.warn('[diag] renderHighlight NO MATCH:', id, snippet); return; }
-      // Dispatcher: overlay path if flag on + overlayer available, else legacy <mark>.
-      var res = hlOverlayEnabled() ? hlPaintRangeOverlay(range, id, color) : hlPaintRange(range, id, color);
+      var res = hlPaintRangeOverlay(range, id, color);
       if (!res.ok) console.warn('[diag] renderHighlight paint failed:', id, snippet);
-      else if (res.painted < res.total) console.warn('[diag] renderHighlight partial:', id, snippet, res.painted + '/' + res.total);
       else console.log('[diag] renderHighlight matched:', id, snippet);
     }
 
     function removeHighlight(id) {
-      // Overlay path is additive — legacy <mark> cleanup still runs in case
-      // a stale DOM mark exists (e.g. during flag flip mid-session).
       hlRemoveOverlay(id);
-      var marks = document.querySelectorAll('mark[data-highlight-id="' + id + '"]');
-      marks.forEach(function(mark) {
-        var parent = mark.parentNode;
-        while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
-        parent.removeChild(mark);
-        parent.normalize();
-      });
     }
 
     // =========================================================

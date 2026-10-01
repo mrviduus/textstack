@@ -5,7 +5,6 @@ import {
   cacheChapter,
   setCachedBookMeta,
   updateCachedChapterCount,
-  getCachedBookMeta,
   deleteCachedBook,
   isBookFullyCached,
   getAllCachedBooks,
@@ -21,7 +20,7 @@ import {
   type CachedUserBookMeta,
 } from '../lib/offlineDb'
 import { userBookChapterSlug } from '../lib/userBookChapters'
-import { deleteAllOriginals, deleteOriginal, downloadOriginal, evictToBudget, originalsTotalBytes } from '../lib/originalFileCache'
+import { deleteAllOriginals, deleteOriginal, downloadOriginal, evictToBudget } from '../lib/originalFileCache'
 import { chooseAutoDownloads, chooseOrphanedDownloads, mayAutoDownload } from '../lib/autoDownloadPolicy'
 import { offlineStorageBytes } from '../lib/deviceStorage'
 import { listStoredOriginalIds } from '../lib/originalFileCache'

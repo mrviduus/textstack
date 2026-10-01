@@ -12,7 +12,6 @@ import {
   SESSION_BOOTSTRAP_TIMEOUT_MS,
   type EnsureSessionResult,
 } from '../lib/guestSession'
-import { clearVocabStatsCache } from '../lib/vocabStatsCache'
 import { clearAllLocalProgress } from '../lib/progressStorage'
 import { clearReaderCache } from '../lib/readerOfflineCache'
 
@@ -295,12 +294,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // signed in via Google in the first place (email-only / Apple paths).
       try { await googleSigninModule?.GoogleSignin?.signOut?.() } catch {}
       // Per-user AsyncStorage caches must not leak into the next session —
-      // otherwise a fresh sign-in briefly shows the previous user's
-      // vocabulary stats on the home card while the network fetch races,
-      // and (worse) opens books on the previous user's last page. Server
-      // progress trumps local on the next flush, but the brief window is
+      // otherwise a fresh sign-in opens books on the previous user's last
+      // page. Server progress trumps local on the next flush, but the brief window is
       // visible and confusing.
-      clearVocabStatsCache().catch(() => {})
       clearAllLocalProgress().catch(() => {})
       clearReaderCache().catch(() => {})
       setUser(null)
@@ -326,7 +322,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         Promise.resolve()
           .then(() => googleSigninModule?.GoogleSignin?.signOut?.())
           .catch(() => {})
-        clearVocabStatsCache().catch(() => {})
         clearAllLocalProgress().catch(() => {})
         clearReaderCache().catch(() => {})
         setUser(null)

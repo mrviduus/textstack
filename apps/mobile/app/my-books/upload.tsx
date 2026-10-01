@@ -5,7 +5,6 @@ import * as DocumentPicker from 'expo-document-picker'
 import { formatBytes } from '../../src/lib/formatBytes'
 import { userBooksApi, getApiConfig } from '@textstack/shared'
 import { colors } from '../../src/theme/colors'
-import { trackBookUploaded } from '../../src/lib/analytics'
 import { useAuth } from '../../src/context/AuthContext'
 import { useDownload } from '../../src/context/DownloadContext'
 import { capabilitiesFor } from '../../src/lib/capabilities'
@@ -170,8 +169,6 @@ function UploadScreen() {
       })
 
       if (unmountedRef.current) return
-      const format = file.name.split('.').pop()?.toLowerCase() || 'unknown'
-      trackBookUploaded({ format, sizeBytes: file.size ?? 0 })
       // The book the reader just added is the one they are most likely to open
       // next, so fetch it now rather than waiting for the next reconnect. Not
       // awaited: the screen closes immediately, the sweep runs behind it, and

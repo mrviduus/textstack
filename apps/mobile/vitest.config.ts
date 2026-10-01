@@ -12,7 +12,7 @@ import { resolve } from 'node:path'
  * For now: pure logic in `src/lib/` is testable, and that's the highest
  * ROI per minute of setup. RN modules (AsyncStorage, Linking, Platform)
  * get aliased to in-process mocks at the top of this file so tests for
- * `features.ts`/`vocabStatsCache.ts` etc. can run without bundling RN.
+ * `progressStorage.ts`/`reviewMode.ts` etc. can run without bundling RN.
  */
 export default defineConfig({
   test: {

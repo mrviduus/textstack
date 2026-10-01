@@ -2,13 +2,12 @@ import { useEffect, useRef } from 'react'
 import { sweepTtsCache } from '../src/lib/deviceStorage'
 import { AppState, View } from 'react-native'
 import { Stack, useRouter, usePathname } from 'expo-router'
-import { trackAppResumedFromBackground } from '../src/lib/analytics'
 import { StatusBar } from 'expo-status-bar'
 import * as SplashScreen from 'expo-splash-screen'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { setupApi } from '../src/lib/api'
 import { Sentry, initSentry } from '../src/lib/sentry'
-import { AuthProvider, useAuth } from '../src/context/AuthContext'
+import { AuthProvider } from '../src/context/AuthContext'
 import { DownloadProvider } from '../src/context/DownloadContext'
 import { ThemeProvider, useTheme } from '../src/context/ThemeContext'
 import { LanguageProvider } from '../src/context/LanguageContext'
@@ -77,16 +76,6 @@ function ColdResetOnResume() {
         if (backgroundedForMs <= COLD_RESET_THRESHOLD_MS) return
 
         const inProtectedRoute = PROTECTED_ROUTE_PREFIXES.some(p => path.startsWith(p))
-        // Telemetry fires regardless of the decision — that's the point.
-        // Dashboards need both reset and skip rows to compute "% of long
-        // backgrounds where we kept the user in the reader".
-        trackAppResumedFromBackground({
-          backgroundedForMs,
-          pathname: path,
-          wasInProtectedRoute: inProtectedRoute,
-          resetToHome: !inProtectedRoute,
-        })
-
         if (inProtectedRoute) {
           // Skip — book sessions are intentional and resumeable. Resetting
           // here would feel like the app threw away the reader mid-chapter.

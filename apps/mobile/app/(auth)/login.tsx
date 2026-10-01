@@ -13,15 +13,6 @@ import { useTheme } from '../../src/context/ThemeContext'
 import { useToast } from '../../src/context/ToastContext'
 import { useLanguage } from '../../src/context/LanguageContext'
 import { fonts } from '../../src/theme/typography'
-import { trackLogin, trackSignUp } from '../../src/lib/analytics'
-
-/** Mirror web heuristic: backend doesn't surface an isNew flag, so a fresh
- *  createdAt (<60s ago) means OAuth auto-provisioned a new account. */
-function isFreshAccount(createdAt: string | undefined): boolean {
-  if (!createdAt) return false
-  const ms = Date.parse(createdAt)
-  return Number.isFinite(ms) && Date.now() - ms < 60_000
-}
 
 // Google OAuth Client IDs, sourced from app.json → expo.extra.googleAuth.
 // Keeping them out of source makes it possible to ship different IDs per
@@ -136,13 +127,11 @@ export default function LoginScreen() {
         const result = await authApi.registerWithEmail(email.trim(), password, name.trim() || undefined)
         await signInWithTokens(result.accessToken, result.refreshToken, result.user)
         warnIfNothingCarried(result.guestMergeSkipped)
-        trackSignUp('email')
         landAfterAuth(result.user)
       } else {
         const result = await authApi.loginWithEmail(email.trim(), password)
         await signInWithTokens(result.accessToken, result.refreshToken, result.user)
         warnIfNothingCarried(result.guestMergeSkipped)
-        trackLogin('email')
         landAfterAuth(result.user)
       }
     } catch (e: any) {
@@ -199,8 +188,6 @@ export default function LoginScreen() {
       const result = await authApi.loginWithGoogle(idToken)
       await signInWithTokens(result.accessToken, result.refreshToken, result.user)
       warnIfNothingCarried(result.guestMergeSkipped)
-      if (isFreshAccount(result.user.createdAt)) trackSignUp('google')
-      else trackLogin('google')
       landAfterAuth(result.user)
     } catch (e: any) {
       if (e?.code !== 'SIGN_IN_CANCELLED') {
@@ -248,8 +235,6 @@ export default function LoginScreen() {
 
       await signInWithTokens(result.accessToken, result.refreshToken, result.user)
       warnIfNothingCarried(result.guestMergeSkipped)
-      if (isFreshAccount(result.user.createdAt)) trackSignUp('apple')
-      else trackLogin('apple')
       landAfterAuth(result.user)
     } catch (e: any) {
       if (e.code !== 'ERR_REQUEST_CANCELED') {

@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, MutableRefObject } from 'react'
 import { vocabularyApi, t } from '@textstack/shared'
 import { cachedTranslate } from '../lib/translateCache'
 import type { Chapter, VocabularyWordDto, Language } from '@textstack/shared'
-import { trackVocabSaved, trackTranslationUsed } from '../lib/analytics'
 import type { VocabMap } from './useReaderVocabMap'
 
 type ToastFn = (t: { message: string; variant: 'error' | 'success' | 'info' }) => void
@@ -102,7 +101,6 @@ export function useReaderVocabActions({
     setWordSaved(true)
     setSessionWordCount(c => c + 1)
     notifyWordSaved()
-    trackVocabSaved({ language, nativeLanguage, source: 'reader' })
 
     // A word saved with nothing to translate into is saved as it is. The old
     // line here was `nativeLanguage !== language ? nativeLanguage : 'en'` — the
@@ -114,7 +112,6 @@ export function useReaderVocabActions({
     const targetLang = nativeLanguage !== language ? nativeLanguage : null
     if (!targetLang) return
 
-    trackTranslationUsed({ fromLang: language, toLang: targetLang, kind: 'word' })
     // cachedTranslate (not translationApi) so this reuses the gloss the
     // selection toolbar just fetched for the same word — no 2nd round-trip.
     cachedTranslate(sourceText, language, targetLang)

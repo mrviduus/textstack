@@ -9,7 +9,7 @@ export type Selection = {
    * selection; routed by content (single word → WordCard, multi → SelectionActionBar). */
   mode: 'tap' | 'drag'
   /** Longer than the 500 characters the speech and translation endpoints accept.
-   * The toolbar still opens — Copy, Highlight and Ask have no such limit. */
+   * The toolbar still opens — Copy and Highlight have no such limit. */
   tooLong?: boolean
 }
 

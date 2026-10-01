@@ -128,9 +128,6 @@ export interface ReaderRuntime {
   // Explain sheet bookId — editionId for catalog, undefined for user-book.
   explainBookId?: string
 
-  // "Ask this book" target — catalog edition or user-uploaded book (AI-027 P2).
-  // Drives the Ask button visibility + which endpoint family the sheet hits.
-
   // --- Original-layout PDF (ADR-012 S4b) ------------------------------------
   // Set by `useUserBookReaderSource` when the upload has a renderable PDF and
   // reflow isn't force-selected. When true, the shell renders the pdf.js viewer

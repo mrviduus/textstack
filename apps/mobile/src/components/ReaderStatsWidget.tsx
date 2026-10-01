@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react'
 import { View, Text, StyleSheet } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { useTheme } from '../context/ThemeContext'
-import { fonts } from '../theme/typography'
 
 interface ReaderStatsWidgetProps {
   sessionStartedAt: number

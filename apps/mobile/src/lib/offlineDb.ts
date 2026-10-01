@@ -36,7 +36,7 @@ export interface CachedBookMeta {
  */
 let dbPromise: Promise<any> | null = null
 
-export async function getDb(): Promise<any> {
+async function getDb(): Promise<any> {
   if (Platform.OS === 'web') return null
   if (!dbPromise) {
     dbPromise = (async () => {
@@ -201,16 +201,6 @@ export async function refreshCachedChapter(editionId: string, chapter: Chapter):
   )
 }
 
-export async function countCachedChapters(editionId: string): Promise<number> {
-  const d = await getDb()
-  if (!d) return 0
-  const row = await d.getFirstAsync(
-    'SELECT COUNT(*) as count FROM chapters WHERE edition_id = ?',
-    [editionId],
-  ) as { count: number } | null
-  return row?.count ?? 0
-}
-
 /**
  * Minimal chapter listing for offline rendering. Cache only stores the
  * fields we had at download time — no chapterNumber, so we sort by
@@ -235,12 +225,6 @@ export async function listCachedChapters(editionId: string): Promise<CachedChapt
     title: r.title,
     wordCount: r.word_count,
   }))
-}
-
-export async function deleteChaptersByEdition(editionId: string): Promise<void> {
-  const d = await getDb()
-  if (!d) return
-  await d.runAsync('DELETE FROM chapters WHERE edition_id = ?', [editionId])
 }
 
 // ============ BOOK META ============

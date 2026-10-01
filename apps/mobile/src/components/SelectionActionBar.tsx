@@ -44,12 +44,9 @@ interface SelectionActionBarProps {
   onMarkKnown?: () => void
   /** Remove the word from vocabulary — lets the user undo an accidental save. */
   onRemove?: () => void
-  /** "Ask about this" — opens the Book Chat with the selection attached as a quoted passage
-   *  (persistent chat, AI-027). Only wired when the reader has an ask target; shown for
-   *  multi-word passages (a single quoted word is redundant with the vocab actions). */
   /** Selection is past the 500-character ceiling the speech and translation
-   *  endpoints enforce. Those two and Explain are disabled; Copy, Highlight
-   *  and Ask still work, which is why the toolbar opens at all. */
+   *  endpoints enforce. Those two and Explain are disabled; Copy and
+   *  Highlight still work, which is why the toolbar opens at all. */
   tooLong?: boolean
   isSpeaking?: boolean
   /** Audio is being fetched — there is no sound yet. Distinct from `isSpeaking`

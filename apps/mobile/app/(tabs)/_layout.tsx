@@ -37,7 +37,6 @@ function AnimatedTabIcon({ name, size, color, focused }: {
 }
 
 const TAB_ICONS: Record<string, { active: keyof typeof Ionicons.glyphMap; inactive: keyof typeof Ionicons.glyphMap }> = {
-  Home:       { active: 'home', inactive: 'home-outline' },
   Discover:   { active: 'compass', inactive: 'compass-outline' },
   Library:    { active: 'library', inactive: 'library-outline' },
   Vocabulary: { active: 'school', inactive: 'school-outline' },

@@ -102,8 +102,6 @@ export function sendTutorFeedback(
 // Pure helpers (RN-free, unit-tested) — shared between hooks/components
 // ---------------------------------------------------------------------------
 
-/** Pure client guard mirroring the backend: ≥2 trimmed chars, ≤500 chars. Returns true when worth an agent run. */
-
 /**
  * Builds a classic-flashcard `ReviewCardDto` directly from an ENRICHED plan item. The backend already validated +
  * enriched every item, so there's no vocab fetch + join — the plan item is self-sufficient. Pure projection.

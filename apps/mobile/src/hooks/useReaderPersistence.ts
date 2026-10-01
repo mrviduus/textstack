@@ -7,7 +7,6 @@ import {
   RESTORE_SETTLE_MS,
   type RestoreGateEvent,
 } from '../lib/readerWriteGate'
-import { FEATURES, readReaderTextPositionActive } from '../lib/features'
 import { useFlushOnBackground } from './useFlushOnBackground'
 import type { TextPosition } from '@textstack/shared'
 import type { ProgressSnapshot, SavedPosition } from '../components/reader/readerSource'
@@ -116,14 +115,6 @@ export function useReaderPersistence({
   const positionLoadedRef = useRef(false)
   /** The chapter the reader was in when a rebuild started — see onDocumentRebuild. */
   const rebuiltFromSlugRef = useRef<string | null>(null)
-  // Read once per mount. A ref rather than state: it is consulted inside the
-  // restore, and a re-render on resolve would re-arm the effect that starts one.
-  const textPositionEnabledRef = useRef(FEATURES.readerTextPosition)
-  useEffect(() => {
-    let cancelled = false
-    readReaderTextPositionActive().then(v => { if (!cancelled) textPositionEnabledRef.current = v })
-    return () => { cancelled = true }
-  }, [])
 
   /**
    * Mint a restore id, shut the write gate behind it and arm the settle timeout.
@@ -333,10 +324,7 @@ export function useReaderPersistence({
         if (cancelled) return
         savedOffsetRef.current = pos.offset
         savedPercentRef.current = pos.percent
-        // Gated read (features.ts): flipping the flag off falls back to the pixel
-        // offset written beside it, which is exactly the old behaviour. The WRITE
-        // is never gated, so a device switched off keeps accumulating positions.
-        savedPositionRef.current = textPositionEnabledRef.current ? pos.position : null
+        savedPositionRef.current = pos.position
         positionLoadedRef.current = true
         tryRestore()
       })
