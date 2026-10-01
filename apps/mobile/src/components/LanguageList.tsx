@@ -8,7 +8,7 @@ import {
   POPULAR_LANGUAGES,
   OTHER_LANGUAGES,
   type LanguageEntry,
-} from '../data/languages'
+} from '@textstack/shared'
 
 /**
  * The searchable language list, without any opinion about what contains it.

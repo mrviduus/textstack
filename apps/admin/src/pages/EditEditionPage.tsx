@@ -7,7 +7,7 @@ import { CreateAuthorModal } from '../components/CreateAuthorModal'
 import { GenreSelect } from '../components/GenreSelect'
 import { SeoFieldset } from '../components/SeoFieldset'
 import { SeoContentFieldset } from '../components/SeoContentFieldset'
-import { parseSeoThemes } from '../utils/seoThemes'
+import { parseSeoThemes } from '@textstack/shared/lib/seoThemes'
 
 interface SelectedGenre {
   id: string

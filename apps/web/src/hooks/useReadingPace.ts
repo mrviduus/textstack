@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { getReadingPace, type ReadingPaceDto } from '../api/readingTracking'
 import { useAuth } from '../context/AuthContext'
-import { FALLBACK_PACE_WPM } from '../lib/timeEstimate'
+import { FALLBACK_WPM } from '@textstack/shared'
 
 const CACHE_KEY = 'textstack.readingPace'
 const TTL_MS = 60 * 60 * 1000
@@ -25,7 +25,7 @@ function writeCache(value: ReadingPaceDto) {
 }
 
 export const FALLBACK_PACE: ReadingPaceDto = {
-  wpm: FALLBACK_PACE_WPM,
+  wpm: FALLBACK_WPM,
   sessionCount: 0,
   isUserSpecific: false,
 }

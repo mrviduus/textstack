@@ -17,9 +17,14 @@
 import { storedBookPercent } from '../reader/bookProgress'
 import type { UserLibraryItem, UserBookDto, ReadingProgressDto } from '../types/api'
 
-export type LibraryEntry =
-  | { kind: 'saved'; item: UserLibraryItem }
-  | { kind: 'upload'; book: UserBookDto }
+/** Generic so a client can keep its own (wider) row types through filter/sort —
+ *  web's `LibraryItem`/`UserBook` carry fields the cards read. */
+export type LibraryEntry<
+  I extends UserLibraryItem = UserLibraryItem,
+  B extends UserBookDto = UserBookDto,
+> =
+  | { kind: 'saved'; item: I }
+  | { kind: 'upload'; book: B }
 
 /** Where a book came from. Used as a filter, never as navigation. */
 export type LibraryEntrySource = 'all' | 'uploads' | 'catalog'
@@ -120,12 +125,12 @@ export function entryNeedsAttention(e: LibraryEntry): boolean {
 
 // --- building, filtering, counting ------------------------------------------
 
-export function buildLibraryEntries(
-  library: UserLibraryItem[],
-  userBooks: UserBookDto[],
+export function buildLibraryEntries<I extends UserLibraryItem, B extends UserBookDto>(
+  library: I[],
+  userBooks: B[],
   source: LibraryEntrySource = 'all',
-): LibraryEntry[] {
-  const entries: LibraryEntry[] = []
+): LibraryEntry<I, B>[] {
+  const entries: LibraryEntry<I, B>[] = []
   if (source === 'all' || source === 'catalog') {
     for (const item of library) entries.push({ kind: 'saved', item })
   }
@@ -168,11 +173,11 @@ export function matchesStatus(
   return false
 }
 
-export function filterEntries(
-  entries: LibraryEntry[],
+export function filterEntries<E extends LibraryEntry>(
+  entries: E[],
   status: LibraryEntryStatus,
   progressMap: Record<string, ReadingProgressDto>,
-): LibraryEntry[] {
+): E[] {
   if (status === 'all') return entries
   return entries.filter(e => matchesStatus(e, status, progressMap))
 }
@@ -200,11 +205,11 @@ export function countEntries(
  * pinned to the top regardless of the chosen key — a failed upload the reader
  * cannot see is a failed upload they never retry.
  */
-export function sortEntries(
-  entries: LibraryEntry[],
+export function sortEntries<E extends LibraryEntry>(
+  entries: E[],
   sort: LibraryEntrySort,
   progressMap: Record<string, ReadingProgressDto>,
-): LibraryEntry[] {
+): E[] {
   const rank = (e: LibraryEntry) => (entryNeedsAttention(e) ? 0 : 1)
 
   return [...entries].sort((a, b) => {

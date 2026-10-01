@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { matchesQuery, normalizeForSearch, parseQuery } from '../searchUtils'
+import { matchesQuery, normalizeForSearch, parseQuery } from './searchUtils'
 
 describe('normalizeForSearch', () => {
   it('strips diacritics + lowercases', () => {

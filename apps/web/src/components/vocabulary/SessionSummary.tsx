@@ -1,4 +1,4 @@
-import { REVIEW_BATCH_SIZES, type ReviewMode } from '../../lib/vocabularyConstants'
+import { REVIEW_BATCH_SIZES, type ReviewMode } from '@textstack/shared'
 
 interface Props {
   reviewed: number

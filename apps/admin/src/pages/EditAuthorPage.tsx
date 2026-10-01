@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { adminApi, AuthorDetail } from '../api/client'
 import { SeoContentFieldset } from '../components/SeoContentFieldset'
-import { parseSeoThemes } from '../utils/seoThemes'
+import { parseSeoThemes } from '@textstack/shared/lib/seoThemes'
 
 interface FAQItem {
   question: string

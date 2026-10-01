@@ -9,7 +9,8 @@ import { TagPill } from './TagPill'
 import { SuggestedTagsPopover } from './SuggestedTagsPopover'
 import { useTranslation } from '../../hooks/useTranslation'
 import { useReadingPace } from '../../hooks/useReadingPace'
-import { estimateMinutesRemaining, formatTimeLeft } from '../../lib/timeEstimate'
+import { formatTimeLeft } from '../../lib/timeEstimate'
+import { bookMinutesLeft } from '@textstack/shared'
 
 const NEW_BADGE_TTL_MS = 24 * 60 * 60 * 1000
 
@@ -275,10 +276,7 @@ export function UserBookCard({ book, onDelete, onRetry, onCancel, onUpdate, prog
               <span>{book.chapterCount} chapters</span>
             )}
             {isReady && !book.completedAt && (() => {
-              const minutes = estimateMinutesRemaining(
-                { totalWordCount: book.totalWordCount, progressPercent: percent },
-                pace.wpm,
-              )
+              const minutes = bookMinutesLeft(book.totalWordCount, percent, pace.wpm)
               if (minutes == null || minutes === 0) return null
               return (
                 <span

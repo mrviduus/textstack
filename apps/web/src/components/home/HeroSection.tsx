@@ -12,7 +12,8 @@ import { uploadUserBook } from '../../api/userBooks'
 import { pdfFilePassesSanityCheck } from '../../lib/pdfUploadSanity'
 import { useContinueReading } from '../../hooks/useContinueReading'
 import { ContinueReadingCard } from './ContinueReadingCard'
-import { POPULAR_LANGUAGES, getLanguage, getFlagUrl } from '../../data/languages'
+import { POPULAR_LANGUAGES, getLanguage } from '@textstack/shared'
+import { getFlagUrl } from '../../data/flags'
 
 export function HeroSection() {
   const { t } = useTranslation()

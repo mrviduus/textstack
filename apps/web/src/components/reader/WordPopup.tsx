@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { SpeakButton } from '../vocabulary/SpeakButton'
-import { LANGUAGES, POPULAR_LANGUAGES, OTHER_LANGUAGES, getLanguage, getFlagUrl, type LanguageEntry } from '../../data/languages'
+import { LANGUAGES, POPULAR_LANGUAGES, OTHER_LANGUAGES, getLanguage, type LanguageEntry } from '@textstack/shared'
+import { getFlagUrl } from '../../data/flags'
 import { RareWordNotice } from './RareWordNotice'
 
 function LangOption({ lang, onSelect }: { lang: LanguageEntry; onSelect: (code: string) => void }) {

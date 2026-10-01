@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { formatTimeAgo } from '@textstack/shared'
+import { formatTimeAgo, bookMinutesLeft } from '@textstack/shared'
+import { useReadingPace } from '../../hooks/useReadingPace'
 import type { UserBook } from '../../api/userBooks'
 import { deleteUserBook, markUserBookRead, getUserBookCoverUrl } from '../../api/userBooks'
 import { emitDataChanges } from '../../lib/dataEvents'
@@ -37,9 +38,10 @@ export function sourceDomain(sourceUrl: string | null | undefined): string | nul
   }
 }
 
-/** Estimated read time in minutes at ~200 wpm, floored at 1. */
-export function estReadMinutes(totalWordCount: number | null | undefined): number {
-  return Math.max(1, Math.round((totalWordCount ?? 0) / 200))
+/** Estimated read time in minutes at the reader's pace (shared rule: personal
+ *  wpm, else 200), floored at 1. */
+export function estReadMinutes(totalWordCount: number | null | undefined, wpm?: number | null): number {
+  return Math.max(1, bookMinutesLeft(totalWordCount, 0, wpm) ?? 0)
 }
 
 /** http(s) guard for rendering an external <a> (backend validates; defence-in-depth). */
@@ -144,6 +146,7 @@ interface CardProps {
 
 function ReadLaterCard({ book, language, busy, onMarkRead, onDelete, t }: CardProps) {
   const state = cardState(book)
+  const { wpm } = useReadingPace()
   const isReady = book.status === 'Ready'
   const domain = sourceDomain(book.sourceUrl)
   const coverUrl = getUserBookCoverUrl(book.coverPath)
@@ -154,7 +157,7 @@ function ReadLaterCard({ book, language, busy, onMarkRead, onDelete, t }: CardPr
     : '#'
   const metaParts: string[] = []
   if (domain) metaParts.push(domain)
-  metaParts.push(`${estReadMinutes(book.totalWordCount)} ${t('library.readLater.min')}`)
+  metaParts.push(`${estReadMinutes(book.totalWordCount, wpm)} ${t('library.readLater.min')}`)
   metaParts.push(formatTimeAgo(book.createdAt))
 
   const Thumb = (

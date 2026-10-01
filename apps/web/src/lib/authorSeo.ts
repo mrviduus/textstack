@@ -1,5 +1,5 @@
 import type { AuthorDetail } from '../types/api'
-import { parseSeoThemes } from './seoThemes'
+import { parseSeoThemes } from '@textstack/shared'
 
 export interface FAQItem {
   question: string

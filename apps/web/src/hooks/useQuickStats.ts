@@ -10,7 +10,6 @@ export interface QuickStats {
   todayVocabReviews: number
   dailyGoal: { target: number; today: number; met: boolean } | null
   currentStreak: number
-  wpm: number | null
   vocabDueNow: number
   vocabReviewedToday: number
   vocabStreak: number
@@ -41,7 +40,6 @@ export function useQuickStats(): QuickStats | null {
           todayVocabReviews: s.todayVocabReviews,
           dailyGoal: s.dailyGoal,
           currentStreak: s.currentStreak,
-          wpm: s.avgWordsPerMinute > 0 ? s.avgWordsPerMinute : null,
           vocabDueNow: v?.dueNow ?? 0,
           vocabReviewedToday: v?.reviewedToday ?? 0,
           vocabStreak: v?.streak ?? 0,

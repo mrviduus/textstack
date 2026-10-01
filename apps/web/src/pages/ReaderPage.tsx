@@ -26,13 +26,14 @@ import { ReaderHighlights } from '../components/reader/ReaderHighlights'
 import { SearchOverlayLayer } from '../components/reader/SearchOverlayLayer'
 import { useReadingSession } from '../hooks/useReadingSession'
 import { useQuickStats } from '../hooks/useQuickStats'
-import { calculateETF } from '../lib/etf'
+import { formatEtf } from '../lib/timeEstimate'
+import { useReadingPace } from '../hooks/useReadingPace'
 import { trackBookOpened } from '../lib/analytics'
 import { ReaderStatsWidget } from '../components/reader/ReaderStatsWidget'
 import { useGuestLimits } from '../context/GuestLimitsContext'
 import { WordHint } from '../components/reader/WordHint'
 import { getUserBooks, getUserBookFileUrl, getUserBookProgress } from '../api/userBooks'
-import { parsePdfPageLocator, computeBookProgress, clampPage, isPdfAnchor, type PdfAnchor } from '@textstack/shared'
+import { parsePdfPageLocator, computeBookProgress, clampPage, isPdfAnchor, bookMinutesLeft, type PdfAnchor } from '@textstack/shared'
 import { useHighlights } from '../hooks/useHighlights'
 import { useBookReviews, chapterReviewPath } from '../hooks/useBookReviews'
 import { reviewedHighlightMarks, isReviewableChapter } from '@textstack/shared'
@@ -387,7 +388,8 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
 
   // ETF & reader stats
   const quickStats = useQuickStats()
-  const userWpm = quickStats?.wpm ?? null
+  // Same pace rule as library cards and mobile: personal wpm, else 200.
+  const { wpm } = useReadingPace()
 
   const bookTotalWords = useMemo(() => {
     if (mode === 'public' && publicBook) {
@@ -400,8 +402,11 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
   }, [mode, publicBook, book])
 
   const bookEtf = useMemo(
-    () => calculateETF(bookTotalWords, overallProgress, userWpm),
-    [bookTotalWords, overallProgress, userWpm],
+    () => {
+      const minutes = bookMinutesLeft(bookTotalWords, overallProgress, wpm)
+      return minutes ? formatEtf(minutes) : null
+    },
+    [bookTotalWords, overallProgress, wpm],
   )
 
   const totalChapters = chapterList?.length ?? 0
@@ -773,7 +778,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
         <ReaderStatsWidget
           sessionStartedAt={readingSession.sessionStartedAt}
           quickStats={quickStats}
-          bookEtf={bookEtf?.formatted}
+          bookEtf={bookEtf}
         />
       )}
 
