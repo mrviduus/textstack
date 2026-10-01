@@ -44,7 +44,9 @@ export function DownloadButton({
     </TouchableOpacity>
   )
 
-  if (cached) {
+  // A download that just finished counts too: the screens only learn `cached` on mount, so without
+  // this the button fell back to "Download for Offline" until the page was reopened.
+  if (cached || dl?.status === 'complete') {
     return button('cloud-done-outline', colors.success, colors.success, 'Downloaded — Remove', 'Remove offline download', onRemove)
   }
   if (dl?.status === 'downloading') {
