@@ -258,10 +258,10 @@ public class ReadingStatsService(IAppDbContext db)
         var currentStreak = await StreakCalculator.CalculateStreak(db, userId, streakMinMinutes, now, ct, tzOffset);
         var longestStreak = await StreakCalculator.CalculateLongestStreak(db, userId, streakMinMinutes, ct, tzOffset);
 
-        // Averages. Words-per-minute is the one pace rule, so this card agrees with every
-        // "minutes left" estimate.
+        // Averages. Words-per-minute is a displayed measurement, so it is the real average (0 with
+        // no data) — never the 200 wpm fallback, which is for estimates only (ReadingPace).
         double avgDailyMinutes = 0;
-        double avgWordsPerMinute = (await ReadingPace.GetAsync(db, userId, ct)).Wpm;
+        double avgWordsPerMinute = 0;
         if (sessionCount > 0)
         {
             var firstSession = await allSessions
@@ -270,6 +270,9 @@ public class ReadingStatsService(IAppDbContext db)
                 .FirstOrDefaultAsync(ct);
             var daysSinceFirst = Math.Max(1, (now - firstSession).TotalDays);
             avgDailyMinutes = totalSeconds / 60.0 / daysSinceFirst;
+
+            if (totalSeconds > 0)
+                avgWordsPerMinute = totalWords / (totalSeconds / 60.0);
         }
 
         // Vocab reviews today

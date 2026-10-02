@@ -36,7 +36,11 @@ public class BookStatsService(IAppDbContext db)
             WordsRead: sessions?.Words ?? 0,
             VocabSavedCount: vocabCount,
             HighlightsCount: highlightsCount,
-            AverageWordsPerMinute: pace.Wpm,
+            // Displayed, so measured: this book's own average, 0 with no sessions. The pace rule
+            // (fallback 200) is only for the estimate below.
+            AverageWordsPerMinute: sessions is { Seconds: > 0 }
+                ? Math.Round(sessions.Words / (sessions.Seconds / 60m), 1)
+                : 0m,
             // Null once nothing is left, as before — a finished book has no estimate.
             EstimatedMinutesRemaining: minutesLeft is > 0 ? minutesLeft : null
         );

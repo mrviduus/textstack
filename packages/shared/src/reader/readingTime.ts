@@ -17,7 +17,7 @@ import type { ChapterWithCount } from './bookProgress'
 /**
  * The one pace rule, web and mobile: the reader's personal words-per-minute
  * from `GET /me/reading/pace` when there is one, otherwise this. Matches the
- * server's own fallback (`ReadingStatsService.FallbackPaceWpm`), so a reader
+ * server's own fallback (`ReadingPace.FallbackWpm`, backend/src/Application/ReadingTracking/ReadingPace.cs), so a reader
  * with too few sessions sees the same number before and after the fetch lands.
  */
 export const FALLBACK_WPM = 200
