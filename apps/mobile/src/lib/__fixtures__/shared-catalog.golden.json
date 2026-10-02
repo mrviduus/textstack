@@ -596,5 +596,20 @@
   "chapterReview.questions.signIn": "Sign in to practice your chapter questions.",
   "chapterReview.discussChapter": "Discuss this chapter",
   "reader.exitSummary.reviewNow": "Review Now",
-  "reader.exitSummary.later": "Later"
+  "reader.exitSummary.later": "Later",
+  "guest.name": "Guest",
+  "guest.cardTitle": "You're reading as a guest",
+  "guest.cardBody": "Your books, words and progress are saved only on this device. Create a free account to keep them and use them on other devices.",
+  "guest.cardSignIn": "I already have an account",
+  "guest.loginSubtitle": "Keep everything you've saved as a guest.",
+  "guest.haveAccount": "Already have an account? Sign in",
+  "guest.merged": "Your progress moved to your account",
+  "guest.nudgeThree": "3 words saved. Keep them — create a free account.",
+  "guest.nudgeTen": "10 words saved. Keep them — create a free account.",
+  "guest.nudgeCta": "Create account",
+  "guest.deleteData": "Delete guest data",
+  "guest.deleteTitle": "Delete guest data?",
+  "guest.deleteMessage": "This removes your saved books, highlights, vocabulary and reading progress — from this device and from our servers. It can't be undone.",
+  "guest.deleteConfirm": "Delete",
+  "guest.deleteCancel": "Keep reading"
 }
