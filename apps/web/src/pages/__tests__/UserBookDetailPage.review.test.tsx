@@ -11,6 +11,7 @@ vi.mock('../../api/userBooks', () => ({
   enrichUserBook: vi.fn(), deleteUserBook: vi.fn(), retryUserBook: vi.fn(),
   markUserBookComplete: vi.fn(), unmarkUserBookComplete: vi.fn(),
   getUserBookCoverUrl: (p: string) => p,
+  getUserBookFileUrl: (id: string) => `/api/me/books/${id}/file`,
 }))
 vi.mock('@textstack/shared', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@textstack/shared')>()),

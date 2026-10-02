@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, ActivityIndicator, Alert, Share } from 'react-native'
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, ActivityIndicator, Alert } from 'react-native'
 import { Image } from 'expo-image'
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
@@ -433,20 +433,6 @@ export default function UserBookDetailScreen() {
     }
   }
 
-  const handleShare = async () => {
-    try {
-      await Share.share({
-        message: `${book?.title || 'Book'}${book?.author ? ` — ${book.author}` : ''}`,
-      })
-    } catch (e) {
-      // Share.share rejects with `ActivityDoesNotExist` on some Android
-      // variants and a generic dismissal on iOS. Dismissal is expected, but
-      // we still want the log to catch real failures — no toast here because
-      // user-dismiss isn't an error they want to see reported.
-      console.warn('Share failed:', e)
-    }
-  }
-
   // A failed load used to land here and STAY here: `book` stays null, `loading`
   // goes false, and this branch returns a spinner forever — no header, no
   // message, no retry. It is also the only return in this file without a
@@ -729,14 +715,14 @@ export default function UserBookDetailScreen() {
               onPress={handleShareOriginal}
               disabled={fileBusy || (offlineMode && !cached)}
               accessibilityRole="button"
-              accessibilityLabel="Save a copy of the file you uploaded"
+              accessibilityLabel="Share the file you uploaded"
               accessibilityState={{ disabled: fileBusy || (offlineMode && !cached) }}
             >
               {fileBusy
                 ? <ActivityIndicator size="small" color={colors.text} />
-                : <Ionicons name="download-outline" size={18} color={colors.text} />}
+                : <Ionicons name="share-outline" size={18} color={colors.text} />}
               <Text style={[styles.secondaryBtnText, { color: colors.text }]}>
-                {fileBusy ? 'Preparing…' : 'Save a copy'}
+                {fileBusy ? 'Preparing…' : 'Share'}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -747,15 +733,6 @@ export default function UserBookDetailScreen() {
             >
               <Ionicons name="folder-outline" size={18} color={colors.text} />
               <Text style={[styles.secondaryBtnText, { color: colors.text }]}>{t('library.actions.addToCollection')}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.secondaryBtn, { borderColor: colors.border }]}
-              onPress={handleShare}
-              accessibilityRole="button"
-              accessibilityLabel={`Share ${book.title || 'book'}`}
-            >
-              <Ionicons name="share-outline" size={18} color={colors.text} />
-              <Text style={[styles.secondaryBtnText, { color: colors.text }]}>Share</Text>
             </TouchableOpacity>
           </View>
         )}
