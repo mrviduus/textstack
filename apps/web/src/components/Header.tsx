@@ -23,7 +23,7 @@ export function Header() {
   const isScrolled = useScrolled(50)
   const { isDark, toggleTheme } = useDarkMode()
   const { t } = useTranslation()
-  const quickStats = useQuickStats()
+  const quickStats = useQuickStats({ includeReading: false })
   // Suppress the header search icon on the home page — HeroSection already
   // renders a prominent search input there, so duplicating it in the chrome
   // would be visual noise. On every other route the hero is gone, and users
