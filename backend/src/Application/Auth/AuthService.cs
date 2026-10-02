@@ -168,11 +168,16 @@ public class AuthService
     /// and NOTHING moved — the caller is expected to surface that rather than report a clean
     /// sign-in, because to the user it is indistinguishable from their data being deleted.
     /// </returns>
-    public async Task<bool> MergeGuestAsync(Guid guestUserId, Guid realUserId, CancellationToken ct)
+    /// <param name="method">Sign-in route that triggered the merge — logged on <c>guest_merged</c>.</param>
+    public async Task<bool> MergeGuestAsync(Guid guestUserId, Guid realUserId, string method, CancellationToken ct)
     {
         try
         {
-            await MergeGuestCoreAsync(guestUserId, realUserId, ct);
+            // Logged only when a guest row was actually consumed — a replayed token whose guest is
+            // already gone is a no-op and must not count as a conversion.
+            if (await MergeGuestCoreAsync(guestUserId, realUserId, ct))
+                _logger?.LogInformation("guest_merged {TargetUserId} {GuestUserId} {Method}",
+                    realUserId, guestUserId, method);
             return true;
         }
         catch (Exception ex) when (IsConstraintViolation(ex))
@@ -222,7 +227,8 @@ public class AuthService
         (ex as Npgsql.PostgresException ?? ex.InnerException as Npgsql.PostgresException)
             is { } pg && pg.SqlState.StartsWith("23", StringComparison.Ordinal);
 
-    private async Task MergeGuestCoreAsync(Guid guestUserId, Guid realUserId, CancellationToken ct)
+    /// <returns><c>true</c> when a guest row was merged and deleted; <c>false</c> for the no-op cases.</returns>
+    private async Task<bool> MergeGuestCoreAsync(Guid guestUserId, Guid realUserId, CancellationToken ct)
     {
         if (guestUserId == realUserId) // Promoted in-place
         {
@@ -232,7 +238,7 @@ public class AuthService
                 guest.IsGuest = false;
                 await _db.SaveChangesAsync(ct);
             }
-            return;
+            return false;
         }
 
         // Atomicity: reparent + delete guest must be one transaction. If we crash between
@@ -399,9 +405,10 @@ public class AuthService
         }
 
         // Delete guest user (cascades refresh tokens, password reset tokens — reparented rows survive).
-        await _db.Users.Where(x => x.Id == guestUserId).ExecuteDeleteAsync(ct);
+        var deleted = await _db.Users.Where(x => x.Id == guestUserId).ExecuteDeleteAsync(ct);
 
         await tx.CommitAsync(ct);
+        return deleted > 0;
     }
 
     /// <summary>
@@ -515,6 +522,7 @@ public class AuthService
                 guest.Name = name?.Trim();
                 guest.PasswordHash = BCrypt.Net.BCrypt.HashPassword(password);
                 guest.IsGuest = false;
+                guest.PromotedAt = _clock.GetUtcNow();
                 user = guest;
             }
             else
@@ -544,6 +552,9 @@ public class AuthService
         }
 
         await _db.SaveChangesAsync(ct);
+
+        if (user.PromotedAt != null)
+            _logger?.LogInformation("guest_promoted {UserId}", user.Id);
 
         var accessToken = GenerateAccessToken(user);
         var refreshToken = await CreateRefreshTokenAsync(user.Id, ct);

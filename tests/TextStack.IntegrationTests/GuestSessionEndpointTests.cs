@@ -584,4 +584,32 @@ public class GuestSessionEndpointTests : IClassFixture<LiveApiFixture>
     {
         await AssertGuestPromotedInPlaceAsync("bearer", TestContext.Current.CancellationToken);
     }
+
+    /// <summary>
+    /// "Delete guest data" (ADR-014 §3) is <c>DELETE /me/account</c> with the guest's own token —
+    /// no IsGuest branch, no password. The row must actually go, not just the session.
+    /// </summary>
+    [Fact]
+    public async Task DeleteAccount_GuestToken_RowGone()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        var guest = await BodyAsync(await PostGuestAsync(ct, mobile: true), ct);
+        var token = RequireNonEmpty(guest, "accessToken");
+        await SaveWordAsync(token, UniqueWord("gdel"), SrsLang, ct);
+
+        var before = await _fixture.Client.SendAsync(Authed(HttpMethod.Get, "/me/profile", token), ct);
+        Assert.SkipWhen(IntegrationSkip.Unavailable(before), "/me/profile unavailable");
+        Assert.Equal(HttpStatusCode.OK, before.StatusCode);
+
+        var del = await _fixture.Client.SendAsync(Authed(HttpMethod.Delete, "/me/account", token), ct);
+        Assert.SkipWhen(
+            del.StatusCode == HttpStatusCode.TooManyRequests,
+            "account-delete rate limit hit — raise ACCOUNT_DELETE_PERMIT_LIMIT");
+        Assert.Equal(HttpStatusCode.NoContent, del.StatusCode);
+
+        // Token is still signature-valid; the row behind it is not.
+        var after = await _fixture.Client.SendAsync(Authed(HttpMethod.Get, "/me/profile", token), ct);
+        Assert.Equal(HttpStatusCode.Unauthorized, after.StatusCode);
+    }
 }

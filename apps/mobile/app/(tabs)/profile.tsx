@@ -17,15 +17,14 @@ import { useLanguage } from '../../src/context/LanguageContext'
 import { useOnline } from '../../src/hooks/useOnline'
 import { useNativeLanguage } from '../../src/context/NativeLanguageContext'
 import { capabilitiesFor } from '../../src/lib/capabilities'
-import { signOutIntent } from '../../src/lib/profileActions'
+import { deleteGuestData, signOutIntent } from '../../src/lib/profileActions'
 import { getLanguage } from '@textstack/shared'
 import { LanguagePickerModal } from '../../src/components/LanguagePickerModal'
 import { VocabReminderSettingsRow } from '../../src/components/profile/VocabReminderSettingsRow'
 import { StorageQuotaRow } from '../../src/components/library/StorageQuotaRow'
 import { DeviceStorageRow } from '../../src/components/library/DeviceStorageRow'
-import { authApi, getStorageUrl, getAnonymousReader } from '@textstack/shared'
-import { deleteAccount } from '../../src/lib/api'
-import { getAnonAvatarSource } from '../../src/lib/anonAvatarSource'
+import { authApi, getStorageUrl } from '@textstack/shared'
+import { deleteAccount, freshAccessToken } from '../../src/lib/api'
 import { versionLine, updateLine } from '../../src/lib/buildInfo'
 import { fonts } from '../../src/theme/typography'
 
@@ -95,13 +94,11 @@ export default function ProfileScreen() {
   // (Named rather than quoted above: `capabilityLiterals.test.ts` greps source
   // text and cannot tell a comment from a branch. Correct — it stays dumb.)
   const { isGuest, canUpload, canEditIdentity, canDeleteAccount, canSyncAcrossDevices } = capabilitiesFor(user)
-  const anon = isGuest && user ? getAnonymousReader(user.id) : null
-  const anonSource = anon && user ? getAnonAvatarSource(user.id) : null
-  const displayName = anon ? anon.name : (user?.name || user?.email || '')
-  const displaySubtitle = anon ? 'Anonymous reader' : (user?.email || '')
-  const avatarLetter = anon
-    ? anon.name.split(' ').map(n => n[0]).join('').toUpperCase()
-    : (user?.name || user?.email || '?').charAt(0).toUpperCase()
+  // A guest gets no name and no face. The generated animal ("Quiet Heron") read
+  // as an identity they had been given and could not change; a guest is shown as
+  // "Guest", in the card below that replaces the header.
+  const displayName = user?.name || user?.email || ''
+  const avatarLetter = (user?.name || user?.email || '?').charAt(0).toUpperCase()
 
   const startEdit = () => {
     if (!canEditIdentity) return
@@ -211,19 +208,27 @@ export default function ProfileScreen() {
   const leave = async () => { await signOut(); router.replace('/') }
 
   // For an account this is the row it has always been: tap, tokens cleared, back
-  // to the front door. For a guest the same tap is irreversible — the tokens in
-  // SecureStore are the only key to a server row that `GuestCleanupWorker`
-  // deliberately keeps forever — so it gets a destructive confirm that says what
-  // goes, in words, instead of asking "are you sure". The branch is
-  // `signOutIntent`, unit-tested in `src/lib/profileActions.test.ts`.
+  // to the front door. A guest has no sign-out, only "Delete guest data": a
+  // destructive confirm, then the guest row is deleted on the server and the
+  // session cleared locally — locally even when the delete fails or the phone is
+  // offline (`deleteGuestData`). The branch is `signOutIntent`; both are
+  // unit-tested in `src/lib/profileActions.test.ts`.
   const handleSignOut = () => {
     if (signOutIntent(user) === 'immediate') { void leave(); return }
     Alert.alert(
-      t('guest.signOutTitle'),
-      t('guest.signOutMessage'),
+      t('guest.deleteTitle'),
+      t('guest.deleteMessage'),
       [
-        { text: t('guest.signOutCancel'), style: 'cancel' },
-        { text: t('guest.signOutConfirm'), style: 'destructive', onPress: () => { void leave() } },
+        { text: t('guest.deleteCancel'), style: 'cancel' },
+        {
+          text: t('guest.deleteConfirm'),
+          style: 'destructive',
+          onPress: () => {
+            setDeleting(true)
+            void deleteGuestData({ getToken: freshAccessToken, deleteAccount, signOut })
+              .finally(() => { setDeleting(false); router.replace('/') })
+          },
+        },
       ],
     )
   }
@@ -270,18 +275,44 @@ export default function ProfileScreen() {
 
   return (
     <ScrollView style={[styles.container, { backgroundColor: colors.background }]} contentContainerStyle={styles.contentContainer}>
+      {isGuest ? (
+        /* The guest card, where the avatar and name would be. First thing on the
+           screen because it is the one thing here a guest has to know: where
+           their words live, and the way to keep them. Keyed on `isGuest`, a
+           fact about the session, not on a permission — it describes the
+           viewer rather than gating a control. */
+        <View style={[styles.guestCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Ionicons name="person-circle-outline" size={56} color={colors.textSecondary} accessibilityLabel={t('guest.name')} />
+          <Text style={[styles.guestCardTitle, { color: colors.text }]}>{t('guest.cardTitle')}</Text>
+          <Text style={[styles.guestCardBody, { color: colors.textSecondary }]}>{t('guest.cardBody')}</Text>
+          <TouchableOpacity
+            style={[styles.guestCta, { backgroundColor: colors.primary }]}
+            onPress={() => router.push({ pathname: '/(auth)/login', params: { mode: 'register' } })}
+            activeOpacity={0.85}
+            accessibilityRole="button"
+          >
+            <Text style={styles.guestCtaText}>{t('guest.createAccount')}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => router.push({ pathname: '/(auth)/login', params: { mode: 'login' } })}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            style={styles.guestSignIn}
+          >
+            <Text style={[styles.guestSignInText, { color: colors.primary }]}>{t('guest.cardSignIn')}</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
       <View style={styles.header}>
         <View style={styles.avatarOuter}>
           <TouchableOpacity
-            style={[styles.avatarWrapper, { backgroundColor: anon && !user?.picture ? anon.color : colors.primary }]}
+            style={[styles.avatarWrapper, { backgroundColor: colors.primary }]}
             onPress={pickAvatar}
             disabled={!canEditIdentity}
             activeOpacity={0.7}
           >
             {user?.picture ? (
               <Image source={user.picture.startsWith('http') ? user.picture : getStorageUrl(user.picture)} style={styles.avatar} contentFit="cover" />
-            ) : anonSource ? (
-              <Image source={anonSource} style={styles.anonAnimal} contentFit="contain" />
             ) : (
               <Text style={styles.avatarLetter}>{avatarLetter}</Text>
             )}
@@ -339,8 +370,9 @@ export default function ProfileScreen() {
             {canEditIdentity && <Ionicons name="pencil" size={14} color={colors.textSecondary} />}
           </TouchableOpacity>
         )}
-        <Text style={[styles.email, { color: colors.textSecondary }]}>{displaySubtitle}</Text>
+        <Text style={[styles.email, { color: colors.textSecondary }]}>{user?.email || ''}</Text>
       </View>
+      )}
 
       <View style={styles.menu}>
         {/* Upload space lives here rather than mid-list on Library, where it
@@ -477,34 +509,19 @@ export default function ProfileScreen() {
             <Text style={[styles.menuText, { color: colors.error }]}>Sign Out</Text>
           </TouchableOpacity>
         ) : (
-          /* The guest footer. Keyed on `canSyncAcrossDevices` because that is the
-             single true thing an account adds — and this is the only place in the
-             app where we ask for one, so it is the only place that has to be honest
-             about why. The order is deliberate: the reason, then the way forward,
-             then the exit — instead of a red "Sign Out" that quietly meant delete. */
-          <View style={[styles.guestBlock, { borderTopColor: colors.border }]}>
-            <Text style={[styles.guestBanner, { color: colors.textSecondary }]}>{t('guest.banner')}</Text>
-            <TouchableOpacity
-              style={[styles.guestCta, { backgroundColor: colors.primary }]}
-              // The button says "Create free account", so the screen it opens
-              // has to be the Register tab. It opened on Sign in.
-              onPress={() => router.push({ pathname: '/(auth)/login', params: { mode: 'register' } })}
-              activeOpacity={0.85}
-              accessibilityRole="button"
-              accessibilityLabel={t('guest.createAccount')}
-            >
-              <Text style={styles.guestCtaText}>{t('guest.createAccount')}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={handleSignOut}
-              activeOpacity={0.7}
-              style={styles.guestSignOut}
-              accessibilityRole="button"
-              accessibilityLabel={t('guest.signOut')}
-            >
-              <Text style={[styles.guestSignOutText, { color: colors.textSecondary }]}>{t('guest.signOut')}</Text>
-            </TouchableOpacity>
-          </View>
+          /* Small and grey on purpose: the way forward is the card at the top;
+             this is the exit, and it is a real delete. */
+          <TouchableOpacity
+            onPress={handleSignOut}
+            disabled={deleting}
+            activeOpacity={0.7}
+            style={styles.guestDelete}
+            accessibilityRole="button"
+          >
+            {deleting
+              ? <ActivityIndicator size="small" color={colors.textSecondary} />
+              : <Text style={[styles.guestDeleteText, { color: colors.textSecondary }]}>{t('guest.deleteData')}</Text>}
+          </TouchableOpacity>
         )}
 
         {/* Danger zone — destructive, visually separated from normal settings.
@@ -590,7 +607,6 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   avatar: { width: 88, height: 88, borderRadius: 44 },
-  anonAnimal: { width: 72, height: 72 },
   avatarLetter: { color: '#fff', fontFamily: fonts.serifBold, fontSize: 36 },
   name: { fontFamily: fonts.serifBold, fontSize: 20 },
   email: { fontFamily: fonts.sans, fontSize: 14, marginTop: 4 },
@@ -644,12 +660,15 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   dangerHint: { fontFamily: fonts.sans, fontSize: 12, marginTop: 2 },
-  guestBlock: { marginTop: 24, paddingTop: 20, borderTopWidth: 1, alignItems: 'center', gap: 14 },
-  guestBanner: { fontFamily: fonts.sans, fontSize: 13, lineHeight: 19, textAlign: 'center', paddingHorizontal: 8 },
-  guestCta: { alignSelf: 'stretch', paddingVertical: 14, borderRadius: 10, alignItems: 'center' },
+  guestCard: { marginHorizontal: 16, marginTop: 24, padding: 20, borderRadius: 12, borderWidth: 1, alignItems: 'center', gap: 10 },
+  guestCardTitle: { fontFamily: fonts.serifBold, fontSize: 20, textAlign: 'center' },
+  guestCardBody: { fontFamily: fonts.sans, fontSize: 14, lineHeight: 20, textAlign: 'center' },
+  guestCta: { alignSelf: 'stretch', marginTop: 6, paddingVertical: 14, borderRadius: 10, alignItems: 'center' },
   guestCtaText: { color: '#fff', fontFamily: fonts.sansMedium, fontSize: 16 },
-  guestSignOut: { paddingVertical: 8, paddingHorizontal: 16 },
-  guestSignOutText: { fontFamily: fonts.sans, fontSize: 14 },
+  guestSignIn: { paddingVertical: 6, paddingHorizontal: 16 },
+  guestSignInText: { fontFamily: fonts.sansMedium, fontSize: 14 },
+  guestDelete: { alignSelf: 'center', marginTop: 32, paddingVertical: 8, paddingHorizontal: 16 },
+  guestDeleteText: { fontFamily: fonts.sans, fontSize: 13 },
   buildInfo: { alignItems: 'center', marginTop: 32, marginBottom: 8, gap: 2 },
   buildText: { fontFamily: fonts.sans, fontSize: 11 },
 })

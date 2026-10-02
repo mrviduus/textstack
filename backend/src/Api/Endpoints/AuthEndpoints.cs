@@ -425,7 +425,7 @@ public static class AuthEndpoints
 
         if (!guest.UserId.HasValue) return null;
 
-        if (await authService.MergeGuestAsync(guest.UserId.Value, realUserId, ct))
+        if (await authService.MergeGuestAsync(guest.UserId.Value, realUserId, route, ct))
             return null;
 
         LogGuestMergeSkipped(httpContext, GuestMergeSkipReason.MergeConflict, route, realUserId);

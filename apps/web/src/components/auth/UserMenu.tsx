@@ -1,21 +1,19 @@
 import { useState, useRef, useEffect } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { ProfileModal } from './ProfileModal'
+import { GuestDeleteDialog } from './GuestDeleteDialog'
 import { useTranslation } from '../../hooks/useTranslation'
 import { useOnline } from '../../hooks/useOnline'
-import { getAnonymousReader } from '@textstack/shared'
 import { getUserInitials } from '../../lib/userInitials'
 
 export function UserMenu() {
-  const { user, logout } = useAuth()
+  const { user, logout, openAuthModal } = useAuth()
   const { t } = useTranslation()
   const online = useOnline()
   const [open, setOpen] = useState(false)
   const [showProfile, setShowProfile] = useState(false)
-  const [anonImgFailed, setAnonImgFailed] = useState(false)
+  const [showGuestDelete, setShowGuestDelete] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => { setAnonImgFailed(false) }, [user?.id])
 
   // Close on outside click
   useEffect(() => {
@@ -34,17 +32,15 @@ export function UserMenu() {
   if (!user) return null
 
   const isGuest = !!user.isGuest
-  const anon = isGuest ? getAnonymousReader(user.id) : null
-  const displayName = anon ? anon.name : (user.name || 'User')
-  const displaySubtitle = anon ? t('userMenu.anonymousReader') : user.email
-  const tooltip = anon ? `${displayName} · ${t('userMenu.anonymousReader')}` : displayName
+  const displayName = isGuest ? (user.name || t('guest.name')) : (user.name || 'User')
+  // A guest's email is synthetic (guest-<hex>@guest.local) — never show it.
+  const displaySubtitle = isGuest ? t('userMenu.anonymousReader') : user.email
+  const tooltip = displayName
   const initials = getUserInitials(user)
 
   const avatarSrc = user.picture?.startsWith('http')
     ? user.picture
     : user.picture ? `/storage/${user.picture}` : null
-
-  const showAnimal = !avatarSrc && !!anon?.avatarPath && !anonImgFailed
 
   return (
     <>
@@ -56,17 +52,9 @@ export function UserMenu() {
           aria-haspopup="true"
           title={tooltip}
           aria-label={tooltip}
-          style={anon ? { backgroundColor: anon.color } : undefined}
         >
           {avatarSrc ? (
             <img src={avatarSrc} alt="" className="user-menu__avatar-img" referrerPolicy="no-referrer" />
-          ) : showAnimal ? (
-            <img
-              src={anon!.avatarPath!}
-              alt=""
-              className="user-menu__avatar-anon"
-              onError={() => setAnonImgFailed(true)}
-            />
           ) : (
             <span className="user-menu__avatar">{initials}</span>
           )}
@@ -84,6 +72,23 @@ export function UserMenu() {
               <span className="user-menu__email">{displaySubtitle}</span>
             </div>
             <hr className="user-menu__divider" />
+            {isGuest && (
+              <>
+                <button
+                  className="user-menu__item user-menu__item--primary"
+                  onClick={() => { setOpen(false); openAuthModal('register') }}
+                >
+                  {t('guest.createAccount')}
+                </button>
+                <button
+                  className="user-menu__item"
+                  onClick={() => { setOpen(false); openAuthModal('login') }}
+                >
+                  {t('guest.cardSignIn')}
+                </button>
+                <hr className="user-menu__divider" />
+              </>
+            )}
             <button
               className="user-menu__item"
               onClick={() => { setOpen(false); setShowProfile(true) }}
@@ -91,19 +96,31 @@ export function UserMenu() {
               Edit profile
             </button>
             <hr className="user-menu__divider" />
-            <button
-              className="user-menu__item user-menu__item--danger"
-              onClick={() => {
-                setOpen(false)
-                logout()
-              }}
-            >
-              Sign out
-            </button>
+            {isGuest ? (
+              // A guest has no credentials to come back with — "sign out" would orphan the row.
+              // The honest action is deleting it, behind a confirm.
+              <button
+                className="user-menu__item user-menu__item--danger"
+                onClick={() => { setOpen(false); setShowGuestDelete(true) }}
+              >
+                {t('guest.deleteData')}
+              </button>
+            ) : (
+              <button
+                className="user-menu__item user-menu__item--danger"
+                onClick={() => {
+                  setOpen(false)
+                  logout()
+                }}
+              >
+                Sign out
+              </button>
+            )}
           </div>
         )}
       </div>
       {showProfile && <ProfileModal onClose={() => setShowProfile(false)} />}
+      {showGuestDelete && <GuestDeleteDialog onClose={() => setShowGuestDelete(false)} />}
     </>
   )
 }

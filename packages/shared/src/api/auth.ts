@@ -2,7 +2,23 @@ import { getApiConfig } from './client'
 import { isTokenExpiring } from './tokenExpiry'
 import type { MobileAuthResponse, AuthResponse } from '../types/api'
 
-async function mobilePost<T>(path: string, body: unknown): Promise<T> {
+/**
+ * A merge entry point's answer, plus whether a bearer actually went out with
+ * the request. `guestMergeSkipped == null` alone cannot tell "merged" from
+ * "there was no guest to merge" — the server only reports a skip for a token it
+ * saw. So "your progress moved" is claimed only when this is true too.
+ */
+export type MobileAuthResult = MobileAuthResponse & { sentBearer: boolean }
+
+/**
+ * `onUnauthorized` as mobile implements it: `{ quiet: true }` refreshes without
+ * the terminal side effects (wiping the stored tokens, firing auth-failure).
+ * Typed here rather than on `ApiConfig` because only this file passes it; a
+ * client that ignores the argument (web) is still a valid one.
+ */
+type QuietRefresh = (opts?: { quiet?: boolean }) => Promise<string | null>
+
+async function mobilePost(path: string, body: unknown): Promise<MobileAuthResult> {
   const { baseUrl, getAccessToken, onUnauthorized } = getApiConfig()
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -37,9 +53,14 @@ async function mobilePost<T>(path: string, body: unknown): Promise<T> {
   // dead token. Refresh it first, and if that fails send no bearer at all.
   // `onUnauthorized` is the client's existing single-flight refresh; do not add
   // a second one.
+  //
+  // QUIET: a refresh that fails here must not end the session. The reader is
+  // mid sign-up; wiping the guest keys and firing auth-failure (→ signOut) would
+  // destroy the very row they are trying to keep, and race the tokens this call
+  // is about to write. Send no bearer and let the sign-in proceed.
   if (isTokenExpiring(token)) {
     try {
-      token = await onUnauthorized()
+      token = await (onUnauthorized as QuietRefresh)({ quiet: true })
     } catch {
       token = null
     }
@@ -54,7 +75,8 @@ async function mobilePost<T>(path: string, body: unknown): Promise<T> {
     const data = await res.json().catch(() => null)
     throw Object.assign(new Error(data?.error || `Request failed: ${res.status}`), { status: res.status })
   }
-  return res.json()
+  const data = (await res.json()) as MobileAuthResponse
+  return { ...data, sentBearer: !!token }
 }
 
 /**
@@ -87,7 +109,7 @@ export async function createGuestSession(): Promise<MobileAuthResponse> {
   return data
 }
 
-export async function loginWithGoogle(idToken: string): Promise<MobileAuthResponse> {
+export async function loginWithGoogle(idToken: string): Promise<MobileAuthResult> {
   return mobilePost('/auth/google', { idToken })
 }
 
@@ -95,7 +117,7 @@ export async function loginWithApple(
   identityToken: string,
   fullName?: string | null,
   email?: string | null,
-): Promise<MobileAuthResponse> {
+): Promise<MobileAuthResult> {
   return mobilePost('/auth/apple', { identityToken, fullName, email })
 }
 
@@ -119,7 +141,7 @@ export async function registerWithEmail(
   email: string,
   password: string,
   name?: string,
-): Promise<MobileAuthResponse> {
+): Promise<MobileAuthResult> {
   try {
     return await mobilePost('/auth/register', { email, password, name: name || null })
   } catch (e: any) {
@@ -132,7 +154,7 @@ export async function registerWithEmail(
 export async function loginWithEmail(
   email: string,
   password: string,
-): Promise<MobileAuthResponse> {
+): Promise<MobileAuthResult> {
   try {
     return await mobilePost('/auth/login', { email, password })
   } catch (e: any) {

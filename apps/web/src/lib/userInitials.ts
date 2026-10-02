@@ -1,5 +1,3 @@
-import { getAnonymousReaderName } from '@textstack/shared'
-
 type InitialsUser = {
   id: string
   isGuest?: boolean
@@ -8,13 +6,8 @@ type InitialsUser = {
 }
 
 export function getUserInitials(user: InitialsUser): string {
-  if (user.isGuest) {
-    return getAnonymousReaderName(user.id)
-      .split(' ')
-      .map(n => n[0])
-      .join('')
-      .toUpperCase()
-  }
+  // A guest has no name to take initials from — "G" for Guest, not their synthetic email.
+  if (user.isGuest && !user.name) return 'G'
   if (user.name) {
     return user.name
       .split(' ')

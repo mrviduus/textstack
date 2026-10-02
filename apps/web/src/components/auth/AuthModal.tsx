@@ -1,18 +1,25 @@
-import { useState, FormEvent } from 'react'
+import { useState, useEffect, FormEvent } from 'react'
 import { useAuth } from '../../context/AuthContext'
+import { useTranslation } from '../../hooks/useTranslation'
 import { forgotPassword } from '../../api/auth'
 import '../../styles/auth.css'
 
 type View = 'login' | 'register' | 'forgot' | 'forgot-sent'
 
 export function AuthModal() {
-  const { showAuthModal, closeAuthModal, loginWithEmail, registerWithEmail, googleReady } = useAuth()
+  const { showAuthModal, authModalView, closeAuthModal, loginWithEmail, registerWithEmail, googleReady, isGuest } = useAuth()
+  const { t } = useTranslation()
   const [view, setView] = useState<View>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [name, setName] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+
+  // Open on the tab the caller asked for (e.g. guest "Create free account" → register).
+  useEffect(() => {
+    if (showAuthModal) setView(authModalView)
+  }, [showAuthModal, authModalView])
 
   if (!showAuthModal) return null
 
@@ -89,6 +96,8 @@ export function AuthModal() {
               >Register</button>
             </div>
 
+            {isGuest && <p className="auth-modal__text">{t('guest.loginSubtitle')}</p>}
+
             <form onSubmit={handleSubmit}>
               {view === 'register' && (
                 <input
@@ -107,6 +116,13 @@ export function AuthModal() {
                 minLength={8}
               />
               {error && <p className="auth-modal__error">{error}</p>}
+              {error && view === 'register' && (
+                // Any register error — incl. an email already taken, which the server words as
+                // "invalid email or password" — gets a way to sign in. Keeps the typed email.
+                <button type="button" className="auth-modal__link" onClick={() => { setError(''); setPassword(''); setView('login') }}>
+                  {t('guest.haveAccount')}
+                </button>
+              )}
               <button className="auth-modal__btn" type="submit" disabled={loading}>
                 {loading ? 'Please wait...' : view === 'login' ? 'Sign in' : 'Create account'}
               </button>

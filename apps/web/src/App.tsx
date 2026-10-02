@@ -65,7 +65,8 @@ function AuthSuccessToast() {
   const { authSuccessToast, dismissAuthSuccessToast } = useAuth()
   const { t } = useTranslation()
   if (!authSuccessToast) return null
-  return <Toast message={t('auth.progressSavedToast')} duration={4000} onClose={dismissAuthSuccessToast} />
+  const message = authSuccessToast === 'merged' ? t('guest.merged') : t('auth.progressSavedToast')
+  return <Toast message={message} duration={4000} onClose={dismissAuthSuccessToast} />
 }
 
 /**

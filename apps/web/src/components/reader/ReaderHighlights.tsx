@@ -115,7 +115,7 @@ export function ReaderHighlights({
   const isSingleWord = hasSelection && selectionWordCount === 1
 
   // --- Vocab map + save/update (guest = real User via cookie session, same API path) ---
-  const { vocabMap, addWord, removeWord, updateTranslation, recordSavedWord, idbUnavailable, dismissIdbUnavailable } = useReaderVocabulary(bookLanguage, targetLang)
+  const { vocabMap, addWord, removeWord, updateTranslation, recordSavedWord, idbUnavailable, dismissIdbUnavailable, guestNudge, dismissGuestNudge } = useReaderVocabulary(bookLanguage, targetLang)
   const { openAuthModal } = useAuth()
 
   // Anti-spiral F2: toast when a save lands in the pending queue (daily cap hit).
@@ -614,6 +614,15 @@ export function ReaderHighlights({
           duration={5000}
           onClose={dismissIdbUnavailable}
           onClick={() => { dismissIdbUnavailable(); openAuthModal() }}
+        />
+      )}
+
+      {guestNudge && (
+        <Toast
+          message={t(guestNudge === 'ten' ? 'guest.nudgeTen' : 'guest.nudgeThree')}
+          duration={6000}
+          onClose={dismissGuestNudge}
+          action={{ label: t('guest.nudgeCta'), onClick: () => openAuthModal('register') }}
         />
       )}
 

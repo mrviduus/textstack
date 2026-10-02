@@ -88,12 +88,6 @@
   object-fit: cover;
 }
 
-.profile-modal__avatar img.profile-modal__avatar-anon {
-  object-fit: contain;
-  padding: 8%;
-  background: transparent;
-}
-
 .profile-modal__avatar span {
   color: #fff;
   font-size: 1.5rem;

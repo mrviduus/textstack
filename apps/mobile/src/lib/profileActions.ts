@@ -2,14 +2,15 @@ import type { UserDto } from '@textstack/shared'
 import { capabilitiesFor } from './capabilities'
 
 /**
- * What tapping "Sign out" has to do before it does anything.
+ * What leaving the session means for this viewer.
  *
  * - `immediate` — clear the tokens and go. Nothing is lost that cannot be got
  *   back by signing in again.
- * - `confirm-destructive` — ask first, in a destructive alert that names what
- *   disappears, because signing out here is not reversible by anyone.
+ * - `delete-guest-data` — there is no "sign out" for a guest, only "Delete guest
+ *   data": a destructive confirm, then `DELETE /me/account` on the guest row, then
+ *   the local sign-out. See `deleteGuestData`.
  */
-export type SignOutIntent = 'immediate' | 'confirm-destructive'
+export type SignOutIntent = 'immediate' | 'delete-guest-data'
 
 /**
  * Sign-out is two different operations wearing one label.
@@ -19,22 +20,40 @@ export type SignOutIntent = 'immediate' | 'confirm-destructive'
  * of it back on any device.
  *
  * For a guest those same three keys are the ONLY handle that exists on the
- * account. There is no email to sign in with — the server generated
- * `guest-<hex>@guest.local` and no one knows the password because there isn't
- * one. The row itself survives: `GuestCleanupWorker` explicitly refuses to prune
- * a guest holding vocabulary, highlights, bookmarks, library rows, uploads,
- * notes or progress. So the books stay on the server, forever, and nothing can
- * ever reach them again — not the reader, not support, not us.
- *
- * That is a delete. It shipped as an unconfirmed row in the settings list, one
- * tap from the Profile tab, with no dialog and no error, sitting where every
- * other app puts a harmless action. This function is the whole decision, pulled
- * out of the screen so it can be asserted instead of eyeballed.
+ * account — the email is server-generated (`guest-<hex>@guest.local`) and there
+ * is no password. It used to ship as "Sign out" behind a confirm that admitted
+ * it meant delete — while leaving the row on the server, kept forever by
+ * `GuestCleanupWorker` (which spares any guest holding data) and unreachable by
+ * anyone. Now it is named for what it is and actually deletes the row.
  *
  * Pure, and delegating to `capabilitiesFor` rather than re-deriving `isGuest` —
  * a second copy of the policy is how the pencil-icon bug on this same screen
  * happened.
  */
 export function signOutIntent(user: UserDto | null): SignOutIntent {
-  return capabilitiesFor(user).canSignOutSilently ? 'immediate' : 'confirm-destructive'
+  return capabilitiesFor(user).canSignOutSilently ? 'immediate' : 'delete-guest-data'
+}
+
+/**
+ * "Delete guest data", after the confirm: delete the guest row on the server
+ * (best-effort), then sign out locally — ALWAYS. Offline, a 5xx, an expired
+ * session or no token at all must not leave the reader stuck as a guest they
+ * asked to remove; the worst case is the old behaviour (an orphaned row the
+ * cleanup worker may keep), never a dead button.
+ *
+ * Dependencies injected so the order and the always-sign-out are assertable
+ * without React Native.
+ */
+export async function deleteGuestData(deps: {
+  getToken: () => Promise<string | null>
+  deleteAccount: (token: string) => Promise<void>
+  signOut: () => Promise<void>
+}): Promise<void> {
+  try {
+    const token = await deps.getToken()
+    if (token) await deps.deleteAccount(token)
+  } catch {
+    // Best-effort by design — see above.
+  }
+  await deps.signOut()
 }

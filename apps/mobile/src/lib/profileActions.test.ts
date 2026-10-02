@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { UserDto } from '@textstack/shared'
-import { signOutIntent } from './profileActions'
+import { deleteGuestData, signOutIntent } from './profileActions'
 
 const guest: UserDto = {
   id: 'g-1',
@@ -24,28 +24,55 @@ describe('signOutIntent', () => {
   })
 
   /**
-   * The one that matters, and the reason this file exists.
-   *
-   * A guest's SecureStore tokens are the only handle on their account: the email is
-   * server-generated (`guest-<hex>@guest.local`) and there is no password, so the
-   * sign-in screen cannot get back in. The server-side row is NOT deleted —
-   * `GuestCleanupWorker` deliberately preserves any guest holding vocabulary,
-   * highlights, bookmarks, library rows, uploads, notes or progress — which makes
-   * this worse rather than better: the books exist, indefinitely, and are unreachable
-   * by the reader, by support, and by us.
-   *
-   * Before this, that was an unconfirmed row in the settings list. One tap, no dialog,
-   * no error, everything gone. If this assertion ever flips to 'immediate', the tap is
-   * live again.
+   * A guest has no "sign out": the device tokens are the only key to the row, so
+   * the exit is "Delete guest data" — confirm, delete the row server-side, then
+   * sign out. If this ever flips to 'immediate', one tap orphans everything again.
    */
-  it('guest: confirm-destructive — the tokens on this device are the only key that exists', () => {
-    expect(signOutIntent(guest)).toBe('confirm-destructive')
+  it('guest: delete-guest-data — the tokens on this device are the only key that exists', () => {
+    expect(signOutIntent(guest)).toBe('delete-guest-data')
   })
 
   it('is decided by the guest flag alone, not by how furnished the profile looks', () => {
-    // A guest who has read for a month has a name and an avatar. Nothing about a
-    // populated-looking profile makes the session recoverable.
     const settledGuest: UserDto = { ...guest, name: 'Quiet Heron', picture: '/storage/avatars/g-1.jpg' }
-    expect(signOutIntent(settledGuest)).toBe('confirm-destructive')
+    expect(signOutIntent(settledGuest)).toBe('delete-guest-data')
+  })
+})
+
+describe('deleteGuestData', () => {
+  function deps(over: Partial<Parameters<typeof deleteGuestData>[0]> = {}) {
+    const calls: string[] = []
+    return {
+      calls,
+      d: {
+        getToken: async () => 'guest-token',
+        deleteAccount: async (t: string) => { calls.push(`delete:${t}`) },
+        signOut: async () => { calls.push('signOut') },
+        ...over,
+      },
+    }
+  }
+
+  it('deletes the row on the server, then signs out', async () => {
+    const { calls, d } = deps()
+    await deleteGuestData(d)
+    expect(calls).toEqual(['delete:guest-token', 'signOut'])
+  })
+
+  it('offline / server error: still signs out locally', async () => {
+    const { calls, d } = deps({ deleteAccount: async () => { throw new TypeError('Network request failed') } })
+    await deleteGuestData({ ...d, signOut: async () => { calls.push('signOut') } })
+    expect(calls).toEqual(['signOut'])
+  })
+
+  it('no token (refresh failed): skips the call, still signs out', async () => {
+    const { calls, d } = deps({ getToken: async () => null })
+    await deleteGuestData(d)
+    expect(calls).toEqual(['signOut'])
+  })
+
+  it('token read throws: still signs out', async () => {
+    const { calls, d } = deps({ getToken: async () => { throw new Error('keychain') } })
+    await deleteGuestData(d)
+    expect(calls).toEqual(['signOut'])
   })
 })

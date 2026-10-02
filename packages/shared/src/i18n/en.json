@@ -96,14 +96,23 @@
     }
   },
   "guest": {
-    "banner": "A free account keeps your books, highlights and vocabulary if you lose this phone — and lets you upload your own.",
     "createAccount": "Create free account",
-    "signOut": "Sign out",
-    "signOutTitle": "Sign out and lose everything?",
-    "signOutMessage": "You're reading as a guest, so this phone is the only key to your account — there's no email or password to get back in with. Sign out and your saved books, highlights, vocabulary and reading progress are gone for good, and we can't recover them for you either.",
-    "signOutCancel": "Keep reading",
     "progressNotCarried": "Signed in — but what you read before signing in stayed on the previous session and is not in this account.",
-    "signOutConfirm": "Sign out and lose it"
+    "name": "Guest",
+    "cardTitle": "You're reading as a guest",
+    "cardBody": "Your books, words and progress are saved only on this device. Create a free account to keep them and use them on other devices.",
+    "cardSignIn": "I already have an account",
+    "loginSubtitle": "Keep everything you've saved as a guest.",
+    "haveAccount": "Already have an account? Sign in",
+    "merged": "Your progress moved to your account",
+    "nudgeThree": "3 words saved. Keep them — create a free account.",
+    "nudgeTen": "10 words saved. Keep them — create a free account.",
+    "nudgeCta": "Create account",
+    "deleteData": "Delete guest data",
+    "deleteTitle": "Delete guest data?",
+    "deleteMessage": "This removes your saved books, highlights, vocabulary and reading progress — from this device and from our servers. It can't be undone.",
+    "deleteConfirm": "Delete",
+    "deleteCancel": "Keep reading"
   },
   "footer": {
     "privacy": "Privacy Policy",

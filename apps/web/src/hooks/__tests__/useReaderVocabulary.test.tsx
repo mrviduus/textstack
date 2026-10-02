@@ -3,8 +3,9 @@ import { renderHook, act, waitFor } from '@testing-library/react'
 
 // --- Mocks ---
 
-const authState: { isAuthenticated: boolean; sessionReadyDelayMs: number; ensureSession: () => Promise<void> } = {
+const authState: { isAuthenticated: boolean; isGuest: boolean; sessionReadyDelayMs: number; ensureSession: () => Promise<void> } = {
   isAuthenticated: true,
+  isGuest: false,
   sessionReadyDelayMs: 0,
   ensureSession: () => Promise.resolve(),
 }
@@ -12,6 +13,7 @@ const authState: { isAuthenticated: boolean; sessionReadyDelayMs: number; ensure
 vi.mock('../../context/AuthContext', () => ({
   useAuth: () => ({
     isAuthenticated: authState.isAuthenticated,
+    isGuest: authState.isGuest,
     waitForSession: () =>
       authState.sessionReadyDelayMs > 0
         ? new Promise<void>((r) => setTimeout(r, authState.sessionReadyDelayMs))
@@ -71,6 +73,8 @@ import { useReaderVocabulary } from '../useReaderVocabulary'
 describe('useReaderVocabulary', () => {
   beforeEach(() => {
     authState.isAuthenticated = true
+    authState.isGuest = false
+    localStorage.clear()
     authState.sessionReadyDelayMs = 0
     authState.ensureSession = () => Promise.resolve()
     getReaderVocabMock.mockReset()
@@ -151,6 +155,54 @@ describe('useReaderVocabulary', () => {
     await act(async () => { await result.current.addWord({ word: 'three', language: 'en' }) })
     expect(addPendingMock).toHaveBeenCalledTimes(3)
     expect(ensureCalled).toBe(1)
+  })
+
+  describe('create-account nudge', () => {
+    const echoSave = async (req: any) => ({
+      outcome: 'srs',
+      word: { id: `backend-${req.word}`, word: req.word, stage: 0, translation: null },
+      pendingId: null,
+      reason: null,
+    })
+    const save = async (result: any, words: string[]) => {
+      for (const w of words) await act(async () => { await result.current.addWord({ word: w, language: 'en' }) })
+    }
+
+    it('guest: nudges on the 3rd and 10th saved word, each once', async () => {
+      authState.isGuest = true
+      saveWordMock.mockImplementation(echoSave)
+      const { result } = renderHook(() => useReaderVocabulary('en', 'de'))
+      await waitFor(() => expect(getReaderVocabMock).toHaveBeenCalled())
+
+      await save(result, ['a', 'b'])
+      expect(result.current.guestNudge).toBe(null)
+      await save(result, ['c'])
+      expect(result.current.guestNudge).toBe('three')
+      act(() => result.current.dismissGuestNudge())
+      await save(result, ['d', 'e', 'f', 'g', 'h', 'i'])
+      expect(result.current.guestNudge).toBe(null)
+      await save(result, ['j'])
+      expect(result.current.guestNudge).toBe('ten')
+      act(() => result.current.dismissGuestNudge())
+      await save(result, ['k'])
+      expect(result.current.guestNudge).toBe(null)
+    })
+
+    it('anonymous reader: the 3rd word (the one that mints the guest) nudges', async () => {
+      authState.isAuthenticated = false
+      const { result } = renderHook(() => useReaderVocabulary('en', 'de'))
+      await save(result, ['one', 'two', 'three'])
+      expect(result.current.guestNudge).toBe('three')
+    })
+
+    it('account: never nudged', async () => {
+      saveWordMock.mockImplementation(echoSave)
+      const { result } = renderHook(() => useReaderVocabulary('en', 'de'))
+      await waitFor(() => expect(getReaderVocabMock).toHaveBeenCalled())
+      await save(result, ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'])
+      expect(result.current.guestNudge).toBe(null)
+      expect(localStorage.getItem('guestNudge.three')).toBe(null)
+    })
   })
 
   it('flushes pending pre-save when session acquired externally (I5)', async () => {

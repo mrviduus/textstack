@@ -9,6 +9,7 @@ import { authApi, type UserDto } from '@textstack/shared'
 import { GoogleSignin } from '@react-native-google-signin/google-signin'
 import Constants from 'expo-constants'
 import { useAuth } from '../../src/context/AuthContext'
+import { capabilitiesFor } from '../../src/lib/capabilities'
 import { useTheme } from '../../src/context/ThemeContext'
 import { useToast } from '../../src/context/ToastContext'
 import { useLanguage } from '../../src/context/LanguageContext'
@@ -44,7 +45,10 @@ type Mode = 'login' | 'register' | 'forgot'
 export default function LoginScreen() {
   const { colors } = useTheme()
   const router = useRouter()
-  const { signInWithTokens } = useAuth()
+  const { signInWithTokens, user } = useAuth()
+  // A guest session is what this screen exists to keep: it changes the subtitle,
+  // puts the one-tap providers first, and is the precondition for "merged".
+  const isGuest = capabilitiesFor(user).isGuest
   const { show: showToast } = useToast()
   const { t: translate } = useLanguage()
 
@@ -58,11 +62,19 @@ export default function LoginScreen() {
    *
    * <p>Long, because it asks the reader to notice something rather than confirming what they just
    * did. Not a blocking dialog: they ARE signed in, and there is nothing for them to decide here.</p>
+   *
+   * <p>"Merged" is claimed only when it is known: the reader was a guest, the guest bearer actually
+   * went out (`sentBearer` — a failed refresh sends none), and the server reported no skip. A guest
+   * whose bearer did NOT go out lost the merge just the same, though the server saw nothing to
+   * report — so that is a skip too. `wasGuest` is read before the call: afterwards `user` is the
+   * account.</p>
    */
-  const warnIfNothingCarried = (skipped: string | null | undefined) => {
-    if (!skipped) return
+  const warnIfNothingCarried = (result: authApi.MobileAuthResult, wasGuest: boolean) => {
+    const skipped = result.guestMergeSkipped ?? (wasGuest && !result.sentBearer ? 'no_bearer' : null)
+    if (!skipped) return wasGuest ? showMerged() : undefined
     showToast({ message: translate('guest.progressNotCarried'), variant: 'error', duration: 9000 })
   }
+  const showMerged = () => showToast({ message: translate('guest.merged'), variant: 'success', duration: 4000 })
   const [loading, setLoading] = useState(false)
   // Which tab this screen opens on.
   //
@@ -76,7 +88,10 @@ export default function LoginScreen() {
   // tapped Sign in. The param decides the first frame and then has no further
   // opinion. Everything other than `register` (including the twelve call sites
   // that pass nothing) keeps landing on Sign in.
-  const params = useLocalSearchParams<{ mode?: string }>()
+  //
+  // `then=back`: opened over the reader (the guest word nudge) — dismiss back to
+  // the same place instead of landing on Library.
+  const params = useLocalSearchParams<{ mode?: string; then?: string }>()
   const [mode, setMode] = useState<Mode>(() => (params.mode === 'register' ? 'register' : 'login'))
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -92,6 +107,10 @@ export default function LoginScreen() {
 
   const resetForm = () => { setEmail(''); setPassword(''); setName(''); setError(''); setForgotSent(false) }
   const switchMode = (m: Mode) => { resetForm(); setMode(m) }
+  // From a failed Register to Sign in, keeping the address they just typed. The
+  // guest token is untouched, so signing in merges it. Says nothing about WHY
+  // registration failed — we do not reveal whether an email has an account.
+  const switchToSignIn = () => { setError(''); setPassword(''); setMode('login') }
 
   // Editing retires the error the edit is answering.
   //
@@ -124,14 +143,16 @@ export default function LoginScreen() {
         await authApi.forgotPassword(email.trim())
         setForgotSent(true)
       } else if (mode === 'register') {
+        const wasGuest = isGuest
         const result = await authApi.registerWithEmail(email.trim(), password, name.trim() || undefined)
         await signInWithTokens(result.accessToken, result.refreshToken, result.user)
-        warnIfNothingCarried(result.guestMergeSkipped)
+        warnIfNothingCarried(result, wasGuest)
         landAfterAuth(result.user)
       } else {
+        const wasGuest = isGuest
         const result = await authApi.loginWithEmail(email.trim(), password)
         await signInWithTokens(result.accessToken, result.refreshToken, result.user)
-        warnIfNothingCarried(result.guestMergeSkipped)
+        warnIfNothingCarried(result, wasGuest)
         landAfterAuth(result.user)
       }
     } catch (e: any) {
@@ -174,10 +195,12 @@ export default function LoginScreen() {
     // The question is now asked by `app/(tabs)/_layout.tsx` during render, on
     // the screen the reader lands on. This function's whole job is to leave the
     // auth modal.
+    if (params.then === 'back' && router.canGoBack()) { router.back(); return }
     router.replace('/(tabs)/library')
   }
 
   const handleGoogleSignIn = async () => {
+    const wasGuest = isGuest
     setLoading(true)
     try {
       await GoogleSignin.hasPlayServices()
@@ -187,7 +210,7 @@ export default function LoginScreen() {
 
       const result = await authApi.loginWithGoogle(idToken)
       await signInWithTokens(result.accessToken, result.refreshToken, result.user)
-      warnIfNothingCarried(result.guestMergeSkipped)
+      warnIfNothingCarried(result, wasGuest)
       landAfterAuth(result.user)
     } catch (e: any) {
       if (e?.code !== 'SIGN_IN_CANCELLED') {
@@ -208,6 +231,7 @@ export default function LoginScreen() {
 
   const handleAppleSignIn = async () => {
     if (!AppleAuthentication) return
+    const wasGuest = isGuest
     setLoading(true)
     try {
       const credential = await AppleAuthentication.signInAsync({
@@ -234,7 +258,7 @@ export default function LoginScreen() {
       )
 
       await signInWithTokens(result.accessToken, result.refreshToken, result.user)
-      warnIfNothingCarried(result.guestMergeSkipped)
+      warnIfNothingCarried(result, wasGuest)
       landAfterAuth(result.user)
     } catch (e: any) {
       if (e.code !== 'ERR_REQUEST_CANCELED') {
@@ -252,6 +276,43 @@ export default function LoginScreen() {
     fontFamily: fonts.sans,
   }]
 
+  // Layout, not permission: a guest is one tap from keeping everything, so the
+  // password-free providers go first for them.
+  const socialFirst = isGuest
+
+  const divider = (
+    <View style={[styles.divider, { borderColor: colors.border }]}>
+      <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+      <Text style={[styles.dividerText, { color: colors.textSecondary, fontFamily: fonts.sans }]}>or</Text>
+      <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+    </View>
+  )
+
+  const social = (
+    <>
+      <TouchableOpacity
+        style={[styles.button, styles.googleButton]}
+        onPress={handleGoogleSignIn}
+        disabled={loading}
+      >
+        <Ionicons name="logo-google" size={20} color="#fff" style={{ marginRight: 8 }} />
+        <Text style={[styles.buttonText, { fontFamily: fonts.sansMedium }]}>Continue with Google</Text>
+      </TouchableOpacity>
+
+      {Platform.OS === 'ios' && AppleAuthentication && (
+        <AppleAuthentication.AppleAuthenticationButton
+          buttonType={mode === 'register'
+            ? AppleAuthentication.AppleAuthenticationButtonType.SIGN_UP
+            : AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
+          buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
+          cornerRadius={8}
+          style={styles.appleButton}
+          onPress={handleAppleSignIn}
+        />
+      )}
+    </>
+  )
+
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: colors.background }}
@@ -261,8 +322,12 @@ export default function LoginScreen() {
         <Ionicons name="book" size={48} color={colors.primary} style={{ marginBottom: 12 }} />
         <Text style={[styles.brand, { color: colors.text, fontFamily: fonts.serifBold }]}>TextStack</Text>
         <Text style={[styles.subtitle, { color: colors.textSecondary, fontFamily: fonts.sans }]}>
-          Your reading journey starts here
+          {isGuest ? translate('guest.loginSubtitle') : 'Your reading journey starts here'}
         </Text>
+
+        {/* A guest is one tap from keeping everything: the providers that need no
+            password go first, the email form after. */}
+        {socialFirst && mode !== 'forgot' && <>{social}{divider}</>}
 
         {/* Mode tabs */}
         {mode !== 'forgot' && (
@@ -367,6 +432,16 @@ export default function LoginScreen() {
               <Text style={[styles.error, { fontFamily: fonts.sans }]}>{error}</Text>
             )}
 
+            {/* Any Register failure — including a taken email, which the server
+                words as "invalid email or password" — offers the way to Sign in. */}
+            {!!error && mode === 'register' && (
+              <TouchableOpacity onPress={switchToSignIn}>
+                <Text style={[styles.linkText, { color: colors.primary, fontFamily: fonts.sansMedium }]}>
+                  {translate('guest.haveAccount')}
+                </Text>
+              </TouchableOpacity>
+            )}
+
             <TouchableOpacity
               style={[styles.button, styles.emailButton, { backgroundColor: colors.primary }]}
               onPress={handleEmailAuth}
@@ -397,34 +472,7 @@ export default function LoginScreen() {
               </TouchableOpacity>
             )}
 
-            {mode !== 'forgot' && (
-              <>
-                <View style={[styles.divider, { borderColor: colors.border }]}>
-                  <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
-                  <Text style={[styles.dividerText, { color: colors.textSecondary, fontFamily: fonts.sans }]}>or</Text>
-                  <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
-                </View>
-
-                <TouchableOpacity
-                  style={[styles.button, styles.googleButton]}
-                  onPress={handleGoogleSignIn}
-                  disabled={loading}
-                >
-                  <Ionicons name="logo-google" size={20} color="#fff" style={{ marginRight: 8 }} />
-                  <Text style={[styles.buttonText, { fontFamily: fonts.sansMedium }]}>Continue with Google</Text>
-                </TouchableOpacity>
-
-                {Platform.OS === 'ios' && AppleAuthentication && (
-                  <AppleAuthentication.AppleAuthenticationButton
-                    buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
-                    buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
-                    cornerRadius={8}
-                    style={styles.appleButton}
-                    onPress={handleAppleSignIn}
-                  />
-                )}
-              </>
-            )}
+            {!socialFirst && mode !== 'forgot' && <>{divider}{social}</>}
           </>
         )}
 

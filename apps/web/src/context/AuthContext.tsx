@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, useCallback, useRef, ReactNode } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback, useRef, ReactNode, SyntheticEvent } from 'react'
 import {
   User, UpdateProfilePayload, getCurrentUser, loginWithGoogle, logout as logoutApi, refreshToken,
   loginWithEmail as loginWithEmailApi, registerWithEmail as registerWithEmailApi,
@@ -7,9 +7,14 @@ import {
   createGuestSession as createGuestSessionApi,
 } from '../api/auth'
 import type { GuestMergeSkipReason } from '@textstack/shared'
-import { authToastFor } from '../lib/authToast'
+import { authToastFor, type AuthToast } from '../lib/authToast'
 import { flushLocalProgress } from '../lib/progressSync'
 import { trackLogin, trackSignUp } from '../lib/analytics'
+
+export type AuthModalView = 'login' | 'register'
+
+/** Which reassurance toast is pending after sign-in (`merge-skipped` lives in `guestMergeSkipped`). */
+export type AuthSuccessToast = Exclude<AuthToast, 'merge-skipped' | null> | null
 
 interface AuthContextValue {
   user: User | null
@@ -18,7 +23,10 @@ interface AuthContextValue {
   isGuest: boolean
   googleReady: boolean
   showAuthModal: boolean
-  openAuthModal: () => void
+  /** Tab the auth modal opens on. */
+  authModalView: AuthModalView
+  /** Opens the auth modal. Also used directly as an onClick handler, so a click event means 'login'. */
+  openAuthModal: (view?: AuthModalView | SyntheticEvent) => void
   closeAuthModal: () => void
   loginWithEmail: (email: string, password: string) => Promise<void>
   registerWithEmail: (email: string, password: string, name?: string) => Promise<void>
@@ -31,8 +39,8 @@ interface AuthContextValue {
   deleteAvatar: () => Promise<void>
   /** Permanently deletes the account + all data, then clears the session locally. Rejects on error (caller stays signed in). */
   deleteAccount: () => Promise<void>
-  /** Set to true after a successful register/login. Consumer shows toast then calls dismissAuthSuccessToast. */
-  authSuccessToast: boolean
+  /** Set after a successful register/login (see authToastFor). Consumer shows toast then calls dismissAuthSuccessToast. */
+  authSuccessToast: AuthSuccessToast
   dismissAuthSuccessToast: () => void
   /**
    * Set when the sign-in did NOT bring the reader's pre-sign-in work across.
@@ -53,6 +61,7 @@ const AuthContext = createContext<AuthContextValue>({
   isGuest: false,
   googleReady: false,
   showAuthModal: false,
+  authModalView: 'login',
   openAuthModal: () => {},
   closeAuthModal: () => {},
   loginWithEmail: async () => {},
@@ -64,7 +73,7 @@ const AuthContext = createContext<AuthContextValue>({
   updateAvatar: async () => {},
   deleteAvatar: async () => {},
   deleteAccount: async () => {},
-  authSuccessToast: false,
+  authSuccessToast: null,
   dismissAuthSuccessToast: () => {},
   guestMergeSkipped: null,
   dismissGuestMergeSkipped: () => {},
@@ -80,8 +89,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true)
   const [googleReady, setGoogleReady] = useState(false)
   const [showAuthModal, setShowAuthModal] = useState(false)
-  const [authSuccessToast, setAuthSuccessToast] = useState(false)
-  const dismissAuthSuccessToast = useCallback(() => setAuthSuccessToast(false), [])
+  const [authModalView, setAuthModalView] = useState<AuthModalView>('login')
+  const [authSuccessToast, setAuthSuccessToast] = useState<AuthSuccessToast>(null)
+  const dismissAuthSuccessToast = useCallback(() => setAuthSuccessToast(null), [])
   const [guestMergeSkipped, setGuestMergeSkipped] = useState<GuestMergeSkipReason | null>(null)
   const dismissGuestMergeSkipped = useCallback(() => setGuestMergeSkipped(null), [])
 
@@ -92,9 +102,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const authResponse = await loginWithGoogle(response.credential)
       // Capture prev before setUser — if a real user logs in again (re-auth), no toast.
       setUser(prev => {
-        const toast = authToastFor(prev === null || prev.isGuest, authResponse.guestMergeSkipped)
+        const toast = authToastFor(prev, authResponse.guestMergeSkipped)
         if (toast === 'merge-skipped') setGuestMergeSkipped(authResponse.guestMergeSkipped!)
-        else if (toast === 'success') setAuthSuccessToast(true)
+        else setAuthSuccessToast(toast)
         return authResponse.user
       })
       setShowAuthModal(false)
@@ -176,7 +186,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (u.isGuest) return
         try {
           const n = await flushLocalProgress()
-          if (n > 0) setAuthSuccessToast(true)
+          if (n > 0) setAuthSuccessToast('saved')
         } catch { /* keep keys for next attempt */ }
       }
       try {
@@ -239,7 +249,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     initGoogle().catch(err => console.error('[Auth] Failed to init Google:', err))
   }, [handleGoogleCallback, googleReady])
 
-  const openAuthModal = useCallback(() => setShowAuthModal(true), [])
+  const openAuthModal = useCallback((view?: AuthModalView | SyntheticEvent) => {
+    setAuthModalView(view === 'register' ? 'register' : 'login')
+    setShowAuthModal(true)
+  }, [])
   const closeAuthModal = useCallback(() => setShowAuthModal(false), [])
 
   const authenticateAndClose = useCallback(async (
@@ -250,9 +263,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Only show the "progress kept" reassurance when user actually transitioned from
     // anonymous/guest to real. A returning real user re-authenticating had nothing at risk.
     setUser(prev => {
-      const toast = authToastFor(prev === null || prev.isGuest, response.guestMergeSkipped)
+      const toast = authToastFor(prev, response.guestMergeSkipped)
       if (toast === 'merge-skipped') setGuestMergeSkipped(response.guestMergeSkipped!)
-      else if (toast === 'success') setAuthSuccessToast(true)
+      else setAuthSuccessToast(toast)
       return response.user
     })
     setShowAuthModal(false)
@@ -330,6 +343,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isGuest: user?.isGuest ?? false,
         googleReady,
         showAuthModal,
+        authModalView,
         openAuthModal,
         closeAuthModal,
         loginWithEmail,
