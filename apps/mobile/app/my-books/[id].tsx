@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, ActivityIndicator, Alert, Share } from 'react-native'
 import { Image } from 'expo-image'
-import { useFocusEffect, useLocalSearchParams, useRouter, Stack } from 'expo-router'
+import { useLocalSearchParams, useRouter, Stack } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import NetInfo from '@react-native-community/netinfo'
 import { userBooksApi, currentReviewChapter, getStorageUrl, storedBookPercent, formatBookPercent, resumeChapterSlug, isOfflineError, plural } from '@textstack/shared'
@@ -30,6 +30,7 @@ import { BookInsightsSection } from '../../src/components/library/BookInsightsSe
 import { AssistantMenu } from '../../src/components/library/AssistantMenu'
 import { ChapterReviewAction } from '../../src/components/library/ReviewChapterButton'
 import { useBookReviews } from '../../src/hooks/useBookReviews'
+import { useRefocusEffect } from '../../src/hooks/useRefocusEffect'
 import { useSheetMount } from '../../src/hooks/useSheetMount'
 
 /**
@@ -217,33 +218,41 @@ export default function UserBookDetailScreen() {
   // `useContinueReadingList` recomputes on focus with the note that "the only
   // thing that changes these values is the user leaving the reader, which is a
   // focus event". Same cancellation shape as there.
-  useFocusEffect(
-    useCallback(() => {
-      if (!id) return
-      let cancelled = false
-      userBooksApi.getUserBookProgress(id)
-        .then(p => {
-          if (cancelled || !p) return
-          setSavedProgress({ chapterSlug: p.chapterSlug, percent: p.percent, locator: p.locator ?? null })
-        })
-        // Offline or no progress yet: keep whatever the screen already shows
-        // rather than blanking a good value with a failed refresh.
-        .catch(() => {})
-      return () => { cancelled = true }
-    }, [id]),
-  )
+  //
+  // Not on the first focus: the load effect has just fetched the progress, and
+  // asking again here was a second GET on every open.
+  useRefocusEffect(() => {
+    if (!id) return
+    let cancelled = false
+    userBooksApi.getUserBookProgress(id)
+      .then(p => {
+        if (cancelled || !p) return
+        setSavedProgress({ chapterSlug: p.chapterSlug, percent: p.percent, locator: p.locator ?? null })
+      })
+      // Offline or no progress yet: keep whatever the screen already shows
+      // rather than blanking a good value with a failed refresh.
+      .catch(() => {})
+    return () => { cancelled = true }
+  })
 
-  // Auto-refresh while processing. Uses recursive setTimeout (not setInterval)
-  // so we can implement exponential backoff on repeated failures and avoid
-  // hammering the API during an outage (P1-2). Stops immediately once status
-  // leaves 'processing'. Guards against `id` going undefined mid-flight (P0-1).
+  // Auto-refresh while processing OR while metadata enrichment is in flight —
+  // one poll on GET /me/books/{id} serving both (there used to be two on the
+  // same URL). Enrichment runs after 'ready' and the worker can't reach the
+  // device, so we poll until a terminal state (Completed/Failed). Mirrors the
+  // web detail page.
+  //
+  // Recursive setTimeout (not setInterval) for exponential backoff on repeated
+  // failures, so an outage isn't hammered (P1-2). Guards against `id` going
+  // undefined mid-flight (P0-1).
+  const pollProcessing = book?.status.toLowerCase() === 'processing'
+  const pollEnriching = book?.metadataEnrichmentStatus === 'Pending' || book?.metadataEnrichmentStatus === 'Running'
   useEffect(() => {
     if (pollTimeoutRef.current) {
       clearTimeout(pollTimeoutRef.current)
       pollTimeoutRef.current = null
     }
     if (!id) return
-    if (!book || book.status.toLowerCase() !== 'processing') return
+    if (!pollProcessing && !pollEnriching) return
 
     let cancelled = false
     let consecutiveFailures = 0
@@ -267,14 +276,17 @@ export default function UserBookDetailScreen() {
         consecutiveFailures = 0
         delayMs = 5000
         setBook(b)
-        // If processing finished, the status-change effect dep will re-run
-        // and tear this poll loop down; no need to schedule another tick.
-        if (b.status.toLowerCase() === 'processing') scheduleNext()
+        // A phase change (processing → ready, Pending → Running → done) re-runs
+        // this effect via its deps, which restarts or tears down the loop. Only
+        // keep ticking ourselves when nothing changed.
+        const stillProcessing = b.status.toLowerCase() === 'processing'
+        const stillEnriching = b.metadataEnrichmentStatus === 'Pending' || b.metadataEnrichmentStatus === 'Running'
+        if (stillProcessing === pollProcessing && stillEnriching === pollEnriching) scheduleNext()
       } catch (err) {
         if (cancelled || unmountedRef.current) return
         consecutiveFailures += 1
         console.warn(`Poll ${consecutiveFailures} failed for user book ${id}:`, err)
-        if (consecutiveFailures === FAILURE_TOAST_THRESHOLD) {
+        if (pollProcessing && consecutiveFailures === FAILURE_TOAST_THRESHOLD) {
           showToast({
             message: 'Still trying to check processing status…',
             variant: 'info',
@@ -295,22 +307,7 @@ export default function UserBookDetailScreen() {
         pollTimeoutRef.current = null
       }
     }
-  }, [book?.status, id, showToast])
-
-  // Auto-refresh while metadata enrichment is in flight. The status poll above
-  // stops at 'ready' (before enrichment runs), so this covers the Pending/Running
-  // window — the worker can't reach the device, so we poll until a terminal
-  // state (Completed/Failed) and then stop. Mirrors the web detail page.
-  useEffect(() => {
-    const s = book?.metadataEnrichmentStatus
-    if (!id || (s !== 'Pending' && s !== 'Running')) return
-    const interval = setInterval(() => {
-      userBooksApi.getUserBook(id)
-        .then(b => { if (!unmountedRef.current) setBook(b) })
-        .catch(err => console.warn('enrichment poll failed:', err))
-    }, 5000)
-    return () => clearInterval(interval)
-  }, [book?.metadataEnrichmentStatus, id])
+  }, [pollProcessing, pollEnriching, id, showToast])
 
   // Download state for this book, if one has been started this session.
   const dl = book ? downloads.get(book.id) : undefined
@@ -323,7 +320,7 @@ export default function UserBookDetailScreen() {
     : null
 
   const isReady = book?.status.toLowerCase() === 'ready'
-  const { reviews } = useBookReviews(isReady && book ? { userBookId: book.id } : null)
+  const { insights, reviews, removeInsight } = useBookReviews(isReady && book ? { userBookId: book.id } : null)
   const isFailed = book?.status.toLowerCase() === 'failed'
   const isProcessing = book && !isReady && !isFailed
 
@@ -773,7 +770,7 @@ export default function UserBookDetailScreen() {
 
         {/* Above the chapter list on purpose: coming back to a book, what you
             already worked out is more use than the table of contents. */}
-        {isReady && <BookInsightsSection userBookId={book.id} />}
+        {isReady && <BookInsightsSection insights={insights} onRemoved={removeInsight} userBookId={book.id} />}
 
         {/* Chapter list */}
         {isReady && book.chapters.length > 0 && (

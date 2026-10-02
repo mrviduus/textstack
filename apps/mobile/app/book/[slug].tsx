@@ -296,7 +296,7 @@ export default function BookDetailScreen() {
     }, [book?.id, isAuthenticated, offlineMode]),
   )
 
-  const { reviews } = useBookReviews(isAuthenticated && !offlineMode && book ? { editionId: book.id } : null)
+  const { insights, reviews, removeInsight } = useBookReviews(isAuthenticated && !offlineMode && book ? { editionId: book.id } : null)
 
   const dl = book ? downloads.get(book.id) : undefined
 
@@ -541,7 +541,7 @@ export default function BookDetailScreen() {
             over MCP can name either book type, so both have to show it or catalog
             insights would be write-only. Behind isAuthenticated because a signed-out
             reader would only be firing a 401 at every book they open. */}
-        {isAuthenticated && <BookInsightsSection editionId={book.id} bookSlug={book.slug} />}
+        {isAuthenticated && <BookInsightsSection insights={insights} onRemoved={removeInsight} editionId={book.id} bookSlug={book.slug} />}
 
         <Text style={[styles.sectionTitle, { color: colors.text }]}>Chapters</Text>
         {(showAllChapters ? book.chapters : book.chapters.slice(0, 10)).map((ch, idx) => (

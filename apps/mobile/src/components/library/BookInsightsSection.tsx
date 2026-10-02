@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native'
 import { insightsApi, insightChapterLabel, insightDateLabel, type BookInsight } from '@textstack/shared'
 import { useTheme } from '../../context/ThemeContext'
@@ -27,6 +27,11 @@ import { chapterReviewRoute } from '../../lib/chapterReviewLaunch'
  * is only ever tokenised, never interpreted.
  */
 interface Props {
+  /** Fetched once by the screen's `useBookReviews` — the same rows feed the
+   *  chapter list's "reviewed" marks, so this section does not fetch its own. */
+  insights: BookInsight[]
+  /** Drop a row the reader removed from the screen's state. */
+  onRemoved: (id: string) => void
   /** Exactly one of these. */
   userBookId?: string
   editionId?: string
@@ -34,28 +39,11 @@ interface Props {
   bookSlug?: string
 }
 
-export function BookInsightsSection({ userBookId, editionId, bookSlug }: Props) {
+export function BookInsightsSection({ insights, onRemoved, userBookId, editionId, bookSlug }: Props) {
   const { colors } = useTheme()
   const { t } = useLanguage()
-  const [insights, setInsights] = useState<BookInsight[]>([])
-  const [loading, setLoading] = useState(true)
   // The id being removed, so the row cannot be double-tapped into two requests.
   const [removing, setRemoving] = useState<string | null>(null)
-
-  useEffect(() => {
-    const target = userBookId ? { userBookId } : editionId ? { editionId } : null
-    if (!target) return
-
-    let cancelled = false
-    setLoading(true)
-    insightsApi.getBookInsights(target)
-      .then(rows => { if (!cancelled) setInsights(rows) })
-      // Silent: a supplementary panel must never take the book screen down with
-      // it, and a signed-out reader gets a 401 here as a matter of course.
-      .catch(() => {})
-      .finally(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
-  }, [userBookId, editionId])
 
   // A conclusion filed against the WRONG chapter is never revisited by the assistant — it only ever
   // replaces its own row for the chapter it meant. Removing it is the reader's, and only the
@@ -64,7 +52,7 @@ export function BookInsightsSection({ userBookId, editionId, bookSlug }: Props) 
     setRemoving(id)
     try {
       await insightsApi.deleteBookInsight(id)
-      setInsights(prev => prev.filter(i => i.id !== id))
+      onRemoved(id)
     } catch {
       // The row stays, which is the honest outcome — it is still on the server.
     } finally {
@@ -72,7 +60,7 @@ export function BookInsightsSection({ userBookId, editionId, bookSlug }: Props) 
     }
   }
 
-  if (loading || insights.length === 0) return null
+  if (insights.length === 0) return null
 
   return (
     <View style={[styles.section, { borderTopColor: colors.border }]}>
