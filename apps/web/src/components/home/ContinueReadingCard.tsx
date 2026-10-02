@@ -2,28 +2,22 @@ import { useTranslation } from '../../hooks/useTranslation'
 import { getUserBookCoverUrl } from '../../api/userBooks'
 import { getStorageUrl } from '../../api/client'
 import { LocalizedLink } from '../LocalizedLink'
-import type { ContinueBook } from '../../hooks/useContinueReading'
+import type { LibraryShelfItem } from '@textstack/shared'
 
 interface ContinueReadingCardProps {
-  book: ContinueBook
+  book: LibraryShelfItem
 }
 
 export function ContinueReadingCard({ book }: ContinueReadingCardProps) {
   const { t } = useTranslation()
 
-  const percent = book.type === 'edition'
-    ? Math.round((book.progress.percent ?? 0) * 100)
-    : Math.round((book.book.progressPercent ?? 0) * 100)
-
-  const coverUrl = book.type === 'edition'
-    ? getStorageUrl(book.item.coverPath)
-    : getUserBookCoverUrl(book.book.coverPath)
-
-  const readerPath = book.type === 'edition'
-    ? `/books/${book.item.slug}/${book.progress.chapterSlug}`
-    : `/library/my/${book.book.id}/read/${book.book.progressChapterSlug}`
-
-  const title = book.type === 'edition' ? book.item.title : book.book.title
+  const percent = Math.round(book.progressPercent * 100)
+  const isUpload = book.type === 'userbook'
+  const coverUrl = isUpload ? getUserBookCoverUrl(book.coverPath) : getStorageUrl(book.coverPath)
+  // No chapter (chapterless PDF in Original layout) → open the book at its saved position.
+  const slug = book.chapterSlug ? `/${book.chapterSlug}` : ''
+  const readerPath = isUpload ? `/library/my/${book.id}/read${slug}` : `/books/${book.slug}${slug}`
+  const title = book.title
 
   return (
     <LocalizedLink to={readerPath} className="continue-reading__card">

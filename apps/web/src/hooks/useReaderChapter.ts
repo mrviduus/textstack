@@ -28,6 +28,8 @@ export interface NormalizedBook {
   chapters: TocChapter[]
   /** User-uploaded PDF that supports the opt-in Original-layout view. */
   hasOriginalPdf?: boolean
+  /** Clipped article's origin page (userbook clips only). */
+  sourceUrl?: string | null
 }
 
 interface Params {
@@ -222,6 +224,7 @@ export function useReaderChapter({
             title: bk.title,
             totalWordCount: bk.totalWordCount,
             hasOriginalPdf: bk.hasOriginalPdf,
+            sourceUrl: bk.sourceUrl ?? null,
             chapters: bk.chapters.map(c => ({
               id: c.id,
               identifier: c.slug || String(c.chapterNumber),

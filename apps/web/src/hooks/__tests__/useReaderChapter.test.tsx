@@ -102,4 +102,18 @@ describe('useReaderChapter — userbook chapterless / 404 decoupling (ADR-012)',
     expect(result.current.error).toBe('Chapter not found')
     expect(result.current.chapter).toBeNull()
   })
+
+  // The clip's source link comes from the detail the reader already loads —
+  // no Read later list fetch (this module mock has no getUserBooks to call).
+  it('clip sourceUrl comes from the one detail request', async () => {
+    mockGetUserBook.mockResolvedValue({ ...pdfBook(true), sourceUrl: 'https://example.com/post' })
+
+    const { result } = renderHook(() =>
+      useReaderChapter({ mode: 'userbook', userBookId: 'b1', isAuthenticated: true }),
+    )
+
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.book?.sourceUrl).toBe('https://example.com/post')
+    expect(mockGetUserBook).toHaveBeenCalledTimes(1)
+  })
 })
