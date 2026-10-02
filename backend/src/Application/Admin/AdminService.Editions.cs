@@ -122,7 +122,8 @@ public partial class AdminService
                 e.SeoRelevanceText != null && e.SeoRelevanceText != "" &&
                 e.SeoThemesJson != null && e.SeoThemesJson != "" &&
                 e.SeoFaqsJson != null && e.SeoFaqsJson != "" &&
-                e.Chapters.Any()
+                e.Chapters.Any(),
+                e.FeaturedRank
             ))
             .ToListAsync(ct);
 
@@ -164,7 +165,8 @@ public partial class AdminService
                 e.CanonicalOverride,
                 e.SeoRelevanceText,
                 e.SeoThemesJson,
-                e.SeoFaqsJson
+                e.SeoFaqsJson,
+                e.FeaturedRank
             ))
             .FirstOrDefaultAsync(ct);
     }
@@ -181,12 +183,17 @@ public partial class AdminService
         if (request.Description?.Length > 5000)
             return (false, "Description must be 5000 characters or less");
 
+        if (request.FeaturedRank is < 1 or > 999)
+            return (false, "Featured rank must be between 1 and 999, or empty");
+
         var edition = await db.Editions.FindAsync([id], ct);
         if (edition is null)
             return (false, "Edition not found");
 
         edition.Title = request.Title;
         edition.Description = request.Description;
+        var featuredChanged = edition.FeaturedRank != request.FeaturedRank;
+        edition.FeaturedRank = request.FeaturedRank;
         edition.UpdatedAt = DateTimeOffset.UtcNow;
 
         // SEO fields
@@ -256,7 +263,10 @@ public partial class AdminService
         await db.SaveChangesAsync(ct);
 
         if (edition.Status == EditionStatus.Published)
-            _ = EnqueueSsgSafe(edition.SiteId, bookSlugs: [edition.Slug]);
+            // Featured order lives on home + /books, which only a Full rebuild re-renders.
+            _ = featuredChanged
+                ? EnqueueSsgSafe(edition.SiteId)
+                : EnqueueSsgSafe(edition.SiteId, bookSlugs: [edition.Slug]);
 
         return (true, null);
     }

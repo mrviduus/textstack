@@ -247,6 +247,9 @@ export function EditionsPage() {
               <tr key={edition.id}>
                 <td>
                   <Link to={`/editions/${edition.id}`}>{edition.title}</Link>
+                  {edition.featuredRank != null && (
+                    <span className="featured-badge" title="Featured rank (Popular shelf)">★ {edition.featuredRank}</span>
+                  )}
                 </td>
                 <td>{edition.authors || '-'}</td>
                 <td>{edition.language}</td>

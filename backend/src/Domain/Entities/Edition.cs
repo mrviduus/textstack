@@ -19,6 +19,9 @@ public class Edition : ISiteScoped
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 
+    /// <summary>Curated "Popular" shelf position. Null = not featured; lower = shown first.</summary>
+    public int? FeaturedRank { get; set; }
+
     // SEO fields
     public bool Indexable { get; set; } = true;
     public string? SeoTitle { get; set; }

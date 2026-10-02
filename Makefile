@@ -1,4 +1,4 @@
-.PHONY: up down restart logs status backup restore backup-list backup-verify rebuild-ssg clean-ssg deploy nginx-setup build rebuild fix-permissions test lint seo-publish-setup seo-publish-status seo-publish-logs seo-publish-restart seo-publish-stop quality-poll-setup quality-poll-status quality-poll-logs quality-poll-restart quality-poll-stop
+.PHONY: up down restart logs status backup restore backup-list backup-verify rebuild-ssg clean-ssg featured featured-show deploy nginx-setup build rebuild fix-permissions test lint seo-publish-setup seo-publish-status seo-publish-logs seo-publish-restart seo-publish-stop quality-poll-setup quality-poll-status quality-poll-logs quality-poll-restart quality-poll-stop
 
 # ============================================================
 # Docker Services
@@ -77,6 +77,18 @@ rebuild-ssg:
 clean-ssg:
 	rm -rf apps/web/dist/ssg apps/web/dist/ssg-new apps/web/dist/ssg-old
 	@echo "SSG cleaned"
+
+# Popular shelf. Run ON the server (api is bound to 127.0.0.1:8080). Replaces the whole
+# shelf in the given order and queues a Full SSG rebuild. Node builds the JSON (quoting).
+featured:
+	@test -n "$(SLUGS)" || { echo 'usage: make featured SLUGS="nineteen-eighty-four animal-farm ..."'; exit 1; }
+	@node -e 'console.log(JSON.stringify({slugs: process.argv.slice(1)}))' $(SLUGS) | \
+	curl -sS --fail-with-body -X PUT http://127.0.0.1:8080/internal/featured \
+		-H 'Host: textstack.app' -H 'Content-Type: application/json' --data-binary @-; echo
+
+featured-show:
+	@curl -sS --fail-with-body -H 'Host: textstack.app' 'http://127.0.0.1:8080/en/books?sort=popular&limit=100' | \
+	node -e 'let s=""; process.stdin.on("data", d => s += d).on("end", () => { for (const b of JSON.parse(s).items) if (b.featuredRank != null) console.log(b.featuredRank, b.slug) })'
 
 # ============================================================
 # Testing & Linting

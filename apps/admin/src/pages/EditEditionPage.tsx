@@ -31,6 +31,8 @@ export function EditEditionPage() {
   const [authors, setAuthors] = useState<AuthorItem[]>([])
   const [genres, setGenres] = useState<SelectedGenre[]>([])
   const [description, setDescription] = useState('')
+  // '' = not on the Popular shelf
+  const [featuredRank, setFeaturedRank] = useState('')
   // Author modal state
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [newAuthorName, setNewAuthorName] = useState('')
@@ -59,6 +61,7 @@ export function EditEditionPage() {
           (data.genres || []).map(g => ({ id: g.id, name: g.name }))
         )
         setDescription(data.description || '')
+        setFeaturedRank(data.featuredRank?.toString() ?? '')
         setIndexable(data.indexable ?? true)
         setSeoTitle(data.seoTitle || '')
         setSeoDescription(data.seoDescription || '')
@@ -98,6 +101,7 @@ export function EditEditionPage() {
         seoFaqsJson: seoFaqs.length > 0 ? JSON.stringify(seoFaqs.map(f => ({ q: f.question, a: f.answer }))) : null,
         authors: authors.map(a => ({ authorId: a.id, role: a.role })),
         genreIds: genres.map(g => g.id),
+        featuredRank: featuredRank ? Number(featuredRank) : null,
       })
       navigate('/editions')
     } catch (err) {
@@ -338,6 +342,21 @@ export function EditEditionPage() {
             selected={genres}
             onChange={setGenres}
           />
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="featuredRank">Featured rank</label>
+          <input
+            id="featuredRank"
+            type="number"
+            min={1}
+            max={999}
+            step={1}
+            value={featuredRank}
+            onChange={(e) => setFeaturedRank(e.target.value)}
+            placeholder="Not featured"
+          />
+          <small className="form-hint">Lower = shown first on Discover / home. Empty = not on the Popular shelf.</small>
         </div>
 
         <SeoFieldset

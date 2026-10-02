@@ -151,10 +151,11 @@ export function BooksPage() {
         </div>
         <select
           className="catalogue-filters__sort"
-          value={sort}
+          value={sort === 'popular' ? '' : sort}
           onChange={(e) => setFilter('sort', e.target.value)}
         >
-          <option value="">{t('books.sortRecent')}</option>
+          <option value="">{t('books.sortPopular')}</option>
+          <option value="recent">{t('books.sortRecent')}</option>
           <option value="title">{t('books.sortTitle')}</option>
           <option value="oldest">{t('books.sortOldest')}</option>
         </select>
