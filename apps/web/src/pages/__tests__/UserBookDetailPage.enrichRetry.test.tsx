@@ -15,6 +15,7 @@ vi.mock('../../api/userBooks', () => ({
   markUserBookComplete: vi.fn(),
   unmarkUserBookComplete: vi.fn(),
   getUserBookCoverUrl: (p: string) => p,
+  getUserBookFileUrl: (id: string) => `/api/me/books/${id}/file`,
 }))
 
 vi.mock('../../context/AuthContext', () => ({
