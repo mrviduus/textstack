@@ -473,7 +473,7 @@ public class ReadingStatsServiceTests
         Assert.Equal(0, r.CurrentStreak);
         Assert.Equal(0, r.LongestStreak);
         Assert.Equal(0.0, r.AvgDailyMinutes);
-        Assert.Equal(0.0, r.AvgWordsPerMinute);
+        Assert.Equal(0.0, r.AvgWordsPerMinute); // measured, never the estimate fallback
         Assert.Null(r.DailyGoal);
     }
 

@@ -69,7 +69,9 @@ public record UserBookDetailDto(
     /// download button shows it, and the "ask before spending mobile data" rule
     /// needs it — without a size every file has to be assumed large.
     /// </summary>
-    long? OriginalFileBytes = null
+    long? OriginalFileBytes = null,
+    /// <summary>Page a clipped article came from; null for uploaded files.</summary>
+    string? SourceUrl = null
 );
 
 public record UserChapterSummaryDto(

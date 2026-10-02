@@ -289,6 +289,7 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage, IEnt
                 b.UpdatedAt,
                 b.CompletedAt,
                 b.MetadataEnrichmentStatus,
+                b.SourceUrl,
                 HasOriginalPdf = b.BookFiles.Any(f => f.Format == BookFormat.Pdf),
                 // Size of the file /me/books/{id}/file would serve — same "newest
                 // upload, any format" pick as the endpoint. Correlated subquery on
@@ -341,7 +342,8 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage, IEnt
             book.CompletedAt,
             book.HasOriginalPdf,
             book.MetadataEnrichmentStatus.ToString(),
-            book.OriginalFileBytes
+            book.OriginalFileBytes,
+            book.SourceUrl
         );
     }
 
@@ -364,15 +366,14 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage, IEnt
         if (chapter is null)
             return null;
 
-        var prev = await db.UserChapters
-            .Where(c => c.UserBookId == chapter.UserBookId && c.ChapterNumber == chapter.ChapterNumber - 1)
+        // Both neighbours in one round trip.
+        var neighbours = await db.UserChapters
+            .Where(c => c.UserBookId == chapter.UserBookId
+                && (c.ChapterNumber == chapter.ChapterNumber - 1 || c.ChapterNumber == chapter.ChapterNumber + 1))
             .Select(c => new UserChapterNavDto(c.ChapterNumber, c.Slug, c.Title))
-            .FirstOrDefaultAsync(ct);
-
-        var next = await db.UserChapters
-            .Where(c => c.UserBookId == chapter.UserBookId && c.ChapterNumber == chapter.ChapterNumber + 1)
-            .Select(c => new UserChapterNavDto(c.ChapterNumber, c.Slug, c.Title))
-            .FirstOrDefaultAsync(ct);
+            .ToListAsync(ct);
+        var prev = neighbours.FirstOrDefault(n => n.ChapterNumber < chapter.ChapterNumber);
+        var next = neighbours.FirstOrDefault(n => n.ChapterNumber > chapter.ChapterNumber);
 
         return new UserChapterDto(
             chapter.Id,
@@ -536,9 +537,14 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage, IEnt
     public async Task<(bool Success, string? Error)> UpsertProgressAsync(
         Guid userId, Guid bookId, UpsertUserBookProgressRequest request, CancellationToken ct)
     {
-        var book = await db.UserBooks.FirstOrDefaultAsync(b => b.UserId == userId && b.Id == bookId && b.TakedownAt == null, ct);
-        if (book is null)
+        // The chapter-slug check rides along in the same read (one round trip, not two).
+        var row = await db.UserBooks
+            .Where(b => b.UserId == userId && b.Id == bookId && b.TakedownAt == null)
+            .Select(b => new { Book = b, ChapterKnown = b.Chapters.Any(c => c.Slug == request.ChapterSlug) })
+            .FirstOrDefaultAsync(ct);
+        if (row is null)
             return (false, "Book not found");
+        var book = row.Book;
 
         // The position must come from the coordinate space that already owns this
         // book, or say plainly that it is moving between spaces. An uploaded PDF
@@ -565,13 +571,8 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage, IEnt
         // slug had it stored verbatim — and every later read would resolve it to nothing. The
         // bookmark path in this same file has always checked (AddBookmarkAsync); progress never did.
         // Null stays legal: a chapterless PDF in Original layout has a page, not a chapter.
-        if (!string.IsNullOrWhiteSpace(request.ChapterSlug))
-        {
-            var known = await db.UserChapters
-                .AnyAsync(c => c.UserBookId == bookId && c.Slug == request.ChapterSlug, ct);
-            if (!known)
-                return (false, $"No chapter '{request.ChapterSlug}' in this book");
-        }
+        if (!string.IsNullOrWhiteSpace(request.ChapterSlug) && !row.ChapterKnown)
+            return (false, $"No chapter '{request.ChapterSlug}' in this book");
 
         book.ProgressChapterSlug = request.ChapterSlug;
         book.ProgressLocator = request.Locator;

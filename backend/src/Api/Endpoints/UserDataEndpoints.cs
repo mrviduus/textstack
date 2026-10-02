@@ -115,23 +115,23 @@ public static class UserDataEndpoints
 
         var siteId = httpContext.GetSiteId();
 
-        // Validate edition exists
-        var edition = await db.Editions
-            .Where(e => e.Id == editionId)
-            .FirstOrDefaultAsync(ct);
-
-        if (edition == null) return Results.NotFound("Edition not found");
-
-        // Validate chapter exists
-        var chapter = await db.Chapters
-            .Where(c => c.Id == request.ChapterId && c.EditionId == editionId)
-            .FirstOrDefaultAsync(ct);
-
-        if (chapter == null) return Results.NotFound("Chapter not found");
-
         var existing = await db.ReadingProgresses
             .Where(p => p.UserId == userId.Value && p.EditionId == editionId)
             .FirstOrDefaultAsync(ct);
+
+        // One projected read validates edition + chapter (via Editions, so its site filter applies)
+        // and fetches the stored chapter's slug for a stale write's response. Only slug + number
+        // are needed — never the chapter's html/plain_text/tsvector.
+        var existingChapterId = existing?.ChapterId;
+        var chapters = await db.Editions
+            .Where(e => e.Id == editionId)
+            .SelectMany(e => e.Chapters)
+            .Where(c => c.Id == request.ChapterId || c.Id == existingChapterId)
+            .Select(c => new { c.Id, c.Slug, c.ChapterNumber })
+            .ToListAsync(ct);
+
+        var chapter = chapters.FirstOrDefault(c => c.Id == request.ChapterId);
+        if (chapter == null) return Results.NotFound("Chapter not found");
 
         ReadingProgress? inserted = null;
 
@@ -140,12 +140,10 @@ public static class UserDataEndpoints
             // Update only if client timestamp is newer (conflict resolution)
             if (request.UpdatedAt.HasValue && request.UpdatedAt.Value <= existing.UpdatedAt)
             {
-                // Get current chapter slug for response
-                var existingChapter = await db.Chapters.FirstOrDefaultAsync(c => c.Id == existing.ChapterId, ct);
                 return Results.Ok(new ReadingProgressDto(
                     existing.EditionId,
                     existing.ChapterId,
-                    existingChapter?.Slug,
+                    chapters.FirstOrDefault(c => c.Id == existing.ChapterId)?.Slug,
                     existing.Locator,
                     existing.Percent,
                     existing.UpdatedAt,
@@ -154,7 +152,7 @@ public static class UserDataEndpoints
                 ));
             }
 
-            ApplyProgressUpdate(existing, request, chapter);
+            ApplyProgressUpdate(existing, request, chapter.ChapterNumber);
         }
         else
         {
@@ -172,7 +170,7 @@ public static class UserDataEndpoints
                 ChapterId = request.ChapterId,
                 Locator = request.Locator,
             };
-            ApplyProgressUpdate(progress, request, chapter);
+            ApplyProgressUpdate(progress, request, chapter.ChapterNumber);
             db.ReadingProgresses.Add(progress);
             existing = progress;
             inserted = progress;
@@ -207,7 +205,7 @@ public static class UserDataEndpoints
 
             if (!request.UpdatedAt.HasValue || request.UpdatedAt.Value > winner.UpdatedAt)
             {
-                ApplyProgressUpdate(winner, request, chapter);
+                ApplyProgressUpdate(winner, request, chapter.ChapterNumber);
                 await db.SaveChangesAsync(ct);
             }
 
@@ -231,7 +229,7 @@ public static class UserDataEndpoints
     /// the lost-insert-race recovery so the two can never drift.
     /// </summary>
     public static void ApplyProgressUpdate(
-        ReadingProgress target, UpsertProgressRequest request, Chapter chapter)
+        ReadingProgress target, UpsertProgressRequest request, int chapterNumber)
     {
         target.ChapterId = request.ChapterId;
         target.Locator = request.Locator;
@@ -260,8 +258,8 @@ public static class UserDataEndpoints
         // "never recorded" (distinct from ordinal 0, a real 0-based first chapter), so the first
         // write seeds it rather than max-ing against an implied 0.
         target.MaxChapterNumber = target.MaxChapterNumber.HasValue
-            ? Math.Max(target.MaxChapterNumber.Value, chapter.ChapterNumber)
-            : chapter.ChapterNumber;
+            ? Math.Max(target.MaxChapterNumber.Value, chapterNumber)
+            : chapterNumber;
         target.UpdatedAt = DateTimeOffset.UtcNow;
     }
 

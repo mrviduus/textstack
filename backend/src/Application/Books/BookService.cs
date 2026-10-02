@@ -212,15 +212,14 @@ public class BookService(IAppDbContext db)
         if (chapter is null)
             return null;
 
-        var prev = await db.Chapters
-            .Where(p => p.EditionId == chapter.EditionId && p.ChapterNumber == chapter.ChapterNumber - 1)
-            .Select(p => new ChapterNavDto(p.Slug, p.Title))
-            .FirstOrDefaultAsync(ct);
-
-        var next = await db.Chapters
-            .Where(n => n.EditionId == chapter.EditionId && n.ChapterNumber == chapter.ChapterNumber + 1)
-            .Select(n => new ChapterNavDto(n.Slug, n.Title))
-            .FirstOrDefaultAsync(ct);
+        // Both neighbours in one round trip.
+        var neighbours = await db.Chapters
+            .Where(n => n.EditionId == chapter.EditionId
+                && (n.ChapterNumber == chapter.ChapterNumber - 1 || n.ChapterNumber == chapter.ChapterNumber + 1))
+            .Select(n => new { n.ChapterNumber, Nav = new ChapterNavDto(n.Slug, n.Title) })
+            .ToListAsync(ct);
+        var prev = neighbours.FirstOrDefault(n => n.ChapterNumber < chapter.ChapterNumber)?.Nav;
+        var next = neighbours.FirstOrDefault(n => n.ChapterNumber > chapter.ChapterNumber)?.Nav;
 
         return new ChapterDto(
             chapter.Id,

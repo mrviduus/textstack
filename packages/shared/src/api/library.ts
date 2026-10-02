@@ -26,6 +26,9 @@ export interface LibraryShelfItem {
   lastOpenedAt: string | null
   createdAt: string
   estimatedMinutesRemaining: number | null
+  /** Chapter the reader stopped in (continue-reading target). Null for a
+   *  chapterless PDF or an unopened book; absent on older payloads. */
+  chapterSlug?: string | null
 }
 
 export interface LibraryShelves {
