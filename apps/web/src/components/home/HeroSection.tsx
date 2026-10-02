@@ -10,7 +10,7 @@ import { MobileSearchOverlay } from '../Search'
 import { LocalizedLink } from '../LocalizedLink'
 import { uploadUserBook } from '../../api/userBooks'
 import { pdfFilePassesSanityCheck } from '../../lib/pdfUploadSanity'
-import { useContinueReading } from '../../hooks/useContinueReading'
+import { useLibraryShelves } from '../../hooks/useLibraryShelves'
 import { ContinueReadingCard } from './ContinueReadingCard'
 import { POPULAR_LANGUAGES, getLanguage } from '@textstack/shared'
 import { getFlagUrl } from '../../data/flags'
@@ -20,7 +20,7 @@ export function HeroSection() {
   const { language } = useLanguage()
   const { isAuthenticated, ensureSession } = useAuth()
   const { isReturningUser, guestState } = useGuestLimits()
-  const { book: continueReadingBook } = useContinueReading()
+  const continueReadingBook = useLibraryShelves().shelves?.continueReading[0] ?? null
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [isMobile, setIsMobile] = useState(false)

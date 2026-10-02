@@ -32,7 +32,7 @@ import { trackBookOpened } from '../lib/analytics'
 import { ReaderStatsWidget } from '../components/reader/ReaderStatsWidget'
 import { useGuestLimits } from '../context/GuestLimitsContext'
 import { WordHint } from '../components/reader/WordHint'
-import { getUserBooks, getUserBookFileUrl, getUserBookProgress } from '../api/userBooks'
+import { getUserBookFileUrl, getUserBookProgress } from '../api/userBooks'
 import { parsePdfPageLocator, computeBookProgress, clampPage, isPdfAnchor, bookMinutesLeft, type PdfAnchor } from '@textstack/shared'
 import { useHighlights } from '../hooks/useHighlights'
 import { useBookReviews, chapterReviewPath } from '../hooks/useBookReviews'
@@ -77,22 +77,6 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
     userChapterSlug,
     isAuthenticated,
   })
-
-  // Source URL for "Send to TextStack" clips. The userbook detail DTO doesn't
-  // carry it, so resolve from the Read later list (clips only) once per book.
-  const [clipSourceUrl, setClipSourceUrl] = useState<string | null>(null)
-  useEffect(() => {
-    if (mode !== 'userbook' || !isAuthenticated || !id) { setClipSourceUrl(null); return }
-    let cancelled = false
-    getUserBooks({ shelf: 'readlater' })
-      .then(books => {
-        if (cancelled) return
-        const match = books.find(b => b.id === id)
-        setClipSourceUrl(match?.sourceUrl ?? null)
-      })
-      .catch(() => { if (!cancelled) setClipSourceUrl(null) })
-    return () => { cancelled = true }
-  }, [mode, isAuthenticated, id])
 
   const [tocOpen, setTocOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -645,8 +629,8 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
         progress={overallProgress}
         isBookmarked={originalActive ? isPageBookmarked(pdfCurrentPage) : isBookmarked(activeChapterIdentifier)}
         backUrl={backUrl}
-        sourceUrl={mode === 'userbook' ? clipSourceUrl : null}
-        sourceDomain={mode === 'userbook' ? sourceDomain(clipSourceUrl) : null}
+        sourceUrl={mode === 'userbook' ? book.sourceUrl ?? null : null}
+        sourceDomain={mode === 'userbook' ? sourceDomain(book.sourceUrl ?? null) : null}
         useLocalizedLink={mode === 'public'}
         // In-chapter search is reflow-DOM based; the PDF canvas has no page-aware
         // search yet, so hide the button rather than open a no-op (follow-up).
