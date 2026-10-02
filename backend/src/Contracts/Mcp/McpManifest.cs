@@ -24,10 +24,10 @@ public sealed record McpManifestAuth(string Type, string HowTo);
 public sealed record McpToolDescriptor(string Name, string Description);
 
 /// <summary>
-/// The advertised tool surface, VERBATIM from the runtime <c>McpToolCatalog</c>
-/// (the source of truth in the Mcp project). The API cannot reference the Mcp
-/// executable, so the pairs are mirrored here; a drift test in
-/// <c>TextStack.Ai.Mcp.Tests</c> fails if these diverge from the catalog.
+/// The advertised tool surface and the ONE copy of each tool's description: the
+/// runtime <c>McpToolCatalog</c> reads them via <see cref="Describe"/> (the Mcp
+/// project references this dependency-free assembly). A test still checks the
+/// tool NAMES match the catalog.
 ///
 /// Order matches the catalog's: the public catalog tools, then the user's own
 /// uploaded library, then their highlights and vocabulary
@@ -41,6 +41,9 @@ public sealed record McpToolDescriptor(string Name, string Description);
 /// </summary>
 public static class McpManifestCatalog
 {
+    /// <summary>The one copy of a tool's description, read by the runtime catalog too.</summary>
+    public static string Describe(string name) => Tools.First(t => t.Name == name).Description;
+
     public static IReadOnlyList<McpToolDescriptor> Tools { get; } =
     [
         new("search_books",

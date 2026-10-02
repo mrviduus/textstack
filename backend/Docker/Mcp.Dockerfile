@@ -1,16 +1,18 @@
 # TextStack MCP server — remote HTTP (streamable) transport (AI-049, Phase 8).
 # Mirrors Api.Dockerfile (alpine sdk build → alpine aspnet runtime). The project
-# is a thin, stateless MCP↔HTTP bridge: it references ONLY the MCP SDK packages
-# (no Application / Infrastructure / Domain), so the restore layer copies just its
-# csproj + the central package/build props.
+# is a thin, stateless MCP↔HTTP bridge: it references the MCP SDK packages and the
+# dependency-free Contracts project (tool descriptions), never Application /
+# Infrastructure / Domain.
 FROM mcr.microsoft.com/dotnet/sdk:10.0-alpine AS build
 WORKDIR /src
 
 COPY Directory.Build.props Directory.Packages.props ./
 COPY backend/src/Ai/TextStack.Ai.Mcp/TextStack.Ai.Mcp.csproj backend/src/Ai/TextStack.Ai.Mcp/
+COPY backend/src/Contracts/Contracts.csproj backend/src/Contracts/
 RUN dotnet restore backend/src/Ai/TextStack.Ai.Mcp/TextStack.Ai.Mcp.csproj
 
 COPY backend/src/Ai/TextStack.Ai.Mcp/ backend/src/Ai/TextStack.Ai.Mcp/
+COPY backend/src/Contracts/ backend/src/Contracts/
 RUN dotnet publish backend/src/Ai/TextStack.Ai.Mcp/TextStack.Ai.Mcp.csproj -c Release -o /app/publish
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine AS runtime

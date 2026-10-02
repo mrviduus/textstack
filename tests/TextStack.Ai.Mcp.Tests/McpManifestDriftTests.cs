@@ -40,20 +40,6 @@ public class McpManifestDriftTests
     }
 
     [Fact]
-    public void ManifestToolDescriptions_MatchRuntimeCatalog()
-    {
-        var catalog = BuildCatalog().ListTools()
-            .ToDictionary(t => t.Name, t => t.Description, StringComparer.Ordinal);
-
-        foreach (var tool in McpManifestCatalog.Tools)
-        {
-            Assert.True(catalog.TryGetValue(tool.Name, out var description),
-                $"manifest advertises '{tool.Name}' which the runtime catalog does not expose");
-            Assert.Equal(description, tool.Description);
-        }
-    }
-
-    [Fact]
     public void Manifest_AdvertisesTheWholeToolSurface()
     {
         Assert.Equal(18, McpManifestCatalog.Tools.Count);
