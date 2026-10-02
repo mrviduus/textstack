@@ -39,14 +39,14 @@ const LOADERS = [
  */
 const APPENDERS = [
   {
-    file: 'src/hooks/useReaderInfiniteScroll.ts',
-    cache: 'getCachedChapter(',
-    network: 'api.getChapter(',
+    file: 'src/components/reader/useEditionReaderSource.ts',
+    cache: 'getCachedChapter(editionId, slug)',
+    network: 'getChapter(bookSlug, slug)',
   },
   {
     file: 'src/components/reader/useUserBookReaderSource.ts',
-    cache: 'getCachedUserChapter(bookId, next.slug)',
-    network: 'getUserBookChapter(bookId, next.slug)',
+    cache: 'getCachedUserChapter(bookId, slug)',
+    network: 'getUserBookChapter(bookId, slug)',
   },
 ]
 

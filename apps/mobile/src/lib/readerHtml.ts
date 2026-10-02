@@ -1,5 +1,5 @@
 import { openDyslexicBase64 } from './openDyslexicBase64'
-import { pdfChromeCss, type PdfChrome } from './pdfViewerChrome'
+import { pdfChromeCss } from './pdfViewerChrome'
 import { readerChromeCss, type ReaderChrome } from './readerChrome'
 import { READER_OVERLAY_SCRIPT } from './readerOverlayScript'
 import { READER_ANCHOR_SCRIPT } from './readerAnchorScript.generated'
@@ -1531,7 +1531,7 @@ export function buildPdfViewerHtml(fileUrl: string, token: string | null, option
   // toggle or a theme switch no longer has to rebuild this string. Rebuilding it
   // reloads the WebView, and a reloaded pdf.js reopens at page 1 — see
   // `pdfViewerChrome.ts` for the 17-pages-lost incident behind this.
-  const chrome: PdfChrome = {
+  const chrome: ReaderChrome = {
     safeArea: { top: options.safeArea?.top ?? 0, bottom: options.safeArea?.bottom ?? 0 },
     backgroundColor: theme.backgroundColor,
     textColor: theme.textColor,

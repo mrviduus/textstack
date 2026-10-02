@@ -1,22 +1,30 @@
 import { useCallback, useRef, MutableRefObject } from 'react'
-import { createBooksApi } from '@textstack/shared'
-import type { Chapter, Language } from '@textstack/shared'
-import { getCachedChapter } from '../lib/offlineDb'
+
+type ChapterLink = { slug: string; title: string }
+
+/** What a source hands back for the next chapter, cache or network. */
+export type NextChapter = {
+  html: string
+  title: string
+  slug: string
+  wordCount: number | null
+  next: ChapterLink | null
+}
 
 type Options = {
-  bookSlug: string | undefined
-  language: Language
   injectJs: (js: string) => void
   /** Word counter accumulates across appended chapters so reading-session
    * tracking sees the full body the user has scrolled through. */
   wordCountRef: MutableRefObject<number>
-  /** Resolved edition id — the key the offline chapter cache is stored under. */
-  editionIdRef: MutableRefObject<string | null>
+  /** The source's next-chapter fetcher. MUST read the device before the network
+   * (chapterLoadOrder.test.ts pins it per source). Keep it stable (useCallback). */
+  fetchNext: (slug: string) => Promise<NextChapter>
 }
 
 /**
  * Owns the next-chapter prefetch ref and the WebView's infinite-scroll
- * wiring (`enableInfiniteScroll` / `appendChapter` / `disableInfiniteScroll`).
+ * wiring (`enableInfiniteScroll` / `appendChapter` / `disableInfiniteScroll`)
+ * for BOTH reader sources; only the fetch differs, and each source passes its own.
  *
  * `enableForChapter` is called when the WebView posts `'loaded'` — it
  * primes the ref with the current chapter's `next` and turns the bottom
@@ -26,20 +34,19 @@ type Options = {
  * fetches the next chapter, appends its HTML, advances the ref, and
  * disables the sentinel once we hit the end of the book.
  *
- * **It reads the device first, and until 2026-09-28 it did not read the device at
- * all.** This path was network-only, and its failure branch is
- * `disableInfiniteScroll()` — so offline, a fully downloaded catalogue book
- * scrolled to the bottom of its first chapter and then quietly stopped scrolling,
- * with no error and nothing to retry. The uploads path had carried a cache
- * fallback since it was written; the catalogue one was simply missed. Cache-first
- * rather than cache-as-fallback for the same reason as the initial load: a
- * network that accepts the connection and never answers would otherwise stall a
- * reader mid-book for the whole socket timeout and then turn the feature off.
+ * **The fetch reads the device first, and until 2026-09-28 the catalogue one did
+ * not read the device at all.** The failure branch is `disableInfiniteScroll()` —
+ * so offline, a fully downloaded catalogue book scrolled to the bottom of its
+ * first chapter and then quietly stopped scrolling, with no error and nothing to
+ * retry. Cache-first rather than cache-as-fallback for the same reason as the
+ * initial load: a network that accepts the connection and never answers would
+ * otherwise stall a reader mid-book for the whole socket timeout and then turn
+ * the feature off.
  */
-export function useReaderInfiniteScroll({ bookSlug, language, injectJs, wordCountRef, editionIdRef }: Options) {
-  const nextChapterRef = useRef<{ slug: string; title: string } | null>(null)
+export function useReaderInfiniteScroll({ injectJs, wordCountRef, fetchNext }: Options) {
+  const nextChapterRef = useRef<ChapterLink | null>(null)
 
-  const enableForChapter = useCallback((chapter: Chapter | null) => {
+  const enableForChapter = useCallback((chapter: { next?: ChapterLink | null } | null) => {
     if (chapter?.next) {
       nextChapterRef.current = chapter.next
       injectJs('enableInfiniteScroll()')
@@ -48,29 +55,9 @@ export function useReaderInfiniteScroll({ bookSlug, language, injectJs, wordCoun
 
   const loadNext = useCallback(async () => {
     const next = nextChapterRef.current
-    if (!next || !bookSlug) return
+    if (!next) return
     try {
-      let html: string
-      let title: string
-      let slug: string
-      let wordCount: number | null
-      let following: Chapter['next'] = null
-
-      const editionId = editionIdRef.current
-      const cached = editionId ? await getCachedChapter(editionId, next.slug) : null
-      if (cached) {
-        html = cached.html
-        title = cached.title
-        slug = cached.chapterSlug
-        wordCount = cached.wordCount
-        following = cached.next
-      } else {
-        const api = createBooksApi(language)
-        const ch = await api.getChapter(bookSlug, next.slug)
-        ;({ html, title, slug, wordCount } = ch)
-        following = ch.next
-      }
-
+      const { html, title, slug, wordCount, next: following } = await fetchNext(next.slug)
       injectJs(`appendChapter(${JSON.stringify({ html, title, slug })})`)
       wordCountRef.current += wordCount || 0
       nextChapterRef.current = following
@@ -78,7 +65,7 @@ export function useReaderInfiniteScroll({ bookSlug, language, injectJs, wordCoun
     } catch {
       injectJs('disableInfiniteScroll()')
     }
-  }, [bookSlug, language, injectJs, wordCountRef, editionIdRef])
+  }, [injectJs, wordCountRef, fetchNext])
 
   return { enableForChapter, loadNext }
 }

@@ -25,6 +25,7 @@ import { getCachedUserBookMeta, listCachedUserChapters, isUserBookFullyCached } 
 import { getUserBookLocalProgress } from '../../src/lib/progressStorage'
 import { userBookChapterSlug } from '../../src/lib/userBookChapters'
 import { AddToCollectionSheet } from '../../src/components/library/AddToCollectionSheet'
+import { DownloadButton } from '../../src/components/library/DownloadButton'
 import { BookInsightsSection } from '../../src/components/library/BookInsightsSection'
 import { AssistantMenu } from '../../src/components/library/AssistantMenu'
 import { ChapterReviewAction } from '../../src/components/library/ReviewChapterButton'
@@ -320,10 +321,6 @@ export default function UserBookDetailScreen() {
   const downloadSize = book?.hasOriginalPdf === true
     ? formatBytes(typeof book.originalFileBytes === 'number' ? book.originalFileBytes : null)
     : null
-  const isDownloadingBook = dl?.status === 'downloading'
-  const downloadPct = dl && dl.totalChapters > 0
-    ? Math.round((dl.downloadedChapters / dl.totalChapters) * 100)
-    : 0
 
   const isReady = book?.status.toLowerCase() === 'ready'
   const { reviews } = useBookReviews(isReady && book ? { userBookId: book.id } : null)
@@ -701,57 +698,21 @@ export default function UserBookDetailScreen() {
             </TouchableOpacity>
             {/* Offline download. Same four states as a catalog book — the two
                 libraries now share one download engine (DownloadContext). */}
-            {cached ? (
-              <TouchableOpacity
-                style={[styles.secondaryBtn, { borderColor: colors.success }]}
-                onPress={() => removeUserBookDownload(book.id).then(() => setCached(false))}
-                accessibilityRole="button"
-                accessibilityLabel="Remove offline download"
-              >
-                <Ionicons name="cloud-done-outline" size={18} color={colors.success} />
-                <Text style={[styles.secondaryBtnText, { color: colors.success }]}>Downloaded — Remove</Text>
-              </TouchableOpacity>
-            ) : isDownloadingBook ? (
-              <TouchableOpacity
-                style={[styles.secondaryBtn, { borderColor: colors.primary }]}
-                onPress={() => cancelDownload(book.id)}
-                accessibilityRole="button"
-                accessibilityLabel="Cancel download"
-              >
-                <Ionicons name="cloud-download-outline" size={18} color={colors.primary} />
-                <Text style={[styles.secondaryBtnText, { color: colors.primary }]}>
-                  Downloading {downloadPct}% — Cancel
-                </Text>
-              </TouchableOpacity>
-            ) : dl?.status === 'error' && dl.failedChapters > 0 ? (
-              <TouchableOpacity
-                style={[styles.secondaryBtn, { borderColor: colors.warning }]}
-                onPress={() => retryFailed(book.id)}
-                accessibilityRole="button"
-                accessibilityLabel="Retry failed chapters"
-              >
-                <Ionicons name="refresh" size={18} color={colors.warning} />
-                <Text style={[styles.secondaryBtnText, { color: colors.warning }]}>
-                  {plural(dl.failedChapters, 'chapter', 'chapters', 'Retry {n} failed {noun}')}
-                </Text>
-              </TouchableOpacity>
-            ) : (
-              <TouchableOpacity
-                style={[styles.secondaryBtn, { borderColor: colors.border }]}
-                onPress={async () => {
-                  if (!(await confirmDownloadOnCellular(book))) return
-                  await startUserBookDownload(book)
-                  setCached(await isUserBookFullyCached(book.id).catch(() => false))
-                }}
-                accessibilityRole="button"
-                accessibilityLabel="Download for offline reading"
-              >
-                <Ionicons name="cloud-download-outline" size={18} color={colors.text} />
-                <Text style={[styles.secondaryBtnText, { color: colors.text }]}>
-                  {downloadSize ? `Download for Offline · ${downloadSize}` : 'Download for Offline'}
-                </Text>
-              </TouchableOpacity>
-            )}
+            <DownloadButton
+              dl={dl}
+              cached={cached}
+              onRemove={() => removeUserBookDownload(book.id).then(() => setCached(false))}
+              onCancel={() => cancelDownload(book.id)}
+              onRetry={() => retryFailed(book.id)}
+              onStart={async () => {
+                if (!(await confirmDownloadOnCellular(book))) return
+                await startUserBookDownload(book)
+                setCached(await isUserBookFullyCached(book.id).catch(() => false))
+              }}
+              startLabel={downloadSize ? `Download for Offline · ${downloadSize}` : 'Download for Offline'}
+              buttonStyle={styles.secondaryBtn}
+              textStyle={styles.secondaryBtnText}
+            />
 
             {/* Said before the download, not discovered after it. It used to
                 warn that an offline PDF opens as text; the download now takes

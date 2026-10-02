@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useRouter } from 'expo-router'
 import { WebView } from 'react-native-webview'
-import { readingProgressApi, parseScrollLocator, chapterIdForSlug, parseTextPosition, serializeTextPosition } from '@textstack/shared'
+import { createBooksApi, readingProgressApi, parseScrollLocator, chapterIdForSlug, parseTextPosition, serializeTextPosition } from '@textstack/shared'
 import type { Language, TextPosition } from '@textstack/shared'
 import { getLocalProgress, saveLocalProgress } from '../../lib/progressStorage'
+import { getCachedChapter } from '../../lib/offlineDb'
 import { useReaderChapter } from '../../hooks/useReaderChapter'
 import { useReaderBook } from '../../hooks/useReaderBook'
 import { useReaderBookmarks, getSlugFromLocator } from '../../hooks/useReaderBookmarks'
@@ -64,9 +65,15 @@ export function useEditionReaderSource({
     bookSlug, language, isAuthenticated, editionIdRef, bookTitleRef, totalWordCountRef, setBookmarks,
   })
 
-  const { enableForChapter, loadNext } = useReaderInfiniteScroll({
-    bookSlug, language, injectJs, wordCountRef, editionIdRef,
-  })
+  // Device first — see useReaderInfiniteScroll / chapterLoadOrder.test.ts.
+  const fetchNext = useCallback(async (slug: string) => {
+    const editionId = editionIdRef.current
+    const cached = editionId ? await getCachedChapter(editionId, slug) : null
+    if (cached) return { ...cached, slug: cached.chapterSlug }
+    return createBooksApi(language).getChapter(bookSlug, slug)
+  }, [bookSlug, language])
+
+  const { enableForChapter, loadNext } = useReaderInfiniteScroll({ injectJs, wordCountRef, fetchNext })
 
   // The chapter list, in a ref so `persist` can read it without being rebuilt on every change —
   // it is handed to useReaderPersistence, which keys effects on its identity.

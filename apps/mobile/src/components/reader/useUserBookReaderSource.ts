@@ -13,6 +13,7 @@ import {
   pdfFlushDecision, shouldFlushOnClose, PDF_FLUSH_DEBOUNCE_MS,
 } from '../../lib/pdfWritePolicy'
 import { useReaderPersistence } from '../../hooks/useReaderPersistence'
+import { useReaderInfiniteScroll } from '../../hooks/useReaderInfiniteScroll'
 import type { ProgressSnapshot, ReaderChapterMeta, ReaderRuntime, SavedPosition } from './readerSource'
 
 type ToastFn = (t: { message: string; variant: 'error' | 'success' | 'info' }) => void
@@ -52,7 +53,6 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
   const wordCountRef = useRef(0)
   const bookTitleRef = useRef<string | null>(null)
   const userBookIdRef = useRef<string | null>(null)
-  const nextChapterRef = useRef<{ slug: string; title: string } | null>(null)
 
   const [chapter, setChapter] = useState<UserBookChapterDto | null>(null)
   const [loading, setLoading] = useState(true)
@@ -367,42 +367,14 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
     enabled: reflowWrites,
   })
 
-  const loadNext = useCallback(async () => {
-    const next = nextChapterRef.current
-    if (!next || !bookId) return
-    try {
-      let html: string
-      let title: string
-      let slug: string
-      let wordCount: number | null
-      let following: { slug: string; title: string } | null
-      // Device first, like the initial load. Without any cache read at all,
-      // reading a downloaded book offline stopped dead at the end of chapter
-      // one, which is where infinite scroll takes over; reading it second meant
-      // a network that never answers stalled the reader mid-book and then hit
-      // the `disableInfiniteScroll()` in the catch, turning scrolling off with
-      // no error and nothing to retry.
-      const cached = await getCachedUserChapter(bookId, next.slug)
-      if (cached) {
-        html = cached.html
-        title = cached.title
-        slug = cached.chapterSlug
-        wordCount = cached.wordCount
-        following = cached.next
-      } else {
-        const ch = await userBooksApi.getUserBookChapter(bookId, next.slug)
-        ;({ html, title, slug, wordCount } = ch)
-        following = ch.next
-      }
-      injectJs(`appendChapter(${JSON.stringify({ html, title, slug })})`)
-      wordCountRef.current += wordCount || 0
-      nextChapterRef.current = following
-      if (!following) injectJs('disableInfiniteScroll()')
-    } catch (e) {
-      console.warn('Failed to load next user-book chapter:', e)
-      injectJs('disableInfiniteScroll()')
-    }
-  }, [bookId, injectJs])
+  // Device first, like the initial load: without it a downloaded book stopped
+  // dead offline at the end of chapter one, where infinite scroll takes over.
+  const fetchNext = useCallback(async (slug: string) => {
+    const cached = await getCachedUserChapter(bookId, slug)
+    if (cached) return { ...cached, slug: cached.chapterSlug }
+    return userBooksApi.getUserBookChapter(bookId, slug)
+  }, [bookId])
+  const { enableForChapter, loadNext } = useReaderInfiniteScroll({ injectJs, wordCountRef, fetchNext })
 
   // --- S4c: Original-layout PDF server resume page. Fetched once the book is
   // known to be a PDF; parsed from the `page:<N>` progress locator. ---
@@ -613,12 +585,7 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
     wordCount: wordCountRef.current,
     progressRef, scrollOffsetRef, currentChapterSlugRef, bookProgressRef, positionRef, totalWordCountRef,
     saveProgress, bumpProgress, onWebViewLoaded, onRestoreLanded, onDocumentRebuild, beginReflow,
-    onChapterLoaded: () => {
-      if (chapter?.next) {
-        nextChapterRef.current = chapter.next
-        injectJs('enableInfiniteScroll()')
-      }
-    },
+    onChapterLoaded: () => enableForChapter(chapter),
     onRequestNextChapter: loadNext,
     onNavigateChapter: navigateToChapter,
     bookmarks,

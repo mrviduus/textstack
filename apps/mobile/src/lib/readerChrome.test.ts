@@ -138,6 +138,10 @@ describe('latchReaderChrome', () => {
     expect(latchReaderChrome(chrome, { ...chrome, safeArea: { top: 0, bottom: 16 } }).safeArea.top).toBe(24)
   })
 
+  it('absorbs the zero insets Android reports on the first frame', () => {
+    expect(latchReaderChrome({ ...chrome, safeArea: { top: 0, bottom: 0 } }, chrome).safeArea).toEqual({ top: 24, bottom: 16 })
+  })
+
   it('lets a theme change through', () => {
     expect(latchReaderChrome(chrome, { ...chrome, backgroundColor: '#111' }).backgroundColor).toBe('#111')
   })
@@ -147,5 +151,9 @@ describe('readerChromeChanged', () => {
   it('is true on first application and false for an identical value', () => {
     expect(readerChromeChanged(null, chrome)).toBe(true)
     expect(readerChromeChanged(chrome, { ...chrome, safeArea: { ...chrome.safeArea } })).toBe(false)
+  })
+
+  it('notices a theme switch', () => {
+    expect(readerChromeChanged(chrome, { ...chrome, backgroundColor: '#111' })).toBe(true)
   })
 })
