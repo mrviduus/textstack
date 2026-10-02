@@ -4,7 +4,7 @@ import {
   RefreshControl, TextInput as TextInputNative,
 } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
-import { Stack, useFocusEffect, useRouter } from 'expo-router'
+import { Stack, useRouter } from 'expo-router'
 import { readingTrackingApi, vocabularyApi, isOfflineError, plural } from '@textstack/shared'
 import type { ReadingStatsDto, DailyStatDto, AchievementDto, GoalDto, VocabularyStatsDto, VocabDailyStatDto } from '@textstack/shared'
 import type { BookStatsResponse } from '@textstack/shared'
@@ -15,6 +15,7 @@ import { useLanguage } from '../../src/context/LanguageContext'
 import { useToast } from '../../src/context/ToastContext'
 import { fonts } from '../../src/theme/typography'
 import { useReconnectCount } from '../../src/hooks/useOnline'
+import { useRefocusEffect } from '../../src/hooks/useRefocusEffect'
 import { SkeletonLoader } from '../../src/components/ui/SkeletonLoader'
 import { EmptyState } from '../../src/components/ui/EmptyState'
 import { FilterChips } from '../../src/components/ui/FilterChips'
@@ -98,12 +99,10 @@ export default function StatsScreen() {
   // of seven /me/* requests. The focus refresh and pull-to-refresh below
   // deliberately do NOT set it, so a refresh keeps the numbers on screen.
   useEffect(() => { setLoading(true); loadData() }, [loadData, reconnects, attempt])
-  useFocusEffect(useCallback(() => {
-    // Refresh on focus, but only after first load completes so we don't
-    // double-fetch on mount. `loadData` itself carries a generation
-    // counter, so refocusing mid-in-flight is safe.
-    if (!loading) loadData()
-  }, [loading, loadData]))
+  // Refresh on RE-focus only — the effect above owns the first load. A
+  // focus callback keyed on `loading` re-fired when `loading` flipped false,
+  // a second copy of all seven requests on every open.
+  useRefocusEffect(() => { if (!loading) loadData() })
 
   const onRefresh = async () => {
     setRefreshing(true)

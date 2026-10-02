@@ -3,7 +3,7 @@ import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput,
   RefreshControl, ScrollView } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
-import { useRouter, useFocusEffect } from 'expo-router'
+import { useRouter } from 'expo-router'
 import { vocabularyApi, isOfflineError, plural } from '@textstack/shared'
 import type { VocabularyWordDto, VocabularyStatsDto, PendingVocabWordDto, WordLookupDto } from '@textstack/shared'
 import { useAuth } from '../../src/context/AuthContext'
@@ -16,6 +16,7 @@ import { EmptyState } from '../../src/components/ui/EmptyState'
 import { useTts } from '../../src/hooks/useTts'
 import type { ReviewMode } from '../../src/hooks/useVocabularyReview'
 import { useReconnectCount } from '../../src/hooks/useOnline'
+import { useRefocusEffect } from '../../src/hooks/useRefocusEffect'
 import { ClusterBonusCard } from '../../src/components/vocabulary/ClusterBonusCard'
 import { VocabSettingsModal } from '../../src/components/vocabulary/VocabSettingsModal'
 import { VocabViewSheet } from '../../src/components/vocabulary/VocabViewSheet'
@@ -231,9 +232,12 @@ export default function VocabularyScreen() {
     }
   }
 
-  useFocusEffect(useCallback(() => {
-    if (!loading) { offsetRef.current = 0; loadData() }
-  }, [loading, loadData]))
+  // RE-focus only: the effect above owns the first load and every filter /
+  // search / sort change. A focus callback keyed on `loading` re-fired each
+  // time `loading` flipped false — a second words + stats pair per change.
+  useRefocusEffect(() => {
+    if (!loading) { offsetRef.current = 0; loadData().catch(() => {}) }
+  })
 
   const onRefresh = async () => {
     setRefreshing(true)

@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { insightsApi, reviewsBySlug, type BookInsight } from '@textstack/shared'
 
 /**
  * The book's insights and which chapters have a structured review (ADR-016: one `/me/insights`
- * call, shared with `BookInsightsSection` by the in-flight dedupe in the shared client). Pass null
- * to skip (signed out, book not loaded).
+ * call per screen — the screen passes `insights` + `removeInsight` down to `BookInsightsSection`
+ * rather than letting it fetch the same rows again). Pass null to skip (signed out, book not loaded).
  *
  * `loading` is derived from which target the data belongs to — a flag set in the effect is still
  * false on the render where the target first appears, which flashed "not reviewed yet".
@@ -24,7 +24,13 @@ export function useBookReviews(target: { userBookId: string } | { editionId: str
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by id, not object identity
   }, [key])
 
+  const removeInsight = useCallback((id: string) => {
+    setState(prev => ({ ...prev, insights: prev.insights.filter(i => i.id !== id) }))
+  }, [])
+
   const current = key !== null && state.key === key
   const insights = current ? state.insights : []
-  return { insights, reviews: reviewsBySlug(insights), loading: key !== null && !current, error: current && state.error }
+  return {
+    insights, reviews: reviewsBySlug(insights), loading: key !== null && !current, error: current && state.error, removeInsight,
+  }
 }

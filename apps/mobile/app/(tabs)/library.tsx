@@ -198,11 +198,10 @@ export default function LibraryScreen() {
   }, [])
   const toggleView = (mode: ViewMode) => { setViewMode(mode); AsyncStorage.setItem(VIEW_MODE_KEY, mode).catch(() => {}) }
 
-  useEffect(() => { loadData() }, [loadData])
-
-  useFocusEffect(useCallback(() => {
-    if (isAuthenticated && !loading) loadData()
-  }, [isAuthenticated, loading, loadData]))
+  // Focus owns the load — first open included. A separate mount effect plus a
+  // `loading` dep here loaded twice per open: the flag flipping false re-created
+  // this callback while focused, which re-ran it (6 requests instead of 3).
+  useFocusEffect(useCallback(() => { loadData() }, [loadData]))
 
   useEffect(() => {
     if (!activeCollectionId) {
