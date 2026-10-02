@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **SEO** — a crawler on a path no SPA route owns (e.g. `/$1`, which Bing indexed) gets a real 404 instead of the homepage shell with 200; real top-level routes and humans unchanged — infra
 - **Perf** — fewer requests: the Header no longer pulls full `/me/reading/stats` on every page (it shows only vocab fields), and library cards share one `/me/reading/pace` request instead of one per card on a cold cache; no behaviour change — web
 - **Perf** — fewer DB round trips on hot paths: progress PUT 4→2 (projected chapter, no html/tsvector), chapter GET 3→2 (both neighbours in one query), shelves 9→3 (pace aggregated in SQL, shelves cut in memory); one server pace rule (`ReadingPace`: own wpm at ≥3 sessions, else 200; minutes round to nearest) for shelves, book stats, `/me/reading/stats`, `/me/reading/pace`; additive `chapterSlug` on every shelf item, `sourceUrl` on user-book detail — backend
 - **Perf** — fewer DB round trips on hot paths: progress PUT 4→2 (projected chapter, no html/tsvector), chapter GET 3→2 (both neighbours in one query), shelves 9→3 (pace aggregated in SQL, shelves cut in memory); one server pace rule for estimates (`ReadingPace`: own wpm at ≥3 sessions, else 200; minutes round to nearest) — shelves, book-stats minutes left, `/me/reading/pace`; displayed wpm stays measured; additive `chapterSlug` on every shelf item, `sourceUrl` on user-book detail — backend
