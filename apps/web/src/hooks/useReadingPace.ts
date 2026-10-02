@@ -30,6 +30,16 @@ export const FALLBACK_PACE: ReadingPaceDto = {
   isUserSpecific: false,
 }
 
+// One request per page: every UserBookCard calls this hook, and the localStorage
+// cache is only written after the response, so a cold cache used to send N.
+let inflight: Promise<ReadingPaceDto> | null = null
+function loadPace(): Promise<ReadingPaceDto> {
+  inflight ??= getReadingPace()
+    .then((p) => { writeCache(p); return p })
+    .finally(() => { inflight = null })
+  return inflight
+}
+
 export function useReadingPace(): ReadingPaceDto {
   const { isAuthenticated } = useAuth()
   const [pace, setPace] = useState<ReadingPaceDto>(() => readCache()?.value ?? FALLBACK_PACE)
@@ -45,12 +55,8 @@ export function useReadingPace(): ReadingPaceDto {
       return
     }
     let cancelled = false
-    getReadingPace()
-      .then((p) => {
-        if (cancelled) return
-        setPace(p)
-        writeCache(p)
-      })
+    loadPace()
+      .then((p) => { if (!cancelled) setPace(p) })
       .catch(() => { /* keep fallback */ })
     return () => { cancelled = true }
   }, [isAuthenticated])

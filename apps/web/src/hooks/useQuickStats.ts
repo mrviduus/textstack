@@ -23,12 +23,41 @@ function getCached(): QuickStats | null {
   return null
 }
 
-export function useQuickStats(): QuickStats | null {
+const EMPTY: QuickStats = {
+  todaySeconds: 0, todayVocabReviews: 0, dailyGoal: null, currentStreak: 0,
+  vocabDueNow: 0, vocabReviewedToday: 0, vocabStreak: 0,
+}
+
+/**
+ * `includeReading: false` skips `/me/reading/stats` (the Header shows only the
+ * vocab fields) and keeps the last-known reading fields from the shared cache.
+ */
+export function useQuickStats({ includeReading = true }: { includeReading?: boolean } = {}): QuickStats | null {
   const { isAuthenticated } = useAuth()
   const [data, setData] = useState<QuickStats | null>(getCached)
 
   useEffect(() => {
     if (!isAuthenticated) return
+
+    if (!includeReading) {
+      let cancelled = false
+      getVocabStats()
+        .then(v => {
+          if (cancelled) return
+          setData(prev => {
+            const qs: QuickStats = {
+              ...(prev ?? EMPTY),
+              vocabDueNow: v.dueNow,
+              vocabReviewedToday: v.reviewedToday,
+              vocabStreak: v.streak,
+            }
+            try { localStorage.setItem(CACHE_KEY, JSON.stringify(qs)) } catch {}
+            return qs
+          })
+        })
+        .catch(() => {})
+      return () => { cancelled = true }
+    }
 
     const tz = -new Date().getTimezoneOffset()
     Promise.all([
@@ -48,7 +77,7 @@ export function useQuickStats(): QuickStats | null {
         try { localStorage.setItem(CACHE_KEY, JSON.stringify(qs)) } catch {}
       })
       .catch(() => {})
-  }, [isAuthenticated])
+  }, [isAuthenticated, includeReading])
 
   // Optimistically update when a review is submitted
   useEffect(() => {
