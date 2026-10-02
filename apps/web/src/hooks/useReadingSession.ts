@@ -88,7 +88,10 @@ export function useReadingSession(options: UseReadingSessionOptions) {
       userBookId: userBookId || null,
       startedAt: new Date(startedAtRef.current).toISOString(),
       endedAt: new Date(now).toISOString(),
-      durationSeconds: Math.min(Math.round(activeSecondsRef.current), 14400),
+      // Never more than the wall clock between start and end: the heartbeat ticks on a timer that
+      // began at mount, so its first +30s can land before the session is 30s old, and the server
+      // rejects duration > endedAt − startedAt with a 400 (found on prod 2026-10-02).
+      durationSeconds: Math.min(Math.round(activeSecondsRef.current), 14400, Math.floor((now - startedAtRef.current) / 1000)),
       wordsRead: totalWords
         ? Math.round(Math.abs(currentPercentRef.current - startPercentRef.current) * totalWords)
         : 0,
@@ -216,7 +219,9 @@ async function flushPendingSessions() {
     const failed: PendingSession[] = []
     for (const session of sessions) {
       try {
-        await submitSession(session)
+        // Sessions queued before the clamp above can carry a duration longer than their own span.
+        const span = Math.floor((Date.parse(session.endedAt) - Date.parse(session.startedAt)) / 1000)
+        await submitSession(span >= 0 ? { ...session, durationSeconds: Math.min(session.durationSeconds, span) } : session)
         // Success or duplicate — either way, done
       } catch (err) {
         // 404 = the referenced book was deleted/re-uploaded (old id gone). The
@@ -224,6 +229,8 @@ async function flushPendingSessions() {
         // — otherwise it retries forever and floods the endpoint. Transient errors
         // (network / 5xx) fall through to `failed` and are retried next flush.
         if (err instanceof ApiError && err.status === 404) continue
+        // 400 = the server rejected the payload itself; retrying the same bytes can never succeed.
+        if (err instanceof ApiError && err.status === 400) continue
         failed.push(session)
       }
     }

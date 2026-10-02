@@ -81,4 +81,17 @@ describe('useReadingSession — flushPendingSessions pruning', () => {
       expect(JSON.parse(raw!)).toHaveLength(1)
     })
   })
+
+  it('clamps a queued duration to its own span and drops a 400 instead of re-queuing it', async () => {
+    const started = new Date(Date.now() - 27_600)
+    const session = { ...makePendingSession(), startedAt: started.toISOString(), endedAt: new Date(started.getTime() + 27_600).toISOString(), durationSeconds: 30 }
+    localStorage.setItem(KEY, JSON.stringify([session]))
+    submitSession.mockRejectedValue(new ApiError(400, 'EndedAt - StartedAt must be >= DurationSeconds'))
+
+    renderHook(() => useReadingSession(opts))
+
+    await waitFor(() => expect(submitSession).toHaveBeenCalledTimes(1))
+    expect(submitSession.mock.calls[0][0].durationSeconds).toBe(27)
+    await waitFor(() => expect(localStorage.getItem(KEY) ?? '[]').toBe('[]'))
+  })
 })
