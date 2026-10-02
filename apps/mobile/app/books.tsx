@@ -13,7 +13,8 @@ import { FilterChips } from '../src/components/ui/FilterChips'
 
 const PAGE_SIZE = 20
 const SORT_OPTIONS = [
-  { key: '', label: 'Recent' },
+  { key: 'popular', label: 'Popular' },
+  { key: 'recent', label: 'Recent' },
   { key: 'title', label: 'Title' },
   { key: 'oldest', label: 'Oldest' },
 ] as const
@@ -32,8 +33,8 @@ export default function BooksScreen() {
   const [loadingMore, setLoadingMore] = useState(false)
   const [query, setQuery] = useState('')
   const [queryDebounced, setQueryDebounced] = useState('')
-  const [sort, setSort] = useState('')
-  const [genre, setGenre] = useState('')
+  const [sort, setSort] = useState('popular')
+  const [genre, setGenre] = useState('popular')
   const [genres, setGenres] = useState<Genre[]>([])
   const lastFetchRef = useRef(0)
   const genresGenRef = useRef(0)
@@ -71,7 +72,7 @@ export default function BooksScreen() {
         offset,
         search: queryDebounced || undefined,
         genre: genre || undefined,
-        sort: sort || undefined,
+        sort,
       })
       if (id !== lastFetchRef.current) return
       setLoadError(null)
@@ -99,7 +100,7 @@ export default function BooksScreen() {
     if (!loadingMore && books.length < total) fetchBooks(false)
   }
 
-  const hasFilters = !!(query || genre || sort)
+  const hasFilters = !!(query || genre || sort !== 'popular')
 
   return (
     <View style={[styles.container, { backgroundColor: colors.bgWarm }]}>
@@ -181,7 +182,7 @@ export default function BooksScreen() {
                 {hasFilters ? 'No books found' : 'No books yet'}
               </Text>
               {hasFilters && (
-                <TouchableOpacity onPress={() => { setQuery(''); setGenre(''); setSort('') }}>
+                <TouchableOpacity onPress={() => { setQuery(''); setGenre(''); setSort('popular') }}>
                   <Text style={[styles.clearBtn, { color: colors.primary }]}>Clear filters</Text>
                 </TouchableOpacity>
               )}

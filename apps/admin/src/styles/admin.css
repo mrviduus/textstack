@@ -511,6 +511,17 @@ body {
   color: #991b1b;
 }
 
+.featured-badge {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 /* Stats Cards */
 .stats-cards {
   display: flex;

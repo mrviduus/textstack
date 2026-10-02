@@ -10,7 +10,8 @@ public record AdminEditionListDto(
     DateTimeOffset CreatedAt,
     DateTimeOffset? PublishedAt,
     string Authors,
-    bool SeoReady
+    bool SeoReady,
+    int? FeaturedRank
 );
 
 public record AdminEditionDetailDto(
@@ -37,7 +38,8 @@ public record AdminEditionDetailDto(
     // SEO content blocks
     string? SeoRelevanceText,
     string? SeoThemesJson,
-    string? SeoFaqsJson
+    string? SeoFaqsJson,
+    int? FeaturedRank
 );
 
 public record AdminEditionAuthorDto(
@@ -74,7 +76,9 @@ public record UpdateEditionRequest(
     string? SeoThemesJson,
     string? SeoFaqsJson,
     List<UpdateEditionAuthorDto>? Authors,
-    List<Guid>? GenreIds
+    List<Guid>? GenreIds,
+    // Null = not featured. The admin form sends its full state, so omitting it clears the rank.
+    int? FeaturedRank = null
 );
 
 public record UpdateEditionAuthorDto(

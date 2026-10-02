@@ -580,7 +580,8 @@
     }
   },
   "books": {
-    "seoDesc": "Read books online for free | TextStack Reader"
+    "seoDesc": "Read books online for free | TextStack Reader",
+    "sortPopular": "Popular"
   },
   "authors": {
     "seoDesc": "Browse our list of authors | TextStack Reader"

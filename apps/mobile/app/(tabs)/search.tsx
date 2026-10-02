@@ -128,7 +128,7 @@ export default function DiscoverScreen() {
     let cancelled = false
     const api = createBooksApi(language)
     Promise.all([
-      api.getBooks({ limit: BOOK_LIMIT }),
+      api.getBooks({ limit: BOOK_LIMIT, sort: 'popular' }),
       api.getAuthors({ limit: AUTHOR_LIMIT, sort: 'recent' }),
       api.getGenres(),
     ]).then(([booksRes, authorsRes, genresRes]) => {
@@ -429,7 +429,7 @@ export default function DiscoverScreen() {
             </View>
           )}
 
-          {/* Recent Books */}
+          {/* Popular Books */}
           {catalogLoading ? (
             <BookGridSkeleton count={6} />
           ) : books.length > 0 ? (

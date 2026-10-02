@@ -1,9 +1,11 @@
 using System.Net;
 using System.Text.RegularExpressions;
 using Application.Admin;
+using Application.Books;
 using Application.Common.Interfaces;
 using Application.SsgRebuild;
 using Contracts.Admin;
+using Contracts.Books;
 using Domain.Entities;
 using Domain.Enums;
 using Microsoft.AspNetCore.Mvc;
@@ -22,6 +24,10 @@ public static class InternalEndpoints
 
         app.MapPost("/internal/editions/{id:guid}/publish", PublishEdition)
             .WithName("InternalPublishEdition")
+            .ExcludeFromDescription();
+
+        app.MapPut("/internal/featured", ReplaceFeatured)
+            .WithName("InternalReplaceFeatured")
             .ExcludeFromDescription();
 
         // Chapter CRUD for quality validation (editions)
@@ -78,6 +84,47 @@ public static class InternalEndpoints
 
         var (success, error) = await adminService.PublishEditionAsync(id, ct);
         return success ? Results.Ok() : Results.BadRequest(new { error });
+    }
+
+    internal const int MaxFeatured = 999;
+
+    private static async Task<IResult> ReplaceFeatured(
+        [FromBody] ReplaceFeaturedRequest req,
+        HttpContext ctx,
+        BookService bookService,
+        IAppDbContext db,
+        ISsgJobService ssgService,
+        CancellationToken ct)
+    {
+        if (!IsLocalRequest(ctx))
+            return Results.StatusCode(403);
+        // Empty list would silently wipe the shelf — refuse; clear ranks in admin instead.
+        if (req.Slugs is not { Count: > 0 })
+            return Results.BadRequest(new { error = "slugs must be a non-empty array" });
+        if (req.Slugs.Count > MaxFeatured)
+            return Results.BadRequest(new { error = $"At most {MaxFeatured} slugs" });
+
+        var result = await bookService.ReplaceFeaturedAsync(req.Slugs, ct);
+
+        // Home + /books are static routes, which only a Full rebuild re-renders.
+        var site = await db.Sites.FirstOrDefaultAsync(ct);
+        string ssg = "skipped";
+        if (site is not null)
+        {
+            try
+            {
+                var job = await ssgService.EnqueueSsgRebuildAsync(
+                    new CreateSsgRebuildJobRequest(site.Id, "Full", Concurrency: 2), ct);
+                ssg = job is not null ? "queued" : "already-in-progress";
+            }
+            catch
+            {
+                // SSG failure must not undo or fail the shelf change.
+                ssg = "failed";
+            }
+        }
+
+        return Results.Ok(new { applied = result.Applied, notFound = result.NotFound, ssg });
     }
 
     // ── Edition Chapters ──

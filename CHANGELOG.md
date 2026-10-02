@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Discover** — Discover/home show a curated Popular shelf (1984, Animal Farm, Kafka…) instead of newest; `/books` defaults to Popular (`sort=recent` keeps newest-first); the order is `Edition.FeaturedRank` (migration seeds it), set in admin or via `make featured` (`PUT /internal/featured`, whole-shelf replace + Full SSG rebuild) — backend, admin, web, mobile
 - **Stats** — short web reading sessions were rejected (400): the heartbeat's first +30s could exceed the session's own span; duration is now capped at the wall clock, queued ones are repaired, and a 400 no longer retries forever — web
 - **Perf** — fewer requests from the new fields: home Continue card reads `/me/library/shelves` (`continueReading[0]` + its `chapterSlug`) instead of `/me/library` + `/me/progress` + `/me/books` (3→1), and the upload/clip reader takes the clip's source link from the book detail it already loads instead of fetching the Read later list (−1 per open); `useContinueReading` deleted — web
 - **Perf** — fewer requests: the Header no longer pulls full `/me/reading/stats` on every page (it shows only vocab fields), and library cards share one `/me/reading/pace` request instead of one per card on a cold cache; no behaviour change — web

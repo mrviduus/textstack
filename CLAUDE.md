@@ -42,6 +42,8 @@ make build                    # docker compose up -d --build
 make rebuild                  # full rebuild --no-cache
 make clean-ssg                # remove dist/ssg*
 make fix-permissions          # Fix volume permissions
+make featured SLUGS="a b c"   # Replace the Popular shelf (run on the server; ranks 1..N in order)
+make featured-show            # Print the current Popular shelf
 
 # After editing .env, `docker compose restart <svc>` does NOT re-read env vars
 # (they are baked in at container creation). Use force-recreate:
@@ -317,7 +319,7 @@ What replaced it: the app hands back **the file the reader uploaded**, from the 
 
 **SEO Backfill Admin**: `GET /admin/seo/coverage`, `GET /admin/seo/gaps?entityType=&limit=`, `GET/PUT /admin/seo/settings`, `GET /admin/seo/templates`, `GET /admin/seo/templates/{id}`, `POST /admin/seo/templates`, `PUT /admin/seo/templates/{id}` (creates new Version), `POST /admin/seo/templates/{id}/deactivate`, `POST /admin/seo/templates/preview`, `GET /admin/seo/jobs`, `GET /admin/seo/jobs/{id}`, `POST /admin/seo/jobs/{id}/approve`, `POST /admin/seo/jobs/{id}/revert`, `POST /admin/seo/jobs/{id}/retry`, `POST /admin/seo/queue`
 
-**Internal**: `POST /internal/editions/{id}/publish`, `POST /internal/ssg/rebuild-all`, `POST /internal/seo/jobs/claim?limit=`, `GET /internal/seo/jobs/{id}/context`, `POST /internal/seo/jobs/{id}/apply`, `POST /internal/seo/jobs/{id}/fail` (Docker network only)
+**Internal**: `PUT /internal/featured` (Popular shelf, replaces all ranks), `POST /internal/editions/{id}/publish`, `POST /internal/ssg/rebuild-all`, `POST /internal/seo/jobs/claim?limit=`, `GET /internal/seo/jobs/{id}/context`, `POST /internal/seo/jobs/{id}/apply`, `POST /internal/seo/jobs/{id}/fail` (Docker network only)
 
 ## Key Files
 

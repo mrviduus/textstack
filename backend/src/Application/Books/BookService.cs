@@ -39,7 +39,12 @@ public class BookService(IAppDbContext db)
         {
             "title" => query.OrderBy(e => e.Title),
             "oldest" => query.OrderBy(e => e.PublishedAt ?? e.CreatedAt),
-            _ => query.OrderByDescending(e => e.PublishedAt ?? e.CreatedAt)
+            "recent" => query.OrderByDescending(e => e.PublishedAt ?? e.CreatedAt),
+            // "popular" and the default: curated shelf by rank, then newest.
+            _ => query
+                .OrderBy(e => e.FeaturedRank == null)
+                .ThenBy(e => e.FeaturedRank)
+                .ThenByDescending(e => e.PublishedAt ?? e.CreatedAt)
         };
 
         var books = await query
@@ -62,11 +67,47 @@ public class BookService(IAppDbContext db)
                         ea.Author.Name,
                         ea.Role.ToString()
                     ))
-                    .ToList()
+                    .ToList(),
+                e.FeaturedRank
             ))
             .ToListAsync(ct);
 
         return new PaginatedResult<BookListDto>(total, books);
+    }
+
+    /// <summary>
+    /// Replaces the whole featured shelf: every edition loses its rank, then the given
+    /// slugs (published only) get 1..N in order. One SaveChanges = one transaction.
+    /// </summary>
+    public async Task<ReplaceFeaturedResult> ReplaceFeaturedAsync(IReadOnlyList<string> slugs, CancellationToken ct)
+    {
+        var wanted = slugs.Select(s => s.Trim()).Where(s => s.Length > 0).Distinct().ToList();
+
+        var editions = await db.Editions
+            .Where(e => e.FeaturedRank != null
+                || (e.Status == EditionStatus.Published && wanted.Contains(e.Slug)))
+            .ToListAsync(ct);
+
+        foreach (var e in editions)
+            e.FeaturedRank = null;
+
+        var applied = new List<string>();
+        var notFound = new List<string>();
+        foreach (var slug in wanted)
+        {
+            var matches = editions.Where(e => e.Slug == slug && e.Status == EditionStatus.Published).ToList();
+            if (matches.Count == 0)
+            {
+                notFound.Add(slug);
+                continue;
+            }
+            applied.Add(slug);
+            foreach (var e in matches)
+                e.FeaturedRank = applied.Count;
+        }
+
+        await db.SaveChangesAsync(ct);
+        return new ReplaceFeaturedResult(applied, notFound);
     }
 
     public async Task<BookDetailDto?> GetBookAsync(Guid siteId, string slug, string language, CancellationToken ct)

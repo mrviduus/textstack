@@ -33,6 +33,7 @@ export interface Edition {
   publishedAt: string | null
   authors: string
   seoReady: boolean
+  featuredRank: number | null
 }
 
 export interface AdminStats {
@@ -55,6 +56,7 @@ export interface EditionDetail {
   coverPath: string | null
   status: string
   isPublicDomain: boolean
+  featuredRank: number | null
   createdAt: string
   publishedAt: string | null
   chapters: Chapter[]
@@ -857,6 +859,7 @@ export const adminApi = {
     seoFaqsJson?: string | null
     authors?: UpdateEditionAuthor[] | null
     genreIds?: string[] | null
+    featuredRank?: number | null
   }): Promise<void> => {
     await fetchVoid(`/admin/editions/${id}`, {
       method: 'PUT',
