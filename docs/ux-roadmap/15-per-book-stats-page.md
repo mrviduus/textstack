@@ -53,6 +53,7 @@ When a user opens a book's detail page, show their personal investment in it: ho
   ```
 - **Pace calculation:** `AverageWordsPerMinute = totalWords / totalMinutes`. Filter sessions of this book only. If < 3 sessions, fall back to user's overall pace.
 - **Estimated remaining:** `(book.totalWordCount * (1 - progress)) / pace`. Only show if pace ≥ 50 wpm (sane lower bound) — otherwise hide.
+- **Superseded 2026-10-01:** pace is no longer per-book. Book stats, shelves, `/me/reading/stats` and `/me/reading/pace` all use one rule (`Application/ReadingTracking/ReadingPace.cs`): the reader's overall wpm once they have ≥3 sessions (clamped 50–800), else 200; minutes left round to nearest.
 - **Caching:** cache response 60s server-side keyed `book-stats:{userId}:{bookId}`. Reading sessions don't change that fast.
 - **Vocab/highlights links:** deep-link to existing pages with `?bookId={id}` filter. If those pages don't support this filter, add it (small change to those pages, in scope).
 

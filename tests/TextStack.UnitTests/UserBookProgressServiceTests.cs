@@ -53,7 +53,8 @@ public class UserBookProgressServiceTests
             };
             UserBooks.Add(b);
             foreach (var slug in chapterSlugs)
-                UserChapters.Add(new UserChapter
+            {
+                var chapter = new UserChapter
                 {
                     Id = Guid.NewGuid(),
                     UserBookId = b.Id,
@@ -63,7 +64,11 @@ public class UserBookProgressServiceTests
                     Html = "<p/>",
                     PlainText = "",
                     CreatedAt = DateTimeOffset.UtcNow,
-                });
+                };
+                // Both sides: the service reads the slug check through the book's navigation.
+                UserChapters.Add(chapter);
+                b.Chapters.Add(chapter);
+            }
             return b;
         }
     }

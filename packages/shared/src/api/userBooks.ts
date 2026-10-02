@@ -42,6 +42,8 @@ export interface UserBookDetailResponse {
    *  "NotStarted" | "Pending" | "Running" | "Completed" | "Failed".
    *  Absent on older payloads → treat as no enrichment in flight. */
   metadataEnrichmentStatus?: string
+  /** Page a clipped article came from. Null for uploaded files; absent on older payloads. */
+  sourceUrl?: string | null
 }
 
 export function getUserBook(id: string) {

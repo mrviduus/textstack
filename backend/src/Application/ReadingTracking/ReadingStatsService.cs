@@ -222,9 +222,14 @@ public class ReadingStatsService(IAppDbContext db)
         var allSessions = db.ReadingSessions
             .Where(s => s.UserId == userId);
 
-        var totalSeconds = await allSessions.SumAsync(s => (long)s.DurationSeconds, ct);
-        var totalWords = await allSessions.SumAsync(s => (long)s.WordsRead, ct);
-        var sessionCount = await allSessions.CountAsync(ct);
+        // Totals in one round trip (was three).
+        var totals = await allSessions
+            .GroupBy(_ => 1)
+            .Select(g => new { Seconds = g.Sum(s => (long)s.DurationSeconds), Words = g.Sum(s => (long)s.WordsRead), Count = g.Count() })
+            .FirstOrDefaultAsync(ct);
+        var totalSeconds = totals?.Seconds ?? 0;
+        var totalWords = totals?.Words ?? 0;
+        var sessionCount = totals?.Count ?? 0;
 
         var booksFinished = await allSessions
             .Where(s => s.EndPercent >= 0.99)
@@ -253,9 +258,10 @@ public class ReadingStatsService(IAppDbContext db)
         var currentStreak = await StreakCalculator.CalculateStreak(db, userId, streakMinMinutes, now, ct, tzOffset);
         var longestStreak = await StreakCalculator.CalculateLongestStreak(db, userId, streakMinMinutes, ct, tzOffset);
 
-        // Averages
+        // Averages. Words-per-minute is the one pace rule, so this card agrees with every
+        // "minutes left" estimate.
         double avgDailyMinutes = 0;
-        double avgWordsPerMinute = 0;
+        double avgWordsPerMinute = (await ReadingPace.GetAsync(db, userId, ct)).Wpm;
         if (sessionCount > 0)
         {
             var firstSession = await allSessions
@@ -264,9 +270,6 @@ public class ReadingStatsService(IAppDbContext db)
                 .FirstOrDefaultAsync(ct);
             var daysSinceFirst = Math.Max(1, (now - firstSession).TotalDays);
             avgDailyMinutes = totalSeconds / 60.0 / daysSinceFirst;
-
-            if (totalSeconds > 0)
-                avgWordsPerMinute = totalWords / (totalSeconds / 60.0);
         }
 
         // Vocab reviews today
@@ -336,10 +339,6 @@ public class ReadingStatsService(IAppDbContext db)
         return daily;
     }
 
-    // Reading-pace tuning (slice 19). Moved verbatim from the Api handler.
-    private const int PaceMinSessions = 3;
-    private const int FallbackPaceWpm = 200;
-
     /// <summary>
     /// Library summary card (slice 20 / R5 slice-3). Body moved verbatim from the former
     /// <c>ReadingTrackingEndpoints.GetLibrarySummary</c> handler; the <c>IMemoryCache</c> lookup/store stays
@@ -406,34 +405,7 @@ public class ReadingStatsService(IAppDbContext db)
         );
     }
 
-    /// <summary>
-    /// Reading pace (slice 19 / R5 slice-3). Body moved verbatim from the former
-    /// <c>ReadingTrackingEndpoints.GetPace</c> handler; not tz-dependent. The <c>IMemoryCache</c> lookup/store
-    /// stays in the caller. Fallback returns <see cref="FallbackPaceWpm"/> when there are fewer than
-    /// <see cref="PaceMinSessions"/> qualifying sessions or no seconds; otherwise wpm is rounded and clamped
-    /// to [50, 800]. Byte-identical to the pre-refactor response.
-    /// </summary>
-    public async Task<ReadingPaceDto> GetPaceAsync(Guid userId, CancellationToken ct)
-    {
-        var agg = await db.ReadingSessions
-            .Where(s => s.UserId == userId && s.WordsRead > 0 && s.DurationSeconds > 0)
-            .GroupBy(_ => 1)
-            .Select(g => new { Sessions = g.Count(), Words = g.Sum(s => (long)s.WordsRead), Seconds = g.Sum(s => (long)s.DurationSeconds) })
-            .FirstOrDefaultAsync(ct);
-
-        ReadingPaceDto dto;
-        if (agg == null || agg.Sessions < PaceMinSessions || agg.Seconds <= 0)
-        {
-            dto = new ReadingPaceDto(FallbackPaceWpm, agg?.Sessions ?? 0, false);
-        }
-        else
-        {
-            var wpm = (int)Math.Round(agg.Words / (agg.Seconds / 60.0));
-            // Clamp to sane range — guards against ultra-short sessions skewing avg
-            wpm = Math.Clamp(wpm, 50, 800);
-            dto = new ReadingPaceDto(wpm, agg.Sessions, true);
-        }
-
-        return dto;
-    }
+    /// <summary>Reading pace — see <see cref="ReadingPace"/>, the one rule. Cache stays in the caller.</summary>
+    public Task<ReadingPaceDto> GetPaceAsync(Guid userId, CancellationToken ct) =>
+        ReadingPace.GetAsync(db, userId, ct);
 }

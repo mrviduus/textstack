@@ -54,7 +54,7 @@ public class UpsertProgressTests
         var chapter = ChapterAt(3);
         var target = Progress(maxChapter: 1);
 
-        UserDataEndpoints.ApplyProgressUpdate(target, Request(chapter.Id, 0.42), chapter);
+        UserDataEndpoints.ApplyProgressUpdate(target, Request(chapter.Id, 0.42), chapter.ChapterNumber);
 
         Assert.Equal(chapter.Id, target.ChapterId);
         Assert.Equal(0.42, target.Percent);
@@ -73,7 +73,7 @@ public class UpsertProgressTests
         var chapter = ChapterAt(40);
         var target = Progress(maxChapter: 39);
 
-        UserDataEndpoints.ApplyProgressUpdate(target, Request(chapter.Id, 0.99), chapter);
+        UserDataEndpoints.ApplyProgressUpdate(target, Request(chapter.Id, 0.99), chapter.ChapterNumber);
 
         Assert.NotNull(target.CompletedAt);
     }
@@ -87,7 +87,7 @@ public class UpsertProgressTests
         target.CompletedAt = finishedAt;
 
         // Opening chapter 1 again reports a low percent; that is a re-read, not an un-finish.
-        UserDataEndpoints.ApplyProgressUpdate(target, Request(chapter.Id, 0.02), chapter);
+        UserDataEndpoints.ApplyProgressUpdate(target, Request(chapter.Id, 0.02), chapter.ChapterNumber);
 
         Assert.Equal(finishedAt, target.CompletedAt);
     }
@@ -100,7 +100,7 @@ public class UpsertProgressTests
         target.CompletedAt = DateTimeOffset.UtcNow.AddDays(-3);
 
         // Percent 0 is what mark-as-unfinished sends.
-        UserDataEndpoints.ApplyProgressUpdate(target, Request(chapter.Id, 0), chapter);
+        UserDataEndpoints.ApplyProgressUpdate(target, Request(chapter.Id, 0), chapter.ChapterNumber);
 
         Assert.Null(target.CompletedAt);
     }
@@ -111,7 +111,7 @@ public class UpsertProgressTests
         var chapter = ChapterAt(5);
         var target = Progress(maxChapter: 4);
 
-        UserDataEndpoints.ApplyProgressUpdate(target, Request(chapter.Id, 0.5), chapter);
+        UserDataEndpoints.ApplyProgressUpdate(target, Request(chapter.Id, 0.5), chapter.ChapterNumber);
 
         Assert.Null(target.CompletedAt);
     }
@@ -125,7 +125,7 @@ public class UpsertProgressTests
     {
         var target = Progress(maxChapter: 30);
 
-        UserDataEndpoints.ApplyProgressUpdate(target, Request(Guid.NewGuid()), ChapterAt(1));
+        UserDataEndpoints.ApplyProgressUpdate(target, Request(Guid.NewGuid()), 1);
 
         Assert.Equal(30, target.MaxChapterNumber);
     }
@@ -135,7 +135,7 @@ public class UpsertProgressTests
     {
         var target = Progress(maxChapter: 3);
 
-        UserDataEndpoints.ApplyProgressUpdate(target, Request(Guid.NewGuid()), ChapterAt(9));
+        UserDataEndpoints.ApplyProgressUpdate(target, Request(Guid.NewGuid()), 9);
 
         Assert.Equal(9, target.MaxChapterNumber);
     }
@@ -146,7 +146,7 @@ public class UpsertProgressTests
     {
         var target = Progress(maxChapter: null);
 
-        UserDataEndpoints.ApplyProgressUpdate(target, Request(Guid.NewGuid()), ChapterAt(0));
+        UserDataEndpoints.ApplyProgressUpdate(target, Request(Guid.NewGuid()), 0);
 
         Assert.Equal(0, target.MaxChapterNumber);
     }
@@ -157,7 +157,7 @@ public class UpsertProgressTests
         var before = DateTimeOffset.UtcNow;
         var target = Progress(maxChapter: 1, updatedAt: DateTimeOffset.UnixEpoch);
 
-        UserDataEndpoints.ApplyProgressUpdate(target, Request(Guid.NewGuid()), ChapterAt(1));
+        UserDataEndpoints.ApplyProgressUpdate(target, Request(Guid.NewGuid()), 1);
 
         Assert.True(target.UpdatedAt >= before);
     }
@@ -209,7 +209,7 @@ public class UpsertProgressTests
         target.Percent = 0.42;
         target.Locator = "old-locator";
 
-        UserDataEndpoints.ApplyProgressUpdate(target, LegacyRequest(chapter.Id, percent: 0.99), chapter);
+        UserDataEndpoints.ApplyProgressUpdate(target, LegacyRequest(chapter.Id, percent: 0.99), chapter.ChapterNumber);
 
         Assert.Equal(0.42, target.Percent);
         Assert.Equal("epubcfi(/6/4!/4/2)", target.Locator);
@@ -225,7 +225,7 @@ public class UpsertProgressTests
         var chapter = ChapterAt(3);
         var target = Progress(maxChapter: 1);
 
-        UserDataEndpoints.ApplyProgressUpdate(target, LegacyRequest(chapter.Id, percent: 1.0), chapter);
+        UserDataEndpoints.ApplyProgressUpdate(target, LegacyRequest(chapter.Id, percent: 1.0), chapter.ChapterNumber);
 
         Assert.Null(target.CompletedAt);
     }
@@ -245,7 +245,7 @@ public class UpsertProgressTests
         var chapter = ChapterAt(2);
         var target = Progress(maxChapter: 1);
 
-        UserDataEndpoints.ApplyProgressUpdate(target, ScrollRequest(chapter.Id, Anchor), chapter);
+        UserDataEndpoints.ApplyProgressUpdate(target, ScrollRequest(chapter.Id, Anchor), chapter.ChapterNumber);
 
         Assert.Equal(Anchor, target.PositionJson);
     }
@@ -259,7 +259,7 @@ public class UpsertProgressTests
         var target = Progress(maxChapter: 1);
         target.PositionJson = Anchor;
 
-        UserDataEndpoints.ApplyProgressUpdate(target, ScrollRequest(chapter.Id, null), chapter);
+        UserDataEndpoints.ApplyProgressUpdate(target, ScrollRequest(chapter.Id, null), chapter.ChapterNumber);
 
         Assert.Equal("scroll:2-act-i:4200", target.Locator);
         Assert.Null(target.PositionJson);
@@ -279,7 +279,7 @@ public class UpsertProgressTests
             target.PositionJson = Anchor;
 
             UserDataEndpoints.ApplyProgressUpdate(
-                target, new UpsertProgressRequest(chapter.Id, locator, 0.5, null, ProgressUnit.Book, Anchor), chapter);
+                target, new UpsertProgressRequest(chapter.Id, locator, 0.5, null, ProgressUnit.Book, Anchor), chapter.ChapterNumber);
 
             Assert.Null(target.PositionJson);
         }
@@ -292,7 +292,7 @@ public class UpsertProgressTests
         var target = Progress(maxChapter: 1);
 
         UserDataEndpoints.ApplyProgressUpdate(
-            target, ScrollRequest(chapter.Id, new string('x', ReaderPosition.MaxLength + 1)), chapter);
+            target, ScrollRequest(chapter.Id, new string('x', ReaderPosition.MaxLength + 1)), chapter.ChapterNumber);
 
         Assert.Equal("scroll:2-act-i:4200", target.Locator);
         Assert.Equal(0.31, target.Percent);

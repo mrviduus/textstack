@@ -103,4 +103,60 @@ public class LibraryShelvesServiceTests
         // Verbatim book-wide percent — identical to the card path, no re-added words.
         Assert.Equal(storedBookWide, item.ProgressPercent, 5);
     }
+
+    [Fact]
+    public async Task GetShelvesAsync_NoHistory_EveryShelfUsesFallbackPaceAndCarriesChapterSlug()
+    {
+        var userId = Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow;
+        var h = new Harness();
+        var reading = new UserBook
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            Title = "Short",
+            Slug = "short",
+            Language = "en",
+            TotalWordCount = 1000,
+            ProgressPercent = 0.5,
+            ProgressChapterSlug = "c-3",
+            ProgressUpdatedAt = now,
+            CreatedAt = now.AddDays(-1),
+        };
+        var finished = new UserBook
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            Title = "Done",
+            Slug = "done",
+            Language = "en",
+            TotalWordCount = 1000,
+            ProgressPercent = 1.0,
+            ProgressChapterSlug = "c-9",
+            ProgressUpdatedAt = now,
+            CreatedAt = now.AddDays(-30),
+            CompletedAt = now,
+        };
+        h.UserBooks.AddRange([reading, finished]);
+
+        var shelves = await h.Service.GetShelvesAsync(userId, Guid.Empty, CancellationToken.None);
+
+        // 500 words left at the 200 wpm fallback = 2.5 → 3 (nearest, as the clients round).
+        var cont = Assert.Single(shelves.ContinueReading);
+        Assert.Equal(reading.Id, cont.Id);
+        Assert.Equal(3, cont.EstimatedMinutesRemaining);
+        Assert.Equal("c-3", cont.ChapterSlug);
+
+        var quick = Assert.Single(shelves.QuickReads);
+        Assert.Equal("c-3", quick.ChapterSlug);
+
+        Assert.Equal(reading.Id, Assert.Single(shelves.RecentlyAdded).Id);
+
+        var done = Assert.Single(shelves.FinishedThisMonth);
+        Assert.Equal(finished.Id, done.Id);
+        Assert.Equal(1.0, done.ProgressPercent);
+        Assert.Equal(finished.CompletedAt, done.LastOpenedAt);
+        Assert.Null(done.EstimatedMinutesRemaining);
+        Assert.Equal("c-9", done.ChapterSlug);
+    }
 }

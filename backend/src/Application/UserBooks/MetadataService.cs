@@ -61,7 +61,8 @@ public class MetadataService(IAppDbContext db)
             book.BookFiles
                 .OrderByDescending(f => f.UploadedAt)
                 .Select(f => (long?)f.FileSize)
-                .FirstOrDefault());
+                .FirstOrDefault(),
+            book.SourceUrl);
 
         return (dto, null);
     }

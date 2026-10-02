@@ -429,7 +429,7 @@ public class ReadingStatsServiceTests
         Assert.Equal(3, r.LongestStreak);               // longest consecutive run is that same 3
         Assert.Equal(5, r.StreakMinMinutes);
         Assert.Equal(1.0, r.AvgDailyMinutes);           // 4200/60/69 = 1.0145 → 1.0
-        Assert.Equal(84.3, r.AvgWordsPerMinute);        // 5900/(4200/60) = 84.2857 → 84.3
+        Assert.Equal(84.0, r.AvgWordsPerMinute);        // one pace rule: 5900/(4200/60) = 84.29 → 84
         Assert.Equal(600L, r.TodaySeconds);             // only 03-15 session
         Assert.Equal(2, r.TodayVocabReviews);
         Assert.Equal(3000L, r.WeekSeconds);             // 03-15,03-14,03-13,03-10 (>=03-09)
@@ -459,7 +459,7 @@ public class ReadingStatsServiceTests
     }
 
     [Fact]
-    public async Task GetStats_NoSessions_ZeroTotalsAndAverages()
+    public async Task GetStats_NoSessions_ZeroTotalsAndFallbackPace()
     {
         var h = new Harness();
         var userId = Guid.NewGuid();
@@ -473,7 +473,7 @@ public class ReadingStatsServiceTests
         Assert.Equal(0, r.CurrentStreak);
         Assert.Equal(0, r.LongestStreak);
         Assert.Equal(0.0, r.AvgDailyMinutes);
-        Assert.Equal(0.0, r.AvgWordsPerMinute);
+        Assert.Equal(200.0, r.AvgWordsPerMinute); // one pace rule: no history → 200 wpm
         Assert.Null(r.DailyGoal);
     }
 
