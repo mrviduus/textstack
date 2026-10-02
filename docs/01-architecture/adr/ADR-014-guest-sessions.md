@@ -83,7 +83,7 @@ client in `apps/mobile/src/lib/capabilities.ts`.
 | Upload a book | ~~no~~ **yes**, see [§3a](#3a-amendment-2026-09-06--upload-is-open-to-a-guest) | ~~**A product choice, not a server constraint.** `Entitlements:Tiers:Guest` allows one book at 50 MB, and the server would accept it. A guest who uploads their only book and then loses the phone has lost the book, and we took the storage to arrange that. Upload is the moment to ask for an account.~~ |
 | Librarian, tutor, "Ask this book", book chat, RAG indexing | no | **A cost decision.** These spend paid inference. Guest sessions are free and unlimited to mint, and every limiter fronting those routes partitions on IP alone. |
 | Edit name or avatar | no | The identity is generated and visible to nobody. A setting with no consequence. |
-| Delete the account | no | Nothing to delete that signing out has not already put out of reach. |
+| Delete the account | ~~no~~ **yes** (2026-10-02) | ~~Nothing to delete that signing out has not already put out of reach.~~ Wrong: out of reach is not deleted (§5). The guest's sign-out is now **Delete guest data**, which calls the same `DELETE /me/account` an account uses — no `IsGuest` branch, no password; it hard-deletes the row, its cascade and its storage directory. |
 | Sign out without confirmation | no | See §5. |
 
 Vocabulary saving is allowed but **metered**: `Entitlements:Tiers:Guest:DailyEnrichmentCap` (50/day)
@@ -162,6 +162,12 @@ stay on the server forever and nothing can ever reach them again, including us.
 
 That is a delete. It gets a destructive confirm that names what disappears.
 
+**Amendment (2026-10-02).** It is now a delete on the server too. The guest's sign-out became
+**Delete guest data**: confirm → `DELETE /me/account` with the guest's token → clear the three keys.
+If the call fails (offline, 5xx) the keys are cleared anyway, and the row falls back to the
+pre-amendment fate above. `User.PromotedAt` (set on in-place promotion) and the `guest_promoted` /
+`guest_merged` logs measure the other exit — becoming an account.
+
 ### 6. `isAuthenticated` stays the session predicate; a capability set owns account policy
 
 The seventy call sites do not all ask the same question.
@@ -234,6 +240,10 @@ visitor indistinguishable from a reader's.
   `merge_conflict`) is additive and optional on both auth responses. No client reads it yet; the
   server-side Warning per occurrence is what makes the rate countable.
 - **A guest's `NativeLanguage` is carried across on merge**, and never clobbers an account's own.
+- **One path removes a guest's server data: `DELETE /me/account`** (2026-10-02, §5). Shared with
+  accounts, so the GDPR hard-delete and "Delete guest data" cannot drift. It shrinks the unreachable
+  50 MB above for guests who use it; it does nothing for a reinstall or a failed call, so that bullet
+  still stands.
 
 ## Open
 

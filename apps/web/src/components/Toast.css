@@ -10,11 +10,28 @@
   font-size: 0.875rem;
   opacity: 0;
   transition: opacity 0.3s ease, transform 0.3s ease;
-  z-index: 1000;
+  z-index: 1001; /* above the cookie banner (1000), or a toast's action is unclickable on a first visit */
   pointer-events: none;
 }
 
 .toast--visible {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
+}
+
+/* Clickable toasts (onClick / action) must receive pointer events; plain ones stay click-through. */
+.toast--actionable.toast--visible {
+  pointer-events: auto;
+}
+
+.toast__action {
+  margin-left: 1rem;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
 }

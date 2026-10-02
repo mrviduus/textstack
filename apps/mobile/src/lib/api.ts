@@ -64,14 +64,21 @@ async function handleTerminalAuthFailure(): Promise<void> {
  * with the fresh Bearer token (no visible banner). Shares the same in-flight
  * promise as the shared API client so concurrent 401s don't rotate twice.
  */
-export async function onUnauthorized(): Promise<string | null> {
+export async function onUnauthorized(opts?: { quiet?: boolean }): Promise<string | null> {
   if (refreshPromise) return refreshPromise
+  // `quiet`: the caller is a sign-in/sign-up (`authApi`'s pre-merge refresh). A
+  // rejected refresh there must not wipe the guest keys or fire auth-failure —
+  // that signs the reader out of the very guest row they are trying to keep, and
+  // races the new tokens the sign-in is about to write. They just get no bearer.
+  // ponytail: a normal 401 that joins an in-flight quiet refresh inherits its
+  // quietness; the next 401 after that is terminal as usual.
+  const terminal = opts?.quiet ? async () => {} : handleTerminalAuthFailure
 
   refreshPromise = (async () => {
     try {
       const refreshToken = await SecureStore.getItemAsync('refresh_token')
       if (!refreshToken) {
-        await handleTerminalAuthFailure()
+        await terminal()
         return null
       }
 
@@ -93,7 +100,7 @@ export async function onUnauthorized(): Promise<string | null> {
         // Explicit rejection by the server (401/403/410) — session is
         // really gone. Wipe tokens and tell the UI.
         if (res.status >= 400 && res.status < 500) {
-          await handleTerminalAuthFailure()
+          await terminal()
         }
         return null
       }

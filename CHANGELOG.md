@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Guests** — one obvious way from guest to account: a "You're reading as a guest" card on top of the mobile profile and Create account / Sign in in the web menu (no more signing out to register); Google first and "keep everything you've saved" on the login screen; nudges at the 3rd and 10th saved word; "Delete guest data" really deletes server-side; no more random animal names; a failed token refresh no longer wipes the guest mid-signup; `User.PromotedAt` + `guest_promoted`/`guest_merged` logs to measure conversion — backend, web, mobile
 - **Reader** — the Claude/ChatGPT picker under "Discuss this chapter" was invisible (dark text on the dark-mode menu); it now takes its text colour from the same theme as its background — web
 - **Discover** — Discover/home show a curated Popular shelf (1984, Animal Farm, Kafka…) instead of newest; `/books` defaults to Popular (`sort=recent` keeps newest-first); the order is `Edition.FeaturedRank` (migration seeds it), set in admin or via `make featured` (`PUT /internal/featured`, whole-shelf replace + Full SSG rebuild) — backend, admin, web, mobile
 - **Stats** — short web reading sessions were rejected (400): the heartbeat's first +30s could exceed the session's own span; duration is now capped at the wall clock, queued ones are repaired, and a 400 no longer retries forever — web

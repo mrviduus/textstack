@@ -29,6 +29,10 @@ public class User
     public long? StorageLimitOverrideBytes { get; set; }
     public DateTimeOffset? LastActiveAt { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
+    /// <summary>When a guest row was promoted IN PLACE to an account (email registration). Null for
+    /// accounts created directly and for guests merged into another account (that row is deleted;
+    /// the merge is logged as <c>guest_merged</c> instead).</summary>
+    public DateTimeOffset? PromotedAt { get; set; }
     /// <summary>BCP-47 language code for the user's native language (the one they already know).
     /// Drives translation direction, dictionary hint language, and dismisses the onboarding pulse
     /// across devices. Null = not yet set; falls back to client-side detection.</summary>

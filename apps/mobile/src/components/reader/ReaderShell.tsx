@@ -33,6 +33,8 @@ import { useQuickStats } from '../../hooks/useQuickStats'
 import { useHaptics } from '../../hooks/useHaptics'
 import { useToast } from '../../context/ToastContext'
 import { saveWordIntent } from '../../lib/saveWordIntent'
+import { capabilitiesFor } from '../../lib/capabilities'
+import { claimGuestNudge } from '../../lib/guestNudge'
 import { useTheme } from '../../context/ThemeContext'
 import { useLanguage } from '../../context/LanguageContext'
 import { useNativeLanguage } from '../../context/NativeLanguageContext'
@@ -388,11 +390,12 @@ export function ReaderShell(props: ReaderShellProps) {
   // `pdfHighlightCreate` back. Read by the message handler at persist time.
   const pendingPdfColorRef = useRef<string>(settings.lastHighlightColor)
 
+  const isGuest = capabilitiesFor(user).isGuest
   const notifyWordSaved = useCallback(() => {
     sessionWordCountRef.current += 1
     const count = sessionWordCountRef.current
     haptics.play('complete')
-    showToast({
+    const savedToast = () => showToast({
       variant: 'success',
       message:
         count > 1
@@ -402,7 +405,24 @@ export function ReaderShell(props: ReaderShellProps) {
       onPress: () => router.push('/vocabulary'),
       duration: 2400,
     })
-  }, [haptics, showToast, language, router])
+    if (!isGuest) { savedToast(); return }
+    // A guest's 3rd and 10th word: the "keep them" nudge replaces the saved
+    // toast, once each per install (`guestNudge.ts`). The count is the reader's
+    // whole vocabulary — `vocabMapRef` is loaded from `getReaderVocab()` (every
+    // saved word) and `onWordSaved` has already added this one — not the
+    // session's. Login opens as a modal over the reader; `then: 'back'` makes it
+    // dismiss back here instead of landing on Library.
+    void claimGuestNudge(true, Object.keys(vocabMapRef.current).length).then(nudge => {
+      if (!nudge) { savedToast(); return }
+      showToast({
+        variant: 'success',
+        message: t(language, nudge === 'ten' ? 'guest.nudgeTen' : 'guest.nudgeThree'),
+        actionLabel: t(language, 'guest.nudgeCta'),
+        onPress: () => router.push({ pathname: '/(auth)/login', params: { mode: 'register', then: 'back' } }),
+        duration: 6000,
+      })
+    })
+  }, [haptics, showToast, language, router, isGuest, vocabMapRef])
 
   const vocabActions = useReaderVocabActions({
     vocabMapRef,

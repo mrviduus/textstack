@@ -1,9 +1,8 @@
-import { useState, useRef, FormEvent, useEffect } from 'react'
+import { useState, useRef, FormEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { useAuth } from '../../context/AuthContext'
 import { POPULAR_LANGUAGES, getLanguage } from '@textstack/shared'
 import { getFlagUrl } from '../../data/flags'
-import { getAnonymousReader } from '@textstack/shared'
 import { getUserInitials } from '../../lib/userInitials'
 import { useTranslation } from '../../hooks/useTranslation'
 import { DeleteAccountDialog } from './DeleteAccountDialog'
@@ -18,10 +17,7 @@ export function ProfileModal({ onClose }: { onClose: () => void }) {
   const [file, setFile] = useState<File | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [anonImgFailed, setAnonImgFailed] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
-
-  useEffect(() => { setAnonImgFailed(false) }, [user?.id])
 
   if (!user) return null
 
@@ -30,10 +26,8 @@ export function ProfileModal({ onClose }: { onClose: () => void }) {
     : user.picture ? `/storage/${user.picture}` : null)
 
   const isGuest = !!user.isGuest
-  const anon = isGuest ? getAnonymousReader(user.id) : null
   const initials = getUserInitials(user)
   const hasUserAvatar = !!(avatarSrc && avatarSrc !== '__remove__')
-  const showAnimal = !hasUserAvatar && !!anon?.avatarPath && !anonImgFailed
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]
@@ -88,18 +82,10 @@ export function ProfileModal({ onClose }: { onClose: () => void }) {
               <div
                 className="profile-modal__avatar"
                 onClick={() => fileRef.current?.click()}
-                title={anon?.name}
-                style={anon && !hasUserAvatar ? { backgroundColor: anon.color, color: '#fff' } : undefined}
+                title={isGuest ? t('guest.name') : undefined}
               >
                 {hasUserAvatar ? (
                   <img src={avatarSrc!} alt="" referrerPolicy="no-referrer" />
-                ) : showAnimal ? (
-                  <img
-                    src={anon!.avatarPath!}
-                    alt=""
-                    className="profile-modal__avatar-anon"
-                    onError={() => setAnonImgFailed(true)}
-                  />
                 ) : (
                   <span>{initials}</span>
                 )}
@@ -126,7 +112,7 @@ export function ProfileModal({ onClose }: { onClose: () => void }) {
               className="profile-modal__input"
               value={name}
               onChange={e => setName(e.target.value)}
-              placeholder="Your name"
+              placeholder={isGuest ? t('guest.name') : 'Your name'}
             />
             <label className="profile-modal__label">My language</label>
             <div className="profile-modal__lang-row">

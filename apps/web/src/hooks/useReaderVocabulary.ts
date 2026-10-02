@@ -13,11 +13,12 @@ import {
 } from '../lib/offlineDb'
 import { normalizeVocabKey } from '../lib/vocabKey'
 import { trackVocabSaved } from '../lib/analytics'
+import { takeGuestNudge, type GuestNudge } from '../lib/guestNudge'
 
 export type VocabMap = Map<string, { stage: number; id?: string; translation?: string; isPending?: boolean }>
 
 export function useReaderVocabulary(bookLanguage?: string, targetLang?: string | null) {
-  const { isAuthenticated, waitForSession, ensureSession } = useAuth()
+  const { isAuthenticated, isGuest, waitForSession, ensureSession } = useAuth()
   const { commitmentThreshold } = useGuestLimits()
   const [vocabMap, setVocabMap] = useState<VocabMap>(new Map())
   const [loading, setLoading] = useState(false)
@@ -25,11 +26,16 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
   // (Safari private mode / quota exceeded) so user knows to sign in to save words.
   const [idbUnavailable, setIdbUnavailable] = useState(false)
   const dismissIdbUnavailable = useCallback(() => setIdbUnavailable(false), [])
+  // "Create an account" nudge on a non-account reader's 3rd / 10th saved word.
+  const [guestNudge, setGuestNudge] = useState<GuestNudge | null>(null)
+  const dismissGuestNudge = useCallback(() => setGuestNudge(null), [])
   const mapRef = useRef<VocabMap>(new Map())
   const backfillDone = useRef(false)
   // Keep auth state available inside async callbacks without stale-closure races.
   const isAuthRef = useRef(isAuthenticated)
   isAuthRef.current = isAuthenticated
+  const isGuestRef = useRef(isGuest)
+  isGuestRef.current = isGuest
 
   const commitMap = useCallback((map: VocabMap) => {
     mapRef.current = map
@@ -156,6 +162,14 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
   const addWord = useCallback(async (req: SaveWordRequest): Promise<SaveWordResponse | null> => {
     // Gate: block first tap until AuthContext has finished bootstrapping (B2).
     await waitForSession()
+    // Decided before the save: the 3rd word is the one that mints the guest, so after it the
+    // reader IS a guest — but they were never an account, and accounts never get the nudge.
+    const isAccount = isAuthRef.current && !isGuestRef.current
+    const nudge = () => {
+      if (isAccount) return
+      const n = takeGuestNudge(mapRef.current.size)
+      if (n) setGuestNudge(n)
+    }
 
     // Path A: session exists (guest or real) → direct save, plus any stale pending flush.
     if (isAuthRef.current) {
@@ -178,6 +192,7 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
         // refreshes without remount. No-op on this page since useReader
         // doesn't subscribe to its own emissions.
         emitDataChange('vocabulary')
+        nudge()
       }
       return resp
     }
@@ -230,6 +245,7 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
       }
       // I7: ensureSession fail → pending остаётся, следующий tap снова триггерит.
     }
+    nudge()
 
     // Path B returns null — caller (ReaderHighlights) tolerates null result.
     return null
@@ -276,5 +292,5 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
     setVocabMap(new Map(mapRef.current))
   }, [])
 
-  return { vocabMap, loading, addWord, markAsKnown, removeWord, updateTranslation, recordSavedWord, refreshMarks, idbUnavailable, dismissIdbUnavailable }
+  return { vocabMap, loading, addWord, markAsKnown, removeWord, updateTranslation, recordSavedWord, refreshMarks, idbUnavailable, dismissIdbUnavailable, guestNudge, dismissGuestNudge }
 }

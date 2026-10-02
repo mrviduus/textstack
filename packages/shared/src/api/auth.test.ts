@@ -211,3 +211,39 @@ describe('a keychain that throws does not break sign-in', () => {
     expect('Authorization' in headersOf()).toBe(false)
   })
 })
+
+// The login screen claims "your progress moved to your account" only when a
+// bearer actually went out AND the server reported no skip. `guestMergeSkipped`
+// is null both for a clean merge and for "there was no token to merge from", so
+// `sentBearer` is the half the response cannot supply.
+describe('sentBearer reports whether a bearer went out with the call', () => {
+  for (const [name, call] of MERGE_ENTRY_POINTS) {
+    it(`${name}: true with a session token`, async () => {
+      setup('guest-token')
+      await expect(call()).resolves.toMatchObject({ sentBearer: true, accessToken: 'new-access' })
+    })
+
+    it(`${name}: false with no token`, async () => {
+      setup(null)
+      await expect(call()).resolves.toMatchObject({ sentBearer: false })
+    })
+
+    it(`${name}: false when an expired token could not be refreshed`, async () => {
+      setup(tokenExpiringIn(-3600), null)
+      await expect(call()).resolves.toMatchObject({ sentBearer: false })
+    })
+  }
+})
+
+// A refresh that fails inside a sign-up must not end the session it is trying
+// to keep: mobile's `onUnauthorized` wipes the stored tokens and fires
+// auth-failure (→ signOut) on a rejected refresh unless asked to be quiet.
+describe('the pre-merge refresh is quiet', () => {
+  for (const [name, call] of MERGE_ENTRY_POINTS) {
+    it(`${name} asks onUnauthorized for a quiet refresh`, async () => {
+      setup(tokenExpiringIn(-3600), 'fresh-token')
+      await call()
+      expect(refreshMock).toHaveBeenCalledWith({ quiet: true })
+    })
+  }
+})

@@ -9,9 +9,11 @@ interface ToastProps {
    *  (not during fade-out or after auto-dismiss) so a mistimed click can't trigger
    *  an action the user never saw. */
   onClick?: () => void
+  /** Optional action button (e.g. "Create account"). Clicking it also dismisses the toast. */
+  action?: { label: string; onClick: () => void }
 }
 
-export function Toast({ message, duration = 3000, onClose, onClick }: ToastProps) {
+export function Toast({ message, duration = 3000, onClose, onClick, action }: ToastProps) {
   const [isVisible, setIsVisible] = useState(false)
 
   useEffect(() => {
@@ -30,11 +32,17 @@ export function Toast({ message, duration = 3000, onClose, onClick }: ToastProps
 
   return (
     <div
-      className={`toast ${isVisible ? 'toast--visible' : ''}`}
+      className={`toast ${isVisible ? 'toast--visible' : ''}${onClick || action ? ' toast--actionable' : ''}`}
       onClick={handleClick}
       style={onClick ? { cursor: 'pointer' } : undefined}
+      role={action ? 'status' : undefined}
     >
       {message}
+      {action && (
+        <button type="button" className="toast__action" onClick={() => { action.onClick(); onClose() }}>
+          {action.label}
+        </button>
+      )}
     </div>
   )
 }
