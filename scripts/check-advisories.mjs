@@ -116,6 +116,14 @@ export const KNOWN = {
       'Reached through xcode@3.0.1, part of Expo prebuild tooling for iOS. Build-time only — ' +
       'it is never bundled, and it never runs anywhere but a build machine.',
   },
+  'GHSA-vfj7-8cjw-p6xm': {
+    since: '2026-10-03',
+    module: 'braces',
+    needs: '>3.0.3 (none published yet; 3.0.3 is latest)',
+    why:
+      'Only through Metro (metro-file-map → micromatch), the React Native bundler: build and dev time, ' +
+      'with glob patterns it writes itself. Never in the app bundle, the web or the server.',
+  },
   'GHSA-86w9-cpqp-85rv': {
     since: '2026-10-02',
     module: 'node-forge',
