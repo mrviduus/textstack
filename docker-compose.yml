@@ -94,7 +94,7 @@ services:
       Ollama__Model: gemma4:e2b
       OpenAI__ApiKey: ${OPENAI_API_KEY:-}
       OpenAI__Model: ${OPENAI_MODEL:-gpt-4.1-nano}
-      OpenAI__Explain__Model: ${OPENAI_EXPLAIN_MODEL:-gpt-4.1-nano}
+      OpenAI__Explain__Model: ${OPENAI_EXPLAIN_MODEL:-gpt-4.1-mini}
       Resend__ApiKey: ${RESEND_API_KEY:-}
       Resend__FromEmail: ${RESEND_FROM_EMAIL:-noreply@textstack.app}
       Resend__AdminAlertEmail: ${ADMIN_ALERT_EMAIL:-}
