@@ -475,10 +475,9 @@ jobs:
           # The cache dirs are bind mounts. Docker creates a missing one as root,
           # the api container runs as uid 1000, and every cache write is
           # best-effort - so an uncreated dir means the cache silently does
-          # nothing and the dictionary outage fallback does not exist. That is
-          # what the repeated-lookup test caught.
-          mkdir -p data/storage data/textstack data/postgres-prod data/dictionary-cache data/explain-cache
-          chmod 777 data/storage data/textstack data/dictionary-cache data/explain-cache
+          # nothing.
+          mkdir -p data/storage data/textstack data/postgres-prod data/explain-cache
+          chmod 777 data/storage data/textstack data/explain-cache
 
       - name: Build containers
         run: docker compose build
@@ -562,10 +561,9 @@ jobs:
           # The cache dirs are bind mounts. Docker creates a missing one as root,
           # the api container runs as uid 1000, and every cache write is
           # best-effort - so an uncreated dir means the cache silently does
-          # nothing and the dictionary outage fallback does not exist. That is
-          # what the repeated-lookup test caught.
-          mkdir -p data/storage data/textstack data/postgres-prod data/dictionary-cache data/explain-cache
-          chmod 777 data/storage data/textstack data/dictionary-cache data/explain-cache
+          # nothing.
+          mkdir -p data/storage data/textstack data/postgres-prod data/explain-cache
+          chmod 777 data/storage data/textstack data/explain-cache
 
       - name: Build & start services
         run: docker compose up -d --build

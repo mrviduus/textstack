@@ -11,7 +11,7 @@
  * personal. A breadcrumb that innocently records a TTS or translate call carries the
  * passage the user was reading, and shipping that to a third-party processor is a
  * disclosure we have not made and do not want to make. Query strings are the
- * carrier — `/api/tts`, `/api/translate`, `/api/explain` and `/dictionary/...` all
+ * carrier — `/api/tts`, `/api/translate` and `/api/explain` all
  * take the text as a parameter.
  */
 

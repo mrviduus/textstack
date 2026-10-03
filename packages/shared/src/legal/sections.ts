@@ -41,7 +41,6 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
       'privacy.thirdPartiesIntro',
       'privacy.thirdPartiesOpenai',
       'privacy.thirdPartiesTts',
-      'privacy.thirdPartiesDictionary',
       'privacy.thirdPartiesAuth',
       'privacy.thirdPartiesEmail',
       'privacy.thirdPartiesSentry',

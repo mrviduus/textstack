@@ -11,7 +11,7 @@ describe('scrubUrl', () => {
       .toBe('https://textstack.app/api/tts?text=[redacted]&lang=en')
   })
 
-  it('redacts a dictionary lookup and a search query', () => {
+  it('redacts a translate call and a search query', () => {
     expect(scrubUrl('/api/translate?text=secret&target=uk')).toBe('/api/translate?text=[redacted]&target=uk')
     expect(scrubUrl('/api/search?q=my%20private%20book')).toBe('/api/search?q=[redacted]')
   })

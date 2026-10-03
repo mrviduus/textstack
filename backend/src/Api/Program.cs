@@ -346,7 +346,6 @@ app.MapMcpKeysEndpoints();
 app.MapOAuthEndpoints();
 app.MapTranslationEndpoints();
 app.MapExplainEndpoints();
-app.MapDictionaryEndpoints();
 app.MapUserBooksEndpoints();
 app.MapLibraryShelvesEndpoints();
 app.MapCollectionsEndpoints();

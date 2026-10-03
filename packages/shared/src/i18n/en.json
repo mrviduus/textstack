@@ -440,7 +440,6 @@
     "thirdPartiesIntro": "We do not sell your personal information and we do not share it with advertisers or data brokers. We do send data to the providers below, each only as far as a feature you used requires.",
     "thirdPartiesOpenai": "OpenAI. When you use an AI feature, your question and the relevant passage of the book are sent to OpenAI's API (models gpt-4.1 and gpt-4.1-nano) and the answer comes back. Under OpenAI's API terms this content is not used to train their models.",
     "thirdPartiesTts": "Microsoft. Text you ask to be read aloud is sent to the Edge text-to-speech service to be turned into audio.",
-    "thirdPartiesDictionary": "Free Dictionary API (dictionaryapi.dev). The single word you look up is sent to fetch its definition and pronunciation. No account information goes with it.",
     "thirdPartiesAuth": "Google and Apple. Only if you choose to sign in with them, and only to verify who you are.",
     "thirdPartiesEmail": "Resend. Receives your email address in order to deliver transactional email such as a password reset.",
     "thirdPartiesSentry": "Sentry. Receives error and performance data from our servers when something fails, which can include details of the failing request.",

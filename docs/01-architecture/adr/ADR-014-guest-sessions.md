@@ -78,7 +78,7 @@ client in `apps/mobile/src/lib/capabilities.ts`.
 
 | Capability | Guest | Reason |
 |---|---|---|
-| Read, translate, look a word up | **yes** | `POST /translate` and `GET /dictionary/{lang}/{word}` are anonymous endpoints. Gating them gates reading itself. |
+| Read, translate, look a word up | **yes** | `POST /translate` is anonymous (the dictionary endpoint was removed 2026-10-03). Gating it gates reading itself. |
 | Save vocabulary, highlight, bookmark, keep progress | **yes** | This is the loop. It is the whole point of the row existing. |
 | Upload a book | ~~no~~ **yes**, see [§3a](#3a-amendment-2026-09-06--upload-is-open-to-a-guest) | ~~**A product choice, not a server constraint.** `Entitlements:Tiers:Guest` allows one book at 50 MB, and the server would accept it. A guest who uploads their only book and then loses the phone has lost the book, and we took the storage to arrange that. Upload is the moment to ask for an account.~~ |
 | Librarian, tutor, "Ask this book", book chat, RAG indexing | no | **A cost decision.** These spend paid inference. Guest sessions are free and unlimited to mint, and every limiter fronting those routes partitions on IP alone. |

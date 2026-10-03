@@ -36,10 +36,6 @@ public static partial class ServiceCollectionExtensions
         // Phase 12 RLOps slice 5b: embedding-drift detection (OFF by default — Drift:Enabled).
         services.AddHostedService<DriftDetectionWorker>();
 
-        // Retention bound for the /dictionary file cache (NOT the freshness TTL — stale entries
-        // are the upstream-outage fallback and must survive expiry).
-        services.AddHostedService<DictionaryCacheSweeper>();
-
         return services;
     }
 }

@@ -289,7 +289,6 @@
   "privacy.thirdPartiesAnalytics": "Google Analytics and Ahrefs Analytics. On the textstack.app website only, and only after you accept analytics cookies. The mobile apps contain no analytics.",
   "privacy.thirdPartiesAuth": "Google and Apple. Only if you choose to sign in with them, and only to verify who you are.",
   "privacy.thirdPartiesCloudflare": "Cloudflare. Carries all traffic to the service as our DNS and network provider.",
-  "privacy.thirdPartiesDictionary": "Free Dictionary API (dictionaryapi.dev). The single word you look up is sent to fetch its definition and pronunciation. No account information goes with it.",
   "privacy.thirdPartiesEmail": "Resend. Receives your email address in order to deliver transactional email such as a password reset.",
   "privacy.thirdPartiesHeading": "Who we send data to",
   "privacy.thirdPartiesIntro": "We do not sell your personal information and we do not share it with advertisers or data brokers. We do send data to the providers below, each only as far as a feature you used requires.",

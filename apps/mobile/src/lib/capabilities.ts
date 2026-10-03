@@ -92,11 +92,11 @@ export interface Capabilities {
    * `tutor` keys on `RemoteIpAddress`). A guest hole here is therefore throttled by IP and by
    * nothing else, and guest sessions are free and unlimited to mint.
    *
-   * Deliberately NOT covered by this flag: **translation and dictionary**.
-   * `POST /translate` and `GET /dictionary/{lang}/{word}` are anonymous
-   * endpoints today and must stay available to guests — the core reading loop
-   * (tap a word, understand it, keep reading) depends on them, and that loop is
-   * the product. Gating them would gate reading itself.
+   * Deliberately NOT covered by this flag: **translation**.
+   * `POST /translate` is an anonymous
+   * endpoint today and must stay available to guests — the core reading loop
+   * (tap a word, understand it, keep reading) depends on it, and that loop is
+   * the product. Gating it would gate reading itself.
    */
   canUseAi: boolean
   /**

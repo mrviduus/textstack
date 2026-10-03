@@ -6,7 +6,7 @@ import { normalizeVocabKey } from '../lib/vocabKey'
 import type { VocabMap } from './useReaderVocabulary'
 
 // Shared bubble shape. Callers extend this with their own extras (rect, range,
-// phonetic, …).
+// definition, …).
 export interface BubbleLike {
   word: string
   translation: string | null

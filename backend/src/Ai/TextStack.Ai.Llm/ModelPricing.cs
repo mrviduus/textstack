@@ -16,7 +16,7 @@ public static class ModelPricing
         new Dictionary<string, (decimal, decimal)>(StringComparer.OrdinalIgnoreCase)
         {
             ["gpt-4.1-nano"] = (0.10m, 0.40m),
-            // gpt-4.1 family (explain/rag on -mini, judge + ADR-012 pdf.parse vision on the full model).
+            // gpt-4.1 family (tutor on -mini, judge + ADR-012 pdf.parse vision on the full model).
             // Without these the cost was recorded as 0, so the per-feature USD budget guard was a no-op.
             ["gpt-4.1-mini"] = (0.40m, 1.60m),
             ["gpt-4.1"] = (2.00m, 8.00m),

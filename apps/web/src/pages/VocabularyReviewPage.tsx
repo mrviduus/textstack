@@ -223,7 +223,6 @@ export function VocabularyReviewPage() {
             onSpeak={handleSpeak}
             t={t}
             onNext={review.nextCard}
-            language={language}
           />
         )
       )}
