@@ -118,15 +118,16 @@ export function useEditionReaderSource({
     // id to give, so there is nothing to send — the local write above is the
     // record, and useReaderPersistence repeats the save once an id appears.
     if (!chapterId) return
+    // Book-wide, matching ReadingProgress.Percent's declared unit. A chapter
+    // fraction is NEVER a substitute: it is 1.0 at the end of every chapter, so
+    // it wrote "book finished" into the column. Unknown (chapter list not loaded
+    // yet) → no server write; the chapters-arrived effect below repeats the save.
+    // Same rule as buildUserBookProgressPayload.
+    if (snap.bookPercent == null) return
     return readingProgressApi.updateProgress(id, {
       chapterId,
       chapterSlug: snap.chapterSlug,
-      // Book-wide, matching ReadingProgress.Percent's declared unit. This used
-      // to send the chapter fraction — which hits 1.0 at the bottom of every
-      // chapter — while web sent a book fraction into the same column.
-      // `bookPercent` is null only before the chapter list resolves; the
-      // chapter fraction is a strictly better guess than nothing there.
-      progress: snap.bookPercent ?? snap.chapterPercent,
+      progress: snap.bookPercent,
       scrollOffset: snap.scrollOffset,
       positionJson,
     }).catch((e) => { console.warn('[progress] save failed', e) })

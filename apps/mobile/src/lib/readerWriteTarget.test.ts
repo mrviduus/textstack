@@ -78,3 +78,25 @@ describe('the restore follows the document', () => {
     expect(src).toMatch(/const onDocumentRebuild = useCallback\(\(\) => \{\s*dispatchGate\(\{ type: 'chapterEntered', chapterSlug: chapterSlug \?\? null \}\)/)
   })
 })
+
+describe('book progress is never a chapter fraction', () => {
+  // A chapter fraction is 1.0 at the end of every chapter; written into the
+  // book-wide column it marks the book finished. Hooks do not run in this lane,
+  // so the rule is pinned in the source.
+  const src = read('../components/reader/useEditionReaderSource.ts')
+
+  it('skips the server write until the book percent is known', () => {
+    const guard = src.indexOf('if (snap.bookPercent == null) return')
+    expect(guard).toBeGreaterThan(-1)
+    expect(src.indexOf('readingProgressApi.updateProgress(')).toBeGreaterThan(guard)
+    expect(src).toMatch(/progress: snap\.bookPercent,/)
+  })
+
+  it('never falls back to the chapter fraction', () => {
+    expect(src).not.toMatch(/bookPercent \?\? snap\.chapterPercent/)
+  })
+
+  it('repeats the save once the chapter list lands', () => {
+    expect(src).toMatch(/chaptersArrivedRef\.current = true\s*saveProgress\(\)/)
+  })
+})
