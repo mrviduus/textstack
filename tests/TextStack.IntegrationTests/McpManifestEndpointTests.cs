@@ -25,6 +25,9 @@ public class McpManifestEndpointTests : IClassFixture<LiveApiFixture>
         "get_my_chapter",
         "list_my_highlights",
         "list_my_vocabulary",
+        "add_vocabulary_words",
+        "update_vocabulary_word",
+        "delete_vocabulary_word",
         "save_highlight",
         "save_my_highlight",
         "list_my_book_highlights",
@@ -84,7 +87,7 @@ public class McpManifestEndpointTests : IClassFixture<LiveApiFixture>
             cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotNull(manifest);
-        Assert.Equal(18, manifest.Tools.Count);
+        Assert.Equal(21, manifest.Tools.Count);
 
         var names = manifest.Tools.Select(t => t.Name).ToHashSet();
         Assert.Equal(ExpectedToolNames.ToHashSet(), names);

@@ -39,11 +39,18 @@ public static partial class VocabularyEndpoints
     {
         var group = app.MapGroup("/me/vocabulary").WithTags("Vocabulary");
 
-        group.MapPost("/words", SaveWord).WithName("SaveVocabularyWord");
+        // Word writes share `highlight-write` (per user, 120/min): an MCP assistant writes from the
+        // bridge's one container address, so only a per-user key is fair.
+        group.MapPost("/words", SaveWord).WithName("SaveVocabularyWord")
+            .RequireRateLimiting("highlight-write");
         group.MapGet("/words", GetWords).WithName("GetVocabularyWords");
-        group.MapDelete("/words/{id:guid}", DeleteWord).WithName("DeleteVocabularyWord");
-        group.MapDelete("/words", DeleteAllWords).WithName("DeleteAllVocabularyWords");
-        group.MapPatch("/words/{id:guid}", UpdateWord).WithName("UpdateVocabularyWord");
+        group.MapDelete("/words/{id:guid}", DeleteWord).WithName("DeleteVocabularyWord")
+            .RequireRateLimiting("highlight-write");
+        // Wiping the whole vocabulary is the reader's call, never an assistant's.
+        group.MapDelete("/words", DeleteAllWords).WithName("DeleteAllVocabularyWords")
+            .RejectOAuthTokens();
+        group.MapPatch("/words/{id:guid}", UpdateWord).WithName("UpdateVocabularyWord")
+            .RequireRateLimiting("highlight-write");
         group.MapGet("/review", GetReviewQueue).WithName("GetVocabularyReview");
         group.MapPost("/review", SubmitReview).WithName("SubmitVocabularyReview");
         group.MapGet("/stats", GetStats).WithName("GetVocabularyStats");
@@ -100,9 +107,19 @@ public static partial class VocabularyEndpoints
         // hint, explanation) silently falls back to book language when native is
         // null, producing explanations in the wrong language. Frontend gates
         // this at WordPopup; this check defends against direct API calls and
-        // older clients still sending `undefined`.
-        if (string.IsNullOrWhiteSpace(request.NativeLanguage))
+        // older clients still sending `undefined`. A caller that sends none (an MCP
+        // assistant) falls back to the profile's native language.
+        var nativeLanguage = request.NativeLanguage;
+        if (string.IsNullOrWhiteSpace(nativeLanguage))
+            nativeLanguage = await db.Users
+                .Where(u => u.Id == userId)
+                .Select(u => u.NativeLanguage)
+                .FirstOrDefaultAsync(ct);
+        if (string.IsNullOrWhiteSpace(nativeLanguage))
             return Results.BadRequest(new { error = "native_language_required" });
+
+        // Server-side, so no client can claim it: a connect key / OAuth token marks an assistant write.
+        var source = httpContext.Items.ContainsKey(Middleware.McpKeyAuthMiddleware.UserIdItemKey) ? "mcp" : "tap";
 
         var word = request.Word.Trim().ToLowerInvariant();
 
@@ -196,7 +213,7 @@ public static partial class VocabularyEndpoints
                 BookTitle = request.BookTitle?.Trim(),
                 ZipfRank = zipfRank,
                 ZipfScore = zipfScore,
-                Source = "tap",
+                Source = source,
                 CreatedAt = now,
             };
             db.PendingVocabularyWords.Add(pending);
@@ -220,6 +237,7 @@ public static partial class VocabularyEndpoints
             BookTitle = request.BookTitle?.Trim(),
             ZipfRank = zipfRank,
             ZipfScore = zipfScore,
+            Source = source,
             ActivatedAt = now,  // F2: marks this row as counting toward today's cap.
             Stage = 0,
             IntervalDays = 0,
@@ -235,7 +253,7 @@ public static partial class VocabularyEndpoints
         await db.SaveChangesAsync(ct);
 
         QueueEnrichment(scopeFactory, logger, entry.Id, word, request.Language,
-            request.Definition, request.Sentence, request.NativeLanguage!);
+            request.Definition, request.Sentence, nativeLanguage);
 
         return Results.Ok(SaveWordResponse.Srs(ToDto(entry)));
     }

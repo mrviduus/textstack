@@ -8,9 +8,9 @@ reading, and manage your own highlights and vocabulary — all from the chat.
 This is the canonical reference. The [package README](https://www.nuget.org/packages/TextStack.Mcp)
 and the [landing page](https://textstack.app/en/mcp) point here.
 
-## The 18 tools
+## The 21 tools
 
-The server exposes 18 tools. The public ones need no auth; the user-scoped ones
+The server exposes 21 tools. The public ones need no auth; the user-scoped ones
 require you to be signed in (see [Authentication](#authentication)).
 
 **Two halves, two identifiers.** The public catalog is made of `Edition`s and is
@@ -34,7 +34,10 @@ uploads.
 | `save_insight` | Write a conclusion back into a book — against a `chapterSlug`, or against the whole book when omitted. Saving again for the same chapter replaces it. | User |
 | `get_my_insights` | Read back everything already worked out about a book, in reading order. | User |
 | `list_my_highlights` | List your highlights for a given edition. | User |
-| `list_my_vocabulary` | List your saved vocabulary words, optionally filtered by SRS stage or search. | User |
+| `list_my_vocabulary` | List your saved vocabulary words, optionally filtered by SRS stage or search. Each carries its `id`. | User |
+| `add_vocabulary_words` | Save up to 20 words (word, language, native-language translation, optional definition + sentence), optionally linked to a `bookId` or `editionId`. One result line per word (added / already saved / queued / reference only); a refused word does not stop the batch, a 429 does. Rows are tagged `source = mcp` server-side. | User |
+| `update_vocabulary_word` | Change a saved word's translation and/or definition by `id`. | User |
+| `delete_vocabulary_word` | Delete one saved word by `id`. No bulk delete — and `DELETE /me/vocabulary/words` (wipe all) refuses OAuth tokens. | User |
 | `save_highlight` | Save a passage (text + optional color/note) to your highlights for a catalog book chapter. | User |
 | `get_my_reading` | The shelf, with no arguments: what you are reading now, what you finished recently, every upload. The only tool that needs no id — it is how the assistant finds one. | User |
 | `get_book_progress` | How far you have got in one book, and the chapter you stopped in. | User |
@@ -42,7 +45,7 @@ uploads.
 | `get_chapter_review` | Start a chapter review in one call: the review method, the chapter text (in parts if long), your highlights and saved words, open threads from earlier chapters. Refuses a chapter you have not reached. | User |
 | `save_chapter_review` | Save the structured review into the chapter's insight; its questions get their own spaced-repetition queue. A refusal lists every problem at once. See [chapter-review.md](chapter-review.md). | User |
 
-All 18 tools are always listed regardless of whether you're signed in — only a
+All 21 tools are always listed regardless of whether you're signed in — only a
 user-scoped *call* fails with a clean "authentication required" message when no
 token is available.
 
@@ -333,7 +336,7 @@ Before wiring up a client, confirm the tool speaks MCP. This sends
 ```
 
 Expect a response with `serverInfo` naming `textstack` and a `tools/list`
-result containing all 18 tools.
+result containing all 21 tools.
 
 ## Troubleshooting
 

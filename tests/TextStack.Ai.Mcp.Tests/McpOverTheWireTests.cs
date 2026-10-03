@@ -225,7 +225,7 @@ public class McpOverTheWireTests : IAsyncLifetime
 
         var names = tools.Select(t => t.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray();
         Assert.Equal(
-            ["get_book", "get_book_progress", "get_chapter", "get_chapter_review", "get_my_book", "get_my_chapter", "get_my_insights", "get_my_reading", "list_my_book_highlights", "list_my_highlights", "list_my_vocabulary", "save_chapter_review", "save_highlight", "save_insight", "save_my_highlight", "search_books", "search_my_library", "set_book_progress"],
+            ["add_vocabulary_words", "delete_vocabulary_word", "get_book", "get_book_progress", "get_chapter", "get_chapter_review", "get_my_book", "get_my_chapter", "get_my_insights", "get_my_reading", "list_my_book_highlights", "list_my_highlights", "list_my_vocabulary", "save_chapter_review", "save_highlight", "save_insight", "save_my_highlight", "search_books", "search_my_library", "set_book_progress", "update_vocabulary_word"],
             names);
     }
 
@@ -238,7 +238,7 @@ public class McpOverTheWireTests : IAsyncLifetime
 
         var tools = (await client.ListToolsAsync(cancellationToken: Ct)).Select(t => t.ProtocolTool).ToList();
 
-        string[] writes = ["save_highlight", "save_my_highlight", "save_insight", "save_chapter_review", "set_book_progress"];
+        string[] writes = ["save_highlight", "save_my_highlight", "save_insight", "save_chapter_review", "set_book_progress", "add_vocabulary_words", "update_vocabulary_word", "delete_vocabulary_word"];
         foreach (var tool in tools)
         {
             Assert.False(string.IsNullOrWhiteSpace(tool.Title), tool.Name);
@@ -405,7 +405,7 @@ public class McpOverTheWireTests : IAsyncLifetime
         await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
 
         var tools = await client.ListToolsAsync(cancellationToken: Ct);
-        Assert.Equal(18, tools.Count);
+        Assert.Equal(21, tools.Count);
 
         var chapter = await CallAsync(client, "get_chapter", Args(("slug", "dracula"), ("chapterSlug", "ch-1")));
         Assert.NotEqual(true, chapter.IsError);
@@ -774,5 +774,33 @@ public class McpOverTheWireTests : IAsyncLifetime
 
         Assert.True(result.IsError);
         Assert.Equal(0, _harness.Stub.TotalRequests);
+    }
+
+    // ── vocabulary writes: add → update → delete over the wire ────────────────────
+
+    [Fact]
+    public async Task VocabularyWrites_OverWire_AddUpdateDelete_AllSucceed()
+    {
+        await using var client = await _harness.ConnectAsync(McpServerHarness.TestJwt, Ct);
+        const string id = "55555555-5555-5555-5555-555555555555";
+        var words = JsonDocument.Parse("""[{ "word": "crepuscular", "language": "en", "translation": "сутінковий" }]""").RootElement;
+
+        var added = await CallAsync(client, "add_vocabulary_words",
+            Args(("words", words), ("bookId", StubBackend.UserBookId)));
+        AssertOk(added);
+        var line = Json(added).GetProperty("results")[0];
+        Assert.Equal("srs", line.GetProperty("status").GetString());
+        Assert.Equal(id, line.GetProperty("id").GetString());
+        var sent = JsonDocument.Parse(_harness.Stub.Last("add_vocabulary_words")!.Body).RootElement;
+        Assert.Equal(StubBackend.UserBookId, sent.GetProperty("userBookId").GetString());
+        Assert.False(sent.TryGetProperty("nativeLanguage", out _));
+
+        var updated = await CallAsync(client, "update_vocabulary_word", Args(("id", id), ("translation", "сутінки")));
+        AssertOk(updated);
+        Assert.Equal("PATCH", _harness.Stub.Last("update_vocabulary_word")!.Method);
+
+        var deleted = await CallAsync(client, "delete_vocabulary_word", Args(("id", id)));
+        AssertOk(deleted);
+        Assert.True(Json(deleted).GetProperty("deleted").GetBoolean());
     }
 }

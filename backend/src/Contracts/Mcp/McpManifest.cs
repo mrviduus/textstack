@@ -68,7 +68,24 @@ public static class McpManifestCatalog
             + "slugs (requires authentication). The chapterId it returns is what save_my_highlight "
             + "needs."),
         new("list_my_highlights", "List the signed-in user's highlights for a given edition (requires authentication)."),
-        new("list_my_vocabulary", "List the signed-in user's saved vocabulary words, optionally filtered by SRS stage or search (requires authentication)."),
+        new("list_my_vocabulary",
+            "List the signed-in user's saved vocabulary words, optionally filtered by SRS stage or search (requires authentication). "
+            + "Each word carries its id, which is what update_vocabulary_word and delete_vocabulary_word take."),
+        new("add_vocabulary_words",
+            "Save up to 20 words to the user's TextStack vocabulary, where they are reviewed with spaced repetition "
+            + "(WRITE on their own account — requires authentication). Add only words the user asked for or agreed to. "
+            + "Each word needs its language and a translation in the user's NATIVE language — ask if you are not sure "
+            + "which that is. Include the sentence it appeared in. Pass bookId (an uploaded book) or editionId (a catalog "
+            + "book) from get_my_reading, never both. Returns one line per word saying what happened to it; a word that "
+            + "is already saved is not changed — use update_vocabulary_word for that instead of adding it again."),
+        new("update_vocabulary_word",
+            "Change the translation and/or definition of a word already in the user's vocabulary (WRITE on their own "
+            + "account — requires authentication). Pass the word's id from list_my_vocabulary or add_vocabulary_words "
+            + "and at least one of translation or definition."),
+        new("delete_vocabulary_word",
+            "Remove one word from the user's vocabulary (WRITE on their own account — requires "
+            + "authentication). Pass the word's id from list_my_vocabulary. Only when the user clearly asked for it; if "
+            + "you are inferring that they want it gone, confirm first. One word per call — there is no bulk delete."),
         new("save_highlight",
             "Saves a highlight to YOUR TextStack library for the given catalog book chapter "
             + "(WRITE on your own account — requires you to be signed in). Pass the editionId "

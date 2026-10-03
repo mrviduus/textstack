@@ -204,6 +204,7 @@ public class OAuthFlowTests : IClassFixture<LiveApiFixture>, IDisposable
             (HttpMethod.Get, "/me/oauth/grants"),
             (HttpMethod.Get, "/me/profile"),
             (HttpMethod.Get, "/auth/me"),
+            (HttpMethod.Delete, "/me/vocabulary/words"), // wipe-all; single-word delete stays allowed
         })
         {
             var resp = await Send(method, path, access);
