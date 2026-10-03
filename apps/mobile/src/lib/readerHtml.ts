@@ -45,8 +45,8 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
   const fontFace = buildFontFace(theme.fontFamily)
   // Chrome comes from the same values `readerChromeInjectionJs` later applies to
   // the LIVE document, so hiding the bars or switching theme no longer has to
-  // rebuild this string — a rebuild reloads the WebView and throws away every
-  // chapter infinite scroll appended. See readerChrome.ts.
+  // rebuild this string — a rebuild reloads the WebView and re-runs the
+  // position restore. See readerChrome.ts.
   const chrome: ReaderChrome = {
     safeArea: { top: safeArea?.top ?? 0, bottom: safeArea?.bottom ?? 0 },
     backgroundColor: theme.backgroundColor,
@@ -139,16 +139,24 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
     li > p { margin: 0.2em 0; }
     blockquote { margin: 0.8em 0 0.8em 1em; padding-left: 0.8em;
                  border-left: 2px solid currentColor; opacity: 0.85; }
-    .chapter-separator {
-      text-align: center;
-      padding: 40px 16px;
-      opacity: 0.5;
-    }
-    .chapter-separator hr {
-      border: none;
-      border-top: 1px solid currentColor;
-      margin-bottom: 12px;
-    }
+    /* End of chapter (window.__tsSetChapterEnd). Inherits the reader's ink, so
+       it follows light / sepia / dark without knowing which is on; the one fill
+       is the app accent, which reads on all three. */
+    .ts-end { margin: 48px 0 24px; text-align: center; font-family: -apple-system, system-ui, sans-serif;
+              -webkit-user-select: none; user-select: none; }
+    .ts-end hr { border: none; border-top: 1px solid currentColor; opacity: 0.2; margin: 0 0 16px; }
+    .ts-end__title { font-size: 15px; opacity: 0.6; margin-bottom: 20px; line-height: 1.4; }
+    .ts-end__title.done { font-size: 20px; opacity: 1; font-weight: 600; }
+    .ts-end button { display: block; width: 100%; font: inherit; color: inherit; background: none;
+                     border: 0; border-radius: 12px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+    .ts-end__next { min-height: 56px; padding: 10px 16px; background: #C4704B !important; color: #fff !important;
+                    font-size: 16px; font-weight: 600; line-height: 1.3; }
+    .ts-end__next small { display: block; font-size: 12px; font-weight: 400; opacity: 0.85; margin-top: 2px; }
+    .ts-end__alt { min-height: 48px; margin-top: 10px; padding: 10px 16px; font-size: 15px;
+                   border: 1px solid currentColor !important; opacity: 0.85; }
+    .ts-end__prev { margin-top: 14px; padding: 10px 0; font-size: 13px; opacity: 0.6; }
+    .ts-end__error { font-size: 14px; margin-top: 12px; opacity: 0.8; }
+    .ts-end button:disabled { opacity: 0.5; }
 
     /* The tapped word, marked for as long as its toolbar is open. This was a
        0.6s fade-out, so the word went dark while the toolbar stayed up and
@@ -181,21 +189,17 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
   <script>
     let lastProgress = 0;
 
-    // Bounds of the chapter under the reading line, in document coordinates.
-    // Infinite scroll appends chapters into THIS document, so document
-    // coordinates and chapter coordinates diverge the moment chapter 2 lands.
+    // Bounds of the document's one chapter, in document coordinates — measured
+    // fresh, never remembered (a reflow, an image or a webfont moves them).
+    // The bottom is the chapter element's, not the document's: the
+    // end-of-chapter block sits below it and is not part of what was read.
     function currentChapterBounds() {
-      if (chapterSlugs.length === 0) return null;
-      var probe = window.scrollY + window.innerHeight * 0.25;
-      var idx = 0;
-      for (var i = chapterSlugs.length - 1; i >= 0; i--) {
-        if (probe >= chapterSlugs[i].top) { idx = i; break; }
-      }
-      var next = chapterSlugs[idx + 1];
+      if (!tsChapter || !tsChapter.el) return null;
+      var r = tsChapter.el.getBoundingClientRect();
       return {
-        slug: chapterSlugs[idx].slug,
-        top: chapterSlugs[idx].top,
-        bottom: next ? next.top : document.documentElement.scrollHeight
+        slug: tsChapter.slug,
+        top: Math.round(r.top + window.scrollY),
+        bottom: Math.round(r.bottom + window.scrollY)
       };
     }
 
@@ -208,13 +212,9 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
       if (document.documentElement.scrollHeight - window.innerHeight <= 0
           && (document.body.innerText || '').trim().length === 0) return;
 
-      // Progress WITHIN THE CURRENT CHAPTER — never a fraction of the whole
-      // document. RN feeds this straight into computeBookProgress() as the
-      // within-chapter fraction, so a document-wide value made the book
-      // percent run BACKWARDS every time infinite scroll appended a chapter
-      // (two chapters loaded, standing at the end of the first, reported 0.5
-      // "through chapter 1") — and the 2s debounce then persisted the lower
-      // number to the server.
+      // Progress WITHIN THE CHAPTER — measured against the chapter element, not
+      // the whole document, which also holds the end-of-chapter block. RN feeds
+      // this straight into computeBookProgress() as the within-chapter fraction.
       var bounds = currentChapterBounds();
       var relY, progress;
       if (bounds) {
@@ -232,17 +232,14 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
 
       if (Math.abs(progress - lastProgress) > 0.005) {
         lastProgress = progress;
-        var currentSlug = bounds ? bounds.slug : getCurrentChapterSlug();
+        var currentSlug = bounds ? bounds.slug : null;
         // scrollY lets RN build a 'scroll:slug:offset' locator the way PWA
         // does (apps/web/src/hooks/useReaderScrollSync.ts). Locator wins
         // over bare percent on resume because long chapters can have
         // identical percent in many pixel positions.
         //
-        // It is CHAPTER-relative for the same reason as the percent above:
-        // resume loads that one chapter alone, so an absolute offset from a
-        // multi-chapter document landed the reader at the wrong place (and,
-        // once clamped, at the very end of a chapter they had barely begun).
-        // For a freshly-loaded single chapter top === 0, so the two agree.
+        // It is CHAPTER-relative (measured from the chapter element's top,
+        // below the page padding), and the restore adds that top back.
         window.ReactNativeWebView.postMessage(JSON.stringify({
           type: 'progress',
           progress: progress,
@@ -311,14 +308,10 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
         // mount-time scroll-to-top doesn't race ahead and clobber us.
         requestAnimationFrame(function() {
           // The saved offset is CHAPTER-relative — reportProgress subtracts the
-          // chapter's top before emitting it. This used to treat it as a
-          // document coordinate, which agreed only while the first chapter's
-          // recorded top was zero. It is now the real top of the element, which
-          // sits below the reader's own page padding, so the two have to be
-          // added back together. A fresh document holds the restored chapter
-          // and nothing before it, hence index 0.
-          recomputeChapterTops();
-          var base = chapterSlugs.length > 0 ? chapterSlugs[0].top : 0;
+          // chapter's top before emitting it. That top sits below the reader's
+          // own page padding, so the two have to be added back together.
+          var b = currentChapterBounds();
+          var base = b ? b.top : 0;
           scrollToInstant(Math.max(0, base + offset));
           ackRestore(restoreId);
         });
@@ -339,24 +332,18 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
       try {
         var fraction = Math.min(1, Math.max(0, Number(pct) || 0));
         requestAnimationFrame(function() {
-          scrollToInstant(chapterScrollTarget(0, fraction));
+          scrollToInstant(chapterScrollTarget(fraction));
           ackRestore(restoreId);
         });
       } catch (e) {}
     };
 
     // Document Y that puts the reading line the given fraction of the way
-    // through the chapter at idx. Inverse of reportProgress. Tops are
-    // recomputed first --
-    // a restore always follows something that changed the layout.
-    function chapterScrollTarget(idx, fraction) {
-      recomputeChapterTops();
-      var docBottom = document.documentElement.scrollHeight;
-      var top = 0, bottom = docBottom;
-      if (chapterSlugs.length > idx && idx >= 0) {
-        top = chapterSlugs[idx].top;
-        bottom = chapterSlugs[idx + 1] ? chapterSlugs[idx + 1].top : docBottom;
-      }
+    // through the chapter. Inverse of reportProgress.
+    function chapterScrollTarget(fraction) {
+      var b = currentChapterBounds();
+      var top = b ? b.top : 0;
+      var bottom = b ? b.bottom : document.documentElement.scrollHeight;
       var span = (bottom - top) - window.innerHeight;
       return Math.max(0, Math.round(top + (span > 0 ? span * fraction : 0)));
     }
@@ -375,13 +362,9 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
     // what surrounds it. That is what a highlight already is, and the resolver
     // below is the same one highlights use.
 
-    /** The element holding the chapter the reader is in, for scoping the text. */
+    /** The chapter's element, for scoping the text — only for its own slug. */
     function chapterElement(slug) {
-      if (!slug) return null;
-      for (var i = 0; i < chapterSlugs.length; i++) {
-        if (chapterSlugs[i].slug === slug) return chapterSlugs[i].el;
-      }
-      return null;
+      return slug && tsChapter && tsChapter.slug === slug ? tsChapter.el : null;
     }
 
     /**
@@ -397,8 +380,8 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
       if (!el) return '';
       // Cached on the element: the extraction walks every text node, and this
       // runs on every progress message. A chapter's text never changes once it
-      // is in the document — appendChapter adds a NEW element, and the walker
-      // already excludes the vocab decorations that do get added to an old one.
+      // is in the document, and the walker excludes the vocab decorations that
+      // do get added to it.
       if (el.__tsText !== undefined) return el.__tsText;
       var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
         acceptNode: function(n) {
@@ -543,7 +526,7 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
         // in. If the saved position names another, the resolver returns null and
         // the reader stays at the top — RN routes to that chapter instead, which
         // is a decision it can make and this document cannot.
-        var slug = chapterSlugs.length > 0 ? chapterSlugs[0].slug : null;
+        var slug = tsChapter ? tsChapter.slug : null;
         var el = chapterElement(slug);
         var api = window.__TSAnchor;
         if (!el || !api || !api.resolvePosition) {
@@ -574,7 +557,7 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
                 scrollToInstant(Math.max(0, Math.round(window.scrollY + rect.top - window.innerHeight * 0.25)));
               }
             } else {
-              scrollToInstant(chapterScrollTarget(0, resolved.fraction));
+              scrollToInstant(chapterScrollTarget(resolved.fraction));
             }
           } catch (e) {}
           ackRestore(restoreId);
@@ -607,16 +590,13 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
      * Change typography on the LIVE document and keep the reader where they were.
      *
      * Typography used to be an input to the document string, so changing a font
-     * size reloaded the WebView — which threw away every chapter infinite scroll
-     * had appended and then restored a chapter-two fraction into a chapter-one
-     * document. Injecting the CSS instead keeps the document, so there is
-     * nothing to lose and nothing to re-fetch.
+     * size reloaded the WebView and re-ran the restore. Injecting the CSS
+     * instead keeps the document.
      *
      * The three steps are one call because the middle one has to happen between
      * the other two: measure where the reader is BEFORE the reflow (afterwards
-     * the old coordinates mean nothing), restyle, then recompute the chapter
-     * tops the reflow just invalidated and put the same chapter fraction back
-     * under the reading line. The scroll fires reportProgress, so it carries a
+     * the old coordinates mean nothing), restyle, then put the same text (or,
+     * failing that, the same chapter fraction) back under the reading line. The scroll fires reportProgress, so it carries a
      * restoreId and acks like any other restore — the write gate is what stops
      * the transient from being saved, and it already exists.
      */
@@ -630,11 +610,8 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
         // the fraction stays as the fallback for when it resolves to nothing.
         var beforePos = window.__textstackCapturePosition ? window.__textstackCapturePosition() : null;
         var before = currentChapterBounds();
-        var idx = 0, fraction = 0;
+        var fraction = 0;
         if (before) {
-          for (var i = 0; i < chapterSlugs.length; i++) {
-            if (chapterSlugs[i].slug === before.slug) { idx = i; break; }
-          }
           var span = (before.bottom - before.top) - window.innerHeight;
           fraction = span > 0 ? Math.min(1, Math.max(0, (window.scrollY - before.top) / span)) : 0;
         }
@@ -646,8 +623,7 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
         }
         style.textContent = css;
         requestAnimationFrame(function() {
-          recomputeChapterTops();
-          if (!scrollToResolvedPosition(beforePos)) scrollToInstant(chapterScrollTarget(idx, fraction));
+          if (!scrollToResolvedPosition(beforePos)) scrollToInstant(chapterScrollTarget(fraction));
           // Highlights and vocab underlines are drawn from Range rects, and a
           // style change fires no resize event — the overlayer's own listeners
           // never hear about this one.
@@ -682,129 +658,88 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
 
     window.addEventListener('load', function() {
       console.log('[diag] load event — ua:', navigator.userAgent.slice(0, 80));
-      window.ReactNativeWebView.postMessage(JSON.stringify({
-        type: 'loaded',
-        scrollHeight: document.documentElement.scrollHeight
-      }));
       // Emit-on-load: the scroll-gated reportProgress only fires once the
       // reader actually moves, so a chapter the user navigates INTO records
       // nothing (and ReadingProgress.MaxChapterNumber stays unset) until they
       // scroll. Post one initial progress so ReaderShell runs its full
       // book-progress + debounced-persistence path for the DESTINATION chapter
-      // immediately. Guard: only on the FIRST load (no infinite-scroll appends
-      // yet — chapterSlugs holds at most the initial chapter), so appends never
-      // re-fire this or reset getCurrentChapterSlug to the top chapter.
-      if (chapterSlugs.length <= 1) {
-        var initSlug = getCurrentChapterSlug();
-        if (initSlug) {
-          var initScrollTop = window.scrollY;
-          var initDocHeight = document.documentElement.scrollHeight - window.innerHeight;
-          var initProgress = initDocHeight > 0 ? Math.min(initScrollTop / initDocHeight, 1) : 0;
-          lastProgress = initProgress;
-          window.ReactNativeWebView.postMessage(JSON.stringify({
-            type: 'progress',
-            progress: initProgress,
-            chapterSlug: initSlug,
-            scrollY: Math.round(initScrollTop)
-          }));
-        }
+      // immediately.
+      var initBounds = currentChapterBounds();
+      if (initBounds) {
+        var initRelY = Math.max(0, window.scrollY - initBounds.top);
+        var initSpan = (initBounds.bottom - initBounds.top) - window.innerHeight;
+        var initProgress = initSpan > 0 ? Math.min(initRelY / initSpan, 1) : 0;
+        lastProgress = initProgress;
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: 'progress',
+          progress: initProgress,
+          chapterSlug: initBounds.slug,
+          scrollY: Math.round(initRelY)
+        }));
       }
-      installTopsObserver();
-      recomputeChapterTops();
-      setTimeout(checkInfiniteScroll, 100);
     });
 
-    // Infinite scroll
-    var infiniteScrollEnabled = false;
-    var loadingNext = false;
-    function checkInfiniteScroll() {
-      if (!infiniteScrollEnabled || loadingNext) return;
-      var scrollBottom = window.scrollY + window.innerHeight;
-      var docHeight = document.documentElement.scrollHeight;
-      if (docHeight - scrollBottom < 400) {
-        loadingNext = true;
-        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'requestNextChapter' }));
-      }
-    }
-    window.addEventListener('scroll', checkInfiniteScroll, { passive: true });
-
-    // Single-object payload: U+2028/U+2029 terminate JS lines but are valid
-    // in JSON strings, so HTML must round-trip via JSON.parse, not a JS literal.
-    function appendChapter(payload) {
-      var html = payload && payload.html;
-      var title = payload && payload.title;
-      var slug = payload && payload.slug;
-      if (!html) { loadingNext = false; return; }
-      var sep = document.createElement('div');
-      sep.className = 'chapter-separator';
-      sep.innerHTML = '<hr><span>' + title + '</span>';
-      document.body.appendChild(sep);
-      var div = document.createElement('div');
-      // The chapter gets an element of its own, named. It is the scope a
-      // reading position is measured in — web has had the same thing since
-      // ReaderSection stamped data-chapter-id on its <article>.
-      if (slug) div.setAttribute('data-chapter-slug', slug);
-      div.innerHTML = html;
-      document.body.appendChild(div);
-      if (slug) registerChapter(slug, div);
-      loadingNext = false;
-      setTimeout(checkInfiniteScroll, 100);
-    }
-    function enableInfiniteScroll() { infiniteScrollEnabled = true; }
-    function disableInfiniteScroll() { infiniteScrollEnabled = false; loadingNext = false; }
-
-    // Chapter tracking for progress.
-    //
-    // Each entry keeps the ELEMENT, not just the number it happened to be at
-    // when the chapter was appended. The old version sampled offsetTop once and
-    // never looked again, which was invisible only because nothing reflowed a
-    // live document: images and webfonts land before the first append, and
-    // typography used to rebuild the whole document rather than restyle it.
-    // The moment a font size is injected into a live document, every stored
-    // top is a lie, currentChapterBounds() names the wrong chapter, and
-    // reportProgress posts that wrong slug — the same corruption the rebuild
-    // caused, by a different route. So tops are recomputed, never remembered.
-    var chapterSlugs = [];
+    // The document's one chapter. Its element is the scope a reading position
+    // (ADR-015) and its anchors are measured in. One chapter per document since
+    // 2026-10-03: the reader used to append the next chapter as you scrolled,
+    // and "which chapter is the reader in" having two answers was the source of
+    // most of the position bugs ADR-015 lists.
+    var tsChapter = null;
     function registerChapter(slug, el) {
-      var node = el || document.body.lastElementChild;
-      chapterSlugs.push({ slug: slug, el: node, top: chapterTop(node) });
+      tsChapter = el ? { slug: slug, el: el } : null;
     }
-    // Document-absolute top of a chapter element. getBoundingClientRect rather
-    // than offsetTop: offsetTop is measured from the offsetParent's padding
-    // edge, and body carries the reader's own padding, so the two disagree by
-    // exactly the top inset — which is the reading line's own margin of error.
-    function chapterTop(el) {
-      if (!el || !el.getBoundingClientRect) return 0;
-      return Math.round(el.getBoundingClientRect().top + window.scrollY);
+
+    // --- End of chapter ------------------------------------------------------
+    // RN builds the model (labels already localized, which buttons apply) and
+    // pushes it here; taps go back as 'chapterEnd' messages. Re-callable: RN
+    // pushes again when the chapter list or the saved-word count lands, and to
+    // show a load error. 'visible' is posted once, when the block first scrolls
+    // into view, so RN can fetch the next chapter ahead of the tap.
+    var tsEndSeen = false;
+    function tsEndPost(action) {
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'chapterEnd', action: action }));
     }
-    function recomputeChapterTops() {
-      for (var i = 0; i < chapterSlugs.length; i++) {
-        if (chapterSlugs[i].el) chapterSlugs[i].top = chapterTop(chapterSlugs[i].el);
-      }
+    function tsEndCheckVisible() {
+      if (tsEndSeen) return;
+      var root = document.getElementById('ts-chapter-end');
+      if (!root || !root.firstChild) return;
+      if (root.getBoundingClientRect().top < window.innerHeight) { tsEndSeen = true; tsEndPost('visible'); }
     }
-    // Everything that can move a chapter's top: an image finishing, a webfont
-    // swapping, typography being injected, a rotation. One observer covers all
-    // of them, and rAF-coalesced so a burst costs one layout read.
-    var _topsScheduled = false;
-    function scheduleRecomputeTops() {
-      if (_topsScheduled) return;
-      _topsScheduled = true;
-      requestAnimationFrame(function() { _topsScheduled = false; recomputeChapterTops(); });
-    }
-    // Installed from the load handler: this script runs in <head>, where
-    // document.body is still null.
-    function installTopsObserver() {
-      if (typeof ResizeObserver === 'undefined' || !document.body) return;
-      try { new ResizeObserver(scheduleRecomputeTops).observe(document.body); } catch (e) {}
-    }
-    function getCurrentChapterSlug() {
-      if (chapterSlugs.length === 0) return null;
-      var scrollTop = window.scrollY + window.innerHeight * 0.25;
-      for (var i = chapterSlugs.length - 1; i >= 0; i--) {
-        if (scrollTop >= chapterSlugs[i].top) return chapterSlugs[i].slug;
-      }
-      return chapterSlugs[0].slug;
-    }
+    window.addEventListener('scroll', tsEndCheckVisible, { passive: true });
+    window.__tsSetChapterEnd = function(m) {
+      try {
+        var root = document.getElementById('ts-chapter-end');
+        if (!root) return;
+        root.innerHTML = '';
+        if (!m) return;
+        var el = function(tag, cls, text) {
+          var e = document.createElement(tag);
+          if (cls) e.className = cls;
+          if (text != null) e.textContent = text;
+          return e;
+        };
+        var btn = function(cls, text, action, sub) {
+          var b = el('button', cls, text);
+          b.type = 'button';
+          if (sub) b.appendChild(el('small', null, sub));
+          if (m.busy) b.disabled = true;
+          b.addEventListener('click', function(e) { e.preventDefault(); tsEndPost(action); });
+          return b;
+        };
+        root.appendChild(el('hr'));
+        root.appendChild(el('div', 'ts-end__title' + (m.finished ? ' done' : ''), m.title));
+        if (m.next) root.appendChild(btn('ts-end__next', m.next.label, 'next', m.next.counter));
+        if (m.error) {
+          root.appendChild(el('div', 'ts-end__error', m.error));
+          root.appendChild(btn('ts-end__alt', m.retry, 'retry'));
+        }
+        if (m.discuss) root.appendChild(btn('ts-end__alt', m.discuss, 'discuss'));
+        if (m.reviewWords) root.appendChild(btn('ts-end__alt', m.reviewWords, 'review'));
+        if (m.library) root.appendChild(btn('ts-end__alt', m.library, 'library'));
+        if (m.prev) root.appendChild(btn('ts-end__prev', m.prev.label, 'prev'));
+        tsEndCheckVisible();
+      } catch (e) {}
+    };
 
     // Highlight rendering
     var HIGHLIGHT_BG = { yellow: 'rgba(254,240,138,0.5)', green: 'rgba(187,247,208,0.5)', pink: 'rgba(251,207,232,0.5)', blue: 'rgba(191,219,254,0.5)' };
@@ -1281,8 +1216,8 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
       });
     }
 
-    // Re-apply vocab marks after DOM mutations (e.g. appendChapter replaces a
-    // chunk of body). RAF-debounced, only runs if a vocab map is loaded.
+    // Re-apply vocab marks after DOM mutations (e.g. a re-parsed chunk of
+    // body). RAF-debounced, only runs if a vocab map is loaded.
     var _vhlMutRaf = 0;
     var _vhlMutObserver = null;
     var _vhlMutAttached = false;
@@ -1497,6 +1432,9 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
 </head>
 <body>
   <div${initialChapterSlug ? ` data-chapter-slug="${escapeAttr(initialChapterSlug)}"` : ''}>${chapterHtml}</div>
+  <!-- data-vocab-overlay: keeps the block out of vocab underlining and out of the
+       chapter text positions are measured in. Filled by __tsSetChapterEnd. -->
+  <div id="ts-chapter-end" class="ts-end" data-vocab-overlay="true"></div>
   ${initialChapterSlug ? `<script>registerChapter(${JSON.stringify(initialChapterSlug)}, document.querySelector('[data-chapter-slug]'));</script>` : ''}
 </body>
 </html>`

@@ -5,7 +5,7 @@ import { userBooksApi, isOfflineError, parseScrollLocator, buildUserBookProgress
 import type { UserBookChapterDto, BookmarkDto, TextPosition } from '@textstack/shared'
 import { API_URL } from '../../lib/api'
 import { getUserBookLocalProgress, saveUserBookLocalProgress } from '../../lib/progressStorage'
-import { getCachedUserChapter, refreshCachedUserChapter, getCachedUserBookMeta, listCachedUserChapters } from '../../lib/offlineDb'
+import { getCachedUserChapter, refreshCachedUserChapter, cacheUserChapter, getCachedUserBookMeta, listCachedUserChapters } from '../../lib/offlineDb'
 import { userBookChapterSlug } from '../../lib/userBookChapters'
 import { getCachedOriginalUri, touchOriginal } from '../../lib/originalFileCache'
 import { reflowWritesEnabled } from '../../lib/readerWriteMode'
@@ -13,7 +13,6 @@ import {
   pdfFlushDecision, shouldFlushOnClose, PDF_FLUSH_DEBOUNCE_MS,
 } from '../../lib/pdfWritePolicy'
 import { useReaderPersistence } from '../../hooks/useReaderPersistence'
-import { useReaderInfiniteScroll } from '../../hooks/useReaderInfiniteScroll'
 import type { ProgressSnapshot, ReaderChapterMeta, ReaderRuntime, SavedPosition } from './readerSource'
 
 type ToastFn = (t: { message: string; variant: 'error' | 'success' | 'info' }) => void
@@ -278,10 +277,10 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
       // stored one rather than leaving it beside a fresher pixel offset.
       positionJson: serializeTextPosition(snap.position) ?? undefined,
     })
-    if (payload && !offlineReflowOfPdfRef.current) {
-      userBooksApi.updateUserBookProgress(bookId, payload)
+    const written = payload && !offlineReflowOfPdfRef.current
+      ? userBooksApi.updateUserBookProgress(bookId, payload)
         .catch(e => { if (__DEV__) console.warn('[user-book-progress] PUT failed:', e) })
-    }
+      : undefined
     // Always written, not only when the server write succeeds — this record is
     // what reopens the book at the right place when the PUT above could not be
     // made at all. `bookPercent` is carried forward by the store when it is not
@@ -294,6 +293,7 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
       scrollOffset: snap.scrollOffset,
       positionJson: serializeTextPosition(snap.position) ?? undefined,
     }).catch(() => {})
+    return written
   }, [bookId, chapters])
 
   /**
@@ -351,8 +351,6 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
   // `page:16` with `scroll:<url-slug>:0`. See readerWriteMode.ts.
   const reflowWrites = reflowWritesEnabled({ hasOriginalPdf, forceReflow })
 
-  // Stable: the persistence hook keys effects on the identity of what it is given,
-  // and a rebuilt callback here would re-arm a restore.
   const navigateToChapter = useCallback((slug: string) => {
     router.replace(`/my-books/read/${bookId}/${slug}`)
   }, [router, bookId])
@@ -363,18 +361,18 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
     chapterId: chapter?.id ?? null,
     injectJs,
     progressRef, scrollOffsetRef, currentChapterSlugRef, bookProgressRef, positionRef,
-    persist, loadPosition, navigateToChapter,
+    persist, loadPosition,
     enabled: reflowWrites,
   })
 
-  // Device first, like the initial load: without it a downloaded book stopped
-  // dead offline at the end of chapter one, where infinite scroll takes over.
-  const fetchNext = useCallback(async (slug: string) => {
-    const cached = await getCachedUserChapter(bookId, slug)
-    if (cached) return { ...cached, slug: cached.chapterSlug }
-    return userBooksApi.getUserBookChapter(bookId, slug)
-  }, [bookId])
-  const { enableForChapter, loadNext } = useReaderInfiniteScroll({ injectJs, wordCountRef, fetchNext })
+  // Puts a chapter on the device before the reader opens it (end-of-chapter
+  // block), so the open is instant and works offline. Device first, like the
+  // initial load (chapterLoadOrder.test.ts). Throws when neither has it.
+  const ensureChapter = useCallback(async (slug: string) => {
+    if (await getCachedUserChapter(bookId, slug)) return
+    const ch = await userBooksApi.getUserBookChapter(bookId, slug)
+    await cacheUserChapter(bookId, ch, chapters.find(c => c.slug === slug)?.chapterNumber ?? null)
+  }, [bookId, chapters])
 
   // --- S4c: Original-layout PDF server resume page. Fetched once the book is
   // known to be a PDF; parsed from the `page:<N>` progress locator. ---
@@ -585,8 +583,7 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
     wordCount: wordCountRef.current,
     progressRef, scrollOffsetRef, currentChapterSlugRef, bookProgressRef, positionRef, totalWordCountRef,
     saveProgress, bumpProgress, onWebViewLoaded, onRestoreLanded, onDocumentRebuild, beginReflow,
-    onChapterLoaded: () => enableForChapter(chapter),
-    onRequestNextChapter: loadNext,
+    ensureChapter,
     onNavigateChapter: navigateToChapter,
     bookmarks,
     onToggleCurrentBookmark: toggleBookmark,

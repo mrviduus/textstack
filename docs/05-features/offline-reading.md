@@ -245,8 +245,12 @@ that opens the socket and never answers — where the reader waited out the whol
 timeout in front of a downloaded book. Infinite scroll was worse: the catalogue
 appender read no cache at all, and its failure branch is
 `disableInfiniteScroll()`, so a downloaded catalogue book scrolled to the bottom
-of chapter one and then quietly stopped. `chapterLoadOrder.test.ts` pins all four
-call sites, because nothing in CI can feel any of this.
+of chapter one and then quietly stopped. (Infinite scroll is gone since 2026-10-03;
+its successor is `ensureChapter`, which puts the next chapter on the device when the
+end-of-chapter block scrolls into view — SQLite first, then network, and a row
+written for a book that was never downloaded is harmless: nothing lists it.)
+`chapterLoadOrder.test.ts` pins all four call sites, because nothing in CI can feel
+any of this.
 
 ### Deleted elsewhere, deleted here
 

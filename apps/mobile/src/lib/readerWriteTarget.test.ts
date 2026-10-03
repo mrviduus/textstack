@@ -1,14 +1,15 @@
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 
 /**
- * The reader writes where the READER is, not where the ROUTE says.
+ * The reader writes where the READER is — and since 2026-10-03 that has only
+ * one answer.
  *
- * The mobile reader appends chapters into one document as you scroll, and the
- * URL never leaves the chapter you opened. Everything that answers "which
- * chapter is this?" therefore has two possible answers, and picking the wrong
- * one is the single most expensive mistake in this codebase's history:
+ * The mobile reader used to append chapters into one document as you scrolled,
+ * while the URL stayed on the chapter you opened, so "which chapter is this?"
+ * had two answers and picking the wrong one was the most expensive mistake in
+ * this codebase's history:
  *
  *   #496  resume believed the route-derived slug and opened chapter one
  *   #500  the same rule, applied on one screen out of three
@@ -16,42 +17,49 @@ import { join } from 'node:path'
  *   ADR-015 slice 1: a rebuilt document restored a chapter-two fraction into
  *          chapter one, and the debounced save made it permanent
  *
- * `docs/…/ADR-015` evaluated making the ROUTE follow the reader so the question
- * could only have one answer, and declined: by the time the position became a
- * text anchor the data-loss case was gone, and what remained was cosmetic
- * against surgery on the reset key of `useReaderPersistence` and the identity of
- * the WebView document — the two places every one of those four defects lived.
- *
- * This is what was bought instead. It pins, at the source level, that the write
- * path reads the visible chapter and the restore path reads the document's own —
- * the property slice 5 would have made structural. If one of these assertions
- * starts failing, the reasoning in ADR-015 no longer holds and the route
- * genuinely does need to follow the reader.
+ * ADR-015 declined making the route follow the reader. The addendum of
+ * 2026-10-03 did the other thing: the document holds ONE chapter, the one the
+ * route names, and the reader moves on with the end-of-chapter block (as the
+ * web reader has since #161). These assertions pin that the two answers cannot
+ * come back.
  */
 
 const read = (p: string) => readFileSync(join(__dirname, p), 'utf8')
 
+describe('one chapter per document', () => {
+  it('nothing appends a chapter into the reader document', () => {
+    const html = read('readerHtml.ts')
+    expect(html).not.toMatch(/function appendChapter|requestNextChapter|enableInfiniteScroll/)
+    expect(existsSync(join(__dirname, '../hooks/useReaderInfiniteScroll.ts'))).toBe(false)
+  })
+
+  it('the document tracks a single chapter element', () => {
+    // ADR-015 anchors are scoped to one data-chapter-slug element.
+    const html = read('readerHtml.ts')
+    expect(html).toMatch(/var tsChapter = null;/)
+    expect(html).not.toMatch(/chapterSlugs\.push/)
+  })
+
+  it('the shell has no second "visible chapter" to disagree with the route', () => {
+    const shell = read('../components/reader/ReaderShell.tsx')
+    expect(shell).not.toMatch(/visibleChapterSlug|finishedSlugRef/)
+  })
+})
+
 describe('the write follows the reader', () => {
-  it('saveProgress names the chapter the WebView reports, not the route', () => {
+  it('saveProgress names the chapter the WebView reports, falling back to the route', () => {
     const src = read('../hooks/useReaderPersistence.ts')
-    // `currentChapterSlugRef` is written from the progress message's own slug,
-    // which currentChapterBounds derives from the reading line. The route slug
-    // is the fallback for before the first message arrives, and nothing else.
     expect(src).toMatch(/const slug = currentChapterSlugRef\.current \|\| gate\.chapterSlug/)
   })
 
   it('the position is only saved when it belongs to the chapter being saved', () => {
-    // The two refs are written by one message each, and a progress message with
-    // no text under the reading line leaves the position at its previous value —
-    // which may name the chapter before this one.
     const src = read('../hooks/useReaderPersistence.ts')
     expect(src).toMatch(/positionRef\.current\?\.chapterSlug === slug/)
   })
 
-  it('the server chapter id is resolved from the visible slug', () => {
-    // Not from the route. The server has no slug column — it derives one by
-    // joining this id — so a route id here makes the row disagree with its own
-    // locator, which is #496 exactly.
+  it('the server chapter id is resolved from the saved slug', () => {
+    // The server has no slug column — it derives one by joining this id — so an
+    // id that disagrees with the locator is #496 exactly.
     const src = read('../components/reader/useEditionReaderSource.ts')
     expect(src).toMatch(/chapterIdForSlug\(chaptersRef\.current, snap\.chapterSlug\)/)
   })
@@ -59,18 +67,36 @@ describe('the write follows the reader', () => {
 
 describe('the restore follows the document', () => {
   it('loads the saved position for the chapter the document was built from', () => {
-    // The opposite rule, and it is not a contradiction: a restore can only land
-    // in a chapter this document contains. When the saved position names another
-    // one, the route is changed instead — which is the narrow, safe half of
-    // "the route follows the reader".
     const src = read('../hooks/useReaderPersistence.ts')
     expect(src).toMatch(/loadPosition\(chapterSlug\)/)
-    expect(src).toMatch(/navigateToChapter\?\.\(wasIn\)/)
   })
 
-  it('the write gate is keyed on the document, so a rebuild shuts it', () => {
+  it('a rebuild of the same chapter shuts the write gate until its restore lands', () => {
+    // A re-parsed chapter or the OpenDyslexic face still rebuilds the document;
+    // its load event reports zero, which must not be written over a real place.
     const src = read('../hooks/useReaderPersistence.ts')
-    expect(src).toMatch(/rebuiltFromSlugRef\.current = currentChapterSlugRef\.current/)
-    expect(src).toMatch(/dispatchGate\(\{ type: 'chapterEntered', chapterSlug: chapterSlug \?\? null \}\)/)
+    expect(src).toMatch(/const onDocumentRebuild = useCallback\(\(\) => \{\s*dispatchGate\(\{ type: 'chapterEntered', chapterSlug: chapterSlug \?\? null \}\)/)
+  })
+})
+
+describe('book progress is never a chapter fraction', () => {
+  // A chapter fraction is 1.0 at the end of every chapter; written into the
+  // book-wide column it marks the book finished. Hooks do not run in this lane,
+  // so the rule is pinned in the source.
+  const src = read('../components/reader/useEditionReaderSource.ts')
+
+  it('skips the server write until the book percent is known', () => {
+    const guard = src.indexOf('if (snap.bookPercent == null) return')
+    expect(guard).toBeGreaterThan(-1)
+    expect(src.indexOf('readingProgressApi.updateProgress(')).toBeGreaterThan(guard)
+    expect(src).toMatch(/progress: snap\.bookPercent,/)
+  })
+
+  it('never falls back to the chapter fraction', () => {
+    expect(src).not.toMatch(/bookPercent \?\? snap\.chapterPercent/)
+  })
+
+  it('repeats the save once the chapter list lands', () => {
+    expect(src).toMatch(/chaptersArrivedRef\.current = true\s*saveProgress\(\)/)
   })
 })

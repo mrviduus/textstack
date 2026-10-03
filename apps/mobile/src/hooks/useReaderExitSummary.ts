@@ -19,8 +19,9 @@ type Options = {
   /** Latched by the caller with `latchChapterEnd` on each progress message.
    *  A ref, not a value: it is only ever read at the instant of leaving. */
   finishedChapterRef: MutableRefObject<boolean>
-  /** The opened chapter can be discussed with the reader's assistant (see decideReaderExitPrompt). */
-  canDiscussChapter: boolean
+  /** Words already saved earlier in this visit — the reader remounts on a chapter change
+   *  (`readerVisit.ts`), and the count belongs to the visit, not the chapter. */
+  initialWordCount?: number
 }
 
 /**
@@ -35,15 +36,12 @@ type Options = {
  *    books first*, but that ask has to be earned by showing the mechanic, and
  *    this is the moment it has just been felt.
  *
- * **Why exit and not a chapter-end event.** The obvious alternative is to fire
- * the ask the moment the last line of the chapter scrolls past. There is no such
- * moment in this reader: at ~85% the WebView posts `requestNextChapter` and the
- * next chapter is appended into the same document, so the text simply continues
- * (`src/lib/readerHtml.ts`). Interrupting that with a modal is interrupting
- * reading mid-sentence — the one thing the product says it does not do. Leaving
- * is the reader's own full stop, it is the only point where an interruption
- * costs nothing, and it is where the summary already lives. So chapter-end
- * becomes a CONDITION (`finishedChapterRef`) rather than a trigger.
+ * **Why exit and not a chapter-end event.** The end of a chapter already has
+ * its own inline block (Next / Discuss — `chapterEnd.ts`), and a modal on top
+ * of it would interrupt the reader at the one moment they are choosing what to
+ * do next. Leaving is the reader's own full stop, and it is where the summary
+ * already lives. So chapter-end is a CONDITION (`finishedChapterRef`) rather
+ * than a trigger.
  */
 export function useReaderExitSummary({
   router,
@@ -51,9 +49,9 @@ export function useReaderExitSummary({
   autoDismissMs = 5000,
   sourceKind,
   finishedChapterRef,
-  canDiscussChapter,
+  initialWordCount = 0,
 }: Options) {
-  const [sessionWordCount, setSessionWordCount] = useState(0)
+  const [sessionWordCount, setSessionWordCount] = useState(initialWordCount)
   const [prompt, setPrompt] = useState<Exclude<ReaderExitPrompt, 'none'> | null>(null)
   const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Starts `true`: until AsyncStorage answers we behave as though the ask has
@@ -82,8 +80,7 @@ export function useReaderExitSummary({
     sourceKind,
     finishedChapter: finishedChapterRef.current,
     ownBookAskSeen: askSeen,
-    canDiscussChapter,
-  }), [sessionWordCount, sourceKind, finishedChapterRef, askSeen, canDiscussChapter])
+  }), [sessionWordCount, sourceKind, finishedChapterRef, askSeen])
 
   const exit = useCallback(() => {
     saveProgress()

@@ -590,6 +590,16 @@
     "exitSummary": {
       "reviewNow": "Review Now",
       "later": "Later"
+    },
+    "chapterEnd": {
+      "next": "Next: {title}",
+      "nextUntitled": "Next chapter",
+      "prevUntitled": "Previous chapter",
+      "finished": "You finished {book}",
+      "finishedGeneric": "You finished the book",
+      "reviewWords": "Review {n} {noun}",
+      "library": "Back to library",
+      "unavailable": "This chapter isn't on your phone, and you're offline."
     }
   },
   "vocabulary": {

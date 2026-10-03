@@ -124,6 +124,33 @@ overallProgress = wordsRead / totalWords
 
 ## Mobile Experience
 
+### Native app: one chapter at a time (since 2026-10-03)
+
+The Android/iOS reader (`apps/mobile`, a WebView) shows **one chapter per document**, like the web
+reader since #161. It used to append the next chapter as you scrolled; that gave "which chapter is
+the reader in" two answers (route vs. visible), which is where most ADR-015 position bugs lived, and
+it misfiled highlights, toolbar chevrons and "Discuss" against the opened chapter.
+
+At the end of the chapter, inside the document (not a modal), there is a block
+(`src/lib/chapterEnd.ts` decides, `readerHtml.ts` → `__tsSetChapterEnd` draws):
+
+- **Next: {title} ›** (full width, ≥56dp) with "n / N" under it
+- **✦ Discuss this chapter** when the chapter is reviewable — saves progress first, then opens the
+  reader's assistant (the server refuses a review beyond the saved progress)
+- **‹ {previous title}**
+- Last chapter: **You finished {book}** + Discuss + **Review {N} words** (if any were saved this
+  visit) + **Back to library**
+
+When the block scrolls into view the next chapter is put on the device (`ensureChapter`: SQLite
+first, then network), so Next is instant and survives losing signal. Offline and not on the device,
+the block says so and offers Retry. No swipe, no auto-advance (both fight word selection). The
+footer chevrons stay.
+
+A chapter change is `router.replace`, which **remounts** the reader screen. What belongs to the
+visit — one reading session, the saved-word count, "finished a chapter" — is handed to the next
+chapter through `src/lib/readerVisit.ts`, so a chapter turn neither ends the session nor resets the
+counter. The session percent is book-wide, so finishing a chapter never marks the book complete.
+
 ### Tap Zones
 
 ```

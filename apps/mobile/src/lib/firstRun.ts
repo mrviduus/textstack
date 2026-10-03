@@ -92,9 +92,8 @@ export const OWN_BOOK_ASK_SEEN_KEY = 'onboarding.ownBookAsk.seen'
 /**
  * How far into a chapter counts as having finished it.
  *
- * Not 1.0: the last screenful of a chapter is a heading and a page break, and
- * infinite scroll starts fetching the next chapter before the current one's
- * bottom is reached, so a reader who is done frequently never reports 100%.
+ * Not 1.0: the last screenful of a chapter is often a heading or a page break,
+ * so a reader who is done frequently never reports 100%.
  */
 export const CHAPTER_END_PROGRESS = 0.85
 
@@ -102,23 +101,17 @@ export const CHAPTER_END_PROGRESS = 0.85
  * Latch "this session got to the end of a chapter", folded once per progress
  * message.
  *
- * Latched, not sampled at exit, for two reasons. The reader often scrolls back
- * up before leaving, so the exit snapshot understates where they got. And the
- * mobile reader appends the next chapter inline when you approach the bottom
- * (`readerHtml.ts` → `requestNextChapter`), which resets the within-chapter
- * fraction to near zero the moment you cross the boundary — so "finished a
- * chapter" is also true whenever the chapter under the viewport is no longer
- * the one the route opened.
+ * Latched, not sampled at exit: the reader often scrolls back up before
+ * leaving, so the exit snapshot understates where they got. One chapter per
+ * document (since 2026-10-03), so the within-chapter fraction is the whole
+ * answer — the reader carries the latch across a chapter change itself
+ * (`readerVisit.ts`).
  *
  * Monotonic: once true it stays true for the session.
  */
-export function latchChapterEnd(
-  previous: boolean,
-  event: { chapterProgress: number; visibleChapterSlug: string | null; openedChapterSlug: string },
-): boolean {
+export function latchChapterEnd(previous: boolean, chapterProgress: number): boolean {
   if (previous) return true
-  if (event.visibleChapterSlug !== null && event.visibleChapterSlug !== event.openedChapterSlug) return true
-  return Number.isFinite(event.chapterProgress) && event.chapterProgress >= CHAPTER_END_PROGRESS
+  return Number.isFinite(chapterProgress) && chapterProgress >= CHAPTER_END_PROGRESS
 }
 
 export type ReaderExitPrompt =
@@ -128,8 +121,6 @@ export type ReaderExitPrompt =
   | 'review-words'
   /** Ask them to bring a book of their own. */
   | 'own-book'
-  /** No words saved, but a chapter was finished: offer "Discuss this chapter". */
-  | 'discuss-chapter'
 
 export interface ReaderExitInput {
   /** Words saved to vocabulary during this reading session. */
@@ -140,8 +131,6 @@ export interface ReaderExitInput {
   finishedChapter: boolean
   /** The one-shot flag above. Treat an unread flag as `true` — never ask twice. */
   ownBookAskSeen: boolean
-  /** The finished chapter can be handed to the reader's assistant (reviewable, book has an id). */
-  canDiscussChapter?: boolean
 }
 
 /**
@@ -158,9 +147,8 @@ export interface ReaderExitInput {
  * than the single session in which the ask replaces it.
  */
 export function decideReaderExitPrompt(input: ReaderExitInput): ReaderExitPrompt {
-  // No word saved: the only thing worth a card is the chapter just finished. The words summary
-  // carries its own Discuss button, so the two never compete.
-  if (input.sessionWordCount <= 0) return input.finishedChapter && input.canDiscussChapter ? 'discuss-chapter' : 'none'
+  // No word saved: nothing. "Discuss this chapter" lives at the end of the chapter itself now.
+  if (input.sessionWordCount <= 0) return 'none'
   if (input.sourceKind === 'userbook') return 'review-words'
   if (input.ownBookAskSeen) return 'review-words'
   if (!input.finishedChapter) return 'review-words'

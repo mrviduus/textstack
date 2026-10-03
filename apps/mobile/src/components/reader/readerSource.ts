@@ -99,7 +99,8 @@ export interface ReaderRuntime {
   totalWordCountRef: MutableRefObject<number>
 
   // Persistence (from the shared useReaderPersistence hook).
-  saveProgress: () => void
+  /** Returns the server write when one went out, so Discuss can wait for it. */
+  saveProgress: () => Promise<unknown> | void
   bumpProgress: () => void
   /** Called by ReaderShell once the WebView finishes loading — gates the
    *  scroll-restore so it can't race the async saved-position fetch. */
@@ -112,9 +113,9 @@ export interface ReaderRuntime {
    *  did not make (a typography reflow). */
   beginReflow: () => number
 
-  // Infinite scroll.
-  onChapterLoaded: () => void
-  onRequestNextChapter: () => void
+  /** Put a chapter on the device (cache first, then network) before opening it.
+   *  Rejects when it is neither cached nor reachable. */
+  ensureChapter: (slug: string) => Promise<void>
 
   // Navigation (path differs per source).
   onNavigateChapter: (slug: string) => void

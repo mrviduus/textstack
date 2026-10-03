@@ -10,14 +10,11 @@ import { join } from 'node:path'
  * in the app untested, this extracts the two functions from the source and runs
  * them against a fake DOM.
  *
- * The bug this locks down: infinite scroll appends chapters into the SAME
- * document, and the reporter used to send `scrollTop / documentHeight`. React
- * Native feeds that value to `computeBookProgress()` as the WITHIN-CHAPTER
- * fraction, so the moment chapter 2 was appended the book percent halved — the
- * progress bar visibly ran backwards, and the 2s debounce persisted the lower
- * value to the server. The saved scroll locator had the same flaw in pixels:
- * an absolute offset from a multi-chapter document, restored into a document
- * containing that one chapter alone, clamped to its very end.
+ * What it locks down: React Native feeds this value to `computeBookProgress()`
+ * as the WITHIN-CHAPTER fraction, so it must be measured against the chapter
+ * element — not the document, which also holds the end-of-chapter block (and,
+ * until 2026-10-03, appended chapters: the book percent ran backwards every
+ * time one landed). The scroll offset is chapter-relative for the same reason.
  */
 
 const SOURCE = readFileSync(join(__dirname, 'readerHtml.ts'), 'utf8')
@@ -48,7 +45,8 @@ interface ProgressMessage {
 }
 
 interface Scenario {
-  chapters: { slug: string; top: number }[]
+  /** The chapter element, in document coordinates. */
+  chapter: { slug: string; top: number; height: number } | null
   scrollY: number
   innerHeight: number
   scrollHeight: number
@@ -59,7 +57,15 @@ interface Scenario {
 function report(s: Scenario): ProgressMessage | null {
   const sent: ProgressMessage[] = []
   const ctx: Record<string, unknown> = {
-    chapterSlugs: s.chapters,
+    tsChapter: s.chapter && {
+      slug: s.chapter.slug,
+      el: {
+        getBoundingClientRect: () => ({
+          top: s.chapter!.top - s.scrollY,
+          bottom: s.chapter!.top + s.chapter!.height - s.scrollY,
+        }),
+      },
+    },
     window: {
       scrollY: s.scrollY,
       innerHeight: s.innerHeight,
@@ -69,7 +75,6 @@ function report(s: Scenario): ProgressMessage | null {
       documentElement: { scrollHeight: s.scrollHeight },
       body: { innerText: s.text ?? 'a chapter with real prose in it' },
     },
-    getCurrentChapterSlug: () => null,
     // The shipped script keeps this in an enclosing scope; -1 guarantees the
     // 0.005 delta gate opens so a single call always reports.
     lastProgress: -1,
@@ -83,18 +88,18 @@ function report(s: Scenario): ProgressMessage | null {
 }
 
 const VIEWPORT = 800
-const ch = (slug: string, top: number) => ({ slug, top })
+const ch = (slug: string, top: number, height: number) => ({ slug, top, height })
 
-describe('reader progress reporter — single chapter loaded', () => {
+describe('reader progress reporter', () => {
   it('reports 0 at the top and 1 at the bottom', () => {
-    expect(report({ chapters: [ch('one', 0)], scrollY: 0, innerHeight: VIEWPORT, scrollHeight: 3000 }))
+    expect(report({ chapter: ch('one', 0, 3000), scrollY: 0, innerHeight: VIEWPORT, scrollHeight: 3000 }))
       .toMatchObject({ progress: 0, chapterSlug: 'one', scrollY: 0 })
-    expect(report({ chapters: [ch('one', 0)], scrollY: 2200, innerHeight: VIEWPORT, scrollHeight: 3000 }))
+    expect(report({ chapter: ch('one', 0, 3000), scrollY: 2200, innerHeight: VIEWPORT, scrollHeight: 3000 }))
       .toMatchObject({ progress: 1, chapterSlug: 'one' })
   })
 
   it('treats a chapter shorter than the viewport as read', () => {
-    expect(report({ chapters: [ch('one', 0)], scrollY: 0, innerHeight: VIEWPORT, scrollHeight: VIEWPORT }))
+    expect(report({ chapter: ch('one', 0, 500), scrollY: 0, innerHeight: VIEWPORT, scrollHeight: VIEWPORT }))
       .toMatchObject({ progress: 1 })
   })
 
@@ -103,54 +108,30 @@ describe('reader progress reporter — single chapter loaded', () => {
     // blank chapter would otherwise bank 100% into the book-wide percent
     // without the user reading a word.
     expect(report({
-      chapters: [ch('one', 0)], scrollY: 0, innerHeight: VIEWPORT, scrollHeight: VIEWPORT, text: '   \n  ',
+      chapter: ch('one', 0, 0), scrollY: 0, innerHeight: VIEWPORT, scrollHeight: VIEWPORT, text: '   \n  ',
     })).toBeNull()
   })
-})
 
-describe('reader progress reporter — infinite scroll has appended chapter two', () => {
-  // Document is now 6000px; chapter two begins at 3000.
-  const twoLoaded = [ch('one', 0), ch('two', 3000)]
-
-  it('still reports 1 at the end of chapter one — the book percent must not run backwards', () => {
-    // This is the regression. Document-wide, 2200/5200 ≈ 0.42 would be sent
-    // labelled "chapter one", halving the book percent and persisting it.
-    const msg = report({ chapters: twoLoaded, scrollY: 2200, innerHeight: VIEWPORT, scrollHeight: 6000 })
-    expect(msg).toMatchObject({ progress: 1, chapterSlug: 'one' })
+  it('reaches 1 at the end of the chapter text, not at the end of the block below it', () => {
+    // The end-of-chapter block adds ~400px under the chapter. Measured against
+    // the document, the reader standing at the last line would read ~85%.
+    expect(report({ chapter: ch('one', 0, 3000), scrollY: 2200, innerHeight: VIEWPORT, scrollHeight: 3400 }))
+      .toMatchObject({ progress: 1, chapterSlug: 'one' })
+    expect(report({ chapter: ch('one', 0, 3000), scrollY: 2600, innerHeight: VIEWPORT, scrollHeight: 3400 }))
+      .toMatchObject({ progress: 1 })
   })
 
-  it('reports 0 at the start of chapter two, not the document fraction', () => {
-    const msg = report({ chapters: twoLoaded, scrollY: 3000, innerHeight: VIEWPORT, scrollHeight: 6000 })
-    expect(msg).toMatchObject({ progress: 0, chapterSlug: 'two' })
+  it('reports a chapter-relative offset when the chapter sits below the page padding', () => {
+    const msg = report({ chapter: ch('one', 52, 3000), scrollY: 1052, innerHeight: VIEWPORT, scrollHeight: 3452 })
+    expect(msg?.scrollY).toBe(1000)
   })
 
-  it('reports a chapter-relative scroll offset, so resume lands where the reader stopped', () => {
-    // Absolute 3000 would be restored into a document holding chapter two
-    // alone (~2200px scrollable) and clamp to its very end.
-    const msg = report({ chapters: twoLoaded, scrollY: 3000, innerHeight: VIEWPORT, scrollHeight: 6000 })
-    expect(msg?.scrollY).toBe(0)
-  })
-
-  it('reaches 1 at the end of the last loaded chapter', () => {
-    expect(report({ chapters: twoLoaded, scrollY: 5200, innerHeight: VIEWPORT, scrollHeight: 6000 }))
-      .toMatchObject({ progress: 1, chapterSlug: 'two' })
-  })
-
-  it('never reports a percent outside 0..1 across the whole document', () => {
-    for (let y = 0; y <= 5200; y += 100) {
-      const msg = report({ chapters: twoLoaded, scrollY: y, innerHeight: VIEWPORT, scrollHeight: 6000 })
-      if (!msg) continue
-      expect(msg.progress).toBeGreaterThanOrEqual(0)
-      expect(msg.progress).toBeLessThanOrEqual(1)
-      expect(msg.scrollY).toBeGreaterThanOrEqual(0)
-    }
-  })
-
-  it('is monotonic within a chapter as the reader scrolls forward', () => {
-    let prev = -1
-    for (let y = 0; y <= 2200; y += 100) {
-      const msg = report({ chapters: twoLoaded, scrollY: y, innerHeight: VIEWPORT, scrollHeight: 6000 })!
+  it('stays inside 0..1 and is monotonic as the reader scrolls forward', () => {
+    let prev = 0
+    for (let y = 0; y <= 2600; y += 100) {
+      const msg = report({ chapter: ch('one', 0, 3000), scrollY: y, innerHeight: VIEWPORT, scrollHeight: 3400 })!
       expect(msg.progress).toBeGreaterThanOrEqual(prev)
+      expect(msg.progress).toBeLessThanOrEqual(1)
       prev = msg.progress
     }
   })
