@@ -24,7 +24,6 @@ namespace Api.Endpoints;
 ///   - VocabularyEndpoints.Pending.cs   GetPending, PromotePending, DismissPending
 ///   - VocabularyEndpoints.Lookups.cs   GetLookups, PromoteLookup, DismissLookup
 ///   - VocabularyEndpoints.Clusters.cs  GetClusters, StartClusterBonus, DismissCluster, CompleteCluster
-///   - VocabularyEndpoints.Admin.cs     BackfillDefinitions
 ///
 /// Everything else (SaveWord + Words CRUD + Review + helpers + DTOs)
 /// stays in this file. Splits use C# `partial` — compile-identical to
@@ -75,10 +74,6 @@ public static partial class VocabularyEndpoints
 
         // AI-060: read-only semantic concept clusters for the StatsPage widget
         group.MapGet("/concepts", GetConcepts).WithName("GetVocabularyConcepts");
-
-        // Admin: backfill definitions for words missing them
-        app.MapPost("/admin/vocabulary/backfill-definitions", BackfillDefinitions)
-            .WithTags("Admin").WithName("BackfillVocabularyDefinitions");
     }
 
     // --- Save Word ---
@@ -284,7 +279,6 @@ public static partial class VocabularyEndpoints
             {
                 using var scope = scopeFactory.CreateScope();
                 var bgDb = scope.ServiceProvider.GetRequiredService<IAppDbContext>();
-                var enricher = scope.ServiceProvider.GetRequiredService<IDefinitionEnricher>();
                 var generator = scope.ServiceProvider.GetRequiredService<IDistractorGenerator>();
 
                 // AI-058: embed the word for semantic concept clustering. Own try/catch so an
@@ -309,27 +303,9 @@ public static partial class VocabularyEndpoints
                     logger.LogWarning(ex, "Embedding failed for word {Word}", wordText);
                 }
 
-                // Enrich definition from Free Dictionary API if not provided.
-                string? enrichedDef = null;
-                if (string.IsNullOrWhiteSpace(def))
-                {
-                    enrichedDef = await enricher.FetchDefinitionAsync(
-                        wordText, lang, CancellationToken.None);
-                    if (enrichedDef != null)
-                    {
-                        var w = await bgDb.VocabularyWords.FirstOrDefaultAsync(
-                            x => x.Id == wordId, CancellationToken.None);
-                        if (w != null)
-                        {
-                            w.Definition = enrichedDef;
-                            await bgDb.SaveChangesAsync(CancellationToken.None);
-                        }
-                    }
-                }
-
                 // Generate distractors + hint + explanation via Ollama.
                 var (distractors, hint, explanation) = await generator.GenerateAsync(
-                    wordText, lang, enrichedDef ?? def, sent, nativeLang, CancellationToken.None);
+                    wordText, lang, def, sent, nativeLang, CancellationToken.None);
                 if (distractors?.Count > 0 || hint != null || explanation != null)
                 {
                     var w = await bgDb.VocabularyWords.FirstOrDefaultAsync(

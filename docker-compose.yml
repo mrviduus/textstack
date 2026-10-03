@@ -89,7 +89,6 @@ services:
       Google__LegacyClientIds: ${GOOGLE_LEGACY_CLIENT_IDS:-}
       Tts__CachePath: /data/tts-cache
       Explain__CachePath: /data/explain-cache
-      Dictionary__CachePath: /data/dictionary-cache
       Translate__CachePath: /data/translate-cache
       Ollama__BaseUrl: http://ollama:11434
       Ollama__Model: gemma4:e2b
@@ -107,7 +106,6 @@ services:
       - ./data/textstack:/data/textstack
       - ./data/tts-cache:/data/tts-cache
       - ./data/explain-cache:/data/explain-cache
-      - ./data/dictionary-cache:/data/dictionary-cache
       - ./data/translate-cache:/data/translate-cache
     ports:
       - "127.0.0.1:8080:8080"  # Only localhost, nginx will proxy

@@ -40,8 +40,8 @@ status:
 fix-permissions:
 	@echo "Fixing volume permissions..."
 	@docker run --rm -v $$(pwd)/data:/data alpine sh -c '\
-		mkdir -p /data/textstack /data/tts-cache /data/explain-cache /data/dictionary-cache /data/translate-cache /data/pdf-cleanup-dataset && \
-		chown -R 1000:1000 /data/textstack /data/tts-cache /data/explain-cache /data/dictionary-cache /data/translate-cache /data/pdf-cleanup-dataset'
+		mkdir -p /data/textstack /data/tts-cache /data/explain-cache /data/translate-cache /data/pdf-cleanup-dataset && \
+		chown -R 1000:1000 /data/textstack /data/tts-cache /data/explain-cache /data/translate-cache /data/pdf-cleanup-dataset'
 	@echo "Done."
 
 deploy: fix-permissions

@@ -61,23 +61,6 @@ export interface CachedTranslation {
   cachedAt: number
 }
 
-export interface DictionaryDefinition {
-  partOfSpeech: string
-  definitions: {
-    definition: string
-    example?: string
-  }[]
-}
-
-export interface CachedDictionaryEntry {
-  key: string // `${lang}:${word}`
-  word: string
-  lang: string
-  phonetic?: string
-  definitions: DictionaryDefinition[]
-  cachedAt: number
-}
-
 export interface CachedTtsAudio {
   key: string // `${lang}:${hash(text)}`
   audioData: ArrayBuffer
@@ -174,7 +157,8 @@ export function openOfflineDb(): Promise<IDBDatabase> {
         store.createIndex('cachedAt', 'cachedAt', { unique: false })
       }
 
-      // Dictionary cache store (v5)
+      // Dictionary cache store (v5). Unused since the dictionary was dropped (2026-10-03);
+      // kept so the DB schema/version doesn't change. clearExpiredCaches drains it.
       if (!db.objectStoreNames.contains(DICTIONARY_STORE)) {
         const store = db.createObjectStore(DICTIONARY_STORE, { keyPath: 'key' })
         store.createIndex('cachedAt', 'cachedAt', { unique: false })
@@ -508,63 +492,6 @@ export function clearOldTranslations(maxAgeMs = 7 * 24 * 60 * 60 * 1000): Promis
 export async function clearExpiredCaches(): Promise<void> {
   const ttl = 30 * 24 * 60 * 60 * 1000
   await Promise.allSettled([DICTIONARY_STORE, TTS_STORE, EXPLAIN_STORE].map(s => deleteOlderThan(s, ttl)))
-}
-
-// ============ DICTIONARY CACHE ============
-
-function makeDictionaryKey(lang: string, word: string): string {
-  return `${lang}:${word.toLowerCase()}`
-}
-
-export async function getCachedDictionaryEntry(
-  lang: string,
-  word: string
-): Promise<CachedDictionaryEntry | null> {
-  const db = await openOfflineDb()
-  const key = makeDictionaryKey(lang, word)
-
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(DICTIONARY_STORE, 'readonly')
-    const store = tx.objectStore(DICTIONARY_STORE)
-    const request = store.get(key)
-
-    request.onsuccess = () => {
-      const result = request.result as CachedDictionaryEntry | undefined
-      // Check cache validity (30 days)
-      if (result && Date.now() - result.cachedAt < 30 * 24 * 60 * 60 * 1000) {
-        resolve(result)
-      } else {
-        resolve(null)
-      }
-    }
-    request.onerror = () => reject(request.error)
-  })
-}
-
-export async function cacheDictionaryEntry(
-  lang: string,
-  word: string,
-  phonetic: string | undefined,
-  definitions: DictionaryDefinition[]
-): Promise<void> {
-  const db = await openOfflineDb()
-  const cached: CachedDictionaryEntry = {
-    key: makeDictionaryKey(lang, word),
-    word: word.toLowerCase(),
-    lang,
-    phonetic,
-    definitions,
-    cachedAt: Date.now(),
-  }
-
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(DICTIONARY_STORE, 'readwrite')
-    const store = tx.objectStore(DICTIONARY_STORE)
-    const request = store.put(cached)
-
-    request.onsuccess = () => resolve()
-    request.onerror = () => reject(request.error)
-  })
 }
 
 // ============ TTS AUDIO CACHE ============

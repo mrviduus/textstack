@@ -345,7 +345,7 @@ public static class ExplainEndpoints
 
 /// <summary>
 /// SHA256-keyed JSON file cache shared by Explain + Translate: TTL in days (file mtime), best-effort IO —
-/// any failure logs and behaves as a miss / no-op. DictionaryCache is deliberately separate (stale-serving).
+/// any failure logs and behaves as a miss / no-op.
 /// </summary>
 internal sealed class FileJsonCache<T>(string path, int ttlDays, ILogger logger) where T : class
 {

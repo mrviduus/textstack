@@ -49,7 +49,6 @@ function computeDismissMs(translation: string | null, definition: string | null)
 
 interface WordPopupProps {
   word: string
-  phonetic?: string
   translation: string | null
   translationLoading: boolean
   definition: string | null
@@ -85,7 +84,6 @@ interface WordPopupProps {
 
 export function WordPopup({
   word,
-  phonetic,
   translation,
   translationLoading,
   definition,
@@ -209,7 +207,7 @@ export function WordPopup({
   // 3s timer scheduled at popup-open / lang-pick can fire BEFORE a slow
   // translation arrives — user sees the popup vanish just as the result lands.
   // Reset gives them a fresh 3s window from the moment the translation appears.
-  // Also covers definition: if dictionary lookup is the slow one, same logic applies.
+  // Also covers definition: if Explain (definition mode) is the slow one, same logic applies.
   const wasLoadingRef = useRef(false)
   useEffect(() => {
     const loading = translationLoading || definitionLoading
@@ -384,9 +382,6 @@ export function WordPopup({
     >
       <div className="word-popup__header">
         <span className="word-popup__word">{word}</span>
-        {phonetic && (
-          <span className="word-popup__phonetic">{phonetic}</span>
-        )}
         <button
           className="word-popup__close"
           onClick={animatedClose}
@@ -409,7 +404,7 @@ export function WordPopup({
         </div>
       )}
 
-      {/* Definition - secondary, async */}
+      {/* Definition mode: contextual Explain, async */}
       {(definitionLoading || definition) && (
         <div className="word-popup__definition">
           {definitionLoading ? (
