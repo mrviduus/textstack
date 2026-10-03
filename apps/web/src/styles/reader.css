@@ -1229,12 +1229,6 @@ html[data-theme="dark"] .reader-search-drawer__context mark {
   color: var(--reader-text);
 }
 
-.word-popup__phonetic {
-  font-size: 13px;
-  color: var(--reader-secondary);
-  font-family: 'Courier New', monospace;
-}
-
 .word-popup__translation {
   font-size: 16px;
   font-weight: 500;

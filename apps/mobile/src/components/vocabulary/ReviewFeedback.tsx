@@ -1,7 +1,5 @@
-import { useState, useEffect } from 'react'
 import { View, Text, StyleSheet } from 'react-native'
 import type { ReviewCardDto, SubmitReviewResponse } from '@textstack/shared'
-import { dictionaryApi } from '@textstack/shared'
 import { useTheme } from '../../context/ThemeContext'
 import { PressableScale } from '../ui/PressableScale'
 import { Ionicons } from '@expo/vector-icons'
@@ -16,37 +14,10 @@ interface Props {
   reviewMode: ReviewMode
   onSpeak?: (text: string) => void
   onNext: () => void
-  language?: string
 }
 
-export function ReviewFeedback({ card, result, isCorrect, reviewMode, onSpeak, onNext, language }: Props) {
+export function ReviewFeedback({ card, result, isCorrect, reviewMode, onSpeak, onNext }: Props) {
   const { colors } = useTheme()
-  const [fetchedDef, setFetchedDef] = useState<string | null>(null)
-
-  useEffect(() => {
-    // Classic mode returns the mini branch below, and that branch has no
-    // definition slot — `fetchedDef` is read only in the blitz layout. So this
-    // lookup was a network round-trip whose result was structurally
-    // unreachable: QA measured two of them at ~3s each per card, against an
-    // upstream dictionary that is currently down (#559). Fetch only what the
-    // branch about to render can actually show.
-    if (reviewMode === 'classic') return
-    if (card.definition || !language) return
-    let cancelled = false
-    // Reset any stale result from the previous card before the new lookup lands.
-    setFetchedDef(null)
-    dictionaryApi.lookupWord(language, card.word).then(data => {
-      if (cancelled || !data?.definitions?.length) return
-      const parts = data.definitions.slice(0, 3)
-      const defs = parts.map(m =>
-        `(${m.partOfSpeech}) ${(m.definitions || []).slice(0, 2).map(d => d.definition).join('; ')}`
-      ).join('\n')
-      if (!cancelled) setFetchedDef(defs)
-    }).catch(e => {
-      if (!cancelled) console.warn('Dictionary lookup failed:', e)
-    })
-    return () => { cancelled = true }
-  }, [card.word, card.definition, language, reviewMode])
 
   // Mini feedback for classic mode.
   // Previously the whole card was `alignItems: 'center'` which made the Next
@@ -79,7 +50,7 @@ export function ReviewFeedback({ card, result, isCorrect, reviewMode, onSpeak, o
   }
 
   // Full feedback for blitz mode
-  const definition = card.definition || fetchedDef
+  const definition = card.definition
 
   return (
     <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>

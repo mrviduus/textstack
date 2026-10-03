@@ -293,19 +293,6 @@ public static partial class ServiceCollectionExtensions
                     QueueLimit = 0,
                 });
             });
-            // Dictionary lookup — per-IP. Proxies Free Dictionary API (cheap,
-            // public). Users tap words rapidly while reading; 60/min fits the
-            // natural pace and still caps scripted abuse.
-            options.AddPolicy("dictionary", httpContext =>
-            {
-                var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-                return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
-                {
-                    Window = TimeSpan.FromMinutes(1),
-                    PermitLimit = 60,
-                    QueueLimit = 0,
-                });
-            });
             // /explain — Claude/OpenAI-backed contextual explanation. Paid API
             // call per miss (cache fronts it). 20/min per IP is plenty for
             // active reading; anything higher smells like scripting.

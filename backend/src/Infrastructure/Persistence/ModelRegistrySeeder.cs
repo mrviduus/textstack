@@ -16,8 +16,8 @@ public static class ModelRegistrySeeder
     // appsettings Ai:Routes + the per-provider model config.
     private static readonly (string Feature, string Provider, string Model)[] Primaries =
     [
-        ("explain", "openai-explain", "gpt-4.1-mini"),
-        ("explain.toolcall", "openai-explain", "gpt-4.1-mini"),
+        ("explain", "openai-explain", "gpt-4.1-nano"),
+        ("explain.toolcall", "openai-explain", "gpt-4.1-nano"),
         ("translate", "openai", "gpt-4.1-nano"),
         ("distractor", "ollama", "gemma4:e2b"),
         ("bookmeta", "ollama", "gemma4:e2b"),

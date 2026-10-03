@@ -167,14 +167,14 @@ public static class DependencyInjection
                 sp.GetRequiredService<ILogger<global::TextStack.Ai.Llm.OpenAiLlmClient>>(),
                 sp.GetRequiredService<IConfiguration>()["Eval:JudgeModel"] ?? "gpt-4.1"));
 
-        // Explain runs a STRONGER generation model than the nano default (OpenAI:Explain:Model,
-        // default gpt-4.1-mini). Routed per-feature (Ai:Routes:explain[.toolcall] → openai-explain)
+        // Explain has its own model key (OpenAI:Explain:Model, default gpt-4.1-nano since
+        // 2026-10-03; was gpt-4.1-mini). Routed per-feature (Ai:Routes:explain[.toolcall] → openai-explain)
         // so translate / podcast stay on nano. This model is also the distillation teacher.
         services.AddKeyedSingleton<global::TextStack.Ai.Core.ILlmService>("openai-explain-raw", (sp, key) =>
             new global::TextStack.Ai.Llm.OpenAiLlmClient(
                 sp.GetRequiredService<IConfiguration>(),
                 sp.GetRequiredService<ILogger<global::TextStack.Ai.Llm.OpenAiLlmClient>>(),
-                sp.GetRequiredService<IConfiguration>()["OpenAI:Explain:Model"] ?? "gpt-4.1-mini"));
+                sp.GetRequiredService<IConfiguration>()["OpenAI:Explain:Model"] ?? "gpt-4.1-nano"));
 
         // Decorated providers (keyed): TracingDecorator wraps each raw provider.
         foreach (var providerKey in global::TextStack.Ai.Llm.AiProviderKeys.Registered)

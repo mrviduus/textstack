@@ -7,7 +7,7 @@ Text selection features for the Reader that enable users to highlight, translate
 **Features:**
 - **Highlights** — 4 colors (yellow, green, pink, blue), persisted to DB
 - **Translation** — LibreTranslate (self-hosted), up to 500 chars
-- **Dictionary** — Free Dictionary API, single word lookup
+- ~~**Dictionary**~~ — Free Dictionary API removed 2026-10-03; in definition mode (native = book language) the word popup shows the contextual Explain instead
 - **Notes** — Inline notes attached to highlights
 
 ## Architecture
@@ -34,8 +34,6 @@ Text selection features for the Reader that enable users to highlight, translate
 │                                                                  │
 │  POST /api/translate ──────► LibreTranslate (Docker :5000)       │
 │  GET  /api/translate/languages                                   │
-│                                                                  │
-│  GET  /api/dictionary/{lang}/{word} ──► Free Dictionary API      │
 │                                                                  │
 │  GET    /me/highlights/{editionId}                               │
 │  POST   /me/highlights                                           │
@@ -97,33 +95,6 @@ interface TextAnchor {
   // ...
 ]
 ```
-
-### Dictionary API
-
-**GET /api/dictionary/{lang}/{word}**
-```json
-// Response 200
-{
-  "word": "silence",
-  "phonetic": "/ˈsaɪ.ləns/",
-  "definitions": [
-    {
-      "partOfSpeech": "noun",
-      "definitions": [
-        {
-          "definition": "The absence of any sound.",
-          "example": "The silence was deafening."
-        }
-      ]
-    }
-  ]
-}
-
-// Response 404 - word not found
-// Response 400 - word too long (>100 chars)
-```
-
-**Backend:** Proxies to [Free Dictionary API](https://dictionaryapi.dev/).
 
 ### Highlights API
 
@@ -188,7 +159,6 @@ interface TextAnchor {
 | `NoteEditor` | Inline note editor for highlights |
 | `useHighlights` | CRUD + offline sync to IndexedDB |
 | `useTextTranslation` | Translation API with caching |
-| `useDictionary` | Dictionary API with caching |
 
 ## IndexedDB Schema
 
@@ -248,11 +218,11 @@ libretranslate:
 
 | Area | Files |
 |------|-------|
-| Backend Endpoints | `Api/Endpoints/HighlightsEndpoints.cs`, `TranslationEndpoints.cs`, `DictionaryEndpoints.cs` |
+| Backend Endpoints | `Api/Endpoints/HighlightsEndpoints.cs`, `TranslationEndpoints.cs` |
 | Entity | `Domain/Entities/Highlight.cs` |
-| Frontend Hooks | `hooks/useHighlights.ts`, `useTextSelection.ts`, `useTextTranslation.ts`, `useDictionary.ts` |
+| Frontend Hooks | `hooks/useHighlights.ts`, `useTextSelection.ts`, `useTextTranslation.ts` |
 | Frontend Components | `components/reader/SelectionToolbar.tsx`, `HighlightLayer.tsx`, `TranslationPopup.tsx`, `DictionaryPopup.tsx`, `NoteEditor.tsx` |
-| Frontend API | `api/translation.ts`, `api/dictionary.ts` |
+| Frontend API | `api/translation.ts`, `api/explain.ts` |
 | Text Anchor | `lib/textAnchor.ts` |
 | Tests | `lib/textAnchor.test.ts`, `HighlightsEndpointTests.cs`, `TranslationEndpointTests.cs`, `DictionaryEndpointTests.cs` |
 

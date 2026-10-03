@@ -6,7 +6,6 @@ import { useExplainPopup } from '../../hooks/useExplainPopup'
 import { useNativeLanguage } from '../../context/NativeLanguageContext'
 import { useTts } from '../../hooks/useTts'
 import { useReaderVocabulary } from '../../hooks/useReaderVocabulary'
-import { useDictionary } from '../../hooks/useDictionary'
 import { useTranslation } from '../../hooks/useTranslation'
 import { useBubbleTranslationSync } from '../../hooks/useBubbleTranslationSync'
 import { updateWord, promoteLookup } from '../../api/vocabulary'
@@ -138,15 +137,11 @@ export function ReaderHighlights({
   // the user never sees RareWordNotice.
   const [savingWord, setSavingWord] = useState<string | null>(null)
 
-  // --- Dictionary (phonetic + definition) ---
-  const { lookup: lookupWord } = useDictionary()
-
   // --- Single-word popup state ---
   const [bubble, setBubble] = useState<{
     word: string
     translation: string | null
     translationLoading: boolean
-    phonetic: string | undefined
     definition: string | null
     definitionLoading: boolean
     rect: DOMRect | null
@@ -254,13 +249,14 @@ export function ReaderHighlights({
     bubbleAbortRef.current = ctrl
     // Reset rare-word state so prior word's notice doesn't leak across taps.
     setLookupState(null)
+    // Definition mode (confirmed native == book language): Explain fills `definition`.
+    const explainInContext = !targetLang && hasConfirmedLanguage
     setBubble({
       word,
       translation: null,
       translationLoading: !!targetLang,
-      phonetic: undefined,
       definition: null,
-      definitionLoading: true,
+      definitionLoading: explainInContext,
       rect,
       range,
     })
@@ -272,7 +268,7 @@ export function ReaderHighlights({
     const bookId = userBookId || editionId || undefined
     fetchWordBubble({
       word, bookLanguage, targetLang,
-      lookup: lookupWord, vocabMap, updateTranslation,
+      explainInContext, vocabMap, updateTranslation,
       signal: ctrl.signal,
       patch: (fields) => setBubble((prev) => (prev && prev.word === word ? { ...prev, ...fields } : prev)),
       bookId,
@@ -286,7 +282,7 @@ export function ReaderHighlights({
     if (hasConfirmedLanguage) {
       triggerAutoSave(word, () => handleSave(word, range))
     }
-  }, [bookLanguage, targetLang, vocabMap, updateTranslation, lookupWord, handleSave, triggerAutoSave, hasConfirmedLanguage, containerRef, userBookId, editionId])
+  }, [bookLanguage, targetLang, vocabMap, updateTranslation, handleSave, triggerAutoSave, hasConfirmedLanguage, containerRef, userBookId, editionId])
 
   // Catch-up auto-save: if the user taps a word BEFORE confirming native
   // language, openBubble opens the popup but skips the save. When they then
@@ -525,7 +521,7 @@ export function ReaderHighlights({
         />
       )}
 
-      {/* Single-word selection → WordPopup (phonetic, translation, definition, Remove). Save is automatic. */}
+      {/* Single-word selection → WordPopup (translation, or Explain in definition mode, Remove). Save is automatic. */}
       {/* NOT gated on isSingleWord: clicking buttons inside the popup natively
           clears the document selection — keeping the popup mounted lets the user
           interact with it (lang picker, etc). Close paths: WordPopup's own
@@ -536,7 +532,6 @@ export function ReaderHighlights({
         return (
           <WordPopup
             word={bubble.word}
-            phonetic={bubble.phonetic}
             translation={bubble.translation}
             translationLoading={bubble.translationLoading}
             definition={bubble.definition}

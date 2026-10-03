@@ -89,13 +89,12 @@ services:
       Google__LegacyClientIds: ${GOOGLE_LEGACY_CLIENT_IDS:-}
       Tts__CachePath: /data/tts-cache
       Explain__CachePath: /data/explain-cache
-      Dictionary__CachePath: /data/dictionary-cache
       Translate__CachePath: /data/translate-cache
       Ollama__BaseUrl: http://ollama:11434
       Ollama__Model: gemma4:e2b
       OpenAI__ApiKey: ${OPENAI_API_KEY:-}
       OpenAI__Model: ${OPENAI_MODEL:-gpt-4.1-nano}
-      OpenAI__Explain__Model: ${OPENAI_EXPLAIN_MODEL:-gpt-4.1-mini}
+      OpenAI__Explain__Model: ${OPENAI_EXPLAIN_MODEL:-gpt-4.1-nano}
       Resend__ApiKey: ${RESEND_API_KEY:-}
       Resend__FromEmail: ${RESEND_FROM_EMAIL:-noreply@textstack.app}
       Resend__AdminAlertEmail: ${ADMIN_ALERT_EMAIL:-}
@@ -107,7 +106,6 @@ services:
       - ./data/textstack:/data/textstack
       - ./data/tts-cache:/data/tts-cache
       - ./data/explain-cache:/data/explain-cache
-      - ./data/dictionary-cache:/data/dictionary-cache
       - ./data/translate-cache:/data/translate-cache
     ports:
       - "127.0.0.1:8080:8080"  # Only localhost, nginx will proxy

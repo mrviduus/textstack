@@ -267,7 +267,6 @@ export default function VocabularyReviewScreen() {
                 reviewMode={review.reviewMode}
                 onSpeak={(t) => toggleTts(t, { lang: language })}
                 onNext={review.nextCard}
-                language={language}
               />
             ) : review.reviewMode === 'classic' ? (
               <FlashCard
