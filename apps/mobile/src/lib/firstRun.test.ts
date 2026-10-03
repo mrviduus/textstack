@@ -53,42 +53,28 @@ describe('decideStartReadingCard', () => {
 })
 
 describe('latchChapterEnd', () => {
-  const ev = (o: Partial<Parameters<typeof latchChapterEnd>[1]> = {}) => ({
-    chapterProgress: 0,
-    visibleChapterSlug: '2-down-the-rabbit-hole',
-    openedChapterSlug: '2-down-the-rabbit-hole',
-    ...o,
-  })
-
-  it('is false while the reader is still inside the chapter it opened', () => {
-    expect(latchChapterEnd(false, ev({ chapterProgress: 0.5 }))).toBe(false)
+  it('is false while the reader is still inside the chapter', () => {
+    expect(latchChapterEnd(false, 0.5)).toBe(false)
   })
 
   it('trips at the end-of-chapter threshold', () => {
-    expect(latchChapterEnd(false, ev({ chapterProgress: CHAPTER_END_PROGRESS }))).toBe(true)
-    expect(latchChapterEnd(false, ev({ chapterProgress: CHAPTER_END_PROGRESS - 0.01 }))).toBe(false)
-  })
-
-  it('trips when infinite scroll has carried the reader into another chapter', () => {
-    // Crossing the boundary resets the within-chapter fraction to ~0, so the
-    // fraction alone would say "just started" at the exact moment a chapter
-    // was finished.
-    expect(latchChapterEnd(false, ev({ chapterProgress: 0.02, visibleChapterSlug: '3-the-pool-of-tears' })))
-      .toBe(true)
-  })
-
-  it('does not trip on a null visible slug', () => {
-    // No progress message has named a chapter yet — that is not evidence of
-    // having crossed one.
-    expect(latchChapterEnd(false, ev({ visibleChapterSlug: null }))).toBe(false)
+    expect(latchChapterEnd(false, CHAPTER_END_PROGRESS)).toBe(true)
+    expect(latchChapterEnd(false, CHAPTER_END_PROGRESS - 0.01)).toBe(false)
   })
 
   it('is monotonic — scrolling back up does not un-finish the chapter', () => {
-    expect(latchChapterEnd(true, ev({ chapterProgress: 0.1 }))).toBe(true)
+    expect(latchChapterEnd(true, 0.1)).toBe(true)
+  })
+
+  it('is monotonic across a chapter change — the next chapter opens at 0', () => {
+    // One chapter per document: Next opens the following chapter at the top, and
+    // the reader carries the latch over (readerVisit.ts). A fresh 0 must not reset it.
+    const finished = latchChapterEnd(false, 0.9)
+    expect(latchChapterEnd(finished, 0)).toBe(true)
   })
 
   it('ignores a non-finite fraction', () => {
-    expect(latchChapterEnd(false, ev({ chapterProgress: NaN }))).toBe(false)
+    expect(latchChapterEnd(false, NaN)).toBe(false)
   })
 })
 
@@ -109,13 +95,6 @@ describe('decideReaderExitPrompt', () => {
     expect(decideReaderExitPrompt(input({ sessionWordCount: 0 }))).toBe('none')
     // Even at the end of the chapter, and even if we have never asked.
     expect(decideReaderExitPrompt(input({ sessionWordCount: 0, finishedChapter: true }))).toBe('none')
-  })
-
-  it('offers Discuss for a finished, discussable chapter with no words saved — and only then', () => {
-    expect(decideReaderExitPrompt(input({ sessionWordCount: 0, finishedChapter: true, canDiscussChapter: true }))).toBe('discuss-chapter')
-    expect(decideReaderExitPrompt(input({ sessionWordCount: 0, finishedChapter: false, canDiscussChapter: true }))).toBe('none')
-    // Words saved: the words summary wins (it carries its own Discuss button).
-    expect(decideReaderExitPrompt(input({ finishedChapter: true, canDiscussChapter: true, ownBookAskSeen: true }))).toBe('review-words')
   })
 
   it('never asks someone who is already reading a book of their own', () => {

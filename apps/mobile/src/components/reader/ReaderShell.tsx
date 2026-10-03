@@ -55,6 +55,8 @@ import { fonts } from '../../theme/typography'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { StatusBar } from 'expo-status-bar'
 import { latchChapterEnd, shouldInterceptReaderBack } from '../../lib/firstRun'
+import { carryVisit, claimVisit } from '../../lib/readerVisit'
+import { chapterEndModel, discussAfterSave, type ChapterEndLabels } from '../../lib/chapterEnd'
 
 /** Lightweight {key} interpolation — shared `t()` returns raw keys, we fill them in here. */
 function interpolate(template: string, vars: Record<string, string | number>): string {
@@ -73,8 +75,8 @@ export interface ReaderShellChapter {
   id: string
   title: string
   html: string
-  prev?: { slug: string } | null
-  next?: { slug: string } | null
+  prev?: { slug: string; title?: string } | null
+  next?: { slug: string; title?: string } | null
 }
 
 export interface ReaderShellProps {
@@ -103,7 +105,8 @@ export interface ReaderShellProps {
   positionRef: MutableRefObject<TextPosition | null>
   totalWordCountRef: MutableRefObject<number>
   bumpProgress: () => void
-  saveProgress: () => void
+  /** Returns the server write when one went out (Discuss waits for it). */
+  saveProgress: () => Promise<unknown> | void
 
   /** Signalled once the WebView finishes loading. The shared persistence
    *  layer gates scroll-restore on this + the async saved-position fetch, so
@@ -115,10 +118,8 @@ export interface ReaderShellProps {
   onDocumentRebuild: () => void
   beginReflow: () => number
 
-  // Infinite scroll — the per-source fetch lives in the route; these fire on the
-  // WebView 'loaded' / 'requestNextChapter' messages.
-  onChapterLoaded: () => void
-  onRequestNextChapter: () => void
+  /** Put a chapter on the device before opening it (end-of-chapter block). */
+  ensureChapter: (slug: string) => Promise<void>
 
   /** Perform the actual router.replace to a chapter slug (path differs per source). */
   onNavigateChapter: (slug: string) => void
@@ -138,7 +139,7 @@ export interface ReaderShellProps {
   explainBookId?: string
   /** ADR-012 S4b — render the ORIGINAL PDF (pdf.js viewer) instead of the reflow
    *  HTML. Same shell, one branch: the WebView source swaps and the reflow-only
-   *  scroll/progress/infinite-scroll message branches go inert. */
+   *  scroll/progress/chapter-end message branches go inert. */
   original?: boolean
   /** Range-enabled URL of the original PDF (Bearer injected into pdf.js, not the URL). */
   originalFileUrl?: string | null
@@ -169,7 +170,7 @@ export interface ReaderShellProps {
  * inline-translation gloss, highlights, text selection, immersive bars, top bar,
  * footer, sheets, scroll restore and the 'progress'/'selection'/'highlightTap' message
  * routing. The two routes stay thin: they load their source-specific data (chapter,
- * chapter list, bookmarks, progress, reading session, infinite scroll) and hand the
+ * chapter list, bookmarks, progress, reading session) and hand the
  * results + a `source` discriminator down here. This is the single place the reader
  * UX lives, so a fix lands in both catalogs at once (was: copy-pasted + drifted).
  */
@@ -180,7 +181,7 @@ export function ReaderShell(props: ReaderShellProps) {
     progressRef, scrollOffsetRef, currentChapterSlugRef, bookProgressRef, positionRef, totalWordCountRef,
     bumpProgress, saveProgress,
     onWebViewLoaded, onRestoreLanded, onDocumentRebuild, beginReflow,
-    onChapterLoaded, onRequestNextChapter, onNavigateChapter,
+    ensureChapter, onNavigateChapter,
     bookmarks, onToggleCurrentBookmark, onDeleteBookmark, bookmarkChapterSlug,
     bookTitleRef, wordCount, explainBookId,
     original, originalFileUrl, originalInitialPage,
@@ -218,17 +219,18 @@ export function ReaderShell(props: ReaderShellProps) {
     setBookProgress(bp)
     return bp
   }
-  const [visibleChapterSlug, setVisibleChapterSlug] = useState<string | null>(null)
 
-  const sessionWordCountRef = useRef(0)
-  // "this session got to the end of a chapter", latched from the WebView's
+  // A chapter change remounts this screen (router.replace mints a new route key), so what belongs
+  // to the whole visit — the reading session, the saved-word count, "finished a chapter" — is
+  // handed over by navigateChapter and claimed here, once. See readerVisit.ts.
+  const visitKey = source.kind === 'edition' ? `edition:${source.slug}` : `userbook:${source.id}`
+  const [visit] = useState(() => claimVisit(visitKey))
+
+  const sessionWordCountRef = useRef(visit?.savedWords ?? 0)
+  // "this visit got to the end of a chapter", latched from the WebView's
   // progress messages. A condition of the one-shot "bring your own book" ask —
   // see latchChapterEnd for why it is latched rather than sampled on exit.
-  const finishedChapterRef = useRef(false)
-  // WHICH chapter was finished — the one "Discuss this chapter" offers. The shell survives chapter
-  // navigation (navigateChapter resets refs by hand), so the opened slug alone would name the
-  // chapter they moved on to, not the one they finished.
-  const finishedSlugRef = useRef<string | null>(null)
+  const finishedChapterRef = useRef(visit?.finishedChapter ?? false)
 
   // --- ADR-012 S4b: Original-layout PDF viewer state ------------------------
   // The Bearer token is fetched once and injected into pdf.js httpHeaders via
@@ -298,12 +300,17 @@ export function ReaderShell(props: ReaderShellProps) {
   const [measuredFooterHeight, setMeasuredFooterHeight] = useState(0)
   const footerHeight = measuredFooterHeight || 60 + insets.bottom
 
-  // Reading session — keyed by whichever catalog id the source carries.
-  const { updateProgress: updateSessionProgress, recordActivity: recordSessionActivity, sessionStartedAt } = useReadingSession({
+  // Reading session — keyed by whichever catalog id the source carries. One per visit, not per
+  // chapter (carried across the remount). Its percent is BOOK progress, so its word count is the
+  // book's: wordsRead = Δbook% × words.
+  const {
+    updateProgress: updateSessionProgress, recordActivity: recordSessionActivity, handOff: handOffSession, sessionStartedAt,
+  } = useReadingSession({
     editionId: source.kind === 'edition' ? source.id : null,
     userBookId: source.kind === 'userbook' ? source.id : null,
-    wordCount,
+    wordCount: totalWordCountRef.current || wordCount,
     isAuthenticated,
+    carried: visit?.session,
   })
 
   const { barsVisible, barsAnim, topBarTranslateY, footerTranslateY, showBars, hideBars, toggleBars } = useReaderBars({
@@ -312,10 +319,9 @@ export function ReaderShell(props: ReaderShellProps) {
     autoHideTrigger: true,
   })
 
-  // "Discuss this chapter" on the way out — the last chapter this session finished (ponytail: after
-  // reading on through several appended chapters it offers the opened one). Same rules as the
-  // chapter-row button.
-  const discussCh = chapters.find(c => c.slug === finishedSlugRef.current)
+  // "Discuss this chapter" — the open chapter, which is the one on screen (one chapter per document).
+  // Same rules as the chapter-row button.
+  const discussCh = chapters.find(c => c.slug === chapterSlug)
   const discussBrief = source.id && discussCh && isReviewableChapter(discussCh)
     ? () => buildChapterDiscussBrief({
         title: bookTitle ?? '',
@@ -340,9 +346,15 @@ export function ReaderShell(props: ReaderShellProps) {
     saveProgress,
     sourceKind: source.kind,
     finishedChapterRef,
-    canDiscussChapter: !!discussBrief,
+    initialWordCount: visit?.savedWords,
   })
-  const discuss = () => { if (!discussBrief) return; holdExit(); void launcher.launch(discussBrief) }
+  // Progress first: the server refuses a review of a chapter beyond the saved position, and the
+  // debounced save may not have gone out yet at the end of the chapter (chapterEnd.ts).
+  const discuss = () => {
+    if (!discussBrief) return
+    holdExit()
+    void discussAfterSave(saveProgress, () => launcher.launch(discussBrief))
+  }
 
   const { vocabMapRef, flushToCache: flushVocabMap, bumpVocab } = useReaderVocabMap({
     user,
@@ -560,37 +572,24 @@ export function ReaderShell(props: ReaderShellProps) {
         // saveProgress checks the chapter before it uses it.
         if (data.position) positionRef.current = data.position
         setProgress(data.progress)
-        if (data.chapterSlug) {
-          currentChapterSlugRef.current = data.chapterSlug
-          setVisibleChapterSlug(data.chapterSlug)
-        }
-        const endEvent = {
-          chapterProgress: data.progress,
-          visibleChapterSlug: data.chapterSlug ?? currentChapterSlugRef.current,
-          openedChapterSlug: chapterSlug,
-        }
-        finishedChapterRef.current = latchChapterEnd(finishedChapterRef.current, endEvent)
-        if (latchChapterEnd(false, endEvent)) finishedSlugRef.current = chapterSlug
-        const activeSlugForCalc = data.chapterSlug || currentChapterSlugRef.current || chapterSlug || null
-        const bp = updateBookProgress(activeSlugForCalc, data.progress)
-        // The reading session wants BOOK progress, and it must be computed
-        // before we report it — this used to pass the chapter fraction from two
-        // lines above. `ReadingSession.EndPercent >= 0.99` is how the server
-        // decides a book was finished, so every chapter a mobile reader
-        // completed minted a book-completion and unlocked reading achievements
-        // early. `wordsRead` is derived from the same delta against the
-        // whole-book word count, so it was inflated by the same mistake.
-        updateSessionProgress(bp ?? data.progress)
+        if (data.chapterSlug) currentChapterSlugRef.current = data.chapterSlug
+        finishedChapterRef.current = latchChapterEnd(finishedChapterRef.current, data.progress)
+        const bp = updateBookProgress(chapterSlug || null, data.progress)
+        // The reading session wants BOOK progress. `ReadingSession.EndPercent >= 0.99`
+        // is how the server decides a book was finished, so a chapter fraction here —
+        // which is 1.0 at the end of every chapter — minted a book-completion per
+        // chapter. Until the chapter list lands there is no book progress, and the
+        // session is only told the reader is active.
+        if (bp != null) updateSessionProgress(bp)
+        else recordSessionActivity()
         bumpProgress()
       } else if (data.type === 'restored') {
         // A restore we injected has actually been applied. Until this arrives the newest position
         // we hold is the load event's zero, and writing it wipes the reader's place — so this
         // message, not the injection, is what opens the write gate.
         onRestoreLanded(data.restoreId)
-      } else if (data.type === 'loaded') {
-        onChapterLoaded()
-      } else if (data.type === 'requestNextChapter') {
-        onRequestNextChapter()
+      } else if (data.type === 'chapterEnd') {
+        onChapterEndActionRef.current(data.action)
       } else if (data.type === 'highlightTap') {
         const hl = highlightsRef.current.find(h => h.id === data.highlightId)
         if (hl) setEditingHighlight(hl)
@@ -669,7 +668,7 @@ export function ReaderShell(props: ReaderShellProps) {
       if (__DEV__) console.warn('[reader] postMessage handler threw', err, event?.nativeEvent?.data)
     }
   }, [chapters, chapterSlug, toggleBars, showBars, hideBars,
-      setEditingHighlight, updateSessionProgress, onChapterLoaded, onRequestNextChapter, onRestoreLanded, openSelection, bumpProgress, haptics,
+      setEditingHighlight, updateSessionProgress, onRestoreLanded, openSelection, bumpProgress, haptics,
       original, recordSessionActivity, maybeInitialPdfJump, persistPdfPage, createPdfHighlight, repaintPdf])
 
   // "12 min left in chapter" — the estimate Kindle readers reach for, using the
@@ -678,7 +677,7 @@ export function ReaderShell(props: ReaderShellProps) {
   // Reflow only: the PDF path has pages, not words.
   const timeLeftLabel = (() => {
     if (original || !settings.showReaderStats) return null
-    const est = estimateTimeLeft(chapters, visibleChapterSlug || chapterSlug, progress, wpm)
+    const est = estimateTimeLeft(chapters, chapterSlug, progress, wpm)
     if (!est) return null
     return formatMinutesLeft(est.chapterMinutes, {
       under: t(language, 'reader.timeLeft.under'),
@@ -688,16 +687,77 @@ export function ReaderShell(props: ReaderShellProps) {
     })
   })()
 
+  // Every chapter change in the reader goes through here (block, chevrons, TOC, bookmarks,
+  // highlights). The route change remounts this screen, so the visit is handed to the next one.
   const navigateChapter = (slug: string) => {
     saveProgress()
-    progressRef.current = 0
-    scrollOffsetRef.current = 0
-    // Otherwise the first progress message without a slug reads the old chapter as "visible",
-    // and latchChapterEnd takes visible ≠ opened for having read past the new one.
-    currentChapterSlugRef.current = null
-    setProgress(0)
-    if (chapters.length > 0) updateBookProgress(slug, 0)
+    const { snapshot, flush } = handOffSession()
+    carryVisit({
+      key: visitKey,
+      session: snapshot,
+      savedWords: Math.max(sessionWordCount, sessionWordCountRef.current),
+      finishedChapter: finishedChapterRef.current,
+    }, flush)
     onNavigateChapter(slug)
+  }
+
+  // --- End of chapter (inline block, drawn by readerHtml's __tsSetChapterEnd) ---
+  const [endState, setEndState] = useState({ busy: false, error: false })
+  const lastEndTargetRef = useRef<string | null>(null)
+  // A slow fetch can outlive the screen (the reader backs out while it hangs); navigating from a
+  // reader that is gone would replace whatever screen they went to.
+  const aliveRef = useRef(true)
+  useEffect(() => () => { aliveRef.current = false }, [])
+  const openFromBlock = async (slug: string) => {
+    lastEndTargetRef.current = slug
+    setEndState({ busy: true, error: false })
+    try {
+      await ensureChapter(slug)
+    } catch {
+      // Offline and not on the device: say so in the block, with Retry — not a dead-end screen.
+      if (aliveRef.current) setEndState({ busy: false, error: true })
+      return
+    }
+    if (aliveRef.current) navigateChapter(slug)
+  }
+  const endLabels = useMemo<ChapterEndLabels>(() => ({
+    next: t(language, 'reader.chapterEnd.next'),
+    nextUntitled: t(language, 'reader.chapterEnd.nextUntitled'),
+    prevUntitled: t(language, 'reader.chapterEnd.prevUntitled'),
+    finished: t(language, 'reader.chapterEnd.finished'),
+    finishedGeneric: t(language, 'reader.chapterEnd.finishedGeneric'),
+    discuss: t(language, 'chapterReview.discussChapter'),
+    reviewWords: n => plural(n, 'word', 'words', t(language, 'reader.chapterEnd.reviewWords')),
+    library: t(language, 'reader.chapterEnd.library'),
+    unavailable: t(language, 'reader.chapterEnd.unavailable'),
+    retry: t(language, 'common.retry'),
+  }), [language])
+  const endModel = useMemo(() => chapterEndModel({
+    chapters,
+    chapterTitle: chapter.title,
+    prev: chapter.prev ?? null,
+    next: chapter.next ?? null,
+    bookTitle,
+    canDiscuss: !!discussBrief,
+    savedWords: sessionWordCount,
+    error: endState.error,
+    busy: endState.busy,
+  }, endLabels), [chapters, chapter.title, chapter.prev, chapter.next, bookTitle, discussBrief, sessionWordCount, endState, endLabels])
+  const endModelJs = `window.__tsSetChapterEnd && window.__tsSetChapterEnd(${JSON.stringify(endModel)})`
+  useEffect(() => { if (!original) injectJs(endModelJs) }, [original, endModelJs, injectJs])
+  // Read through a ref by handleMessage, whose dependency list would otherwise have to name it all.
+  const onChapterEndActionRef = useRef<(action: string) => void>(() => {})
+  onChapterEndActionRef.current = (action: string) => {
+    if (action === 'visible') {
+      // Fetch the next chapter onto the device while they read the block: Next is then instant,
+      // and works if the signal drops in between.
+      if (chapter.next) void ensureChapter(chapter.next.slug).catch(() => {})
+    } else if (action === 'next' && chapter.next) void openFromBlock(chapter.next.slug)
+    else if (action === 'prev' && chapter.prev) void openFromBlock(chapter.prev.slug)
+    else if (action === 'retry' && lastEndTargetRef.current) void openFromBlock(lastEndTargetRef.current)
+    else if (action === 'discuss') discuss()
+    else if (action === 'review') { saveProgress(); handleExitReview() }
+    else if (action === 'library') { saveProgress(); router.dismissTo('/(tabs)/library') }
   }
 
 
@@ -707,16 +767,9 @@ export function ReaderShell(props: ReaderShellProps) {
   const scrollToHighlight = (anchorJson: string) =>
     injectJs(`window.__textstackScrollToHighlight && window.__textstackScrollToHighlight(${JSON.stringify(anchorJson)})`)
 
-  // Which chapter the reader is actually in.
-  //
-  // `visibleChapterSlug` is only ever set from the reflow reader's `progress`
-  // message, and the PDF path does not send one — so on the Original layout this
-  // was frozen at the route's chapter for the whole session and the top bar still
-  // read "Introduction" on page 17. Pages are what a PDF has, and the mapping
-  // from page to chapter already existed, unused by the reader.
-  const activeSlug = (original
-    ? chapterSlugForPage(chapters, pdfCurrentPage)
-    : visibleChapterSlug) ?? chapterSlug
+  // Which chapter the reader is in: the open one for reflow (one chapter per document); for the
+  // Original PDF layout, the chapter holding the current page.
+  const activeSlug = (original ? chapterSlugForPage(chapters, pdfCurrentPage) : null) ?? chapterSlug
   const activeChapter = chapters.find(c => c.slug === activeSlug)
   // Original PDF: the "current" bookmark is the top-visible PAGE, not a chapter.
   const isCurrentBookmarked = original
@@ -994,6 +1047,7 @@ export function ReaderShell(props: ReaderShellProps) {
               injectJs(`markVocabWords(${JSON.stringify(vocabMapRef.current)})`)
             }
             injectJs(`setShowInlineTranslations(${settings.showInlineTranslations})`)
+            injectJs(endModelJs)
             // Scroll-restore is owned by useReaderPersistence — it coordinates
             // this signal with the async saved-position fetch (no race).
             onWebViewLoaded()
@@ -1286,16 +1340,8 @@ export function ReaderShell(props: ReaderShellProps) {
           </View>
         )}
 
-        {/* The finished chapter, handed to the reader's own Claude/ChatGPT. On the words card too
-            (below) when the chapter was finished. Always "Discuss", never "Reviewed": the reader
-            holds no review state and one /me/insights per open is not worth it. */}
-        {exitPrompt === 'discuss-chapter' && discussCh && (
-          <ExitCard
-            bg={barBg} fg={barText} stacked title={discussCh.title} titleLines={2}
-            primary={{ label: `✦ ${t(language, 'chapterReview.discussChapter')}`, onPress: discuss, disabled: launcher.busy }}
-            secondary={{ label: t(language, 'reader.exitSummary.later'), onPress: handleExitLater }}
-          />
-        )}
+        {/* "Discuss this chapter" lives in the end-of-chapter block; the words card below keeps a
+            link to it when the chapter was finished. */}
         <ConnectAssistantSheet visible={launcher.connect} onClose={launcher.closeConnect} />
 
         {exitPrompt === 'review-words' && (

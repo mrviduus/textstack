@@ -4,11 +4,10 @@ import { WebView } from 'react-native-webview'
 import { createBooksApi, readingProgressApi, parseScrollLocator, chapterIdForSlug, parseTextPosition, serializeTextPosition } from '@textstack/shared'
 import type { Language, TextPosition } from '@textstack/shared'
 import { getLocalProgress, saveLocalProgress } from '../../lib/progressStorage'
-import { getCachedChapter } from '../../lib/offlineDb'
+import { getCachedChapter, cacheChapter } from '../../lib/offlineDb'
 import { useReaderChapter } from '../../hooks/useReaderChapter'
 import { useReaderBook } from '../../hooks/useReaderBook'
 import { useReaderBookmarks, getSlugFromLocator } from '../../hooks/useReaderBookmarks'
-import { useReaderInfiniteScroll } from '../../hooks/useReaderInfiniteScroll'
 import { useReaderPersistence } from '../../hooks/useReaderPersistence'
 import type { ProgressSnapshot, ReaderRuntime, SavedPosition } from './readerSource'
 
@@ -24,7 +23,7 @@ type Params = {
 
 /**
  * Catalog (edition) data source for the unified `<Reader>`. Composes the
- * battle-tested catalog hooks (chapter / book / bookmarks / infinite scroll)
+ * battle-tested catalog hooks (chapter / book / bookmarks)
  * and supplies the edition-specific progress I/O (`persist` / `loadPosition`)
  * to the shared `useReaderPersistence`. Returns the normalized `ReaderRuntime`.
  *
@@ -65,15 +64,17 @@ export function useEditionReaderSource({
     bookSlug, language, isAuthenticated, editionIdRef, bookTitleRef, totalWordCountRef, setBookmarks,
   })
 
-  // Device first — see useReaderInfiniteScroll / chapterLoadOrder.test.ts.
-  const fetchNext = useCallback(async (slug: string) => {
+  // Puts a chapter on the device before the reader opens it (end-of-chapter
+  // block), so the open is instant and works offline. Device first — a cache
+  // hit costs no network (chapterLoadOrder.test.ts). Throws when neither has it.
+  // ponytail: for a book never downloaded these rows are listed nowhere (lists need the book's
+  // meta row) and never swept — a few KB per chapter turn; sweep them if storage ever matters.
+  const ensureChapter = useCallback(async (slug: string) => {
     const editionId = editionIdRef.current
-    const cached = editionId ? await getCachedChapter(editionId, slug) : null
-    if (cached) return { ...cached, slug: cached.chapterSlug }
-    return createBooksApi(language).getChapter(bookSlug, slug)
+    if (editionId && await getCachedChapter(editionId, slug)) return
+    const ch = await createBooksApi(language).getChapter(bookSlug, slug)
+    if (editionIdRef.current) await cacheChapter(editionIdRef.current, ch)
   }, [bookSlug, language])
-
-  const { enableForChapter, loadNext } = useReaderInfiniteScroll({ injectJs, wordCountRef, fetchNext })
 
   // The chapter list, in a ref so `persist` can read it without being rebuilt on every change —
   // it is handed to useReaderPersistence, which keys effects on its identity.
@@ -88,23 +89,10 @@ export function useEditionReaderSource({
     const id = editionIdRef.current
     if (!id) return
 
-    // The chapter the reader is actually in, not the one the URL named.
-    //
-    // Infinite scroll appends the next chapter into the same document without renavigating, so
-    // the route chapter — and the id derived from it — stops moving while the locator follows the
-    // reader. The server has no slug column: it derives `chapterSlug` by joining this id to the
-    // chapters table. So a stale id here made the row disagree with its own locator, and resume
-    // believed the id. A reader who crossed into chapter two, left, and pressed Continue was sent
-    // back to chapter one, where the reader's first automatic save destroyed their place.
-    //
-    // When the list cannot answer, the route id is right only if the reader has not left the route
-    // chapter. That distinction is the whole point: on a cold open the two agree and the route id
-    // is exactly correct, but the book request can also simply fail — infinite scroll fetches
-    // `chapter.next` on its own and needs no list, so a reader can spend a whole session moving
-    // through chapters while `chapters` stays empty. Pairing the route id with a locator naming a
-    // later chapter is how the row came to disagree with itself in the first place, and every
-    // reader of that row is then wrong in a way nothing on it reveals. Better to hold the server
-    // write back — the local record is the position either way — and send it when the list lands.
+    // The id for the slug being saved. The server has no slug column — it derives `chapterSlug`
+    // by joining this id — so an id that disagrees with the locator makes resume open the wrong
+    // chapter (#496). One chapter per document now, so the snapshot slug is the route slug and the
+    // fallback is the route's own id; the list lookup stays as the authority when it has loaded.
     const chapterId = chapterIdForSlug(chaptersRef.current, snap.chapterSlug)
       ?? (snap.chapterSlug === routeChapterSlugRef.current ? snap.chapterId : null)
     // Assigned, never carried forward — the same rule the server applies. An
@@ -130,7 +118,7 @@ export function useEditionReaderSource({
     // id to give, so there is nothing to send — the local write above is the
     // record, and useReaderPersistence repeats the save once an id appears.
     if (!chapterId) return
-    readingProgressApi.updateProgress(id, {
+    return readingProgressApi.updateProgress(id, {
       chapterId,
       chapterSlug: snap.chapterSlug,
       // Book-wide, matching ReadingProgress.Percent's declared unit. This used
@@ -181,8 +169,6 @@ export function useEditionReaderSource({
     return { position, offset, percent }
   }, [isAuthenticated])
 
-  // Stable: the persistence hook keys effects on the identity of what it is given,
-  // and a rebuilt callback here would re-arm a restore.
   const navigateToChapter = useCallback((slug: string) => {
     router.replace(`/reader/${bookSlug}/${slug}`)
   }, [router, bookSlug])
@@ -193,7 +179,7 @@ export function useEditionReaderSource({
     chapterId: chapter?.id ?? null,
     injectJs,
     progressRef, scrollOffsetRef, currentChapterSlugRef, bookProgressRef, positionRef,
-    persist, loadPosition, navigateToChapter,
+    persist, loadPosition,
   })
 
   // The chapter list arriving is the second chance for a server write that had to be held back.
@@ -225,8 +211,7 @@ export function useEditionReaderSource({
     wordCount: wordCountRef.current,
     progressRef, scrollOffsetRef, currentChapterSlugRef, bookProgressRef, positionRef, totalWordCountRef,
     saveProgress, bumpProgress, onWebViewLoaded, onRestoreLanded, onDocumentRebuild, beginReflow,
-    onChapterLoaded: () => { if (chapter) enableForChapter(chapter) },
-    onRequestNextChapter: loadNext,
+    ensureChapter,
     onNavigateChapter: navigateToChapter,
     bookmarks,
     onToggleCurrentBookmark: (slug) => { if (chapter) toggle({ chapter, slug }) },

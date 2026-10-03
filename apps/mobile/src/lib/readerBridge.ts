@@ -347,7 +347,8 @@ export const READER_SELECTION_BRIDGE = `
       cancelWordPress();
 
       var target = e.target;
-      var onLink = target && (target.tagName === 'A' || (target.closest && target.closest('a')));
+      // .ts-end is the end-of-chapter block: its buttons own their taps.
+      var onLink = target && (target.tagName === 'A' || (target.closest && target.closest('a,.ts-end')));
       // Don't arm the hold over links — let the anchor own the gesture.
       if (onLink) return;
       // Capture start coords now; the timer resolves the word at the point
@@ -421,7 +422,7 @@ export const READER_SELECTION_BRIDGE = `
       // cleared at the top of touchend, so this can't double-fire (FIX 5).
       if (dur > LONGPRESS_MS) return;
       var target = e.target;
-      if (target.tagName === 'A' || target.closest('a')) return;
+      if (target.tagName === 'A' || target.closest('a,.ts-end')) return;
 
       // Short tap with an active selection in the DOM. selectWordAtPoint
       // never touches the Selection API, so any non-collapsed selection

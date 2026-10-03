@@ -28,18 +28,12 @@ type Options = {
   bookProgressRef: MutableRefObject<number | null>
   positionRef: MutableRefObject<TextPosition | null>
 
-  /** Source-specific write. MUST be stable (wrap in useCallback). */
-  persist: (snap: ProgressSnapshot) => void
+  /** Source-specific write. MUST be stable (wrap in useCallback). Returns the
+   *  server write when one was made, so a caller can wait for it (Discuss). */
+  persist: (snap: ProgressSnapshot) => Promise<unknown> | void
   /** Source-specific read of the saved resume position for a chapter.
    *  MUST be stable (wrap in useCallback). */
   loadPosition: (chapterSlug: string) => Promise<SavedPosition>
-  /**
-   * Route to another chapter. Used only when a document rebuild has landed the
-   * reader in a chapter that is not the one they were reading — the route has
-   * to follow them, because the position they had is not in this document.
-   * MUST be stable (wrap in useCallback).
-   */
-  navigateToChapter?: (chapterSlug: string) => void
   /**
    * False while a NON-REFLOW viewer owns the reading position — an uploaded PDF
    * opened in Original layout.
@@ -88,7 +82,6 @@ export function useReaderPersistence({
   positionRef,
   persist,
   loadPosition,
-  navigateToChapter,
   enabled = true,
 }: Options) {
   // Restore state machine — all refs so changes never trigger a re-render.
@@ -113,8 +106,6 @@ export function useReaderPersistence({
   const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const webViewLoadedRef = useRef(false)
   const positionLoadedRef = useRef(false)
-  /** The chapter the reader was in when a rebuild started — see onDocumentRebuild. */
-  const rebuiltFromSlugRef = useRef<string | null>(null)
 
   /**
    * Mint a restore id, shut the write gate behind it and arm the settle timeout.
@@ -171,46 +162,21 @@ export function useReaderPersistence({
   }, [dispatchGate])
 
   /**
-   * A rebuild of the WebView document is starting.
-   *
-   * Called by ReaderShell the moment its document key changes — which is before
-   * the new document loads, and that ordering is the whole point. A rebuilt
-   * document is built from the ROUTE chapter, and the reader may be in a later
-   * one that infinite scroll appended; the only moment that fact is still
-   * knowable is now, because the fresh document's load event overwrites
-   * `currentChapterSlugRef` with the route chapter.
-   *
-   * The gate is shut here too. Between a rebuild and its restore the newest
-   * position we hold is the load event's zero, which is exactly the value that
-   * used to be written over a half-read book.
+   * A rebuild of the WebView document is starting (a re-parsed chapter, the
+   * OpenDyslexic face) — told by ReaderShell before the new document loads.
+   * Between a rebuild and its restore the newest position we hold is the load
+   * event's zero, which is exactly the value that used to be written over a
+   * half-read book, so the gate shuts here.
    */
   const onDocumentRebuild = useCallback(() => {
-    rebuiltFromSlugRef.current = currentChapterSlugRef.current
     dispatchGate({ type: 'chapterEntered', chapterSlug: chapterSlug ?? null })
-  }, [dispatchGate, chapterSlug, currentChapterSlugRef])
+  }, [dispatchGate, chapterSlug])
 
   // Signalled by ReaderShell's onLoadEnd.
   const onWebViewLoaded = useCallback(() => {
-    // Already restored this chapter once → this onLoadEnd is a rebuild.
-    //
-    // This branch used to re-apply `progressRef` — the reader's fraction of
-    // whatever chapter they were IN — as a percent of the freshly built
-    // document, which contains the chapter the ROUTE names. Reading 55% of
-    // chapter two put the reader at 74% of chapter one, and the debounced save
-    // wrote it. Typography no longer rebuilds at all (see readerChrome.ts), but
-    // a re-parsed chapter, an overlay-flag flip or the OpenDyslexic face still
-    // do, so the branch has to be right rather than absent.
+    // Already restored this chapter once → this onLoadEnd is a rebuild of the
+    // same chapter (the document holds one chapter, so the fraction applies).
     if (restoredRef.current) {
-      const wasIn = rebuiltFromSlugRef.current
-      rebuiltFromSlugRef.current = null
-      if (wasIn && chapterSlug && wasIn !== chapterSlug) {
-        // The reader is not in the chapter this document was built from. There
-        // is nothing here to restore them to — go and get the chapter they are
-        // actually in, and its own restore runs on arrival. The gate stays shut
-        // until then, which is why nothing can be written in between.
-        navigateToChapter?.(wasIn)
-        return
-      }
       const pct = progressRef.current
       const restoreId = issueRestore()
       if (Number.isFinite(pct) && pct > 0.001) {
@@ -223,7 +189,7 @@ export function useReaderPersistence({
     }
     webViewLoadedRef.current = true
     tryRestore()
-  }, [tryRestore, injectJs, progressRef, chapterSlug, navigateToChapter, issueRestore, dispatchGate])
+  }, [tryRestore, injectJs, progressRef, issueRestore, dispatchGate])
 
   // Pending-save buffer: chapterId resolves AFTER the chapter fetch lands, so a
   // save requested during rapid chapter tap-through (e.g. emit-on-load firing
@@ -234,7 +200,7 @@ export function useReaderPersistence({
   // which carry the latest scroll/percent for the destination chapter.
   const pendingSaveRef = useRef(false)
 
-  const saveProgress = useCallback(() => {
+  const saveProgress = useCallback((): Promise<unknown> | void => {
     // `enabled` first: when another viewer owns the position, the refs this
     // function reads have never been written, and writing them destroys a real
     // position. One check covers all three callers — the unmount flush, the
@@ -253,7 +219,7 @@ export function useReaderPersistence({
     // is what the local record is keyed by; each source decides for itself
     // whether it has enough to also write to the server.
     const slug = currentChapterSlugRef.current || gate.chapterSlug
-    persist({
+    const written = persist({
       chapterId,
       chapterSlug: slug,
       chapterPercent: progressRef.current,
@@ -270,6 +236,7 @@ export function useReaderPersistence({
     // repeat the save if one arrives (chapter fetch lands, or the device comes
     // back online and the next chapter resolves normally).
     pendingSaveRef.current = !chapterId
+    return written
   }, [enabled, bookKey, chapterId, chapterSlug, restoredFor, persist, currentChapterSlugRef, progressRef, scrollOffsetRef, bookProgressRef, positionRef])
 
   // Re-save once the chapter id lands, so the server gets the write that the

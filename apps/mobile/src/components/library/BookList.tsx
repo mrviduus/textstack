@@ -236,8 +236,9 @@ export function BookList({
 
     const serverProgress = e.kind === 'saved' ? progressMap[e.item.editionId] : undefined
     // `serverProgress.chapterSlug` is derived server-side from the row's `chapterId`, and that id
-    // stops moving once infinite scroll carries the reader past the chapter they opened. Following
-    // it sent a reader 45% in back to the top of chapter two. The locator is the position.
+    // stopped moving while the reader still appended chapters (until 2026-10-03); rows written then
+    // still disagree. Following it sent a reader 45% in back to the top of chapter two. The locator
+    // is the position.
     const continueSlug = e.kind === 'saved'
       ? resumeChapterSlug(serverProgress?.chapterSlug, serverProgress?.locator, null)
       : null

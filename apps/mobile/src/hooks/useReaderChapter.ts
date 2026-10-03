@@ -32,8 +32,7 @@ type Options = {
  * Surfaces `chapterError` so the screen can swap the eternal spinner for a real
  * empty-state on offline-miss / 404 (R-4).
  *
- * `wordCountRef` is exposed as a ref because `loadNextChapter` in the
- * screen accumulates next-chapter word counts into it (infinite scroll).
+ * `wordCountRef` is the loaded chapter's word count.
  */
 export function useReaderChapter({ bookSlug, chapterSlug, language, editionIdRef }: Options) {
   const [chapter, setChapter] = useState<Chapter | null>(null)

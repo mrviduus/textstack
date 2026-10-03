@@ -147,6 +147,22 @@ with no address bar.
 structural: the write path reads the visible chapter, the restore path reads the document's own. If
 those assertions start failing, this reasoning no longer holds.
 
+### Addendum 2026-10-03 — the document holds one chapter
+
+The split is gone the other way round: instead of the route following the reader, the reader no
+longer leaves the route. The mobile reader stopped appending chapters (`useReaderInfiniteScroll`,
+the sentinel, `appendChapter` and the multi-chapter registry in `readerHtml.ts` are deleted); the
+reader moves on with an end-of-chapter block, as the web reader has since #161. The document keeps
+exactly one `data-chapter-slug` element, and anchors stay scoped to it. `onDocumentRebuild` keeps only
+its gate-shut (a same-chapter rebuild still loads at zero); the "rebuilt into another chapter →
+navigate" branch and `latchChapterEnd`'s visible ≠ opened case went with the appending.
+
+Why now, when the section above declined the surgery: the cost was never the appending itself but
+the second answer it created, and a device audit found three live bugs that existed only because of
+it — highlights in an appended chapter saved under the opened one, the toolbar chevrons and
+"Discuss" pointing at the opened chapter. Removing the appending removes the question rather than
+answering it twice. `readerWriteTarget.test.ts` now pins that it cannot come back.
+
 ## Enforced by
 
 - `packages/shared/src/reader/textPosition.ts` + `.test.ts` — the model and its resolution ladder

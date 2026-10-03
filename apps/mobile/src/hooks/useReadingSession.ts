@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { AppState } from 'react-native'
 import { readingTrackingApi } from '@textstack/shared'
+import type { SessionSnapshot } from '../lib/readerVisit'
 
 const HEARTBEAT_MS = 30_000
 const MIN_SECONDS = 10
@@ -10,23 +11,34 @@ const AUTO_END_MS = 5 * 60 * 1000 // 5 min — auto-end session
 interface SessionConfig {
   editionId: string | null
   userBookId?: string | null
+  /** Words the progress percent is a fraction of (the whole book — progress is book-wide). */
   wordCount: number
   isAuthenticated: boolean
+  /** A session handed over by the previous chapter of this visit (`readerVisit.ts`). Read once, at mount. */
+  carried?: SessionSnapshot | null
 }
 
 /**
  * Tracks reading session duration with idle detection.
  * Session starts on mount, ends on unmount, app background, or 5min idle.
  * Stops counting after 3min without activity (scroll/progress update).
+ *
+ * A chapter change remounts the reader; `handOff()` + `carried` keep one
+ * session across it instead of ending it per chapter (`readerVisit.ts`).
  */
 export function useReadingSession(config: SessionConfig) {
-  const startTimeRef = useRef(Date.now())
-  const activeSecondsRef = useRef(0)
+  const carried = config.carried ?? null
+  const startTimeRef = useRef(carried?.startedAt ?? Date.now())
+  const activeSecondsRef = useRef(carried?.activeSeconds ?? 0)
   const lastTickRef = useRef(Date.now())
   const lastActivityRef = useRef(Date.now())
-  const startPercentRef = useRef(0)
-  const currentPercentRef = useRef(0)
-  const submittedRef = useRef(false)
+  const startPercentRef = useRef(carried?.startPercent ?? 0)
+  const currentPercentRef = useRef(carried?.currentPercent ?? 0)
+  const submittedRef = useRef(carried?.submitted ?? false)
+  // Adopted, not reset, the first time a book key arrives.
+  const adoptRef = useRef(carried !== null)
+  // Handed to the next chapter: the unmount must not submit what it now owns.
+  const handedOffRef = useRef(false)
   const autoEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const submit = useCallback(() => {
@@ -131,13 +143,43 @@ export function useReadingSession(config: SessionConfig) {
   const sessionKey = config.editionId ?? config.userBookId ?? null
   useEffect(() => {
     if (!sessionKey) return
-    resetSessionState()
-    resetAutoEndTimer()
+    if (adoptRef.current) adoptRef.current = false
+    else resetSessionState()
+    if (!submittedRef.current) resetAutoEndTimer()
     return () => {
-      submit()
+      if (!handedOffRef.current) submit()
       clearAutoEndTimer()
     }
   }, [sessionKey, submit, resetAutoEndTimer, clearAutoEndTimer, resetSessionState])
+
+  // Always the newest closure — the carry's fallback flush runs after unmount.
+  const submitRef = useRef(submit)
+  submitRef.current = submit
+
+  /**
+   * Stop owning the session and return it, for the next chapter of this visit.
+   * The partial heartbeat since the last tick is counted in. `flush` submits it
+   * from here if the next chapter never claims it.
+   */
+  const handOff = useCallback((): { snapshot: SessionSnapshot; flush: () => void } => {
+    handedOffRef.current = true
+    clearAutoEndTimer()
+    const now = Date.now()
+    const partial = now - lastActivityRef.current < IDLE_THRESHOLD_MS
+      ? Math.min(Math.round((now - lastTickRef.current) / 1000), 60) : 0
+    activeSecondsRef.current += partial
+    lastTickRef.current = now
+    return {
+      snapshot: {
+        startedAt: startTimeRef.current,
+        activeSeconds: activeSecondsRef.current,
+        startPercent: startPercentRef.current,
+        currentPercent: currentPercentRef.current,
+        submitted: submittedRef.current,
+      },
+      flush: () => submitRef.current(),
+    }
+  }, [clearAutoEndTimer])
 
   const updateProgress = useCallback((progress: number) => {
     lastActivityRef.current = Date.now() // user is active (scrolling)
@@ -163,5 +205,5 @@ export function useReadingSession(config: SessionConfig) {
     resetAutoEndTimer()
   }, [resetAutoEndTimer])
 
-  return { updateProgress, recordActivity, sessionStartedAt: startTimeRef.current }
+  return { updateProgress, recordActivity, handOff, sessionStartedAt: startTimeRef.current }
 }

@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Reader** — one chapter at a time, like web: no more appending the next chapter as you scroll; an end-of-chapter block offers Next (prefetched to the device), Discuss (saves progress first), the previous chapter, and on the last chapter "You finished" + Review words + Library; a chapter turn keeps one reading session and the saved-word count — mobile
 - **Uploads** — sharing an uploaded book shares the book, not a dead end: mobile drops the text-only Share and renames "Save a copy" (the original file) to Share; web swaps the private-page link (a login wall for whoever got it) for downloading the file — web, mobile
 - **Guests** — one obvious way from guest to account: a "You're reading as a guest" card on top of the mobile profile and Create account / Sign in in the web menu (no more signing out to register); Google first and "keep everything you've saved" on the login screen; nudges at the 3rd and 10th saved word; "Delete guest data" really deletes server-side; no more random animal names; a failed token refresh no longer wipes the guest mid-signup; `User.PromotedAt` + `guest_promoted`/`guest_merged` logs to measure conversion — backend, web, mobile
 - **Reader** — the Claude/ChatGPT picker under "Discuss this chapter" was invisible (dark text on the dark-mode menu); it now takes its text colour from the same theme as its background — web

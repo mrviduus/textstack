@@ -32,12 +32,11 @@ const LOADERS = [
 ]
 
 /**
- * Infinite scroll is the same question one chapter later, and its failure branch
- * is `disableInfiniteScroll()` — so getting the order wrong there does not show
- * an error, it silently stops the book from scrolling. The catalogue path had no
- * cache read at all until 2026-09-28.
+ * The end-of-chapter block puts the next chapter on the device before Next is
+ * tapped. Same question, one chapter ahead: a cache hit must cost no network,
+ * or a downloaded book waits out a dead network's timeout at every chapter turn.
  */
-const APPENDERS = [
+const PREFETCHERS = [
   {
     file: 'src/components/reader/useEditionReaderSource.ts',
     cache: 'getCachedChapter(editionId, slug)',
@@ -50,7 +49,7 @@ const APPENDERS = [
   },
 ]
 
-describe.each(APPENDERS)('$file — appending the next chapter', ({ file, cache, network }) => {
+describe.each(PREFETCHERS)('$file — fetching the next chapter ahead', ({ file, cache, network }) => {
   const source = readFileSync(resolve(__dirname, '../..', file), 'utf8')
 
   it('reads the cache before it reaches for the network', () => {

@@ -12,16 +12,15 @@
  * It is invisible here in a way it was not in the PDF, because
  * `useReaderPersistence` restores the scroll position on load — so the reader
  * sees a flicker rather than a jump. What does not survive is everything the
- * document accumulated since it loaded: chapters appended by infinite scroll are
- * thrown away and re-fetched, and the vocab marks and highlights painted over
- * them have to be pushed again.
+ * document accumulated since it loaded: the vocab marks and highlights painted
+ * over it have to be pushed again.
  *
  * **Typography is here now too.** It used to be a document input on the grounds
  * that a rebuild plus the existing scroll restore was "the behaviour those
  * settings already have". It was not. The restore that ran after a typography
  * rebuild re-applied the reader's CURRENT chapter fraction to a document
- * rebuilt from the ROUTE chapter — so a reader 55% into chapter two, appended
- * by infinite scroll, was moved to 74% of chapter one, and the debounced save
+ * rebuilt from the ROUTE chapter — so a reader 55% into chapter two (back when
+ * the reader appended chapters into one document) was moved to 74% of chapter one, and the debounced save
  * then wrote that over their real position. Font size, line height, alignment
  * and the serif/sans family are ordinary CSS and are applied to the live
  * document by `readerTypographyInjectionJs`, exactly as padding and colour are.
