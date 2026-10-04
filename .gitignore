@@ -160,3 +160,7 @@ packages/*/pnpm-workspace.yaml
 # keeping; the PNGs are 8-10 MB per pass in a public repo. Two passes worth are
 # already tracked (10 MB, commit 17e5a46b) — left alone rather than rewritten.
 docs/qa/screens/
+
+# Real books used as local-only extraction fixtures (copyrighted — never commit; tests skip without them)
+tests/TextStack.Extraction.Tests/Fixtures/KMK Optometry OSCE E-Workbook.pdf
+tests/TextStack.Extraction.Tests/Fixtures/Inspired - Marty Cagan.pdf

@@ -152,7 +152,15 @@ if (!Directory.Exists(storagePath))
 app.UseStaticFiles(new StaticFileOptions
 {
     FileProvider = new PhysicalFileProvider(storagePath),
-    RequestPath = "/storage"
+    RequestPath = "/storage",
+    // Readers' uploads are served from here too (reachable as /api/storage/…). Same rule as nginx
+    // /storage/: a stored file never runs as a page — no scripts, unique origin.
+    OnPrepareResponse = ctx =>
+    {
+        ctx.Context.Response.Headers.XContentTypeOptions = "nosniff";
+        ctx.Context.Response.Headers.ContentSecurityPolicy =
+            "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; media-src 'self'; sandbox";
+    }
 });
 
 // Health check before site resolution (for infra probes)
