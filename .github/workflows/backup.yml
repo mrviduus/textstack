@@ -37,7 +37,9 @@ jobs:
 
       - name: Backup storage
         run: |
-          tar czf $BACKUP_DIR/storage-$BACKUP_DATE.tar.gz -C $PROJECT_DIR/data storage
+          # GNU tar exits 1 when a file changed while being read (readers upload while we
+          # archive) — the archive is still complete for everything else. Only >1 is fatal.
+          tar czf $BACKUP_DIR/storage-$BACKUP_DATE.tar.gz -C $PROJECT_DIR/data storage || [ $? -eq 1 ]
           echo "Storage backup: storage-$BACKUP_DATE.tar.gz"
 
       - name: Cleanup old backups (keep 5 newest of each type)
