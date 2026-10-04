@@ -210,7 +210,7 @@ public class McpOverTheWireTests : IAsyncLifetime
 
         var instructions = client.ServerInstructions;
         Assert.False(string.IsNullOrWhiteSpace(instructions));
-        foreach (var tool in new[] { "search_my_library", "get_my_insights", "save_insight", "get_chapter_review", "save_chapter_review" })
+        foreach (var tool in new[] { "search_my_library", "get_my_insights", "save_insight", "get_chapter_review", "save_chapter_review", "add_vocabulary_words" })
             Assert.Contains(tool, instructions);
     }
 
