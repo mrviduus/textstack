@@ -20,11 +20,18 @@ jobs:
     # 6s typical.
     timeout-minutes: 10
     steps:
+      # /api/health, not /health: nginx has no /health location, so that URL got the
+      # SPA's index.html with a 200 and passed with the API down. The body must be the
+      # API's own "healthy" (a JSON string), so a fallback page can't pass either.
       - name: Check textstack.app API
-        run: curl -sf $CURL_RETRY https://textstack.app/health
+        run: |
+          body=$(curl -sf $CURL_RETRY https://textstack.app/api/health)
+          [ "$body" = '"healthy"' ] || { echo "unexpected /api/health body: $body"; exit 1; }
 
       - name: Check textstack.dev API
-        run: curl -sf $CURL_RETRY https://textstack.dev/health
+        run: |
+          body=$(curl -sf $CURL_RETRY https://textstack.dev/api/health)
+          [ "$body" = '"healthy"' ] || { echo "unexpected /api/health body: $body"; exit 1; }
 
       - name: Check frontends
         run: |

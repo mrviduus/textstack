@@ -26,7 +26,13 @@ jobs:
 
       - name: Backup database
         run: |
+          # Without pipefail a failed pg_dump still exits 0 through gzip and leaves
+          # an empty archive that every later step accepts.
+          set -o pipefail
           docker exec textstack_db_prod pg_dump -U textstack_prod textstack_prod | gzip > $BACKUP_DIR/db-$BACKUP_DATE.sql.gz
+          # pg_dump writes this trailer last; a truncated dump doesn't have it.
+          zcat $BACKUP_DIR/db-$BACKUP_DATE.sql.gz | tail -n 5 | grep -q 'PostgreSQL database dump complete' \
+            || { echo "::error::db-$BACKUP_DATE.sql.gz has no dump-complete trailer"; exit 1; }
           echo "Database backup: db-$BACKUP_DATE.sql.gz"
 
       - name: Backup storage
@@ -50,3 +56,16 @@ jobs:
         run: |
           cd $PROJECT_DIR
           ./infra/scripts/backup-verify.sh $BACKUP_DIR/db-$BACKUP_DATE.sql.gz
+
+      # Runs even when the backup failed — a full disk is the usual reason it does.
+      # Failing here fires the same failure notification as a broken backup.
+      - name: Disk space alarm (>= 85%)
+        if: always()
+        run: |
+          bad=0
+          for mnt in / "$(docker info -f '{{.DockerRootDir}}')"; do
+            pct=$(df --output=pcent "$mnt" | tail -1 | tr -dc '0-9')
+            echo "$mnt: ${pct}% used"
+            [ "$pct" -lt 85 ] || { echo "::error::$mnt is ${pct}% full"; bad=1; }
+          done
+          exit $bad

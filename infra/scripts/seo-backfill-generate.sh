@@ -22,6 +22,8 @@ for claude_dir in "$HOME"/.vscode/extensions/anthropic.claude-code-*/resources/n
 done
 
 log() { echo "[$(date '+%H:%M:%S')] [$JOB_ID] $*"; }
+# shellcheck source=infra/scripts/claude-isolated.sh
+source "$REPO_DIR/infra/scripts/claude-isolated.sh"
 
 fail_job() {
   local err="$1"
@@ -73,7 +75,7 @@ for ((i=0; i<NUM; i++)); do
   while [ "$ATTEMPT" -lt "$MAX_RETRIES" ]; do
     ATTEMPT=$((ATTEMPT + 1))
 
-    if ! RAW_OUTPUT=$(timeout "$CLAUDE_TIMEOUT" claude -p --model "$MODEL" --permission-mode default "$RETRY_PROMPT" 2>&1); then
+    if ! RAW_OUTPUT=$(claude_isolated "$CLAUDE_TIMEOUT" -p --model "$MODEL" --permission-mode default "$RETRY_PROMPT" 2>&1); then
       log "  Attempt $ATTEMPT: Claude CLI error"
       RETRY_PROMPT="$PROMPT
 

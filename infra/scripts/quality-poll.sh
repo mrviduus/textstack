@@ -51,6 +51,8 @@ for claude_dir in "$HOME"/.vscode/extensions/anthropic.claude-code-*/resources/n
 done
 
 log() { echo "[$(date '+%H:%M:%S')] $*"; }
+# shellcheck source=infra/scripts/claude-isolated.sh
+source "$REPO_DIR/infra/scripts/claude-isolated.sh"
 
 db_query() {
   docker compose -f "$REPO_DIR/docker-compose.yml" exec -T db \
@@ -242,7 +244,7 @@ CLEANED_HTML_END
 PROMPT_TAIL
     } > "$tmp_prompt"
 
-    if ! timeout "$CLEANUP_TIMEOUT" claude -p --model claude-sonnet-4-6 --permission-mode default \
+    if ! claude_isolated "$CLEANUP_TIMEOUT" -p --model claude-sonnet-4-6 --permission-mode default \
          < "$tmp_prompt" > "$tmp_out" 2>/dev/null; then
       log "Phase 3: chapter $num — Claude CLI failed/timed out (${CLEANUP_TIMEOUT}s), skipped"
       skipped=$((skipped + 1))
@@ -377,7 +379,7 @@ for ch in chapters:
   log "Validating $chapter_count chapters..."
 
   local validate_output
-  validate_output=$(timeout 300 claude -p --model claude-sonnet-4-6 --permission-mode default \
+  validate_output=$(claude_isolated 300 -p --model claude-sonnet-4-6 --permission-mode default \
     "You are a book quality validator for TextStack, an online book reader.
 Analyze this book's chapter structure and report issues.
 
