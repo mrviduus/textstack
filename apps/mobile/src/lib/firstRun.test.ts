@@ -13,23 +13,23 @@ import { DEMO_BOOK, demoBookRoute } from './demoBook'
 
 describe('decideStartReadingCard', () => {
   it('shows the card to a device that has read nothing', () => {
-    expect(decideStartReadingCard({ loaded: true, progressFractions: [] })).toEqual({ show: true })
+    expect(decideStartReadingCard({ loaded: true, progressFractions: [], dismissed: false })).toEqual({ show: true })
   })
 
   it('shows nothing until storage has answered', () => {
     // The failure this guards: the card flashing in on top of Discover and
     // then disappearing for a reader with a shelf full of books.
-    expect(decideStartReadingCard({ loaded: false, progressFractions: [] }))
+    expect(decideStartReadingCard({ loaded: false, progressFractions: [], dismissed: false }))
       .toEqual({ show: false, reason: 'unknown' })
-    expect(decideStartReadingCard({ loaded: false, progressFractions: [0.9] }))
+    expect(decideStartReadingCard({ loaded: false, progressFractions: [0.9], dismissed: false }))
       .toEqual({ show: false, reason: 'unknown' })
   })
 
   it('hides the card once anything has actually been read', () => {
-    expect(decideStartReadingCard({ loaded: true, progressFractions: [0.4] }))
+    expect(decideStartReadingCard({ loaded: true, progressFractions: [0.4], dismissed: false }))
       .toEqual({ show: false, reason: 'already-reading' })
     // Only one row has to have moved.
-    expect(decideStartReadingCard({ loaded: true, progressFractions: [0, 0, 0.31] }))
+    expect(decideStartReadingCard({ loaded: true, progressFractions: [0, 0, 0.31], dismissed: false }))
       .toEqual({ show: false, reason: 'already-reading' })
   })
 
@@ -38,16 +38,24 @@ describe('decideStartReadingCard', () => {
     // a chapter and backing straight out writes a valid row at percent 0.
     // Counting rows instead of reading them would hide the card from exactly
     // the person it is for.
-    expect(decideStartReadingCard({ loaded: true, progressFractions: [0, 0, 0] }))
+    expect(decideStartReadingCard({ loaded: true, progressFractions: [0, 0, 0], dismissed: false }))
       .toEqual({ show: true })
   })
 
+  it('hides the card for good once the reader closed it', () => {
+    expect(decideStartReadingCard({ loaded: true, progressFractions: [], dismissed: true }))
+      .toEqual({ show: false, reason: 'dismissed' })
+    // Storage not answered yet still wins: nothing to decide on.
+    expect(decideStartReadingCard({ loaded: false, progressFractions: [], dismissed: true }))
+      .toEqual({ show: false, reason: 'unknown' })
+  })
+
   it('treats the threshold as inclusive and ignores junk values', () => {
-    expect(decideStartReadingCard({ loaded: true, progressFractions: [READ_SOMETHING_MIN_FRACTION] }))
+    expect(decideStartReadingCard({ loaded: true, progressFractions: [READ_SOMETHING_MIN_FRACTION], dismissed: false }))
       .toEqual({ show: false, reason: 'already-reading' })
-    expect(decideStartReadingCard({ loaded: true, progressFractions: [READ_SOMETHING_MIN_FRACTION - 0.001] }))
+    expect(decideStartReadingCard({ loaded: true, progressFractions: [READ_SOMETHING_MIN_FRACTION - 0.001], dismissed: false }))
       .toEqual({ show: true })
-    expect(decideStartReadingCard({ loaded: true, progressFractions: [NaN, Infinity] }))
+    expect(decideStartReadingCard({ loaded: true, progressFractions: [NaN, Infinity], dismissed: false }))
       .toEqual({ show: true })
   })
 })

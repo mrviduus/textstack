@@ -229,6 +229,7 @@
   "firstRun.startReading.a11y": "Start reading Down the Rabbit-Hole, the first chapter of Alice's Adventures in Wonderland",
   "firstRun.startReading.body": "Long-press any word while you read and it's translated where it stands. Save it, and it comes back for review later.",
   "firstRun.startReading.cta": "Start reading",
+  "firstRun.startReading.dismiss": "Hide this card",
   "firstRun.startReading.meta": "“Down the Rabbit-Hole” · about 10 minutes",
   "firstRun.startReading.title": "Learn a language by reading real books",
   "footer.authors": "Authors",

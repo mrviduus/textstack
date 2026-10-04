@@ -37,6 +37,14 @@
  */
 export const READ_SOMETHING_MIN_FRACTION = 0.02
 
+/**
+ * Set when the reader taps the card's close button. Same `onboarding.*` key
+ * convention as `ReaderTapCoachmark`. Exists because on a small screen the card
+ * was the whole first screen and nothing but reading 2% could remove it
+ * (tester report, Unihertz Titan 2, 2026-10-04).
+ */
+export const START_READING_DISMISSED_KEY = 'onboarding.startReadingCard.dismissed'
+
 export interface StartReadingSignals {
   /**
    * False until the AsyncStorage reads have answered. The card must not flash
@@ -56,6 +64,8 @@ export interface StartReadingSignals {
    * network round-trip on every Discover mount.
    */
   progressFractions: number[]
+  /** The reader closed the card (`START_READING_DISMISSED_KEY`). */
+  dismissed: boolean
 }
 
 export type StartReadingDecision =
@@ -64,9 +74,12 @@ export type StartReadingDecision =
   | { show: false; reason: 'unknown' }
   /** They have read something here. The card has done its job; get out of the way. */
   | { show: false; reason: 'already-reading' }
+  /** They closed it. Never shown again on this install. */
+  | { show: false; reason: 'dismissed' }
 
 export function decideStartReadingCard(signals: StartReadingSignals): StartReadingDecision {
   if (!signals.loaded) return { show: false, reason: 'unknown' }
+  if (signals.dismissed) return { show: false, reason: 'dismissed' }
   const hasRead = signals.progressFractions.some(
     f => typeof f === 'number' && Number.isFinite(f) && f >= READ_SOMETHING_MIN_FRACTION,
   )
