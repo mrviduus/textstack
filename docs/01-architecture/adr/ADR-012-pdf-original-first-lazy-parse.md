@@ -1,6 +1,8 @@
 # ADR-012: PDF books — original-first display, parsing decoupled & lazy for AI
 
 ## Status
+> **Partly obsolete since 2026-09-10.** The original-first display and instant-readable upload (§1–2) are in force. Everything about "Ask this book", vision-LLM → Markdown parsing, chunks and RAG with page citations (the RAG row of §3, all of §4, S3, S5b) was deleted with the in-app chat and RAG spine (MCP replaced it; leftovers removed in #665, 2026-10-01). Read those parts as history.
+
 Accepted — shipped 2026-07-10. S1 #419, S2 #420, S3 #421 (+ eval gate #422),
 S4 (mobile) #424, S5a #426. S5b (figure-caption RAG) deferred behind a real
 "what's on the diagram" miss signal.

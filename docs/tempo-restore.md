@@ -1,5 +1,10 @@
 # Restoring Tempo (Distributed Tracing)
 
+> **Historical — the stack this restores into is gone.** Grafana, Prometheus, Loki and the OTel
+> Collector were all replaced by the Aspire Dashboard (Jan 2026, profile `observability`);
+> `infra/otel/` no longer exists. Restoring Tempo now means re-adding a collector and Grafana too.
+> Current setup: [feat-0005](05-features/feat-0005-observability-opentelemetry.md). Errors/LLM spans: Sentry.
+
 Tempo was removed on 2026-01-16 to save ~350MB RAM. This document describes how to restore it if needed.
 
 ## Why Tempo Was Removed

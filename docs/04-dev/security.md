@@ -3,15 +3,16 @@
 ## Authentication
 
 ### Public Users
-- Google Sign-In only
-- No email/password
-- JWT access token (10-20 min) + refresh token (30-90 days)
-- Refresh tokens bound to device
+- Google, Apple, and email/password (reset via Resend); anonymous guest sessions (ADR-014)
+- JWT access token 60 min + refresh token 365 days (guest: 30) — `Jwt:*` in `appsettings.json`
+- MCP: OAuth access tokens (`tso_…`, 1h, refresh 90d, ADR-017), connect keys (`tsk_…`), device-flow JWT
+- No ASP.NET auth middleware: endpoints resolve identity per request (`GetUserId`)
 
 ### Admin Users
 - Separate email/password auth
 - Stored in `admin_users` table
-- Password hashed (bcrypt or similar)
+- Password hashed with BCrypt (`AdminAuthService`)
+- Token in `admin_access_token` cookie, checked by `AdminAuthMiddleware` on `/admin/*`
 - Role-based access (Admin, Editor, Moderator)
 
 ## Authorization
@@ -20,8 +21,10 @@
 |-------|--------|
 | `/books/*` | Public |
 | `/search` | Public |
-| `/me/*` | Authenticated user |
+| `/me/*` | Authenticated user (guest included) |
+| Tutor (paid inference) | Real account — `RequireAiAccount()` → 403 `account_required` |
 | `/admin/*` | Admin role |
+| `/internal/*` | Docker network only |
 
 ## Cookies
 
@@ -46,18 +49,9 @@ Production:
 - Whitelist specific domains
 - No wildcards
 
-```csharp
-builder.Services.AddCors(options =>
-{
-    options.AddDefaultPolicy(policy =>
-    {
-        policy.WithOrigins("https://general.example.com", "https://programming.example.com")
-              .AllowAnyHeader()
-              .AllowAnyMethod()
-              .AllowCredentials();
-    });
-});
-```
+Origins come from `Cors:AllowedOrigins` (`appsettings.json`), with a fallback list in
+`Api/Extensions/ServiceCollectionExtensions.Cors.cs` (localhost dev hosts + `https://textstack.app`,
+`https://textstack.dev`). Any header/method, credentials allowed.
 
 ## Input Validation
 
@@ -86,17 +80,19 @@ Never commit secrets to repo. Use `.env` (gitignored).
 
 ## Rate Limiting
 
-Planned for production:
-- API: X requests per minute per IP
-- Upload: size + count limits
-- Search: query rate limit
+Live. ASP.NET rate limiter policies in `Api/Extensions/ServiceCollectionExtensions.RateLimiting.cs`
+(login, guest-session, device flow, clip, highlight-write, insights, OAuth, mcp-keys, upload, enrich,
+tts, translate, explain, tutor, account-delete, …). Most are per IP; `highlight-write` and
+`insights` are per user, because MCP traffic arrives from one container address. Knobs in
+`RateLimits:*`. nginx adds its own zones (API 10r/s, uploads 1r/s, translation 5r/m, MCP 10r/s).
+The limiter was inert until PR #555 (middleware order).
 
 ## Logging
 
 - Log auth failures
 - Log admin actions (audit log)
 - No sensitive data in logs
-- Structured logging (Serilog)
+- Structured logging via `ILogger` → OpenTelemetry (Aspire dashboard); errors → Sentry when `SENTRY_DSN` set
 
 ## Checklist
 
@@ -112,5 +108,6 @@ Planned for production:
 
 ## See Also
 
-- [ADR-002: Google Auth Only](../01-architecture/adr/002-google-auth-only.md)
+- [ADR-002: Google Auth Only](../01-architecture/adr/002-google-auth-only.md) — superseded in practice (Apple, email/password, guests)
+- [ADR-014: Guest sessions](../01-architecture/adr/ADR-014-guest-sessions.md)
 - [Admin Panel: Authentication](../02-system/admin.md)

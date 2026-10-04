@@ -1,5 +1,7 @@
 # Reader Vocab Highlights — Refactor Design
 
+> **Historical — superseded.** The fix shipped as the overlay-v2 engine (`packages/reader-overlay`, `VocabOverlayLayer` / `VocabTranslationOverlay` / `HighlightOverlayLayer`), not the CSS Custom Highlight API, and the web reader became one chapter per document (`ReaderSection`), which removed the eviction bug's cause. Cleanup record: [reader-overlay-v2-slice-10.md](../reader-overlay-v2-slice-10.md).
+
 Move vocabulary word underlining + inline translations from imperative DOM
 mutation (`<mark data-vocab-mark>` wrappers) to **CSS Custom Highlight API**
 with a React-managed translation overlay.

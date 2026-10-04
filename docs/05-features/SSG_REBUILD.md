@@ -15,7 +15,7 @@ SSG (Static Site Generation) Rebuild is a feature that pre-renders React pages t
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        ADMIN PANEL                              │
-│                  POST /admin/ssg/rebuild                        │
+│                  POST /admin/ssg/jobs (+ /jobs/{id}/start)       │
 │                  (textstack.dev/ssg-rebuild)                    │
 └─────────────────────────┬───────────────────────────────────────┘
                           │
@@ -44,7 +44,7 @@ SSG (Static Site Generation) Rebuild is a feature that pre-renders React pages t
 │              apps/web/scripts/ssg-worker.mjs                    │
 │                                                                 │
 │  1. Polls DB every 5s for jobs with status='Running'            │
-│  2. Fetches routes from API: GET /ssg/routes?site={code}        │
+│  2. Fetches routes from API: GET /ssg/routes (site from Host)    │
 │  3. Spawns prerender.mjs with routes                            │
 │  4. Updates job progress (rendered_count, failed_count)         │
 │  5. Sets final status: Completed or Failed                      │
@@ -73,11 +73,13 @@ SSG (Static Site Generation) Rebuild is a feature that pre-renders React pages t
 | `Domain/Entities/SsgRebuildJob.cs` | Job entity with status, progress, timestamps |
 | `Domain/Entities/SsgRebuildResult.cs` | Individual route render results |
 | `Domain/Enums/SsgRebuildJobStatus.cs` | Queued, Running, Completed, Failed, Cancelled |
-| `Domain/Enums/SsgRebuildMode.cs` | Full, Incremental |
+| `Domain/Enums/SsgRebuildMode.cs` | Full, Incremental, Specific (per-book, enqueued by publish) |
 | `Application/SsgRebuild/SsgRebuildService.cs` | Creates and manages jobs |
 | `Application/SsgRebuild/SsgRouteProvider.cs` | Provides routes to render |
 | `Api/Endpoints/AdminSsgRebuildEndpoints.cs` | Admin CRUD endpoints |
 | `Api/Endpoints/SsgEndpoints.cs` | Public `/ssg/routes` endpoint |
+| `Api/Services/SsgPeriodicRebuildWorker.cs` | Periodic rebuild (admin: enable + interval hours) |
+| `Api/Endpoints/InternalEndpoints.cs` | `POST /internal/ssg/rebuild-all` (used by deploy) |
 
 ### Frontend (Node.js)
 
@@ -91,14 +93,17 @@ SSG (Static Site Generation) Rebuild is a feature that pre-renders React pages t
 
 ```yaml
 # docker-compose.yml
-ssg_worker:
+ssg-worker:
   build:
-    context: ./apps/web
-    dockerfile: Dockerfile.ssg-worker
+    context: .                       # repo root (pnpm workspace catalog)
+    dockerfile: apps/web/Dockerfile.ssg-worker
+  init: true                         # tini reaps Chromium zombies
   environment:
     DATABASE_URL: postgres://...
     API_URL: http://api:8080
-    API_HOST: textstack.app
+    API_HOST: localhost
+    POLL_INTERVAL: "5000"
+    INDEXNOW_KEY / INDEXNOW_ENABLED  # IndexNow pings (Bing/Yandex)
 ```
 
 ---
@@ -108,16 +113,21 @@ ssg_worker:
 ### Admin Endpoints (authenticated)
 
 ```
-POST   /admin/ssg/rebuild              Create new rebuild job
-GET    /admin/ssg/jobs                 List all jobs
-GET    /admin/ssg/jobs/{id}            Get job details
-DELETE /admin/ssg/jobs/{id}            Cancel running job
+GET/PUT /admin/ssg/settings            Periodic rebuild settings
+GET    /admin/ssg/preview              Preview routes
+POST   /admin/ssg/jobs                 Create job
+GET    /admin/ssg/jobs                 List jobs
+GET    /admin/ssg/jobs/{id}            Job details
+POST   /admin/ssg/jobs/{id}/start      Start (Queued → Running)
+POST   /admin/ssg/jobs/{id}/cancel     Cancel
+GET    /admin/ssg/jobs/{id}/stats      Stats
+GET    /admin/ssg/jobs/{id}/results    Per-route results
 ```
 
 ### Public Endpoints
 
 ```
-GET    /ssg/routes?site={code}         Get routes for prerendering
+GET    /ssg/routes                     Get routes for prerendering (site from Host header)
 GET    /ssg/books                      Get all book slugs
 GET    /ssg/authors                    Get all author slugs
 GET    /ssg/genres                     Get all genre slugs
@@ -181,9 +191,8 @@ make clean-ssg  # Removes ssg, ssg-new, ssg-old
 
 1. Open https://textstack.dev/ssg-rebuild
 2. Click "New Rebuild"
-3. Select site (general/programming)
-4. Click "Create"
-5. Monitor progress in job list
+3. Pick mode, click "Create"
+4. Monitor progress in job list
 
 ### Via CLI
 
@@ -198,7 +207,7 @@ API_URL=http://localhost:8080 API_HOST=textstack.app node scripts/prerender.mjs
 
 ### Via CI/CD
 
-SSG prerender runs automatically on deploy (see `.github/workflows/deploy.yml`).
+`deploy.yml` queues a rebuild (`POST /internal/ssg/rebuild-all`), waits for it, then validates the SSG output. `health-check.yml` alarms on a failed or >72h-stale rebuild.
 
 ---
 
@@ -224,13 +233,13 @@ SSG prerender runs automatically on deploy (see `.github/workflows/deploy.yml`).
 
 ### Job stuck at 0% / Failed immediately
 
-**Cause**: ssg_worker container not running or unhealthy.
+**Cause**: ssg-worker container not running or unhealthy (healthcheck also fails if the last job was `Failed`).
 
 **Fix**:
 ```bash
 docker ps | grep ssg_worker
 docker logs textstack_ssg_worker --tail 50
-docker compose restart ssg_worker
+docker compose restart ssg-worker
 ```
 
 ### Routes not updating after publish
@@ -289,9 +298,9 @@ SSG rebuild from admin panel failed on production with 0% progress. Investigatio
 
 ## Related Documentation
 
-- [SEO Policy](../02-system/seo-policy.md)
+- [SEO implementation](../02-system/seo-implementation.md) · [SSG prerender](../02-system/ssg-prerender.md)
 - [Deployment Guide](../03-ops/deployment.md)
 
 ---
 
-*Last updated: 2026-01-23*
+*Last updated: 2026-01-23; endpoints/compose re-checked 2026-10-04*

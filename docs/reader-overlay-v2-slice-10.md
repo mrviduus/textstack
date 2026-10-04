@@ -1,5 +1,7 @@
 # Slice 10 — legacy cleanup target list
 
+> **Historical — done.** All hard-delete targets are gone (checked 2026-10-04: `HighlightLayer.tsx`, `VocabWordLayer.tsx`, `ReaderContent.tsx`, `useScrollReader.ts` do not exist; the grep below now matches only comments, e.g. in `textAnchor.ts`, `useContainerMutationObserver.ts`, and the substring in `PdfHighlightLayer`). Overlay engine: `packages/reader-overlay`.
+
 Grep-zero criterion for slice 10: after deletion, the command below MUST return 0 matches across `apps/web/src/` and `apps/mobile/src/`:
 
 ```bash

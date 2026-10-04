@@ -1,6 +1,8 @@
 # ADR-002: Google OAuth Only
 
 **Status**: Accepted
+
+> **Obsolete.** Email/password (`User.PasswordHash`, `PasswordResetToken`), Apple sign-in (`User.AppleSubject`) and anonymous guest users ([ADR-014](ADR-014-guest-sessions.md)) all shipped after this. Google is one of four ways in, not the only one.
 **Date**: 2024-12
 
 ## Context

@@ -306,7 +306,7 @@ app.UseMiddleware<Api.Middleware.McpKeyAuthMiddleware>();
 
 app.UseRateLimiter();
 
-// Guest activity tracking (update LastActiveAt, debounced hourly)
+// Guest activity tracking (update LastActiveAt, debounced 10 min)
 app.UseMiddleware<Api.Middleware.GuestActivityMiddleware>();
 
 // Admin auth middleware - protect /admin/* except /admin/auth/*

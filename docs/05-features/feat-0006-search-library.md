@@ -1,7 +1,12 @@
 # PDD: Search Library — Provider-Agnostic Full-Text Search
 
 ## Status
-Draft
+Historical — implemented in part, then cut back. `TextStack.Search` exists with the Postgres FTS
+provider only (`PostgresSearchProvider` raw SQL/Dapper over `chapters`/`editions`, `TsQueryBuilder`,
+`PostgresHighlighter`, `MultilingualAnalyzer`). There is **no indexer and no chunking**:
+`chapters.search_vector` is maintained by a DB trigger. `ISearchIndexer`, the `search_documents`
+copy, the `reindex-search` CLI and the never-deployed Meilisearch provider were deleted 2026-10-01;
+`Application/Search/SearchService.cs` is gone. Current state: CLAUDE.md → "Search".
 
 ## Goal
 Extract search functionality into standalone `TextStack.Search` library following Extraction lib patterns. Enable provider-agnostic search (PostgreSQL FTS now, Elasticsearch/vector search later) with highlights, autocomplete, and facets.

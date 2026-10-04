@@ -2,6 +2,8 @@
 
 Goal: **everything is automatically testable** (CI runs it), with fast feedback locally and strong confidence before deploy.
 
+> **Only "Quick Reference" and "Backend vs Frontend Strategy" describe what exists (checked 2026-10-04).** Sections 1–10 are the original MVP strategy and are aspirational: there are no Testcontainers, no `WebApplicationFactory`, no FluentAssertions, no component-test project, no visual/a11y snapshots. What runs in CI is in `.github/workflows/ci.yml`.
+
 ---
 
 ## Quick Reference
@@ -10,7 +12,7 @@ Goal: **everything is automatically testable** (CI runs it), with fast feedback 
 ```bash
 dotnet test                                    # All tests
 dotnet test tests/TextStack.UnitTests          # Unit only
-dotnet test tests/TextStack.IntegrationTests   # Integration (needs Docker)
+dotnet test tests/TextStack.IntegrationTests   # Integration — needs the API running on :8080 (LiveApiFixture; override API_URL)
 dotnet test --filter "Name~YourTestName"       # Single test
 ```
 
@@ -26,8 +28,8 @@ pnpm -C apps/web test:watch # Watch mode
 
 | Layer | Backend (.NET) | Frontend (React) |
 |-------|----------------|------------------|
-| Unit | xUnit, FluentAssertions | Vitest |
-| Integration | WebApplicationFactory + Testcontainers | (not used yet) |
+| Unit | xUnit v3 | Vitest |
+| Integration | `LiveApiFixture` → HTTP against a running API (docker compose in CI) | (not used yet) |
 | E2E | Playwright ([guide](e2e-guide.md)) | Playwright ([guide](e2e-guide.md)) |
 
 ### Backend Testing
@@ -51,7 +53,12 @@ tests/
   TextStack.IntegrationTests/    # API + DB
   TextStack.Extraction.Tests/    # Book parsing
   TextStack.Search.Tests/        # Search logic
+  TextStack.AiEvals/             # Eval runners on fake LLMs; live evals skip w/o OPENAI_API_KEY
+  TextStack.Ai.Mcp.Tests/        # MCP over-the-wire (loopback)
 ```
+
+Integration runs trip production rate limits; see CLAUDE.md → "Running the integration suite
+locally" for the `*_PERMIT_LIMIT` overrides.
 
 ### Frontend Testing
 

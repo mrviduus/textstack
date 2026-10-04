@@ -1,6 +1,6 @@
 # ADR-001: Storage via Host Bind Mounts
 
-**Status**: Accepted
+**Status**: Accepted — still in force (2026-10-04): `docker-compose.yml` bind-mounts `./data/storage:/storage` into `api` and `worker`.
 **Date**: 2024-12
 
 ## Context

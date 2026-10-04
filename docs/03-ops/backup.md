@@ -23,7 +23,7 @@ make backup-verify FILE=<path>    # verify specific backup
 make restore FILE=~/backups/textstack/db_2026-04-22_030012.sql.gz
 ```
 
-`backup-verify` spins up `postgres:16` on a random port, loads the gzipped
+`backup-verify` spins up `pgvector/pgvector:pg16` on a random port (vanilla `postgres:16` fails: the schema still has `CREATE EXTENSION vector`), loads the gzipped
 dump with `ON_ERROR_STOP`, then runs a sanity SELECT over tables/editions/
 chapters. Exits non-zero if restore aborts or core tables look truncated.
 The throwaway container is removed on exit.
@@ -39,9 +39,10 @@ docker exec textstack_db_prod pg_dump -U $POSTGRES_USER $POSTGRES_DB \
 `.github/workflows/backup.yml` runs **daily at 03:00 UTC** on the self-hosted
 runner:
 
-1. `pg_dump` → `~/backups/textstack/db_<ts>.sql.gz`
-2. `tar czf` the `./data/storage` directory → `storage_<ts>.tar.gz`
-3. Prunes to the 5 newest of each kind.
+1. `pg_dump` → `~/backups/textstack/db-<YYYY-MM-DD>.sql.gz` (dash, date only — unlike `make backup`)
+2. `tar czf` the `./data/storage` directory → `storage-<YYYY-MM-DD>.tar.gz`
+3. Prunes to the 5 newest of each kind (`db-`, `storage-`, and the `pre-deploy-` dumps `deploy.yml` writes).
+4. `gunzip -t`, then `infra/scripts/backup-verify.sh` on the new dump.
 
 To trigger manually: GitHub UI → Actions → **Backup** → Run workflow.
 
@@ -86,10 +87,10 @@ latest backup to a disposable postgres container and run smoke queries.
 
 ```bash
 # Spin up ephemeral postgres
-docker run --rm -d --name tmp-restore -e POSTGRES_PASSWORD=x -p 55432:5432 postgres:16
+docker run --rm -d --name tmp-restore -e POSTGRES_PASSWORD=x -p 55432:5432 pgvector/pgvector:pg16
 
 # Restore latest dump
-gunzip -c ~/backups/textstack/$(ls -t ~/backups/textstack/db_*.sql.gz | head -1) \
+gunzip -c $(ls -t ~/backups/textstack/db[-_]*.sql.gz | head -1) \
   | docker exec -i tmp-restore psql -U postgres
 
 # Smoke-queries
@@ -103,5 +104,5 @@ docker stop tmp-restore
 ## See also
 
 - [Local Development](local-dev.md) — Docker setup
-- [Uptime Monitoring](uptime-monitoring.md) — detects missed backups
-  (daily health-check workflow includes API + DB probe)
+- [Uptime Monitoring](uptime-monitoring.md) — `health-check.yml` (every 5 min) probes API +
+  frontends; it does not check backups

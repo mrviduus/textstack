@@ -1,6 +1,6 @@
 # ADR-010: SEO Backfill Automation
 
-**Status**: Proposed
+**Status**: Proposed (implemented — `SeoTemplate`, `SeoBackfillJob`, `SeoBackfillSettings`, `AdminSeoBackfillEndpoints.cs`, `InternalSeoEndpoints.cs` exist as of 2026-10-04). Moved here from `docs/` on 2026-10-04.
 **Date**: 2026-04-14
 **Deciders**: Vasyl
 **Supersedes**: partially overrides `docs/seo-content-task.md` (manual tracker)

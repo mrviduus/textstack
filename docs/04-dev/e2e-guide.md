@@ -49,7 +49,7 @@ pnpm -C apps/web test:e2e:ui
 | Run all tests | Click "Run all" button (top) |
 | Run single test | Click the play icon next to a test name |
 | Filter by file | Click a file in the sidebar to show only its tests |
-| Filter by project | Use the project dropdown (chromium / mobile / admin) |
+| Filter by project | Use the project dropdown (chromium / mobile) |
 | Watch mode | Toggle the eye icon — tests auto-rerun on file change |
 | Re-run failed | Click the red test → "Retry" |
 
@@ -77,7 +77,6 @@ pnpm -C apps/web test:e2e -- -g "loads homepage"
 # Specific project only
 pnpm -C apps/web test:e2e -- --project=chromium
 pnpm -C apps/web test:e2e -- --project=mobile
-pnpm -C apps/web test:e2e -- --project=admin
 ```
 
 ---
@@ -117,16 +116,16 @@ apps/web/e2e/
 │   ├── api.ts                    # API login helpers
 │   ├── storage.ts                # Storage state helpers
 │   └── reader.ts                 # Reader page helpers
-└── tests/
+└── tests/                        # 9 specs (2026-10-04)
     ├── smoke.spec.ts             # Homepage, book page, basic navigation
     ├── auth.spec.ts              # Login, user session
     ├── search.spec.ts            # Search query → results
     ├── bookmarks.spec.ts         # Create/delete bookmarks
     ├── reader-progress.spec.ts   # Reading progress save/restore
     ├── reader-mobile.spec.ts     # Mobile reader (iPhone viewport)
-    ├── library-multilang.spec.ts # EN/UK library switching
-    └── admin/
-        └── ssg-rebuild.spec.ts   # Admin SSG rebuild flow
+    ├── guest-landing.spec.ts     # Guest flows
+    ├── vocabulary.spec.ts        # SRS word list + review
+    └── delete-account.spec.ts    # Account deletion
 ```
 
 ### Projects
@@ -135,7 +134,8 @@ apps/web/e2e/
 |---------|----------|---------------------|
 | `chromium` | Desktop Chrome | All except `*mobile*` |
 | `mobile` | iPhone 13 (Chromium) | Only `*mobile*` |
-| `admin` | Desktop Chrome | Only `*admin*` |
+
+There is no `admin` project and no admin spec any more.
 
 ---
 
@@ -148,7 +148,6 @@ apps/web/e2e/
 | Auth failures | Ensure `ENABLE_TEST_AUTH=true` in `.env` or API is in dev mode. |
 | Stale test data | Delete `apps/web/e2e/.test-data.json` and `apps/web/e2e/.auth/`, then re-run. |
 | Browser not installed | `pnpm exec playwright install chromium` |
-| Admin tests skipped | Admin login failed — check admin credentials or `ADMIN_URL`. |
 | Tests timeout | Increase timeout in config or check if web server started (look at terminal output). |
 
 ---

@@ -1,10 +1,17 @@
 # TextStack Database Schema
 
+> **Partial and partly historical (checked 2026-10-04).** This page details the original ~28 tables.
+> The database now has 64 entity sets; reading-engagement extras, collections, insights/review
+> questions, MCP/OAuth credentials, AI-ops and podcast tables are listed only in
+> [data-model.md](../01-architecture/data-model.md). Source of truth: `backend/src/Domain/Entities/`
+> and `backend/src/Infrastructure/Migrations/AppDbContextModelSnapshot.cs`. Multisite is vestigial
+> (one site, [ADR-007](../01-architecture/adr/007-single-domain-consolidation.md)); `uk` content was removed 2026-04-21.
+
 ## Quick Start
 ```bash
 docker compose up --build
 ```
-All services: API :8080 | Web :5173 | Admin :81 | DB :5432
+Services: API :8080 | Admin :81 | DB is internal (no host port). Web dev server: `pnpm -C apps/web dev` (:5173).
 
 ---
 
@@ -264,16 +271,15 @@ Legend:
 | `book_files` | Original uploaded files | → edition |
 | `book_assets` | Extracted images/resources | → edition |
 | `ingestion_jobs` | Processing queue + diagnostics | → edition, → book_file |
-| `users` | Google OAuth users | → progress, bookmarks, notes, library, tokens |
+| `users` | Accounts + guests (Google/Apple/email) | → progress, bookmarks, notes, library, tokens |
 | `user_refresh_tokens` | JWT refresh for users | → user |
 | `user_libraries` | Saved books | → user, → edition |
 | `reading_progresses` | Resume position (site-scoped) | → user, → site, → edition, → chapter |
 | `bookmarks` | Saved locations (site-scoped) | → user, → site, → edition, → chapter |
 | `notes` | User annotations (site-scoped) | → user, → site, → edition, → chapter, → highlight? |
 | `highlights` | Text highlights with colors | → user, → site, → edition, → chapter |
-| `admin_users` | Admin panel auth | → tokens, → logs |
+| `admin_users` | Admin panel auth | → tokens |
 | `admin_refresh_tokens` | JWT refresh | → admin_user |
-| `admin_audit_logs` | Action history | → admin_user |
 | `reading_sessions` | Reading time tracking | → user, → site, → edition |
 | `reading_goals` | Daily/yearly reading goals | → user, → site |
 | `user_achievements` | Unlocked achievements | → user, → site |
@@ -486,14 +492,13 @@ warnings_json     TEXT              -- JSON array of extraction warnings
 ### User Tables
 
 #### `users`
-```sql
-id             UUID PRIMARY KEY
-email          VARCHAR(255) NOT NULL UNIQUE
-name           VARCHAR(255)
-picture        VARCHAR           -- avatar URL from Google
-google_subject VARCHAR(255) NOT NULL UNIQUE
-created_at     TIMESTAMPTZ NOT NULL
+Columns from `Domain/Entities/User.cs` (types: see the model snapshot):
 ```
+id, email, name?, picture?, password_hash?, google_subject?, apple_subject?,
+storage_used_bytes, is_guest, tier, storage_limit_override_bytes?, last_active_at?,
+created_at, promoted_at?, native_language?
+```
+Guests: `is_guest = true`, synthesized `guest-<hex>@guest.local` email ([ADR-014](../01-architecture/adr/ADR-014-guest-sessions.md)).
 
 #### `user_refresh_tokens`
 ```sql
@@ -595,7 +600,7 @@ expires_at    TIMESTAMPTZ NOT NULL
 created_at    TIMESTAMPTZ NOT NULL
 ```
 
-#### `admin_audit_logs`
+#### `admin_audit_logs` — **dropped 2026-01-22** (migration `RemoveAdminAuditLog`; kept here as history)
 ```sql
 id            UUID PRIMARY KEY
 admin_user_id UUID NOT NULL → admin_users(id) RESTRICT
@@ -737,8 +742,8 @@ INDEX(vocabulary_word_id)
 
 ```csharp
 EditionStatus      { Draft=0, Published=1, Hidden=2 }
-BookFormat         { Epub=0, Pdf=1, Fb2=2 (legacy, no longer accepted) }
-JobStatus          { Queued=0, Processing=1, Completed=2, Failed=3 }
+BookFormat         { Epub=0, Pdf=1, Fb2=2 (legacy, no longer accepted), Html=3, Other=99 }
+JobStatus          { Queued=0, Processing=1, Succeeded=2, Failed=3 }
 AdminRole          { Admin=0, Editor=1, Moderator=2 }
 AuthorRole         { Author=0, Translator=1, Editor=2, Illustrator=3 }
 AssetKind          { Cover=0, InlineImage=1 }
@@ -748,7 +753,7 @@ AssetKind          { Cover=0, InlineImage=1 }
 
 ## Key Design Decisions
 
-1. **Multisite architecture** - Site scopes all content (works, editions, authors, genres)
+1. **Multisite architecture** - Site scopes all content (works, editions, authors, genres). Now single site; EF global query filter on `ISiteScoped`
 2. **Work/Edition split** - Enables multilingual support (same book, different languages)
 3. **Edition.SourceEditionId** - Links translations to original
 4. **EditionAuthor join** - M:N with role (author/translator/editor/illustrator) + order

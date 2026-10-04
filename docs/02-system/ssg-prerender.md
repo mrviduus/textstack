@@ -2,161 +2,89 @@
 
 ## Overview
 
-Pre-renders SEO pages to static HTML at build time using Puppeteer. Google sees full HTML content without JavaScript execution.
+Puppeteer renders SEO pages to static HTML. **Only crawlers get that HTML**; people always get the
+SPA. Checked against code 2026-10-04.
 
-## How It Works
-
-```
-1. pnpm build → Vite builds SPA to dist/
-2. node scripts/prerender.mjs →
-   - Fetches routes from /ssg/routes API
-   - Starts local server with API proxy
-   - Puppeteer renders each route
-   - Saves HTML to dist/ssg/
-3. nginx serves SSG HTML for SEO routes, SPA for others
-```
-
-## Architecture
+## How it works
 
 ```
-nginx
-  ├── /en/, /en/books, /en/books/:slug, etc.
-  │     └── try SSG HTML first → fallback to SPA
-  └── /en/read/*, /en/library, /en/search
-        └── SPA directly
+admin "Rebuild" / publish / periodic timer
+   → row in ssg_rebuild_jobs (mode Full | Incremental | Specific)
+   → ssg-worker container (apps/web/scripts/ssg-worker.mjs) polls every 5 s
+   → runs scripts/prerender.mjs: GET /ssg/routes → Puppeteer renders → dist/ssg-new
+   → atomic swap dist/ssg-new → dist/ssg, then IndexNow ping (if enabled)
+   → host nginx serves dist/ssg to bots
 ```
 
-## Routes Prerendered (SSG)
+Who enqueues jobs: admin SSG page (`/admin/ssg/*` API), `PublishEditionAsync() → EnqueueSsgSafe()`
+(auto-publish), `SsgPeriodicRebuildWorker` in the API (interval set in admin), deploy workflow.
+`make rebuild-ssg` bypasses the queue: it runs `prerender.mjs` on the host and does the same swap.
 
-| Route | Example |
-|-------|---------|
-| Homepage | `/en/`, `/uk/` |
-| Book catalog | `/en/books`, `/uk/books` |
-| Book detail | `/en/books/dracula` |
-| Author detail | `/en/authors/bram-stoker` |
-| Genre detail | `/en/genres/horror` |
-| About | `/en/about`, `/uk/about` |
+## nginx split (`infra/nginx/textstack.conf`)
 
-## Routes NOT Prerendered (SPA)
+```
+map $http_user_agent $is_bot      → 1 for Google, Bing, Yandex, social bots …
+map $is_bot $ssg_file             → bot: /ssg$uri/index.html   human: /nonexistent
+location ~ ^/en/books/[^/]+/?$  { try_files $ssg_file @spa; }   # same for /en/, authors, genres, lists, about
+```
 
-| Route | Reason |
-|-------|--------|
-| `/en/read/:book/:chapter` | Reader UI needs JS, noindex |
-| `/en/library` | User-specific content |
-| `/en/search` | Dynamic results |
+So a browser check always shows the SPA. Test as a bot (see Verification). The `X-SEO-Render`
+header is `ssg` for bots on these routes and `spa` otherwise.
 
-## Build Commands
+## Routes prerendered
+
+From `GET /ssg/routes` (`Api/Endpoints/SsgEndpoints.cs`): `/en/`, `/en/books`, `/en/authors`,
+`/en/genres`, `/en/about`, plus every published book, author and genre detail page. Only `en`
+exists; `/uk/*` is 301'd to `/en/*` by nginx.
+
+Not prerendered: reader (`/en/books/:slug/:chapter`, noindex), library, search, vocabulary, stats.
+
+## Commands
 
 ```bash
-# Full build (SPA + SSG)
-pnpm -C apps/web build:ssg
-
-# SSG only (after SPA is built, requires API running)
-cd apps/web && API_URL=http://localhost:8080 API_HOST=general.localhost node scripts/prerender.mjs
-
-# Docker-based SSG build (dev)
-docker compose --profile build up web-build
-
-# Production rebuild
-make rebuild-ssg
+make rebuild-ssg                      # host: run prerender.mjs directly + atomic swap (no job row)
+pnpm -C apps/web build:ssg            # local: tsc + vite build + prerender.mjs (needs API running)
+cd apps/web && API_URL=http://localhost:8080 API_HOST=localhost node scripts/prerender.mjs
 ```
 
-## Environment Variables
+## Environment
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `API_URL` | `http://localhost:8080` | API base URL |
-| `API_HOST` | `general.localhost` | Host header for API requests |
-| `CONCURRENCY` | `4` | Parallel Puppeteer tabs |
+| Variable | Where | Default |
+|----------|-------|---------|
+| `API_URL` | ssg-worker / prerender | `http://api:8080` (compose) |
+| `API_HOST` | Host header | `localhost` in compose; script default `general.localhost`. Note: undici drops a custom `Host`, so the API's resolver falls back to the single site anyway |
+| `CONCURRENCY` | prerender | `4` (jobs can override) |
+| `INDEXNOW_KEY`, `INDEXNOW_ENABLED` | ssg-worker | off unless `INDEXNOW_ENABLED=true` and a key is set |
 
-## Output Structure
+## Output
 
 ```
-apps/web/dist/
-├── index.html          # SPA shell
-├── assets/             # JS/CSS bundles
-└── ssg/
-    ├── en/
-    │   ├── index.html              # Homepage
-    │   ├── books/
-    │   │   ├── index.html          # Catalog
-    │   │   ├── dracula/index.html
-    │   │   └── ...
-    │   ├── authors/
-    │   │   └── bram-stoker/index.html
-    │   └── genres/
-    │       └── horror/index.html
-    └── uk/
-        └── ...
+apps/web/dist/ssg/en/{index.html, books/<slug>/index.html, authors/<slug>/…, genres/<slug>/…}
 ```
+`dist/` is bind-mounted into `ssg-worker` (`./apps/web/dist:/repo/apps/web/dist`).
 
-## nginx Routing
-
-SSG routes use `try_files` to check for pre-rendered HTML first:
-
-```nginx
-location ~ ^/(en|uk)/books/[^/]+/?$ {
-    add_header X-SEO-Render "ssg" always;
-    try_files /ssg$uri/index.html @spa;
-}
-
-location @spa {
-    add_header X-SEO-Render "spa" always;
-    try_files $uri /index.html;
-}
-```
-
-## X-SEO-Render Header
-
-Response header indicates which version was served:
-- `ssg` — pre-rendered HTML
-- `spa` — SPA fallback
-
-Test: `curl -I https://textstack.app/en/books/dracula/ | grep X-SEO-Render`
-
-## API Endpoints
-
-Used by prerender script at build time:
-
-| Endpoint | Purpose |
-|----------|---------|
-| `GET /ssg/routes` | All routes to prerender |
-| `GET /ssg/books` | Book slugs + languages |
-| `GET /ssg/authors` | Author slugs |
-| `GET /ssg/genres` | Genre slugs |
-
-## Key Files
+## Key files
 
 | File | Purpose |
 |------|---------|
-| `apps/web/scripts/prerender.mjs` | Puppeteer prerender script |
-| `apps/web/Dockerfile.ssg` | Docker image with Chromium |
-| `backend/src/Api/Endpoints/SsgEndpoints.cs` | SSG API endpoints |
-| `infra/nginx/nginx.conf` | Dev nginx with SSG routing |
-| `infra/nginx-prod/textstack.conf` | Prod nginx with SSG routing |
+| `apps/web/scripts/ssg-worker.mjs` | Long-running poller, atomic swap, IndexNow |
+| `apps/web/scripts/prerender.mjs` | Puppeteer renderer |
+| `apps/web/Dockerfile.ssg-worker` | Image with Chromium |
+| `backend/src/Api/Endpoints/SsgEndpoints.cs` | `/ssg/routes`, `/ssg/books`, `/ssg/authors`, `/ssg/genres` |
+| `backend/src/Api/Endpoints/AdminSsgRebuildEndpoints.cs` | Admin queue + settings |
+| `backend/src/Api/Services/SsgPeriodicRebuildWorker.cs` | Periodic rebuild |
+| `infra/nginx/textstack.conf` | Bot/human split |
 
-## When to Rebuild SSG
+## When to rebuild
 
-Rebuild after:
-- New books published
-- Book/author/genre metadata changed
-- SEO template changes
-- Frontend changes affecting SEO pages
-
-Command: `make rebuild-ssg`
+After publishing books, or changing book/author/genre metadata or SEO-page frontend code. Not
+needed for user data. Do not merge to `main` during a rebuild: deploy can wipe a running rebuild
+(see `docs/incidents/2026-08-31-deploy-wiped-a-running-ssg-rebuild.md`).
 
 ## Verification
 
 ```bash
-# Check SSG served
-curl -I https://textstack.app/en/books/dracula/ | grep X-SEO-Render
-# Expected: X-SEO-Render: ssg
-
-# Check SPA fallback
-curl -I https://textstack.app/en/search | grep X-SEO-Render
-# Expected: X-SEO-Render: spa
-
-# Check SEO content
-curl -s https://textstack.app/en/books/dracula/ | grep '<title>'
-# Expected: <title>Dracula — read online | TextStack</title>
+curl -sI -A "Googlebot" https://textstack.app/en/books/dracula/ | grep -i x-seo-render   # ssg
+curl -sI https://textstack.app/en/search | grep -i x-seo-render                          # spa
+curl -s  -A "Googlebot" https://textstack.app/en/books/dracula/ | grep '<title>'
 ```

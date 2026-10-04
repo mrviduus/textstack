@@ -20,6 +20,8 @@ API/Worker → OTLP → Aspire Dashboard (traces, logs, metrics)
 ```
 
 **Note**: Replaced Grafana + Prometheus + Loki + OTel Collector with single Aspire Dashboard in Jan 2026 for simplicity.
+The dashboard is **opt-in**: `docker compose --profile observability up -d aspire-dashboard`. Errors and
+LLM agent/routing spans also go to **Sentry** when `SENTRY_DSN` is set (`Infrastructure/Telemetry/Sentry*.cs`).
 
 ## Non-goals
 - Advanced anomaly detection
@@ -28,6 +30,9 @@ API/Worker → OTLP → Aspire Dashboard (traces, logs, metrics)
 - Long-term metrics retention (Aspire Dashboard is session-only)
 
 ## Metrics Emitted
+
+Meter `TextStack.Ingestion` (`Infrastructure/Telemetry/TelemetryConstants.cs`). Names carry **no**
+`onlinelib_` prefix any more — read the list below without it.
 
 ### Counters
 - `onlinelib_ingestion_jobs_started_total{format}`
@@ -66,7 +71,7 @@ Dashboard provides:
 
 ## Files
 
-- `backend/src/Infrastructure/Telemetry/` — ActivitySource, Meter, extensions
+- `backend/src/Infrastructure/Telemetry/` — ActivitySources (`TextStack.Ingestion`, `TextStack.Api`), Meter, Sentry wiring
 
 ## Limitations (Aspire Dashboard vs Grafana/Prometheus)
 

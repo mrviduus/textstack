@@ -23,7 +23,8 @@ https links were affected — which is every link anyone would ever share.
 `apps/web/public/.well-known/assetlinks.json`.
 
 - vite copies `public/` into `dist/` verbatim, and nginx serves from `apps/web/dist`, so the file
-  appears at the site root with no nginx change. `/.well-known/…` matches no regex location and
+  appears at the site root with no nginx change. The `/.well-known/` blocks nginx does have are exact
+  matches for MCP/OAuth metadata; `assetlinks.json` matches none of them and
   falls through to `location /`, whose `try_files $uri /index.html` serves a real file when there is
   one.
 - **Not** hand-placed on the server: `deploy.yml` builds with `emptyOutDir`, so anything dropped
@@ -60,8 +61,8 @@ verifies for Play installs and for local ones:
 ]
 ```
 
-`apps/web/src/lib/assetlinks.test.ts` pins the file's shape now and starts checking the fingerprint
-format automatically once the placeholder is gone.
+Both fingerprints are filled in (the placeholder is gone). `apps/web/src/lib/assetlinks.test.ts`
+pins the file's shape and the fingerprint format.
 
 ## Verifying after deploy
 

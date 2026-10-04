@@ -19,16 +19,16 @@ Free book library with Kindle-like reader. Upload EPUB/PDF → parse → SEO pag
 | Database | PostgreSQL + EF Core |
 | Search | PostgreSQL FTS (tsvector + GIN) |
 | Frontend | React (Vite) |
-| Mobile | React Native Expo (later) |
+| Mobile | React Native (Expo) — `apps/mobile` |
 
 ## Features
 
 ### Public (no login)
-- Browse books by site
+- Browse books
 - Read chapters (SEO pages)
 - Full-text search
 
-### Authenticated (Google Sign-In)
+### Signed in (Google, Apple, email/password; or an anonymous guest session — ADR-014)
 - Reading progress sync
 - My Library
 - Bookmarks and notes
@@ -47,9 +47,9 @@ Free book library with Kindle-like reader. Upload EPUB/PDF → parse → SEO pag
 
 - No microservices
 - No Elasticsearch (Postgres FTS sufficient)
-- No email/password auth
+- ~~No email/password auth~~ — shipped (password reset via Resend)
 - No advanced sync conflict resolution
-- No paywall or monetization
+- No paywall or monetization (entitlement tiers exist in `Entitlements:Tiers`, no billing)
 
 ## See Also
 

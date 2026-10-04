@@ -3,6 +3,8 @@
 ## Status
 Accepted
 
+> Numbering: this is a second, unrelated ADR-007 (see [007-single-domain-consolidation.md](007-single-domain-consolidation.md)). The "planned" ADR-006/ADR-008 named below were never written under those numbers; the position model became [ADR-013](ADR-013-reader-position-model.md) and [ADR-015](ADR-015-reader-position-is-logical.md).
+
 ## Date
 2026-01-19
 

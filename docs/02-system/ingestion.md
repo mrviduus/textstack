@@ -1,144 +1,80 @@
 # Book Ingestion Pipeline
 
-Upload → Parse → Publish flow for EPUB/PDF books.
+Upload → store → queue job → Worker extracts chapters. Two parallel pipelines share one Worker loop:
+**admin catalog** (`IngestionJob` → `Edition`/`Chapter`) and **user uploads**
+(`UserIngestionJob` → `UserBook`/`UserChapter`). Verified against code 2026-10-04.
 
-## Overview
+## 1. Upload
 
-```
-Admin Upload → Storage → IngestionJob → Worker → Chapters → Published
-```
+| | Admin catalog | User upload |
+|-|---------------|-------------|
+| Endpoint | `POST /admin/books/upload` (multipart) | `POST /me/books/upload` |
+| Form fields | `file`, `siteId`, `title`, `language`, `description?`, `workId?`, `sourceEditionId?`, `authorIds?`, `genreId?` | `file`, `title?`, `language?` |
+| Logic | `Application/Admin/AdminService.Upload.cs` | `Application/UserBooks/UserBookService.cs` |
+| Creates | Work/Edition (Draft), `BookFile`, `IngestionJob` (Queued) | `UserBook`, `UserBookFile`, `UserIngestionJob` |
+| Limits | admin only | entitlement tier (storage, max books) |
 
-## 1. Upload (Admin API)
+Files are stored by `LocalFileStorageService` under `Storage:RootPath` (`/storage` in the container,
+`./data/storage` on the host) as `{first 2 chars of id}/{id}/{fileName}`.
 
-### Endpoint
-```
-POST /admin/books/upload
-Content-Type: multipart/form-data
-```
+## 2. Worker
 
-### Request
-- `file`: Book file (EPUB, PDF)
-- `siteId`: Target site
-- `language`: en, uk
-- `workId`: Optional (link to existing Work)
+`Worker/Services/IngestionWorker.cs` (BackgroundService) polls every **5 s**: first a catalog job
+(`IngestionWorkerService` in `Worker/Services/IngestionService.cs`), then a user job
+(`UserIngestionService`). Catalog jobs are picked oldest-first; a job stuck in `Processing` for
+more than 10 min is picked up again (crashed worker). User jobs stop after `MaxAttempts`.
 
-### Process
-1. Validate file type and size
-2. Save to storage: `/storage/books/{editionId}/original/{filename}`
-3. Create Edition (status=Draft)
-4. Create BookFile record
-5. Create IngestionJob (status=Queued)
-6. Return job ID
+State machine (`JobStatus`): `Queued → Processing → Succeeded | Failed`.
 
-### Response
-```json
-{
-  "editionId": "uuid",
-  "jobId": "uuid",
-  "status": "Queued"
-}
-```
+Catalog steps:
+1. Extract with `TextStack.Extraction` (format chosen by extension/content).
+2. Save cover (optimized via `ImageOptimizer`).
+3. `Application/Ingestion/IngestionService.ProcessParsedBookAsync` writes chapters and sets the
+   Edition to **Published** (`PublishedAt = now`).
+4. Run the linter (`LintResult`).
+5. Optionally queue a `BookQualityJob` (admin setting `quality.autoQueueAfterIngestion`).
 
-## 2. Worker Processing
+User steps are the same idea; user PDFs drop inline images because the reader shows the original
+PDF ([ADR-012](../01-architecture/adr/ADR-012-pdf-original-first-lazy-parse.md)). After success the
+book is marked `MetadataEnrichmentStatus = Pending`; `MetadataEnrichmentWorker` later fills
+genre/year/description via the LLM.
 
-### Polling
-Worker polls every 5 seconds:
-```sql
-SELECT * FROM ingestion_jobs
-WHERE status = 'Queued'
-ORDER BY created_at
-LIMIT 1
-```
+## 3. Extraction (`backend/src/Extraction/TextStack.Extraction/`)
 
-### State Machine
-```
-Queued → Processing → Succeeded
-                   → Failed
-```
+| Format | Extractor | Library |
+|--------|-----------|---------|
+| EPUB | `EpubTextExtractor` | VersOne.Epub |
+| PDF | `PdfTextExtractor` (+ `Extractors/Pdf/`) | PdfPig, PDFtoImage |
+| HTML | `HtmlTextExtractor` | HtmlAgilityPack |
+| FB2 / other | `UnsupportedTextExtractor` | — |
 
-### Processing Steps
+Text processing order: Spelling → Hyphenation → Typography → Semantic → Linter. Rules:
+`RULES.md` in that folder. `Quality/ChapterContentQualityAnalyzer` scores chapters 0–100.
+ARM64 note: compiled `Regex`, not `[GeneratedRegex]`.
 
-1. **Fetch job** with Edition, BookFile
-2. **Set status** = Processing, started_at = now
-3. **Parse book** via format-specific parser
-4. **Extract chapters**:
-   - HTML content (sanitized)
-   - Plain text (for FTS)
-   - Word count
-5. **Insert chapters** with auto-generated slugs
-6. **Update Edition**: status=Published, published_at=now
-7. **Set job status** = Succeeded, finished_at = now
+## 4. Search vector
 
-### Error Handling
-On failure:
-- status = Failed
-- error = exception message
-- Retry via attempt_count
+No app code writes FTS. A Postgres trigger (`chapters_search_vector_trigger`, migration
+`20251222000000_MultilingualFTS`) sets `chapters.search_vector` from `plain_text` on insert/update.
 
-## 3. Parsers
-
-### EPUB Parser
-- Uses VersOne.Epub library
-- Extracts: title, authors, chapters
-- Cleans HTML: removes scripts, dangerous attrs
-
-### Supported Formats
-| Format | Status | Parser |
-|--------|--------|--------|
-| EPUB | ✅ Done | EpubParser |
-| PDF | 🚧 Planned | — |
-
-## 4. Chapter Generation
-
-### Slug Generation
-```
-Chapter 1 → chapter-1
-Introduction → introduction
-Глава 1 → glava-1
-```
-
-### HTML Sanitization
-Removed:
-- `<script>` tags
-- `on*` event handlers
-- `javascript:` URLs
-
-Allowed:
-- Headings (h1-h6)
-- Text (p, span, em, strong)
-- Lists (ul, ol, li)
-- Blockquotes
-- Images (src rewritten)
-
-### FTS Vector
-```sql
-UPDATE chapters
-SET search_vector = to_tsvector('english', plain_text)
-WHERE id = @id
-```
-
-## 5. Key Files
+## 5. Key files
 
 | File | Purpose |
 |------|---------|
-| `Api/Endpoints/AdminEndpoints.cs` | Upload endpoint |
-| `Application/Admin/AdminService.cs` | Upload logic |
-| `Worker/Services/IngestionWorker.cs` | Job polling |
-| `Worker/Services/IngestionService.cs` | Processing logic |
-| `Worker/Parsers/EpubParser.cs` | EPUB extraction |
+| `Api/Endpoints/AdminEndpoints.cs` | Admin upload, jobs, retry, preview, reprocess |
+| `Api/Endpoints/UserBooksEndpoints.cs` | User upload, retry |
+| `Worker/Services/IngestionWorker.cs` | Poll loop |
+| `Worker/Services/IngestionService.cs` | Catalog job processing (`IngestionWorkerService`) |
+| `Worker/Services/UserIngestionService.cs` | User job processing |
+| `Application/Ingestion/IngestionService.cs` | Job selection + persisting chapters |
 
 ## 6. Monitoring
 
-### Job Status API
-```
-GET /admin/ingestion/jobs
-GET /admin/ingestion/jobs/{id}
-```
+- `GET /admin/ingestion/jobs`, `GET /admin/ingestion/jobs/{id}`, `GET …/{id}/preview`,
+  `POST …/{id}/retry`.
+- OpenTelemetry traces/metrics (`IngestionActivitySource`, `IngestionMetrics`) → Aspire; logs via
+  `docker compose logs worker`.
 
-### Logs
-Worker logs to stdout (visible in `docker logs worker`).
+## See also
 
-## See Also
-
-- [Database: IngestionJob entity](database.md)
-- [Admin Panel](admin.md)
+- [Database](database.md) · [Admin panel](admin.md) · [feat-0003 text extraction](../05-features/feat-0003-text-extraction-core.md)

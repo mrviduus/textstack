@@ -16,29 +16,16 @@ docker compose up --build
 |---------|-----|
 | API | http://localhost:8080 |
 | API Docs | http://localhost:8080/scalar/v1 |
-| Web | http://localhost:5173 |
+| Web | http://localhost:5173 (not a compose service — run `pnpm -C apps/web dev`) |
 | Admin | http://localhost:81 |
-| Postgres | localhost:5432 |
+| Postgres | not exposed — `docker compose exec db psql -U <POSTGRES_USER> <POSTGRES_DB>` |
 
-## Nginx Gateway (Host-based Routing)
+## Nginx (prod-like)
 
-For prod-like host-based routing, use nginx gateway on port 80:
-
-| Host | Target |
-|------|--------|
-| http://general.localhost | Web (public site) |
-| http://api.localhost | API |
-| http://admin.localhost | Admin |
-
-**Note:** `*.localhost` resolves to 127.0.0.1 by default on most systems.
-
-```bash
-# Test API via gateway
-curl http://api.localhost/health
-curl http://api.localhost/debug/site
-# => {"site":"general"}
-```
-
+`make nginx-setup` (Linux) / `make nginx-setup-mac` install `infra/nginx/textstack.conf` with
+paths rewritten to this checkout. It serves `localhost` like `textstack.app` (SSG/SPA + `/api/`
+proxy) and `textstack.dev` as admin. There are no `*.localhost` gateway hosts and no
+`/debug/site` endpoint any more (single site, ADR-007).
 
 ## Migrations
 
@@ -111,9 +98,10 @@ Copy `.env.example` to `.env` for overrides.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `POSTGRES_PASSWORD` | `postgres` | DB password |
-| `STORAGE_PATH` | `/storage` | Container path |
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | none — required | DB credentials |
 | `MIGRATE_TARGET` | (latest) | Target migration |
+
+Full list: [environment-variables.md](environment-variables.md).
 
 ## Troubleshooting
 
@@ -136,7 +124,7 @@ docker compose up --build api
 
 # Reset everything
 docker compose down -v
-rm -rf ./data/postgres ./data/storage
+rm -rf ./data/postgres-prod ./data/storage
 docker compose up --build
 
 # Database shell
