@@ -73,7 +73,8 @@ public static class McpManifestCatalog
             + "Each word carries its id, which is what update_vocabulary_word and delete_vocabulary_word take."),
         new("add_vocabulary_words",
             "Save up to 20 words to the user's TextStack vocabulary, where they are reviewed with spaced repetition "
-            + "(WRITE on their own account — requires authentication). Add only words the user asked for or agreed to. "
+            + "(WRITE on their own account — requires authentication). Offer this after explaining a word the reader did not "
+            + "know; add only words the user asked for or agreed to. "
             + "Each word needs its language, plus a translation in the user's NATIVE language when that differs from the "
             + "word's language, or else a short plain definition (1-2 sentences) when it is the same language or unknown. "
             + "Include the sentence it appeared in. Pass bookId (an uploaded book) or editionId (a catalog "

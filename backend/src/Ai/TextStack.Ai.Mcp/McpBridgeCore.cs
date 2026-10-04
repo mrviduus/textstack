@@ -93,7 +93,11 @@ internal static class McpBridgeCore
         + "chapter N — want me to go there?\"). When the conversation winds down or the reader says they are done, offer: "
         + "\"Review this chapter and save it to TextStack?\" Only on yes, call get_chapter_review, follow its method exactly "
         + "and save with save_chapter_review. Save conclusions not about that chapter with save_insight without chapterSlug. "
-        + "Without a chapter in the id line it is a book discussion: save its conclusions with save_insight.";
+        + "Without a chapter in the id line it is a book discussion: save its conclusions with save_insight. "
+        + "When the reader asks what a word means, or you explain one they clearly did not know, remember it. Offer those "
+        + "words once, together, when the topic winds down or with the chapter-review offer (\"Save quiver, vicinity to "
+        + "your TextStack vocabulary?\"), skipping any list_my_vocabulary already has. Only on yes, call "
+        + "add_vocabulary_words with the sentence from the book. Never save a word without a yes.";
 
     // Rebuilds the MCP-supplied args dictionary into a single JSON object element so
     // the catalog handler can validate/read it as one schema-shaped value.
