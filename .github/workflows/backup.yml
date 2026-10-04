@@ -37,15 +37,17 @@ jobs:
 
       - name: Backup storage
         run: |
-          tar czf $BACKUP_DIR/storage-$BACKUP_DATE.tar.gz -C $PROJECT_DIR/data storage
+          # GNU tar exits 1 when a file changed while being read (readers upload while we
+          # archive) — the archive is still complete for everything else. Only >1 is fatal.
+          tar czf $BACKUP_DIR/storage-$BACKUP_DATE.tar.gz -C $PROJECT_DIR/data storage || [ $? -eq 1 ]
           echo "Storage backup: storage-$BACKUP_DATE.tar.gz"
 
-      - name: Cleanup old backups (keep 5 newest of each type)
+      - name: Cleanup old backups (keep 2 newest of each type — history lives in R2)
         run: |
           cd $BACKUP_DIR
-          ls -1t db-*.sql.gz 2>/dev/null | tail -n +6 | xargs -r rm -v
-          ls -1t storage-*.tar.gz 2>/dev/null | tail -n +6 | xargs -r rm -v
-          ls -1t pre-deploy-*.sql.gz 2>/dev/null | tail -n +6 | xargs -r rm -v
+          ls -1t db-*.sql.gz 2>/dev/null | tail -n +3 | xargs -r rm -v
+          ls -1t storage-*.tar.gz 2>/dev/null | tail -n +3 | xargs -r rm -v
+          ls -1t pre-deploy-*.sql.gz 2>/dev/null | tail -n +3 | xargs -r rm -v
 
       - name: Verify archive integrity
         run: |
@@ -56,6 +58,55 @@ jobs:
         run: |
           cd $PROJECT_DIR
           ./infra/scripts/backup-verify.sh $BACKUP_DIR/db-$BACKUP_DATE.sql.gz
+
+      # Off-site copy. Everything above lives on the same box as the data it protects; this is the
+      # only copy that survives losing the server. restic (in Docker, nothing installed on the host)
+      # to Cloudflare R2: encrypted client-side, deduplicated, so the storage folder costs its size
+      # once, not once per night. Keeps 7 nightly + 3 monthly snapshots.
+      # .env goes too — without it a restored box cannot start.
+      # RESTIC_PASSWORD must also live in the owner's password manager: without it the copy is noise.
+      # Skipped (with a warning) until the secrets exist, so the job stays green before setup.
+      - name: Off-site backup to R2 (restic)
+        env:
+          RESTIC_REPOSITORY: ${{ secrets.RESTIC_REPOSITORY }}
+          RESTIC_PASSWORD: ${{ secrets.RESTIC_PASSWORD }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$RESTIC_REPOSITORY" ]; then
+            echo "::warning::RESTIC_REPOSITORY secret not set — off-site backup skipped"
+            exit 0
+          fi
+          restic() {
+            docker run --rm \
+              -e RESTIC_REPOSITORY -e RESTIC_PASSWORD -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY \
+              -v "$HOME/.cache/restic:/root/.cache/restic" \
+              -v "$BACKUP_DIR/db-$BACKUP_DATE.sql.gz:/backup/db.sql.gz:ro" \
+              -v "$PROJECT_DIR/data/storage:/backup/storage:ro" \
+              -v "$PROJECT_DIR/.env:/backup/env:ro" \
+              restic/restic:0.17.3 "$@"
+          }
+          mkdir -p "$HOME/.cache/restic"
+          # Guard: stay inside R2's free 10 GB. Over 9 GB the job fails (email) instead of quietly
+          # costing money. Dedup means retention barely matters — size ≈ live data (~3 GB, 2026-10).
+          LIMIT=$((9 * 1024 * 1024 * 1024))
+          repo_size() { restic stats --mode raw-data --json | grep -o '"total_size":[0-9]*' | cut -d: -f2; }
+          restic cat config >/dev/null 2>&1 || restic init
+          size=$(repo_size)
+          if [ "$size" -gt "$LIMIT" ]; then
+            echo "::error::R2 backup repo is $((size / 1024 / 1024)) MB (> 9 GB) — not adding a snapshot"
+            exit 1
+          fi
+          restic backup --host textstack-prod --tag nightly /backup
+          restic forget --host textstack-prod --keep-daily 7 --keep-monthly 3 --prune
+          restic check
+          size=$(repo_size)
+          echo "R2 backup repo: $((size / 1024 / 1024)) MB"
+          if [ "$size" -gt "$LIMIT" ]; then
+            echo "::error::R2 backup repo is $((size / 1024 / 1024)) MB (> 9 GB)"
+            exit 1
+          fi
 
       # The nightly full SSG rebuild lives here, not in every deploy: the box is idle at this
       # hour and the backup has finished reading the disk. Async — ssg-worker renders it
