@@ -1,8 +1,12 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { render, screen, cleanup, waitFor, fireEvent } from '@testing-library/react'
 
+// One `t` for every render, like the real hook (useCallback). A fresh function per render
+// re-fires the component's load effect on each render, and a late reload put a just-
+// disconnected row back — the flake that failed two deploys (2026-10-01, 2026-10-04).
+const { t } = vi.hoisted(() => ({ t: (k: string) => k }))
 vi.mock('../../../hooks/useTranslation', () => ({
-  useTranslation: () => ({ t: (k: string) => k }),
+  useTranslation: () => ({ t }),
 }))
 
 const { auth, api } = vi.hoisted(() => ({
@@ -44,9 +48,9 @@ describe('ConnectedApps', () => {
     render(<ConnectedApps />)
     await screen.findByText('Claude')
     fireEvent.click(screen.getAllByText('connect.apps.disconnect')[0])
-    // 3s, not the 1s default: on a loaded CI runner this took 1035ms and failed a deploy (2026-10-01).
-    await waitFor(() => expect(screen.queryByText('Claude')).toBeNull(), { timeout: 3000 })
+    await waitFor(() => expect(screen.queryByText('Claude')).toBeNull())
     expect(api.revokeOAuthGrant).toHaveBeenCalledWith('g1')
+    expect(api.listOAuthGrants).toHaveBeenCalledTimes(1)
     expect(screen.getByText('ChatGPT')).toBeTruthy()
   })
 
