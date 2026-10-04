@@ -1,13 +1,15 @@
 namespace Api.Extensions;
 
 /// <summary>
-/// "An OAuth access token cannot do this." A <c>tso_</c> token is granted one permission — read and
-/// write the library (ADR-017) — so account management is off limits to it: deleting the account,
+/// "An assistant's credential cannot do this." An OAuth access token (<c>tso_</c>) and a connect key
+/// (<c>tsk_</c>) are both granted one permission — read and write the library (ADR-017) — so account
+/// management is off limits to them: deleting the account,
 /// identity/profile, sign-in/sessions, connect keys, OAuth grants, and approving further device or
-/// OAuth requests (which would let a token mint a broader credential).
+/// OAuth requests (which would let a credential mint a broader one).
 ///
 /// <para>Applied to whole route GROUPS, so a new endpoint added to one of them is covered without
-/// anyone remembering. Web/mobile JWTs and <c>tsk_</c> keys are unaffected.</para>
+/// anyone remembering. Web/mobile JWTs are unaffected. Both assistant credentials are marked by
+/// <see cref="Middleware.McpKeyAuthMiddleware"/> under <see cref="Middleware.McpKeyAuthMiddleware.OAuthTokenItemKey"/>.</para>
 /// </summary>
 public static class OAuthTokenPolicy
 {

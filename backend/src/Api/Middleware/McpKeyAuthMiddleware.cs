@@ -37,7 +37,11 @@ public sealed class McpKeyAuthMiddleware(RequestDelegate next)
     /// <summary>Key on <see cref="HttpContext.Items"/>. Internal contract with <c>GetUserId</c>.</summary>
     public const string UserIdItemKey = "mcp_key_user_id";
 
-    /// <summary>Present when the user came from an OAuth access token (<c>tso_</c>). See <see cref="Extensions.OAuthTokenPolicy"/>.</summary>
+    /// <summary>
+    /// Present when the user came from an assistant credential — an OAuth access token (<c>tso_</c>)
+    /// or a connect key (<c>tsk_</c>). The name predates connect keys being covered; both are
+    /// library-scoped. See <see cref="Extensions.OAuthTokenPolicy"/>.
+    /// </summary>
     public const string OAuthTokenItemKey = "oauth_access_token";
 
     public async Task InvokeAsync(HttpContext context, IAppDbContext db, IConfiguration config)
@@ -66,6 +70,8 @@ public sealed class McpKeyAuthMiddleware(RequestDelegate next)
         if (key is not null)
         {
             context.Items[UserIdItemKey] = key.UserId;
+            // A connect key is an assistant credential like a tso_ token: library only.
+            context.Items[OAuthTokenItemKey] = true;
 
             // Throttled: an assistant makes one request per tool call. Writing this per request
             // would put an UPDATE in front of every read of the user's own library.
