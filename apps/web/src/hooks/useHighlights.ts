@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { isPdfAnchor } from '@textstack/shared'
 import {
   type StoredHighlight,
@@ -16,7 +16,10 @@ import {
   updatePublicHighlight,
   deletePublicHighlight,
 } from '../api/userData'
+import { ApiError } from '../api/client'
 import { emitDataChange } from '../lib/dataEvents'
+import { planHighlightSync, fromServerHighlight, isLocalHighlightId } from '../lib/highlightSync'
+import { useNetworkRecovery } from './useNetworkRecovery'
 
 function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
@@ -35,6 +38,101 @@ export function useHighlights(editionId?: string, userBookId?: string, options?:
   const bookId = userBookId || editionId || ''
   const isUserBook = !!userBookId
 
+  // Fetch server list, merge with local pending rows (local pending wins and
+  // stays visible), then replay pending creates/updates/deletes. A failed replay
+  // leaves the row pending for the next load / `online` event — never discarded.
+  // Runs are serialized (each starts after the previous finished and re-reads
+  // IndexedDB), so overlapping triggers can't POST the same pending row twice.
+  const syncQueueRef = useRef<Promise<void>>(Promise.resolve())
+  const syncOnce = useCallback(
+    async (isCancelled: () => boolean) => {
+      try {
+        const serverHighlights = isUserBook
+          ? await getUserBookHighlights(bookId)
+          : await getPublicHighlights(bookId)
+        if (isCancelled()) return
+        serverSyncedRef.current = true
+
+        const local = isUserBook
+          ? await getHighlightsForUserBook(bookId)
+          : await getHighlightsForEdition(bookId)
+        const plan = planHighlightSync(serverHighlights.map(fromServerHighlight), local)
+
+        // Reconcile, don't wipe-and-rebuild (see git history: a wipe window
+        // could leave IndexedDB empty on navigation).
+        for (const h of plan.store) await saveHighlight(h)
+        for (const id of plan.drop) await deleteHighlightFromDB(id)
+        if (isCancelled()) return
+        setHighlights(plan.visible)
+
+        let changed = false
+        for (const h of plan.create) {
+          try {
+            const created = fromServerHighlight(
+              await createPublicHighlight(
+                h.userBookId
+                  ? {
+                      userBookId: h.userBookId,
+                      userChapterId: h.userChapterId,
+                      anchorJson: JSON.stringify(h.anchor),
+                      color: h.color,
+                      selectedText: h.selectedText,
+                      noteText: h.noteText,
+                    }
+                  : {
+                      editionId: h.editionId,
+                      chapterId: h.chapterId,
+                      anchorJson: JSON.stringify(h.anchor),
+                      color: h.color,
+                      selectedText: h.selectedText,
+                      noteText: h.noteText,
+                    }
+              )
+            )
+            await saveHighlight(created)
+            await deleteHighlightFromDB(h.id)
+            if (!isCancelled()) setHighlights((prev) => prev.map((p) => (p.id === h.id ? created : p)))
+            changed = true
+          } catch {
+            // stays pending
+          }
+        }
+        for (const h of plan.update) {
+          try {
+            // No `version`: the offline edit is the reader's latest intent (last write wins).
+            const saved = fromServerHighlight(await updatePublicHighlight(h.id, { color: h.color, noteText: h.noteText }))
+            await saveHighlight(saved)
+            if (!isCancelled()) setHighlights((prev) => prev.map((p) => (p.id === h.id ? saved : p)))
+            changed = true
+          } catch (err) {
+            if (err instanceof ApiError && err.status === 404) await deleteHighlightFromDB(h.id)
+          }
+        }
+        for (const { serverId, localId } of plan.remove) {
+          try {
+            await deletePublicHighlight(serverId)
+          } catch (err) {
+            if (!(err instanceof ApiError && err.status === 404)) continue // stays pending
+          }
+          await deleteHighlightFromDB(localId)
+          changed = true
+        }
+        if (changed) emitDataChange('highlights')
+      } catch {
+        // Server unavailable, keep local data.
+      }
+    },
+    [bookId, isUserBook]
+  )
+  const syncWithServer = useCallback(
+    (isCancelled: () => boolean) => {
+      const run = syncQueueRef.current.then(() => syncOnce(isCancelled))
+      syncQueueRef.current = run
+      return run
+    },
+    [syncOnce]
+  )
+
   // Load highlights: IndexedDB first, then server if authenticated.
   // We intentionally do NOT filter by chapter — the scroll reader mounts
   // multiple chapters and every visible chapter needs its highlights.
@@ -51,59 +149,17 @@ export function useHighlights(editionId?: string, userBookId?: string, options?:
       ? getHighlightsForUserBook(bookId)
       : getHighlightsForEdition(bookId)
 
-    loadLocal
+    const localLoaded = loadLocal
       .then((localHighlights) => {
         if (cancelled) return
-        setHighlights(localHighlights)
+        setHighlights(localHighlights.filter((h) => !h.deleted))
       })
       .catch(() => {})
 
     if (isAuthenticated) {
-      const fetchServer = isUserBook
-        ? getUserBookHighlights(bookId)
-        : getPublicHighlights(bookId)
-
-      fetchServer
-        .then(async (serverHighlights) => {
-          if (cancelled) return
-          serverSyncedRef.current = true
-
-          const converted: StoredHighlight[] = serverHighlights.map((sh) => ({
-            id: sh.id,
-            editionId: sh.editionId || '',
-            chapterId: sh.chapterId || '',
-            userBookId: sh.userBookId || undefined,
-            userChapterId: sh.userChapterId || undefined,
-            anchor: JSON.parse(sh.anchorJson) as HighlightAnchor,
-            color: sh.color as HighlightColor,
-            selectedText: sh.selectedText,
-            noteText: sh.noteText ?? undefined,
-            syncStatus: 'synced' as const,
-            version: sh.version,
-            createdAt: new Date(sh.createdAt).getTime(),
-            updatedAt: new Date(sh.updatedAt).getTime(),
-          }))
-
-          // Reconcile, don't wipe-and-rebuild. A prior transient window
-          // between deleteByEdition and saveAll could leave IndexedDB empty
-          // if the user navigated during sync — next cold start would see
-          // zero highlights.
-          const serverIds = new Set(converted.map((h) => h.id))
-          for (const h of converted) await saveHighlight(h)
-          const existingLocal = isUserBook
-            ? await getHighlightsForUserBook(bookId)
-            : await getHighlightsForEdition(bookId)
-          for (const local of existingLocal) {
-            if (!serverIds.has(local.id) && local.syncStatus === 'synced') {
-              await deleteHighlightFromDB(local.id)
-            }
-          }
-
-          if (!cancelled) setHighlights(converted)
-        })
-        .catch(() => {
-          // Server unavailable, keep local data.
-        })
+      // After the local paint, so a slow IndexedDB read can't overwrite the merged list.
+      localLoaded
+        .then(() => syncWithServer(() => cancelled))
         .finally(() => {
           if (!cancelled) setLoading(false)
         })
@@ -114,7 +170,14 @@ export function useHighlights(editionId?: string, userBookId?: string, options?:
     return () => {
       cancelled = true
     }
-  }, [bookId, isAuthenticated, isUserBook])
+  }, [bookId, isAuthenticated, isUserBook, syncWithServer])
+
+  // Back online → replay whatever is still pending.
+  const recoveryOptions = useMemo(
+    () => ({ onOnline: () => { if (isAuthenticated && bookId) void syncWithServer(() => false) } }),
+    [isAuthenticated, bookId, syncWithServer]
+  )
+  useNetworkRecovery(recoveryOptions)
 
   const addHighlight = useCallback(
     async (
@@ -228,20 +291,27 @@ export function useHighlights(editionId?: string, userBookId?: string, options?:
 
   const removeHighlight = useCallback(
     async (id: string) => {
-      // If authenticated, delete from server
-      if (isAuthenticated) {
+      let confirmed = !isAuthenticated
+      // A client-id row never reached the server (as far as we know) — leave a
+      // tombstone so sync can remove its twin if a lost-response create did land.
+      if (isAuthenticated && !isLocalHighlightId(id)) {
         try {
           await deletePublicHighlight(id)
-        } catch {
-          // Server unavailable, continue with local delete
+          confirmed = true
+        } catch (err) {
+          confirmed = err instanceof ApiError && err.status === 404
         }
       }
 
-      await deleteHighlightFromDB(id)
+      const existing = highlights.find((h) => h.id === id)
+      if (confirmed || !existing) await deleteHighlightFromDB(id)
+      // Server unreachable: keep a tombstone so the next sync replays the delete
+      // instead of the server list resurrecting it.
+      else await saveHighlight({ ...existing, deleted: true, syncStatus: 'pending' })
       setHighlights((prev) => prev.filter((h) => h.id !== id))
       emitDataChange('highlights')
     },
-    [isAuthenticated]
+    [highlights, isAuthenticated]
   )
 
   const getHighlightsForRange = useCallback(

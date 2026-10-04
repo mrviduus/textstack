@@ -196,6 +196,21 @@ function savePendingSession(session: PendingSession) {
   }
 }
 
+/** Remove `done` from the queue as it is NOW (re-read), matched by value, one entry each. */
+function removePendingSessions(done: PendingSession[]) {
+  if (done.length === 0) return
+  const keys = done.map(s => JSON.stringify(s))
+  const queue = JSON.parse(localStorage.getItem(PENDING_SESSIONS_KEY) || '[]') as PendingSession[]
+  const left = queue.filter(s => {
+    const i = keys.indexOf(JSON.stringify(s))
+    if (i < 0) return true
+    keys.splice(i, 1)
+    return false
+  })
+  if (left.length > 0) localStorage.setItem(PENDING_SESSIONS_KEY, JSON.stringify(left))
+  else localStorage.removeItem(PENDING_SESSIONS_KEY)
+}
+
 // Server rejects sessions older than 7 days — drop at 6 to give a safety margin.
 const MAX_SESSION_AGE_MS = 6 * 24 * 60 * 60 * 1000
 
@@ -206,39 +221,34 @@ async function flushPendingSessions() {
     const all = JSON.parse(raw) as PendingSession[]
     if (all.length === 0) return
 
+    // Never clear the queue up front: a session enqueued while we await the
+    // network would be clobbered by the write-back. Remove only what this flush
+    // settled, from a fresh read, at the end. Failed ones simply stay queued.
     const now = Date.now()
-    const sessions = all.filter(s => {
-      const startedAt = Date.parse(s.startedAt)
-      return Number.isFinite(startedAt) && now - startedAt < MAX_SESSION_AGE_MS
-    })
-
-    localStorage.removeItem(PENDING_SESSIONS_KEY)
-
-    if (sessions.length === 0) return
-
-    const failed: PendingSession[] = []
-    for (const session of sessions) {
+    const done: PendingSession[] = []
+    for (const session of all) {
+      const startedAt = Date.parse(session.startedAt)
+      if (!Number.isFinite(startedAt) || now - startedAt >= MAX_SESSION_AGE_MS) {
+        done.push(session)
+        continue
+      }
       try {
         // Sessions queued before the clamp above can carry a duration longer than their own span.
         const span = Math.floor((Date.parse(session.endedAt) - Date.parse(session.startedAt)) / 1000)
         await submitSession(span >= 0 ? { ...session, durationSeconds: Math.min(session.durationSeconds, span) } : session)
         // Success or duplicate — either way, done
+        done.push(session)
       } catch (err) {
         // 404 = the referenced book was deleted/re-uploaded (old id gone). The
         // session can never succeed, so prune it permanently instead of re-queuing
-        // — otherwise it retries forever and floods the endpoint. Transient errors
-        // (network / 5xx) fall through to `failed` and are retried next flush.
-        if (err instanceof ApiError && err.status === 404) continue
+        // — otherwise it retries forever and floods the endpoint.
         // 400 = the server rejected the payload itself; retrying the same bytes can never succeed.
-        if (err instanceof ApiError && err.status === 400) continue
-        failed.push(session)
+        // Transient errors (network / 5xx) stay queued and are retried next flush.
+        if (err instanceof ApiError && (err.status === 404 || err.status === 400)) done.push(session)
       }
     }
 
-    // Re-save only genuinely failed ones
-    if (failed.length > 0) {
-      localStorage.setItem(PENDING_SESSIONS_KEY, JSON.stringify(failed))
-    }
+    removePendingSessions(done)
   } catch {
     // ignore
   }

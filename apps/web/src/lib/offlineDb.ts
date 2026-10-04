@@ -47,6 +47,8 @@ export interface StoredHighlight {
   selectedText: string
   noteText?: string
   syncStatus: 'pending' | 'synced'
+  /** Tombstone: deleted locally, server delete not yet confirmed. Hidden from the UI. */
+  deleted?: boolean
   version: number
   createdAt: number
   updatedAt: number
