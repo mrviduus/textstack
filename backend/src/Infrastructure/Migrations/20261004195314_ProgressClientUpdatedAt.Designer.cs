@@ -3,6 +3,7 @@ using System;
 using Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using NpgsqlTypes;
@@ -13,9 +14,11 @@ using Pgvector;
 namespace Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261004195314_ProgressClientUpdatedAt")]
+    partial class ProgressClientUpdatedAt
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2231,6 +2234,71 @@ namespace Infrastructure.Migrations
                         .HasDatabaseName("ix_pending_vocabulary_words_user_id_site_id_word_language");
 
                     b.ToTable("pending_vocabulary_words", (string)null);
+                });
+
+            modelBuilder.Entity("Domain.Entities.PodcastGenerationJob", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AudioPath")
+                        .HasColumnType("text")
+                        .HasColumnName("audio_path");
+
+                    b.Property<decimal?>("CostUsd")
+                        .HasColumnType("numeric(10,6)")
+                        .HasColumnName("cost_usd");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<int?>("DurationSeconds")
+                        .HasColumnType("integer")
+                        .HasColumnName("duration_seconds");
+
+                    b.Property<Guid>("EditionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("edition_id");
+
+                    b.Property<string>("Error")
+                        .HasColumnType("text")
+                        .HasColumnName("error");
+
+                    b.Property<DateTimeOffset?>("FinishedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("finished_at");
+
+                    b.Property<string>("Lang")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("lang");
+
+                    b.Property<string>("ScriptJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("script_json");
+
+                    b.Property<DateTimeOffset?>("StartedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("started_at");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.HasKey("Id")
+                        .HasName("pk_podcast_generation_jobs");
+
+                    b.HasIndex("EditionId")
+                        .HasDatabaseName("ix_podcast_generation_jobs_edition_id");
+
+                    b.HasIndex("Status")
+                        .HasDatabaseName("ix_podcast_generation_jobs_status");
+
+                    b.ToTable("podcast_generation_jobs", (string)null);
                 });
 
             modelBuilder.Entity("Domain.Entities.ReadingGoal", b =>
@@ -4987,6 +5055,18 @@ namespace Infrastructure.Migrations
                     b.Navigation("User");
 
                     b.Navigation("UserBook");
+                });
+
+            modelBuilder.Entity("Domain.Entities.PodcastGenerationJob", b =>
+                {
+                    b.HasOne("Domain.Entities.Edition", "Edition")
+                        .WithMany()
+                        .HasForeignKey("EditionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_podcast_generation_jobs_editions_edition_id");
+
+                    b.Navigation("Edition");
                 });
 
             modelBuilder.Entity("Domain.Entities.ReadingGoal", b =>

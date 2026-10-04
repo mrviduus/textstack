@@ -85,7 +85,16 @@ public class ReadingProgress : ISiteScoped
     /// </summary>
     public DateTimeOffset? CompletedAt { get; set; }
 
+    /// <summary>Server clock: when this row was last written.</summary>
     public DateTimeOffset UpdatedAt { get; set; }
+
+    /// <summary>
+    /// Client clock: when the accepted write's position was RECORDED on the device (clamped to
+    /// server now + a small skew). Last-write-wins compares an incoming client timestamp with this,
+    /// never with <see cref="UpdatedAt"/> — two different clocks. Null on rows written before the
+    /// column existed and by writes that send no timestamp; null always lets the next write in.
+    /// </summary>
+    public DateTimeOffset? ClientUpdatedAt { get; set; }
 
     public User User { get; set; } = null!;
     public Site Site { get; set; } = null!;

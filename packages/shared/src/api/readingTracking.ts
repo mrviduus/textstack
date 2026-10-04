@@ -2,8 +2,8 @@ import { authFetch, buildQuery, jsonBody } from './client'
 import type { ReadingStatsDto, DailyStatDto, AchievementDto, GoalDto } from '../types/api'
 
 export function submitSession(data: {
-  editionId?: string
-  userBookId?: string
+  editionId?: string | null
+  userBookId?: string | null
   durationSeconds: number
   wordsRead: number
   startPercent: number

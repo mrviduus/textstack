@@ -130,6 +130,7 @@ export function useEditionReaderSource({
       progress: snap.bookPercent,
       scrollOffset: snap.scrollOffset,
       positionJson,
+      recordedAt: snap.updatedAt,
     }).catch((e) => { console.warn('[progress] save failed', e) })
   }, [isAuthenticated])
 

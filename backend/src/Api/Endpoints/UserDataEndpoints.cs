@@ -137,8 +137,9 @@ public static class UserDataEndpoints
 
         if (existing != null)
         {
-            // Update only if client timestamp is newer (conflict resolution)
-            if (request.UpdatedAt.HasValue && request.UpdatedAt.Value <= existing.UpdatedAt)
+            // Update only if the client timestamp is newer than the last accepted CLIENT timestamp.
+            // Never against UpdatedAt — that is the server's clock (see ProgressClock).
+            if (ProgressClock.IsStale(request.UpdatedAt, existing.ClientUpdatedAt, DateTimeOffset.UtcNow))
             {
                 return Results.Ok(new ReadingProgressDto(
                     existing.EditionId,
@@ -203,7 +204,7 @@ public static class UserDataEndpoints
             // (e.g. the row was deleted between the failure and this read) — surface it.
             if (winner == null) throw;
 
-            if (!request.UpdatedAt.HasValue || request.UpdatedAt.Value > winner.UpdatedAt)
+            if (!ProgressClock.IsStale(request.UpdatedAt, winner.ClientUpdatedAt, DateTimeOffset.UtcNow))
             {
                 ApplyProgressUpdate(winner, request, chapter.ChapterNumber);
                 await db.SaveChangesAsync(ct);
@@ -260,7 +261,11 @@ public static class UserDataEndpoints
         target.MaxChapterNumber = target.MaxChapterNumber.HasValue
             ? Math.Max(target.MaxChapterNumber.Value, chapterNumber)
             : chapterNumber;
-        target.UpdatedAt = DateTimeOffset.UtcNow;
+        var now = DateTimeOffset.UtcNow;
+        target.UpdatedAt = now;
+        // Assigned, not max-ed: a write with no timestamp (mark-as-finished) clears it, so the next
+        // timestamped write is accepted rather than compared with a clock it never ran on.
+        target.ClientUpdatedAt = ProgressClock.Clamp(request.UpdatedAt, now);
     }
 
     /// <summary>

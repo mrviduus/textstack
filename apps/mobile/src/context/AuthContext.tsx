@@ -13,6 +13,8 @@ import {
   type EnsureSessionResult,
 } from '../lib/guestSession'
 import { clearAllLocalProgress } from '../lib/progressStorage'
+import { clearPendingSessions, flushPendingSessions } from '../lib/pendingSessions'
+import { useReconnectCount } from '../hooks/useOnline'
 import { clearReaderCache } from '../lib/readerOfflineCache'
 
 // Lazy import so the Google module isn't pulled on platforms / contexts
@@ -298,6 +300,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // page. Server progress trumps local on the next flush, but the brief window is
       // visible and confusing.
       clearAllLocalProgress().catch(() => {})
+      clearPendingSessions().catch(() => {})
       clearReaderCache().catch(() => {})
       setUser(null)
     })
@@ -323,12 +326,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           .then(() => googleSigninModule?.GoogleSignin?.signOut?.())
           .catch(() => {})
         clearAllLocalProgress().catch(() => {})
+        clearPendingSessions().catch(() => {})
         clearReaderCache().catch(() => {})
         setUser(null)
       }
     })
     return unsubscribe
   }, [runExclusive])
+
+  // Reading sessions that failed to submit (offline) are retried once there is a session to send
+  // them under — app start / sign-in — and again every time the network comes back.
+  const reconnects = useReconnectCount()
+  const userId = user?.id
+  useEffect(() => {
+    if (userId) flushPendingSessions().catch(() => {})
+  }, [userId, reconnects])
 
   // -------------------------------------------------------------------------
   // Guest minting
