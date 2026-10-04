@@ -104,11 +104,16 @@ public class McpVocabularyWriteToolsTests
     [Fact]
     public async Task AddVocabularyWords_NativeLanguageMissing_TellsModelToAskUser()
     {
-        var (catalog, _) = Build(Json("""{ "error": "native_language_required" }""", HttpStatusCode.BadRequest));
+        var (catalog, handler) = Build(Json("""{ "error": "native_language_required" }""", HttpStatusCode.BadRequest));
 
-        var result = await catalog.CallAsync("add_vocabulary_words", Args($$"""{ "words": {{Words(1)}} }"""), CancellationToken.None);
+        var result = await catalog.CallAsync("add_vocabulary_words", Args($$"""{ "words": {{Words(3)}} }"""), CancellationToken.None);
 
-        Assert.Contains("native language in TextStack settings", Results(result)[0].GetProperty("message").GetString());
+        // A user-level refusal stops the batch: the same answer 20 times tells the model nothing.
+        Assert.Single(handler.Requests);
+        var lines = Results(result);
+        Assert.Contains("native language in TextStack settings", lines[0].GetProperty("message").GetString());
+        Assert.Equal("not_attempted", lines[1].GetProperty("status").GetString());
+        Assert.Equal("not_attempted", lines[2].GetProperty("status").GetString());
     }
 
     [Fact]

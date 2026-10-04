@@ -635,10 +635,14 @@ public sealed class McpToolCatalog
                 for (var i = 0; i < words.Count; i++)
                 {
                     var result = await api.SaveWordAsync(words[i], ct);
-                    if (result.Status is System.Net.HttpStatusCode.TooManyRequests)
+                    // Both refusals are about the user, not the word: every later word would get the same answer.
+                    var stop = result.Status is System.Net.HttpStatusCode.TooManyRequests
+                        ? new WordResult(words[i].Word, "stopped",
+                            Message: "stopped: vocabulary full (5000) or adding too fast; tell the user")
+                        : result.Error == "native_language_required" ? ToWordResult(words[i].Word, result) : null;
+                    if (stop is not null)
                     {
-                        results.Add(new(words[i].Word, "stopped",
-                            Message: "stopped: vocabulary full (5000) or adding too fast; tell the user"));
+                        results.Add(stop);
                         results.AddRange(words.Skip(i + 1).Select(w =>
                             new WordResult(w.Word, "not_attempted", Message: "not attempted; the batch stopped")));
                         break;
