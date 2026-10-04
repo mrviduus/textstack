@@ -89,6 +89,30 @@ jobs:
             exit 1
           fi
 
+      # Never build while an SSG rebuild is rendering. The frontend build below empties
+      # apps/web/dist, which ssg-worker writes into (dist/ssg-new); a rebuild caught in that
+      # window fails by design (assertBuildSurvived — the 2026-08-31 guard) and leaves
+      # ssg-worker unhealthy. Rebuilds come from the nightly backup, publishing, the admin
+      # button and the periodic safety net, so any of them can be mid-run when a merge lands.
+      # Waits up to 40 min (a full rebuild is ~25), then proceeds with a warning: a wedged
+      # job must not block deploys forever, and the guard still protects the live tree.
+      # Only jobs touched in the last hour count — nothing recovers a job left 'Running' by a
+      # crash, and one such row would otherwise cost every deploy the full 40 minutes.
+      - name: Wait for any running SSG rebuild
+        run: |
+          DEADLINE=$(( $(date +%s) + 2400 ))
+          while :; do
+            ACTIVE=$(docker exec textstack_db_prod psql -U textstack_prod textstack_prod -tAc \
+              "SELECT count(*) FROM ssg_rebuild_jobs WHERE status IN ('Queued','Running') AND COALESCE(started_at, created_at) > now() - interval '60 minutes'" 2>/dev/null | tr -d '[:space:]')
+            [ "$ACTIVE" = "0" ] && { echo "No SSG rebuild in progress"; break; }
+            if [ "$(date +%s)" -ge "$DEADLINE" ]; then
+              echo "::warning::SSG rebuild still active after 40 min — deploying anyway"
+              break
+            fi
+            echo "SSG rebuild in progress ($ACTIVE active) — waiting… ($(date +%T))"
+            sleep 30
+          done
+
       - name: Snapshot SSG dir + referenced assets before vite wipes dist
         # Closes the deploy-race window where vite's emptyOutDir=true
         # nukes dist/ssg/ AND dist/assets/* before the SSG worker can
@@ -309,8 +333,10 @@ jobs:
           curl -sf --retry 30 --retry-delay 5 --retry-all-errors --retry-connrefused http://localhost:8080/health || exit 1
           echo "API health check passed"
           # `up -d` returns before healthchecks run; a container already marked unhealthy
-          # (worker, ssg-worker, mcp-server…) would otherwise ship green.
-          UNHEALTHY=$(cd $PROJECT_DIR && docker compose --profile mcp -f docker-compose.yml -f docker-compose.gpu.yml ps --format '{{.Service}} {{.Health}}' | awk '$2 == "unhealthy" {print $1}')
+          # (worker, mcp-server…) would otherwise ship green. ssg-worker is excluded: its
+          # healthcheck also reports "last rebuild failed", which is content state that
+          # health-check.yml alarms on — not a reason to call this deploy broken.
+          UNHEALTHY=$(cd $PROJECT_DIR && docker compose --profile mcp -f docker-compose.yml -f docker-compose.gpu.yml ps --format '{{.Service}} {{.Health}}' | awk '$2 == "unhealthy" && $1 != "ssg-worker" {print $1}')
           [ -z "$UNHEALTHY" ] || { echo "::error::unhealthy services: $UNHEALTHY"; exit 1; }
 
       # A full rebuild is ~25 min of Puppeteer on the prod box and held the only runner for it.
