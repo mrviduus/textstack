@@ -95,7 +95,6 @@ internal sealed class FakeAppDbContext : IAppDbContext
     public DbSet<EvalRun> EvalRuns => throw new NotSupportedException();
     public DbSet<AgentRun> AgentRuns => throw new NotSupportedException();
     public DbSet<TutorSession> TutorSessions => throw new NotSupportedException();
-    public DbSet<PodcastGenerationJob> PodcastGenerationJobs => throw new NotSupportedException();
     public DbSet<BookInsight> BookInsights => throw new NotSupportedException();
     public DbSet<ReviewQuestion> ReviewQuestions => throw new NotSupportedException();
     public DbSet<McpAccessKey> McpAccessKeys => throw new NotSupportedException();

@@ -39,7 +39,7 @@ quality-poller — shell scripts in infra/scripts/ that call the Claude CLI.
 | `Application` | Services + `IAppDbContext`, `IFileStorageService`. References Domain, Contracts, Extraction, Vocabulary, Ai.Core, Ai.Llm, Ai.Agents; packages incl. EF Core |
 | `Infrastructure` | `AppDbContext` (split into partials per area), migrations, `LocalFileStorageService`, `ResendEmailService`, `ImageOptimizer` |
 | `Api` | Minimal API endpoints (`Api/Endpoints/`), middleware, site resolution, SEO/SSG endpoints |
-| `Worker` | Background host: ingestion, enrichment, podcasts, guest cleanup |
+| `Worker` | Background host: ingestion, enrichment, guest cleanup |
 | `Extraction/TextStack.Extraction` | EPUB (VersOne.Epub) / PDF (PdfPig) / HTML extractors, text pipeline, quality scorer |
 | `Search/TextStack.Search` | Postgres FTS via Dapper (`PostgresSearchProvider`) |
 | `Tts/TextStack.Tts` | Edge TTS WebSocket client + disk cache |
@@ -89,7 +89,7 @@ code does not pass `SiteId` by hand. The `site_id` columns stay. See [multisite.
 
 | Host | Hosted services |
 |------|-----------------|
-| Worker | `IngestionWorker` (admin + user uploads, polls every 5 s), `MetadataEnrichmentWorker`, `MetadataBackfillWorker`, `PodcastWorker`, `GuestCleanupWorker` (2 h / 30 d), `AdminRefreshTokenCleanupWorker`, `HeartbeatWorker`, `AiProviderReadinessCheck`, `TextStackWatcher` (optional) |
+| Worker | `IngestionWorker` (admin + user uploads, polls every 5 s), `MetadataEnrichmentWorker`, `MetadataBackfillWorker`, `GuestCleanupWorker` (2 h / 30 d), `AdminRefreshTokenCleanupWorker`, `HeartbeatWorker`, `AiProviderReadinessCheck`, `TextStackWatcher` (optional) |
 | Api | `SsgPeriodicRebuildWorker`, `AutoRetireSweeperWorker`, `DailyCapReconcilerWorker`, `WordFrequencyLoaderWorker`, `ClusterCandidateBuilderWorker`, `ConceptClusteringWorker`, `ContinuousEvalWorker`, `DriftDetectionWorker`, `EdgeTtsService` (cache cleanup) |
 | ssg-worker | Polls `ssg_rebuild_jobs` every 5 s, runs `prerender.mjs`, swaps `dist/ssg` atomically, pings IndexNow |
 | Host systemd | `seo-publish-poll.sh`, `seo-backfill-poll.sh`, `quality-poll.sh` (Claude CLI) |
@@ -100,7 +100,7 @@ All queues are Postgres tables polled by the consumer; there is no message broke
 
 | Store | What |
 |-------|------|
-| PostgreSQL 16 | ~64 tables ([data-model.md](data-model.md)). FTS: `chapters.search_vector` (trigger). pgvector: `vocabulary_words.embedding`, `drift_centroids.centroid` (1536-d) |
+| PostgreSQL 16 | ~63 tables ([data-model.md](data-model.md)). FTS: `chapters.search_vector` (trigger). pgvector: `vocabulary_words.embedding`, `drift_centroids.centroid` (1536-d) |
 | `./data/storage` (bind mount, [ADR-001](adr/001-storage-bind-mounts.md)) | Original uploads + covers, served at `/storage` |
 | `./data/tts-cache`, `./data/explain-cache` | SHA256-keyed disk caches, 30-day TTL |
 | `./data/ollama` | Ollama models |
@@ -125,7 +125,7 @@ Details: [frontend.md](frontend.md).
 |---------|----------|--------------|
 | OpenAI | Translate (`gpt-4.1-nano`), Explain (`gpt-4.1-mini`), Tutor, embeddings (`text-embedding-3-small`) | Feature returns error; reading unaffected |
 | Ollama (self-hosted) | Vocabulary distractors/hint/explanation, book metadata | Fallback distractors; fields stay null |
-| Edge TTS (`speech.platform.bing.com`, no key) | Text-to-speech, podcasts | No audio |
+| Edge TTS (`speech.platform.bing.com`, no key) | Text-to-speech | No audio |
 | Resend | Password reset, admin alert emails | No email |
 | Google / Apple sign-in | OAuth login | Email/password and guest still work |
 | Sentry | Errors from api + worker (no-op without DSN) | — |

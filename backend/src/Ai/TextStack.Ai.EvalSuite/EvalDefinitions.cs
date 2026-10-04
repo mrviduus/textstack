@@ -13,7 +13,7 @@ namespace TextStack.Ai.EvalSuite;
 /// </summary>
 public static class EvalDefinitions
 {
-    public static readonly IReadOnlyList<string> Keys = ["explain", "translate", "vocab", "bookmeta", "podcast"];
+    public static readonly IReadOnlyList<string> Keys = ["explain", "translate", "vocab", "bookmeta"];
 
     private static readonly Rubric ExplainRubric = new(
         "accuracy: does it match the meaning the word carries IN THIS SENTENCE's domain?",
@@ -45,10 +45,6 @@ public static class EvalDefinitions
         "year-plausibility: is the YEAR correct or close to the real first-publication year?",
         "description-quality: is the DESCRIPTION accurate, 2-3 sentences, no spoilers?");
 
-    private static readonly Rubric PodcastRubric = new(
-        "faithfulness: is the trailer consistent with the overview/excerpt, with NO invented plot points, quotes, or characters (and spoiler-light)?",
-        "liveliness: does it sound like a lively, cinematic film-trailer voiceover — vivid, atmospheric, real energy — and NOT a fake/over-eager AI podcast (no 'wow/fascinating/amazing/exactly/great point', no host-to-host validation or small talk)?",
-        "trailer-shape: short punchy image-rich lines, Aria/Guy alternating (1-2 sentences/turn) — sets a mood, raises the book's central question, builds to a hook, ends on a brief confident invitation to read?");
 
     /// <summary>Build all eval definitions (optionally filtered to <paramref name="keys"/>).</summary>
     public static IReadOnlyList<EvalDefinition> Build(IEnumerable<string>? keys = null)
@@ -119,19 +115,6 @@ public static class EvalDefinitions
             defs.Add(new EvalDefinition("bookmeta", units));
         }
 
-        if (Want(wanted, "podcast"))
-        {
-            var units = GoldenLoader.Load<PodcastGolden>("podcast.json").Select(g =>
-            {
-                var (sys, user) = PodcastPrompt.Build(g.Title, g.Author, "en", g.Description, g.Excerpt);
-                return new EvalUnit(
-                    new LlmRequest(sys, [new LlmMessage("user", user)], MaxOutputTokens: 4000, FeatureTag: "podcast.script"),
-                    [new FacetEval("podcast", PodcastRubric, actual =>
-                        $"Book: {g.Title}{(g.Author is null ? "" : $" by {g.Author}")}\nOverview: {g.Description}\n" +
-                        $"Opening excerpt:\n{g.Excerpt}\n\nGenerated trailer dialogue (JSON array of speaker/line):\n{actual}")]);
-            }).ToList();
-            defs.Add(new EvalDefinition("podcast", units));
-        }
 
         return defs;
     }

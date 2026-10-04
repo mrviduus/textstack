@@ -50,10 +50,6 @@ export function createApi(language: string) {
       return fetchJson<import('../types/api').BookDetail>(`${langPrefix}/books/${slug}`)
     },
 
-    getPodcast: (slug: string) => {
-      return fetchJson<import('../types/api').PodcastStatusDto>(`${langPrefix}/books/${slug}/podcast`)
-    },
-
     getChapter: (bookSlug: string, chapterSlug: string) => {
       return fetchJson<import('../types/api').Chapter>(
         `${langPrefix}/books/${bookSlug}/chapters/${chapterSlug}`

@@ -1,8 +1,8 @@
 # TextStack Database Schema
 
 > **Partial and partly historical (checked 2026-10-04).** This page details the original ~28 tables.
-> The database now has 64 entity sets; reading-engagement extras, collections, insights/review
-> questions, MCP/OAuth credentials, AI-ops and podcast tables are listed only in
+> The database now has 63 entity sets; reading-engagement extras, collections, insights/review
+> questions, MCP/OAuth credentials and AI-ops tables are listed only in
 > [data-model.md](../01-architecture/data-model.md). Source of truth: `backend/src/Domain/Entities/`
 > and `backend/src/Infrastructure/Migrations/AppDbContextModelSnapshot.cs`. Multisite is vestigial
 > (one site, [ADR-007](../01-architecture/adr/007-single-domain-consolidation.md)); `uk` content was removed 2026-04-21.

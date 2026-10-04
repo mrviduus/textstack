@@ -109,7 +109,6 @@ public partial class AppDbContext : DbContext, IAppDbContext
     public DbSet<AgentRun> AgentRuns => Set<AgentRun>();
     public DbSet<TutorSession> TutorSessions => Set<TutorSession>();
     public DbSet<DriftCentroid> DriftCentroids => Set<DriftCentroid>();
-    public DbSet<PodcastGenerationJob> PodcastGenerationJobs => Set<PodcastGenerationJob>();
     public DbSet<BookInsight> BookInsights => Set<BookInsight>();
     public DbSet<ReviewQuestion> ReviewQuestions => Set<ReviewQuestion>();
     public DbSet<McpAccessKey> McpAccessKeys => Set<McpAccessKey>();
@@ -138,7 +137,6 @@ public partial class AppDbContext : DbContext, IAppDbContext
         ConfigureCollections(modelBuilder);
         ConfigureAi(modelBuilder);
         ConfigureAgents(modelBuilder);
-        ConfigurePodcasts(modelBuilder);
         ConfigureInsights(modelBuilder);
         ConfigureMcpKeys(modelBuilder);
         ConfigureOAuth(modelBuilder);
