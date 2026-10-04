@@ -10,7 +10,7 @@ namespace Application.ReadingTracking;
 /// Mutating reading-session submit (R5 slice-4). Body moved verbatim from the former
 /// <c>ReadingTrackingEndpoints.SubmitSession</c> handler — kept separate from the read-only
 /// <see cref="ReadingStatsService"/>. The side-effect ordering is load-bearing and preserved exactly:
-/// dedup pre-check (user-book only) → build session (SiteId set by hand) → Add → SaveChanges (with the
+/// dedup pre-check → build session (SiteId set by hand) → Add → SaveChanges (with the
 /// 23505 race fallback) → best-effort achievement award. Note the asymmetry the original relied on:
 /// the pre-check duplicate returns <c>Guid.Empty</c> (nothing was inserted) while the race fallback
 /// returns <c>session.Id</c> (our row lost the insert race but the caller acks idempotently). The
@@ -45,22 +45,20 @@ public class ReadingSessionService(IAppDbContext db, ILogger<ReadingSessionServi
             if (!liveEdition) return null;
         }
 
-        // Pre-check the unique-by-(user, user_book, started_at) constraint
-        // for user-book sessions. The DB constraint is the source of truth
-        // and the catch below still covers a race; this just keeps the
-        // happy path off the "SQL error level: ERROR" log line that
-        // Npgsql emits before the catch can swallow it. The constraint is
-        // partial (WHERE user_book_id IS NOT NULL), so edition-only
-        // sessions skip the check entirely.
-        if (request.UserBookId != null)
-        {
-            var dup = await db.ReadingSessions.AnyAsync(
-                s => s.UserId == userId
-                  && s.UserBookId == request.UserBookId
-                  && s.StartedAt == request.StartedAt,
-                ct);
-            if (dup) return new SubmitSessionResponse(Guid.Empty, []);
-        }
+        // Idempotency: one session per (user, book, started_at). Both clients resubmit — web queues
+        // every session AND beacons it, then flushes the queue on the next reader mount; mobile
+        // retries a session whose submit failed, and "failed" includes a response lost after the
+        // row was written. Partial unique indexes on (user, edition|user_book, started_at) are the
+        // source of truth and the 23505 catch below covers a race; this pre-check keeps the common
+        // retry off the "SQL error level: ERROR" line Npgsql logs before the catch can swallow it.
+        // It used to run for user-book sessions only, on the belief that editions had no index.
+        var dup = await db.ReadingSessions.AnyAsync(
+            s => s.UserId == userId
+              && s.UserBookId == request.UserBookId
+              && s.EditionId == request.EditionId
+              && s.StartedAt == request.StartedAt,
+            ct);
+        if (dup) return new SubmitSessionResponse(Guid.Empty, []);
 
         var session = new ReadingSession
         {

@@ -22,11 +22,10 @@ namespace TextStack.IntegrationTests;
 /// <c>UserBookService.UpsertProgressAsync</c> DELETED its client-clock gate for exactly this failure
 /// ("a device clock a second behind the server's was silently dropped"). The catalog path kept it.</para>
 ///
-/// <para><b>These two tests are characterization.</b> They assert what the server does today, and
-/// they are named for the fact that it is wrong. When the guard is fixed — by ignoring
-/// <c>updatedAt</c> for a sentinel write, by comparing client clocks only against client clocks, or
-/// by answering 409 instead of a silent 200 — both should be inverted, and the first one's name is
-/// the assertion the fix should make true.</para>
+/// <para><b>Fixed 2026-10-04</b> by comparing client clocks only against client clocks: the row keeps
+/// the accepted write's client timestamp in <c>ClientUpdatedAt</c> (see
+/// <c>Application.ReadingTracking.ProgressClock</c>), and <c>UpdatedAt</c> stays the server's write
+/// time. The first test below used to pin the defect; it now pins the fix.</para>
 ///
 /// <para>Requires docker compose up + ENABLE_TEST_AUTH=true; skips rather than fails otherwise.</para>
 /// </summary>
@@ -92,18 +91,19 @@ public class MarkFinishedClientClockTests(LiveApiFixture fixture, AuthenticatedA
     };
 
     /// <summary>
-    /// <b>DEFECT (characterized).</b> Device clock 60 seconds behind the server: the book is not
-    /// finished, and the caller is told 200.
+    /// Device clock 60 seconds behind the server. Its earlier write and its newer "mark finished" are
+    /// both on that clock, so the newer one wins — it used to be compared with the server's clock and
+    /// silently refused with a 200.
     /// </summary>
     [Fact]
-    public async Task MarkFinished_DeviceClockBehindTheServer_Returns200AndFinishesNothing()
+    public async Task MarkFinished_DeviceClockBehindTheServer_NewerWriteStillWins()
     {
         var seeded = await FindSeededChapterAsync();
         Assert.SkipWhen(seeded is null, "no seeded edition with chapters");
         Assert.SkipWhen(!auth.IsAuthenticated, "test auth unavailable");
         var (editionId, chapterId) = seeded!.Value;
 
-        // A reader mid-book: a fresh row whose UpdatedAt is the server's "now".
+        var deviceNow = DateTimeOffset.UtcNow.AddSeconds(-60);
         await auth.Client.SendAsync(auth.CreateRequest(HttpMethod.Delete, $"/me/progress/{editionId}"), Ct);
         var seed = await PutAsync(editionId, new
         {
@@ -111,22 +111,55 @@ public class MarkFinishedClientClockTests(LiveApiFixture fixture, AuthenticatedA
             locator = StartOfChapter,
             percent = 0.2,
             percentUnit = "book",
+            updatedAt = deviceNow.AddSeconds(-5).ToString("O"),
         });
         Assert.SkipWhen(IntegrationSkip.Unavailable(seed), "endpoint unavailable");
         Assert.True(seed.IsSuccessStatusCode, await seed.Content.ReadAsStringAsync(Ct));
 
-        var put = await PutAsync(editionId, MarkFinishedBody(chapterId, DateTimeOffset.UtcNow.AddSeconds(-60)));
+        var put = await PutAsync(editionId, MarkFinishedBody(chapterId, deviceNow));
         Assert.SkipWhen(IntegrationSkip.Unavailable(put), "endpoint unavailable");
-
-        // Success, as far as any client can tell — the body is ignored by `authFetch<void>`.
         Assert.True(put.IsSuccessStatusCode, await put.Content.ReadAsStringAsync(Ct));
 
         var row = await ReadAsync(editionId);
-        // …and nothing moved. This is the line to invert when the guard is fixed:
-        // the book SHOULD be finished here.
+        Assert.Equal(1.0, row.GetProperty("percent").GetDouble());
+        Assert.Equal(EndOfBook, row.GetProperty("locator").GetString());
+        Assert.Equal(JsonValueKind.String, row.GetProperty("completedAt").ValueKind);
+
+        await auth.Client.SendAsync(auth.CreateRequest(HttpMethod.Delete, $"/me/progress/{editionId}"), Ct);
+    }
+
+    /// <summary>
+    /// The guard still does its job: a write recorded EARLIER on the device than the stored one
+    /// (a late, out-of-order delivery) leaves the row alone.
+    /// </summary>
+    [Fact]
+    public async Task UpsertProgress_OlderClientTimestampThanStored_RowUnchanged()
+    {
+        var seeded = await FindSeededChapterAsync();
+        Assert.SkipWhen(seeded is null, "no seeded edition with chapters");
+        Assert.SkipWhen(!auth.IsAuthenticated, "test auth unavailable");
+        var (editionId, chapterId) = seeded!.Value;
+
+        var deviceNow = DateTimeOffset.UtcNow.AddSeconds(-60);
+        await auth.Client.SendAsync(auth.CreateRequest(HttpMethod.Delete, $"/me/progress/{editionId}"), Ct);
+        var seed = await PutAsync(editionId, new
+        {
+            chapterId,
+            locator = StartOfChapter,
+            percent = 0.2,
+            percentUnit = "book",
+            updatedAt = deviceNow.ToString("O"),
+        });
+        Assert.SkipWhen(IntegrationSkip.Unavailable(seed), "endpoint unavailable");
+        Assert.True(seed.IsSuccessStatusCode, await seed.Content.ReadAsStringAsync(Ct));
+
+        var put = await PutAsync(editionId, MarkFinishedBody(chapterId, deviceNow.AddSeconds(-10)));
+        Assert.SkipWhen(IntegrationSkip.Unavailable(put), "endpoint unavailable");
+        Assert.True(put.IsSuccessStatusCode, await put.Content.ReadAsStringAsync(Ct));
+
+        var row = await ReadAsync(editionId);
         Assert.Equal(0.2, row.GetProperty("percent").GetDouble());
         Assert.Equal(StartOfChapter, row.GetProperty("locator").GetString());
-        Assert.Equal(JsonValueKind.Null, row.GetProperty("completedAt").ValueKind);
 
         await auth.Client.SendAsync(auth.CreateRequest(HttpMethod.Delete, $"/me/progress/{editionId}"), Ct);
     }

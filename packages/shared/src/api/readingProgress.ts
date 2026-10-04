@@ -22,7 +22,7 @@ export function getProgress(editionId: string) {
  */
 export function updateProgress(
   editionId: string,
-  data: { chapterId: string; chapterSlug: string; progress: number; scrollOffset?: number; positionJson?: string },
+  data: { chapterId: string; chapterSlug: string; progress: number; scrollOffset?: number; positionJson?: string; recordedAt?: number },
 ) {
   const offset = typeof data.scrollOffset === 'number' && Number.isFinite(data.scrollOffset) && data.scrollOffset > 0
     ? Math.floor(data.scrollOffset)
@@ -38,9 +38,10 @@ export function updateProgress(
     // Book-wide, and says so. Without the declaration the server keeps whatever
     // it already had — see Application.ReadingTracking.ProgressUnit.
     percentUnit: PERCENT_UNIT_BOOK,
-    // Client timestamp for LWW merge on server (UserDataEndpoints.cs:134) and on restore in web.
-    // Skips stale overwrites if a newer record already exists on the server.
-    updatedAt: new Date().toISOString(),
+    // When the position was RECORDED (epoch ms), not when this request leaves — the same stamp the
+    // local record carries, as web does. The server compares it only with earlier client stamps
+    // (Application.ReadingTracking.ProgressClock), never with its own clock.
+    updatedAt: new Date(data.recordedAt ?? Date.now()).toISOString(),
   }))
 }
 
@@ -66,14 +67,9 @@ export function markProgressFinished(
     locator: data.finished ? PROGRESS_LOCATOR_END : PROGRESS_LOCATOR_START,
     percent: data.finished ? 1 : 0,
     percentUnit: PERCENT_UNIT_BOOK,
-    // NO `updatedAt`, deliberately — and web's markAsRead has never sent one either.
-    //
-    // The server treats it as a last-write-wins guard: a timestamp that is not newer than the
-    // stored one makes the whole write a no-op, answered 200 with the row untouched
-    // (UserDataEndpoints.UpsertProgress). That guard is for a queued background sync, where an old
-    // queued write must not overwrite a fresh one. This is neither queued nor background: the
-    // reader just tapped "mark as finished" and the shelf has already flipped optimistically. On a
-    // device whose clock runs a minute behind the server — ordinary, and invisible to the reader —
-    // the tap did nothing and said it worked.
+    // NO `updatedAt`, deliberately — and web's markAsRead has never sent one either. A write
+    // without one always goes through: it is the reader's explicit tap, not a background sync that
+    // could be stale. (This used to also dodge a guard that compared the device clock with the
+    // server's; that guard now compares client clocks only — see ProgressClock.)
   }))
 }

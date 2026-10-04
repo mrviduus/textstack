@@ -173,9 +173,9 @@ public class ReadingSessionServiceTests
         h.Db.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
-    // ── Edition-only sessions SKIP the dedup pre-check (partial constraint) ──────────────────────
+    // ── Edition sessions dedup too: a client retry of the same session must not double-count ────
     [Fact]
-    public async Task SubmitAsync_TwoIdenticalEditionSessions_BothInserted()
+    public async Task SubmitAsync_TwoIdenticalEditionSessions_SecondIsIdempotentAck()
     {
         var h = new Harness();
         var userId = Guid.NewGuid();
@@ -190,9 +190,23 @@ public class ReadingSessionServiceTests
         Assert.NotNull(r1);
         Assert.NotNull(r2);
         Assert.NotEqual(Guid.Empty, r1.SessionId);
-        Assert.NotEqual(Guid.Empty, r2.SessionId);
-        Assert.NotEqual(r1.SessionId, r2.SessionId);
-        Assert.Equal(2, h.Sessions.Count);                     // edition-only never dedups
+        Assert.Equal(Guid.Empty, r2.SessionId);
+        Assert.Single(h.Sessions);
+    }
+
+    [Fact]
+    public async Task SubmitAsync_EditionSessionsWithDifferentStart_BothInserted()
+    {
+        var h = new Harness();
+        var userId = Guid.NewGuid();
+        var siteId = Guid.NewGuid();
+        var editionId = h.SeedEdition();
+        var started = new DateTimeOffset(2025, 3, 15, 12, 0, 0, TimeSpan.Zero);
+
+        await h.Service.SubmitAsync(userId, siteId, EditionReq(editionId, started, started.AddMinutes(5)), CancellationToken.None);
+        await h.Service.SubmitAsync(userId, siteId, EditionReq(editionId, started.AddMinutes(10), started.AddMinutes(15)), CancellationToken.None);
+
+        Assert.Equal(2, h.Sessions.Count);
     }
 
     // ── Best-effort: achievement path throws → session still saved, no rethrow, warning logged ───

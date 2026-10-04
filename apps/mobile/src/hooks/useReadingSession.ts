@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { AppState } from 'react-native'
-import { readingTrackingApi } from '@textstack/shared'
+import type { PendingSession } from '@textstack/shared'
+import { enqueuePendingSession, flushPendingSessions } from '../lib/pendingSessions'
 import type { SessionSnapshot } from '../lib/readerVisit'
 
 const HEARTBEAT_MS = 30_000
@@ -55,7 +56,7 @@ export function useReadingSession(config: SessionConfig) {
     )
 
     const now = new Date()
-    const data: Parameters<typeof readingTrackingApi.submitSession>[0] = {
+    const data: PendingSession = {
       durationSeconds: Math.min(duration, 14400),
       wordsRead,
       startPercent: startPercentRef.current,
@@ -66,7 +67,9 @@ export function useReadingSession(config: SessionConfig) {
     if (config.editionId) data.editionId = config.editionId
     if (config.userBookId) data.userBookId = config.userBookId
 
-    readingTrackingApi.submitSession(data).catch(() => {})
+    // Queued before it is sent: a failed submit (offline, 5xx) stays on disk and is retried by the
+    // next flush instead of being thrown away. The server acks a resend idempotently.
+    void enqueuePendingSession(data).then(() => flushPendingSessions()).catch(() => {})
   }, [config.isAuthenticated, config.editionId, config.userBookId, config.wordCount])
 
   const clearAutoEndTimer = useCallback(() => {
