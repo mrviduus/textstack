@@ -42,12 +42,12 @@ jobs:
           tar czf $BACKUP_DIR/storage-$BACKUP_DATE.tar.gz -C $PROJECT_DIR/data storage || [ $? -eq 1 ]
           echo "Storage backup: storage-$BACKUP_DATE.tar.gz"
 
-      - name: Cleanup old backups (keep 5 newest of each type)
+      - name: Cleanup old backups (keep 2 newest of each type — history lives in R2)
         run: |
           cd $BACKUP_DIR
-          ls -1t db-*.sql.gz 2>/dev/null | tail -n +6 | xargs -r rm -v
-          ls -1t storage-*.tar.gz 2>/dev/null | tail -n +6 | xargs -r rm -v
-          ls -1t pre-deploy-*.sql.gz 2>/dev/null | tail -n +6 | xargs -r rm -v
+          ls -1t db-*.sql.gz 2>/dev/null | tail -n +3 | xargs -r rm -v
+          ls -1t storage-*.tar.gz 2>/dev/null | tail -n +3 | xargs -r rm -v
+          ls -1t pre-deploy-*.sql.gz 2>/dev/null | tail -n +3 | xargs -r rm -v
 
       - name: Verify archive integrity
         run: |

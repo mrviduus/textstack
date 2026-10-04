@@ -55,7 +55,7 @@ jobs:
             || { echo "::error::pre-deploy dump is incomplete"; exit 1; }
           echo "Backup created: pre-deploy-$DATE.sql.gz"
           # Keep only 5 newest pre-deploy backups
-          cd ~/backups/textstack && ls -1t pre-deploy-*.sql.gz 2>/dev/null | tail -n +6 | xargs -r rm -v
+          cd ~/backups/textstack && ls -1t pre-deploy-*.sql.gz 2>/dev/null | tail -n +3 | xargs -r rm -v
 
       - name: Pull latest code
         run: |
