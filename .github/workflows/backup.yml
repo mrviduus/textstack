@@ -57,6 +57,16 @@ jobs:
           cd $PROJECT_DIR
           ./infra/scripts/backup-verify.sh $BACKUP_DIR/db-$BACKUP_DATE.sql.gz
 
+      # The nightly full SSG rebuild lives here, not in every deploy: the box is idle at this
+      # hour and the backup has finished reading the disk. Async — ssg-worker renders it
+      # (~25 min); a failed or stale rebuild shows up in /health/ready, which health-check.yml
+      # watches every 5 min. Runs even if the backup failed: the two are unrelated.
+      - name: Queue nightly SSG rebuild
+        if: always()
+        run: |
+          curl -sf -X POST http://localhost:8080/internal/ssg/rebuild-all && echo "SSG rebuild queued" \
+            || { echo "::error::could not queue the nightly SSG rebuild"; exit 1; }
+
       # Runs even when the backup failed — a full disk is the usual reason it does.
       # Failing here fires the same failure notification as a broken backup.
       - name: Disk space alarm (>= 85%)

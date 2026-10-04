@@ -8,6 +8,10 @@ on:
       rollback_commit:
         description: 'Commit SHA to rollback to (optional)'
         required: false
+      rebuild_ssg:
+        description: 'Full SSG rebuild now (otherwise it runs nightly after the backup)'
+        type: boolean
+        default: false
 
 concurrency:
   group: deploy-production
@@ -309,7 +313,13 @@ jobs:
           UNHEALTHY=$(cd $PROJECT_DIR && docker compose --profile mcp -f docker-compose.yml -f docker-compose.gpu.yml ps --format '{{.Service}} {{.Health}}' | awk '$2 == "unhealthy" {print $1}')
           [ -z "$UNHEALTHY" ] || { echo "::error::unhealthy services: $UNHEALTHY"; exit 1; }
 
+      # A full rebuild is ~25 min of Puppeteer on the prod box and held the only runner for it.
+      # Not needed per deploy: the snapshot step above keeps the old SSG tree AND the assets it
+      # references, so crawlers keep complete pages; publishing a book rebuilds that book. The
+      # full rebuild runs nightly after the backup (backup.yml). Tick `rebuild_ssg` on a manual
+      # run when a release changes how SEO pages render.
       - name: Queue SSG rebuild
+        if: inputs.rebuild_ssg
         run: |
           # Stamp the moment we asked, so the wait below can require a swap that happened
           # *after* it rather than guessing from a file's age.
@@ -366,6 +376,7 @@ jobs:
           echo "Bot map found in nginx config"
 
       - name: Wait for SSG rebuild to complete
+        if: inputs.rebuild_ssg
         run: |
           # Queue SSG rebuild step is async. Poll until the job finishes.
           # ssg-worker bind mount: ./apps/web/dist:/app/dist, so files atomic-swapped
