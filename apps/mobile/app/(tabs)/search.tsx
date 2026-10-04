@@ -291,13 +291,6 @@ export default function DiscoverScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Above the search box on purpose: searching assumes you already know
-          what you are looking for, and this screen is the first thing an
-          install shows. The card hides itself once anything has been read
-          (see StartReadingCard / decideStartReadingCard), after which this
-          screen is exactly what it is today. */}
-      {!searched && <StartReadingCard />}
-
       <View style={styles.searchBar}>
         <View style={[styles.inputWrapper, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <Ionicons name="search-outline" size={18} color={colors.textSecondary} />
@@ -365,6 +358,13 @@ export default function DiscoverScreen() {
         />
       ) : (
         <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+          {/* Inside the scroll, not fixed above the search box: on a small or
+              large-font screen the fixed card ate the whole height and left this
+              list 0px (tester report, Unihertz Titan 2, 2026-10-04). Hides itself
+              once anything has been read or the reader closes it (see
+              StartReadingCard / decideStartReadingCard). */}
+          <StartReadingCard />
+
           {/* Recent Searches */}
           {showRecent && (
             <View style={styles.recentSection}>

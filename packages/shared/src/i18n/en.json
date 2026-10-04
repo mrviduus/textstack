@@ -56,7 +56,8 @@
       "body": "Long-press any word while you read and it's translated where it stands. Save it, and it comes back for review later.",
       "cta": "Start reading",
       "meta": "“Down the Rabbit-Hole” · about 10 minutes",
-      "a11y": "Start reading Down the Rabbit-Hole, the first chapter of Alice's Adventures in Wonderland"
+      "a11y": "Start reading Down the Rabbit-Hole, the first chapter of Alice's Adventures in Wonderland",
+      "dismiss": "Hide this card"
     }
   },
   "common": {
