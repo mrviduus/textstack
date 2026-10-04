@@ -168,6 +168,29 @@ public sealed class StubBackend : IAsyncDisposable
             await WriteJsonAsync(ctx, VocabularyBody);
         });
 
+        // POST /me/vocabulary/words → 200 SaveWordResponse (outcome "srs").
+        _app.MapPost("/me/vocabulary/words", async ctx =>
+        {
+            await RecordAsync("add_vocabulary_words", ctx);
+            if (!HasBearer(ctx)) { ctx.Response.StatusCode = StatusCodes.Status401Unauthorized; return; }
+            await WriteJsonAsync(ctx, SavedWordBody);
+        });
+
+        // PATCH /me/vocabulary/words/{id} → 200 VocabWordDto.
+        _app.MapPatch("/me/vocabulary/words/{id}", async ctx =>
+        {
+            await RecordAsync("update_vocabulary_word", ctx);
+            if (!HasBearer(ctx)) { ctx.Response.StatusCode = StatusCodes.Status401Unauthorized; return; }
+            await WriteJsonAsync(ctx, """{ "id": "55555555-5555-5555-5555-555555555555", "word": "crepuscular", "translation": "сутінки" }""");
+        });
+
+        // DELETE /me/vocabulary/words/{id} → 204.
+        _app.MapDelete("/me/vocabulary/words/{id}", async ctx =>
+        {
+            await RecordAsync("delete_vocabulary_word", ctx);
+            ctx.Response.StatusCode = HasBearer(ctx) ? StatusCodes.Status204NoContent : StatusCodes.Status401Unauthorized;
+        });
+
         // POST /me/highlights → 401 if no bearer, else 201 HighlightDto.
         _app.MapPost("/me/highlights", async ctx =>
         {
@@ -487,13 +510,18 @@ public sealed class StubBackend : IAsyncDisposable
         ]
         """;
 
+    private const string SavedWordBody =
+        """
+        { "outcome": "srs", "word": { "id": "55555555-5555-5555-5555-555555555555", "word": "crepuscular", "translation": "сутінковий" } }
+        """;
+
     private const string VocabularyBody =
         """
         {
           "total": 1,
           "items": [
             {
-              "id": "1", "word": "crepuscular", "language": "en",
+              "id": "55555555-5555-5555-5555-555555555555", "word": "crepuscular", "language": "en",
               "translation": "сутінковий", "definition": "of twilight",
               "editionId": null, "chapterId": null, "userBookId": null,
               "sentence": null, "bookTitle": "Dracula", "hint": null,

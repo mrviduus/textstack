@@ -159,6 +159,36 @@ public sealed class TextStackApiClient
         return EmptyVocab;
     }
 
+    // ── vocabulary writes (Bearer) ───────────────────────────────────────────────
+    // A refusal keeps the server's reason (and status: a 429 stops a batch, a 404 names a bad id).
+
+    /// <summary><c>POST /me/vocabulary/words</c> — one word. 200 → <c>SaveWordResponse</c>.</summary>
+    public async Task<ApiResult<JsonElement>> SaveWordAsync(SaveWordJson word, CancellationToken ct)
+    {
+        using var request = await AuthorizedRequestAsync(HttpMethod.Post, "/me/vocabulary/words", ct);
+        request.Content = JsonContent.Create(word, options: JsonOptions);
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        return await ReadResultAsync(response, ct);
+    }
+
+    /// <summary><c>PATCH /me/vocabulary/words/{id}</c>. A null field is left unchanged.</summary>
+    public async Task<ApiResult<JsonElement>> UpdateWordAsync(
+        Guid id, string? translation, string? definition, CancellationToken ct)
+    {
+        using var request = await AuthorizedRequestAsync(HttpMethod.Patch, $"/me/vocabulary/words/{id}", ct);
+        request.Content = JsonContent.Create(new UpdateWordJson(translation, definition), options: JsonOptions);
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        return await ReadResultAsync(response, ct);
+    }
+
+    /// <summary><c>DELETE /me/vocabulary/words/{id}</c>. 204 → success.</summary>
+    public async Task<ApiResult<JsonElement>> DeleteWordAsync(Guid id, CancellationToken ct)
+    {
+        using var request = await AuthorizedRequestAsync(HttpMethod.Delete, $"/me/vocabulary/words/{id}", ct);
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        return await ReadResultAsync(response, ct);
+    }
+
     // ── save_highlight (Bearer, WRITE) ───────────────────────────────────────────
 
     /// <summary>
@@ -423,24 +453,33 @@ public sealed class TextStackApiClient
         return await ReadResultAsync(response, ct);
     }
 
-    // 200 → the body; 401 → McpUnauthorizedException; a structured refusal → its message plus one
-    // "path: message" line per field error; anything else → a bare status line.
+    // 200 → the body; 204 → success with no body; 401 → McpUnauthorizedException; a structured
+    // refusal → its message (or ProblemDetails `detail`, or a bare `error` code, or a JSON string body)
+    // plus one "path: message" line per field error; anything else → a bare status line.
     private static async Task<ApiResult<JsonElement>> ReadResultAsync(HttpResponseMessage response, CancellationToken ct)
     {
         if (response.StatusCode is HttpStatusCode.Unauthorized)
             throw new McpUnauthorizedException();
 
         if (response.StatusCode is HttpStatusCode.OK)
-            return new(await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions, ct), null);
+            return new(await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions, ct), null, response.StatusCode);
+
+        if (response.StatusCode is HttpStatusCode.NoContent)
+            return new(default, null, response.StatusCode);
 
         var body = await response.Content.ReadAsStringAsync(ct);
         try
         {
-            var err = JsonSerializer.Deserialize<ReviewErrorJson>(body, JsonOptions);
-            if (err?.Message is { Length: > 0 } message)
+            if (body.TrimStart().StartsWith('"'))
+            {
+                if (JsonSerializer.Deserialize<string>(body) is { Length: > 0 } text)
+                    return new(default, text, response.StatusCode);
+            }
+            else if (JsonSerializer.Deserialize<ReviewErrorJson>(body, JsonOptions) is { } err
+                     && (err.Message ?? err.Detail ?? err.Error) is { Length: > 0 } message)
             {
                 var lines = (err.Errors ?? []).Select(e => $"{e.Path}: {e.Message}");
-                return new(default, string.Join("\n", lines.Prepend(message)));
+                return new(default, string.Join("\n", lines.Prepend(message)), response.StatusCode);
             }
         }
         catch (JsonException)
@@ -448,7 +487,7 @@ public sealed class TextStackApiClient
             // Not our error shape (a proxy page, an empty body) — fall through to the status line.
         }
 
-        return new(default, $"upstream answered {(int)response.StatusCode}");
+        return new(default, $"upstream answered {(int)response.StatusCode}", response.StatusCode);
     }
 
     // ── reading state (Bearer) ───────────────────────────────────────────────────
@@ -727,6 +766,7 @@ public sealed record CreateHighlightJson(
 public sealed record VocabularyPageJson(int Total, IReadOnlyList<VocabWordJson> Items);
 
 public sealed record VocabWordJson(
+    Guid Id,
     string Word,
     string Language,
     string? Translation,
@@ -734,6 +774,21 @@ public sealed record VocabWordJson(
     int Stage,
     string? BookTitle,
     DateTimeOffset NextReviewAt);
+
+// POST /me/vocabulary/words → SaveWordRequest. No NativeLanguage: the server falls back to the
+// profile's, and nulls are dropped on the wire.
+public sealed record SaveWordJson(
+    string Word,
+    string Language,
+    string? Translation,
+    string? Definition,
+    Guid? EditionId,
+    Guid? UserBookId,
+    string? Sentence,
+    string? BookTitle);
+
+// PATCH /me/vocabulary/words/{id} → UpdateWordRequest.
+public sealed record UpdateWordJson(string? Translation, string? Definition);
 
 // ── my-library DTOs (uploads). Mirror Contracts.UserBooks.*; deliberately a
 //    separate family from the catalog's Book*/Chapter* records above, because
@@ -821,7 +876,7 @@ public sealed record SaveInsightJson(
     string? Question);
 
 /// <summary>A call that either produced a value or a message worth showing the model.</summary>
-public sealed record ApiResult<T>(T? Value, string? Error);
+public sealed record ApiResult<T>(T? Value, string? Error, HttpStatusCode? Status = null);
 
 // PUT /me/chapter-review request → SaveChapterReviewRequest.
 public sealed record SaveChapterReviewJson(
@@ -831,7 +886,7 @@ public sealed record SaveChapterReviewJson(
     JsonElement Review);
 
 // Every non-2xx from the chapter-review routes → ReviewErrorDto.
-public sealed record ReviewErrorJson(string? Error, string? Message, List<ReviewFieldErrorJson>? Errors);
+public sealed record ReviewErrorJson(string? Error, string? Message, List<ReviewFieldErrorJson>? Errors, string? Detail = null);
 
 public sealed record ReviewFieldErrorJson(string Path, string Code, string Message);
 

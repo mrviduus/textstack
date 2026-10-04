@@ -5,7 +5,7 @@ library to Claude Desktop, Cursor, or any [Model Context Protocol](https://model
 client. Search and read your books, and manage your highlights and
 vocabulary straight from your AI assistant.
 
-It exposes **18 tools**:
+It exposes **21 tools**:
 
 | Tool | What it does |
 |------|--------------|
@@ -21,7 +21,10 @@ It exposes **18 tools**:
 | `get_my_insights` | Read back everything already worked out about a book (requires sign-in) |
 | `list_my_highlights` | List your saved highlights (requires sign-in) |
 | `save_highlight` | Save a passage to your highlights (requires sign-in) |
-| `list_my_vocabulary` | List your saved vocabulary words (requires sign-in) |
+| `list_my_vocabulary` | List your saved vocabulary words, with their ids (requires sign-in) |
+| `add_vocabulary_words` | Save up to 20 words with translations to your vocabulary (requires sign-in) |
+| `update_vocabulary_word` | Fix a saved word's translation or definition (requires sign-in) |
+| `delete_vocabulary_word` | Remove one word from your vocabulary (requires sign-in) |
 | `get_my_reading` | What you are reading now and every upload — no arguments (requires sign-in) |
 | `get_book_progress` | How far you have got in one book (requires sign-in) |
 | `set_book_progress` | Record a chapter you finished, here or elsewhere (requires sign-in) |

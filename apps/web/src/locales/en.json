@@ -275,7 +275,7 @@
     "title": "{{client}} wants to connect to your TextStack library",
     "canLabel": "It will be able to:",
     "canRead": "read your books, highlights, saved words and notes",
-    "canWrite": "save highlights, chapter reviews and reading progress",
+    "canWrite": "save highlights, vocabulary words, chapter reviews and reading progress",
     "cannot": "It will NOT be able to change your account or password.",
     "signedInAs": "Signed in as {{email}}",
     "switch": "switch",
@@ -374,7 +374,7 @@
       "toolInstallLabel": "terminal"
     },
     "tools": {
-      "heading": "The 18 tools",
+      "heading": "The 21 tools",
       "lead": "What your AI assistant can do once connected:",
       "searchBooks": "Search the public book catalog by query.",
       "getBook": "Fetch a book's metadata and chapter list by slug.",
@@ -387,6 +387,9 @@
       "listMyHighlights": "List your saved highlights (requires sign-in).",
       "saveHighlight": "Save a passage to your highlights (requires sign-in).",
       "listMyVocabulary": "List your saved vocabulary words (requires sign-in).",
+      "addVocabularyWords": "Save up to 20 words with their translations to your vocabulary (requires sign-in).",
+      "updateVocabularyWord": "Fix the translation or definition of a saved word (requires sign-in).",
+      "deleteVocabularyWord": "Remove a word from your vocabulary (requires sign-in).",
       "saveInsight": "Write a conclusion back into a book — against one chapter, or the whole book (requires sign-in).",
       "getMyInsights": "Read back everything already worked out about a book, in reading order (requires sign-in).",
       "getMyReading": "List the books you are reading and where you are in each (requires sign-in).",

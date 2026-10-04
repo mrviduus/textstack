@@ -84,7 +84,7 @@ public class McpReadToolsTests
         var names = catalog.ListTools().Select(t => t.Name).OrderBy(n => n).ToArray();
 
         Assert.Equal(
-            ["get_book", "get_book_progress", "get_chapter", "get_chapter_review", "get_my_book", "get_my_chapter", "get_my_insights", "get_my_reading", "list_my_book_highlights", "list_my_highlights", "list_my_vocabulary", "save_chapter_review", "save_highlight", "save_insight", "save_my_highlight", "search_books", "search_my_library", "set_book_progress"],
+            ["add_vocabulary_words", "delete_vocabulary_word", "get_book", "get_book_progress", "get_chapter", "get_chapter_review", "get_my_book", "get_my_chapter", "get_my_insights", "get_my_reading", "list_my_book_highlights", "list_my_highlights", "list_my_vocabulary", "save_chapter_review", "save_highlight", "save_insight", "save_my_highlight", "search_books", "search_my_library", "set_book_progress", "update_vocabulary_word"],
             names);
     }
 
@@ -359,7 +359,7 @@ public class McpReadToolsTests
               "total": 1,
               "items": [
                 {
-                  "id": "1", "word": "ephemeral", "language": "en",
+                  "id": "11111111-1111-1111-1111-111111111111", "word": "ephemeral", "language": "en",
                   "translation": "minulé", "definition": "short-lived",
                   "editionId": null, "chapterId": null, "userBookId": null,
                   "sentence": null, "bookTitle": "Alice", "hint": null,

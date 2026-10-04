@@ -38,6 +38,9 @@ public sealed class McpToolCatalog
             BuildGetMyChapter(api),
             BuildListMyHighlights(api),
             BuildListMyVocabulary(api),
+            BuildAddVocabularyWords(api),
+            BuildUpdateVocabularyWord(api),
+            BuildDeleteVocabularyWord(api),
             BuildSaveHighlight(api),
             BuildSaveMyHighlight(api),
             BuildListMyBookHighlights(api),
@@ -545,6 +548,8 @@ public sealed class McpToolCatalog
                 var page = await api.GetVocabularyAsync(stage, search, limit, offset, ct);
                 var items = page.Items.Select(w => new
                 {
+                    // What update_vocabulary_word / delete_vocabulary_word take.
+                    id = w.Id,
                     word = w.Word,
                     language = w.Language,
                     translation = w.Translation,
@@ -554,6 +559,273 @@ public sealed class McpToolCatalog
                     nextReviewAt = w.NextReviewAt,
                 });
                 return Text(JsonSerializer.Serialize(new { total = page.Total, items }));
+            });
+        },
+    };
+
+    // ── vocabulary writes: add_vocabulary_words / update_vocabulary_word / delete_vocabulary_word ──
+    // Each is the app's own endpoint; the server decides the bucket (SRS, pending, lookup) exactly as
+    // for a tap in the reader, and each outcome is relayed in fixed words the model can act on.
+
+    private const int MaxWordsPerBatch = 20;
+
+    private static readonly JsonElement AddVocabularyWordsSchema = JsonDocument.Parse(
+        """
+        {
+          "type": "object",
+          "properties": {
+            "words": {
+              "type": "array", "minItems": 1, "maxItems": 20,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["word", "language"],
+                "properties": {
+                  "word": { "type": "string", "minLength": 1, "maxLength": 200 },
+                  "language": { "type": "string", "minLength": 2, "maxLength": 8 },
+                  "translation": { "type": "string", "maxLength": 500 },
+                  "definition": { "type": "string", "maxLength": 1000 },
+                  "sentence": { "type": "string", "maxLength": 1000 }
+                }
+              }
+            },
+            "bookId": { "type": "string", "format": "uuid" },
+            "editionId": { "type": "string", "format": "uuid" },
+            "bookTitle": { "type": "string", "maxLength": 300 }
+          },
+          "required": ["words"],
+          "additionalProperties": false
+        }
+        """).RootElement;
+
+    // Nulls dropped so each result line carries only what applies to its outcome. (Not built from
+    // UnescapedJson: that field is declared further down, so it is still null when this one runs.)
+    private static readonly JsonSerializerOptions WordResultJson = new()
+    {
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+    };
+
+    private static McpToolDescriptor BuildAddVocabularyWords(TextStackApiClient api) => new()
+    {
+        Name = "add_vocabulary_words",
+        Title = "Add words to my vocabulary",
+        ReadOnly = false,
+        Destructive = false,
+        Idempotent = true,
+        Description = global::Contracts.Mcp.McpManifestCatalog.Describe("add_vocabulary_words"),
+        InputSchema = AddVocabularyWordsSchema,
+        Handler = (args, ct) =>
+        {
+            if (!ArgReader.TryObject(args, out var obj, out var err, "words", "bookId", "editionId", "bookTitle")
+                || !ArgReader.TryOptionalGuid(obj, "bookId", out var bookId, out err)
+                || !ArgReader.TryOptionalGuid(obj, "editionId", out var editionId, out err)
+                || !ArgReader.TryOptionalString(obj, "bookTitle", 300, out var bookTitle, out err)
+                || !TryReadWords(obj, bookId, editionId, bookTitle, out var words, out err))
+                return Task.FromResult(Error(err));
+
+            if (bookId.HasValue && editionId.HasValue)
+                return Task.FromResult(Error(
+                    "Pass either 'bookId' (an uploaded book) or 'editionId' (a catalog book), not both."));
+
+            return InvokeAsync("add_vocabulary_words", ct, async () =>
+            {
+                var results = new List<WordResult>(words.Count);
+                for (var i = 0; i < words.Count; i++)
+                {
+                    var result = await api.SaveWordAsync(words[i], ct);
+                    // Both refusals are about the user, not the word: every later word would get the same answer.
+                    var stop = result.Status is System.Net.HttpStatusCode.TooManyRequests
+                        ? new WordResult(words[i].Word, "stopped",
+                            Message: "stopped: vocabulary full (5000) or adding too fast; tell the user")
+                        : result.Error == "native_language_required" ? ToWordResult(words[i].Word, result) : null;
+                    if (stop is not null)
+                    {
+                        results.Add(stop);
+                        results.AddRange(words.Skip(i + 1).Select(w =>
+                            new WordResult(w.Word, "not_attempted", Message: "not attempted; the batch stopped")));
+                        break;
+                    }
+                    results.Add(ToWordResult(words[i].Word, result));
+                }
+                return Text(JsonSerializer.Serialize(new { results }, WordResultJson));
+            });
+        },
+    };
+
+    private sealed record WordResult(string Word, string Status, Guid? Id = null, string? Translation = null, string? Message = null);
+
+    private static WordResult ToWordResult(string word, ApiResult<JsonElement> result)
+    {
+        if (result.Error is { } e)
+            return e == "native_language_required"
+                ? new(word, "refused", Message: "the user must set a native language in TextStack settings")
+                : new(word, "refused", Message: e);
+
+        var body = result.Value;
+        var outcome = body.TryGetProperty("outcome", out var o) ? o.GetString() ?? "" : "";
+        Guid? id = null;
+        string? translation = null;
+        if (body.TryGetProperty("word", out var w) && w.ValueKind == JsonValueKind.Object)
+        {
+            if (w.TryGetProperty("id", out var idEl) && idEl.TryGetGuid(out var g)) id = g;
+            if (w.TryGetProperty("translation", out var t) && t.ValueKind == JsonValueKind.String) translation = t.GetString();
+        }
+
+        return outcome switch
+        {
+            "srs" => new(word, outcome, id, translation, "added; first review today"),
+            "already_saved" => new(word, outcome, id, translation,
+                $"already in vocabulary (current translation {translation ?? "none"}); use update_vocabulary_word"),
+            "pending" => new(word, outcome, Message: "queued; activates tomorrow; can't be edited until then"),
+            "lookup" or "lookup_pending" => new(word, outcome,
+                Message: "kept as reference only; the user's rare-word filter is on"),
+            _ => new(word, outcome, Message: outcome),
+        };
+    }
+
+    // The words array, checked item by item before any HTTP call: one bad item refuses the whole
+    // batch, so the model fixes it and resends rather than half a batch landing.
+    private static bool TryReadWords(
+        JsonElement obj, Guid? bookId, Guid? editionId, string? bookTitle,
+        out List<SaveWordJson> words, out string error)
+    {
+        words = [];
+        error = "";
+        if (!obj.TryGetProperty("words", out var arr) || arr.ValueKind != JsonValueKind.Array)
+        {
+            error = "'words' is required and must be an array.";
+            return false;
+        }
+
+        var count = arr.GetArrayLength();
+        if (count < 1 || count > MaxWordsPerBatch)
+        {
+            error = $"'words' must hold between 1 and {MaxWordsPerBatch} items.";
+            return false;
+        }
+
+        var i = 0;
+        foreach (var item in arr.EnumerateArray())
+        {
+            if (!ArgReader.TryObject(item, out var w, out error, "word", "language", "translation", "definition", "sentence")
+                || !ArgReader.TryRequiredString(w, "word", 1, 200, out var word, out error)
+                || !ArgReader.TryRequiredString(w, "language", 2, 8, out var language, out error)
+                || !ArgReader.TryOptionalString(w, "translation", 500, out var translation, out error)
+                || !ArgReader.TryOptionalString(w, "definition", 1000, out var definition, out error)
+                || !ArgReader.TryOptionalString(w, "sentence", 1000, out var sentence, out error))
+            {
+                error = $"words[{i}]: {error}";
+                return false;
+            }
+
+            // The review card needs a prompt; nothing fills one in after save since the dictionary went (#685).
+            if (string.IsNullOrWhiteSpace(translation) && string.IsNullOrWhiteSpace(definition))
+            {
+                error = $"words[{i}]: needs a translation (reader's native language) or a definition (when it is the same language as the word).";
+                return false;
+            }
+
+            words.Add(new SaveWordJson(word, language, translation, definition, editionId, bookId, sentence, bookTitle));
+            i++;
+        }
+
+        return true;
+    }
+
+    private static readonly JsonElement UpdateVocabularyWordSchema = JsonDocument.Parse(
+        """
+        {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string", "format": "uuid" },
+            "translation": { "type": "string", "minLength": 1, "maxLength": 500 },
+            "definition": { "type": "string", "maxLength": 1000 }
+          },
+          "required": ["id"],
+          "additionalProperties": false
+        }
+        """).RootElement;
+
+    private static McpToolDescriptor BuildUpdateVocabularyWord(TextStackApiClient api) => new()
+    {
+        Name = "update_vocabulary_word",
+        Title = "Edit a vocabulary word",
+        ReadOnly = false,
+        Destructive = true,
+        Idempotent = true,
+        Description = global::Contracts.Mcp.McpManifestCatalog.Describe("update_vocabulary_word"),
+        InputSchema = UpdateVocabularyWordSchema,
+        Handler = (args, ct) =>
+        {
+            if (!ArgReader.TryObject(args, out var obj, out var err, "id", "translation", "definition")
+                || !ArgReader.TryRequiredGuid(obj, "id", out var id, out err)
+                || !ArgReader.TryOptionalString(obj, "translation", 500, out var translation, out err)
+                || !ArgReader.TryOptionalString(obj, "definition", 1000, out var definition, out err))
+                return Task.FromResult(Error(err));
+
+            if (translation is null && definition is null)
+                return Task.FromResult(Error("Pass at least one of 'translation' or 'definition'."));
+            if (translation is { Length: 0 })
+                return Task.FromResult(Error("'translation' must not be empty."));
+
+            return InvokeAsync("update_vocabulary_word", ct, async () =>
+            {
+                var result = await api.UpdateWordAsync(id, translation, definition, ct);
+                if (result.Status is System.Net.HttpStatusCode.NotFound)
+                    return Error("update_vocabulary_word: no such word; get ids from list_my_vocabulary");
+                if (result.Error is { } e)
+                    return Error($"update_vocabulary_word refused: {e}");
+
+                var w = result.Value;
+                return Text(JsonSerializer.Serialize(new
+                {
+                    id,
+                    word = w.TryGetProperty("word", out var word) ? word.GetString() : null,
+                    translation = w.TryGetProperty("translation", out var t) ? t.GetString() : null,
+                    definition = w.TryGetProperty("definition", out var d) ? d.GetString() : null,
+                    updated = true,
+                }, UnescapedJson));
+            });
+        },
+    };
+
+    private static readonly JsonElement DeleteVocabularyWordSchema = JsonDocument.Parse(
+        """
+        {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string", "format": "uuid" }
+          },
+          "required": ["id"],
+          "additionalProperties": false
+        }
+        """).RootElement;
+
+    private static McpToolDescriptor BuildDeleteVocabularyWord(TextStackApiClient api) => new()
+    {
+        Name = "delete_vocabulary_word",
+        Title = "Delete a vocabulary word",
+        ReadOnly = false,
+        Destructive = true,
+        Idempotent = true,
+        Description = global::Contracts.Mcp.McpManifestCatalog.Describe("delete_vocabulary_word"),
+        InputSchema = DeleteVocabularyWordSchema,
+        Handler = (args, ct) =>
+        {
+            if (!ArgReader.TryObject(args, out var obj, out var err, "id")
+                || !ArgReader.TryRequiredGuid(obj, "id", out var id, out err))
+                return Task.FromResult(Error(err));
+
+            return InvokeAsync("delete_vocabulary_word", ct, async () =>
+            {
+                var result = await api.DeleteWordAsync(id, ct);
+                if (result.Status is System.Net.HttpStatusCode.NotFound)
+                    return Error("delete_vocabulary_word: no such word; get ids from list_my_vocabulary");
+                return result.Error is { } e
+                    ? Error($"delete_vocabulary_word refused: {e}")
+                    : Text(JsonSerializer.Serialize(new { id, deleted = true }));
             });
         },
     };
