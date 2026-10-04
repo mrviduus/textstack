@@ -117,6 +117,21 @@ public class McpVocabularyWriteToolsTests
     }
 
     [Fact]
+    public async Task AddVocabularyWords_DefinitionOnly_IsSavedWithoutTranslation()
+    {
+        var (catalog, handler) = Build(Srs("ephemeral"));
+
+        var result = await catalog.CallAsync("add_vocabulary_words",
+            Args("""{ "words": [{ "word": "ephemeral", "language": "en", "definition": "lasting a very short time" }] }"""),
+            CancellationToken.None);
+
+        Assert.Equal("srs", Results(result)[0].GetProperty("status").GetString());
+        var body = JsonDocument.Parse(handler.Requests.Single().Body!).RootElement;
+        Assert.Equal("lasting a very short time", body.GetProperty("definition").GetString());
+        Assert.False(body.TryGetProperty("translation", out var t) && t.ValueKind == JsonValueKind.String);
+    }
+
+    [Fact]
     public async Task AddVocabularyWords_429_StopsBatch()
     {
         var (catalog, handler) = Build(
@@ -137,7 +152,7 @@ public class McpVocabularyWriteToolsTests
 
     [Theory]
     [InlineData("""{ "words": [] }""")]
-    [InlineData("""{ "words": [{ "word": "a", "language": "en" }] }""")] // no translation
+    [InlineData("""{ "words": [{ "word": "a", "language": "en" }] }""")] // neither translation nor definition
     [InlineData("""{ "words": [{ "word": "a", "language": "en", "translation": "" }] }""")]
     [InlineData("""{ "words": [{ "word": "a", "language": "e", "translation": "t" }] }""")] // language too short
     [InlineData("""{ "words": [{ "word": "a", "language": "en", "translation": "t", "extra": 1 }] }""")]

@@ -780,7 +780,7 @@ public sealed record VocabWordJson(
 public sealed record SaveWordJson(
     string Word,
     string Language,
-    string Translation,
+    string? Translation,
     string? Definition,
     Guid? EditionId,
     Guid? UserBookId,

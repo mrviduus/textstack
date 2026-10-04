@@ -35,7 +35,7 @@ uploads.
 | `get_my_insights` | Read back everything already worked out about a book, in reading order. | User |
 | `list_my_highlights` | List your highlights for a given edition. | User |
 | `list_my_vocabulary` | List your saved vocabulary words, optionally filtered by SRS stage or search. Each carries its `id`. | User |
-| `add_vocabulary_words` | Save up to 20 words (word, language, native-language translation, optional definition + sentence), optionally linked to a `bookId` or `editionId`. One result line per word (added / already saved / queued / reference only); a refused word does not stop the batch, a 429 does. Rows are tagged `source = mcp` server-side. | User |
+| `add_vocabulary_words` | Save up to 20 words (word, language, a native-language translation or — same language — a short definition, optional sentence), optionally linked to a `bookId` or `editionId`. One result line per word (added / already saved / queued / reference only); a refused word does not stop the batch, a 429 does. Rows are tagged `source = mcp` server-side. | User |
 | `update_vocabulary_word` | Change a saved word's translation and/or definition by `id`. | User |
 | `delete_vocabulary_word` | Delete one saved word by `id`. No bulk delete — and `DELETE /me/vocabulary/words` (wipe all) refuses OAuth tokens. | User |
 | `save_highlight` | Save a passage (text + optional color/note) to your highlights for a catalog book chapter. | User |

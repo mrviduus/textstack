@@ -579,11 +579,11 @@ public sealed class McpToolCatalog
               "items": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["word", "language", "translation"],
+                "required": ["word", "language"],
                 "properties": {
                   "word": { "type": "string", "minLength": 1, "maxLength": 200 },
                   "language": { "type": "string", "minLength": 2, "maxLength": 8 },
-                  "translation": { "type": "string", "minLength": 1, "maxLength": 500 },
+                  "translation": { "type": "string", "maxLength": 500 },
                   "definition": { "type": "string", "maxLength": 1000 },
                   "sentence": { "type": "string", "maxLength": 1000 }
                 }
@@ -712,11 +712,18 @@ public sealed class McpToolCatalog
             if (!ArgReader.TryObject(item, out var w, out error, "word", "language", "translation", "definition", "sentence")
                 || !ArgReader.TryRequiredString(w, "word", 1, 200, out var word, out error)
                 || !ArgReader.TryRequiredString(w, "language", 2, 8, out var language, out error)
-                || !ArgReader.TryRequiredString(w, "translation", 1, 500, out var translation, out error)
+                || !ArgReader.TryOptionalString(w, "translation", 500, out var translation, out error)
                 || !ArgReader.TryOptionalString(w, "definition", 1000, out var definition, out error)
                 || !ArgReader.TryOptionalString(w, "sentence", 1000, out var sentence, out error))
             {
                 error = $"words[{i}]: {error}";
+                return false;
+            }
+
+            // The review card needs a prompt; nothing fills one in after save since the dictionary went (#685).
+            if (string.IsNullOrWhiteSpace(translation) && string.IsNullOrWhiteSpace(definition))
+            {
+                error = $"words[{i}]: needs a translation (reader's native language) or a definition (when it is the same language as the word).";
                 return false;
             }
 
