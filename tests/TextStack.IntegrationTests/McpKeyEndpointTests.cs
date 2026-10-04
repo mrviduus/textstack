@@ -50,8 +50,11 @@ public class McpKeyEndpointTests : IClassFixture<LiveApiFixture>
         // The clear-text head is stored for display and must genuinely be a prefix of the secret.
         Assert.StartsWith(created.GetProperty("prefix").GetString()!, rawKey, StringComparison.Ordinal);
 
-        // --- it authenticates, and it is never echoed back -----------------------------------
-        var listed = await ListKeysAsync(rawKey!, ct);
+        // --- it authenticates (on the library — account routes refuse it, see below) ---------
+        Assert.Equal(HttpStatusCode.OK, await StatusAsync(HttpMethod.Get, "/me/books", rawKey!, ct));
+
+        // --- and it is never echoed back ---------------------------------------------------
+        var listed = await ListKeysAsync(owner!, ct);
         Assert.Contains(listed.EnumerateArray(), k => k.GetProperty("id").GetString() == keyId);
         // The SECRET is never echoed back. Not "no tsk_ anywhere" — the display prefix legitimately
         // starts with it, which is the point of having a prefix at all.
@@ -72,10 +75,47 @@ public class McpKeyEndpointTests : IClassFixture<LiveApiFixture>
         var revokeResp = await _fixture.Client.SendAsync(revokeReq, ct);
         Assert.Equal(HttpStatusCode.NoContent, revokeResp.StatusCode);
 
-        var afterReq = _fixture.CreateRequest(HttpMethod.Get, "/me/mcp/keys");
-        afterReq.Headers.TryAddWithoutValidation("Authorization", $"Bearer {rawKey}");
-        var afterResp = await _fixture.Client.SendAsync(afterReq, ct);
-        Assert.Equal(HttpStatusCode.Unauthorized, afterResp.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, await StatusAsync(HttpMethod.Get, "/me/books", rawKey!, ct));
+    }
+
+    [Fact]
+    public async Task ConnectKey_AccountManagement_403_LibraryAllowed()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        var owner = await SignUpAsync(ct);
+        Assert.SkipWhen(owner is null, "registration unavailable");
+
+        var createReq = _fixture.CreateRequest(HttpMethod.Post, "/me/mcp/keys");
+        createReq.Headers.TryAddWithoutValidation("Authorization", $"Bearer {owner}");
+        createReq.Content = JsonContent.Create(new { name = "Scope probe" });
+        var createResp = await _fixture.Client.SendAsync(createReq, ct);
+        Assert.SkipWhen(IntegrationSkip.Unavailable(createResp), "/me/mcp/keys unavailable");
+        var key = (await createResp.Content.ReadFromJsonAsync<JsonElement>(ct)).GetProperty("key").GetString()!;
+
+        // Same list as the OAuth-token test: a connect key is an assistant credential too.
+        foreach (var (method, path) in new[]
+        {
+            (HttpMethod.Delete, "/me/account"),
+            (HttpMethod.Get, "/me/mcp/keys"),
+            (HttpMethod.Get, "/me/oauth/grants"),
+            (HttpMethod.Get, "/me/profile"),
+            (HttpMethod.Get, "/auth/me"),
+            (HttpMethod.Delete, "/me/vocabulary/words"),
+        })
+        {
+            Assert.Equal(HttpStatusCode.Forbidden, await StatusAsync(method, path, key, ct));
+        }
+
+        Assert.Equal(HttpStatusCode.OK, await StatusAsync(HttpMethod.Get, "/me/books", key, ct));
+        Assert.Equal(HttpStatusCode.OK, await StatusAsync(HttpMethod.Get, "/me/library/shelves", key, ct));
+    }
+
+    private async Task<HttpStatusCode> StatusAsync(HttpMethod method, string path, string bearer, CancellationToken ct)
+    {
+        var req = _fixture.CreateRequest(method, path);
+        req.Headers.TryAddWithoutValidation("Authorization", $"Bearer {bearer}");
+        return (await _fixture.Client.SendAsync(req, ct)).StatusCode;
     }
 
     [Fact]

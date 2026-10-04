@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Sockets;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Configuration;
@@ -41,7 +43,7 @@ public static partial class ServiceCollectionExtensions
             // the collateral.
             options.AddPolicy("admin-login", httpContext =>
             {
-                var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                var ip = IpPartitionKey(httpContext.Connection.RemoteIpAddress) ?? "unknown";
                 return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
                 {
                     Window = TimeSpan.FromMinutes(1),
@@ -57,7 +59,7 @@ public static partial class ServiceCollectionExtensions
             var userLoginPermitLimit = rateLimits.EffectiveUserLoginPermitLimit;
             options.AddPolicy("user-login", httpContext =>
             {
-                var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                var ip = IpPartitionKey(httpContext.Connection.RemoteIpAddress) ?? "unknown";
                 return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
                 {
                     Window = TimeSpan.FromMinutes(1),
@@ -69,7 +71,7 @@ public static partial class ServiceCollectionExtensions
             // device-code: CLI requests a device_code; one per CLI session, 5/min is ample.
             options.AddPolicy("device-code", httpContext =>
             {
-                var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                var ip = IpPartitionKey(httpContext.Connection.RemoteIpAddress) ?? "unknown";
                 return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
                 {
                     Window = TimeSpan.FromMinutes(1),
@@ -81,7 +83,7 @@ public static partial class ServiceCollectionExtensions
             // honest polling with headroom and still caps scripted abuse.
             options.AddPolicy("device-token", httpContext =>
             {
-                var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                var ip = IpPartitionKey(httpContext.Connection.RemoteIpAddress) ?? "unknown";
                 return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
                 {
                     Window = TimeSpan.FromMinutes(1),
@@ -92,7 +94,7 @@ public static partial class ServiceCollectionExtensions
             // device-approve: authed consent action; one submit per CLI session. 10/min per IP.
             options.AddPolicy("device-approve", httpContext =>
             {
-                var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                var ip = IpPartitionKey(httpContext.Connection.RemoteIpAddress) ?? "unknown";
                 return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
                 {
                     Window = TimeSpan.FromMinutes(1),
@@ -112,7 +114,7 @@ public static partial class ServiceCollectionExtensions
             var guestSessionPermitLimit = rateLimits.EffectiveGuestSessionPermitLimit;
             options.AddPolicy("guest-session", httpContext =>
             {
-                var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                var ip = IpPartitionKey(httpContext.Connection.RemoteIpAddress) ?? "unknown";
                 return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
                 {
                     Window = TimeSpan.FromMinutes(5),
@@ -129,7 +131,7 @@ public static partial class ServiceCollectionExtensions
             var clipPermitLimit = rateLimits.EffectiveClipPermitLimit;
             options.AddPolicy("clip", httpContext =>
             {
-                var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                var ip = IpPartitionKey(httpContext.Connection.RemoteIpAddress) ?? "unknown";
                 return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
                 {
                     Window = TimeSpan.FromMinutes(1),
@@ -155,7 +157,7 @@ public static partial class ServiceCollectionExtensions
                 // Pure JWT validation, no database call — safe on the limiter's hot path. Falls back
                 // to the IP when there is no usable token; the endpoint answers 401 anyway.
                 var key = httpContext.GetUserId(auth)?.ToString()
-                    ?? httpContext.Connection.RemoteIpAddress?.ToString()
+                    ?? IpPartitionKey(httpContext.Connection.RemoteIpAddress)
                     ?? "unknown";
                 return RateLimitPartition.GetFixedWindowLimiter(key, _ => new FixedWindowRateLimiterOptions
                 {
@@ -177,7 +179,7 @@ public static partial class ServiceCollectionExtensions
             {
                 var auth = httpContext.RequestServices.GetRequiredService<Application.Auth.AuthService>();
                 var key = httpContext.GetUserId(auth)?.ToString()
-                    ?? httpContext.Connection.RemoteIpAddress?.ToString()
+                    ?? IpPartitionKey(httpContext.Connection.RemoteIpAddress)
                     ?? "unknown";
                 return RateLimitPartition.GetFixedWindowLimiter(key, _ => new FixedWindowRateLimiterOptions
                 {
@@ -196,7 +198,7 @@ public static partial class ServiceCollectionExtensions
             // ponytail: fixed per-IP ceilings; make them RateLimits knobs if a platform nears 120/min.
             options.AddPolicy("oauth-browser", httpContext =>
             {
-                var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                var ip = IpPartitionKey(httpContext.Connection.RemoteIpAddress) ?? "unknown";
                 return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
                 {
                     Window = TimeSpan.FromMinutes(1),
@@ -206,7 +208,7 @@ public static partial class ServiceCollectionExtensions
             });
             options.AddPolicy("oauth-server", httpContext =>
             {
-                var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                var ip = IpPartitionKey(httpContext.Connection.RemoteIpAddress) ?? "unknown";
                 return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
                 {
                     Window = TimeSpan.FromMinutes(1),
@@ -216,7 +218,7 @@ public static partial class ServiceCollectionExtensions
             });
             options.AddPolicy("mcp-keys", httpContext =>
             {
-                var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                var ip = IpPartitionKey(httpContext.Connection.RemoteIpAddress) ?? "unknown";
                 return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
                 {
                     Window = TimeSpan.FromMinutes(5),
@@ -228,7 +230,7 @@ public static partial class ServiceCollectionExtensions
             // (file ingestion) so the same conservative bucket applies.
             options.AddPolicy("user-upload", httpContext =>
             {
-                var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                var ip = IpPartitionKey(httpContext.Connection.RemoteIpAddress) ?? "unknown";
                 return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
                 {
                     Window = TimeSpan.FromMinutes(1),
@@ -242,7 +244,7 @@ public static partial class ServiceCollectionExtensions
             // the way of a human re-running enrichment on a handful of books.
             options.AddPolicy("enrich", httpContext =>
             {
-                var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                var ip = IpPartitionKey(httpContext.Connection.RemoteIpAddress) ?? "unknown";
                 return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
                 {
                     Window = TimeSpan.FromMinutes(1),
@@ -257,7 +259,7 @@ public static partial class ServiceCollectionExtensions
             // primarily protects synthesis (uncached) throughput.
             options.AddPolicy("tts", httpContext =>
             {
-                var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                var ip = IpPartitionKey(httpContext.Connection.RemoteIpAddress) ?? "unknown";
                 return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
                 {
                     Window = TimeSpan.FromMinutes(1),
@@ -271,7 +273,7 @@ public static partial class ServiceCollectionExtensions
             // still open the voice picker.
             options.AddPolicy("tts-voices", httpContext =>
             {
-                var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                var ip = IpPartitionKey(httpContext.Connection.RemoteIpAddress) ?? "unknown";
                 return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
                 {
                     Window = TimeSpan.FromMinutes(1),
@@ -285,7 +287,7 @@ public static partial class ServiceCollectionExtensions
             // translation service.
             options.AddPolicy("translate", httpContext =>
             {
-                var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                var ip = IpPartitionKey(httpContext.Connection.RemoteIpAddress) ?? "unknown";
                 return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
                 {
                     Window = TimeSpan.FromMinutes(1),
@@ -298,7 +300,7 @@ public static partial class ServiceCollectionExtensions
             // active reading; anything higher smells like scripting.
             options.AddPolicy("explain", httpContext =>
             {
-                var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                var ip = IpPartitionKey(httpContext.Connection.RemoteIpAddress) ?? "unknown";
                 return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
                 {
                     Window = TimeSpan.FromMinutes(1),
@@ -310,7 +312,7 @@ public static partial class ServiceCollectionExtensions
             // cap.
             options.AddPolicy("tutor", httpContext =>
             {
-                var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                var ip = IpPartitionKey(httpContext.Connection.RemoteIpAddress) ?? "unknown";
                 return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
                 {
                     Window = TimeSpan.FromMinutes(1),
@@ -322,7 +324,7 @@ public static partial class ServiceCollectionExtensions
             // It sits behind admin auth too, this is just runaway protection.
             options.AddPolicy("autopublish.crew", httpContext =>
             {
-                var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                var ip = IpPartitionKey(httpContext.Connection.RemoteIpAddress) ?? "unknown";
                 return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
                 {
                     Window = TimeSpan.FromMinutes(1),
@@ -334,7 +336,7 @@ public static partial class ServiceCollectionExtensions
             // autopublish.crew; sits behind admin auth too, this is just runaway protection.
             options.AddPolicy("seo.crew", httpContext =>
             {
-                var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                var ip = IpPartitionKey(httpContext.Connection.RemoteIpAddress) ?? "unknown";
                 return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
                 {
                     Window = TimeSpan.FromMinutes(1),
@@ -351,7 +353,7 @@ public static partial class ServiceCollectionExtensions
             var accountDeletePermitLimit = rateLimits.EffectiveAccountDeletePermitLimit;
             options.AddPolicy("account-delete", httpContext =>
             {
-                var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                var ip = IpPartitionKey(httpContext.Connection.RemoteIpAddress) ?? "unknown";
                 return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
                 {
                     Window = TimeSpan.FromMinutes(5),
@@ -375,5 +377,21 @@ public static partial class ServiceCollectionExtensions
         });
 
         return services;
+    }
+
+    /// <summary>
+    /// The per-IP partition key. IPv6 is keyed by its /64: a /64 is the usual allocation to a single
+    /// subscriber, so it — not the full address — is the unit that identifies one client. IPv4 is
+    /// the address itself; an IPv4-mapped IPv6 address counts as the IPv4 it carries. Null in, null out.
+    /// </summary>
+    internal static string? IpPartitionKey(IPAddress? ip)
+    {
+        if (ip is null) return null;
+        if (ip.IsIPv4MappedToIPv6) ip = ip.MapToIPv4();
+        if (ip.AddressFamily != AddressFamily.InterNetworkV6) return ip.ToString();
+
+        var bytes = ip.GetAddressBytes();
+        Array.Clear(bytes, 8, 8);
+        return $"{new IPAddress(bytes)}/64";
     }
 }
