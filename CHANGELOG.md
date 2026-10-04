@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Ops** — a deploy waits for any SSG rebuild in progress (≤40 min, only jobs active in the last hour) before the frontend build empties `dist/`; the post-deploy health gate no longer treats ssg-worker's "last rebuild failed" as a broken deploy — infra
 - **Ops** — deploys no longer run a full SSG rebuild (~25 min of CPU, held the only runner): it runs nightly after the backup; `rebuild_ssg` input on a manual deploy for releases that change SEO rendering; health check alarms at 36h stale (was 72h) — infra
 - **Security** — hardening from the architecture review: stored files are served with a sandbox CSP + nosniff (nginx and the API), `/internal/*` is refused at nginx and its network check is one tested helper, two copyrighted test PDFs removed (image-only test now uses a generated PDF) — backend, infra
 - **Security** — connect keys get the same account-route scope as OAuth tokens; per-IP rate limits group IPv6 by /64; nginx rate-limit zones key on the client address — api, infra
