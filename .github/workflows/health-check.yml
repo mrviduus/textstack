@@ -60,11 +60,9 @@ jobs:
       # Two ways SSG dies, and they need different patience.
       #
       # A failing rebuild is a malfunction whatever the cadence — the next one
-      # will not help either — so it alarms at once. Staleness alone needs a
-      # generous window: rebuilds here are deploy-driven, and the production
-      # history shows a healthy 19-hour gap between them on a quiet day. 72
-      # hours is well past anything normal and still catches the failure that
-      # actually happened, when nothing rebuilt for five weeks.
+      # will not help either — so it alarms at once. Staleness: the full rebuild
+      # runs nightly after the backup (backup.yml), so a healthy tree is <25h
+      # old. 36 hours means one night was missed — worth an alarm, not a page.
       - name: SSG freshness
         run: |
           set -euo pipefail
@@ -92,8 +90,8 @@ jobs:
             exit 0
           fi
           # bash has no floats; compare whole hours.
-          if [ "${age%.*}" -ge 72 ]; then
-            echo "::error::Newest SSG rebuild is ${age}h old. Nothing has regenerated in three days."
+          if [ "${age%.*}" -ge 36 ]; then
+            echo "::error::Newest SSG rebuild is ${age}h old. The nightly rebuild did not run."
             exit 1
           fi
           echo "SSG last rebuilt ${age}h ago"

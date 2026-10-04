@@ -12,7 +12,7 @@ Free book library w/ Kindle-like reader. Upload EPUB/PDF → parse → SEO pages
 
 **Prerequisites**: Docker, .NET 10 SDK, Node.js 18+, pnpm
 
-**CI/CD**: Push to `main` → auto-deploy. SSG rebuild: admin panel or `make rebuild-ssg`.
+**CI/CD**: Push to `main` → auto-deploy (no SSG rebuild). Full SSG rebuild: nightly after the backup (`backup.yml`); on demand via the admin panel, `make rebuild-ssg`, or a manual deploy with `rebuild_ssg`.
 
 ## Where to write things down
 
@@ -490,7 +490,7 @@ That single command builds the AAB and pushes it to Internal Testing. Service ac
 
 **GitHub Actions workflows** (`.github/workflows/`):
 - **ci.yml** — runs on PR + push to main. Jobs: backend (build, lint, migrations, search tests), frontend (web + admin build), docker (integration tests), e2e (Playwright)
-- **deploy.yml** — self-hosted runner on server. Pre-deploy backup → git pull → frontend build → docker compose up → health checks → SSG rebuild queue → image cleanup
+- **deploy.yml** — self-hosted runner on server. Pre-deploy backup → git pull → frontend build → docker compose up → health checks → SSG content check → image cleanup. Full SSG rebuild only with the `rebuild_ssg` input; otherwise nightly in backup.yml
 - **backup.yml** — daily at 3 AM UTC. DB dump + storage tar.gz, keeps 5 newest of each
 - **health-check.yml** — every 5 min. Checks API + both frontends
 

@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Ops** — deploys no longer run a full SSG rebuild (~25 min of CPU, held the only runner): it runs nightly after the backup; `rebuild_ssg` input on a manual deploy for releases that change SEO rendering; health check alarms at 36h stale (was 72h) — infra
 - **Security** — hardening from the architecture review: stored files are served with a sandbox CSP + nosniff (nginx and the API), `/internal/*` is refused at nginx and its network check is one tested helper, two copyrighted test PDFs removed (image-only test now uses a generated PDF) — backend, infra
 - **Discover** — the "Learn a language by reading real books" card no longer fills a small screen: it scrolls with the page under the search box, and a × hides it for good (`onboarding.startReadingCard.dismissed`) — closed-test report, Unihertz Titan 2 — mobile
 - **Docs** — docs checked against the code before the architecture review: STATUS, CLAUDE.md, architecture + system docs, ADR status lines, feature/ops/dev docs; `[Unreleased]` cut into deploy-date headings; stale plans marked historical — docs
