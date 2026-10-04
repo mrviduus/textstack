@@ -2,21 +2,22 @@ using System.Diagnostics;
 using TextStack.Extraction.Contracts;
 using TextStack.Extraction.Enums;
 using TextStack.Extraction.Extractors;
+using TextStack.Extraction.Tests.Helpers;
 
 namespace TextStack.Extraction.Tests;
 
 public class ImageOnlyPdfTests : IAsyncLifetime
 {
-    private static string FixturePath => Path.Combine(
-        AppContext.BaseDirectory, "Fixtures", "Inspired - Marty Cagan.pdf");
+    // Generated, not a real scanned book: the repo is public and must not carry copyrighted files.
+    private static readonly byte[] Pdf = PdfFixtureGenerator.GenerateImageOnlyPdf();
 
     private ExtractionResult _result = null!;
 
     public async ValueTask InitializeAsync()
     {
         var extractor = new PdfTextExtractor();
-        await using var stream = File.OpenRead(FixturePath);
-        var request = new ExtractionRequest { Content = stream, FileName = "Inspired - Marty Cagan.pdf" };
+        await using var stream = new MemoryStream(Pdf);
+        var request = new ExtractionRequest { Content = stream, FileName = "scanned.pdf" };
         _result = await extractor.ExtractAsync(request);
     }
 
@@ -55,7 +56,7 @@ public class ImageOnlyPdfTests : IAsyncLifetime
         // Re-run timed to verify early bailout
         var sw = Stopwatch.StartNew();
         var extractor = new PdfTextExtractor();
-        await using var stream = File.OpenRead(FixturePath);
+        await using var stream = new MemoryStream(Pdf);
         var request = new ExtractionRequest { Content = stream, FileName = "test.pdf" };
         await extractor.ExtractAsync(request);
         sw.Stop();

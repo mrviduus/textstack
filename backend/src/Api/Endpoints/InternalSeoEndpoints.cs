@@ -1,3 +1,4 @@
+using Api.Extensions;
 using Application.Common.Interfaces;
 using Application.Seo;
 using Microsoft.AspNetCore.Mvc;
@@ -22,7 +23,7 @@ public static class InternalSeoEndpoints
 
     private static async Task<IResult> Enabled(HttpContext ctx, IAppDbContext db, CancellationToken ct)
     {
-        if (!IsLocalRequest(ctx)) return Results.StatusCode(403);
+        if (!InternalNetwork.IsLocalRequest(ctx)) return Results.StatusCode(403);
         var s = await db.SeoBackfillSettings.AsNoTracking().FirstOrDefaultAsync(ct);
         return Results.Ok(new { enabled = s?.Enabled ?? false, jobsPerRun = s?.JobsPerRun ?? 5, intervalSeconds = s?.IntervalSeconds ?? 60 });
     }
@@ -33,7 +34,7 @@ public static class InternalSeoEndpoints
         [FromQuery] int limit = 1,
         CancellationToken ct = default)
     {
-        if (!IsLocalRequest(ctx)) return Results.StatusCode(403);
+        if (!InternalNetwork.IsLocalRequest(ctx)) return Results.StatusCode(403);
         var ids = await processor.ClaimNextAsync(limit, ct);
         return Results.Ok(new { claimed = ids });
     }
@@ -44,7 +45,7 @@ public static class InternalSeoEndpoints
         SeoJobProcessor processor,
         CancellationToken ct)
     {
-        if (!IsLocalRequest(ctx)) return Results.StatusCode(403);
+        if (!InternalNetwork.IsLocalRequest(ctx)) return Results.StatusCode(403);
         try
         {
             var context = await processor.GetContextAsync(id, ct);
@@ -65,7 +66,7 @@ public static class InternalSeoEndpoints
         SeoJobProcessor processor,
         CancellationToken ct)
     {
-        if (!IsLocalRequest(ctx)) return Results.StatusCode(403);
+        if (!InternalNetwork.IsLocalRequest(ctx)) return Results.StatusCode(403);
         try
         {
             var status = await processor.ApplyAsync(id, req.FieldOutputs, ct);
@@ -86,7 +87,7 @@ public static class InternalSeoEndpoints
         SeoJobProcessor processor,
         CancellationToken ct)
     {
-        if (!IsLocalRequest(ctx)) return Results.StatusCode(403);
+        if (!InternalNetwork.IsLocalRequest(ctx)) return Results.StatusCode(403);
         try
         {
             await processor.FailAsync(id, req.Error, ct);
@@ -96,17 +97,5 @@ public static class InternalSeoEndpoints
         {
             return Results.BadRequest(new { error = ex.Message });
         }
-    }
-
-    // Same allow-list as InternalEndpoints.IsLocalRequest
-    private static bool IsLocalRequest(HttpContext ctx)
-    {
-        var remote = ctx.Connection.RemoteIpAddress;
-        if (remote == null) return true;
-        if (System.Net.IPAddress.IsLoopback(remote)) return true;
-        var bytes = remote.MapToIPv4().GetAddressBytes();
-        if (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31) return true;
-        if (bytes[0] == 10) return true;
-        return false;
     }
 }

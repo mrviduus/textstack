@@ -48,6 +48,23 @@ public static class PdfFixtureGenerator
         ];
     }
 
+    /// <summary>
+    /// A scanned book: every page is a full-page image, no text layer.
+    /// </summary>
+    public static byte[] GenerateImageOnlyPdf(int pageCount = 20)
+    {
+        var builder = new PdfDocumentBuilder();
+        var jpegBytes = GenerateMinimalJpeg();
+
+        for (var i = 1; i <= pageCount; i++)
+        {
+            var page = builder.AddPage(PageSize.A4);
+            page.AddJpeg(jpegBytes, new UglyToad.PdfPig.Core.PdfRectangle(0, 0, 595, 842));
+        }
+
+        return builder.Build();
+    }
+
     public static byte[] GeneratePdfWithJpegImage(int pageCount = 3)
     {
         var builder = new PdfDocumentBuilder();
