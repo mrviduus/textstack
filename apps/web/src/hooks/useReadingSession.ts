@@ -1,7 +1,7 @@
 import { useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { submitSession, type SubmitSessionResponse } from '../api/readingTracking'
-import { appendPendingSession, drainPendingSessions, type PendingSession } from '@textstack/shared'
+import { ApiError } from '../api/client'
 import { trackReadingSessionEnd } from '../lib/analytics'
 
 const PENDING_SESSIONS_KEY = 'reading.pendingSessions'
@@ -15,6 +15,17 @@ interface UseReadingSessionOptions {
   totalWords?: number
   startPercent: number
   isAuthenticated: boolean
+}
+
+interface PendingSession {
+  editionId?: string | null
+  userBookId?: string | null
+  startedAt: string
+  endedAt: string
+  durationSeconds: number
+  wordsRead: number
+  startPercent: number
+  endPercent: number
 }
 
 export function useReadingSession(options: UseReadingSessionOptions) {
@@ -176,14 +187,18 @@ export function useReadingSession(options: UseReadingSessionOptions) {
 function savePendingSession(session: PendingSession) {
   try {
     const existing = JSON.parse(localStorage.getItem(PENDING_SESSIONS_KEY) || '[]') as PendingSession[]
-    localStorage.setItem(PENDING_SESSIONS_KEY, JSON.stringify(appendPendingSession(existing, session)))
+    existing.push(session)
+    // Keep max 50 pending
+    if (existing.length > 50) existing.splice(0, existing.length - 50)
+    localStorage.setItem(PENDING_SESSIONS_KEY, JSON.stringify(existing))
   } catch {
     // localStorage might be full
   }
 }
 
-// Cap, expiry, duration clamp and which errors are permanent: shared with mobile
-// (packages/shared/src/reader/pendingSessions.ts).
+// Server rejects sessions older than 7 days — drop at 6 to give a safety margin.
+const MAX_SESSION_AGE_MS = 6 * 24 * 60 * 60 * 1000
+
 async function flushPendingSessions() {
   try {
     const raw = localStorage.getItem(PENDING_SESSIONS_KEY)
@@ -191,10 +206,36 @@ async function flushPendingSessions() {
     const all = JSON.parse(raw) as PendingSession[]
     if (all.length === 0) return
 
+    const now = Date.now()
+    const sessions = all.filter(s => {
+      const startedAt = Date.parse(s.startedAt)
+      return Number.isFinite(startedAt) && now - startedAt < MAX_SESSION_AGE_MS
+    })
+
     localStorage.removeItem(PENDING_SESSIONS_KEY)
 
+    if (sessions.length === 0) return
+
+    const failed: PendingSession[] = []
+    for (const session of sessions) {
+      try {
+        // Sessions queued before the clamp above can carry a duration longer than their own span.
+        const span = Math.floor((Date.parse(session.endedAt) - Date.parse(session.startedAt)) / 1000)
+        await submitSession(span >= 0 ? { ...session, durationSeconds: Math.min(session.durationSeconds, span) } : session)
+        // Success or duplicate — either way, done
+      } catch (err) {
+        // 404 = the referenced book was deleted/re-uploaded (old id gone). The
+        // session can never succeed, so prune it permanently instead of re-queuing
+        // — otherwise it retries forever and floods the endpoint. Transient errors
+        // (network / 5xx) fall through to `failed` and are retried next flush.
+        if (err instanceof ApiError && err.status === 404) continue
+        // 400 = the server rejected the payload itself; retrying the same bytes can never succeed.
+        if (err instanceof ApiError && err.status === 400) continue
+        failed.push(session)
+      }
+    }
+
     // Re-save only genuinely failed ones
-    const failed = await drainPendingSessions(all, submitSession)
     if (failed.length > 0) {
       localStorage.setItem(PENDING_SESSIONS_KEY, JSON.stringify(failed))
     }
