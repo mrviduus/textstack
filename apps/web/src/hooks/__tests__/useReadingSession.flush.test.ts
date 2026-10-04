@@ -94,4 +94,39 @@ describe('useReadingSession — flushPendingSessions pruning', () => {
     expect(submitSession.mock.calls[0][0].durationSeconds).toBe(27)
     await waitFor(() => expect(localStorage.getItem(KEY) ?? '[]').toBe('[]'))
   })
+
+  it('keeps a session enqueued while the flush is in flight (no clobber on write-back)', async () => {
+    const old = makePendingSession()
+    localStorage.setItem(KEY, JSON.stringify([old]))
+    let resolveSubmit!: () => void
+    submitSession.mockReturnValue(new Promise<void>(r => { resolveSubmit = r }))
+
+    renderHook(() => useReadingSession(opts))
+    await waitFor(() => expect(submitSession).toHaveBeenCalledTimes(1))
+
+    // Another tab / the unload path enqueues while the request is outstanding.
+    const fresh = { ...makePendingSession(), editionId: 'fresh-book' }
+    localStorage.setItem(KEY, JSON.stringify([...JSON.parse(localStorage.getItem(KEY) ?? '[]'), fresh]))
+    resolveSubmit()
+
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(KEY) ?? '[]')).toEqual([fresh]))
+  })
+
+  it('keeps a failed session and one enqueued during the flush', async () => {
+    localStorage.setItem(KEY, JSON.stringify([makePendingSession()]))
+    let rejectSubmit!: (e: Error) => void
+    submitSession.mockReturnValue(new Promise<void>((_, r) => { rejectSubmit = r }))
+
+    renderHook(() => useReadingSession(opts))
+    await waitFor(() => expect(submitSession).toHaveBeenCalledTimes(1))
+
+    const fresh = { ...makePendingSession(), editionId: 'fresh-book' }
+    localStorage.setItem(KEY, JSON.stringify([...JSON.parse(localStorage.getItem(KEY) ?? '[]'), fresh]))
+    rejectSubmit(new Error('network down'))
+
+    await waitFor(() => {
+      const q = JSON.parse(localStorage.getItem(KEY) ?? '[]')
+      expect(q.map((s: { editionId: string }) => s.editionId)).toEqual(['dead-book-id', 'fresh-book'])
+    })
+  })
 })
