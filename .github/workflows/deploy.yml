@@ -43,7 +43,12 @@ jobs:
         run: |
           mkdir -p ~/backups/textstack
           DATE=$(date +%F-%H%M)
+          # pipefail + trailer check: a failed pg_dump used to leave an empty archive
+          # and let the deploy proceed with no usable rollback point.
+          set -o pipefail
           docker exec textstack_db_prod pg_dump -U textstack_prod textstack_prod | gzip > ~/backups/textstack/pre-deploy-$DATE.sql.gz
+          zcat ~/backups/textstack/pre-deploy-$DATE.sql.gz | tail -n 5 | grep -q 'PostgreSQL database dump complete' \
+            || { echo "::error::pre-deploy dump is incomplete"; exit 1; }
           echo "Backup created: pre-deploy-$DATE.sql.gz"
           # Keep only 5 newest pre-deploy backups
           cd ~/backups/textstack && ls -1t pre-deploy-*.sql.gz 2>/dev/null | tail -n +6 | xargs -r rm -v
@@ -293,13 +298,16 @@ jobs:
             echo "nginx config unchanged — skip reload"
           fi
 
-      - name: Wait for services
-        run: sleep 30
-
+      # Poll instead of a fixed sleep: passes as soon as the API answers, and gives a
+      # slow start up to ~2.5 min instead of failing at 30s.
       - name: Health check API
         run: |
-          curl -sf http://localhost:8080/health || exit 1
+          curl -sf --retry 30 --retry-delay 5 --retry-all-errors --retry-connrefused http://localhost:8080/health || exit 1
           echo "API health check passed"
+          # `up -d` returns before healthchecks run; a container already marked unhealthy
+          # (worker, ssg-worker, mcp-server…) would otherwise ship green.
+          UNHEALTHY=$(cd $PROJECT_DIR && docker compose --profile mcp -f docker-compose.yml -f docker-compose.gpu.yml ps --format '{{.Service}} {{.Health}}' | awk '$2 == "unhealthy" {print $1}')
+          [ -z "$UNHEALTHY" ] || { echo "::error::unhealthy services: $UNHEALTHY"; exit 1; }
 
       - name: Queue SSG rebuild
         run: |
@@ -454,6 +462,8 @@ jobs:
         run: |
           systemctl --user restart seo-publish-poller && echo "SEO Publish poller restarted" || echo "SEO Publish poller restart FAILED"
           systemctl --user restart seo-backfill-poller && echo "SEO Backfill poller restarted" || echo "SEO Backfill poller restart FAILED (run: make seo-backfill-setup if not installed)"
+          # Same pattern; it was never restarted, so it kept running the previous deploy's script.
+          systemctl --user restart quality-poller && echo "Quality poller restarted" || echo "Quality poller restart FAILED (run: make quality-poll-setup if not installed)"
 
       - name: Cleanup old images
         run: docker image prune -f

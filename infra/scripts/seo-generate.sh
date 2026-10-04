@@ -46,6 +46,8 @@ for claude_dir in "$HOME"/.vscode/extensions/anthropic.claude-code-*/resources/n
 done
 
 log() { echo "[$(date '+%H:%M:%S')] $*"; }
+# shellcheck source=infra/scripts/claude-isolated.sh
+source "$REPO_DIR/infra/scripts/claude-isolated.sh"
 
 # stderr NOT suppressed — psql ERRORs (bad column, connection drop) propagate
 # to the script's stderr → journalctl. Earlier 2>/dev/null silently dropped
@@ -109,7 +111,7 @@ generate_edition_seo() {
   log "Generating SEO for edition: $title by $author ($lang)"
 
   local output
-  output=$(timeout 300 claude -p --model claude-sonnet-4-6 --permission-mode default \
+  output=$(claude_isolated 300 -p --model claude-sonnet-4-6 --permission-mode default \
     "You are an SEO content writer for TextStack, a free online book library.
 
 Generate SEO content for this book. Write in the SAME LANGUAGE as the book.
@@ -199,7 +201,7 @@ generate_author_seo() {
   log "Generating SEO for author: $name ($lang)"
 
   local output
-  output=$(timeout 300 claude -p --model claude-sonnet-4-6 --permission-mode default \
+  output=$(claude_isolated 300 -p --model claude-sonnet-4-6 --permission-mode default \
     "You are an SEO content writer for TextStack, a free online book library.
 
 Generate SEO content for this author. Write in the SAME LANGUAGE indicated below.

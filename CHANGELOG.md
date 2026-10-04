@@ -25,6 +25,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 - **Discover** — the "Learn a language by reading real books" card no longer fills a small screen: it scrolls with the page under the search box, and a × hides it for good (`onboarding.startReadingCard.dismissed`) — closed-test report, Unihertz Titan 2 — mobile
 - **Docs** — docs checked against the code before the architecture review: STATUS, CLAUDE.md, architecture + system docs, ADR status lines, feature/ops/dev docs; `[Unreleased]` cut into deploy-date headings; stale plans marked historical — docs
+- **Ops** — health check hits `/api/health` and asserts `"healthy"` (`/health` was the SPA's 200); `pg_dump | gzip` under pipefail + dump-trailer check (backup, pre-deploy); daily disk alarm at 85% (`/`, docker root); deploy polls the API instead of `sleep 30` and fails on unhealthy services; host Claude CLI pollers run from a temp dir with `--tools ""`; deploy restarts `quality-poller` — infra
 
 ## [2026.10.04]
 
