@@ -1,5 +1,10 @@
 # SEO Content Report
 
+> **Historical snapshot (Feb 2026), not live numbers.** Live coverage: admin → SEO Backfill →
+> Coverage (`GET /admin/seo/coverage`). Note the dashboard below has "Full SEO" counts larger than
+> the totals they belong to (654 of 644 authors, 1,567 of 1,349 editions) — it was never internally
+> consistent.
+
 ## Dashboard
 
 | Metric | Count |

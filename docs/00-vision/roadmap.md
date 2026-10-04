@@ -56,7 +56,8 @@
 
 ## Next Up *(as of Jan 2025)*
 
-- [x] Search improvements — semantic/vector search shipped with the RAG work
+- [x] Search improvements — semantic/vector search shipped with the RAG work, then deleted
+      with it on 2026-09-10. Search is Postgres FTS only.
 - [x] Admin Author/Genre CRUD — shipped
 - [ ] Slug change redirects (301) — never built, never missed
 - [x] Notes feature (highlight + annotate) — shipped, but as notes *on highlights*.
@@ -71,7 +72,8 @@
 - [x] Mobile app (React Native) — shipped. Expo app in `apps/mobile`, live on Play
       Internal Testing.
 - [ ] Eye/head tracking scroll — not done, not planned.
-- [x] Vector/semantic search — shipped with pgvector and the RAG stack.
+- [x] Vector/semantic search — shipped with pgvector and the RAG stack; RAG deleted
+      2026-09-10, so not live any more.
 - [x] Text-to-speech (TTS) — shipped via Edge TTS, web and mobile.
 
 ---

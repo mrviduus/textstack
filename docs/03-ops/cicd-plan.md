@@ -1,5 +1,7 @@
 # CI/CD Implementation Plan
 
+> **Historical — the original plan; the YAML below is not what runs.** The live pipeline is `.github/workflows/` (`ci.yml`, `deploy.yml`, `backup.yml`, `health-check.yml`, `mobile-*.yml`, `deps-refresh.yml`, `publish-mcp-nuget.yml`); summary in [deployment.md](deployment.md#deployment). The self-hosted-runner rationale still holds.
+
 > **Status:** Implemented
 > **Priority:** High
 > **Estimated effort:** 2-3 days

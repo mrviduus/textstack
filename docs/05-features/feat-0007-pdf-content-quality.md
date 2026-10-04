@@ -6,7 +6,7 @@ paragraphs, hyphenation, footnotes mixed in). Close it with a gated Claude
 cleanup pass — and feed what Claude does back into deterministic rules so the
 heuristics keep getting better and the Claude dependency keeps shrinking.
 
-**Status**: Planned (branch `feat/pdf-content-quality`)
+**Status** (checked 2026-10-04): slices 1-4 shipped in #235 — `ContentQualityScore` on `Chapter`/`UserChapter`, Phase 3 in `infra/scripts/quality-poll.sh`, gate `infra/scripts/pdf-cleanup-gate.py`. Phase 3 is **off by default** (`CONTENT_CLEANUP_ENABLED=false` in `.env.example`). Since ADR-012 an uploaded PDF renders as the original document, so this cleanup now matters only for the reflow fallback and catalog PDFs.
 **Author**: Vasyl Vdovychenko + Claude
 **Started**: 2026-05-22
 

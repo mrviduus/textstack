@@ -1,5 +1,12 @@
 # Agents Roadmap — three ReAct agents on TextStack's existing AI stack
 
+> **Historical (design doc, mid-2026).** Outcome: Agent 1 (`EnrichmentAgent`, feature `bookmeta.agent`)
+> and Agent 2 (`TutorAgent`) shipped and remain. Agent 3 (Librarian) was built and then **deleted
+> 2026-09-10** together with `StudyBuddyAgent`, book chat, `ask_book` and the whole RAG stack
+> (`IRagService`, `TextStack.Ai.Rag`) — see [assistant-handoff.md](../05-features/assistant-handoff.md).
+> `LookupDictionaryTool`, `SearchBookTool` and `FindEarlierDefinitionTool` named below no longer exist.
+> The §0 description of `AgentLoop` / `ToolRegistry` / `ModelGateway` is still broadly right; line numbers are not maintained.
+
 > Design doc. No code here. The goal is to show three *genuinely agentic* features
 > (reason → call tools → observe → retry, stateful, some human-in-the-loop) that plug
 > into TextStack's **existing** `TextStack.Ai.*` runtime, not new infra bolted on.

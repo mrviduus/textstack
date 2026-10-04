@@ -33,7 +33,7 @@ Welcome to TextStack! This guide gets you productive fast.
 ### Key Concepts
 
 1. **Work/Edition Model**: Work = canonical book, Edition = per-language version
-2. **Site Scoping**: Content isolated per site (general, programming)
+2. **Single site**: one site, permanently (ADR-007). `SiteId` survives only as an EF global query filter via `ICurrentSite`
 3. **Reader**: Kindle-like with offline support
 4. **Ingestion**: EPUB/PDF → parsed chapters → searchable
 

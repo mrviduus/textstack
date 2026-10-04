@@ -143,14 +143,12 @@ deliberately still a no-op.
 
 ## Privacy policy
 
-Text lives in two locale files that must stay identical, because Play requires the
-in-app policy and the policy at the listed URL to say the same thing:
-
-- `apps/web/src/locales/en.json` → `privacy.*`, `terms.*`
-- `packages/shared/src/i18n/en.json` → same blocks
-
-`apps/web/src/locales/__tests__/legalParity.test.ts` enforces that, plus that the
-third-party processors are still named and the retention answer is still stated.
+Text lives in **one** file, `packages/shared/src/i18n/en.json` → `privacy.*`, `terms.*`,
+because Play requires the in-app policy and the policy at the listed URL to say the same
+thing. Web's `apps/web/src/locales/en.json` is an overlay and may not shadow those
+namespaces — `apps/web/src/locales/__tests__/legalShadow.test.ts` fails if it does.
+`packages/shared/src/i18n/legalContent.test.ts` checks the third-party processors are
+still named and the retention answer is still stated.
 
 Section **order** lives in `packages/shared/src/legal/sections.ts`; both the web page
 and the mobile screen map over it. Adding a section is one entry plus the strings.

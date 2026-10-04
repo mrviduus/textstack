@@ -11,12 +11,19 @@ Import public domain books from Standard Ebooks format into TextStack.
 
 ## Setup
 
+> **Drift (checked 2026-10-04):** `docker-compose.yml` no longer reads `TEXTSTACK_PATH`; the
+> mount is fixed at `./data/textstack:/data/textstack` (read-write). Every `TEXTSTACK_PATH=…`
+> command below silently mounts `./data/textstack` instead — use the symlink route. Also,
+> `/admin/*` requires the `admin_access_token` cookie (`AdminAuthMiddleware`), so the bare
+> `curl` calls below return 401; run them from the admin panel or pass
+> `-b admin_access_token=<jwt>`. There is also `POST /admin/sync/standardebooks` (pulls from the Standard Ebooks GitHub repo).
+
 ### Docker Compose Volume
 
 The `docker-compose.yml` has this volume mount:
 ```yaml
 volumes:
-  - ${TEXTSTACK_PATH:-./data/textstack}:/data/textstack:ro
+  - ./data/textstack:/data/textstack
 ```
 
 **Usage:**
@@ -226,7 +233,7 @@ DELETE FROM text_stack_imports WHERE identifier = 'book-folder-name';
 
 | Error | Cause | Fix |
 |-------|-------|-----|
-| "Directory not found" | TEXTSTACK_PATH not set | Set env var or create symlink |
+| "Directory not found" | nothing at `./data/textstack` | Create the symlink (`TEXTSTACK_PATH` is no longer read) |
 | "No author found" | OPF parsing issue | Check content.opf format |
 | "duplicate key" | Same book imported twice | Already imported, skip |
 | 0 chapters | Chapter files not matching | Check TOC structure |

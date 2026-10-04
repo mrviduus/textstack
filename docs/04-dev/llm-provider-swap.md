@@ -1,5 +1,12 @@
 # LLM Provider Swap Guide
 
+> **Historical — the code-edit recipe below no longer applies.** `DistractorGenerator` and
+> `BookMetadataGenerator` now call `ILlmServiceFactory`, not Ollama's HTTP API, and the provider is
+> chosen per task by config: `Ai:Routes` in `backend/src/Api/appsettings.json` (and the Worker's) —
+> `distractor`, `bookmeta`, `tagsuggestion` → `ollama` today. Swapping is a route change
+> (e.g. to `openai`), no code edit; the admin AI-quality page can also promote/roll back routes.
+> The cost estimates and verification steps below are still a fair guide.
+
 Default: self-hosted **Ollama** (`gemma4:e2b`) in Docker. This doc shows how to swap it for a managed LLM API (OpenAI, Anthropic, Groq, etc.) if self-hosting is undesirable.
 
 ## What the LLM does

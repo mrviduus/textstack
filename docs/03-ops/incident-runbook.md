@@ -10,7 +10,7 @@ docker compose ps                       # which containers are up/healthy
 docker compose logs --tail=100 <svc>    # recent logs
 docker compose logs -f <svc>            # tail live
 docker stats --no-stream                # CPU/mem per container
-df -h /                                 # disk space
+df -h / /mnt/data                       # disk space — prod docker data-root is /mnt/data
 ```
 
 Health endpoints:
@@ -49,7 +49,7 @@ Health endpoints:
 ```bash
 docker compose ps db api
 docker compose logs --tail=100 api db
-docker compose exec db pg_isready -U app -d books
+docker compose exec db pg_isready -U textstack_prod -d textstack_prod
 ```
 
 Likely causes:
@@ -68,7 +68,7 @@ Likely causes:
 ```bash
 docker compose ps db
 docker compose logs --tail=200 db
-docker compose exec db pg_isready -U app -d books   # or fails
+docker compose exec db pg_isready -U textstack_prod -d textstack_prod   # or fails
 df -h ./data/postgres-prod                          # disk full?
 ```
 
@@ -92,7 +92,7 @@ container shows `(unhealthy)`.
 ```bash
 docker compose ps worker
 docker compose logs --tail=200 worker
-ls -la ./data/worker-heartbeat 2>/dev/null  # inside container: /tmp/worker-alive
+docker compose exec worker ls -la /tmp/worker-alive
 ```
 
 Worker health is a heartbeat file (`/tmp/worker-alive` inside container,
@@ -106,7 +106,7 @@ First-response:
    ```sql
    SELECT id, status, started_at, created_at
    FROM ingestion_jobs
-   WHERE status = 'InProgress'
+   WHERE status = 1            -- int enum JobStatus: 0 Queued, 1 Processing, 2 Succeeded, 3 Failed
    ORDER BY started_at DESC;
    ```
    Jobs older than 30min = stuck. Reset via admin panel → Jobs queue → Retry.
@@ -127,10 +127,12 @@ docker compose logs --tail=200 ssg-worker
 -- pending jobs?
 SELECT id, status, started_at, rendered_count, total_routes, error
 FROM ssg_rebuild_jobs
-ORDER BY id DESC LIMIT 5;
+ORDER BY created_at DESC LIMIT 5;   -- id is a uuid
 ```
 
 First-response:
+0. The `ssg-worker` healthcheck now also fails when the **last job** was `Failed`
+   (`/tmp/ssg-worker-last-job`), so `(unhealthy)` can mean "running but failing".
 1. **`Running` stuck** → heartbeat file stale (`/tmp/ssg-worker-alive` older
    than 2min). Restart: `docker compose restart ssg-worker`.
 2. **Puppeteer crash** → logs show `Protocol error` or similar. Usually
@@ -182,15 +184,17 @@ Hard-reset: admin user runs `/auth/logout` then logs in fresh.
 
 ```bash
 df -h /
-du -sh ./data/* ~/backups/textstack/* /var/lib/docker 2>/dev/null | sort -h | tail
+du -sh ./data/* ~/backups/textstack/* 2>/dev/null | sort -h | tail
+docker system df            # prod docker data-root is /mnt/data, not /var/lib/docker
 ```
 
 Common culprits:
 - `./data/storage/books/` — uploaded EPUB/PDF originals + covers. Large.
-- `./data/tts-cache/` — 1GB cap but check `du -sh`.
+- `./data/tts-cache/` — 1GB cap but check `du -sh`. Also `explain-cache/`, `translate-cache/`.
 - `./data/ollama/` — model weights, multi-GB.
-- `/var/lib/docker` — `docker system prune -a --volumes` (careful: nukes
-  stopped containers + unused volumes).
+- Docker data-root (`/mnt/data` on prod) — `docker system prune -a --volumes` (careful: nukes
+  stopped containers + unused volumes). Orphaned pgdata volumes from `backup-verify` once
+  leaked 156G here.
 - `~/backups/textstack/` — rotate manually; GHA keeps 5 newest.
 
 ---

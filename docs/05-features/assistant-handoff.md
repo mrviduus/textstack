@@ -7,7 +7,14 @@ what we argued about.
 
 TextStack is not trying to be the chat. It is the book, the markup, and the memory of having read it.
 
-**Status: half-built.** The write side works; the read side does not. See
+> **Update 2026-10-04:** most of this page is the 2026-09-10 decision log and is kept as such.
+> Since then the read side shipped (`get_my_reading`, `get_book_progress`, `set_book_progress`),
+> chapter review landed ([chapter-review.md](chapter-review.md), ADR-016), OAuth for remote clients
+> (ADR-017), insight DELETE, and vocabulary write tools (#686/#687). The bridge now has **21 tools**;
+> "13 tools" below is the 2026-09-10 count. The six in-app chats were **deleted**, not hidden.
+> Current protocol reference: [mcp.md](mcp.md).
+
+**Status (2026-09-10): half-built.** The write side works; the read side does not. See
 [What is missing](#what-is-missing) — that gap is what the current sprint closes.
 
 Reference for the protocol surface itself: [`mcp.md`](mcp.md). This document is the product view —
@@ -354,7 +361,8 @@ These exist independently of this feature; they were found while tracing it. Als
    one definition.
 10. **`ReadingProgressDto.ChapterSlug` lags under infinite scroll** (#496/#500/#501), which is why
     `continueReading.ts:150` prefers the locator via `resumeChapterSlug`. Anything reading the slug
-    directly reads a stale value.
+    directly reads a stale value. *(2026-10-04: the mobile reader no longer appends chapters — one
+    chapter per document since #683 — so new writes should not lag; old rows still may.)*
 
 ## Decisions taken by the owner — 2026-09-10
 
@@ -422,8 +430,8 @@ Consequences:
 
 ## Links
 
-- [`mcp.md`](mcp.md) — the 13 tools, client setup, authentication
-- [`ADR-015`](../01-architecture/adr/ADR-015-reader-position-model.md) — why position is a text
+- [`mcp.md`](mcp.md) — the tools (21 as of 2026-10-04), client setup, authentication
+- [`ADR-015`](../01-architecture/adr/ADR-015-reader-position-is-logical.md) — why position is a text
   anchor, not a pixel
 - `backend/src/Domain/Entities/BookInsight.cs` — the design rationale for "a catalog, not a
   transcript" lives in the entity's own doc comment

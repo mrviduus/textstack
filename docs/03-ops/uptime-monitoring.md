@@ -37,6 +37,9 @@ if DB is down, API returns 503 and UptimeRobot pages.
 
 ## GitHub Actions health-check
 
-Internal belt-and-braces — `.github/workflows/health-check.yml` runs every 5
-min and hits the same endpoints. Useful when UptimeRobot itself has an outage
-but redundant otherwise.
+`.github/workflows/health-check.yml` runs every 5 min. Beyond `/health` on both hosts and both
+frontends, it asks things UptimeRobot cannot: a Googlebot-UA request must get prerendered HTML
+(`X-SEO-Render: ssg`, >5 KB, has `<title>`), SSG must not be failing or stale (>72h), and book
+listing, search and author pages must work. Not redundant — the SSG checks exist because
+crawler-only breakage went unnoticed twice. There is also `GET /health/ready` (per-component:
+db, storage critical; ollama soft).

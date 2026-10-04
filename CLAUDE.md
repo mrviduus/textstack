@@ -114,7 +114,7 @@ npm run submit:android            # Submit to Google Play
 | Admin | http://localhost:81 | https://textstack.dev |
 | Aspire | http://127.0.0.1:18888 | — |
 
-**Storage**: Files at `./data/storage/books/{editionId}/` (originals + derived covers).
+**Storage**: `./data/storage/` — catalog `{id[..2]}/{id}/{file}`, uploads `users/{userId[..2]}/{userId}/books/{userBookId}/` (`LocalFileStorageService.cs`).
 
 ## Architecture
 
@@ -130,7 +130,7 @@ API → Application → Domain ← Infrastructure
 - **Infrastructure**: EF Core (snake_case naming), storage implementations
 - **API/Worker**: Orchestration, DI
 
-**Backend class libraries** (`backend/src/`, beyond the layers above): `Extraction` (EPUB/PDF parsers), `Search` (FTS providers), `Tts` (Edge TTS), `Vocabulary` (DistractorGenerator). There is no EPUB *builder* any more — `TextStack.Epub` was deleted 2026-09-28 with the export it existed for.
+**Backend class libraries** (`backend/src/`, beyond the layers above): `Extraction` (EPUB/PDF parsers), `Search` (FTS providers), `Tts` (Edge TTS), `Vocabulary` (DistractorGenerator), `Ai/` (`TextStack.Ai.*`: LLM client, agents, tools, evals, MCP server). There is no EPUB *builder* any more — `TextStack.Epub` was deleted 2026-09-28 with the export it existed for.
 
 ### Shared Frontend Packages (`packages/`)
 
@@ -138,7 +138,7 @@ Cross-platform TS code shared by **both** web and mobile, consumed via source pa
 - **`@textstack/shared`** (`packages/shared/src/`) — the canonical home for platform-agnostic logic: `api/` (client), `types/api`, `i18n/`, `text/sentences`, `anon/`, `reader/` (bookProgress, progressPayload, continueReading), `vocabLevel`, `vocabularyConstants`, `lib/pathPrefix`. Edit here, not in app copies, when changing logic both clients need.
 - **`@textstack/reader-overlay`** (`packages/reader-overlay/src/`) — DOM overlay engine for the reader (`readerOverlay`, `textWalker`, `mobileBootstrap`). Powers highlight/vocab/search overlay layers in `apps/web/src/components/reader/`.
 
-**Middleware pipeline** (order matters): `ForwardedHeaders` → `Cors` → `RateLimiter` → `ExceptionMiddleware` → `StaticFiles(/storage)` → `/health` → `SiteContext` → `LanguageContext` → `GuestActivity` (LastActiveAt debounce hourly) → `Routing` → `AdminAuth` (conditional on `/admin/*`)
+**Middleware pipeline** (order matters): `ForwardedHeaders` → `Cors` → `ExceptionMiddleware` → `StaticFiles(/storage)` → `/health` → `SiteContext` → `LanguageContext` → `Routing` → `McpKeyAuth` → `RateLimiter` (must follow Routing, or per-endpoint policies are inert) → `GuestActivity` (LastActiveAt, 10 min debounce) → `AdminAuth` (conditional on `/admin/*`)
 
 **Site resolution**: Single-site permanent (ADR-007). `SiteContextMiddleware` resolves host → SiteId. The single site id is exposed process-wide via `ICurrentSite` (config `Site:Id`, default `SiteConstants.DefaultSiteId`); EF global query filters key on it (see `ISiteScoped`). The dev `?site=` override was removed (R1b) — internal host-less callers (e.g. `ssg-worker.mjs`) must send a resolvable `Host` header.
 
@@ -169,18 +169,18 @@ Context files: `apps/web/src/context/{Site,Auth,GuestLimits,NativeLanguage,Downl
 
 **API client**: `useApi()` hook → `createApi(language)` → methods like `getBooks()`, `getBook(slug)`. Uses `fetchJsonWithRetry()`.
 
-**API client layer**: `apps/web/src/api/` — modules incl. `client.ts` (base), `auth.ts`, `explain.ts`, `readingTracking.ts`, `translation.ts`, `tts.ts`, `userBooks.ts`, `userData.ts`, `vocabulary.ts`. `useApi()` hook wraps these.
+**API client layer**: `apps/web/src/api/` — modules incl. `client.ts` (base; runs `@textstack/shared`'s api client in cookie mode via `initApi({ credentials: 'include' })`), `auth.ts`, `explain.ts`, `oauth.ts`, `readingTracking.ts`, `reviewQuestions.ts`, `translation.ts`, `tts.ts`, `userBooks.ts`, `userData.ts`, `vocabulary.ts`. `useApi()` hook wraps these.
 
-**Hooks** (`apps/web/src/hooks/` — 69 hooks): Reader: `useReadingSession`, `useReadingProgress`, `useReaderKeyboard`, `useReaderNavigation`, `useReaderSettings`, `useReaderVocabulary`, `useScrollReader`, `useFullscreen`, `useFullscreenBars`, `useImmersiveMode`, `useAutoHideBar`, `useInBookSearch`, `useTextSelection`, `useTextTranslation`, `useWordTap`, `useDarkMode`. Library/data: `useLibrary`, `useBookmarks`, `useHighlights`, `useBookStats`, `useVocabulary`, `useVocabularyReview`, `useVocabDailyStats`, `useReadingStats`, `useReadingGoals`, `useAchievements`. UI: `useFocusTrap`, `useIsMobile`, `useScrolled`, `usePagination`, `useDebounce`, `useSoundEffects`, `useCardAnswer`, `useQuickStats`. Network: `useNetworkRecovery`, `useGuestMigration`.
+**Hooks** (`apps/web/src/hooks/`), e.g. Reader: `useReadingSession`, `useReadingProgress`, `useReaderKeyboard`, `useReaderSettings`, `useReaderVocabulary`, `useImmersiveMode`, `useInBookSearch`, `useTextSelection`, `useTextTranslation`, `useDarkMode`. Library/data: `useLibrary`, `useBookmarks`, `useHighlights`, `useBookStats`, `useVocabulary`, `useVocabularyReview`, `useVocabDailyStats`, `useReadingStats`, `useReadingGoals`, `useAchievements`. UI: `useFocusTrap`, `useIsMobile`, `useScrolled`, `useDebounce`, `useSoundEffects`, `useCardAnswer`, `useQuickStats`. Network: `useNetworkRecovery`.
 
-**Admin panel**: Separate React app (`apps/admin/`), English-only, JWT auth. Pages: Dashboard, Upload, User Uploads, Jobs queue, Editions list/edit, Authors CRUD, Genres CRUD, Chapter editor, SSG rebuild + job detail, Auto Publish, Tools, Settings.
+**Admin panel**: Separate React app (`apps/admin/`), English-only, JWT auth. Pages: Dashboard, Upload, User Uploads, Jobs queue, Editions list/edit, Authors CRUD, Genres CRUD, Chapter editor, SSG rebuild + job detail, Auto Publish, SEO Backfill, Book Quality, AI Quality, Tools, Settings.
 
 ## Key Concepts
 
 **Entity Hierarchy**: Site → Work → Edition → Chapter
 - Work = canonical book (just slug), Edition = per-language version with metadata
 - Edition contains: title, description, cover_path, SEO fields
-- Edition ↔ Author via EditionAuthor (M2M), Edition → Genre (FK)
+- Edition ↔ Author via EditionAuthor (M2M), Edition ↔ Genre via `edition_genres` (M2M)
 - Chapter contains: html (rendered), plain_text (search), search_vector (FTS)
 
 **User Books**: Users can upload their own books (separate from admin library).
@@ -215,7 +215,7 @@ Upload EPUB/PDF → BookFile (stored) → IngestionJob (queued)
 - **`TextStack.Tts`** class library: `EdgeTtsClient` (WebSocket protocol), `EdgeTtsService` (disk cache + `IHostedService` startup cleanup)
 - **API**: `GET /api/tts?text=&lang=&voice=&speed=` → `audio/mpeg`, `GET /api/tts/voices?lang=` → voice list. No auth required
 - **Two-layer cache**: server disk (`data/tts-cache/`, SHA256 key, 30d TTL, 1GB) + client IndexedDB (30d TTL)
-- **Frontend**: `useTts()` hook → speak/stop/isPlaying. Used in vocabulary (word list + SRS cards) and reader (SelectionToolbar, DictionaryPopup, TranslationPopup)
+- **Frontend**: `useTts()` hook → speak/stop/isPlaying. Used in vocabulary (word list + SRS cards) and reader (SelectionToolbar, WordPopup, TranslationPopup)
 - **Reader wiring**: `ReaderHighlights.tsx` orchestrates — passes `onSpeak` to toolbar/popups
 - **Settings**: `ttsSpeed` in `useReaderSettings` (0.75x–2.0x), UI in `ReaderSettingsDrawer`
 - **Voices**: `en-US-AriaNeural` (en), 200+ available for native-language TTS
@@ -232,15 +232,15 @@ Upload EPUB/PDF → BookFile (stored) → IngestionJob (queued)
 - **Ollama**: Docker service (`ollama/ollama`), config: `Ollama:BaseUrl`, `Ollama:Model`, `Ollama:TimeoutSeconds` (default 30s). Fire-and-forget generation via `IServiceScopeFactory` after word save
 - **MC prompt cascade** (client-side, `MultipleChoiceCard`): blank sentence → definition → translation. No downgrade path — there is nothing left to downgrade to
 - **Frontend**: `VocabularyPage.tsx` (word list, filters, search, stats), `VocabularyReviewPage.tsx` (review session), components in `components/vocabulary/`
-- **API**: `POST /me/vocabulary/words` (save), `GET /me/vocabulary/words` (list), `DELETE /me/vocabulary/words/{id}`, `PUT /me/vocabulary/words/{id}`, `GET /me/vocabulary/review` (queue), `POST /me/vocabulary/review` (submit), `GET /me/vocabulary/stats`
+- **API**: `POST /me/vocabulary/words` (save), `GET /me/vocabulary/words` (list), `DELETE /me/vocabulary/words/{id}`, `PATCH /me/vocabulary/words/{id}`, `GET /me/vocabulary/review` (queue), `POST /me/vocabulary/review` (submit), `GET /me/vocabulary/stats`
 
 **Guest Users**: Anonymous reading on a **real server-side `User` row**, minted on demand. Full posture + rejected alternatives: [ADR-014](docs/01-architecture/adr/ADR-014-guest-sessions.md).
 - `POST /auth/guest` mints a `User` with `IsGuest=true`, a synthesized `guest-<hex>@guest.local` email and a normal token pair. All `/me/*` writes work for it — progress, highlights, bookmarks, vocabulary all sync.
-- **Triggers differ per client.** Web: upload, and the 3rd pending vocabulary word — **not reader mount**, which was a trigger until 2026-09-28 and minted 7,147 of the 7,263 guest rows then on production, because a crawler that executes JS is indistinguishable from a reader opening a chapter. `readerDoesNotMintOnMount.test.ts` fails the build if it comes back. **Mobile: opening a book, and only that** — `ReaderSessionGate` wraps both reader routes, single-flighted, 3s deadline, and every failure (offline, rate limited, bootstrap wedged) opens the book signed out rather than blocking it.
+- **Triggers differ per client.** Web: upload, and the 3rd pending vocabulary word — **not reader mount**, which was a trigger until 2026-09-28 and minted 7,147 of the 7,263 guest rows then on production, because a crawler that executes JS is indistinguishable from a reader opening a chapter. `readerDoesNotMintOnMount.test.ts` fails the build if it comes back. **Mobile: opening a book or the upload screen** — `SessionGate` (`src/components/SessionGate.tsx`) wraps both reader routes and, since 2026-09-28 (#628), `/my-books/upload`, single-flighted, 3s deadline, and every failure (offline, rate limited, bootstrap wedged) opens the book signed out rather than blocking it.
 - Registering **promotes that same row in place** (`AuthService.RegisterWithEmailAsync`); signing in to an existing account **merges** it (`MergeGuestAsync`, one transaction, account's row wins on conflict except `ReadingProgress` = newer wins). `MergeGuestAsync` returns `false` — never throws — on a SQLSTATE-23 conflict, because a throw here is a permanent sign-in outage.
 - Auth responses carry `guestMergeSkipped` (`invalid_token` | `merge_conflict`), null on the ordinary path. Additive; **no client reads it yet**, but every occurrence logs a structured Warning.
 - Clients must send `Authorization` on the four merge entry points (`/auth/register`, `/auth/login`, `/auth/google`, `/auth/apple`) — and must **refresh an expiring token first** (`packages/shared/src/api/tokenExpiry.ts`). An expired bearer is worse than none: the server ignores it and answers 200 with nothing merged.
-- `apps/mobile/src/lib/capabilities.ts` is the single source of guest policy (`capabilitiesFor(user)`). Account-only: AI, identity editing, account deletion, cross-device sync, silent sign-out. Deliberately *not*: reading, translation, saving vocabulary. **Upload was account-only until 2026-09-06 and is now open to a guest** (ADR-014 §3a) — `canUpload` is the one capability that is a *session* predicate (`hasSession`), so it is false only with no session at all, which on mobile means an install that has never opened a book. `isAuthenticated` stays `user !== null` (a guest **has** a session); only account questions go through capabilities. `capabilityLiterals.test.ts` fails the build on inline `user?.isGuest` re-derivation.
+- `apps/mobile/src/lib/capabilities.ts` is the single source of guest policy (`capabilitiesFor(user)`). Account-only: AI, identity editing, account deletion, cross-device sync, silent sign-out. Deliberately *not*: reading, translation, saving vocabulary. **Upload was account-only until 2026-09-06 and is now open to a guest** (ADR-014 §3a) — `canUpload` is the one capability that is a *session* predicate (`hasSession`), so it is false only with no session at all — and the upload route's `SessionGate` mints one on arrival. `isAuthenticated` stays `user !== null` (a guest **has** a session); only account questions go through capabilities. `capabilityLiterals.test.ts` fails the build on inline `user?.isGuest` re-derivation.
 - A guest's Sign Out is a **destructive confirm**: the three SecureStore keys are the only handle on the row, which `GuestCleanupWorker` then keeps forever, unreachable.
 - Server-side enforcement, not just UI: `RequireAiAccount()` (`Api/Extensions/AiAccountPolicy.cs`) returns **403 `account_required`** (distinct from 401 — "sign up" vs "sign in") on the paid-inference surface (tutor). Librarian, ask, book chat, study buddy and RAG indexing were deleted 2026-09-10. Never applied to translate/explain/TTS.
 - Entitlements: `Entitlements:Tiers:Guest` = `{ StorageLimitBytes: 50MB, MaxBooks: 1, DailyEnrichmentCap: 50, AiEnabled: false }`. The tier is the only thing metering a guest upload since the 2026-09-06 reversal — the client used to block it by product choice as well, and no longer does. `DailyEnrichmentCap` clamps the user's own daily vocabulary cap (`DailyCapService.EffectiveCap`) and is also checked by `PromoteLookup`. Unset / `<=0` means unlimited/allowed — a config typo costs money, never an outage.
@@ -259,8 +259,8 @@ Upload EPUB/PDF → BookFile (stored) → IngestionJob (queued)
 What replaced it: the app hands back **the file the reader uploaded**, from the device when the book is downloaded (`apps/mobile/src/lib/shareOriginal.ts` → `GET /me/books/{id}/file`). A re-encoding of extracted text is a worse copy of a book we already have byte for byte. `EpubExportService`, `ExportEndpoints` and the whole `TextStack.Epub` library went with it.
 
 **Highlights Review**: Spaced review of saved highlights.
-- HighlightReviewPage — review highlights with spaced repetition
-- PracticePage — practice vocabulary and highlights
+- HighlightReviewPage — revisit highlights (a 24h cooldown queue, not real SRS; see `docs/STATUS.md`)
+- Practice lives on `VocabularyPage` (the old PracticePage was merged into it); chapter questions review at `/:lang/review/questions` (`ChapterQuestionReviewPage`)
 
 **Auto Publish**: Automated pipeline for publishing Draft books with SEO content.
 - Admin page at `/autopublish` — settings, candidates, jobs history
@@ -301,19 +301,19 @@ What replaced it: the app hands back **the file the reader uploaded**, from the 
 
 **Public**: `GET /books`, `/books/{slug}`, `/authors`, `/genres`, `/search?q=`, `/seo/*`, `POST /explain`, `POST /translate`, `GET /api/tts?text=&lang=&voice=&speed=`, `GET /api/tts/voices?lang=`
 
-**Auth**: `POST /auth/login`, `/auth/refresh`, `/auth/logout`, `/auth/register`, `/auth/forgot-password`, `/auth/reset-password`
+**Auth**: `POST /auth/login`, `/auth/guest`, `/auth/google`, `/auth/apple`, `/auth/refresh`, `/auth/logout`, `/auth/register`, `/auth/forgot-password`, `/auth/reset-password`
 
 **Profile**: `GET/PUT /me/profile`
 
-**User**: `GET/POST /me/library`, `/me/progress/{editionId}` (GET/PUT/DELETE), `/me/bookmarks`, `/me/highlights/{editionId}`
+**User**: `GET/POST /me/library`, `GET /me/library/shelves`, `/me/progress/{editionId}` (GET/PUT/DELETE), `/me/bookmarks`, `/me/highlights/{editionId}`
 
-**Reading Tracking**: `POST /me/reading/sessions`, `GET /me/reading/sessions`, `GET /me/reading/stats`, `GET /me/reading/stats/daily`, `GET/POST /me/reading/goals`, `DELETE /me/reading/goals/{id}`, `GET /me/reading/achievements`
+**Reading Tracking**: `POST /me/reading/sessions`, `GET /me/reading/sessions`, `GET /me/reading/stats`, `GET /me/reading/stats/daily`, `GET /me/reading/pace`, `GET/POST /me/reading/goals`, `DELETE /me/reading/goals/{id}`, `GET /me/reading/achievements`
 
 **User Books**: `POST /me/books/upload`, `GET /me/books`, `GET /me/books/quota`, `GET /me/books/{id}`, `GET /me/books/{id}/chapters/{slug}`, `GET /me/books/{id}/file` (the stored original, any format, Range-enabled), `GET/PUT /me/books/{id}/progress`, `GET/POST/DELETE /me/books/{id}/bookmarks`, `POST /me/books/{id}/retry`, `DELETE /me/books/{id}`
 
-**Vocabulary**: `POST /me/vocabulary/words`, `GET /me/vocabulary/words?filter=&sort=&search=&limit=&offset=`, `PUT /me/vocabulary/words/{id}`, `DELETE /me/vocabulary/words/{id}`, `GET /me/vocabulary/review?limit=`, `POST /me/vocabulary/review`, `GET /me/vocabulary/stats`
+**Vocabulary**: `POST /me/vocabulary/words`, `GET /me/vocabulary/words?filter=&sort=&search=&limit=&offset=`, `PATCH /me/vocabulary/words/{id}`, `DELETE /me/vocabulary/words/{id}`, `GET /me/vocabulary/review?limit=`, `POST /me/vocabulary/review`, `GET /me/vocabulary/stats`
 
-**Admin**: `POST /admin/books/upload`, `/admin/import/textstack`, `/admin/reimport/textstack`, `/admin/sync/standardebooks`, `/admin/reprocess/{editionId}`, `/admin/reprocess/all`, `GET /admin/ingestion/jobs`, `/admin/ingestion/jobs/{id}/retry`, `/admin/ingestion/jobs/{id}/preview`, `/admin/chapters/{id}` (GET/PUT/DELETE), `/admin/settings`, `/admin/ssg-rebuild`, `/admin/ssg/settings` (GET/PUT), `/admin/lint`, CRUD for `/admin/authors`, `/admin/genres`
+**Admin**: `POST /admin/books/upload`, `/admin/import/textstack`, `/admin/reimport/textstack`, `/admin/sync/standardebooks`, `/admin/reprocess/{editionId}`, `/admin/reprocess/all`, `GET /admin/ingestion/jobs`, `/admin/ingestion/jobs/{id}/retry`, `/admin/ingestion/jobs/{id}/preview`, `/admin/chapters/{id}` (GET/PUT/DELETE), `/admin/settings`, `/admin/ssg/jobs` (+ `/{id}`, `/start`, `/cancel`), `/admin/ssg/settings` (GET/PUT), `/admin/lint`, CRUD for `/admin/authors`, `/admin/genres`
 
 **Auto Publish Admin**: `GET/PUT /admin/autopublish/settings`, `GET /admin/autopublish/jobs`, `GET /admin/autopublish/jobs/{id}`, `POST /admin/autopublish/jobs/{id}/approve`, `POST /admin/autopublish/jobs/{id}/reject`, `POST /admin/autopublish/jobs/{id}/retry`, `POST /admin/autopublish/trigger`, `POST /admin/autopublish/queue/{editionId}`, `GET /admin/autopublish/candidates`
 
@@ -330,7 +330,7 @@ What replaced it: the app hands back **the file the reader uploaded**, from the 
 | API Endpoints | `backend/src/Api/Endpoints/` |
 | API Middleware | `backend/src/Api/Middleware/` |
 | API Entry | `backend/src/Api/Program.cs` |
-| Worker | `backend/src/Worker/Services/IngestionWorkerService.cs` |
+| Worker | `backend/src/Worker/Services/IngestionWorker.cs` |
 | Extraction | `backend/src/Extraction/` (EPUB/PDF parsers) |
 | Search | `backend/src/Search/TextStack.Search/Providers/PostgresFts/PostgresSearchProvider.cs` |
 | DB Context | `backend/src/Infrastructure/Persistence/AppDbContext.cs` |
@@ -355,7 +355,6 @@ What replaced it: the app hands back **the file the reader uploaded**, from the 
 | TTS Library | `backend/src/Tts/TextStack.Tts/` (EdgeTtsClient, EdgeTtsService, ITtsService) |
 | TTS API | `backend/src/Api/Endpoints/TtsEndpoints.cs` |
 | TTS Hook | `apps/web/src/hooks/useTts.ts` |
-| TTS E2E | `apps/web/e2e/tests/tts.spec.ts` |
 | Book Metadata | `backend/src/Worker/Services/BookMetadataGenerator.cs` |
 | Auto Publish API | `backend/src/Api/Endpoints/AdminAutoPublishEndpoints.cs` |
 | Auto Publish Entity | `backend/src/Domain/Entities/AutoPublishJob.cs` |
@@ -379,10 +378,9 @@ What replaced it: the app hands back **the file the reader uploaded**, from the 
 | Email Service | `backend/src/Infrastructure/Services/ResendEmailService.cs` |
 | Guest Cleanup | `backend/src/Worker/Services/GuestCleanupWorker.cs` |
 | Guest Capabilities (mobile) | `apps/mobile/src/lib/capabilities.ts` |
-| Guest Minting (mobile) | `apps/mobile/src/lib/guestSession.ts`, `src/components/reader/ReaderSessionGate.tsx` |
+| Guest Minting (mobile) | `apps/mobile/src/lib/guestSession.ts`, `src/components/SessionGate.tsx` |
 | AI Account Policy | `backend/src/Api/Extensions/AiAccountPolicy.cs` |
 | Highlights Page | `apps/web/src/pages/HighlightsPage.tsx` |
-| Practice Page | `apps/web/src/pages/PracticePage.tsx` |
 | Mobile App | `apps/mobile/app/` (Expo Router pages) |
 | Mobile API | `apps/mobile/src/lib/api.ts` |
 | Mobile Contexts | `apps/mobile/src/context/` |
@@ -411,8 +409,8 @@ tests/
 ├── TextStack.Search.Tests/        # Search logic
 ├── TextStack.AiEvals/             # Eval runners on fake LLMs; live evals skip w/o OPENAI_API_KEY
 ├── TextStack.Ai.Mcp.Tests/        # MCP over-the-wire (loopback)
-apps/web/e2e/                      # Playwright E2E (chromium, mobile, admin projects) — 11 specs
-apps/mobile/e2e/                   # Mobile Playwright E2E — 16 specs
+apps/web/e2e/                      # Playwright E2E (chromium, mobile, admin projects)
+apps/mobile/e2e/                   # Mobile Playwright E2E
 ```
 
 Test naming convention: `{MethodName}_{Scenario}_{ExpectedResult}`
@@ -436,18 +434,7 @@ Also: the windows are 1–5 minutes, so **two overlapping runs throttle each oth
 - `ADMIN_EMAIL` / `ADMIN_PASSWORD` — needed for admin E2E
 - Integration tests set `Host` header: `general.localhost` (public), `textstack.dev` (admin)
 
-**Vocabulary E2E tests** (`apps/web/e2e/tests/vocabulary.spec.ts`): Serial test suite covering main SRS flows:
-- `page loads empty for new user` — clean slate, verify empty state renders
-- `save words via API, page shows them` — save 5 test words, verify they appear in word list
-- `filter tabs work` — New/Learning/Mastered tabs filter correctly
-- `search filters words` — typing in search box filters word list
-- `start review → MC card renders` — starts review session, verifies MC card with 4 options
-- `correct MC answer → green feedback` — answer MC card, verify feedback renders
-- `complete session → summary screen` — answer all cards, verify summary with stats
-- `back to vocabulary from summary` — navigate back from summary
-- `expand word shows details` — click word row, verify detail panel
-- `delete word removes it` — expand word, delete, verify count decreases
-- Helper: `apps/web/e2e/helpers/vocabulary.ts` — `saveTestWords()`, `deleteAllTestWords()`, `TEST_WORDS[]`
+**Vocabulary E2E tests** (`apps/web/e2e/tests/vocabulary.spec.ts`): serial suite; `beforeAll` logs in, wipes the test user's words and saves 3 common words via the API (inline `TEST_WORDS` — rare words would route to `WordLookup` and never reach the SRS list). Covers: flashcards is the default mode, the streak badge shows when words are due, a review session starts in flashcard mode.
 
 ### Mobile App Architecture
 
@@ -457,11 +444,11 @@ would have bought a second upgrade for no reduction in risk. TypeScript is delib
 workspace catalog's 5.9 and listed in `expo.install.exclude` — the SDK asks for 6.0, which is a major
 across web, admin and packages too and belongs in its own change.
 
-**Pages** (`apps/mobile/app/`): 27 screens — tabs (home, search, library, profile), auth, book detail, reader, highlights + review, stats, vocabulary + review, user book upload/read.
+**Pages** (`apps/mobile/app/`): tabs (library, search, upload, vocabulary, profile; `index` redirects), auth, book detail, reader, highlights + review, stats, vocabulary + review, user book upload/read.
 
-**Contexts** (`apps/mobile/src/context/`): AuthContext, DownloadContext, LanguageContext, NativeLanguageContext, ThemeContext.
+**Contexts** (`apps/mobile/src/context/`): AuthContext, DownloadContext, LanguageContext, NativeLanguageContext, ThemeContext, ToastContext.
 
-**Hooks** (`apps/mobile/src/hooks/`): useCardAnswer, useHaptics, useQuickStats, useReaderSettings, useReadingSession, useTts, useVocabularyReview.
+**Hooks** (`apps/mobile/src/hooks/`), e.g. useCardAnswer, useHaptics, useReaderChapter, useReaderPersistence, useReaderSettings, useReadingSession, useTts, useVocabularyReview.
 
 **API**: Single `apps/mobile/src/lib/api.ts` module (consolidated, not split like web).
 
@@ -484,7 +471,7 @@ An automatic sweep also removes downloads whose book the account no longer has
 (`chooseOrphanedDownloads`), which is only safe because the listing it compares against either
 succeeded or threw.
 
-**E2E**: 15 Playwright specs in `apps/mobile/e2e/` — navigation, books, search, library, vocabulary, highlights, stats, auth.
+**E2E**: Playwright specs in `apps/mobile/e2e/tests/` — navigation, books, search, vocabulary, highlights, reader smoke. Not run by CI (needs a live backend).
 
 **Build**: EAS Build (cloud) for dev/prod. OTA updates via `expo-updates`.
 

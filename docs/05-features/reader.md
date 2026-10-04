@@ -2,125 +2,51 @@
 
 Kindle-like reading experience with customization, progress tracking, and offline support.
 
-## Features Overview
+> Web section re-checked against `apps/web/src` on 2026-10-04. The web reader is a **vertical
+> scroll over one chapter** (one chapter per document since #161) — there is no pagination, no
+> page-flip keys and no swipe. PDF uploads render as the original document (ADR-012,
+> `PdfOriginalView`).
+
+## Features Overview (web)
 
 | Feature | Description |
 |---------|-------------|
-| Pagination | Page-based reading with smooth transitions |
-| Progress sync | Auto-saves position locally + server (auth) |
-| Customization | Font, size, theme, width, line height |
-| Fullscreen | Immersive mode with auto-hiding bars |
-| Keyboard | Arrow keys, F for fullscreen, ? for help |
-| Mobile | Swipe navigation, tap zones, immersive mode |
-| Offline | Cache-first loading from IndexedDB |
-| Bookmarks | Save/manage reading positions |
-| In-book search | Find text within chapter |
-
-## Page Structure
-
-```
-┌────────────────────────────────────────────────────────┐
-│                    ReaderTopBar                         │
-│  [Back] [Title] [Settings] [TOC] [Search] [Fullscreen] │
-├────────────────────────────────────────────────────────┤
-│                                                        │
-│                   ReaderContent                        │
-│                                                        │
-│     ┌────────────────────────────────────────┐        │
-│     │                                        │        │
-│     │           Chapter Content              │        │
-│     │          (paginated view)              │        │
-│     │                                        │        │
-│     └────────────────────────────────────────┘        │
-│                                                        │
-│  [←]                                            [→]   │
-│                   ReaderPageNav                        │
-├────────────────────────────────────────────────────────┤
-│                  ReaderFooterNav                       │
-│  [Prev Chapter] [Page X/Y] [Progress %] [Next Chapter] │
-└────────────────────────────────────────────────────────┘
-```
+| Scroll reading | One chapter per page, vertical scroll; prev/next chapter in `ReaderNav` / `ReaderFooterNav` |
+| Progress sync | Text-anchor position (ADR-015), local + server |
+| Customization | Font size, line height, font family, alignment, theme, TTS speed/voice |
+| Immersive | Bars auto-hide after 3 s (`useImmersiveMode`) |
+| Keyboard | `Esc` closes drawers / exits; `Ctrl/Cmd+F` opens in-book search |
+| Offline | IndexedDB cache — see [offline-reading.md](offline-reading.md) |
+| Bookmarks | `useReaderBookmarks` |
+| In-book search | `useInBookSearch` + `SearchOverlayLayer` |
+| Highlights / vocab / translate / explain / TTS | `ReaderHighlights` orchestrates the overlay layers |
 
 ## Settings
 
-### Typography
+`ReaderSettings` in `apps/web/src/hooks/useReaderSettings.ts`, stored in localStorage as
+`reader.settings.v1`. Defaults:
 
-| Setting | Options | Default |
-|---------|---------|---------|
-| Font size | 14-28px | 18px |
-| Line height | 1.2-2.0 | 1.6 |
-| Font family | Serif, Sans-serif, System | Serif |
-| Text align | Left, Justify | Left |
-
-### Layout
-
-| Setting | Options | Default |
-|---------|---------|---------|
-| Column width | 400-900px | 700px |
-| Theme | Light, Sepia, Dark | Light |
-
-### Storage
-
-Settings persisted in localStorage as `reader.settings`:
 ```json
 {
-  "fontSize": 18,
-  "lineHeight": 1.6,
-  "maxWidth": 700,
-  "theme": "light",
-  "fontFamily": "serif",
-  "textAlign": "left"
+  "fontSize": 18,              // 16-26
+  "lineHeight": 1.8,           // 1.5 | 1.65 | 1.8
+  "textAlign": "center",       // left | center | justify
+  "theme": "light",            // light | sepia | dark
+  "fontFamily": "serif",       // serif | sans | dyslexic
+  "ttsSpeed": 1.0,             // 0.75-2.0
+  "ttsVoiceEn": "en-US-AriaNeural",
+  "showReaderStats": true,
+  "showInlineTranslations": true
 }
 ```
 
 ## Progress Tracking
 
-### Local Storage
-
-Key: `reading.progress.{editionId}`
-```json
-{
-  "chapterSlug": "chapter-1",
-  "locator": "page:5",
-  "percent": 0.15,
-  "updatedAt": 1704067200000
-}
-```
-
-### Server Sync (Authenticated)
-
-```
-POST /me/progress
-{
-  "editionId": "uuid",
-  "chapterId": "uuid",
-  "locator": "page:5",
-  "percent": 0.15
-}
-```
-
-### Progress Calculation
-
-```typescript
-// Word-count based overall progress
-const totalWords = chapters.reduce((sum, c) => sum + c.wordCount, 0)
-const wordsBeforeCurrent = chapters.slice(0, currentIndex).reduce(...)
-const wordsRead = wordsBeforeCurrent + currentChapter.wordCount * pageProgress
-overallProgress = wordsRead / totalWords
-```
-
-## Keyboard Shortcuts
-
-| Key | Action |
-|-----|--------|
-| `←` / `↑` | Previous page |
-| `→` / `↓` | Next page |
-| `Home` | First page |
-| `End` | Last page |
-| `F` | Toggle fullscreen |
-| `Esc` | Exit fullscreen / Close drawer |
-| `?` | Show shortcuts help |
-| `Ctrl+F` | In-book search |
+- Local: `reading.progress.{editionId}` in localStorage.
+- Server: `PUT /me/progress/{editionId}` with `percentUnit: "book"` (`apps/web/src/api/auth.ts`).
+  Uploads use `PUT /me/books/{id}/progress`.
+- Position is a text anchor, not a pixel — [ADR-015](../01-architecture/adr/ADR-015-reader-position-is-logical.md).
+- Book-wide percent: `computeBookProgress` in `@textstack/shared` (keep the server formula in sync).
 
 ## Mobile Experience
 
@@ -151,50 +77,16 @@ visit — one reading session, the saved-word count, "finished a chapter" — is
 chapter through `src/lib/readerVisit.ts`, so a chapter turn neither ends the session nor resets the
 counter. The session percent is book-wide, so finishing a chapter never marks the book complete.
 
-### Tap Zones
+### Gestures
 
-```
-┌─────────────────────────────────────┐
-│           TOP (toggle bars)         │
-├─────────┬───────────────┬───────────┤
-│         │               │           │
-│  LEFT   │    CENTER     │   RIGHT   │
-│  (prev) │ (toggle bars) │  (next)   │
-│         │               │           │
-├─────────┴───────────────┴───────────┤
-│          BOTTOM (toggle bars)        │
-└─────────────────────────────────────┘
-```
-
-### Immersive Mode
-
-- Auto-hides bars after 3 seconds
-- Tap center to show temporarily
-- Double-tap to toggle fullscreen
-
-### Swipe Navigation
-
-- Swipe left → Next page
-- Swipe right → Previous page
+No page tap zones and no swipe navigation — the reader scrolls, and swipe/auto-advance fight word
+selection. The only swipe is swipe-down to close the image lightbox (`readerHtml.ts`). Bars
+toggle on tap.
 
 ## Offline Loading
 
-Cache-first strategy:
-
-```typescript
-// 1. Check IndexedDB cache
-const cached = await getCachedChapter(editionId, chapterSlug)
-if (cached) {
-  setChapter(cached)  // Instant render
-  return
-}
-
-// 2. Fetch from API
-const chapter = await api.getChapter(bookSlug, chapterSlug)
-
-// 3. Cache for next time
-await cacheChapter(editionId, chapter)
-```
+SQLite-first on mobile, IndexedDB on web — the details, and why it is cache-first rather than
+network-first, are in [offline-reading.md](offline-reading.md).
 
 ## Bookmarks
 
@@ -242,12 +134,11 @@ const { query, matches, activeMatchIndex, search, nextMatch, prevMatch } =
 
 ### Settings Drawer
 
-- Font size slider
-- Line height slider
-- Width slider
-- Theme picker (light/sepia/dark)
-- Font family picker
-- Text alignment
+- Font size, line height
+- Theme (light/sepia/dark)
+- Font family (serif/sans/dyslexic)
+- Text alignment (left/center/justify)
+- TTS speed, inline translations, stats widget
 
 ### Search Drawer
 
@@ -257,25 +148,21 @@ const { query, matches, activeMatchIndex, search, nextMatch, prevMatch } =
 
 ## Auto-Library Add
 
-Automatically adds book to library when:
-- User reaches page 2, OR
-- 1% overall progress (for single-page chapters)
+Catalog books are added to the library once overall progress reaches 1% (`ReaderPage.tsx`).
 
-## Key Files
+## Key Files (web)
 
 | File | Purpose |
 |------|---------|
-| `apps/web/src/pages/ReaderPage.tsx` | Main reader page (~800 lines) |
+| `apps/web/src/pages/ReaderPage.tsx` | Main reader page (~860 lines) |
+| `apps/web/src/hooks/useReaderChapter.ts` | Chapter loading (public / userbook modes) |
+| `apps/web/src/hooks/useReaderScrollSync.ts` | Scroll ↔ position sync |
+| `apps/web/src/hooks/useReaderProgress.ts`, `useReadingProgress.ts`, `useRestoreProgress.ts` | Progress save/restore |
 | `apps/web/src/hooks/useReaderSettings.ts` | Settings state & persistence |
-| `apps/web/src/hooks/useReaderKeyboard.ts` | Keyboard shortcut handling |
-| `apps/web/src/hooks/usePagination.ts` | Page calculations |
-| `apps/web/src/hooks/useReadingProgress.ts` | Progress sync (local + server) |
-| `apps/web/src/hooks/useRestoreProgress.ts` | Restore position on load |
-| `apps/web/src/hooks/useScrollReader.ts` | Continuous scroll mode (mobile) |
-| `apps/web/src/hooks/useBookmarks.ts` | Bookmarks CRUD |
+| `apps/web/src/hooks/useReaderKeyboard.ts` | Esc / Ctrl+F |
+| `apps/web/src/hooks/useReaderBookmarks.ts` | Bookmarks |
 | `apps/web/src/hooks/useInBookSearch.ts` | Chapter text search |
-| `apps/web/src/hooks/useSwipe.ts` | Touch navigation |
-| `apps/web/src/hooks/useFullscreen.ts` | Fullscreen API wrapper |
+| `apps/web/src/hooks/useImmersiveMode.ts` | Auto-hiding bars |
 | `apps/web/src/components/reader/` | UI components |
 
 ### Reader Components
@@ -283,14 +170,11 @@ Automatically adds book to library when:
 | Component | Purpose |
 |-----------|---------|
 | `ReaderTopBar` | Header with actions |
-| `ReaderContent` | Paginated content view |
-| `ScrollReaderContent` | Continuous scroll view |
-| `ReaderFooterNav` | Navigation footer |
-| `ReaderPageNav` | Side arrows |
-| `ReaderSettingsDrawer` | Settings panel |
-| `ReaderTocDrawer` | Table of contents |
-| `ReaderSearchDrawer` | In-book search |
-| `ReaderShortcutsModal` | Keyboard shortcuts help |
+| `ReaderSection` | Chapter content |
+| `ReaderNav` / `ReaderFooterNav` | Chapter navigation |
+| `ReaderSettingsDrawer` / `ReaderTocDrawer` / `ReaderSearchDrawer` | Drawers |
+| `ReaderHighlights` | Selection toolbar, translate/explain popups, TTS wiring |
+| `PdfOriginalView` (+ `PdfPage`, `PdfHighlightLayer`) | PDF original layout |
 
 ## CSS
 

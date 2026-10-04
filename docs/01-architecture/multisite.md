@@ -1,104 +1,72 @@
 # Site Architecture
 
-Single public domain with admin panel on separate domain.
+One public site. The multisite tables and `site_id` columns remain, but there is exactly one site
+and the code treats it as permanent ([ADR-007](adr/007-single-domain-consolidation.md); earlier
+[ADR-0001](adr/0001-audience-based-multisite.md) and [ADR-005](adr/005-multisite-resolution.md)
+are superseded).
 
 ## Domains
 
 | Domain | Purpose |
 |--------|---------|
-| textstack.app | Public book library (all content) |
-| textstack.dev | Admin panel (auth-gated) |
+| textstack.app | Public library, API (`/api`), MCP (`/mcp`) |
+| textstack.dev | Admin panel (login required, `X-Robots-Tag: noindex, nofollow`) |
 
-## Site Resolution
-
-### Flow
+## Site resolution
 
 ```
-Request → Host header → SiteResolver → SiteContext → All queries
+Request → Host → SiteResolver → SiteContext (HttpContext) ; EF filters use ICurrentSite.Id
 ```
 
-1. Middleware extracts `Host` header
-2. `SiteResolver` queries `site_domains` or `sites.primary_domain`
-3. Returns `SiteContext` with site_id, code, theme, features
-4. Unknown hosts → 404
+1. `SiteContextMiddleware` reads `Host`.
+2. `SiteResolver` looks it up in `site_domains`, then `sites.primary_domain`.
+3. No match → falls back to the single site (`ICurrentSite.Id`, config `Site:Id`, default
+   `SiteConstants.DefaultSiteId`) and logs a warning. Added after the ssg-worker's `Host` header
+   was dropped by undici and SSG silently failed for five weeks (see the comment in `SiteResolver`).
+   It returns 404 only if that site row is missing. `AllowedHosts` limits which hosts get this far.
+4. The dev `?site=` override was removed (R1b).
 
-### Key Files
+### Key files
 
-- `backend/src/Api/Sites/SiteResolver.cs`
-- `backend/src/Api/Sites/SiteContextMiddleware.cs`
-- `apps/web/src/context/SiteContext.tsx`
+- `backend/src/Api/Sites/SiteResolver.cs`, `SiteContextMiddleware.cs`, `HttpContextExtensions.cs`
+- `backend/src/Infrastructure/Persistence/CurrentSite.cs`, `SiteScopedStamp.cs`
+- `backend/src/Domain/Entities/ISiteScoped.cs`
+- `apps/web/src/context/SiteContext.tsx` (fetches `/api/site/context`)
 
-## Data Model
+## Data scoping
 
-| Entity | Scoping |
-|--------|---------|
-| Site | Root entity |
-| SiteDomain | FK to Site |
-| Work | FK to Site |
-| Edition | FK to Site |
-| Chapter | Via Edition |
-| ReadingProgress, Bookmark, Note | FK to Site |
-| User | Global (cross-site) |
+Entities that implement `ISiteScoped` get an EF global query filter
+`SiteId == ICurrentSite.Id` (`AppDbContext.*.cs`) and have `SiteId` stamped on insert. Code does not
+filter by site by hand. Scoped today: Work, Edition, Author, Genre, ReadingProgress, Bookmark, Note,
+Highlight, ReadingSession, ReadingGoal, UserAchievement, VocabularyWord, VocabularyReview,
+PendingVocabularyWord, WordLookup, WordCluster, UserVocabularySettings, BookInsight, ReviewQuestion,
+McpAccessKey, TutorSession, AutoPublishJob, SsgRebuildJob, TextStackImport. Not scoped: User,
+UserBook (and its children), auth/OAuth/AI-ops tables.
 
-## SEO
+## SEO surface
 
-### robots.txt
-- Served dynamically per Host
-- Includes sitemap URL
+- `GET /robots.txt` — per host.
+- Sitemaps: `/sitemap.xml` (index), `/sitemaps/books.xml`, `/sitemaps/authors.xml`,
+  `/sitemaps/genres.xml`, `/sitemaps/pages.xml`. No chapter sitemaps (chapters are noindex).
+- JSON-LD and breadcrumbs: `apps/web/src/components/JsonLd.tsx`, `Breadcrumbs.tsx`.
 
-### Sitemaps
-- `/sitemap.xml` — index
-- `/sitemaps/books.xml` — all books
-- `/sitemaps/chapters-*.xml` — chunked
+## Public routes (web)
 
-### Structured Data
-- Organization schema
-- Book schema on book pages
-- BreadcrumbList on all pages
-
-## Frontend Routing
-
-### Public Routes
 ```
-/                           — Home
-/{lang}/books               — Book list
-/{lang}/books/:slug         — Book detail
-/{lang}/books/:slug/:chapter — Chapter reader
-/{lang}/search?q=           — Search
-/{lang}/authors             — Author list
-/{lang}/genres              — Genre list
+/                              → 301 /en/
+/{lang}/                       Home            (lang is always "en"; /uk/* → 301 /en/*)
+/{lang}/books, /books/:slug    Catalog, book detail
+/{lang}/books/:slug/:chapter   Reader (noindex)
+/{lang}/authors[/:slug], /{lang}/genres[/:slug]
+/{lang}/search?q=
+/{lang}/library/...            User library + uploads (private)
 ```
 
-## API Filtering
+## `sites` table
 
-Frontend never passes site_id for public reads.
-Backend infers site from Host and applies filter.
+`code`, `primary_domain`, `default_language`, `theme`, `ads_enabled`, `indexing_enabled`,
+`sitemap_enabled`, `features_json`. Most of these are vestigial with one site.
 
-```csharp
-// All public endpoints
-var siteId = httpContext.GetSiteId();
-var books = await _db.Editions
-    .Where(e => e.SiteId == siteId)
-    .Where(e => e.Status == EditionStatus.Published)
-    .ToListAsync();
-```
+## See also
 
-## Site Configuration
-
-Stored in `sites` table:
-
-| Column | Type | Description |
-|--------|------|-------------|
-| code | varchar(50) | Stable identifier |
-| primary_domain | varchar(255) | Main domain |
-| default_language | varchar(10) | en, uk |
-| theme | varchar(50) | Theme token |
-| ads_enabled | bool | Show ads |
-| indexing_enabled | bool | Allow robots |
-| sitemap_enabled | bool | Generate sitemap |
-| features_json | jsonb | Feature flags |
-
-## See Also
-
-- [ADR-007: Single Domain Consolidation](adr/007-single-domain-consolidation.md)
-- [Database: Site/SiteDomain entities](../02-system/database.md)
+- [Database: Site/SiteDomain](../02-system/database.md)

@@ -6,7 +6,7 @@ Save words while reading, review with spaced repetition quizzes.
 
 ```
 Reader (word select) → POST /me/vocabulary/words → DB save
-                                                  → fire-and-forget: Ollama → distractors → DB update
+                                                  → fire-and-forget: ILlmServiceFactory (route `distractor` → Ollama) → distractors + hint + explanation → DB update
 
 Review page → GET /me/vocabulary/review → SRS queue (due words)
            → POST /me/vocabulary/review → SrsEngine.Calculate() → stage/interval update
@@ -63,14 +63,14 @@ MC quiz quality depends on plausible wrong answers. Random words = too easy.
 ### Flow
 1. User saves word in reader → API saves to DB immediately (fast response)
 2. Fire-and-forget `Task.Run` with `IServiceScopeFactory` → new DB scope
-3. `DistractorGenerator.GenerateAsync()` → Ollama `/api/generate` → parse comma-separated response
+3. `DistractorGenerator.GenerateAsync()` → `ILlmServiceFactory` (task `distractor`, routed to `ollama` in `Ai:Routes`) → parse DISTRACTORS / HINT / EXPLANATION
 4. Store JSON array in `vocabulary_words.distractors`
 5. If Ollama fails → fallback to random words from user's vocab pool at review time
 
 ### Docker
 ```yaml
 ollama:
-  image: ollama/ollama
+  image: ollama/ollama:0.23.1
   container_name: textstack_ollama
   volumes:
     - ./data/ollama:/root/.ollama
@@ -79,10 +79,10 @@ ollama:
   deploy:
     resources:
       limits:
-        memory: 4G
+        memory: 12G   # reservation 8G; GPU via docker-compose.gpu.yml on prod
 ```
 
-Config: `Ollama:BaseUrl`, `Ollama:Model` (gemma4:e2b), `Ollama:TimeoutSeconds` (10)
+Config: `Ollama:BaseUrl`, `Ollama:Model` (gemma4:e2b), `Ollama:TimeoutSeconds` (90 in `appsettings.json`)
 
 ### Model Pull
 ```bash
@@ -95,11 +95,18 @@ docker compose exec ollama ollama pull gemma4:e2b
 |--------|------|-------------|
 | POST | `/me/vocabulary/words` | Save word (+ async distractor gen) |
 | GET | `/me/vocabulary/words` | List words (filter, sort, search, pagination) |
-| PUT | `/me/vocabulary/words/{id}` | Update translation |
+| PATCH | `/me/vocabulary/words/{id}` | Update translation/definition |
 | DELETE | `/me/vocabulary/words/{id}` | Delete word |
+| DELETE | `/me/vocabulary/words` | Delete all (refuses MCP OAuth tokens) |
 | GET | `/me/vocabulary/review?limit=20` | Get review queue (due words) |
 | POST | `/me/vocabulary/review` | Submit answer → SRS update |
 | GET | `/me/vocabulary/stats` | Today's reviews, correct rate, streak |
+
+Also under `/me/vocabulary`: `stats/daily`, `words/reader`, `words/{id}/known`, `words/{id}/unretire`,
+`settings`, `pending/*` (parked words), `lookups/*` (lookup history), `clusters/*`, `concepts` —
+see `backend/src/Api/Endpoints/VocabularyEndpoints*.cs`. MCP writes go through the same
+POST/PATCH/DELETE routes (rate limit `highlight-write`, per user). New words get **no** dictionary
+definition since 2026-10-03 (free dictionary + `DefinitionEnricher` removed).
 
 ## Frontend
 
@@ -118,19 +125,12 @@ docker compose exec ollama ollama pull gemma4:e2b
 
 ## E2E Tests
 
-`apps/web/e2e/tests/vocabulary.spec.ts` — 10 tests covering:
-- Empty state for new user
-- Save words via API → word list renders
-- Filter tabs (New/Learning/Mastered)
-- Search filters words
-- Start review → MC card with 4 options
-- Correct MC answer → green feedback
-- Complete session → summary screen
-- Navigate back from summary
-- Expand word → detail panel
-- Delete word → count decreases
+`apps/web/e2e/tests/vocabulary.spec.ts` — serial suite, 3 tests (2026-10-04):
+- flashcards is the default mode
+- streak badge shows in header when words are due
+- start a review session in flashcard mode
 
-Helper: `apps/web/e2e/helpers/vocabulary.ts` — `saveTestWords()`, `deleteAllTestWords()`
+The older 10-test suite and its `helpers/vocabulary.ts` no longer exist.
 
 ## Database
 

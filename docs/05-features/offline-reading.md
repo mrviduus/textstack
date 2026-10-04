@@ -36,7 +36,7 @@ SQLite and covers *both* catalogue editions and the reader's own uploads
 
 ## IndexedDB Schema
 
-Database: `textstack-reader` (version 2)
+Database: `textstack-reader` (version 9, `apps/web/src/lib/offlineDb.ts`)
 
 ### Object Stores
 
@@ -45,6 +45,12 @@ Database: `textstack-reader` (version 2)
 | `chapters` | `${editionId}:${chapterSlug}` | Cached chapter HTML |
 | `cachedBooks` | `editionId` | Book download metadata |
 | `bookmarks` | `id` | Local bookmarks (v1 legacy) |
+| `highlights` | `id` | Local highlights |
+| `translations` | `key` | Translation cache |
+| `dictionary` | `key` | **Unused** since the dictionary was removed (2026-10-03); kept so the DB version does not change, drained by `clearExpiredCaches` |
+| `tts-audio` | `key` | TTS audio cache (30d) |
+| `pendingVocabWords` | `id` | Anonymous words before the guest-mint threshold |
+| `explains` | `key` | Explain cache, mirrors the server's |
 
 ### CachedChapter
 
@@ -121,7 +127,10 @@ Shows offline status on book cards:
 | Paused | Pause icon | `partial && !isDownloading` |
 | None | (hidden) | No cached chapters |
 
-### BookCardMenu
+### Download controls
+
+> 2026-10-04: there is no `BookCardMenu` component any more; download/remove controls live on
+> `BookDetailPage.tsx`. The list below is the original menu design.
 
 Kindle-style 3-dots menu:
 
@@ -146,8 +155,8 @@ Kindle-style 3-dots menu:
 | `apps/web/src/lib/offlineDb.ts` | IndexedDB operations |
 | `apps/web/src/context/DownloadContext.tsx` | Global download state |
 | `apps/web/src/components/OfflineBadge.tsx` | Status indicator |
-| `apps/web/src/components/library/BookCardMenu.tsx` | Context menu |
-| `apps/web/src/pages/ReaderPage.tsx` | Cache-first chapter loading |
+| `apps/web/src/pages/BookDetailPage.tsx` | Download / remove controls |
+| `apps/web/src/hooks/useReaderChapter.ts` | Cache-first chapter loading |
 
 ## Error Handling
 
@@ -174,8 +183,8 @@ also builds for web and expo-sqlite's web shim cannot be bundled there; **every
 export must exist in both files** or the web bundle fails to resolve).
 
 **Delivery: this needed a Play build, not an update, and that is why it was late.**
-Landing on `main` (#612, 2026-09-14) put it on nobody's phone. The EPUB share sheet
-below uses `expo-sharing` — a native module with a config plugin — so the runtime
+Landing on `main` (#612, 2026-09-14) put it on nobody's phone. The share sheet
+(`shareOriginal.ts`; since the EPUB export was removed on 2026-09-28 it shares the uploaded original) uses `expo-sharing` — a native module with a config plugin — so the runtime
 fingerprint moved, and `app.json` sets `runtimeVersion: { policy: "fingerprint" }`:
 an OTA can only reach builds whose fingerprint matches. `mobile-ota.yml` refused
 correctly the same night and the feature waited twelve days for somebody to notice a

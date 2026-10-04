@@ -1,6 +1,6 @@
 # Status
 
-**Last updated: 2026-09-28.** Where the project actually is — not what it does (that's
+**Last updated: 2026-10-04.** Where the project actually is — not what it does (that's
 [`docs/README.md`](README.md)) and not what changed (that's [`CHANGELOG.md`](../CHANGELOG.md)).
 
 If you read one page before picking work back up, read this one. It exists because the changelog
@@ -15,89 +15,36 @@ answers "what happened" and nothing answered "what is half-finished right now".
 
 | Area | State |
 |---|---|
-| **Reader** (web + mobile) | EPUB + PDF. PDFs are original-first ([ADR-012](01-architecture/adr/ADR-012-pdf-original-first-lazy-parse.md)), page-based progress, highlights, TTS, vocabulary SRS. |
-| **AI platform** | Translate, Explain, dictionary (OpenAI nano); vocabulary distractors, book metadata and tag suggestions (Ollama, local, $0); the SEO publishing crews; the Tutor study planner. Traces, model registry, shadow routing and drift detection still govern those. **The reader-facing chat surfaces were deleted 2026-09-10** — see In flight. |
-| **Assistant handoff (MCP)** | 13 tools over stdio + streamable HTTP. The conversation happens in the reader's own Claude or ChatGPT; conclusions come back as `BookInsight`. [`assistant-handoff.md`](05-features/assistant-handoff.md), [`mcp.md`](05-features/mcp.md). |
+| **Reader** (web + mobile) | EPUB + PDF. PDFs are original-first ([ADR-012](01-architecture/adr/ADR-012-pdf-original-first-lazy-parse.md)), page-based progress, highlights, TTS, vocabulary SRS. One chapter at a time on both clients since 2026-10-03 (#683 dropped mobile infinite scroll for an end-of-chapter block: Next, Discuss, previous). The free dictionary (api.dictionaryapi.dev) is gone (2026-10-03, #685); on web, a same-language word tap shows the contextual Explain instead (`lib/wordBubbleFetch.ts`). |
+| **AI platform** | Translate (OpenAI `gpt-4.1-nano`) and Explain (`gpt-4.1-mini`); vocabulary distractors, book metadata and tag suggestions (Ollama, local, $0); the SEO publishing crews; the Tutor study planner. Traces, model registry, shadow routing and drift detection still govern those. **The reader-facing chat surfaces were deleted 2026-09-10** — the conversation now happens in the reader's own assistant (next row). |
+| **Assistant handoff (MCP)** | 21 tools (`backend/src/Contracts/Mcp/McpManifest.cs`) over stdio + streamable HTTP. The conversation happens in the reader's own Claude or ChatGPT; conclusions come back as `BookInsight`. Connect by OAuth sign-in (2026-09-30, [ADR-017](01-architecture/adr/ADR-017-mcp-oauth-authorization-server.md)), or a connect key / personal URL for ChatGPT. Chapter review ([ADR-016](01-architecture/adr/ADR-016-chapter-review-lives-in-book-insight.md), [`chapter-review.md`](05-features/chapter-review.md)) shipped end to end 2026-09-29 → 10-01: MCP tools, Review/summary pages, reader badges, Chapter questions on Practice, one Discuss button. Vocabulary write tools (add/update/delete) 2026-10-04. [`assistant-handoff.md`](05-features/assistant-handoff.md), [`mcp.md`](05-features/mcp.md). |
 | **Observability** | OpenTelemetry → Aspire, plus Sentry on API + Worker with LLM/provider-routing spans. Mobile Sentry is **armed** since 2026-09-03 — project `textstack-mobile` in the `textstack` org, DSN supplied as an EAS environment variable (`EXPO_PUBLIC_SENTRY_DSN`, production + preview) rather than a repo file, so it reaches OTA bundles as well as store builds. |
 | **Entitlements** | `UserTier { Guest, Free, Supporter, Staff }`, config-driven quotas — now including `AiEnabled` and `DailyEnrichmentCap`, enforced server-side by `RequireAiAccount()` (403 `account_required`). |
-| **Guest sessions** | Web and mobile both mint an anonymous `User` row on demand; the read → save → review loop works with no account, and registering promotes that row in place. [ADR-014](01-architecture/adr/ADR-014-guest-sessions.md). Walked end to end on Android on 2026-09-06 with every request logged ([QA-005 report](qa/reports/2026-09-06-android-guest-loop.md)): promotion-in-place proven by the account's `createdAt` matching the guest mint, both AI walls firing zero requests, and the book still opening when the mint is rate-limited. |
+| **Guest sessions** | Web and mobile both mint an anonymous `User` row on demand; the read → save → review loop works with no account, and registering promotes that row in place. [ADR-014](01-architecture/adr/ADR-014-guest-sessions.md). Walked end to end on Android on 2026-09-06 with every request logged ([QA-005 report](qa/reports/2026-09-06-android-guest-loop.md)): promotion-in-place proven by the account's `createdAt` matching the guest mint, both AI walls firing zero requests, and the book still opening when the mint is rate-limited. Since 2026-10-03 (#681) a guest has an obvious path to an account (profile card, web menu), and conversion is countable: `User.PromotedAt` plus `guest_promoted` / `guest_merged` log lines. |
 | **SEO / SSG** | Prerendered pages, sitemap, IndexNow. Four incidents since 2026-08-11 ([dead five weeks](incidents/2026-08-11-ssg-dead-five-weeks.md), [deploy wiped a running rebuild](incidents/2026-08-31-deploy-wiped-a-running-ssg-rebuild.md), [worker lost its output path](incidents/2026-09-01-ssg-worker-lost-its-output-path.md), [a prompt stranded the swap](incidents/2026-09-02-corepack-prompt-stranded-the-ssg.md)), each invisible from outside because humans get the SPA and it renders fine. Now watched three ways: the deploy refuses to promote a rebuild that lost its files, `/health/ready` reports rebuild age and failure, and the health check asks a crawler's question every five minutes. |
-| **Mobile** | Android on Play Internal + Closed testing (`versionCode 28`, 2026-09-27). OTA via `expo-updates` on merge; when the runtime fingerprint has moved an update cannot reach anyone, so the same workflow builds and submits to Internal instead. |
+| **Mobile** | Android on Play Internal + Closed testing (`versionCode 28`, 2026-09-27). Expo SDK 57 / RN 0.86 since 2026-09-28. OTA via `expo-updates` on merge; when the runtime fingerprint has moved an update cannot reach anyone, so the same workflow builds and submits to Internal instead. **Offline by default** (2026-09-27/28): the reader's own uploaded file is stored on the device (`originalFileCache.ts`, 2 GB LRU), the library downloads itself on Wi-Fi, the shelf shows each book's state, chapter loaders read the device before the network, and an account is for sync, quota and wiping private files at sign-out — not for reading. |
 | **Build & deps** | One Node version in `.nvmrc` (24.20.0), enforced across CI, four Dockerfiles and the deploy runner. One pnpm workspace with a version catalog — the JS answer to `Directory.Packages.props`. Weekly dependency refresh by pull request. |
+| **Catalog** | Discover/home show a curated **Popular** shelf (2026-10-03, #680): order is `Edition.FeaturedRank`, set in admin or by `make featured` (`PUT /internal/featured`, whole-shelf replace + Full SSG rebuild). `/books` defaults to Popular; `sort=recent` keeps newest-first. |
+| **Codebase** | Refactor + perf sweep 2026-10-01/02 (#661–#678): dead code out on backend, web and mobile; `search_documents` and the Meilisearch provider dropped (search is Postgres FTS over `chapters` only); web runs `@textstack/shared`'s api client in cookie mode, so one `authFetch` serves both apps; shared pure logic moved to `packages/shared`; fewer requests and DB round trips on hot paths; one reading-time rule (own pace at ≥3 sessions, else 200 wpm). No behaviour change intended. |
 
 ## In flight
 
-- **Offline by default (mobile)** — reading stopped being something the app goes online for. Shipped
-  across five merges on 2026-09-27/28: the reader's own uploaded file is stored on the device
-  (`originalFileCache.ts`, 2 GB budget with LRU eviction, disk-full handled rather than retried), the
-  whole library downloads itself on Wi-Fi without being asked, the shelf shows and changes each book's
-  state, both chapter loaders and both infinite-scroll appenders read the device before the network,
-  and the download button hands back the original file instead of a re-encoded EPUB. Auth left the
-  reading path; an account is now for sync, quota and wiping private files at sign-out, and
-  `CLAUDE.md` says so as a rule.
-
-  **Device pass, 2026-09-28, Pixel 7 Pro emulator against production** (release build, guest session,
-  airplane mode for the offline half). Passed: one-tap download from the shelf; the shelf still
-  says "On this device" after a cold restart; offline the library lists downloaded books and the
-  detail screen says it is reading the downloaded copy; **Save a copy** hands over `auto-check.pdf`
-  through the share sheet with no network; a PDF opens offline in Original layout; a downloaded
-  catalogue book opens offline **and keeps scrolling from chapter VI into VII**. Two bugs were found
-  by doing it and are fixed in the same PR — the shelf forgetting the device after a restart, and
-  infinite scroll never reading the cache at all.
-
-  **Still not verified on a device:** the automatic Wi-Fi sweep fetching a library it does not
-  already hold, the 2 GB budget and its eviction order, and the full-disk stop.
-
-  **Expo SDK 57** landed 2026-09-28, after the device pass above (55 → 57 in one step; 56 and 57 carry identical third-party native modules).
-
-- **Assistant handoff** — the bet that the conversation belongs in the reader's own assistant, not in
-  our app. Branch `feat/mcp-connect-key`. Full write-up, measurements and open decisions:
-  [`docs/05-features/assistant-handoff.md`](05-features/assistant-handoff.md).
-
-  **Shipped on the branch:** `McpAccessKey` — a long-lived, revocable connect key, because the remote
-  MCP endpoint had no credential of its own and the 60-minute access token it was documented to take
-  died within the hour. And ~21,800 lines deleted: Study Buddy, the Librarian, Book Chat, and the
-  whole retrieval spine (both chunk tables, pgvector, the vision PDF parser, the indexing and
-  embedding workers, `ask_book`). The numbers that decided it — 26 chat messages lifetime, 7 books of
-  1498 ever indexed, $4.14 of $4.39 lifetime LLM spend on vision transcription — are in the doc.
-
-  **Since shipped:** key UI on both clients, the revoke-then-401 + `LastUsedAt` integration test, the
-  catalog handoff brief (which used to send an `editionId` where the tools require a slug), and the
-  three read-side tools — `get_my_reading`, `get_book_progress`, `set_book_progress` — with the four
-  progress-path defects they could not work around (unvalidated chapter slug, a refusal reporting
-  success, `chapterId` missing from `get_book`, `chapterSlug` selected by the shelf and discarded).
-
-  **Since decided:** insight categories are **not being built**. A three-way consilium argued it out
-  and the owner's answer settled it — the return path is per-book ("I open Dracula and see what I
-  worked out"), which a chapter label and reading order already serve. DELETE shipped (the part all
-  three voices agreed on); a date on each note shipped in place of the enum. Revisit only if
-  retrieval turns cross-book.
-
-  **Not done:** the owner-only check that the mobile Claude and ChatGPT apps accept a custom
-  connector at all.
-
-  **Not yet run:** CI, and both destructive migrations (`DropBookChat`, `DropRagSpine`) against
-  production. Back up first.
-
-- **Chapter review** — the reader's assistant reviews a chapter by our method, the result comes home as
-  structure ([`chapter-review.md`](05-features/chapter-review.md), ADR-016). PR 1 (backend + MCP:
-  `get_chapter_review` / `save_chapter_review`, `review_question` SRS queue) built 2026-09-29; PRs 2–4
-  (button + summary page, reader badges, Practice section, mobile) not started. **Follow-up slice:** PDF
-  chapter extraction reads outline level 1 only, so the owner's DDIA has 8 "chapters" that are its
-  Parts — extract from level 2 and re-extract.
+- **Owner-only checks left from the assistant handoff** — that the mobile Claude and ChatGPT apps
+  accept a custom connector at all, and one live end-to-end conversation on a phone. The code is
+  shipped (see Shipped → Assistant handoff); the destructive migrations `DropBookChat` /
+  `DropRagSpine` merged 2026-09-10, so the `migrator` service has applied them on deploy.
 
 - **Chunked upload** — 1 of 8 steps done (tiers, PR #449). Files over ~100 MB still fail at
   Cloudflare's per-request body cap with a bare `Upload failed: 413`. Plan:
   `~/.claude/plans/claude-code-task-shimmering-brook.md`.
-- **Play Store → production** — needs 12 testers × 14 days on the closed track. Closed track is a
-  draft with 0 testers, so the clock has not started. Code-side gates are done: submit profile,
+- **Play Store → production** — needs 12 testers × 14 days on the closed track. Owner's note,
+  2026-10-02: 12 of 12 testers reached and the 14-day clock started, so the production application
+  can go in around 2026-10-16 (not verifiable from the repo). Code-side gates are done: submit profile,
   permission hygiene + guard, honest privacy policy and Data Safety answers, delete-account
   instructions per platform, and a runbook at [`docs/03-ops/play-store-release.md`](03-ops/play-store-release.md).
-  The farewell OTA shipped (two updates on `production`/`1.0.0`, 2026-08-26) and the fingerprint
-  switch has landed, so builds no longer share one runtime. Still owner-only: promote the current
-  build to Closed and recruit 14 testers.
+  Builds have used a fingerprint runtime since build 22, so they no longer share `1.0.0`.
 
-  **Build 27** (`versionCode 27`, 2026-09-11, commit `50a1a987`) is the newest finished build and went
+  **Build 27** (`versionCode 27`, 2026-09-11, commit `50a1a987`) went
   to both Internal and Closed testing that day. It was built from a laptop rather than through
   `mobile-release.yml`, which is why the workflow's run history shows only one successful release —
   worth knowing before reading that history as the record of what testers hold. Note what build 27
@@ -125,6 +72,11 @@ answers "what happened" and nothing answered "what is half-finished right now".
 - **Article** — Sentry write-up, draft on vasyl.blog; needs edits, image, publish, then a DEV cross-post.
 
 ## Known-broken / open follow-ups
+
+- **Parts of offline-by-default are not verified on a device.** The 2026-09-28 device pass (Pixel 7
+  Pro emulator, production, airplane mode) covered download, restart, offline open and Save a copy.
+  Not covered: the automatic Wi-Fi sweep fetching a library it does not already hold, the 2 GB budget
+  and its eviction order, and the full-disk stop.
 
 - ~~**Five web modules and one stylesheet have no importers.**~~ Deleted 2026-09-10 —
   `lib/fuzzyMatch.ts`, `lib/wordAtPoint.ts`, `hooks/useOfflineDownload.ts`, `hooks/useSwipe.ts`,
@@ -156,8 +108,7 @@ someone's memory.
   DTO projections, so it came back retroactively with no migration; and the third-person AI prose
   was a prompt defect, not a screen defect.
 - **Mobile Lane A e2e is still the spec, not a suite.** `docs/qa/MOBILE-TEST-PLAN.md` describes it;
-  22 tests exist, 34 of their assertions cannot fail (`.catch(() => false)` then `toBeTruthy()`),
-  several reference UI deleted in #452/#453, and CI does not run them because they need a live
+  17 tests in 6 specs exist (`apps/mobile/e2e/tests/`), and CI does not run them because they need a live
   backend. Every fix from the QA sweep shipped with pure unit tests instead.
 - **Highlight "revisit" has no recall model.** `Highlight` carries only `LastReviewedAt`, and the queue
   is a 24-hour cooldown — no interval, no schedule, no review log, and no field on the request a grade
@@ -184,9 +135,9 @@ someone's memory.
 - **`selfAssessment` is captured and discarded.** The three-button card ("Forgot / Almost / Knew") sends
   the choice, `SubmitReviewRequest` accepts it, and no server code reads it — so "Almost" differs from
   "Knew" only in the boolean derived from it. Either make the middle button mean something, or drop it.
-- **`t()` takes no parameters, so plurals cannot be translated.** `plural()` in `packages/shared` handles
-  English one-vs-many in code; strings living in `en.json` (`"{count} highlights"`, `"{count} chapters"`)
-  stay hard-plural until the i18n layer accepts a count.
+- **`t()` has no plural rules, so plurals cannot be translated.** Web `t()` interpolates `{{var}}`, the
+  shared `t()` takes no parameters, and neither picks a form by count. `plural()` in `packages/shared`
+  handles English one-vs-many in code; count strings in `en.json` stay hard-plural.
 - **iOS Universal Links were never configured.** No `associatedDomains` in `app.json`, empty
   entitlements — the iOS half of this work does not exist yet, on either side.
 - ~~**Agent tools still describe themselves more strongly than their payloads support.**~~ Moot
@@ -263,22 +214,20 @@ someone's memory.
   it asks one question. A guest can now finish the loop — nothing on the first screen tells them the
   loop exists. The reader coachmark is still the only teaching moment in the app.
 
-  *We cannot measure whether any of this helped.* `apps/mobile/src/lib/analytics.ts` is a typed
-  wrapper over `console.debug` in dev and nothing at all in production — the transport was never
-  wired. `sign_up`, `vocab_saved` and `book_opened` are all defined and all go nowhere, so the
-  guest→account conversion this work exists to produce is unobservable. Fixing the wiring is a
-  smaller job than the feature was.
+  ~~*We cannot measure whether any of this helped.*~~ Partly answered 2026-10-03 (#681): the no-op
+  mobile `analytics.ts` was deleted (#664), and guest → account conversion is now counted server-side
+  — `User.PromotedAt` plus `guest_promoted` / `guest_merged` log lines in `AuthService`. There is still
+  no client-side event pipeline.
 
-  Also still true: `GuestActivityMiddleware` is dead code (it reads a claim no middleware sets), so
-  `LastActiveAt` is written only at guest creation and a guest who reads daily but saves nothing is
-  still reaped at 30 days. Recorded under Open in ADR-014.
+  ~~`GuestActivityMiddleware` is dead code.~~ Fixed 2026-09-11 (#604): it now reads identity from the
+  token (`ValidateAccessTokenIdentity`), so `LastActiveAt` tracks real activity.
 
   **Reversed 2026-09-06: a guest may upload.** `canUpload` was account-only by product choice; the
   product's thesis is user books first, and the two contradicted. It is now a session predicate
   (`hasSession`) and the server was already permitting it — `Entitlements:Tiers:Guest` grants one
-  book at 50 MB. ADR-014 §3a. Two things this leaves open, neither built: an install that has never
-  opened a book still has no session and so still meets the sign-in wall on upload (mobile mints a
-  guest from one trigger, web from three including upload); and **an abandoned guest upload is
+  book at 50 MB. ADR-014 §3a. ~~An install that has never opened a book meets
+  the sign-in wall on upload~~ — fixed 2026-09-28 (#628): `SessionGate` now wraps the upload route too.
+  Still open: **an abandoned guest upload is
   permanent disk** — `GuestCleanupWorker` preserves any guest holding an upload, so a guest who
   uploads 50 MB and then reinstalls leaves a file nothing can reach and nothing will collect.
   Bounded per row, unbounded in rows. Deliberately not solved: picking a guest-retention number
@@ -288,13 +237,12 @@ someone's memory.
   2026-09-03: the reporter ran all six steps of
   [`2026-09-01-android-tts-selection.md`](qa/reports/2026-09-01-android-tts-selection.md) on the
   Galaxy S24 that produced the original bug. That was the last thing this report was waiting on.
-- **Two dependency advisories have no fix to apply.** `decode-uri-component` and `uuid` sit inside
+- **Four dependency advisories have no fix to apply.** `decode-uri-component` and `uuid` sit inside
   Expo's own tree, where forcing a version to quiet an audit is how a working mobile build stops
-  working. Neither ships in the app. (It was three until puppeteer 25 dropped `extract-zip`, whose
-  advisory demanded a `2.0.2` that was never published.) They are dismissed on GitHub with those
-  reasons and written down in `scripts/check-advisories.mjs`, which fails CI on any advisory that is
-  *not* one of them — and also fails if one of them stops being reported, because then the excuse has
-  expired.
+  working; `braces` (via Metro, 2026-10-03) and `node-forge` (via `@expo/cli`, 2026-10-02) have no
+  fixed release published at all. None ships in the app. Each is written down with its reason in
+  `KNOWN` in `scripts/check-advisories.mjs`, which fails CI on any advisory *not* on that list — and
+  also fails if one of them stops being reported, because then the excuse has expired.
 - **The advisory check no longer goes through a package manager** (2026-09-28). It reads
   `pnpm-lock.yaml` and asks the npm registry directly, and it has a third outcome — **COULD NOT
   CHECK** — that is neither a pass nor a finding. Before that it shelled out to `pnpm audit`, which on

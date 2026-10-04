@@ -1,6 +1,6 @@
 # ADR-006: Modular Monolith Architecture
 
-**Status**: Accepted
+**Status**: Accepted — still in force. The structure below is the 2024 sketch; current projects are listed in [../README.md](../README.md#backend-projects).
 **Date**: 2024-12
 
 ## Context

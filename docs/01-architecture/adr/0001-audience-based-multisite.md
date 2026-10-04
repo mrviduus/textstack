@@ -3,6 +3,8 @@
 ## Status
 Accepted
 
+> **Superseded by [ADR-007 single-domain consolidation](007-single-domain-consolidation.md)** (2026-01-20). One public site since; the Programming site was merged into General by migration `20260120000000_MergeProgrammingToGeneral`.
+
 ## Context
 TextStack is a content-first, SEO-driven online library platform.
 At launch, the project must choose how to structure content and user entry points.

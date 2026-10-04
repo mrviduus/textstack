@@ -1,5 +1,7 @@
 # ADR-007: Production Deployment Guide
 
+> **Status: executed — historical runbook, not a decision record.** Companion to [007-single-domain-consolidation.md](007-single-domain-consolidation.md). Kept for the record; do not re-run.
+
 ## What Changed (Dev)
 
 1. **Removed multisite code** - no more `getSites()`, using `DEFAULT_SITE_ID`

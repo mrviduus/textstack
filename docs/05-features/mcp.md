@@ -2,8 +2,9 @@
 
 TextStack is a **Model Context Protocol (MCP)** server. Connect it to Claude
 Desktop, Cursor, ChatGPT, or any MCP client, and the assistant can search the
-TextStack library, read chapters, ask grounded questions about a book you're
-reading, and manage your own highlights and vocabulary — all from the chat.
+TextStack library, read chapters (yours and the catalog's), save conclusions and
+chapter reviews back into the book, and manage your own highlights and vocabulary —
+all from the chat. There is no server-side Q&A; the assistant reads the chapter itself.
 
 This is the canonical reference. The [package README](https://www.nuget.org/packages/TextStack.Mcp)
 and the [landing page](https://textstack.app/en/mcp) point here.
@@ -120,8 +121,9 @@ wired as `McpServerOptions.ServerInstructions` in both hosts). They tell the mod
 find the book (from the id line, else `search_my_library` / `get_my_reading`),
 check `get_my_insights` first, read with `get_my_book`/`get_my_chapter` (catalog:
 `get_book`/`get_chapter`), save conclusions with `save_insight`, run a chapter review
-via `get_chapter_review` → `save_chapter_review`, and never run ahead of the
-reader's position.
+via `get_chapter_review` → `save_chapter_review`, never run ahead of the
+reader's position, and — since #687 — remember words it explained, offer them once
+when the topic winds down, and call `add_vocabulary_words` only on a yes.
 
 That is why the Discuss and Review buttons prefill only a human sentence plus an
 id line — the reader sees that message:
@@ -231,7 +233,7 @@ is revoked. What we do to keep it out of logs:
   per-request "Request starting …" line (written before any middleware) never records the path;
 - nginx has `access_log off` and `error_log … crit` for `location /mcp/k/`.
 
-Not covered: **Cloudflare**, in front of both, sees the full URL. Accepted until OAuth.
+Not covered: **Cloudflare**, in front of both, sees the full URL. Accepted; OAuth (ADR-017) is the alternative for clients that support it.
 
 Not yet verified by hand (owner step): whether Developer mode is available on the account's
 ChatGPT plan, and what ChatGPT asks before a write call (`save_highlight`, `save_insight`). Record
@@ -352,8 +354,8 @@ result containing all 21 tools.
 - **Update the tool**: `dotnet tool update -g TextStack.Mcp`
 - **Uninstall**: `dotnet tool uninstall -g TextStack.Mcp`
 - **Remote endpoint returns 401** — the request carried no/invalid bearer.
-  The HTTP host has no device flow; supply a valid JWT in the client's
-  connector config.
+  The HTTP host has no device flow: connect with OAuth, a `tsk_` connect key,
+  or the `/mcp/k/<key>` URL.
 
 ## Links
 

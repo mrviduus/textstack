@@ -13,8 +13,8 @@ Cloudflare Tunnel (cloudflared daemon)
     │
     ▼
 Host nginx (port 80)
-    ├── textstack.app     → static files + /api/ proxy (public site)
-    └── textstack.dev     → admin panel (auth-gated)
+    ├── textstack.app     → SSG/SPA static files + /api/ → :8080 + /mcp → :8090
+    └── textstack.dev     → admin panel :81 (auth-gated)
     │
     ▼
 Docker containers (localhost only)
@@ -22,7 +22,10 @@ Docker containers (localhost only)
     ├── Worker        (background jobs)
     ├── SSG Worker    (pre-renders SEO pages)
     ├── Admin         (127.0.0.1:81)
-    ├── PostgreSQL    (internal only)
+    ├── Migrator      (runs once, then exits)
+    ├── PostgreSQL    (pgvector/pgvector:pg16 image, internal only)
+    ├── Ollama        (vocab distractors/hints, internal only)
+    ├── MCP server    (127.0.0.1:8090, `--profile mcp`)
     └── Aspire Dashboard (127.0.0.1:18888, `--profile observability` opt-in)
 ```
 
@@ -40,7 +43,7 @@ Docker containers (localhost only)
 |-----------|----------|------------|
 | Web frontend | Public | Cloudflare WAF, rate limiting |
 | API | Public via /api/ path | Rate limiting, JWT auth |
-| Admin panel | localhost only | Not exposed to internet |
+| Admin panel | Public at textstack.dev via the tunnel; container bound to 127.0.0.1:81 | Admin JWT auth, not indexed |
 | PostgreSQL | Docker internal | No external ports |
 | Aspire Dashboard | localhost only | Not exposed |
 | SSH | Port 22 | UFW firewall, key auth |
@@ -93,7 +96,7 @@ sudo ln -sf /etc/nginx/sites-available/textstack /etc/nginx/sites-enabled/textst
 
 # Set permissions
 chmod 755 /home/$USER
-chmod -R 755 /home/$USER/projects/onlinelib/onlinelib/apps/web/dist
+chmod -R 755 /home/$USER/projects/onlinelib/textstack/apps/web/dist
 
 # Test and restart
 sudo nginx -t
@@ -183,14 +186,21 @@ make status       # Show service status
 
 ### Deployment
 
+**Normal path: merge to `main`.** `.github/workflows/deploy.yml` runs on a self-hosted runner on
+the server: re-runs `backend` + `frontend` CI on the merged tree → pre-deploy backup → pull →
+build web (preserving the current `dist/ssg` across vite's wipe) → `docker compose up` → sync
+nginx config → health checks (API, frontend, MCP) → queue SSG rebuild and wait → validate SSG →
+restart systemd pollers → prune images. Do not deploy by hand over SSH.
+
+Break-glass only:
 ```bash
-make deploy       # Full deploy: git pull, build, restart, SSG rebuild
+make deploy       # git pull, build, restart, queue SSG rebuild, sync nginx
 ```
 
 Or manually:
 ```bash
 git pull origin main
-cd apps/web && pnpm install && VITE_API_URL=/api VITE_CANONICAL_URL=https://textstack.app pnpm build
+cd apps/web && pnpm install && VITE_API_URL=/api VITE_STORAGE_URL=https://textstack.app VITE_CANONICAL_URL=https://textstack.app VITE_GOOGLE_CLIENT_ID=<id> pnpm build
 docker compose up -d --build
 ```
 
@@ -223,14 +233,14 @@ docker exec -it textstack_db_prod psql -U $POSTGRES_USER -d $POSTGRES_DB
 ### Backup
 
 ```bash
-make backup           # Creates timestamped backup in backups/
+make backup           # Creates timestamped backup in ~/backups/textstack/
 make backup-list      # List existing backups
 ```
 
 ### Restore
 
 ```bash
-make restore FILE=backups/db_2026-01-23_120000.sql.gz
+make restore FILE=~/backups/textstack/db_2026-01-23_120000.sql.gz
 ```
 
 ### Automated Backups
@@ -305,6 +315,9 @@ free -h
 
 ## Rollback Procedure
 
+Preferred: run the **Deploy** workflow manually (`workflow_dispatch`) with `rollback_commit=<sha>`.
+
+Manual fallback:
 ```bash
 # 1. Stop current version
 docker compose down
@@ -335,10 +348,10 @@ docker compose up -d --build
 | SSG pages | `apps/web/dist/ssg/` |
 | Storage data | `data/storage/` |
 | Database data | `data/postgres-prod/` |
-| Backups | `backups/` or `/home/vasyl/backups/` |
+| Backups | `~/backups/textstack/` (`make backup`); nightly job: see `.github/workflows/backup.yml` |
 
 ## See Also
 
 - [Environment Variables](environment-variables.md)
-- [CI/CD Pipeline](.github/workflows/)
+- [CI/CD Pipeline](../../.github/workflows/)
 - [SSG Documentation](../02-system/ssg-prerender.md)

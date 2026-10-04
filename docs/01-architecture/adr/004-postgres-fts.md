@@ -1,6 +1,6 @@
 # ADR-004: PostgreSQL Full-Text Search
 
-**Status**: Accepted
+**Status**: Accepted — still in force. The Meilisearch provider and the `search_documents` copy table were deleted 2026-10-01 (migration `20261001221307_DropSearchDocuments`); `chapters.search_vector` (trigger-maintained) is the only index.
 **Date**: 2024-12
 
 ## Context

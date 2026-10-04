@@ -1,6 +1,6 @@
 # ADR-003: Work/Edition Data Model
 
-**Status**: Accepted
+**Status**: Accepted — model still in force. Note: Ukrainian content was removed 2026-04-21 (nginx 301s `/uk/*` → `/en/*`), so today every Edition is `en` and the multilingual motive is dormant.
 **Date**: 2024-12
 
 ## Context

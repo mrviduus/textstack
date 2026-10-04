@@ -6,7 +6,8 @@ Technical implementation spec for TextStack SEO module.
 - [SEO Playbook](../SEO_PLAYBOOK.md) — content SEO strategy & checklists
 - [SSG Prerender](ssg-prerender.md) — static HTML generation for SEO pages
 
-**Status:** Slice 1 complete (Dec 2025), SSG implemented (Jan 2026)
+**Status:** Slice 1 complete (Dec 2025), SSG implemented (Jan 2026). Original MVP spec; paths and slice
+status corrected against code 2026-10-04. SEO text generation: [ADR-010](../01-architecture/adr/ADR-010-seo-backfill-automation.md).
 
 ---
 
@@ -33,10 +34,10 @@ Success means:
 ## 3. Public Pages to Index
 Minimum set of indexable pages:
 
-- **Book page**: `/book/{slug}`
-- **Author page**: `/author/{slug}`
-- **Genre / Category page**: `/genre/{slug}`
-- **Language landing (optional)**: `/lang/{code}` or language prefix
+- **Book page**: `/en/books/{slug}`
+- **Author page**: `/en/authors/{slug}`
+- **Genre page**: `/en/genres/{slug}`
+- **Home + lists**: `/en/`, `/en/books`, `/en/authors`, `/en/genres`, `/en/about`
 
 All other pages must be either `noindex` or blocked via robots.txt.
 
@@ -60,9 +61,12 @@ Rules:
 ### 4.2 XML Sitemaps
 Endpoints:
 - `GET /sitemap.xml` (sitemap index)
-- `GET /sitemap-books.xml`
-- `GET /sitemap-authors.xml`
-- `GET /sitemap-genres.xml`
+- `GET /sitemaps/books.xml`
+- `GET /sitemaps/authors.xml`
+- `GET /sitemaps/genres.xml`
+- `GET /sitemaps/pages.xml`
+
+(`Api/Endpoints/SeoEndpoints.cs`)
 
 Rules:
 - Only include entities where:
@@ -190,7 +194,8 @@ No admin UI, no redirects.
 
 ---
 
-### Slice 2 — Admin SEO Control
+### Slice 2 — Admin SEO Control ✅ mostly done
+Edition edit page holds SEO fields; bulk generation via SEO Backfill (ADR-010).
 Includes:
 - Editable slug / published / indexable
 - SEO title & description overrides
@@ -198,7 +203,7 @@ Includes:
 
 ---
 
-### Slice 3 — Slug Change Redirects
+### Slice 3 — Slug Change Redirects — not built (no redirect table as of 2026-10-04)
 Includes:
 - Redirect table
 - Auto-301 on slug change
@@ -206,7 +211,7 @@ Includes:
 
 ---
 
-### Slice 4 — Structured Data
+### Slice 4 — Structured Data ✅ (`apps/web/src/components/JsonLd.tsx`)
 Includes:
 - Book JSON-LD schema
 - Validation against schema.org
@@ -219,7 +224,7 @@ Pre-render SEO pages to static HTML at build time.
 Includes:
 - Puppeteer-based prerender script (`apps/web/scripts/prerender.mjs`)
 - SSG API endpoints (`/ssg/routes`, `/ssg/books`, `/ssg/authors`, `/ssg/genres`)
-- nginx routing: SSG first, SPA fallback
+- nginx routing: bots get SSG (SPA fallback), humans always get the SPA
 - ~2000 pages rendered (books, authors, genres, homepage)
 
 See [SSG Prerender](ssg-prerender.md) for architecture details.
@@ -236,8 +241,8 @@ See [SSG Prerender](ssg-prerender.md) for architecture details.
 ### Integration Tests
 - `GET /robots.txt`
 - `GET /sitemap.xml`
-- `GET /sitemap-books.xml`
-- `GET /book/{slug}`
+- `GET /sitemaps/books.xml`
+- `GET /en/books/{slug}` (as a bot)
 
 ---
 
@@ -255,8 +260,8 @@ See [SSG Prerender](ssg-prerender.md) for architecture details.
 API returns 404 for: book not found / 0 chapters, author not found / 0 editions, genre not found / 0 editions. Frontend uses `<meta name="prerender-status-code" content="404">` for SSG.
 
 ### Rendering
-- SSG prerender for SEO pages (Puppeteer)
-- nginx serves SSG first, SPA fallback
+- SSG prerender for SEO pages (Puppeteer, `ssg-worker` container)
+- nginx serves SSG to crawlers only; people get the SPA
 - Chapter pages: `noindex, follow` (not in sitemap)
 
 ---

@@ -1,226 +1,100 @@
 # User Authentication
 
-Google OAuth for users, JWT tokens with HttpOnly cookies.
+Google, Apple and email/password sign-in, plus anonymous **guest** sessions. JWT access token +
+rotating refresh token. Web keeps both in HttpOnly cookies; mobile (`X-Client: mobile`) gets them in
+the response body and stores them in SecureStore.
 
-## Architecture
+Checked against code 2026-10-04. Guest posture and its rejected alternatives:
+[ADR-014](../01-architecture/adr/ADR-014-guest-sessions.md). Admin auth is separate
+(`admin_access_token` cookie, `AdminAuthMiddleware`) — see [security.md](../04-dev/security.md).
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│                      Frontend (React)                         │
-├──────────────────────────────────────────────────────────────┤
-│                                                              │
-│   AuthContext                                                │
-│     ├── user: User | null                                    │
-│     ├── isLoading: boolean                                   │
-│     ├── isAuthenticated: boolean                             │
-│     └── logout: () => Promise<void>                          │
-│                                                              │
-│   Google Sign-In Button                                      │
-│     └── One Tap / Button renders via google.accounts.id      │
-│                                                              │
-└──────────────────────────────────────────────────────────────┘
-                            │
-                            ▼ POST /auth/login (credential)
-┌──────────────────────────────────────────────────────────────┐
-│                      Backend (API)                            │
-├──────────────────────────────────────────────────────────────┤
-│                                                              │
-│   1. Validate Google ID token                                │
-│   2. Find or create User (by google_subject)                 │
-│   3. Issue JWT access token (15min)                          │
-│   4. Issue refresh token (7 days)                            │
-│   5. Set HttpOnly cookies                                    │
-│                                                              │
-└──────────────────────────────────────────────────────────────┘
-```
-
-## Auth Flow
-
-### Login
+## Flow
 
 ```
-1. User clicks "Sign in with Google"
-2. Google popup → user authenticates
-3. Google returns credential (ID token)
-4. Frontend sends POST /auth/login { credential }
-5. Backend validates token, creates/finds user
-6. Backend sets cookies:
-   - access_token (HttpOnly, 15min)
-   - refresh_token (HttpOnly, 7 days)
-7. Frontend receives user object
+Client ──POST /auth/{google|apple|login|register|guest}──▶ API
+           │                                               1. verify credential (Google/Apple ID token, BCrypt password)
+           │                                               2. find/create User (google_subject / apple_subject / email)
+           │                                               3. if a guest bearer came along: promote (register) or merge (sign-in)
+           ◀── access JWT (60 min) + refresh token (365 d; guest 30 d)
+               web: HttpOnly cookies `access_token`, `refresh_token`
+               mobile: JSON body
 ```
 
-### Token Refresh
-
-```
-1. API request returns 401
-2. Frontend calls POST /auth/refresh
-3. Backend validates refresh_token cookie
-4. Backend issues new access_token
-5. Original request retried
-```
-
-### Logout
-
-```
-1. Frontend calls POST /auth/logout
-2. Backend clears cookies
-3. Frontend clears user state
-4. Google.accounts.id.disableAutoSelect()
-```
+- **Refresh** — `POST /auth/refresh` (cookie) or `/auth/refresh-mobile` (body). The old refresh row
+  is deleted and a new one issued (rotation); a concurrent second use returns null → 401.
+- **Logout** — `POST /auth/logout` deletes the refresh row and clears cookies.
+- **Identity on requests** — there is no ASP.NET authentication middleware. Endpoints read the
+  token per request (`GetUserId`, cookie or `Authorization: Bearer`).
+- **Guest merge** — clients must send `Authorization` on `/auth/register|login|google|apple`, and
+  refresh an expiring token first (`packages/shared/src/api/tokenExpiry.ts`): an expired bearer is
+  ignored and nothing merges. Responses may carry `guestMergeSkipped`.
 
 ## API Endpoints
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/auth/login` | POST | Exchange Google credential for session |
-| `/auth/refresh` | POST | Refresh access token |
-| `/auth/logout` | POST | Clear session |
-| `/auth/me` | GET | Get current user |
+| Endpoint | Method | Notes |
+|----------|--------|-------|
+| `/auth/google` | POST | Google ID token |
+| `/auth/apple` | POST | Apple ID token |
+| `/auth/register` | POST | Email + password; promotes a guest row in place |
+| `/auth/login` | POST | Email + password |
+| `/auth/guest` | POST | Mint guest user; rate limit `guest-session` (3 / IP / 5 min) |
+| `/auth/refresh` · `/auth/refresh-mobile` | POST | Rotate refresh token |
+| `/auth/logout` | POST | |
+| `/auth/forgot-password` · `/auth/reset-password` | POST | Email via Resend |
+| `/auth/me` | GET | Current user |
+| `/auth/test-login` | POST | Only when `ENABLE_TEST_AUTH=true` |
+| `/me/profile` | GET/PUT | + `POST/DELETE /me/profile/avatar` |
+| `/me/account` | DELETE | Hard delete (rate limit `account-delete`) |
 
-### POST /auth/login
+`/auth/*` refuses MCP OAuth tokens (`RejectOAuthTokens()`). Login/register/reset are rate-limited
+by `user-login` (10 / IP / min).
 
-**Request:**
-```json
-{
-  "credential": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
-}
-```
+## Cookies (web)
 
-**Response:**
-```json
-{
-  "user": {
-    "id": "uuid",
-    "email": "user@example.com",
-    "name": "John Doe"
-  }
-}
-```
+`HttpOnly`, `Secure` outside Development, `SameSite=Lax`, `Path=/`, `MaxAge` = refresh TTL (both
+cookies, re-set on every refresh so an active session slides).
 
-**Cookies Set:**
-- `access_token` - JWT, HttpOnly, Secure, SameSite=Strict, 15min
-- `refresh_token` - opaque token, HttpOnly, Secure, SameSite=Strict, 7 days
+## User data endpoints
 
-## Frontend Implementation
-
-### AuthContext
-
-```typescript
-interface AuthContextValue {
-  user: User | null
-  isLoading: boolean
-  isAuthenticated: boolean
-  logout: () => Promise<void>
-}
-```
-
-### Google Sign-In Setup
-
-```typescript
-// Initialize Google Sign-In
-google.accounts.id.initialize({
-  client_id: GOOGLE_CLIENT_ID,
-  callback: handleGoogleCallback,
-  auto_select: false,
-  cancel_on_tap_outside: true,
-})
-
-// Render button
-google.accounts.id.renderButton(
-  document.getElementById("google-signin"),
-  { theme: "outline", size: "large" }
-)
-```
-
-### Protected Routes
-
-```tsx
-function ProtectedRoute({ children }) {
-  const { isAuthenticated, isLoading } = useAuth()
-
-  if (isLoading) return <Spinner />
-  if (!isAuthenticated) return <Navigate to="/login" />
-
-  return children
-}
-```
-
-## User Features
-
-### Library
-
-- `POST /me/library` - Add book to library
-- `DELETE /me/library/{editionId}` - Remove from library
-- `GET /me/library` - List saved books
-
-### Reading Progress
-
-- `POST /me/progress` - Save reading position
-- `GET /me/progress` - Get all progress
-- `GET /me/progress/{editionId}` - Get specific book progress
-
-### Bookmarks & Notes
-
-- `POST /me/bookmarks` - Create bookmark
-- `DELETE /me/bookmarks/{id}` - Delete bookmark
-- `GET /me/bookmarks` - List all bookmarks
-- `POST /me/notes` - Create note
-- `GET /me/notes` - List all notes
+- Library: `GET /me/library`, `POST/DELETE /me/library/{editionId}`
+- Progress: `GET /me/progress`, `GET/PUT/DELETE /me/progress/{editionId}`
+- Bookmarks: `GET /me/bookmarks`, `GET /me/bookmarks/{editionId}`, `POST /me/bookmarks`, `DELETE /me/bookmarks/{id}`
+- Notes live on highlights (`/me/highlights`); there is no `/me/notes` route.
 
 ## Database
 
-### Users Table
+`users`: `email` (guests get `guest-<hex>@guest.local`), `name`, `picture`, `password_hash?`,
+`google_subject?`, `apple_subject?` (each unique where not null), `is_guest`, `promoted_at`,
+`last_active_at`, `tier`, `native_language`, storage counters.
 
-```sql
-users (
-  id UUID PRIMARY KEY,
-  email VARCHAR(255) NOT NULL UNIQUE,
-  name VARCHAR(255),
-  google_subject VARCHAR(255) NOT NULL UNIQUE,
-  created_at TIMESTAMPTZ NOT NULL
-)
-```
-
-### User Refresh Tokens
-
-```sql
-user_refresh_tokens (
-  id UUID PRIMARY KEY,
-  user_id UUID NOT NULL REFERENCES users(id),
-  token VARCHAR NOT NULL UNIQUE,
-  expires_at TIMESTAMPTZ NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL
-)
-```
-
-## Security
-
-- **HttpOnly cookies** - tokens not accessible via JS
-- **SameSite=Strict** - CSRF protection
-- **Secure flag** - HTTPS only in production
-- **Short-lived access tokens** - 15 minutes
-- **Token rotation** - new refresh token on each refresh
+`user_refresh_tokens`: `user_id`, `token` (unique), `expires_at`, `created_at`.
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
-| `apps/web/src/context/AuthContext.tsx` | React auth context |
-| `apps/web/src/api/auth.ts` | API client auth functions |
-| `backend/src/Api/Endpoints/AuthEndpoints.cs` | Auth API endpoints |
-| `backend/src/Application/Auth/AuthService.cs` | Auth business logic |
+| `apps/web/src/context/AuthContext.tsx` | Web auth context |
+| `apps/web/src/api/auth.ts` | Web API client |
+| `apps/mobile/src/context/AuthContext.tsx` | Mobile auth context |
+| `apps/mobile/src/lib/capabilities.ts` | Guest vs account policy (mobile) |
+| `backend/src/Api/Endpoints/AuthEndpoints.cs` | Auth endpoints, cookies |
+| `backend/src/Application/Auth/AuthService.cs` | Sign-in, refresh rotation, guest promote/merge |
 | `backend/src/Domain/Entities/User.cs` | User entity |
 
-## Environment Variables
+## Configuration
 
 ```env
-# Frontend
+# Frontend (build-time)
 VITE_GOOGLE_CLIENT_ID=xxx.apps.googleusercontent.com
 
-# Backend
-Google__ClientId=xxx.apps.googleusercontent.com
-Jwt__Secret=your-secret-key
-Jwt__Issuer=https://textstack.app
-Jwt__Audience=https://textstack.app
+# Backend (.env → docker-compose)
+GOOGLE_CLIENT_ID=...           # → Google__ClientId
+GOOGLE_LEGACY_CLIENT_IDS=      # → Google__LegacyClientIds
+JWT_SECRET=...                 # → Jwt__SecretKey
+JWT_ISSUER=textstack.app       # → Jwt__Issuer
+JWT_AUDIENCE=textstack.app     # → Jwt__Audience
+RESEND_API_KEY=...             # password reset
 ```
+
+TTLs: `Jwt:AccessTokenExpiryMinutes` (60), `Jwt:RefreshTokenExpiryDays` (365),
+`Jwt:GuestRefreshTokenExpiryDays` (30) in `backend/src/Api/appsettings.json`.

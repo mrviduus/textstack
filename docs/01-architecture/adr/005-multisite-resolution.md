@@ -1,6 +1,8 @@
 # ADR-005: Multisite via Host Resolution
 
 **Status**: Accepted
+
+> **Superseded by [ADR-007 single-domain consolidation](007-single-domain-consolidation.md).** Host resolution survives only as a shim: `SiteResolver` falls back to the single site (`ICurrentSite.Id`) for any unmatched host, and EF global query filters on `ISiteScoped` key on that id.
 **Date**: 2024-12
 
 ## Context

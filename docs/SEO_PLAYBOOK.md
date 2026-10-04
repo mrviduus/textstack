@@ -27,7 +27,7 @@ Every indexable page must clearly answer: **“Why does this page exist?”**
 |---------|------------|---------|
 | Book page (pillar) | `/en/books/:slug/` | Main ranking unit |
 | Author page | `/en/authors/:slug/` | Authority & internal linking |
-| Chapter pages | `/en/books/:slug/:chapter` | ❌ Non‑SEO (canonical → book) |
+| Chapter pages | `/en/books/:slug/:chapter` | ❌ Non‑SEO (`noindex` via `SeoHead` in `ReaderPage.tsx`; GSC "excluded by noindex" for these is intentional) |
 | Supporting pages | `/en/books/:slug/themes/` | Long‑tail capture (future) |
 
 ---

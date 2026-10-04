@@ -3,6 +3,8 @@
 ## Status
 Accepted
 
+> **Partly superseded.** §2 (two sibling hooks `useReaderProgress` / `useUserBookProgress`) was reversed on 2026-06-09 (#292): both were deleted and replaced by one `apps/mobile/src/hooks/useReaderPersistence.ts` shared by both readers. The position format is now governed by [ADR-013](ADR-013-reader-position-model.md) and [ADR-015](ADR-015-reader-position-is-logical.md).
+
 ## Date
 2026-05-23
 

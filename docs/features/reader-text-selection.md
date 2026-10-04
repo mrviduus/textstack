@@ -6,7 +6,7 @@ Text selection features for the Reader that enable users to highlight, translate
 
 **Features:**
 - **Highlights** — 4 colors (yellow, green, pink, blue), persisted to DB
-- **Translation** — LibreTranslate (self-hosted), up to 500 chars
+- **Translation** — OpenAI `gpt-4.1-nano` (`OpenAI:Model`), up to 500 chars (`OpenAI:Translate:MaxTextLength`). LibreTranslate was dropped 2026-04-22
 - ~~**Dictionary**~~ — Free Dictionary API removed 2026-10-03; in definition mode (native = book language) the word popup shows the contextual Explain instead
 - **Notes** — Inline notes attached to highlights
 
@@ -22,8 +22,8 @@ Text selection features for the Reader that enable users to highlight, translate
 │         │              ┌─────┴─────┐              │             │
 │         │              │           │              │             │
 │         ▼              ▼           ▼              ▼             │
-│  HighlightLayer   Translation  Dictionary    IndexedDB          │
-│                    Popup        Popup        (offline)          │
+│  HighlightOverlay Translation  WordPopup /   IndexedDB          │
+│  Layer             Popup       Explain       (offline)          │
 │                      │            │              │              │
 └──────────────────────┼────────────┼──────────────┼──────────────┘
                        │            │              │
@@ -32,10 +32,12 @@ Text selection features for the Reader that enable users to highlight, translate
 │                          Backend API                             │
 ├──────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  POST /api/translate ──────► LibreTranslate (Docker :5000)       │
+│  POST /api/translate ──────► OpenAI (gpt-4.1-nano), file cache   │
 │  GET  /api/translate/languages                                   │
 │                                                                  │
-│  GET    /me/highlights/{editionId}                               │
+│  POST /api/explain   ──────► OpenAI (gpt-4.1-mini), file cache   │
+│                                                                  │
+│  GET    /me/highlights/{editionId} · /all · /userbook/{id}       │
 │  POST   /me/highlights                                           │
 │  PUT    /me/highlights/{id}                                      │
 │  DELETE /me/highlights/{id}                                      │
@@ -153,16 +155,16 @@ interface TextAnchor {
 |-----------|---------|
 | `useTextSelection` | Detects text selection (drag only, no double-click) |
 | `SelectionToolbar` | Floating toolbar with color buttons and actions |
-| `HighlightLayer` | SVG overlay rendering highlight rectangles |
+| `HighlightOverlayLayer` | Overlay rendering highlights (engine: `@textstack/reader-overlay`) |
 | `TranslationPopup` | Shows translation with language selectors |
-| `DictionaryPopup` | Shows word definition, phonetic, examples |
+| `WordPopup` | Single-word popup: translation, or contextual Explain in definition mode (`lib/wordBubbleFetch.ts`) |
 | `NoteEditor` | Inline note editor for highlights |
 | `useHighlights` | CRUD + offline sync to IndexedDB |
 | `useTextTranslation` | Translation API with caching |
 
 ## IndexedDB Schema
 
-**Store: `highlights`** (DB_VERSION = 5)
+**Store: `highlights`** (added v3; DB is now v9 — see [offline-reading.md](../05-features/offline-reading.md))
 
 ```typescript
 interface StoredHighlight {
@@ -180,39 +182,23 @@ interface StoredHighlight {
 }
 ```
 
-**Indexes:** `editionId`, `chapterId`, `syncStatus`
+**Indexes:** `editionId`, `chapterId`, `editionChapter`, `userBookId`
 
 ## UX Behavior
 
 1. **Selection:** Toolbar appears only on drag selection (not double-click)
 2. **Highlight:** Click color → text highlighted, saved to IndexedDB
-3. **Dictionary:** Only shown for single words (no spaces, ≤50 chars)
+3. **Single word:** word popup (translation, or Explain when native = book language) — no dictionary since 2026-10-03
 4. **Translation:** Available for any selection up to 500 chars
 5. **Notes:** Click highlight → NoteEditor popup
 6. **Offline:** Highlights work offline, translation shows "unavailable"
 
-## Docker Services
-
-```yaml
-# docker-compose.yml
-libretranslate:
-  image: libretranslate/libretranslate:latest
-  ports:
-    - "5000:5000"
-  environment:
-    - LT_LOAD_ONLY=en,uk,ru,de,fr,es,pl
-```
-
 ## Configuration
 
-```json
-// appsettings.json
-{
-  "LibreTranslate": {
-    "BaseUrl": "http://libretranslate:5000"
-  }
-}
-```
+No translation container. `OpenAI:ApiKey`, `OpenAI:Model` (translate), `OpenAI:Explain:Model`,
+`OpenAI:Translate:MaxTextLength` in `backend/src/Api/appsettings.json`; server caches under
+`data/translate-cache` and `data/explain-cache`. Rate limits: `translate`, `explain` policies + nginx
+`translate_limit` (5r/m).
 
 ## Files
 
@@ -221,16 +207,16 @@ libretranslate:
 | Backend Endpoints | `Api/Endpoints/HighlightsEndpoints.cs`, `TranslationEndpoints.cs` |
 | Entity | `Domain/Entities/Highlight.cs` |
 | Frontend Hooks | `hooks/useHighlights.ts`, `useTextSelection.ts`, `useTextTranslation.ts` |
-| Frontend Components | `components/reader/SelectionToolbar.tsx`, `HighlightLayer.tsx`, `TranslationPopup.tsx`, `DictionaryPopup.tsx`, `NoteEditor.tsx` |
+| Frontend Components | `components/reader/SelectionToolbar.tsx`, `HighlightOverlayLayer.tsx`, `TranslationPopup.tsx`, `WordPopup.tsx`, `ExplanationPopup.tsx`, `NoteEditor.tsx` |
 | Frontend API | `api/translation.ts`, `api/explain.ts` |
 | Text Anchor | `lib/textAnchor.ts` |
-| Tests | `lib/textAnchor.test.ts`, `HighlightsEndpointTests.cs`, `TranslationEndpointTests.cs`, `DictionaryEndpointTests.cs` |
+| Tests | `lib/textAnchor.test.ts`, `HighlightsEndpointTests.cs`, `TranslationEndpointTests.cs` |
 
 ## Testing
 
 ```bash
 # Backend tests
-dotnet test --filter "Highlights|Translation|Dictionary"
+dotnet test --filter "Highlights|Translation"
 
 # Frontend tests
 pnpm -C apps/web test

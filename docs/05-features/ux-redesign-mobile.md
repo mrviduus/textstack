@@ -1,5 +1,12 @@
 # UX Redesign — Mobile (Slices 1-10)
 
+> **Historical — a record of the 2026-H1 redesign, not current UI.** Since then: translation moved
+> from LibreTranslate to OpenAI (2026-04-22); the dictionary (`DictionarySheet`) was removed
+> 2026-10-03; Home was deleted and Library became the front door; the reader shows one chapter at a
+> time (#683). `WordCard.tsx`, `OnboardingOverlay.tsx`, `ContinueReadingCard.tsx`, `lib/notifications.ts`,
+> `app/vocabulary/index.tsx` and `app/blog/index.tsx` no longer exist (checked 2026-10-04).
+> Current mobile reader: [reader.md](reader.md#mobile-experience).
+
 **Goal:** Transform from "reader with translation" → "learning system through reading"
 **Priority:** Mobile (Play Store release)
 **Branch:** `ux-redesign-slice-1-5` (merged to main)
