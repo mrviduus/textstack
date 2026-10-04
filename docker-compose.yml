@@ -139,9 +139,8 @@ services:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       ConnectionStrings__Default: "Host=db;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
       Storage__RootPath: /storage
-      # The worker routes podcast.script generation to OpenAI (Ai:Routes), so it
-      # needs the key too — without it OpenAiLlmClient throws on an empty key and
-      # podcast jobs fail. The 'api' service already has this; the worker was missed.
+      # The worker routes bookmeta.agent to OpenAI (Ai:Routes), so it needs the
+      # key too — without it OpenAiLlmClient throws on an empty key.
       OpenAI__ApiKey: ${OPENAI_API_KEY:-}
       # Worker reaches Ollama via the Docker service name, not localhost
       # (without this override it falls back to appsettings.json's

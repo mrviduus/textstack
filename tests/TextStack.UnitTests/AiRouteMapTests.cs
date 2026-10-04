@@ -19,7 +19,6 @@ public class AiRouteMapTests
             ["Ai:Routes:bookmeta"] = "ollama",
             ["Ai:Routes:bookmeta.agent"] = "openai-explain",
             ["Ai:Routes:tagsuggestion"] = "ollama",
-            ["Ai:Routes:podcast.script"] = "openai",
             ["Ai:Routes:pdf.parse"] = "openai-pdf",
             ["Ai:Routes:rag.summarize"] = "openai",
             ["Ai:Routes:_SummarizeComment"] = "a documentation key, not a route",

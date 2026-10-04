@@ -263,7 +263,7 @@ regardless of what happens to the chat surfaces:
 | `TranslationEndpoints` · `ExplainEndpoints` · `DictionaryEndpoints` | Translate and Explain in the reader |
 | `Vocabulary/DistractorGenerator` | **Vocabulary SRS** — distractors, hint, explanation per saved word (Ollama) |
 | `Worker/BookMetadataGenerator` | Genre, year, description generated on every upload |
-| `Worker/TagSuggestionGenerator` · `PodcastScriptBuilder` | Tags; podcast scripts |
+| `Worker/TagSuggestionGenerator` | Tags |
 | `Infrastructure/Rag/PdfVisionParser` | **PDF ingestion** (ADR-012) — the core reading path for half the library |
 | `Application/Agents/{AutoPublish,Seo,Field}Crew`, `Drafter/Critic/Editor/Researcher` | **SEO auto-publish and backfill** — not reader chat at all |
 | `AdminSeoBackfillEndpoints` · `AdminAutoPublishEndpoints` | The admin side of the same |

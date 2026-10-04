@@ -169,7 +169,7 @@ public static class DependencyInjection
 
         // Explain runs a STRONGER generation model than the nano default (OpenAI:Explain:Model,
         // default gpt-4.1-mini). Routed per-feature (Ai:Routes:explain[.toolcall] → openai-explain)
-        // so translate / podcast stay on nano. This model is also the distillation teacher.
+        // so translate stays on nano. This model is also the distillation teacher.
         services.AddKeyedSingleton<global::TextStack.Ai.Core.ILlmService>("openai-explain-raw", (sp, key) =>
             new global::TextStack.Ai.Llm.OpenAiLlmClient(
                 sp.GetRequiredService<IConfiguration>(),

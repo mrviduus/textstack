@@ -8,7 +8,6 @@ import { useDownload } from '../context/DownloadContext'
 import { useLibrary } from '../hooks/useLibrary'
 import { useSite } from '../context/SiteContext'
 import { LocalizedLink } from '../components/LocalizedLink'
-import { BookPodcastPlayer } from '../components/BookPodcastPlayer'
 import { SeoHead } from '../components/SeoHead'
 import { JsonLd } from '../components/JsonLd'
 import { Breadcrumbs } from '../components/Breadcrumbs'
@@ -32,7 +31,7 @@ import { useAuth } from '../context/AuthContext'
 import { BookDetailHero } from '../components/BookDetailHero'
 import { AddToCollectionButton } from '../components/library/AddToCollectionButton'
 import { isNotFoundError } from '../lib/errorUtils'
-import type { BookDetail, PodcastStatusDto } from '../types/api'
+import type { BookDetail } from '../types/api'
 
 // Strip HTML tags from description text
 function stripHtml(html: string): string {
@@ -81,7 +80,6 @@ export function BookDetailPage() {
   const [error, setError] = useState<Error | null>(null)
   const [isOffline, setIsOffline] = useState(false)
   const [showAllChapters, setShowAllChapters] = useState(false)
-  const [podcast, setPodcast] = useState<PodcastStatusDto | null>(null)
   // Which chapters have a review — signed-in only; this page is also prerendered for crawlers.
   const { reviews, insights, remove: removeInsight } = useBookReviews(isAuthenticated && book?.id ? { editionId: book.id } : null)
 
@@ -93,15 +91,6 @@ export function BookDetailPage() {
       .then((data) => { if (!cancelled) setBook(data) })
       .catch((err) => { if (!cancelled) setError(err) })
       .finally(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
-  }, [bookSlug, api])
-
-  useEffect(() => {
-    if (!bookSlug) return
-    let cancelled = false
-    api.getPodcast(bookSlug)
-      .then((p) => { if (!cancelled) setPodcast(p) })
-      .catch(() => { if (!cancelled) setPodcast(null) }) // 404 = no podcast yet
     return () => { cancelled = true }
   }, [bookSlug, api])
 
@@ -315,15 +304,6 @@ export function BookDetailPage() {
               }}
               current={currentReviewChapter(book.chapters, continueSlug, reviews)}
             />
-
-            {podcast?.status === 'Succeeded' && podcast.audioUrl && (
-              <BookPodcastPlayer
-                src={podcast.audioUrl}
-                title={book.title}
-                coverUrl={book.coverPath ? getStorageUrl(book.coverPath) : null}
-                durationSeconds={podcast.durationSeconds}
-              />
-            )}
 
             {book.id && isDownloading(book.id) && (
               <span className="book-detail__download-status book-detail__download-status--downloading">

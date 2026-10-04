@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, FormEvent } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { adminApi, EditionDetail, PodcastStatusDto, mediaBase } from '../api/client'
+import { adminApi, EditionDetail } from '../api/client'
 import { AuthorAutocomplete } from '../components/AuthorAutocomplete'
 import { AuthorList, AuthorItem } from '../components/AuthorList'
 import { CreateAuthorModal } from '../components/CreateAuthorModal'
@@ -24,8 +24,6 @@ export function EditEditionPage() {
   const [uploadingCover, setUploadingCover] = useState(false)
   const [deletingCover, setDeletingCover] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [podcast, setPodcast] = useState<PodcastStatusDto | null>(null)
-  const [podcastBusy, setPodcastBusy] = useState(false)
 
   const [title, setTitle] = useState('')
   const [authors, setAuthors] = useState<AuthorItem[]>([])
@@ -124,35 +122,6 @@ export function EditEditionPage() {
     setAuthors(prev => [...prev, { id: author.id, name: author.name, role: 'Author' }])
     setShowCreateModal(false)
     setNewAuthorName('')
-  }
-
-  // Podcast: load latest status on mount, poll while generating.
-  useEffect(() => {
-    if (!id) return
-    let active = true
-    adminApi.getPodcastStatus(id).then((p) => { if (active) setPodcast(p) })
-    return () => { active = false }
-  }, [id])
-
-  useEffect(() => {
-    if (!id || (podcast?.status !== 'Queued' && podcast?.status !== 'Running')) return
-    const timer = setInterval(async () => {
-      const p = await adminApi.getPodcastStatus(id)
-      setPodcast(p)
-    }, 3000)
-    return () => clearInterval(timer)
-  }, [id, podcast?.status])
-
-  const handleGeneratePodcast = async (force = false) => {
-    if (!id) return
-    setPodcastBusy(true)
-    try {
-      setPodcast(await adminApi.generatePodcast(id, undefined, force))
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to start podcast')
-    } finally {
-      setPodcastBusy(false)
-    }
   }
 
   const handlePublish = async () => {
@@ -474,38 +443,6 @@ export function EditEditionPage() {
             Run Quality Check
           </button>
         </div>
-      </div>
-
-      <div className="edition-actions">
-        <h2>Podcast</h2>
-        <div className="action-buttons">
-          <button
-            onClick={() => handleGeneratePodcast(false)}
-            disabled={podcastBusy || podcast?.status === 'Queued' || podcast?.status === 'Running'}
-            className="btn btn--secondary"
-          >
-            {podcast?.status === 'Queued' || podcast?.status === 'Running' ? 'Generating…' : 'Generate podcast'}
-          </button>
-          {(podcast?.status === 'Succeeded' || podcast?.status === 'Failed') && (
-            <button
-              onClick={() => handleGeneratePodcast(true)}
-              disabled={podcastBusy}
-              className="btn btn--secondary"
-              title="Re-run generation with the current prompt"
-            >
-              Regenerate
-            </button>
-          )}
-        </div>
-        {podcast && (
-          <p style={{ marginTop: 8 }}>
-            Status: <strong>{podcast.status}</strong>
-            {podcast.durationSeconds ? ` · ${podcast.durationSeconds}s` : ''}
-          </p>
-        )}
-        {podcast?.status === 'Succeeded' && podcast.audioUrl && (
-          <audio controls src={`${mediaBase}${podcast.audioUrl}`} style={{ width: '100%', marginTop: 8 }} />
-        )}
       </div>
 
       {showCreateModal && (

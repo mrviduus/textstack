@@ -9,7 +9,6 @@ using Npgsql;
 using TextStack.Extraction.Extractors;
 using TextStack.Extraction.Registry;
 using TextStack.Ai.Tools;
-using TextStack.Tts;
 using Worker.Services;
 
 var builder = Host.CreateApplicationBuilder(args);
@@ -70,11 +69,6 @@ builder.Services.AddSingleton<IBookMetadataGenerator, EnrichmentAgentMetadataGen
 // hammering. Must stay FIRST among hosted services. Supersedes the old EnrichmentKeyCheck.
 builder.Services.AddHostedService<AiProviderReadinessCheck>();
 builder.Services.AddSingleton<ITagSuggestionGenerator, TagSuggestionGenerator>();
-builder.Services.AddScoped<IPodcastScriptBuilder, PodcastScriptBuilder>();
-// TTS + audio assembly for podcasts (Edge TTS is free; ffmpeg is in the Worker image).
-builder.Services.Configure<TtsConfiguration>(builder.Configuration.GetSection("Tts"));
-builder.Services.AddSingleton<ITtsService, EdgeTtsService>();
-builder.Services.AddSingleton<IAudioAssembler, AudioAssembler>();
 builder.Services.AddSingleton<IngestionWorkerService>();
 // Enrichment-reliability: shared executor (atomic claim + terminal status) used by the ingestion
 // inline-kick and the sweep worker below. Singleton — depends only on the DbContext factory + the
@@ -84,7 +78,6 @@ builder.Services.AddSingleton<UserIngestionService>();
 builder.Services.AddHostedService<IngestionWorker>();
 // Sweep: drains Pending (API re-enrich reaches the worker here) + reclaims stale Running rows.
 builder.Services.AddHostedService<MetadataEnrichmentWorker>();
-builder.Services.AddHostedService<PodcastWorker>();
 
 // SSG Rebuild handled by dedicated ssg_worker container (apps/web/scripts/ssg-worker.mjs)
 

@@ -11,13 +11,6 @@ export interface BookGenre {
   name: string
 }
 
-export interface PodcastStatusDto {
-  jobId: string
-  status: 'Queued' | 'Running' | 'Succeeded' | 'Failed'
-  audioUrl: string | null
-  durationSeconds: number | null
-}
-
 // Web reads two fields mobile does not; the rest is the shared shape.
 export interface BookDetail extends SharedBookDetail {
   // Mirrors the DB column. When false, BookDetailPage emits noindex so

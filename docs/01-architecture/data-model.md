@@ -90,7 +90,6 @@ Spaced-repetition language learning layer.
 - `EvalRun` — eval score history
 - `DriftCentroid` — daily embedding centroids (pgvector) for drift alerts
 - `AgentRun` — persisted agent run steps
-- `PodcastGenerationJob` — two-voice podcast generation queue
 
 ### 8. Multisite (legacy — single-site permanent, ADR-007)
 

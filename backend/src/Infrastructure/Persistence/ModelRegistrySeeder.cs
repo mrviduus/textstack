@@ -22,7 +22,6 @@ public static class ModelRegistrySeeder
         ("distractor", "ollama", "gemma4:e2b"),
         ("bookmeta", "ollama", "gemma4:e2b"),
         ("tagsuggestion", "ollama", "gemma4:e2b"),
-        ("podcast.script", "openai", "gpt-4.1-nano"),
     ];
 
     public static async Task SeedAsync(AppDbContext db, CancellationToken ct = default)

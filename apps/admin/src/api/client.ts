@@ -1,8 +1,5 @@
 export const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
 
-/// Origin that serves /storage (strip a trailing /api so podcast mp3 urls resolve).
-export const mediaBase = API_BASE.replace(/\/api\/?$/, '')
-
 export interface IngestionJob {
   id: string
   editionId: string
@@ -442,12 +439,6 @@ export interface EvalStatus {
   running: boolean
   startedAt: string | null
   lastError: string | null
-}
-export interface PodcastStatusDto {
-  jobId: string
-  status: 'Queued' | 'Running' | 'Succeeded' | 'Failed'
-  audioUrl: string | null
-  durationSeconds: number | null
 }
 export interface AiQualitySummary {
   from: string
@@ -1400,23 +1391,6 @@ export const adminApi = {
     return fetchJson<ModelPromotionResult>(`/admin/ai-quality/models/${encodeURIComponent(feature)}/rollback`, {
       method: 'POST',
     })
-  },
-
-  // Podcasts
-  generatePodcast: async (editionId: string, lang?: string, force?: boolean): Promise<PodcastStatusDto> => {
-    return fetchJson<PodcastStatusDto>('/admin/podcasts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ editionId, lang, force }),
-    })
-  },
-
-  getPodcastStatus: async (editionId: string): Promise<PodcastStatusDto | null> => {
-    try {
-      return await fetchJson<PodcastStatusDto>(`/admin/podcasts/${editionId}`)
-    } catch {
-      return null // 404 = not generated yet
-    }
   },
 
   // ── SEO Backfill ──

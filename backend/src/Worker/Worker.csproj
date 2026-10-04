@@ -16,6 +16,5 @@
     <ProjectReference Include="..\Contracts\Contracts.csproj" />
     <ProjectReference Include="..\Domain\Domain.csproj" />
     <ProjectReference Include="..\Extraction\TextStack.Extraction\TextStack.Extraction.csproj" />
-    <ProjectReference Include="..\Tts\TextStack.Tts\TextStack.Tts.csproj" />
   </ItemGroup>
 </Project>

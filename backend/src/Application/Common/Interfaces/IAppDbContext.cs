@@ -70,7 +70,6 @@ public interface IAppDbContext
     DbSet<AgentRun> AgentRuns { get; }
     DbSet<TutorSession> TutorSessions { get; }
     DbSet<DriftCentroid> DriftCentroids { get; }
-    DbSet<PodcastGenerationJob> PodcastGenerationJobs { get; }
     DbSet<BookInsight> BookInsights { get; }
     DbSet<ReviewQuestion> ReviewQuestions { get; }
 

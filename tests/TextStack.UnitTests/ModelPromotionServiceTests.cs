@@ -135,7 +135,7 @@ public class ModelPromotionServiceTests
     public async Task PromoteAsync_NoExistingPrimary_FirstPromotion_FromIsNull()
     {
         var h = new Harness();
-        var target = h.AddModel("podcast.script", "ollama", "gemma4:e2b", ModelStatus.Shadow);
+        var target = h.AddModel("tagsuggestion", "ollama", "gemma4:e2b", ModelStatus.Shadow);
 
         var result = await h.Service.PromoteAsync(target.Id, null, CancellationToken.None);
 

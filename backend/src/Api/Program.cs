@@ -334,7 +334,6 @@ app.MapAdminLintEndpoints();
 app.MapAdminSettingsEndpoints();
 app.MapAdminDiagnosticsEndpoints();
 app.MapBooksEndpoints();
-app.MapPodcastEndpoints();
 app.MapSearchEndpoints();
 app.MapAuthorsEndpoints();
 app.MapGenresEndpoints();
