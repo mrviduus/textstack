@@ -100,7 +100,8 @@ export function useHighlights(editionId?: string, userBookId?: string, options?:
         for (const h of plan.update) {
           try {
             // No `version`: the offline edit is the reader's latest intent (last write wins).
-            const saved = fromServerHighlight(await updatePublicHighlight(h.id, { color: h.color, noteText: h.noteText }))
+            // A note absent locally was removed offline — `null` clears it on the server too.
+            const saved = fromServerHighlight(await updatePublicHighlight(h.id, { color: h.color, noteText: h.noteText ?? null }))
             await saveHighlight(saved)
             if (!isCancelled()) setHighlights((prev) => prev.map((p) => (p.id === h.id ? saved : p)))
             changed = true

@@ -4,7 +4,8 @@
       "commandName": "Project",
       "launchBrowser": true,
       "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Development"
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "Database__MigrateOnStartup": "true"
       },
       "applicationUrl": "https://localhost:62735;http://localhost:62736"
     }

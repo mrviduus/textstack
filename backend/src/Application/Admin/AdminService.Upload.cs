@@ -303,8 +303,9 @@ public partial class AdminService
         job.Error = null;
         job.StartedAt = null;
         job.FinishedAt = null;
+        // A manual retry gets a fresh attempt budget; IngestionService.GetNextJobAsync skips jobs at MaxAttempts.
+        job.AttemptCount = 0;
         // Keep diagnostics from previous attempt for reference
-        // AttemptCount will be incremented when processing starts
 
         await db.SaveChangesAsync(ct);
 

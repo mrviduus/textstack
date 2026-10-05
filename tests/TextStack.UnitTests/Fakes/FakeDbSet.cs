@@ -8,7 +8,7 @@ namespace TextStack.UnitTests.Fakes;
 /// In-memory <see cref="DbSet{T}"/> backed by a <see cref="List{T}"/> with working async LINQ
 /// (via <see cref="TestAsyncEnumerable{T}"/>). Supports the operations DriftDetectionWorker uses:
 /// <c>Where</c>/<c>OrderBy</c>/<c>Select</c>/<c>Take</c> + <c>AnyAsync</c>/<c>FirstOrDefaultAsync</c>/<c>ToListAsync</c>
-/// and <c>Add</c>. No change-tracking — <c>Add</c> just appends to the backing list (the worker
+/// and <c>Add</c>/<c>Remove</c>/<c>RemoveRange</c>. No change-tracking — <c>Add</c> just appends to the backing list (the worker
 /// reads back via the same list after SaveChanges).
 /// </summary>
 internal sealed class FakeDbSet<T>(List<T> store) : DbSet<T>, IQueryable<T>, IAsyncEnumerable<T>
@@ -22,6 +22,17 @@ internal sealed class FakeDbSet<T>(List<T> store) : DbSet<T>, IQueryable<T>, IAs
     {
         store.Add(entity);
         return null!; // worker discards the returned entry
+    }
+
+    public override Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry<T> Remove(T entity)
+    {
+        store.Remove(entity);
+        return null!;
+    }
+
+    public override void RemoveRange(IEnumerable<T> entities)
+    {
+        foreach (var e in entities.ToList()) store.Remove(e);
     }
 
     public override Microsoft.EntityFrameworkCore.Metadata.IEntityType EntityType =>

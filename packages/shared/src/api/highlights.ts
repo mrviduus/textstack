@@ -98,17 +98,28 @@ export async function createHighlight(data: {
   return authFetch<PublicHighlight>('/me/highlights', jsonBody('POST', data))
 }
 
-export async function updateHighlight(
-  id: string,
-  data: {
-    color?: string
-    anchorJson?: string
-    selectedText?: string
-    noteText?: string | null
-    version?: number
-  }
-): Promise<PublicHighlight> {
-  return authFetch<PublicHighlight>(`/me/highlights/${id}`, jsonBody('PUT', data))
+export interface UpdateHighlightData {
+  color?: string
+  anchorJson?: string
+  selectedText?: string
+  /** `undefined` leaves the note alone; `null` or blank removes it. */
+  noteText?: string | null
+  version?: number
+}
+
+/**
+ * The PUT body. The server reads a null `noteText` as "unchanged" and clears a note only on
+ * `removeNote`, so a cleared note (null or blank) is sent as that.
+ */
+export function updateHighlightBody(data: UpdateHighlightData) {
+  const { noteText, ...rest } = data
+  if (noteText === undefined) return rest
+  if (noteText === null || noteText.trim() === '') return { ...rest, removeNote: true }
+  return { ...rest, noteText }
+}
+
+export async function updateHighlight(id: string, data: UpdateHighlightData): Promise<PublicHighlight> {
+  return authFetch<PublicHighlight>(`/me/highlights/${id}`, jsonBody('PUT', updateHighlightBody(data)))
 }
 
 export async function deleteHighlight(id: string): Promise<void> {

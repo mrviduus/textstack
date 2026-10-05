@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Fixes** — catalog ingestion stops after 3 attempts (Failed, admin retry resets); deleted uploads / books removed from the library leave collections, add checks ownership, orphan rows cleaned (`CleanupOrphanedBookCollections`); migrations only by the `migrator` (Api opt-in for local `dotnet run`); password reset also revokes MCP keys and OAuth grants; expired user refresh tokens deleted daily; clearing a highlight note syncs (`removeNote`) — backend, web, mobile
 - **Docs** — architecture review 2026-10: system map (C4 diagrams), backend, ops and client reviews, ranked gaps with status; JSON-LD output escaped — docs, web
 - **Security** — refresh tokens stored hashed; admin and user tokens separated; upload size checked before reading; EPUB size limits — backend
 - **Ops** — monthly restore drill: a clean GitHub runner restores the latest R2 backup (DB, storage, `.env`) and checks it; first run DB 206 s + files 37 s, 200/200 covers present; `backup.md` disaster-recovery steps rewritten from it — infra, docs

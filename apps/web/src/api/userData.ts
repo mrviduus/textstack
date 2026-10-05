@@ -1,3 +1,4 @@
+import { highlightsApi, type UpdateHighlightData } from '@textstack/shared'
 import { authFetch } from './client'
 
 // Bookmark types
@@ -149,20 +150,11 @@ export async function createPublicHighlight(data: {
   })
 }
 
-export async function updatePublicHighlight(
-  id: string,
-  data: {
-    color?: string
-    anchorJson?: string
-    selectedText?: string
-    noteText?: string | null
-    version?: number
-  }
-): Promise<PublicHighlight> {
+export async function updatePublicHighlight(id: string, data: UpdateHighlightData): Promise<PublicHighlight> {
   return authFetch<PublicHighlight>(`/me/highlights/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
+    body: JSON.stringify(highlightsApi.updateHighlightBody(data)),
   })
 }
 

@@ -673,6 +673,20 @@ public class AuthService
             .ToListAsync(ct);
         _db.UserRefreshTokens.RemoveRange(refreshTokens);
 
+        // ...and every assistant credential: connect keys and OAuth grants (their tokens live on
+        // the grant row). Revoked, not deleted, as the reader's own revoke does.
+        var now = DateTimeOffset.UtcNow;
+        var keys = await _db.McpAccessKeys
+            .Where(k => k.UserId == resetToken.UserId && k.RevokedAt == null)
+            .ToListAsync(ct);
+        foreach (var key in keys)
+            key.RevokedAt = now;
+        var grants = await _db.OAuthGrants
+            .Where(g => g.UserId == resetToken.UserId && g.RevokedAt == null)
+            .ToListAsync(ct);
+        foreach (var grant in grants)
+            grant.RevokedAt = now;
+
         await _db.SaveChangesAsync(ct);
         return true;
     }
