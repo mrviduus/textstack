@@ -232,6 +232,7 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage, IEnt
                 b.ProgressChapterSlug,
                 b.ProgressLocator,
                 b.ProgressPositionJson,
+                b.ProgressClientUpdatedAt,
                 b.Tags,
                 b.SuggestedTags,
                 b.SourceUrl,
@@ -269,7 +270,8 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage, IEnt
             b.ReadAt,
             b.HasOriginalPdf,
             b.ProgressLocator,
-            b.ProgressPositionJson
+            b.ProgressPositionJson,
+            b.ProgressClientUpdatedAt
         )).ToList();
     }
 
@@ -540,7 +542,7 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage, IEnt
     {
         var book = await db.UserBooks
             .Where(b => b.UserId == userId && b.Id == bookId && b.TakedownAt == null)
-            .Select(b => new { b.ProgressChapterSlug, b.ProgressLocator, b.ProgressPercent, b.ProgressUpdatedAt, b.ProgressPositionJson })
+            .Select(b => new { b.ProgressChapterSlug, b.ProgressLocator, b.ProgressPercent, b.ProgressUpdatedAt, b.ProgressPositionJson, b.ProgressClientUpdatedAt })
             .FirstOrDefaultAsync(ct);
 
         // Page-based (PDF "Original layout", ADR-012) progress has no chapter — the
@@ -554,7 +556,8 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage, IEnt
             book.ProgressLocator,
             book.ProgressPercent,
             book.ProgressUpdatedAt,
-            book.ProgressPositionJson
+            book.ProgressPositionJson,
+            book.ProgressClientUpdatedAt
         );
     }
 
@@ -598,6 +601,17 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage, IEnt
         if (!string.IsNullOrWhiteSpace(request.ChapterSlug) && !row.ChapterKnown)
             return (false, $"No chapter '{request.ChapterSlug}' in this book");
 
+        // Last-write-wins on the CLIENT clock only, the same rule as catalog progress
+        // (UserDataEndpoints.UpsertProgress → ProgressClock). Without it uploads were
+        // "newest arrival wins": a phone coming back online with an older offline write
+        // overwrote what another device had recorded since. A write with no timestamp
+        // (MCP, mark-as-finished, older builds) always goes through. A stale write is
+        // answered as accepted, like the catalog path — the stored row is newer, which
+        // is exactly what the caller should resume from.
+        var now = DateTimeOffset.UtcNow;
+        if (ProgressClock.IsStale(request.UpdatedAt, book.ProgressClientUpdatedAt, now))
+            return (true, null);
+
         book.ProgressChapterSlug = request.ChapterSlug;
         book.ProgressLocator = request.Locator;
         // Assigned, never merged — see ReaderPosition. Reached only after MayReplace
@@ -616,22 +630,13 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage, IEnt
         // saved and the number is left alone. See ProgressUnit.
         if (request.Percent.HasValue && ProgressUnit.IsTrusted(request.PercentUnit))
             book.ProgressPercent = request.Percent;
-        // Server clock, always — matching the catalog path (UserDataEndpoints).
-        // This column used to hold `request.UpdatedAt ?? UtcNow`, making it the one
-        // progress column in the codebase that could contain a CLIENT clock. The
-        // last-write-wins gate above then compared a client timestamp against
-        // whatever the column happened to hold, so a PDF write arriving after a
-        // reflow write — but carrying a device clock a second behind the server's —
-        // was silently dropped.
-        //
-        // The gate is gone with it. It was never a real invariant: the reflow
-        // payload has never sent `updatedAt` at all, so that path has always been
-        // last-arrival-wins. And no client queues progress writes for retry
-        // (mobile is fire-and-forget, web is debounce + keepalive), so arrival
-        // order already IS recency. Genuine cross-device merge needs a second
-        // column holding the client clock, compared only against itself — recorded
-        // as open in ADR-013 rather than half-built here.
-        book.ProgressUpdatedAt = DateTimeOffset.UtcNow;
+        // Two clocks, two columns. ProgressUpdatedAt is the server's, always — it once
+        // held `request.UpdatedAt ?? UtcNow`, and a gate comparing a client stamp with a
+        // column of mixed clocks silently dropped good writes. The client's stamp lives
+        // in ProgressClientUpdatedAt and is compared only with itself (the gate above).
+        // Assigned, not max-ed: a write with no timestamp clears it, same as catalog.
+        book.ProgressUpdatedAt = now;
+        book.ProgressClientUpdatedAt = ProgressClock.Clamp(request.UpdatedAt, now);
 
         if (request.Percent is >= 0.99 && ProgressUnit.IsTrusted(request.PercentUnit))
         {

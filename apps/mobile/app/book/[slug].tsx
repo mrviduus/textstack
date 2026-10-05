@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Share } from 'react-native'
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Share, Alert } from 'react-native'
 import { Image } from 'expo-image'
 import { useFocusEffect, useLocalSearchParams, useRouter, Stack } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
-import { createBooksApi, currentReviewChapter, formatBookPercent, getStorageUrl, libraryApi, plural, readingProgressApi, resumeChapterSlug, storedBookPercent } from '@textstack/shared'
+import { collectionsApi, createBooksApi, currentReviewChapter, formatBookPercent, getStorageUrl, libraryApi, plural, readingProgressApi, resumeChapterSlug, storedBookPercent } from '@textstack/shared'
 import type { BookDetail } from '@textstack/shared'
 import { useDownload } from '../../src/context/DownloadContext'
 import { useAuth } from '../../src/context/AuthContext'
@@ -23,6 +23,8 @@ import {
   listCachedChapters,
 } from '../../src/lib/offlineDb'
 import { getLocalProgress } from '../../src/lib/progressStorage'
+import { countCollectionsHolding, decideLibraryRemoval } from '../../src/lib/libraryRemoval'
+import { invalidateCollectionsCache } from '../../src/hooks/useCollections'
 import { fonts } from '../../src/theme/typography'
 import { OfflineBanner } from '../../src/components/ui/OfflineBanner'
 import { SkeletonLoader } from '../../src/components/ui/SkeletonLoader'
@@ -446,21 +448,52 @@ export default function BookDetailScreen() {
             <TouchableOpacity
               style={[styles.secondaryButton, { borderColor: inLibrary ? colors.success : colors.primary }]}
               onPress={async () => {
-                // Optimistic flip — roll back on failure so the button doesn't
-                // lie about the library state.
                 const wasInLibrary = inLibrary
-                setInLibrary(!wasInLibrary)
-                try {
-                  if (wasInLibrary) {
-                    await libraryApi.removeFromLibrary(book.id)
-                  } else {
-                    await libraryApi.addToLibrary(book.id)
+                const toggle = async () => {
+                  // Optimistic flip — roll back on failure so the button doesn't
+                  // lie about the library state.
+                  setInLibrary(!wasInLibrary)
+                  try {
+                    if (wasInLibrary) {
+                      await libraryApi.removeFromLibrary(book.id)
+                      // The server took it out of its collections too (#706).
+                      invalidateCollectionsCache()
+                    } else {
+                      await libraryApi.addToLibrary(book.id)
+                    }
+                    // No shelf cache to drop: the Library tab refetches on focus.
+                  } catch (err) {
+                    console.warn('library toggle failed:', err)
+                    setInLibrary(wasInLibrary)
                   }
-                  // No shelf cache to drop: the Library tab refetches on focus.
-                } catch (err) {
-                  console.warn('library toggle failed:', err)
-                  setInLibrary(wasInLibrary)
                 }
+                if (!wasInLibrary) return toggle()
+
+                // Removing also empties the book out of every collection it is in,
+                // so ask first — but only when there is something to lose. No
+                // membership-by-book endpoint: one list per non-empty collection.
+                // If the lookup fails the removal goes ahead unasked, as it always
+                // did (offline, the removal itself fails and rolls back).
+                let count = 0
+                try {
+                  const collections = await collectionsApi.listCollections()
+                  const lists = await Promise.all(collections
+                    .filter(c => c.count > 0)
+                    .map(c => collectionsApi.getCollectionBookIds(c.id, 'savedbook')))
+                  count = countCollectionsHolding(book.id, lists)
+                } catch (err) {
+                  console.warn('collection membership lookup failed:', err)
+                }
+                const decision = decideLibraryRemoval(count)
+                if (!decision.confirm) return toggle()
+                Alert.alert(
+                  t('library.actions.removeFromLibraryConfirmTitle'),
+                  t(decision.bodyKey).replace('{{count}}', String(decision.count)),
+                  [
+                    { text: t('library.actions.cancel'), style: 'cancel' },
+                    { text: t('library.actions.removeFromLibraryConfirm'), style: 'destructive', onPress: () => { void toggle() } },
+                  ],
+                )
               }}
               activeOpacity={0.85}
             >

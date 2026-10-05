@@ -77,6 +77,8 @@ export function getUserBookProgress(bookId: string) {
     updatedAt: string | null
     /** Where the reader is in the TEXT, serialised. Prefer it over `locator`. */
     positionJson?: string | null
+    /** Client clock of the kept write — compare local stamps with this, not `updatedAt`. */
+    clientUpdatedAt?: string | null
   }>(`/me/books/${bookId}/progress`)
 }
 

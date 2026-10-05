@@ -40,7 +40,16 @@ public class UserBook
     /// </summary>
     public double? ProgressPercent { get; set; }
 
+    /// <summary>Server clock: when progress was last written.</summary>
     public DateTimeOffset? ProgressUpdatedAt { get; set; }
+
+    /// <summary>
+    /// Client clock of the accepted progress write — same contract as
+    /// <see cref="ReadingProgress.ClientUpdatedAt"/>: last-write-wins compares an incoming client
+    /// timestamp only with this (ProgressClock), never with <see cref="ProgressUpdatedAt"/>.
+    /// Null lets the next write in.
+    /// </summary>
+    public DateTimeOffset? ProgressClientUpdatedAt { get; set; }
 
     /// <summary>Set once <see cref="ProgressPercent"/> crosses 0.99, or by an
     /// explicit mark-as-finished. The presence of this is the answer to "is it

@@ -35,7 +35,9 @@ public record UserBookListDto(
     /// preferred; the locator is what a row written by an older build offers.</para>
     /// </summary>
     string? ProgressLocator = null,
-    string? ProgressPositionJson = null
+    string? ProgressPositionJson = null,
+    /// <summary>Client clock of the accepted progress write — see UserBookProgressDto.ClientUpdatedAt.</summary>
+    DateTimeOffset? ProgressClientUpdatedAt = null
 );
 
 public record AcceptSuggestedTagsRequest(string[] Accepted);
@@ -132,7 +134,10 @@ public record UserBookProgressDto(
     DateTimeOffset? UpdatedAt,
     /// <summary>The logical position, when the row holds one. Same contract as
     /// ReadingProgressDto.PositionJson — see Domain.Entities.ReadingProgress.PositionJson.</summary>
-    string? PositionJson = null
+    string? PositionJson = null,
+    /// <summary>The CLIENT clock of the accepted write (UserBook.ProgressClientUpdatedAt). Compare a
+    /// local record's stamp with this, never with <paramref name="UpdatedAt"/> (server clock).</summary>
+    DateTimeOffset? ClientUpdatedAt = null
 );
 
 // ChapterSlug is nullable: PDFs opened in "Original layout" (ADR-012) have no

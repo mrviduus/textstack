@@ -21,6 +21,11 @@ const AsyncStorage = {
   async setItem(key: string, value: string): Promise<void> {
     store.set(key, value)
   },
+  /** Shallow JSON merge, like the native module's. */
+  async mergeItem(key: string, value: string): Promise<void> {
+    const prev = store.has(key) ? JSON.parse(store.get(key)!) : {}
+    store.set(key, JSON.stringify({ ...prev, ...JSON.parse(value) }))
+  },
   async removeItem(key: string): Promise<void> {
     store.delete(key)
   },

@@ -326,28 +326,86 @@ public class UserBookProgressServiceTests
     }
 
     [Fact]
-    public async Task UpsertProgressAsync_LaterWriteWithAnEarlierClientClock_IsStored()
+    public async Task UpsertProgressAsync_DeviceClockBehindServer_LaterWriteIsStored()
     {
-        // The column used to hold whichever clock the client happened to send, and
-        // the stale-write gate compared a client timestamp against it. A PDF write
-        // arriving after a reflow write, from a device a second behind the server,
-        // was silently dropped. One clock per column, and the gate is gone with it.
+        // A device minutes behind the server is consistent with ITSELF: its later write
+        // carries a later stamp. The gate compares client with client, so it goes through.
         var h = new Harness();
         var userId = Guid.NewGuid();
         var book = h.SeedBook(userId, "ch-1", "ch-2");
+        var deviceNow = DateTimeOffset.UtcNow.AddMinutes(-10);
 
         await h.Service.UpsertProgressAsync(userId, book.Id, new UpsertUserBookProgressRequest(
             ChapterSlug: "ch-1", Locator: "scroll:ch-1:10", Percent: 0.1,
-            UpdatedAt: DateTimeOffset.UtcNow.AddMinutes(5),
-            PercentUnit: ProgressUnit.Book), CancellationToken.None);
+            UpdatedAt: deviceNow, PercentUnit: ProgressUnit.Book), CancellationToken.None);
 
         await h.Service.UpsertProgressAsync(userId, book.Id, new UpsertUserBookProgressRequest(
             ChapterSlug: "ch-2", Locator: "scroll:ch-2:20", Percent: 0.2,
-            UpdatedAt: DateTimeOffset.UtcNow.AddMinutes(-5),
-            PercentUnit: ProgressUnit.Book), CancellationToken.None);
+            UpdatedAt: deviceNow.AddSeconds(5), PercentUnit: ProgressUnit.Book), CancellationToken.None);
 
         Assert.Equal("scroll:ch-2:20", book.ProgressLocator);
         Assert.Equal(0.2, book.ProgressPercent);
+        Assert.Equal(deviceNow.AddSeconds(5), book.ProgressClientUpdatedAt);
+    }
+
+    [Fact]
+    public async Task UpsertProgressAsync_OlderClientStampArrivesLater_IsIgnored()
+    {
+        // The offline phone coming back with a position recorded BEFORE the one another
+        // device has since stored. Newest arrival used to win and moved the reader back.
+        var h = new Harness();
+        var userId = Guid.NewGuid();
+        var book = h.SeedBook(userId, "ch-1", "ch-2");
+        var t = DateTimeOffset.UtcNow.AddMinutes(-1);
+
+        await h.Service.UpsertProgressAsync(userId, book.Id, new UpsertUserBookProgressRequest(
+            ChapterSlug: "ch-2", Locator: "scroll:ch-2:20", Percent: 0.6,
+            UpdatedAt: t, PercentUnit: ProgressUnit.Book), CancellationToken.None);
+
+        var (success, error) = await h.Service.UpsertProgressAsync(userId, book.Id, new UpsertUserBookProgressRequest(
+            ChapterSlug: "ch-1", Locator: "scroll:ch-1:10", Percent: 0.1,
+            UpdatedAt: t.AddSeconds(-30), PercentUnit: ProgressUnit.Book), CancellationToken.None);
+
+        Assert.True(success);
+        Assert.Null(error);
+        Assert.Equal("scroll:ch-2:20", book.ProgressLocator);
+        Assert.Equal(0.6, book.ProgressPercent);
+        Assert.Equal(t, book.ProgressClientUpdatedAt);
+    }
+
+    [Fact]
+    public async Task UpsertProgressAsync_WriteWithoutStamp_IsStoredAndClearsTheClientStamp()
+    {
+        // MCP and mark-as-finished send no timestamp: always accepted, and the stored
+        // client stamp is cleared so the next timestamped write is not compared with it.
+        var h = new Harness();
+        var userId = Guid.NewGuid();
+        var book = h.SeedBook(userId, "ch-1", "ch-2");
+        book.ProgressClientUpdatedAt = DateTimeOffset.UtcNow;
+
+        await h.Service.UpsertProgressAsync(userId, book.Id, new UpsertUserBookProgressRequest(
+            ChapterSlug: "ch-1", Locator: "scroll:ch-1:10", Percent: 0.1,
+            UpdatedAt: null, PercentUnit: ProgressUnit.Book), CancellationToken.None);
+
+        Assert.Equal("scroll:ch-1:10", book.ProgressLocator);
+        Assert.Null(book.ProgressClientUpdatedAt);
+    }
+
+    [Fact]
+    public async Task UpsertProgressAsync_FutureClientStamp_IsClampedAndReturnedByGet()
+    {
+        var h = new Harness();
+        var userId = Guid.NewGuid();
+        var book = h.SeedBook(userId);
+
+        await h.Service.UpsertProgressAsync(userId, book.Id, new UpsertUserBookProgressRequest(
+            ChapterSlug: null, Locator: "page:3", Percent: 0.1,
+            UpdatedAt: DateTimeOffset.UtcNow.AddDays(1), PercentUnit: ProgressUnit.Book), CancellationToken.None);
+
+        var got = await h.Service.GetProgressAsync(userId, book.Id, CancellationToken.None);
+        Assert.NotNull(got!.ClientUpdatedAt);
+        Assert.True(got.ClientUpdatedAt <= DateTimeOffset.UtcNow + ProgressClock.MaxClientSkew);
+        Assert.Equal(book.ProgressClientUpdatedAt, got.ClientUpdatedAt);
     }
 
     // --- PositionJson: the logical position, and the invariant that a row never

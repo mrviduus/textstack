@@ -160,6 +160,11 @@ public class MarkFinishedClientClockTests(LiveApiFixture fixture, AuthenticatedA
         var row = await ReadAsync(editionId);
         Assert.Equal(0.2, row.GetProperty("percent").GetDouble());
         Assert.Equal(StartOfChapter, row.GetProperty("locator").GetString());
+        // The kept write's CLIENT stamp is exposed, so a client can compare its own local record
+        // with it instead of with the server-clock updatedAt.
+        // (Postgres keeps microseconds, so compare within a millisecond.)
+        var kept = row.GetProperty("clientUpdatedAt").GetDateTimeOffset();
+        Assert.True(Math.Abs((kept - deviceNow).TotalMilliseconds) < 1, $"clientUpdatedAt {kept:O} != {deviceNow:O}");
 
         await auth.Client.SendAsync(auth.CreateRequest(HttpMethod.Delete, $"/me/progress/{editionId}"), Ct);
     }

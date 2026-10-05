@@ -35,6 +35,7 @@ import { useToast } from '../../context/ToastContext'
 import { saveWordIntent } from '../../lib/saveWordIntent'
 import { capabilitiesFor } from '../../lib/capabilities'
 import { claimGuestNudge } from '../../lib/guestNudge'
+import { decideNewerPosition, readerMovedSince } from '../../lib/progressRestore'
 import { useTheme } from '../../context/ThemeContext'
 import { useLanguage } from '../../context/LanguageContext'
 import { useNativeLanguage } from '../../context/NativeLanguageContext'
@@ -149,9 +150,12 @@ export interface ReaderShellProps {
   /** Server-persisted resume page (parsed from the `page:<N>` locator). Used
    *  when the chapter carries no page. (ADR-012 S4c) */
   originalResumePage?: number | null
-  /** False while the server resume page is still loading — the initial jump waits
-   *  on this (ignored when `originalInitialPage` is set). */
+  /** False until the device's resume page has been read — the initial jump waits
+   *  on this (ignored when `originalInitialPage` is set). Never waits on a network. */
   originalResumeReady?: boolean
+  /** A page the server holds that is provably newer than the one the PDF opened
+   *  at, found after the open. See the effect that consumes it. */
+  originalNewerPage?: number | null
   /** Persist a PDF page position to server progress (debounced by the source).
    *  Never feeds the word-based reading session. */
   persistPdfPage?: (page: number, numPages: number) => void
@@ -185,7 +189,7 @@ export function ReaderShell(props: ReaderShellProps) {
     bookmarks, onToggleCurrentBookmark, onDeleteBookmark, bookmarkChapterSlug,
     bookTitleRef, wordCount, explainBookId,
     original, originalFileUrl, originalInitialPage,
-    originalResumePage, originalResumeReady, persistPdfPage,
+    originalResumePage, originalResumeReady, originalNewerPage, persistPdfPage,
     onTogglePageBookmark, isPageBookmarked, onForceReflow,
   } = props
 
@@ -263,6 +267,8 @@ export function ReaderShell(props: ReaderShellProps) {
   // even computed and never reset — see pdfPersistGate.ts.
   const pdfGateRef = useRef<PdfGateState>(PDF_GATE_INITIAL)
   const pdfJumpIdRef = useRef(0)
+  // Page the initial resolution sent the viewer to — "has the reader moved since?".
+  const pdfResumedPageRef = useRef<number | null>(null)
   // True while the document being opened is a RELOAD of one already in progress
   // (the silent 401 recovery). The bootstrap carries the tracked page, so the
   // resume logic must not run again and pull the reader back to the chapter start.
@@ -505,6 +511,7 @@ export function ReaderShell(props: ReaderShellProps) {
     if (originalInitialPage != null && !originalResumeReady) {
       // The chapter's start page came from the bootstrap; the document already
       // opens where it should. Nothing to wait for, so saving can begin.
+      pdfResumedPageRef.current = originalInitialPage
       pdfGateRef.current = pdfGateReduce(pdfGateRef.current, { type: 'noJumpNeeded' }).state
       return
     }
@@ -512,14 +519,49 @@ export function ReaderShell(props: ReaderShellProps) {
     const target = resolvePdfResumePage({
       chapterStartPage: originalInitialPage,
       chapterEndPage: idx >= 0 ? chapterEndPage(chapters, idx) : null,
-      resumePage: originalResumePage,
+      // A newer server page that arrived before the jump is simply the target ('adopt').
+      resumePage: originalNewerPage ?? originalResumePage,
     })
+    pdfResumedPageRef.current = target
     // The gate is armed by `scrollPdfToPage` itself, AFTER the target is known —
     // the old code set its flag first and then computed the target, so the
     // viewer's page-1 report sailed through the guard meant to catch it.
     if (target > 1 && target !== originalInitialPage) scrollPdfToPage(target)
     else pdfGateRef.current = pdfGateReduce(pdfGateRef.current, { type: 'noJumpNeeded' }).state
-  }, [original, originalInitialPage, originalResumeReady, originalResumePage, scrollPdfToPage, chapters, chapterSlug])
+  }, [original, originalInitialPage, originalResumeReady, originalResumePage, originalNewerPage, scrollPdfToPage, chapters, chapterSlug])
+
+  // A newer page from the server, after the document already opened at the
+  // device's one. Same rule as the reflow reader (decideNewerPosition): not
+  // moved since → go there; moved, or outside the chapter opened → ask once.
+  const pdfNewerHandledRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (!original || originalNewerPage == null || pdfNewerHandledRef.current === originalNewerPage) return
+    // Not jumped yet: maybeInitialPdfJump picks it up as the target.
+    if (pdfGateRef.current.phase === 'awaitingTarget') return
+    pdfNewerHandledRef.current = originalNewerPage
+    const page = originalNewerPage
+    const idx = chapters.findIndex(c => c.slug === chapterSlug)
+    const inChapter = resolvePdfResumePage({
+      chapterStartPage: originalInitialPage,
+      chapterEndPage: idx >= 0 ? chapterEndPage(chapters, idx) : null,
+      resumePage: page,
+    }) === page
+    const action = decideNewerPosition({
+      sameChapter: inChapter,
+      restoreApplied: true,
+      readerMoved: readerMovedSince(pdfResumedPageRef.current, currentPdfPageRef.current, 0),
+    })
+    if (action === 'move') { scrollPdfToPage(page); return }
+    showToast({
+      variant: 'info',
+      icon: 'phone-portrait-outline',
+      message: t(language, 'reader.newerElsewhere.message')
+        .replace('{target}', t(language, 'reader.newerElsewhere.page').replace('{page}', String(page))),
+      actionLabel: t(language, 'reader.newerElsewhere.action'),
+      onPress: () => scrollPdfToPage(page),
+      duration: 8000,
+    })
+  }, [original, originalNewerPage, originalInitialPage, chapters, chapterSlug, scrollPdfToPage, showToast, language])
 
   // Run the deferred initial jump once the async server resume page arrives
   // after the viewer was already ready.

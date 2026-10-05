@@ -262,6 +262,10 @@
       "cancel": "Cancel",
       "cancelling": "Cancelling…",
       "removeFromLibrary": "Remove from library",
+      "removeFromLibraryConfirmTitle": "Remove from library?",
+      "removeFromLibraryConfirmBodyOne": "It will also leave the collection it is in.",
+      "removeFromLibraryConfirmBodyMany": "It will also leave the {{count}} collections it is in.",
+      "removeFromLibraryConfirm": "Remove",
       "addToCollection": "Add to collection",
       "addToCollectionEmpty": "No collections yet — create one below",
       "addToCollectionFailed": "Couldn't add to collection",
@@ -600,6 +604,11 @@
       "reviewWords": "Review {n} {noun}",
       "library": "Back to library",
       "unavailable": "This chapter isn't on your phone, and you're offline."
+    },
+    "newerElsewhere": {
+      "message": "You read further on another device: {target}",
+      "action": "Go there",
+      "page": "page {page}"
     }
   },
   "vocabulary": {

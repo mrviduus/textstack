@@ -3,13 +3,14 @@ import { useRouter } from 'expo-router'
 import { WebView } from 'react-native-webview'
 import { createBooksApi, readingProgressApi, parseScrollLocator, chapterIdForSlug, parseTextPosition, serializeTextPosition } from '@textstack/shared'
 import type { Language, TextPosition } from '@textstack/shared'
-import { getLocalProgress, saveLocalProgress } from '../../lib/progressStorage'
+import { getLocalProgress, markLocalProgressSynced, saveLocalProgress, type LocalProgress } from '../../lib/progressStorage'
+import { serverProvablyNewer } from '../../lib/progressRestore'
 import { getCachedChapter, cacheChapter } from '../../lib/offlineDb'
 import { useReaderChapter } from '../../hooks/useReaderChapter'
 import { useReaderBook } from '../../hooks/useReaderBook'
 import { useReaderBookmarks, getSlugFromLocator } from '../../hooks/useReaderBookmarks'
 import { useReaderPersistence } from '../../hooks/useReaderPersistence'
-import type { ProgressSnapshot, ReaderRuntime, SavedPosition } from './readerSource'
+import type { NewerPosition, ProgressSnapshot, ReaderRuntime, SavedPosition } from './readerSource'
 
 type ToastFn = (t: { message: string; variant: 'error' | 'success' | 'info' }) => void
 
@@ -131,44 +132,58 @@ export function useEditionReaderSource({
       scrollOffset: snap.scrollOffset,
       positionJson,
       recordedAt: snap.updatedAt,
-    }).catch((e) => { console.warn('[progress] save failed', e) })
+    })
+      // Acknowledged (or refused as older than the stored row — either way the
+      // server's row is now at least as new as this one).
+      .then(() => markLocalProgressSynced(id, snap.updatedAt))
+      .catch((e) => { console.warn('[progress] save failed', e) })
   }, [isAuthenticated])
 
+  // The local record this chapter opened from — what a server answer has to be
+  // newer than. Kept rather than re-read: the reader's own first save would
+  // otherwise "beat" a server position that was newer when the book opened.
+  const openedFromRef = useRef<LocalProgress | null>(null)
+
+  /** Where to reopen this chapter — from the DEVICE only. The server is asked in
+   *  the background (loadNewerPosition) and never on this path. */
   const loadPosition = useCallback(async (slug: string): Promise<SavedPosition> => {
     const id = editionIdRef.current
-    let percent: number | null = null
-    let offset: number | null = null
-    let position: TextPosition | null = null
-    try {
-      if (id) {
-        const local = await getLocalProgress(id)
-        if (local && local.chapterSlug === slug) {
-          if (typeof local.percent === 'number') percent = local.percent
-          const parsed = parseScrollLocator(local.locator)
-          if (parsed && parsed.slug === slug && parsed.offset > 0) offset = parsed.offset
-          const p = parseTextPosition(local.positionJson)
-          if (p && p.chapterSlug === slug) position = p
-        }
-      }
-    } catch {}
-    // Cross-device fallback — only when local had nothing.
-    //
-    // Position comes from the LOCATOR, never from the percent: the stored
-    // percent spans the whole book, so applying it as a within-chapter scroll
-    // fraction would drop the reader at 42% of the current chapter for a book
-    // they are 42% through. The locator is chapter-scoped and exact.
-    if (position == null && offset == null && isAuthenticated && id) {
-      try {
-        const server = await readingProgressApi.getProgress(id)
-        const parsed = parseScrollLocator(server?.locator)
-        if (parsed && parsed.slug === slug && parsed.offset > 0) offset = parsed.offset
-        const p = parseTextPosition(server?.positionJson)
-        if (p && p.chapterSlug === slug) position = p
-      } catch {}
-    }
+    let local: LocalProgress | null = null
+    try { if (id) local = await getLocalProgress(id) } catch {}
+    openedFromRef.current = local
+    if (!local || local.chapterSlug !== slug) return { position: null, offset: null, percent: null }
+    const p = parseTextPosition(local.positionJson)
+    const parsed = parseScrollLocator(local.locator)
     // Only restore a mid-chapter percent (skip ~start/~end → leave at top).
-    if (percent != null && !(percent > 0.005 && percent < 0.999)) percent = null
-    return { position, offset, percent }
+    const percent = typeof local.percent === 'number' && local.percent > 0.005 && local.percent < 0.999 ? local.percent : null
+    return {
+      position: p && p.chapterSlug === slug ? p : null,
+      offset: parsed && parsed.slug === slug && parsed.offset > 0 ? parsed.offset : null,
+      percent,
+    }
+  }, [])
+
+  /** Background, after the open: the server's position, when provably newer than
+   *  the local record the chapter opened from (another device, or a new phone). */
+  const loadNewerPosition = useCallback(async (slug: string): Promise<NewerPosition | null> => {
+    const id = editionIdRef.current
+    if (!isAuthenticated || !id) return null
+    const server = await readingProgressApi.getProgress(id)
+    if (!serverProvablyNewer(openedFromRef.current, server)) return null
+    // Position comes from the LOCATOR, never from the percent: the stored percent
+    // spans the whole book. The locator names its chapter; `chapterSlug` can lag (#496).
+    const parsed = parseScrollLocator(server.locator)
+    const target = parsed?.slug ?? server.chapterSlug
+    if (!target) return null
+    const p = parseTextPosition(server.positionJson)
+    const saved: SavedPosition = {
+      position: p && p.chapterSlug === target ? p : null,
+      offset: parsed && parsed.slug === target && parsed.offset > 0 ? parsed.offset : null,
+      percent: null,
+    }
+    if (target === slug && !saved.position && saved.offset == null) return null
+    const label = chaptersRef.current.find(c => c.slug === target)?.title ?? target
+    return { chapterSlug: target, saved, label }
   }, [isAuthenticated])
 
   const navigateToChapter = useCallback((slug: string) => {
@@ -181,7 +196,7 @@ export function useEditionReaderSource({
     chapterId: chapter?.id ?? null,
     injectJs,
     progressRef, scrollOffsetRef, currentChapterSlugRef, bookProgressRef, positionRef,
-    persist, loadPosition,
+    persist, loadPosition, loadNewerPosition, navigateToChapter,
   })
 
   // The chapter list arriving is the second chance for a server write that had to be held back.

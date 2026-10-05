@@ -67,7 +67,8 @@ public static class UserDataEndpoints
                 x.p.Percent,
                 x.p.UpdatedAt,
                 x.p.CompletedAt,
-                x.p.PositionJson
+                x.p.PositionJson,
+                x.p.ClientUpdatedAt
             ))
             .ToListAsync(ct);
 
@@ -96,7 +97,8 @@ public static class UserDataEndpoints
                 x.p.Percent,
                 x.p.UpdatedAt,
                 x.p.CompletedAt,
-                x.p.PositionJson
+                x.p.PositionJson,
+                x.p.ClientUpdatedAt
             ))
             .FirstOrDefaultAsync(ct);
 
@@ -150,7 +152,8 @@ public static class UserDataEndpoints
                     existing.Percent,
                     existing.UpdatedAt,
                     existing.CompletedAt,
-                    existing.PositionJson
+                    existing.PositionJson,
+                    existing.ClientUpdatedAt
                 ));
             }
 
@@ -222,7 +225,8 @@ public static class UserDataEndpoints
             existing.Percent,
             existing.UpdatedAt,
             existing.CompletedAt,
-            existing.PositionJson
+            existing.PositionJson,
+            existing.ClientUpdatedAt
         ));
     }
 
@@ -571,7 +575,12 @@ public record ReadingProgressDto(
     /// last written by a build that predates it, and on every PDF page position.
     /// A client that understands it prefers it over <paramref name="Locator"/>;
     /// one that does not carries on reading the locator, unchanged.</summary>
-    string? PositionJson = null
+    string? PositionJson = null,
+    /// <summary>The CLIENT clock of the accepted write (<see cref="Domain.Entities.ReadingProgress.ClientUpdatedAt"/>).
+    /// A client deciding between its own local record and this row compares its local stamp with
+    /// this — never with <paramref name="UpdatedAt"/>, which is the server's clock. Null when the
+    /// last write carried no timestamp.</summary>
+    DateTimeOffset? ClientUpdatedAt = null
 );
 
 public record UpsertProgressRequest(

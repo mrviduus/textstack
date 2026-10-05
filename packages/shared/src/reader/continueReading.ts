@@ -21,6 +21,7 @@
 
 import type { UserLibraryItem, ReadingProgressDto, UserBookDto } from '../types/api'
 import { resumeChapterSlug } from './resume'
+import { localProgressWins } from './progressPrecedence'
 
 /** Local-cache shape for catalog (edition) progress. */
 export interface LocalProgressLite {
@@ -29,15 +30,19 @@ export interface LocalProgressLite {
   /** Book-wide percent if the reader wrote it. Optional — older entries
    *  predate this field. */
   bookPercent?: number
-  /** Epoch ms. */
+  /** Epoch ms, device clock. */
   updatedAt: number
+  /** The server acknowledged this exact write. See `localProgressWins`. */
+  synced?: boolean
 }
 
 /** Local-cache shape for user-book book-percent. */
 export interface UserBookProgressLite {
   bookPercent: number
-  /** Epoch ms. */
+  /** Epoch ms, device clock. */
   updatedAt: number
+  /** The server acknowledged this exact write. See `localProgressWins`. */
+  synced?: boolean
 }
 
 export type ContinueReadingPick =
@@ -54,14 +59,6 @@ export interface ContinueReadingInputs {
   localUserBookMap: Map<string, UserBookProgressLite>
 }
 
-/** Grace window where local book-percent is preferred over server's
- *  chapter-percent on the same chapter. Server PUT lands at debounce
- *  intervals after local cache write; without grace, the server's
- *  later timestamp would always win and we'd lose the cached bookPercent.
- *  60s comfortably covers the 2s debounce + network round-trip + clock
- *  skew between device and server. */
-const LOCAL_BOOKPERCENT_GRACE_MS = 60_000
-
 /**
  * Pick the single "Continue Reading" book to show on home — the most
  * recently active not-yet-finished book across catalog + user-book sources.
@@ -71,11 +68,11 @@ const LOCAL_BOOKPERCENT_GRACE_MS = 60_000
  * Semantics:
  *   - Each item is scored by `updatedAtMs`. Highest wins.
  *   - 100%-complete books are excluded (`>= 1`).
- *   - For catalog books: LWW between server and local, then optionally
- *     swap in local bookPercent if available for the chosen chapter.
- *   - For user-books: server progressPercent is the timestamp anchor;
- *     local bookPercent is preferred for display when within the grace
- *     window (LOCAL_BOOKPERCENT_GRACE_MS).
+ *   - Local vs server is decided by `localProgressWins` — the local device
+ *     stamp against the server row's CLIENT stamp, never its server-clock
+ *     `updatedAt`.
+ *   - For user-books: server progressUpdatedAt is the ranking anchor; the
+ *     local bookPercent is shown when the local record wins.
  */
 export function pickContinueReadingBook(input: ContinueReadingInputs): ContinueReadingPick | null {
   return rankContinueReading(input)[0] ?? null
@@ -137,7 +134,10 @@ function pickCatalog(
   let chapterSlug: string | null = null
   let updatedAtMs = 0
 
-  if (localMs > serverMs && local) {
+  // Never `localMs > serverMs`: that compared this device's clock with the
+  // server's, so a phone a minute behind showed the server's older position
+  // over the one it had just read offline. See localProgressWins.
+  if (local && localProgressWins(local, server)) {
     // Local is newer — user just read offline. `bookPercent` is the cached
     // book-wide value; `percent` is the within-chapter scroll fraction kept for
     // resume, and is not a substitute for it.
@@ -155,11 +155,10 @@ function pickCatalog(
     // locator either names a chapter or it does not.
     chapterSlug = resumeChapterSlug(server.chapterSlug, server.locator, null)
     updatedAtMs = serverMs
-    // Multi-device: our local cache may hold a fresher book-wide value for the
-    // same chapter than the server round-trip has delivered.
-    if (local && local.chapterSlug === server.chapterSlug && typeof local.bookPercent === 'number') {
-      percent = local.bookPercent
-    }
+    // No "swap in the local bookPercent on the same chapter" any more: it was
+    // there for a local value fresher than the server's, and that case is now
+    // the local branch above. Here the server's row is the newer one, and a
+    // local value swapped in was another device's progress overwritten by ours.
   }
 
   // `>=` rather than `===` catches NaN too (NaN <= 0 is false; NaN >= 0
@@ -190,9 +189,9 @@ function pickUserBook(ub: UserBookDto, local: UserBookProgressLite | undefined):
   const ubMs = parseEpochMs(ub.progressUpdatedAt)
   if (!Number.isFinite(ubMs) || ubMs <= 0) return null
 
-  // Prefer local bookPercent within grace window (covers the 2s debounce
-  // + network round-trip + small clock skew between device and server).
-  const displayPercent = (local && local.updatedAt >= ubMs - LOCAL_BOOKPERCENT_GRACE_MS)
+  // Local record vs the server's CLIENT stamp — not a grace window around the
+  // server-clock progressUpdatedAt, which was a cross-clock comparison.
+  const displayPercent = (local && localProgressWins(local, { clientUpdatedAt: ub.progressClientUpdatedAt }))
     ? local.bookPercent
     : ub.progressPercent
 
