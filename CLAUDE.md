@@ -50,7 +50,7 @@ make featured-show            # Print the current Popular shelf
 #   docker compose up -d --force-recreate --no-deps <service>
 
 # Deploy
-make deploy                   # Full deploy (pull, build, restart, SSG)
+# Deploy: merge to main (deploy.yml). Break-glass: gh workflow run deploy.yml [-f rollback_commit=<sha>]
 make rebuild-ssg              # Rebuild SSG pages only
 
 # Database
