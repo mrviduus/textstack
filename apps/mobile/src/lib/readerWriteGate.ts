@@ -35,6 +35,11 @@ export interface ReaderWriteGateInput {
    * never be saved at all.
    */
   restoredFor: string | null
+  /**
+   * The reader is leaving for the chapter the newer-position prompt named. A write now would only
+   * re-stamp the chapter being left as the newest position and bury the other device's (C2).
+   */
+  leaving?: boolean
 }
 
 /**
@@ -47,7 +52,7 @@ export function canPersistPosition(
   input: ReaderWriteGateInput,
 ): input is ReaderWriteGateInput & { bookKey: string; chapterSlug: string } {
   const { enabled, bookKey, chapterSlug, restoredFor } = input
-  if (!enabled || !bookKey || !chapterSlug) return false
+  if (!enabled || !bookKey || !chapterSlug || input.leaving) return false
   // Per chapter, not a single boolean: moving to the next chapter starts a new restore, and a
   // write in that window would persist the new chapter at offset 0.
   return restoredFor === chapterSlug

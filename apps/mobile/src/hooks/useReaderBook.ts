@@ -49,6 +49,21 @@ export function useReaderBook({
     if (!bookSlug) return
     let cancelled = false
     setChaptersLoading(true)
+    // The DEVICE first, never awaited by the request: a downloaded book has its edition id
+    // here, and the id is what restore and every save are keyed on. Waiting for getBook left a
+    // hung network with no id at all — no restore, no saves for the visit (C1). The server's
+    // answer, when it comes, is the same id.
+    getAllCachedBooks().then(books => {
+      if (cancelled || editionIdRef.current) return
+      const match = books.find(b => b.slug === bookSlug)
+      if (!match) return
+      editionIdRef.current = match.editionId
+      setEditionId(match.editionId)
+      if (!bookTitleRef.current) {
+        bookTitleRef.current = match.title
+        setBookTitle(match.title)
+      }
+    }).catch(() => {})
     const api = createBooksApi(language)
     api.getBook(bookSlug)
       .then(b => {
@@ -73,18 +88,7 @@ export function useReaderBook({
             .catch(() => {})
         }
       })
-      .catch(() => {
-        getAllCachedBooks().then(books => {
-          if (cancelled) return
-          const match = books.find(b => b.slug === bookSlug)
-          if (match) {
-            editionIdRef.current = match.editionId
-            setEditionId(match.editionId)
-            bookTitleRef.current = match.title
-            setBookTitle(match.title)
-          }
-        }).catch(() => {})
-      })
+      .catch(() => { /* offline: the device answer above stands */ })
       .finally(() => { if (!cancelled) setChaptersLoading(false) })
     return () => { cancelled = true }
   }, [bookSlug, isAuthenticated, language, editionIdRef, bookTitleRef, totalWordCountRef, setBookmarks])

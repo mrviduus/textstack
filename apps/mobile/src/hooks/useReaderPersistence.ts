@@ -7,6 +7,8 @@ import {
   RESTORE_SETTLE_MS,
   type RestoreGateEvent,
 } from '../lib/readerWriteGate'
+import { READINESS_INITIAL, readinessReduce, readyToRestore, type ReadinessEvent } from '../lib/restoreReadiness'
+import { claimPosition, handOffPosition } from '../lib/positionHandoff'
 import { useFlushOnBackground } from './useFlushOnBackground'
 import { t, type TextPosition } from '@textstack/shared'
 import type { NewerPosition, ProgressSnapshot, SavedPosition } from '../components/reader/readerSource'
@@ -102,7 +104,11 @@ export function useReaderPersistence({
   const savedOffsetRef = useRef<number | null>(null)
   const savedPercentRef = useRef<number | null>(null)
   const savedPositionRef = useRef<TextPosition | null>(null)
-  const restoredRef = useRef(false)
+  // WebView loaded + position read → restore, once. See restoreReadiness.ts (C1).
+  const readinessRef = useRef(READINESS_INITIAL)
+  const readiness = useCallback((event: ReadinessEvent) => {
+    readinessRef.current = readinessReduce(readinessRef.current, event)
+  }, [])
   // State, deliberately, not a ref: a writer has to be able to re-run once restore finishes, and
   // flipping a ref triggers no render. The web reader keeps exactly this, for exactly this reason.
   //
@@ -118,8 +124,14 @@ export function useReaderPersistence({
   // just left cannot open the gate on this one. Mirrors `pdfJumpIdRef` in ReaderShell.
   const restoreIdRef = useRef(0)
   const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const webViewLoadedRef = useRef(false)
-  const positionLoadedRef = useRef(false)
+  // Set when the reader leaves through the newer-position prompt: every write from here on would
+  // only re-stamp the chapter being left over the other device's position (C2).
+  const leavingRef = useRef(false)
+  const bookKeyRef = useRef(bookKey)
+  bookKeyRef.current = bookKey
+  // ReaderShell's navigateChapter, registered by the shell — so the prompt's chapter change
+  // carries the reading session like every other one (L3). Null before the shell mounts.
+  const chapterNavigatorRef = useRef<((chapterSlug: string) => void) | null>(null)
 
   /**
    * Mint a restore id, shut the write gate behind it and arm the settle timeout.
@@ -168,12 +180,11 @@ export function useReaderPersistence({
   }, [injectJs, dispatchGate, issueRestore])
 
   const tryRestore = useCallback(() => {
-    if (restoredRef.current) return
-    if (!webViewLoadedRef.current || !positionLoadedRef.current) return
-    // Both signals in — fire exactly once for this chapter mount.
-    restoredRef.current = true
+    if (!readyToRestore(readinessRef.current)) return
+    // Both signals in — fire exactly once for this document.
+    readiness({ type: 'restoreFired' })
     injectSaved()
-  }, [injectSaved])
+  }, [injectSaved, readiness])
 
   // First scroll offset reported after this chapter's restore settled — the
   // "has the reader moved since?" baseline. Null: nothing reported yet.
@@ -195,7 +206,7 @@ export function useReaderPersistence({
     }
     const action = decideNewerPosition({
       sameChapter: newer.chapterSlug === openedSlug,
-      restoreApplied: restoredRef.current,
+      restoreApplied: readinessRef.current.restored,
       readerMoved: readerMovedSince(moveBaselineRef.current, scrollOffsetRef.current, REFLOW_MOVE_TOLERANCE_PX),
     })
     if (action === 'adopt') {
@@ -214,8 +225,15 @@ export function useReaderPersistence({
       // Still in the chapter it was found for → scroll; otherwise open that chapter,
       // whose own background check then lands on the position.
       onPress: () => {
-        if (chapterSlugRef.current === newer.chapterSlug) goHere()
-        else navigateToChapter?.(newer.chapterSlug)
+        if (chapterSlugRef.current === newer.chapterSlug) { goHere(); return }
+        const navigate = chapterNavigatorRef.current ?? navigateToChapter
+        const key = bookKeyRef.current
+        if (!navigate || !key) return
+        // The next mount opens from the device, whose record is this chapter, stamped newer than
+        // the server's — so it would open at the top. Hand it the position being offered.
+        handOffPosition(key, newer.chapterSlug, newer.saved)
+        leavingRef.current = true
+        navigate(newer.chapterSlug)
       },
       duration: 8000,
     })
@@ -247,7 +265,7 @@ export function useReaderPersistence({
   const onWebViewLoaded = useCallback(() => {
     // Already restored this chapter once → this onLoadEnd is a rebuild of the
     // same chapter (the document holds one chapter, so the fraction applies).
-    if (restoredRef.current) {
+    if (readinessRef.current.restored) {
       const pct = progressRef.current
       const restoreId = issueRestore()
       if (Number.isFinite(pct) && pct > 0.001) {
@@ -258,9 +276,9 @@ export function useReaderPersistence({
       }
       return
     }
-    webViewLoadedRef.current = true
+    readiness({ type: 'webViewLoaded' })
     tryRestore()
-  }, [tryRestore, injectJs, progressRef, issueRestore, dispatchGate])
+  }, [tryRestore, injectJs, progressRef, issueRestore, dispatchGate, readiness])
 
   // Pending-save buffer: chapterId resolves AFTER the chapter fetch lands, so a
   // save requested during rapid chapter tap-through (e.g. emit-on-load firing
@@ -280,7 +298,7 @@ export function useReaderPersistence({
     // Also refuses until this chapter's restore has completed. Without it the WebView's
     // own load-event progress message — scrollY 0, no user action — reached the server and
     // overwrote a reader's real position with zero. See readerWriteGate.
-    const gate = { enabled, bookKey, chapterSlug, restoredFor }
+    const gate = { enabled, bookKey, chapterSlug, restoredFor, leaving: leavingRef.current }
     if (!canPersistPosition(gate)) return
     // NOTE: a missing chapterId does NOT block the save. The offline cache
     // stores chapters by slug and has no server id to give (`id: ''` in
@@ -332,7 +350,7 @@ export function useReaderPersistence({
     // Nothing to debounce toward — don't arm a timer that will no-op. The restore gate is checked
     // here as well as inside saveProgress, so the load-event bump does not leave a timer running
     // into the window where the gate has just opened.
-    if (!canPersistPosition({ enabled, bookKey, chapterSlug, restoredFor })) return
+    if (!canPersistPosition({ enabled, bookKey, chapterSlug, restoredFor, leaving: leavingRef.current })) return
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => {
       debounceRef.current = null
@@ -343,13 +361,13 @@ export function useReaderPersistence({
   // Load saved position + reset the restore machine whenever the chapter (or
   // the resolved bookKey) changes. One-shot per (bookKey, chapterSlug).
   useEffect(() => {
-    restoredRef.current = false
+    // A new document resets "loaded"; the book id resolving for the SAME document does not — no
+    // second onLoadEnd follows it (C1).
+    readiness({ type: 'opened', doc: `${enabled}:${chapterSlug ?? ''}` })
     // Closes the write gate for the chapter being entered. A single boolean would stay open and
     // let the new chapter be persisted at offset 0 before its own restore had run.
     dispatchGate({ type: 'chapterEntered', chapterSlug: chapterSlug ?? null })
     if (settleTimerRef.current) { clearTimeout(settleTimerRef.current); settleTimerRef.current = null }
-    webViewLoadedRef.current = false
-    positionLoadedRef.current = false
     savedOffsetRef.current = null
     savedPercentRef.current = null
     savedPositionRef.current = null
@@ -360,36 +378,35 @@ export function useReaderPersistence({
     if (!enabled || !bookKey || !chapterSlug) return
     let cancelled = false
     const openedSlug = chapterSlug
+    // Arrived through the newer-position prompt: the position it offered, read from the server
+    // seconds ago. Wins over the device record and needs no second server check (C2).
+    const handed = claimPosition<SavedPosition>(bookKey, chapterSlug)
     // The open path: the device's record, then the restore. Nothing here waits
     // on a network — the server is asked only after, in the background, and can
     // only add a newer position (applyNewer).
     const checkServer = () => {
       const load = loadNewerRef.current
-      if (!load) return
+      if (!load || handed) return
       load(openedSlug)
         .then(newer => { if (!cancelled && newer) applyNewerRef.current(newer, openedSlug) })
         .catch(() => { /* offline / no row: the local restore stands */ })
     }
     loadPosition(chapterSlug)
+      .catch((): SavedPosition => ({ position: null, offset: null, percent: null }))
       .then(pos => {
         if (cancelled) return
-        savedOffsetRef.current = pos.offset
-        savedPercentRef.current = pos.percent
-        savedPositionRef.current = pos.position
-        positionLoadedRef.current = true
-        tryRestore()
-        checkServer()
-      })
-      .catch(() => {
-        if (cancelled) return
-        positionLoadedRef.current = true
+        const p = handed ?? pos
+        savedOffsetRef.current = p.offset
+        savedPercentRef.current = p.percent
+        savedPositionRef.current = p.position
+        readiness({ type: 'positionLoaded' })
         tryRestore()
         checkServer()
       })
     return () => { cancelled = true }
     // `enabled` is a dependency so the corrupt-PDF "read as text" fallback
     // (forceReflow) re-arms restore when it flips.
-  }, [enabled, bookKey, chapterSlug, loadPosition, tryRestore, dispatchGate])
+  }, [enabled, bookKey, chapterSlug, loadPosition, tryRestore, dispatchGate, readiness])
 
   // Always points at the current closure, so the unmount flush below can have
   // an empty dependency list without going stale.
@@ -420,5 +437,5 @@ export function useReaderPersistence({
   // get one last sync write of scroll position + book-percent cache.
   useFlushOnBackground(saveProgress)
 
-  return { saveProgress, bumpProgress, onWebViewLoaded, onRestoreLanded, onDocumentRebuild, beginReflow: issueRestore }
+  return { saveProgress, bumpProgress, onWebViewLoaded, onRestoreLanded, onDocumentRebuild, beginReflow: issueRestore, chapterNavigatorRef }
 }

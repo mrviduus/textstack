@@ -134,3 +134,9 @@ describe('restoreGateReduce', () => {
       .toBe('4-act-iii')
   })
 })
+
+describe('canPersistPosition — leaving via the newer-position prompt (C2)', () => {
+  it('refuses: the flush would only re-stamp the chapter being left over the other device', () => {
+    expect(canPersistPosition({ ...base, leaving: true })).toBe(false)
+  })
+})
