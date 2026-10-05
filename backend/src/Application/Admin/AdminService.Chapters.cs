@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 using Application.Common.Interfaces;
+using Application.Ingestion;
 using Application.SsgRebuild;
 using Contracts.Admin;
 using Contracts.Common;
@@ -70,7 +71,9 @@ public partial class AdminService
         var editionId = chapter.EditionId;
         var deletedNumber = chapter.ChapterNumber;
 
-        db.Chapters.Remove(chapter);
+        // Readers on this chapter move to its neighbour; a bare delete is refused by the FKs.
+        await using var tx = await db.BeginTransactionAsync(ct);
+        await ChapterReconciler.RemoveEditionChapterAsync(db, chapter, null, ct);
 
         // Renumber remaining chapters
         var remaining = await db.Chapters
@@ -85,6 +88,7 @@ public partial class AdminService
         }
 
         await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
         return (true, null);
     }
 }

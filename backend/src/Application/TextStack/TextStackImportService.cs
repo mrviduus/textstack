@@ -1,4 +1,5 @@
 using Application.Common.Interfaces;
+using Application.Ingestion;
 using Domain.Entities;
 using Domain.Enums;
 using Domain.Utilities;
@@ -242,8 +243,8 @@ public class TextStackImportService
 
             _logger.LogInformation("Reimporting {Title} (edition {EditionId})", edition.Title, edition.Id);
 
-            // 3. Delete old chapters
-            _db.Chapters.RemoveRange(edition.Chapters);
+            // 3. Chapters are replaced IN PLACE below (ChapterReconciler) — deleting them took
+            //    every reader's progress and bookmarks with them.
 
             // 4. Delete old assets
             _db.BookAssets.RemoveRange(edition.Assets);
@@ -270,6 +271,7 @@ public class TextStackImportService
                 return new ImportResult(Guid.Empty, 0, 0, false, $"toc.xhtml not found at {tocPath}");
 
             var chapters = XhtmlChapterParser.ParseFromToc(tocPath, textDir);
+            var newChapters = new List<Chapter>();
 
             foreach (var ch in chapters)
             {
@@ -292,8 +294,10 @@ public class TextStackImportService
                     CreatedAt = DateTimeOffset.UtcNow,
                     UpdatedAt = DateTimeOffset.UtcNow
                 };
-                _db.Chapters.Add(chapter);
+                newChapters.Add(chapter);
             }
+
+            await ChapterReconciler.ReconcileEditionAsync(_db, edition.Id, newChapters, ct);
 
             // 9. Record new import
             _db.TextStackImports.Add(new TextStackImport

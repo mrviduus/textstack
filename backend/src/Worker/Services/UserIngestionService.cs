@@ -190,6 +190,12 @@ public class UserIngestionService
                 job.UserBook.CoverPath = coverPath;
             }
 
+            // A re-extraction writes every image under a fresh id; what is there now is the previous
+            // run's, deleted once the new chapters are committed.
+            var assetsDir = _storage.GetFullPath(
+                Path.Combine(Path.GetDirectoryName(job.UserBookFile.StoragePath)!, "assets"));
+            var oldAssets = Directory.Exists(assetsDir) ? Directory.GetFiles(assetsDir) : [];
+
             // Save inline images and build path->id map
             var imageMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var image in result.Images.Where(i => !i.IsCover))
@@ -210,12 +216,6 @@ public class UserIngestionService
                 }
             }
 
-            // Delete existing chapters (re-ingestion)
-            var existingChapters = await db.UserChapters
-                .Where(c => c.UserBookId == job.UserBookId)
-                .ToListAsync(ct);
-            db.UserChapters.RemoveRange(existingChapters);
-
             // Create chapters. Number saved chapters densely 1..N by their position
             // in THIS loop, not by unit.OrderIndex — the extractor skips units
             // (empty content, piracy watermarks, the spine's navigation document),
@@ -227,6 +227,7 @@ public class UserIngestionService
             // to recognise it — before that a user's uploaded EPUB opened on its
             // own table of contents.
             var qualityScores = new List<int>();
+            var chapters = new List<UserChapter>();
             var savedChapterIndex = 0;
             foreach (var unit in result.Units)
             {
@@ -251,9 +252,13 @@ public class UserIngestionService
                     SourceEndPage = unit.SourceEndPage,
                     CreatedAt = DateTimeOffset.UtcNow
                 };
-                db.UserChapters.Add(chapter);
+                chapters.Add(chapter);
                 savedChapterIndex++;
             }
+
+            // In place, keeping Ids (ChapterReconciler): a Retry on a Ready book used to recreate
+            // every chapter and orphan the reader's highlights and bookmarks.
+            await ChapterReconciler.ReconcileUserBookAsync(db, job.UserBook, chapters, ct);
 
             if (qualityScores.Count > 0)
             {
@@ -308,6 +313,12 @@ public class UserIngestionService
             job.Error = null;
 
             await db.SaveChangesAsync(ct);
+
+            foreach (var file in oldAssets)
+            {
+                try { File.Delete(file); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { _logger.LogWarning(ex, "Could not delete replaced asset {File}", file); }
+            }
 
             var bookId = job.UserBookId;
             var bookTitle = job.UserBook.Title;

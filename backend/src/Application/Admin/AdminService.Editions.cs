@@ -275,7 +275,6 @@ public partial class AdminService
     public async Task<(bool Success, string? Error)> DeleteEditionAsync(Guid id, CancellationToken ct)
     {
         var edition = await db.Editions
-            .Include(e => e.Chapters)
             .Include(e => e.BookFiles)
             .FirstOrDefaultAsync(e => e.Id == id, ct);
 
@@ -285,8 +284,8 @@ public partial class AdminService
         if (edition.Status == EditionStatus.Published)
             return (false, "Cannot delete published edition. Unpublish first.");
 
-        // Delete related entities
-        db.Chapters.RemoveRange(edition.Chapters);
+        // Chapters go by the database's edition cascade, in the same statement as the readers'
+        // progress/bookmarks/notes — deleting them first would trip those rows' NO ACTION FKs.
         db.BookFiles.RemoveRange(edition.BookFiles);
 
         // Delete ingestion jobs
