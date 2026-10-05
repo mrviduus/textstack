@@ -13,10 +13,11 @@ import {
   resolveOpenPage,
   topVisiblePage,
   buildPdfProgressPayload,
+  pageAtViewportTop,
+  type PageRect,
 } from '@textstack/shared'
 import { readPdfPage, writePdfPage } from '../../lib/originalLayoutPref'
 import { saveUserBookProgress } from '../../api/userBooks'
-import { pageAtViewportTop, type PageRect } from '../../lib/pdfPageAtTop'
 import '../../styles/pdfOriginal.css'
 
 interface PageDim {
