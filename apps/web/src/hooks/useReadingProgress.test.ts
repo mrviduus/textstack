@@ -45,3 +45,13 @@ describe('useReadingProgress keepalive flush', () => {
     expect(JSON.parse(localStorage.getItem(KEY)!).synced).toBe(true)
   })
 })
+
+describe('useReadingProgress identity (M4)', () => {
+  it('returns the same object across re-renders, so consumers do not re-run effects', () => {
+    const { result, rerender } = renderHook(() => useReadingProgress('book', 'ch', { editionId: ED, chapterId: 'c1' }))
+    const first = result.current
+    rerender()
+    rerender()
+    expect(result.current).toBe(first)
+  })
+})

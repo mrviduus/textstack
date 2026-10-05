@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
 import { useReaderSettings } from '../hooks/useReaderSettings'
 import { useReaderChapter, type ReaderMode } from '../hooks/useReaderChapter'
-import { useReaderScrollSync } from '../hooks/useReaderScrollSync'
+import { useReaderScrollSync, isChapterReady } from '../hooks/useReaderScrollSync'
 import { useReaderProgress } from '../hooks/useReaderProgress'
 import { useReaderBookmarks } from '../hooks/useReaderBookmarks'
 import { useInBookSearch } from '../hooks/useInBookSearch'
@@ -416,10 +416,12 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
   }, [readingSession])
 
   // Scroll-position restore + debounced save + flush on visibility/unload.
-  useReaderScrollSync({
+  // flushProgress ships the LEAVING chapter's latest scroll before a
+  // same-component route change (ReaderPage stays mounted, so no unmount flush).
+  const { flushSave: flushProgress } = useReaderScrollSync({
     mode,
     chapterIdentifier,
-    chapterLoaded: !!chapter,
+    chapterLoaded: isChapterReady(chapter, chapterIdentifier, loading),
     // An uploaded PDF usually HAS reflow chapters, so the chapter fetch succeeds
     // in Original layout too and the save-on-open would fire while the reader is
     // looking at pages. Same defect the mobile reader had.
@@ -480,13 +482,6 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
     search(findParam)
     setSearchOpen(true)
   }, [chapterHtml, search])
-
-  // Ship the LEAVING chapter's latest scroll synchronously before a same-component
-  // route change (the unmount flush doesn't fire when ReaderPage stays mounted).
-  const flushProgress = useCallback(() => {
-    if (mode === 'public') publicProgress.flushSave()
-    else userProgress.flushSave()
-  }, [mode, publicProgress, userProgress])
 
   // Chapter URL helper
   const getChapterUrl = useCallback((identifier: string) => {

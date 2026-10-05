@@ -16,6 +16,7 @@ import {
 } from '@textstack/shared'
 import { readPdfPage, writePdfPage } from '../../lib/originalLayoutPref'
 import { saveUserBookProgress } from '../../api/userBooks'
+import { pageAtViewportTop, type PageRect } from '../../lib/pdfPageAtTop'
 import '../../styles/pdfOriginal.css'
 
 interface PageDim {
@@ -181,7 +182,27 @@ export default function PdfOriginalView({
     [bookId, initialPage, resumePage],
   )
 
-  const currentPage = useMemo(() => topVisiblePage(visible, openPage), [visible, openPage])
+  // The page under the top of the scroll viewport. `visible` is the RENDER set
+  // (300px rootMargin) and its lowest page is often the one above — persisting
+  // that made every open land one page earlier (C3). It stays the fallback only
+  // until the first measurement.
+  const [topPage, setTopPage] = useState<number | null>(null)
+  const visibleRef = useRef(visible)
+  visibleRef.current = visible
+  const measureTopPage = useCallback(() => {
+    const root = scrollRef.current
+    if (!root) return
+    const rects: PageRect[] = []
+    for (const pn of visibleRef.current) {
+      const el = pageEls.current.get(pn)
+      if (!el) continue
+      const r = el.getBoundingClientRect()
+      rects.push({ page: pn, top: r.top, bottom: r.bottom })
+    }
+    const pn = pageAtViewportTop(rects, root.getBoundingClientRect().top)
+    if (pn != null) setTopPage(pn)
+  }, [])
+  const currentPage = topPage ?? topVisiblePage(visible, openPage)
 
   // Surface the current page to the reader (deduped) once real pages are on
   // screen. Gated on visible.size so the initial openPage guess doesn't fire
@@ -318,7 +339,10 @@ export default function PdfOriginalView({
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
+    let frame = 0
     const onScroll = () => {
+      // Every scroll, programmatic jumps included, moves the top-line page.
+      if (!frame) frame = requestAnimationFrame(() => { frame = 0; measureTopPage() })
       if (Date.now() < suppressIntentUntilRef.current) return
       userInteractedRef.current = true
       const now = Date.now()
@@ -328,8 +352,17 @@ export default function PdfOriginalView({
       }
     }
     el.addEventListener('scroll', onScroll, { passive: true })
-    return () => el.removeEventListener('scroll', onScroll)
-  }, [pdf])
+    return () => {
+      el.removeEventListener('scroll', onScroll)
+      cancelAnimationFrame(frame)
+    }
+  }, [pdf, measureTopPage])
+
+  // Layout changes without a scroll (pages entering the render set, heights
+  // streaming in, zoom) also move what sits under the top line.
+  useEffect(() => {
+    measureTopPage()
+  }, [visible, pageDims, scale, measureTopPage])
 
   // --- Initial scroll to the open page (once the document is ready). When the
   // chapter carries no page we wait for the server resume answer (resumeReady)
