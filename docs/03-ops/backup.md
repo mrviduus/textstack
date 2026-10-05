@@ -4,11 +4,11 @@
 
 | Data | Location (prod) | Method |
 |------|----------------|--------|
-| PostgreSQL | `./data/postgres-prod` | `pg_dump` inside `textstack_db_prod` |
-| Book files | `./data/storage` | `tar` of the bind mount |
+| PostgreSQL | `./data/postgres-prod` | `pg_dump` inside `textstack_db_prod` → local + R2 |
+| Book files | `./data/storage` | `tar` locally; restic → R2 |
+| `.env` | repo root on the server | restic → R2 only |
 
-Backups land in `~/backups/textstack/` on the server (override via
-`BACKUP_DIR` env on the Make invocation if needed).
+Local copies land in `~/backups/textstack/` on the server; the off-site copy is Cloudflare R2 (see below).
 
 ## Commands
 
@@ -36,73 +36,73 @@ docker exec textstack_db_prod pg_dump -U $POSTGRES_USER $POSTGRES_DB \
 
 ## Automated backup (GitHub Actions)
 
-`.github/workflows/backup.yml` runs **daily at 03:00 UTC** on the self-hosted
-runner:
+`.github/workflows/backup.yml` runs **daily at 03:00 UTC** on the self-hosted runner:
 
-1. `pg_dump` → `~/backups/textstack/db-<YYYY-MM-DD>.sql.gz` (dash, date only — unlike `make backup`)
-2. `tar czf` the `./data/storage` directory → `storage-<YYYY-MM-DD>.tar.gz`
-3. Prunes to the 5 newest of each kind (`db-`, `storage-`, and the `pre-deploy-` dumps `deploy.yml` writes).
-4. `gunzip -t`, then `infra/scripts/backup-verify.sh` on the new dump.
+1. `pg_dump` → `~/backups/textstack/db-<YYYY-MM-DD>.sql.gz` (`pipefail` + dump-complete trailer check).
+2. `tar czf` of `./data/storage` → `storage-<YYYY-MM-DD>.tar.gz` (tar exit 1 "file changed as we read it" is a warning).
+3. Prunes to the **2** newest local copies of each kind (`db-`, `storage-`, `pre-deploy-`) — history lives in R2.
+4. `gunzip -t`, then `infra/scripts/backup-verify.sh` restores the new dump into a throwaway pgvector container.
+5. **Off-site copy to Cloudflare R2** (below).
+6. Queues the nightly full SSG rebuild; then a disk alarm fails the job at ≥85% on `/` or the Docker root.
 
-To trigger manually: GitHub UI → Actions → **Backup** → Run workflow.
+To trigger manually: GitHub UI → Actions → **Scheduled Backup** → Run workflow.
 
-## File storage backup (manual, rarely needed)
+## Off-site copy — Cloudflare R2 (restic)
 
-```bash
-tar czf ~/backups/textstack/storage_$(date +%F).tar.gz ./data/storage
-```
+The only copy that survives losing the server. restic runs in Docker (`restic/restic:0.17.3`), nothing installed
+on the host. Bucket `textstack-backups`, repository encrypted client-side.
 
-Restore:
-```bash
-tar xzf ~/backups/textstack/storage_2026-04-22.tar.gz -C /
-```
+- **What:** the DB dump as plain SQL through stdin (`/db.sql` — plain so it deduplicates; a `.gz` re-uploaded
+  ~1.2 GB every night), plus `data/storage` and `.env` (`/backup`).
+- **Retention:** 7 nightly + 3 monthly. **Guard:** the job fails above 9 GB to stay inside R2's free 10 GB.
+- **Secrets (GitHub → Actions):** `RESTIC_REPOSITORY`, `RESTIC_PASSWORD`, `R2_ACCESS_KEY_ID` (32 chars),
+  `R2_SECRET_ACCESS_KEY` (64 chars). **`RESTIC_PASSWORD` must also be in the owner's password manager** — without
+  it the backup cannot be read, and GitHub will not show a secret back.
+- Size on 2026-10-05: ~4.3 GB (two snapshots).
 
-Incremental via rsync:
-```bash
-rsync -av ./data/storage/ /backup-drive/storage/
-```
+## Restore drill (monthly, automatic)
 
-## Offsite copy (optional)
+`.github/workflows/restore-drill.yml` — 1st of each month and on demand. A clean GitHub-hosted runner restores the
+latest R2 snapshots with **nothing from the server**: DB into a fresh pgvector postgres (fails if core tables look
+truncated), storage + `.env`, then checks 200 random edition covers from the DB exist in the restored files and the
+critical `.env` keys are set (names only).
 
-```bash
-rsync -av ~/backups/textstack/ nas:/volume1/textstack-backup/
-# or
-rclone sync ~/backups/textstack remote:textstack-backup
-```
+First run, 2026-10-05: **DB 206 s, files 37 s**; 65 tables, 1,423 editions, 40,582 chapters, 313 users;
+22,449 files / 4.3 GB; covers 200/200.
 
-## Disaster recovery
+## Disaster recovery — server lost
 
-1. `docker compose down`
-2. Restore DB: `make restore FILE=~/backups/textstack/db_<ts>.sql.gz` (or
-   raw `gunzip -c … | docker exec -i textstack_db_prod psql -U app books`).
-3. Restore storage: `tar xzf storage_<ts>.tar.gz -C /`
-4. `docker compose up -d`
-5. Verify: `curl https://textstack.app/api/health` returns `healthy`;
-   browse a book page.
+Data takes ~4 min to restore (drill timings). Most of the time is rebuilding the box.
 
-## Restore verification (quarterly)
+1. **New host:** Docker + compose, the repo cloned to `~/projects/onlinelib/textstack`, `cloudflared` with the
+   existing tunnel credentials, the GitHub self-hosted runner, nginx (`make nginx-setup`). x86_64, as prod.
+2. **Restore files + `.env` from R2** (any machine with Docker; the 4 values come from the password manager /
+   GitHub secrets you re-enter):
+   ```bash
+   export RESTIC_REPOSITORY=... RESTIC_PASSWORD=... AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=...
+   R="docker run --rm -i -e RESTIC_REPOSITORY -e RESTIC_PASSWORD -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -v $PWD:/out restic/restic:0.17.3"
+   $R snapshots
+   $R restore latest --path /backup --target /out/restore
+   cp restore/backup/env .env && mkdir -p data && mv restore/backup/storage data/storage
+   ```
+3. **Start only the database** and load the dump (prod user from `.env`):
+   ```bash
+   set -a; . ./.env; set +a   # POSTGRES_USER / POSTGRES_DB
+   docker compose up -d db
+   $R dump --path /db.sql latest /db.sql \
+     | docker exec -i textstack_db_prod psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1
+   ```
+   Snapshots older than 2026-10-05 hold the dump as `/backup/db.sql.gz` instead:
+   `$R dump --path /backup latest /backup/db.sql.gz | gunzip | docker exec -i …`.
+4. **Start the rest:** `docker compose --profile mcp -f docker-compose.yml -f docker-compose.gpu.yml up -d`
+   (the migrator brings the schema forward if the code is newer than the dump).
+5. **Verify:** `curl https://textstack.app/api/health` → `"healthy"`, `/api/health/ready` all ok, open a book,
+   then queue a full SSG rebuild (admin → SSG, or `make rebuild-ssg`).
 
-Backups are useless if they don't restore. Recommended cadence: restore the
-latest backup to a disposable postgres container and run smoke queries.
-
-```bash
-# Spin up ephemeral postgres
-docker run --rm -d --name tmp-restore -e POSTGRES_PASSWORD=x -p 55432:5432 pgvector/pgvector:pg16
-
-# Restore latest dump
-gunzip -c $(ls -t ~/backups/textstack/db[-_]*.sql.gz | head -1) \
-  | docker exec -i tmp-restore psql -U postgres
-
-# Smoke-queries
-docker exec tmp-restore psql -U postgres -c "SELECT COUNT(*) FROM editions;"
-docker exec tmp-restore psql -U postgres -c "SELECT COUNT(*) FROM users;"
-
-# Teardown
-docker stop tmp-restore
-```
+**Data loss window:** up to 24 h (the nightly backup). `pre-deploy-*` dumps on the old box are gone with it.
 
 ## See also
 
 - [Local Development](local-dev.md) — Docker setup
 - [Uptime Monitoring](uptime-monitoring.md) — `health-check.yml` (every 5 min) probes API +
-  frontends; it does not check backups
+  frontends; backups are checked by `backup.yml` itself and by the monthly restore drill
