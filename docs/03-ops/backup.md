@@ -87,6 +87,7 @@ Data takes ~4 min to restore (drill timings). Most of the time is rebuilding the
    ```
 3. **Start only the database** and load the dump (prod user from `.env`):
    ```bash
+   set -a; . ./.env; set +a   # POSTGRES_USER / POSTGRES_DB
    docker compose up -d db
    $R dump --path /db.sql latest /db.sql \
      | docker exec -i textstack_db_prod psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1
