@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using Application.Collections;
 using Application.ReadingTracking;
 using System.Text.Json;
 using Application.Common.Interfaces;
@@ -429,7 +430,8 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage, IEnt
         if (user is not null)
             user.StorageUsedBytes = Math.Max(0, user.StorageUsedBytes - totalFileSize);
 
-        // Delete from database (cascade will handle related entities)
+        // Delete from database (cascade will handle related entities; collection rows have no FK)
+        await CollectionService.RemoveFromAllCollectionsAsync(db, null, bookId, "userbook", ct);
         db.UserBooks.Remove(book);
         await db.SaveChangesAsync(ct);
 

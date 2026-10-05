@@ -36,15 +36,37 @@ public class IngestionService(
     IAppDbContext db, IFileStorageService storage, ILogger<IngestionService> logger)
 {
     private static readonly TimeSpan StuckJobTimeout = TimeSpan.FromMinutes(10);
+    public const int MaxAttempts = 3;
+    public const string ExceededAttemptsError = "Exceeded max retry attempts (worker crashed or timed out on every attempt)";
 
     public async Task<IngestionJob?> GetNextJobAsync(CancellationToken ct)
     {
         var stuckThreshold = DateTimeOffset.UtcNow - StuckJobTimeout;
 
+        // A job stuck in Processing after its last attempt crashed the worker every time it ran.
+        // Without this it would be re-picked every StuckJobTimeout forever; end it Failed instead
+        // (the admin retry resets the count).
+        var exhausted = await db.IngestionJobs
+            .Where(j => j.AttemptCount >= MaxAttempts &&
+                        j.Status == JobStatus.Processing && j.StartedAt < stuckThreshold)
+            .ToListAsync(ct);
+        if (exhausted.Count > 0)
+        {
+            foreach (var job in exhausted)
+            {
+                job.Status = JobStatus.Failed;
+                job.FinishedAt = DateTimeOffset.UtcNow;
+                job.Error = ExceededAttemptsError;
+                logger.LogWarning("Ingestion job {JobId} exceeded {Max} attempts, marked failed", job.Id, MaxAttempts);
+            }
+            await db.SaveChangesAsync(ct);
+        }
+
         // Pick up queued jobs or stuck InProgress jobs (crashed worker)
         return await db.IngestionJobs
-            .Where(j => j.Status == JobStatus.Queued ||
-                        (j.Status == JobStatus.Processing && j.StartedAt < stuckThreshold))
+            .Where(j => j.AttemptCount < MaxAttempts &&
+                        (j.Status == JobStatus.Queued ||
+                         (j.Status == JobStatus.Processing && j.StartedAt < stuckThreshold)))
             .OrderBy(j => j.CreatedAt)
             .FirstOrDefaultAsync(ct);
     }
@@ -181,8 +203,9 @@ public class IngestionService(
         job.Error = null;
         job.StartedAt = null;
         job.FinishedAt = null;
+        // A manual retry gets a fresh attempt budget; GetNextJobAsync skips jobs at MaxAttempts.
+        job.AttemptCount = 0;
         // Keep diagnostics from previous attempt for reference
-        // AttemptCount will be incremented when processing starts
 
         await db.SaveChangesAsync(ct);
     }

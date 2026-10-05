@@ -96,6 +96,8 @@ public class CollectionService(IAppDbContext db)
         if (!ValidBookTypes.Contains(bookType)) return (false, "Invalid bookType");
         var owns = await db.Collections.AnyAsync(c => c.Id == collectionId && c.UserId == userId, ct);
         if (!owns) return (false, "Collection not found");
+        if ((await AddableBookIdsAsync(db, userId, [bookId], bookType, ct)).Count == 0)
+            return (false, "Book not found");
 
         var exists = await db.BookCollections.AnyAsync(
             bc => bc.CollectionId == collectionId && bc.BookId == bookId && bc.BookType == bookType, ct);
@@ -134,6 +136,37 @@ public class CollectionService(IAppDbContext db)
             .Where(bc => bc.CollectionId == collectionId && bc.BookType == bookType)
             .Select(bc => bc.BookId)
             .ToListAsync(ct);
+    }
+
+    /// <summary>
+    /// Which of <paramref name="ids"/> the user may put in a collection: their own uploads
+    /// ("userbook") or catalog editions in their library ("savedbook" — both clients offer
+    /// collections only for a saved book, and removing it from the library removes it from them).
+    /// </summary>
+    public static async Task<HashSet<Guid>> AddableBookIdsAsync(
+        IAppDbContext db, Guid userId, IReadOnlyCollection<Guid> ids, string bookType, CancellationToken ct)
+    {
+        var found = bookType == "userbook"
+            ? await db.UserBooks.Where(b => b.UserId == userId && ids.Contains(b.Id)).Select(b => b.Id).ToListAsync(ct)
+            : await db.UserLibraries.Where(l => l.UserId == userId && ids.Contains(l.EditionId)).Select(l => l.EditionId).ToListAsync(ct);
+        return found.ToHashSet();
+    }
+
+    /// <summary>
+    /// Stages removal of a book from collections when the book goes away; the caller saves.
+    /// <paramref name="userId"/> limits it to one user's collections (a library removal); null means
+    /// every user's (the book itself was deleted).
+    /// </summary>
+    public static async Task RemoveFromAllCollectionsAsync(
+        IAppDbContext db, Guid? userId, Guid bookId, string bookType, CancellationToken ct)
+    {
+        var query = db.BookCollections.Where(bc => bc.BookId == bookId && bc.BookType == bookType);
+        if (userId is { } uid)
+        {
+            var userCollections = db.Collections.Where(c => c.UserId == uid).Select(c => c.Id);
+            query = query.Where(bc => userCollections.Contains(bc.CollectionId));
+        }
+        db.BookCollections.RemoveRange(await query.ToListAsync(ct));
     }
 }
 

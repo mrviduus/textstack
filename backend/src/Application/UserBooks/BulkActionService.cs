@@ -1,3 +1,4 @@
+using Application.Collections;
 using Application.Common.Interfaces;
 using Domain.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -65,15 +66,17 @@ public class BulkActionService(IAppDbContext db, UserBookService userBookService
         if (!owns)
             return new BulkResult([], ids.Select(id => new BulkFailure(id, "Collection not found")).ToArray());
 
+        var capped = ids.Take(MaxIdsPerCall).ToList();
+        var addable = await CollectionService.AddableBookIdsAsync(db, userId, capped, bookType, ct);
         var existing = await db.BookCollections
             .Where(bc => bc.CollectionId == collectionId && bc.BookType == bookType && ids.Contains(bc.BookId))
             .Select(bc => bc.BookId)
             .ToListAsync(ct);
         var existingSet = existing.ToHashSet();
         var now = DateTimeOffset.UtcNow;
-        foreach (var id in ids.Take(MaxIdsPerCall))
+        foreach (var id in capped)
         {
-            if (existingSet.Contains(id)) continue;
+            if (!addable.Contains(id) || existingSet.Contains(id)) continue;
             db.BookCollections.Add(new BookCollection
             {
                 CollectionId = collectionId,
@@ -83,7 +86,9 @@ public class BulkActionService(IAppDbContext db, UserBookService userBookService
             });
         }
         await db.SaveChangesAsync(ct);
-        return new BulkResult(ids.ToArray(), []);
+        return new BulkResult(
+            capped.Where(addable.Contains).ToArray(),
+            capped.Where(id => !addable.Contains(id)).Select(id => new BulkFailure(id, "Not found")).ToArray());
     }
 
     public async Task<BulkResult> RemoveFromCollectionAsync(

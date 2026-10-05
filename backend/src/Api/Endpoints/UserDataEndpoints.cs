@@ -2,6 +2,7 @@ using Api.Extensions;
 using Api.Mapping;
 using Api.Sites;
 using Application.Auth;
+using Application.Collections;
 using Application.Common.Interfaces;
 using Application.ReadingTracking;
 using Domain.Entities;
@@ -546,6 +547,8 @@ public static class UserDataEndpoints
         if (libraryItem == null) return Results.NotFound();
 
         db.UserLibraries.Remove(libraryItem);
+        // Collections hold library items: a book no longer saved leaves the reader's collections too.
+        await CollectionService.RemoveFromAllCollectionsAsync(db, userId.Value, editionId, "savedbook", ct);
         await db.SaveChangesAsync(ct);
 
         return Results.NoContent();

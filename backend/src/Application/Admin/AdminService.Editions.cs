@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text.Json;
+using Application.Collections;
 using Application.Common.Interfaces;
 using Application.SsgRebuild;
 using Contracts.Admin;
@@ -292,6 +293,7 @@ public partial class AdminService
         var jobs = await db.IngestionJobs.Where(j => j.EditionId == id).ToListAsync(ct);
         db.IngestionJobs.RemoveRange(jobs);
 
+        await CollectionService.RemoveFromAllCollectionsAsync(db, null, id, "savedbook", ct);
         db.Editions.Remove(edition);
 
         await db.SaveChangesAsync(ct);

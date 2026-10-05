@@ -64,7 +64,8 @@ dotnet ef database update \
 
 ### Backend
 ```bash
-# API
+# API (applies pending migrations at start: launchSettings sets Database__MigrateOnStartup;
+# under Docker only the `migrator` service migrates)
 dotnet run --project backend/src/Api
 
 # Worker
