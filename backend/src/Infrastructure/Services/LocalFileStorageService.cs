@@ -15,10 +15,22 @@ public class LocalFileStorageService : IFileStorageService
         }
     }
 
+    /// <summary>
+    /// A file name may carry a sub-folder (<c>assets/x.png</c>) but must land inside the entity's own
+    /// directory — a rooted name or <c>..</c> segment is refused rather than written elsewhere.
+    /// </summary>
+    private static void EnsureInside(string directory, string fullPath)
+    {
+        var dir = Path.GetFullPath(directory) + Path.DirectorySeparatorChar;
+        if (!Path.GetFullPath(fullPath).StartsWith(dir, StringComparison.Ordinal))
+            throw new ArgumentException("File name must stay inside the entity's storage directory.");
+    }
+
     public async Task<string> SaveFileAsync(Guid entityId, string fileName, Stream content, CancellationToken ct = default)
     {
         var relativePath = Path.Combine(entityId.ToString()[..2], entityId.ToString(), fileName);
         var fullPath = Path.Combine(_rootPath, relativePath);
+        EnsureInside(Path.Combine(_rootPath, entityId.ToString()[..2], entityId.ToString()), fullPath);
 
         var directory = Path.GetDirectoryName(fullPath)!;
         if (!Directory.Exists(directory))
@@ -37,6 +49,7 @@ public class LocalFileStorageService : IFileStorageService
         // Path: users/{userId[0:2]}/{userId}/books/{userBookId}/{fileName}
         var relativePath = Path.Combine("users", userId.ToString()[..2], userId.ToString(), "books", userBookId.ToString(), fileName);
         var fullPath = Path.Combine(_rootPath, relativePath);
+        EnsureInside(Path.Combine(_rootPath, "users", userId.ToString()[..2], userId.ToString(), "books", userBookId.ToString()), fullPath);
 
         var directory = Path.GetDirectoryName(fullPath)!;
         if (!Directory.Exists(directory))

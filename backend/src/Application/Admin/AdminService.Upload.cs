@@ -120,7 +120,8 @@ public partial class AdminService
             }
         }
 
-        var storagePath = await storage.SaveFileAsync(edition.Id, req.FileName, req.FileStream, ct);
+        // The client's file name is display data: keep only its last segment for the stored copy.
+        var storagePath = await storage.SaveFileAsync(edition.Id, Path.GetFileName(req.FileName), req.FileStream, ct);
 
         req.FileStream.Position = 0;
         using var sha = SHA256.Create();

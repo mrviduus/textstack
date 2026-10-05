@@ -452,23 +452,36 @@ public class AuthService
         typeof(T).GetProperty("UserId")!.SetValue(row, id);
     }
 
+    /// <summary>
+    /// A rotated-away token presented again this long after its rotation is treated as a stolen
+    /// copy and its successor is revoked. Inside the window it is assumed to be two tabs refreshing
+    /// at once and is only refused, as before.
+    /// </summary>
+    public static readonly TimeSpan RefreshReuseGrace = TimeSpan.FromSeconds(30);
+
     public async Task<(User user, string accessToken, string refreshToken)?> RefreshTokenAsync(
         string refreshToken,
         CancellationToken ct)
     {
+        var hash = HashToken(refreshToken);
+        var now = DateTimeOffset.UtcNow;
         var token = await _db.UserRefreshTokens
             .Include(x => x.User)
-            .FirstOrDefaultAsync(x => x.Token == refreshToken && x.ExpiresAt > DateTimeOffset.UtcNow, ct);
+            .FirstOrDefaultAsync(x => x.TokenHash == hash && x.ExpiresAt > now, ct);
 
         if (token == null)
+        {
+            await RevokeSuccessorOnReuseAsync(hash, now, ct);
             return null;
+        }
 
         // Rotate refresh token — catch race condition if token already consumed by concurrent request
         try
         {
             _db.UserRefreshTokens.Remove(token);
             // Preserve guest-vs-real TTL on refresh — guests keep the shorter window.
-            var newRefreshToken = await CreateRefreshTokenAsync(token.UserId, ct, isGuest: token.User.IsGuest);
+            var newRefreshToken = await CreateRefreshTokenAsync(
+                token.UserId, ct, isGuest: token.User.IsGuest, previousTokenHash: hash);
             var accessToken = GenerateAccessToken(token.User);
             return (token.User, accessToken, newRefreshToken);
         }
@@ -478,10 +491,39 @@ public class AuthService
         }
     }
 
+    /// <summary>
+    /// Refresh-token reuse detection, as the OAuth path does (RFC 9700 §4.14.2): a token that was
+    /// already rotated away coming back means two parties hold the chain, so the token it was
+    /// rotated into is revoked too and both must sign in again.
+    /// ponytail: remembers one generation back, like OAuthGrant; an older token is refused but not treated as reuse.
+    /// </summary>
+    private async Task RevokeSuccessorOnReuseAsync(string hash, DateTimeOffset now, CancellationToken ct)
+    {
+        var cutoff = now - RefreshReuseGrace;
+        var successors = await _db.UserRefreshTokens
+            .Where(x => x.PreviousTokenHash == hash && x.CreatedAt < cutoff)
+            .ToListAsync(ct);
+        if (successors.Count == 0)
+            return;
+
+        _db.UserRefreshTokens.RemoveRange(successors);
+        try
+        {
+            await _db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // Already rotated or signed out in the meantime — nothing left to revoke.
+        }
+        _logger?.LogWarning("Rotated refresh token presented again; revoked its successor for user {UserId}",
+            successors[0].UserId);
+    }
+
     public async Task<bool> LogoutAsync(string refreshToken, CancellationToken ct)
     {
+        var hash = HashToken(refreshToken);
         var token = await _db.UserRefreshTokens
-            .FirstOrDefaultAsync(x => x.Token == refreshToken, ct);
+            .FirstOrDefaultAsync(x => x.TokenHash == hash, ct);
 
         if (token == null)
             return false;
@@ -824,20 +866,11 @@ public class AuthService
     public (Guid? UserId, bool IsGuest) ValidateAccessTokenIdentity(string accessToken)
     {
         var tokenHandler = new JwtSecurityTokenHandler();
-        var key = Encoding.UTF8.GetBytes(_jwtSettings.SecretKey);
 
         try
         {
-            var principal = tokenHandler.ValidateToken(accessToken, new TokenValidationParameters
-            {
-                ValidateIssuerSigningKey = true,
-                IssuerSigningKey = new SymmetricSecurityKey(key),
-                ValidateIssuer = true,
-                ValidIssuer = _jwtSettings.Issuer,
-                ValidateAudience = false,
-                ValidateLifetime = true,
-                ClockSkew = TimeSpan.Zero
-            }, out _);
+            var principal = tokenHandler.ValidateToken(
+                accessToken, _jwtSettings.ValidationParameters(JwtSettings.UserAudience), out _);
 
             var userIdClaim = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             if (userIdClaim == null) return (null, false);
@@ -899,6 +932,7 @@ public class AuthService
 
         var token = new JwtSecurityToken(
             issuer: _jwtSettings.Issuer,
+            audience: JwtSettings.UserAudience,
             claims: claims,
             expires: DateTime.UtcNow.AddMinutes(_jwtSettings.AccessTokenExpiryMinutes),
             signingCredentials: credentials
@@ -907,25 +941,29 @@ public class AuthService
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
 
-    private async Task<string> CreateRefreshTokenAsync(Guid userId, CancellationToken ct, bool isGuest = false)
+    private async Task<string> CreateRefreshTokenAsync(
+        Guid userId, CancellationToken ct, bool isGuest = false, string? previousTokenHash = null)
     {
         // Guest sessions get a shorter refresh window — reduces DB bloat from abandoned accounts.
         var ttlDays = isGuest
             ? _jwtSettings.GuestRefreshTokenExpiryDays
             : _jwtSettings.RefreshTokenExpiryDays;
 
+        // Only the hash is stored; the raw token leaves this method once, to the client.
+        var raw = DeviceCodes.GenerateSecureToken();
         var token = new UserRefreshToken
         {
             Id = Guid.NewGuid(),
             UserId = userId,
-            Token = DeviceCodes.GenerateSecureToken(),
+            TokenHash = HashToken(raw),
+            PreviousTokenHash = previousTokenHash,
             ExpiresAt = DateTimeOffset.UtcNow.AddDays(ttlDays),
             CreatedAt = DateTimeOffset.UtcNow
         };
 
         _db.UserRefreshTokens.Add(token);
         await _db.SaveChangesAsync(ct);
-        return token.Token;
+        return raw;
     }
 
     private (string? subject, string? email) ValidateAppleToken(string identityToken)

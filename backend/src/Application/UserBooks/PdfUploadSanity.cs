@@ -35,4 +35,28 @@ public static class PdfUploadSanity
         var tail = bytes.Length <= TrailerScanBytes ? bytes : bytes[^TrailerScanBytes..];
         return tail.IndexOf(StartXref) >= 0 && tail.IndexOf(Eof) >= 0;
     }
+
+    /// <summary>
+    /// <see cref="LooksLikeCompletePdf(ReadOnlySpan{byte})"/> over a seekable stream, reading only
+    /// the head and tail windows. Leaves the position at 0.
+    /// </summary>
+    public static async Task<bool> LooksLikeCompletePdfAsync(Stream stream, CancellationToken ct)
+    {
+        var head = await ReadAtAsync(stream, 0, (int)Math.Min(HeaderScanBytes, stream.Length), ct);
+        if (head.AsSpan().IndexOf(HeaderMarker) < 0)
+            return false;
+
+        var tailLength = (int)Math.Min(TrailerScanBytes, stream.Length);
+        var tail = await ReadAtAsync(stream, stream.Length - tailLength, tailLength, ct);
+        stream.Position = 0;
+        return tail.AsSpan().IndexOf(StartXref) >= 0 && tail.AsSpan().IndexOf(Eof) >= 0;
+    }
+
+    private static async Task<byte[]> ReadAtAsync(Stream stream, long offset, int count, CancellationToken ct)
+    {
+        var buffer = new byte[count];
+        stream.Position = offset;
+        await stream.ReadExactlyAsync(buffer, ct);
+        return buffer;
+    }
 }

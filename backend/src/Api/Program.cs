@@ -55,6 +55,11 @@ if (!builder.Environment.IsEnvironment("Test"))
     var jwtSecret = builder.Configuration["Jwt:SecretKey"];
     if (string.IsNullOrEmpty(jwtSecret))
         throw new InvalidOperationException("Jwt:SecretKey is required. Set JWT_SECRET env var.");
+    // A short key is fatal everywhere but Production, where refusing to start would be an outage;
+    // there it is logged as Critical (reaches Sentry) once the app is built, below.
+    if (Application.Auth.JwtSettings.IsWeakSecret(jwtSecret) && !builder.Environment.IsProduction())
+        throw new InvalidOperationException(
+            $"Jwt:SecretKey must be at least {Application.Auth.JwtSettings.MinSecretKeyBytes} bytes.");
 
     var googleClientId = builder.Configuration["Google:ClientId"];
     if (string.IsNullOrEmpty(googleClientId))
@@ -62,6 +67,11 @@ if (!builder.Environment.IsEnvironment("Test"))
 }
 
 var app = builder.Build();
+
+if (app.Environment.IsProduction() && Application.Auth.JwtSettings.IsWeakSecret(builder.Configuration["Jwt:SecretKey"]))
+    app.Logger.LogCritical(
+        "Jwt:SecretKey is shorter than {MinBytes} bytes; rotate JWT_SECRET to a longer random value",
+        Application.Auth.JwtSettings.MinSecretKeyBytes);
 
 // Skip migrations in Test environment (uses InMemory DB)
 if (!app.Environment.IsEnvironment("Test"))

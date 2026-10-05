@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Security** — refresh tokens stored hashed; admin and user tokens separated; upload size checked before reading; EPUB size limits — backend
 - **Ops** — monthly restore drill: a clean GitHub runner restores the latest R2 backup (DB, storage, `.env`) and checks it; first run DB 206 s + files 37 s, 200/200 covers present; `backup.md` disaster-recovery steps rewritten from it — infra, docs
 - **Reader** — bars hide again on slow scroll down after you scrolled up (a small down-scroll reset the 48px baseline on every event, so it never hid); a revealed bar stays until you scroll down (no 3s re-hide); mobile WebView detector resyncs with RN on tap toggles — web, mobile
 - **Mobile** — you can see an update arrive: a thin top bar with progress while an OTA downloads, "Restarting to apply the update…" for 0.8 s before the reload, a one-off toast in the reader when an update waits for you to leave, and "TextStack updated" after the restart — mobile
