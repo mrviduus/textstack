@@ -9,7 +9,7 @@ const AUTO_HIDE_DELAY = 3000
  * - 3s after load → hide
  * - Scroll down ≥48px → hide immediately
  * - Scroll up ≥6px (or any up while bars hidden) → show immediately
- * - Tap handler calls showBars() to reveal and restart the timer
+ * - Tap handler calls showBars() to reveal; bars then stay until the user scrolls down
  */
 export function useImmersiveMode(_enabled: boolean, isLoading: boolean) {
   const [immersiveMode, setImmersiveMode] = useState(false)
@@ -36,8 +36,8 @@ export function useImmersiveMode(_enabled: boolean, isLoading: boolean) {
     setImmersiveMode(false)
     lastDirRef.current = 'up'
     baselineRef.current = window.scrollY
-    startTimer()
-  }, [startTimer])
+    clearTimer()
+  }, [])
 
   useEffect(() => {
     if (isLoading) return
@@ -69,9 +69,10 @@ export function useImmersiveMode(_enabled: boolean, isLoading: boolean) {
           setImmersiveMode(true)
           clearTimer()
         }
-      } else if (lastDirRef.current === 'up' && delta > 0) {
-        baselineRef.current = y
       }
+      // Small downward motion below the threshold leaves the baseline alone:
+      // the 48px threshold IS the wobble guard. Resetting it on every event
+      // meant slow scrolling never accumulated 48px and never hid.
     }
 
     window.addEventListener('scroll', onScroll, { passive: true })

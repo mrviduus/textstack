@@ -318,6 +318,12 @@ export function ReaderShell(props: ReaderShellProps) {
     footerHeight,
     autoHideTrigger: true,
   })
+  // RN owns bar visibility; tell the WebView's scroll detector (both reflow and
+  // PDF viewer embed it) so a tap toggle or the initial auto-hide doesn't leave
+  // it measuring from a stale direction.
+  useEffect(() => {
+    injectJs(`window.__tsSetBars && window.__tsSetBars(${barsVisible})`)
+  }, [barsVisible, injectJs])
 
   // "Discuss this chapter" — the open chapter, which is the one on screen (one chapter per document).
   // Same rules as the chapter-row button.
