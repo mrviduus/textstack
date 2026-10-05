@@ -33,6 +33,9 @@ export function AutoUpdater() {
   // teardown.
   const reloading = useRef(false)
 
+  const routeRef = useRef(pathname)
+  routeRef.current = pathname
+
   const apply = useCallback(async (pending: boolean, route: string) => {
     if (reloading.current) return
     if (!shouldApplyUpdate({ isUpdatePending: pending, isDev: __DEV__, pathname: route })) return
@@ -40,6 +43,13 @@ export function AutoUpdater() {
     try {
       restartStore.set(true)
       await new Promise(r => setTimeout(r, RESTART_NOTICE_MS))
+      // They may have opened a chapter during the notice. Same rule as above, on the
+      // route they are on NOW; the pathname effect applies it once they leave.
+      if (!shouldApplyUpdate({ isUpdatePending: pending, isDev: __DEV__, pathname: routeRef.current })) {
+        restartStore.set(false)
+        reloading.current = false
+        return
+      }
       await Updates.reloadAsync()
     } catch {
       restartStore.set(false)
@@ -62,9 +72,6 @@ export function AutoUpdater() {
       // user: they did not ask for this, and the app works either way.
     }
   }, [apply])
-
-  const routeRef = useRef(pathname)
-  routeRef.current = pathname
 
   useEffect(() => {
     if (__DEV__) return
