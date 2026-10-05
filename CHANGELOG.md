@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Fixes (#706 follow-ups)** — catalog + user ingestion fail jobs Queued at the attempt cap (were skipped forever; one shared cap and error); guest merge removes a dropped upload from collections; bulk add-to-collection ignores repeated ids (was 500); expired admin and user token cleanup run independently; deploy health gate waits up to 90s for `starting` services and fails on a `compose ps` error; quality-poll prompt keeps its quotes; `make deploy` removed (use the workflow); incidents index completed — backend, infra, docs
 - **Fixes** — catalog ingestion stops after 3 attempts (Failed, admin retry resets); deleted uploads / books removed from the library leave collections, add checks ownership, orphan rows cleaned (`CleanupOrphanedBookCollections`); migrations only by the `migrator` (Api opt-in for local `dotnet run`); password reset also revokes MCP keys and OAuth grants; expired user refresh tokens deleted daily; clearing a highlight note syncs (`removeNote`) — backend, web, mobile
 - **Docs** — architecture review 2026-10: system map (C4 diagrams), backend, ops and client reviews, ranked gaps with status; JSON-LD output escaped — docs, web
 - **Security** — refresh tokens stored hashed; admin and user tokens separated; upload size checked before reading; EPUB size limits — backend

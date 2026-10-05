@@ -192,10 +192,14 @@ build web (preserving the current `dist/ssg` across vite's wipe) → `docker com
 nginx config → health checks (API, frontend, MCP) → queue SSG rebuild and wait → validate SSG →
 restart systemd pollers → prune images. Do not deploy by hand over SSH.
 
-Break-glass only:
+Re-deploy or roll back without a merge: run the same workflow by hand.
 ```bash
-make deploy       # git pull, build, restart, queue SSG rebuild, sync nginx
+gh workflow run deploy.yml                                  # redeploy main
+gh workflow run deploy.yml -f rollback_commit=<sha>         # roll back
 ```
+(`make deploy` was deleted 2026-10: it had drifted from the workflow — no GPU overlay, no MCP profile.)
+
+Break-glass only:
 
 Or manually:
 ```bash

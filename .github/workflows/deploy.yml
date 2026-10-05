@@ -330,14 +330,22 @@ jobs:
       # slow start up to ~2.5 min instead of failing at 30s.
       - name: Health check API
         run: |
+          set -o pipefail
           curl -sf --retry 30 --retry-delay 5 --retry-all-errors --retry-connrefused http://localhost:8080/health || exit 1
           echo "API health check passed"
-          # `up -d` returns before healthchecks run; a container already marked unhealthy
-          # (worker, mcp-server…) would otherwise ship green. ssg-worker is excluded: its
+          # `up -d` returns before healthchecks run; a container still `starting` or already
+          # `unhealthy` (worker, mcp-server…) would otherwise ship green, so wait up to 90s for
+          # every healthcheck to settle. A failing `compose ps` fails the step (set -e on the
+          # assignment) instead of reading as "nothing unhealthy". ssg-worker is excluded: its
           # healthcheck also reports "last rebuild failed", which is content state that
           # health-check.yml alarms on — not a reason to call this deploy broken.
-          UNHEALTHY=$(cd $PROJECT_DIR && docker compose --profile mcp -f docker-compose.yml -f docker-compose.gpu.yml ps --format '{{.Service}} {{.Health}}' | awk '$2 == "unhealthy" && $1 != "ssg-worker" {print $1}')
-          [ -z "$UNHEALTHY" ] || { echo "::error::unhealthy services: $UNHEALTHY"; exit 1; }
+          for _ in $(seq 18); do
+            STATES=$(cd "$PROJECT_DIR" && docker compose --profile mcp -f docker-compose.yml -f docker-compose.gpu.yml ps --format '{{.Service}} {{.Health}}')
+            NOT_HEALTHY=$(printf '%s\n' "$STATES" | awk '($2 == "starting" || $2 == "unhealthy") && $1 != "ssg-worker" {print $1 "=" $2}')
+            [ -z "$NOT_HEALTHY" ] && break
+            sleep 5
+          done
+          [ -z "$NOT_HEALTHY" ] || { echo "::error::services not healthy after 90s: $NOT_HEALTHY"; exit 1; }
 
       # A full rebuild is ~25 min of Puppeteer on the prod box and held the only runner for it.
       # Not needed per deploy: the snapshot step above keeps the old SSG tree AND the assets it

@@ -11,6 +11,8 @@ available at the time. The fix that matters is the one that closes the *class*, 
 
 | Date | Incident | Shape |
 |---|---|---|
+| 2026-09-02 | [A deploy waited on a prompt, and 1990 pages went missing](2026-09-02-corepack-prompt-stranded-the-ssg.md) | A move, not a copy |
+| 2026-09-01 | [SSG rebuilds failed silently after the workspace move](2026-09-01-ssg-worker-lost-its-output-path.md) | Absolute path outlived its layout |
 | 2026-08-31 | [A deploy wiped the SSG build that was running](2026-08-31-deploy-wiped-a-running-ssg-rebuild.md) | Reported what it did, not what survived |
 | 2026-08-31 | [425 author pages 404'd to Google while working for people](2026-08-31-authors-404-to-crawlers-only.md) | Split serving hides the failure |
 | 2026-08-11 | [SSG dead for five weeks — a forbidden HTTP header](2026-08-11-ssg-dead-five-weeks.md) | A mitigation that could never work |

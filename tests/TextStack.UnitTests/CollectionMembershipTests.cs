@@ -1,5 +1,6 @@
 using Application.Collections;
 using Application.Common.Interfaces;
+using Application.UserBooks;
 using Domain.Entities;
 using Moq;
 using TextStack.UnitTests.Fakes;
@@ -113,5 +114,20 @@ public class CollectionMembershipTests
 
         Assert.Equal(2, _bookCollections.Count);
         Assert.DoesNotContain(_bookCollections, bc => bc.BookId == bookId && bc.BookType == "userbook");
+    }
+
+    [Fact]
+    public async Task AddToCollectionAsync_DuplicateIds_AddedOnceAndReportedOnce()
+    {
+        var c = AddCollection(_userId);
+        var book = AddUserBook(_userId);
+        var bulk = new BulkActionService(_db, userBookService: null!);
+
+        var result = await bulk.AddToCollectionAsync(
+            _userId, c.Id, [book.Id, book.Id], "userbook", CancellationToken.None);
+
+        Assert.Single(_bookCollections);
+        Assert.Equal([book.Id], result.Succeeded);
+        Assert.Empty(result.Failed);
     }
 }

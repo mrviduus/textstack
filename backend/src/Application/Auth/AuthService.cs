@@ -2,6 +2,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+using Application.Collections;
 using Application.Common.Interfaces;
 using Domain.Entities;
 using Google.Apis.Auth;
@@ -270,9 +271,13 @@ public class AuthService
             _db.UserLibraries, guestUserId, realUserId,
             x => x.EditionId, ct);
 
-        await ReparentDropOnConflictAsync(
+        var droppedBooks = await ReparentDropOnConflictAsync(
             _db.UserBooks, guestUserId, realUserId,
             x => x.Slug, ct);
+        // book_collection has no FK to the book, so the guest's collections (re-parented below)
+        // would keep 'userbook' rows pointing at an upload deleted here. Same rule as DeleteAsync.
+        foreach (var book in droppedBooks)
+            await CollectionService.RemoveFromAllCollectionsAsync(_db, null, book.Id, "userbook", ct);
 
         await ReparentDropOnConflictAsync(
             _db.ReadingGoals, guestUserId, realUserId,
@@ -415,15 +420,17 @@ public class AuthService
     /// Re-parents <typeparamref name="T"/> rows from guest to real, dropping guest rows whose
     /// composite unique key (per <paramref name="keySelector"/>) already exists on the real user.
     /// </summary>
-    private async Task ReparentDropOnConflictAsync<T>(
+    /// <returns>The guest rows dropped on conflict (staged for delete, not yet saved).</returns>
+    private async Task<List<T>> ReparentDropOnConflictAsync<T>(
         DbSet<T> set,
         Guid from,
         Guid to,
         Func<T, object?> keySelector,
         CancellationToken ct) where T : class
     {
+        var dropped = new List<T>();
         var guestRows = await set.Where(EntityUserIdEquals<T>(from)).ToListAsync(ct);
-        if (guestRows.Count == 0) return;
+        if (guestRows.Count == 0) return dropped;
 
         var realRows = await set.Where(EntityUserIdEquals<T>(to)).ToListAsync(ct);
         var realKeys = new HashSet<object>(realRows.Select(r => keySelector(r) ?? new object()));
@@ -432,10 +439,14 @@ public class AuthService
         {
             var key = keySelector(g);
             if (key != null && realKeys.Contains(key))
+            {
                 set.Remove(g);
+                dropped.Add(g);
+            }
             else
                 SetUserId(g, to);
         }
+        return dropped;
     }
 
     private static System.Linq.Expressions.Expression<Func<T, bool>> EntityUserIdEquals<T>(Guid id)

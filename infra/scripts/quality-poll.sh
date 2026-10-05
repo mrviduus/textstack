@@ -401,7 +401,7 @@ Check for these issues:
 6. TINY_CHAPTER_CLUSTER: 3+ consecutive chapters each under 200 words (bad splits)
 7. MISSING_CONTENT: chapter has 0 or near-0 words
 
-For PLACEHOLDER_TITLE: the fix MUST be "rename" with a suggestedTitle — NEVER "delete" (a bad title is not a reason to remove content). Suggest a better title based on the sample content. If content is too short, suggest based on chapter position (Introduction, Epilogue, etc).
+For PLACEHOLDER_TITLE: the fix MUST be \"rename\" with a suggestedTitle — NEVER \"delete\" (a bad title is not a reason to remove content). Suggest a better title based on the sample content. If content is too short, suggest based on chapter position (Introduction, Epilogue, etc).
 
 Output EXACTLY (no markdown, no commentary):
 

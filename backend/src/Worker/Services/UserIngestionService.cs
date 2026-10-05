@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Application.Common.Interfaces;
+using Application.Ingestion;
 using Domain.Entities;
 using Domain.Enums;
 using Domain.Utilities;
@@ -44,7 +45,8 @@ public class UserIngestionService
     }
 
     private static readonly TimeSpan StuckJobTimeout = TimeSpan.FromMinutes(2);
-    private const int MaxAttempts = 3;
+    // Shared with catalog ingestion (Application) so the two caps cannot drift apart.
+    private const int MaxAttempts = IngestionService.MaxAttempts;
 
     public async Task<UserIngestionJob?> GetNextJobAsync(CancellationToken ct)
     {
@@ -56,7 +58,8 @@ public class UserIngestionService
         var exhausted = await db.UserIngestionJobs
             .Include(j => j.UserBook)
             .Where(j => j.AttemptCount >= MaxAttempts &&
-                        j.Status == JobStatus.Processing && j.StartedAt < stuckThreshold)
+                        (j.Status == JobStatus.Queued ||
+                         (j.Status == JobStatus.Processing && j.StartedAt < stuckThreshold)))
             .ToListAsync(ct);
         if (exhausted.Count > 0)
         {
@@ -65,7 +68,7 @@ public class UserIngestionService
             {
                 job.Status = JobStatus.Failed;
                 job.FinishedAt = now;
-                job.Error = "Exceeded max retry attempts";
+                job.Error = IngestionService.ExceededAttemptsError;
                 job.UserBook.Status = UserBookStatus.Failed;
                 job.UserBook.ErrorMessage = "Processing failed after multiple attempts. Try re-uploading or use a different file.";
                 job.UserBook.UpdatedAt = now;
@@ -107,7 +110,7 @@ public class UserIngestionService
             _logger.LogWarning("User book job {JobId} exceeded max attempts ({Max}), marking failed", jobId, MaxAttempts);
             job.Status = JobStatus.Failed;
             job.FinishedAt = DateTimeOffset.UtcNow;
-            job.Error = "Exceeded max retry attempts";
+            job.Error = IngestionService.ExceededAttemptsError;
             job.UserBook.Status = UserBookStatus.Failed;
             job.UserBook.ErrorMessage = "Processing failed after multiple attempts. Try re-uploading or use a different file.";
             job.UserBook.UpdatedAt = DateTimeOffset.UtcNow;
