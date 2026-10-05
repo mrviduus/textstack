@@ -51,6 +51,29 @@ public class UserIngestionService
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var stuckThreshold = DateTimeOffset.UtcNow - StuckJobTimeout;
 
+        // A job still Processing after its last attempt crashed the worker every time. The filter
+        // below skips it, so without this the reader's book would show "Processing" forever.
+        var exhausted = await db.UserIngestionJobs
+            .Include(j => j.UserBook)
+            .Where(j => j.AttemptCount >= MaxAttempts &&
+                        j.Status == JobStatus.Processing && j.StartedAt < stuckThreshold)
+            .ToListAsync(ct);
+        if (exhausted.Count > 0)
+        {
+            var now = DateTimeOffset.UtcNow;
+            foreach (var job in exhausted)
+            {
+                job.Status = JobStatus.Failed;
+                job.FinishedAt = now;
+                job.Error = "Exceeded max retry attempts";
+                job.UserBook.Status = UserBookStatus.Failed;
+                job.UserBook.ErrorMessage = "Processing failed after multiple attempts. Try re-uploading or use a different file.";
+                job.UserBook.UpdatedAt = now;
+                _logger.LogWarning("User book job {JobId} exceeded {Max} attempts, marked failed", job.Id, MaxAttempts);
+            }
+            await db.SaveChangesAsync(ct);
+        }
+
         // Pick up queued jobs or stuck InProgress jobs (crashed worker)
         return await db.UserIngestionJobs
             .Where(j => j.AttemptCount < MaxAttempts &&
