@@ -37,7 +37,9 @@ public class AccessTokenIdentityTests
         string? guestClaimValue = "true",
         string issuer = Issuer,
         string secret = Secret,
-        int expiresInMinutes = 60)
+        int expiresInMinutes = 60,
+        string? audience = JwtSettings.UserAudience,
+        string algorithm = SecurityAlgorithms.HmacSha256)
     {
         var claims = new List<Claim>
         {
@@ -50,9 +52,10 @@ public class AccessTokenIdentityTests
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret));
         var token = new JwtSecurityToken(
             issuer: issuer,
+            audience: audience,
             claims: claims,
             expires: DateTime.UtcNow.AddMinutes(expiresInMinutes),
-            signingCredentials: new SigningCredentials(key, SecurityAlgorithms.HmacSha256));
+            signingCredentials: new SigningCredentials(key, algorithm));
 
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
@@ -112,6 +115,38 @@ public class AccessTokenIdentityTests
 
         Assert.Null(userId);
         Assert.False(isGuest);
+    }
+
+    [Theory]
+    [InlineData(null)]                          // pre-audience token
+    [InlineData(JwtSettings.AdminAudience)]     // an admin-panel token
+    [InlineData("someone-elses-api")]
+    public void ValidateAccessTokenIdentity_NotTheUserAudience_IsNobody(string? audience)
+    {
+        var (userId, isGuest) = Service().ValidateAccessTokenIdentity(
+            Token(Guid.NewGuid(), guestClaim: false, audience: audience));
+
+        Assert.Null(userId);
+        Assert.False(isGuest);
+    }
+
+    [Theory]
+    [InlineData(SecurityAlgorithms.HmacSha256, true)]
+    [InlineData(SecurityAlgorithms.HmacSha512, false)]
+    public void ValidateAccessTokenIdentity_SameKeyOtherAlgorithm_OnlyHs256Accepted(string algorithm, bool accepted)
+    {
+        // HS512 needs a 64-byte key, so both cases use one long enough for either.
+        const string longSecret = Secret + Secret;
+        var service = new AuthService(
+            db: null!,
+            jwtSettings: Options.Create(new JwtSettings { SecretKey = longSecret, Issuer = Issuer }),
+            googleSettings: Options.Create(new GoogleSettings { ClientId = "unused.apps.googleusercontent.com" }));
+        var id = Guid.NewGuid();
+
+        var (userId, _) = service.ValidateAccessTokenIdentity(
+            Token(id, guestClaim: false, secret: longSecret, algorithm: algorithm));
+
+        Assert.Equal(accepted ? id : null, userId);
     }
 
     [Fact]

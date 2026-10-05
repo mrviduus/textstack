@@ -21,21 +21,31 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage, IEnt
         if (format == BookFormat.Other)
             return (null, "Unsupported file format. Only EPUB and PDF are supported.");
 
-        using var ms = new MemoryStream();
-        await fileStream.CopyToAsync(ms, ct);
+        // An uploaded form file is seekable and its length known, so the quota is checked here
+        // against that length before a byte of it is read, and the file is then streamed straight
+        // to storage. ponytail: a non-seekable stream is buffered first; no caller passes one today.
+        await using var buffered = fileStream.CanSeek ? null : new MemoryStream();
+        if (buffered is not null)
+        {
+            await fileStream.CopyToAsync(buffered, ct);
+            fileStream = buffered;
+        }
+
+        var (_, quotaError) = await CheckQuotaAsync(userId, fileStream.Length, ct);
+        if (quotaError is not null)
+            return (null, quotaError);
 
         // Truncated-PDF guard: a multipart can be well-formed while the PDF inside is
         // half-downloaded (valid %PDF- header, no startxref/%%EOF tail). Reject here so
         // we never create a book row that's doomed to fail at ingestion. O(header+tail).
-        if (format == BookFormat.Pdf &&
-            !PdfUploadSanity.LooksLikeCompletePdf(ms.GetBuffer().AsSpan(0, (int)ms.Length)))
+        if (format == BookFormat.Pdf && !await PdfUploadSanity.LooksLikeCompletePdfAsync(fileStream, ct))
         {
             return (null, "This PDF looks incomplete or corrupted — if you just downloaded it, wait for the download to finish and try again.");
         }
 
         return await CreateBookAsync(
             userId,
-            content: ms,
+            content: fileStream,
             originalFileName: fileName,
             storedFileName: $"original{Path.GetExtension(fileName)}",
             format: format,
@@ -79,29 +89,14 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage, IEnt
     /// SHA256, quota update. <paramref name="content"/> position is reset internally.
     /// </summary>
     private async Task<(UploadUserBookResponse? Response, string? Error)> CreateBookAsync(
-        Guid userId, MemoryStream content, string originalFileName, string storedFileName,
+        Guid userId, Stream content, string originalFileName, string storedFileName,
         BookFormat format, string title, string? author, string language, string? sourceUrl,
         bool isClip, CancellationToken ct)
     {
-        var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct);
-        if (user is null)
-            return (null, "User not found");
-
         var fileSize = content.Length;
-
-        var allowed = entitlements.Resolve(user);
-
-        if (user.StorageUsedBytes + fileSize > allowed.StorageLimitBytes)
-            return (null, $"Storage limit exceeded. Used: {user.StorageUsedBytes}, Limit: {allowed.StorageLimitBytes}");
-
-        if (allowed.MaxBooks is { } maxBooks)
-        {
-            var bookCount = await db.UserBooks.CountAsync(b => b.UserId == userId, ct);
-            if (bookCount >= maxBooks)
-                return (null, maxBooks == 1
-                    ? "Guest accounts can upload 1 book. Sign up for more."
-                    : $"Book limit reached ({maxBooks}).");
-        }
+        var (user, quotaError) = await CheckQuotaAsync(userId, fileSize, ct);
+        if (user is null)
+            return (null, quotaError);
 
         content.Position = 0;
         var sha256 = await ComputeSha256Async(content, ct);
@@ -167,6 +162,33 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage, IEnt
 
         return (new UploadUserBookResponse(
             userBookId, job.Id, UserBookStatus.Processing.ToString(), format == BookFormat.Pdf), null);
+    }
+
+    /// <summary>
+    /// Storage and book-count limits of the user's tier for a file of <paramref name="fileSize"/>
+    /// bytes. Needs only the size, so an upload is checked before it is read.
+    /// </summary>
+    private async Task<(User? User, string? Error)> CheckQuotaAsync(Guid userId, long fileSize, CancellationToken ct)
+    {
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct);
+        if (user is null)
+            return (null, "User not found");
+
+        var allowed = entitlements.Resolve(user);
+
+        if (user.StorageUsedBytes + fileSize > allowed.StorageLimitBytes)
+            return (null, $"Storage limit exceeded. Used: {user.StorageUsedBytes}, Limit: {allowed.StorageLimitBytes}");
+
+        if (allowed.MaxBooks is { } maxBooks)
+        {
+            var bookCount = await db.UserBooks.CountAsync(b => b.UserId == userId, ct);
+            if (bookCount >= maxBooks)
+                return (null, maxBooks == 1
+                    ? "Guest accounts can upload 1 book. Sign up for more."
+                    : $"Book limit reached ({maxBooks}).");
+        }
+
+        return (user, null);
     }
 
     /// <summary>

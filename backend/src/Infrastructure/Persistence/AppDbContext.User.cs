@@ -57,7 +57,7 @@ public partial class AppDbContext
         {
             e.HasIndex(x => x.AdminUserId);
             e.HasIndex(x => x.ExpiresAt);
-            e.HasIndex(x => x.Token).IsUnique();
+            e.HasIndex(x => x.TokenHash).IsUnique();
             e.HasOne(x => x.AdminUser).WithMany(x => x.RefreshTokens).HasForeignKey(x => x.AdminUserId).OnDelete(DeleteBehavior.Cascade);
         });
 
@@ -66,7 +66,8 @@ public partial class AppDbContext
         {
             e.HasIndex(x => x.UserId);
             e.HasIndex(x => x.ExpiresAt);
-            e.HasIndex(x => x.Token).IsUnique();
+            e.HasIndex(x => x.TokenHash).IsUnique();
+            e.HasIndex(x => x.PreviousTokenHash);
             e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
         });
 

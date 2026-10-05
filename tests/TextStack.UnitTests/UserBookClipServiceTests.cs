@@ -239,6 +239,61 @@ public class UserBookClipServiceTests
         Assert.Equal(0, user.StorageUsedBytes);
     }
 
+    /// <summary>A seekable stream that knows its length but fails any read — proves nothing was read.</summary>
+    private sealed class UnreadableStream(long length) : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => true;
+        public override bool CanWrite => false;
+        public override long Length => length;
+        public override long Position { get; set; }
+        public override int Read(byte[] buffer, int offset, int count) => throw new InvalidOperationException("read before the size check");
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => Position = offset;
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
+    [Theory]
+    [InlineData("book.pdf")]
+    [InlineData("book.epub")]
+    public async Task UploadAsync_LargerThanRemainingQuota_RejectedBeforeReading(string fileName)
+    {
+        var h = new Harness();
+        var user = h.SeedUser();
+        user.StorageUsedBytes = TestEntitlements.FreeStorageBytes - 10;
+        await using var stream = new UnreadableStream(length: 11);
+
+        var (response, error) = await h.Service.UploadAsync(
+            user.Id, stream, fileName, title: null, language: "en", CancellationToken.None);
+
+        Assert.Null(response);
+        Assert.StartsWith("Storage limit exceeded.", error);
+        Assert.Empty(h.UserBooks);
+        h.Storage.Verify(s => s.SaveUserFileAsync(
+            It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<Stream>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UploadAsync_SeekableStream_HandedToStorageWithoutCopy()
+    {
+        var h = new Harness();
+        var user = h.SeedUser();
+        Stream? saved = null;
+        h.Storage
+            .Setup(s => s.SaveUserFileAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<Stream>(), It.IsAny<CancellationToken>()))
+            .Callback((Guid _, Guid _, string _, Stream s, CancellationToken _) => saved = s)
+            .ReturnsAsync("users/x/original.pdf");
+        using var stream = new MemoryStream(CompletePdfBytes());
+
+        var (_, error) = await h.Service.UploadAsync(
+            user.Id, stream, "book.pdf", title: null, language: "en", CancellationToken.None);
+
+        Assert.Null(error);
+        Assert.Same(stream, saved);
+        Assert.Equal(stream.Length, h.UserBookFiles.Single().FileSize);
+    }
+
     [Fact]
     public async Task UploadAsync_EpubFile_ResponseHasOriginalPdfFalse()
     {

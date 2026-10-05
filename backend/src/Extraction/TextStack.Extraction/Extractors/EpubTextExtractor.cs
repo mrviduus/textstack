@@ -20,6 +20,9 @@ public sealed class EpubTextExtractor : ITextExtractor
         EpubBook book;
         try
         {
+            // Single choke point for admin and user ingestion: refuse oversized archives before parsing.
+            if (EpubArchiveGuard.Check(request.Content) is { } limitError)
+                throw new InvalidDataException(limitError);
             book = await EpubReader.ReadBookAsync(request.Content);
         }
         catch (Exception ex)

@@ -50,9 +50,10 @@ public class AdminAuthService
         string refreshToken,
         CancellationToken ct)
     {
+        var hash = DeviceCodes.HashToken(refreshToken);
         var token = await _db.AdminRefreshTokens
             .Include(x => x.AdminUser)
-            .FirstOrDefaultAsync(x => x.Token == refreshToken && x.ExpiresAt > DateTimeOffset.UtcNow, ct);
+            .FirstOrDefaultAsync(x => x.TokenHash == hash && x.ExpiresAt > DateTimeOffset.UtcNow, ct);
 
         if (token == null || !token.AdminUser.IsActive)
             return null;
@@ -67,8 +68,9 @@ public class AdminAuthService
 
     public async Task<bool> LogoutAsync(string refreshToken, CancellationToken ct)
     {
+        var hash = DeviceCodes.HashToken(refreshToken);
         var token = await _db.AdminRefreshTokens
-            .FirstOrDefaultAsync(x => x.Token == refreshToken, ct);
+            .FirstOrDefaultAsync(x => x.TokenHash == hash, ct);
 
         if (token == null)
             return false;
@@ -86,20 +88,11 @@ public class AdminAuthService
     public (Guid? adminId, AdminRole? role) ValidateAccessToken(string accessToken)
     {
         var tokenHandler = new JwtSecurityTokenHandler();
-        var key = Encoding.UTF8.GetBytes(_jwtSettings.SecretKey);
 
         try
         {
-            var principal = tokenHandler.ValidateToken(accessToken, new TokenValidationParameters
-            {
-                ValidateIssuerSigningKey = true,
-                IssuerSigningKey = new SymmetricSecurityKey(key),
-                ValidateIssuer = true,
-                ValidIssuer = _jwtSettings.Issuer,
-                ValidateAudience = false,
-                ValidateLifetime = true,
-                ClockSkew = TimeSpan.Zero
-            }, out _);
+            var principal = tokenHandler.ValidateToken(
+                accessToken, _jwtSettings.ValidationParameters(JwtSettings.AdminAudience), out _);
 
             var adminIdClaim = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             var roleClaim = principal.FindFirst(ClaimTypes.Role)?.Value;
@@ -176,6 +169,7 @@ public class AdminAuthService
 
         var token = new JwtSecurityToken(
             issuer: _jwtSettings.Issuer,
+            audience: JwtSettings.AdminAudience,
             claims: claims,
             expires: DateTime.UtcNow.AddMinutes(expiryMinutes),
             signingCredentials: credentials
@@ -187,17 +181,19 @@ public class AdminAuthService
     private async Task<string> CreateRefreshTokenAsync(Guid adminUserId, CancellationToken ct)
     {
         var expiryDays = await _settingsService.GetRefreshTokenExpiryDaysAsync(ct);
+        // Only the hash is stored; the raw token leaves this method once, to the client.
+        var raw = DeviceCodes.GenerateSecureToken();
         var token = new AdminRefreshToken
         {
             Id = Guid.NewGuid(),
             AdminUserId = adminUserId,
-            Token = DeviceCodes.GenerateSecureToken(),
+            TokenHash = DeviceCodes.HashToken(raw),
             ExpiresAt = DateTimeOffset.UtcNow.AddDays(expiryDays),
             CreatedAt = DateTimeOffset.UtcNow
         };
 
         _db.AdminRefreshTokens.Add(token);
         await _db.SaveChangesAsync(ct);
-        return token.Token;
+        return raw;
     }
 }
