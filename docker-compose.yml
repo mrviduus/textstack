@@ -326,7 +326,9 @@ services:
   # ===========================================
 
   ollama:
-    image: ollama/ollama:0.23.1
+    # gemma4 needs Ollama >= 0.30.9 (`ollama show`); 0.23.1 ran it from May to 2026-10. Pinned, not
+    # :latest — an image bump is a deliberate change. 0.35.1 is what the local evals ran on.
+    image: ollama/ollama:0.35.1
     container_name: textstack_ollama
     # GPU access (NVIDIA runtime + device reservation) lives in
     # docker-compose.gpu.yml and is layered on top of this file only by the
