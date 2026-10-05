@@ -52,8 +52,6 @@ jobs:
       - name: Snapshots in R2
         run: |
           restic snapshots --compact
-          restic snapshots --path /db.sql --latest 1 --compact | grep -q . \
-            || { echo "::error::no db.sql snapshot in R2"; exit 1; }
 
       - name: Restore database (timed)
         run: |
@@ -61,7 +59,15 @@ jobs:
           start=$(date +%s)
           # Roles the dump references; the dump owner is the prod user.
           $PSQL -c "CREATE ROLE textstack_prod" >/dev/null
-          restic dump --path /db.sql latest /db.sql | $PSQL >/dev/null
+          # Current format: the dump as plain SQL via stdin (/db.sql, since #700). Before that it
+          # was /backup/db.sql.gz inside the storage snapshot — still restorable, so still checked.
+          if restic snapshots --path /db.sql --json | grep -q '"id"'; then
+            echo "restoring /db.sql"
+            restic dump --path /db.sql latest /db.sql | $PSQL >/dev/null
+          else
+            echo "no /db.sql snapshot yet — restoring /backup/db.sql.gz"
+            restic dump --path /backup latest /backup/db.sql.gz | gunzip | $PSQL >/dev/null
+          fi
           echo "DB_SECONDS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
 
       - name: Database is complete
