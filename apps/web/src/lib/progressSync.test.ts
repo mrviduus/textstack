@@ -24,7 +24,7 @@ describe('flushLocalProgress', () => {
     expect(upsertProgressMock).not.toHaveBeenCalled()
   })
 
-  it('flushes all entries, removes localStorage keys, returns count', async () => {
+  it('flushes all unsynced entries, marks them synced, returns count', async () => {
     upsertProgressMock.mockResolvedValue({})
     localStorage.setItem(`reading.progress.${ED1}`, JSON.stringify({
       chapterId: CHAP1, locator: 'page:3', percent: 0.1, updatedAt: 1000,
@@ -37,8 +37,26 @@ describe('flushLocalProgress', () => {
 
     expect(n).toBe(2)
     expect(upsertProgressMock).toHaveBeenCalledTimes(2)
-    expect(localStorage.getItem(`reading.progress.${ED1}`)).toBeNull()
-    expect(localStorage.getItem(`reading.progress.${ED2}`)).toBeNull()
+    expect(JSON.parse(localStorage.getItem(`reading.progress.${ED1}`)!).synced).toBe(true)
+    expect(JSON.parse(localStorage.getItem(`reading.progress.${ED2}`)!).synced).toBe(true)
+  })
+
+  it('skips entries the server already acknowledged — a page load does not re-send them', async () => {
+    upsertProgressMock.mockResolvedValue({})
+    localStorage.setItem(`reading.progress.${ED1}`, JSON.stringify({
+      chapterId: CHAP1, locator: 'page:3', percent: 0.1, updatedAt: 1000, synced: true,
+    }))
+    localStorage.setItem(`reading.progress.${ED2}`, JSON.stringify({
+      chapterId: CHAP2, locator: 'page:4', positionJson: '{"p":1}', percent: 0.2, updatedAt: 2000,
+    }))
+
+    expect(await flushLocalProgress()).toBe(1)
+    expect(upsertProgressMock).toHaveBeenCalledTimes(1)
+    expect(upsertProgressMock).toHaveBeenCalledWith(ED2, expect.objectContaining({ positionJson: '{"p":1}' }))
+
+    // Next bootstrap: everything is synced, nothing goes out.
+    expect(await flushLocalProgress()).toBe(0)
+    expect(upsertProgressMock).toHaveBeenCalledTimes(1)
   })
 
   it('keeps localStorage key on network/5xx failure (retry next time)', async () => {

@@ -16,7 +16,7 @@ import {
 } from '../api/userData'
 import { ApiError } from '../api/client'
 import { emitDataChange } from '../lib/dataEvents'
-import { syncBookHighlights, isLocalHighlightId } from '../lib/highlightSync'
+import { syncBookHighlights, isLocalHighlightId, fromServerHighlight } from '../lib/highlightSync'
 import { useNetworkRecovery } from './useNetworkRecovery'
 
 function generateId(): string {
@@ -168,41 +168,51 @@ export function useHighlights(editionId?: string, userBookId?: string, options?:
 
       // An earlier offline note edit still pending must ride along with this update.
       const noteEdited = updates.noteText !== undefined || (existing.syncStatus === 'pending' && !!existing.noteEdited)
-      const updated: StoredHighlight = {
+      let updated: StoredHighlight = {
         ...existing,
         ...updates,
         // Convert null to undefined for storage
         noteText: updates.noteText === null ? undefined : (updates.noteText ?? existing.noteText),
         noteEdited,
+        // The server state this edit starts from — replay three-way-merges against it.
+        // Kept from the first pending edit; `version` stays the server's.
+        base:
+          existing.syncStatus === 'synced'
+            ? { version: existing.version, color: existing.color, noteText: existing.noteText }
+            : existing.base,
         updatedAt: Date.now(),
-        version: existing.version + 1,
         syncStatus: 'pending',
       }
 
-      // If authenticated, update on server
+      let replay = false
       if (isAuthenticated) {
-        try {
-          const serverHighlight = await updatePublicHighlight(id, {
-            color: updates.color,
-            noteText: noteEdited ? (updated.noteText ?? null) : undefined,
-            version: existing.version,
-          })
-
-          updated.syncStatus = 'synced'
-          updated.noteEdited = false
-          updated.version = serverHighlight.version
-          updated.updatedAt = new Date(serverHighlight.updatedAt).getTime()
-        } catch {
-          // Continue with local update
+        if (existing.syncStatus === 'synced') {
+          try {
+            // Conditional on the version we last saw: another device's edit since → 409.
+            const serverHighlight = await updatePublicHighlight(id, {
+              color: updates.color,
+              noteText: updates.noteText !== undefined ? (updated.noteText ?? null) : undefined,
+              version: existing.version,
+            })
+            updated = fromServerHighlight(serverHighlight) // synced: no base, no pending note
+          } catch (err) {
+            // 409: merge with the newer server row now. Otherwise (offline) the row stays
+            // pending for the next sync.
+            replay = err instanceof ApiError && err.status === 409
+          }
+        } else {
+          // Earlier edits still pending: the sync merges them all against the server row.
+          replay = true
         }
       }
 
       await saveHighlight(updated)
       setHighlights((prev) => prev.map((h) => (h.id === id ? updated : h)))
       emitDataChange('highlights')
+      if (replay) void syncWithServer(() => false)
       return updated
     },
-    [highlights, isAuthenticated]
+    [highlights, isAuthenticated, syncWithServer]
   )
 
   const removeHighlight = useCallback(

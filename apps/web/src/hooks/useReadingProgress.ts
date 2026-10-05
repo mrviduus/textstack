@@ -152,8 +152,11 @@ export function useReadingProgress(
       keepalive: true,
     })
       .then((res) => {
+        // A non-ok answer is not an ACK: leave the dedupe key and the unsynced local entry
+        // alone, so the next write (or the bootstrap flush) retries it.
+        if (!res.ok) return
         lastAckedKeyRef.current = `${payload.locator}:${payload.percent.toFixed(4)}`
-        if (res.ok) markProgressSynced(`${STORAGE_KEY}${payload.editionId}`, payload.updatedAt)
+        markProgressSynced(`${STORAGE_KEY}${payload.editionId}`, payload.updatedAt)
       })
       .catch((err) => {
         console.warn('[progress] flush save failed', err)

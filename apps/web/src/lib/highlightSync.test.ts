@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { highlightsApi } from '@textstack/shared'
 import type { StoredHighlight } from './offlineDb'
-import { planHighlightSync, isLocalHighlightId, replayUpdateBody, booksWithPending } from './highlightSync'
+import { planHighlightSync, isLocalHighlightId, replayUpdateBody, rebaseHighlightEdit, booksWithPending } from './highlightSync'
 
 const SERVER_ID = '3f2b8c1e-1111-4a2b-9c3d-000000000001'
 const LOCAL_ID = '1759581234567-abc12de'
@@ -50,13 +50,23 @@ describe('planHighlightSync', () => {
     expect(plan.visible.map((x) => x.id)).toEqual([SERVER_ID])
   })
 
-  it('local pending edit wins over the server row and is queued for PUT', () => {
-    const edited = h(SERVER_ID, { syncStatus: 'pending', color: 'pink', version: 2 })
+  it('a pending edit the server did not touch is queued for PUT, rebased on the server row', () => {
+    const edited = h(SERVER_ID, { syncStatus: 'pending', color: 'pink', base: { version: 1, color: 'yellow' } })
     const plan = planHighlightSync([h(SERVER_ID)], [edited])
 
-    expect(plan.update).toEqual([edited])
+    expect(plan.update.map((x) => x.color)).toEqual(['pink'])
     expect(plan.store).toEqual([]) // server row must not overwrite the edit in IndexedDB
-    expect(plan.visible).toEqual([edited])
+    expect(plan.visible.map((x) => x.color)).toEqual(['pink'])
+  })
+
+  it('a pending edit that lost its conflict leaves the server row in place', () => {
+    const edited = h(SERVER_ID, { syncStatus: 'pending', color: 'blue', base: { version: 1, color: 'yellow' } })
+    const server = h(SERVER_ID, { color: 'pink', version: 2 })
+    const plan = planHighlightSync([server], [edited])
+
+    expect(plan.update).toEqual([])
+    expect(plan.store).toEqual([server])
+    expect(plan.visible).toEqual([server])
   })
 
   it('tombstone hides the row and queues a DELETE', () => {
@@ -79,20 +89,48 @@ describe('planHighlightSync', () => {
   })
 })
 
-// What actually goes over the wire for a replayed offline edit.
-const wire = (x: StoredHighlight) => highlightsApi.updateHighlightBody(replayUpdateBody(x))
+// What actually goes over the wire for a replayed offline edit, merged onto `server`.
+const wire = (local: StoredHighlight, server: StoredHighlight) => {
+  const rebased = rebaseHighlightEdit(local, server)
+  return rebased && highlightsApi.updateHighlightBody(replayUpdateBody(rebased))
+}
+const base = { version: 1, color: 'yellow' as const, noteText: 'orig' }
+const synced = h(SERVER_ID, { noteText: 'orig' })
+const pending = (over: Partial<StoredHighlight>) => h(SERVER_ID, { syncStatus: 'pending', noteText: 'orig', base, ...over })
 
-describe('replayUpdateBody', () => {
-  it('a color-only offline edit leaves the note alone (a note added on another device survives)', () => {
-    expect(wire(h(SERVER_ID, { syncStatus: 'pending', color: 'pink', noteText: 'stale local copy' }))).toEqual({ color: 'pink' })
+describe('offline edit replay (three-way merge against base)', () => {
+  it('color: server unchanged since base → local color sent, conditional on the server version', () => {
+    expect(wire(pending({ color: 'blue' }), synced)).toEqual({ color: 'blue', version: 1 })
   })
 
-  it('a note cleared offline is sent as removeNote', () => {
-    expect(wire(h(SERVER_ID, { syncStatus: 'pending', noteEdited: true }))).toEqual({ color: 'yellow', removeNote: true })
+  it('color: changed on the server since base → server kept, nothing sent', () => {
+    expect(wire(pending({ color: 'blue' }), h(SERVER_ID, { noteText: 'orig', color: 'pink', version: 2 }))).toBeNull()
   })
 
-  it('a note edited offline is sent', () => {
-    expect(wire(h(SERVER_ID, { syncStatus: 'pending', noteEdited: true, noteText: 'why' }))).toEqual({ color: 'yellow', noteText: 'why' })
+  it('note: server unchanged → local note sent; cleared note → removeNote', () => {
+    expect(wire(pending({ noteText: 'mine', noteEdited: true }), synced)).toEqual({ noteText: 'mine', version: 1 })
+    expect(wire(pending({ noteText: undefined, noteEdited: true }), synced)).toEqual({ removeNote: true, version: 1 })
+  })
+
+  it('note: changed on the server since base → server note kept', () => {
+    const server = h(SERVER_ID, { noteText: 'theirs', version: 2 })
+    expect(wire(pending({ noteText: 'mine', noteEdited: true }), server)).toBeNull()
+  })
+
+  it('color and note merge independently: server note change kept, local color still applied', () => {
+    const server = h(SERVER_ID, { noteText: 'theirs', version: 2 })
+    const rebased = rebaseHighlightEdit(pending({ color: 'blue', noteText: 'mine', noteEdited: true }), server)!
+    expect(rebased).toMatchObject({ color: 'blue', noteText: 'theirs', noteEdited: false, base: { version: 2, color: 'yellow', noteText: 'theirs' } })
+    expect(highlightsApi.updateHighlightBody(replayUpdateBody(rebased))).toEqual({ color: 'blue', version: 2 })
+  })
+
+  it('a color-only edit never touches the note (a note added on another device survives)', () => {
+    const server = h(SERVER_ID, { noteText: 'added elsewhere', version: 2 })
+    expect(wire(pending({ color: 'blue', noteText: 'orig' }), server)).toEqual({ color: 'blue', version: 2 })
+  })
+
+  it('legacy pending row without base: local wins (pre-merge behaviour)', () => {
+    expect(wire(h(SERVER_ID, { syncStatus: 'pending', color: 'blue' }), h(SERVER_ID, { color: 'pink', version: 3 }))).toEqual({ color: 'blue', version: 3 })
   })
 })
 

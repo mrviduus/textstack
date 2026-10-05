@@ -178,8 +178,11 @@ export function useUserBookProgress(bookId: string) {
       keepalive: true,
     })
       .then((res) => {
+        // A non-ok answer is not an ACK: leave the dedupe key and the unsynced local entry
+        // alone, so the next write of this same position is sent rather than deduped away.
+        if (!res.ok) return
         lastAckedKeyRef.current = `${toSync.chapterSlug}:${toSync.locator ?? ''}`
-        if (res.ok) markProgressSynced(`${STORAGE_KEY}${bookId}`, toSync.updatedAt)
+        markProgressSynced(`${STORAGE_KEY}${bookId}`, toSync.updatedAt)
       })
       .catch((err) => {
         console.warn('[progress] userbook flush save failed', err)

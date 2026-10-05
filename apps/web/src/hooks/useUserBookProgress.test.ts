@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { renderHook, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { renderHook, waitFor, act } from '@testing-library/react'
 
 vi.mock('../api/userBooks', () => ({
   getUserBookProgress: vi.fn(),
@@ -30,5 +30,33 @@ describe('useUserBookProgress restore', () => {
     localStorage.setItem(KEY, JSON.stringify({ chapterSlug: 'ch-2', percent: 0.2, updatedAt: Date.parse('2100-01-01'), synced: true }))
     const { result } = renderHook(() => useUserBookProgress('b1'))
     await waitFor(() => expect(result.current.savedProgress?.chapterSlug).toBe('ch-9'))
+  })
+})
+
+describe('useUserBookProgress keepalive flush', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    vi.mocked(userBooks.getUserBookProgress).mockResolvedValue(null as never)
+    vi.mocked(userBooks.saveUserBookProgress).mockReset().mockResolvedValue(undefined as never)
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
+
+  it('a failed final flush is not an ACK: the same position is sent again, not deduped', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 503 }))
+    const { result } = renderHook(() => useUserBookProgress('b1'))
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    vi.useFakeTimers()
+
+    act(() => result.current.saveProgress('ch-3', 0, 0.3, 'scroll:5'))
+    act(() => result.current.flushSave())
+    await act(() => vi.advanceTimersByTimeAsync(0)) // settle the failed fetch
+
+    act(() => result.current.saveProgress('ch-3', 0, 0.3, 'scroll:5'))
+    expect(JSON.parse(localStorage.getItem(KEY)!).synced).toBeUndefined()
+    await act(() => vi.advanceTimersByTimeAsync(2000))
+    expect(userBooks.saveUserBookProgress).toHaveBeenCalledTimes(1)
   })
 })

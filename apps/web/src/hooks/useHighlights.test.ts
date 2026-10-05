@@ -24,6 +24,7 @@ import { useHighlights } from './useHighlights'
 import { replayAllPendingHighlights } from '../lib/highlightSync'
 import * as offlineDb from '../lib/offlineDb'
 import * as userData from '../api/userData'
+import { ApiError } from '../api/client'
 
 function pdfHighlight(): StoredHighlight {
   return {
@@ -153,7 +154,7 @@ describe('useHighlights offline replay', () => {
 
     const { result } = renderHook(() => useHighlights('ed-1', undefined, { isAuthenticated: true }))
     await waitFor(() => expect(result.current.highlights[0]?.noteText).toBe('from mobile'))
-    expect(userData.updatePublicHighlight).toHaveBeenCalledWith(serverRow.id, { color: 'pink' })
+    expect(userData.updatePublicHighlight).toHaveBeenCalledWith(serverRow.id, { color: 'pink', version: 1 })
   })
 
   it('clearing a note offline marks it for replay (noteEdited)', async () => {
@@ -171,6 +172,66 @@ describe('useHighlights offline replay', () => {
     expect(offlineDb.saveHighlight).toHaveBeenLastCalledWith(
       expect.objectContaining({ color: 'blue', noteEdited: true }) // earlier note edit still pending
     )
+  })
+})
+
+describe('useHighlights offline color replay (three-way merge)', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  const ID = '3f2b8c1e-1111-4a2b-9c3d-0000000000aa'
+  const row = (color: string, version: number) => ({
+    id: ID, editionId: 'ed-1', chapterId: 'ch-1', userBookId: null, userChapterId: null,
+    anchorJson: JSON.stringify(reflowHighlight(10, 20).anchor), color, selectedText: 'b',
+    noteText: null, version, createdAt: '2026-10-04T00:00:00Z', updatedAt: '2026-10-04T00:00:00Z',
+  })
+  const synced: StoredHighlight = { ...reflowHighlight(10, 20), id: ID, color: 'yellow', version: 1 }
+  const offlineBlue: StoredHighlight = { ...synced, color: 'blue', syncStatus: 'pending', base: { version: 1, color: 'yellow' } }
+
+  it('an offline edit records the server state it started from', async () => {
+    vi.mocked(offlineDb.getHighlightsForEdition).mockResolvedValue([synced])
+    const { result } = renderHook(() => useHighlights('ed-1'))
+    await waitFor(() => expect(result.current.highlights).toHaveLength(1))
+
+    await act(() => result.current.updateHighlight(ID, { color: 'blue' }))
+    await act(() => result.current.updateHighlight(ID, { color: 'pink' }))
+    expect(offlineDb.saveHighlight).toHaveBeenLastCalledWith(
+      expect.objectContaining({ color: 'pink', version: 1, base: { version: 1, color: 'yellow', noteText: undefined } })
+    )
+  })
+
+  it('server unchanged since the edit → local color is sent, conditional on its version', async () => {
+    vi.mocked(offlineDb.getHighlightsForEdition).mockResolvedValue([offlineBlue])
+    vi.mocked(userData.getPublicHighlights).mockResolvedValue([row('yellow', 1)])
+    vi.mocked(userData.updatePublicHighlight).mockResolvedValue(row('blue', 2))
+
+    const { result } = renderHook(() => useHighlights('ed-1', undefined, { isAuthenticated: true }))
+    await waitFor(() => expect(result.current.highlights[0]?.version).toBe(2))
+    expect(userData.updatePublicHighlight).toHaveBeenCalledWith(ID, { color: 'blue', version: 1 })
+    expect(result.current.highlights[0].color).toBe('blue')
+  })
+
+  it('color changed on another device since the edit → server color kept, nothing sent', async () => {
+    vi.mocked(offlineDb.getHighlightsForEdition).mockResolvedValue([offlineBlue])
+    vi.mocked(userData.getPublicHighlights).mockResolvedValue([row('pink', 2)])
+
+    const { result } = renderHook(() => useHighlights('ed-1', undefined, { isAuthenticated: true }))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(userData.updatePublicHighlight).not.toHaveBeenCalled()
+    expect(result.current.highlights[0].color).toBe('pink')
+    expect(offlineDb.saveHighlight).toHaveBeenCalledWith(expect.objectContaining({ id: ID, color: 'pink', syncStatus: 'synced' }))
+  })
+
+  it('a 409 (changed between read and PUT) re-plans against the fresh server row', async () => {
+    vi.mocked(offlineDb.getHighlightsForEdition).mockResolvedValue([offlineBlue])
+    vi.mocked(userData.getPublicHighlights)
+      .mockResolvedValueOnce([row('yellow', 1)])
+      .mockResolvedValueOnce([row('pink', 2)])
+    vi.mocked(userData.updatePublicHighlight).mockRejectedValue(new ApiError(409, 'conflict'))
+
+    const { result } = renderHook(() => useHighlights('ed-1', undefined, { isAuthenticated: true }))
+    await waitFor(() => expect(result.current.highlights[0]?.color).toBe('pink'))
+    expect(userData.getPublicHighlights).toHaveBeenCalledTimes(2)
+    expect(userData.updatePublicHighlight).toHaveBeenCalledTimes(1)
   })
 })
 
