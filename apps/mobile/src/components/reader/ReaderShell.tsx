@@ -124,6 +124,8 @@ export interface ReaderShellProps {
 
   /** Perform the actual router.replace to a chapter slug (path differs per source). */
   onNavigateChapter: (slug: string) => void
+  /** Filled with `navigateChapter` below, for the persistence layer's prompt. */
+  chapterNavigatorRef: MutableRefObject<((slug: string) => void) | null>
 
   // Bookmarks (state + mutations owned by the route; locator→slug mapping differs).
   // "is the ACTIVE chapter bookmarked" is computed here since activeSlug lives here.
@@ -185,7 +187,7 @@ export function ReaderShell(props: ReaderShellProps) {
     progressRef, scrollOffsetRef, currentChapterSlugRef, bookProgressRef, positionRef, totalWordCountRef,
     bumpProgress, saveProgress,
     onWebViewLoaded, onRestoreLanded, onDocumentRebuild, beginReflow,
-    ensureChapter, onNavigateChapter,
+    ensureChapter, onNavigateChapter, chapterNavigatorRef,
     bookmarks, onToggleCurrentBookmark, onDeleteBookmark, bookmarkChapterSlug,
     bookTitleRef, wordCount, explainBookId,
     original, originalFileUrl, originalInitialPage,
@@ -748,6 +750,8 @@ export function ReaderShell(props: ReaderShellProps) {
     }, flush)
     onNavigateChapter(slug)
   }
+  chapterNavigatorRef.current = navigateChapter
+  useEffect(() => () => { chapterNavigatorRef.current = null }, [chapterNavigatorRef])
 
   // --- End of chapter (inline block, drawn by readerHtml's __tsSetChapterEnd) ---
   const [endState, setEndState] = useState({ busy: false, error: false })

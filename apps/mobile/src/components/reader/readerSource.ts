@@ -129,6 +129,9 @@ export interface ReaderRuntime {
 
   // Navigation (path differs per source).
   onNavigateChapter: (slug: string) => void
+  /** The shell registers its navigateChapter here, so a chapter change started
+   *  by the persistence layer (the newer-position prompt) carries the visit too. */
+  chapterNavigatorRef: MutableRefObject<((slug: string) => void) | null>
 
   // Bookmarks.
   bookmarks: BookmarkDto[]

@@ -190,7 +190,7 @@ export function useEditionReaderSource({
     router.replace(`/reader/${bookSlug}/${slug}`)
   }, [router, bookSlug])
 
-  const { saveProgress, bumpProgress, onWebViewLoaded, onRestoreLanded, onDocumentRebuild, beginReflow } = useReaderPersistence({
+  const { saveProgress, bumpProgress, onWebViewLoaded, onRestoreLanded, onDocumentRebuild, beginReflow, chapterNavigatorRef } = useReaderPersistence({
     bookKey: editionId,
     chapterSlug,
     chapterId: chapter?.id ?? null,
@@ -230,6 +230,7 @@ export function useEditionReaderSource({
     saveProgress, bumpProgress, onWebViewLoaded, onRestoreLanded, onDocumentRebuild, beginReflow,
     ensureChapter,
     onNavigateChapter: navigateToChapter,
+    chapterNavigatorRef,
     bookmarks,
     onToggleCurrentBookmark: (slug) => { if (chapter) toggle({ chapter, slug }) },
     onDeleteBookmark: remove,
