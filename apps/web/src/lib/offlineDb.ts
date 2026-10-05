@@ -50,6 +50,11 @@ export interface StoredHighlight {
   /** The note was edited or cleared while pending, so replay must send it. Without it replay
    *  leaves the server's note alone — it may have been written on another device. */
   noteEdited?: boolean
+  /** The last server-synced state, captured when a synced row first goes pending. Replay
+   *  three-way-merges against it (highlightSync.replayUpdateBody): a field the server changed
+   *  since `base` is someone else's edit and is not overwritten. Absent on rows that have
+   *  never been on the server, and on pending rows written before it existed. */
+  base?: { version: number; color: HighlightColor; noteText?: string }
   /** Tombstone: deleted locally, server delete not yet confirmed. Hidden from the UI. */
   deleted?: boolean
   version: number

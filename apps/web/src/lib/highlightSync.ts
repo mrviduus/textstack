@@ -68,7 +68,8 @@ export interface HighlightSyncPlan {
   drop: string[]
   /** Replay: POST these (client-id rows the server has never seen). */
   create: StoredHighlight[]
-  /** Replay: PUT these (server rows edited offline; local wins). */
+  /** Replay: PUT these — server rows edited offline, already rebased on the server row
+   *  (rebaseHighlightEdit); write them to IndexedDB, then PUT replayUpdateBody(row). */
   update: StoredHighlight[]
   /** Replay: DELETE these server ids, then drop `localId` from IndexedDB. */
   remove: { serverId: string; localId: string }[]
@@ -76,7 +77,8 @@ export interface HighlightSyncPlan {
 
 /**
  * Merge a fresh server list with local IndexedDB rows. Server is the truth for
- * synced rows; local `pending` rows win and are queued for replay.
+ * synced rows; local `pending` creates/deletes win and are queued for replay; pending
+ * edits of server rows are three-way merged per field (rebaseHighlightEdit).
  *
  * Idempotency: POST /me/highlights has no idempotency key (server mints the id).
  * A create whose response was lost leaves a pending client-id row while the
@@ -84,7 +86,8 @@ export interface HighlightSyncPlan {
  * and adopt the server row instead of POSTing a duplicate.
  */
 export function planHighlightSync(server: StoredHighlight[], local: StoredHighlight[]): HighlightSyncPlan {
-  const serverIds = new Set(server.map((h) => h.id))
+  const serverById = new Map(server.map((h) => [h.id, h]))
+  const serverIds = new Set(serverById.keys())
   const serverByAnchor = new Map(server.map((h) => [anchorKey(h), h]))
   const plan: HighlightSyncPlan = { visible: [], store: [], drop: [], create: [], update: [], remove: [] }
   const overridden = new Set<string>()
@@ -106,8 +109,12 @@ export function planHighlightSync(server: StoredHighlight[], local: StoredHighli
         plan.drop.push(h.id)
       }
     } else if (onServer) {
-      plan.update.push(h)
-      overridden.add(h.id)
+      const rebased = rebaseHighlightEdit(h, serverById.get(h.id)!)
+      // null: every local change lost a conflict (or already matches) — the server row is stored as is.
+      if (rebased) {
+        plan.update.push(rebased)
+        overridden.add(h.id)
+      }
     } else if (twin) {
       plan.drop.push(h.id) // lost-response create: server already has it
     } else if (isLocalHighlightId(h.id)) {
@@ -122,14 +129,52 @@ export function planHighlightSync(server: StoredHighlight[], local: StoredHighli
   return plan
 }
 
+const noteKey = (n?: string | null) => n?.trim() || '' // blank == no note (the server clears on blank)
+
 /**
- * PUT body replaying a pending offline edit. No `version`: the offline edit is the
- * reader's latest intent (last write wins). The note is sent only if it was edited
- * offline (`noteEdited`) — otherwise a color-only change would overwrite, or with
- * `removeNote` erase, a note written on another device meanwhile.
+ * Three-way merge of a pending offline edit onto the current server row, per field (color,
+ * note), against `local.base` — the server state the edit started from:
+ *  - field not edited locally → server value;
+ *  - edited locally, server still equals base → local value (to be replayed);
+ *  - edited locally AND changed on the server since base → conflict → server value. No
+ *    "newer wins" tiebreak: the local edit time is this browser's clock, the server's
+ *    `updatedAt` is the server's — not comparable, and silently overwriting another
+ *    device's edit is the bug this exists to prevent.
+ *
+ * Returns the row rebased on `server` (base := server, version := server.version), or null
+ * when no local change survives. A pending row without `base` (written before it existed)
+ * merges as if the server were its base — the old last-write-wins replay.
+ */
+export function rebaseHighlightEdit(local: StoredHighlight, server: StoredHighlight): StoredHighlight | null {
+  const base = local.base ?? { version: server.version, color: server.color, noteText: server.noteText }
+  const color = local.color !== base.color && server.color === base.color ? local.color : server.color
+  const noteMine =
+    !!local.noteEdited &&
+    noteKey(local.noteText) !== noteKey(base.noteText) &&
+    noteKey(server.noteText) === noteKey(base.noteText)
+  if (color === server.color && !noteMine) return null
+  return {
+    ...server,
+    color,
+    noteText: noteMine ? local.noteText : server.noteText,
+    noteEdited: noteMine,
+    syncStatus: 'pending',
+    base: { version: server.version, color: server.color, noteText: server.noteText },
+  }
+}
+
+/**
+ * PUT body replaying a (rebased) pending edit: only the fields that differ from `base`,
+ * conditional on `base.version` — a server change after the merge answers 409 and the sync
+ * re-plans against the fresh row. The note is sent only if it was edited (`noteEdited`), so a
+ * color change never erases a note written elsewhere.
  */
 export function replayUpdateBody(h: StoredHighlight): UpdateHighlightData {
-  return h.noteEdited ? { color: h.color, noteText: h.noteText ?? null } : { color: h.color }
+  if (!h.base) return h.noteEdited ? { color: h.color, noteText: h.noteText ?? null } : { color: h.color }
+  const body: UpdateHighlightData = { version: h.base.version }
+  if (h.color !== h.base.color) body.color = h.color
+  if (h.noteEdited) body.noteText = h.noteText ?? null
+  return body
 }
 
 export interface HighlightSyncUi {
@@ -150,15 +195,21 @@ let syncQueue: Promise<void> = Promise.resolve()
  * for the next run — never discarded. Server unavailable → local data kept. Never rejects.
  */
 export function syncBookHighlights(bookId: string, isUserBook: boolean, ui?: HighlightSyncUi): Promise<void> {
-  syncQueue = syncQueue.then(() => syncOnce(bookId, isUserBook, ui))
+  // A 409 (server row changed between our read and the PUT) re-plans once against a fresh list.
+  syncQueue = syncQueue
+    .then(() => syncOnce(bookId, isUserBook, ui))
+    .then((conflict) => (conflict ? syncOnce(bookId, isUserBook, ui) : false))
+    .then(() => undefined)
   return syncQueue
 }
 
-async function syncOnce(bookId: string, isUserBook: boolean, ui?: HighlightSyncUi): Promise<void> {
+/** Resolves true when an update hit a 409 and should be re-planned. Never rejects. */
+async function syncOnce(bookId: string, isUserBook: boolean, ui?: HighlightSyncUi): Promise<boolean> {
   const cancelled = () => ui?.isCancelled() ?? false
+  let conflict = false
   try {
     const serverHighlights = isUserBook ? await getUserBookHighlights(bookId) : await getPublicHighlights(bookId)
-    if (cancelled()) return
+    if (cancelled()) return false
 
     const local = isUserBook ? await getHighlightsForUserBook(bookId) : await getHighlightsForEdition(bookId)
     const plan = planHighlightSync(serverHighlights.map(fromServerHighlight), local)
@@ -166,8 +217,9 @@ async function syncOnce(bookId: string, isUserBook: boolean, ui?: HighlightSyncU
     // Reconcile, don't wipe-and-rebuild (see git history: a wipe window
     // could leave IndexedDB empty on navigation).
     for (const h of plan.store) await saveHighlight(h)
+    for (const h of plan.update) await saveHighlight(h) // rebased: a failed PUT replays the merge, not the stale edit
     for (const id of plan.drop) await deleteHighlightFromDB(id)
-    if (cancelled()) return
+    if (cancelled()) return false
     ui?.onVisible(plan.visible)
 
     let changed = false
@@ -210,6 +262,7 @@ async function syncOnce(bookId: string, isUserBook: boolean, ui?: HighlightSyncU
         changed = true
       } catch (err) {
         if (err instanceof ApiError && err.status === 404) await deleteHighlightFromDB(h.id)
+        if (err instanceof ApiError && err.status === 409) conflict = true // stays pending; re-planned
       }
     }
     for (const { serverId, localId } of plan.remove) {
@@ -225,6 +278,7 @@ async function syncOnce(bookId: string, isUserBook: boolean, ui?: HighlightSyncU
   } catch {
     // Server unavailable, keep local data.
   }
+  return conflict
 }
 
 /** Books (edition or upload) holding at least one pending local row. */

@@ -9,13 +9,15 @@ interface StoredProgress {
   chapterId?: string
   chapterSlug?: string
   locator?: string
+  positionJson?: string
   percent?: number
   updatedAt?: number
+  synced?: boolean
 }
 
 /**
- * Flush any anonymous reading-progress entries that `useReadingProgress` left in
- * localStorage while the user had no session. Called after a successful login/register
+ * Flush the reading-progress entries the server has not acknowledged (`synced` unset) —
+ * left by `useReadingProgress` while the user had no session, or written when a save failed. Called after a successful login/register
  * (or after bootstrap restores a real session) so switching devices / signing in later
  * does not drop progress the user accumulated while anonymous.
  *
@@ -25,6 +27,11 @@ interface StoredProgress {
  * 4xx responses (edition gone, bad chapter) mean the entry is permanently broken —
  * remove it so we don't loop on the same dead keys every session. Network/5xx errors
  * keep the entry for the next retry.
+ *
+ * Entries already `synced` are skipped: re-sending them on every page load would rewrite the
+ * server with an old position (and, before positionJson rode along, clear its TextPosition).
+ * A flushed entry is marked synced (markProgressSynced), not deleted — same as the reader's
+ * own writes — so restore keeps an offline fallback.
  *
  * Returns the number of entries successfully flushed.
  */
@@ -60,6 +67,8 @@ export async function flushLocalProgress(): Promise<number> {
       continue
     }
 
+    if (parsed?.synced) continue
+
     if (!parsed?.chapterId || !parsed.locator || !GUID_RE.test(parsed.chapterId)) {
       if (parsed?.chapterId && !GUID_RE.test(parsed.chapterId)) {
         try { localStorage.removeItem(key) } catch {}
@@ -68,13 +77,16 @@ export async function flushLocalProgress(): Promise<number> {
     }
 
     try {
+      const updatedAt = parsed.updatedAt || Date.now()
       await upsertProgress(editionId, {
         chapterId: parsed.chapterId,
         locator: parsed.locator,
+        positionJson: parsed.positionJson,
         percent: parsed.percent ?? null,
-        updatedAt: new Date(parsed.updatedAt || Date.now()).toISOString(),
+        updatedAt: new Date(updatedAt).toISOString(),
       })
-      try { localStorage.removeItem(key) } catch {}
+      if (parsed.updatedAt) markProgressSynced(key, updatedAt)
+      else try { localStorage.removeItem(key) } catch {} // unstamped legacy entry: can't be marked
       flushed++
     } catch (err) {
       if (err instanceof ApiError && err.status >= 400 && err.status < 500) {
@@ -97,6 +109,11 @@ export async function flushLocalProgress(): Promise<number> {
  * Rule: a local write the server has not acknowledged (`synced` unset) is this device's latest
  * intent and wins; once acknowledged, the server row is at least as new as it (the server's own
  * LWW, on client stamps, already arbitrated other devices), so the server wins.
+ *
+ * Once the progress DTO echoes the client stamp (`clientUpdatedAt`, same clock as
+ * `local.updatedAt`), an unsynced local entry can be compared with it instead of always winning:
+ * pass it here and return `local.updatedAt > serverClientUpdatedAt` in the unsynced branch —
+ * both callers (useRestoreProgress, useUserBookProgress) already route through this function.
  */
 export function preferLocalProgress(local: { synced?: boolean } | null, hasServer: boolean): boolean {
   return !!local && (!hasServer || !local.synced)
