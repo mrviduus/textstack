@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
+import { highlightsApi } from '@textstack/shared'
 import type { StoredHighlight } from './offlineDb'
-import { planHighlightSync, isLocalHighlightId } from './highlightSync'
+import { planHighlightSync, isLocalHighlightId, replayUpdateBody, booksWithPending } from './highlightSync'
 
 const SERVER_ID = '3f2b8c1e-1111-4a2b-9c3d-000000000001'
 const LOCAL_ID = '1759581234567-abc12de'
@@ -75,5 +76,37 @@ describe('planHighlightSync', () => {
     const plan = planHighlightSync([], [h(SERVER_ID), h(LOCAL_ID, { syncStatus: 'pending', deleted: true })])
     expect(plan.drop).toEqual([SERVER_ID, LOCAL_ID])
     expect(plan.visible).toEqual([])
+  })
+})
+
+// What actually goes over the wire for a replayed offline edit.
+const wire = (x: StoredHighlight) => highlightsApi.updateHighlightBody(replayUpdateBody(x))
+
+describe('replayUpdateBody', () => {
+  it('a color-only offline edit leaves the note alone (a note added on another device survives)', () => {
+    expect(wire(h(SERVER_ID, { syncStatus: 'pending', color: 'pink', noteText: 'stale local copy' }))).toEqual({ color: 'pink' })
+  })
+
+  it('a note cleared offline is sent as removeNote', () => {
+    expect(wire(h(SERVER_ID, { syncStatus: 'pending', noteEdited: true }))).toEqual({ color: 'yellow', removeNote: true })
+  })
+
+  it('a note edited offline is sent', () => {
+    expect(wire(h(SERVER_ID, { syncStatus: 'pending', noteEdited: true, noteText: 'why' }))).toEqual({ color: 'yellow', noteText: 'why' })
+  })
+})
+
+describe('booksWithPending', () => {
+  it('lists each edition / upload with a pending row once, ignoring synced rows', () => {
+    const books = booksWithPending([
+      h('a', { syncStatus: 'pending' }),
+      h('b', { syncStatus: 'pending', deleted: true }),
+      h('c', { editionId: 'ed-2' }),
+      h('d', { editionId: '', userBookId: 'ub-1', syncStatus: 'pending' }),
+    ])
+    expect(books).toEqual([
+      { bookId: 'ed-1', isUserBook: false },
+      { bookId: 'ub-1', isUserBook: true },
+    ])
   })
 })

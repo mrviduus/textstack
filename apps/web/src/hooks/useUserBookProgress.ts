@@ -1,6 +1,7 @@
 import { PERCENT_UNIT_BOOK, LOCATOR_SPACE_SCROLL } from '@textstack/shared'
 import { useEffect, useCallback, useRef, useState } from 'react'
 import { getUserBookProgress, saveUserBookProgress } from '../api/userBooks'
+import { preferLocalProgress, markProgressSynced } from '../lib/progressSync'
 
 const STORAGE_KEY = 'userbook.progress.'
 const DEBOUNCE_MS = 2000
@@ -11,7 +12,10 @@ interface SavedProgress {
   /** Serialised TextPosition (ADR-015). Beside the locator, never instead of it. */
   positionJson?: string
   percent: number
+  /** Epoch ms, this browser's clock. Never compared with the server's `updatedAt`. */
   updatedAt: number
+  /** Set once the server acknowledged this exact write (markProgressSynced). */
+  synced?: boolean
 }
 
 // Legacy format for migration
@@ -67,9 +71,11 @@ export function useUserBookProgress(bookId: string) {
         positionJson: serverProgress.positionJson ?? undefined,
         percent: serverProgress.percent ?? 0,
         updatedAt: serverProgress.updatedAt ? new Date(serverProgress.updatedAt).getTime() : 0,
+        synced: true,
       }
 
-      // Merge: use newer timestamp
+      // Merge: an unsynced local write wins, otherwise the server (no cross-clock compare —
+      // see preferLocalProgress)
       const currentStored = localStorage.getItem(`${STORAGE_KEY}${bookId}`)
       let localData: SavedProgress | null = null
       if (currentStored) {
@@ -79,7 +85,7 @@ export function useUserBookProgress(bookId: string) {
         } catch {}
       }
 
-      if (!localData || serverData.updatedAt > localData.updatedAt) {
+      if (!preferLocalProgress(localData, true)) {
         // Server is newer → update localStorage + state
         try {
           localStorage.setItem(`${STORAGE_KEY}${bookId}`, JSON.stringify(serverData))
@@ -100,7 +106,11 @@ export function useUserBookProgress(bookId: string) {
   const syncToServer = useCallback((data: SavedProgress) => {
     pendingSyncRef.current = data
     const dedupeKey = `${data.chapterSlug}:${data.locator ?? ''}`
-    if (dedupeKey === lastAckedKeyRef.current) return
+    if (dedupeKey === lastAckedKeyRef.current) {
+      // Same position the server already holds — the rewritten local entry is synced too.
+      markProgressSynced(`${STORAGE_KEY}${bookId}`, data.updatedAt)
+      return
+    }
 
     if (serverSyncTimerRef.current) clearTimeout(serverSyncTimerRef.current)
 
@@ -125,6 +135,7 @@ export function useUserBookProgress(bookId: string) {
         .then(() => {
           lastAckedKeyRef.current = `${toSync.chapterSlug}:${toSync.locator ?? ''}`
           if (pendingSyncRef.current === toSync) pendingSyncRef.current = null
+          markProgressSynced(`${STORAGE_KEY}${bookId}`, toSync.updatedAt)
         })
         .catch((err) => {
           // Leave ref so next save retries. Log only — never interrupt reading.
@@ -166,8 +177,9 @@ export function useUserBookProgress(bookId: string) {
       credentials: 'include',
       keepalive: true,
     })
-      .then(() => {
+      .then((res) => {
         lastAckedKeyRef.current = `${toSync.chapterSlug}:${toSync.locator ?? ''}`
+        if (res.ok) markProgressSynced(`${STORAGE_KEY}${bookId}`, toSync.updatedAt)
       })
       .catch((err) => {
         console.warn('[progress] userbook flush save failed', err)

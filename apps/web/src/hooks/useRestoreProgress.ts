@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { getProgress } from '../api/auth'
+import { preferLocalProgress } from '../lib/progressSync'
 
 const STORAGE_KEY = 'reading.progress.'
 
@@ -11,8 +12,10 @@ interface LocalProgress {
   /** Serialised TextPosition (ADR-015). Absent on entries written before it. */
   positionJson?: string
   percent: number
-  /** Epoch ms. Optional for backward-compat with pre-fix entries (treated as 0 → server wins). */
+  /** Epoch ms, this browser's clock. Never compared with the server's `updatedAt`. */
   updatedAt?: number
+  /** Set once the server acknowledged this exact write (markProgressSynced). */
+  synced?: boolean
 }
 
 interface SavedProgress {
@@ -67,12 +70,13 @@ export function useRestoreProgress(
       }
 
       let progress: SavedProgress | null = null
+      let local: LocalProgress | null = null
 
       // Always check localStorage first (works offline, always available)
       try {
         const stored = localStorage.getItem(`${STORAGE_KEY}${editionId}`)
         if (stored) {
-          const local = JSON.parse(stored) as LocalProgress
+          local = JSON.parse(stored) as LocalProgress
           progress = {
             chapterSlug: local.chapterSlug,
             locator: local.locator,
@@ -86,8 +90,8 @@ export function useRestoreProgress(
       }
 
       // If authenticated, check server (may have newer data from another device).
-      // LWW: newer timestamp wins. Percent-based merge was broken — a stale server record
-      // at 95% of ch1 beat a fresh local record at 20% of ch5, tossing the user back.
+      // Not by timestamp (two clocks) nor by percent (a stale 95% of ch1 beat a fresh 20% of
+      // ch5): an unsynced local write wins, otherwise the server does — see preferLocalProgress.
       if (isAuthenticated) {
         try {
           const serverProgress = await getProgress(editionId!)
@@ -101,7 +105,7 @@ export function useRestoreProgress(
                 ? Date.parse(serverProgress.updatedAt)
                 : 0,
             }
-            if (!progress || serverData.updatedAt > progress.updatedAt) {
+            if (!preferLocalProgress(local, true)) {
               progress = serverData
             }
           }
