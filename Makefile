@@ -1,4 +1,4 @@
-.PHONY: up down restart logs status backup restore backup-list backup-verify rebuild-ssg clean-ssg featured featured-show deploy nginx-setup build rebuild fix-permissions test lint seo-publish-setup seo-publish-status seo-publish-logs seo-publish-restart seo-publish-stop quality-poll-setup quality-poll-status quality-poll-logs quality-poll-restart quality-poll-stop
+.PHONY: up down restart logs status backup restore backup-list backup-verify rebuild-ssg clean-ssg featured featured-show nginx-setup build rebuild fix-permissions test lint seo-publish-setup seo-publish-status seo-publish-logs seo-publish-restart seo-publish-stop quality-poll-setup quality-poll-status quality-poll-logs quality-poll-restart quality-poll-stop
 
 # ============================================================
 # Docker Services
@@ -43,25 +43,6 @@ fix-permissions:
 		mkdir -p /data/textstack /data/tts-cache /data/explain-cache /data/translate-cache /data/pdf-cleanup-dataset && \
 		chown -R 1000:1000 /data/textstack /data/tts-cache /data/explain-cache /data/translate-cache /data/pdf-cleanup-dataset'
 	@echo "Done."
-
-deploy: fix-permissions
-	@echo "=== Deploy ==="
-	git pull origin main
-	cd apps/web && pnpm install && VITE_API_URL=/api VITE_STORAGE_URL= VITE_CANONICAL_URL=https://textstack.app pnpm build
-	docker compose up -d --build
-	@sleep 10
-	@curl -sf http://localhost:8080/health && echo " API OK" || echo " API FAILED"
-	@curl -sf -X POST http://localhost:8080/internal/ssg/rebuild-all && echo " SSG rebuild queued" || echo " SSG rebuild queue failed (non-blocking)"
-	@echo "Updating nginx config..."
-	@PROJECT_DIR=$$(pwd) && \
-	sed "s|/home/vasyl/projects/onlinelib/textstack|$$PROJECT_DIR|g" \
-		infra/nginx/textstack.conf | sudo tee /etc/nginx/sites-available/textstack > /dev/null
-	sudo ln -sf /etc/nginx/sites-available/textstack /etc/nginx/sites-enabled/textstack
-	sudo nginx -t && sudo systemctl reload nginx
-	docker image prune -f
-	@systemctl --user restart seo-publish-poller 2>/dev/null && echo " SEO Publish poller restarted" || echo " SEO Publish poller not installed (run: make seo-publish-setup)"
-	@systemctl --user restart seo-backfill-poller 2>/dev/null && echo " SEO Backfill poller restarted" || echo " SEO Backfill poller not installed (run: make seo-backfill-setup)"
-	@echo "=== Done ==="
 
 rebuild-ssg:
 	@echo "=== SSG Rebuild (atomic swap) ==="

@@ -75,6 +75,30 @@ public class IngestionRetryCapTests
     }
 
     [Fact]
+    public async Task GetNextJobAsync_QueuedJobAtCap_MarkedFailedSoItIsRetryable()
+    {
+        var job = AddJob(JobStatus.Queued, attempts: IngestionService.MaxAttempts);
+
+        var next = await _service.GetNextJobAsync(CancellationToken.None);
+
+        Assert.Null(next);
+        Assert.Equal(JobStatus.Failed, job.Status);
+        Assert.Equal(IngestionService.ExceededAttemptsError, job.Error);
+        Assert.NotNull(job.FinishedAt);
+    }
+
+    [Fact]
+    public async Task GetNextJobAsync_QueuedJobUnderCap_PickedNotFailed()
+    {
+        var job = AddJob(JobStatus.Queued, attempts: IngestionService.MaxAttempts - 1);
+
+        var next = await _service.GetNextJobAsync(CancellationToken.None);
+
+        Assert.Same(job, next);
+        Assert.Equal(JobStatus.Queued, job.Status);
+    }
+
+    [Fact]
     public async Task ResetJobForRetryAsync_FailedAtCap_ResetsAttemptsSoItIsPickedAgain()
     {
         var job = AddJob(JobStatus.Failed, attempts: IngestionService.MaxAttempts);

@@ -44,11 +44,13 @@ public class IngestionService(
         var stuckThreshold = DateTimeOffset.UtcNow - StuckJobTimeout;
 
         // A job stuck in Processing after its last attempt crashed the worker every time it ran.
-        // Without this it would be re-picked every StuckJobTimeout forever; end it Failed instead
-        // (the admin retry resets the count).
+        // The pick-up filter below skips it, so without this it would sit there forever; end it
+        // Failed instead (the admin retry resets the count). Same for a job Queued at the cap — a
+        // legacy row re-queued before retries reset the count — which only Failed makes retryable.
         var exhausted = await db.IngestionJobs
             .Where(j => j.AttemptCount >= MaxAttempts &&
-                        j.Status == JobStatus.Processing && j.StartedAt < stuckThreshold)
+                        (j.Status == JobStatus.Queued ||
+                         (j.Status == JobStatus.Processing && j.StartedAt < stuckThreshold)))
             .ToListAsync(ct);
         if (exhausted.Count > 0)
         {

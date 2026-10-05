@@ -104,4 +104,47 @@ public class GuestMergeDurabilityTests(LiveApiFixture fixture) : IClassFixture<L
             + "conflict and the constraint-violation guard hid the 500. Fix the conflict, not the "
             + "guard.");
     }
+
+    private async Task<string> ClipAsync(string token, string title, CancellationToken ct)
+    {
+        var req = Req(HttpMethod.Post, "/me/books/clip", token);
+        req.Content = JsonContent.Create(new { title, html = "<p>Same title, same slug.</p>", language = "en" });
+        return (await SendOkAsync(req, ct)).GetProperty("userBookId").GetString()!;
+    }
+
+    [Fact]
+    public async Task Login_GuestUploadSlugCollides_DroppedUploadLeavesGuestCollection()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var title = $"Merge Slug {Guid.NewGuid():N}"[..24];
+
+        var email = $"merge-slug-{Guid.NewGuid():N}@textstack.test";
+        var register = Req(HttpMethod.Post, "/auth/register");
+        register.Content = JsonContent.Create(new { email, password = AccountPassword, name = "Slug" });
+        var account = await SendOkAsync(register, ct);
+        await ClipAsync(account.GetProperty("accessToken").GetString()!, title, ct);
+
+        var guestToken = (await SendOkAsync(Req(HttpMethod.Post, "/auth/guest"), ct))
+            .GetProperty("accessToken").GetString()!;
+        var guestBookId = await ClipAsync(guestToken, title, ct);
+
+        var createReq = Req(HttpMethod.Post, "/me/library/collections", guestToken);
+        createReq.Content = JsonContent.Create(new { name = "Guest shelf", color = "default" });
+        var collectionId = (await SendOkAsync(createReq, ct)).GetProperty("id").GetString();
+        var addReq = Req(HttpMethod.Post, $"/me/library/collections/{collectionId}/books", guestToken);
+        addReq.Content = JsonContent.Create(new { bookId = guestBookId, bookType = "userbook" });
+        var addResp = await fixture.Client.SendAsync(addReq, ct);
+        Assert.SkipWhen(addResp.StatusCode == HttpStatusCode.TooManyRequests, "rate limited");
+        addResp.EnsureSuccessStatusCode();
+
+        // Same title -> same slug: the account's upload wins and the guest's is deleted.
+        var login = Req(HttpMethod.Post, "/auth/login", guestToken);
+        login.Content = JsonContent.Create(new { email, password = AccountPassword });
+        var accountToken = (await SendOkAsync(login, ct)).GetProperty("accessToken").GetString()!;
+
+        var ids = await SendOkAsync(
+            Req(HttpMethod.Get, $"/me/library/collections/{collectionId}/books?bookType=userbook", accountToken), ct);
+
+        Assert.DoesNotContain(guestBookId, ids.EnumerateArray().Select(e => e.GetString()));
+    }
 }

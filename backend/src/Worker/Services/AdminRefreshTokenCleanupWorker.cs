@@ -45,19 +45,25 @@ public class AdminRefreshTokenCleanupWorker(
         var db = scope.ServiceProvider.GetRequiredService<IAppDbContext>();
 
         var now = DateTimeOffset.UtcNow;
-        var deleted = await db.AdminRefreshTokens
-            .Where(t => t.ExpiresAt < now)
-            .ExecuteDeleteAsync(ct);
+        // Separate tries: a failure on one table must not skip the other's cleanup.
+        await DeleteExpiredAsync("admin",
+            () => db.AdminRefreshTokens.Where(t => t.ExpiresAt < now).ExecuteDeleteAsync(ct), ct);
+        await DeleteExpiredAsync("user",
+            () => db.UserRefreshTokens.Where(ExpiredUserToken(now)).ExecuteDeleteAsync(ct), ct);
+    }
 
-        if (deleted > 0)
-            logger.LogInformation("Deleted {Count} expired admin refresh tokens", deleted);
-
-        var deletedUser = await db.UserRefreshTokens
-            .Where(ExpiredUserToken(now))
-            .ExecuteDeleteAsync(ct);
-
-        if (deletedUser > 0)
-            logger.LogInformation("Deleted {Count} expired user refresh tokens", deletedUser);
+    private async Task DeleteExpiredAsync(string kind, Func<Task<int>> delete, CancellationToken ct)
+    {
+        try
+        {
+            var deleted = await delete();
+            if (deleted > 0)
+                logger.LogInformation("Deleted {Count} expired {Kind} refresh tokens", deleted, kind);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            logger.LogError(ex, "Error deleting expired {Kind} refresh tokens", kind);
+        }
     }
 
     /// <summary>

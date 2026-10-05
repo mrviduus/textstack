@@ -61,7 +61,7 @@ OUTPUTS_JSON="{}"
 for ((i=0; i<NUM; i++)); do
   FIELD=$(echo "$CTX" | jq -r ".prompts[$i].fieldType")
   PROMPT=$(echo "$CTX" | jq -r ".prompts[$i].prompt")
-  SCHEMA=$(echo "$CTX" | jq -r ".prompts[$i].outputSchema")
+  # outputSchema is not read here: jq cannot validate a JSON schema, so the API does it on apply (SeoContentValidator).
   MODEL=$(echo "$CTX" | jq -r ".prompts[$i].model")
 
   log "Field '$FIELD' via $MODEL"

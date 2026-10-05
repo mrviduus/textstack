@@ -66,10 +66,12 @@ public class BulkActionService(IAppDbContext db, UserBookService userBookService
         if (!owns)
             return new BulkResult([], ids.Select(id => new BulkFailure(id, "Collection not found")).ToArray());
 
-        var capped = ids.Take(MaxIdsPerCall).ToList();
+        // Distinct: a repeated id would stage two identical BookCollection rows, and EF's
+        // identity map throws on the second (composite key) — a 500 for a harmless request.
+        var capped = ids.Distinct().Take(MaxIdsPerCall).ToList();
         var addable = await CollectionService.AddableBookIdsAsync(db, userId, capped, bookType, ct);
         var existing = await db.BookCollections
-            .Where(bc => bc.CollectionId == collectionId && bc.BookType == bookType && ids.Contains(bc.BookId))
+            .Where(bc => bc.CollectionId == collectionId && bc.BookType == bookType && capped.Contains(bc.BookId))
             .Select(bc => bc.BookId)
             .ToListAsync(ct);
         var existingSet = existing.ToHashSet();
