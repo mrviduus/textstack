@@ -33,6 +33,8 @@ import {
   topVisiblePage,
   clampPage,
   dimsReadyUpTo,
+  pageAtViewportTop,
+  type PageRect,
 } from '../../../../packages/shared/src/reader/pdfPageWindow'
 import {
   buildPdfAnchor,
@@ -389,10 +391,25 @@ function main(): void {
     }
     if (reportTimer) { clearTimeout(reportTimer); reportTimer = null }
     lastPageReportAt = now
-    const top = topVisiblePage(visible, openPage)
+    const top = currentPage()
     if (top === lastReportedPage) return
     lastReportedPage = top
     post({ type: 'pdfPage', page: top, numPages, jumpId: appliedJumpId })
+  }
+
+  /** The page under the viewport top. `visible` is the RENDER set (300px
+   *  rootMargin): its lowest page is usually the one above, and saving that made
+   *  every open land a page earlier (C3). Measures every page, not just
+   *  `visible`, because right after a jump the observer has not caught up yet. */
+  function currentPage(): number {
+    // ponytail: O(numPages) rect reads per throttled report; binary-search the
+    // page column if a huge PDF ever shows up in a scroll profile.
+    const rects: PageRect[] = []
+    states.forEach((st, pn) => {
+      const r = st.el.getBoundingClientRect()
+      rects.push({ page: pn, top: r.top, bottom: r.bottom })
+    })
+    return pageAtViewportTop(rects, 0) ?? topVisiblePage(visible, openPage)
   }
 
   /** Report immediately, bypassing the throttle and the unchanged-page check.
@@ -452,6 +469,9 @@ function main(): void {
       { root: null, rootMargin: '300px 0px' },
     )
     states.forEach((st) => observer!.observe(st.el))
+    // The observer only fires when a page enters/leaves the 300px band, not when
+    // a page boundary crosses the viewport top — so the page change rides scroll.
+    window.addEventListener('scroll', reportTopPage, { passive: true })
   }
 
   async function prefetchDims(): Promise<void> {
