@@ -1,3 +1,5 @@
+using Domain.Utilities;
+
 namespace Application.Agents.Prompts;
 
 /// <summary>
@@ -13,7 +15,7 @@ public static class DrafterPrompt
         var prompt =
             $"You are a copywriter writing the {brief.FieldName} of a {brief.EntityType}. " +
             "Use ONLY the facts in the research notes provided — do not add any information that is not in the notes. " +
-            $"Write the text in {brief.TargetLanguage}. " +
+            $"Write the text in {LanguageNames.ToEnglishName(brief.TargetLanguage)}. " +
             $"The text must be {BriefConstraints.Length(brief)} long.";
 
         if (BriefConstraints.BannedPhrases(brief) is { } banned)

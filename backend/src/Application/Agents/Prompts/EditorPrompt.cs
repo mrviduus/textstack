@@ -1,3 +1,5 @@
+using Domain.Utilities;
+
 namespace Application.Agents.Prompts;
 
 /// <summary>
@@ -15,7 +17,7 @@ public static class EditorPrompt
             "Rewrite the draft to fix every issue listed in the critique, addressing the \"blocker\" issues first, " +
             "then \"major\", then \"minor\". " +
             "Keep the facts the draft already got right; remove or correct any claim flagged as unsupported. " +
-            $"Write in {brief.TargetLanguage}. " +
+            $"Write in {LanguageNames.ToEnglishName(brief.TargetLanguage)}. " +
             $"The revised text must be {BriefConstraints.Length(brief)} long.";
 
         if (BriefConstraints.BannedPhrases(brief) is { } banned)

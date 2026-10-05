@@ -1,3 +1,5 @@
+using Domain.Utilities;
+
 namespace Application.Agents.Prompts;
 
 /// <summary>
@@ -23,7 +25,7 @@ public static class CriticPrompt
             "- factual_accuracy: every claim in the draft must be supported BY THE RESEARCH NOTES. " +
             "Flag EVERY claim that is not supported by the notes as a \"blocker\" issue and lower this score.\n" +
             $"- tone: does it match the requested style{(string.IsNullOrWhiteSpace(brief.StyleGuide) ? string.Empty : $" ({brief.StyleGuide!.Trim()})")} " +
-            $"and read naturally in {brief.TargetLanguage}?\n" +
+            $"and read naturally in {LanguageNames.ToEnglishName(brief.TargetLanguage)}?\n" +
             $"- length: is the draft within {BriefConstraints.Length(brief)}?\n" +
             "- banned_phrases: does the draft avoid the banned phrases?";
 

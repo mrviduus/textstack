@@ -1,3 +1,5 @@
+using Domain.Utilities;
+
 namespace Application.Agents.Prompts;
 
 /// <summary>
@@ -16,7 +18,7 @@ public static class BaselineFieldPrompt
         var prompt =
             $"You are a copywriter writing the {brief.FieldName} of a {brief.EntityType}. " +
             "Use ONLY the facts in the source material provided — do not add any information that is not in it. " +
-            $"Write the text in {brief.TargetLanguage}. " +
+            $"Write the text in {LanguageNames.ToEnglishName(brief.TargetLanguage)}. " +
             $"The text must be {BriefConstraints.Length(brief)} long.";
 
         if (BriefConstraints.BannedPhrases(brief) is { } banned)

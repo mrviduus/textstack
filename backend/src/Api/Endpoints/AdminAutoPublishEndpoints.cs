@@ -4,6 +4,7 @@ using Application.Agents;
 using Application.Common.Interfaces;
 using Domain.Entities;
 using Domain.Enums;
+using Domain.Utilities;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using TextStack.Ai.Core;
@@ -326,7 +327,7 @@ public static class AdminAutoPublishEndpoints
         $"""
          Book: {title}
          Author: {(string.IsNullOrWhiteSpace(author) ? "Unknown" : author)}
-         Language: {lang}
+         Language: {LanguageNames.ToEnglishName(lang)}
          First chapter excerpt: {Excerpt(excerpt)}
          """;
 
