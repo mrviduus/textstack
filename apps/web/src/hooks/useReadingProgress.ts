@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useRef } from 'react'
+import { useEffect, useCallback, useMemo, useRef } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { upsertProgress } from '../api/auth'
 import { markProgressSynced } from '../lib/progressSync'
@@ -184,5 +184,6 @@ export function useReadingProgress(
     }
   }, [flushSave])
 
-  return { updateProgress, flushSave }
+  // Stable identity: consumers put this object in effect deps (M4).
+  return useMemo(() => ({ updateProgress, flushSave }), [updateProgress, flushSave])
 }

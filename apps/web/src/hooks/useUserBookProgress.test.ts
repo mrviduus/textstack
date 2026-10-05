@@ -60,3 +60,16 @@ describe('useUserBookProgress keepalive flush', () => {
     expect(userBooks.saveUserBookProgress).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('useUserBookProgress identity (M4)', () => {
+  it('returns the same object across re-renders when nothing changed', async () => {
+    localStorage.clear()
+    vi.mocked(userBooks.getUserBookProgress).mockResolvedValue(null as never)
+    const { result, rerender } = renderHook(() => useUserBookProgress('b1'))
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    const first = result.current
+    rerender()
+    rerender()
+    expect(result.current).toBe(first)
+  })
+})

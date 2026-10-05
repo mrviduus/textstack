@@ -104,8 +104,30 @@ function captureReadingPosition(chapterSlug: string): string | null {
   }))
 }
 
-const SAVE_DEBOUNCE_MS = 600
-const SAVE_SKIP_WINDOW_MS = 2000
+/**
+ * Trailing debounce for the scroll save. The last position the reader stopped
+ * at is the one that counts; hide / pagehide / unmount / chapter change flush
+ * it at once. The progress hooks add their own 2s server debounce on top.
+ */
+const SAVE_DEBOUNCE_MS = 1500
+
+/**
+ * True only when the chapter in state IS the one the URL asks for and its fetch
+ * has settled. `!!chapter` was true for the PREVIOUS chapter while the next one
+ * loaded, so a restore ran against the old article, clamped to 0, and the
+ * save-on-open wrote `scroll:<new>:0` (C2).
+ */
+export function isChapterReady(
+  chapter: { identifier: string } | null | undefined,
+  requested: string | undefined,
+  loading: boolean,
+): boolean {
+  return !loading && !!chapter && !!requested && chapter.identifier === requested
+}
+
+function currentScrollTop(): number {
+  return (document.scrollingElement || document.documentElement).scrollTop
+}
 
 export function useReaderScrollSync({
   mode,
@@ -121,43 +143,66 @@ export function useReaderScrollSync({
   settingsKey,
 }: Params) {
   const scrollRestoredRef = useRef(false)
-  const lastSaveRef = useRef<{ identifier: string; offset: number; timestamp: number } | null>(null)
   const saveTimerRef = useRef<number | null>(null)
-  const pendingSaveRef = useRef<{ identifier: string; offset: number; progress: number } | null>(null)
+  const pendingSaveRef = useRef<{ identifier: string; offset: number } | null>(null)
   // State-backed mirror of scrollRestoredRef so the save-on-open effect can
   // re-run AFTER restore completes (a ref flip won't trigger a re-render).
   // Keyed by the chapter identifier that was restored.
   const [restoredFor, setRestoredFor] = useState<string | null>(null)
   // Guard: emit exactly one save-on-open per opened chapter.
   const savedOnOpenForRef = useRef<string | null>(null)
+  // Where this session last left each chapter. The fetched progress is read
+  // once per book, so after Next → Prev it still described the position at
+  // OPEN, not the one the reader had just left.
+  const sessionPositionsRef = useRef(new Map<string, { offset: number; positionJson?: string }>())
+  const identifierRef = useRef(chapterIdentifier)
+  identifierRef.current = chapterIdentifier
+
+  // Latest props for the stable callbacks below. The progress objects used to
+  // be effect deps; they were new every render, so every render re-ran the
+  // flush effect's cleanup and shipped a keepalive PUT (M4).
+  const latest = useRef({ mode, originalActive, overallProgress, publicBookChapters, publicProgress, userProgress, chapterLoaded })
+  latest.current = { mode, originalActive, overallProgress, publicBookChapters, publicProgress, userProgress, chapterLoaded }
 
   /**
    * The one place a reading position is written.
    *
-   * There used to be three copies of this — save-on-open, the debounced scroll
-   * save, and the keepalive flush — each building the locator itself and each
-   * branching on mode. Adding the text position to three copies is how a fourth
-   * field ends up in two of them.
-   *
-   * Returns whether anything was written, so the flush knows whether to follow
-   * it with a keepalive.
+   * Returns whether anything was written.
    */
-  const writeProgress = useCallback((identifier: string, offset: number, progress: number): boolean => {
+  const writeProgress = useCallback((identifier: string, offset: number): boolean => {
+    const { mode, overallProgress, publicBookChapters, publicProgress, userProgress, chapterLoaded } = latest.current
     const locator = `scroll:${identifier}:${Math.round(offset)}`
     // Captured at write time from the live DOM, so it describes the same instant
-    // the offset does. Null when the reading line has no text under it — a
-    // margin, a gap, an image — and the locator then travels alone.
-    const positionJson = captureReadingPosition(identifier) ?? undefined
+    // the offset does — but only while the article on screen IS this chapter.
+    // Null when the reading line has no text under it — a margin, a gap, an
+    // image — and the locator then travels alone.
+    const positionJson = (chapterLoaded && identifierRef.current === identifier
+      ? captureReadingPosition(identifier)
+      : null) ?? undefined
+    sessionPositionsRef.current.set(identifier, { offset, positionJson })
 
     if (mode === 'public') {
       const bookChapter = publicBookChapters?.find(c => c.slug === identifier)
       if (!bookChapter) return false
-      publicProgress.updateProgress(progress, undefined, locator, bookChapter.id, identifier, positionJson)
+      publicProgress.updateProgress(overallProgress, undefined, locator, bookChapter.id, identifier, positionJson)
       return true
     }
-    userProgress.saveProgress(identifier, 0, progress, locator, positionJson)
+    userProgress.saveProgress(identifier, 0, overallProgress, locator, positionJson)
     return true
-  }, [mode, publicBookChapters, publicProgress, userProgress])
+  }, [])
+
+  /** Write the pending position now, if any. */
+  const writePending = useCallback((): boolean => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = null
+    }
+    const pending = pendingSaveRef.current
+    pendingSaveRef.current = null
+    // A PDF viewer's position is not ours to write.
+    if (!pending || latest.current.originalActive) return false
+    return writeProgress(pending.identifier, pending.offset)
+  }, [writeProgress])
 
   // Reset restore guard on chapter change.
   useEffect(() => {
@@ -172,6 +217,11 @@ export function useReaderScrollSync({
     if (scrollRestoredRef.current || effectiveLoading) return
     if (originalActive || !chapterLoaded) return
 
+    // This session's own last position in this chapter beats anything fetched
+    // at open — it is newer by construction.
+    const session = chapterIdentifier ? sessionPositionsRef.current.get(chapterIdentifier) : undefined
+    const positionJson = session ? session.positionJson : effectiveProgress?.positionJson
+
     // The text anchor first: it is the only one of the two that is still true
     // after the text has reflowed — a font size change here, a different screen
     // width, a re-parsed book, or simply the phone this was last read on. The
@@ -182,20 +232,26 @@ export function useReaderScrollSync({
     const article = readerArticle()
     const anchored = article
       ? resolveTextPosition(
-          parseTextPosition(effectiveProgress?.positionJson),
+          parseTextPosition(positionJson),
           chapterIdentifier ?? null,
           articleText(article),
         )
       : null
 
     const parsed = parseScrollLocator(effectiveProgress?.locator)
-    const savedOffset = parsed && parsed.slug === chapterIdentifier ? parsed.offset : 0
+    const savedOffset = session
+      ? session.offset
+      : parsed && parsed.slug === chapterIdentifier ? parsed.offset : 0
 
+    const forId = chapterIdentifier
     requestAnimationFrame(() => {
+      // The chapter changed before this frame: this restore is for a page that
+      // is no longer the one on screen.
+      if (identifierRef.current !== forId) return
       const top = anchoredScrollTop(article, anchored) ?? savedOffset
       window.scrollTo({ top, behavior: 'instant' })
       scrollRestoredRef.current = true
-      setRestoredFor(chapterIdentifier ?? null)
+      setRestoredFor(forId ?? null)
     })
   }, [originalActive, chapterLoaded, effectiveLoading, effectiveProgress, chapterIdentifier])
 
@@ -203,15 +259,11 @@ export function useReaderScrollSync({
    * Keep the reader in place when the text reflows under them.
    *
    * Web applies typography as inline styles on the article, so there is no
-   * remount and no restore — `scrollRestoredRef` is already true and only a
-   * chapter change clears it. The text simply re-wrapped under a fixed
-   * `scrollTop`, and the debounced save then wrote the drifted position. Nothing
-   * in this hook has ever depended on `settings`; that absence WAS the bug.
-   *
-   * The position is captured before the browser has re-laid-out (this effect
-   * runs in the same commit as the style change) and re-applied once the article
-   * actually resizes — a ResizeObserver is the only reliable signal that the
-   * reflow has landed, since a style change fires no resize event on window.
+   * remount and no restore. The position is captured before the browser has
+   * re-laid-out (this effect runs in the same commit as the style change) and
+   * re-applied once the article actually resizes — a ResizeObserver is the only
+   * reliable signal that the reflow has landed. The re-anchoring scrollTo fires
+   * a scroll event, so the trailing save then records the corrected position.
    */
   useEffect(() => {
     if (originalActive || !chapterLoaded || !chapterIdentifier) return
@@ -229,13 +281,7 @@ export function useReaderScrollSync({
       observer.disconnect()
       const resolved = resolveTextPosition(parseTextPosition(before), chapterIdentifier, articleText(article))
       const top = anchoredScrollTop(article, resolved)
-      if (top != null) {
-        window.scrollTo({ top, behavior: 'instant' })
-        // The save that would otherwise fire for the transient position is not
-        // ours to make — re-prime the skip window so the scroll listener treats
-        // this as already saved.
-        lastSaveRef.current = { identifier: chapterIdentifier, offset: top, timestamp: Date.now() }
-      }
+      if (top != null) window.scrollTo({ top, behavior: 'instant' })
     })
     observer.observe(article)
     // A settings change that does not resize the article (a theme swap) leaves
@@ -243,98 +289,61 @@ export function useReaderScrollSync({
     return () => observer.disconnect()
   }, [settingsKey, originalActive, chapterLoaded, chapterIdentifier, restoredFor])
 
-  // Save-on-chapter-open: the debounced scroll save is gated by user scrolling,
-  // so chapter→chapter navigation (route param change; ReaderPage stays mounted)
-  // recorded NOTHING for the new chapter — MaxChapterNumber stayed unset and the
-  // book indicator showed "0 / N". Fire exactly ONE save when a chapter opens,
-  // sequenced AFTER restore so the offset reflects the restored scroll, not a
-  // transient 0. Uses the current chapter's id + book-level overallProgress.
+  // Save-on-chapter-open: chapter→chapter navigation (route param change;
+  // ReaderPage stays mounted) would otherwise record NOTHING for the new chapter
+  // until the reader scrolled. Fire exactly ONE save when a chapter opens,
+  // sequenced AFTER restore for THIS chapter so the offset is the restored one.
   useEffect(() => {
     if (originalActive || !chapterLoaded || !chapterIdentifier) return
-    // Wait until restore has run for THIS chapter (offset is settled).
     if (restoredFor !== chapterIdentifier) return
     if (savedOnOpenForRef.current === chapterIdentifier) return
     savedOnOpenForRef.current = chapterIdentifier
+    writeProgress(chapterIdentifier, currentScrollTop())
+  }, [originalActive, chapterIdentifier, chapterLoaded, restoredFor, writeProgress])
 
-    const offset = (document.scrollingElement || document.documentElement).scrollTop
-
-    // Prime the dedupe/skip refs so the next scroll-debounced save doesn't
-    // immediately re-fire an identical write for the same chapter.
-    lastSaveRef.current = { identifier: chapterIdentifier, offset, timestamp: Date.now() }
-    pendingSaveRef.current = { identifier: chapterIdentifier, offset, progress: overallProgress }
-
-    writeProgress(chapterIdentifier, offset, overallProgress)
-    // overallProgress intentionally excluded: we snapshot it on open only. The
-    // scroll-debounced effect owns continuous updates as the user reads.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [originalActive, chapterIdentifier, chapterLoaded, mode, restoredFor, publicBookChapters, publicProgress, userProgress])
-
-  // Flush pending save now: write locally + ask the underlying hook to ship
-  // synchronously (keepalive fetch) so we don't lose the write on tab death.
-  const flushSave = useCallback(() => {
-    // Same rule as the two effects above: a PDF viewer's position is not ours
-    // to write, and this one fires on tab close with keepalive — the write most
-    // likely to be the last one the server sees.
-    if (originalActive) return
-    const pending = pendingSaveRef.current
-    if (!pending) return
-
-    if (saveTimerRef.current) {
-      clearTimeout(saveTimerRef.current)
-      saveTimerRef.current = null
-    }
-
-    const { identifier, offset, progress } = pending
-    if (writeProgress(identifier, offset, progress)) {
-      if (mode === 'public') publicProgress.flushSave()
-      else userProgress.flushSave()
-    }
-
-    pendingSaveRef.current = null
-  }, [originalActive, mode, publicBookChapters, publicProgress, userProgress])
-
-  // Debounced save on scroll position change. The save effect keys off
-  // overallProgress so it re-runs when chapter scroll moves.
+  // Trailing-debounced save on every scroll — up as well as down. It used to
+  // key off overallProgress, which is monotonic (a scroll up never saved), and
+  // skipped anything inside 2s of the previous save with no trailing write, so
+  // the position the reader actually stopped at was routinely lost (C1).
   useEffect(() => {
-    if (!scrollRestoredRef.current) return
-    const visibleId = chapterIdentifier
-    if (!visibleId) return
+    if (!chapterIdentifier) return
+    const id = chapterIdentifier
+    const onScroll = () => {
+      if (!scrollRestoredRef.current || latest.current.originalActive) return
+      pendingSaveRef.current = { identifier: id, offset: currentScrollTop() }
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = window.setTimeout(writePending, SAVE_DEBOUNCE_MS)
+    }
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      window.removeEventListener('scroll', onScroll)
+      // Leaving the chapter by any route (TOC, back button): the position the
+      // reader left it at is written now, not dropped with the timer.
+      writePending()
+    }
+  }, [chapterIdentifier, writePending])
 
-    const offset = (document.scrollingElement || document.documentElement).scrollTop
-    const now = Date.now()
-    const last = lastSaveRef.current
-    const chapterChanged = !last || last.identifier !== visibleId
-    if (!chapterChanged && last && (now - last.timestamp) < SAVE_SKIP_WINDOW_MS) return
+  // Write the pending position and ship it with keepalive, bypassing both
+  // debounces. Called before an in-reader navigation and on hide/unload.
+  const flushSave = useCallback(() => {
+    writePending()
+    if (latest.current.mode === 'public') latest.current.publicProgress.flushSave()
+    else latest.current.userProgress.flushSave()
+  }, [writePending])
 
-    lastSaveRef.current = { identifier: visibleId, offset, timestamp: now }
-    pendingSaveRef.current = { identifier: visibleId, offset, progress: overallProgress }
-
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-    const saveId = visibleId
-    const saveOffset = offset
-    const saveProgress = overallProgress
-
-    saveTimerRef.current = window.setTimeout(() => {
-      writeProgress(saveId, saveOffset, saveProgress)
-      pendingSaveRef.current = null
-      saveTimerRef.current = null
-    }, SAVE_DEBOUNCE_MS)
-  }, [originalActive, mode, publicBookChapters, chapterIdentifier, overallProgress, publicProgress, userProgress])
-
-  // Flush on visibility hidden / beforeunload / unmount.
+  // Flush on visibility hidden / pagehide / unmount. Stable deps: runs once.
   useEffect(() => {
     const onVisibility = () => {
       if (document.visibilityState === 'hidden') flushSave()
     }
-    const onBeforeUnload = () => flushSave()
-
     document.addEventListener('visibilitychange', onVisibility)
-    window.addEventListener('beforeunload', onBeforeUnload)
-
+    window.addEventListener('pagehide', flushSave)
     return () => {
       document.removeEventListener('visibilitychange', onVisibility)
-      window.removeEventListener('beforeunload', onBeforeUnload)
+      window.removeEventListener('pagehide', flushSave)
       flushSave()
     }
   }, [flushSave])
+
+  return { flushSave }
 }

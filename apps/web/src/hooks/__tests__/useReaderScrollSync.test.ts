@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { renderHook } from '@testing-library/react'
-import { useReaderScrollSync } from '../useReaderScrollSync'
+import { renderHook, act } from '@testing-library/react'
+import { useReaderScrollSync, isChapterReady } from '../useReaderScrollSync'
 
 // rAF runs sync in tests so window.scrollTo fires within renderHook.
 beforeEach(() => {
@@ -344,5 +344,128 @@ describe('useReaderScrollSync — the shared locator parser', () => {
       }),
     )
     expect(window.scrollTo).toHaveBeenCalledWith({ top: 640, behavior: 'instant' })
+  })
+})
+
+// ── R1: C1 / M4 / C2 ────────────────────────────────────────────────────────
+function setScroll(top: number) {
+  const el = (document.scrollingElement || document.documentElement) as HTMLElement
+  Object.defineProperty(el, 'scrollTop', { value: top, writable: true, configurable: true })
+}
+function realScrollTo() {
+  window.scrollTo = vi.fn((arg: any) => setScroll(typeof arg === 'object' ? arg.top : arg)) as unknown as typeof window.scrollTo
+}
+function scrollBy(top: number) {
+  setScroll(top)
+  window.dispatchEvent(new Event('scroll'))
+}
+
+describe('useReaderScrollSync — trailing save (C1)', () => {
+  afterEach(() => vi.useRealTimers())
+
+  it('saves the LAST scroll position, even inside the first 2s after open', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    realScrollTo()
+    const updateProgress = vi.fn()
+    const props: Props = { ...baseProps, publicProgress: { updateProgress, flushSave: vi.fn() } }
+    const { rerender } = renderHook((p: Props) => useReaderScrollSync(p), { initialProps: props })
+    expect(updateProgress).toHaveBeenCalledTimes(1) // open-save
+
+    // ReaderPage re-renders with a new overallProgress on every scroll.
+    act(() => { scrollBy(1000) }); rerender({ ...props, overallProgress: 0.1 })
+    act(() => { vi.advanceTimersByTime(300) })
+    act(() => { scrollBy(3000) }); rerender({ ...props, overallProgress: 0.3 })
+    act(() => { vi.advanceTimersByTime(3000) })
+
+    const locators = updateProgress.mock.calls.map(c => c[2])
+    expect(locators[locators.length - 1]).toBe('scroll:ch1:3000')
+  })
+
+  it('saves a scroll UP (overallProgress is monotonic and does not move)', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    realScrollTo()
+    const updateProgress = vi.fn()
+    const props: Props = { ...baseProps, overallProgress: 0.5, publicProgress: { updateProgress, flushSave: vi.fn() } }
+    renderHook((p: Props) => useReaderScrollSync(p), { initialProps: props })
+    act(() => { vi.advanceTimersByTime(5000) })
+    act(() => { scrollBy(5000) })
+    act(() => { vi.advanceTimersByTime(3000) })
+    act(() => { scrollBy(1200) })
+    act(() => { vi.advanceTimersByTime(3000) })
+    const locators = updateProgress.mock.calls.map(c => c[2])
+    expect(locators[locators.length - 1]).toBe('scroll:ch1:1200')
+  })
+
+  it('flushes the pending position with keepalive when the tab is hidden', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    realScrollTo()
+    const updateProgress = vi.fn()
+    const flushSave = vi.fn()
+    renderHook(() => useReaderScrollSync({ ...baseProps, publicProgress: { updateProgress, flushSave } }))
+    act(() => { scrollBy(4000) })
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
+    act(() => { document.dispatchEvent(new Event('visibilitychange')) })
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+    expect(updateProgress).toHaveBeenLastCalledWith(0, undefined, 'scroll:ch1:4000', 'ch1-id', 'ch1', undefined)
+    expect(flushSave).toHaveBeenCalled()
+  })
+})
+
+describe('useReaderScrollSync — no write storm on re-render (M4)', () => {
+  it('N re-renders with fresh progress objects → 0 extra writes, 0 keepalive flushes', () => {
+    const saveProgress = vi.fn()
+    const flushSave = vi.fn()
+    const props: Props = { ...baseProps, mode: 'userbook', publicBookChapters: undefined }
+    const { rerender } = renderHook((p: Props) => useReaderScrollSync(p), {
+      initialProps: { ...props, userProgress: { saveProgress, flushSave } },
+    })
+    expect(saveProgress).toHaveBeenCalledTimes(1)
+    for (let i = 0; i < 10; i++) {
+      rerender({ ...props, userProgress: { saveProgress, flushSave } })
+    }
+    expect(saveProgress).toHaveBeenCalledTimes(1)
+    expect(flushSave).not.toHaveBeenCalled()
+  })
+})
+
+describe('useReaderScrollSync — Next → Prev (C2)', () => {
+  afterEach(() => vi.useRealTimers())
+
+  it('returns to where the reader left the chapter, not the stale position fetched at open', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    realScrollTo()
+    const updateProgress = vi.fn()
+    const props: Props = {
+      ...baseProps,
+      publicBookChapters: [{ id: 'ch1-id', slug: 'ch1' }, { id: 'ch2-id', slug: 'ch2' }] as any,
+      effectiveProgress: { locator: 'scroll:ch1:3000' }, // fetched once per book
+      publicProgress: { updateProgress, flushSave: vi.fn() },
+    }
+    const { rerender } = renderHook((p: Props) => useReaderScrollSync(p), { initialProps: props })
+    act(() => { scrollBy(6000) })
+    act(() => { vi.advanceTimersByTime(3000) })
+
+    // Next: identifier flips, the new chapter is still loading.
+    rerender({ ...props, chapterIdentifier: 'ch2', chapterLoaded: false })
+    setScroll(0)
+    rerender({ ...props, chapterIdentifier: 'ch2', chapterLoaded: true })
+    // Prev
+    rerender({ ...props, chapterIdentifier: 'ch1', chapterLoaded: false })
+    ;(window.scrollTo as any).mockClear()
+    rerender({ ...props, chapterIdentifier: 'ch1', chapterLoaded: true })
+
+    expect(window.scrollTo).toHaveBeenLastCalledWith({ top: 6000, behavior: 'instant' })
+    const ch1Writes = updateProgress.mock.calls.map(c => c[2] as string).filter(l => l.startsWith('scroll:ch1:'))
+    expect(ch1Writes[ch1Writes.length - 1]).toBe('scroll:ch1:6000')
+  })
+})
+
+describe('isChapterReady (C2)', () => {
+  it('is false while the previous chapter is still in state', () => {
+    expect(isChapterReady({ identifier: '2-ii' }, '3-iii', true)).toBe(false)
+    expect(isChapterReady({ identifier: '2-ii' }, '3-iii', false)).toBe(false)
+    expect(isChapterReady({ identifier: '3-iii' }, '3-iii', true)).toBe(false)
+    expect(isChapterReady(null, '3-iii', false)).toBe(false)
+    expect(isChapterReady({ identifier: '3-iii' }, '3-iii', false)).toBe(true)
   })
 })

@@ -1,5 +1,5 @@
 import { PERCENT_UNIT_BOOK, LOCATOR_SPACE_SCROLL } from '@textstack/shared'
-import { useEffect, useCallback, useRef, useState } from 'react'
+import { useEffect, useCallback, useMemo, useRef, useState } from 'react'
 import { getUserBookProgress, saveUserBookProgress } from '../api/userBooks'
 import { preferLocalProgress, markProgressSynced } from '../lib/progressSync'
 
@@ -257,12 +257,13 @@ export function useUserBookProgress(bookId: string) {
     setSavedProgress(null)
   }, [bookId])
 
-  return {
+  // Stable identity: consumers put this object in effect deps (M4).
+  return useMemo(() => ({
     savedProgress,
     legacyProgress, // For migration: caller can use chapterNumber to look up slug
     isLoading,
     saveProgress,
     flushSave,
     clearProgress,
-  }
+  }), [savedProgress, legacyProgress, isLoading, saveProgress, flushSave, clearProgress])
 }
