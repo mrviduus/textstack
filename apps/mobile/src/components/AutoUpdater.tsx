@@ -3,6 +3,11 @@ import { AppState, type AppStateStatus } from 'react-native'
 import { usePathname } from 'expo-router'
 import * as Updates from 'expo-updates'
 import { shouldApplyUpdate } from '../lib/updateApply'
+import { restartStore } from '../lib/updateBanner'
+
+// Long enough to read "Restarting…" so the blink has a reason, short enough
+// not to feel like a wait.
+const RESTART_NOTICE_MS = 800
 
 /**
  * Applies an over-the-air update as soon as it is safe to, instead of on the
@@ -28,13 +33,26 @@ export function AutoUpdater() {
   // teardown.
   const reloading = useRef(false)
 
+  const routeRef = useRef(pathname)
+  routeRef.current = pathname
+
   const apply = useCallback(async (pending: boolean, route: string) => {
     if (reloading.current) return
     if (!shouldApplyUpdate({ isUpdatePending: pending, isDev: __DEV__, pathname: route })) return
     reloading.current = true
     try {
+      restartStore.set(true)
+      await new Promise(r => setTimeout(r, RESTART_NOTICE_MS))
+      // They may have opened a chapter during the notice. Same rule as above, on the
+      // route they are on NOW; the pathname effect applies it once they leave.
+      if (!shouldApplyUpdate({ isUpdatePending: pending, isDev: __DEV__, pathname: routeRef.current })) {
+        restartStore.set(false)
+        reloading.current = false
+        return
+      }
       await Updates.reloadAsync()
     } catch {
+      restartStore.set(false)
       // A failed reload is not worth surfacing. The update is downloaded, and
       // the next launch uses it regardless — which is the old behaviour.
       reloading.current = false
@@ -54,9 +72,6 @@ export function AutoUpdater() {
       // user: they did not ask for this, and the app works either way.
     }
   }, [apply])
-
-  const routeRef = useRef(pathname)
-  routeRef.current = pathname
 
   useEffect(() => {
     if (__DEV__) return

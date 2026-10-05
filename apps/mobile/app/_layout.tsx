@@ -16,6 +16,7 @@ import { ToastProvider } from '../src/context/ToastContext'
 import { ErrorBoundary } from '../src/components/ErrorBoundary'
 import { LegacyRuntimeBanner } from '../src/components/LegacyRuntimeBanner'
 import { AutoUpdater } from '../src/components/AutoUpdater'
+import { UpdateBanner } from '../src/components/UpdateBanner'
 import { useAppFonts } from '../src/theme/fonts'
 
 SplashScreen.preventAutoHideAsync()
@@ -152,6 +153,8 @@ function AppContent() {
           <Stack.Screen name="authors" />
         </Stack>
       </View>
+      {/* After the navigator so the overlay paints above every screen. */}
+      <UpdateBanner />
     </View>
   )
 }
