@@ -25,42 +25,9 @@
 // document, exactly as it lived inline before the extraction. Behavior is
 // byte-for-byte the same code — only its location changed.
 
-export const READER_SELECTION_BRIDGE = `
-    // Diagnostic console forwarder — routes WebView console.log/warn/error
-    // and uncaught errors to RN via postMessage. RN surfaces via console.warn
-    // in __DEV__. Bug-report Phase 1: lets us see WHY word-tap / selection /
-    // highlight-render / TTS fail on device without attaching a remote debugger.
-    (function() {
-      function post(level, args) {
-        try {
-          var parts = [];
-          for (var i = 0; i < args.length; i++) {
-            var a = args[i];
-            if (typeof a === 'string') parts.push(a);
-            else { try { parts.push(JSON.stringify(a)); } catch (e) { parts.push(String(a)); } }
-          }
-          window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({
-            type: 'log', level: level, msg: parts.join(' ')
-          }));
-        } catch (e) {}
-      }
-      var orig = { log: console.log, warn: console.warn, error: console.error };
-      console.log = function() { post('log', arguments); orig.log.apply(console, arguments); };
-      console.warn = function() { post('warn', arguments); orig.warn.apply(console, arguments); };
-      console.error = function() { post('error', arguments); orig.error.apply(console, arguments); };
-      window.addEventListener('error', function(e) {
-        post('error', ['window.onerror:', e.message, e.filename + ':' + e.lineno + ':' + e.colno]);
-      });
-      window.addEventListener('unhandledrejection', function(e) {
-        post('error', ['unhandledrejection:', e.reason && e.reason.message || String(e.reason)]);
-      });
-    })();
-
-    // Highlight overlayer handle — owned here so the tap/selection guards below
-    // resolve in both readers. Reflow assigns it lazily (hlEnsureOverlayer); the
-    // PDF viewer leaves it null (highlight paint over the pdf text layer is S5).
-    var _hlOverlayer = null;
-
+// Scroll-direction detector — its own string so it can be unit-tested in
+// isolation (scrollDirDetector.test.ts); interpolated into the bridge below.
+export const SCROLL_DIR_DETECTOR = `
     /**
      * Scroll direction detector — drives immersive chrome reveal.
      *
@@ -106,14 +73,57 @@ export const READER_SELECTION_BRIDGE = `
         }
       } else if (delta >= SCROLL_DOWN_THRESHOLD) {
         emitScrollDir('down', y);
-      } else if (scrollDirLast === 'up' && delta > 0) {
-        // Small downward reflex while bars are visible — reset baseline
-        // but don't hide yet; we require the full DOWN threshold from
-        // here so a brief wobble doesn't dismiss chrome mid-read.
-        scrollDirBaseline = y;
       }
+      // Small downward motion below the threshold leaves the baseline alone:
+      // the 48px threshold IS the wobble guard. Resetting it here on every
+      // event meant slow scrolling never accumulated 48px and never hid.
     }
     window.addEventListener('scroll', reportScrollDir, { passive: true });
+    // RN owns bar visibility (taps toggle it there). Resync so the next
+    // scroll is measured against what the reader actually sees.
+    window.__tsSetBars = function (visible) {
+      scrollDirLast = visible ? 'up' : 'down';
+      scrollDirBaseline = window.scrollY;
+    };
+`
+
+export const READER_SELECTION_BRIDGE = `
+    // Diagnostic console forwarder — routes WebView console.log/warn/error
+    // and uncaught errors to RN via postMessage. RN surfaces via console.warn
+    // in __DEV__. Bug-report Phase 1: lets us see WHY word-tap / selection /
+    // highlight-render / TTS fail on device without attaching a remote debugger.
+    (function() {
+      function post(level, args) {
+        try {
+          var parts = [];
+          for (var i = 0; i < args.length; i++) {
+            var a = args[i];
+            if (typeof a === 'string') parts.push(a);
+            else { try { parts.push(JSON.stringify(a)); } catch (e) { parts.push(String(a)); } }
+          }
+          window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'log', level: level, msg: parts.join(' ')
+          }));
+        } catch (e) {}
+      }
+      var orig = { log: console.log, warn: console.warn, error: console.error };
+      console.log = function() { post('log', arguments); orig.log.apply(console, arguments); };
+      console.warn = function() { post('warn', arguments); orig.warn.apply(console, arguments); };
+      console.error = function() { post('error', arguments); orig.error.apply(console, arguments); };
+      window.addEventListener('error', function(e) {
+        post('error', ['window.onerror:', e.message, e.filename + ':' + e.lineno + ':' + e.colno]);
+      });
+      window.addEventListener('unhandledrejection', function(e) {
+        post('error', ['unhandledrejection:', e.reason && e.reason.message || String(e.reason)]);
+      });
+    })();
+
+    // Highlight overlayer handle — owned here so the tap/selection guards below
+    // resolve in both readers. Reflow assigns it lazily (hlEnsureOverlayer); the
+    // PDF viewer leaves it null (highlight paint over the pdf text layer is S5).
+    var _hlOverlayer = null;
+
+    ${SCROLL_DIR_DETECTOR}
 
     /**
      * Tap-to-word: programmatically select the word under the tap point
