@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Ops** — off-site backup sends the DB dump to restic uncompressed via stdin, so it deduplicates (the .gz added ~1.2 GB every night and would have hit the 9 GB guard within a week) — infra
 - **Ops** — a deploy waits for any SSG rebuild in progress (≤40 min, only jobs active in the last hour) before the frontend build empties `dist/`; the post-deploy health gate no longer treats ssg-worker's "last rebuild failed" as a broken deploy — infra
 - **Ops** — deploys no longer run a full SSG rebuild (~25 min of CPU, held the only runner): it runs nightly after the backup; `rebuild_ssg` input on a manual deploy for releases that change SEO rendering; health check alarms at 36h stale (was 72h) — infra
 - **Sync** — catalog progress last-write-wins compares the client clock only with itself (new `reading_progresses.client_updated_at`, client stamps clamped to server now + 5 min) instead of the server's `UpdatedAt`, so a device whose clock runs behind no longer has its newer writes silently refused; mobile stamps the time a position was recorded, like web; mobile queues reading sessions in AsyncStorage (cap 50, flushed after each session, on sign-in/app start and on reconnect) instead of dropping a failed submit; queue rules shared with web; edition sessions dedup on resend like user-book ones — backend, web, mobile

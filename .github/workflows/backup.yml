@@ -79,17 +79,16 @@ jobs:
             exit 0
           fi
           restic() {
-            docker run --rm \
+            docker run --rm -i \
               -e RESTIC_REPOSITORY -e RESTIC_PASSWORD -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY \
               -v "$HOME/.cache/restic:/root/.cache/restic" \
-              -v "$BACKUP_DIR/db-$BACKUP_DATE.sql.gz:/backup/db.sql.gz:ro" \
               -v "$PROJECT_DIR/data/storage:/backup/storage:ro" \
               -v "$PROJECT_DIR/.env:/backup/env:ro" \
               restic/restic:0.17.3 "$@"
           }
           mkdir -p "$HOME/.cache/restic"
           # Guard: stay inside R2's free 10 GB. Over 9 GB the job fails (email) instead of quietly
-          # costing money. Dedup means retention barely matters — size ≈ live data (~3 GB, 2026-10).
+          # costing money. Dedup means retention barely matters — size ≈ live data (~3-4 GB, 2026-10).
           LIMIT=$((9 * 1024 * 1024 * 1024))
           repo_size() { restic stats --mode raw-data --json | grep -o '"total_size":[0-9]*' | cut -d: -f2; }
           restic cat config >/dev/null 2>&1 || restic init
@@ -99,6 +98,11 @@ jobs:
             exit 1
           fi
           restic backup --host textstack-prod --tag nightly /backup
+          # The dump goes in UNcompressed, through stdin. A .gz differs byte-for-byte every night,
+          # so restic stored all ~1.2 GB of it each time (2026-10-05). Plain SQL dedups by chunk:
+          # a night adds only what changed; restic compresses it itself.
+          zcat "$BACKUP_DIR/db-$BACKUP_DATE.sql.gz" \
+            | restic backup --host textstack-prod --tag nightly --stdin --stdin-filename db.sql
           restic forget --host textstack-prod --keep-daily 7 --keep-monthly 3 --prune
           restic check
           size=$(repo_size)
