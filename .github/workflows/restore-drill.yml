@@ -1,0 +1,119 @@
+name: Restore drill (R2 → clean machine)
+
+# Proves the off-site backup can actually be restored — with nothing from the prod box.
+# A GitHub-hosted runner pulls the latest R2 snapshots (restic), loads the DB dump into a
+# fresh pgvector postgres, and checks that it is complete and that the files the DB points
+# at exist in the restored storage. Prints how long each step took: that is the real RTO.
+# Nothing is written anywhere; the runner is thrown away.
+#
+# Monthly + on demand. A backup that was never restored is a hope, not a backup.
+
+on:
+  schedule:
+    - cron: '0 6 1 * *'   # 1st of the month, after the nightly backup
+  workflow_dispatch:
+  push:
+    branches: [ops/restore-drill]   # first run while the PR is open; removed before merge
+
+permissions:
+  contents: read
+
+jobs:
+  drill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      db:
+        # Same image as prod: the schema still creates the `vector` extension.
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: drill
+          POSTGRES_PASSWORD: drill
+          POSTGRES_DB: drill
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U drill -h 127.0.0.1"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      RESTIC_REPOSITORY: ${{ secrets.RESTIC_REPOSITORY }}
+      RESTIC_PASSWORD: ${{ secrets.RESTIC_PASSWORD }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      PGPASSWORD: drill
+      PSQL: psql -h 127.0.0.1 -U drill -d drill -v ON_ERROR_STOP=1 -qAt
+      RESTORE: /tmp/restore
+    steps:
+      - name: Install restic + psql
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq restic postgresql-client >/dev/null
+          restic version
+
+      - name: Snapshots in R2
+        run: |
+          restic snapshots --compact
+          restic snapshots --path /db.sql --latest 1 --compact | grep -q . \
+            || { echo "::error::no db.sql snapshot in R2"; exit 1; }
+
+      - name: Restore database (timed)
+        run: |
+          set -euo pipefail
+          start=$(date +%s)
+          # Roles the dump references; the dump owner is the prod user.
+          $PSQL -c "CREATE ROLE textstack_prod" >/dev/null
+          restic dump --path /db.sql latest /db.sql | $PSQL >/dev/null
+          echo "DB_SECONDS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
+
+      - name: Database is complete
+        run: |
+          set -euo pipefail
+          read -r tables users editions chapters progress vocab userbooks <<<"$($PSQL -F' ' -c "
+            SELECT (SELECT count(*) FROM information_schema.tables WHERE table_schema='public'),
+                   (SELECT count(*) FROM users), (SELECT count(*) FROM editions),
+                   (SELECT count(*) FROM chapters), (SELECT count(*) FROM reading_progresses),
+                   (SELECT count(*) FROM vocabulary_words), (SELECT count(*) FROM user_books)")"
+          echo "tables=$tables users=$users editions=$editions chapters=$chapters progress=$progress vocab=$vocab user_books=$userbooks"
+          # Floors well below today's numbers: catch a truncated/empty dump, not normal churn.
+          [ "$tables" -ge 50 ] && [ "$editions" -ge 1000 ] && [ "$chapters" -ge 10000 ] && [ "$users" -ge 10 ] \
+            || { echo "::error::restored database looks truncated"; exit 1; }
+          newest=$($PSQL -c "SELECT max(updated_at) FROM reading_progresses")
+          echo "newest reading progress in the backup: $newest"
+
+      - name: Restore storage + .env (timed)
+        run: |
+          set -euo pipefail
+          start=$(date +%s)
+          restic restore latest --path /backup --target "$RESTORE"
+          echo "FILES_SECONDS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
+          echo "storage: $(find "$RESTORE/backup/storage" -type f | wc -l) files, $(du -sh "$RESTORE/backup/storage" | cut -f1)"
+
+      - name: Files the database points at exist
+        run: |
+          set -euo pipefail
+          S="$RESTORE/backup/storage"
+          total=0; missing=0
+          while IFS= read -r p; do
+            [ -z "$p" ] && continue
+            total=$((total + 1))
+            [ -f "$S/$p" ] || { missing=$((missing + 1)); [ $missing -le 5 ] && echo "missing: $p"; }
+          done < <($PSQL -c "SELECT cover_path FROM editions WHERE cover_path IS NOT NULL ORDER BY random() LIMIT 200")
+          echo "edition covers checked: $total, missing: $missing"
+          [ "$total" -gt 0 ] || { echo "::error::no cover paths to check"; exit 1; }
+          # A few may legitimately be gone (deleted after the dump); most missing = broken backup.
+          [ $((missing * 10)) -le "$total" ] || { echo "::error::more than 10% of covers missing"; exit 1; }
+
+      - name: .env is present (names only, never values)
+        run: |
+          set -euo pipefail
+          E="$RESTORE/backup/env"
+          [ -s "$E" ] || { echo "::error::.env missing from the backup"; exit 1; }
+          for k in POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB JWT_SECRET OPENAI_API_KEY; do
+            grep -q "^$k=." "$E" && echo "$k: set" || { echo "::error::$k missing in backed-up .env"; exit 1; }
+          done
+
+      - name: Recovery time
+        run: |
+          echo "### Restore drill passed" >> "$GITHUB_STEP_SUMMARY"
+          echo "- database restore: ${DB_SECONDS}s" >> "$GITHUB_STEP_SUMMARY"
+          echo "- storage + .env restore: ${FILES_SECONDS}s" >> "$GITHUB_STEP_SUMMARY"
+          echo "DB ${DB_SECONDS}s, files ${FILES_SECONDS}s"
