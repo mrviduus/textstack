@@ -779,5 +779,11 @@
       "signIn": "Sign in to practice your chapter questions."
     },
     "discussChapter": "Discuss this chapter"
+  },
+  "updates": {
+    "downloading": "Updating TextStack…",
+    "readyInReader": "Update ready — applies when you leave the reader",
+    "restarting": "Restarting to apply the update…",
+    "updated": "TextStack updated"
   }
 }

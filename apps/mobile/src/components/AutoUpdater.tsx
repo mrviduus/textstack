@@ -3,6 +3,11 @@ import { AppState, type AppStateStatus } from 'react-native'
 import { usePathname } from 'expo-router'
 import * as Updates from 'expo-updates'
 import { shouldApplyUpdate } from '../lib/updateApply'
+import { restartStore } from '../lib/updateBanner'
+
+// Long enough to read "Restarting…" so the blink has a reason, short enough
+// not to feel like a wait.
+const RESTART_NOTICE_MS = 800
 
 /**
  * Applies an over-the-air update as soon as it is safe to, instead of on the
@@ -33,8 +38,11 @@ export function AutoUpdater() {
     if (!shouldApplyUpdate({ isUpdatePending: pending, isDev: __DEV__, pathname: route })) return
     reloading.current = true
     try {
+      restartStore.set(true)
+      await new Promise(r => setTimeout(r, RESTART_NOTICE_MS))
       await Updates.reloadAsync()
     } catch {
+      restartStore.set(false)
       // A failed reload is not worth surfacing. The update is downloaded, and
       // the next launch uses it regardless — which is the old behaviour.
       reloading.current = false

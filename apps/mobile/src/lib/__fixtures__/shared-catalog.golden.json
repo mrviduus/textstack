@@ -613,5 +613,9 @@
   "guest.deleteTitle": "Delete guest data?",
   "guest.deleteMessage": "This removes your saved books, highlights, vocabulary and reading progress — from this device and from our servers. It can't be undone.",
   "guest.deleteConfirm": "Delete",
-  "guest.deleteCancel": "Keep reading"
+  "guest.deleteCancel": "Keep reading",
+  "updates.downloading": "Updating TextStack…",
+  "updates.readyInReader": "Update ready — applies when you leave the reader",
+  "updates.restarting": "Restarting to apply the update…",
+  "updates.updated": "TextStack updated"
 }

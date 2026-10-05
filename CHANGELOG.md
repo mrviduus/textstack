@@ -24,6 +24,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 ## [Unreleased]
 
 - **Reader** — bars hide again on slow scroll down after you scrolled up (a small down-scroll reset the 48px baseline on every event, so it never hid); a revealed bar stays until you scroll down (no 3s re-hide); mobile WebView detector resyncs with RN on tap toggles — web, mobile
+- **Mobile** — you can see an update arrive: a thin top bar with progress while an OTA downloads, "Restarting to apply the update…" for 0.8 s before the reload, a one-off toast in the reader when an update waits for you to leave, and "TextStack updated" after the restart — mobile
 - **Ops** — off-site backup sends the DB dump to restic uncompressed via stdin, so it deduplicates (the .gz added ~1.2 GB every night and would have hit the 9 GB guard within a week) — infra
 - **Ops** — a deploy waits for any SSG rebuild in progress (≤40 min, only jobs active in the last hour) before the frontend build empties `dist/`; the post-deploy health gate no longer treats ssg-worker's "last rebuild failed" as a broken deploy — infra
 - **Ops** — deploys no longer run a full SSG rebuild (~25 min of CPU, held the only runner): it runs nightly after the backup; `rebuild_ssg` input on a manual deploy for releases that change SEO rendering; health check alarms at 36h stale (was 72h) — infra
