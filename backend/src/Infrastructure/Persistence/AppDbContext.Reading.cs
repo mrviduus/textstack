@@ -12,6 +12,12 @@ public partial class AppDbContext
     // Instance (not static): site-scoped query filters close over _currentSite.
     private void ConfigureReading(ModelBuilder modelBuilder)
     {
+        // Chapter FKs of progress, bookmarks and notes are NO ACTION, not CASCADE: re-ingesting a
+        // book used to delete its chapters and take every reader's position and bookmarks with
+        // them. A chapter is now removed only through ChapterReconciler, which moves its readers
+        // first; any other delete fails loudly. NO ACTION rather than RESTRICT because it is
+        // checked at end of statement, so deleting an EDITION (which cascades to both chapters
+        // and these rows in one statement) still works.
         // ReadingProgress
         modelBuilder.Entity<ReadingProgress>(e =>
         {
@@ -23,7 +29,7 @@ public partial class AppDbContext
             e.Property(x => x.PositionJson).HasColumnType("jsonb");
             e.HasOne(x => x.User).WithMany(x => x.ReadingProgresses).HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.Edition).WithMany().HasForeignKey(x => x.EditionId).OnDelete(DeleteBehavior.Cascade);
-            e.HasOne(x => x.Chapter).WithMany(x => x.ReadingProgresses).HasForeignKey(x => x.ChapterId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Chapter).WithMany(x => x.ReadingProgresses).HasForeignKey(x => x.ChapterId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne(x => x.Site).WithMany().HasForeignKey(x => x.SiteId).OnDelete(DeleteBehavior.Restrict);
             e.HasQueryFilter(x => x.SiteId == _currentSite.Id);
         });
@@ -37,7 +43,7 @@ public partial class AppDbContext
             e.HasIndex(x => new { x.UserId, x.SiteId, x.EditionId });
             e.HasOne(x => x.User).WithMany(x => x.Bookmarks).HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.Edition).WithMany().HasForeignKey(x => x.EditionId).OnDelete(DeleteBehavior.Cascade);
-            e.HasOne(x => x.Chapter).WithMany(x => x.Bookmarks).HasForeignKey(x => x.ChapterId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Chapter).WithMany(x => x.Bookmarks).HasForeignKey(x => x.ChapterId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne(x => x.Site).WithMany().HasForeignKey(x => x.SiteId).OnDelete(DeleteBehavior.Restrict);
             e.HasQueryFilter(x => x.SiteId == _currentSite.Id);
         });
@@ -52,7 +58,7 @@ public partial class AppDbContext
             e.HasIndex(x => new { x.UserId, x.SiteId, x.EditionId });
             e.HasOne(x => x.User).WithMany(x => x.Notes).HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.Edition).WithMany().HasForeignKey(x => x.EditionId).OnDelete(DeleteBehavior.Cascade);
-            e.HasOne(x => x.Chapter).WithMany(x => x.Notes).HasForeignKey(x => x.ChapterId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Chapter).WithMany(x => x.Notes).HasForeignKey(x => x.ChapterId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne(x => x.Site).WithMany().HasForeignKey(x => x.SiteId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.Highlight).WithOne(x => x.Note).HasForeignKey<Note>(x => x.HighlightId).OnDelete(DeleteBehavior.SetNull);
             e.HasQueryFilter(x => x.SiteId == _currentSite.Id);

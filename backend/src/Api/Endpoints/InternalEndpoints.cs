@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 using Application.Admin;
 using Application.Books;
 using Application.Common.Interfaces;
+using Application.Ingestion;
 using Application.SsgRebuild;
 using Contracts.Admin;
 using Contracts.Books;
@@ -202,7 +203,8 @@ public static class InternalEndpoints
                         $"quality-delete cap ({QualityDeleteMaxWords}). Substantial chapters are not deletable via the quality pipeline."
             });
 
-        db.Chapters.Remove(ch);
+        await using var tx = await db.BeginTransactionAsync(ct);
+        await ChapterReconciler.RemoveEditionChapterAsync(db, ch, null, ct);
 
         var remaining = await db.Chapters
             .Where(c => c.EditionId == id && c.ChapterNumber > n)
@@ -216,6 +218,7 @@ public static class InternalEndpoints
         }
 
         await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
         return Results.Ok();
     }
 
@@ -244,9 +247,10 @@ public static class InternalEndpoints
         first.WordCount = CountWords(first.PlainText);
         first.UpdatedAt = DateTimeOffset.UtcNow;
 
-        // Remove other chapters
+        // Remove other chapters; their readers move to the chapter their text now lives in.
+        await using var tx = await db.BeginTransactionAsync(ct);
         for (var i = 1; i < chapters.Count; i++)
-            db.Chapters.Remove(chapters[i]);
+            await ChapterReconciler.RemoveEditionChapterAsync(db, chapters[i], first.Id, ct);
 
         // Renumber remaining
         var maxMerged = nums.Max();
@@ -263,6 +267,7 @@ public static class InternalEndpoints
         }
 
         await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
         return Results.Ok(new { mergedInto = first.ChapterNumber });
     }
 
@@ -331,7 +336,8 @@ public static class InternalEndpoints
                         $"quality-delete cap ({QualityDeleteMaxWords}). Substantial chapters are not deletable via the quality pipeline."
             });
 
-        db.UserChapters.Remove(ch);
+        await using var tx = await db.BeginTransactionAsync(ct);
+        await ChapterReconciler.RemoveUserChapterAsync(db, ch, null, ct);
 
         var remaining = await db.UserChapters
             .Where(c => c.UserBookId == id && c.ChapterNumber > n)
@@ -342,6 +348,7 @@ public static class InternalEndpoints
             r.ChapterNumber--;
 
         await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
         return Results.Ok();
     }
 
@@ -368,8 +375,9 @@ public static class InternalEndpoints
         first.PlainText = StripHtml(mergedHtml);
         first.WordCount = CountWords(first.PlainText);
 
+        await using var tx = await db.BeginTransactionAsync(ct);
         for (var i = 1; i < chapters.Count; i++)
-            db.UserChapters.Remove(chapters[i]);
+            await ChapterReconciler.RemoveUserChapterAsync(db, chapters[i], first.Id, ct);
 
         var maxMerged = nums.Max();
         var remaining = await db.UserChapters
@@ -382,6 +390,7 @@ public static class InternalEndpoints
             r.ChapterNumber -= shift;
 
         await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
         return Results.Ok(new { mergedInto = first.ChapterNumber });
     }
 

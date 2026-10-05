@@ -95,33 +95,17 @@ public class IngestionService(
     public async Task ProcessParsedBookAsync(
         IngestionJob job, ParsedBook parsed, ExtractionSummary? summary, string? tocJson, CancellationToken ct)
     {
-        // Update edition metadata if empty
-        if (string.IsNullOrEmpty(job.Edition.Description) && !string.IsNullOrEmpty(parsed.Description))
-            job.Edition.Description = parsed.Description;
-
-        // Note: parsed.Authors could be used to auto-create Author records in the future
-
-        // Store table of contents
-        if (!string.IsNullOrEmpty(tocJson))
-            job.Edition.TocJson = tocJson;
-
-        job.Edition.UpdatedAt = DateTimeOffset.UtcNow;
-
-        // Delete existing chapters (re-ingestion)
-        var existingChapters = await db.Chapters
-            .Where(c => c.EditionId == job.EditionId)
-            .ToListAsync(ct);
-        db.Chapters.RemoveRange(existingChapters);
-
-        // Create new chapters
+        // Chapters first and in place (ChapterReconciler): readers' progress, bookmarks and
+        // highlights point at chapter Ids, which re-ingestion used to regenerate.
         var qualityScores = new List<int>();
+        var chapters = new List<Chapter>();
         foreach (var ch in parsed.Chapters)
         {
             var chapterSlug = SlugGenerator.GenerateChapterSlug(ch.Title, ch.Order);
             var chapterHtml = SanitizeText(ch.Html);
             var score = ChapterContentQualityAnalyzer.Analyze(chapterHtml).Score;
             qualityScores.Add(score);
-            var chapter = new Chapter
+            chapters.Add(new Chapter
             {
                 Id = Guid.NewGuid(),
                 EditionId = job.EditionId,
@@ -137,9 +121,21 @@ public class IngestionService(
                 TotalParts = ch.TotalParts,
                 CreatedAt = DateTimeOffset.UtcNow,
                 UpdatedAt = DateTimeOffset.UtcNow
-            };
-            db.Chapters.Add(chapter);
+            });
         }
+        await ChapterReconciler.ReconcileEditionAsync(db, job.EditionId, chapters, ct);
+
+        // Update edition metadata if empty
+        if (string.IsNullOrEmpty(job.Edition.Description) && !string.IsNullOrEmpty(parsed.Description))
+            job.Edition.Description = parsed.Description;
+
+        // Note: parsed.Authors could be used to auto-create Author records in the future
+
+        // Store table of contents
+        if (!string.IsNullOrEmpty(tocJson))
+            job.Edition.TocJson = tocJson;
+
+        job.Edition.UpdatedAt = DateTimeOffset.UtcNow;
 
         if (qualityScores.Count > 0)
         {
