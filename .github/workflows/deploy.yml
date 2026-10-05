@@ -310,6 +310,18 @@ jobs:
           # builds/runs it; prod opts in here. nginx /mcp is synced below.
           docker compose --profile mcp -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
 
+      # Keep the local model current. A no-op when the manifest hasn't changed (seconds); the model
+      # was otherwise pulled once by hand and never again. Non-fatal: a failed pull keeps the model
+      # already on disk, which is what was running anyway.
+      - name: Refresh Ollama model
+        run: |
+          MODEL=$(grep -m1 'Ollama__Model:' $PROJECT_DIR/docker-compose.yml | awk '{print $2}')
+          MODEL=${MODEL:-gemma4:e2b}
+          timeout 1200 docker exec textstack_ollama ollama pull "$MODEL" \
+            && echo "Ollama model $MODEL is current" \
+            || echo "::warning::ollama pull $MODEL failed — keeping the model on disk"
+          docker exec textstack_ollama ollama --version || true
+
       - name: Sync nginx config
         run: |
           cd $PROJECT_DIR
