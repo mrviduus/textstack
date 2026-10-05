@@ -195,6 +195,11 @@ export interface ReadingProgressDto {
    *  text reflows. Null on rows last written by a build that predates it, and
    *  on every PDF page position. */
   positionJson?: string | null
+  /** The CLIENT clock of the write the server kept. Compare a local record's own
+   *  stamp with this — never with `updatedAt`, which is the server's clock. Null
+   *  when that write carried no timestamp; absent from older servers. See
+   *  `localProgressWins`. */
+  clientUpdatedAt?: string | null
 }
 
 // Bookmarks
@@ -493,6 +498,9 @@ export interface UserBookDto {
    *  offer to continue from there. `progressPositionJson` is preferred. */
   progressLocator?: string | null
   progressPositionJson?: string | null
+  /** Client clock of the kept progress write — same contract as
+   *  `ReadingProgressDto.clientUpdatedAt`. */
+  progressClientUpdatedAt?: string | null
   /** True when the original upload is a PDF → the card can open "Original layout".
    *  Absent on older payloads → false. */
   hasOriginalPdf?: boolean

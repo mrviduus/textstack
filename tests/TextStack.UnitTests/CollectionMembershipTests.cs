@@ -29,6 +29,7 @@ public class CollectionMembershipTests
         db.Setup(x => x.BookCollections).Returns(() => new FakeDbSet<BookCollection>(_bookCollections));
         db.Setup(x => x.UserBooks).Returns(() => new FakeDbSet<UserBook>(_userBooks));
         db.Setup(x => x.UserLibraries).Returns(() => new FakeDbSet<UserLibrary>(_libraries));
+        db.Setup(x => x.Users).Returns(() => new FakeDbSet<User>([]));
         _db = db.Object;
         _service = new CollectionService(_db);
     }
@@ -129,5 +130,32 @@ public class CollectionMembershipTests
         Assert.Single(_bookCollections);
         Assert.Equal([book.Id], result.Succeeded);
         Assert.Empty(result.Failed);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_DuplicateIds_DeletedOnceAndNoNotFound()
+    {
+        var book = AddUserBook(_userId);
+        var storage = new Mock<IFileStorageService>();
+        var bulk = new BulkActionService(_db, new UserBookService(_db, storage.Object, TestEntitlements.Resolver));
+
+        var result = await bulk.DeleteAsync(_userId, [book.Id, book.Id], CancellationToken.None);
+
+        Assert.Equal([book.Id], result.Succeeded);
+        Assert.Empty(result.Failed);
+        Assert.Empty(_userBooks);
+        storage.Verify(x => x.DeleteUserBookDirectoryAsync(_userId, book.Id, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task SetFinishedAsync_DuplicateUnknownIds_ReportedOnce()
+    {
+        var unknown = Guid.NewGuid();
+        var bulk = new BulkActionService(_db, userBookService: null!);
+
+        var result = await bulk.SetFinishedAsync(_userId, [unknown, unknown], true, CancellationToken.None);
+
+        Assert.Empty(result.Succeeded);
+        Assert.Equal(unknown, Assert.Single(result.Failed).Id);
     }
 }

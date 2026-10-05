@@ -3,6 +3,7 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using Application.Collections;
+using Application.Common;
 using Application.Common.Interfaces;
 using Domain.Entities;
 using Google.Apis.Auth;
@@ -21,6 +22,7 @@ public class AuthService
     private readonly AppleSettings? _appleSettings;
     private readonly TimeProvider _clock;
     private readonly ILogger<AuthService>? _logger;
+    private readonly IFileStorageService? _storage;
 
     public AuthService(
         IAppDbContext db,
@@ -28,7 +30,8 @@ public class AuthService
         IOptions<GoogleSettings> googleSettings,
         IOptions<AppleSettings>? appleSettings = null,
         TimeProvider? clock = null,
-        ILogger<AuthService>? logger = null)
+        ILogger<AuthService>? logger = null,
+        IFileStorageService? storage = null)
     {
         _db = db;
         _jwtSettings = jwtSettings.Value;
@@ -36,6 +39,7 @@ public class AuthService
         _appleSettings = appleSettings?.Value;
         _clock = clock ?? TimeProvider.System;
         _logger = logger;
+        _storage = storage;
     }
 
     public async Task<(User user, string accessToken, string refreshToken)> TestLoginAsync(
@@ -271,9 +275,18 @@ public class AuthService
             _db.UserLibraries, guestUserId, realUserId,
             x => x.EditionId, ct);
 
+        // Every guest upload, before the re-parent: the ones not dropped below move to the account,
+        // and so must their files (after commit).
+        var guestBookIds = await _db.UserBooks.Where(b => b.UserId == guestUserId).Select(b => b.Id).ToListAsync(ct);
         var droppedBooks = await ReparentDropOnConflictAsync(
             _db.UserBooks, guestUserId, realUserId,
             x => x.Slug, ct);
+        var droppedBookIds = droppedBooks.Select(b => b.Id).ToList();
+        // Read now, while the dropped books' file rows still exist (the delete is only staged): their
+        // bytes leave with them and must not be carried to the account's quota below.
+        var droppedBytes = droppedBookIds.Count == 0
+            ? 0L
+            : await _db.UserBookFiles.Where(f => droppedBookIds.Contains(f.UserBookId)).SumAsync(f => f.FileSize, ct);
         // book_collection has no FK to the book, so the guest's collections (re-parented below)
         // would keep 'userbook' rows pointing at an upload deleted here. Same rule as DeleteAsync.
         foreach (var book in droppedBooks)
@@ -409,11 +422,134 @@ public class AuthService
                 .ExecuteUpdateAsync(s => s.SetProperty(x => x.NativeLanguage, guestNativeLanguage), ct);
         }
 
+        // The re-parented uploads' bytes. Quota is a counter on the user row, not a sum over books, so
+        // without this the account's usage never counted the books it had just received — and the
+        // next delete of one subtracted bytes that were never added (clamped at 0).
+        var guestUsedBytes = await _db.Users
+            .Where(x => x.Id == guestUserId)
+            .Select(x => x.StorageUsedBytes)
+            .FirstOrDefaultAsync(ct);
+        var carriedBytes = Math.Max(0, guestUsedBytes - droppedBytes);
+        if (carriedBytes > 0)
+        {
+            await _db.Users
+                .Where(x => x.Id == realUserId)
+                .ExecuteUpdateAsync(s => s.SetProperty(x => x.StorageUsedBytes, x => x.StorageUsedBytes + carriedBytes), ct);
+        }
+
         // Delete guest user (cascades refresh tokens, password reset tokens — reparented rows survive).
         var deleted = await _db.Users.Where(x => x.Id == guestUserId).ExecuteDeleteAsync(ct);
 
         await tx.CommitAsync(ct);
+
+        // The dropped uploads' rows are gone; their files are not. They live under the GUEST's
+        // directory, and the guest row was just deleted, so nothing would ever find them again
+        // (GuestCleanupWorker only sweeps guests that still exist). After commit, never before:
+        // a rolled-back merge must leave the guest's files with its rows.
+        if (_storage is not null)
+        {
+            await DeleteUploadFilesBestEffortAsync(_storage, guestUserId, droppedBookIds, _logger, ct);
+            await MoveUploadFilesBestEffortAsync(
+                guestUserId, realUserId, guestBookIds.Except(droppedBookIds).ToList(), ct);
+        }
+
         return deleted > 0;
+    }
+
+    /// <summary>
+    /// Moves each re-parented upload's directory from the guest's storage path to the account's and
+    /// rewrites the paths stored for it. Left under the guest's directory, the account could read
+    /// the book but not its images (GetAsset resolves the path from the CALLER's id), and deleting
+    /// it — or the account — removed the account's directory and left these files behind for good.
+    /// <para>Best-effort, after commit: a failure is logged and leaves that book exactly as it was
+    /// (files and paths both still at the guest's location), never half-moved.</para>
+    /// </summary>
+    private async Task MoveUploadFilesBestEffortAsync(
+        Guid guestUserId, Guid realUserId, IReadOnlyCollection<Guid> bookIds, CancellationToken ct)
+    {
+        var failed = 0;
+        foreach (var bookId in bookIds)
+        {
+            var moved = false;
+            try
+            {
+                moved = await _storage!.MoveUserBookDirectoryAsync(guestUserId, realUserId, bookId, ct);
+                if (!moved) continue;
+                var from = UserStoragePaths.BookDirectory(guestUserId, bookId);
+                var to = UserStoragePaths.BookDirectory(realUserId, bookId);
+
+                var cover = await _db.UserBooks.AsNoTracking()
+                    .Where(b => b.Id == bookId).Select(b => b.CoverPath).FirstOrDefaultAsync(ct);
+                var files = await _db.UserBookFiles.AsNoTracking()
+                    .Where(f => f.UserBookId == bookId).Select(f => new { f.Id, f.StoragePath }).ToListAsync(ct);
+
+                // One transaction per book: the paths move together or not at all.
+                await using var tx = await _db.BeginTransactionAsync(ct);
+                var newCover = UserStoragePaths.Rebase(cover, from, to);
+                if (newCover != cover)
+                    await _db.UserBooks.Where(b => b.Id == bookId)
+                        .ExecuteUpdateAsync(s => s.SetProperty(b => b.CoverPath, newCover), ct);
+                foreach (var f in files)
+                {
+                    var newPath = UserStoragePaths.Rebase(f.StoragePath, from, to)!;
+                    if (newPath != f.StoragePath)
+                        await _db.UserBookFiles.Where(x => x.Id == f.Id)
+                            .ExecuteUpdateAsync(s => s.SetProperty(x => x.StoragePath, newPath), ct);
+                }
+                await tx.CommitAsync(ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                failed++;
+                _logger?.LogWarning(ex,
+                    "Guest merge: could not move files of upload {UserBookId} from guest {GuestUserId} to {RealUserId}",
+                    bookId, guestUserId, realUserId);
+                if (moved)
+                {
+                    // Paths were not rewritten — put the files back where they point.
+                    try { await _storage!.MoveUserBookDirectoryAsync(realUserId, guestUserId, bookId, ct); }
+                    catch (Exception back) when (back is not OperationCanceledException)
+                    {
+                        _logger?.LogError(back,
+                            "Guest merge: upload {UserBookId} files are under {RealUserId} but its stored paths still name guest {GuestUserId}",
+                            bookId, realUserId, guestUserId);
+                    }
+                }
+            }
+        }
+
+        // Everything moved or deleted: what is left of the guest's directory is empty shells.
+        if (failed == 0)
+        {
+            try { await _storage!.DeleteUserDirectoryAsync(guestUserId, ct); }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger?.LogWarning(ex, "Guest merge: could not remove guest {GuestUserId} storage directory", guestUserId);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Deletes each upload's stored directory, best-effort: the database is already committed, so
+    /// a storage failure must not fail the sign-in. Each failure is logged and the rest continue.
+    /// </summary>
+    public static async Task DeleteUploadFilesBestEffortAsync(
+        IFileStorageService storage, Guid ownerUserId, IReadOnlyCollection<Guid> bookIds,
+        ILogger? logger, CancellationToken ct)
+    {
+        foreach (var bookId in bookIds)
+        {
+            try
+            {
+                await storage.DeleteUserBookDirectoryAsync(ownerUserId, bookId, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger?.LogWarning(ex,
+                    "Guest merge: could not delete files of dropped upload {UserBookId} (owner {OwnerUserId})",
+                    bookId, ownerUserId);
+            }
+        }
     }
 
     /// <summary>

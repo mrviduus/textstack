@@ -7,6 +7,9 @@ import {
   clearAllLocalProgress,
   saveUserBookLocalProgress,
   getAllUserBookLocalProgress,
+  getUserBookLocalProgress,
+  markLocalProgressSynced,
+  markUserBookLocalProgressSynced,
   type LocalProgress,
 } from './progressStorage'
 
@@ -136,5 +139,37 @@ describe('clearAllLocalProgress', () => {
     expect((await getAllLocalProgress()).size).toBe(0)
     expect((await getAllUserBookLocalProgress()).size).toBe(0)
     expect(await AsyncStorage.getItem('textstack-theme')).toBe('dark')
+  })
+})
+
+describe('markLocalProgressSynced / markUserBookLocalProgressSynced', () => {
+  it('flags the acknowledged write', async () => {
+    await saveLocalProgress('ed-1', progress({ updatedAt: 5 }))
+    await markLocalProgressSynced('ed-1', 5)
+    expect((await getLocalProgress('ed-1'))?.synced).toBe(true)
+  })
+
+  it('leaves a newer save unsynced (the ack was for an older write)', async () => {
+    await saveLocalProgress('ed-1', progress({ updatedAt: 6 }))
+    await markLocalProgressSynced('ed-1', 5)
+    expect((await getLocalProgress('ed-1'))?.synced).toBeUndefined()
+  })
+
+  it('a new save clears the flag', async () => {
+    await saveLocalProgress('ed-1', progress({ updatedAt: 5 }))
+    await markLocalProgressSynced('ed-1', 5)
+    await saveLocalProgress('ed-1', progress({ updatedAt: 6, bookPercent: undefined }))
+    expect((await getLocalProgress('ed-1'))?.synced).toBeUndefined()
+  })
+
+  it('works for uploads and keeps the record intact', async () => {
+    await saveUserBookLocalProgress('ub-1', { bookPercent: 0.4, updatedAt: 7, page: 12, chapterSlug: null })
+    await markUserBookLocalProgressSynced('ub-1', 7)
+    expect(await getUserBookLocalProgress('ub-1')).toEqual({ bookPercent: 0.4, updatedAt: 7, page: 12, chapterSlug: null, synced: true })
+  })
+
+  it('no record → no-op', async () => {
+    await markUserBookLocalProgressSynced('missing', 1)
+    expect(await getUserBookLocalProgress('missing')).toBeNull()
   })
 })

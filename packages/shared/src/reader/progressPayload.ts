@@ -56,6 +56,10 @@ export interface UserBookProgressPayload {
    *  not anchor — the server then clears the stored one rather than leaving it
    *  beside a fresher pixel offset. */
   positionJson?: string
+  /** When the position was recorded, on this device's clock (ISO). The server
+   *  keeps it as the row's client stamp and ignores a later-arriving write that
+   *  was recorded earlier (ProgressClock). Omitted when the caller gave none. */
+  updatedAt?: string
 }
 
 export interface UserBookProgressInputs {
@@ -80,6 +84,8 @@ export interface UserBookProgressInputs {
   totalWordCount?: number
   /** Serialised `TextPosition` for the reading line, when the viewer could build one. */
   positionJson?: string
+  /** Epoch ms the position was recorded at (device clock) → `updatedAt`. */
+  recordedAt?: number
 }
 
 // Reasonable upper bound for a scroll offset (pixels). Real long-form
@@ -125,6 +131,9 @@ export function buildUserBookProgressPayload(input: UserBookProgressInputs): Use
     payload.percentUnit = PERCENT_UNIT_BOOK
   }
   if (input.positionJson) payload.positionJson = input.positionJson
+  if (typeof input.recordedAt === 'number' && Number.isFinite(input.recordedAt) && input.recordedAt > 0) {
+    payload.updatedAt = new Date(input.recordedAt).toISOString()
+  }
   return payload
 }
 

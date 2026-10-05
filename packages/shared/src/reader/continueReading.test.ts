@@ -121,7 +121,7 @@ describe('pickContinueReadingBook — catalog books', () => {
     if (r?.type === 'edition') expect(r.slug).toBe('dracula')
   })
 
-  it('prefers local when local.updatedAt > server.updatedAt (offline read)', () => {
+  it('prefers an unsynced local record (offline read)', () => {
     const local: LocalProgressLite = {
       chapterSlug: 'chapter-2', percent: 0.6, bookPercent: 0.55,
       updatedAt: Date.parse('2026-05-02T10:00:00Z'), // newer than server
@@ -155,15 +155,17 @@ describe('pickContinueReadingBook — catalog books', () => {
     })).toBeNull()
   })
 
-  it('prefers server when server is newer AND local chapter differs (web moved on)', () => {
-    // Local is older AND on a different chapter — no bookPercent swap.
+  it('prefers server when its CLIENT stamp is newer, even over an unsynced local (web moved on)', () => {
     const local: LocalProgressLite = {
       chapterSlug: 'chapter-OLD', percent: 0.4, bookPercent: 0.35,
       updatedAt: Date.parse('2026-05-01T08:00:00Z'),
     }
     const r = pickContinueReadingBook({
       library: [lib()],
-      serverProgress: [srvProg({ percent: 0.5, chapterSlug: 'chapter-NEW', updatedAt: '2026-05-02T12:00:00Z' })],
+      serverProgress: [srvProg({
+        percent: 0.5, chapterSlug: 'chapter-NEW',
+        updatedAt: '2026-05-02T12:00:00Z', clientUpdatedAt: '2026-05-02T11:59:59Z',
+      })],
       userBooks: [],
       localCatalogMap: new Map([['ed-1', local]]),
       localUserBookMap: emptyUb,
@@ -172,13 +174,12 @@ describe('pickContinueReadingBook — catalog books', () => {
     expect(r?.chapterSlug).toBe('chapter-NEW')
   })
 
-  it('swaps in local bookPercent when server wins by time but chapters match', () => {
-    // Server has chapter-only %, local has bookPercent for same chapter →
-    // prefer local's bookPercent for display (better UX) but keep server's
-    // timestamp as the truth for "most-recent" ranking.
+  it('a synced local record never overrides the server percent, even on the same chapter', () => {
+    // It used to be swapped in "for better UX" — which showed this device's
+    // older value over the one another device had since written.
     const local: LocalProgressLite = {
       chapterSlug: 'chapter-1', percent: 0.4, bookPercent: 0.28,
-      updatedAt: Date.parse('2026-05-01T08:00:00Z'),
+      updatedAt: Date.parse('2026-05-01T08:00:00Z'), synced: true,
     }
     const r = pickContinueReadingBook({
       library: [lib()],
@@ -187,13 +188,31 @@ describe('pickContinueReadingBook — catalog books', () => {
       localCatalogMap: new Map([['ed-1', local]]),
       localUserBookMap: emptyUb,
     })
-    expect(r?.percent).toBeCloseTo(0.28) // shows local's bookPercent
+    expect(r?.percent).toBeCloseTo(0.5)
+  })
+
+  it('compares the local stamp with the server CLIENT stamp, not the server-clock updatedAt', () => {
+    // Device clock an hour behind the server: the row's updatedAt (server clock) is
+    // "later" than the local record, but the write it holds was recorded before it.
+    const local: LocalProgressLite = {
+      chapterSlug: 'chapter-2', percent: 0.6, bookPercent: 0.55,
+      updatedAt: Date.parse('2026-05-01T09:30:00Z'), synced: true,
+    }
+    const r = pickContinueReadingBook({
+      library: [lib()],
+      serverProgress: [srvProg({ percent: 0.3, updatedAt: '2026-05-01T10:00:00Z', clientUpdatedAt: '2026-05-01T09:00:00Z' })],
+      userBooks: [],
+      localCatalogMap: new Map([['ed-1', local]]),
+      localUserBookMap: emptyUb,
+    })
+    expect(r?.percent).toBeCloseTo(0.55)
+    expect(r?.chapterSlug).toBe('chapter-2')
   })
 
   it('does NOT swap in local bookPercent when chapters differ', () => {
     const local: LocalProgressLite = {
       chapterSlug: 'chapter-3', percent: 0.4, bookPercent: 0.7,
-      updatedAt: Date.parse('2026-05-01T08:00:00Z'),
+      updatedAt: Date.parse('2026-05-01T08:00:00Z'), synced: true,
     }
     const r = pickContinueReadingBook({
       library: [lib()],
@@ -220,7 +239,7 @@ describe('pickContinueReadingBook — user books', () => {
     expect(r?.percent).toBeCloseTo(0.42)
   })
 
-  it('prefers local bookPercent when within grace window', () => {
+  it('prefers an unsynced local bookPercent', () => {
     const ubMs = Date.parse('2026-05-10T12:00:00Z')
     const localUb: UserBookProgressLite = {
       bookPercent: 0.31,
@@ -235,11 +254,12 @@ describe('pickContinueReadingBook — user books', () => {
     expect(r?.percent).toBeCloseTo(0.31) // local wins
   })
 
-  it('falls back to server progressPercent when local outside grace window', () => {
+  it('falls back to server progressPercent when the local record is synced', () => {
     const ubMs = Date.parse('2026-05-10T12:00:00Z')
     const localUb: UserBookProgressLite = {
       bookPercent: 0.31,
-      updatedAt: ubMs - 90_000, // 90s earlier — outside 60s grace
+      updatedAt: ubMs + 90_000, // ahead of the server clock — irrelevant, it is not compared
+      synced: true,
     }
     const r = pickContinueReadingBook({
       library: [], serverProgress: [],
@@ -247,7 +267,18 @@ describe('pickContinueReadingBook — user books', () => {
       localCatalogMap: emptyLocal,
       localUserBookMap: new Map([['ub-1', localUb]]),
     })
-    expect(r?.percent).toBeCloseTo(0.5) // server wins (local too stale)
+    expect(r?.percent).toBeCloseTo(0.5)
+  })
+
+  it('a newer write from another device beats an unsynced local record', () => {
+    const localUb: UserBookProgressLite = { bookPercent: 0.31, updatedAt: Date.parse('2026-05-10T11:00:00Z') }
+    const r = pickContinueReadingBook({
+      library: [], serverProgress: [],
+      userBooks: [ub({ progressPercent: 0.5, progressClientUpdatedAt: '2026-05-10T11:30:00Z' })],
+      localCatalogMap: emptyLocal,
+      localUserBookMap: new Map([['ub-1', localUb]]),
+    })
+    expect(r?.percent).toBeCloseTo(0.5)
   })
 
   it('falls back to server when no local cache exists', () => {

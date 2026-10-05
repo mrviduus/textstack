@@ -1,3 +1,4 @@
+using Application.Common;
 using Infrastructure.Services;
 
 namespace TextStack.UnitTests;
@@ -36,5 +37,31 @@ public sealed class LocalFileStorageServicePathTests : IDisposable
         var relative = await storage.SaveFileAsync(Guid.NewGuid(), fileName, new MemoryStream([1]), TestContext.Current.CancellationToken);
 
         Assert.True(File.Exists(Path.Combine(_root, relative)));
+    }
+
+    [Fact]
+    public async Task MoveUserBookDirectoryAsync_GuestUpload_MovesToAccountAndRebasedPathResolves()
+    {
+        var storage = new LocalFileStorageService(_root);
+        var ct = TestContext.Current.CancellationToken;
+        var (guest, account, book) = (Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+        var stored = await storage.SaveUserFileAsync(guest, book, "cover.jpg", new MemoryStream([1]), ct);
+
+        Assert.True(await storage.MoveUserBookDirectoryAsync(guest, account, book, ct));
+
+        var rebased = UserStoragePaths.Rebase(stored,
+            UserStoragePaths.BookDirectory(guest, book),
+            UserStoragePaths.BookDirectory(account, book))!;
+        Assert.True(await storage.ExistsAsync(rebased, ct));
+        Assert.False(await storage.ExistsAsync(stored, ct));
+    }
+
+    [Fact]
+    public async Task MoveUserBookDirectoryAsync_NothingStored_ReturnsFalse()
+    {
+        var storage = new LocalFileStorageService(_root);
+
+        Assert.False(await storage.MoveUserBookDirectoryAsync(
+            Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), TestContext.Current.CancellationToken));
     }
 }

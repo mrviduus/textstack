@@ -4,7 +4,8 @@ import { WebView } from 'react-native-webview'
 import { userBooksApi, isOfflineError, parseScrollLocator, buildUserBookProgressPayload, buildPdfProgressPayload, parsePdfPageLocator, parseTextPosition, serializeTextPosition } from '@textstack/shared'
 import type { UserBookChapterDto, BookmarkDto, TextPosition } from '@textstack/shared'
 import { API_URL } from '../../lib/api'
-import { getUserBookLocalProgress, saveUserBookLocalProgress } from '../../lib/progressStorage'
+import { getUserBookLocalProgress, markUserBookLocalProgressSynced, saveUserBookLocalProgress, type UserBookLocalProgress } from '../../lib/progressStorage'
+import { serverProvablyNewer } from '../../lib/progressRestore'
 import { getCachedUserChapter, refreshCachedUserChapter, cacheUserChapter, getCachedUserBookMeta, listCachedUserChapters } from '../../lib/offlineDb'
 import { userBookChapterSlug } from '../../lib/userBookChapters'
 import { getCachedOriginalUri, touchOriginal } from '../../lib/originalFileCache'
@@ -13,7 +14,7 @@ import {
   pdfFlushDecision, shouldFlushOnClose, PDF_FLUSH_DEBOUNCE_MS,
 } from '../../lib/pdfWritePolicy'
 import { useReaderPersistence } from '../../hooks/useReaderPersistence'
-import type { ProgressSnapshot, ReaderChapterMeta, ReaderRuntime, SavedPosition } from './readerSource'
+import type { NewerPosition, ProgressSnapshot, ReaderChapterMeta, ReaderRuntime, SavedPosition } from './readerSource'
 
 type ToastFn = (t: { message: string; variant: 'error' | 'success' | 'info' }) => void
 
@@ -98,6 +99,7 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
   // local page cache). `pdfResumeReady` gates the initial scroll.
   const [pdfResumePage, setPdfResumePage] = useState<number | null>(null)
   const [pdfResumeReady, setPdfResumeReady] = useState(false)
+  const [pdfNewerPage, setPdfNewerPage] = useState<number | null>(null)
 
   useEffect(() => { userBookIdRef.current = bookId || null }, [bookId])
 
@@ -276,9 +278,13 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
       // Assigned, never carried forward — absent means the server clears the
       // stored one rather than leaving it beside a fresher pixel offset.
       positionJson: serializeTextPosition(snap.position) ?? undefined,
+      // The device stamp the server orders writes by (ProgressClock), and the
+      // one the local record below carries — so the two can be compared.
+      recordedAt: snap.updatedAt,
     })
     const written = payload && !offlineReflowOfPdfRef.current
       ? userBooksApi.updateUserBookProgress(bookId, payload)
+        .then(() => markUserBookLocalProgressSynced(bookId, snap.updatedAt))
         .catch(e => { if (__DEV__) console.warn('[user-book-progress] PUT failed:', e) })
       : undefined
     // Always written, not only when the server write succeeds — this record is
@@ -305,44 +311,56 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
    * the `catch` swallowed the failure and returned "nowhere", so every offline
    * reopen landed at the top of the chapter.
    */
-  const loadPosition = useCallback(async (slug: string): Promise<SavedPosition> => {
-    try {
-      const prog = await userBooksApi.getUserBookProgress(bookId)
-      if (prog && prog.chapterSlug === slug) {
-        // The anchor first: it is the only one of the three still true after the
-        // text has reflowed, or been re-parsed, or been opened on another device.
-        const position = parseTextPosition(prog.positionJson)
-        if (position && position.chapterSlug === slug) return { position, offset: null, percent: null }
-        const parsed = parseScrollLocator(prog.locator)
-        if (parsed && parsed.slug === slug && parsed.offset > 0) return { position: null, offset: parsed.offset, percent: null }
-        // Percent fallback — was missing on user-book reader (one half of the
-        // "returns to top" bug); now shared with catalog so it can't drift.
-        if (typeof prog.percent === 'number' && prog.percent > 0.005 && prog.percent < 0.999) {
-          return { position: null, offset: null, percent: prog.percent }
-        }
-      }
-      // The server answered and had nothing for this chapter. That is an answer:
-      // do not overrule it with a local record it may have already superseded.
-      return { position: null, offset: null, percent: null }
-    } catch {
-      // Fall through to the local copy — the request never reached the server.
-    }
+  // The local record this chapter opened from — what a server answer has to be
+  // newer than. Kept rather than re-read: the reader's own first save would
+  // otherwise "beat" a server position that was newer when the book opened.
+  const openedFromRef = useRef<UserBookLocalProgress | null>(null)
 
-    try {
-      const local = await getUserBookLocalProgress(bookId)
-      if (local && local.chapterSlug === slug) {
-        const position = parseTextPosition(local.positionJson)
-        if (position && position.chapterSlug === slug) return { position, offset: null, percent: null }
-        if (typeof local.scrollOffset === 'number' && local.scrollOffset > 0) {
-          return { position: null, offset: local.scrollOffset, percent: null }
-        }
-        if (typeof local.chapterPercent === 'number' && local.chapterPercent > 0.005 && local.chapterPercent < 0.999) {
-          return { position: null, offset: null, percent: local.chapterPercent }
-        }
-      }
-    } catch {}
-    return { position: null, offset: null, percent: null }
+  /**
+   * Where to reopen this chapter — from the DEVICE only, in the order of
+   * preference anchor → offset → percent. This used to ask the server first and
+   * wait for it, so a captive portal held the reader in front of a book already
+   * on the phone, and a chapter read offline reopened at the server's older place.
+   * The server is now asked in the background (loadNewerPosition).
+   */
+  const loadPosition = useCallback(async (slug: string): Promise<SavedPosition> => {
+    const none: SavedPosition = { position: null, offset: null, percent: null }
+    let local: UserBookLocalProgress | null = null
+    try { local = await getUserBookLocalProgress(bookId) } catch {}
+    openedFromRef.current = local
+    if (!local || local.chapterSlug !== slug) return none
+    // The anchor first: it is the only one of the three still true after the
+    // text has reflowed, or been re-parsed, or been opened on another device.
+    const position = parseTextPosition(local.positionJson)
+    if (position && position.chapterSlug === slug) return { position, offset: null, percent: null }
+    if (typeof local.scrollOffset === 'number' && local.scrollOffset > 0) {
+      return { position: null, offset: local.scrollOffset, percent: null }
+    }
+    if (typeof local.chapterPercent === 'number' && local.chapterPercent > 0.005 && local.chapterPercent < 0.999) {
+      return { position: null, offset: null, percent: local.chapterPercent }
+    }
+    return none
   }, [bookId])
+
+  /** Background, after the open: the server's position, when provably newer than
+   *  the local record the chapter opened from (another device, or a new phone). */
+  const loadNewerPosition = useCallback(async (slug: string): Promise<NewerPosition | null> => {
+    const prog = await userBooksApi.getUserBookProgress(bookId)
+    if (!serverProvablyNewer(openedFromRef.current, prog)) return null
+    const parsed = parseScrollLocator(prog.locator)
+    // A `page:<N>` row belongs to the Original-layout viewer, not this one.
+    const target = parsed?.slug ?? prog.chapterSlug
+    if (!target) return null
+    const p = parseTextPosition(prog.positionJson)
+    const saved: SavedPosition = {
+      position: p && p.chapterSlug === target ? p : null,
+      offset: parsed && parsed.slug === target && parsed.offset > 0 ? parsed.offset : null,
+      percent: null,
+    }
+    if (target === slug && !saved.position && saved.offset == null) return null
+    const label = chapters.find(c => c.slug === target)?.title ?? target
+    return { chapterSlug: target, saved, label }
+  }, [bookId, chapters])
 
   // Which reader owns this book's position. ONE expression, two consumers — the
   // persistence wiring below and `original` in the returned runtime. They used
@@ -361,7 +379,7 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
     chapterId: chapter?.id ?? null,
     injectJs,
     progressRef, scrollOffsetRef, currentChapterSlugRef, bookProgressRef, positionRef,
-    persist, loadPosition,
+    persist, loadPosition, loadNewerPosition, navigateToChapter,
     enabled: reflowWrites,
   })
 
@@ -374,31 +392,31 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
     await cacheUserChapter(bookId, ch, chapters.find(c => c.slug === slug)?.chapterNumber ?? null)
   }, [bookId, chapters])
 
-  // --- S4c: Original-layout PDF server resume page. Fetched once the book is
-  // known to be a PDF; parsed from the `page:<N>` progress locator. ---
+  // --- S4c: Original-layout PDF resume page. The DEVICE's page opens the
+  // document (`setPdfResumeReady(true)` before any request); the server is asked
+  // after, and only a page provably newer than that one is handed on as
+  // `pdfNewerPage` — the shell adopts it, moves there, or asks. This used to
+  // await the server first, so a dead network held a downloaded PDF closed. ---
   useEffect(() => {
+    setPdfNewerPage(null)
     if (!hasOriginalPdf || !bookId) { setPdfResumeReady(true); return }
     let cancelled = false
     setPdfResumeReady(false)
     setPdfResumePage(null)
-    userBooksApi.getUserBookProgress(bookId)
-      .then(p => { if (!cancelled) setPdfResumePage(parsePdfPageLocator(p?.locator)) })
-      .catch(async () => {
-        // Offline. This used to fall through to page 1, which was survivable
-        // only because an offline PDF was not opened in Original layout at all
-        // — the reflow reader has its own local fallback in `loadPosition`.
-        // Now that a downloaded PDF opens as itself, reaching page 1 would mean
-        // the headline case of the feature (read on a plane, close, reopen)
-        // loses the place it kept before. `writePdfProgress` has been storing
-        // the page locally all along; nothing had ever read it back.
-        try {
-          const local = await getUserBookLocalProgress(bookId)
-          if (!cancelled && typeof local?.page === 'number' && local.page >= 1) {
-            setPdfResumePage(local.page)
-          }
-        } catch { /* no local record either → page 1, as before */ }
-      })
-      .finally(() => { if (!cancelled) setPdfResumeReady(true) })
+    ;(async () => {
+      let local: UserBookLocalProgress | null = null
+      try { local = await getUserBookLocalProgress(bookId) } catch { /* no record → page 1 */ }
+      if (cancelled) return
+      const localPage = typeof local?.page === 'number' && local.page >= 1 ? local.page : null
+      setPdfResumePage(localPage)
+      setPdfResumeReady(true)
+      try {
+        const p = await userBooksApi.getUserBookProgress(bookId)
+        if (cancelled) return
+        const serverPage = parsePdfPageLocator(p?.locator)
+        if (serverPage != null && serverPage !== localPage && serverProvablyNewer(local, p)) setPdfNewerPage(serverPage)
+      } catch { /* offline / no row: the device's page stands */ }
+    })()
     return () => { cancelled = true }
   }, [hasOriginalPdf, bookId])
 
@@ -421,8 +439,11 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
     pdfPendingRef.current = null
     pdfPendingSinceRef.current = null
     pdfLastWrittenRef.current = page
-    const payload = buildPdfProgressPayload(page, numPages)
+    // One stamp for the PUT and the local record, so the ack can mark exactly this write.
+    const recordedAt = Date.now()
+    const payload = buildPdfProgressPayload(page, numPages, recordedAt)
     userBooksApi.updateUserBookProgress(bookId, payload)
+      .then(() => markUserBookLocalProgressSynced(bookId, recordedAt))
       .catch(e => { if (__DEV__) console.warn('[user-book-pdf-progress] PUT failed:', e) })
     // Local book-% cache so ContinueReadingCard renders the same "% of book" UX
     // as reflow books (page fraction === book fraction for a chapterless PDF).
@@ -432,7 +453,7 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
     // no-carry-forward rule exists to prevent.
     saveUserBookLocalProgress(bookId, {
       bookPercent: payload.percent,
-      updatedAt: Date.now(),
+      updatedAt: recordedAt,
       chapterSlug: null,
       page,
     }).catch(() => {})
@@ -600,6 +621,7 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
     originalInitialPage: sourceStartPageBySlugRef.current[chapterSlug] ?? null,
     originalResumePage: pdfResumePage,
     originalResumeReady: pdfResumeReady,
+    originalNewerPage: pdfNewerPage,
     persistPdfPage,
     onTogglePageBookmark: togglePageBookmark,
     isPageBookmarked,

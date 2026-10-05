@@ -36,8 +36,12 @@ export interface LocalProgress {
    *  "how far into the book" instead of "how far into current chapter".
    *  Optional for back-compat with entries written before this field. */
   bookPercent?: number
-  /** Epoch ms. Source of truth for LWW merge between local and server. */
+  /** Epoch ms, this device's clock. Compared with the server row's
+   *  `clientUpdatedAt`, never its `updatedAt` (see `localProgressWins`). */
   updatedAt: number
+  /** The server acknowledged this exact write. Set by `markLocalProgressSynced`;
+   *  a new save drops it (whole-record write). */
+  synced?: boolean
 }
 
 /** Persist progress for a single edition. Never throws — callers can fire-and-forget.
@@ -77,6 +81,32 @@ export async function getLocalProgress(editionId: string): Promise<LocalProgress
 }
 
 /**
+ * Flag the stored record as acknowledged by the server — unless a newer save has
+ * replaced it since (its `updatedAt` no longer matches). Merged rather than
+ * rewritten, so a save landing between the read and the write keeps its fields.
+ * Never throws: an entry left unsynced still wins locally, so nothing is lost.
+ */
+async function markSynced(key: string, updatedAt: number): Promise<void> {
+  try {
+    const raw = await AsyncStorage.getItem(key)
+    if (!raw) return
+    const entry = JSON.parse(raw)
+    if (entry?.updatedAt !== updatedAt) return
+    await AsyncStorage.mergeItem(key, JSON.stringify({ synced: true }))
+  } catch {
+    // Storage unavailable / corrupt — stays unsynced.
+  }
+}
+
+export function markLocalProgressSynced(editionId: string, updatedAt: number): Promise<void> {
+  return markSynced(`${KEY_PREFIX}${editionId}`, updatedAt)
+}
+
+export function markUserBookLocalProgressSynced(bookId: string, updatedAt: number): Promise<void> {
+  return markSynced(`${USERBOOK_KEY_PREFIX}${bookId}`, updatedAt)
+}
+
+/**
  * Wipe every locally-cached reading-progress row. Called on sign-out so
  * user A's last page never leaks to user B when they sign in on the same
  * device. Never throws — progress is non-critical transient state (server
@@ -112,7 +142,10 @@ export interface UserBookLocalProgress {
    *  until the chapter list resolves — which, offline, can be after the first
    *  save. Omitted means "keep what is already stored", never "reset to zero". */
   bookPercent?: number | null
+  /** Epoch ms, this device's clock — see `LocalProgress.updatedAt`. */
   updatedAt: number
+  /** The server acknowledged this exact write — see `LocalProgress.synced`. */
+  synced?: boolean
   /** Chapter last read. Null/absent for a PDF read in Original layout. */
   chapterSlug?: string | null
   /** How far through THAT chapter (0..1) — the chapter-space twin of bookPercent. */

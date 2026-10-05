@@ -8,8 +8,11 @@ import {
   type RestoreGateEvent,
 } from '../lib/readerWriteGate'
 import { useFlushOnBackground } from './useFlushOnBackground'
-import type { TextPosition } from '@textstack/shared'
-import type { ProgressSnapshot, SavedPosition } from '../components/reader/readerSource'
+import { t, type TextPosition } from '@textstack/shared'
+import type { NewerPosition, ProgressSnapshot, SavedPosition } from '../components/reader/readerSource'
+import { decideNewerPosition, readerMovedSince, REFLOW_MOVE_TOLERANCE_PX } from '../lib/progressRestore'
+import { useToast } from '../context/ToastContext'
+import { useLanguage } from '../context/LanguageContext'
 
 type Options = {
   /** editionId (catalog) or userBookId (user-book). null disables I/O.
@@ -31,9 +34,16 @@ type Options = {
   /** Source-specific write. MUST be stable (wrap in useCallback). Returns the
    *  server write when one was made, so a caller can wait for it (Discuss). */
   persist: (snap: ProgressSnapshot) => Promise<unknown> | void
-  /** Source-specific read of the saved resume position for a chapter.
+  /** Source-specific read of the saved resume position for a chapter — from the
+   *  DEVICE only. The open never waits on a network (progressRestoreOrder.test.ts).
    *  MUST be stable (wrap in useCallback). */
   loadPosition: (chapterSlug: string) => Promise<SavedPosition>
+  /** Background, started after `loadPosition` and never awaited by the open: a
+   *  position the server holds that is provably newer than the local record the
+   *  chapter opened from, or null. MUST be stable. */
+  loadNewerPosition?: (chapterSlug: string) => Promise<NewerPosition | null>
+  /** Opens another chapter — the prompt's action when the newer position is there. */
+  navigateToChapter?: (chapterSlug: string) => void
   /**
    * False while a NON-REFLOW viewer owns the reading position — an uploaded PDF
    * opened in Original layout.
@@ -82,8 +92,12 @@ export function useReaderPersistence({
   positionRef,
   persist,
   loadPosition,
+  loadNewerPosition,
+  navigateToChapter,
   enabled = true,
 }: Options) {
+  const { show: showToast } = useToast()
+  const { language } = useLanguage()
   // Restore state machine — all refs so changes never trigger a re-render.
   const savedOffsetRef = useRef<number | null>(null)
   const savedPercentRef = useRef<number | null>(null)
@@ -127,11 +141,8 @@ export function useReaderPersistence({
     return restoreId
   }, [dispatchGate])
 
-  const tryRestore = useCallback(() => {
-    if (restoredRef.current) return
-    if (!webViewLoadedRef.current || !positionLoadedRef.current) return
-    // Both signals in — fire exactly once for this chapter mount.
-    restoredRef.current = true
+  /** Scroll the WebView to the saved refs (anchor → offset → percent), behind a fresh restore id. */
+  const injectSaved = useCallback(() => {
     const offset = savedOffsetRef.current
     const pct = savedPercentRef.current
     const pos = savedPositionRef.current
@@ -155,6 +166,66 @@ export function useReaderPersistence({
       injectJs(`window.__textstackRestorePercent && window.__textstackRestorePercent(${pct}, ${restoreId})`)
     }
   }, [injectJs, dispatchGate, issueRestore])
+
+  const tryRestore = useCallback(() => {
+    if (restoredRef.current) return
+    if (!webViewLoadedRef.current || !positionLoadedRef.current) return
+    // Both signals in — fire exactly once for this chapter mount.
+    restoredRef.current = true
+    injectSaved()
+  }, [injectSaved])
+
+  // First scroll offset reported after this chapter's restore settled — the
+  // "has the reader moved since?" baseline. Null: nothing reported yet.
+  const moveBaselineRef = useRef<number | null>(null)
+  const chapterSlugRef = useRef(chapterSlug)
+  chapterSlugRef.current = chapterSlug
+
+  /**
+   * The server answered, after the open, with a newer position. Adopt it as the
+   * restore target, move there, or ask — never yank a reader who has moved.
+   */
+  const applyNewer = useCallback((newer: NewerPosition, openedSlug: string) => {
+    const goHere = () => {
+      savedOffsetRef.current = newer.saved.offset
+      savedPercentRef.current = newer.saved.percent
+      savedPositionRef.current = newer.saved.position
+      moveBaselineRef.current = null
+      injectSaved()
+    }
+    const action = decideNewerPosition({
+      sameChapter: newer.chapterSlug === openedSlug,
+      restoreApplied: restoredRef.current,
+      readerMoved: readerMovedSince(moveBaselineRef.current, scrollOffsetRef.current, REFLOW_MOVE_TOLERANCE_PX),
+    })
+    if (action === 'adopt') {
+      // Not injected yet: tryRestore will use these when the WebView is ready.
+      savedOffsetRef.current = newer.saved.offset
+      savedPercentRef.current = newer.saved.percent
+      savedPositionRef.current = newer.saved.position
+      return
+    }
+    if (action === 'move') { goHere(); return }
+    showToast({
+      variant: 'info',
+      icon: 'phone-portrait-outline',
+      message: t(language, 'reader.newerElsewhere.message').replace('{target}', newer.label),
+      actionLabel: t(language, 'reader.newerElsewhere.action'),
+      // Still in the chapter it was found for → scroll; otherwise open that chapter,
+      // whose own background check then lands on the position.
+      onPress: () => {
+        if (chapterSlugRef.current === newer.chapterSlug) goHere()
+        else navigateToChapter?.(newer.chapterSlug)
+      },
+      duration: 8000,
+    })
+  }, [injectSaved, scrollOffsetRef, showToast, language, navigateToChapter])
+  // Read through refs by the load effect, so a new identity (language, auth,
+  // chapter list) never re-runs it — that would reset a restore already done.
+  const applyNewerRef = useRef(applyNewer)
+  applyNewerRef.current = applyNewer
+  const loadNewerRef = useRef(loadNewerPosition)
+  loadNewerRef.current = loadNewerPosition
 
   /** The WebView finished a restore we asked for. Signalled by ReaderShell's `restored` message. */
   const onRestoreLanded = useCallback((restoreId: number) => {
@@ -257,6 +328,7 @@ export function useReaderPersistence({
     // the gate learns the reader is somewhere real — the standby for an acknowledgement that never
     // arrived. A zero, which is what the load event sends, opens nothing.
     dispatchGate({ type: 'positionReported', scrollY: scrollOffsetRef.current })
+    if (restoredFor === chapterSlug && moveBaselineRef.current == null) moveBaselineRef.current = scrollOffsetRef.current
     // Nothing to debounce toward — don't arm a timer that will no-op. The restore gate is checked
     // here as well as inside saveProgress, so the load-event bump does not leave a timer running
     // into the window where the gate has just opened.
@@ -281,11 +353,23 @@ export function useReaderPersistence({
     savedOffsetRef.current = null
     savedPercentRef.current = null
     savedPositionRef.current = null
+    moveBaselineRef.current = null
     pendingSaveRef.current = false
     // Restoring a reflow scroll position into a PDF viewer would fight the
     // page jump the PDF path is already performing.
     if (!enabled || !bookKey || !chapterSlug) return
     let cancelled = false
+    const openedSlug = chapterSlug
+    // The open path: the device's record, then the restore. Nothing here waits
+    // on a network — the server is asked only after, in the background, and can
+    // only add a newer position (applyNewer).
+    const checkServer = () => {
+      const load = loadNewerRef.current
+      if (!load) return
+      load(openedSlug)
+        .then(newer => { if (!cancelled && newer) applyNewerRef.current(newer, openedSlug) })
+        .catch(() => { /* offline / no row: the local restore stands */ })
+    }
     loadPosition(chapterSlug)
       .then(pos => {
         if (cancelled) return
@@ -294,11 +378,13 @@ export function useReaderPersistence({
         savedPositionRef.current = pos.position
         positionLoadedRef.current = true
         tryRestore()
+        checkServer()
       })
       .catch(() => {
         if (cancelled) return
         positionLoadedRef.current = true
         tryRestore()
+        checkServer()
       })
     return () => { cancelled = true }
     // `enabled` is a dependency so the corrupt-PDF "read as text" fallback

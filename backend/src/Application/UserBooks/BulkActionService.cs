@@ -29,7 +29,8 @@ public class BulkActionService(IAppDbContext db, UserBookService userBookService
     {
         var succeeded = new List<Guid>();
         var failed = new List<BulkFailure>();
-        foreach (var id in ids.Take(MaxIdsPerCall))
+        // Distinct: a repeated id was deleted once and then reported "Book not found".
+        foreach (var id in ids.Distinct().Take(MaxIdsPerCall))
         {
             var (ok, error) = await userBookService.DeleteAsync(userId, id, ct);
             if (ok) succeeded.Add(id);
@@ -60,11 +61,11 @@ public class BulkActionService(IAppDbContext db, UserBookService userBookService
         Guid userId, Guid collectionId, IReadOnlyList<Guid> ids, string bookType, CancellationToken ct)
     {
         if (!ValidBookTypes.Contains(bookType))
-            return new BulkResult([], ids.Select(id => new BulkFailure(id, "Invalid bookType")).ToArray());
+            return new BulkResult([], ids.Distinct().Select(id => new BulkFailure(id, "Invalid bookType")).ToArray());
 
         var owns = await db.Collections.AnyAsync(c => c.Id == collectionId && c.UserId == userId, ct);
         if (!owns)
-            return new BulkResult([], ids.Select(id => new BulkFailure(id, "Collection not found")).ToArray());
+            return new BulkResult([], ids.Distinct().Select(id => new BulkFailure(id, "Collection not found")).ToArray());
 
         // Distinct: a repeated id would stage two identical BookCollection rows, and EF's
         // identity map throws on the second (composite key) — a 500 for a harmless request.
@@ -97,24 +98,25 @@ public class BulkActionService(IAppDbContext db, UserBookService userBookService
         Guid userId, Guid collectionId, IReadOnlyList<Guid> ids, string bookType, CancellationToken ct)
     {
         if (!ValidBookTypes.Contains(bookType))
-            return new BulkResult([], ids.Select(id => new BulkFailure(id, "Invalid bookType")).ToArray());
+            return new BulkResult([], ids.Distinct().Select(id => new BulkFailure(id, "Invalid bookType")).ToArray());
 
         var owns = await db.Collections.AnyAsync(c => c.Id == collectionId && c.UserId == userId, ct);
         if (!owns)
-            return new BulkResult([], ids.Select(id => new BulkFailure(id, "Collection not found")).ToArray());
+            return new BulkResult([], ids.Distinct().Select(id => new BulkFailure(id, "Collection not found")).ToArray());
 
         var rows = await db.BookCollections
             .Where(bc => bc.CollectionId == collectionId && bc.BookType == bookType && ids.Contains(bc.BookId))
             .ToListAsync(ct);
         db.BookCollections.RemoveRange(rows);
         await db.SaveChangesAsync(ct);
-        return new BulkResult(ids.ToArray(), []);
+        return new BulkResult(ids.Distinct().ToArray(), []);
     }
 
     private async Task<(List<UserBook> Valid, BulkFailure[] Failed)> ResolveOwnedUserBooksAsync(
         Guid userId, IReadOnlyList<Guid> ids, CancellationToken ct)
     {
-        var capped = ids.Take(MaxIdsPerCall).ToList();
+        // Distinct: a repeated unknown id was reported "Not found" once per repeat.
+        var capped = ids.Distinct().Take(MaxIdsPerCall).ToList();
         var books = await db.UserBooks.Where(b => b.UserId == userId && capped.Contains(b.Id)).ToListAsync(ct);
         var foundSet = books.Select(b => b.Id).ToHashSet();
         var failed = capped.Where(id => !foundSet.Contains(id))

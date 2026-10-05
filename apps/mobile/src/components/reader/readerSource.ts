@@ -65,6 +65,16 @@ export interface SavedPosition {
   percent: number | null
 }
 
+/** A position the server holds that is provably newer than the local record a
+ *  chapter opened from (see `serverProvablyNewer`). Found in the background,
+ *  after the open — never awaited by it. */
+export interface NewerPosition {
+  chapterSlug: string
+  saved: SavedPosition
+  /** What the prompt calls it — the chapter's title. */
+  label: string
+}
+
 /**
  * Everything `<Reader>` + `<ReaderShell>` need, normalized across catalogs.
  */
@@ -142,14 +152,17 @@ export interface ReaderRuntime {
    *  set it WINS over the server resume page (the user chose this chapter). Null
    *  → fall back to the server resume page, else page 1. */
   originalInitialPage?: number | null
-  /** Server-persisted resume page (parsed from the `page:<N>` progress locator).
-   *  Used when the chapter carries no page — it loses to `originalInitialPage`.
-   *  Null when there is no server progress yet. (ADR-012 S4c) */
+  /** Resume page from the device's own record (`page:<N>`). Used when the
+   *  chapter carries no page — it loses to `originalInitialPage`. A newer page
+   *  from the server arrives later as `originalNewerPage`. (ADR-012 S4c) */
   originalResumePage?: number | null
-  /** False while the server resume page is still being fetched — the initial
-   *  scroll waits for this so a cross-device open lands on the saved page, not
-   *  page 1. Ignored when `originalInitialPage` is set (chapter jump is instant). */
+  /** False until the LOCAL resume page has been read (device only, never the
+   *  network). Ignored when `originalInitialPage` is set (chapter jump is instant). */
   originalResumeReady?: boolean
+  /** A page the server holds that is provably newer than the local one the PDF
+   *  opened at — found in the background after the open. The shell adopts it,
+   *  moves there, or asks, by `decideNewerPosition`. */
+  originalNewerPage?: number | null
   /** Persist a PDF page position to server progress (page fraction → the same
    *  ProgressPercent field the library card reads). Debounced by the source. The
    *  shell calls this on the throttled `pdfPage` message; it never feeds the

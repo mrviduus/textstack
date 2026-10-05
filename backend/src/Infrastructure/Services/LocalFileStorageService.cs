@@ -1,3 +1,4 @@
+using Application.Common;
 using Application.Common.Interfaces;
 
 namespace Infrastructure.Services;
@@ -63,9 +64,19 @@ public class LocalFileStorageService : IFileStorageService
         return relativePath;
     }
 
+    public Task<bool> MoveUserBookDirectoryAsync(Guid fromUserId, Guid toUserId, Guid userBookId, CancellationToken ct = default)
+    {
+        var from = Path.Combine(_rootPath, UserStoragePaths.BookDirectory(fromUserId, userBookId));
+        if (!Directory.Exists(from)) return Task.FromResult(false);
+        var to = Path.Combine(_rootPath, UserStoragePaths.BookDirectory(toUserId, userBookId));
+        Directory.CreateDirectory(Path.GetDirectoryName(to)!);
+        Directory.Move(from, to); // throws if the target exists — the caller logs and keeps the old paths
+        return Task.FromResult(true);
+    }
+
     public Task DeleteUserBookDirectoryAsync(Guid userId, Guid userBookId, CancellationToken ct = default)
     {
-        var relativePath = Path.Combine("users", userId.ToString()[..2], userId.ToString(), "books", userBookId.ToString());
+        var relativePath = UserStoragePaths.BookDirectory(userId, userBookId);
         var fullPath = Path.Combine(_rootPath, relativePath);
 
         if (Directory.Exists(fullPath))

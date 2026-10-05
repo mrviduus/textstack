@@ -422,3 +422,17 @@ describe('parseScrollLocator — malformed inputs', () => {
     expect(parseScrollLocator('scroll::500')).toBeNull()
   })
 })
+
+describe('buildUserBookProgressPayload — client stamp', () => {
+  const base = { currentChapterSlug: 'ch-1', fallbackChapterSlug: null, chapterProgress: 0.5, scrollOffset: 10 }
+
+  it('sends recordedAt as updatedAt so the server can order writes on the client clock', () => {
+    const at = Date.parse('2026-05-01T10:00:00Z')
+    expect(buildUserBookProgressPayload({ ...base, recordedAt: at })?.updatedAt).toBe('2026-05-01T10:00:00.000Z')
+  })
+
+  it('omits updatedAt when no usable stamp is given', () => {
+    expect(buildUserBookProgressPayload(base)).not.toHaveProperty('updatedAt')
+    expect(buildUserBookProgressPayload({ ...base, recordedAt: Number.NaN })).not.toHaveProperty('updatedAt')
+  })
+})
