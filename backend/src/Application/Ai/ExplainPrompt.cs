@@ -1,3 +1,5 @@
+using Domain.Utilities;
+
 namespace Application.Ai;
 
 /// <summary>
@@ -13,7 +15,7 @@ public static class ExplainPrompt
         var prompt =
             $"You explain unfamiliar words or phrases to a reader in context. " +
             $"Domain hint: {domain}. " +
-            $"Respond in {targetLang}. " +
+            $"Respond in {LanguageNames.ToEnglishName(targetLang)}. " +
             "Write 2-3 sentences. Focus on how the word is used IN THIS SENTENCE, " +
             "not a dictionary definition. If it is a technical term, give the meaning and " +
             "one concrete analogy. No preface, no quotes around the answer, no markdown.";

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Domain.LLM;
+using Domain.Utilities;
 
 namespace Worker.Services;
 
@@ -37,7 +38,7 @@ public class TagSuggestionGenerator : ITagSuggestionGenerator
                      "Return ONLY a JSON array of lowercase strings — no preface, no markdown.";
 
         var truncated = TruncateToWords(excerpt ?? string.Empty, ExcerptWordCount);
-        var langLabel = string.IsNullOrWhiteSpace(userLang) ? "English" : userLang;
+        var langLabel = string.IsNullOrWhiteSpace(userLang) ? "English" : LanguageNames.ToEnglishName(userLang);
 
         var prompt =
             $"Suggest 3 to 5 short tags (single word or short hyphenated phrase, lowercase) " +
@@ -45,7 +46,7 @@ public class TagSuggestionGenerator : ITagSuggestionGenerator
             $"characteristics. Output a JSON array of strings only.\n\n" +
             $"Title: \"{title}\"\n" +
             (string.IsNullOrWhiteSpace(author) ? string.Empty : $"Author: \"{author}\"\n") +
-            (string.IsNullOrWhiteSpace(language) ? string.Empty : $"Book language: {language}\n") +
+            (string.IsNullOrWhiteSpace(language) ? string.Empty : $"Book language: {LanguageNames.ToEnglishName(language)}\n") +
             (string.IsNullOrWhiteSpace(truncated) ? string.Empty : $"First chapter excerpt: \"{truncated}\"\n") +
             $"\nTags must be in {langLabel}.";
 
@@ -82,12 +83,31 @@ public class TagSuggestionGenerator : ITagSuggestionGenerator
         }
     }
 
-    private static string? ExtractJsonArray(string raw)
+    /// <summary>
+    /// The first complete, bracket-balanced JSON array in <paramref name="raw"/>. Brackets inside
+    /// strings (and escaped quotes) don't count, so a model that repeats the array, or writes
+    /// prose with a "]" after it, still yields just the first one.
+    /// </summary>
+    internal static string? ExtractJsonArray(string raw)
     {
         var start = raw.IndexOf('[');
-        var end = raw.LastIndexOf(']');
-        if (start < 0 || end <= start) return null;
-        return raw.Substring(start, end - start + 1);
+        if (start < 0) return null;
+
+        var depth = 0;
+        var inString = false;
+        for (var i = start; i < raw.Length; i++)
+        {
+            var c = raw[i];
+            if (inString)
+            {
+                if (c == '\\') i++;
+                else if (c == '"') inString = false;
+            }
+            else if (c == '"') inString = true;
+            else if (c == '[') depth++;
+            else if (c == ']' && --depth == 0) return raw[start..(i + 1)];
+        }
+        return null;
     }
 
     private static string Normalize(string tag)

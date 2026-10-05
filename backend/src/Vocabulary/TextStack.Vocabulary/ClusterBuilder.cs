@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using Domain.Utilities;
 using Microsoft.Extensions.Options;
 
 namespace TextStack.Vocabulary;
@@ -86,7 +87,7 @@ public sealed class ClusterBuilder : IClusterBuilder
             "",
             $"Words: {string.Join(", ", words)}",
             "",
-            $"Title must be short (max 8 words), in {nativeLanguage}, describing the shared theme.",
+            $"Title must be short (max 8 words), in {LanguageNames.ToEnglishName(nativeLanguage)}, describing the shared theme.",
             "Theme must be a single lowercase slug (e.g. 'finance', 'emotions', 'warfare').",
             "",
             "Reply in this EXACT format (no other text):",
@@ -137,7 +138,7 @@ public sealed class ClusterBuilder : IClusterBuilder
         parts.Add("- 0.7-0.9: words clearly share one domain (e.g. finance, emotions, warfare, cooking).");
         parts.Add("- 1.0: all words are near-synonyms or same narrow concept.");
         parts.Add("");
-        parts.Add($"Title must be short (max 8 words), in {nativeLanguage}, describing the theme.");
+        parts.Add($"Title must be short (max 8 words), in {LanguageNames.ToEnglishName(nativeLanguage)}, describing the theme.");
         parts.Add("Theme must be a single lowercase slug (e.g. 'finance', 'emotions', 'warfare').");
         parts.Add("");
         parts.Add("Reply in this EXACT format (no other text):");

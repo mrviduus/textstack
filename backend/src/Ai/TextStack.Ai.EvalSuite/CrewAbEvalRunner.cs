@@ -3,6 +3,7 @@ using System.Text;
 using Application.Agents;
 using Application.Common.Interfaces;
 using Domain.Entities;
+using Domain.Utilities;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.AI.Evaluation;
 using Microsoft.Extensions.DependencyInjection;
@@ -170,7 +171,7 @@ public sealed class CrewAbEvalRunner(ILogger<CrewAbEvalRunner> logger)
     {
         var evidence =
             $"Field: the {brief.FieldName} of a {brief.EntityType} ({brief.MinLength}-{brief.MaxLength} characters, " +
-            $"in {brief.TargetLanguage}).\n\nSource material:\n{source}\n\nCandidate text:\n{candidate}";
+            $"in {LanguageNames.ToEnglishName(brief.TargetLanguage)}).\n\nSource material:\n{source}\n\nCandidate text:\n{candidate}";
 
         var evaluator = new RubricEvaluator(Feature, Rubric);
         var result = await evaluator.EvaluateAsync(

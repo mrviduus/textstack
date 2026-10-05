@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using System.Runtime.CompilerServices;
+using System.Text.RegularExpressions;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -105,7 +106,7 @@ public sealed class OllamaLlmClient : ILlmService
             _health.ReportSuccess(ProviderKey, DateTimeOffset.UtcNow);
 
             var result = await response.Content.ReadFromJsonAsync<OllamaResponse>(ct);
-            var text = result?.Response?.Trim() ?? string.Empty;
+            var text = StripThinking(result?.Response ?? string.Empty);
             // Self-hosted ⇒ free.
             var usage = new LlmUsage(result?.PromptEvalCount ?? 0, result?.EvalCount ?? 0, 0m);
             return new LlmResponse(text, [], usage, _model, Guid.NewGuid());
@@ -140,6 +141,17 @@ public sealed class OllamaLlmClient : ILlmService
             yield return new LlmDelta(TextDelta: resp.Text);
         yield return new LlmDelta(FinalUsage: resp.Usage, ModelId: resp.ModelId);
     }
+
+    // Compiled Regex, not [GeneratedRegex]: see the ARM64 SIGILL note in CLAUDE.md.
+    private static readonly Regex LeadingThink = new(
+        @"^\s*(?:<think>.*?)?</think>", RegexOptions.Singleline | RegexOptions.Compiled);
+
+    /// <summary>
+    /// Drops a leading <c>&lt;think&gt;…&lt;/think&gt;</c> block, or a stray leading <c>&lt;/think&gt;</c>,
+    /// which some models leak even with <c>think=false</c>; the line parsers downstream would
+    /// otherwise read the reasoning as the answer. Trims the result.
+    /// </summary>
+    public static string StripThinking(string text) => LeadingThink.Replace(text, string.Empty, 1).Trim();
 
     private sealed class OllamaResponse
     {

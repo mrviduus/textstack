@@ -1,4 +1,5 @@
 using System.Text;
+using Domain.Utilities;
 
 namespace Application.Ai;
 
@@ -18,6 +19,8 @@ public static class TranslatePrompt
     /// </summary>
     public static string BuildSystemPrompt(string srcLang, string tgtLang, string? genre, string? sentence)
     {
+        srcLang = LanguageNames.ToEnglishName(srcLang);
+        tgtLang = LanguageNames.ToEnglishName(tgtLang);
         var sb = new StringBuilder();
         sb.Append("You are a translation engine for readers of books and articles. ");
         sb.Append($"Translate from {srcLang} to {tgtLang}. ");
