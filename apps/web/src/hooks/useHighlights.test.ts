@@ -7,6 +7,7 @@ import type { StoredHighlight } from '../lib/offlineDb'
 vi.mock('../lib/offlineDb', () => ({
   getHighlightsForEdition: vi.fn(),
   getHighlightsForUserBook: vi.fn(),
+  getAllStoredHighlights: vi.fn(),
   saveHighlight: vi.fn(),
   deleteHighlight: vi.fn(),
 }))
@@ -20,6 +21,7 @@ vi.mock('../api/userData', () => ({
 vi.mock('../lib/dataEvents', () => ({ emitDataChange: vi.fn() }))
 
 import { useHighlights } from './useHighlights'
+import { replayAllPendingHighlights } from '../lib/highlightSync'
 import * as offlineDb from '../lib/offlineDb'
 import * as userData from '../api/userData'
 
@@ -141,5 +143,58 @@ describe('useHighlights offline replay', () => {
     expect(offlineDb.saveHighlight).toHaveBeenLastCalledWith(
       expect.objectContaining({ id: serverRow.id, deleted: true, syncStatus: 'pending' })
     )
+  })
+
+  it('a pending color change does not touch a note written on another device', async () => {
+    const offlineColor: StoredHighlight = { ...reflowHighlight(10, 20), id: serverRow.id, color: 'pink', syncStatus: 'pending' }
+    vi.mocked(offlineDb.getHighlightsForEdition).mockResolvedValue([offlineColor])
+    vi.mocked(userData.getPublicHighlights).mockResolvedValue([{ ...serverRow, noteText: 'from mobile' }])
+    vi.mocked(userData.updatePublicHighlight).mockResolvedValue({ ...serverRow, color: 'pink', noteText: 'from mobile' })
+
+    const { result } = renderHook(() => useHighlights('ed-1', undefined, { isAuthenticated: true }))
+    await waitFor(() => expect(result.current.highlights[0]?.noteText).toBe('from mobile'))
+    expect(userData.updatePublicHighlight).toHaveBeenCalledWith(serverRow.id, { color: 'pink' })
+  })
+
+  it('clearing a note offline marks it for replay (noteEdited)', async () => {
+    const withNote: StoredHighlight = { ...reflowHighlight(10, 20), id: serverRow.id, noteText: 'old' }
+    vi.mocked(offlineDb.getHighlightsForEdition).mockResolvedValue([withNote])
+    const { result } = renderHook(() => useHighlights('ed-1'))
+    await waitFor(() => expect(result.current.highlights).toHaveLength(1))
+
+    await act(() => result.current.updateHighlight(serverRow.id, { noteText: null }))
+    expect(offlineDb.saveHighlight).toHaveBeenLastCalledWith(
+      expect.objectContaining({ noteText: undefined, noteEdited: true, syncStatus: 'pending' })
+    )
+
+    await act(() => result.current.updateHighlight(serverRow.id, { color: 'blue' }))
+    expect(offlineDb.saveHighlight).toHaveBeenLastCalledWith(
+      expect.objectContaining({ color: 'blue', noteEdited: true }) // earlier note edit still pending
+    )
+  })
+})
+
+describe('replayAllPendingHighlights', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  const serverRowFor = (editionId: string) => ({
+    id: '', editionId, chapterId: 'ch-1', userBookId: null, userChapterId: null,
+    anchorJson: JSON.stringify(reflowHighlight(10, 20).anchor), color: 'green', selectedText: 'b',
+    noteText: null, version: 1, createdAt: '2026-10-04T00:00:00Z', updatedAt: '2026-10-04T00:00:00Z',
+  })
+
+  it('replays pending rows of every book after sign-in, without the book being open', async () => {
+    const guestRow: StoredHighlight = { ...reflowHighlight(10, 20), id: '1759581234567-abc12de', editionId: 'ed-9', syncStatus: 'pending' }
+    vi.mocked(offlineDb.getAllStoredHighlights).mockResolvedValue([guestRow, { ...reflowHighlight(1, 2), id: 'synced-1' }])
+    vi.mocked(offlineDb.getHighlightsForEdition).mockResolvedValue([guestRow])
+    vi.mocked(userData.getPublicHighlights).mockResolvedValue([])
+    vi.mocked(userData.createPublicHighlight).mockResolvedValue({ ...serverRowFor('ed-9'), id: 'srv-1' })
+
+    await replayAllPendingHighlights()
+
+    expect(userData.getPublicHighlights).toHaveBeenCalledTimes(1)
+    expect(userData.getPublicHighlights).toHaveBeenCalledWith('ed-9')
+    expect(userData.createPublicHighlight).toHaveBeenCalledWith(expect.objectContaining({ editionId: 'ed-9' }))
+    expect(offlineDb.deleteHighlight).toHaveBeenCalledWith(guestRow.id)
   })
 })

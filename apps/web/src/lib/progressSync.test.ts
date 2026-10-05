@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 const { upsertProgressMock } = vi.hoisted(() => ({ upsertProgressMock: vi.fn() }))
 vi.mock('../api/auth', () => ({ upsertProgress: upsertProgressMock }))
 
-import { flushLocalProgress } from './progressSync'
+import { flushLocalProgress, preferLocalProgress, markProgressSynced } from './progressSync'
 import { ApiError } from '../api/client'
 
 const ED1 = '11111111-1111-1111-1111-111111111111'
@@ -155,5 +155,35 @@ describe('flushLocalProgress', () => {
     await flushLocalProgress()
 
     expect(maxInFlight).toBe(1)
+  })
+})
+
+describe('preferLocalProgress (no cross-clock compare)', () => {
+  it('an unacknowledged local write wins over the server, whatever the timestamps', () => {
+    expect(preferLocalProgress({}, true)).toBe(true)
+  })
+  it('once acknowledged, the server wins (it may hold another device’s newer position)', () => {
+    expect(preferLocalProgress({ synced: true }, true)).toBe(false)
+  })
+  it('no server row → local; no local → server', () => {
+    expect(preferLocalProgress({ synced: true }, false)).toBe(true)
+    expect(preferLocalProgress(null, true)).toBe(false)
+  })
+})
+
+describe('markProgressSynced', () => {
+  beforeEach(() => localStorage.clear())
+  const KEY = `reading.progress.${ED1}`
+
+  it('flags the entry the server acknowledged', () => {
+    localStorage.setItem(KEY, JSON.stringify({ chapterSlug: 'c1', updatedAt: 5 }))
+    markProgressSynced(KEY, 5)
+    expect(JSON.parse(localStorage.getItem(KEY)!)).toEqual({ chapterSlug: 'c1', updatedAt: 5, synced: true })
+  })
+
+  it('leaves a newer local write (written while the request was in flight) unsynced', () => {
+    localStorage.setItem(KEY, JSON.stringify({ chapterSlug: 'c2', updatedAt: 9 }))
+    markProgressSynced(KEY, 5)
+    expect(JSON.parse(localStorage.getItem(KEY)!).synced).toBeUndefined()
   })
 })

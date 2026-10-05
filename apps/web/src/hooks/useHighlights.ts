@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { isPdfAnchor } from '@textstack/shared'
 import {
   type StoredHighlight,
@@ -10,15 +10,13 @@ import {
   deleteHighlight as deleteHighlightFromDB,
 } from '../lib/offlineDb'
 import {
-  getPublicHighlights,
-  getUserBookHighlights,
   createPublicHighlight,
   updatePublicHighlight,
   deletePublicHighlight,
 } from '../api/userData'
 import { ApiError } from '../api/client'
 import { emitDataChange } from '../lib/dataEvents'
-import { planHighlightSync, fromServerHighlight, isLocalHighlightId } from '../lib/highlightSync'
+import { syncBookHighlights, isLocalHighlightId } from '../lib/highlightSync'
 import { useNetworkRecovery } from './useNetworkRecovery'
 
 function generateId(): string {
@@ -33,105 +31,19 @@ export function useHighlights(editionId?: string, userBookId?: string, options?:
   const { isAuthenticated } = options || {}
   const [highlights, setHighlights] = useState<StoredHighlight[]>([])
   const [loading, setLoading] = useState(true)
-  const serverSyncedRef = useRef(false)
-
   const bookId = userBookId || editionId || ''
   const isUserBook = !!userBookId
 
-  // Fetch server list, merge with local pending rows (local pending wins and
-  // stays visible), then replay pending creates/updates/deletes. A failed replay
-  // leaves the row pending for the next load / `online` event — never discarded.
-  // Runs are serialized (each starts after the previous finished and re-reads
-  // IndexedDB), so overlapping triggers can't POST the same pending row twice.
-  const syncQueueRef = useRef<Promise<void>>(Promise.resolve())
-  const syncOnce = useCallback(
-    async (isCancelled: () => boolean) => {
-      try {
-        const serverHighlights = isUserBook
-          ? await getUserBookHighlights(bookId)
-          : await getPublicHighlights(bookId)
-        if (isCancelled()) return
-        serverSyncedRef.current = true
-
-        const local = isUserBook
-          ? await getHighlightsForUserBook(bookId)
-          : await getHighlightsForEdition(bookId)
-        const plan = planHighlightSync(serverHighlights.map(fromServerHighlight), local)
-
-        // Reconcile, don't wipe-and-rebuild (see git history: a wipe window
-        // could leave IndexedDB empty on navigation).
-        for (const h of plan.store) await saveHighlight(h)
-        for (const id of plan.drop) await deleteHighlightFromDB(id)
-        if (isCancelled()) return
-        setHighlights(plan.visible)
-
-        let changed = false
-        for (const h of plan.create) {
-          try {
-            const created = fromServerHighlight(
-              await createPublicHighlight(
-                h.userBookId
-                  ? {
-                      userBookId: h.userBookId,
-                      userChapterId: h.userChapterId,
-                      anchorJson: JSON.stringify(h.anchor),
-                      color: h.color,
-                      selectedText: h.selectedText,
-                      noteText: h.noteText,
-                    }
-                  : {
-                      editionId: h.editionId,
-                      chapterId: h.chapterId,
-                      anchorJson: JSON.stringify(h.anchor),
-                      color: h.color,
-                      selectedText: h.selectedText,
-                      noteText: h.noteText,
-                    }
-              )
-            )
-            await saveHighlight(created)
-            await deleteHighlightFromDB(h.id)
-            if (!isCancelled()) setHighlights((prev) => prev.map((p) => (p.id === h.id ? created : p)))
-            changed = true
-          } catch {
-            // stays pending
-          }
-        }
-        for (const h of plan.update) {
-          try {
-            // No `version`: the offline edit is the reader's latest intent (last write wins).
-            // A note absent locally was removed offline — `null` clears it on the server too.
-            const saved = fromServerHighlight(await updatePublicHighlight(h.id, { color: h.color, noteText: h.noteText ?? null }))
-            await saveHighlight(saved)
-            if (!isCancelled()) setHighlights((prev) => prev.map((p) => (p.id === h.id ? saved : p)))
-            changed = true
-          } catch (err) {
-            if (err instanceof ApiError && err.status === 404) await deleteHighlightFromDB(h.id)
-          }
-        }
-        for (const { serverId, localId } of plan.remove) {
-          try {
-            await deletePublicHighlight(serverId)
-          } catch (err) {
-            if (!(err instanceof ApiError && err.status === 404)) continue // stays pending
-          }
-          await deleteHighlightFromDB(localId)
-          changed = true
-        }
-        if (changed) emitDataChange('highlights')
-      } catch {
-        // Server unavailable, keep local data.
-      }
-    },
-    [bookId, isUserBook]
-  )
+  // Merge server + local pending, then replay (lib/highlightSync — shared with the
+  // post-sign-in replay, and serialized with it).
   const syncWithServer = useCallback(
-    (isCancelled: () => boolean) => {
-      const run = syncQueueRef.current.then(() => syncOnce(isCancelled))
-      syncQueueRef.current = run
-      return run
-    },
-    [syncOnce]
+    (isCancelled: () => boolean) =>
+      syncBookHighlights(bookId, isUserBook, {
+        isCancelled,
+        onVisible: setHighlights,
+        onReplaced: (oldId, saved) => setHighlights((prev) => prev.map((p) => (p.id === oldId ? saved : p))),
+      }),
+    [bookId, isUserBook]
   )
 
   // Load highlights: IndexedDB first, then server if authenticated.
@@ -144,7 +56,6 @@ export function useHighlights(editionId?: string, userBookId?: string, options?:
     }
 
     let cancelled = false
-    serverSyncedRef.current = false
 
     const loadLocal = isUserBook
       ? getHighlightsForUserBook(bookId)
@@ -255,11 +166,14 @@ export function useHighlights(editionId?: string, userBookId?: string, options?:
       const existing = highlights.find((h) => h.id === id)
       if (!existing) return null
 
+      // An earlier offline note edit still pending must ride along with this update.
+      const noteEdited = updates.noteText !== undefined || (existing.syncStatus === 'pending' && !!existing.noteEdited)
       const updated: StoredHighlight = {
         ...existing,
         ...updates,
         // Convert null to undefined for storage
         noteText: updates.noteText === null ? undefined : (updates.noteText ?? existing.noteText),
+        noteEdited,
         updatedAt: Date.now(),
         version: existing.version + 1,
         syncStatus: 'pending',
@@ -270,11 +184,12 @@ export function useHighlights(editionId?: string, userBookId?: string, options?:
         try {
           const serverHighlight = await updatePublicHighlight(id, {
             color: updates.color,
-            noteText: updates.noteText,
+            noteText: noteEdited ? (updated.noteText ?? null) : undefined,
             version: existing.version,
           })
 
           updated.syncStatus = 'synced'
+          updated.noteEdited = false
           updated.version = serverHighlight.version
           updated.updatedAt = new Date(serverHighlight.updatedAt).getTime()
         } catch {

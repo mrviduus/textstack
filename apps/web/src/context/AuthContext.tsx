@@ -9,6 +9,7 @@ import {
 import type { GuestMergeSkipReason } from '@textstack/shared'
 import { authToastFor, type AuthToast } from '../lib/authToast'
 import { flushLocalProgress } from '../lib/progressSync'
+import { replayAllPendingHighlights } from '../lib/highlightSync'
 import { trackLogin, trackSignUp } from '../lib/analytics'
 
 export type AuthModalView = 'login' | 'register'
@@ -114,8 +115,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const isFreshAccount = Number.isFinite(createdAtMs) && Date.now() - createdAtMs < 60_000
       if (isFreshAccount) trackSignUp('google')
       else trackLogin('google')
-      // Fire-and-forget: flush any anonymous localStorage progress to server.
+      // Fire-and-forget: flush any anonymous localStorage progress + pending highlights to server.
       void flushLocalProgress().catch(() => {})
+      void replayAllPendingHighlights()
     } catch (error) {
       console.error('Login failed:', error)
     } finally {
@@ -184,6 +186,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // sitting in localStorage waiting to be dispatched).
       const flushIfReal = async (u: User) => {
         if (u.isGuest) return
+        void replayAllPendingHighlights()
         try {
           const n = await flushLocalProgress()
           if (n > 0) setAuthSuccessToast('saved')
@@ -271,8 +274,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setShowAuthModal(false)
     if (kind === 'sign_up') trackSignUp('email')
     else trackLogin('email')
-    // Fire-and-forget: flush any anonymous localStorage progress to server (server LWW is safe).
+    // Fire-and-forget: flush any anonymous localStorage progress to server (server LWW is safe),
+    // and replay highlights made without a session, across every book.
     void flushLocalProgress().catch(() => {})
+    void replayAllPendingHighlights()
   }, [])
 
   const loginWithEmail = useCallback(

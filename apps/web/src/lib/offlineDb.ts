@@ -47,6 +47,9 @@ export interface StoredHighlight {
   selectedText: string
   noteText?: string
   syncStatus: 'pending' | 'synced'
+  /** The note was edited or cleared while pending, so replay must send it. Without it replay
+   *  leaves the server's note alone — it may have been written on another device. */
+  noteEdited?: boolean
   /** Tombstone: deleted locally, server delete not yet confirmed. Hidden from the UI. */
   deleted?: boolean
   version: number
@@ -94,12 +97,11 @@ export interface PendingVocabWord {
 }
 
 const DB_NAME = 'textstack-reader'
-const DB_VERSION = 9
+const DB_VERSION = 10
 const CHAPTERS_STORE = 'chapters'
 const BOOKS_META_STORE = 'cachedBooks'
 const HIGHLIGHTS_STORE = 'highlights'
 const TRANSLATIONS_STORE = 'translations'
-const DICTIONARY_STORE = 'dictionary'
 const TTS_STORE = 'tts-audio'
 const PENDING_VOCAB_STORE = 'pendingVocabWords'
 const EXPLAIN_STORE = 'explains'
@@ -113,7 +115,15 @@ export function openOfflineDb(): Promise<IDBDatabase> {
     const request = indexedDB.open(DB_NAME, DB_VERSION)
 
     request.onerror = () => reject(request.error)
-    request.onsuccess = () => resolve(request.result)
+    request.onsuccess = () => {
+      const db = request.result
+      // A newer tab is upgrading the schema: step aside rather than block it (until reload).
+      db.onversionchange = () => {
+        db.close()
+        dbPromise = null
+      }
+      resolve(db)
+    }
 
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result
@@ -159,11 +169,9 @@ export function openOfflineDb(): Promise<IDBDatabase> {
         store.createIndex('cachedAt', 'cachedAt', { unique: false })
       }
 
-      // Dictionary cache store (v5). Unused since the dictionary was dropped (2026-10-03);
-      // kept so the DB schema/version doesn't change. clearExpiredCaches drains it.
-      if (!db.objectStoreNames.contains(DICTIONARY_STORE)) {
-        const store = db.createObjectStore(DICTIONARY_STORE, { keyPath: 'key' })
-        store.createIndex('cachedAt', 'cachedAt', { unique: false })
+      // Dictionary cache store (v5) — the dictionary was removed 2026-10-03; dropped in v10.
+      if (db.objectStoreNames.contains('dictionary')) {
+        db.deleteObjectStore('dictionary')
       }
 
       // TTS audio cache store (v6)
@@ -377,6 +385,16 @@ export async function deleteHighlight(id: string): Promise<void> {
   })
 }
 
+export async function getAllStoredHighlights(): Promise<StoredHighlight[]> {
+  const db = await openOfflineDb()
+
+  return new Promise((resolve, reject) => {
+    const request = db.transaction(HIGHLIGHTS_STORE, 'readonly').objectStore(HIGHLIGHTS_STORE).getAll()
+    request.onsuccess = () => resolve(request.result as StoredHighlight[])
+    request.onerror = () => reject(request.error)
+  })
+}
+
 export async function getHighlightsForUserBook(
   userBookId: string
 ): Promise<StoredHighlight[]> {
@@ -489,11 +507,11 @@ export function clearOldTranslations(maxAgeMs = 7 * 24 * 60 * 60 * 1000): Promis
   return deleteOlderThan(TRANSLATIONS_STORE, maxAgeMs)
 }
 
-/** Evict dictionary / TTS / explain entries past their 30-day TTL. Reads already skip them;
+/** Evict TTS / explain entries past their 30-day TTL. Reads already skip them;
  *  this frees the storage. Called once per app start (main.tsx). */
 export async function clearExpiredCaches(): Promise<void> {
   const ttl = 30 * 24 * 60 * 60 * 1000
-  await Promise.allSettled([DICTIONARY_STORE, TTS_STORE, EXPLAIN_STORE].map(s => deleteOlderThan(s, ttl)))
+  await Promise.allSettled([TTS_STORE, EXPLAIN_STORE].map(s => deleteOlderThan(s, ttl)))
 }
 
 // ============ TTS AUDIO CACHE ============

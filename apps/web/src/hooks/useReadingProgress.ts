@@ -1,6 +1,7 @@
 import { useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { upsertProgress } from '../api/auth'
+import { markProgressSynced } from '../lib/progressSync'
 import { PERCENT_UNIT_BOOK } from '@textstack/shared'
 
 const STORAGE_KEY = 'reading.progress.'
@@ -88,7 +89,11 @@ export function useReadingProgress(
     const dedupeKey = `${locator}:${percent.toFixed(4)}`
     // Skip server sync only if the last *successful* sync matches — not if we merely
     // attempted the same payload. That way a failed sync stays retriable.
-    if (dedupeKey === lastAckedKeyRef.current) return
+    if (dedupeKey === lastAckedKeyRef.current) {
+      // Same position the server already holds — the rewritten local entry is synced too.
+      markProgressSynced(`${STORAGE_KEY}${editionId}`, updatedAt)
+      return
+    }
 
     if (serverSyncRef.current) clearTimeout(serverSyncRef.current)
     serverSyncRef.current = window.setTimeout(() => {
@@ -104,6 +109,7 @@ export function useReadingProgress(
         .then(() => {
           lastAckedKeyRef.current = `${payload.locator}:${payload.percent.toFixed(4)}`
           if (pendingSyncRef.current === payload) pendingSyncRef.current = null
+          markProgressSynced(`${STORAGE_KEY}${payload.editionId}`, payload.updatedAt)
         })
         .catch((err) => {
           // Leave lastAckedKeyRef as-is so subsequent updateProgress retries.
@@ -145,8 +151,9 @@ export function useReadingProgress(
       credentials: 'include',
       keepalive: true,
     })
-      .then(() => {
+      .then((res) => {
         lastAckedKeyRef.current = `${payload.locator}:${payload.percent.toFixed(4)}`
+        if (res.ok) markProgressSynced(`${STORAGE_KEY}${payload.editionId}`, payload.updatedAt)
       })
       .catch((err) => {
         console.warn('[progress] flush save failed', err)

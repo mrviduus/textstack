@@ -88,3 +88,29 @@ export async function flushLocalProgress(): Promise<number> {
 
   return flushed
 }
+
+/**
+ * Restore-time choice between the local entry and the server row, without comparing
+ * timestamps: the local one is this browser's `Date.now()`, the server's `updatedAt` is the
+ * server's clock (the two-clocks bug #695 fixed server-side). The DTO carries no client stamp.
+ *
+ * Rule: a local write the server has not acknowledged (`synced` unset) is this device's latest
+ * intent and wins; once acknowledged, the server row is at least as new as it (the server's own
+ * LWW, on client stamps, already arbitrated other devices), so the server wins.
+ */
+export function preferLocalProgress(local: { synced?: boolean } | null, hasServer: boolean): boolean {
+  return !!local && (!hasServer || !local.synced)
+}
+
+/** After the server ACKs the write stamped `updatedAt`, flag the local entry as synced —
+ *  unless a newer local write has replaced it since. */
+export function markProgressSynced(storageKey: string, updatedAt: number): void {
+  try {
+    const raw = localStorage.getItem(storageKey)
+    if (!raw) return
+    const entry = JSON.parse(raw) as { updatedAt?: number }
+    if (entry.updatedAt === updatedAt) localStorage.setItem(storageKey, JSON.stringify({ ...entry, synced: true }))
+  } catch {
+    // storage unavailable / corrupt — the entry stays unsynced, so it still wins (never loses a write)
+  }
+}
