@@ -3,17 +3,42 @@
 #
 # Builds from the repository root, not from apps/web. A pnpm workspace has one
 # lockfile, and `catalog:` specifiers cannot be resolved without
-# pnpm-workspace.yaml in scope — so an image built from apps/web alone can no
-# longer install anything. The repo layout is kept inside the image (/repo/...)
-# rather than flattened, so the paths in docker-compose and in ssg-worker.mjs
-# stay recognisable.
-
-# Keep in step with .nvmrc — a Dockerfile cannot read it, so
+# pnpm-workspace.yaml in scope. The repo layout is kept inside the image
+# (/repo/apps/web/...) so the paths in docker-compose and in ssg-worker.mjs stay
+# recognisable.
+#
+# Base images are pinned by digest (tag kept for humans); Dependabot moves them.
+# The node tag must match .nvmrc — a Dockerfile cannot read it, so
 # scripts/check-node-version.mjs fails CI when they drift.
-ARG NODE_VERSION=24.20.0
-FROM node:${NODE_VERSION}-alpine
 
-# Install Chromium and dependencies for Puppeteer
+# ---- deps: production dependencies of textstack-web only ----
+#
+# The scripts import two packages: pg (ssg-worker.mjs) and puppeteer
+# (prerender.mjs). Both are `dependencies` of textstack-web for this reason —
+# `pnpm deploy --prod` installs a package's production tree, from the lockfile,
+# into a directory of its own. The old `pnpm install --filter textstack-web...`
+# did not isolate anything: the workspace is hoisted (for Metro), so it installed
+# web's devDependencies (vite, vitest, playwright, jsdom…) and mobile's whole tree.
+FROM node:24.20.0-alpine@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf AS deps
+WORKDIR /repo
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+RUN corepack enable && corepack prepare --activate
+# Every member's manifest: --frozen-lockfile validates the lockfile against all of them.
+COPY apps/web/package.json apps/web/
+COPY apps/admin/package.json apps/admin/
+COPY apps/mobile/package.json apps/mobile/
+COPY packages/shared/package.json packages/shared/
+COPY packages/reader-overlay/package.json packages/reader-overlay/
+# Puppeteer drives the distro Chromium below; its own browser download is skipped.
+# (PUPPETEER_SKIP_CHROMIUM_DOWNLOAD, which this used to set, is the pre-v20 name and
+# Puppeteer 25 ignores it — so the image used to carry Chrome AND chrome-headless-shell
+# on top of the apk Chromium it actually launched.)
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+RUN pnpm --filter textstack-web deploy --prod --legacy --frozen-lockfile /deploy
+
+# ---- runtime ----
+FROM node:24.20.0-alpine@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf
+
 RUN apk add --no-cache \
     chromium \
     nss \
@@ -23,34 +48,11 @@ RUN apk add --no-cache \
     ttf-freefont
 
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-
-WORKDIR /repo
-
-# pnpm version comes from `packageManager` in the root package.json — one
-# declaration, the same one CI and developers use. It used to be `pnpm@9` here
-# and `pnpm@9.15.0` in the admin image, whose comment already recorded someone
-# hitting corepack drift.
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
-RUN corepack enable && corepack prepare --activate
-
-# Every workspace member's manifest, because --frozen-lockfile validates the
-# lockfile against all of them. Manifests only — no sources yet, so the install
-# layer survives an edit to any app.
-COPY apps/web/package.json apps/web/
-COPY apps/admin/package.json apps/admin/
-COPY apps/mobile/package.json apps/mobile/
-COPY packages/shared/package.json packages/shared/
-COPY packages/reader-overlay/package.json packages/reader-overlay/
-
-# Store deleted in the same layer — see apps/admin/Dockerfile.
-RUN pnpm install --frozen-lockfile --filter textstack-web... \
-    && rm -rf "$(pnpm store path)"
-
-COPY apps/web/scripts/ ./apps/web/scripts/
-COPY packages/ ./packages/
+ENV PUPPETEER_SKIP_DOWNLOAD=true
 
 WORKDIR /repo/apps/web
+COPY --from=deps /deploy/node_modules ./node_modules
+COPY apps/web/scripts/ ./scripts/
 RUN mkdir -p dist/ssg
 
 ENV NODE_ENV=production

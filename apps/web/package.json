@@ -25,6 +25,8 @@
     "cmdk": "^1.1.1",
     "dompurify": "^3.4.3",
     "pdfjs-dist": "catalog:",
+    "pg": "^8.20.0",
+    "puppeteer": "^25.10.0",
     "react": "catalog:",
     "react-dom": "catalog:",
     "react-markdown": "^10.1.0",
@@ -42,8 +44,6 @@
     "@vitejs/plugin-react": "catalog:",
     "esbuild": "^0.28.0",
     "jsdom": "catalog:",
-    "pg": "^8.20.0",
-    "puppeteer": "^25.10.0",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"

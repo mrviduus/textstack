@@ -30,10 +30,8 @@ PEM='-----BEGIN ([A-Z]+ )?PRIVATE KEY-----\r?\n[A-Za-z0-9+/]{40}'
 # Files whose mere presence is a finding. .env.example is documentation.
 NAMES='(^|/)(\.env(\.[^/]*)?|[^/]*service-account[^/]*\.json|appsettings\.[^/]*\.json|id_(rsa|ed25519|ecdsa)|[^/]*\.(p12|pfx|jks|keystore))$'
 # Known public files that match anyway (path regex). Keep it short; say why.
-#   - expo-updates ships test-fixture signing keys, and pnpm hoists the mobile
-#     workspace's dependencies into the admin and ssg-worker installs.
 #   - libgnutls (distro package) embeds a PEM key literal for its self-tests.
-ALLOW='^(etc/ssl/|usr/share/ca-certificates/)|\.env\.example$|node_modules/expo-updates/android/src/shared/certificates/|^usr/lib/([a-z0-9_]+-linux-gnu/)?libgnutls\.so'
+ALLOW='^(etc/ssl/|usr/share/ca-certificates/)|\.env\.example$|^usr/lib/([a-z0-9_]+-linux-gnu/)?libgnutls\.so'
 # Where everything is searched: a throwaway Linux container, so a CI runner, the
 # server and a Mac run the same GNU grep (BSD grep took minutes per image) and
 # nothing from an image is unpacked onto the host. Debian slim, not alpine: its
