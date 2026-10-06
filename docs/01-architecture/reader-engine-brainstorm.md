@@ -44,8 +44,9 @@ for now; parsing on the device is an option later, with no change to the engine.
 ## Don't start from zero
 
 Open-source engines to evaluate before writing a core: **foliate-js** (MIT), **Readium TS toolkit**
-(BSD), epub.js (older). The question is whether we reuse 30% or 80%. See `reader-engine-evaluation.md`
-(in progress).
+(BSD), epub.js (older). The question is whether we reuse 30% or 80%. See
+[reader-engine-evaluation.md](reader-engine-evaluation.md) (2026-10-06): borrow foliate-js modules,
+copy Readium's Locator; reuse is closer to 30% than 80%; ~4–5 weeks after a 3–4 day spike.
 
 ## Rough size and order (if approved)
 
