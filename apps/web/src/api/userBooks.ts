@@ -1,4 +1,4 @@
-import { authFetch, API_BASE } from './client'
+import { authFetch, API_BASE, ApiError } from './client'
 import { trackBookUploaded } from '../lib/analytics'
 
 export interface UserBook {
@@ -364,12 +364,17 @@ export interface UserBookProgress {
   clientUpdatedAt?: string | null
 }
 
-/** `signal`: see `getProgress` in api/auth.ts — the reader bounds this GET. */
-export async function getUserBookProgress(bookId: string, init?: { signal?: AbortSignal }): Promise<UserBookProgress | null> {
+export async function getUserBookProgress(bookId: string): Promise<UserBookProgress | null> {
+  return (await readUserBookProgress(bookId)) ?? null
+}
+
+/** The reader's read: `null` answered with nothing, `undefined` no answer — see `readProgress`
+ *  in api/auth.ts. */
+export async function readUserBookProgress(bookId: string, signal?: AbortSignal): Promise<UserBookProgress | null | undefined> {
   try {
-    return await authFetch<UserBookProgress>(`/me/books/${bookId}/progress`, init)
-  } catch {
-    return null
+    return await authFetch<UserBookProgress>(`/me/books/${bookId}/progress`, { signal })
+  } catch (e) {
+    return e instanceof ApiError && e.status === 404 ? null : undefined
   }
 }
 

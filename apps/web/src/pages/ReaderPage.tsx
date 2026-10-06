@@ -33,8 +33,9 @@ import { trackBookOpened } from '../lib/analytics'
 import { ReaderStatsWidget } from '../components/reader/ReaderStatsWidget'
 import { useGuestLimits } from '../context/GuestLimitsContext'
 import { WordHint } from '../components/reader/WordHint'
-import { getUserBookFileUrl } from '../api/userBooks'
-import { parsePdfPageLocator, computeBookProgress, clampPage, isPdfAnchor, bookMinutesLeft, type PdfAnchor } from '@textstack/shared'
+import { getUserBookFileUrl, readUserBookProgress } from '../api/userBooks'
+import { serverResumePage } from '../lib/originalLayoutPref'
+import { computeBookProgress, clampPage, isPdfAnchor, bookMinutesLeft, type PdfAnchor } from '@textstack/shared'
 import { useHighlights } from '../hooks/useHighlights'
 import { useBookReviews, chapterReviewPath } from '../hooks/useBookReviews'
 import { reviewedHighlightMarks, isReviewableChapter } from '@textstack/shared'
@@ -254,7 +255,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
     setPdfScrollTo({ page: clampPage(h.anchor.page, pdfNumPages), nonce: Date.now() })
   }, [originalActive, scrollToHighlightId, highlightsApi.highlights, pdfNumPages])
 
-  const { publicProgress, userProgress, effectiveProgress, effectiveLoading, autoSaveInfo, serverTimedOut, fetchNewerPosition } =
+  const { publicProgress, userProgress, effectiveProgress, effectiveLoading, autoSaveInfo, serverUnanswered, fetchNewerPosition } =
     useReaderProgress({
       mode,
       bookSlug,
@@ -266,13 +267,22 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
     })
 
   // Server resume page for the chapterless Original view (parsed from the
-  // "page:<N>" progress locator); wins over localStorage but loses to a chapter's
-  // sourceStartPage. Read from the userbook progress hook's GET — there used to be
-  // a second, identical GET here. `resumeReady` gates the initial scroll so a
-  // cross-device open lands on the saved page; that GET is time-bounded, so a
-  // hanging network opens at the local page instead of never.
-  const pdfResumePage = originalActive ? parsePdfPageLocator(userProgress.serverLocator) : null
+  // "page:<N>" progress locator); used only when provably newer than this
+  // device's page (serverResumePage — read at every render, so a reflow →
+  // Original switch reopens at the page just read, not the row fetched at
+  // mount), and loses to a chapter's sourceStartPage. Read from the userbook
+  // progress hook's GET — there used to be a second, identical GET here.
+  // `resumeReady` gates the initial scroll so a cross-device open lands on the
+  // saved page; that GET is time-bounded, so a hanging network opens at the
+  // local page instead of never.
+  const pdfResumePage = originalActive && id ? serverResumePage(id, userProgress.serverRow) : null
   const pdfResumeReady = !originalActive || !userProgress.isLoading
+  const fetchNewerPdfPage = useCallback(async (signal: AbortSignal): Promise<number | false | null> => {
+    if (!id || !isAuthenticated) return false
+    const row = await readUserBookProgress(id, signal)
+    if (row === undefined || signal.aborted) return null
+    return serverResumePage(id, row) ?? false
+  }, [id, isAuthenticated])
 
   // Migrate legacy progress (chapterNumber -> slug) for userbooks. Stays in
   // page because it owns routing.
@@ -403,18 +413,16 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
     return chapterList.findIndex(c => c.identifier === id)
   }, [chapterList, chapterIdentifier])
 
-  // Track scroll activity for reading session
-  useEffect(() => {
-    let lastScroll = 0
-    const handleScroll = () => {
-      const now = Date.now()
-      if (now - lastScroll > 5000) { // throttle: once per 5s
-        lastScroll = now
-        readingSession.recordActivity()
-      }
+  // Reading-session activity from the reader's OWN scrolls (useReaderScrollSync filters out
+  // the restore's echo). A window listener here used to count the restore as the session's first
+  // activity, before its progress landed — so the restored offset was counted as words read.
+  const lastActivityScrollRef = useRef(0)
+  const onReaderScroll = useCallback(() => {
+    const now = Date.now()
+    if (now - lastActivityScrollRef.current > 5000) { // throttle: once per 5s
+      lastActivityScrollRef.current = now
+      readingSession.recordActivity()
     }
-    window.addEventListener('scroll', handleScroll, { passive: true })
-    return () => window.removeEventListener('scroll', handleScroll)
   }, [readingSession])
 
   // Scroll-position restore + debounced save + flush on visibility/unload.
@@ -440,8 +448,11 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
     // A ?highlight= link positions the reader; restore and save-on-open wait for it.
     holdRestore: !!scrollToHighlightId && !originalActive,
     onHoldExpired: () => handleHighlightLinkDoneRef.current(false),
-    serverTimedOut,
+    serverUnanswered,
     fetchNewerPosition,
+    // A TOC open names its place: a newer position from elsewhere never replaces it.
+    explicitOpen: new URLSearchParams(location.search).get('direct') === '1',
+    onReaderScroll,
   })
 
   // ?highlight= resolved: landed → that is the restored position; not found →
@@ -714,6 +725,8 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
                   initialPage={initialPdfPage}
                   resumePage={pdfResumePage}
                   resumeReady={pdfResumeReady}
+                  resumeUnanswered={userProgress.serverUnanswered}
+                  fetchNewerPage={fetchNewerPdfPage}
                   scrollToPage={pdfScrollTo}
                   onPageChange={setPdfCurrentPage}
                   onNumPages={setPdfNumPages}

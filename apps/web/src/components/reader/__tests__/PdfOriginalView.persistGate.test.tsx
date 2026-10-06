@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+
+vi.setConfig({ testTimeout: 15_000 })
 import { render, act } from '@testing-library/react'
 import type { PdfDocumentState } from '../../../hooks/usePdfDocument'
 
@@ -15,8 +17,9 @@ const writePdfPage = vi.fn()
 vi.mock('../../../hooks/usePdfDocument', () => ({ usePdfDocument: () => docState.current }))
 vi.mock('../../../hooks/useTranslation', () => ({ useTranslation: () => ({ t: (k: string) => k }) }))
 vi.mock('../../../api/userBooks', () => ({ saveUserBookProgress: (...a: unknown[]) => saveUserBookProgress(...a) }))
+const localPage: { current: number | null } = { current: null }
 vi.mock('../../../lib/originalLayoutPref', () => ({
-  readPdfPage: () => null,
+  readPdfPage: () => localPage.current,
   writePdfPage: (...a: unknown[]) => writePdfPage(...a),
 }))
 vi.mock('../PdfPage', () => ({
@@ -31,6 +34,7 @@ let scrollTop = 0
 
 beforeEach(() => {
   scrollTop = 0
+  localPage.current = null
   saveUserBookProgress.mockClear()
   writePdfPage.mockClear()
   // Every observed page is reported on screen, as the real observer does once pages render.
@@ -89,7 +93,93 @@ describe('PdfOriginalView — no save before the resume jump', () => {
     await wait(50)
     await wait(2300)
     expect(writePdfPage.mock.calls.map((c) => c[1])).not.toContain(1)
-    expect(writePdfPage).toHaveBeenLastCalledWith('b1', 7)
+    expect(writePdfPage.mock.calls[writePdfPage.mock.calls.length - 1].slice(0, 2)).toEqual(['b1', 7])
     expect(saveUserBookProgress).toHaveBeenCalledTimes(1)
+  })
+})
+
+const pageUnderTop = () => Math.floor(scrollTop / PAGE_H) + 1
+/** The reader scrolls the viewer (outside the programmatic-scroll suppression window). */
+async function userScrollTo(view: ReturnType<typeof render>, page: number) {
+  await wait(300)
+  scrollTop = (page - 1) * PAGE_H
+  act(() => { view.container.querySelector('.pdf-original__scroll')!.dispatchEvent(new Event('scroll')) })
+  await wait(50)
+}
+
+describe('PdfOriginalView — an unanswered resume (review #2)', () => {
+  const base = { fileUrl: 'f', bookId: 'b1', initialPage: null, scrollToPage: null, resumePage: null }
+
+  it('opens at this device\'s page and does not save it until the reader moves', async () => {
+    docState.current = loaded(20)
+    localPage.current = 5
+    const view = render(<PdfOriginalView {...base} resumeReady resumeUnanswered />)
+    await wait(50)
+    act(() => { view.container.querySelector('.pdf-original__scroll')!.dispatchEvent(new Event('scroll')) })
+    await wait(2500)
+    expect(pageUnderTop()).toBe(5)
+    expect(writePdfPage).not.toHaveBeenCalled()
+    expect(saveUserBookProgress).not.toHaveBeenCalled()
+
+    await userScrollTo(view, 7)
+    await wait(2300)
+    expect(writePdfPage.mock.calls.map((c) => c[1])).toEqual([7, 7])
+    expect(saveUserBookProgress).toHaveBeenCalledTimes(1)
+  })
+
+  it('the late answer: a newer page from another device is adopted while the reader has not moved, and not saved back', async () => {
+    docState.current = loaded(20)
+    localPage.current = 5
+    const fetchNewerPage = vi.fn(async () => 12)
+    const view = render(<PdfOriginalView {...base} resumeReady resumeUnanswered fetchNewerPage={fetchNewerPage} />)
+    await wait(50)
+    act(() => { view.container.querySelector('.pdf-original__scroll')!.dispatchEvent(new Event('scroll')) })
+    await wait(50)
+    expect(fetchNewerPage).toHaveBeenCalled()
+    expect(pageUnderTop()).toBe(12)
+    await wait(2500)
+    expect(saveUserBookProgress).not.toHaveBeenCalled()
+  })
+
+  it('the late answer never moves a reader who has moved', async () => {
+    docState.current = loaded(20)
+    localPage.current = 5
+    let answer!: (p: number | false | null) => void
+    const fetchNewerPage = vi.fn(() => new Promise<number | false | null>((r) => { answer = r }))
+    const view = render(<PdfOriginalView {...base} resumeReady resumeUnanswered fetchNewerPage={fetchNewerPage} />)
+    await wait(50)
+    await userScrollTo(view, 8)
+    await act(async () => { answer(12) })
+    await wait(50)
+    expect(pageUnderTop()).toBe(8)
+  })
+})
+
+describe('PdfOriginalView — tab return (R4-4 for PDF)', () => {
+  it('a newer page elsewhere moves a reader who has not moved since the tab was hidden', async () => {
+    docState.current = loaded(20)
+    localPage.current = 3
+    const fetchNewerPage = vi.fn(async (): Promise<number | false | null> => false)
+    const view = render(<PdfOriginalView fileUrl="f" bookId="b1" initialPage={null} scrollToPage={null} resumeReady fetchNewerPage={fetchNewerPage} />)
+    await wait(50)
+    await userScrollTo(view, 4)
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
+    act(() => { document.dispatchEvent(new Event('visibilitychange')) })
+    fetchNewerPage.mockImplementation(async () => 15)
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+    await act(async () => { document.dispatchEvent(new Event('visibilitychange')) })
+    await wait(50)
+    expect(pageUnderTop()).toBe(15)
+  })
+
+  it('an explicitly opened page (chapter start) is never replaced', async () => {
+    docState.current = loaded(20)
+    const fetchNewerPage = vi.fn(async () => 15)
+    render(<PdfOriginalView fileUrl="f" bookId="b1" initialPage={6} scrollToPage={null} resumeReady fetchNewerPage={fetchNewerPage} />)
+    await wait(50)
+    await act(async () => { document.dispatchEvent(new Event('visibilitychange')) })
+    await wait(50)
+    expect(fetchNewerPage).toHaveBeenCalled()
+    expect(pageUnderTop()).toBe(6)
   })
 })

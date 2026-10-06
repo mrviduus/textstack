@@ -21,6 +21,7 @@ import {
 import { readPdfPage, writePdfPage } from '../../lib/originalLayoutPref'
 import { capturePageAnchor, scrollDeltaForAnchor, type PageAnchor } from '../../lib/pdfZoomAnchor'
 import { saveUserBookProgress } from '../../api/userBooks'
+import { useNewerPositionCheck } from '../../hooks/useNewerPositionCheck'
 import '../../styles/pdfOriginal.css'
 
 interface PageDim {
@@ -49,6 +50,18 @@ interface PdfOriginalViewProps {
    * than page 1. Ignored when `initialPage` is set (chapter jump is instant).
    */
   resumeReady?: boolean
+  /**
+   * The resume answer never came (timeout, offline, 5xx): the document opened at this device's
+   * page. That page is not saved until the reader moves — saving it would bury a newer page
+   * from another device — and the server is re-asked in the background.
+   */
+  resumeUnanswered?: boolean
+  /**
+   * Re-ask the server for its page: a page when it is provably newer than this device's, false
+   * when there is nothing newer, null when there was no answer. Asked in the background after
+   * an unanswered open and whenever the tab becomes visible.
+   */
+  fetchNewerPage?: (signal: AbortSignal) => Promise<number | false | null>
   /** TOC-driven jump. Nonce lets the same page be re-targeted. */
   scrollToPage: { page: number; nonce: number } | null
   /**
@@ -117,6 +130,8 @@ export default function PdfOriginalView({
   initialPage,
   resumePage = null,
   resumeReady = true,
+  resumeUnanswered = false,
+  fetchNewerPage,
   scrollToPage,
   onPageChange,
   onNumPages,
@@ -151,6 +166,14 @@ export default function PdfOriginalView({
   // jump lands, so the page-1 report of a fresh document is never saved over the reader's place.
   // The same gate mobile uses (packages/shared/src/reader/pdfPersistGate.ts).
   const gateRef = useRef(PDF_GATE_INITIAL)
+  // Don't save the page on screen until the reader moves (an unanswered open, a newer-page move).
+  const holdRef = useRef(false)
+  // The reader scrolled by themselves since the last jump or tab hide.
+  const movedRef = useRef(false)
+  // The page on screen was chosen explicitly (chapter open, TOC, highlight link): a newer page
+  // from another device never replaces it until the reader moves on.
+  const explicitRef = useRef(false)
+  const [opened, setOpened] = useState(false)
 
   const [pageDims, setPageDims] = useState<(PageDim | undefined)[]>([])
   const [visible, setVisible] = useState<Set<number>>(new Set())
@@ -218,6 +241,8 @@ export default function PdfOriginalView({
     if (anchor) scaleAnchorRef.current = anchor
   }, [])
   const currentPage = topPage ?? topVisiblePage(visible, openPage)
+  const currentPageRef = useRef(currentPage)
+  currentPageRef.current = currentPage
 
   // Surface the current page to the reader (deduped) once real pages are on
   // screen. Gated on visible.size so the initial openPage guess doesn't fire
@@ -352,6 +377,7 @@ export default function PdfOriginalView({
       gateRef.current = pdfGateReduce(g, { type: 'jumpIssued', page: target, jumpId: g.jumpId + 1, at: Date.now() }).state
       pendingTargetRef.current = target
       userInteractedRef.current = false
+      movedRef.current = false
       // Before the element exists too: a scale change before the next measure
       // must restore to the target, not to where the reader was.
       scaleAnchorRef.current = { page: target, fraction: 0 }
@@ -372,6 +398,8 @@ export default function PdfOriginalView({
       if (!frame) frame = requestAnimationFrame(() => { frame = 0; measureTopPage() })
       if (Date.now() < suppressIntentUntilRef.current) return
       userInteractedRef.current = true
+      movedRef.current = true
+      explicitRef.current = false
       const now = Date.now()
       if (now - lastActivityRef.current > ACTIVITY_THROTTLE_MS) {
         lastActivityRef.current = now
@@ -419,6 +447,8 @@ export default function PdfOriginalView({
     if (!scrollToPage || !pdf || appliedJumpRef.current === scrollToPage.nonce) return
     appliedJumpRef.current = scrollToPage.nonce
     didInitialScrollRef.current = true // an explicit jump wins over the open page
+    explicitRef.current = true
+    setOpened(true)
     jumpToPage(scrollToPage.page)
   }, [scrollToPage, pdf, jumpToPage])
 
@@ -430,8 +460,11 @@ export default function PdfOriginalView({
     if (!pdf || didInitialScrollRef.current) return
     if (initialPage == null && !resumeReady) return
     didInitialScrollRef.current = true
+    explicitRef.current = initialPage != null
+    holdRef.current = resumeUnanswered && initialPage == null
+    setOpened(true)
     requestAnimationFrame(() => jumpToPage(openPage))
-  }, [pdf, openPage, initialPage, resumeReady, jumpToPage])
+  }, [pdf, openPage, initialPage, resumeReady, resumeUnanswered, jumpToPage])
 
   // --- One-shot correction for ANY pending jump: re-align once placeholder
   // heights above the target have streamed in and the user hasn't scrolled. ---
@@ -443,7 +476,10 @@ export default function PdfOriginalView({
       return
     }
     if (dimsReadyUpTo(pageDims, target)) {
-      requestAnimationFrame(() => scrollToPageEl(target))
+      // Only if no newer jump went out before the frame: a stale correction used to drag
+      // the reader back to the previous target.
+      const jumpId = gateRef.current.jumpId
+      requestAnimationFrame(() => { if (gateRef.current.jumpId === jumpId) scrollToPageEl(target) })
       pendingTargetRef.current = null
     }
   }, [pageDims, scrollToPageEl])
@@ -471,7 +507,10 @@ export default function PdfOriginalView({
     const np = numPagesRef.current
     if (page == null || !bookId || np < 1) return
     pendingPageRef.current = null
-    saveUserBookProgress(bookId, buildPdfProgressPayload(page, np)).catch((err) => {
+    // One stamp for both records, so this device's own write never reads back as newer.
+    const at = Date.now()
+    writePdfPage(bookId, page, at)
+    saveUserBookProgress(bookId, buildPdfProgressPayload(page, np, at)).catch((err) => {
       console.warn('[progress] pdf save failed', err)
     })
   }, [bookId])
@@ -484,6 +523,10 @@ export default function PdfOriginalView({
     const gate = pdfGateReduce(gateRef.current, { type: 'pageReported', page: currentPage, at: Date.now() })
     gateRef.current = gate.state
     if (!gate.persist) return
+    if (holdRef.current) {
+      if (!movedRef.current) return
+      holdRef.current = false
+    }
     if (persistTimerRef.current) clearTimeout(persistTimerRef.current)
     persistTimerRef.current = setTimeout(() => writePdfPage(bookId, currentPage), 500)
 
@@ -495,6 +538,34 @@ export default function PdfOriginalView({
       if (persistTimerRef.current) clearTimeout(persistTimerRef.current)
     }
   }, [currentPage, visible.size, bookId, flushServerProgress])
+
+  // --- Another device's newer page (R4): after an unanswered open, and on every tab return.
+  // Moves only a reader who has not moved and is not on an explicitly chosen page. ---
+  const fetchNewerPageRef = useRef(fetchNewerPage)
+  fetchNewerPageRef.current = fetchNewerPage
+  const checkNewerPage = useCallback(async (signal: AbortSignal): Promise<boolean> => {
+    const fetchNewer = fetchNewerPageRef.current
+    if (!fetchNewer || !didInitialScrollRef.current) return false
+    const page = await fetchNewer(signal)
+    if (page === null || signal.aborted) return false
+    if (page === false || explicitRef.current || movedRef.current) return true
+    if (page === currentPageRef.current) return true
+    holdRef.current = true // already the server's page: nothing to save until the reader moves
+    pendingPageRef.current = null
+    if (persistTimerRef.current) clearTimeout(persistTimerRef.current)
+    jumpToPage(page)
+    return true
+  }, [jumpToPage])
+  useNewerPositionCheck(fetchNewerPage ? checkNewerPage : undefined, {
+    ready: opened && !!pdf,
+    unanswered: resumeUnanswered,
+    resetKey: bookId,
+  })
+  useEffect(() => {
+    const onHide = () => { if (document.visibilityState === 'hidden') movedRef.current = false }
+    document.addEventListener('visibilitychange', onHide)
+    return () => document.removeEventListener('visibilitychange', onHide)
+  }, [])
 
   // --- Flush pending server progress on tab-hide + unmount (mirrors the reflow
   // reader) so the last page isn't lost when the reader closes. ---

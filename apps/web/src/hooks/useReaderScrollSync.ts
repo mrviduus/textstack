@@ -4,8 +4,8 @@ import {
   serializeTextPosition, decideNewerPosition, readerMovedSince, REFLOW_MOVE_TOLERANCE_PX,
   type ResolvedPosition,
 } from '@textstack/shared'
-import { PROGRESS_GET_TIMEOUT_MS, PROGRESS_LATE_CHECK_TIMEOUT_MS } from '../lib/progressSync'
 import type { NewerPositionResult } from './useReaderProgress'
+import { useNewerPositionCheck } from './useNewerPositionCheck'
 import { readReadingLine, rangeAtCharOffset, articleText } from '../lib/textAnchor'
 import type { BookDetail } from '../types/api'
 import type { ReaderMode } from './useReaderChapter'
@@ -71,13 +71,21 @@ interface Params {
   /** The hold hit its deadline (HOLD_DEADLINE_MS after the chapter is ready) and was dropped. */
   onHoldExpired?: () => void
   /**
-   * The restore used this device's record because the server did not answer in time. The
-   * server is re-asked once in the background, and the save-on-open waits for that answer: it
-   * would stamp the stale local place as the newest write and bury another device's.
+   * The restore used this device's record because the server gave no answer (timeout or
+   * failure). The server is re-asked in the background (useNewerPositionCheck), and no
+   * save-on-open happens: it would stamp the stale local place as the newest write and bury
+   * another device's.
    */
-  serverTimedOut?: boolean
+  serverUnanswered?: boolean
   /** Re-ask the server for a provably newer position (useReaderProgress). */
-  fetchNewerPosition?: (timeoutMs: number) => Promise<NewerPositionResult>
+  fetchNewerPosition?: (signal: AbortSignal) => Promise<NewerPositionResult>
+  /**
+   * The reader chose where this chapter opens (`?direct=1`, a TOC open). An explicit place
+   * beats a newer one from another device: the newer-position check never moves it.
+   */
+  explicitOpen?: boolean
+  /** Every scroll the READER made — never the echo of a restore or a newer-position move. */
+  onReaderScroll?: () => void
 }
 
 
@@ -171,8 +179,10 @@ export function useReaderScrollSync({
   settingsKey,
   holdRestore = false,
   onHoldExpired,
-  serverTimedOut = false,
+  serverUnanswered = false,
   fetchNewerPosition,
+  explicitOpen = false,
+  onReaderScroll,
 }: Params) {
   const scrollRestoredRef = useRef(false)
   // The reading line as of the last scroll pause. The live capture reads the
@@ -201,7 +211,16 @@ export function useReaderScrollSync({
   latest.current = { mode, originalActive, overallProgress, publicBookChapters, publicProgress, userProgress, chapterLoaded, fetchNewerPosition }
   // Where the last restore or save left the reader in the current chapter. A newer position from
   // another device may move the reader only while they are still here (readerMovedSince).
+  // Doubles as the save filter: a scroll event that leaves the reader exactly here is the
+  // echo of our own scrollTo (restore, newer-position move), not the reader moving.
   const baselineRef = useRef<number | null>(null)
+  // The current position was chosen explicitly (a `?highlight=` link, a `?direct=1` open):
+  // never replaced by a newer position from elsewhere, until the reader moves on their own.
+  const explicitRef = useRef(false)
+  const explicitOpenRef = useRef(explicitOpen)
+  explicitOpenRef.current = explicitOpen
+  const onReaderScrollRef = useRef(onReaderScroll)
+  onReaderScrollRef.current = onReaderScroll
 
   /**
    * The one place a reading position is written.
@@ -309,7 +328,9 @@ export function useReaderScrollSync({
       if (identifierRef.current !== forId) return
       const top = anchoredScrollTop(article, anchored) ?? savedOffset
       window.scrollTo({ top, behavior: 'instant' })
-      baselineRef.current = top
+      // Where the browser actually put us (clamped to the page), not where we asked.
+      baselineRef.current = currentScrollTop()
+      explicitRef.current = explicitOpenRef.current
       scrollRestoredRef.current = true
       setRestoredFor(forId ?? null)
       if (forId) lastLineRef.current = captureReadingPosition(forId)
@@ -323,6 +344,7 @@ export function useReaderScrollSync({
     scrollRestoredRef.current = true
     setRestoredFor(id)
     baselineRef.current = currentScrollTop()
+    explicitRef.current = true
     lastLineRef.current = captureReadingPosition(id)
   }, [])
 
@@ -330,15 +352,16 @@ export function useReaderScrollSync({
    * Ask the server whether another device recorded a newer place, and go there if the reader
    * has not moved since the last restore or save. Mobile's rules (decideNewerPosition), minus
    * the prompt: web never asks and never leaves the chapter — the reader's next scroll decides.
+   * An explicit position (highlight link, direct open) is never replaced.
    * Resolves true once the server has answered (whatever it said).
    */
-  const checkNewerPosition = useCallback(async (timeoutMs: number): Promise<boolean> => {
+  const checkNewerPosition = useCallback(async (signal: AbortSignal): Promise<boolean> => {
     const fetchNewer = latest.current.fetchNewerPosition
     const id = identifierRef.current
     if (!fetchNewer || !id || !scrollRestoredRef.current || latest.current.originalActive) return false
-    const newer = await fetchNewer(timeoutMs)
-    if (newer === null) return false
-    if (!newer || identifierRef.current !== id || latest.current.originalActive) return true
+    const newer = await fetchNewer(signal)
+    if (newer === null || signal.aborted) return false
+    if (!newer || identifierRef.current !== id || latest.current.originalActive || explicitRef.current) return true
     const action = decideNewerPosition({
       sameChapter: newer.chapterSlug === id,
       restoreApplied: scrollRestoredRef.current,
@@ -352,23 +375,21 @@ export function useReaderScrollSync({
     const parsed = parseScrollLocator(newer.locator)
     const top = anchoredScrollTop(article, anchored) ?? (parsed && parsed.slug === id ? parsed.offset : null)
     if (top == null) return true
+    // A pending save is this tab's stale place; the newer one is already on the server.
+    if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null }
+    pendingSaveRef.current = null
     window.scrollTo({ top, behavior: 'instant' })
-    baselineRef.current = top
+    baselineRef.current = currentScrollTop()
     sessionPositionsRef.current.set(id, { offset: top, positionJson: newer.positionJson ?? undefined })
     lastLineRef.current = captureReadingPosition(id)
     return true
   }, [])
 
-  // The restore did not wait for the server: re-ask once, in the background. Re-runs when the
-  // fetcher changes (auth settled) until the server has answered.
-  const lateCheckSettledRef = useRef(false)
-  useEffect(() => {
-    if (!serverTimedOut) { lateCheckSettledRef.current = false; return }
-    if (lateCheckSettledRef.current || !chapterIdentifier || restoredFor !== chapterIdentifier) return
-    void checkNewerPosition(PROGRESS_LATE_CHECK_TIMEOUT_MS).then((settled) => {
-      if (settled) lateCheckSettledRef.current = true
-    })
-  }, [serverTimedOut, restoredFor, chapterIdentifier, fetchNewerPosition, checkNewerPosition])
+  const { answeredRef } = useNewerPositionCheck(fetchNewerPosition ? checkNewerPosition : undefined, {
+    ready: !originalActive && !!chapterIdentifier && restoredFor === chapterIdentifier,
+    unanswered: serverUnanswered,
+    resetKey: chapterIdentifier,
+  })
 
   /**
    * Keep the reader in place when the text reflows under them.
@@ -421,9 +442,9 @@ export function useReaderScrollSync({
     savedOnOpenForRef.current = chapterIdentifier
     // Opened from this device's record because the server was too slow: this place is not known
     // to be the latest, so it is not written as if it were. The reader's first scroll saves.
-    if (serverTimedOut && !lateCheckSettledRef.current) return
+    if (serverUnanswered && !answeredRef.current && !explicitRef.current) return
     writeProgress(chapterIdentifier, currentScrollTop())
-  }, [originalActive, chapterIdentifier, chapterLoaded, restoredFor, writeProgress, serverTimedOut])
+  }, [originalActive, chapterIdentifier, chapterLoaded, restoredFor, writeProgress, serverUnanswered, answeredRef])
 
   // Trailing-debounced save on every scroll — up as well as down. It used to
   // key off overallProgress, which is monotonic (a scroll up never saved), and
@@ -440,9 +461,21 @@ export function useReaderScrollSync({
     }
     const onScroll = () => {
       if (!scrollRestoredRef.current || latest.current.originalActive) return
+      const top = currentScrollTop()
+      // The echo of our own scrollTo — the restore, a newer-position move — arrives a frame
+      // later, after the restore flag is set. Saving it stamped the restored place as the
+      // newest write and buried another device's newer row. Only the reader's own move saves.
+      if (baselineRef.current != null && Math.abs(top - baselineRef.current) < 1) {
+        // Back where the last restore/save left them: nothing new to write.
+        if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null }
+        pendingSaveRef.current = null
+        return
+      }
+      explicitRef.current = false
+      onReaderScrollRef.current?.()
       clearTimeout(lineTimer)
       lineTimer = window.setTimeout(rememberLine, LINE_IDLE_MS)
-      pendingSaveRef.current = { identifier: id, offset: currentScrollTop() }
+      pendingSaveRef.current = { identifier: id, offset: top }
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
       saveTimerRef.current = window.setTimeout(writePending, SAVE_DEBOUNCE_MS)
     }
@@ -464,13 +497,11 @@ export function useReaderScrollSync({
     else latest.current.userProgress.flushSave()
   }, [writePending])
 
-  // Flush on visibility hidden / pagehide / unmount. Stable deps: runs once.
-  // Back to a tab left open: another device may have read on since, and this tab's first scroll
-  // would write its stale place over that (bug R4-4). Re-ask, bounded like the open.
+  // Flush on visibility hidden / pagehide / unmount. Stable deps: runs once. (The re-check on
+  // visible lives in useNewerPositionCheck.)
   useEffect(() => {
     const onVisibility = () => {
       if (document.visibilityState === 'hidden') flushSave()
-      else if (document.visibilityState === 'visible') void checkNewerPosition(PROGRESS_GET_TIMEOUT_MS)
     }
     document.addEventListener('visibilitychange', onVisibility)
     window.addEventListener('pagehide', flushSave)
@@ -479,7 +510,7 @@ export function useReaderScrollSync({
       window.removeEventListener('pagehide', flushSave)
       flushSave()
     }
-  }, [flushSave, checkNewerPosition])
+  }, [flushSave])
 
   return { flushSave, captureBeforeReflow, markPositioned }
 }

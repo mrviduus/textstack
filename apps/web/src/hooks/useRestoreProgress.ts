@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../context/AuthContext'
-import { getProgress } from '../api/auth'
-import { preferLocalProgress, PROGRESS_GET_TIMEOUT_MS } from '../lib/progressSync'
+import { readProgress } from '../api/auth'
+import { preferLocalProgress, PROGRESS_GET_TIMEOUT_MS, timeoutSignal } from '../lib/progressSync'
 
 const STORAGE_KEY = 'reading.progress.'
 
@@ -36,11 +36,12 @@ interface RestoreState {
   /** @deprecated auto-navigate removed. Always null. */
   targetChapterSlug: string | null
   /**
-   * The restore did not wait for the server: auth or the progress GET took longer than
-   * PROGRESS_GET_TIMEOUT_MS, so `savedProgress` is this device's record. Sticky for the book —
-   * the reader re-asks in the background and applies the newer-position rules.
+   * The restore has no server answer behind it: auth or the progress GET took longer than
+   * PROGRESS_GET_TIMEOUT_MS, or the GET failed (offline, 5xx, 401). `savedProgress` is this
+   * device's record. Sticky for the book — the reader re-asks in the background and applies
+   * the newer-position rules. Never set for a `?direct=1` open, which asks nothing.
    */
-  serverTimedOut: boolean
+  serverUnanswered: boolean
 }
 
 export function useRestoreProgress(
@@ -53,9 +54,9 @@ export function useRestoreProgress(
     isLoading: true,
     shouldNavigate: false,
     targetChapterSlug: null,
-    serverTimedOut: false,
+    serverUnanswered: false,
   })
-  const [timedOutFor, setTimedOutFor] = useState<string | null>(null)
+  const [unansweredFor, setUnansweredFor] = useState<string | null>(null)
   // Composite-key dedupe: re-fetch when editionId OR isAuthenticated changes.
   // Covers the "user logs in mid-reading" case — without this, post-login server data
   // never reaches savedProgress until a reload.
@@ -69,8 +70,7 @@ export function useRestoreProgress(
       if (lastFetchKeyRef.current?.startsWith(`${editionId}:`)) return
       const timer = window.setTimeout(() => {
         lastFetchKeyRef.current = `${editionId}:false`
-        setTimedOutFor(editionId)
-        void fetchProgress(false)
+        void fetchProgress(false, true)
       }, PROGRESS_GET_TIMEOUT_MS)
       return () => clearTimeout(timer)
     }
@@ -80,13 +80,14 @@ export function useRestoreProgress(
     lastFetchKeyRef.current = fetchKey
     void fetchProgress(isAuthenticated)
 
-    async function fetchProgress(askServer: boolean) {
+    async function fetchProgress(askServer: boolean, authTimedOut = false) {
       // Skip restore when navigating directly from TOC (?direct=1)
       const params = new URLSearchParams(window.location.search)
       if (params.get('direct') === '1') {
         setState(s => ({ ...s, isLoading: false }))
         return
       }
+      if (authTimedOut) setUnansweredFor(editionId!)
 
       let progress: SavedProgress | null = null
       let local: LocalProgress | null = null
@@ -113,9 +114,8 @@ export function useRestoreProgress(
       // ch5): an unsynced local write wins, otherwise the server does — see preferLocalProgress.
       if (askServer) {
         try {
-          const signal = AbortSignal.timeout(PROGRESS_GET_TIMEOUT_MS)
-          const serverProgress = await getProgress(editionId!, { signal })
-          if (signal.aborted) setTimedOutFor(editionId!)
+          const serverProgress = await readProgress(editionId!, timeoutSignal(PROGRESS_GET_TIMEOUT_MS))
+          if (serverProgress === undefined) setUnansweredFor(editionId!)
           if (serverProgress) {
             const serverData: SavedProgress = {
               chapterSlug: serverProgress.chapterSlug,
@@ -142,5 +142,5 @@ export function useRestoreProgress(
     }
   }, [editionId, isAuthenticated, authLoading])
 
-  return { ...state, serverTimedOut: !!editionId && timedOutFor === editionId }
+  return { ...state, serverUnanswered: !!editionId && unansweredFor === editionId }
 }

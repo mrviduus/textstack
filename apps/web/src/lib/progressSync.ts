@@ -121,8 +121,15 @@ export async function flushLocalProgress(): Promise<number> {
  * save either.
  */
 export const PROGRESS_GET_TIMEOUT_MS = 3000
-/** The background re-ask after a timed-out restore: its whole point is a slow network. */
+/** The background re-ask after an unanswered restore: its whole point is a slow network. */
 export const PROGRESS_LATE_CHECK_TIMEOUT_MS = 15_000
+
+/** Aborts after `ms`. Plain setTimeout, not `AbortSignal.timeout`, so tests drive it with fake timers. */
+export function timeoutSignal(ms: number): AbortSignal {
+  const c = new AbortController()
+  setTimeout(() => c.abort(), ms)
+  return c.signal
+}
 
 export function preferLocalProgress(local: { synced?: boolean } | null, hasServer: boolean): boolean {
   return !!local && (!hasServer || !local.synced)

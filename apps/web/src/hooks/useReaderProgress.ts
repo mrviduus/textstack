@@ -1,8 +1,8 @@
 import { useCallback, useMemo } from 'react'
 import { serverProvablyNewer } from '@textstack/shared'
 import { useAuth } from '../context/AuthContext'
-import { getProgress } from '../api/auth'
-import { getUserBookProgress } from '../api/userBooks'
+import { readProgress } from '../api/auth'
+import { readUserBookProgress } from '../api/userBooks'
 import { useReadingProgress } from './useReadingProgress'
 import { useRestoreProgress } from './useRestoreProgress'
 import { useUserBookProgress } from './useUserBookProgress'
@@ -34,17 +34,17 @@ export interface UseReaderProgressResult {
   effectiveProgress: EffectiveProgress | null
   effectiveLoading: boolean
   autoSaveInfo: AutoSaveInfo | null
-  /** The open restored from this device because the server did not answer in time. */
-  serverTimedOut: boolean
+  /** The open restored from this device because the server gave no answer (timeout or failure). */
+  serverUnanswered: boolean
   /** Re-ask the server; see {@link NewerPositionResult}. */
-  fetchNewerPosition: (timeoutMs: number) => Promise<NewerPositionResult>
+  fetchNewerPosition: (signal: AbortSignal) => Promise<NewerPositionResult>
 }
 
 /**
  * - a position: the server row is provably newer than this device's record (another device read
  *   on since — `serverProvablyNewer`, on client stamps, skew clamped);
  * - `false`: the server answered and there is nothing newer;
- * - `null`: no answer (auth not settled, timed out) — ask again later.
+ * - `null`: no answer (auth not settled, timed out, offline, 5xx, 401) — ask again later.
  */
 export type NewerPositionResult = { chapterSlug: string; locator: string | null; positionJson: string | null } | false | null
 
@@ -78,7 +78,7 @@ export function useReaderProgress({
 
   // Public-only restore (userbook restore lives inside useUserBookProgress).
   // URL is authoritative — we never auto-navigate away from a typed chapter.
-  const { savedProgress, isLoading: progressLoading, serverTimedOut: publicServerTimedOut } = useRestoreProgress(
+  const { savedProgress, isLoading: progressLoading, serverUnanswered: publicServerUnanswered } = useRestoreProgress(
     mode === 'public' ? publicBook?.id : undefined,
     chapterSlug,
   )
@@ -95,18 +95,17 @@ export function useReaderProgress({
       : null
 
   const effectiveLoading = mode === 'public' ? progressLoading : userProgress.isLoading
-  const serverTimedOut = mode === 'public' ? publicServerTimedOut : userProgress.serverTimedOut
+  const serverUnanswered = mode === 'public' ? publicServerUnanswered : userProgress.serverUnanswered
 
   const { isAuthenticated, isLoading: authLoading } = useAuth()
   const editionId = publicBook?.id
-  const fetchNewerPosition = useCallback(async (timeoutMs: number): Promise<NewerPositionResult> => {
+  const fetchNewerPosition = useCallback(async (signal: AbortSignal): Promise<NewerPositionResult> => {
     if (authLoading) return null
     if (!isAuthenticated) return false
-    const signal = AbortSignal.timeout(timeoutMs)
     const [server, key] = mode === 'public'
-      ? [editionId ? await getProgress(editionId, { signal }) : null, `reading.progress.${editionId}`]
-      : [userBookId ? await getUserBookProgress(userBookId, { signal }) : null, `userbook.progress.${userBookId}`]
-    if (signal.aborted) return null
+      ? [editionId ? await readProgress(editionId, signal) : null, `reading.progress.${editionId}`]
+      : [userBookId ? await readUserBookProgress(userBookId, signal) : null, `userbook.progress.${userBookId}`]
+    if (server === undefined || signal.aborted) return null
     if (!server?.chapterSlug || !serverProvablyNewer(localStamp(key), server)) return false
     return { chapterSlug: server.chapterSlug, locator: server.locator ?? null, positionJson: server.positionJson ?? null }
   }, [authLoading, isAuthenticated, mode, editionId, userBookId])
@@ -142,5 +141,5 @@ export function useReaderProgress({
     }
   }, [mode, publicBook?.id, publicBook?.chapters, book?.chapters, userProgress.savedProgress])
 
-  return { publicProgress, userProgress, effectiveProgress, effectiveLoading, autoSaveInfo, serverTimedOut, fetchNewerPosition }
+  return { publicProgress, userProgress, effectiveProgress, effectiveLoading, autoSaveInfo, serverUnanswered, fetchNewerPosition }
 }
