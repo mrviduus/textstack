@@ -315,6 +315,8 @@ someone's memory.
 Brainstorming only — nothing here is decided, planned or started. Recorded so the ideas are not lost
 and nobody mistakes them for a direction.
 
+
+Full write-up: [reader-engine-brainstorm.md](01-architecture/reader-engine-brainstorm.md).
 - **A shared reader engine** — `@textstack/reader-engine`, TypeScript, one engine for web and mobile
   behind a standards-based `Locator` / `Publication` contract (Readium-style), instead of two readers
   that share pure helpers. Prompted by R1/R2, where the same bug had to be fixed once per client (PDF page drift: #714 web,
