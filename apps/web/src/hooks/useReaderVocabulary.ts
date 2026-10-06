@@ -260,7 +260,11 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
   }, [isAuthenticated, updateMap])
 
   const removeWord = useCallback(async (id: string, word: string) => {
-    if (isAuthenticated) {
+    // A pending word lives only in IndexedDB under a local id: delete it there,
+    // or the guest mint's flush would still save it to the account.
+    if (mapRef.current.get(normalizeVocabKey(word))?.isPending) {
+      await deletePendingVocabWord(id).catch(() => {})
+    } else if (isAuthenticated) {
       await deleteWordApi(id)
     }
     updateMap(m => m.delete(normalizeVocabKey(word)))
