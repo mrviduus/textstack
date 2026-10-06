@@ -490,7 +490,8 @@ That single command builds the AAB and pushes it to Internal Testing. Service ac
 
 **GitHub Actions workflows** (`.github/workflows/`):
 - **ci.yml** — runs on PR + push to main. Jobs: backend (build, lint, migrations, search tests), frontend (web + admin build), docker (integration tests), e2e (Playwright)
-- **deploy.yml** — `images` job (GitHub-hosted, `images.yml`) builds every image once, gates it on `scripts/scan-image-secrets.sh`, pushes `ghcr.io/mrviduus/textstack-<svc>:<sha>`; then the self-hosted runner: pre-deploy backup → checkout this run's SHA → frontend build → pull images by SHA (`up -d --no-build`; a failed pull falls back to building on the server) → health checks → SSG content check → image cleanup. Secrets live only in the server's `.env` at runtime, never in an image. Full SSG rebuild only with the `rebuild_ssg` input; otherwise nightly in backup.yml
+- **deploy.yml** — skips docs, `apps/mobile/**`, `extension/**` pushes (never `packages/**`/lockfile). In parallel: `ci` (merged-tree), `images` (GitHub-hosted `images.yml`: build → `scripts/scan-image-secrets.sh` gate → push `ghcr.io/mrviduus/textstack-<svc>:<sha>`, outputs digests) and `backup` (self-hosted pre-deploy dump; failure blocks deploy). Then self-hosted `deploy`: checkout → web build → dist secret scan → pull `name@digest` (no digest/pull fails → server build) → health → SSG check. Rollback (`rollback_commit`) must be hex and on `origin/main` (`guard` job). Full SSG rebuild only with `rebuild_ssg`; otherwise nightly in backup.yml. Pipeline, deps, controls: `docs/01-architecture/delivery.md`, ADR-020
+- **Pins**: every action by commit SHA (`# vX.Y`), every pulled image `tag@sha256:…`; Dependabot moves them. Every workflow has a read-only/none top-level `permissions:`; widen per job only
 - **backup.yml** — daily at 3 AM UTC. DB dump + storage tar.gz, keeps 5 newest of each
 - **health-check.yml** — every 5 min. Checks API + both frontends
 
@@ -502,7 +503,9 @@ Internet → Cloudflare (DNS+SSL) → Cloudflare Tunnel → nginx (port 80)
   └─ textstack.dev → admin panel (:81)
 ```
 
-Docker services: `db` (postgres:16), `migrator`, `api`, `worker`, `admin`, `ssg-worker`, `aspire-dashboard` (profile-gated), `ollama`, `mcp-server` (profile-gated, `--profile mcp`). All localhost-only, no public ports except 80 via tunnel.
+Docker services: `db` (pgvector pg16, digest-pinned), `migrator`, `api`, `worker`, `admin`, `ssg-worker`, `aspire-dashboard` (profile-gated), `ollama`, `mcp-server` (profile-gated, `--profile mcp`). All localhost-only, no public ports except 80 via tunnel.
+
+Images: built + secret-scanned on GitHub, pulled by digest from GHCR; secrets only in the server's `.env` at runtime. Never deploy by SSH — break-glass is `gh workflow run deploy.yml`.
 
 **Nginx bot detection**: Regex map identifies crawlers (Google, Bing, Yandex, social bots) → routes to prerendered SSG HTML. Rate limiting zones: API (10r/s), uploads (1r/s), translation (5r/m), MCP (10r/s).
 
