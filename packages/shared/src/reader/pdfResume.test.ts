@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { chapterSlugForPage, resolvePdfResumePage, chapterEndPage } from './pdfResume'
+import { chapterSlugForPage, resolvePdfResumePage, chapterEndPage, isFirstPagedChapter } from './pdfResume'
 
 // A 4-chapter PDF. Chapter three is where the reader left off.
 const chapters = [
@@ -24,6 +24,15 @@ describe('chapterSlugForPage', () => {
 
   it('returns the last chapter for a page past every start', () => {
     expect(chapterSlugForPage(chapters, 500)).toBe('four')
+  })
+
+  it('gives front matter (pages before the first chapter) to the first chapter', () => {
+    // Compound Effect: TOC starts at page 5. Page 1 used to map to null → "Start Reading" → chapter
+    // one → clamped to page 5 → saved as page:5.
+    const book = [{ slug: 'one', sourceStartPage: 5 }, { slug: 'two', sourceStartPage: 40 }]
+    expect(chapterSlugForPage(book, 1)).toBe('one')
+    expect(chapterSlugForPage(book, 4)).toBe('one')
+    expect(chapterSlugForPage([{ slug: 'x', sourceStartPage: null }, ...book], 2)).toBe('one')
   })
 
   it('returns null when there is nothing to go on', () => {
@@ -62,6 +71,40 @@ describe('chapterEndPage', () => {
       { slug: 'c', sourceStartPage: 40 },
     ]
     expect(chapterEndPage(mixed, 0)).toBe(40)
+  })
+})
+
+describe('isFirstPagedChapter', () => {
+  it('is the first chapter with a measured start, skipping unmeasured ones before it', () => {
+    expect(isFirstPagedChapter(chapters, 0)).toBe(true)
+    expect(isFirstPagedChapter(chapters, 1)).toBe(false)
+    const mixed = [{ slug: 'a', sourceStartPage: null }, { slug: 'b', sourceStartPage: 5 }]
+    expect(isFirstPagedChapter(mixed, 1)).toBe(true)
+    expect(isFirstPagedChapter(mixed, -1)).toBe(false)
+  })
+})
+
+describe('resolvePdfResumePage — pages outside every chapter are honoured, not clamped', () => {
+  it('front matter: page 1 with the first chapter at 5 → 1', () => {
+    expect(resolvePdfResumePage({ chapterStartPage: 5, chapterEndPage: 40, firstChapter: true, resumePage: 1 })).toBe(1)
+    expect(resolvePdfResumePage({ chapterStartPage: 5, chapterEndPage: 40, firstChapter: true, resumePage: 4 })).toBe(4)
+  })
+
+  it('front matter is not claimed by a later chapter picked from the TOC', () => {
+    expect(resolvePdfResumePage({ chapterStartPage: 40, chapterEndPage: 90, firstChapter: false, resumePage: 2 })).toBe(40)
+  })
+
+  it('beyond the last chapter: clamped to the page count only', () => {
+    expect(resolvePdfResumePage({ chapterStartPage: 150, chapterEndPage: null, resumePage: 200, pageCount: 195 })).toBe(195)
+    expect(resolvePdfResumePage({ chapterStartPage: 150, chapterEndPage: null, resumePage: 190, pageCount: 195 })).toBe(190)
+    expect(resolvePdfResumePage({ chapterStartPage: null, resumePage: 200, pageCount: 195 })).toBe(195)
+  })
+
+  it('a page between measured chapters (an unmeasured one in the gap) → itself', () => {
+    const book = [{ slug: 'a', sourceStartPage: 5 }, { slug: 'b', sourceStartPage: null }, { slug: 'c', sourceStartPage: 40 }]
+    // Routed to b (no start page) or to a (whose range runs to c) — either way, page 30.
+    expect(resolvePdfResumePage({ chapterStartPage: null, resumePage: 30, pageCount: 195 })).toBe(30)
+    expect(resolvePdfResumePage({ chapterStartPage: 5, chapterEndPage: chapterEndPage(book, 0), firstChapter: true, resumePage: 30 })).toBe(30)
   })
 })
 

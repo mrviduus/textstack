@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import type { MutableRefObject } from 'react'
 import { AppState } from 'react-native'
-import { t, resolvePdfResumePage, chapterEndPage, pdfGateReduce, PDF_GATE_INITIAL, type PdfGateState, type Language } from '@textstack/shared'
+import { t, resolvePdfResumePage, chapterEndPage, isFirstPagedChapter, pdfGateReduce, PDF_GATE_INITIAL, type PdfGateState, type Language } from '@textstack/shared'
 import { getAccessToken, onUnauthorized } from '../../lib/api'
 import { useToast } from '../../context/ToastContext'
 import { returnedToForeground, decideNewerPosition, readerMovedSince } from '../../lib/progressRestore'
@@ -50,6 +50,8 @@ export function useReaderPdf({
   // re-render as the user scrolls.
   const [pdfCurrentPage, setPdfCurrentPage] = useState(originalInitialPage ?? 1)
   const [pdfNumPages, setPdfNumPages] = useState(0)
+  // Same count, readable synchronously by the first jump (it runs inside the pdfReady handler).
+  const pdfNumPagesRef = useRef<number | null>(null)
   // S4c — corrupt / unreadable PDF surfaced by the viewer (pdfLoadError).
   const [pdfError, setPdfError] = useState(false)
   const pdfReadyRef = useRef(false)
@@ -135,8 +137,10 @@ export function useReaderPdf({
       resumeReady: !!originalResumeReady,
       chapterStartPage: originalInitialPage,
       chapterEndPage: idx >= 0 ? chapterEndPage(chapters, idx) : null,
+      firstChapter: isFirstPagedChapter(chapters, idx),
       // A newer server page that arrived before the jump is simply the target ('adopt').
       resumePage: originalNewerPage?.page ?? originalResumePage,
+      pageCount: pdfNumPagesRef.current,
     })
     if (first.kind === 'wait') return
     pdfResumedPageRef.current = first.page
@@ -172,6 +176,7 @@ export function useReaderPdf({
     const inChapter = resolvePdfResumePage({
       chapterStartPage: originalInitialPage,
       chapterEndPage: idx >= 0 ? chapterEndPage(chapters, idx) : null,
+      firstChapter: isFirstPagedChapter(chapters, idx),
       resumePage: page,
     }) === page
     const action = decideNewerPosition({
@@ -225,7 +230,7 @@ export function useReaderPdf({
     if (data.type === 'pdfReady') {
       // Document opened — record page count, clear any prior error, and run
       // the deferred server-resume initial jump if the fetch already resolved.
-      if (typeof data.numPages === 'number') setPdfNumPages(data.numPages)
+      if (typeof data.numPages === 'number') { setPdfNumPages(data.numPages); pdfNumPagesRef.current = data.numPages }
       pdfReadyRef.current = true
       setPdfError(false)
       // Close the persist gate for this document. Without it, a reload (bar
