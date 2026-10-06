@@ -14,6 +14,16 @@ const auth = { isAuthenticated: true, isLoading: false }
 vi.mock('../../context/AuthContext', () => ({ useAuth: () => auth }))
 vi.mock('../../api/readingTracking', () => ({ submitSession: vi.fn(async () => ({})) }))
 vi.mock('../../lib/analytics', () => ({ trackReadingSessionEnd: vi.fn() }))
+// jsdom has no layout, so hit-testing the reading line finds nothing; a test can supply it.
+const readingLine: { current: ((article: HTMLElement) => { chapterText: string; charOffset: number } | null) | null } = { current: null }
+vi.mock('../../lib/textAnchor', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/textAnchor')>()
+  return {
+    ...actual,
+    readReadingLine: (article: HTMLElement, y: number) =>
+      readingLine.current ? readingLine.current(article) : actual.readReadingLine(article, y),
+  }
+})
 
 import { useReaderScrollSync } from '../useReaderScrollSync'
 import { useRestoreProgress } from '../useRestoreProgress'
@@ -30,14 +40,8 @@ function setScroll(top: number) {
 function getScroll() {
   return ((document.scrollingElement || document.documentElement) as HTMLElement).scrollTop
 }
-/** The reader scrolls: input (a wheel turn), then the scroll it causes. */
+/** The page scrolls without our scrollTo: the reader (wheel, scrollbar, Ctrl+F) or the browser. */
 function userScroll(top: number) {
-  window.dispatchEvent(new Event('wheel'))
-  setScroll(top)
-  window.dispatchEvent(new Event('scroll'))
-}
-/** The browser scrolls on its own (scroll anchoring as an image loads above): no input. */
-function browserScroll(top: number) {
   setScroll(top)
   window.dispatchEvent(new Event('scroll'))
 }
@@ -80,6 +84,7 @@ beforeEach(() => {
   auth.isLoading = false
   localStorage.clear()
   setScroll(0)
+  readingLine.current = null
 })
 afterEach(() => {
   vi.useRealTimers()
@@ -363,33 +368,75 @@ describe('ADR-019: saves are scoped to their document', () => {
   })
 })
 
-describe("round 2 #1: only the reader's own scrolls count", () => {
-  it('a browser-driven scroll (no input) is not saved, is not "moving", and is not reading', async () => {
+describe("round 3: mobile's rule — every scroll but our own is the reader's", () => {
+  it('a scroll with no input event at all (scrollbar drag, Ctrl+F jump) IS saved and IS reading', async () => {
     const onReaderScroll = vi.fn()
-    let answer!: (r: NewerPositionResult) => void
-    const fetchNewerPosition = vi.fn(() => new Promise<NewerPositionResult>((r) => { answer = r }))
-    renderHook(() => useReaderScrollSync({ ...baseProps(), effectiveProgress: { locator: 'scroll:ch1:2000' }, fetchNewerPosition, onReaderScroll }))
+    renderHook(() => useReaderScrollSync({ ...baseProps(), effectiveProgress: { locator: 'scroll:ch1:2000' }, onReaderScroll }))
     await frame()
-    await act(async () => { await vi.advanceTimersByTimeAsync(2000) }) // past the echo and input windows
-    const before = locators().length
-    await act(async () => { setVisibility('visible') })
-    act(() => { browserScroll(2350) }) // an image above finished loading
-    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
-    await act(async () => { answer(newer('scroll:ch1:9000')) }) // not "moved": the newer place applies
-    expect(getScroll()).toBe(9000)
-    await act(async () => { await vi.advanceTimersByTimeAsync(3000) })
-    expect(locators().slice(before)).toEqual([])
-    expect(onReaderScroll).not.toHaveBeenCalled()
+    act(() => { userScroll(5200) }) // no wheel/touch/key/pointer event precedes it
+    await act(async () => { await vi.advanceTimersByTimeAsync(1500) })
+    expect(locators()[locators().length - 1]).toBe('scroll:ch1:5200')
+    expect(onReaderScroll).toHaveBeenCalled()
   })
 
-  it("momentum after the last touch is still the reader's", async () => {
-    renderHook(() => useReaderScrollSync(baseProps()))
+  it('the re-anchor after a font change (and its resize re-runs) is not saved and is not "moved"', async () => {
+    let resized: (() => void) | undefined
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(cb: () => void) { resized = cb }
+      observe() {}
+      disconnect() {}
+    })
+    Object.defineProperty(window, 'innerHeight', { value: 900, configurable: true })
+    const article = document.createElement('div')
+    article.className = 'reader-section__article'
+    article.textContent = 'Call me Ishmael. Some years ago — never mind how long precisely — having little money in my purse.'
+    document.body.appendChild(article)
+    // Where the reader's text sits in the document; a bigger font pushes it down.
+    let textTop = 2000 + 225
+    Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ top: textTop - getScroll(), bottom: textTop - getScroll() + 20, left: 0, right: 0, width: 0, height: 20, x: 0, y: 0, toJSON() {} }),
+    })
+    readingLine.current = (a) => ({ chapterText: a.textContent ?? '', charOffset: 17 })
+    let answer!: (r: NewerPositionResult) => void
+    const fetchNewerPosition = vi.fn(() => new Promise<NewerPositionResult>((r) => { answer = r }))
+    const props = { ...baseProps(), effectiveProgress: { locator: 'scroll:ch1:2000' }, fetchNewerPosition }
+    const { result, rerender } = renderHook((p: Props) => useReaderScrollSync(p), { initialProps: props })
     await frame()
-    act(() => { window.dispatchEvent(new Event('touchmove')) })
-    act(() => { vi.advanceTimersByTime(900); browserScroll(1000) })
-    for (let i = 1; i <= 10; i++) act(() => { vi.advanceTimersByTime(100); browserScroll(1000 + i * 50) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
+    expect(getScroll()).toBe(2000)
+    const before = locators().length
+
+    act(() => { result.current.captureBeforeReflow() })
+    textTop += 400
+    rerender({ ...props, settingsKey: 'bigger' })
+    await frame()
+    expect(getScroll()).toBe(2400)
+    textTop += 300 // the webfont lands: the article resizes, the re-anchor runs again
+    act(() => { resized?.() })
+    await frame()
+    expect(getScroll()).toBe(2700)
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
+    expect(locators().slice(before)).toEqual([])
+
+    // Not "moved" (700 px from the restore, yet ours): a newer position from elsewhere applies.
+    await act(async () => { setVisibility('visible') })
+    await act(async () => { answer(newer('scroll:ch1:9000')) })
+    expect(getScroll()).toBe(9000)
+    article.remove()
+    delete (Range.prototype as { getBoundingClientRect?: unknown }).getBoundingClientRect
+  })
+
+  it('after an unanswered open, a small shift (scroll anchoring) is not saved; a real move is', async () => {
+    const props = { ...baseProps(), effectiveProgress: { locator: 'scroll:ch1:2000' }, serverUnanswered: true }
+    renderHook(() => useReaderScrollSync(props))
+    await frame()
+    act(() => { userScroll(2030) }) // an image above settled: inside the 48 px tolerance
+    await act(async () => { await vi.advanceTimersByTimeAsync(3000) })
+    expect(locators()).toEqual([])
+    act(() => { userScroll(2600) })
     await act(async () => { await vi.advanceTimersByTimeAsync(1500) })
-    expect(locators()[locators().length - 1]).toBe('scroll:ch1:1500')
+    expect(locators()).toEqual(['scroll:ch1:2600'])
   })
 })
 
@@ -428,6 +475,17 @@ describe('round 2 #4: one check at a time, and tab flicking is throttled', () =>
     }
     expect(fetchNewerPosition).toHaveBeenCalledTimes(1)
     await act(async () => { await vi.advanceTimersByTimeAsync(30_000) })
+    await act(async () => { setVisibility('visible') })
+    expect(fetchNewerPosition).toHaveBeenCalledTimes(2)
+  })
+
+  it('a visible that started no check (one was in flight) does not use up the throttle', async () => {
+    let finish!: (r: NewerPositionResult) => void
+    const fetchNewerPosition = vi.fn(() => new Promise<NewerPositionResult>((r) => { finish = r }))
+    renderHook(() => useReaderScrollSync({ ...baseProps(), serverUnanswered: true, fetchNewerPosition }))
+    await frame()
+    await act(async () => { setVisibility('visible') }) // the late check is in flight: nothing starts
+    await act(async () => { finish(null) })
     await act(async () => { setVisibility('visible') })
     expect(fetchNewerPosition).toHaveBeenCalledTimes(2)
   })

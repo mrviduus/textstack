@@ -355,9 +355,7 @@ function setScroll(top: number) {
 function realScrollTo() {
   window.scrollTo = vi.fn((arg: any) => setScroll(typeof arg === 'object' ? arg.top : arg)) as unknown as typeof window.scrollTo
 }
-/** The reader scrolls: input (a wheel turn), then the scroll it causes. */
 function scrollBy(top: number) {
-  window.dispatchEvent(new Event('wheel'))
   setScroll(top)
   window.dispatchEvent(new Event('scroll'))
 }

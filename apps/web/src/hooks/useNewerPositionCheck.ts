@@ -39,19 +39,21 @@ export function useNewerPositionCheck(
     if (!unanswered) answeredRef.current = false
   }, [unanswered])
 
-  const run = useCallback(async (timeoutMs: number) => {
+  /** Starts a check; false when none started (not ready, or one already in flight). */
+  const run = useCallback((timeoutMs: number): boolean => {
     const fn = checkRef.current
-    if (!fn || !readyRef.current || inFlightRef.current) return
+    if (!fn || !readyRef.current || inFlightRef.current) return false
     const c = new AbortController()
     inFlightRef.current = c
     const timer = setTimeout(() => c.abort(), timeoutMs)
-    try {
-      const answered = await fn(c.signal)
-      if (answered && !c.signal.aborted) answeredRef.current = true
-    } finally {
-      clearTimeout(timer)
-      if (inFlightRef.current === c) inFlightRef.current = null
-    }
+    void fn(c.signal)
+      .then((answered) => { if (answered && !c.signal.aborted) answeredRef.current = true })
+      .catch(() => { /* a failed check is an unanswered one */ })
+      .finally(() => {
+        clearTimeout(timer)
+        if (inFlightRef.current === c) inFlightRef.current = null
+      })
+    return true
   }, [])
 
   // Another chapter / document, or unmount: whatever is in flight answers for a page that is gone.
@@ -64,7 +66,7 @@ export function useNewerPositionCheck(
   useEffect(() => {
     if (!ready || !unanswered || answeredRef.current) return
     const timers = LATE_CHECK_DELAYS_MS.map((d) => setTimeout(() => {
-      if (!answeredRef.current) void run(PROGRESS_LATE_CHECK_TIMEOUT_MS)
+      if (!answeredRef.current) run(PROGRESS_LATE_CHECK_TIMEOUT_MS)
     }, d))
     return () => timers.forEach(clearTimeout)
   }, [ready, unanswered, resetKey, run])
@@ -74,11 +76,11 @@ export function useNewerPositionCheck(
     const onVisibility = () => {
       if (document.visibilityState !== 'visible') return
       if (Date.now() - lastVisibleCheckRef.current < VISIBLE_THROTTLE_MS) return
-      lastVisibleCheckRef.current = Date.now()
-      void run(PROGRESS_GET_TIMEOUT_MS)
+      // Stamped only when a check really started: an early exit is not a check.
+      if (run(PROGRESS_GET_TIMEOUT_MS)) lastVisibleCheckRef.current = Date.now()
     }
     const onOnline = () => {
-      if (unansweredRef.current && !answeredRef.current) void run(PROGRESS_LATE_CHECK_TIMEOUT_MS)
+      if (unansweredRef.current && !answeredRef.current) run(PROGRESS_LATE_CHECK_TIMEOUT_MS)
     }
     document.addEventListener('visibilitychange', onVisibility)
     window.addEventListener('online', onOnline)
