@@ -73,6 +73,9 @@ interface PdfHighlight {
 const FALLBACK_DIM: PageDim = { w: 612, h: 792 } // US Letter @72dpi
 const HORIZONTAL_PAD = 24
 const PAGE_REPORT_THROTTLE_MS = 200
+/** A jump never waits longer than this for the sizes above its target (slow stream, a size
+ *  fetch that never returns): it lands where the column says the target is, and reports resume. */
+const JUMP_DEADLINE_MS = 8000
 
 // Same pastel palette as the reflow overlay + web PdfHighlightLayer COLOR_MAP,
 // as rgba so `mix-blend-mode: multiply` reads the alpha over the white scan.
@@ -161,6 +164,7 @@ function main(): void {
   // tell "the reader is here" from "we are still travelling". 0 = viewer's own
   // boot seed, which RN never waits on.
   let pendingJumpId = 0
+  let jumpDeadline: ReturnType<typeof setTimeout> | null = null
   let appliedJumpId = 0
   let lastReportedPage = -1
   let lastPageReportAt = 0
@@ -436,6 +440,7 @@ function main(): void {
     const target = clampPage(raw, numPages)
     pendingTarget = target
     pendingJumpId = jumpId
+    armJumpDeadline()
     scrollToPageEl(target)
     // Every size above it already known (the prefetch may be done): this IS the landing.
     settleIfReady()
@@ -446,17 +451,38 @@ function main(): void {
    *  forces the layout the new sizes produce, and no report can slip in between. */
   function settleIfReady(): void {
     if (pendingTarget == null || !dimsReadyUpTo(pageDims, pendingTarget)) return
+    applyPlaceholderSizes()
+    endJump(true)
+  }
+
+  /** The jump is over: landed on its target (`scroll`), or cancelled by the reader where they
+   *  are. Either way acknowledged, so RN's gate opens on the page now under the top. */
+  function endJump(scroll: boolean): void {
+    if (pendingTarget == null) return
     const t = pendingTarget
     const id = pendingJumpId
-    applyPlaceholderSizes()
-    scrollToPageEl(t)
+    if (scroll) scrollToPageEl(t)
     pendingTarget = null
     pendingJumpId = 0
+    if (jumpDeadline) { clearTimeout(jumpDeadline); jumpDeadline = null }
     appliedJumpId = id
     // Tell RN this jump landed. Position alone is ambiguous — the page it would
     // report may be the one it already reported — so the id travels.
     reportTopPageNow()
   }
+
+  function armJumpDeadline(): void {
+    if (jumpDeadline) clearTimeout(jumpDeadline)
+    // ponytail: after the deadline the column above may still change size and move the page under
+    // the top; pin the target until its sizes arrive if slow streams show that in QA.
+    jumpDeadline = setTimeout(() => { jumpDeadline = null; applyPlaceholderSizes(); endJump(true) }, JUMP_DEADLINE_MS)
+  }
+
+  // The reader's own gesture cancels a travelling jump (as the web reader does): their place is
+  // where they scroll to, and a late landing must not snap them back. Input events, not `scroll`:
+  // sizes streaming in above (and the browser's scroll anchoring) move scrollY with no reader.
+  const cancelJump = () => endJump(false)
+  for (const type of ['touchmove', 'wheel', 'keydown']) window.addEventListener(type, cancelJump, { passive: true })
 
   function buildPageEls(): void {
     const frag = document.createDocumentFragment()
@@ -544,6 +570,7 @@ function main(): void {
       // and more specific, so it wins. This ordering is the fix: the seed used to
       // be a separate self-jump that overwrote RN's request instead.
       if (pendingTarget == null && openPage > 1) pendingTarget = clampPage(openPage, numPages)
+      if (pendingTarget != null) armJumpDeadline()
       post({ type: 'pdfReady', numPages })
       void prefetchDims()
     } catch (err) {

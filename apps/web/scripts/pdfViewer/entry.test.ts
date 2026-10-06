@@ -64,7 +64,15 @@ const flush = () => vi.advanceTimersByTimeAsync(300)
 /** The IntersectionObserver firing — pages crossing the 300px band as the column changes. */
 const observerFires = async () => { observerCallback?.([]); await flush() }
 
+// Each test imports a fresh viewer; the one before it must stop listening to the shared window.
+const added: [string, EventListenerOrEventListenerObject][] = []
+const realAdd = window.addEventListener.bind(window)
+
 beforeEach(async () => {
+  window.addEventListener = ((type: string, fn: EventListenerOrEventListenerObject, o?: unknown) => {
+    added.push([type, fn])
+    realAdd(type, fn, o as AddEventListenerOptions)
+  }) as typeof window.addEventListener
   vi.useFakeTimers()
   vi.resetModules()
   released = 0
@@ -93,6 +101,8 @@ beforeEach(async () => {
 })
 
 afterEach(() => {
+  for (const [type, fn] of added.splice(0)) window.removeEventListener(type, fn)
+  vi.clearAllTimers()
   vi.restoreAllMocks()
   vi.useRealTimers()
 })
@@ -171,6 +181,46 @@ describe('PDF reopen (F2: +2 pages per open)', () => {
     rn.drain()
     expect(rn.saved.length).toBeGreaterThan(0)
     expect(rn.saved).toEqual(rn.saved.map(() => 55))
+  })
+
+  it('the reader scrolling while a jump travels cancels it: their page is saved, no snap back', async () => {
+    const rn = rnGate()
+    await openViewer(null)
+    rn.drain()
+    rn.dispatch({ type: 'jumpIssued', page: 55, jumpId: 1, at: Date.now() })
+    ;(window as unknown as { scrollToPage: (n: number, id: number) => void }).scrollToPage(55, 1)
+    await flush()
+    // The reader's own gesture, then the scroll it makes: to page 20.
+    window.dispatchEvent(new Event('touchmove'))
+    window.scrollTo(0, layoutTop(document.querySelector('.pdf-page[data-page="20"]')!))
+    await flush()
+    rn.drain()
+    expect(rn.saved.at(-1)).toBe(20)
+    const y = window.scrollY
+    release(NUM_PAGES)                        // the sizes arrive late: the cancelled jump stays cancelled
+    await flush()
+    rn.drain()
+    expect(window.scrollY).toBe(y)
+    expect(rn.saved.at(-1)).toBe(20)
+  })
+
+  it('a jump whose sizes never arrive lands at its deadline, and reporting resumes', async () => {
+    const rn = rnGate()
+    await openViewer(null)
+    rn.drain()
+    rn.dispatch({ type: 'jumpIssued', page: 55, jumpId: 1, at: Date.now() })
+    ;(window as unknown as { scrollToPage: (n: number, id: number) => void }).scrollToPage(55, 1)
+    await flush()
+    rn.drain()
+    expect(rn.saved).toEqual([])
+    await vi.advanceTimersByTimeAsync(8000)
+    rn.drain()
+    expect(messages.filter(m => m.type === 'pdfPage').at(-1)).toMatchObject({ page: 55, jumpId: 1 })
+    expect(rn.saved).toEqual([55])
+    window.scrollTo(0, layoutTop(document.querySelector('.pdf-page[data-page="57"]')!))
+    await flush()
+    rn.drain()
+    expect(rn.saved.at(-1)).toBe(57)
   })
 
   it('a jump after every size is known lands and is acknowledged at once', async () => {
