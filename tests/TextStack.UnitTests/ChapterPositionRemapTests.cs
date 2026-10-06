@@ -131,16 +131,64 @@ public class ChapterPositionRemapTests
         new() { Id = Guid.NewGuid(), UserId = userId, ChapterSlug = slug };
 
     [Fact]
-    public void InsightMoves_MatchedSlugChanged_Moved_RepointedAndBookLevelLeft()
+    public void InsightMoves_MatchedSlugChanged_Moved_RemovedGoesToFreeNeighbour_BookLevelLeft()
     {
         var user = Guid.NewGuid();
         var moved = Insight(user, S(Before, 2));
-        var gone = Insight(user, S(Before, 0)); // its chapter's text is gone — not the neighbour's
+        var gone = Insight(user, S(Before, 0)); // TOC removed; its readers went to Chapter One
         var book = Insight(user, null);
 
         var result = InsightMoves([moved, gone, book], MovesFor(Before, After), (_, _) => { });
 
-        Assert.Equal([(moved, S(After, 1))], result);
+        Assert.Equal([(moved, S(After, 1)), (gone, S(After, 0))], result);
+    }
+
+    /// <summary>Positional slugs: chapter "2-chapter" removed, "3-chapter" moves into its slug.</summary>
+    private static readonly Dictionary<string, SlugMove> Reuse = new()
+    {
+        ["2-chapter"] = new("1-chapter", Reset: true),
+        ["3-chapter"] = new("2-chapter", Reset: false),
+    };
+
+    [Fact]
+    public void InsightMoves_RemovedChapterSlugReused_GenuineMoveTakesIt_RemovedParkedWhenNeighbourTaken()
+    {
+        var user = Guid.NewGuid();
+        var removed = Insight(user, "2-chapter");
+        var genuine = Insight(user, "3-chapter");
+        var neighbour = Insight(user, "1-chapter");
+        var collided = new List<BookInsight>();
+
+        var result = InsightMoves([removed, genuine, neighbour], Reuse, (i, _) => collided.Add(i));
+
+        // The old insight must not show up on the chapter now called 2-chapter, nor block its move.
+        Assert.Equal([(removed, "~orphan:2-chapter"), (genuine, "2-chapter")], result);
+        Assert.Equal([removed], collided);
+    }
+
+    [Fact]
+    public void InsightMoves_RemovedChapterSlugReused_NeighbourFree_RemovedMovesToNeighbour()
+    {
+        var user = Guid.NewGuid();
+        var removed = Insight(user, "2-chapter");
+        var genuine = Insight(user, "3-chapter");
+
+        var result = InsightMoves([removed, genuine], Reuse, (_, _) => throw new InvalidOperationException());
+
+        Assert.Equal([(removed, "1-chapter"), (genuine, "2-chapter")], result);
+    }
+
+    [Fact]
+    public void InsightMoves_RemovedAndOrphanMarkerTaken_ParkedOnItsId()
+    {
+        var user = Guid.NewGuid();
+        var removed = Insight(user, "2-chapter");
+        var neighbour = Insight(user, "1-chapter");
+        var earlierOrphan = Insight(user, "~orphan:2-chapter"); // left by a previous re-ingest
+
+        var result = InsightMoves([removed, neighbour, earlierOrphan], Reuse, (_, _) => { });
+
+        Assert.Equal([(removed, $"~orphan:{removed.Id:N}")], result);
     }
 
     [Fact]

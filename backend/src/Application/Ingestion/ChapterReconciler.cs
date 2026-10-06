@@ -314,11 +314,24 @@ public static class ChapterReconciler
         return obj.ToJsonString(RelaxedJson);
     }
 
+    /// <summary>Longest <c>BookInsight.ChapterSlug</c> the column takes.</summary>
+    private const int MaxInsightSlugLength = 300;
+
     /// <summary>
-    /// Which insights move to which slug. Only a matched chapter's insight moves (a re-pointed
-    /// chapter's text is gone; the conclusion is not about its neighbour). One insight per
-    /// (user, book, chapter) is a unique key, so a move onto a slug the user already holds is skipped
-    /// and reported — and that insight staying put can block the next move, hence the loop.
+    /// Which insights move to which slug. One insight per (user, book, chapter) is a unique key.
+    /// <list type="number">
+    /// <item>A removed chapter's insight first VACATES its old slug — a positional slug
+    /// (<c>2-chapter</c>) can be reused by another chapter, and the old conclusion must neither show
+    /// up on that chapter nor block the insight genuinely moving there.</item>
+    /// <item>A matched chapter's insight moves with its slug. A move onto a slug the user already
+    /// holds is skipped and reported — and that insight staying put can block the next move, hence
+    /// the loop.</item>
+    /// <item>Last, a removed chapter's insight goes where its readers went (the neighbour now holds
+    /// that text) if the user has nothing there; otherwise it is parked on
+    /// <c>~orphan:&lt;old slug&gt;</c> (or <c>~orphan:&lt;id&gt;</c> if that is taken too). Parked,
+    /// not deleted: no chapter shows it, but the reader's conclusion still exists and is reachable
+    /// through the book-wide insight list.</item>
+    /// </list>
     /// Caller passes one book's insights.
     /// </summary>
     public static IReadOnlyList<(BookInsight Insight, string To)> InsightMoves(
@@ -327,11 +340,15 @@ public static class ChapterReconciler
     {
         var target = insights.Select(i =>
             i.ChapterSlug is { } s && moves.TryGetValue(s, out var m) && !m.Reset ? m.To : i.ChapterSlug).ToArray();
+        var removed = Enumerable.Range(0, insights.Count)
+            .Where(k => insights[k].ChapterSlug is { } s && moves.TryGetValue(s, out var m) && m.Reset)
+            .ToHashSet();
+        var placed = Enumerable.Range(0, insights.Count).Where(k => !removed.Contains(k)).ToList();
         bool skipped;
         do
         {
             skipped = false;
-            var collisions = Enumerable.Range(0, insights.Count)
+            var collisions = placed
                 .GroupBy(k => (insights[k].UserId, target[k]))
                 .Where(g => g.Count() > 1)
                 .ToList();
@@ -348,6 +365,22 @@ public static class ChapterReconciler
             }
         } while (skipped);
 
+        var taken = placed.Select(k => (insights[k].UserId, target[k])).ToHashSet();
+        foreach (var k in removed.Order())
+        {
+            var (user, old) = (insights[k].UserId, insights[k].ChapterSlug!);
+            var to = moves[old].To;
+            if (taken.Contains((user, to)))
+            {
+                onCollision(insights[k], to);
+                to = $"~orphan:{old}";
+                if (to.Length > MaxInsightSlugLength || taken.Contains((user, to)))
+                    to = $"~orphan:{insights[k].Id:N}";
+            }
+            taken.Add((user, to));
+            target[k] = to;
+        }
+
         return Enumerable.Range(0, insights.Count)
             .Where(k => target[k] != insights[k].ChapterSlug)
             .Select(k => (insights[k], target[k]!))
@@ -361,7 +394,7 @@ public static class ChapterReconciler
         var insights = await bookInsights.Where(x => x.ChapterSlug != null).ToListAsync(ct);
         undo.Add(() => Detach(db.BookInsights, insights));
         var moved = InsightMoves(insights, moves, (i, to) => logger?.LogWarning(
-            "Re-ingest: insight {InsightId} stays on chapter {From}; the user already has one on {To}",
+            "Re-ingest: insight {InsightId} on chapter {From} cannot move to {To}; the user already has one there",
             i.Id, i.ChapterSlug, to));
         if (moved.Count == 0) return;
 
