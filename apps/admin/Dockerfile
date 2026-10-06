@@ -13,7 +13,7 @@
 # Base images are pinned by digest (tag kept for humans); Dependabot moves them.
 # The node tag must match .nvmrc — a Dockerfile cannot read it, so
 # scripts/check-node-version.mjs fails CI when they drift.
-FROM node:24.20.0-alpine@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf AS build
+FROM node:26.10.0-alpine@sha256:0b36e8c136b94cd4fcf02188228e76c31ad5872eef3fec8cbd2eee500cfd9e80 AS build
 
 WORKDIR /repo
 
