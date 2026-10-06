@@ -927,6 +927,8 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
       } else if (anchor && typeof anchor === 'object') {
         anchorObj = anchor;
       }
+      // Page geometry for the Original PDF viewer — its 'exact' would text-match a reflow page.
+      if (anchorObj && anchorObj.kind === 'pdf') { console.warn('[diag] renderHighlight: pdf anchor in reflow', id); return; }
       if (!anchorObj || !anchorObj.exact) {
         if (fallbackText) anchorObj = { exact: fallbackText };
       }
