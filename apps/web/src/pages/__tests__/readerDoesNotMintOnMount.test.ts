@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { readerPageSource } from './readerPageSource'
 
 /**
  * A source-asserting guard.
@@ -29,9 +30,11 @@ describe('ReaderPage', () => {
 
   it('does not create a session just because the page rendered', () => {
     // Any call, not merely one inside an effect: there is no correct place on
-    // this page to mint without the reader having done something.
-    expect(source).not.toMatch(/ensureSession\s*\(/)
-    expect(source).not.toMatch(/createGuestSession/)
+    // this page to mint without the reader having done something. Read across
+    // the page and every hook/component its code was split into.
+    const pageSource = readerPageSource()
+    expect(pageSource).not.toMatch(/ensureSession\s*\(/)
+    expect(pageSource).not.toMatch(/createGuestSession/)
   })
 
   it('still reads the session it is given', () => {
