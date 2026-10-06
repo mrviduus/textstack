@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Reader (R3)** — Android Back closes the word toolbar first; signed out on a dead network only the first chapter waits (gate remembers a give-up 5 min); uploads use the book's language for TTS/translate/explain/saved words; a crashed WebView remounts at the saved place; PDF page input in a modal above the keyboard; session words read no longer count restore/jumps and keep the last partial tick; font rebuild restores by text anchor; PDF 401 refresh failure shows Retry; per-tick and progress clock clamps — mobile
 - **CI** — advisory GHSA-68fv (source-map-js) allowlisted: build/test tooling only; 1.2.2 rides the next dependency refresh — ci · [details](docs/changelog-archive/2026-H2.md#2026-10-05-architecture-review-and-p2-batch)
 - **Reader** — re-ingest also moves positions that name a chapter by slug: progress locator + text-anchor position, bookmarks, upload progress, insights (matched chapter keeps offset/anchor; re-pointed one opens at chapter start; insight on a taken slug skipped + logged) — backend · [details](docs/changelog-archive/2026-H2.md#2026-10-05-reader-bug-hunt-r1-r2)
 - **Reader** — progress write with no client timestamp (mark finished/unread, MCP `set_book_progress`) stamps server now instead of null, so an older queued write can no longer undo it — backend · [details](docs/changelog-archive/2026-H2.md#2026-10-05-sync-correctness)
