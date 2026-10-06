@@ -24,9 +24,11 @@ size (disk cleanup, scan, push), not with build work.
 2. **Deploy by digest.** `images` outputs `<svc>@sha256:<digest>` from `docker push` itself — the
    bytes it scanned. `deploy` pulls `name@digest` and tags it `:<sha>` locally for compose and humans.
    No digest, or a failed pull → the server builds, as before. A failed `images` never blocks a deploy;
-   a failed `ci` or pre-deploy backup does. The backup is a step right before the migrator, not a
-   parallel job: a dump taken at the start of the run can be an hour older than the migration it is
-   meant to undo (CI, images, the SSG wait). Correctness of the rollback point beats ~2.5 min.
+   a failed `ci` or pre-deploy backup does. The backup is a step in `deploy` after the SSG wait and
+   before the web build — before anything live changes, so a failed dump ships nothing, and minutes
+   before the migrator. Not a parallel job: a dump taken at the start of the run can be an hour older
+   than the migration it is meant to undo (CI, images, the SSG wait). Correctness of the rollback
+   point beats ~2.5 min.
 3. **Everything third-party is pinned to content:** actions by commit SHA (`# vX.Y` comment), pulled
    images by `tag@sha256`. Dependabot (`github-actions`, `docker`, `docker-compose`) moves the pins, so
    a pin is not a freeze.

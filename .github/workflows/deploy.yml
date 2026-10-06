@@ -187,6 +187,27 @@ jobs:
             sleep 30
           done
 
+      # After the SSG wait, before anything live changes (the web build rewrites the
+      # served dist/). A failed dump therefore ships nothing: same site, same
+      # containers. Not at the start of the run and not in a parallel job: CI, images
+      # and the up-to-40-min SSG wait could then put an hour of writes between the
+      # dump and a bad migration, all lost on restore. Here it is minutes before the
+      # migrator (next: web build, scan, "Deploy containers"). Correctness of the
+      # rollback point beats the ~2.5 min this costs.
+      - name: Pre-deploy backup
+        run: |
+          mkdir -p ~/backups/textstack
+          DATE=$(date +%F-%H%M)
+          # pipefail + trailer check: a failed pg_dump used to leave an empty archive
+          # and let the deploy proceed with no usable rollback point.
+          set -o pipefail
+          docker exec textstack_db_prod pg_dump -U textstack_prod textstack_prod | gzip > ~/backups/textstack/pre-deploy-$DATE.sql.gz
+          zcat ~/backups/textstack/pre-deploy-$DATE.sql.gz | tail -n 5 | grep -q 'PostgreSQL database dump complete' \
+            || { echo "::error::pre-deploy dump is incomplete"; exit 1; }
+          echo "Backup created: pre-deploy-$DATE.sql.gz"
+          # Keep only the 2 newest pre-deploy backups
+          cd ~/backups/textstack && ls -1t pre-deploy-*.sql.gz 2>/dev/null | tail -n +3 | xargs -r rm -v
+
       # Vite reads apps/web/.env* and inlines VITE_* values into public JS. Nothing
       # here needs those files — the four VITE_ variables the code reads are passed
       # inline to the build below and win over any file — and the box had a stale,
@@ -401,25 +422,6 @@ jobs:
         run: |
           cd $PROJECT_DIR
           make fix-permissions
-
-      # Here, not at the start of the run and not in a parallel job: the migrator runs
-      # in the next step, and the rollback point must be the database as it was just
-      # before it. Taken earlier, CI + images + the up-to-40-min SSG wait could put an
-      # hour of writes between the dump and a bad migration, all lost on restore.
-      # Correctness of the rollback point beats the ~2.5 min this costs.
-      - name: Pre-deploy backup
-        run: |
-          mkdir -p ~/backups/textstack
-          DATE=$(date +%F-%H%M)
-          # pipefail + trailer check: a failed pg_dump used to leave an empty archive
-          # and let the deploy proceed with no usable rollback point.
-          set -o pipefail
-          docker exec textstack_db_prod pg_dump -U textstack_prod textstack_prod | gzip > ~/backups/textstack/pre-deploy-$DATE.sql.gz
-          zcat ~/backups/textstack/pre-deploy-$DATE.sql.gz | tail -n 5 | grep -q 'PostgreSQL database dump complete' \
-            || { echo "::error::pre-deploy dump is incomplete"; exit 1; }
-          echo "Backup created: pre-deploy-$DATE.sql.gz"
-          # Keep only the 2 newest pre-deploy backups
-          cd ~/backups/textstack && ls -1t pre-deploy-*.sql.gz 2>/dev/null | tail -n +3 | xargs -r rm -v
 
       - name: Deploy containers
         # docker-compose.gpu.yml is a prod-only overlay that adds

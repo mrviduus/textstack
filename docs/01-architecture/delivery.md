@@ -33,9 +33,9 @@ flowchart TD
   CIM --> DEP
   IMG --> DEP[deploy — self-hosted]
 
-  DEP --> W[SSG wait → web build on server<br/>→ scan index.html + assets]
-  W --> BK[pre-deploy pg_dump<br/>right before the migrator]
-  BK --> P[pull name@digest, tag :sha<br/>no digest / pull fails → build on server]
+  DEP --> BK[SSG wait → pre-deploy pg_dump<br/>nothing live changed yet]
+  BK --> W[web build on server<br/>→ scan index.html + assets]
+  W --> P[pull name@digest, tag :sha<br/>no digest / pull fails → build on server]
   P --> UP[compose up → migrator → api, worker, …]
   UP --> H[health: API, containers, frontend, MCP, SEO]
   H --> SSG[SSG content check<br/>full rebuild nightly or on rebuild_ssg]
@@ -50,8 +50,9 @@ flowchart TD
 ```
 
 `deploy` needs `ci` (and `guard` on a rollback); `images` is allowed to fail (the server builds
-instead). The pre-deploy dump is a step inside `deploy`, immediately before `compose up` starts the
-migrator — see "Known limits" for why it is not parallel.
+instead). The pre-deploy dump is a step inside `deploy`, after the SSG wait and before the web build: a
+failed dump ships nothing, and the dump is minutes (web build + scan) before the migrator — see
+"Known limits" for why it is not parallel.
 
 ## External dependencies
 
@@ -109,7 +110,9 @@ Single points of failure that matter: **the home server + Cloudflare tunnel** (r
 ## Known limits
 
 - **The web dist scan is after the fact.** Vite builds into the served `dist/`, so a hit stops the
-  deploy (no new containers) but the bundle is already live. Fix: build `dist` on GitHub and ship it
+  deploy (no new containers) but the bundle is already live, against the old API containers. A
+  build-to-temp-and-swap would have to re-do the SSG snapshot/restore choreography (four incidents'
+  worth of guards), so it is not a cheap reorder. Fix: build `dist` on GitHub, scan it there, ship it
   as an artifact (review P2-2).
 - **The OTA scan checks an equivalent bundle**, not the uploaded bytes (`eas update` bundles again
   from the same commit and environment). EAS store builds bundle on Expo's servers and are not scanned.
@@ -120,8 +123,9 @@ Single points of failure that matter: **the home server + Cloudflare tunnel** (r
   push happened in this run to report one).
 - **The pre-deploy dump stays on the critical path (~2.5 min), on purpose.** Running it in a parallel
   job at the start of the run would put CI, images and the up-to-40-min SSG wait — up to an hour of
-  writes — between the dump and a bad migration, all lost on restore. Correctness of the rollback
-  point beats 2.5 minutes.
+  writes — between the dump and a bad migration, all lost on restore. It runs after the SSG wait and
+  before the web build, so a failed dump changes nothing live; the gap to the migrator is the web
+  build + scan, a few minutes. Correctness of the rollback point beats 2.5 minutes.
 - **The scanner a deploy runs is the workflow commit's** (`git show $GITHUB_SHA:scripts/…` into
   `$RUNNER_TEMP`), so a rollback to a commit older than the script still scans and finishes.
 - **One non-ephemeral self-hosted runner, repo-level.** A `workflow_dispatch` from another branch
@@ -143,7 +147,7 @@ Single points of failure that matter: **the home server + Cloudflare tunnel** (r
 | Which server values the web scan treats as secret | `deploy.yml` "Secret scan web dist" (the awk name filter) |
 | An action version | Let Dependabot do it; by hand: `gh api repos/<owner>/<repo>/commits/<tag> --jq .sha`, keep the `# vX.Y` comment |
 | A pulled image version | `docker-compose.yml` `image: name:tag@sha256:…` (Dependabot weekly); restic/scanner/Makefile by hand |
-| Pre-deploy backup | `deploy.yml` step "Pre-deploy backup" (just before "Deploy containers"); nightly + R2: `backup.yml`; drill: `restore-drill.yml`; ops: [`backup.md`](../03-ops/backup.md) |
+| Pre-deploy backup | `deploy.yml` step "Pre-deploy backup" (after the SSG wait, before the web build); nightly + R2: `backup.yml`; drill: `restore-drill.yml`; ops: [`backup.md`](../03-ops/backup.md) |
 | Rollback | Actions → Deploy → Run workflow → `rollback_commit` = a SHA on main |
 | Full SSG rebuild on deploy | Run workflow with `rebuild_ssg`, or `make rebuild-ssg` |
 | Workflow permissions | top-level `permissions:` stays read/none; widen per job |
