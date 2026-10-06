@@ -310,4 +310,43 @@ describe('PDF reopen (F2: +2 pages per open)', () => {
       delete (document.documentElement as unknown as { clientWidth?: number }).clientWidth
     }
   })
+
+  it('a fresh open at the top stays at the top while sizes stream (padding and margin not scrolled away)', async () => {
+    const rn = rnGate()
+    await openViewer(null)
+    rn.dispatch({ type: 'noJumpNeeded' })
+    release(30)
+    await flush()
+    release(NUM_PAGES)
+    await flush()
+    expect(window.scrollY).toBe(0)
+  })
+
+  it('a reader in the gap above a page stays in that gap when the pages above change size', async () => {
+    const rn = rnGate()
+    await openViewer(null)
+    rn.dispatch({ type: 'noJumpNeeded' })
+    window.scrollTo(0, layoutTop(document.querySelector('.pdf-page[data-page="20"]')!) - 4)
+    await flush()
+    release(NUM_PAGES)
+    await flush()
+    expect(layoutTop(document.querySelector('.pdf-page[data-page="20"]')!) - window.scrollY).toBe(4)
+  })
+
+  it('streamed sizes do not scroll under a finger (a fling would stop); they land once scrolling is idle', async () => {
+    const rn = rnGate()
+    await openViewer(null)
+    rn.dispatch({ type: 'noJumpNeeded' })
+    window.scrollTo(0, layoutTop(document.querySelector('.pdf-page[data-page="40"]')!))
+    await flush()
+    window.dispatchEvent(new Event('touchstart'))
+    const programmatic = vi.spyOn(window, 'scrollTo')
+    release(NUM_PAGES)
+    await flush()
+    expect(programmatic).not.toHaveBeenCalled()
+    window.dispatchEvent(new Event('touchend'))
+    await flush()
+    expect(topPage()).toBe(40)
+  })
 })
+

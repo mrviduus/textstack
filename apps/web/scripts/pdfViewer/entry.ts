@@ -34,8 +34,6 @@ import {
   clampPage,
   dimsReadyUpTo,
   pageAtViewportTop,
-  capturePageAnchor,
-  scrollDeltaForAnchor,
   type PageRect,
 } from '../../../../packages/shared/src/reader/pdfPageWindow'
 import {
@@ -78,6 +76,8 @@ const PAGE_REPORT_THROTTLE_MS = 200
 /** A jump never waits longer than this for the sizes above its target (slow stream, a size
  *  fetch that never returns): it lands where the column says the target is, and reports resume. */
 const JUMP_DEADLINE_MS = 8000
+/** No scroll event for this long (and no finger down) = the reader's scroll, fling included, is over. */
+const SCROLL_IDLE_MS = 150
 
 // Same pastel palette as the reflow overlay + web PdfHighlightLayer COLOR_MAP,
 // as rgba so `mix-blend-mode: multiply` reads the alpha over the white scan.
@@ -171,6 +171,11 @@ function main(): void {
   let lastReportedPage = -1
   let lastPageReportAt = 0
   let reportTimer: ReturnType<typeof setTimeout> | null = null
+  // Reader scrolling (see applyPlaceholderSizes): a finger down, or a scroll event within the idle window.
+  let touchDown = false
+  let lastScrollAt = 0
+  let deferredScale: number | null = null
+  let deferTimer: ReturnType<typeof setTimeout> | null = null
   const openPage = resolveOpenPage(cfg.initialPage)
 
   /** The layout viewport. Not `innerWidth`: in a pinch-zoomable Android WebView that is the
@@ -195,8 +200,18 @@ function main(): void {
    *  the top line and how far into it (web's zoom anchor). Under a fixed scrollY the pages above
    *  changing height carried the reader off their page, and the next report saved that (+3 per
    *  reopen after a late re-fit; 139 → 146 after a TOC jump cancelled by a drag). */
-  function applyPlaceholderSizes(nextScale = scale): void {
-    const anchor = pendingTarget == null ? capturePageAnchor(pageRects(), 0) : null
+  //
+  // Not while the reader is scrolling: a programmatic scrollTo stops a fling in the WebView. The
+  // change waits (newest scale wins) until scrolling is idle, and re-anchors then. A travelling jump
+  // is re-aimed at once — it is not the reader's scroll.
+  function applyPlaceholderSizes(nextScale = deferredScale ?? scale): void {
+    if (pendingTarget == null && readerScrolling()) {
+      deferredScale = nextScale
+      if (!deferTimer) deferTimer = setTimeout(applyDeferred, SCROLL_IDLE_MS)
+      return
+    }
+    deferredScale = null
+    const anchor = pendingTarget == null ? captureAnchor() : null
     scale = nextScale
     states.forEach((st, pn) => {
       const box = pageBox(pn)
@@ -204,9 +219,45 @@ function main(): void {
       st.el.style.height = box.h + 'px'
     })
     if (pendingTarget != null) { scrollToPageEl(pendingTarget); return }
-    const d = anchor && scrollDeltaForAnchor(anchor, pageRects(), 0)
+    const d = anchor && anchorDelta(anchor)
     // Only when something above moved: a no-op scrollTo would still stop a fling.
     if (d && Math.abs(d) >= 1) window.scrollTo(0, Math.max(0, window.scrollY + d))
+  }
+
+  function applyDeferred(): void {
+    deferTimer = null
+    if (deferredScale == null) return
+    applyPlaceholderSizes(deferredScale)   // re-defers itself if the reader is still scrolling
+    if (deferredScale == null) syncRings() // a deferred re-fit redraws at the new scale
+  }
+
+  // ponytail: a touchstart whose touchend/touchcancel never arrives defers sizes until the next
+  // touch ends; add a max deferral if QA ever sees a column stuck on estimates.
+  function readerScrolling(): boolean {
+    return touchDown || Date.now() - lastScrollAt < SCROLL_IDLE_MS
+  }
+
+  /** Where the top line sits relative to the page under it — unclamped, unlike the shared zoom
+   *  anchor: above the page (the top padding, the margin, the gap between pages) is a negative
+   *  offset kept as px, and restoring it as "page top" scrolled the padding away on every size
+   *  change. Inside the page it is a fraction, so a re-fit keeps the same line. Null at the very
+   *  top: the reader there stays there. */
+  function captureAnchor(): { page: number; offset: number; fraction: number | null } | null {
+    if (window.scrollY < 1) return null
+    const rects = pageRects()
+    const page = pageAtViewportTop(rects, 0)
+    const r = page == null ? undefined : rects.find(x => x.page === page)
+    if (!r) return null
+    const offset = -r.top
+    const h = r.bottom - r.top
+    return { page: r.page, offset, fraction: offset >= 0 && h > 0 ? offset / h : null }
+  }
+
+  function anchorDelta(a: { page: number; offset: number; fraction: number | null }): number | null {
+    const st = states.get(a.page)
+    if (!st) return null
+    const r = st.el.getBoundingClientRect()
+    return r.top + (a.fraction == null ? a.offset : a.fraction * (r.bottom - r.top))
   }
 
   function pageRects(): PageRect[] {
@@ -501,6 +552,11 @@ function main(): void {
   // sizes streaming in above (and the browser's scroll anchoring) move scrollY with no reader.
   const cancelJump = () => endJump(false)
   for (const type of ['touchmove', 'wheel', 'keydown']) window.addEventListener(type, cancelJump, { passive: true })
+  window.addEventListener('touchstart', () => { touchDown = true }, { passive: true })
+  for (const type of ['touchend', 'touchcancel']) {
+    window.addEventListener(type, () => { touchDown = false; lastScrollAt = Date.now() }, { passive: true })
+  }
+  window.addEventListener('scroll', () => { lastScrollAt = Date.now() }, { passive: true })
 
   function buildPageEls(): void {
     const frag = document.createDocumentFragment()
