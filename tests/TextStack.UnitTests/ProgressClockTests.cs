@@ -85,13 +85,17 @@ public class ProgressClockTests
     }
 
     [Fact]
-    public void ApplyProgressUpdate_NoClientTimestamp_ClearsStoredClientTimestamp()
+    public void ApplyProgressUpdate_NoClientTimestamp_StampsServerNowSoOlderQueuedWriteIsStale()
     {
+        // Mark finished / unread and MCP send no stamp. Storing null made the row "never stale", so a
+        // queued write recorded BEFORE the mark (an offline flush) undid it on arrival.
         var target = new ReadingProgress { Locator = "x", ClientUpdatedAt = ServerNow };
 
         UserDataEndpoints.ApplyProgressUpdate(
-            target, new UpsertProgressRequest(Guid.NewGuid(), "scroll:a:0", 0.5, null, ProgressUnit.Book), 0);
+            target, new UpsertProgressRequest(Guid.NewGuid(), "scroll:a:0", 1.0, null, ProgressUnit.Book), 0);
 
-        Assert.Null(target.ClientUpdatedAt);
+        Assert.Equal(target.UpdatedAt, target.ClientUpdatedAt);
+        var queuedEarlier = target.UpdatedAt.AddSeconds(-30);
+        Assert.True(ProgressClock.IsStale(queuedEarlier, target.ClientUpdatedAt, DateTimeOffset.UtcNow));
     }
 }

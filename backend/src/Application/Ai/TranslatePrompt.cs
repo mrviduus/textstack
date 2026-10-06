@@ -11,6 +11,9 @@ namespace Application.Ai;
 /// </summary>
 public static class TranslatePrompt
 {
+    /// <summary>Part of the answer cache key. Bump on any prompt change that should reach cached answers.</summary>
+    public const int Version = 2;
+
     /// <summary>
     /// Build the translation system prompt. Without genre/sentence we behave like
     /// the legacy engine. With them we bias the model toward the domain-specific

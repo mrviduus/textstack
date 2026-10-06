@@ -123,7 +123,7 @@ public class IngestionService(
                 UpdatedAt = DateTimeOffset.UtcNow
             });
         }
-        await ChapterReconciler.ReconcileEditionAsync(db, job.EditionId, chapters, ct);
+        await ChapterReconciler.ReconcileEditionAsync(db, job.EditionId, chapters, ct, logger);
 
         // Update edition metadata if empty
         if (string.IsNullOrEmpty(job.Edition.Description) && !string.IsNullOrEmpty(parsed.Description))

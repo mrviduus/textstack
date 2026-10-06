@@ -61,7 +61,8 @@ public static class ExplainEndpoints
         var genre = await ResolveGenreAsync(request.Genre, request.BookId, db, logger, ct);
         var cache = new FileJsonCache<ExplainResponse>(
             config.GetValue<string>("Explain:CachePath") ?? "/tmp/explain-cache", config.GetValue("Explain:CacheTtlDays", 30), logger);
-        var cacheKey = ComputeCacheKey(request.Word, request.Sentence, genre, targetLang);
+        var cacheKey = ComputeCacheKey(
+            request.Word, request.Sentence, genre, targetLang, CacheModelId(config), ExplainPrompt.Version);
 
         // Function-calling (AI-031b): which tools this request may use. Book tools need an edition in
         // context; the highlights tool additionally needs a signed-in user. Kill switch:
@@ -337,10 +338,15 @@ public static class ExplainEndpoints
         }
     }
 
-    private static string ComputeCacheKey(string word, string sentence, string? genre, string targetLang)
-    {
-        return FileJsonCache<ExplainResponse>.Key($"{word.ToLowerInvariant()}|{sentence}|{genre ?? ""}|{targetLang}");
-    }
+    // Prompt version + model are in the key so a prompt fix or model swap is not hidden behind 30 days of cache.
+    internal static string ComputeCacheKey(
+        string word, string sentence, string? genre, string targetLang, string model, int promptVersion) =>
+        FileJsonCache<ExplainResponse>.Key(
+            $"v{promptVersion}|{model}|{word.ToLowerInvariant()}|{sentence}|{genre ?? ""}|{targetLang}");
+
+    // ponytail: the configured model (same fallback as the openai-explain provider), not the one the gateway
+    // routes to at call time — an admin route promote does not invalidate the cache; bump ExplainPrompt.Version.
+    internal static string CacheModelId(IConfiguration config) => config["OpenAI:Explain:Model"] ?? "gpt-4.1-mini";
 }
 
 /// <summary>

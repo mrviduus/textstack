@@ -14,6 +14,15 @@ namespace Api.Endpoints;
 
 public static class UserDataEndpoints
 {
+    /// <summary>
+    /// Page size for the reader's own lists (/me/library, /me/progress). No client pages them, so the
+    /// default is the whole list; the ceiling only bounds one response.
+    /// </summary>
+    internal const int MaxOwnListPage = 1000;
+
+    private static int OwnListTake(int? limit) => limit is > 0 ? Math.Min(limit.Value, MaxOwnListPage) : MaxOwnListPage;
+    private static int OwnListSkip(int? offset) => Math.Max(offset ?? 0, 0);
+
     public static void MapUserDataEndpoints(this WebApplication app)
     {
         var group = app.MapGroup("/me").WithTags("User Data");
@@ -38,7 +47,7 @@ public static class UserDataEndpoints
 
     // Reading Progress Endpoints
 
-    private static async Task<IResult> GetAllProgress(
+    internal static async Task<IResult> GetAllProgress(
         HttpContext httpContext,
         AuthService authService,
         IAppDbContext db,
@@ -56,8 +65,8 @@ public static class UserDataEndpoints
 
         var total = await query.CountAsync(ct);
         var items = await query
-            .Skip(offset ?? 0)
-            .Take(limit ?? 50)
+            .Skip(OwnListSkip(offset))
+            .Take(OwnListTake(limit))
             .Join(db.Chapters, p => p.ChapterId, c => c.Id, (p, c) => new { p, c })
             .Select(x => new ReadingProgressDto(
                 x.p.EditionId,
@@ -268,9 +277,9 @@ public static class UserDataEndpoints
             : chapterNumber;
         var now = DateTimeOffset.UtcNow;
         target.UpdatedAt = now;
-        // Assigned, not max-ed: a write with no timestamp (mark-as-finished) clears it, so the next
-        // timestamped write is accepted rather than compared with a clock it never ran on.
-        target.ClientUpdatedAt = ProgressClock.Clamp(request.UpdatedAt, now);
+        // Assigned, not max-ed. A write with no timestamp (mark finished/unread) stores the server's
+        // now, so a queued write recorded before it cannot undo it (see ProgressClock.Stamp).
+        target.ClientUpdatedAt = ProgressClock.Stamp(request.UpdatedAt, now);
     }
 
     /// <summary>
@@ -419,7 +428,7 @@ public static class UserDataEndpoints
 
     // Library Endpoints
 
-    private static async Task<IResult> GetLibrary(
+    internal static async Task<IResult> GetLibrary(
         HttpContext httpContext,
         AuthService authService,
         IAppDbContext db,
@@ -436,8 +445,8 @@ public static class UserDataEndpoints
 
         var total = await query.CountAsync(ct);
         var raw = await query
-            .Skip(offset ?? 0)
-            .Take(limit ?? 50)
+            .Skip(OwnListSkip(offset))
+            .Take(OwnListTake(limit))
             .Select(l => new
             {
                 l.EditionId,
@@ -466,7 +475,7 @@ public static class UserDataEndpoints
         return Results.Ok(new { total, items });
     }
 
-    private static async Task<IResult> AddToLibrary(
+    internal static async Task<IResult> AddToLibrary(
         Guid editionId,
         HttpContext httpContext,
         AuthService authService,
@@ -499,19 +508,25 @@ public static class UserDataEndpoints
             : null;
 
         // Check if already in library
-        var existing = await db.UserLibraries
-            .FirstOrDefaultAsync(l => l.UserId == userId.Value && l.EditionId == editionId, ct);
+        async Task<IResult?> AlreadyInLibraryAsync()
+        {
+            var existing = await db.UserLibraries
+                .FirstOrDefaultAsync(l => l.UserId == userId.Value && l.EditionId == editionId, ct);
+            return existing == null
+                ? null
+                : Results.Ok(new LibraryItemDto(
+                    existing.EditionId,
+                    editionInfo.Slug,
+                    editionInfo.Title,
+                    editionInfo.Language,
+                    editionInfo.CoverPath,
+                    existing.CreatedAt,
+                    authorJoined
+                ));
+        }
 
-        if (existing != null)
-            return Results.Ok(new LibraryItemDto(
-                existing.EditionId,
-                editionInfo.Slug,
-                editionInfo.Title,
-                editionInfo.Language,
-                editionInfo.CoverPath,
-                existing.CreatedAt,
-                authorJoined
-            ));
+        if (await AlreadyInLibraryAsync() is { } already)
+            return already;
 
         var libraryItem = new UserLibrary
         {
@@ -522,7 +537,18 @@ public static class UserDataEndpoints
         };
 
         db.UserLibraries.Add(libraryItem);
-        await db.SaveChangesAsync(ct);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (IsUniqueViolation(ex))
+        {
+            // Double tap: the other request inserted between our read and this insert.
+            db.UserLibraries.Remove(libraryItem);
+            if (await AlreadyInLibraryAsync() is { } winner)
+                return winner;
+            throw;
+        }
 
         return Results.Created($"/me/library/{editionId}", new LibraryItemDto(
             libraryItem.EditionId,

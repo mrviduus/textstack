@@ -85,7 +85,7 @@ public static partial class VocabularyEndpoints
 
     // --- Save Word ---
 
-    private static async Task<IResult> SaveWord(
+    internal static async Task<IResult> SaveWord(
         [FromBody] SaveWordRequest request,
         HttpContext httpContext,
         AuthService authService,
@@ -125,15 +125,8 @@ public static partial class VocabularyEndpoints
 
         // Dedup: SRS table first, then pending buffer. A word in either bucket
         // is "already saved" from the user's perspective — don't double-insert.
-        var existing = await db.VocabularyWords
-            .FirstOrDefaultAsync(w => w.UserId == userId && w.Word == word && w.Language == request.Language, ct);
-        if (existing != null)
-            return Results.Ok(SaveWordResponse.AlreadySaved(ToDto(existing)));
-
-        var existingPending = await db.PendingVocabularyWords
-            .FirstOrDefaultAsync(p => p.UserId == userId && p.Word == word && p.Language == request.Language, ct);
-        if (existingPending != null)
-            return Results.Ok(SaveWordResponse.AlreadyPending(existingPending.Id));
+        if (await FindAlreadySavedAsync(db, userId, word, request.Language, ct) is { } already)
+            return already;
 
         // Hard ceiling — counts all three buckets. Keeps one user from bloating
         // any of them past the vocabulary cap.
@@ -217,7 +210,17 @@ public static partial class VocabularyEndpoints
                 CreatedAt = now,
             };
             db.PendingVocabularyWords.Add(pending);
-            await db.SaveChangesAsync(ct);
+            try
+            {
+                await db.SaveChangesAsync(ct);
+            }
+            catch (DbUpdateException ex) when (IsLostSaveRace(ex))
+            {
+                db.PendingVocabularyWords.Remove(pending);
+                if (await FindAlreadySavedAsync(db, userId, word, request.Language, ct) is { } winner)
+                    return winner;
+                throw;
+            }
             return Results.Ok(SaveWordResponse.Pending(pending.Id, reason: "daily_cap"));
         }
 
@@ -250,12 +253,51 @@ public static partial class VocabularyEndpoints
         };
 
         db.VocabularyWords.Add(entry);
-        await db.SaveChangesAsync(ct);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (IsLostSaveRace(ex))
+        {
+            // Lost a double-submit race: the other request inserted this word between our dedup
+            // read and this insert. Answer as the dedup path would, and skip enrichment (the
+            // winner queued it).
+            db.VocabularyWords.Remove(entry);
+            if (await FindAlreadySavedAsync(db, userId, word, request.Language, ct) is { } winner)
+                return winner;
+            throw;
+        }
 
         QueueEnrichment(scopeFactory, logger, entry.Id, word, request.Language,
             request.Definition, request.Sentence, nativeLanguage);
 
         return Results.Ok(SaveWordResponse.Srs(ToDto(entry)));
+    }
+
+    /// <summary>
+    /// How a double-submit loser's SaveChanges fails: 23505 on the insert, or — when the word had a
+    /// WordLookup that both requests delete in that same save — a DELETE hitting 0 rows
+    /// (<see cref="DbUpdateConcurrencyException"/>), which EF raises before the insert conflicts.
+    /// The whole save rolls back either way; the caller re-reads the winner.
+    /// </summary>
+    private static bool IsLostSaveRace(DbUpdateException ex) =>
+        ex is DbUpdateConcurrencyException || UserDataEndpoints.IsUniqueViolation(ex);
+
+    /// <summary>
+    /// The "already saved" answer for a word in the SRS table or the pending buffer, else null. Used by
+    /// the dedup read and again after losing a concurrent insert (23505) — both must answer alike.
+    /// </summary>
+    private static async Task<IResult?> FindAlreadySavedAsync(
+        IAppDbContext db, Guid userId, string word, string language, CancellationToken ct)
+    {
+        var existing = await db.VocabularyWords
+            .FirstOrDefaultAsync(w => w.UserId == userId && w.Word == word && w.Language == language, ct);
+        if (existing != null)
+            return Results.Ok(SaveWordResponse.AlreadySaved(ToDto(existing)));
+
+        var existingPending = await db.PendingVocabularyWords
+            .FirstOrDefaultAsync(p => p.UserId == userId && p.Word == word && p.Language == language, ct);
+        return existingPending != null ? Results.Ok(SaveWordResponse.AlreadyPending(existingPending.Id)) : null;
     }
 
     /// <summary>

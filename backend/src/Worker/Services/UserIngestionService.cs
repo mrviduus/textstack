@@ -258,7 +258,7 @@ public class UserIngestionService
 
             // In place, keeping Ids (ChapterReconciler): a Retry on a Ready book used to recreate
             // every chapter and orphan the reader's highlights and bookmarks.
-            await ChapterReconciler.ReconcileUserBookAsync(db, job.UserBook, chapters, ct);
+            await ChapterReconciler.ReconcileUserBookAsync(db, job.UserBook, chapters, ct, _logger);
 
             if (qualityScores.Count > 0)
             {

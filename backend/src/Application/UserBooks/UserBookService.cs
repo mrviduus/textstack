@@ -605,7 +605,7 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage, IEnt
         // (UserDataEndpoints.UpsertProgress → ProgressClock). Without it uploads were
         // "newest arrival wins": a phone coming back online with an older offline write
         // overwrote what another device had recorded since. A write with no timestamp
-        // (MCP, mark-as-finished, older builds) always goes through. A stale write is
+        // (MCP, mark-as-finished, older builds) always goes through, and is stamped server-now. A stale write is
         // answered as accepted, like the catalog path — the stored row is newer, which
         // is exactly what the caller should resume from.
         var now = DateTimeOffset.UtcNow;
@@ -634,9 +634,9 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage, IEnt
         // held `request.UpdatedAt ?? UtcNow`, and a gate comparing a client stamp with a
         // column of mixed clocks silently dropped good writes. The client's stamp lives
         // in ProgressClientUpdatedAt and is compared only with itself (the gate above).
-        // Assigned, not max-ed: a write with no timestamp clears it, same as catalog.
+        // Assigned, not max-ed: a write with no timestamp stores the server's now, same as catalog.
         book.ProgressUpdatedAt = now;
-        book.ProgressClientUpdatedAt = ProgressClock.Clamp(request.UpdatedAt, now);
+        book.ProgressClientUpdatedAt = ProgressClock.Stamp(request.UpdatedAt, now);
 
         if (request.Percent is >= 0.99 && ProgressUnit.IsTrusted(request.PercentUnit))
         {

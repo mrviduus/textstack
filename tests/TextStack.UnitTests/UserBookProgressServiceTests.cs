@@ -374,21 +374,27 @@ public class UserBookProgressServiceTests
     }
 
     [Fact]
-    public async Task UpsertProgressAsync_WriteWithoutStamp_IsStoredAndClearsTheClientStamp()
+    public async Task UpsertProgressAsync_MarkFinishedThenOlderStampedWrite_OlderIsIgnored()
     {
-        // MCP and mark-as-finished send no timestamp: always accepted, and the stored
-        // client stamp is cleared so the next timestamped write is not compared with it.
+        // MCP set_book_progress and mark-as-finished send no timestamp: always accepted, and stamped
+        // with the server's now. It used to clear the stamp, so the next queued write recorded before
+        // the mark (an offline flush) passed the gate and moved the reader back.
         var h = new Harness();
         var userId = Guid.NewGuid();
         var book = h.SeedBook(userId, "ch-1", "ch-2");
-        book.ProgressClientUpdatedAt = DateTimeOffset.UtcNow;
+        book.ProgressClientUpdatedAt = DateTimeOffset.UtcNow.AddMinutes(-5);
+
+        await h.Service.UpsertProgressAsync(userId, book.Id, new UpsertUserBookProgressRequest(
+            ChapterSlug: "ch-2", Locator: "scroll:ch-2:99", Percent: 1.0,
+            UpdatedAt: null, PercentUnit: ProgressUnit.Book), CancellationToken.None);
+        Assert.Equal(book.ProgressUpdatedAt, book.ProgressClientUpdatedAt);
 
         await h.Service.UpsertProgressAsync(userId, book.Id, new UpsertUserBookProgressRequest(
             ChapterSlug: "ch-1", Locator: "scroll:ch-1:10", Percent: 0.1,
-            UpdatedAt: null, PercentUnit: ProgressUnit.Book), CancellationToken.None);
+            UpdatedAt: DateTimeOffset.UtcNow.AddMinutes(-1), PercentUnit: ProgressUnit.Book), CancellationToken.None);
 
-        Assert.Equal("scroll:ch-1:10", book.ProgressLocator);
-        Assert.Null(book.ProgressClientUpdatedAt);
+        Assert.Equal("scroll:ch-2:99", book.ProgressLocator);
+        Assert.Equal(1.0, book.ProgressPercent);
     }
 
     [Fact]

@@ -297,7 +297,7 @@ public class TextStackImportService
                 newChapters.Add(chapter);
             }
 
-            await ChapterReconciler.ReconcileEditionAsync(_db, edition.Id, newChapters, ct);
+            await ChapterReconciler.ReconcileEditionAsync(_db, edition.Id, newChapters, ct, _logger);
 
             // 9. Record new import
             _db.TextStackImports.Add(new TextStackImport

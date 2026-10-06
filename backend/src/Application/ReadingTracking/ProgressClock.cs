@@ -28,9 +28,18 @@ public static class ProgressClock
     }
 
     /// <summary>
+    /// The client stamp to store for an accepted write: the clamped client timestamp, or the server's
+    /// now when the write carries none (mark finished/unread, MCP). Storing null there made the row
+    /// "never stale", so a queued write recorded before the mark undid it on arrival. Cost: a device
+    /// whose clock runs behind the server has its own writes refused for that lag after such a write.
+    /// </summary>
+    public static DateTimeOffset Stamp(DateTimeOffset? client, DateTimeOffset serverNow) =>
+        Clamp(client, serverNow) ?? serverNow;
+
+    /// <summary>
     /// True when the write is older than (or as old as) the one stored. A write without a
-    /// timestamp, and a row that never received one (written before the column existed, or by
-    /// mark-as-finished, which sends none), always go through.
+    /// timestamp, and a row that never received one (written before the column existed),
+    /// always go through.
     /// </summary>
     public static bool IsStale(DateTimeOffset? incoming, DateTimeOffset? storedClient, DateTimeOffset serverNow)
     {
