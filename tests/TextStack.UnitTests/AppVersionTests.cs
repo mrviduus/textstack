@@ -91,16 +91,33 @@ public class AppVersionTests
     [InlineData(null, null)]
     [InlineData("", null)]
     [InlineData("  ", null)]
-    [InlineData(" 1.1.0 ", "1.1.0")]
-    public void GetAppConfig_MinSupportedVersion_ReturnsTrimmedOrNull(string? configured, string? expected)
+    [InlineData("0", null)]
+    [InlineData("-5", null)]
+    [InlineData("1.1.0", null)]
+    [InlineData("abc", null)]
+    [InlineData(" 23 ", 23)]
+    public void ParseMinBuild_ConfiguredValue_PositiveIntOrNull(string? raw, int? expected) =>
+        Assert.Equal(expected, AppConfigEndpoints.ParseMinBuild(raw));
+
+    [Fact]
+    public void GetAppConfig_MinSupportedBuildSet_ReturnsIt()
     {
         var config = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?> { ["Mobile:MinSupportedVersion"] = configured })
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Mobile:MinSupportedBuild"] = "23" })
             .Build();
 
         var result = Assert.IsType<Ok<AppConfigResponse>>(AppConfigEndpoints.GetAppConfig(config));
 
-        Assert.Equal(expected, result.Value!.MinSupportedVersion);
+        Assert.Equal(23, result.Value!.MinSupportedBuild);
+    }
+
+    [Fact]
+    public void GetAppConfig_Unset_ReturnsNull()
+    {
+        var result = Assert.IsType<Ok<AppConfigResponse>>(
+            AppConfigEndpoints.GetAppConfig(new ConfigurationBuilder().Build()));
+
+        Assert.Null(result.Value!.MinSupportedBuild);
     }
 
     private sealed class ScopeCapturingLogger : ILogger<AppVersionMiddleware>

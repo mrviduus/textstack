@@ -23,7 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
-- **Mobile** — app sends `X-App-Version`/`X-App-Build`; API puts them in log scope, traces and Sentry tags; `GET /app/config` serves `Mobile:MinSupportedVersion` and the Android app below it shows a blocking "Please update TextStack" screen (never blocks offline or on a bad config; server never refuses old builds) — review #23 — api, mobile, shared
+- **Mobile** — app sends `X-App-Version`/`X-App-Build`; API puts them in log scope, traces and Sentry tags; `GET /app/config` serves `Mobile:MinSupportedBuild` (versionCode — every build's version name is 1.0.0) and the Android app below it shows a blocking "Please update TextStack" screen (never blocks offline or on a bad config; server never refuses old builds) — review #23 — api, mobile, shared
 - **CI** — shell-quote 1.10.0 → 1.12.0 (critical GHSA-pqg4-j6r4-53mv; dev-only, under react-native's react-devtools-core), lockfile-only — deps
 - **Reader** — on the phone: Prev returns to where you left the previous chapter (the device kept one record per book); ‹ works in uploads (the API sends `previous`, the app read `prev`; stored chapters repaired from the chapter list); a PDF no longer creeps forward about 2 pages per reopen (the jump settled on estimated page heights), a scroll cancels a travelling jump and every jump lands within 8 s — mobile, shared
 - **Reader** — highlights on the phone now paint on their words anywhere in a chapter; since April they were drawn `scrollY` px above (off screen) below the first screen, because the overlay svg moved with the page and was also shifted by the scroll — mobile

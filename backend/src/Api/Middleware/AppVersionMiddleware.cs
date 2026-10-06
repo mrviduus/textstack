@@ -10,7 +10,7 @@ namespace Api.Middleware;
 /// <c>SentryScrubber</c> tag allowlist). Without it the server cannot tell which app version broke —
 /// review item #23. Web sends neither header, so for it this is one header lookup and nothing else.
 ///
-/// <para>Records only; it never blocks. The minimum version is advisory, served by
+/// <para>Records only; it never blocks. The minimum build is advisory, served by
 /// <c>GET /app/config</c> and enforced by the app — a misconfigured minimum enforced here would
 /// lock every reader out.</para>
 /// </summary>

@@ -6,16 +6,17 @@ import { publicFetch } from '@textstack/shared'
 import { useTheme } from '../context/ThemeContext'
 import { useLanguage } from '../context/LanguageContext'
 import { fonts } from '../theme/typography'
-import { isBelowMinimum, isCheckDue } from '../lib/appVersion'
+import { isBelowMinimumBuild, isCheckDue } from '../lib/appVersion'
 import { openPlayStore } from '../lib/playStore'
 
 // Android only: the button goes to Google Play, and there is no iOS listing to send anyone to.
 const ENABLED = Platform.OS === 'android'
-const CURRENT = Application.nativeApplicationVersion
+// versionCode, not the version name — every build reports "1.0.0" (see lib/appVersion).
+const CURRENT_BUILD = Application.nativeBuildVersion
 
 /**
- * Covers the whole app with "Please update TextStack" when this build is older than
- * the server's `Mobile:MinSupportedVersion` (`GET /app/config`). Checked at start and
+ * Covers the whole app with "Please update TextStack" when this build number is below
+ * the server's `Mobile:MinSupportedBuild` (`GET /app/config`). Checked at start and
  * on foreground at most once a day.
  *
  * Never blocks on the network: the app renders underneath from the first frame, and
@@ -32,8 +33,8 @@ export function ForceUpdateGate() {
       const now = Date.now()
       if (!isCheckDue(lastCheckedAt.current, now)) return
       lastCheckedAt.current = now
-      publicFetch<{ minSupportedVersion?: string | null }>('/app/config')
-        .then(cfg => setBlocked(isBelowMinimum(CURRENT, cfg.minSupportedVersion)))
+      publicFetch<{ minSupportedBuild?: number | null }>('/app/config')
+        .then(cfg => setBlocked(isBelowMinimumBuild(CURRENT_BUILD, cfg.minSupportedBuild)))
         .catch(() => { lastCheckedAt.current = null }) // retry on the next foreground
     }
     check()

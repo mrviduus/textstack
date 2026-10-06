@@ -1,36 +1,20 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { appVersionHeaders, compareVersions, isBelowMinimum, isCheckDue, CHECK_INTERVAL_MS } from './appVersion'
+import { appVersionHeaders, isBelowMinimumBuild, isCheckDue, CHECK_INTERVAL_MS } from './appVersion'
 
-describe('compareVersions', () => {
-  it.each([
-    ['1.2.10', '1.2.9', 1],
-    ['1.2.9', '1.2.10', -1],
-    ['1.10.0', '1.9.9', 1],
-    ['2.0.0', '1.99.99', 1],
-    ['1.2', '1.2.0', 0],
-    ['1.2.0', '1.2.1', -1],
-    [' 1.0.0 ', '1.0.0', 0],
-    ['1.1.0-beta.1', '1.1.0', 0],
-  ])('%s vs %s → %i', (a, b, expected) => {
-    expect(compareVersions(a, b)).toBe(expected)
-  })
-
-  it.each([[null, '1.0.0'], ['1.0.0', ''], ['abc', '1.0.0'], ['1.0.0', 'v1.0'], ['1..0', '1.0.0']])(
-    'unparsable %s vs %s → null', (a, b) => {
-      expect(compareVersions(a, b)).toBeNull()
+describe('isBelowMinimumBuild', () => {
+  it('build 22 < min 23 → blocked', () => expect(isBelowMinimumBuild('22', 23)).toBe(true))
+  it('build 23 ≥ min 23 → not blocked', () => expect(isBelowMinimumBuild('23', 23)).toBe(false))
+  it('newer build → not blocked', () => expect(isBelowMinimumBuild('30', 23)).toBe(false))
+  it('numeric current works too', () => expect(isBelowMinimumBuild(9, 10)).toBe(true))
+  it.each([[null], [undefined], [''], ['abc'], ['22a'], ['1.0.0'], [NaN]])(
+    'unparsable current build %j → never blocks', (current) => {
+      expect(isBelowMinimumBuild(current as string | number | null, 23)).toBe(false)
     })
-})
-
-describe('isBelowMinimum', () => {
-  it('older than the minimum → blocked', () => expect(isBelowMinimum('1.0.0', '1.1.0')).toBe(true))
-  it('equal → not blocked', () => expect(isBelowMinimum('1.1.0', '1.1.0')).toBe(false))
-  it('newer → not blocked', () => expect(isBelowMinimum('1.2.10', '1.2.9')).toBe(false))
-  it.each([[null], [''], ['  '], ['not-a-version']])('minimum %j → never blocks', (min) => {
-    expect(isBelowMinimum('1.0.0', min)).toBe(false)
+  it.each([[null], [undefined], [0], [-1], [''], [NaN]])('minimum %j → never blocks', (min) => {
+    expect(isBelowMinimumBuild('22', min as string | number | null)).toBe(false)
   })
-  it('unknown current version (web, dev) → never blocks', () => expect(isBelowMinimum(null, '9.0.0')).toBe(false))
 })
 
 describe('isCheckDue', () => {
@@ -67,6 +51,12 @@ describe('X-App-Version wiring', () => {
     const fetches = api.match(/await fetch\([^]*?headers:[^\n]*/g) ?? []
     expect(fetches.length).toBeGreaterThan(0)
     for (const f of fetches) expect(f).toContain('...APP_HEADERS')
+  })
+
+  it('the update gate compares the build number, never the version name', () => {
+    const gate = read('src/components/ForceUpdateGate.tsx')
+    expect(gate).toContain('Application.nativeBuildVersion')
+    expect(gate).not.toContain('nativeApplicationVersion')
   })
 
   it('the upload XHR sets them', () => {

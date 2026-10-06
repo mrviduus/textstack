@@ -3,9 +3,13 @@
  *
  * The app sends `X-App-Version` / `X-App-Build` on every request so the server can
  * tell builds apart in logs, traces and Sentry. The server publishes
- * `Mobile:MinSupportedVersion` at `GET /app/config`; below it, `ForceUpdateGate`
+ * `Mobile:MinSupportedBuild` at `GET /app/config`; below it, `ForceUpdateGate`
  * covers the app with "Please update". Every failure here resolves to "do not
  * block" — reading never waits on the network.
+ *
+ * The gate compares the BUILD number (Android versionCode), not the version name:
+ * every build reports "1.0.0" because EAS bumps only versionCode, so a name-based
+ * minimum would block the newest build too and updating would not clear it.
  */
 
 /** Header map for the shared client. Empty where there is no native build (web). */
@@ -19,32 +23,24 @@ export function appVersionHeaders(
   return headers
 }
 
-/** `1.2.10` → [1, 2, 10]. Null for anything that is not dotted numbers (pre-release tags dropped). */
-function parse(v: string | null | undefined): number[] | null {
-  const core = v?.trim().split(/[-+]/)[0]
-  if (!core || !/^\d+(\.\d+)*$/.test(core)) return null
-  return core.split('.').map(Number)
-}
-
-/** -1 / 0 / 1, numeric per part (1.2.10 > 1.2.9), missing parts are 0 (1.2 == 1.2.0). Null if unparsable. */
-export function compareVersions(a: string | null | undefined, b: string | null | undefined): number | null {
-  const pa = parse(a)
-  const pb = parse(b)
-  if (!pa || !pb) return null
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const d = (pa[i] ?? 0) - (pb[i] ?? 0)
-    if (d !== 0) return d < 0 ? -1 : 1
-  }
-  return 0
+/** A positive integer, or null for anything else (null, '', 'abc', 0, negatives, 1.5). */
+function toBuild(v: string | number | null | undefined): number | null {
+  const n = typeof v === 'number' ? v : /^\s*\d+\s*$/.test(v ?? '') ? Number(v) : NaN
+  return Number.isInteger(n) && n > 0 ? n : null
 }
 
 /**
- * True only when both are real versions and current is strictly older. No minimum,
- * an unknown current version, or a typo in the server config all mean "don't block":
- * a misconfiguration must not lock every reader out.
+ * True only when both are real build numbers and current is strictly lower. No
+ * minimum, an unknown current build (web, dev) or a garbage value all mean "don't
+ * block": a misconfiguration must not lock every reader out.
  */
-export function isBelowMinimum(current: string | null | undefined, min: string | null | undefined): boolean {
-  return compareVersions(current, min) === -1
+export function isBelowMinimumBuild(
+  currentBuild: string | number | null | undefined,
+  minBuild: string | number | null | undefined,
+): boolean {
+  const current = toBuild(currentBuild)
+  const min = toBuild(minBuild)
+  return current != null && min != null && current < min
 }
 
 export const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000

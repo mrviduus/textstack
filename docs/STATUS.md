@@ -144,8 +144,8 @@ answers "what happened" and nothing answered "what is half-finished right now".
   public host; #20 one `BookRef` rule for new code (the collection-orphan part is fixed, #706); #22 no
   metrics in prod, no Sentry on ssg-worker / mcp-server; ~~#23 the server cannot tell which mobile app
   version calls~~ — done 2026-10-06 (`X-App-Version`/`X-App-Build` in log scope, trace, Sentry tag;
-  `GET /app/config` serves `Mobile:MinSupportedVersion`, app shows a blocking update screen below it;
-  only works once each release bumps `expo.version`); #24 web's own `api/` beside the shared client; #25 two SEO engines;
+  `GET /app/config` serves `Mobile:MinSupportedBuild` (Android versionCode, env
+  `MOBILE_MIN_SUPPORTED_BUILD`), app shows a blocking update screen below it); #24 web's own `api/` beside the shared client; #25 two SEO engines;
   #26 GDPR delete leaves LLM trace text, caches, backups. Also open from #707:
   `claude-isolated.sh` under `env -i` is untested (needs a try on the server).
 
