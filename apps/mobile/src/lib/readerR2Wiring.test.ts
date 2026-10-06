@@ -130,3 +130,11 @@ describe('M1 — the newer-position toast', () => {
     expect(shell).toMatch(/hideToast\(pdfNewerToastRef\.current\)/)
   })
 })
+
+describe('offline title after a chapter turn (review of #717)', () => {
+  it('the device lookup still sets the book title when the in-memory edition id was already known', () => {
+    const src = read('src/hooks/useReaderBook.ts')
+    // An early return on editionIdRef left the header blank and words saved with bookTitle: null.
+    expect(src).not.toMatch(/cancelled \|\| editionIdRef\.current\) return/)
+  })
+})

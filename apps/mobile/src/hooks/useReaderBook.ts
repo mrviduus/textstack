@@ -62,12 +62,16 @@ export function useReaderBook({
     // hung network with no id at all — no restore, no saves for the visit (C1). The server's
     // answer, when it comes, is the same id.
     const deviceId = getAllCachedBooks().then(books => {
-      if (cancelled || editionIdRef.current) return
+      if (cancelled) return
       const match = books.find(b => b.slug === bookSlug)
       if (!match) return
-      rememberEditionId(bookSlug, match.editionId)
-      editionIdRef.current = match.editionId
-      setEditionId(match.editionId)
+      // The in-memory id (above) may already be set, but the title only lives here — skipping
+      // left the header blank and saved words with bookTitle: null offline.
+      if (!editionIdRef.current) {
+        rememberEditionId(bookSlug, match.editionId)
+        editionIdRef.current = match.editionId
+        setEditionId(match.editionId)
+      }
       if (!bookTitleRef.current) {
         bookTitleRef.current = match.title
         setBookTitle(match.title)
