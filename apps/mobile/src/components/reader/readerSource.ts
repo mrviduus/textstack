@@ -2,6 +2,7 @@ import type { MutableRefObject, RefObject } from 'react'
 import type { WebView } from 'react-native-webview'
 import type { BookmarkDto, TextPosition } from '@textstack/shared'
 import type { ReaderSource, ReaderShellChapter } from './ReaderShell'
+import type { SessionJump } from '../../lib/sessionMath'
 
 /**
  * The single normalized contract for the reader. Both catalog (edition) and
@@ -101,6 +102,8 @@ export interface ReaderRuntime {
   // Book metadata.
   bookTitle: string | null
   bookTitleRef: MutableRefObject<string | null>
+  /** Language of the book's text (an upload's own). Absent → the app language (catalog). M5. */
+  bookLanguage?: string | null
   chapters: ReaderChapterMeta[]
   chaptersLoading: boolean
   wordCount: number
@@ -124,6 +127,10 @@ export interface ReaderRuntime {
   onWebViewLoaded: () => void
   /** The WebView acknowledged a restore, carrying back the id it was issued with. */
   onRestoreLanded: (restoreId: number) => void
+  /** The chapter's restore has landed (or there was nothing to restore). M8. */
+  positionSettled: boolean
+  /** Where a programmatic restore stands, for the reading session (sessionMath.SessionJump). */
+  sessionJumpRef: MutableRefObject<SessionJump>
   /** The document is about to be rebuilt — told before the new one loads. */
   onDocumentRebuild: () => void
   /** Mint a restore id and shut the write gate behind it, for a move the reader

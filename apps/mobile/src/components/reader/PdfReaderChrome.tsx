@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Animated, Keyboard, PanResponder } from 'react-native'
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Animated, Keyboard, PanResponder, Modal, Pressable } from 'react-native'
 import { fonts } from '../../theme/typography'
 
 interface Props {
@@ -47,6 +47,9 @@ export function PdfReaderChrome({
   const submit = () => {
     const n = parseInt(pageInput, 10)
     if (Number.isFinite(n) && n >= 1) onJumpToPage(n) // viewer clamps overflow
+    closeInput()
+  }
+  const closeInput = () => {
     setPageInput('')
     setTyping(false)
     Keyboard.dismiss()
@@ -136,36 +139,43 @@ export function PdfReaderChrome({
           />
         )}
       </View>
+      {/* M7: the field lived in this footer, pinned to the bottom of an edge-to-edge
+          window, so the keyboard covered it — the reader typed blind. It opens in a
+          Modal instead, a window of its own with the card at the TOP, where no
+          keyboard reaches whatever the window does on resize. Back closes it. */}
+      <Modal visible={typing} transparent animationType="fade" onRequestClose={closeInput}>
+        <Pressable style={styles.backdrop} onPress={closeInput} accessibilityLabel="Close page input">
+          <Pressable style={[styles.jumpCard, { backgroundColor: barBg, borderColor }]} onPress={e => e.stopPropagation()}>
+            <View style={styles.jumpWrap}>
+              <TextInput
+                style={[styles.input, { color: barText, borderColor: barText + '30' }]}
+                value={pageInput}
+                onChangeText={t => setPageInput(t.replace(/\D/g, ''))}
+                onSubmitEditing={submit}
+                placeholder={String(currentPage)}
+                placeholderTextColor={barText + '66'}
+                keyboardType="number-pad"
+                returnKeyType="go"
+                inputMode="numeric"
+                maxLength={6}
+                autoFocus
+                accessibilityLabel="Go to page"
+              />
+              <Text style={[styles.counter, { color: barText + '99' }]}>/ {numPages || '…'}</Text>
+              <TouchableOpacity
+                onPress={submit}
+                style={[styles.goBtn, { borderColor: barText + '30' }]}
+                accessibilityRole="button"
+                accessibilityLabel="Go to page"
+              >
+                <Text style={[styles.goText, { color: barText + 'CC' }]}>Go</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
       <View style={styles.row}>
-        {typing ? (
-          <View style={styles.jumpWrap}>
-            <TextInput
-              style={[styles.input, { color: barText, borderColor: barText + '30' }]}
-              value={pageInput}
-              onChangeText={t => setPageInput(t.replace(/\D/g, ''))}
-              onSubmitEditing={submit}
-              onBlur={() => { setTyping(false); setPageInput('') }}
-              placeholder={String(currentPage)}
-              placeholderTextColor={barText + '66'}
-              keyboardType="number-pad"
-              returnKeyType="go"
-              inputMode="numeric"
-              maxLength={6}
-              autoFocus
-              accessibilityLabel="Go to page"
-            />
-            <TouchableOpacity
-              onPress={submit}
-              style={[styles.goBtn, { borderColor: barText + '30' }]}
-              accessibilityRole="button"
-              accessibilityLabel="Go to page"
-            >
-              <Text style={[styles.goText, { color: barText + 'CC' }]}>Go</Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <View style={styles.jumpWrap} />
-        )}
+        <View style={styles.jumpWrap} />
         {/* Tapping the counter is the way to a precise page. Dragging 500 pages
             to reach 87 is not navigation, but neither is a permanent input box. */}
         <TouchableOpacity
@@ -204,6 +214,8 @@ const styles = StyleSheet.create({
   progressFill: { height: 4 },
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, paddingVertical: 8, minHeight: 48 },
   jumpWrap: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.25)', alignItems: 'center', paddingTop: 120 },
+  jumpCard: { padding: 12, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth },
   input: {
     minWidth: 56,
     height: 34,

@@ -36,6 +36,8 @@ import { useOnline } from '../../hooks/useOnline'
 import type { PdfNewerOffer } from './readerSource'
 import { returnedToForeground } from '../../lib/progressRestore'
 import { saveWordIntent } from '../../lib/saveWordIntent'
+import { readerTextLanguage } from '../../lib/bookLanguage'
+import type { SessionJump } from '../../lib/sessionMath'
 import { capabilitiesFor } from '../../lib/capabilities'
 import { claimGuestNudge } from '../../lib/guestNudge'
 import { decideNewerPosition, readerMovedSince } from '../../lib/progressRestore'
@@ -58,7 +60,7 @@ import { Ionicons } from '@expo/vector-icons'
 import { fonts } from '../../theme/typography'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { StatusBar } from 'expo-status-bar'
-import { latchChapterEnd, shouldInterceptReaderBack } from '../../lib/firstRun'
+import { latchChapterEnd, readerBackAction } from '../../lib/firstRun'
 import { carryVisit, claimVisit } from '../../lib/readerVisit'
 import { chapterEndModel, discussAfterSave, type ChapterEndLabels } from '../../lib/chapterEnd'
 
@@ -97,6 +99,8 @@ export interface ReaderShellProps {
    *  Public passes its chapterSlug; user-book historically passed undefined. */
   htmlChapterSlug?: string
   bookTitle: string | null
+  /** Language of the book's text. Absent → the app language. See bookLanguage.ts (M5). */
+  bookLanguage?: string | null
   chapters: { slug: string; title: string; chapterNumber?: number; wordCount?: number | null; sourceStartPage?: number | null }[]
   chaptersLoading: boolean
 
@@ -119,6 +123,10 @@ export interface ReaderShellProps {
 
   /** The WebView acknowledged a restore, carrying back the id it was issued with. */
   onRestoreLanded: (restoreId: number) => void
+  /** The chapter's restore has landed (or there was nothing to restore). M8. */
+  positionSettled: boolean
+  /** Where a programmatic restore stands — its travel and its distance are not reading. */
+  sessionJumpRef: MutableRefObject<SessionJump>
   onDocumentRebuild: () => void
   beginReflow: () => number
 
@@ -191,7 +199,7 @@ export function ReaderShell(props: ReaderShellProps) {
     bookTitle, chapters, chaptersLoading,
     progressRef, scrollOffsetRef, currentChapterSlugRef, bookProgressRef, positionRef, totalWordCountRef,
     bumpProgress, saveProgress,
-    onWebViewLoaded, onRestoreLanded, onDocumentRebuild, beginReflow,
+    onWebViewLoaded, onRestoreLanded, positionSettled, sessionJumpRef, onDocumentRebuild, beginReflow,
     ensureChapter, isChapterOnDevice, onNavigateChapter, chapterNavigatorRef,
     bookmarks, onToggleCurrentBookmark, onDeleteBookmark, bookmarkChapterSlug,
     bookTitleRef, wordCount, explainBookId,
@@ -205,6 +213,8 @@ export function ReaderShell(props: ReaderShellProps) {
   const { settings, update: updateSettings, resolvedFontFamily, resolvedTheme } = useReaderSettings()
   const { colors } = useTheme()
   const { language } = useLanguage()
+  // The UI speaks `language`; the page is written in this one (M5).
+  const textLanguage = readerTextLanguage(props.bookLanguage, language)
   const { nativeLanguage } = useNativeLanguage()
   const { toggle: toggleTts, isSpeaking, isLoading: isTtsLoading } = useTts()
   const quickStats = useQuickStats(isAuthenticated)
@@ -328,6 +338,17 @@ export function ReaderShell(props: ReaderShellProps) {
     isAuthenticated,
     carried: visit?.session,
   })
+  // M8: the session counts reading, not the restore. Until this chapter's position has settled,
+  // a report is the load event's chapter top or the restore travelling — fed to the session, it
+  // became the start percent and the jump to the saved place was counted as words read.
+  // Set by the WebView's own `restored` ack (its message order puts it before the restore
+  // scroll's report), or by the persistence gate when there was nothing to restore.
+  const sessionSettledRef = useRef(false)
+  useEffect(() => {
+    if (!positionSettled || sessionSettledRef.current) return
+    sessionSettledRef.current = true
+    if (!original && bookProgressRef.current != null) updateSessionProgress(bookProgressRef.current)
+  }, [positionSettled, original, bookProgressRef, updateSessionProgress])
 
   const { barsVisible, barsAnim, topBarTranslateY, footerTranslateY, showBars, hideBars, toggleBars } = useReaderBars({
     topBarHeight,
@@ -383,7 +404,7 @@ export function ReaderShell(props: ReaderShellProps) {
     isAuthenticated,
     chapterId: chapter.id,
     injectJs,
-    bookLanguage: language,
+    bookLanguage: textLanguage,
     nativeLanguage,
   })
 
@@ -464,6 +485,7 @@ export function ReaderShell(props: ReaderShellProps) {
     ...(source.kind === 'edition' ? { editionIdRef: source.idRef } : { userBookIdRef: source.idRef }),
     chapter: { id: chapter.id } as unknown as Chapter,
     language,
+    textLanguage,
     nativeLanguage,
     isAuthenticated,
     injectJs,
@@ -475,6 +497,12 @@ export function ReaderShell(props: ReaderShellProps) {
     setLookupState,
     showToast,
   })
+
+  // The word toolbar's close — its X button and Android back (M3).
+  const closeSelection = useCallback(() => {
+    injectJs('try{window.getSelection&&window.getSelection().removeAllRanges()}catch(e){};try{window.__tsClearWordMark&&window.__tsClearWordMark()}catch(e){}')
+    setSelection(null)
+  }, [injectJs, setSelection])
 
   // Inbound bridge to the pdf.js viewer — TOC jumps, page-input jumps, and the
   // server-resume initial jump all route through `window.scrollToPage(n)`.
@@ -584,6 +612,31 @@ export function ReaderShell(props: ReaderShellProps) {
     })
   }, [original, originalNewerPage, originalInitialPage, chapters, chapterSlug, scrollPdfToPage, showToast, language])
 
+  // L4: the refresh behind a mid-read Range 401 can fail too (offline, captive portal, a session
+  // that is gone). That was silent — the pages past the loaded ones just stayed blank. Now the
+  // reader is told, with a Retry that runs the same recovery again.
+  const pdfAuthToastRef = useRef<number | null>(null)
+  useEffect(() => () => hideToast(pdfAuthToastRef.current), [hideToast])
+  const recoverPdfAuthRef = useRef<() => void>(() => {})
+  recoverPdfAuthRef.current = () => {
+    onUnauthorized().then(tok => {
+      if (tok) {
+        setPdfToken(tok)
+        setPdfReloadNonce(n => n + 1)
+        return
+      }
+      if (!aliveRef.current) return
+      pdfAuthToastRef.current = showToast({
+        variant: 'info',
+        icon: 'cloud-offline-outline',
+        message: t(language, 'reader.pdfReconnect'),
+        actionLabel: t(language, 'common.retry'),
+        onPress: () => recoverPdfAuthRef.current(),
+        duration: 8000,
+      })
+    })
+  }
+
   // Run the deferred initial jump once the async server resume page arrives
   // after the viewer was already ready.
   useEffect(() => { maybeInitialPdfJump() }, [maybeInitialPdfJump])
@@ -591,12 +644,13 @@ export function ReaderShell(props: ReaderShellProps) {
   // Android's hardware back pops this screen without ever calling `exit()` —
   // the chevron in the top bar is the only thing wired to it. That is why the
   // one-shot "bring your own book" ask claims the press: on the primary
-  // platform it would otherwise almost never be seen. Nothing else is
-  // intercepted, and `shouldInterceptReaderBack` refuses whenever a sheet is
-  // open or a card is already up, so a second press always leaves.
+  // platform it would otherwise almost never be seen. The word toolbar (not a
+  // Modal) is closed first (M3); otherwise `shouldInterceptReaderBack` refuses
+  // whenever a sheet is open or a card is already up, so a second press always leaves.
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      const intercept = shouldInterceptReaderBack({
+      const action = readerBackAction({
+        selectionOpen: !!selection,
         promptVisible: exitPrompt !== null,
         otherOverlayOpen:
           settingsOpen || bookmarksOpen || highlightsOpen || translateOpen
@@ -604,14 +658,15 @@ export function ReaderShell(props: ReaderShellProps) {
           || !!selection || !!editingHighlight,
         prompt: pendingPrompt(),
       })
-      if (!intercept) return false
+      if (action === 'close-selection') { closeSelection(); return true }
+      if (action === 'leave') return false
       handleExit()
       return true
     })
     return () => sub.remove()
   }, [
     exitPrompt, pendingPrompt, handleExit, settingsOpen, bookmarksOpen, highlightsOpen,
-    translateOpen, explainOpen, tocOpen, pdfError, selection, editingHighlight,
+    translateOpen, explainOpen, tocOpen, pdfError, selection, editingHighlight, closeSelection,
   ])
 
   const handleMessage = useCallback((event: any) => {
@@ -649,13 +704,21 @@ export function ReaderShell(props: ReaderShellProps) {
         // which is 1.0 at the end of every chapter — minted a book-completion per
         // chapter. Until the chapter list lands there is no book progress, and the
         // session is only told the reader is active.
-        if (bp != null) updateSessionProgress(bp)
-        else recordSessionActivity()
+        // A programmatic restore in flight is travel; the report after it lands is a jump whose
+        // distance is not reading (newer position elsewhere, rebuild, reflow).
+        // ponytail: a restore that lands without moving >0.5% posts no report, so the reader's next
+        // scroll is taken as the landing and its own small delta is dropped; ack-with-progress if it matters.
+        const jump = sessionJumpRef.current
+        if (bp != null && sessionSettledRef.current && jump !== 'pending') {
+          if (jump === 'landed') sessionJumpRef.current = 'idle'
+          updateSessionProgress(bp, { jump: jump === 'landed' })
+        } else recordSessionActivity()
         bumpProgress()
       } else if (data.type === 'restored') {
         // A restore we injected has actually been applied. Until this arrives the newest position
         // we hold is the load event's zero, and writing it wipes the reader's place — so this
         // message, not the injection, is what opens the write gate.
+        sessionSettledRef.current = true
         onRestoreLanded(data.restoreId)
       } else if (data.type === 'chapterEnd') {
         onChapterEndActionRef.current(data.action)
@@ -721,12 +784,7 @@ export function ReaderShell(props: ReaderShellProps) {
         // single-flight), then rebuild the viewer source with the fresh token.
         pdfInitialPageRef.current = currentPdfPageRef.current ?? pdfInitialPageRef.current
         pdfIsReloadRef.current = true
-        onUnauthorized().then(tok => {
-          if (tok) {
-            setPdfToken(tok)
-            setPdfReloadNonce(n => n + 1)
-          }
-        })
+        recoverPdfAuthRef.current()
       } else if (data.type === 'pdfLoadError') {
         // Corrupt / unreadable PDF (NOT the 401 reload path). Surface the reader
         // error state → "open as text" (if reflow chapters exist) or hard error.
@@ -964,6 +1022,22 @@ export function ReaderShell(props: ReaderShellProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chapters, chapterSlug])
 
+  // M6: the OS killed the WebView's renderer (memory pressure, a long PDF). The view is dead —
+  // Android needs a NEW one, not a reload — so it is remounted under a new key, at the saved
+  // place: the reflow document through the rebuild restore (text anchor, rebuildRestore.ts), the
+  // PDF through the same tracked-page bootstrap the silent 401 recovery uses.
+  const [webViewKey, setWebViewKey] = useState(0)
+  const onRendererGone = useCallback(() => {
+    if (original) {
+      pdfInitialPageRef.current = currentPdfPageRef.current ?? pdfInitialPageRef.current
+      pdfIsReloadRef.current = true
+      pdfReadyRef.current = false
+    } else {
+      onDocumentRebuild()
+    }
+    setWebViewKey(k => k + 1)
+  }, [original, onDocumentRebuild])
+
   const documentKey = readerDocumentKey({
     chapterSlug: htmlChapterSlug ?? '',
     fontFaceKey: fontFaceKey(resolvedFontFamily),
@@ -998,9 +1072,10 @@ export function ReaderShell(props: ReaderShellProps) {
       }, htmlChapterSlug, chrome.safeArea)
     },
     // Keyed on document identity ONLY. Insets, colours and typography are absent
-    // on purpose; readerChrome.test.ts asserts that absence.
+    // on purpose; readerChrome.test.ts asserts that absence. A remount after a dead
+    // renderer (M6) IS a new document, built with today's typography.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [documentKey],
+    [documentKey, webViewKey],
   )
 
   // A rebuild is starting. Told to the persistence hook BEFORE the new document
@@ -1067,7 +1142,7 @@ export function ReaderShell(props: ReaderShellProps) {
   }, [original, pdfDocumentKey({
     fileUrl: originalFileUrl ?? '',
     token: pdfToken,
-    nonce: pdfReloadNonce,
+    nonce: pdfReloadNonce + webViewKey,
     initialPage: pdfInitialPageRef.current ?? originalInitialPage ?? null,
   })])
 
@@ -1117,7 +1192,10 @@ export function ReaderShell(props: ReaderShellProps) {
       <StatusBar hidden={!barsVisible} style={settings.theme === 'dark' ? 'light' : 'dark'} />
       <View style={[styles.container, { backgroundColor: barBg }]}>
         <WebView
+          key={webViewKey}
           ref={webViewRef}
+          onRenderProcessGone={onRendererGone}
+          onContentProcessDidTerminate={onRendererGone}
           source={webViewSource}
           style={[styles.webview, { backgroundColor: resolvedTheme.backgroundColor }]}
           onMessage={handleMessage}
@@ -1206,10 +1284,10 @@ export function ReaderShell(props: ReaderShellProps) {
           <SelectionActionBar
             selectedText={selection.text}
             isMultiWord={isMultiWord}
-            language={language}
+            language={textLanguage}
             onTranslate={() => setTranslateOpen(true)}
             onExplain={() => setExplainOpen(true)}
-            onSpeak={() => toggleTts(selection.text, { rate: settings.ttsSpeed, lang: language })}
+            onSpeak={() => toggleTts(selection.text, { rate: settings.ttsSpeed, lang: textLanguage })}
             onSaveWord={handleSaveWord}
             onHighlight={handleHighlight}
             highlightColor={settings.lastHighlightColor}
@@ -1222,10 +1300,7 @@ export function ReaderShell(props: ReaderShellProps) {
             vocabStage={vocabMapRef.current[selection.text.toLowerCase()]?.stage ?? null}
             isAuthenticated={isAuthenticated}
             bottomOffset={footerHeight}
-            onClose={() => {
-              injectJs('try{window.getSelection&&window.getSelection().removeAllRanges()}catch(e){};try{window.__tsClearWordMark&&window.__tsClearWordMark()}catch(e){}')
-              setSelection(null)
-            }}
+            onClose={closeSelection}
             lookup={lookupState}
             onAddAnyway={lookupState ? () => { void vocabActions.addAnyway(lookupState) } : undefined}
           />
@@ -1359,8 +1434,8 @@ export function ReaderShell(props: ReaderShellProps) {
           visible={translateOpen}
           text={selection?.text || ''}
           onClose={() => setTranslateOpen(false)}
-          onSpeak={(txt) => toggleTts(txt, { rate: settings.ttsSpeed, lang: language })}
-          fromLang={language}
+          onSpeak={(txt) => toggleTts(txt, { rate: settings.ttsSpeed, lang: textLanguage })}
+          fromLang={textLanguage}
         />
 
         <ExplanationSheet
@@ -1368,7 +1443,7 @@ export function ReaderShell(props: ReaderShellProps) {
           word={selection?.text || ''}
           sentence={selection?.sentence || selection?.text || ''}
           bookId={explainBookId}
-          fromLang={language}
+          fromLang={textLanguage}
           onClose={() => setExplainOpen(false)}
         />
 

@@ -17,7 +17,10 @@ type Options = {
   editionIdRef?: MutableRefObject<string | null>
   userBookIdRef?: MutableRefObject<string | null>
   chapter: Chapter | null
+  /** UI language — toasts only. */
   language: Language
+  /** Language of the book's text — what a saved word is filed and translated as (M5). */
+  textLanguage: string
   nativeLanguage: string
   isAuthenticated: boolean
   injectJs: (js: string) => void
@@ -67,6 +70,7 @@ export function useReaderVocabActions({
   userBookIdRef,
   chapter,
   language,
+  textLanguage,
   nativeLanguage,
   isAuthenticated,
   injectJs,
@@ -109,12 +113,12 @@ export function useReaderVocabActions({
     // English". QA read the result off a real card: `lucius → Lucius`. The
     // reader is still learning the word; the app just has no second language to
     // show it in yet, and saying so by omission is honest.
-    const targetLang = nativeLanguage !== language ? nativeLanguage : null
+    const targetLang = nativeLanguage !== textLanguage ? nativeLanguage : null
     if (!targetLang) return
 
     // cachedTranslate (not translationApi) so this reuses the gloss the
     // selection toolbar just fetched for the same word — no 2nd round-trip.
-    cachedTranslate(sourceText, language, targetLang)
+    cachedTranslate(sourceText, textLanguage, targetLang)
       .then(({ translation }) => {
         if (translation && saved.id) {
           vocabularyApi.updateWord(saved.id, { translation }).catch(() => {})
@@ -125,7 +129,7 @@ export function useReaderVocabActions({
         }
       })
       .catch(() => {})
-  }, [vocabMapRef, injectJs, bumpVocab, setWordSaved, setSessionWordCount, notifyWordSaved, language, nativeLanguage])
+  }, [vocabMapRef, injectJs, bumpVocab, setWordSaved, setSessionWordCount, notifyWordSaved, textLanguage, nativeLanguage])
 
   // In-flight guard for manual saves. Mirrors autoSavedRef but persists
   // across calls within the hook so a rapid double-tap on the toolbar's
@@ -148,7 +152,7 @@ export function useReaderVocabActions({
     try {
       const resp = await saveWordWithRetry({
         word: selection.text,
-        language,
+        language: textLanguage,
         nativeLanguage,
         sentence: selection.sentence || null,
         bookTitle: bookTitleRef.current || null,
@@ -186,7 +190,7 @@ export function useReaderVocabActions({
     } finally {
       savingRef.current.delete(keyLc)
     }
-  }, [isAuthenticated, language, bookTitleRef, editionIdRef, userBookIdRef, chapter, showToast, setLookupState, setSelection, onWordSaved])
+  }, [isAuthenticated, language, textLanguage, bookTitleRef, editionIdRef, userBookIdRef, chapter, showToast, setLookupState, setSelection, onWordSaved])
 
   /**
    * "Add to SRS anyway" on the rare-word notice: promotes the WordLookup row

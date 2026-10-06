@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { readerGateState, READER_SESSION_GATE_TIMEOUT_MS, type ReaderGateState } from './readerSessionGate'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import {
+  readerGateState, READER_SESSION_GATE_TIMEOUT_MS, READER_SESSION_GATE_RETRY_MS,
+  gateSkipsWait, gateGaveUp, gateMemory, type ReaderGateState,
+} from './readerSessionGate'
 import type { EnsureSessionResult } from './guestSession'
 
 describe('readerGateState — hold the blank, or mount the reader', () => {
@@ -94,5 +99,54 @@ describe('readerGateState — hold the blank, or mount the reader', () => {
     // book; web's 15s bootstrap budget would be unusable here.
     expect(READER_SESSION_GATE_TIMEOUT_MS).toBeGreaterThan(1_000)
     expect(READER_SESSION_GATE_TIMEOUT_MS).toBeLessThanOrEqual(4_000)
+  })
+})
+
+describe('M4 — a gate that gave up lets the next chapter open at once', () => {
+  it('skips the wait inside the retry window, and only then', () => {
+    expect(gateSkipsWait(null, 1_000)).toBe(false)
+    expect(gateSkipsWait(1_000, 1_000 + 2_000)).toBe(true)
+    expect(gateSkipsWait(1_000, 1_000 + READER_SESSION_GATE_RETRY_MS)).toBe(false)
+    // A clock that went backwards is no evidence about the network.
+    expect(gateSkipsWait(10_000, 1_000)).toBe(false)
+  })
+
+  it('gave up = failed, skipped, or timed out with no answer; a session is not giving up', () => {
+    expect(gateGaveUp({ outcome: { status: 'failed', error: null }, timedOut: false })).toBe(true)
+    expect(gateGaveUp({ outcome: { status: 'skipped', reason: 'bootstrapping' }, timedOut: false })).toBe(true)
+    expect(gateGaveUp({ outcome: null, timedOut: true })).toBe(true)
+    expect(gateGaveUp({ outcome: { status: 'minted' }, timedOut: true })).toBe(false)
+    expect(gateGaveUp({ outcome: { status: 'existing', isGuest: false }, timedOut: false })).toBe(false)
+  })
+
+  it('the deadline firing AFTER a fast success does not set the skip (review #1)', () => {
+    gateMemory.record(false, 1_000)                    // ensureSession answered in < 3s
+    gateMemory.deadlinePassed({ status: 'minted' }, 3_000)
+    expect(gateMemory.skipsWait(4_000)).toBe(false)
+    gateMemory.deadlinePassed(null, 5_000)             // no answer by the deadline: gave up
+    expect(gateMemory.skipsWait(6_000)).toBe(true)
+    gateMemory.record(false, 7_000)
+  })
+
+  it('a give-up is remembered, a success forgets it', () => {
+    gateMemory.record(true, 5_000)
+    expect(gateMemory.skipsWait(6_000)).toBe(true)
+    gateMemory.record(false, 7_000)
+    expect(gateMemory.skipsWait(8_000)).toBe(false)
+  })
+})
+
+describe('M4 wiring — SessionGate consults and feeds the memory', () => {
+  const gate = readFileSync(resolve(__dirname, '../components/SessionGate.tsx'), 'utf8')
+  it('a skipped gate renders at once and never mints', () => {
+    expect(gate).toMatch(/useState\(\(\) => gateMemory\.skipsWait\(\)\)/)
+    expect(gate).toMatch(/useState\(skipped\)/)
+    expect(gate).toMatch(/startedRef = useRef\(skipped\)/)
+  })
+  it('the deadline and the mint answer are both recorded', () => {
+    expect(gate).toContain('gateMemory.deadlinePassed(outcomeRef.current)')
+    expect(gate).not.toContain('gateMemory.record(true)')
+    expect(gate).toMatch(/outcomeRef\.current = result\s+gateMemory\.record/)
+    expect(gate).toContain('gateMemory.record(gateGaveUp(')
   })
 })
