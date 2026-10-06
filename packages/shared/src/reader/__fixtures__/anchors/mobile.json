@@ -1,0 +1,62 @@
+{
+  "chapter-start": {
+    "prefix": "",
+    "exact": "Chapter One",
+    "suffix": "It was a bright cold day in Ap"
+  },
+  "inline-tags": {
+    "prefix": "Chapter OneIt was a ",
+    "exact": "bright cold day in April",
+    "suffix": ", and the clocks were striking"
+  },
+  "across-paragraphs": {
+    "prefix": "in April, and the clocks were ",
+    "exact": "striking thirteen.The hallway",
+    "suffix": " smelt of boiled cabbage and o"
+  },
+  "across-paragraphs-short": {
+    "prefix": " and the clocks were striking ",
+    "exact": "thirteen.The",
+    "suffix": " hallway smelt of boiled cabba"
+  },
+  "nbsp": {
+    "prefix": "clocks were striking thirteen.",
+    "exact": "The hallway smelt",
+    "suffix": " of boiled cabbage and old rag"
+  },
+  "repeated-first": {
+    "prefix": "d cabbage and old rag mats.He ",
+    "exact": "said the word again",
+    "suffix": ". Nobody answered him.Much lat"
+  },
+  "repeated-second": {
+    "prefix": "uch later, by the window, she ",
+    "exact": "said the word again",
+    "suffix": " and the room went quiet.That "
+  },
+  "chapter-end": {
+    "prefix": " room went quiet.That was the ",
+    "exact": "end of it.",
+    "suffix": ""
+  },
+  "edge-repeat-start": {
+    "prefix": "",
+    "exact": "said the word again",
+    "suffix": ", and much later he said the w"
+  },
+  "edge-repeat-end": {
+    "prefix": "word again, and much later he ",
+    "exact": "said the word again",
+    "suffix": ""
+  },
+  "cyrillic": {
+    "prefix": "зділ третійСлово за словом, і ",
+    "exact": "знову слово",
+    "suffix": " — так минав день.مرحبا بالعال"
+  },
+  "rtl-arabic": {
+    "prefix": " слово — так минав день.مرحبا ",
+    "exact": "بالعالم",
+    "suffix": "، هذه جملة قصيرة."
+  }
+}

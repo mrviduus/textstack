@@ -1,0 +1,10 @@
+{
+  "chapter-start": { "prefix": "", "exact": "Chapter One", "suffix": "", "startOffset": 0, "endOffset": 11, "chapterId": "11111111-1111-4111-8111-111111111111", "source": "mcp" },
+  "inline-tags": { "prefix": "", "exact": "bright cold day in April", "suffix": "", "startOffset": 0, "endOffset": 24, "chapterId": "11111111-1111-4111-8111-111111111111", "source": "mcp" },
+  "nbsp": { "prefix": "", "exact": "The hallway smelt", "suffix": "", "startOffset": 0, "endOffset": 17, "chapterId": "11111111-1111-4111-8111-111111111111", "source": "mcp" },
+  "nbsp-as-space": { "prefix": "", "exact": "The hallway smelt", "suffix": "", "startOffset": 0, "endOffset": 17, "chapterId": "11111111-1111-4111-8111-111111111111", "source": "mcp" },
+  "repeated-first": { "prefix": "", "exact": "said the word again", "suffix": "", "startOffset": 0, "endOffset": 19, "chapterId": "11111111-1111-4111-8111-111111111111", "source": "mcp" },
+  "chapter-end": { "prefix": "", "exact": "end of it.", "suffix": "", "startOffset": 0, "endOffset": 10, "chapterId": "11111111-1111-4111-8111-111111111111", "source": "mcp" },
+  "cyrillic": { "prefix": "", "exact": "знову слово", "suffix": "", "startOffset": 0, "endOffset": 11, "chapterId": "33333333-3333-4333-8333-333333333333", "source": "mcp" },
+  "rtl-arabic": { "prefix": "", "exact": "بالعالم", "suffix": "", "startOffset": 0, "endOffset": 7, "chapterId": "33333333-3333-4333-8333-333333333333", "source": "mcp" }
+}
