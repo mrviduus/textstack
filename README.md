@@ -51,14 +51,15 @@ understanding is to read them — but the friction has to go.
 ## What TextStack does
 
 **Tap any term → translation in your native language, aware of the book's
-domain.** Tap "attention" in an ML book and you get *увага (механізм у
-нейромережах)* in Ukrainian or *внимание (механизм в нейросетях)* in
-Russian — not the everyday meaning of the word. Explanation mode (no
+domain.** Tap "attention" in an ML book and you get *atención (mecanismo
+de las redes neuronales)* in Spanish, *Aufmerksamkeit (Mechanismus in
+neuronalen Netzen)* in German or *увага (механізм у нейромережах)* in
+Ukrainian — not the everyday meaning of the word. Explanation mode (no
 translation) is also available for native English readers who want the
 term clarified instead of translated. Powered by OpenAI `gpt-4.1-nano`,
 swap-in friendly — any `ILlmService` impl works. 18+ target languages
-supported, with Russian and Ukrainian as the focus during current
-development.
+supported, led by Spanish, German, French, Portuguese, Italian and
+Ukrainian.
 
 Terms you don't recognize enter a **capped weekly SRS queue** — no infinite
 backlog, no guilt. Common words and the top 15K English words are filtered
