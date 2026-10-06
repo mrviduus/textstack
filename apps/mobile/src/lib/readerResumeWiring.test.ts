@@ -35,6 +35,6 @@ describe('C2 — "read further on another device" to another chapter', () => {
 
   it('goes through the shell, so the reading session is carried (L3)', () => {
     expect(source).toContain('chapterNavigatorRef.current')
-    expect(read('src/components/reader/ReaderShell.tsx')).toMatch(/chapterNavigatorRef\.current = navigateChapter/)
+    expect(read('src/components/reader/useReaderChapterNav.ts')).toMatch(/chapterNavigatorRef\.current = navigateChapter/)
   })
 })

@@ -11,6 +11,8 @@ import { gateOpened, restoreGateReduce, RESTORE_GATE_INITIAL, type RestoreGateSt
 const read = (file: string) => readFileSync(resolve(__dirname, '../..', file), 'utf8')
 const persistence = read('src/hooks/useReaderPersistence.ts')
 const shell = read('src/components/reader/ReaderShell.tsx')
+const feed = read('src/components/reader/useReaderSessionFeed.ts')
+const doc = read('src/components/reader/useReaderDocument.ts')
 const html = read('src/lib/readerHtml.ts')
 const body = (src: string, from: string, to = '}, [') => {
   const start = src.indexOf(from)
@@ -61,7 +63,7 @@ describe('bug 4 — the restore ack carries the landing', () => {
   it("persistence takes the ack's scrollY as the move baseline; the shell passes it", () => {
     const landed = body(persistence, 'const onRestoreLanded = useCallback(')
     expect(landed).toContain('moveBaselineRef.current = landingBaseline(moveBaselineRef.current, scrollY)')
-    expect(shell).toContain('onRestoreLanded(data.restoreId, data.scrollY)')
+    expect(feed).toContain('onRestoreLanded(data.restoreId, data.scrollY)')
   })
 
   it('review #2: pending is asked through pendingRestoreTarget, rebuild target first', () => {
@@ -71,13 +73,13 @@ describe('bug 4 — the restore ack carries the landing', () => {
   })
 
   it('review #3: a new WebView source (PDF → "Read as text") resets the loaded flag and the applied typography', () => {
-    const eff = body(shell, 'useEffect(() => {\n    docLoadedRef.current = false', '}, [webViewSource])')
+    const eff = body(doc, 'useEffect(() => {\n    docLoadedRef.current = false', '}, [webViewSource])')
     expect(eff).toContain('readerAppliedTypographyRef.current = builtTypographyRef.current')
     // Before the typography effect, so a change in the same render waits for onLoadEnd.
-    expect(shell.indexOf('}, [webViewSource])')).toBeLessThan(shell.indexOf('useEffect(() => { applyTypography() }'))
+    expect(doc.indexOf('}, [webViewSource])')).toBeLessThan(doc.indexOf('useEffect(() => { applyTypography() }'))
   })
 
   it('the ponytail ceiling on a silent landing is gone', () => {
-    expect(shell).not.toContain('a restore that lands without moving >0.5% posts no report')
+    expect(shell + feed + doc).not.toContain('a restore that lands without moving >0.5% posts no report')
   })
 })

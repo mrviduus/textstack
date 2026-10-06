@@ -12,6 +12,8 @@ const persistence = read('src/hooks/useReaderPersistence.ts')
 const userBook = read('src/components/reader/useUserBookReaderSource.ts')
 const edition = read('src/components/reader/useEditionReaderSource.ts')
 const shell = read('src/components/reader/ReaderShell.tsx')
+const nav = read('src/components/reader/useReaderChapterNav.ts')
+const pdfHook = read('src/components/reader/useReaderPdf.ts')
 
 describe('H1 — a PDF upload on a slow network never writes scroll: over page:', () => {
   it('the debounced save reads the CURRENT gate when it fires, not the one it was armed with', () => {
@@ -78,11 +80,11 @@ describe('H2 / M9 / M2 — offline chapter changes', () => {
   })
 
   it('chevrons, TOC, bookmarks and highlights go through the offline-aware path', () => {
-    expect(shell).not.toMatch(/&& navigateChapter\(/)
-    expect(shell).not.toContain('onNavigate={navigateChapter}')
-    const start = shell.indexOf('const openChapter = async')
+    expect(shell + nav).not.toMatch(/&& navigateChapter\(/)
+    expect(shell + nav).not.toContain('onNavigate={navigateChapter}')
+    const start = nav.indexOf('const openChapter = async')
     expect(start).toBeGreaterThan(-1)
-    const body = shell.slice(start, shell.indexOf('\n  }\n', start))
+    const body = nav.slice(start, nav.indexOf('\n  }\n', start))
     // A tap never waits on a network (review #3): online → navigate now; offline → SQLite only.
     expect(body).not.toContain('ensureChapter(')
     expect(body).toMatch(/if \(online \|\| await isChapterOnDevice\(/)
@@ -113,9 +115,9 @@ describe('H3 — returning to the foreground checks for a newer position', () =>
 describe('H3 — the PDF foreground offer (review #4)', () => {
   it('every offer is a new event, and a return offer measures "moved" from the page at return', () => {
     expect(userBook).toMatch(/setPdfNewerPage\(\{ page: serverPage, at: Date\.now\(\), onReturn: true \}\)/)
-    expect(shell).toMatch(/pdfNewerHandledRef\.current === originalNewerPage\.at/)
-    expect(shell).toMatch(/originalNewerPage\.onReturn \? pdfReturnPageRef\.current : pdfResumedPageRef\.current/)
-    expect(shell).toMatch(/pdfReturnPageRef\.current = currentPdfPageRef\.current/)
+    expect(pdfHook).toMatch(/pdfNewerHandledRef\.current === originalNewerPage\.at/)
+    expect(pdfHook).toMatch(/originalNewerPage\.onReturn \? pdfReturnPageRef\.current : pdfResumedPageRef\.current/)
+    expect(pdfHook).toMatch(/pdfReturnPageRef\.current = currentPdfPageRef\.current/)
   })
 })
 
@@ -127,7 +129,7 @@ describe('M1 — the newer-position toast', () => {
 
   it('is hidden when the reader unmounts', () => {
     expect(persistence).toMatch(/hideToast\(newerToastRef\.current\)/)
-    expect(shell).toMatch(/hideToast\(pdfNewerToastRef\.current\)/)
+    expect(pdfHook).toMatch(/hideToast\(pdfNewerToastRef\.current\)/)
   })
 })
 

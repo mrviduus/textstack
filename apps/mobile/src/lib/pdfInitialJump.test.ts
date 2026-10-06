@@ -31,10 +31,10 @@ describe('initialPdfJump', () => {
 })
 
 describe('wiring', () => {
-  const shell = readFileSync(resolve(__dirname, '../components/reader/ReaderShell.tsx'), 'utf8')
+  const pdfHook = readFileSync(resolve(__dirname, '../components/reader/useReaderPdf.ts'), 'utf8')
   it('the shell decides the first PDF jump through initialPdfJump, with no start-page shortcut', () => {
-    const start = shell.indexOf('const maybeInitialPdfJump = useCallback(')
-    const body = shell.slice(start, shell.indexOf('}, [', start))
+    const start = pdfHook.indexOf('const maybeInitialPdfJump = useCallback(')
+    const body = pdfHook.slice(start, pdfHook.indexOf('}, [', start))
     expect(body).toContain('initialPdfJump(')
     expect(body).not.toContain('originalInitialPage != null && !originalResumeReady')
     expect(body).toContain("if (first.kind === 'wait') return")

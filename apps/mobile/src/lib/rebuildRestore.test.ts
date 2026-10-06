@@ -146,6 +146,7 @@ describe('L1 / M6 wiring', () => {
   const read = (f: string) => readFileSync(resolve(__dirname, '../..', f), 'utf8')
   const persistence = read('src/hooks/useReaderPersistence.ts')
   const shell = read('src/components/reader/ReaderShell.tsx')
+  const doc = read('src/components/reader/useReaderDocument.ts')
 
   it('the target is decided when the rebuild STARTS — pending target first, else a live snapshot', () => {
     const start = persistence.indexOf('const onDocumentRebuild = useCallback(')
@@ -160,7 +161,7 @@ describe('L1 / M6 wiring', () => {
     const body = persistence.slice(start, persistence.indexOf('}, [', start))
     expect(body).toContain('duringRestorePlan(')
     expect(body).toMatch(/injectJs\(buildJs\(issueRestore\(\)\)\)[\s\S]*restoreTo\(plan\.target\)/)
-    expect(shell).toContain('reflow(id => readerTypographyInjectionJs(next, id))')
+    expect(doc).toContain('reflow(id => readerTypographyInjectionJs(next, id))')
   })
 
   it('rule 8: typography that changed before the document loaded is applied at load, after the restore is asked', () => {
@@ -183,15 +184,15 @@ describe('L1 / M6 wiring', () => {
     expect(shell).toContain('onRenderProcessGone={onRendererGone}')
     expect(shell).toContain('onContentProcessDidTerminate={onRendererGone}')
     expect(shell).toContain('key={webViewKey}')
-    const start = shell.indexOf('const onRendererGone = useCallback(')
-    const body = shell.slice(start, shell.indexOf('}, [', start))
+    const start = doc.indexOf('const onRendererGone = useCallback(')
+    const body = doc.slice(start, doc.indexOf('}, [', start))
     expect(body).toContain('onDocumentRebuild()')
     expect(body).toContain('pdfIsReloadRef.current = true')
     expect(body).toContain('pdfInitialPageRef.current = currentPdfPageRef.current')
   })
 
   it('M6: the remounted document is rebuilt with current typography', () => {
-    expect(shell).toContain('[documentKey, webViewKey]')
-    expect(shell).toContain('nonce: pdfReloadNonce + webViewKey')
+    expect(doc).toContain('[documentKey, webViewKey]')
+    expect(doc).toContain('nonce: pdfReloadNonce + webViewKey')
   })
 })

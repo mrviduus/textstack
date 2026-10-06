@@ -1,7 +1,7 @@
 import type { MutableRefObject, RefObject } from 'react'
 import type { WebView } from 'react-native-webview'
 import type { BookmarkDto, TextPosition } from '@textstack/shared'
-import type { ReaderSource, ReaderShellChapter } from './ReaderShell'
+import type { ReaderSource, ReaderShellChapter } from './readerShellTypes'
 import type { SessionJump } from '../../lib/sessionMath'
 
 /**

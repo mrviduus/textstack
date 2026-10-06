@@ -78,7 +78,8 @@ describe('readerVisit', () => {
   it('the reader hands the visit over on every chapter change, and the session does not submit it twice', () => {
     // Hooks do not run under this test lane, so the wiring is pinned in the source.
     const shell = readFileSync(join(__dirname, '../components/reader/ReaderShell.tsx'), 'utf8')
-    expect(shell).toMatch(/const navigateChapter = [\s\S]*?handOffSession\(\)[\s\S]*?carryVisit\([\s\S]*?onNavigateChapter\(slug\)/)
+    const nav = readFileSync(join(__dirname, '../components/reader/useReaderChapterNav.ts'), 'utf8')
+    expect(nav).toMatch(/const navigateChapter = [\s\S]*?handOffSession\(\)[\s\S]*?carryVisit\([\s\S]*?onNavigateChapter\(slug\)/)
     expect(shell).toMatch(/useState\(\(\) => claimVisit\(visitKey\)\)/)
     const session = readFileSync(join(__dirname, '../hooks/useReadingSession.ts'), 'utf8')
     expect(session).toMatch(/if \(!handedOffRef\.current\) submit\(\)/)
