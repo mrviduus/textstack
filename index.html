@@ -2,258 +2,656 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>TextStack — finish the dense books you keep quitting</title>
-  <meta name="description" content="TextStack is a reader for hard English books. Tap any term for a 2–3 sentence explanation that knows the book's domain, plus inline translation and a vocabulary trainer. Read on the web or the mobile app.">
-  <meta name="theme-color" content="#c2683f">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>TextStack — read the hard programming books</title>
+  <meta name="description" content="A reader for hard programming books. Select a term for a short explanation that fits the book, translate it into your language, and talk the chapter through with Claude or ChatGPT.">
+  <meta name="theme-color" content="#2443c4">
   <!-- Canonical points to the real app: consolidates SEO signal, avoids duplicate-content competition. -->
   <link rel="canonical" href="https://textstack.app/">
-
-  <!-- Open Graph -->
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="TextStack">
-  <meta property="og:title" content="TextStack — finish the dense books you keep quitting">
-  <meta property="og:description" content="Tap any term for a 2–3 sentence explanation that knows the book's domain. A modern Word Wise for technical reading — web + mobile.">
+  <meta property="og:title" content="TextStack — read the hard programming books. Finish them.">
+  <meta property="og:description" content="Explain any term in the book's own domain, translate it, and discuss the chapter with your own Claude or ChatGPT.">
   <meta property="og:url" content="https://textstack.app/">
-  <!-- Reuse the app's real icon (textstack.app/og-image.png does not exist). -->
   <meta property="og:image" content="https://textstack.app/web-app-manifest-512x512.png">
   <meta property="og:image:width" content="512">
   <meta property="og:image:height" content="512">
-  <!-- Twitter -->
   <meta name="twitter:card" content="summary">
-  <meta name="twitter:title" content="TextStack — finish the dense books you keep quitting">
-  <meta name="twitter:description" content="A reader that explains any term in the book's own domain, in your language. Web + mobile.">
+  <meta name="twitter:title" content="TextStack — read the hard programming books. Finish them.">
+  <meta name="twitter:description" content="Explain, translate and discuss hard programming books with your own AI assistant.">
   <meta name="twitter:image" content="https://textstack.app/web-app-manifest-512x512.png">
   <meta name="twitter:creator" content="@Rexetdeus">
-
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,800&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap" rel="stylesheet">
-
-  <style>
-    :root{
-      --paper:#f6efe4;
-      --paper-2:#efe6d6;
-      --ink:#2a231d;
-      --ink-soft:#6c5d4e;
-      --line:#e0d4c0;
-      --accent:#c2683f;
-      --accent-deep:#a8522c;
-      --accent-soft:#e8c7b2;
-      --shadow:24px 24px 0 rgba(42,35,29,.06);
-      --maxw:1080px;
-      --serif:"Fraunces",Georgia,serif;
-      --read:"Newsreader",Georgia,serif;
-    }
-    *{box-sizing:border-box}
-    html{scroll-behavior:smooth}
-    body{
-      margin:0;
-      background:var(--paper);
-      color:var(--ink);
-      font-family:var(--read);
-      font-size:19px;
-      line-height:1.6;
-      -webkit-font-smoothing:antialiased;
-      /* subtle paper grain */
-      background-image:radial-gradient(rgba(42,35,29,.035) 1px,transparent 1px);
-      background-size:4px 4px;
-    }
-    a{color:var(--accent-deep);text-underline-offset:3px;text-decoration-thickness:1px}
-    a:focus-visible,button:focus-visible{outline:3px solid var(--accent);outline-offset:3px;border-radius:4px}
-    .wrap{max-width:var(--maxw);margin:0 auto;padding:0 28px}
-    h1,h2,h3{font-family:var(--serif);font-weight:600;letter-spacing:-.02em;line-height:1.05;color:var(--ink)}
-
-    /* ---- top bar ---- */
-    header{padding:26px 0}
-    .bar{display:flex;align-items:center;justify-content:space-between;gap:16px}
-    .brand{font-family:var(--serif);font-weight:800;font-size:22px;letter-spacing:-.02em;display:flex;align-items:center;gap:10px;color:var(--ink);text-decoration:none}
-    .brand .mark{width:26px;height:26px;border-radius:6px;background:var(--accent);display:inline-block;position:relative;box-shadow:3px 3px 0 var(--accent-deep)}
-    .brand .mark::after{content:"";position:absolute;inset:6px 6px auto 6px;height:3px;background:var(--paper);box-shadow:0 5px 0 var(--paper),0 10px 0 var(--paper)}
-    .nav-cta{font-family:var(--serif);font-weight:600;font-size:15px;padding:9px 16px;border:1.5px solid var(--ink);border-radius:999px;text-decoration:none;color:var(--ink);transition:transform .15s,background .15s}
-    .nav-cta:hover{background:var(--ink);color:var(--paper);transform:translateY(-1px)}
-
-    /* ---- hero ---- */
-    .hero{padding:54px 0 30px;display:grid;grid-template-columns:1.05fr .95fr;gap:54px;align-items:center}
-    .eyebrow{font-family:var(--serif);font-weight:600;font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:var(--accent-deep);margin:0 0 18px}
-    h1.title{font-size:clamp(40px,6.4vw,76px);margin:0 0 20px}
-    h1.title em{font-style:italic;color:var(--accent-deep)}
-    .lede{font-size:21px;color:var(--ink-soft);max-width:34ch;margin:0 0 30px}
-    .actions{display:flex;flex-wrap:wrap;gap:14px;align-items:center}
-    .btn{font-family:var(--serif);font-weight:600;font-size:17px;text-decoration:none;border-radius:999px;padding:15px 28px;display:inline-flex;align-items:center;gap:10px;transition:transform .15s,box-shadow .15s}
-    .btn-primary{background:var(--accent);color:#fff;box-shadow:0 0 0 0 var(--accent-deep);border:1.5px solid var(--accent-deep)}
-    .btn-primary:hover{transform:translateY(-2px);box-shadow:0 8px 0 -2px var(--accent-deep)}
-    .btn-primary .arr{transition:transform .18s}
-    .btn-primary:hover .arr{transform:translate(4px,-1px)}
-    .btn-ghost{color:var(--ink);text-decoration:none;font-family:var(--serif);font-weight:600;font-size:16px;padding:13px 6px;border-bottom:2px solid transparent}
-    .btn-ghost:hover{border-bottom-color:var(--accent)}
-
-    /* ---- reader demo card ---- */
-    .demo{background:#fffaf2;border:1.5px solid var(--line);border-radius:18px;padding:30px 30px 34px;box-shadow:var(--shadow);position:relative}
-    .demo .meta{font-family:var(--serif);font-size:13px;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-soft);margin:0 0 14px}
-    .demo p{font-size:20px;line-height:1.74;margin:0;color:var(--ink)}
-    .term{position:relative;border-bottom:2px solid var(--accent);color:var(--accent-deep);font-weight:500;cursor:help}
-    .pop{margin-top:16px;background:var(--paper-2);border:1.5px solid var(--line);border-left:4px solid var(--accent);border-radius:0 12px 12px 0;padding:14px 16px}
-    .pop .w{font-family:var(--serif);font-weight:600;font-size:15px;color:var(--ink)}
-    .pop .tr{color:var(--accent-deep);font-style:italic}
-    .pop .ex{display:block;margin-top:6px;font-size:16px;color:var(--ink-soft);line-height:1.55}
-    .save{display:inline-flex;align-items:center;gap:7px;margin-top:12px;font-family:var(--serif);font-size:13px;font-weight:600;color:var(--accent-deep);background:var(--accent-soft);border-radius:999px;padding:5px 12px}
-
-    /* ---- reveal animation ---- */
-    .rise{opacity:0;transform:translateY(16px);animation:rise .7s cubic-bezier(.2,.7,.2,1) forwards}
-    @keyframes rise{to{opacity:1;transform:none}}
-    .d1{animation-delay:.05s}.d2{animation-delay:.16s}.d3{animation-delay:.27s}.d4{animation-delay:.38s}.d5{animation-delay:.5s}
-    @media (prefers-reduced-motion:reduce){.rise{animation:none;opacity:1;transform:none}}
-
-    /* ---- strip ---- */
-    .strip{border-top:1.5px solid var(--line);border-bottom:1.5px solid var(--line);margin-top:40px;background:var(--paper-2)}
-    .strip .wrap{padding:18px 28px;display:flex;flex-wrap:wrap;gap:10px 30px;align-items:center;justify-content:center;font-family:var(--serif);font-size:15px;color:var(--ink-soft)}
-    .strip b{color:var(--ink);font-weight:600}
-
-    /* ---- features ---- */
-    section.feat{padding:74px 0 30px}
-    .sec-head{max-width:30ch;margin:0 0 40px}
-    .sec-head h2{font-size:clamp(28px,4vw,42px);margin:0 0 12px}
-    .sec-head p{color:var(--ink-soft);margin:0;font-size:19px}
-    .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:20px}
-    .card{background:#fffaf2;border:1.5px solid var(--line);border-radius:16px;padding:28px;transition:transform .18s,box-shadow .18s}
-    .card:hover{transform:translateY(-3px);box-shadow:10px 10px 0 rgba(42,35,29,.05)}
-    .card .ic{width:42px;height:42px;border-radius:10px;background:var(--accent-soft);display:flex;align-items:center;justify-content:center;font-size:22px;margin-bottom:16px}
-    .card h3{font-size:22px;margin:0 0 8px}
-    .card p{margin:0;color:var(--ink-soft);font-size:17px;line-height:1.55}
-
-    /* ---- why ---- */
-    .why{padding:70px 0}
-    .why blockquote{margin:0;font-family:var(--serif);font-weight:500;font-size:clamp(24px,3.4vw,38px);line-height:1.25;letter-spacing:-.01em;max-width:20ch}
-    .why blockquote em{font-style:italic;color:var(--accent-deep)}
-    .why .by{margin-top:22px;color:var(--ink-soft);font-size:17px}
-
-    /* ---- final cta ---- */
-    .cta{background:var(--ink);color:var(--paper);border-radius:24px;margin:20px 0 70px;padding:56px 40px;text-align:center}
-    .cta h2{color:var(--paper);font-size:clamp(28px,4.4vw,46px);margin:0 0 14px}
-    .cta p{color:#d9cbb8;max-width:46ch;margin:0 auto 28px;font-size:19px}
-    .cta .btn-primary{box-shadow:0 0 0 0 var(--accent-deep)}
-    .cta .btn-primary:hover{box-shadow:0 8px 0 -2px #6e3318}
-
-    /* ---- footer ---- */
-    footer{border-top:1.5px solid var(--line);padding:36px 0 60px}
-    .foot{display:flex;flex-wrap:wrap;gap:18px 28px;align-items:center;justify-content:space-between}
-    .foot nav{display:flex;flex-wrap:wrap;gap:8px 22px}
-    .foot a{color:var(--ink-soft);text-decoration:none;font-family:var(--serif);font-size:15px}
-    .foot a:hover{color:var(--accent-deep);text-decoration:underline}
-    .foot .small{color:var(--ink-soft);font-size:14px;font-family:var(--serif)}
-
-    @media (max-width:860px){
-      .hero{grid-template-columns:1fr;gap:34px;padding:34px 0 10px}
-      .grid{grid-template-columns:1fr}
-      .lede{max-width:none}
-    }
-  </style>
 </head>
 <body>
-  <a href="#main" style="position:absolute;left:-9999px" onfocus="this.style.left='12px';this.style.top='12px';this.style.zIndex='10'">Skip to content</a>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=Schibsted+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one left-aligned column. The hero is a live book page with a margin note beside it;
+   below it, three plain rows (explain, translate, discuss), an assistant transcript, the library, the story. */
+:root {
+  --page: #f6f7f9;      /* cool desk paper */
+  --sheet: #ffffff;     /* the book page */
+  --ink: #171b24;       /* body text */
+  --muted: #5a6273;     /* secondary text */
+  --rule: #d8dce4;      /* hairlines */
+  --pen: #2443c4;       /* blue margin pen: links, notes, buttons */
+  --pen-ink: #ffffff;
+  --mark: #ffe46b;      /* highlighter */
+  --mark-ink: #171b24;
+  --serif: "Source Serif 4", Georgia, "Times New Roman", serif;
+  --sans: "Schibsted Grotesk", system-ui, -apple-system, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --page: #12141a; --sheet: #1a1d25; --ink: #e9ebf0; --muted: #a0a7b6; --rule: #2e333f;
+  --pen: #93a6ff; --pen-ink: #12141a; --mark: #e7c63a; --mark-ink: #12141a; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --page: #12141a; --sheet: #1a1d25; --ink: #e9ebf0; --muted: #a0a7b6; --rule: #2e333f;
+  --pen: #93a6ff; --pen-ink: #12141a; --mark: #e7c63a; --mark-ink: #12141a; color-scheme: dark }
 
-  <header>
-    <div class="wrap bar">
-      <a class="brand" href="https://textstack.app" aria-label="TextStack home"><span class="mark" aria-hidden="true"></span>TextStack</a>
-      <a class="nav-cta" href="https://textstack.app">Open app ↗</a>
-    </div>
+* { box-sizing: border-box }
+html { scroll-behavior: smooth; overflow-x: clip }
+body { overflow-x: clip }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto } }
+body { margin: 0; background: var(--page); color: var(--ink); font: 17px/1.6 var(--sans); padding-inline: 20px; padding-block: 0 56px }
+.wrap { max-width: 1120px; margin: 0 auto }
+a { color: var(--pen); text-underline-offset: 3px; text-decoration-thickness: 1px }
+:focus-visible { outline: 2px solid var(--pen); outline-offset: 3px; border-radius: 3px }
+.skip { position: absolute; left: -999px } .skip:focus { left: 16px; top: 16px; background: var(--sheet); padding: 8px 12px }
+
+/* top bar */
+.top { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-block: 22px }
+.brand { display: flex; align-items: center; gap: 10px; font: 700 21px var(--serif); color: var(--ink); text-decoration: none }
+.brand svg { flex: none }
+.top nav { display: flex; gap: 18px; align-items: center; font-size: 15px }
+.top nav a { color: var(--muted); text-decoration: none }
+.top nav a:hover { color: var(--ink) }
+
+/* buttons */
+.btn { display: inline-flex; align-items: center; gap: 8px; font: 600 16px var(--sans); padding: 11px 18px; border-radius: 8px; text-decoration: none; border: 1.5px solid var(--pen) }
+.btn.primary { background: var(--pen); color: var(--pen-ink) }
+.btn.ghost { color: var(--pen); background: transparent }
+.btn:hover { filter: brightness(1.08) }
+
+/* hero */
+.hero { padding-block: 40px 28px; display: grid; gap: 18px; max-width: 760px }
+h1 { font: 700 clamp(38px, 6vw, 68px)/1.04 var(--serif); letter-spacing: -.02em; margin: 0; text-wrap: balance }
+.sub { font-size: 19px; color: var(--muted); margin: 0; max-width: 58ch }
+.ctas { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 6px }
+.fine { font-size: 14px; color: var(--muted); margin: 0 }
+
+/* the book demo */
+.demo { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 0; margin-block: 28px 8px; background: var(--sheet); border: 1px solid var(--rule); border-radius: 10px; overflow: hidden }
+@media (max-width: 860px) { .demo { grid-template-columns: minmax(0, 1fr) } }
+.book { padding: 34px 40px 30px; border-right: 1px solid var(--rule); min-width: 0 }
+@media (max-width: 860px) { .book { border-right: 0; border-bottom: 1px solid var(--rule); padding: 26px 22px } }
+.runhead { display: flex; justify-content: space-between; font: 400 13px var(--serif); color: var(--muted); font-style: italic; margin-bottom: 18px }
+.book p { font: 400 19px/1.75 var(--serif); margin: 0 0 14px; max-width: 62ch; hyphens: auto }
+.term { font: inherit; color: inherit; background: none; border: 0; padding: 0 1px; cursor: pointer; border-bottom: 2px dotted var(--pen); border-radius: 2px }
+.term:hover { background: color-mix(in srgb, var(--mark) 45%, transparent) }
+.term[aria-pressed="true"] { background: var(--mark); color: var(--mark-ink); border-bottom-color: transparent }
+.hint { font-size: 14px; color: var(--muted); margin: 18px 0 0 }
+.caption { font-size: 13px; color: var(--muted); margin: 6px 0 0 }
+
+.margin { padding: 26px 28px 28px; display: grid; gap: 16px; align-content: start; min-width: 0 }
+@media (max-width: 860px) { .margin { padding: 22px } }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--rule) }
+.tabs button { font: 600 15px var(--sans); color: var(--muted); background: none; border: 0; padding: 8px 12px 10px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px }
+.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--pen) }
+.note h3 { font: 600 24px/1.2 var(--serif); margin: 0 0 6px }
+.note .tr { font: 600 22px/1.25 var(--serif); margin: 0 0 6px; color: var(--pen) }
+.note p { margin: 0; font-size: 16px; line-height: 1.6 }
+.note .meta { font-size: 13px; color: var(--muted); margin-top: 10px }
+.langs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px }
+.langs button { font: 500 13px var(--sans); color: var(--muted); background: none; border: 1px solid var(--rule); border-radius: 999px; padding: 3px 10px; cursor: pointer }
+.langs button[aria-pressed="true"] { color: var(--pen-ink); background: var(--pen); border-color: var(--pen) }
+.chat { display: grid; gap: 10px; font-size: 15px }
+.chat .you { justify-self: end; background: var(--page); border: 1px solid var(--rule); border-radius: 12px 12px 2px 12px; padding: 8px 12px; max-width: 90% }
+.chat .ai { border-left: 2px solid var(--pen); padding: 2px 0 2px 12px }
+.chat .who { font-size: 12px; color: var(--muted); display: block; margin-bottom: 2px }
+.tool { font: 400 12.5px var(--mono); color: var(--muted) }
+.saved { font: 500 13px var(--sans); color: var(--pen); border: 1px dashed var(--pen); border-radius: 6px; padding: 6px 10px; justify-self: start }
+.note[data-enter] { animation: pen .28s ease-out }
+@keyframes pen { from { opacity: 0; transform: translateY(4px) } }
+@media (prefers-reduced-motion: reduce) { .note[data-enter] { animation: none } }
+
+/* three ways */
+section { padding-block: 56px 0 }
+h2 { font: 700 clamp(28px, 3.6vw, 40px)/1.12 var(--serif); letter-spacing: -.01em; margin: 0 0 22px; text-wrap: balance; max-width: 24ch }
+.ways { display: grid; border-top: 1px solid var(--rule) }
+.way { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 24px; padding-block: 22px; border-bottom: 1px solid var(--rule) }
+@media (max-width: 700px) { .way { grid-template-columns: minmax(0, 1fr); gap: 6px } }
+.way h3 { font: 600 22px var(--serif); margin: 0 }
+.way p { margin: 0; max-width: 64ch; color: var(--ink) }
+.way small { display: block; color: var(--muted); font-size: 15px; margin-top: 6px }
+
+/* assistant */
+.assist { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 40px; align-items: start }
+@media (max-width: 860px) { .assist { grid-template-columns: minmax(0, 1fr) } }
+.assist p { margin: 0 0 14px; max-width: 58ch }
+.transcript { background: var(--sheet); border: 1px solid var(--rule); border-radius: 10px; padding: 20px 22px; display: grid; gap: 12px; font-size: 15px; min-width: 0 }
+.transcript .row { display: grid; gap: 2px }
+.transcript .who { font-size: 12px; color: var(--muted) }
+.transcript code { font: 400 13px var(--mono); background: var(--page); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere }
+.steps { margin: 0; padding-left: 20px; display: grid; gap: 8px }
+
+/* library */
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 28px }
+.facts div { border-top: 2px solid var(--ink); padding-top: 12px }
+.facts h3 { font: 600 19px var(--serif); margin: 0 0 6px }
+.facts p { margin: 0; color: var(--muted); font-size: 16px }
+
+/* story */
+.story { background: var(--sheet); border: 1px solid var(--rule); border-radius: 10px; padding: 30px 32px; display: grid; gap: 14px }
+.story blockquote { margin: 0; font: 400 clamp(22px, 2.6vw, 28px)/1.4 var(--serif); max-width: 40ch }
+.story p { margin: 0; color: var(--muted) }
+
+/* footer */
+footer { margin-top: 64px; padding-top: 22px; border-top: 1px solid var(--rule); display: flex; flex-wrap: wrap; gap: 14px 26px; font-size: 15px; color: var(--muted) }
+footer a { color: var(--muted) }
+footer a:hover { color: var(--ink) }
+footer .sp { flex: 1 }
+
+/* ── motion: one load sequence (headline → highlighter → note), then the demo plays itself ── */
+.h1w { display: inline-block; animation: rise .7s cubic-bezier(.2,.7,.2,1) both }
+@keyframes rise { from { opacity: 0; transform: translateY(.35em) } }
+.brand rect { animation: stack .5s cubic-bezier(.2,.7,.2,1) both }
+.brand rect:nth-child(1) { animation-delay: .05s } .brand rect:nth-child(2) { animation-delay: .15s } .brand rect:nth-child(3) { animation-delay: .25s }
+@keyframes stack { from { opacity: 0; transform: translateY(-6px) } }
+
+/* paper stack behind the book */
+.stack { position: relative; margin-block: 34px 8px }
+.stack::before, .stack::after { content: ""; position: absolute; inset: 0; background: var(--sheet); border: 1px solid var(--rule); border-radius: 10px }
+.stack::before { transform: translate(10px, 10px) rotate(.6deg); opacity: .7 }
+.stack::after { transform: translate(5px, 5px) rotate(-.3deg); opacity: .9 }
+.stack .demo { position: relative; z-index: 1; margin: 0; box-shadow: 0 18px 40px -24px color-mix(in srgb, var(--ink) 35%, transparent) }
+
+/* highlighter sweep */
+.term { background-image: linear-gradient(100deg, transparent 0 2px, var(--mark) 4px calc(100% - 4px), transparent calc(100% - 2px));
+  background-repeat: no-repeat; background-position: 0 60%; background-size: 0% 82%; transition: background-size .55s cubic-bezier(.6,.1,.2,1), border-color .2s }
+.term:hover { background-color: transparent; background-size: 100% 82%; }
+.term:not([aria-pressed="true"]):hover { background-image: linear-gradient(100deg, transparent 0 2px, color-mix(in srgb, var(--mark) 45%, transparent) 4px calc(100% - 4px), transparent calc(100% - 2px)) }
+.term[aria-pressed="true"] { background-color: transparent; background-size: 100% 82%; border-bottom-color: transparent }
+
+/* note writes itself in, word by word */
+.w { display: inline; animation: ink .35s ease-out both }
+@keyframes ink { from { opacity: 0; filter: blur(2px) } }
+
+/* autoplay strip */
+.auto { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted) }
+.auto .track { flex: 1; height: 2px; background: var(--rule); border-radius: 2px; overflow: hidden }
+.auto .fill { display: block; height: 100%; width: 100%; background: var(--pen); transform-origin: left; transform: scaleX(0) }
+.auto.run .fill { animation: fill var(--dwell, 5s) linear forwards }
+@keyframes fill { to { transform: scaleX(1) } }
+
+/* three ways: highlighter on the hovered row */
+.way h3 { justify-self: start; background: linear-gradient(var(--mark), var(--mark)) no-repeat 0 85% / 0% 40%; transition: background-size .45s cubic-bezier(.6,.1,.2,1) }
+.way:hover h3 { background-size: 100% 40% }
+.btn.primary { transition: transform .15s, box-shadow .15s }
+.btn.primary:hover { transform: translateY(-1px); box-shadow: 0 4px 0 0 var(--mark) }
+
+@media (prefers-reduced-motion: reduce) {
+  .h1w, .brand rect, .w, .note[data-enter] { animation: none }
+  .term, .way h3 { transition: none }
+  .auto { display: none }
+}
+
+/* the real reader, in a browser frame; tilts flat as it scrolls into view */
+.shot { margin: 0; border: 1px solid var(--rule); border-radius: 12px; overflow: hidden; background: var(--sheet);
+  box-shadow: 0 30px 60px -30px color-mix(in srgb, var(--ink) 45%, transparent); transform-origin: 50% 100% }
+.chrome { display: flex; align-items: center; gap: 7px; padding: 10px 14px; border-bottom: 1px solid var(--rule); background: var(--page) }
+.chrome i { width: 10px; height: 10px; border-radius: 50%; background: var(--rule); display: block }
+.chrome .url { margin-left: 10px; flex: 1; font: 400 12.5px var(--mono); color: var(--muted); background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; padding: 4px 10px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis }
+.shot img { display: block; width: 100%; height: auto; background: #fff }
+.shotcap { font-size: 14px; color: var(--muted); margin: 12px 0 0; max-width: 70ch }
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .shot { animation: tilt linear both; animation-timeline: view(); animation-range: entry 0% cover 40% }
+    @keyframes tilt { from { transform: perspective(1400px) rotateX(22deg) scale(.9); opacity: .55 } to { transform: none; opacity: 1 } }
+  }
+}
+
+/* ═════════ hero: two columns, 3D book pile on the right ═════════ */
+.herogrid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); gap: 24px; align-items: center }
+@media (max-width: 900px) { .herogrid { grid-template-columns: minmax(0, 1fr) } .shelf { height: 300px; margin-top: -10px } }
+.shelf { position: relative; height: 420px; perspective: 1300px; perspective-origin: 50% 30% }
+.float { position: absolute; inset: 0; transform-style: preserve-3d; animation: bob 7s ease-in-out infinite }
+@keyframes bob { 50% { transform: translateY(-10px) } }
+.pile { position: absolute; left: 50%; top: 58%; transform-style: preserve-3d;
+  transform: rotateX(calc(-20deg + var(--ry, 0deg))) rotateY(calc(-32deg + var(--rx, 0deg))); transition: transform .35s cubic-bezier(.2,.7,.2,1) }
+.b3 { --w: 270px; --h: 38px; --d: 190px; position: absolute; width: var(--w); height: var(--h); left: calc(var(--w) / -2); top: calc(var(--h) / -2);
+  transform-style: preserve-3d; transform: translateY(var(--y)) translateX(var(--x, 0)) rotateY(var(--r, 0deg)); animation: drop .7s cubic-bezier(.2,.8,.25,1.1) both }
+@keyframes drop { from { transform: translateY(calc(var(--y) - 140px)) translateX(var(--x, 0)) rotateY(calc(var(--r, 0deg) + 30deg)) } }
+.b3 > div { position: absolute; backface-visibility: hidden }
+.b3 .sp { width: var(--w); height: var(--h); transform: translateZ(calc(var(--d) / 2)); background: var(--c); color: #fff;
+  font: 600 12.5px/var(--h) var(--serif); letter-spacing: .01em; padding: 0 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.08), inset 6px 0 0 rgba(0,0,0,.18) }
+.b3 .tp { top: calc((var(--h) - var(--d)) / 2); width: var(--w); height: var(--d); transform: rotateX(90deg) translateZ(calc(var(--h) / 2)); background: var(--c); filter: brightness(1.18) }
+.b3 .pg { left: calc((var(--w) - var(--d)) / 2); width: var(--d); height: var(--h); transform: rotateY(90deg) translateZ(calc(var(--w) / 2)); 
+  background: repeating-linear-gradient(to bottom, #f3efe6 0 2px, #d9d3c5 2px 3px) }
+.b3 .lf { left: calc((var(--w) - var(--d)) / 2); width: var(--d); height: var(--h); transform: rotateY(-90deg) translateZ(calc(var(--w) / 2)); background: var(--c); filter: brightness(.8) }
+.flag { position: absolute; width: 26px; height: 54px; background: var(--mark); transform-style: preserve-3d;
+  transform: translate3d(70px, -54px, 30px); border-radius: 2px 2px 0 0; clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 82%, 0 100%) }
+.shadow { position: absolute; left: 50%; top: 74%; width: 340px; height: 60px; margin-left: -170px; border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--ink) 22%, transparent), transparent); animation: shade 7s ease-in-out infinite }
+@keyframes shade { 50% { transform: scale(.93); opacity: .8 } }
+
+/* language decoder */
+.morph { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 10px; font: 500 15px var(--sans); color: var(--muted); margin-top: 4px }
+.morph .src { font: 600 18px var(--serif); color: var(--ink); background: linear-gradient(var(--mark), var(--mark)) no-repeat 0 88% / 100% 38% }
+.morph .eq { color: var(--pen) }
+.morph .dst { font: 600 18px var(--serif); color: var(--pen); min-width: 15ch }
+.morph .code { font: 500 11.5px var(--mono); color: var(--pen); border: 1px solid var(--pen); border-radius: 4px; padding: 1px 6px }
+
+/* ═════════ pinned scroll story ═════════ */
+.journey { height: 300vh; position: relative; padding-block: 56px 0 }
+.pin { position: sticky; top: max(8vh, 70px); display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); gap: 36px; align-items: start }
+@media (max-width: 860px) { .journey { height: 340vh } .pin { grid-template-columns: minmax(0, 1fr); gap: 16px; top: 16px } }
+.count { font: 700 clamp(72px, 11vw, 140px)/.9 var(--serif); letter-spacing: -.04em; font-variant-numeric: tabular-nums; transition: color .3s }
+.count.zero { color: var(--pen) }
+.countlbl { font-size: 15px; color: var(--muted); margin: 4px 0 18px }
+.jcap { font: 600 22px/1.3 var(--serif); margin: 0 0 14px; min-height: 2.6em; text-wrap: balance }
+.gloss { border-left: 3px solid var(--mark); padding: 4px 0 4px 14px; min-height: 5.4em }
+.gloss b { font: 600 17px var(--serif); display: block }
+.gloss span { font-size: 15px; color: var(--muted) }
+.jpage { position: relative; background: var(--sheet); border: 1px solid var(--rule); border-radius: 10px; padding: 30px 34px; min-width: 0;
+  box-shadow: 0 18px 40px -26px color-mix(in srgb, var(--ink) 40%, transparent) }
+@media (max-width: 860px) { .jpage { padding: 20px } .jpage p { font-size: 16px !important } }
+.jpage p { font: 400 18px/1.85 var(--serif); margin: 0 }
+.j { text-decoration: underline wavy color-mix(in srgb, #d0453a 70%, transparent); text-decoration-thickness: 1.5px; text-underline-offset: 4px;
+  background: linear-gradient(100deg, transparent 0 2px, var(--mark) 4px calc(100% - 4px), transparent calc(100% - 2px)) no-repeat 0 60% / 0% 82%;
+  transition: background-size .45s cubic-bezier(.6,.1,.2,1), text-decoration-color .3s, color .3s; border-radius: 2px }
+.j.got { background-size: 100% 82%; text-decoration-color: transparent; color: var(--mark-ink) }
+.jpage .fog { transition: opacity .4s }
+.stamp { position: absolute; right: 22px; bottom: -22px; font: 700 15px var(--sans); color: var(--pen); border: 2.5px solid var(--pen); border-radius: 8px;
+  padding: 8px 14px; background: var(--sheet); transform: rotate(-6deg) scale(1.6); opacity: 0; transition: transform .35s cubic-bezier(.2,.8,.3,1.4), opacity .2s }
+.stamp.on { transform: rotate(-6deg) scale(1); opacity: 1 }
+.jbar { height: 3px; background: var(--rule); border-radius: 3px; margin-top: 18px; overflow: hidden }
+.jbar span { display: block; height: 100%; background: var(--pen); transform-origin: left; transform: scaleX(0) }
+
+/* ═════════ discuss: live flow diagram ═════════ */
+.flow { width: 100%; height: auto; margin: 6px 0 18px; color: var(--ink); overflow: visible }
+.flow .nd { fill: var(--sheet); stroke: var(--rule); stroke-width: 1.5 }
+.flow .nt { font: 600 14px var(--sans); fill: var(--ink) }
+.flow .ns { font: 400 11.5px var(--mono); fill: var(--muted) }
+.flow .ln { fill: none; stroke: var(--pen); stroke-width: 2; stroke-dasharray: 2 9; stroke-linecap: round; animation: dash 1.1s linear infinite }
+.flow .ln.back { stroke: color-mix(in srgb, var(--mark) 80%, var(--ink)); animation-direction: reverse }
+.flow .ll { font: 500 11.5px var(--sans); fill: var(--muted) }
+@keyframes dash { to { stroke-dashoffset: -22 } }
+
+@media (prefers-reduced-motion: reduce) {
+  .float, .shadow, .b3, .flow .ln { animation: none }
+  .pile { transition: none }
+  .journey { height: auto } .pin { position: static }
+}
+@media (max-width: 560px) { .top nav a:not(.btn) { display: none } }
+</style>
+
+<a class="skip" href="#main">Skip to content</a>
+<div class="wrap">
+  <header class="top">
+    <a class="brand" href="https://textstack.app" aria-label="TextStack">
+      <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true"><rect x="3" y="15" width="20" height="5" rx="1.5" fill="var(--ink)"/><rect x="5" y="9" width="17" height="5" rx="1.5" fill="var(--pen)"/><rect x="4" y="3" width="15" height="5" rx="1.5" fill="var(--mark)"/></svg>
+      TextStack
+    </a>
+    <nav aria-label="Site">
+      <a href="#assistant">AI discussion</a>
+      <a href="https://github.com/mrviduus/textstack">GitHub</a>
+      <a class="btn ghost" href="https://textstack.app" style="padding:7px 14px;font-size:15px">Open the reader</a>
+    </nav>
   </header>
 
   <main id="main">
-    <!-- HERO -->
-    <div class="wrap">
-      <div class="hero">
+    <div class="herogrid">
+    <div class="hero">
+      <h1 aria-label="Read the hard programming books. Finish them."><span aria-hidden="true"><span class="h1w" style="animation-delay:0.00s">Read</span> <span class="h1w" style="animation-delay:0.08s">the</span> <span class="h1w" style="animation-delay:0.16s">hard</span> <span class="h1w" style="animation-delay:0.24s">programming</span> <span class="h1w" style="animation-delay:0.32s">books.</span> <span class="h1w" style="animation-delay:0.40s">Finish</span> <span class="h1w" style="animation-delay:0.48s">them.</span></span></h1>
+      <p class="sub">Select a term you half-know and get a short explanation that fits the book you are reading, in English or your own language. Then talk the chapter through with Claude or ChatGPT.</p>
+      <div class="ctas">
+        <a class="btn primary" href="https://textstack.app">Open the reader</a>
+        <a class="btn ghost" href="https://play.google.com/apps/testing/app.textstack.mobile">Join the Android beta</a>
+      </div>
+      <p class="fine">Free. Sample chapters open without an account.</p>
+      <p class="morph" aria-label="eventual consistency, translated"><span class="src">eventual consistency</span><span class="eq">=</span><span class="dst" id="morph">consistencia eventual</span><span class="code" id="morph-code">ES</span></p>
+    </div>
+    <div class="shelf" id="shelf" aria-hidden="true">
+      <div class="shadow"></div>
+      <div class="float"><div class="pile" id="pile">
+        <div class="b3" style="--y:0px;--r:4deg;--x:-6px;--c:#2b3445;animation-delay:.15s"><div class="sp">Introduction to Algorithms</div><div class="tp"></div><div class="pg"></div><div class="lf"></div></div>
+        <div class="b3" style="--y:-39px;--r:-5deg;--x:10px;--c:#7a2e3a;--w:250px;animation-delay:.3s"><div class="sp">Structure and Interpretation of Computer Programs</div><div class="tp"></div><div class="pg"></div><div class="lf"></div></div>
+        <div class="b3" style="--y:-78px;--r:2deg;--x:-4px;--c:#1f6f6b;--w:262px;animation-delay:.45s"><div class="sp">The Rust Programming Language</div><div class="tp"></div><div class="pg"></div><div class="lf"></div></div>
+        <div class="b3" style="--y:-117px;--r:-3deg;--x:6px;--c:#5b4a8a;--w:244px;animation-delay:.6s"><div class="sp">Database Internals</div><div class="tp"></div><div class="pg"></div><div class="lf"></div></div>
+        <div class="b3" style="--y:-156px;--r:6deg;--x:-2px;--c:#2443c4;--w:276px;animation-delay:.75s"><div class="sp">Designing Data-Intensive Applications</div><div class="tp"></div><div class="pg"></div><div class="lf"></div><div class="flag"></div></div>
+      </div></div>
+    </div>
+    </div>
+
+    <!-- the live demo -->
+    <div class="stack"><div class="demo" id="demo">
+      <article class="book" aria-label="Example book page">
+        <div class="runhead"><span>A chapter on replication</span><span>143</span></div>
+        <p>In <button class="term" data-t="leader">leader-based replication</button>, every write goes to one node, the leader, and the followers copy its log. A follower applies each change a little after the leader does. That delay, the <button class="term" data-t="lag">replication lag</button>, is usually a fraction of a second.</p>
+        <p>If you stop writing, every follower catches up: the system offers <button class="term" data-t="eventual">eventual consistency</button>. Until it does, a user who reads from a follower right after saving may not see their own change. That is why some systems promise <button class="term" data-t="raw">read-after-write consistency</button>.</p>
+        <p class="hint">Select one of the dotted terms.</p>
+        <p class="caption">Example passage written for this page.</p>
+      </article>
+
+      <aside class="margin" aria-live="polite">
+        <div class="tabs" role="tablist" aria-label="What to do with the term">
+          <button role="tab" id="tab-explain" data-mode="explain" aria-selected="true">Explain</button>
+          <button role="tab" id="tab-translate" data-mode="translate" aria-selected="false">Translate</button>
+          <button role="tab" id="tab-discuss" data-mode="discuss" aria-selected="false">Discuss</button>
+        </div>
+        <div class="note" id="note"></div>
+        <div class="auto" id="auto"><span id="auto-label">Playing a demo. Select a term to take over.</span><span class="track"><span class="fill"></span></span></div>
+      </aside>
+    </div></div>
+
+
+
+    <!-- pinned scroll story -->
+    <section class="journey" id="journey" aria-labelledby="j-h">
+      <div class="pin">
         <div>
-          <p class="eyebrow rise d1">A reader for hard books</p>
-          <h1 class="title rise d2">Finish the book<br>you keep <em>quitting.</em></h1>
-          <p class="lede rise d3">Dense English books break your flow with terms you half-know. TextStack lets you tap any word for a 2–3 sentence explanation that knows the book's domain — then keeps reading.</p>
-          <div class="actions rise d4">
-            <a class="btn btn-primary" href="https://textstack.app">Start reading on TextStack <span class="arr" aria-hidden="true">→</span></a>
-            <a class="btn-ghost" href="https://textstack.app">Open the web reader</a>
-          </div>
+          <h2 id="j-h" style="margin-bottom:12px">One page, twelve terms</h2>
+          <div class="count" id="jcount">12</div>
+          <p class="countlbl">terms left on this page</p>
+          <p class="jcap" id="jcap">This is where most people close the book.</p>
+          <div class="gloss" id="jgloss"><b>Scroll to read on</b><span>Each term gets two sentences, right next to the text.</span></div>
         </div>
-
-        <!-- reader demo -->
-        <div class="demo rise d5" role="img" aria-label="Reader demo: the term 'eventual consistency' is tapped and explained in context, then saved to vocabulary.">
-          <p class="meta">Designing Data-Intensive Applications · ch. 5</p>
-          <p>…replicas may be temporarily out of sync, but the system guarantees <span class="term">eventual&nbsp;consistency</span> once writes stop.</p>
-          <div class="pop">
-            <span class="w">eventual consistency <span class="tr">→ согласованность в конечном счёте</span></span>
-            <span class="ex">If you stop writing, all replicas converge to the same value — there's just a short window where reads may return stale data.</span>
-            <span class="save" aria-hidden="true">＋ Saved to vocabulary</span>
-          </div>
+        <div class="jpage">
+          <p>A distributed database has to survive a <span class="j">network partition</span> without giving up <span class="j">linearizability</span>. Most designs elect a leader with a <span class="j">consensus algorithm</span> such as <span class="j">Raft</span>, which needs a <span class="j">quorum</span> of nodes to agree. Each leader gets a <span class="j">monotonically increasing</span> term number, and every write is appended to a <span class="j">write-ahead log</span> before it is acknowledged. If an old leader wakes up holding a <span class="j">stale lease</span>, a <span class="j">fencing token</span> stops it from corrupting storage. Reads that tolerate <span class="j">staleness</span> can go to followers; the rest pay a <span class="j">round trip</span> to the leader, and <span class="j">idempotent</span> retries keep the client safe when a request times out.</p>
+          <div class="jbar"><span id="jbar"></span></div>
+          <div class="stamp" id="jstamp">Chapter finished</div>
         </div>
-      </div>
-    </div>
-
-    <!-- TRUST STRIP -->
-    <div class="strip">
-      <div class="wrap">
-        <span>📖 <b>Web + mobile</b> reader</span>
-        <span>🌍 <b>Native-language</b> explanations</span>
-        <span>🧠 <b>Spaced-repetition</b> vocabulary</span>
-        <span>📥 EPUB · PDF · FB2</span>
-      </div>
-    </div>
-
-    <!-- FEATURES -->
-    <section class="feat wrap" aria-labelledby="feat-h">
-      <div class="sec-head">
-        <h2 id="feat-h">Reading is the feature.<br>Everything else gets out of the way.</h2>
-        <p>No summaries, no shortcuts — just the friction removed so you actually finish.</p>
-      </div>
-      <div class="grid">
-        <article class="card">
-          <div class="ic" aria-hidden="true">💡</div>
-          <h3>Word Wise, for tech</h3>
-          <p>Tap any term and get a 2–3 sentence explanation written for <em>this</em> book's domain — "attention" means the neural-net mechanism in an ML book, not focus.</p>
-        </article>
-        <article class="card">
-          <div class="ic" aria-hidden="true">🌍</div>
-          <h3>Translation in your language</h3>
-          <p>Instant, context-aware translation of any word or phrase — inline, without leaving the page or losing your place.</p>
-        </article>
-        <article class="card">
-          <div class="ic" aria-hidden="true">🧠</div>
-          <h3>Vocabulary that sticks</h3>
-          <p>Save a word and it enters a spaced-repetition trainer with the sentence you found it in, so review is grounded in real reading.</p>
-        </article>
-        <article class="card">
-          <div class="ic" aria-hidden="true">📚</div>
-          <h3>Your library, anywhere</h3>
-          <p>Upload EPUB, PDF or FB2, read on the web or the mobile app, and pick up exactly where you left off across devices.</p>
-        </article>
       </div>
     </section>
 
-    <!-- WHY -->
-    <section class="why wrap">
-      <blockquote class="rise d1">"I quit <em>Designing Data-Intensive Applications</em> three times — not because it was hard, but because the small unknowns kept breaking my flow."</blockquote>
-      <p class="by">That's the problem TextStack removes. <a href="https://dev.to/mrviduus/i-quit-designing-data-intensive-applications-ddia-three-times-heres-what-i-build-on-the-fourth-5bom">Read the story →</a></p>
+    <!-- the real thing -->
+    <section aria-labelledby="real-h">
+      <h2 id="real-h">This is the actual reader</h2>
+      <figure class="shot">
+        <div class="chrome" aria-hidden="true"><i></i><i></i><i></i><span class="url">textstack.app/en/library/my/designing-data-intensive-applications</span></div>
+        <img src="demo.gif" width="900" height="446" alt="The TextStack web reader: a reader selects Extract–Transform–Load in Designing Data-Intensive Applications and gets a short explanation in Spanish." loading="lazy">
+      </figure>
+      <p class="shotcap">Recorded in the web reader. A term selected in <i>Designing Data-Intensive Applications</i>, explained in Spanish without leaving the page.</p>
     </section>
 
-    <!-- FINAL CTA -->
-    <div class="wrap">
-      <section class="cta" aria-labelledby="cta-h">
-        <h2 id="cta-h">Open the book again.</h2>
-        <p>Free to start in your browser. Bring your own EPUBs or read from the library — and finally finish the one you keep quitting.</p>
-        <a class="btn btn-primary" href="https://textstack.app">Read on TextStack <span class="arr" aria-hidden="true">→</span></a>
-      </section>
-    </div>
+    <!-- three ways -->
+    <section aria-labelledby="ways-h">
+      <h2 id="ways-h">Three ways past a hard paragraph</h2>
+      <div class="ways">
+        <div class="way">
+          <h3>Explain</h3>
+          <div><p>Two or three sentences about the term as this book uses it. "Attention" in a machine-learning book is the neural-network mechanism, not focus.</p>
+          <small>You stay on the page. No new tab, no search results.</small></div>
+        </div>
+        <div class="way">
+          <h3>Translate</h3>
+          <div><p>The same term in your native language, with the technical meaning kept. Spanish, German, French, Portuguese, Italian, Ukrainian and more.</p>
+          <small>For when English is your second language and the chapter is long.</small></div>
+        </div>
+        <div class="way">
+          <h3>Discuss</h3>
+          <div><p>Connect TextStack to Claude or ChatGPT. Your assistant reads the chapter you are on and talks it through with you. It asks before going past the chapter you have reached.</p>
+          <small>It uses the assistant you already have, so it already knows you.</small></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- assistant -->
+    <section id="assistant" aria-labelledby="as-h">
+      <h2 id="as-h">Talk the chapter through with your own assistant</h2>
+      <div class="assist">
+        <div>
+          <p>TextStack has an MCP connector. Add it to Claude or ChatGPT once, and your assistant can open your books, read the chapter you are on, and see your highlights.</p>
+          <p>When you finish talking, it can write a short review of the chapter with questions to test yourself, and save it back to your library. Next week the questions come back for review.</p>
+          <svg class="flow" viewBox="0 0 520 150" role="img" aria-label="Your library sends the chapter to your assistant; the assistant saves a review back to your library.">
+            <rect class="nd" x="1" y="40" width="170" height="64" rx="10"/><text class="nt" x="18" y="68">Your library</text><text class="ns" x="18" y="88">chapter · highlights</text>
+            <rect class="nd" x="349" y="40" width="170" height="64" rx="10"/><text class="nt" x="366" y="68">Claude · ChatGPT</text><text class="ns" x="366" y="88">your own account</text>
+            <path class="ln" d="M172 58 C 240 20, 280 20, 348 58"/><text class="ll" x="260" y="22" text-anchor="middle">reads the chapter</text>
+            <path class="ln back" d="M348 88 C 280 128, 240 128, 172 88"/><text class="ll" x="260" y="140" text-anchor="middle">saves review + questions</text>
+          </svg>
+          <ol class="steps">
+            <li>Add the TextStack connector in Claude or ChatGPT.</li>
+            <li>Sign in and approve access to your library.</li>
+            <li>Ask about the chapter you are reading.</li>
+          </ol>
+        </div>
+        <div class="transcript" aria-label="Example conversation">
+          <div class="row"><span class="who">You</span>I'm on chapter 5. Why not send every read to the leader and skip the lag problem?</div>
+          <div class="row"><span class="who">Claude · <code>get_my_chapter</code></span>You could, and you would get read-after-write for free. But then the followers only help when the leader fails. They stop sharing the read load, which is the main reason to have them. The chapter's middle ground: read your own recent writes from the leader, everything else from followers.</div>
+          <div class="row"><span class="who">Claude · <code>save_chapter_review</code></span>Saved a review of chapter 5 with 4 questions to your TextStack library.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- library -->
+    <section aria-labelledby="lib-h">
+      <h2 id="lib-h">Your books, on every screen</h2>
+      <div class="facts">
+        <div><h3>Upload your own</h3><p>EPUB or PDF. PDFs open as the original pages, diagrams and code intact.</p></div>
+        <div><h3>Web and Android</h3><p>Your place, highlights and words sync between devices.</p></div>
+        <div><h3>Reads offline</h3><p>Download a book and read it on a plane. The app opens it from the phone first.</p></div>
+        <div><h3>Terms you keep</h3><p>Save a technical term with its sentence. A short weekly review, no endless queue.</p></div>
+      </div>
+    </section>
+
+    <!-- story -->
+    <section aria-labelledby="st-h">
+      <h2 id="st-h">Why it exists</h2>
+      <div class="story">
+        <blockquote>"I quit Designing Data-Intensive Applications three times. Not because it was hard. Because of forty terms I half-knew."</blockquote>
+        <p>Vasyl Vdovychenko, who built TextStack. <a href="https://dev.to/mrviduus/i-quit-designing-data-intensive-applications-ddia-three-times-heres-what-i-build-on-the-fourth-5bom">Read the story on dev.to</a></p>
+      </div>
+    </section>
+
+    <section aria-label="Start">
+      <div class="ctas">
+        <a class="btn primary" href="https://textstack.app">Open the reader</a>
+        <a class="btn ghost" href="https://github.com/mrviduus/textstack">See the code on GitHub</a>
+      </div>
+    </section>
   </main>
 
   <footer>
-    <div class="wrap foot">
-      <a class="brand" href="https://textstack.app" aria-label="TextStack home" style="font-size:19px"><span class="mark" aria-hidden="true"></span>TextStack</a>
-      <nav aria-label="Links">
-        <a href="https://textstack.app">textstack.app</a>
-        <a href="https://github.com/mrviduus/textstack">GitHub</a>
-        <a href="https://dev.to/mrviduus/i-quit-designing-data-intensive-applications-ddia-three-times-heres-what-i-build-on-the-fourth-5bom">Why I built it</a>
-        <a href="https://twitter.com/Rexetdeus">@Rexetdeus</a>
-      </nav>
-      <span class="small">The app lives at <a href="https://textstack.app">textstack.app</a></span>
-    </div>
+    <a href="https://textstack.app">textstack.app</a>
+    <a href="https://play.google.com/apps/testing/app.textstack.mobile">Android beta</a>
+    <a href="https://github.com/mrviduus/textstack">Source (AGPL)</a>
+    <a href="architecture/">How it is built</a>
+    <span class="sp"></span>
+    <a href="https://twitter.com/Rexetdeus">@Rexetdeus</a>
   </footer>
+</div>
+
+<script>
+const TERMS = {
+  leader: {
+    name: 'leader-based replication',
+    explain: 'One node, the leader, accepts all writes. The other nodes, followers, copy the leader\'s change log in the same order. Reads can go to any node.',
+    tr: {
+      uk: ['реплікація з лідером', 'Усі записи йдуть на один вузол, лідера. Інші вузли копіюють його журнал змін у тому самому порядку.'],
+      es: ['replicación basada en líder', 'Todas las escrituras van a un nodo, el líder. Los seguidores copian su registro de cambios en el mismo orden.'],
+      de: ['Leader-basierte Replikation', 'Alle Schreibvorgänge gehen an einen Knoten, den Leader. Die Follower kopieren sein Änderungsprotokoll in derselben Reihenfolge.'],
+      fr: ['réplication avec leader', 'Toutes les écritures vont vers un seul nœud, le leader. Les suiveurs copient son journal de modifications dans le même ordre.'],
+      pt: ['replicação baseada em líder', 'Todas as escritas vão para um nó, o líder. Os seguidores copiam o registro de alterações dele na mesma ordem.'],
+      it: ['replicazione basata su leader', 'Tutte le scritture vanno a un nodo, il leader. I follower copiano il suo log delle modifiche nello stesso ordine.'],
+    },
+    ask: 'What happens to writes if the leader goes down?',
+    answer: 'Nothing is accepted until a follower is promoted. That is failover, and the chapter shows how it can lose the last few writes.',
+  },
+  lag: {
+    name: 'replication lag',
+    explain: 'The time between a write landing on the leader and the same write showing up on a follower. Usually milliseconds, but it can grow to minutes under load or after a network problem.',
+    tr: {
+      uk: ['затримка реплікації', 'Час між записом на лідері й появою того самого запису на послідовнику. Зазвичай мілісекунди, але під навантаженням може зрости до хвилин.'],
+      es: ['retraso de replicación', 'El tiempo entre una escritura en el líder y su llegada a un seguidor. Suelen ser milisegundos, pero con carga puede llegar a minutos.'],
+      de: ['Replikationsverzögerung', 'Die Zeit, bis ein Schreibvorgang vom Leader auf einem Follower ankommt. Meist Millisekunden, unter Last auch Minuten.'],
+      fr: ['retard de réplication', 'Le temps entre une écriture sur le leader et son arrivée sur un suiveur. En général quelques millisecondes, parfois des minutes sous charge.'],
+      pt: ['atraso de replicação', 'O tempo entre uma escrita no líder e sua chegada a um seguidor. Normalmente milissegundos, mas sob carga pode chegar a minutos.'],
+      it: ['ritardo di replicazione', 'Il tempo tra una scrittura sul leader e il suo arrivo su un follower. Di solito millisecondi, sotto carico anche minuti.'],
+    },
+    ask: 'How would I notice lag as a user?',
+    answer: 'You save a comment, refresh, and it is gone, then it comes back. Your second read hit a follower that had not caught up yet.',
+  },
+  eventual: {
+    name: 'eventual consistency',
+    explain: 'If writes stop, all replicas end up with the same data. It promises nothing about when, and until then two reads can return different answers.',
+    tr: {
+      uk: ['кінцева узгодженість', 'Якщо записи припиняться, усі репліки зрештою матимуть однакові дані. Коли саме, не гарантовано.'],
+      es: ['consistencia eventual', 'Si las escrituras se detienen, todas las réplicas acaban con los mismos datos. No se garantiza cuándo.'],
+      de: ['letztendliche Konsistenz', 'Hören die Schreibvorgänge auf, haben alle Replikate irgendwann dieselben Daten. Wann genau, ist nicht garantiert.'],
+      fr: ['cohérence à terme', 'Si les écritures s\'arrêtent, toutes les répliques finissent par avoir les mêmes données. Rien ne garantit quand.'],
+      pt: ['consistência eventual', 'Se as escritas pararem, todas as réplicas acabam com os mesmos dados. Não há garantia de quando.'],
+      it: ['consistenza finale', 'Se le scritture si fermano, tutte le repliche finiscono per avere gli stessi dati. Non è garantito quando.'],
+    },
+    ask: 'Is eventual consistency good enough for a bank balance?',
+    answer: 'Not on its own. A balance needs every read to see the latest write, so the chapter would send those reads to the leader.',
+  },
+  raw: {
+    name: 'read-after-write consistency',
+    explain: 'A promise to one user: after you save something, your own next read will show it. Other users may still see the old value for a while.',
+    tr: {
+      uk: ['узгодженість «читання після запису»', 'Обіцянка одному користувачеві: після збереження ваше наступне читання вже покаже зміну.'],
+      es: ['consistencia de lectura tras escritura', 'Una promesa a un usuario: después de guardar, tu siguiente lectura ya muestra el cambio.'],
+      de: ['Read-after-Write-Konsistenz', 'Ein Versprechen an einen Nutzer: Nach dem Speichern zeigt dein nächster Lesevorgang die Änderung.'],
+      fr: ['cohérence lecture-après-écriture', 'Une promesse faite à un utilisateur : après un enregistrement, sa lecture suivante montre déjà le changement.'],
+      pt: ['consistência de leitura após escrita', 'Uma promessa a um usuário: depois de salvar, sua próxima leitura já mostra a alteração.'],
+      it: ['consistenza read-after-write', 'Una promessa a un utente: dopo il salvataggio, la sua lettura successiva mostra già la modifica.'],
+    },
+    ask: 'How do I build that without reading everything from the leader?',
+    answer: 'Read things the user just edited from the leader, everything else from followers. Or remember the time of their last write and wait until a follower has caught up to it.',
+  },
+};
+const LANGS = { es: 'Español', de: 'Deutsch', fr: 'Français', pt: 'Português', it: 'Italiano', uk: 'Українська' };
+let term = 'eventual', mode = 'explain', lang = 'es';
+const $ = (s) => document.querySelector(s);
+const words = (s) => esc(s).split(' ').map((w, i) => `<span class="w" style="animation-delay:${Math.min(i * 22, 700)}ms">${w}</span>`).join(' ');
+const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+function render(animate) {
+  const t = TERMS[term], note = $('#note');
+  let html = '';
+  if (mode === 'explain') {
+    html = `<h3>${esc(t.name)}</h3><p>${animate ? words(t.explain) : esc(t.explain)}</p><p class="meta">Explained for a book about databases.</p>`;
+  } else if (mode === 'translate') {
+    const [word, line] = t.tr[lang];
+    html = `<div class="langs" role="group" aria-label="Your language">${Object.entries(LANGS).map(([k, v]) =>
+      `<button type="button" data-lang="${k}" aria-pressed="${k === lang}">${v}</button>`).join('')}</div>
+      <p class="tr">${esc(word)}</p><p>${animate ? words(line) : esc(line)}</p><p class="meta">${esc(t.name)} · technical meaning kept</p>`;
+  } else {
+    html = `<div class="chat"><div class="you"><span class="who">You</span>${esc(t.ask)}</div>
+      <div class="ai"><span class="who">Your assistant, reading this chapter</span>${animate ? words(t.answer) : esc(t.answer)}</div>
+      <div class="saved">Saved to your notes for this chapter</div></div>`;
+  }
+  note.innerHTML = html;
+  if (animate) { note.removeAttribute('data-enter'); void note.offsetWidth; note.setAttribute('data-enter', ''); }
+  note.querySelectorAll('[data-lang]').forEach((b) => b.addEventListener('click', () => { lang = b.dataset.lang; render(false); }));
+  document.querySelectorAll('.term').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.t === term)));
+  document.querySelectorAll('.tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.mode === mode)));
+}
+// Autoplay: walk the terms and modes until the visitor touches the demo.
+const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const PLAN = [['eventual','explain'],['eventual','translate'],['lag','explain'],['lag','discuss'],['raw','explain'],['leader','translate'],['raw','discuss']];
+const DWELL = 5200;
+let pi = 0, autoTimer = null, visible = true, auto = !reduce;
+const strip = $('#auto');
+function tick() {
+  if (!auto) return;
+  [term, mode] = PLAN[pi % PLAN.length]; pi++;
+  render(true);
+  strip.classList.remove('run'); void strip.offsetWidth; strip.style.setProperty('--dwell', DWELL + 'ms'); strip.classList.add('run');
+  autoTimer = setTimeout(() => { if (visible) tick(); else waiting = true; }, DWELL);
+}
+let waiting = false;
+function takeOver() { auto = false; clearTimeout(autoTimer); strip.hidden = true; }
+document.querySelectorAll('.term').forEach((b) => b.addEventListener('click', () => { takeOver(); term = b.dataset.t; render(true); }));
+document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => { takeOver(); mode = b.dataset.mode; render(true); }));
+$('#note').addEventListener('click', (e) => { if (e.target.closest('[data-lang]')) takeOver(); });
+if ('IntersectionObserver' in window) {
+  new IntersectionObserver(([e]) => { visible = e.isIntersecting; if (visible && waiting && auto) { waiting = false; tick(); } }).observe($('#demo'));
+}
+if (auto) { render(false); setTimeout(tick, 900); } else { strip.hidden = true; render(false); }
+
+// ── book pile follows the mouse ──
+(() => {
+  const shelf = document.getElementById('shelf'), pile = document.getElementById('pile');
+  if (!shelf || reduce) return;
+  window.addEventListener('pointermove', (e) => {
+    const r = shelf.getBoundingClientRect();
+    const x = (e.clientX - (r.left + r.width / 2)) / window.innerWidth, y = (e.clientY - (r.top + r.height / 2)) / window.innerHeight;
+    pile.style.setProperty('--rx', (x * 22).toFixed(2) + 'deg');
+    pile.style.setProperty('--ry', (-y * 12).toFixed(2) + 'deg');
+  }, { passive: true });
+})();
+
+// ── decoder: one term, six languages ──
+(() => {
+  const el = document.getElementById('morph'), code = document.getElementById('morph-code');
+  const L = [['ES','consistencia eventual'],['DE','letztendliche Konsistenz'],['FR','cohérence à terme'],['PT','consistência eventual'],['IT','consistenza finale'],['UK','кінцева узгодженість']];
+  const GLYPHS = 'abcdefghijklmnopqrstuvwxyzéàüöçкнцвзгдж';
+  let i = 0;
+  if (reduce) return;
+  function scramble(to) {
+    const from = el.textContent, len = Math.max(from.length, to.length), t0 = performance.now(), D = 650;
+    (function frame(now) {
+      const p = Math.min(1, (now - t0) / D); let out = '';
+      for (let k = 0; k < len; k++) {
+        const settle = k / len;
+        out += p > settle ? (to[k] || '') : (to[k] === ' ' ? ' ' : GLYPHS[(Math.random() * GLYPHS.length) | 0]);
+      }
+      el.textContent = out;
+      if (p < 1) requestAnimationFrame(frame); else el.textContent = to;
+    })(t0);
+  }
+  setInterval(() => { i = (i + 1) % L.length; code.textContent = L[i][0]; scramble(L[i][1]); }, 2600);
+})();
+
+// ── pinned journey: scroll resolves the terms ──
+(() => {
+  const sec = document.getElementById('journey'); if (!sec) return;
+  const terms = [...sec.querySelectorAll('.j')];
+  const G = [
+    ['network partition', 'Part of the network cannot reach the rest. Both sides keep running and cannot see each other.'],
+    ['linearizability', 'The system behaves as if there were one copy of the data: once a write is visible, every later read sees it.'],
+    ['consensus algorithm', 'A way for several machines to agree on one value, even when some of them fail.'],
+    ['Raft', 'A consensus algorithm built to be easy to understand. One leader, terms, and a replicated log.'],
+    ['quorum', 'The minimum number of nodes that must agree, usually a majority, so two groups can never both win.'],
+    ['monotonically increasing', 'It only goes up, never down. A newer term always has a bigger number.'],
+    ['write-ahead log', 'Every change is written to an append-only file before it is applied, so a crash can be replayed.'],
+    ['stale lease', 'A leader’s permission that has already expired, though the old leader does not know it yet.'],
+    ['fencing token', 'A number that grows with each new leader. Storage rejects any write that carries an older one.'],
+    ['staleness', 'How out of date the data you read may be.'],
+    ['round trip', 'A request to another machine and its answer coming back. Costs network time every time.'],
+    ['idempotent', 'Doing it twice has the same effect as doing it once, so a retry is safe.'],
+  ];
+  const CAP = ['This is where most people close the book.', 'Select a term. Two sentences. Keep reading.', 'The paragraph starts to make sense.', 'Almost there.', 'Done. On to the next page.'];
+  const count = document.getElementById('jcount'), cap = document.getElementById('jcap'), gloss = document.getElementById('jgloss'), bar = document.getElementById('jbar'), stamp = document.getElementById('jstamp');
+  let last = -1;
+  function paint(k, p) {
+    terms.forEach((t, i) => t.classList.toggle('got', i < k));
+    count.textContent = terms.length - k; count.classList.toggle('zero', k === terms.length);
+    bar.style.transform = `scaleX(${p})`;
+    cap.textContent = CAP[k === 0 ? 0 : k === terms.length ? 4 : k < 5 ? 1 : k < 10 ? 2 : 3];
+    if (k > 0 && k !== last) gloss.innerHTML = `<b>${G[k - 1][0]}</b><span>${G[k - 1][1]}</span>`;
+    stamp.classList.toggle('on', k === terms.length);
+    last = k;
+  }
+  if (reduce) { paint(terms.length, 1); return; }
+  let ticking = false;
+  function onScroll() {
+    if (ticking) return; ticking = true;
+    requestAnimationFrame(() => {
+      ticking = false;
+      const r = sec.getBoundingClientRect(), span = r.height - window.innerHeight;
+      const p = Math.min(1, Math.max(0, (-r.top + window.innerHeight * .25) / Math.max(1, span)));
+      const k = Math.min(terms.length, Math.floor(p * (terms.length + 1.5)));
+      if (k !== last || true) paint(k, p);
+    });
+  }
+  window.addEventListener('scroll', onScroll, { passive: true }); onScroll();
+})();
+</script>
+
 </body>
 </html>
