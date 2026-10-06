@@ -268,9 +268,9 @@ public static class UserDataEndpoints
             : chapterNumber;
         var now = DateTimeOffset.UtcNow;
         target.UpdatedAt = now;
-        // Assigned, not max-ed: a write with no timestamp (mark-as-finished) clears it, so the next
-        // timestamped write is accepted rather than compared with a clock it never ran on.
-        target.ClientUpdatedAt = ProgressClock.Clamp(request.UpdatedAt, now);
+        // Assigned, not max-ed. A write with no timestamp (mark finished/unread) stores the server's
+        // now, so a queued write recorded before it cannot undo it (see ProgressClock.Stamp).
+        target.ClientUpdatedAt = ProgressClock.Stamp(request.UpdatedAt, now);
     }
 
     /// <summary>
