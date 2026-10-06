@@ -89,7 +89,11 @@ function cleanup() {
 
 export type TtsError = 'blocked' | 'failed' | 'rate_limited' | null
 
-export function useTts() {
+/**
+ * @param stopKey playback belongs to this key (the reader passes the chapter):
+ *   a change stops it, as does unmounting (leaving the page).
+ */
+export function useTts(stopKey?: unknown) {
   const [isPlaying, setIsPlaying] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<TtsError>(null)
@@ -138,13 +142,17 @@ export function useTts() {
     if (currentOwnerReset === localReset) currentOwnerReset = null
   }, [localReset, stopTracking])
 
-  // On unmount, release ownership so we don't leak a stale reset callback
-  // that closes over dead React state.
+  // stopKey change / unmount: cancel our in-flight fetch and silence our audio
+  // (the shared element outlives the page). Another instance's playback is left alone.
   useEffect(() => {
     return () => {
-      if (currentOwnerReset === localReset) currentOwnerReset = null
+      if (currentOwnerReset === localReset) stop()
+      else {
+        abortRef.current?.abort()
+        setIsLoading(false)
+      }
     }
-  }, [localReset])
+  }, [stopKey, localReset, stop])
 
   const speak = useCallback(async (text: string, lang: string, voice?: string, speed?: number) => {
     // Stop any current playback
