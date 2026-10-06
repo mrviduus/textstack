@@ -70,10 +70,22 @@ export const themeStyles = {
   dark: { backgroundColor: '#1A1A2E', textColor: '#E0E0E0' },
 }
 
+/** The last settings any reader screen held, for this app run. ‹ / › remount the reader, and a
+ *  mount that starts from the defaults while AsyncStorage answers builds the next chapter Light, in
+ *  the default font — the flash on Prev, and the lost Dark theme. Storage stays the source of truth. */
+let lastKnown: { settings: ReaderSettings; chosen: StoredSettings } | null = null
+
 export function useReaderSettings() {
-  const [settings, setSettings] = useState<ReaderSettings>(defaults)
+  const [settings, setSettingsState] = useState<ReaderSettings>(() => lastKnown?.settings ?? defaults)
   // The reader's actual choices, which is all that goes to storage.
-  const chosenRef = useRef<StoredSettings>({})
+  const chosenRef = useRef<StoredSettings>(lastKnown?.chosen ?? {})
+  const setSettings = useCallback((next: ReaderSettings | ((prev: ReaderSettings) => ReaderSettings)) => {
+    setSettingsState(prev => {
+      const value = typeof next === 'function' ? next(prev) : next
+      lastKnown = { settings: value, chosen: chosenRef.current }
+      return value
+    })
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -82,8 +94,8 @@ export function useReaderSettings() {
       if (raw) {
         try {
           const stored = JSON.parse(raw) as StoredSettings
-          setSettings({ ...defaults, ...stored })
           chosenRef.current = stored
+          setSettings({ ...defaults, ...stored })
         } catch {}
         return
       }
@@ -100,8 +112,8 @@ export function useReaderSettings() {
           // no provenance to recover. The same is true of anything already written under v2: a
           // device that has settings keeps them, and only future default changes benefit.
           const chosen = old as StoredSettings
-          setSettings({ ...defaults, ...chosen })
           chosenRef.current = chosen
+          setSettings({ ...defaults, ...chosen })
           AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(chosen))
           AsyncStorage.removeItem(LEGACY_KEY)
         } catch {}
@@ -110,7 +122,7 @@ export function useReaderSettings() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [setSettings])
 
   const update = useCallback((patch: Partial<ReaderSettings>) => {
     // Only what was touched, ever. `prev` is the fully-merged object, so serialising it is what
@@ -118,7 +130,7 @@ export function useReaderSettings() {
     chosenRef.current = { ...chosenRef.current, ...patch }
     AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(chosenRef.current)).catch(() => {})
     setSettings(prev => ({ ...prev, ...patch }))
-  }, [])
+  }, [setSettings])
 
   const resolvedFontFamily = fontFamilyMap[settings.fontFamily] || fontFamilyMap.serif
   const resolvedTheme = themeStyles[settings.theme]

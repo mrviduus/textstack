@@ -62,6 +62,12 @@ function layoutTop(el: Element): number {
 }
 
 const flush = () => vi.advanceTimersByTimeAsync(300)
+/** The page under the viewport top, read off the modelled column. */
+function topPage(): number {
+  const el = Array.from(document.querySelectorAll('.pdf-page'))
+    .find(p => layoutTop(p) + parseFloat((p as HTMLElement).style.height) > scrollY + 2)!
+  return Number((el as HTMLElement).dataset.page)
+}
 /** The IntersectionObserver firing — pages crossing the 300px band as the column changes. */
 const observerFires = async () => { observerCallback?.([]); await flush() }
 
@@ -197,11 +203,15 @@ describe('PDF reopen (F2: +2 pages per open)', () => {
     await flush()
     rn.drain()
     expect(rn.saved.at(-1)).toBe(20)
-    const y = window.scrollY
-    release(NUM_PAGES)                        // the sizes arrive late: the cancelled jump stays cancelled
+    // The sizes arrive late: the cancelled jump stays cancelled, and the pages above shrinking
+    // under a fixed scrollY must not carry the reader forward (TOC → drag → drift 139 → 146).
+    release(NUM_PAGES)
+    await flush()
+    await observerFires()
+    window.dispatchEvent(new Event('scroll'))
     await flush()
     rn.drain()
-    expect(window.scrollY).toBe(y)
+    expect(topPage()).toBe(20)
     expect(rn.saved.at(-1)).toBe(20)
   })
 
@@ -238,4 +248,105 @@ describe('PDF reopen (F2: +2 pages per open)', () => {
     expect(messages.filter(m => m.type === 'pdfPage').at(-1)).toMatchObject({ page: 40, jumpId: 7 })
     expect(rn.saved.at(-1)).toBe(40)
   })
+
+  it('a re-fit after the resume jump landed (width known late) keeps the reader on its page', async () => {
+    // The open measured a too-wide container (~1.4x fit); the real width arrives afterwards.
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 900 })
+    const rn = rnGate()
+    await openViewer(null)
+    release(NUM_PAGES)
+    await flush()
+    rn.drain()
+    rn.dispatch({ type: 'noJumpNeeded' })
+    rn.dispatch({ type: 'jumpIssued', page: 40, jumpId: 3, at: Date.now() })
+    ;(window as unknown as { scrollToPage: (n: number, id: number) => void }).scrollToPage(40, 3)
+    await flush()
+    rn.drain()
+    expect(rn.saved.at(-1)).toBe(40)
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 636 })
+    window.dispatchEvent(new Event('resize'))
+    await flush()
+    await observerFires()
+    window.dispatchEvent(new Event('scroll'))
+    await flush()
+    rn.drain()
+    expect(topPage()).toBe(40)
+    expect(rn.saved).toEqual(rn.saved.map(() => 40))
+  })
+
+  it('a re-fit while the jump travels still lands on the target', async () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 900 })
+    const rn = rnGate()
+    await openViewer(null)
+    rn.drain()
+    rn.dispatch({ type: 'jumpIssued', page: 40, jumpId: 4, at: Date.now() })
+    ;(window as unknown as { scrollToPage: (n: number, id: number) => void }).scrollToPage(40, 4)
+    await flush()
+    release(20)
+    await flush()
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 636 })
+    window.dispatchEvent(new Event('resize'))
+    await flush()
+    release(NUM_PAGES)
+    await flush()
+    await observerFires()
+    rn.drain()
+    expect(topPage()).toBe(40)
+    expect(rn.saved).toEqual(rn.saved.map(() => 40))
+    expect(rn.saved.length).toBeGreaterThan(0)
+  })
+
+  it('the fit width is the layout viewport, not the pinch-zoomed visual one', async () => {
+    // Android WebView with pinch zoom: innerWidth is the visual viewport and shrinks with the zoom;
+    // fitting to it gave a different scale on each open.
+    Object.defineProperty(document.documentElement, 'clientWidth', { configurable: true, value: 636 })
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 454 })
+    try {
+      await openViewer(null)
+      release(NUM_PAGES)
+      await flush()
+      expect((document.querySelector('.pdf-page[data-page="2"]') as HTMLElement).style.width).toBe('612px')
+    } finally {
+      delete (document.documentElement as unknown as { clientWidth?: number }).clientWidth
+    }
+  })
+
+  it('a fresh open at the top stays at the top while sizes stream (padding and margin not scrolled away)', async () => {
+    const rn = rnGate()
+    await openViewer(null)
+    rn.dispatch({ type: 'noJumpNeeded' })
+    release(30)
+    await flush()
+    release(NUM_PAGES)
+    await flush()
+    expect(window.scrollY).toBe(0)
+  })
+
+  it('a reader in the gap above a page stays in that gap when the pages above change size', async () => {
+    const rn = rnGate()
+    await openViewer(null)
+    rn.dispatch({ type: 'noJumpNeeded' })
+    window.scrollTo(0, layoutTop(document.querySelector('.pdf-page[data-page="20"]')!) - 4)
+    await flush()
+    release(NUM_PAGES)
+    await flush()
+    expect(layoutTop(document.querySelector('.pdf-page[data-page="20"]')!) - window.scrollY).toBe(4)
+  })
+
+  it('streamed sizes do not scroll under a finger (a fling would stop); they land once scrolling is idle', async () => {
+    const rn = rnGate()
+    await openViewer(null)
+    rn.dispatch({ type: 'noJumpNeeded' })
+    window.scrollTo(0, layoutTop(document.querySelector('.pdf-page[data-page="40"]')!))
+    await flush()
+    window.dispatchEvent(new Event('touchstart'))
+    const programmatic = vi.spyOn(window, 'scrollTo')
+    release(NUM_PAGES)
+    await flush()
+    expect(programmatic).not.toHaveBeenCalled()
+    window.dispatchEvent(new Event('touchend'))
+    await flush()
+    expect(topPage()).toBe(40)
+  })
 })
+

@@ -1503,7 +1503,9 @@ export function buildPdfViewerHtml(fileUrl: string, token: string | null, option
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    html { -webkit-text-size-adjust: none; }
+    /* The viewer re-anchors every page-size change itself (applyPlaceholderSizes); the browser's
+       own scroll anchoring would be a second, unpredictable hand on scrollY. */
+    html { -webkit-text-size-adjust: none; overflow-anchor: none; }
     body {
       -webkit-user-select: text;
       user-select: text;

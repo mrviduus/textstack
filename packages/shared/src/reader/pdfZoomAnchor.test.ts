@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { pageAtViewportTop, type PageRect } from '@textstack/shared'
-import { capturePageAnchor, scrollDeltaForAnchor } from './pdfZoomAnchor'
+import { pageAtViewportTop, capturePageAnchor, scrollDeltaForAnchor, type PageRect } from './pdfPageWindow'
 
 // H4: zoom / width change rescales every page. Keeping scrollTop puts a
 // different page under the top line (and the view then saves it). The anchor

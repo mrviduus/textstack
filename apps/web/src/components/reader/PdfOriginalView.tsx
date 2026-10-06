@@ -17,9 +17,11 @@ import {
   pdfGateReduce,
   PDF_GATE_INITIAL,
   type PageRect,
+  capturePageAnchor,
+  scrollDeltaForAnchor,
+  type PageAnchor,
 } from '@textstack/shared'
 import { readPdfPage, writePdfPage } from '../../lib/originalLayoutPref'
-import { capturePageAnchor, scrollDeltaForAnchor, type PageAnchor } from '../../lib/pdfZoomAnchor'
 import { saveUserBookProgress } from '../../api/userBooks'
 import { useNewerPositionCheck } from '../../hooks/useNewerPositionCheck'
 import '../../styles/pdfOriginal.css'
