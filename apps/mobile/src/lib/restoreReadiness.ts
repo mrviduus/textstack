@@ -23,6 +23,8 @@ export type ReadinessEvent =
   | { type: 'webViewLoaded' }
   | { type: 'positionLoaded' }
   | { type: 'restoreFired' }
+  /** The document is being rebuilt before its restore fired: the restore waits for the new one's load (rule 8). */
+  | { type: 'documentReplaced' }
 
 export const READINESS_INITIAL: Readiness = { doc: null, webViewLoaded: false, positionLoaded: false, restored: false }
 
@@ -33,6 +35,7 @@ export function readinessReduce(s: Readiness, e: ReadinessEvent): Readiness {
     case 'webViewLoaded': return { ...s, webViewLoaded: true }
     case 'positionLoaded': return { ...s, positionLoaded: true }
     case 'restoreFired': return { ...s, restored: true }
+    case 'documentReplaced': return { ...s, webViewLoaded: false }
   }
 }
 

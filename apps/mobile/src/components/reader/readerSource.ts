@@ -126,7 +126,7 @@ export interface ReaderRuntime {
    *  scroll-restore so it can't race the async saved-position fetch. */
   onWebViewLoaded: () => void
   /** The WebView acknowledged a restore, carrying back the id it was issued with. */
-  onRestoreLanded: (restoreId: number) => void
+  onRestoreLanded: (restoreId: number, scrollY?: number) => void
   /** The chapter's restore has landed (or there was nothing to restore). M8. */
   positionSettled: boolean
   /** Where a programmatic restore stands, for the reading session (sessionMath.SessionJump). */
@@ -135,7 +135,7 @@ export interface ReaderRuntime {
   onDocumentRebuild: () => void
   /** Mint a restore id and shut the write gate behind it, for a move the reader
    *  did not make (a typography reflow). */
-  beginReflow: () => number
+  reflow: (buildJs: (restoreId: number) => string) => void
 
   /** Put a chapter on the device (cache first, then network) before opening it.
    *  Rejects when it is neither cached nor reachable. */
@@ -176,7 +176,8 @@ export interface ReaderRuntime {
    *  from the server arrives later as `originalNewerPage`. (ADR-012 S4c) */
   originalResumePage?: number | null
   /** False until the LOCAL resume page has been read (device only, never the
-   *  network). Ignored when `originalInitialPage` is set (chapter jump is instant). */
+   *  network). The first jump waits for it even when `originalInitialPage` is set:
+   *  a device page inside the chapter wins over its start (pdfInitialJump.ts). */
   originalResumeReady?: boolean
   /** A page the server holds that is provably newer than the local one the PDF
    *  opened at — found in the background after the open, or on a return to the

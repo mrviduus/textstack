@@ -294,11 +294,19 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
     }
 
     function ackRestore(restoreId) {
+      // CHAPTER-relative, like a progress report's scrollY — RN takes it as
+      // the "moved since?" baseline.
+      var b = currentChapterBounds();
       window.ReactNativeWebView.postMessage(JSON.stringify({
         type: 'restored',
         restoreId: restoreId,
-        scrollY: Math.round(window.scrollY)
+        scrollY: Math.round(Math.max(0, window.scrollY - (b ? b.top : 0)))
       }));
+      // The landing is always reported, AFTER the ack. A restore that moved
+      // less than the report threshold used to post nothing, so the reader's
+      // next real scroll was booked as the restore's jump (R4).
+      lastProgress = -1;
+      reportProgress();
     }
 
     window.__textstackRestoreScroll = function(offsetY, restoreId) {
