@@ -9,7 +9,7 @@ import { initialPdfJump } from '../../lib/pdfInitialJump'
 import type { ReaderShellProps } from './readerShellTypes'
 
 type Args = Pick<ReaderShellProps,
-  | 'original' | 'originalFileUrl' | 'originalInitialPage' | 'originalResumePage' | 'originalResumeReady'
+  | 'original' | 'originalFileUrl' | 'originalInitialPage' | 'originalChapterPicked' | 'originalResumePage' | 'originalResumeReady'
   | 'originalNewerPage' | 'persistPdfPage' | 'chapters' | 'chapterSlug' | 'injectJs'
 > & {
   language: Language
@@ -26,7 +26,7 @@ type Args = Pick<ReaderShellProps,
  * recovery and the viewer's `pdf*` messages. Inert when `original` is false.
  */
 export function useReaderPdf({
-  original, originalFileUrl, originalInitialPage, originalResumePage, originalResumeReady,
+  original, originalFileUrl, originalInitialPage, originalChapterPicked, originalResumePage, originalResumeReady,
   originalNewerPage, persistPdfPage, chapters, chapterSlug, injectJs,
   language, aliveRef, recordSessionActivity, repaintPdf,
 }: Args) {
@@ -137,7 +137,8 @@ export function useReaderPdf({
       resumeReady: !!originalResumeReady,
       chapterStartPage: originalInitialPage,
       chapterEndPage: idx >= 0 ? chapterEndPage(chapters, idx) : null,
-      firstChapter: isFirstPagedChapter(chapters, idx),
+      // Only Continue lets chapter one claim a saved front-matter page; a pick opens its start.
+      firstChapter: !originalChapterPicked && isFirstPagedChapter(chapters, idx),
       // A newer server page that arrived before the jump is simply the target ('adopt').
       resumePage: originalNewerPage?.page ?? originalResumePage,
       pageCount: pdfNumPagesRef.current,
@@ -149,7 +150,7 @@ export function useReaderPdf({
     // viewer's page-1 report sailed through the guard meant to catch it.
     if (first.kind === 'jump') scrollPdfToPage(first.page)
     else pdfGateRef.current = pdfGateReduce(pdfGateRef.current, { type: 'noJumpNeeded' }).state
-  }, [original, originalInitialPage, originalResumeReady, originalResumePage, originalNewerPage, scrollPdfToPage, chapters, chapterSlug])
+  }, [original, originalInitialPage, originalChapterPicked, originalResumeReady, originalResumePage, originalNewerPage, scrollPdfToPage, chapters, chapterSlug])
 
   // A newer page from the server, after the document already opened at the
   // device's one. Same rule as the reflow reader (decideNewerPosition): not

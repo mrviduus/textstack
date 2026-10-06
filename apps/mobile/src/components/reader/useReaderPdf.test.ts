@@ -7,6 +7,8 @@
  */
 import { act } from 'react'
 import { describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { renderHook } from '../../test/renderHook'
 import { useReaderPdf } from './useReaderPdf'
 
@@ -21,13 +23,14 @@ const CHAPTERS = [
   { slug: 'two', title: 'Two', sourceStartPage: 40 },
 ]
 
-function mount(chapterSlug: string, resumePage: number, startPage: number) {
+function mount(chapterSlug: string, resumePage: number, startPage: number, picked = false) {
   const injected: string[] = []
   const persisted: number[] = []
   const h = renderHook(useReaderPdf, {
     original: true,
     originalFileUrl: 'file:///book.pdf',
     originalInitialPage: startPage,
+    originalChapterPicked: picked,
     originalResumePage: resumePage,
     originalResumeReady: true,
     originalNewerPage: null,
@@ -43,6 +46,19 @@ function mount(chapterSlug: string, resumePage: number, startPage: number) {
   const send = (data: object) => act(() => { h.result.current.onMessage(data) })
   return { injected, persisted, send }
 }
+
+const detail = readFileSync(resolve(__dirname, '../../../app/my-books/[id].tsx'), 'utf8')
+const route = readFileSync(resolve(__dirname, '../../../app/my-books/read/[bookId]/[chapterSlug].tsx'), 'utf8')
+const source = readFileSync(resolve(__dirname, './useUserBookReaderSource.ts'), 'utf8')
+
+describe('wiring — the book-detail chapter row is a pick, Continue is not', () => {
+  it('row passes ?pick=1; route and source thread it to originalChapterPicked', () => {
+    expect(detail).toContain('router.push(`/my-books/read/${id}/${userBookChapterSlug(ch)}?pick=1`)')
+    expect(detail).toContain('router.push(`/my-books/read/${id}/${slug}`)')
+    expect(route).toContain("chapterPicked: pick === '1'")
+    expect(source).toContain('originalChapterPicked: chapterPicked')
+  })
+})
 
 const jumps = (injected: string[]) =>
   injected.map(js => /scrollToPage\((\d+), (\d+)\)/.exec(js)).filter(Boolean).map(m => ({ page: +m![1], id: +m![2] }))
@@ -62,6 +78,18 @@ describe('useReaderPdf — a saved page before the first chapter', () => {
     const r = mount('two', 200, 40)
     r.send({ type: 'pdfReady', numPages: 195 })
     expect(jumps(r.injected)).toEqual([{ page: 195, id: 1 }])
+  })
+
+  it('an explicit chapter-1 pick (book-detail row) opens its start 5, not the saved page 2', () => {
+    const r = mount('one', 2, 5, true)
+    r.send({ type: 'pdfReady', numPages: 195 })
+    expect(jumps(r.injected)).toEqual([])
+  })
+
+  it('Continue into chapter 1 with a saved page 2 opens 2', () => {
+    const r = mount('one', 2, 5)
+    r.send({ type: 'pdfReady', numPages: 195 })
+    expect(jumps(r.injected)).toEqual([{ page: 2, id: 1 }])
   })
 
   it('front matter does not override a later chapter the reader picked', () => {

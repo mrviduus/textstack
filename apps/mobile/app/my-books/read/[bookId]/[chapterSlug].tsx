@@ -25,13 +25,14 @@ export default function UserBookReaderScreen() {
 }
 
 function UserBookReader() {
-  const { bookId, chapterSlug } = useLocalSearchParams<{ bookId: string; chapterSlug: string }>()
+  const { bookId, chapterSlug, pick } = useLocalSearchParams<{ bookId: string; chapterSlug: string; pick?: string }>()
   const { show: showToast } = useToast()
 
   const runtime = useUserBookReaderSource({
     bookId: bookId ?? '',
     chapterSlug: chapterSlug ?? '',
     showToast,
+    chapterPicked: pick === '1',
   })
 
   return <Reader runtime={runtime} />

@@ -50,7 +50,7 @@ describe('wiring', () => {
     expect(body).not.toContain('originalInitialPage != null && !originalResumeReady')
     expect(body).toContain("if (first.kind === 'wait') return")
     // Front matter belongs to the first chapter; the page count bounds the target.
-    expect(body).toContain('firstChapter: isFirstPagedChapter(chapters, idx)')
+    expect(body).toContain('firstChapter: !originalChapterPicked && isFirstPagedChapter(chapters, idx)')
     expect(body).toContain('pageCount: pdfNumPagesRef.current')
   })
 

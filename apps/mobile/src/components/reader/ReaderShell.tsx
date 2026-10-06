@@ -68,7 +68,7 @@ export function ReaderShell(props: ReaderShellProps) {
     ensureChapter, isChapterOnDevice, onNavigateChapter, chapterNavigatorRef,
     bookmarks, onToggleCurrentBookmark, onDeleteBookmark, bookmarkChapterSlug,
     bookTitleRef, wordCount, explainBookId,
-    original, originalFileUrl, originalInitialPage,
+    original, originalFileUrl, originalInitialPage, originalChapterPicked,
     originalResumePage, originalResumeReady, originalNewerPage, persistPdfPage,
     onTogglePageBookmark, isPageBookmarked, onForceReflow,
   } = props
@@ -203,7 +203,7 @@ export function ReaderShell(props: ReaderShellProps) {
   })
 
   const pdf = useReaderPdf({
-    original, originalFileUrl, originalInitialPage, originalResumePage, originalResumeReady,
+    original, originalFileUrl, originalInitialPage, originalChapterPicked, originalResumePage, originalResumeReady,
     originalNewerPage, persistPdfPage, chapters, chapterSlug, injectJs,
     language, aliveRef, recordSessionActivity, repaintPdf,
   })
