@@ -93,6 +93,13 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 1
+    # Node's version is declared in 13 places (.nvmrc, workflows, Dockerfiles) and
+    # moves together through deps-refresh; a Dockerfile-only bump fails
+    # check-node-version by design (and #752 proposed 24 → 26, a major that drops
+    # corepack). Here node only gets digest bumps of the pinned tag.
+    ignore:
+      - dependency-name: node
+        update-types: [version-update:semver-major, version-update:semver-minor, version-update:semver-patch]
     groups:
       base-images:
         patterns: ['*']
