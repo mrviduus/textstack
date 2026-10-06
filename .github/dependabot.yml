@@ -80,8 +80,10 @@ updates:
       actions:
         patterns: ['*']
 
-  # Base images. Every pulled image and every Dockerfile FROM is pinned by digest
-  # (`tag@sha256:…`): a tag is mutable, a digest is the bytes we reviewed. A pin
+  # Base images. Every image compose pulls is pinned by digest (`tag@sha256:…`);
+  # the Dockerfile FROM pins land with the slim-images PR (ci/slim-images) — until
+  # then this lane bumps their tags. A tag is mutable, a digest is the bytes we
+  # reviewed. A pin
   # nobody moves is a base that never gets patched, so these two lanes move them —
   # weekly, one grouped pull request each, and CI + the image secret scan gate it
   # like any other change. Not here: images named inside scripts and workflow

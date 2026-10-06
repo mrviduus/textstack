@@ -100,39 +100,11 @@ jobs:
     with:
       ref: ${{ needs.guard.outputs.sha }}
 
-  # Its own job so the dump (~2.5 min) runs while `ci` and `images` build, not
-  # after them. It needs neither: it only reads the live DB. `deploy` needs it, so
-  # a failed backup still blocks the deploy, and it still lands before migrations
-  # run (the migrator starts in `deploy`). Writes made between this dump and the
-  # migration — a few minutes now instead of seconds — are not in it.
-  backup:
-    needs: guard
-    if: ${{ !cancelled() && needs.guard.result != 'failure' }}
-    runs-on: self-hosted
-    permissions: {}
-    # 2.5m typical.
-    timeout-minutes: 20
-    steps:
-      - name: Pre-deploy backup
-        run: |
-          mkdir -p ~/backups/textstack
-          DATE=$(date +%F-%H%M)
-          # pipefail + trailer check: a failed pg_dump used to leave an empty archive
-          # and let the deploy proceed with no usable rollback point.
-          set -o pipefail
-          docker exec textstack_db_prod pg_dump -U textstack_prod textstack_prod | gzip > ~/backups/textstack/pre-deploy-$DATE.sql.gz
-          zcat ~/backups/textstack/pre-deploy-$DATE.sql.gz | tail -n 5 | grep -q 'PostgreSQL database dump complete' \
-            || { echo "::error::pre-deploy dump is incomplete"; exit 1; }
-          echo "Backup created: pre-deploy-$DATE.sql.gz"
-          # Keep only the 2 newest pre-deploy backups
-          cd ~/backups/textstack && ls -1t pre-deploy-*.sql.gz 2>/dev/null | tail -n +3 | xargs -r rm -v
-
   deploy:
-    needs: [guard, ci, images, backup]
+    needs: [guard, ci, images]
     # A failed `images` must not block a deploy: the server builds instead, as it
-    # always did. A failed `ci` or `backup` still does (and a failed `guard` skips
-    # `backup`, so it does too).
-    if: ${{ !cancelled() && needs.ci.result == 'success' && needs.backup.result == 'success' }}
+    # always did. A failed `ci` or `guard` still does.
+    if: ${{ !cancelled() && needs.ci.result == 'success' && needs.guard.result != 'failure' }}
     runs-on: self-hosted
     permissions:
       contents: read
@@ -149,6 +121,13 @@ jobs:
         run: |
           cd $PROJECT_DIR
           git fetch origin
+          # The scanner comes from THIS workflow's commit, not the checkout below: a
+          # rollback target may predate the script or its --dir mode, and a scan that
+          # cannot run would stop a break-glass deploy halfway. Every scan in this run
+          # uses this copy. (Everything else run from $PROJECT_DIR — Makefile, compose,
+          # nginx config — is meant to be the target commit's.)
+          git show "$RUN_SHA:scripts/scan-image-secrets.sh" > "$RUNNER_TEMP/scan-image-secrets.sh"
+          chmod +x "$RUNNER_TEMP/scan-image-secrets.sh"
           if [ -n "$ROLLBACK_SHA" ]; then
             # Checked again against this clone: guard ran on GitHub's copy.
             if ! [[ $ROLLBACK_SHA =~ ^[0-9a-f]{40}$ ]] || ! git merge-base --is-ancestor "$ROLLBACK_SHA" origin/main; then
@@ -407,7 +386,13 @@ jobs:
               if (n ~ /(SECRET|PASSWORD|TOKEN|API_KEY)$/) { v = substr($0, index($0, "=") + 1)
                 gsub(/^["\047]|["\047]$/, "", v); print v } }' .env)
           export SCAN_SECRET_VALUES
-          scripts/scan-image-secrets.sh --dir apps/web/dist
+          # Vite's output only (index.html + assets/): dist/ssg and dist/ssg-new are
+          # Puppeteer's, rewritten by ssg-worker while this runs (a file vanishing
+          # mid-grep is a scan error), and vite inlines env into neither.
+          web=$(mktemp -d "$RUNNER_TEMP/web-scan.XXXX")
+          cp -a apps/web/dist/index.html apps/web/dist/assets "$web/"
+          "$RUNNER_TEMP/scan-image-secrets.sh" --dir "$web"
+          rm -rf "$web"
 
       - name: Fix cache volume permissions
         # Container runs as uid 1000 but host-mounted cache dirs default to
@@ -416,6 +401,25 @@ jobs:
         run: |
           cd $PROJECT_DIR
           make fix-permissions
+
+      # Here, not at the start of the run and not in a parallel job: the migrator runs
+      # in the next step, and the rollback point must be the database as it was just
+      # before it. Taken earlier, CI + images + the up-to-40-min SSG wait could put an
+      # hour of writes between the dump and a bad migration, all lost on restore.
+      # Correctness of the rollback point beats the ~2.5 min this costs.
+      - name: Pre-deploy backup
+        run: |
+          mkdir -p ~/backups/textstack
+          DATE=$(date +%F-%H%M)
+          # pipefail + trailer check: a failed pg_dump used to leave an empty archive
+          # and let the deploy proceed with no usable rollback point.
+          set -o pipefail
+          docker exec textstack_db_prod pg_dump -U textstack_prod textstack_prod | gzip > ~/backups/textstack/pre-deploy-$DATE.sql.gz
+          zcat ~/backups/textstack/pre-deploy-$DATE.sql.gz | tail -n 5 | grep -q 'PostgreSQL database dump complete' \
+            || { echo "::error::pre-deploy dump is incomplete"; exit 1; }
+          echo "Backup created: pre-deploy-$DATE.sql.gz"
+          # Keep only the 2 newest pre-deploy backups
+          cd ~/backups/textstack && ls -1t pre-deploy-*.sql.gz 2>/dev/null | tail -n +3 | xargs -r rm -v
 
       - name: Deploy containers
         # docker-compose.gpu.yml is a prod-only overlay that adds

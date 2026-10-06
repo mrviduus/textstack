@@ -29,14 +29,13 @@ flowchart TD
   D --> G[guard — rollback only<br/>hex + ancestor of origin/main]
   D --> CIM[ci — merged-tree<br/>backend + frontend]
   G --> IMG[images.yml — GitHub-hosted<br/>build → secret scan → push GHCR :sha<br/>outputs digests]
-  G --> BK[backup — self-hosted<br/>pg_dump, runs in parallel]
 
   CIM --> DEP
-  IMG --> DEP
-  BK --> DEP[deploy — self-hosted]
+  IMG --> DEP[deploy — self-hosted]
 
-  DEP --> W[web build on server → scan dist]
-  W --> P[pull name@digest, tag :sha<br/>no digest / pull fails → build on server]
+  DEP --> W[SSG wait → web build on server<br/>→ scan index.html + assets]
+  W --> BK[pre-deploy pg_dump<br/>right before the migrator]
+  BK --> P[pull name@digest, tag :sha<br/>no digest / pull fails → build on server]
   P --> UP[compose up → migrator → api, worker, …]
   UP --> H[health: API, containers, frontend, MCP, SEO]
   H --> SSG[SSG content check<br/>full rebuild nightly or on rebuild_ssg]
@@ -50,8 +49,9 @@ flowchart TD
   DRILL[restore-drill.yml monthly — GitHub-hosted] --> R2
 ```
 
-`deploy` needs `ci` **and** `backup`; `images` is allowed to fail (the server builds instead). A
-failed `guard` skips `backup`, which skips `deploy`.
+`deploy` needs `ci` (and `guard` on a rollback); `images` is allowed to fail (the server builds
+instead). The pre-deploy dump is a step inside `deploy`, immediately before `compose up` starts the
+migrator — see "Known limits" for why it is not parallel.
 
 ## External dependencies
 
@@ -94,11 +94,11 @@ Single points of failure that matter: **the home server + Cloudflare tunnel** (r
 |---|---|---|
 | Secrets only at runtime | server `.env`, GitHub secrets, EAS secrets | Nothing secret is a build input. Images are public. |
 | Image secret scan gates the push | `images.yml` → `scripts/scan-image-secrets.sh` | Every `.env.example` name **and every `${VAR}` in the compose files** is a canary; a canary, token shape, private key or secret-named file in `Config.Env`, history or **any single layer** (incl. files deleted later) fails the job before anything is pushed. |
-| Web bundle scan | `deploy.yml` "Secret scan web dist" | Same patterns over `apps/web/dist`, plus the server's real values of `*SECRET`, `*PASSWORD`, `*TOKEN`, `*API_KEY`. Stray `apps/web/.env*` files are moved aside before vite runs. |
+| Web bundle scan | `deploy.yml` "Secret scan web dist" | Same patterns over vite's output (`dist/index.html` + `dist/assets/`; the SSG trees are Puppeteer's and are rewritten concurrently), plus the server's real values of `*SECRET`, `*PASSWORD`, `*TOKEN`, `*API_KEY`. Stray `apps/web/.env*` files are moved aside before vite runs. |
 | OTA bundle scan | `mobile-ota.yml` | Same patterns over an `expo export` made with the EAS production environment, plus `EXPO_TOKEN`'s value; gates `eas update`. |
 | `.dockerignore` | repo root | `.env*`, keys, service accounts, `appsettings.*.json`, `bin/`, `obj/` never enter a build context. |
 | Actions pinned by SHA | every `uses:` in `.github/workflows/` | A moved tag cannot change code that runs next to `EXPO_TOKEN`, a write token or the self-hosted runner. Dependabot bumps the SHA and the `# vX.Y` comment. |
-| Images pinned by digest | `docker-compose.yml`, `backup.yml` (restic), scanner, Makefile | A re-pushed tag cannot swap the DB, the backup tool (sees R2 keys and `.env`) or the scanner. Dependabot (`docker`, `docker-compose`) bumps compose and Dockerfile pins weekly. |
+| Images pinned by digest | `docker-compose.yml`, `backup.yml` (restic), scanner, Makefile; Dockerfile `FROM`s **pending: slim-images PR** (`ci/slim-images`) | A re-pushed tag cannot swap the DB, the backup tool (sees R2 keys and `.env`) or the scanner. Dependabot (`docker`, `docker-compose`) bumps them weekly. |
 | Deploy pulls by digest | `images` output → `deploy` | A `:sha` tag re-pushed between build and pull is ignored; the server runs the bytes that passed the scan. |
 | Rollback input guarded | `deploy.yml` `guard` | `rollback_commit` must be 7–40 hex, resolve in a full clone, and be an ancestor of `origin/main`; passed via `env:`, never interpolated into `run:`. |
 | Least-privilege tokens | top-level `permissions:` in every workflow | Read-only (or none) by default; only `images` (packages: write), `deps-refresh` (contents + PRs) and `publish-mcp-nuget` (id-token) widen, per job. |
@@ -118,8 +118,12 @@ Single points of failure that matter: **the home server + Cloudflare tunnel** (r
   `docker buildx imagetools inspect <image:tag>`.
 - **Rollback to an already-published SHA** takes its digest from the registry at that moment (no
   push happened in this run to report one).
-- **The pre-deploy dump is taken a few minutes before migrations**, not seconds. Writes in between are
-  not in it.
+- **The pre-deploy dump stays on the critical path (~2.5 min), on purpose.** Running it in a parallel
+  job at the start of the run would put CI, images and the up-to-40-min SSG wait — up to an hour of
+  writes — between the dump and a bad migration, all lost on restore. Correctness of the rollback
+  point beats 2.5 minutes.
+- **The scanner a deploy runs is the workflow commit's** (`git show $GITHUB_SHA:scripts/…` into
+  `$RUNNER_TEMP`), so a rollback to a commit older than the script still scans and finishes.
 - **One non-ephemeral self-hosted runner, repo-level.** A `workflow_dispatch` from another branch
   runs that branch's workflow on it (write access required). Limiting the runner to `deploy.yml` /
   `backup.yml` on `main` needs an org runner group.
@@ -139,7 +143,7 @@ Single points of failure that matter: **the home server + Cloudflare tunnel** (r
 | Which server values the web scan treats as secret | `deploy.yml` "Secret scan web dist" (the awk name filter) |
 | An action version | Let Dependabot do it; by hand: `gh api repos/<owner>/<repo>/commits/<tag> --jq .sha`, keep the `# vX.Y` comment |
 | A pulled image version | `docker-compose.yml` `image: name:tag@sha256:…` (Dependabot weekly); restic/scanner/Makefile by hand |
-| Pre-deploy backup | `deploy.yml` `backup` job; nightly + R2: `backup.yml`; drill: `restore-drill.yml`; ops: [`backup.md`](../03-ops/backup.md) |
+| Pre-deploy backup | `deploy.yml` step "Pre-deploy backup" (just before "Deploy containers"); nightly + R2: `backup.yml`; drill: `restore-drill.yml`; ops: [`backup.md`](../03-ops/backup.md) |
 | Rollback | Actions → Deploy → Run workflow → `rollback_commit` = a SHA on main |
 | Full SSG rebuild on deploy | Run workflow with `rebuild_ssg`, or `make rebuild-ssg` |
 | Workflow permissions | top-level `permissions:` stays read/none; widen per job |

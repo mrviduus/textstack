@@ -231,6 +231,27 @@ jobs:
           echo "runtime=$rt" >> "$GITHUB_OUTPUT"
           echo "id=$id" >> "$GITHUB_OUTPUT"
 
+      # The JS bundle every installed app downloads. EXPO_PUBLIC_* values are inlined
+      # into it, so a secret put in EAS's production environment under that prefix
+      # would ship to every phone. Exported here with the same environment `eas
+      # update` uses (env:exec loads its plain-text variables; secret-visibility ones
+      # never reach a bundle either way) and scanned with the image scanner's
+      # patterns plus EXPO_TOKEN's own value. Runs on a dry run too, so the gate can
+      # be tried without publishing. Placed before the permission check and the store
+      # build: that build bundles the same JS with the same environment and sends it
+      # to testers, so a hit must block it as well as the update. Both bundle again
+      # from the same commit and environment — this is an equivalent bundle, not the
+      # uploaded bytes.
+      - name: Secret scan the OTA bundle (gates the publish)
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/ota-scan"
+          eas env:exec production "npx expo export --platform android --output-dir '$out'" --non-interactive
+          SCAN_SECRET_VALUES="$EXPO_TOKEN" "$GITHUB_WORKSPACE/scripts/scan-image-secrets.sh" --dir "$out"
+          rm -rf "$out"
+
       # The source-level permission check, before anything is built. It reads the
       # manifest our own config produces — app.json plus the config plugins — which
       # is where a new permission from `blockedPermissions` drifting out of date
@@ -291,24 +312,6 @@ jobs:
               echo "another build. \`production\` is still a human click: **mobile-release.yml**."
             fi
           } | tee -a "$GITHUB_STEP_SUMMARY"
-
-      # The JS bundle every installed app downloads. EXPO_PUBLIC_* values are inlined
-      # into it, so a secret put in EAS's production environment under that prefix
-      # would ship to every phone. Exported here with the same environment `eas
-      # update` uses (env:exec loads its plain-text variables; secret-visibility ones
-      # never reach a bundle either way) and scanned with the image scanner's
-      # patterns plus EXPO_TOKEN's own value. Runs on a dry run too, so the gate can
-      # be tried without publishing. `eas update` below bundles again from the same
-      # commit and environment — this is an equivalent bundle, not the uploaded bytes.
-      - name: Secret scan the OTA bundle (gates the publish)
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-        run: |
-          set -euo pipefail
-          out="$RUNNER_TEMP/ota-scan"
-          eas env:exec production "npx expo export --platform android --output-dir '$out'" --non-interactive
-          SCAN_SECRET_VALUES="$EXPO_TOKEN" "$GITHUB_WORKSPACE/scripts/scan-image-secrets.sh" --dir "$out"
-          rm -rf "$out"
 
       # Commit subject only, passed through the environment rather than
       # interpolated into the script: a commit message is attacker-controlled

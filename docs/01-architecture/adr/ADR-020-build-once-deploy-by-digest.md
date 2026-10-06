@@ -24,7 +24,9 @@ size (disk cleanup, scan, push), not with build work.
 2. **Deploy by digest.** `images` outputs `<svc>@sha256:<digest>` from `docker push` itself — the
    bytes it scanned. `deploy` pulls `name@digest` and tags it `:<sha>` locally for compose and humans.
    No digest, or a failed pull → the server builds, as before. A failed `images` never blocks a deploy;
-   a failed `ci` or pre-deploy backup does.
+   a failed `ci` or pre-deploy backup does. The backup is a step right before the migrator, not a
+   parallel job: a dump taken at the start of the run can be an hour older than the migration it is
+   meant to undo (CI, images, the SSG wait). Correctness of the rollback point beats ~2.5 min.
 3. **Everything third-party is pinned to content:** actions by commit SHA (`# vX.Y` comment), pulled
    images by `tag@sha256`. Dependabot (`github-actions`, `docker`, `docker-compose`) moves the pins, so
    a pin is not a freeze.
@@ -39,6 +41,7 @@ size (disk cleanup, scan, push), not with build work.
 | buildx registry cache | Rejected | The build is already ~2 min warm with the gha cache. The cost is image size, fixed by slimming. |
 | Per-image rebuild + re-tag unchanged images from the previous SHA | Deferred | Saves 0 min while `images` runs parallel to a ~6 min `ci`. "Previous SHA" can ship stale code (failed or cancelled runs, rollbacks, shared inputs, baked `GIT_SHA`). If ever needed: content-hash tags over each image's inputs, `SENTRY_RELEASE` moved to runtime, and a guard test on Dockerfile `COPY` sources. |
 | cosign signatures / build provenance | Skipped | The threat here is a tag swap; pulling by digest closes it with no keys to manage. One owner, one server. |
+| Pre-deploy dump in a parallel job | Rejected | Saves ~2.5 min, but moves the rollback point up to an hour before the migration; writes in that window are lost on restore. |
 | SBOM | Skipped | `--sbom=true` is free, but nobody would read it. Revisit if a customer asks. |
 | Private GHCR packages | Skipped | Costs money at today's sizes; the repo is public anyway. Images carry no secrets by construction and by scan. |
 
