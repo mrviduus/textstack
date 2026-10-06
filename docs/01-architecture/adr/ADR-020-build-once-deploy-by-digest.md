@@ -1,6 +1,6 @@
 # ADR-020 — Build once on GitHub, deploy many by digest
 
-**Status:** Accepted · **Date:** 2026-10-06 · **PRs:** #742 (build once), this PR (digest, pins, scans) ·
+**Status:** Accepted · **Date:** 2026-10-06 · **PRs:** #742 (build once), #746 (digest, pins, scans) ·
 **Pipeline:** [`delivery.md`](../delivery.md)
 
 ## Context
