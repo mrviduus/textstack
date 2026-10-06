@@ -82,7 +82,8 @@ public static class TranslationEndpoints
         var genre = await ExplainEndpoints.ResolveGenreAsync(request.Genre, request.BookId, db, logger, ct);
 
         var cache = new FileJsonCache<TranslateResponse>(cachePath, cacheTtlDays, logger);
-        var cacheKey = ComputeCacheKey(request.Text, srcLang, tgtLang, genre, sentence);
+        var cacheKey = ComputeCacheKey(
+            request.Text, srcLang, tgtLang, genre, sentence, CacheModelId(config), TranslatePrompt.Version);
         if (await cache.TryReadAsync(cacheKey, ct) is { } cachedResp && !string.IsNullOrWhiteSpace(cachedResp.TranslatedText))
             // Re-attach a fresh category — it's word-only (cache key
             // also varies by sentence/genre, so don't trust the stored one).
@@ -126,8 +127,14 @@ public static class TranslationEndpoints
     /// "polling" in a CS book does not poison the cache for the same word in a
     /// political-news article.
     /// </summary>
-    private static string ComputeCacheKey(string text, string srcLang, string tgtLang, string? genre, string? sentence) =>
-        FileJsonCache<TranslateResponse>.Key($"{srcLang}|{tgtLang}|{genre ?? ""}|{sentence ?? ""}|{text}");
+    /// Prompt version + model are in it too, so a prompt fix or model swap is not hidden behind 30 days of cache.
+    internal static string ComputeCacheKey(
+        string text, string srcLang, string tgtLang, string? genre, string? sentence, string model, int promptVersion) =>
+        FileJsonCache<TranslateResponse>.Key(
+            $"v{promptVersion}|{model}|{srcLang}|{tgtLang}|{genre ?? ""}|{sentence ?? ""}|{text}");
+
+    // ponytail: the configured model (same fallback as OpenAiLlmClient), not the gateway's runtime route.
+    internal static string CacheModelId(IConfiguration config) => config["OpenAI:Model"] ?? "gpt-4.1-nano";
 
     private static IResult GetLanguages()
     {

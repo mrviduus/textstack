@@ -9,6 +9,9 @@ namespace Application.Ai;
 /// </summary>
 public static class ExplainPrompt
 {
+    /// <summary>Part of the answer cache key. Bump on any prompt change that should reach cached answers.</summary>
+    public const int Version = 2;
+
     public static string BuildSystemPrompt(string? genre, string targetLang, bool withTools = false)
     {
         var domain = string.IsNullOrWhiteSpace(genre) ? "general" : genre.Trim();
