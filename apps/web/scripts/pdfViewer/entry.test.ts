@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * The mobile PDF viewer bundle (entry.ts), run in jsdom over a simulated page column, with its
  * `pdfPage` reports fed through the real RN persist gate — the open → jump → report → save path.
