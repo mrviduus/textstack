@@ -3,6 +3,13 @@ name: Deploy
 on:
   push:
     branches: [main]
+    # A docs-only merge has nothing to ship. Root-level *.md only — `*` stops at
+    # `/`, deliberately: markdown inside code directories is code here
+    # (Application embeds ChapterReview/ReviewMethod.md). A push touching docs AND
+    # anything else still deploys; workflow_dispatch is unaffected.
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
   workflow_dispatch:
     inputs:
       rollback_commit:
