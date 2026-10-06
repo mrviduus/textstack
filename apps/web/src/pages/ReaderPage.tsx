@@ -418,7 +418,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
   // Scroll-position restore + debounced save + flush on visibility/unload.
   // flushProgress ships the LEAVING chapter's latest scroll before a
   // same-component route change (ReaderPage stays mounted, so no unmount flush).
-  const { flushSave: flushProgress } = useReaderScrollSync({
+  const { flushSave: flushProgress, captureBeforeReflow } = useReaderScrollSync({
     mode,
     chapterIdentifier,
     chapterLoaded: isChapterReady(chapter, chapterIdentifier, loading),
@@ -494,11 +494,15 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
   // Drawer jump to a reflow highlight in a chapter the reader hasn't mounted
   // (one-chapter-at-a-time). Resolve its chapter id → slug and route there;
   // useHighlightEdit re-runs the scroll once the new chapter's DOM lands.
+  // The anchor's chapterId is the one id every row has (an upload's server row
+  // carries userChapterId and an empty chapterId) — the same id findTextByAnchor
+  // paints by. An orphan (no chapter) has nowhere to go.
   const handleHighlightNavigate = useCallback((h: StoredHighlight) => {
-    const target = book?.chapters.find(c => c.id === h.chapterId)
+    const chapterId = isPdfAnchor(h.anchor) ? '' : h.anchor.chapterId
+    const target = chapterId ? book?.chapters.find(c => c.id === chapterId) : undefined
     if (!target || target.identifier === activeChapterIdentifier) return
     flushProgress()
-    navigate(getChapterUrl(target.identifier))
+    navigate(`${getChapterUrl(target.identifier)}?highlight=${encodeURIComponent(h.id)}`)
   }, [book?.chapters, activeChapterIdentifier, flushProgress, navigate, getChapterUrl])
 
   // PDF.js hard-failed to open the original (NOT the internal 401 reload, which
@@ -656,7 +660,9 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
       <main id="reader-content" className="reader-main">
         <ReaderHighlights
           editionId={book?.id || ''}
-          chapterId={activeChapter?.id || ''}
+          // The rendered chapter first: the URL's chapter changes before its
+          // content lands, and highlights re-map when this changes.
+          chapterId={chapter?.id || activeChapter?.id || ''}
           containerRef={scrollContainerRef}
           isAuthenticated={isAuthenticated}
           bookLanguage={publicBook?.language}
@@ -797,7 +803,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
       <ReaderSettingsDrawer
         open={settingsOpen}
         settings={settings}
-        onUpdate={update}
+        onUpdate={(patch) => { captureBeforeReflow(); update(patch) }}
         onClose={() => setSettingsOpen(false)}
         originalMode={originalActive}
       />

@@ -46,10 +46,14 @@ const HL_PREFIXES = ['user-hl:', 'reviewed-mark:']
 interface Props {
   highlights: StoredHighlight[]
   containerRef: React.RefObject<HTMLElement | null>
+  /** The rendered chapter. A chapter change swaps the DOM under unchanged
+   *  highlights, so it must re-map them — without it the new chapter's own
+   *  highlights never painted after Next/Prev or a drawer jump. */
+  chapterId?: string
   onHighlightClick?: (highlight: StoredHighlight, rect: DOMRect) => void
 }
 
-export function HighlightOverlayLayer({ highlights, containerRef, onHighlightClick }: Props) {
+export function HighlightOverlayLayer({ highlights, containerRef, chapterId, onHighlightClick }: Props) {
   const hostRef = useRef<HTMLDivElement>(null)
   const overlayer = useMemo(() => new Overlayer(), [])
 
@@ -76,7 +80,8 @@ export function HighlightOverlayLayer({ highlights, containerRef, onHighlightCli
         options: { color: COLOR_MAP[h.color], opacity: 1, blendMode: 'normal' },
       }
     },
-    [containerRef],
+    // chapterId is not read: it forces a re-map when the chapter DOM is swapped.
+    [containerRef, chapterId],
   )
 
   useOverlayAnnotations<StoredHighlight>(overlayer, {

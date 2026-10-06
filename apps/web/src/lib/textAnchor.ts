@@ -108,7 +108,9 @@ export function createTextAnchor(
     suffix,
     startOffset,
     endOffset,
-    chapterId,
+    // The wrapper the selection actually sits in wins over the caller's
+    // "active chapter" id — that is the id findTextByAnchor matches against.
+    chapterId: scope.dataset?.chapterId || chapterId,
   }
 }
 
@@ -127,7 +129,11 @@ export function findTextByAnchor(
   // Guard so reflow consumers skip them instead of fuzzy-matching the display
   // text into the wrong place.
   if (isPdfAnchor(anchor)) return null
+  // Only the anchor's own chapter. Text recurs across chapters, so matching any
+  // mounted chapter painted "ghost" copies of other chapters' highlights (and a
+  // tap on one edited/deleted the real one). No chapterId = orphan: never painted.
   for (const scope of chapterScopes(container)) {
+    if (scope !== container && scope.dataset.chapterId !== anchor.chapterId) continue
     const range = findTextInScope(anchor, scope)
     if (range) return range
   }

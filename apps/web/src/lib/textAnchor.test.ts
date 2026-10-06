@@ -281,5 +281,29 @@ describe('textAnchor', () => {
       expect(anchor.startOffset).toBe(4)
       expect(anchor.endOffset).toBe(7)
     })
+
+    // H1: a highlight from another chapter must not paint wherever its text recurs.
+    it('does not match an anchor from another chapter (ghost)', () => {
+      container.innerHTML = '<article data-chapter-id="ch-3"><p>He went into the room.</p></article>'
+      const anchor: TextAnchor = {
+        prefix: 'She left ', exact: 'the room', suffix: '.', startOffset: 9, endOffset: 17, chapterId: 'ch-2',
+      }
+      expect(findTextByAnchor(anchor, container)).toBeNull()
+    })
+
+    it('does not match an orphan anchor (no chapterId) inside a chapter scope', () => {
+      container.innerHTML = '<article data-chapter-id="ch-3"><p>He went into the room.</p></article>'
+      const anchor = { prefix: '', exact: 'the room', suffix: '', startOffset: 13, endOffset: 21 } as unknown as TextAnchor
+      expect(findTextByAnchor(anchor, container)).toBeNull()
+    })
+
+    it('anchors to the chapter wrapper id, not the passed fallback id', () => {
+      container.innerHTML = '<article data-chapter-id="real"><p>The dog ran.</p></article>'
+      const t = container.querySelector('p')!.firstChild as Text
+      const range = document.createRange()
+      range.setStart(t, 4)
+      range.setEnd(t, 7)
+      expect(createTextAnchor(range, 'stale', container).chapterId).toBe('real')
+    })
   })
 })

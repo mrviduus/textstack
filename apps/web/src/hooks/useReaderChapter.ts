@@ -106,11 +106,14 @@ export function useReaderChapter({
                 // Book fetch failed but chapter from cache - ok
               }
               if (cancelled) return
-              const realChapterNumber =
-                bk?.chapters.find(c => c.slug === cached.chapterSlug)?.chapterNumber ?? 0
+              const bookChapter = bk?.chapters.find(c => c.slug === cached.chapterSlug)
+              const realChapterNumber = bookChapter?.chapterNumber ?? 0
 
               const rawChapter: Chapter = {
-                id: cached.key,
+                // The real id: bookmarks POST it and highlight anchors are keyed
+                // by it. The cache key ("editionId:slug") is a last resort for an
+                // old row read offline — never a server id.
+                id: cached.chapterId ?? bookChapter?.id ?? cached.key,
                 chapterNumber: realChapterNumber,
                 slug: cached.chapterSlug,
                 title: cached.title,

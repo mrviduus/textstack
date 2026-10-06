@@ -3,7 +3,7 @@ import { ApiError } from '../api/client'
 
 const STORAGE_KEY_PREFIX = 'reading.progress.'
 
-const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+export const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 interface StoredProgress {
   chapterId?: string

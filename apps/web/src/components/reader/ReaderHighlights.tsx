@@ -491,6 +491,7 @@ export function ReaderHighlights({
           <HighlightOverlayLayer
             highlights={highlights}
             containerRef={containerRef}
+            chapterId={chapterId}
             onHighlightClick={handleHighlightClick}
           />
 
