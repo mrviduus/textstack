@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, MutableRefObject, useState } from 'react'
+import { AppState } from 'react-native'
 import {
   canPersistPosition,
   restoreGateReduce,
@@ -12,7 +13,7 @@ import { claimPosition, handOffPosition } from '../lib/positionHandoff'
 import { useFlushOnBackground } from './useFlushOnBackground'
 import { t, type TextPosition } from '@textstack/shared'
 import type { NewerPosition, ProgressSnapshot, SavedPosition } from '../components/reader/readerSource'
-import { decideNewerPosition, readerMovedSince, REFLOW_MOVE_TOLERANCE_PX } from '../lib/progressRestore'
+import { decideNewerPosition, readerMovedSince, returnedToForeground, REFLOW_MOVE_TOLERANCE_PX } from '../lib/progressRestore'
 import { useToast } from '../context/ToastContext'
 import { useLanguage } from '../context/LanguageContext'
 
@@ -42,8 +43,11 @@ type Options = {
   loadPosition: (chapterSlug: string) => Promise<SavedPosition>
   /** Background, started after `loadPosition` and never awaited by the open: a
    *  position the server holds that is provably newer than the local record the
-   *  chapter opened from, or null. MUST be stable. */
-  loadNewerPosition?: (chapterSlug: string) => Promise<NewerPosition | null>
+   *  chapter opened from, or null. `latest`: compare with the device's record as it
+   *  is NOW instead — the return-to-foreground check (H3), where the record the
+   *  chapter opened from would make this device's own later writes look like
+   *  another device's. MUST be stable. */
+  loadNewerPosition?: (chapterSlug: string, opts?: { latest?: boolean }) => Promise<NewerPosition | null>
   /** Opens another chapter — the prompt's action when the newer position is there. */
   navigateToChapter?: (chapterSlug: string) => void
   /**
@@ -98,7 +102,9 @@ export function useReaderPersistence({
   navigateToChapter,
   enabled = true,
 }: Options) {
-  const { show: showToast } = useToast()
+  const { show: showToast, dismiss: hideToast } = useToast()
+  // The newer-position prompt on screen, if any — hidden when the reader closes (M1).
+  const newerToastRef = useRef<number | null>(null)
   const { language } = useLanguage()
   // Restore state machine — all refs so changes never trigger a re-render.
   const savedOffsetRef = useRef<number | null>(null)
@@ -129,6 +135,9 @@ export function useReaderPersistence({
   const leavingRef = useRef(false)
   const bookKeyRef = useRef(bookKey)
   bookKeyRef.current = bookKey
+  const enabledRef = useRef(enabled)
+  enabledRef.current = enabled
+  const unmountedRef = useRef(false)
   // ReaderShell's navigateChapter, registered by the shell — so the prompt's chapter change
   // carries the reading session like every other one (L3). Null before the shell mounts.
   const chapterNavigatorRef = useRef<((chapterSlug: string) => void) | null>(null)
@@ -217,7 +226,7 @@ export function useReaderPersistence({
       return
     }
     if (action === 'move') { goHere(); return }
-    showToast({
+    newerToastRef.current = showToast({
       variant: 'info',
       icon: 'phone-portrait-outline',
       message: t(language, 'reader.newerElsewhere.message').replace('{target}', newer.label),
@@ -337,6 +346,14 @@ export function useReaderPersistence({
     }
   }, [chapterId, saveProgress])
 
+  // Always points at the current closure, so the unmount flush below can have
+  // an empty dependency list without going stale — and so the debounce timer
+  // saves with the gate as it is when it FIRES (H1). Called through the closure
+  // it was armed with, a timer set while `enabled` was still true wrote a reflow
+  // position for a book that had meanwhile turned out to be a PDF.
+  const saveProgressRef = useRef(saveProgress)
+  saveProgressRef.current = saveProgress
+
   // 2s-debounced save fired on every WebView progress bump. Short enough that
   // a force-kill mid-chapter loses < ~2s of scroll, long enough that fast
   // scrubbing doesn't spam writes.
@@ -354,9 +371,9 @@ export function useReaderPersistence({
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => {
       debounceRef.current = null
-      saveProgress()
+      saveProgressRef.current()
     }, 2000)
-  }, [enabled, bookKey, chapterSlug, restoredFor, saveProgress, dispatchGate, scrollOffsetRef])
+  }, [enabled, bookKey, chapterSlug, restoredFor, dispatchGate, scrollOffsetRef])
 
   // Load saved position + reset the restore machine whenever the chapter (or
   // the resolved bookKey) changes. One-shot per (bookKey, chapterSlug).
@@ -368,6 +385,8 @@ export function useReaderPersistence({
     // let the new chapter be persisted at offset 0 before its own restore had run.
     dispatchGate({ type: 'chapterEntered', chapterSlug: chapterSlug ?? null })
     if (settleTimerRef.current) { clearTimeout(settleTimerRef.current); settleTimerRef.current = null }
+    // A save armed for the previous book/chapter/mode belongs to it (H1).
+    if (debounceRef.current) { clearTimeout(debounceRef.current); debounceRef.current = null }
     savedOffsetRef.current = null
     savedPercentRef.current = null
     savedPositionRef.current = null
@@ -408,11 +427,6 @@ export function useReaderPersistence({
     // (forceReflow) re-arms restore when it flips.
   }, [enabled, bookKey, chapterSlug, loadPosition, tryRestore, dispatchGate, readiness])
 
-  // Always points at the current closure, so the unmount flush below can have
-  // an empty dependency list without going stale.
-  const saveProgressRef = useRef(saveProgress)
-  saveProgressRef.current = saveProgress
-
   // Flush on unmount — covers tab-away and a killed screen in a single tap.
   //
   // Depending on `saveProgress` here made this cleanup fire on every chapter
@@ -426,12 +440,40 @@ export function useReaderPersistence({
   // window, or navigating offline, made that the position you came back to.
   useEffect(() => {
     return () => {
+      unmountedRef.current = true
       if (debounceRef.current) clearTimeout(debounceRef.current)
       if (settleTimerRef.current) clearTimeout(settleTimerRef.current)
       saveProgressRef.current()
+      // Its action belongs to this reader; left up, it outlived the book (M1).
+      hideToast(newerToastRef.current)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Back in the foreground (H3): a phone left open on a chapter is a reopen too, and only the
+  // open used to ask the server — so this phone's first scroll wrote its stale place over the
+  // position another device had read on to. Same rules as the open (decideNewerPosition), against
+  // the device's record as it is now; the baseline is where the reader is at the return, so the
+  // silent move happens only if they have not moved since.
+  useEffect(() => {
+    let prev: string = AppState.currentState
+    const sub = AppState.addEventListener('change', next => {
+      const back = returnedToForeground(prev, next)
+      prev = next
+      const load = loadNewerRef.current
+      const slug = chapterSlugRef.current
+      if (!back || !load || !slug || !bookKeyRef.current || !enabledRef.current) return
+      if (leavingRef.current || !readinessRef.current.restored) return
+      moveBaselineRef.current = scrollOffsetRef.current
+      load(slug, { latest: true })
+        .then(newer => {
+          if (!newer || unmountedRef.current || leavingRef.current || chapterSlugRef.current !== slug) return
+          applyNewerRef.current(newer, slug)
+        })
+        .catch(() => { /* offline: this device's place stands */ })
+    })
+    return () => sub.remove()
+  }, [scrollOffsetRef])
 
   // Android OS-kill skips React cleanup; AppState background fires first so we
   // get one last sync write of scroll position + book-percent cache.

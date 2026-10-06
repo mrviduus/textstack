@@ -204,7 +204,10 @@ export function ReaderShell(props: ReaderShellProps) {
   const { toggle: toggleTts, isSpeaking, isLoading: isTtsLoading } = useTts()
   const quickStats = useQuickStats(isAuthenticated)
   const haptics = useHaptics()
-  const { show: showToast } = useToast()
+  const { show: showToast, dismiss: hideToast } = useToast()
+  // The PDF newer-page prompt, hidden when the reader closes (M1).
+  const pdfNewerToastRef = useRef<number | null>(null)
+  useEffect(() => () => hideToast(pdfNewerToastRef.current), [hideToast])
   const insets = useSafeAreaInsets()
   // Gated on a real chapter, so an error overlay or a failed load lets the
   // phone sleep as usual.
@@ -554,7 +557,7 @@ export function ReaderShell(props: ReaderShellProps) {
       readerMoved: readerMovedSince(pdfResumedPageRef.current, currentPdfPageRef.current, 0),
     })
     if (action === 'move') { scrollPdfToPage(page); return }
-    showToast({
+    pdfNewerToastRef.current = showToast({
       variant: 'info',
       icon: 'phone-portrait-outline',
       message: t(language, 'reader.newerElsewhere.message')
@@ -772,6 +775,18 @@ export function ReaderShell(props: ReaderShellProps) {
     }
     if (aliveRef.current) navigateChapter(slug)
   }
+  // Chevrons, TOC, bookmarks, highlights (M9): the same offline-aware path as the block. A chapter
+  // that is neither on the device nor reachable keeps the reader where they are, with a toast —
+  // navigating there meant an error screen whose "Go back" left the book.
+  const openChapter = async (slug: string) => {
+    try {
+      await ensureChapter(slug)
+    } catch {
+      if (aliveRef.current) showToast({ variant: 'info', icon: 'cloud-offline-outline', message: t(language, 'reader.chapterEnd.unavailable'), bottomOffset: footerHeight })
+      return
+    }
+    if (aliveRef.current) navigateChapter(slug)
+  }
   const endLabels = useMemo<ChapterEndLabels>(() => ({
     next: t(language, 'reader.chapterEnd.next'),
     nextUntitled: t(language, 'reader.chapterEnd.nextUntitled'),
@@ -836,7 +851,7 @@ export function ReaderShell(props: ReaderShellProps) {
       scrollPdfToPage(ch?.sourceStartPage ?? 1)
       return
     }
-    navigateChapter(slug)
+    void openChapter(slug)
   }
 
   // Bookmark toggle target differs by mode: current PDF page vs active chapter.
@@ -1236,7 +1251,7 @@ export function ReaderShell(props: ReaderShellProps) {
           </View>
           <View style={styles.footerRow}>
             <TouchableOpacity
-              onPress={() => chapter.prev && navigateChapter(chapter.prev.slug)}
+              onPress={() => chapter.prev && void openChapter(chapter.prev.slug)}
               disabled={!chapter.prev}
               style={styles.chevronBtn}
               accessibilityLabel="Previous chapter"
@@ -1267,7 +1282,7 @@ export function ReaderShell(props: ReaderShellProps) {
             </View>
 
             <TouchableOpacity
-              onPress={() => chapter.next && navigateChapter(chapter.next.slug)}
+              onPress={() => chapter.next && void openChapter(chapter.next.slug)}
               disabled={!chapter.next}
               style={styles.chevronBtn}
               accessibilityLabel="Next chapter"
@@ -1301,7 +1316,7 @@ export function ReaderShell(props: ReaderShellProps) {
           onClose={() => setBookmarksOpen(false)}
           bookmarks={bookmarks}
           currentChapterSlug={activeSlug || ''}
-          onNavigate={navigateChapter}
+          onNavigate={slug => void openChapter(slug)}
           onNavigatePage={scrollPdfToPage}
           onDelete={onDeleteBookmark}
           onToggleCurrent={toggleCurrentBookmark}
@@ -1314,7 +1329,7 @@ export function ReaderShell(props: ReaderShellProps) {
           onClose={() => setHighlightsOpen(false)}
           highlights={highlightsRef.current}
           currentChapterSlug={activeSlug || ''}
-          onNavigate={navigateChapter}
+          onNavigate={slug => void openChapter(slug)}
           onScrollToHighlight={scrollToHighlight}
           onNavigatePage={scrollPdfToPage}
         />

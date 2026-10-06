@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { AppState } from 'react-native'
 import { useRouter } from 'expo-router'
 import { WebView } from 'react-native-webview'
 import { userBooksApi, isOfflineError, parseScrollLocator, buildUserBookProgressPayload, buildPdfProgressPayload, parsePdfPageLocator, parseTextPosition, serializeTextPosition } from '@textstack/shared'
 import type { UserBookChapterDto, BookmarkDto, TextPosition } from '@textstack/shared'
 import { API_URL } from '../../lib/api'
-import { getUserBookLocalProgress, markUserBookLocalProgressSynced, saveUserBookLocalProgress, type UserBookLocalProgress } from '../../lib/progressStorage'
-import { serverProvablyNewer } from '../../lib/progressRestore'
+import { getUserBookLocalProgress, markUserBookLocalProgressSynced, saveUserBookLocalProgress, getUserBookIsPdf, setUserBookIsPdf, type UserBookLocalProgress } from '../../lib/progressStorage'
+import { returnedToForeground, serverProvablyNewer } from '../../lib/progressRestore'
 import { getCachedUserChapter, refreshCachedUserChapter, cacheUserChapter, getCachedUserBookMeta, listCachedUserChapters } from '../../lib/offlineDb'
 import { userBookChapterSlug } from '../../lib/userBookChapters'
 import { getCachedOriginalUri, touchOriginal } from '../../lib/originalFileCache'
-import { reflowWritesEnabled } from '../../lib/readerWriteMode'
+import { deviceLayout, reflowWritesEnabled } from '../../lib/readerWriteMode'
 import {
   pdfFlushDecision, shouldFlushOnClose, PDF_FLUSH_DEBOUNCE_MS,
 } from '../../lib/pdfWritePolicy'
@@ -64,6 +65,14 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
   // ADR-012 S4b — Original-layout PDF. `hasOriginalPdf` gates the pdf.js viewer;
   // sourceStartPage per chapter drives the open page when a chapter is chosen.
   const [hasOriginalPdf, setHasOriginalPdf] = useState(false)
+  /**
+   * Whether `hasOriginalPdf` is an answer yet — from the device or the server (H1).
+   *
+   * Until it is, the reader shows its loading state and the reflow writer is off. Rendering the
+   * reflow WebView on the default `false` let a reader scroll a PDF as text on a slow network,
+   * and the save that followed wrote `scroll:` over `page:N`, locally and on the server.
+   */
+  const [layoutKnown, setLayoutKnown] = useState(false)
   /**
    * The downloaded original on this device, as a `file://` URI, or null.
    *
@@ -175,6 +184,33 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
     return () => { cancelled = true }
   }, [bookId, chapterSlug])
 
+  // Which viewer, from the DEVICE first (H1) — never waits on the network when the phone knows:
+  // the original file is here, or the book is known not to be a PDF. Otherwise the book fetch
+  // below decides, success or failure.
+  useEffect(() => {
+    if (!bookId) return
+    let cancelled = false
+    setLayoutKnown(false)
+    ;(async () => {
+      const [uri, meta, flag] = await Promise.all([
+        getCachedOriginalUri(bookId, 'pdf').catch(() => null),
+        getCachedUserBookMeta(bookId).catch(() => null),
+        getUserBookIsPdf(bookId),
+      ])
+      if (cancelled) return
+      const layout = deviceLayout({ hasLocalOriginal: !!uri, knownPdf: meta?.isPdf ?? flag })
+      if (layout === 'original') {
+        void touchOriginal(bookId)
+        setLocalOriginalUri(uri)
+        setHasOriginalPdf(true)
+        setLayoutKnown(true)
+      } else if (layout === 'reflow') {
+        setLayoutKnown(true)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [bookId])
+
   // Load bookmarks + chapter list (TOC + book-wide word count).
   useEffect(() => {
     if (!bookId) return
@@ -205,6 +241,7 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
       if (localOriginal) void touchOriginal(bookId)
       setLocalOriginalUri(localOriginal)
       setHasOriginalPdf(b.hasOriginalPdf === true)
+      void setUserBookIsPdf(bookId, b.hasOriginalPdf === true)
       const pageBySlug: Record<string, number> = {}
       const mapped: ReaderChapterMeta[] = b.chapters.map(ch => {
         const slug = userBookChapterSlug(ch)
@@ -259,12 +296,27 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
       } catch (cacheErr) {
         console.warn('Offline user-book meta read failed:', cacheErr)
       }
-    }).finally(() => { if (!cancelled) setChaptersLoading(false) })
+    }).finally(() => {
+      if (cancelled) return
+      setChaptersLoading(false)
+      // Answered either way: the server said, or it could not be reached and the offline
+      // branch above chose (Original from the file, or text).
+      setLayoutKnown(true)
+    })
     return () => { cancelled = true }
   }, [bookId])
 
+  // Read by `persist`, whose identity is keyed on [bookId, chapters] only.
+  const hasOriginalPdfRef = useRef(hasOriginalPdf)
+  hasOriginalPdfRef.current = hasOriginalPdf
+  const originalOwnsRef = useRef(false)
+  originalOwnsRef.current = !reflowWritesEnabled({ hasOriginalPdf, forceReflow })
+
   const persist = useCallback((snap: ProgressSnapshot) => {
     if (!bookId) return
+    // The Original viewer owns this book's position: a reflow snapshot here is fiction, and would
+    // write `scroll:` over `page:N` (H1). `enabled` stops it upstream; this is the last word.
+    if (originalOwnsRef.current) return
     const payload = buildUserBookProgressPayload({
       currentChapterSlug: snap.chapterSlug,
       fallbackChapterSlug: snap.chapterSlug,
@@ -298,7 +350,8 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
       chapterPercent: snap.chapterPercent,
       scrollOffset: snap.scrollOffset,
       positionJson: serializeTextPosition(snap.position) ?? undefined,
-    }).catch(() => {})
+      // A PDF read as text (offline, or "read as text"): keep the page the Original viewer resumes from.
+    }, { keepPage: hasOriginalPdfRef.current || offlineReflowOfPdfRef.current }).catch(() => {})
     return written
   }, [bookId, chapters])
 
@@ -344,9 +397,11 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
 
   /** Background, after the open: the server's position, when provably newer than
    *  the local record the chapter opened from (another device, or a new phone). */
-  const loadNewerPosition = useCallback(async (slug: string): Promise<NewerPosition | null> => {
+  const loadNewerPosition = useCallback(async (slug: string, opts?: { latest?: boolean }): Promise<NewerPosition | null> => {
+    // Foreground return (H3): the record as it is at the return — see useEditionReaderSource.
+    const base = opts?.latest ? await getUserBookLocalProgress(bookId) : openedFromRef.current
     const prog = await userBooksApi.getUserBookProgress(bookId)
-    if (!serverProvablyNewer(openedFromRef.current, prog)) return null
+    if (!serverProvablyNewer(base, prog)) return null
     const parsed = parseScrollLocator(prog.locator)
     // A `page:<N>` row belongs to the Original-layout viewer, not this one.
     const target = parsed?.slug ?? prog.chapterSlug
@@ -380,7 +435,7 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
     injectJs,
     progressRef, scrollOffsetRef, currentChapterSlugRef, bookProgressRef, positionRef,
     persist, loadPosition, loadNewerPosition, navigateToChapter,
-    enabled: reflowWrites,
+    enabled: reflowWrites && layoutKnown,
   })
 
   // Puts a chapter on the device before the reader opens it (end-of-chapter
@@ -418,6 +473,29 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
       } catch { /* offline / no row: the device's page stands */ }
     })()
     return () => { cancelled = true }
+  }, [hasOriginalPdf, bookId])
+
+  // Back in the foreground (H3): the same background check for the Original viewer, against the
+  // device's record as it is now. The shell adopts / moves / asks exactly as on open.
+  useEffect(() => {
+    if (!hasOriginalPdf || !bookId) return
+    let alive = true
+    let prev: string = AppState.currentState
+    const sub = AppState.addEventListener('change', next => {
+      const back = returnedToForeground(prev, next)
+      prev = next
+      if (!back) return
+      ;(async () => {
+        try {
+          const local = await getUserBookLocalProgress(bookId)
+          const p = await userBooksApi.getUserBookProgress(bookId)
+          if (!alive) return
+          const serverPage = parsePdfPageLocator(p?.locator)
+          if (serverPage != null && serverPage !== local?.page && serverProvablyNewer(local, p)) setPdfNewerPage(serverPage)
+        } catch { /* offline: this device's page stands */ }
+      })()
+    })
+    return () => { alive = false; sub.remove() }
   }, [hasOriginalPdf, bookId])
 
   // --- S4c: page-based progress persistence for the Original view. A PDF page
@@ -593,7 +671,7 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
     chapter: chapter
       ? { id: chapter.id, title: chapter.title, html: chapter.html, prev: chapter.prev, next: chapter.next }
       : null,
-    loading,
+    loading: loading || !layoutKnown,
     chapterError,
     chapterSlug,
     htmlChapterSlug: chapterSlug,
