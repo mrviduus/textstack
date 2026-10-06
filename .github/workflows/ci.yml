@@ -740,9 +740,20 @@ jobs:
       #
       # So the shallow, cheap part gates production and the rest reports. A Google
       # CDN hiccup should never again hold a deploy (it did, 2026-08-20).
-      - name: E2E smoke — gates the deploy
+      #
+      # One exception to "logic reports, never gates": @reader-smoke
+      # (reader-smoke.spec.ts), the reader's core promise — position survives a
+      # reload, Next/Prev keeps the place, a highlight paints in its own chapter
+      # only, a failed progress GET does not stop saving. ~10s, polls only, its own
+      # users and fixture text. Here rather than in a new job because `e2e` is
+      # already a required context and a new job would not be; in this invocation
+      # rather than its own step because every `pnpm test:e2e` rebuilds the web app.
+      # Same path filter as the job, deliberately: the reader depends on contexts,
+      # the API client, packages/ and the progress/highlight endpoints, so a
+      # narrower list would be a guess that misses one.
+      - name: E2E smoke + reader smoke — gates the PR
         working-directory: apps/web
-        run: pnpm test:e2e --grep @smoke
+        run: pnpm test:e2e --grep "@smoke|@reader-smoke"
         env:
           CI: true
           API_URL: http://localhost:8080
@@ -755,7 +766,7 @@ jobs:
         id: e2e-full
         continue-on-error: true
         working-directory: apps/web
-        run: pnpm test:e2e --grep-invert @smoke
+        run: pnpm test:e2e --grep-invert "@smoke|@reader-smoke"
         env:
           CI: true
           API_URL: http://localhost:8080
