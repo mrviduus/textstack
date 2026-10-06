@@ -25,9 +25,11 @@ public class ReadingSessionService(IAppDbContext db, ILogger<ReadingSessionServi
     /// Returns null when the referenced book is GONE (the user re-uploaded → the old user_book/edition
     /// row was deleted): the caller maps null → 404 so the client prunes the stale queued session instead
     /// of retrying forever. Otherwise returns the (idempotent) submit result.
+    /// <paramref name="tzOffset"/>: the reader's UTC offset, so the streak and the time-of-day
+    /// achievements count the reader's days and hours, not UTC's (the stats page already does).
     /// </summary>
     public async Task<SubmitSessionResponse?> SubmitAsync(
-        Guid userId, Guid siteId, SubmitSessionRequest request, CancellationToken ct)
+        Guid userId, Guid siteId, SubmitSessionRequest request, CancellationToken ct, TimeSpan tzOffset = default)
     {
         // Existence pre-check: a session for a deleted user_book/edition would hit the FK and Npgsql
         // would raise 23503 → an unhandled DbUpdateException → 500, and the client's offline queue
@@ -104,10 +106,10 @@ public class ReadingSessionService(IAppDbContext db, ILogger<ReadingSessionServi
         try
         {
             var streakMinMinutes = await StreakCalculator.GetStreakMinMinutes(db, userId, ct);
-            var currentStreak = await StreakCalculator.CalculateStreak(db, userId, streakMinMinutes, request.EndedAt, ct);
+            var currentStreak = await StreakCalculator.CalculateStreak(db, userId, streakMinMinutes, request.EndedAt, ct, tzOffset);
 
             var checker = new AchievementChecker(db);
-            newAchievements = await checker.CheckAfterSession(userId, siteId, session, currentStreak, ct);
+            newAchievements = await checker.CheckAfterSession(userId, siteId, session, currentStreak, ct, tzOffset);
         }
         catch (Exception ex)
         {

@@ -108,7 +108,7 @@ export function useReadingSession(options: UseReadingSessionOptions) {
     // Try sendBeacon as fast path (fire-and-forget)
     if (navigator.sendBeacon) {
       const payload = JSON.stringify(session)
-      navigator.sendBeacon('/api/me/reading/sessions', new Blob([payload], { type: 'application/json' }))
+      navigator.sendBeacon(`/api/me/reading/sessions?tz=${-new Date().getTimezoneOffset()}`, new Blob([payload], { type: 'application/json' }))
     }
 
     // GA4: session end = core engagement Key Event. Fires only for authenticated

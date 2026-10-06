@@ -103,6 +103,8 @@ public static partial class VocabularyEndpoints
             return Results.BadRequest("Word is required (max 200 chars)");
         if (string.IsNullOrWhiteSpace(request.Language) || request.Language.Length > 8)
             return Results.BadRequest("Language is required");
+        if (TooLong(request.Translation, request.Definition, request.Sentence, request.BookTitle) is { } tooLong)
+            return Results.BadRequest(tooLong);
         // Reject saves without a native language — enrichment (LLM distractors,
         // hint, explanation) silently falls back to book language when native is
         // null, producing explanations in the wrong language. Frontend gates
@@ -272,6 +274,20 @@ public static partial class VocabularyEndpoints
             request.Definition, request.Sentence, nativeLanguage);
 
         return Results.Ok(SaveWordResponse.Srs(ToDto(entry)));
+    }
+
+    /// <summary>
+    /// The column limits every vocabulary bucket shares (<c>AppDbContext.Vocabulary.cs</c>), checked on
+    /// the trimmed value that is stored. Over them Postgres raised 22001 and the save answered 500.
+    /// </summary>
+    internal static string? TooLong(
+        string? translation, string? definition, string? sentence = null, string? bookTitle = null)
+    {
+        return Over(translation, 500, "Translation") ?? Over(definition, 2000, "Definition")
+            ?? Over(sentence, 1000, "Sentence") ?? Over(bookTitle, 500, "BookTitle");
+
+        static string? Over(string? value, int max, string name) =>
+            value?.Trim().Length > max ? $"{name} too long (max {max} chars)" : null;
     }
 
     /// <summary>
@@ -528,6 +544,8 @@ public static partial class VocabularyEndpoints
 
         var word = await FindUserWordAsync(db, id, userId, siteId, ct);
         if (word == null) return Results.NotFound();
+        if (TooLong(request.Translation, request.Definition) is { } tooLong)
+            return Results.BadRequest(tooLong);
 
         if (request.Translation != null) word.Translation = request.Translation.Trim();
         if (request.Definition != null) word.Definition = request.Definition.Trim();

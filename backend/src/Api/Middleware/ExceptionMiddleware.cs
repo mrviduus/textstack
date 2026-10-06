@@ -39,6 +39,11 @@ public class ExceptionMiddleware(RequestDelegate next, ILogger<ExceptionMiddlewa
             DomainException ex => (StatusCodes.Status400BadRequest,
                 new ErrorResponse(ex.Code, ex.Message)),
 
+            // A body that does not bind (e.g. a non-GUID chapterId). The framework throws this to us
+            // instead of answering it, so without this arm every malformed request was a 500.
+            BadHttpRequestException ex => (ex.StatusCode,
+                new ErrorResponse("BAD_REQUEST", ex.Message)),
+
             // Per-feature daily budget hit in hard-stop mode (Phase 12 RLOps slice 4).
             BudgetExceededException ex => (StatusCodes.Status429TooManyRequests,
                 new ErrorResponse("BUDGET_EXCEEDED", ex.Message)),

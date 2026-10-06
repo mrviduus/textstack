@@ -77,7 +77,8 @@ export interface AchievementDto {
 // --- API Functions ---
 
 export async function submitSession(data: SubmitSessionRequest): Promise<SubmitSessionResponse> {
-  return authFetch<SubmitSessionResponse>('/me/reading/sessions', {
+  // tz: the server counts the streak and time-of-day achievements in the reader's day, not UTC's.
+  return authFetch<SubmitSessionResponse>(`/me/reading/sessions?tz=${-new Date().getTimezoneOffset()}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),

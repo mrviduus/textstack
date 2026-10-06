@@ -209,6 +209,8 @@ public static class HighlightsEndpoints
 
         if (isUserBook == isEdition)
             return Results.BadRequest("Provide either EditionId+ChapterId or UserBookId+UserChapterId");
+        if (ValidateFields(request.Color, request.AnchorJson, request.SelectedText, required: true) is { } invalid)
+            return Results.BadRequest(invalid);
 
         if (isEdition)
         {
@@ -232,12 +234,7 @@ public static class HighlightsEndpoints
             // User books may be reflowed (EPUB → UserChapters) or original-first PDFs (chapterless,
             // page-anchored). A null UserChapterId is therefore valid: it means a PDF page highlight
             // whose location lives entirely inside the opaque AnchorJson ({v,kind:"pdf",page,rects,exact}).
-            // We still require book ownership + a color + an anchor; the chapter FK stays null (SetNull).
-            if (string.IsNullOrWhiteSpace(request.Color))
-                return Results.BadRequest("Color required");
-            if (string.IsNullOrWhiteSpace(request.AnchorJson))
-                return Results.BadRequest("AnchorJson required");
-
+            // We still require book ownership + a color + an anchor (checked above); the chapter FK stays null (SetNull).
             var userBook = await db.UserBooks
                 .Where(b => b.Id == request.UserBookId!.Value && b.UserId == userId.Value)
                 .FirstOrDefaultAsync(ct);
@@ -406,32 +403,68 @@ public static class HighlightsEndpoints
         var userId = httpContext.GetUserId(authService);
         if (userId == null) return Results.Unauthorized();
 
-        var highlight = await db.Highlights
+        if (ValidateFields(request.Color, request.AnchorJson, request.SelectedText, required: false) is { } invalid)
+            return Results.BadRequest(invalid);
+
+        var updated = await ApplyUpdateAsync(db.Highlights, id, userId.Value, request, DateTimeOffset.UtcNow, ct);
+        var highlight = await db.Highlights.AsNoTracking()
             .Where(h => h.Id == id && h.UserId == userId.Value)
             .FirstOrDefaultAsync(ct);
 
         if (highlight == null) return Results.NotFound();
+        return updated == 0 ? Results.Conflict(highlight.ToDto()) : Results.Ok(highlight.ToDto());
+    }
 
-        if (request.Version.HasValue && request.Version.Value != highlight.Version)
-            return Results.Conflict(highlight.ToDto());
+    /// <summary>
+    /// The version check and the write as ONE conditional UPDATE. Read-check-write let two writers
+    /// holding the same version both pass the check, and the second silently overwrote the first
+    /// (reader audit L2). Returns the rows written: 0 is a version conflict, or no such highlight.
+    /// A request without a version is last-write-wins, as before.
+    /// </summary>
+    internal static Task<int> ApplyUpdateAsync(
+        IQueryable<Highlight> highlights, Guid id, Guid userId, UpdateHighlightRequest request,
+        DateTimeOffset now, CancellationToken ct)
+    {
+        var (color, anchor, text, note, removeNote, version) = (request.Color, request.AnchorJson,
+            request.SelectedText, request.NoteText, request.RemoveNote, request.Version);
+        return highlights
+            .Where(h => h.Id == id && h.UserId == userId && (version == null || h.Version == version))
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(h => h.Color, h => color ?? h.Color)
+                .SetProperty(h => h.AnchorJson, h => anchor ?? h.AnchorJson)
+                .SetProperty(h => h.SelectedText, h => text ?? h.SelectedText)
+                .SetProperty(h => h.NoteText, h => note ?? (removeNote ? null : h.NoteText))
+                .SetProperty(h => h.Version, h => h.Version + 1)
+                .SetProperty(h => h.UpdatedAt, now), ct);
+    }
 
-        if (request.Color != null)
-            highlight.Color = request.Color;
-        if (request.AnchorJson != null)
-            highlight.AnchorJson = request.AnchorJson;
-        if (request.SelectedText != null)
-            highlight.SelectedText = request.SelectedText;
-        if (request.NoteText != null)
-            highlight.NoteText = request.NoteText;
-        else if (request.RemoveNote)
-            highlight.NoteText = null;
+    /// <summary>Longest colour the column takes (<c>highlights.color</c>).</summary>
+    internal const int MaxColorLength = 20;
 
-        highlight.Version++;
-        highlight.UpdatedAt = DateTimeOffset.UtcNow;
-
-        await db.SaveChangesAsync(ct);
-
-        return Results.Ok(highlight.ToDto());
+    /// <summary>
+    /// The writes Postgres would otherwise refuse with a 500: a colour longer than its column, an
+    /// anchor that is not a JSON object (the column is jsonb), a missing field on create.
+    /// <paramref name="required"/>: create — every field must be present; update — only the ones sent are checked.
+    /// </summary>
+    internal static string? ValidateFields(string? color, string? anchorJson, string? selectedText, bool required)
+    {
+        if (color is null ? required : string.IsNullOrWhiteSpace(color))
+            return "Color required";
+        if (color?.Length > MaxColorLength)
+            return $"Color too long (max {MaxColorLength} chars)";
+        if (required && selectedText is null)
+            return "SelectedText required";
+        if (anchorJson is null)
+            return required ? "AnchorJson required" : null;
+        try
+        {
+            using var doc = JsonDocument.Parse(anchorJson);
+            return doc.RootElement.ValueKind == JsonValueKind.Object ? null : "AnchorJson must be a JSON object";
+        }
+        catch (JsonException)
+        {
+            return "AnchorJson must be valid JSON";
+        }
     }
 
     private static async Task<IResult> DeleteHighlight(

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { localProgressWins } from './progressPrecedence'
+import { localProgressWins, MAX_CLIENT_SKEW_MS } from './progressPrecedence'
 
 const T = Date.parse('2026-05-01T10:00:00Z')
 const iso = (ms: number) => new Date(ms).toISOString()
@@ -41,5 +41,17 @@ describe('localProgressWins', () => {
   it('an unparseable client stamp is treated as absent', () => {
     expect(localProgressWins({ updatedAt: T, synced: true }, { clientUpdatedAt: 'garbage' })).toBe(false)
     expect(localProgressWins({ updatedAt: T }, { clientUpdatedAt: 'garbage' })).toBe(true)
+  })
+
+  it('a fast device\'s acknowledged write, stored clamped, is the same write → server', () => {
+    // Device 1h fast; the server (now T) stored its stamp clamped to T + 5 min.
+    const server = { updatedAt: iso(T), clientUpdatedAt: iso(T + MAX_CLIENT_SKEW_MS) }
+    expect(localProgressWins({ updatedAt: T + 3_600_000, synced: true }, server)).toBe(false)
+  })
+
+  it('an unsynced local stamp is not clamped against the row', () => {
+    // An honest write made after a clamped row must still win: the server will take it on arrival.
+    const server = { updatedAt: iso(T), clientUpdatedAt: iso(T + MAX_CLIENT_SKEW_MS) }
+    expect(localProgressWins({ updatedAt: T + 3_600_000 }, server)).toBe(true)
   })
 })

@@ -13,6 +13,7 @@ public static partial class ReadingTrackingEndpoints
 {
     private static async Task<IResult> SubmitSession(
         [FromBody] SubmitSessionRequest request,
+        [FromQuery] string? tz,
         HttpContext httpContext,
         AuthService authService,
         ReadingSessionService sessionService,
@@ -37,7 +38,7 @@ public static partial class ReadingTrackingEndpoints
 
         // null ⇒ the referenced user_book/edition was deleted (user re-uploaded). Return 404 so the
         // client prunes the stale queued session instead of resubmitting forever (FK-23503 500-flood).
-        var result = await sessionService.SubmitAsync(userId.Value, siteId, request, ct);
+        var result = await sessionService.SubmitAsync(userId.Value, siteId, request, ct, ParseTzOffset(tz));
         return result is null
             ? Results.NotFound("Referenced book no longer exists")
             : Results.Ok(result);

@@ -113,7 +113,7 @@ public class GuestMergeDurabilityTests(LiveApiFixture fixture) : IClassFixture<L
     }
 
     [Fact]
-    public async Task Login_GuestUploadSlugCollides_DroppedUploadLeavesGuestCollection()
+    public async Task Login_GuestUploadSlugCollides_UploadKeptUnderNewSlug()
     {
         var ct = TestContext.Current.CancellationToken;
         var title = $"Merge Slug {Guid.NewGuid():N}"[..24];
@@ -137,7 +137,7 @@ public class GuestMergeDurabilityTests(LiveApiFixture fixture) : IClassFixture<L
         Assert.SkipWhen(addResp.StatusCode == HttpStatusCode.TooManyRequests, "rate limited");
         addResp.EnsureSuccessStatusCode();
 
-        // Same title -> same slug: the account's upload wins and the guest's is deleted.
+        // Same title -> same slug: the guest's upload is renamed and moves, never dropped (M1).
         var login = Req(HttpMethod.Post, "/auth/login", guestToken);
         login.Content = JsonContent.Create(new { email, password = AccountPassword });
         var accountToken = (await SendOkAsync(login, ct)).GetProperty("accessToken").GetString()!;
@@ -145,6 +145,8 @@ public class GuestMergeDurabilityTests(LiveApiFixture fixture) : IClassFixture<L
         var ids = await SendOkAsync(
             Req(HttpMethod.Get, $"/me/library/collections/{collectionId}/books?bookType=userbook", accountToken), ct);
 
-        Assert.DoesNotContain(guestBookId, ids.EnumerateArray().Select(e => e.GetString()));
+        Assert.Contains(guestBookId, ids.EnumerateArray().Select(e => e.GetString()));
+        var book = await SendOkAsync(Req(HttpMethod.Get, $"/me/books/{guestBookId}", accountToken), ct);
+        Assert.EndsWith("-" + Guid.Parse(guestBookId).ToString("N")[..8], book.GetProperty("slug").GetString());
     }
 }

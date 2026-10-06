@@ -204,7 +204,8 @@ public static class InternalEndpoints
             });
 
         await using var tx = await db.BeginTransactionAsync(ct);
-        await ChapterReconciler.RemoveEditionChapterAsync(db, ch, null, ct);
+        var before = await ChapterReconciler.SnapshotEditionAsync(db, id, ct);
+        var successor = await ChapterReconciler.RemoveEditionChapterAsync(db, ch, null, ct);
 
         var remaining = await db.Chapters
             .Where(c => c.EditionId == id && c.ChapterNumber > n)
@@ -217,6 +218,9 @@ public static class InternalEndpoints
             r.UpdatedAt = DateTimeOffset.UtcNow;
         }
 
+        await db.SaveChangesAsync(ct);
+        await ChapterReconciler.MoveEditionPositionsAfterRemovalAsync(db, id, before,
+            new Dictionary<Guid, Guid?> { [ch.Id] = successor }, null, ct);
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         return Results.Ok();
@@ -249,6 +253,7 @@ public static class InternalEndpoints
 
         // Remove other chapters; their readers move to the chapter their text now lives in.
         await using var tx = await db.BeginTransactionAsync(ct);
+        var before = await ChapterReconciler.SnapshotEditionAsync(db, id, ct);
         for (var i = 1; i < chapters.Count; i++)
             await ChapterReconciler.RemoveEditionChapterAsync(db, chapters[i], first.Id, ct);
 
@@ -266,6 +271,9 @@ public static class InternalEndpoints
             r.UpdatedAt = DateTimeOffset.UtcNow;
         }
 
+        await db.SaveChangesAsync(ct);
+        await ChapterReconciler.MoveEditionPositionsAfterRemovalAsync(db, id, before,
+            chapters.Skip(1).ToDictionary(c => c.Id, _ => (Guid?)first.Id), null, ct);
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         return Results.Ok(new { mergedInto = first.ChapterNumber });
@@ -337,7 +345,8 @@ public static class InternalEndpoints
             });
 
         await using var tx = await db.BeginTransactionAsync(ct);
-        await ChapterReconciler.RemoveUserChapterAsync(db, ch, null, ct);
+        var before = await ChapterReconciler.SnapshotUserBookAsync(db, id, ct);
+        var successor = await ChapterReconciler.RemoveUserChapterAsync(db, ch, null, ct);
 
         var remaining = await db.UserChapters
             .Where(c => c.UserBookId == id && c.ChapterNumber > n)
@@ -347,6 +356,9 @@ public static class InternalEndpoints
         foreach (var r in remaining)
             r.ChapterNumber--;
 
+        await db.SaveChangesAsync(ct);
+        await ChapterReconciler.MoveUserBookPositionsAfterRemovalAsync(db, id, before,
+            new Dictionary<Guid, Guid?> { [ch.Id] = successor }, null, ct);
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         return Results.Ok();
@@ -376,6 +388,7 @@ public static class InternalEndpoints
         first.WordCount = CountWords(first.PlainText);
 
         await using var tx = await db.BeginTransactionAsync(ct);
+        var before = await ChapterReconciler.SnapshotUserBookAsync(db, id, ct);
         for (var i = 1; i < chapters.Count; i++)
             await ChapterReconciler.RemoveUserChapterAsync(db, chapters[i], first.Id, ct);
 
@@ -389,6 +402,9 @@ public static class InternalEndpoints
         foreach (var r in remaining)
             r.ChapterNumber -= shift;
 
+        await db.SaveChangesAsync(ct);
+        await ChapterReconciler.MoveUserBookPositionsAfterRemovalAsync(db, id, before,
+            chapters.Skip(1).ToDictionary(c => c.Id, _ => (Guid?)first.Id), null, ct);
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         return Results.Ok(new { mergedInto = first.ChapterNumber });

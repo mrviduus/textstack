@@ -105,6 +105,7 @@ public static class ChapterReconciler
             existing.Select(c => new Key(c.ChapterNumber, c.Slug, c.Title)).ToList(),
             incoming.Select(c => new Key(c.ChapterNumber, c.Slug, c.Title)).ToList());
         var oldSlugs = existing.Select(c => c.Slug).ToArray();
+        var oldNumbers = existing.Select(c => c.ChapterNumber).ToArray();
         var final = new Chapter[incoming.Count];
         var undo = new List<Action>();
 
@@ -143,25 +144,10 @@ public static class ChapterReconciler
             foreach (var (j, i) in plan.Successors)
                 await RemoveEditionChapterAsync(db, existing[j], final[i].Id, ct);
 
-            var moves = SlugMoves(plan, oldSlugs, final.Select(c => c.Slug).ToList());
-            if (moves.Count > 0)
-            {
-                // ponytail: loads every reader row of the edition; per-row SQL if editions get thousands.
-                var progress = await db.ReadingProgresses.IgnoreQueryFilters()
-                    .Where(x => x.EditionId == editionId).ToListAsync(ct);
-                var bookmarks = await db.Bookmarks.IgnoreQueryFilters()
-                    .Where(x => x.EditionId == editionId).ToListAsync(ct);
-                undo.Add(() => Detach(db.ReadingProgresses, progress));
-                undo.Add(() => Detach(db.Bookmarks, bookmarks));
-                foreach (var p in progress)
-                {
-                    p.Locator = MoveLocator(p.Locator, moves);
-                    p.PositionJson = MovePosition(p.PositionJson, moves);
-                }
-                foreach (var b in bookmarks) b.Locator = MoveLocator(b.Locator, moves);
-                await MoveInsightsAsync(db, db.BookInsights.IgnoreQueryFilters().Where(x => x.EditionId == editionId),
-                    moves, logger, undo, ct);
-            }
+            await MoveEditionPositionsAsync(db, editionId,
+                SlugMoves(plan, oldSlugs, final.Select(c => c.Slug).ToList()),
+                NumberMoves(plan, oldNumbers, final.Select(c => c.ChapterNumber).ToList()),
+                logger, undo, ct);
             await db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
         }
@@ -230,20 +216,8 @@ public static class ChapterReconciler
                 db.UserChapters.Remove(existing[j]);
             }
 
-            var moves = SlugMoves(plan, oldSlugs, final.Select(c => c.Slug).ToList());
-            if (moves.Count > 0)
-            {
-                if (book.ProgressChapterSlug is { } p && moves.TryGetValue(p, out var moved))
-                    book.ProgressChapterSlug = moved.To;
-                if (book.ProgressLocator is { } l) book.ProgressLocator = MoveLocator(l, moves);
-                book.ProgressPositionJson = MovePosition(book.ProgressPositionJson, moves);
-
-                var bookmarks = await db.UserBookBookmarks.Where(x => x.UserBookId == book.Id).ToListAsync(ct);
-                undo.Add(() => Detach(db.UserBookBookmarks, bookmarks));
-                foreach (var b in bookmarks) b.Locator = MoveLocator(b.Locator, moves);
-                await MoveInsightsAsync(db, db.BookInsights.IgnoreQueryFilters().Where(x => x.UserBookId == book.Id),
-                    moves, logger, undo, ct);
-            }
+            await MoveUserBookPositionsAsync(db, book, SlugMoves(plan, oldSlugs, final.Select(c => c.Slug).ToList()),
+                logger, undo, ct);
 
             await db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
@@ -270,6 +244,136 @@ public static class ChapterReconciler
             if (oldSlugs[j] is { } old && newSlugs[i] is { } to)
                 moves[old] = new SlugMove(to, Reset: true);
         return moves;
+    }
+
+    /// <summary>
+    /// Old chapter number → new, for every existing chapter: a matched one to its own new number, a
+    /// removed one to its successor's. Feeds <see cref="RemapMaxChapterNumber"/>.
+    /// </summary>
+    public static IReadOnlyDictionary<int, int> NumberMoves(
+        Result plan, IReadOnlyList<int> oldNumbers, IReadOnlyList<int> newNumbers)
+    {
+        var numbers = new Dictionary<int, int>();
+        for (var i = 0; i < plan.Matches.Length; i++)
+            if (plan.Matches[i] >= 0) numbers[oldNumbers[plan.Matches[i]]] = newNumbers[i];
+        foreach (var (j, i) in plan.Successors) numbers[oldNumbers[j]] = newNumbers[i];
+        return numbers;
+    }
+
+    /// <summary>
+    /// <c>ReadingProgress.MaxChapterNumber</c> (the chapter-review spoiler frontier,
+    /// <c>ChapterFrontier</c>) after a renumber: the highest new number of any old chapter at or
+    /// below the old frontier. A removed chapter counts as its successor, so the frontier never
+    /// passes text the reader has not reached. Unchanged when no chapter is at or below it.
+    /// </summary>
+    public static int? RemapMaxChapterNumber(int? max, IReadOnlyDictionary<int, int> numbers) =>
+        max is { } m ? numbers.Where(kv => kv.Key <= m).Select(kv => (int?)kv.Value).Max() ?? m : null;
+
+    /// <summary>A chapter's identity and place, before and after a standalone delete/merge.</summary>
+    public readonly record struct ChapterSnapshot(Guid Id, int Number, string? Slug);
+
+    /// <summary>
+    /// The <see cref="Result"/> a standalone delete/merge amounts to: every chapter still in
+    /// <paramref name="after"/> matched to itself by Id, every one gone handed to its
+    /// <paramref name="removedTo"/> successor. A removed chapter with no entry (the edition's last
+    /// one — its readers' rows were deleted) moves nowhere.
+    /// </summary>
+    public static Result PlanFromIds(
+        IReadOnlyList<Guid> before, IReadOnlyList<Guid> after, IReadOnlyDictionary<Guid, Guid?> removedTo)
+    {
+        var index = after.Select((id, i) => (id, i)).ToDictionary(x => x.id, x => x.i);
+        var matches = Enumerable.Repeat(-1, after.Count).ToArray();
+        var successors = new List<(int, int)>();
+        for (var j = 0; j < before.Count; j++)
+        {
+            if (index.TryGetValue(before[j], out var i)) matches[i] = j;
+            else if (removedTo.GetValueOrDefault(before[j]) is { } to && index.TryGetValue(to, out var s))
+                successors.Add((j, s));
+        }
+        return new Result(matches, successors);
+    }
+
+    public static Task<List<ChapterSnapshot>> SnapshotEditionAsync(IAppDbContext db, Guid editionId, CancellationToken ct) =>
+        db.Chapters.Where(c => c.EditionId == editionId)
+            .Select(c => new ChapterSnapshot(c.Id, c.ChapterNumber, c.Slug)).ToListAsync(ct);
+
+    public static Task<List<ChapterSnapshot>> SnapshotUserBookAsync(IAppDbContext db, Guid userBookId, CancellationToken ct) =>
+        db.UserChapters.Where(c => c.UserBookId == userBookId)
+            .Select(c => new ChapterSnapshot(c.Id, c.ChapterNumber, c.Slug)).ToListAsync(ct);
+
+    /// <summary>
+    /// For the standalone delete/merge paths (admin chapter delete, quality pipeline), which re-point
+    /// Ids through <see cref="RemoveEditionChapterAsync"/> and renumber the rest themselves: rewrites
+    /// the slug-bearing positions and the <c>MaxChapterNumber</c> frontier exactly as re-ingestion
+    /// does. Call after the removal and renumber are saved, inside the same transaction, then save.
+    /// </summary>
+    public static async Task MoveEditionPositionsAfterRemovalAsync(
+        IAppDbContext db, Guid editionId, IReadOnlyList<ChapterSnapshot> before,
+        IReadOnlyDictionary<Guid, Guid?> removedTo, ILogger? logger, CancellationToken ct)
+    {
+        var after = await SnapshotEditionAsync(db, editionId, ct);
+        var plan = PlanFromIds(before.Select(c => c.Id).ToList(), after.Select(c => c.Id).ToList(), removedTo);
+        await MoveEditionPositionsAsync(db, editionId,
+            SlugMoves(plan, before.Select(c => c.Slug).ToList(), after.Select(c => c.Slug).ToList()),
+            NumberMoves(plan, before.Select(c => c.Number).ToList(), after.Select(c => c.Number).ToList()),
+            logger, [], ct);
+    }
+
+    /// <summary>Upload counterpart of <see cref="MoveEditionPositionsAfterRemovalAsync"/> (uploads keep no frontier).</summary>
+    public static async Task MoveUserBookPositionsAfterRemovalAsync(
+        IAppDbContext db, Guid userBookId, IReadOnlyList<ChapterSnapshot> before,
+        IReadOnlyDictionary<Guid, Guid?> removedTo, ILogger? logger, CancellationToken ct)
+    {
+        var book = await db.UserBooks.FirstOrDefaultAsync(b => b.Id == userBookId, ct);
+        if (book is null) return;
+        var after = await SnapshotUserBookAsync(db, userBookId, ct);
+        var plan = PlanFromIds(before.Select(c => c.Id).ToList(), after.Select(c => c.Id).ToList(), removedTo);
+        await MoveUserBookPositionsAsync(db, book,
+            SlugMoves(plan, before.Select(c => c.Slug).ToList(), after.Select(c => c.Slug).ToList()),
+            logger, [], ct);
+    }
+
+    private static async Task MoveEditionPositionsAsync(
+        IAppDbContext db, Guid editionId, IReadOnlyDictionary<string, SlugMove> moves,
+        IReadOnlyDictionary<int, int> numbers, ILogger? logger, List<Action> undo, CancellationToken ct)
+    {
+        if (moves.Count == 0 && numbers.All(kv => kv.Key == kv.Value)) return;
+
+        // ponytail: loads every reader row of the edition; per-row SQL if editions get thousands.
+        var progress = await db.ReadingProgresses.IgnoreQueryFilters()
+            .Where(x => x.EditionId == editionId).ToListAsync(ct);
+        undo.Add(() => Detach(db.ReadingProgresses, progress));
+        foreach (var p in progress)
+        {
+            p.Locator = MoveLocator(p.Locator, moves);
+            p.PositionJson = MovePosition(p.PositionJson, moves);
+            p.MaxChapterNumber = RemapMaxChapterNumber(p.MaxChapterNumber, numbers);
+        }
+        if (moves.Count == 0) return;
+
+        var bookmarks = await db.Bookmarks.IgnoreQueryFilters()
+            .Where(x => x.EditionId == editionId).ToListAsync(ct);
+        undo.Add(() => Detach(db.Bookmarks, bookmarks));
+        foreach (var b in bookmarks) b.Locator = MoveLocator(b.Locator, moves);
+        await MoveInsightsAsync(db, db.BookInsights.IgnoreQueryFilters().Where(x => x.EditionId == editionId),
+            moves, logger, undo, ct);
+    }
+
+    private static async Task MoveUserBookPositionsAsync(
+        IAppDbContext db, UserBook book, IReadOnlyDictionary<string, SlugMove> moves,
+        ILogger? logger, List<Action> undo, CancellationToken ct)
+    {
+        if (moves.Count == 0) return;
+        if (book.ProgressChapterSlug is { } p && moves.TryGetValue(p, out var moved))
+            book.ProgressChapterSlug = moved.To;
+        if (book.ProgressLocator is { } l) book.ProgressLocator = MoveLocator(l, moves);
+        book.ProgressPositionJson = MovePosition(book.ProgressPositionJson, moves);
+
+        var bookmarks = await db.UserBookBookmarks.Where(x => x.UserBookId == book.Id).ToListAsync(ct);
+        undo.Add(() => Detach(db.UserBookBookmarks, bookmarks));
+        foreach (var b in bookmarks) b.Locator = MoveLocator(b.Locator, moves);
+        await MoveInsightsAsync(db, db.BookInsights.IgnoreQueryFilters().Where(x => x.UserBookId == book.Id),
+            moves, logger, undo, ct);
     }
 
     /// <summary>
@@ -414,9 +518,10 @@ public static class ChapterReconciler
     /// <paramref name="successorId"/> (default: the nearest chapter before it, else after it).
     /// Required: progress/bookmark/note FKs are NO ACTION, so a bare delete of a chapter someone
     /// reads fails instead of silently taking their data with it. Call inside a transaction —
-    /// the re-point runs immediately, the delete on the caller's SaveChanges.
+    /// the re-point runs immediately, the delete on the caller's SaveChanges. Returns the successor,
+    /// or null when the edition has no other chapter.
     /// </summary>
-    public static async Task RemoveEditionChapterAsync(
+    public static async Task<Guid?> RemoveEditionChapterAsync(
         IAppDbContext db, Chapter chapter, Guid? successorId, CancellationToken ct)
     {
         var from = chapter.Id;
@@ -446,10 +551,11 @@ public static class ChapterReconciler
             await db.Notes.IgnoreQueryFilters().Where(x => x.ChapterId == from).ExecuteDeleteAsync(ct);
         }
         db.Chapters.Remove(chapter);
+        return to;
     }
 
     /// <summary>Upload counterpart of <see cref="RemoveEditionChapterAsync"/>; also moves the book's progress slug.</summary>
-    public static async Task RemoveUserChapterAsync(
+    public static async Task<Guid?> RemoveUserChapterAsync(
         IAppDbContext db, UserChapter chapter, Guid? successorId, CancellationToken ct)
     {
         var successor = await db.UserChapters
@@ -466,6 +572,7 @@ public static class ChapterReconciler
             await db.UserBooks.Where(b => b.Id == chapter.UserBookId && b.ProgressChapterSlug == chapter.Slug)
                 .ExecuteUpdateAsync(s => s.SetProperty(b => b.ProgressChapterSlug, toSlug), ct);
         db.UserChapters.Remove(chapter);
+        return toId;
     }
 
     // Both FKs are SET NULL in the database; this keeps them pointing at real text instead.

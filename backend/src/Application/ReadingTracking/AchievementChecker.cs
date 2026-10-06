@@ -15,7 +15,7 @@ public class AchievementChecker
 
     public async Task<List<string>> CheckAfterSession(
         Guid userId, Guid siteId, ReadingSession session, int currentStreak,
-        CancellationToken ct)
+        CancellationToken ct, TimeSpan tzOffset = default)
     {
         var unlocked = await _db.UserAchievements
             .Where(a => a.UserId == userId)
@@ -71,8 +71,8 @@ public class AchievementChecker
         if (totalHours >= 50) TryUnlock("hours_50");
         if (totalHours >= 100) TryUnlock("hours_100");
 
-        // Time-of-day achievements (use session's startedAt hour)
-        var hour = session.StartedAt.Hour;
+        // Time-of-day achievements: the hour on the reader's clock, not UTC's.
+        var hour = session.StartedAt.ToOffset(tzOffset).Hour;
         if (hour >= 5 && hour < 7) TryUnlock("early_bird");
         if (hour >= 23 || hour < 3) TryUnlock("night_owl");
 
