@@ -30,8 +30,14 @@ function setScroll(top: number) {
 function getScroll() {
   return ((document.scrollingElement || document.documentElement) as HTMLElement).scrollTop
 }
-/** The reader scrolls: position and event together. */
+/** The reader scrolls: input (a wheel turn), then the scroll it causes. */
 function userScroll(top: number) {
+  window.dispatchEvent(new Event('wheel'))
+  setScroll(top)
+  window.dispatchEvent(new Event('scroll'))
+}
+/** The browser scrolls on its own (scroll anchoring as an image loads above): no input. */
+function browserScroll(top: number) {
   setScroll(top)
   window.dispatchEvent(new Event('scroll'))
 }
@@ -354,5 +360,75 @@ describe('ADR-019: saves are scoped to their document', () => {
     act(() => { vi.advanceTimersByTime(3000) })
     act(() => { setVisibility('hidden') })
     expect(locators().slice(before)).toEqual([])
+  })
+})
+
+describe("round 2 #1: only the reader's own scrolls count", () => {
+  it('a browser-driven scroll (no input) is not saved, is not "moving", and is not reading', async () => {
+    const onReaderScroll = vi.fn()
+    let answer!: (r: NewerPositionResult) => void
+    const fetchNewerPosition = vi.fn(() => new Promise<NewerPositionResult>((r) => { answer = r }))
+    renderHook(() => useReaderScrollSync({ ...baseProps(), effectiveProgress: { locator: 'scroll:ch1:2000' }, fetchNewerPosition, onReaderScroll }))
+    await frame()
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000) }) // past the echo and input windows
+    const before = locators().length
+    await act(async () => { setVisibility('visible') })
+    act(() => { browserScroll(2350) }) // an image above finished loading
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+    await act(async () => { answer(newer('scroll:ch1:9000')) }) // not "moved": the newer place applies
+    expect(getScroll()).toBe(9000)
+    await act(async () => { await vi.advanceTimersByTimeAsync(3000) })
+    expect(locators().slice(before)).toEqual([])
+    expect(onReaderScroll).not.toHaveBeenCalled()
+  })
+
+  it("momentum after the last touch is still the reader's", async () => {
+    renderHook(() => useReaderScrollSync(baseProps()))
+    await frame()
+    act(() => { window.dispatchEvent(new Event('touchmove')) })
+    act(() => { vi.advanceTimersByTime(900); browserScroll(1000) })
+    for (let i = 1; i <= 10; i++) act(() => { vi.advanceTimersByTime(100); browserScroll(1000 + i * 50) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(1500) })
+    expect(locators()[locators().length - 1]).toBe('scroll:ch1:1500')
+  })
+})
+
+describe('round 2 #5: only THE open is held back', () => {
+  it('after an unanswered open, a chapter the reader goes to is saved on open', async () => {
+    const props = { ...baseProps(), effectiveProgress: { locator: 'scroll:ch1:2000' }, serverUnanswered: true }
+    const { rerender } = renderHook((p: Props) => useReaderScrollSync(p), { initialProps: props })
+    await frame()
+    expect(locators()).toEqual([])
+    rerender({ ...props, chapterIdentifier: 'ch2', chapterLoaded: false })
+    rerender({ ...props, chapterIdentifier: 'ch2' })
+    await frame()
+    expect(locators()).toEqual(['scroll:ch2:0'])
+  })
+})
+
+describe('round 2 #4: one check at a time, and tab flicking is throttled', () => {
+  it('visible does not abort a slower check in flight', async () => {
+    let seen: AbortSignal | undefined
+    const fetchNewerPosition = vi.fn((signal: AbortSignal) => { seen = signal; return new Promise<NewerPositionResult>(() => {}) })
+    renderHook(() => useReaderScrollSync({ ...baseProps(), serverUnanswered: true, fetchNewerPosition }))
+    await frame()
+    expect(fetchNewerPosition).toHaveBeenCalledTimes(1)
+    await act(async () => { setVisibility('visible') })
+    expect(seen?.aborted).toBe(false)
+    expect(fetchNewerPosition).toHaveBeenCalledTimes(1)
+  })
+
+  it('at most one visible re-check per 30 s', async () => {
+    const fetchNewerPosition = vi.fn(async (): Promise<NewerPositionResult> => false)
+    renderHook(() => useReaderScrollSync({ ...baseProps(), fetchNewerPosition }))
+    await frame()
+    for (let i = 0; i < 5; i++) {
+      await act(async () => { setVisibility('hidden'); setVisibility('visible') })
+      await frame()
+    }
+    expect(fetchNewerPosition).toHaveBeenCalledTimes(1)
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000) })
+    await act(async () => { setVisibility('visible') })
+    expect(fetchNewerPosition).toHaveBeenCalledTimes(2)
   })
 })

@@ -183,3 +183,43 @@ describe('PdfOriginalView — tab return (R4-4 for PDF)', () => {
     expect(pageUnderTop()).toBe(6)
   })
 })
+
+describe('PdfOriginalView — round 2', () => {
+  const base = { fileUrl: 'f', bookId: 'b1', initialPage: null, resumePage: null }
+
+  it('#2: a TOC jump during an unanswered hold is the reader\'s choice and is saved', async () => {
+    docState.current = loaded(20)
+    localPage.current = 5
+    const view = render(<PdfOriginalView {...base} scrollToPage={null} resumeReady resumeUnanswered />)
+    await wait(50)
+    view.rerender(<PdfOriginalView {...base} scrollToPage={{ page: 14, nonce: 1 }} resumeReady resumeUnanswered />)
+    await wait(50)
+    act(() => { view.container.querySelector('.pdf-original__scroll')!.dispatchEvent(new Event('scroll')) })
+    await wait(50)
+    await wait(2300)
+    expect(pageUnderTop()).toBe(14)
+    expect(writePdfPage.mock.calls.map((c) => c[1])).toContain(14)
+    expect(saveUserBookProgress).toHaveBeenCalledTimes(1)
+  })
+
+  it('#7: a same-page scroll under a hold survives a tab hide — the return check does not replace it', async () => {
+    docState.current = loaded(20)
+    localPage.current = 5
+    const fetchNewerPage = vi.fn(async (): Promise<number | false | null> => null)
+    const view = render(<PdfOriginalView {...base} scrollToPage={null} resumeReady resumeUnanswered fetchNewerPage={fetchNewerPage} />)
+    await wait(50)
+    // The reader nudges within page 5 (no page change → nothing saved, the hold stays).
+    await wait(300)
+    scrollTop = 4 * PAGE_H + 300
+    act(() => { view.container.querySelector('.pdf-original__scroll')!.dispatchEvent(new Event('scroll')) })
+    await wait(50)
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
+    act(() => { document.dispatchEvent(new Event('visibilitychange')) })
+    fetchNewerPage.mockImplementation(async () => 15)
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+    await act(async () => { document.dispatchEvent(new Event('visibilitychange')) })
+    await wait(50)
+    expect(fetchNewerPage).toHaveBeenCalled()
+    expect(pageUnderTop()).toBe(5)
+  })
+})

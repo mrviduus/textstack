@@ -1,4 +1,5 @@
 import { parsePdfPageLocator, serverProvablyNewer } from '@textstack/shared'
+import { readUserBookProgress } from '../api/userBooks'
 
 // Resume-only PDF page position for the Original-layout view, remembered in
 // localStorage, with a write stamp. The old per-book
@@ -56,5 +57,28 @@ export function serverResumePage(
   row: { locator?: string | null; clientUpdatedAt?: string | null } | null | undefined,
 ): number | null {
   const page = parsePdfPageLocator(row?.locator)
-  return page != null && serverProvablyNewer(readPdfPageStamp(bookId), row) ? page : null
+  if (page == null) return null
+  const stamp = readPdfPageStamp(bookId)
+  // A page written before stamps existed is "unknown", not "absent": nothing can be proven
+  // newer than it, so it is never replaced (it would move a reader back 20 pages). The next
+  // page the reader turns to stamps it.
+  if (!stamp && readPdfPage(bookId) != null) return null
+  return serverProvablyNewer(stamp, row) ? page : null
+}
+
+/**
+ * The PDF view's newer-position check: a page, `false` (answered, nothing newer — stop asking),
+ * or `null` (no answer — ask again). Auth still loading is NOT an answer: returning false there
+ * ended the background retries before the session was even known.
+ */
+export async function fetchNewerPdfPageFor(
+  bookId: string | undefined,
+  auth: { isLoading: boolean; isAuthenticated: boolean },
+  signal: AbortSignal,
+): Promise<number | false | null> {
+  if (auth.isLoading) return null
+  if (!bookId || !auth.isAuthenticated) return false
+  const row = await readUserBookProgress(bookId, signal)
+  if (row === undefined || signal.aborted) return null
+  return serverResumePage(bookId, row) ?? false
 }

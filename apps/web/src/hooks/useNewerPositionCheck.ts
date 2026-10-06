@@ -7,7 +7,11 @@ import { PROGRESS_GET_TIMEOUT_MS, PROGRESS_LATE_CHECK_TIMEOUT_MS } from '../lib/
  *
  * - The open had no server answer (`unanswered`): ask in the background, at once and then on a
  *   bounded backoff, and again whenever the browser comes back online, until one answer arrives.
- * - The tab becomes visible again: always ask — another device may have read on meanwhile.
+ * - The tab becomes visible again: ask — another device may have read on meanwhile. At most
+ *   once per VISIBLE_THROTTLE_MS, so flicking between tabs is not a request each time.
+ *
+ * One check at a time: while one is in flight, another trigger does nothing (it never aborts a
+ * slower check to replace it with a shorter one).
  *
  * Every check gets its own signal, aborted on its timeout, on `resetKey` change (another chapter
  * or document) and on unmount, so a late answer can never move a reader who is somewhere else.
@@ -16,6 +20,7 @@ import { PROGRESS_GET_TIMEOUT_MS, PROGRESS_LATE_CHECK_TIMEOUT_MS } from '../lib/
  * The hook only reads `answeredRef`; what to do with an answer is the caller's business.
  */
 const LATE_CHECK_DELAYS_MS = [0, 10_000, 30_000]
+const VISIBLE_THROTTLE_MS = 30_000
 
 export function useNewerPositionCheck(
   check: ((signal: AbortSignal) => Promise<boolean>) | undefined,
@@ -36,8 +41,7 @@ export function useNewerPositionCheck(
 
   const run = useCallback(async (timeoutMs: number) => {
     const fn = checkRef.current
-    if (!fn || !readyRef.current) return
-    inFlightRef.current?.abort()
+    if (!fn || !readyRef.current || inFlightRef.current) return
     const c = new AbortController()
     inFlightRef.current = c
     const timer = setTimeout(() => c.abort(), timeoutMs)
@@ -51,7 +55,10 @@ export function useNewerPositionCheck(
   }, [])
 
   // Another chapter / document, or unmount: whatever is in flight answers for a page that is gone.
-  useEffect(() => () => { inFlightRef.current?.abort() }, [resetKey])
+  useEffect(() => () => {
+    inFlightRef.current?.abort()
+    inFlightRef.current = null
+  }, [resetKey])
 
   // The open had no answer: bounded background retries.
   useEffect(() => {
@@ -62,9 +69,13 @@ export function useNewerPositionCheck(
     return () => timers.forEach(clearTimeout)
   }, [ready, unanswered, resetKey, run])
 
+  const lastVisibleCheckRef = useRef(-Infinity)
   useEffect(() => {
     const onVisibility = () => {
-      if (document.visibilityState === 'visible') void run(PROGRESS_GET_TIMEOUT_MS)
+      if (document.visibilityState !== 'visible') return
+      if (Date.now() - lastVisibleCheckRef.current < VISIBLE_THROTTLE_MS) return
+      lastVisibleCheckRef.current = Date.now()
+      void run(PROGRESS_GET_TIMEOUT_MS)
     }
     const onOnline = () => {
       if (unansweredRef.current && !answeredRef.current) void run(PROGRESS_LATE_CHECK_TIMEOUT_MS)

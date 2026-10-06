@@ -448,6 +448,7 @@ export default function PdfOriginalView({
     appliedJumpRef.current = scrollToPage.nonce
     didInitialScrollRef.current = true // an explicit jump wins over the open page
     explicitRef.current = true
+    holdRef.current = false // the reader chose this page: it saves
     setOpened(true)
     jumpToPage(scrollToPage.page)
   }, [scrollToPage, pdf, jumpToPage])
@@ -562,7 +563,9 @@ export default function PdfOriginalView({
     resetKey: bookId,
   })
   useEffect(() => {
-    const onHide = () => { if (document.visibilityState === 'hidden') movedRef.current = false }
+    // A hidden tab starts a fresh "has the reader moved" — but not under a hold: that move is
+    // the reader's only unsaved choice, and the return check must not replace it.
+    const onHide = () => { if (document.visibilityState === 'hidden' && !holdRef.current) movedRef.current = false }
     document.addEventListener('visibilitychange', onHide)
     return () => document.removeEventListener('visibilitychange', onHide)
   }, [])

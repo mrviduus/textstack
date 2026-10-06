@@ -33,8 +33,8 @@ import { trackBookOpened } from '../lib/analytics'
 import { ReaderStatsWidget } from '../components/reader/ReaderStatsWidget'
 import { useGuestLimits } from '../context/GuestLimitsContext'
 import { WordHint } from '../components/reader/WordHint'
-import { getUserBookFileUrl, readUserBookProgress } from '../api/userBooks'
-import { serverResumePage } from '../lib/originalLayoutPref'
+import { getUserBookFileUrl } from '../api/userBooks'
+import { serverResumePage, fetchNewerPdfPageFor } from '../lib/originalLayoutPref'
 import { computeBookProgress, clampPage, isPdfAnchor, bookMinutesLeft, type PdfAnchor } from '@textstack/shared'
 import { useHighlights } from '../hooks/useHighlights'
 import { useBookReviews, chapterReviewPath } from '../hooks/useBookReviews'
@@ -277,12 +277,10 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
   // local page instead of never.
   const pdfResumePage = originalActive && id ? serverResumePage(id, userProgress.serverRow) : null
   const pdfResumeReady = !originalActive || !userProgress.isLoading
-  const fetchNewerPdfPage = useCallback(async (signal: AbortSignal): Promise<number | false | null> => {
-    if (!id || !isAuthenticated) return false
-    const row = await readUserBookProgress(id, signal)
-    if (row === undefined || signal.aborted) return null
-    return serverResumePage(id, row) ?? false
-  }, [id, isAuthenticated])
+  const fetchNewerPdfPage = useCallback(
+    (signal: AbortSignal) => fetchNewerPdfPageFor(id, { isLoading: authLoading, isAuthenticated }, signal),
+    [id, isAuthenticated, authLoading],
+  )
 
   // Migrate legacy progress (chapterNumber -> slug) for userbooks. Stays in
   // page because it owns routing.

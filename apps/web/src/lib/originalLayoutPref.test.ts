@@ -1,5 +1,9 @@
-import { describe, it, expect, beforeEach } from 'vitest'
-import { readPdfPage, writePdfPage, serverResumePage } from './originalLayoutPref'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+
+vi.mock('../api/userBooks', () => ({ readUserBookProgress: vi.fn() }))
+
+import { readPdfPage, writePdfPage, serverResumePage, fetchNewerPdfPageFor } from './originalLayoutPref'
+import { readUserBookProgress } from '../api/userBooks'
 
 describe('originalLayoutPref (resume-only PDF page position)', () => {
   beforeEach(() => localStorage.clear())
@@ -50,5 +54,32 @@ describe('serverResumePage — the server page only when provably newer than thi
   it('not a page locator, or no row → null', () => {
     expect(serverResumePage('b', { locator: 'scroll:ch:10', clientUpdatedAt: iso(T) })).toBeNull()
     expect(serverResumePage('b', null)).toBeNull()
+  })
+
+  it('round 2 #6: a page written before stamps existed is unknown — never proven older', () => {
+    localStorage.setItem('reader.pdfPage.b', '80') // legacy: no stamp
+    expect(serverResumePage('b', { locator: 'page:60', clientUpdatedAt: iso(T) })).toBeNull()
+    writePdfPage('b', 81, T - 1) // the reader turns a page: now it is stamped and comparable
+    expect(serverResumePage('b', { locator: 'page:60', clientUpdatedAt: iso(T) })).toBe(60)
+  })
+})
+
+describe('round 2 #3: fetchNewerPdfPageFor', () => {
+  beforeEach(() => { localStorage.clear(); vi.mocked(readUserBookProgress).mockReset() })
+  const sig = () => new AbortController().signal
+
+  it('auth still loading is not an answer (null), and asks nothing', async () => {
+    expect(await fetchNewerPdfPageFor('b', { isLoading: true, isAuthenticated: false }, sig())).toBeNull()
+    expect(readUserBookProgress).not.toHaveBeenCalled()
+  })
+
+  it('signed out → false; no answer → null; answered → page or false', async () => {
+    expect(await fetchNewerPdfPageFor('b', { isLoading: false, isAuthenticated: false }, sig())).toBe(false)
+    vi.mocked(readUserBookProgress).mockResolvedValueOnce(undefined)
+    expect(await fetchNewerPdfPageFor('b', { isLoading: false, isAuthenticated: true }, sig())).toBeNull()
+    vi.mocked(readUserBookProgress).mockResolvedValueOnce({ chapterSlug: null, locator: 'page:9', percent: null, updatedAt: null, clientUpdatedAt: '2026-10-05T10:00:00Z' })
+    expect(await fetchNewerPdfPageFor('b', { isLoading: false, isAuthenticated: true }, sig())).toBe(9)
+    vi.mocked(readUserBookProgress).mockResolvedValueOnce(null)
+    expect(await fetchNewerPdfPageFor('b', { isLoading: false, isAuthenticated: true }, sig())).toBe(false)
   })
 })
