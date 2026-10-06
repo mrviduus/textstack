@@ -317,7 +317,7 @@ export function ReaderShell(props: ReaderShellProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chapters, chapterSlug])
 
-  const { webViewKey, onRendererGone, webViewSource, docLoadedRef, applyTypography } = useReaderDocument({
+  const { webViewKey, onRendererGone, webViewSource, docLoadedRef, applyTypography, applyChrome } = useReaderDocument({
     original, originalFileUrl, originalInitialPage, htmlChapterSlug, injectJs, reflow, onDocumentRebuild,
     chapter, settings, resolvedFontFamily, resolvedTheme, insets,
     ...pdf,
@@ -357,10 +357,11 @@ export function ReaderShell(props: ReaderShellProps) {
             // Scroll-restore is owned by useReaderPersistence — it coordinates
             // this signal with the async saved-position fetch (no race).
             onWebViewLoaded()
-            // Typography that changed while this document loaded. After the restore is asked,
-            // so the reflow knows a restore is in flight and re-asks its target (rule 8).
+            // Typography and theme that changed while this document loaded. After the restore is
+            // asked, so the reflow knows a restore is in flight and re-asks its target (rule 8).
             docLoadedRef.current = true
             applyTypography()
+            applyChrome()
           }}
           originWhitelist={['*']}
           // Android denies a WebView any file access by default, and denies a

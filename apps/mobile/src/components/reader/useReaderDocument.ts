@@ -56,6 +56,8 @@ export function useReaderDocument({
   const docLoadedRef = useRef(false)
   // The typography the reflow html was built with — what a freshly loaded copy of it shows.
   const builtTypographyRef = useRef<ReaderTypography | null>(null)
+  // Same, for its chrome.
+  const builtChromeRef = useRef<ReaderChrome | null>(null)
 
   // M6: the OS killed the WebView's renderer (memory pressure, a long PDF). The view is dead —
   // Android needs a NEW one, not a reload — so it is remounted under a new key, at the saved
@@ -90,6 +92,7 @@ export function useReaderDocument({
       }
       chromeRef.current = chrome
       appliedChromeRef.current = chrome  // a fresh document already has it
+      builtChromeRef.current = chrome
       const typography = {
         fontFamily: resolvedFontFamily,
         fontSize: settings.fontSize,
@@ -215,6 +218,8 @@ export function useReaderDocument({
   useEffect(() => {
     docLoadedRef.current = false
     readerAppliedTypographyRef.current = builtTypographyRef.current
+    if (!original) appliedChromeRef.current = builtChromeRef.current
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [webViewSource])
   // Declared after the reset above, so a change in the same render waits for onLoadEnd.
   useEffect(() => { applyTypography() }, [applyTypography])
@@ -223,17 +228,24 @@ export function useReaderDocument({
   // other half of the fix: the memo above stopped depending on insets and theme,
   // so something still has to apply them when they change mid-read — the status
   // bar hiding with the bars, or the reader switching to dark mode.
-  useEffect(() => {
+  //
+  // Reflow: only into a LOADED document, like typography. A chapter change remounts the reader,
+  // whose settings start at the defaults until AsyncStorage answers; the document was built Light,
+  // Dark was injected while it still loaded and was lost, and — marked applied — never re-sent:
+  // Light text under Dark bars. onLoadEnd applies whatever changed in the meantime.
+  const applyChrome = useCallback(() => {
     const next = latchReaderChrome(chromeRef.current, {
       safeArea: { top: insets.top, bottom: insets.bottom },
       backgroundColor: resolvedTheme.backgroundColor,
       textColor: resolvedTheme.textColor,
     })
     chromeRef.current = next
+    if (!original && !docLoadedRef.current) return
     if (!readerChromeChanged(appliedChromeRef.current, next)) return
     appliedChromeRef.current = next
     injectJs(original ? pdfChromeInjectionJs(next) : readerChromeInjectionJs(next))
   }, [original, insets.top, insets.bottom, resolvedTheme.backgroundColor, resolvedTheme.textColor, injectJs])
+  useEffect(() => { applyChrome() }, [applyChrome])
 
-  return { webViewKey, onRendererGone, webViewSource, docLoadedRef, applyTypography }
+  return { webViewKey, onRendererGone, webViewSource, docLoadedRef, applyTypography, applyChrome }
 }

@@ -141,7 +141,7 @@ function mountReader(initial: Partial<Props> = {}) {
       pdfInitialPageRef, currentPdfPageRef, pdfIsReloadRef, pdfReadyRef,
     })
     // ReaderShell's onLoadEnd, reflow branch — the persistence and typography half of it.
-    const loadEnd = () => { persistence.onWebViewLoaded(); doc.docLoadedRef.current = true; doc.applyTypography() }
+    const loadEnd = () => { persistence.onWebViewLoaded(); doc.docLoadedRef.current = true; doc.applyTypography(); doc.applyChrome() }
     return { loadEnd, onMessage, onRendererGone: doc.onRendererGone }
   }
 
