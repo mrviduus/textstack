@@ -231,15 +231,13 @@ test.describe('Reader smoke @reader-smoke', () => {
     expect(await paintedCount(page, 'pink')).toBe(0)
   })
 
-  // `blocked`: the progress GET fails fast (offline, refused) — must pass.
-  // `hung`: it never answers (captive portal, stalled proxy). KNOWN BUG, kept as
-  // test.fail so the gate stays green today and turns red the day it is fixed —
-  // then delete the annotation. useRestoreProgress awaits getProgress with no
-  // timeout, `effectiveLoading` never clears, restore never runs, and
-  // useReaderScrollSync drops every scroll save until reload.
+  // `blocked`: the progress GET fails fast (offline, refused). `hung`: it never
+  // answers (captive portal, stalled proxy) — the reader gives up after 3 s (#729).
+  // Either way the GET is "no answer": restore falls back to this device's record
+  // and the open itself is NOT saved (that would stamp an unverified place as the
+  // newest write), so the signal here is the reader's own scroll being saved.
   for (const mode of ['blocked', 'hung'] as const) {
     test(`a ${mode} progress request does not stop the reader opening or saving`, async ({ browser }) => {
-      test.fail(mode === 'hung', 'Known bug: hung GET /me/progress blocks restore and every save (no timeout in useRestoreProgress)')
       const { page, book } = await readerPage(browser, mode)
       // Only the GET is broken. Writes still go through.
       await page.route(`**/me/progress/${book.editionId}`, (route) => {
@@ -248,10 +246,14 @@ test.describe('Reader smoke @reader-smoke', () => {
         // hung: never fulfilled.
       })
 
+      const started = Date.now()
       await openChapter(page, book, 1)
-      // Save-on-open only fires once restore has settled — which is what a hung GET blocks.
-      await waitForOpenSave(page, book, book.ch1.slug, 4_000)
-      await scrollToMiddleAndSave(page, book, book.ch1.slug, 4_000)
+      // A scroll before restore has run is ignored (and then undone by the restore), so
+      // scroll-and-check is retried. Budget: 3 s GET timeout + 1.5 s save debounce + slack.
+      await expect(async () => {
+        await scrollToMiddleAndSave(page, book, book.ch1.slug, 2_500)
+      }).toPass({ timeout: 10_000, intervals: [250] })
+      test.info().annotations.push({ type: 'saved-after-ms', description: String(Date.now() - started) })
     })
   }
 })
