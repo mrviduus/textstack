@@ -227,6 +227,8 @@
       "highlightsTab": "Highlights",
       "highlightsEmpty": "No highlights yet. Select text while reading to highlight it."
     },
+    "finishBook": "Finish book",
+    "bookmarkFailed": "Couldn't save the bookmark. Check your connection and try again.",
     "image": {
       "close": "Close image",
       "zoomIn": "Zoom in",

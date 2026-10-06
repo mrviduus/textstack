@@ -398,7 +398,7 @@ export function ReaderHighlights({
   })
 
   // --- TTS ---
-  const { speak, stop: stopTts, isPlaying: ttsPlaying, timestamps: ttsTimestamps, currentWordIndex: ttsCurrentWord } = useTts()
+  const { speak, stop: stopTts, isPlaying: ttsPlaying, timestamps: ttsTimestamps, currentWordIndex: ttsCurrentWord } = useTts(chapterId)
   // Captured at speak() time so the overlay has text to split + highlight even
   // after the selection is cleared. Cleared explicitly on stop() — relying on
   // `isPlaying` alone would leave the last text flashing between playbacks.

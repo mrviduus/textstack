@@ -157,6 +157,19 @@ describe('useReaderVocabulary', () => {
     expect(ensureCalled).toBe(1)
   })
 
+  it('a pending word removed before the guest mint is not flushed to the account (M3)', async () => {
+    authState.isAuthenticated = false
+    const { result } = renderHook(() => useReaderVocabulary('en', 'de'))
+    await act(async () => { await result.current.addWord({ word: 'one', language: 'en' }) })
+    const id = result.current.vocabMap.get('one')!.id!
+
+    await act(async () => { await result.current.removeWord(id, 'one') })
+
+    expect(deletePendingMock).toHaveBeenCalledWith(id)
+    expect(Object.keys(pendingStore)).toHaveLength(0)
+    expect(result.current.vocabMap.has('one')).toBe(false)
+  })
+
   describe('create-account nudge', () => {
     const echoSave = async (req: any) => ({
       outcome: 'srs',

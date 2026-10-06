@@ -80,24 +80,39 @@ export function* textWalker<T>(
   for (const match of func(strs, makeRange)) yield match
 }
 
-// Helper: find all (case-insensitive) occurrences of `needle` — emits Ranges.
-// Consumer drives it for in-book search etc.
+// The one matcher behind in-book search: the drawer's list (over the chapter
+// text) and the painted overlay (over the DOM) both count with it, so their
+// indexes agree. Case-insensitive, NBSP == space, non-overlapping. Offsets are
+// into `text`. ponytail: assumes lowercasing keeps lengths (true outside a few
+// letters such as Turkish İ).
+const fold = (s: string) => s.toLowerCase().replace(/\u00a0/g, ' ')
+export function findTextOffsets(text: string, needle: string): number[] {
+  const out: number[] = []
+  if (!needle) return out
+  const hay = fold(text)
+  const n = fold(needle)
+  for (let i = hay.indexOf(n); i !== -1; i = hay.indexOf(n, i + n.length)) out.push(i)
+  return out
+}
+
+// Helper: find all occurrences of `needle` (findTextOffsets rules) — emits
+// Ranges, which may span nodes ("Mr. <em>Darcy</em>").
 export function* findTextMatches(
   input: Range | Element | Document,
   needle: string,
 ): Generator<Range> {
   if (!needle) return
-  const lower = needle.toLowerCase()
   yield* textWalker<Range>(input, function* (strings, makeRange) {
-    for (let i = 0; i < strings.length; i++) {
-      const hay = strings[i].toLowerCase()
-      let from = 0
-      while (from < hay.length) {
-        const idx = hay.indexOf(lower, from)
-        if (idx === -1) break
-        yield makeRange(i, idx, i, idx + needle.length)
-        from = idx + Math.max(1, needle.length)
-      }
+    const starts: number[] = []
+    let total = 0
+    for (const s of strings) { starts.push(total); total += s.length }
+    let i = 0
+    for (const start of findTextOffsets(strings.join(''), needle)) {
+      const end = start + needle.length
+      while (starts[i] + strings[i].length <= start) i++
+      let j = i
+      while (starts[j] + strings[j].length < end) j++
+      yield makeRange(i, start - starts[i], j, end - starts[j])
     }
   })
 }

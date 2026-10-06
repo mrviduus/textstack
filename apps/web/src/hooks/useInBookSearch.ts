@@ -1,4 +1,6 @@
 import { useState, useCallback, useMemo } from 'react'
+import { textWalker, findTextOffsets } from '@textstack/reader-overlay'
+import { sanitizeHtml } from '../utils/sanitize'
 
 export interface SearchMatch {
   index: number
@@ -7,10 +9,13 @@ export interface SearchMatch {
   position: number // character position in plain text
 }
 
+// The text the overlay walks: the rendered (sanitized) chapter, script/style
+// skipped — so the list here and the painted matches count the same things.
 function extractPlainText(html: string): string {
   const div = document.createElement('div')
-  div.innerHTML = html
-  return div.textContent || div.innerText || ''
+  div.innerHTML = sanitizeHtml(html)
+  for (const text of textWalker(div, function* (strings) { yield strings.join('') })) return text
+  return ''
 }
 
 function getContextAround(text: string, position: number, matchLength: number, contextSize = 40): string {
@@ -28,31 +33,26 @@ function getContextAround(text: string, position: number, matchLength: number, c
 export function useInBookSearch(html: string) {
   const [query, setQuery] = useState('')
   const [activeMatchIndex, setActiveMatchIndex] = useState(0)
+  // A new chapter starts at its first match: the old index could point past
+  // the new list ("7 of 3") or at an arbitrary match.
+  const [indexedHtml, setIndexedHtml] = useState(html)
+  if (indexedHtml !== html) {
+    setIndexedHtml(html)
+    setActiveMatchIndex(0)
+  }
 
   const plainText = useMemo(() => extractPlainText(html), [html])
 
   const matches = useMemo(() => {
-    if (!query || query.length < 2) return []
-
-    const results: SearchMatch[] = []
-    const lowerText = plainText.toLowerCase()
-    const lowerQuery = query.toLowerCase()
-
-    let pos = 0
-    let index = 0
-    while ((pos = lowerText.indexOf(lowerQuery, pos)) !== -1) {
-      const matchText = plainText.slice(pos, pos + query.length)
-      results.push({
-        index,
-        text: matchText,
-        context: getContextAround(plainText, pos, query.length),
-        position: pos,
-      })
-      pos += 1
-      index += 1
-    }
-
-    return results
+    // Same rules as SearchOverlayLayer (trimmed, findTextOffsets).
+    const q = query.trim()
+    if (q.length < 2) return []
+    return findTextOffsets(plainText, q).map((pos, index): SearchMatch => ({
+      index,
+      text: plainText.slice(pos, pos + q.length),
+      context: getContextAround(plainText, pos, q.length),
+      position: pos,
+    }))
   }, [plainText, query])
 
   const search = useCallback((q: string) => {

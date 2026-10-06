@@ -1,6 +1,5 @@
 import { useCallback } from 'react'
 import { useBookmarks, type Bookmark } from './useBookmarks'
-import { useUserBookBookmarks } from './useUserBookBookmarks'
 import type { ReaderMode, NormalizedBook } from './useReaderChapter'
 import type { Chapter } from '../types/api'
 
@@ -12,6 +11,9 @@ interface Params {
   publicChapter: Chapter | null
   book: NormalizedBook | null
   isAuthenticated: boolean
+  /** Signed-in user id: offline bookmark rows are kept per user. */
+  userId?: string | null
+  isGuest?: boolean
 }
 
 export interface UseReaderBookmarksResult {
@@ -20,10 +22,13 @@ export interface UseReaderBookmarksResult {
   getBookmarkForChapter: (chapterSlug: string) => Bookmark | undefined
   removeBookmark: (id: string) => void | Promise<unknown>
   addBookmark: (chapterSlug: string, chapterTitle: string) => Promise<unknown>
-  // Page bookmarks — userbook Original-layout PDF only. No-ops for public books.
+  // Page bookmarks — userbook Original-layout PDF only.
   addPageBookmark: (page: number) => Promise<unknown>
   isPageBookmarked: (page: number) => boolean
   getPageBookmark: (page: number) => Bookmark | undefined
+  /** A bookmark action failed (no local store and the server failed too). */
+  error: string | null
+  clearError: () => void
 }
 
 export function useReaderBookmarks({
@@ -34,25 +39,28 @@ export function useReaderBookmarks({
   publicChapter,
   book,
   isAuthenticated,
+  userId,
+  isGuest,
 }: Params): UseReaderBookmarksResult {
-  const publicBookmarks = useBookmarks(mode === 'public' ? (bookSlug || '') : '', {
-    editionId: publicEditionId,
+  const isUpload = mode === 'userbook'
+  // One offline queue for catalog books and uploads (lib/bookmarkSync).
+  const active = useBookmarks(isUpload ? (userBookId || '') : (bookSlug || ''), {
+    editionId: isUpload ? undefined : publicEditionId,
+    userBook: isUpload,
     isAuthenticated,
+    userId,
+    isGuest,
+    chapters: book?.chapters,
   })
-  const userBookmarks = useUserBookBookmarks(mode === 'userbook' ? (userBookId || '') : '')
-
-  const active = mode === 'public' ? publicBookmarks : userBookmarks
+  const { addBookmark: add } = active
 
   const addBookmark = useCallback(
     async (chapterSlug: string, chapterTitle: string) => {
       // The book's chapter list holds the server id for the slug being bookmarked.
       const ch = book?.chapters.find(c => c.identifier === chapterSlug)
-      if (mode === 'public') {
-        return publicBookmarks.addBookmark(chapterSlug, chapterTitle, ch?.id ?? publicChapter?.id)
-      }
-      return userBookmarks.addBookmark(ch?.id || '', chapterSlug, chapterTitle)
+      return add(chapterSlug, chapterTitle, ch?.id ?? (isUpload ? undefined : publicChapter?.id))
     },
-    [mode, publicChapter?.id, book?.chapters, publicBookmarks, userBookmarks],
+    [isUpload, publicChapter?.id, book?.chapters, add],
   )
 
   return {
@@ -61,9 +69,10 @@ export function useReaderBookmarks({
     getBookmarkForChapter: active.getBookmarkForChapter,
     removeBookmark: active.removeBookmark,
     addBookmark,
-    // Page bookmarks live on the userbook hook (Original layout is userbook-only).
-    addPageBookmark: userBookmarks.addPageBookmark,
-    isPageBookmarked: userBookmarks.isPageBookmarked,
-    getPageBookmark: userBookmarks.getPageBookmark,
+    addPageBookmark: active.addPageBookmark,
+    isPageBookmarked: active.isPageBookmarked,
+    getPageBookmark: active.getPageBookmark,
+    error: active.error,
+    clearError: active.clearError,
   }
 }

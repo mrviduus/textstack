@@ -19,6 +19,10 @@ import {
 import type { UpdateHighlightData } from '@textstack/shared'
 import { ApiError } from '../api/client'
 import { emitDataChange } from './dataEvents'
+import { isPdfAnchor } from '@textstack/shared'
+import { isCacheChapterKey, highlightChapterKey, chapterForHighlight } from './textAnchor'
+
+export type ChapterRef = { id: string; identifier: string }
 
 /**
  * A highlight created offline carries a client id (`<ms>-<rand>`); the server
@@ -177,6 +181,29 @@ export function replayUpdateBody(h: StoredHighlight): UpdateHighlightData {
   return body
 }
 
+/**
+ * One-off repair: a pending highlight saved while its chapter came from the offline
+ * cache carries the cache key `editionId:slug` as its chapter id, which the server
+ * rejects — it could never replay. Returns those rows re-keyed to the real chapter id
+ * where the book's chapter list knows the slug; the rest are left alone.
+ */
+export function repairCacheChapterIds(local: StoredHighlight[], chapters?: ChapterRef[]): StoredHighlight[] {
+  const repaired: StoredHighlight[] = []
+  for (const h of local) {
+    if (h.syncStatus !== 'pending' || isPdfAnchor(h.anchor)) continue
+    if (!isCacheChapterKey(highlightChapterKey(h))) continue
+    const ch = chapterForHighlight(chapters, h)
+    if (!ch) continue
+    repaired.push({
+      ...h,
+      chapterId: ch.id,
+      userChapterId: h.userBookId ? ch.id : h.userChapterId,
+      anchor: { ...h.anchor, chapterId: ch.id },
+    })
+  }
+  return repaired
+}
+
 export interface HighlightSyncUi {
   isCancelled: () => boolean
   /** The merged list to show, before replay starts. */
@@ -194,24 +221,30 @@ let syncQueue: Promise<void> = Promise.resolve()
  * then replay pending creates/updates/deletes. A failed replay leaves the row pending
  * for the next run — never discarded. Server unavailable → local data kept. Never rejects.
  */
-export function syncBookHighlights(bookId: string, isUserBook: boolean, ui?: HighlightSyncUi): Promise<void> {
+export function syncBookHighlights(bookId: string, isUserBook: boolean, ui?: HighlightSyncUi, chapters?: ChapterRef[]): Promise<void> {
   // A 409 (server row changed between our read and the PUT) re-plans once against a fresh list.
   syncQueue = syncQueue
-    .then(() => syncOnce(bookId, isUserBook, ui))
-    .then((conflict) => (conflict ? syncOnce(bookId, isUserBook, ui) : false))
+    .then(() => syncOnce(bookId, isUserBook, ui, chapters))
+    .then((conflict) => (conflict ? syncOnce(bookId, isUserBook, ui, chapters) : false))
     .then(() => undefined)
   return syncQueue
 }
 
 /** Resolves true when an update hit a 409 and should be re-planned. Never rejects. */
-async function syncOnce(bookId: string, isUserBook: boolean, ui?: HighlightSyncUi): Promise<boolean> {
+async function syncOnce(bookId: string, isUserBook: boolean, ui?: HighlightSyncUi, chapters?: ChapterRef[]): Promise<boolean> {
   const cancelled = () => ui?.isCancelled() ?? false
   let conflict = false
   try {
     const serverHighlights = isUserBook ? await getUserBookHighlights(bookId) : await getPublicHighlights(bookId)
     if (cancelled()) return false
 
-    const local = isUserBook ? await getHighlightsForUserBook(bookId) : await getHighlightsForEdition(bookId)
+    let local = isUserBook ? await getHighlightsForUserBook(bookId) : await getHighlightsForEdition(bookId)
+    const repaired = repairCacheChapterIds(local, chapters)
+    if (repaired.length) {
+      for (const h of repaired) await saveHighlight(h)
+      const byId = new Map(repaired.map((h) => [h.id, h]))
+      local = local.map((h) => byId.get(h.id) ?? h)
+    }
     const plan = planHighlightSync(serverHighlights.map(fromServerHighlight), local)
 
     // Reconcile, don't wipe-and-rebuild (see git history: a wipe window
@@ -224,6 +257,8 @@ async function syncOnce(bookId: string, isUserBook: boolean, ui?: HighlightSyncU
 
     let changed = false
     for (const h of plan.create) {
+      // Still a cache key (chapter list unknown or lacks the slug): the server would 500.
+      if (isCacheChapterKey(h.userBookId ? h.userChapterId : h.chapterId)) continue
       try {
         const created = fromServerHighlight(
           await createPublicHighlight(

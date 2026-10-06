@@ -65,7 +65,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
   // For userbook mode, chapterSlug comes from the :chapterSlug param
   const chapterIdentifier = mode === 'public' ? chapterSlug : userChapterSlug
 
-  const { isAuthenticated, isLoading: authLoading } = useAuth()
+  const { isAuthenticated, isLoading: authLoading, user, isGuest } = useAuth()
   const { language, getLocalizedPath } = useLanguage()
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -117,6 +117,8 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
     addPageBookmark,
     isPageBookmarked,
     getPageBookmark,
+    error: bookmarkError,
+    clearError: clearBookmarkError,
   } = useReaderBookmarks({
       mode,
       bookSlug,
@@ -125,11 +127,18 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
       publicChapter,
       book,
       isAuthenticated,
+      userId: user?.id,
+      isGuest,
     })
   // /me/library holds editions only; an upload is already the reader's own.
   const { add: addToLibrary, isInLibrary } = useLibrary({ enabled: mode === 'public' })
   const [toastMessage, setToastMessage] = useState<string | null>(null)
   const [bookCompleted, setBookCompleted] = useState(false)
+  useEffect(() => {
+    if (!bookmarkError) return
+    setToastMessage(t('reader.bookmarkFailed'))
+    clearBookmarkError()
+  }, [bookmarkError, clearBookmarkError, t])
   const { setCurrentBook: setGuestCurrentBook } = useGuestLimits()
 
   // There is deliberately NO guest pre-warm here. Opening a chapter used to mint
@@ -201,7 +210,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
   const highlightsApi = useHighlights(
     mode === 'userbook' ? undefined : book?.id,
     mode === 'userbook' ? id : undefined,
-    { isAuthenticated },
+    { isAuthenticated, chapters: book?.chapters },
   )
   // Reviewed-highlight badges (chapter-review.md §12): one /me/insights read per book.
   const reviewTarget = !isAuthenticated ? null
@@ -234,13 +243,14 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
   }, [pdfNumPages])
 
   // Deep-link: when opened with ?highlight=<id> on a PDF, scroll the viewer to
-  // the highlight's stored page once the highlights have loaded.
-  const pdfScrolledToHlRef = useRef(false)
+  // the highlight's stored page once the highlights have loaded. Once per link
+  // (the id), not once per mount: the param is read live and removed when resolved.
+  const pdfScrolledToHlRef = useRef<string | null>(null)
   useEffect(() => {
-    if (!originalActive || !scrollToHighlightId || pdfScrolledToHlRef.current) return
+    if (!originalActive || !scrollToHighlightId || pdfScrolledToHlRef.current === scrollToHighlightId) return
     const h = highlightsApi.highlights.find((x) => x.id === scrollToHighlightId)
     if (!h || !isPdfAnchor(h.anchor)) return
-    pdfScrolledToHlRef.current = true
+    pdfScrolledToHlRef.current = scrollToHighlightId
     setPdfScrollTo({ page: clampPage(h.anchor.page, pdfNumPages), nonce: Date.now() })
   }, [originalActive, scrollToHighlightId, highlightsApi.highlights, pdfNumPages])
 
@@ -768,6 +778,9 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
                   chapterProgress={overlayScrollProgress}
                   onPrev={chapter.prev ? () => { flushProgress(); navigate(getChapterUrl(chapter.prev!.identifier)) } : null}
                   onNext={chapter.next ? () => { flushProgress(); navigate(getChapterUrl(chapter.next!.identifier)) } : null}
+                  // The only way to the "finished" screen since the reader stopped paging.
+                  onFinish={() => setBookCompleted(true)}
+                  finishLabel={t('reader.finishBook')}
                 />
               </>
             )}

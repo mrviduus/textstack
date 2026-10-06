@@ -4,4 +4,4 @@ export {
   type DrawOptions,
   type WritingMode,
 } from './readerOverlay'
-export { textWalker, findTextMatches, type MakeRange } from './textWalker'
+export { textWalker, findTextMatches, findTextOffsets, type MakeRange } from './textWalker'

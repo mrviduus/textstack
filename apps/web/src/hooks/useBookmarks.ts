@@ -1,260 +1,219 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { openOfflineDb } from '../lib/offlineDb'
-import {
-  getPublicBookmarks,
-  createPublicBookmark,
-  deletePublicBookmark,
-} from '../api/userData'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { emitDataChange } from '../lib/dataEvents'
-import { GUID_RE } from '../lib/progressSync'
+import {
+  ANON,
+  addLocalBookmark,
+  bookmarkLocator,
+  createServerBookmark,
+  deleteServerBookmark,
+  fetchServerBookmarks,
+  guestOwner,
+  loadBookmarks,
+  removeLocalBookmark,
+  syncBookmarks,
+  type Bookmark,
+  type BookmarkDraft,
+  type BookmarkTarget,
+  type ChapterRef,
+} from '../lib/bookmarkSync'
+import { useNetworkRecovery } from './useNetworkRecovery'
 
-export interface Bookmark {
-  id: string
-  bookId: string
-  chapterSlug: string
-  chapterTitle: string
-  chapterId?: string // For server sync
-  /**
-   * 1-based PDF page for an Original-layout page bookmark (locator `page:<N>`).
-   * Null/undefined for ordinary chapter bookmarks.
-   */
-  page?: number | null
-  createdAt: number
-}
-
-const STORE_NAME = 'bookmarks'
-
-function generateId(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
-}
-
-async function getAllBookmarksFromDB(bookId: string): Promise<Bookmark[]> {
-  const db = await openOfflineDb()
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, 'readonly')
-    const store = tx.objectStore(STORE_NAME)
-    const index = store.index('bookId')
-    const request = index.getAll(bookId)
-
-    request.onsuccess = () => {
-      const bookmarks = request.result as Bookmark[]
-      bookmarks.sort((a, b) => b.createdAt - a.createdAt)
-      resolve(bookmarks)
-    }
-    request.onerror = () => reject(request.error)
-  })
-}
-
-async function addBookmarkToDB(bookmark: Omit<Bookmark, 'id' | 'createdAt'>): Promise<Bookmark> {
-  const db = await openOfflineDb()
-  const newBookmark: Bookmark = {
-    ...bookmark,
-    id: generateId(),
-    createdAt: Date.now(),
-  }
-
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, 'readwrite')
-    const store = tx.objectStore(STORE_NAME)
-    const request = store.add(newBookmark)
-
-    request.onsuccess = () => resolve(newBookmark)
-    request.onerror = () => reject(request.error)
-  })
-}
-
-async function removeBookmarkFromDB(id: string): Promise<void> {
-  const db = await openOfflineDb()
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, 'readwrite')
-    const store = tx.objectStore(STORE_NAME)
-    const request = store.delete(id)
-
-    request.onsuccess = () => resolve()
-    request.onerror = () => reject(request.error)
-  })
-}
-
-async function clearBookmarksFromDB(bookId: string): Promise<void> {
-  const db = await openOfflineDb()
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, 'readwrite')
-    const store = tx.objectStore(STORE_NAME)
-    const index = store.index('bookId')
-    const request = index.openCursor(bookId)
-
-    request.onsuccess = () => {
-      const cursor = request.result
-      if (cursor) {
-        cursor.delete()
-        cursor.continue()
-      } else {
-        resolve()
-      }
-    }
-    request.onerror = () => reject(request.error)
-  })
-}
+export type { Bookmark }
 
 interface UseBookmarksOptions {
-  editionId?: string // For server sync (public books)
+  /** Catalog book: its edition id (server sync). */
+  editionId?: string
+  /** `bookId` is an upload's id (/me/books/{id}/bookmarks). */
+  userBook?: boolean
   isAuthenticated?: boolean
+  /** The signed-in user: local rows are kept per user. */
+  userId?: string | null
+  /** The session is a guest: its rows stay claimable after a sign-in changes the id. */
+  isGuest?: boolean
+  /** The book's chapters: resolves a slug to the server id for a row saved under an offline cache key. */
+  chapters?: ChapterRef[]
 }
 
-export function useBookmarks(bookId: string, options?: UseBookmarksOptions) {
-  const { editionId, isAuthenticated } = options || {}
+/**
+ * Bookmarks for one book (catalog: `bookId` = slug; upload: the UserBook id).
+ * Offline-first: every action is written locally and replayed (lib/bookmarkSync).
+ */
+export function useBookmarks(bookId: string, options: UseBookmarksOptions = {}) {
+  const { editionId, userBook, isAuthenticated, userId, isGuest, chapters } = options
+  // Signed in but the user not known yet: wait rather than file rows under 'anon'.
+  const owner = !isAuthenticated ? ANON : !userId ? null : isGuest ? guestOwner(userId) : userId
+  const target = useMemo<BookmarkTarget | null>(
+    () => (!bookId ? null : userBook ? { kind: 'userbook', bookId } : editionId ? { kind: 'edition', bookId, editionId } : null),
+    [bookId, userBook, editionId]
+  )
+  const canSync = !!(isAuthenticated && owner && target)
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([])
   const [loading, setLoading] = useState(true)
-  const serverSyncedRef = useRef(false)
+  // A failed action (server-only mode, below) — the caller shows it.
+  const [error, setError] = useState<string | null>(null)
+  const clearError = useCallback(() => setError(null), [])
+  // No IndexedDB (private mode, blocked, quota): server-only, like uploads before the queue.
+  const localOkRef = useRef(true)
+  const bookmarksRef = useRef(bookmarks)
+  bookmarksRef.current = bookmarks
+  const chaptersRef = useRef(chapters)
+  chaptersRef.current = chapters
+  // Results for another book / reader arriving late are dropped.
+  const keyRef = useRef('')
+  keyRef.current = `${bookId}|${owner}`
 
-  // Load bookmarks: IndexedDB first, then server if authenticated
+  const refresh = useCallback(async () => {
+    if (!bookId || !owner || !localOkRef.current) return
+    const key = `${bookId}|${owner}`
+    try {
+      const list = await loadBookmarks(bookId, owner)
+      if (keyRef.current === key) setBookmarks(list)
+    } catch {
+      localOkRef.current = false
+    }
+  }, [bookId, owner])
+
+  const sync = useCallback(async (): Promise<void> => {
+    if (!canSync || !target || !owner) return
+    if (localOkRef.current) {
+      return syncBookmarks(target, owner, { chapters: chaptersRef.current, onChange: () => void refresh() })
+    }
+    const key = `${bookId}|${owner}`
+    try {
+      const list = await fetchServerBookmarks(target, owner)
+      if (keyRef.current === key) setBookmarks(list)
+    } catch {
+      // offline with no local store: nothing to show
+    }
+  }, [canSync, target, owner, bookId, refresh])
+
   useEffect(() => {
-    if (!bookId) {
-      setLoading(false)
+    if (!bookId || !owner) {
+      setBookmarks([])
+      setLoading(!!bookId)
       return
     }
-
     let cancelled = false
-    serverSyncedRef.current = false
-
-    // 1. Load from IndexedDB first (instant)
-    getAllBookmarksFromDB(bookId)
-      .then((localBookmarks) => {
-        if (cancelled) return
-        setBookmarks(localBookmarks)
+    setLoading(true)
+    refresh()
+      .then(sync)
+      .finally(() => {
+        if (!cancelled) setLoading(false)
       })
-      .catch(() => {})
-
-    // 2. If authenticated with editionId, fetch from server
-    if (isAuthenticated && editionId) {
-      getPublicBookmarks(editionId)
-        .then(async (serverBookmarks) => {
-          if (cancelled) return
-          serverSyncedRef.current = true
-
-          // Convert server bookmarks to local format
-          const converted: Bookmark[] = serverBookmarks.map((sb) => ({
-            id: sb.id,
-            bookId,
-            chapterSlug: sb.locator.replace('chapter:', ''),
-            chapterTitle: sb.title || '',
-            chapterId: sb.chapterId,
-            createdAt: new Date(sb.createdAt).getTime(),
-          }))
-
-          // Replace local with server data
-          await clearBookmarksFromDB(bookId)
-          for (const bm of converted) {
-            await addBookmarkToDB({ ...bm })
-          }
-
-          if (!cancelled) setBookmarks(converted)
-        })
-        .catch(() => {
-          // Server unavailable, use local data
-        })
-        .finally(() => {
-          if (!cancelled) setLoading(false)
-        })
-    } else {
-      setLoading(false)
-    }
-
     return () => {
       cancelled = true
     }
-  }, [bookId, editionId, isAuthenticated])
+  }, [bookId, owner, refresh, sync])
 
-  const addBookmark = useCallback(
-    async (chapterSlug: string, chapterTitle: string, chapterId?: string) => {
-      // Check if already bookmarked
-      const existing = bookmarks.find((b) => b.chapterSlug === chapterSlug)
-      if (existing) return existing
+  // Back online → replay whatever is still pending.
+  const recoveryOptions = useMemo(() => ({ onOnline: () => void sync() }), [sync])
+  useNetworkRecovery(recoveryOptions)
 
-      // Only a server id may reach the server. A chapter read from an old offline
-      // cache row can carry the cache key "editionId:slug" (POST → 500, and the
-      // local copy was then wiped by the server list). No-op until it resolves.
-      if (isAuthenticated && editionId && chapterId && !GUID_RE.test(chapterId)) {
-        console.warn('[bookmarks] chapter id is not a server id; bookmark not saved', chapterId)
-        return undefined
-      }
-
-      // If authenticated with editionId, create on server first
-      if (isAuthenticated && editionId && chapterId) {
+  const add = useCallback(
+    async (draft: BookmarkDraft): Promise<Bookmark | null> => {
+      if (!bookId || !owner) return null
+      if (localOkRef.current) {
         try {
-          const serverBookmark = await createPublicBookmark({
-            editionId,
-            chapterId,
-            locator: `chapter:${chapterSlug}`,
-            title: chapterTitle,
-          })
-
-          const bookmark: Bookmark = {
-            id: serverBookmark.id,
-            bookId,
-            chapterSlug,
-            chapterTitle,
-            chapterId,
-            createdAt: new Date(serverBookmark.createdAt).getTime(),
-          }
-
-          // Also save to IndexedDB for offline
-          await addBookmarkToDB({ bookId, chapterSlug, chapterTitle, chapterId })
-          setBookmarks((prev) => [bookmark, ...prev])
+          const bm = await addLocalBookmark(bookId, owner, draft)
+          await refresh()
           emitDataChange('bookmarks')
-          return bookmark
+          void sync()
+          return bm
         } catch {
-          // Fall through to local-only
+          localOkRef.current = false
         }
       }
-
-      // Local-only bookmark
-      const bookmark = await addBookmarkToDB({ bookId, chapterSlug, chapterTitle, chapterId })
-      setBookmarks((prev) => [bookmark, ...prev])
-      emitDataChange('bookmarks')
-      return bookmark
+      // Server-only: straight to the server; a failure is shown, never swallowed.
+      const existing = bookmarksRef.current.find((b) => bookmarkLocator(b) === bookmarkLocator(draft))
+      if (existing) return existing
+      try {
+        if (!canSync || !target) throw new Error('no session')
+        const bm = await createServerBookmark(target, owner, draft, chaptersRef.current)
+        setBookmarks((prev) => [bm, ...prev])
+        emitDataChange('bookmarks')
+        return bm
+      } catch {
+        setError('bookmark_failed')
+        return null
+      }
     },
-    [bookId, editionId, isAuthenticated, bookmarks]
+    [bookId, owner, canSync, target, refresh, sync]
+  )
+
+  const addBookmark = useCallback(
+    (chapterSlug: string, chapterTitle: string, chapterId?: string) => add({ chapterSlug, chapterTitle, chapterId }),
+    [add]
+  )
+
+  // --- Page bookmarks (Original-layout PDF): anchored to a 1-based page
+  // (`locator: page:<N>`, `chapterId: null` on the server). ---
+  const addPageBookmark = useCallback(
+    async (page: number) => {
+      if (!Number.isFinite(page) || page < 1) return null
+      return add({ chapterSlug: '', chapterTitle: `Page ${page}`, page })
+    },
+    [add]
   )
 
   const removeBookmark = useCallback(
     async (id: string) => {
-      // If authenticated, delete from server
-      if (isAuthenticated && editionId) {
+      if (!bookId || !owner) return
+      if (localOkRef.current) {
         try {
-          await deletePublicBookmark(id)
+          // Any account row may be on the server — tombstone it even before the
+          // edition id is known; a no-session row is purely local.
+          await removeLocalBookmark(bookId, owner, id, owner !== ANON)
+          await refresh()
+          emitDataChange('bookmarks')
+          void sync()
+          return
         } catch {
-          // Server unavailable, continue with local delete
+          localOkRef.current = false
         }
       }
-
-      await removeBookmarkFromDB(id)
-      setBookmarks((prev) => prev.filter((b) => b.id !== id))
-      emitDataChange('bookmarks')
+      try {
+        if (!canSync || !target) throw new Error('no session')
+        await deleteServerBookmark(target, id)
+        setBookmarks((prev) => prev.filter((b) => b.id !== id))
+        emitDataChange('bookmarks')
+      } catch {
+        setError('bookmark_failed')
+      }
     },
-    [editionId, isAuthenticated]
+    [bookId, owner, canSync, target, refresh, sync]
   )
 
   const isBookmarked = useCallback(
-    (chapterSlug: string) => {
-      return bookmarks.some((b) => b.chapterSlug === chapterSlug)
-    },
+    (chapterSlug: string) => bookmarks.some((b) => b.page == null && b.chapterSlug === chapterSlug),
     [bookmarks]
   )
 
   const getBookmarkForChapter = useCallback(
-    (chapterSlug: string) => {
-      return bookmarks.find((b) => b.chapterSlug === chapterSlug)
-    },
+    (chapterSlug: string) => bookmarks.find((b) => b.page == null && b.chapterSlug === chapterSlug),
+    [bookmarks]
+  )
+
+  const isPageBookmarked = useCallback(
+    (page: number) => bookmarks.some((b) => bookmarkLocator(b) === `page:${page}`),
+    [bookmarks]
+  )
+
+  const getPageBookmark = useCallback(
+    (page: number) => bookmarks.find((b) => bookmarkLocator(b) === `page:${page}`),
     [bookmarks]
   )
 
   return {
     bookmarks,
     loading,
+    error,
+    clearError,
     addBookmark,
     removeBookmark,
     isBookmarked,
     getBookmarkForChapter,
+    addPageBookmark,
+    isPageBookmarked,
+    getPageBookmark,
   }
 }

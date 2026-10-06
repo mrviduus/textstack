@@ -13,6 +13,9 @@ interface Props {
   onPrev: (() => void) | null
   /** null → disabled. */
   onNext: (() => void) | null
+  /** Last chapter (no onNext): the next button finishes the book instead. */
+  onFinish?: () => void
+  finishLabel?: string
   prevLabel?: string
   nextLabel?: string
 }
@@ -24,9 +27,12 @@ export function ReaderNav({
   chapterProgress,
   onPrev,
   onNext,
+  onFinish,
+  finishLabel = 'Finish book',
   prevLabel = 'Previous chapter',
   nextLabel = 'Next chapter',
 }: Props) {
+  const next = onNext ?? onFinish ?? null
   const pct = Math.round(Math.max(0, Math.min(1, chapterProgress)) * 100)
   const counter =
     chapterNumber !== null && totalChapters !== null && totalChapters > 0
@@ -72,9 +78,9 @@ export function ReaderNav({
         <button
           type="button"
           className="reader-nav__btn reader-nav__btn--next"
-          onClick={onNext ?? undefined}
-          disabled={!onNext}
-          aria-label={nextLabel}
+          onClick={next ?? undefined}
+          disabled={!next}
+          aria-label={onNext ? nextLabel : finishLabel}
         >
           <span aria-hidden="true">›</span>
         </button>

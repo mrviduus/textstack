@@ -117,6 +117,38 @@ describe('useHighlights offline replay', () => {
     expect(offlineDb.deleteHighlight).toHaveBeenCalledWith(pending().id)
   })
 
+  it('re-keys a pending highlight saved under an offline cache key, then POSTs the real chapter id', async () => {
+    const key = 'ed-1:chapter-one'
+    const cached = { ...pending(), chapterId: key, anchor: { ...reflowHighlight(10, 20).anchor, chapterId: key } } as StoredHighlight
+    vi.mocked(offlineDb.getHighlightsForEdition).mockResolvedValue([cached])
+    vi.mocked(userData.getPublicHighlights).mockResolvedValue([])
+    vi.mocked(userData.createPublicHighlight).mockResolvedValue(serverRow)
+
+    renderHook(() => useHighlights('ed-1', undefined, {
+      isAuthenticated: true,
+      chapters: [{ id: 'ch-1', identifier: 'chapter-one' }],
+    }))
+
+    await waitFor(() => expect(userData.createPublicHighlight).toHaveBeenCalledTimes(1))
+    const body = vi.mocked(userData.createPublicHighlight).mock.calls[0][0] as { chapterId: string; anchorJson: string }
+    expect(body.chapterId).toBe('ch-1')
+    expect(JSON.parse(body.anchorJson).chapterId).toBe('ch-1')
+    expect(offlineDb.saveHighlight).toHaveBeenCalledWith(expect.objectContaining({ id: cached.id, chapterId: 'ch-1' }))
+  })
+
+  it('never POSTs a cache-key chapter id it cannot resolve; the row stays pending', async () => {
+    const key = 'ed-1:unknown'
+    const cached = { ...pending(), chapterId: key, anchor: { ...reflowHighlight(10, 20).anchor, chapterId: key } } as StoredHighlight
+    vi.mocked(offlineDb.getHighlightsForEdition).mockResolvedValue([cached])
+    vi.mocked(userData.getPublicHighlights).mockResolvedValue([])
+
+    const { result } = renderHook(() => useHighlights('ed-1', undefined, { isAuthenticated: true, chapters: [] }))
+
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(userData.createPublicHighlight).not.toHaveBeenCalled()
+    expect(result.current.highlights.map((x) => x.id)).toEqual([cached.id])
+  })
+
   it('a failed replay keeps the highlight pending and visible', async () => {
     vi.mocked(offlineDb.getHighlightsForEdition).mockResolvedValue([pending()])
     vi.mocked(userData.getPublicHighlights).mockResolvedValue([])

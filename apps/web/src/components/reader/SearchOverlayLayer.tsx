@@ -54,7 +54,10 @@ export function SearchOverlayLayer({
     const next: Match[] = []
     let i = 0
     try {
-      for (const r of findTextMatches(container, q)) {
+      // The chapter only: the nav bar and buttons below it hold text too (the
+      // chapter title), which the drawer's list never counts.
+      const root = container.querySelector('.reader-section__article') ?? container
+      for (const r of findTextMatches(root, q)) {
         next.push({ idx: i++, range: r })
       }
     } catch {

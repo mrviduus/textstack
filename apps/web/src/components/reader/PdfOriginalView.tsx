@@ -395,6 +395,19 @@ export default function PdfOriginalView({
     measureTopPage()
   }, [visible, pageDims, scale, measureTopPage])
 
+  // --- TOC / highlight-link jump (scroll-to-page, not route navigation). Once per
+  // nonce, after the document is in, and declared before the open-page scroll,
+  // which it pre-empts. Keyed on jumpToPage alone it re-fired whenever numPages
+  // changed: a ?highlight= jump requested before the load was then overridden by
+  // the open-page scroll, and a stale one replayed after a reload. ---
+  const appliedJumpRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (!scrollToPage || !pdf || appliedJumpRef.current === scrollToPage.nonce) return
+    appliedJumpRef.current = scrollToPage.nonce
+    didInitialScrollRef.current = true // an explicit jump wins over the open page
+    jumpToPage(scrollToPage.page)
+  }, [scrollToPage, pdf, jumpToPage])
+
   // --- Initial scroll to the open page (once the document is ready). When the
   // chapter carries no page we wait for the server resume answer (resumeReady)
   // so a cross-device open lands on the saved page, not page 1. A chapter jump
@@ -420,12 +433,6 @@ export default function PdfOriginalView({
       pendingTargetRef.current = null
     }
   }, [pageDims, scrollToPageEl])
-
-  // --- TOC jump (scroll-to-page, not route navigation). ---
-  useEffect(() => {
-    if (!scrollToPage) return
-    jumpToPage(scrollToPage.page)
-  }, [scrollToPage, jumpToPage])
 
   // --- After a session-expired reload lands a fresh document, restore the page. ---
   useEffect(() => {

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { render, cleanup } from '@testing-library/react'
+import { render, cleanup, waitFor } from '@testing-library/react'
 import { useState } from 'react'
 import { VocabOverlayLayer } from '../VocabOverlayLayer'
 import type { VocabMap } from '../../../hooks/useReaderVocabulary'
@@ -99,6 +99,18 @@ describe('VocabOverlayLayer', () => {
     )
     const groups = container.querySelectorAll('svg[data-reader-overlay="true"] > g')
     expect(groups.length).toBe(1)
+  })
+
+  it('re-maps when the chapter DOM is swapped under the same layer', async () => {
+    const vocab: VocabMap = new Map([
+      ['hello', { stage: 0, id: 'w1' }],
+      ['world', { stage: 0, id: 'w2' }],
+    ])
+    const { container, rerender } = render(<Host html="<p>hello</p>" vocabMap={vocab} />)
+    const groups = () => container.querySelectorAll('svg[data-reader-overlay="true"] > g').length
+    expect(groups()).toBe(1)
+    rerender(<Host html="<p>world hello world</p>" vocabMap={vocab} />)
+    await waitFor(() => expect(groups()).toBe(3))
   })
 
   it('cleans up SVG on unmount', () => {
