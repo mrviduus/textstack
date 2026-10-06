@@ -236,4 +236,31 @@ public class SentryScrubberTests
 
         Assert.NotNull(SentryScrubber.ScrubBreadcrumb(crumb));
     }
+
+    [Fact]
+    public void ScrubTransaction_RequestQueryString_Removed()
+    {
+        var t = new SentryTransaction("GET /api/search", "http.server")
+        {
+            Request = new SentryRequest
+            {
+                Url = "https://textstack.app/api/search?q=private",
+                QueryString = "q=private",
+            },
+        };
+
+        var scrubbed = SentryScrubber.ScrubTransaction(t);
+
+        Assert.NotNull(scrubbed);
+        Assert.Null(scrubbed.Request.QueryString);
+        Assert.Equal("https://textstack.app/api/search", scrubbed.Request.Url);
+    }
+
+    [Theory]
+    [InlineData("GET https://openlibrary.org/search.json?title=Secret", "GET https://openlibrary.org/search.json")]
+    [InlineData("GET /api/tts#frag", "GET /api/tts")]
+    [InlineData("POST https://api.openai.com/v1/chat/completions", "POST https://api.openai.com/v1/chat/completions")]
+    [InlineData(null, null)]
+    public void StripQuery_RemovesQueryAndFragment(string? input, string? expected) =>
+        Assert.Equal(expected, SentryScrubber.StripQuery(input));
 }

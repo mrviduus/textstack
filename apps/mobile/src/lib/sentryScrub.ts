@@ -41,3 +41,51 @@ export function scrubEvent<T extends { breadcrumbs?: unknown[]; request?: { url?
   if (event.request?.url) event.request.url = scrubUrl(event.request.url)
   return event
 }
+
+/** The URL without its query string (and fragment). Spans need the stricter cut: see below. */
+export function stripQuery(url: string): string {
+  const cut = url.search(/[?#]/)
+  return cut === -1 ? url : url.slice(0, cut)
+}
+
+type SpanLike = { description?: string; data?: Record<string, unknown> }
+
+const SPAN_URL_KEYS = ['url', 'http.url', 'url.full']
+
+function scrubSpan(span: SpanLike | undefined): void {
+  if (!span) return
+  // A fetch span's description is "GET https://…/api/search?q=<what the reader typed>".
+  if (typeof span.description === 'string') span.description = stripQuery(span.description)
+  const data = span.data
+  if (!data) return
+  delete data['http.query']
+  delete data['http.fragment']
+  for (const key of SPAN_URL_KEYS) {
+    if (typeof data[key] === 'string') data[key] = stripQuery(data[key] as string)
+  }
+}
+
+/**
+ * `beforeSendTransaction`. `scrubEvent` only runs on errors (`beforeSend`); performance
+ * transactions go through a different hook, and the SDK's fetch spans record the full URL —
+ * description, `url`, `http.query` — so a search or a read-aloud request reached Sentry in
+ * every sampled session. Spans lose the whole query string, not just the known keys: no
+ * parameter in a span is worth a passage leaking under a name we forgot to list.
+ */
+export function scrubTransaction<
+  T extends {
+    breadcrumbs?: unknown[]
+    request?: { url?: string; query_string?: unknown }
+    spans?: SpanLike[]
+    contexts?: { trace?: SpanLike }
+  },
+>(event: T): T {
+  scrubEvent(event)
+  if (event.request) {
+    if (event.request.url) event.request.url = stripQuery(event.request.url)
+    delete event.request.query_string
+  }
+  event.spans?.forEach(scrubSpan)
+  scrubSpan(event.contexts?.trace)
+  return event
+}

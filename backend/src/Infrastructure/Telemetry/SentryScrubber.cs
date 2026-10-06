@@ -119,7 +119,27 @@ public static class SentryScrubber
                 transaction.UnsetTag(key);
         }
 
+        // Transactions skip Scrub(), so the request's query string (?q=<search>, ?text=<passage>)
+        // and outgoing-call span descriptions ("GET https://openlibrary.org/search.json?title=<an
+        // upload's title>") would ship as recorded. Cut the whole query, not known keys.
+        if (transaction.Request is { } request)
+        {
+            request.QueryString = null;
+            request.Url = StripQuery(request.Url);
+        }
+
+        foreach (var span in transaction.Spans)
+            span.Description = StripQuery(span.Description);
+
         return transaction;
+    }
+
+    /// <summary>Everything from the first <c>?</c> or <c>#</c> on, removed.</summary>
+    public static string? StripQuery(string? text)
+    {
+        if (string.IsNullOrEmpty(text)) return text;
+        var cut = text.IndexOfAny(['?', '#']);
+        return cut < 0 ? text : text[..cut];
     }
 
     /// <summary>
