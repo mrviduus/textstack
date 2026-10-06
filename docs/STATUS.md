@@ -1,6 +1,6 @@
 # Status
 
-**Last updated: 2026-10-04.** Where the project actually is — not what it does (that's
+**Last updated: 2026-10-05.** Where the project actually is — not what it does (that's
 [`docs/README.md`](README.md)) and not what changed (that's [`CHANGELOG.md`](../CHANGELOG.md)).
 
 If you read one page before picking work back up, read this one. It exists because the changelog
@@ -15,8 +15,11 @@ answers "what happened" and nothing answered "what is half-finished right now".
 
 | Area | State |
 |---|---|
-| **Reader** (web + mobile) | EPUB + PDF. PDFs are original-first ([ADR-012](01-architecture/adr/ADR-012-pdf-original-first-lazy-parse.md)), page-based progress, highlights, TTS, vocabulary SRS. One chapter at a time on both clients since 2026-10-03 (#683 dropped mobile infinite scroll for an end-of-chapter block: Next, Discuss, previous). The free dictionary (api.dictionaryapi.dev) is gone (2026-10-03, #685); on web, a same-language word tap shows the contextual Explain instead (`lib/wordBubbleFetch.ts`). |
-| **AI platform** | Translate (OpenAI `gpt-4.1-nano`) and Explain (`gpt-4.1-mini`); vocabulary distractors, book metadata and tag suggestions (Ollama, local, $0); the SEO publishing crews; the Tutor study planner. Traces, model registry, shadow routing and drift detection still govern those. **The reader-facing chat surfaces were deleted 2026-09-10** — the conversation now happens in the reader's own assistant (next row). |
+| **Reader** (web + mobile) | EPUB + PDF. PDFs are original-first ([ADR-012](01-architecture/adr/ADR-012-pdf-original-first-lazy-parse.md)), page-based progress, highlights, TTS, vocabulary SRS. One chapter at a time on both clients since 2026-10-03 (#683 dropped mobile infinite scroll for an end-of-chapter block: Next, Discuss, previous). The free dictionary (api.dictionaryapi.dev) is gone (2026-10-03, #685); on web, a same-language word tap shows the contextual Explain instead (`lib/wordBubbleFetch.ts`). **Reader bug hunt R1 + R2 done 2026-10-05** (#713–#719): last scroll saved, Next → Prev keeps the place, PDF no longer drifts a page per open, no ghost highlights, font change keeps the place, mobile restore never waits on the network; re-ingest keeps readers' data ([ADR-018](01-architecture/adr/ADR-018-reingest-updates-chapters-in-place.md)). R3 is open — see Known-broken. [Write-up](changelog-archive/2026-H2.md#2026-10-05-reader-bug-hunt-r1-r2). |
+| **Sync** | Progress last-write-wins compares the client clock only with itself, catalog and uploads (`client_updated_at`, #695/#710); offline highlights replay with a three-way merge (#694/#708/#709); reading sessions queued on both clients. [Write-up](changelog-archive/2026-H2.md#2026-10-05-sync-correctness). |
+| **Security & ops** | All P0/P1 items of the [architecture review 2026-10](01-architecture/review-2026-10/00-summary.md) fixed 2026-10-04/05 (#690–#704): sandboxed stored files, `/internal` closed at nginx, hashed refresh tokens + token audiences, EPUB limits, real `/api/health` check, disk alarm, SSG rebuild nightly instead of per deploy. [Write-up](changelog-archive/2026-H2.md#2026-10-05-security-ops-hardening). |
+| **Backups** | Nightly off-site copy to Cloudflare R2 (restic, encrypted, deduplicated, 9 GB guard; #696/#700) and a monthly restore drill on a clean runner (#703; first run passed: DB 206 s, files 37 s). [`backup.md`](03-ops/backup.md). |
+| **AI platform** | Translate (OpenAI `gpt-4.1-nano`) and Explain (`gpt-4.1-mini`); vocabulary distractors, book metadata and tag suggestions (Ollama 0.35.1 since 2026-10-05, local, $0; prompts name the reader's language, not its code — [#711/#712](changelog-archive/2026-H2.md#2026-10-05-local-llm-quality)); the SEO publishing crews; the Tutor study planner. Traces, model registry, shadow routing and drift detection still govern those. **The reader-facing chat surfaces were deleted 2026-09-10** — the conversation now happens in the reader's own assistant (next row). |
 | **Assistant handoff (MCP)** | 21 tools (`backend/src/Contracts/Mcp/McpManifest.cs`) over stdio + streamable HTTP. The conversation happens in the reader's own Claude or ChatGPT; conclusions come back as `BookInsight`. Connect by OAuth sign-in (2026-09-30, [ADR-017](01-architecture/adr/ADR-017-mcp-oauth-authorization-server.md)), or a connect key / personal URL for ChatGPT. Chapter review ([ADR-016](01-architecture/adr/ADR-016-chapter-review-lives-in-book-insight.md), [`chapter-review.md`](05-features/chapter-review.md)) shipped end to end 2026-09-29 → 10-01: MCP tools, Review/summary pages, reader badges, Chapter questions on Practice, one Discuss button. Vocabulary write tools (add/update/delete) 2026-10-04. [`assistant-handoff.md`](05-features/assistant-handoff.md), [`mcp.md`](05-features/mcp.md). |
 | **Observability** | OpenTelemetry → Aspire, plus Sentry on API + Worker with LLM/provider-routing spans. Mobile Sentry is **armed** since 2026-09-03 — project `textstack-mobile` in the `textstack` org, DSN supplied as an EAS environment variable (`EXPO_PUBLIC_SENTRY_DSN`, production + preview) rather than a repo file, so it reaches OTA bundles as well as store builds. |
 | **Entitlements** | `UserTier { Guest, Free, Supporter, Staff }`, config-driven quotas — now including `AiEnabled` and `DailyEnrichmentCap`, enforced server-side by `RequireAiAccount()` (403 `account_required`). |
@@ -28,6 +31,11 @@ answers "what happened" and nothing answered "what is half-finished right now".
 | **Codebase** | Refactor + perf sweep 2026-10-01/02 (#661–#678): dead code out on backend, web and mobile; `search_documents` and the Meilisearch provider dropped (search is Postgres FTS over `chapters` only); web runs `@textstack/shared`'s api client in cookie mode, so one `authFetch` serves both apps; shared pure logic moved to `packages/shared`; fewer requests and DB round trips on hot paths; one reading-time rule (own pace at ≥3 sessions, else 200 wpm). No behaviour change intended. |
 
 ## In flight
+
+- **Reader bug hunt R3 — next.** R1 (Criticals) and R2 (Highs) shipped 2026-10-05; R3 is the
+  Mediums/Lows and the follow-ups R2 deferred, listed under Known-broken below. Every R1/R2 mobile fix
+  is unit-tested only — a device pass is still owed.
+- **Play Store → production application around 2026-10-16** — see the Play Store entry below.
 
 - **Owner-only checks left from the assistant handoff** — that the mobile Claude and ChatGPT apps
   accept a custom connector at all, and one live end-to-end conversation on a phone. The code is
@@ -73,6 +81,50 @@ answers "what happened" and nothing answered "what is half-finished right now".
 
 ## Known-broken / open follow-ups
 
+- **Reader bug hunt — R3 open list** (2026-10-05). The hunt ran on `d92e83aa` in three tracks; R1/R2
+  fixed web C1–C3, H1–H4, M1, M4; mobile C1, C2, H1–H3, M1, M2, M9, L3; data C1, H1, M2, M3, M4, L3,
+  L5 ([write-up](changelog-archive/2026-H2.md#2026-10-05-reader-bug-hunt-r1-r2)). Still open:
+  - *Web:* M2 in-book search counts DOM matches vs text matches differently (nbsp); M3 a removed
+    pending vocab word is still synced when a guest is minted; L1 TTS keeps speaking after a chapter
+    change or leaving; L2 the "finished book" screen is unreachable; L3 search index not reset on
+    chapter change; L4 an offline bookmark delete comes back; L5 the bookmarks endpoint answers a
+    non-GUID chapter id with 500 (the client no longer sends one since #719).
+  - *Mobile:* M3 Android Back with the word toolbar open closes the book; M4 signed out on a dead
+    network, each chapter is blank for 3 s; M5 upload TTS/translate use the app language, not the
+    book's; M6 no recovery when the WebView renderer dies; M7 PDF page input hides under the keyboard;
+    M8 session word count inflated on reopen; L1 font rebuild restores by %, not anchor; L2 sessions
+    drop the partial heartbeat tick; L4 PDF 401 → refresh failure is silent; L5 clock trust.
+  - *Data:* M1 guest merge on a slug conflict drops the guest's upload with its progress, and its
+    highlights are orphaned; L1 client compares an unclamped local stamp with a clamped server one;
+    L2 highlight version check is not atomic; L4 unvalidated reader writes → 500 (vocab sentence
+    > 1000 chars, highlight anchor/colour); L6 streak achievements judged in UTC at session submit.
+    Also noted: `/storage` serves uploads publicly by GUID path (a capability URL).
+  - *Deferred from R2:* the **offline bookmark queue** (built, then descoped from #719); **pending
+    highlights created on a cache-loaded chapter carry `editionId:slug` ids** and need a one-off
+    repair; **upload bookmarks have no offline queue**; `VocabOverlayLayer` re-map on chapter swap
+    needs a check.
+  - *Re-ingest ([ADR-018](01-architecture/adr/ADR-018-reingest-updates-chapters-in-place.md) known
+    limits):* admin chapter delete and quality-pipeline delete/merge re-point Ids but **don't rewrite
+    slug locators**; `MaxChapterNumber` is **not remapped** when chapters are renumbered.
+  - *Size:* the reader's big files mix many jobs — mobile `ReaderShell.tsx` 1593 lines, `readerHtml.ts`
+    1566 (JS in a string, untyped), `readerBridge.ts` 625; web `ReaderPage.tsx` 884,
+    `ReaderHighlights.tsx` 661. Split by job (restore/save, decorations, toolbar, bridge). The
+    `readerHtml`/`readerBridge` part belongs to the reader-engine work (moving that JS into typed TS
+    modules); `ReaderShell` and the web page can be split on their own, after R3.
+  - *Coverage:* the mobile reader hooks have no tests of their own (fixes were tested through pure
+    modules extracted from them); **web has no service worker**, so "Download" is not real offline in
+    a fresh tab.
+
+- **Architecture review 2026-10 — open P2 items** ([summary](01-architecture/review-2026-10/00-summary.md)):
+  #15 one claim rule for the 11 polled queues (only the catalog retry cap is fixed, #706/#707); #16
+  background services inside the API, vocab enrichment fire-and-forget; #18 auth is opt-in per
+  endpoint (group-level filter); #19 admin roles unchecked, no audit log, admin API reachable on the
+  public host; #20 one `BookRef` rule for new code (the collection-orphan part is fixed, #706); #22 no
+  metrics in prod, no Sentry on ssg-worker / mcp-server; #23 the server cannot tell which mobile app
+  version calls (`X-App-Version`); #24 web's own `api/` beside the shared client; #25 two SEO engines;
+  #26 GDPR delete leaves LLM trace text, caches, backups. Also open from #707:
+  `claude-isolated.sh` under `env -i` is untested (needs a try on the server).
+
 - **Parts of offline-by-default are not verified on a device.** The 2026-09-28 device pass (Pixel 7
   Pro emulator, production, airplane mode) covered download, restart, offline open and Save a copy.
   Not covered: the automatic Wi-Fi sweep fetching a library it does not already hold, the 2 GB budget
@@ -86,7 +138,9 @@ answers "what happened" and nothing answered "what is half-finished right now".
 - **Two progress-path defects are deliberately not being fixed**, and the reasons are worth reading
   before someone "fixes" them: `LocatorKind` on the catalog path would refuse the mark-as-read
   sentinel it was meant to protect (catalog books have no second coordinate space at all), and
-  `MaxChapterNumber` now has no reader — its only one was the deleted RAG spoiler gate. Both are
+  ~~`MaxChapterNumber` now has no reader — its only one was the deleted RAG spoiler gate~~ — stale:
+  `ChapterFrontier` (chapter review's spoiler gate, `Application/ChapterReview/ChapterFrontier.cs`)
+  reads it again, which is why its missing remap on re-ingest is now a real defect (below). Both are
   written up in [`assistant-handoff.md`](05-features/assistant-handoff.md#defects-found-along-the-way).
 
 - **`BookInsight.Source` is a constant, and the Edition FK cascades.** `Source` is hardcoded `"mcp"`
@@ -260,6 +314,20 @@ someone's memory.
   book excerpts sent as context, with no cleanup job, and this project has already lost a night to
   [disk exhaustion](incidents/2026-07-10-backup-leaked-156gb.md). Worth a size check before it is worth
   a retention job.
+
+## Under discussion (no decision)
+
+Brainstorming only — nothing here is decided, planned or started. Recorded so the ideas are not lost
+and nobody mistakes them for a direction.
+
+
+Full write-up: [reader-engine-brainstorm.md](01-architecture/reader-engine-brainstorm.md).
+- **A shared reader engine** — `@textstack/reader-engine`, TypeScript, one engine for web and mobile
+  behind a standards-based `Locator` / `Publication` contract (Readium-style), instead of two readers
+  that share pure helpers. Prompted by R1/R2, where the same bug had to be fixed once per client (PDF page drift: #714 web,
+  #716 mobile; the bars bug in #701).
+- **Where the parser runs** — server (today), on the device, or hybrid local-first (parse on the
+  device for instant reading, server for sync and search).
 
 ## Deliberately not doing
 

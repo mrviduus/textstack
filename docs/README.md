@@ -103,6 +103,7 @@ line at the top of each file.
 | [ADR-015](01-architecture/adr/ADR-015-reader-position-is-logical.md) | Position is a place in the text | In force |
 | [ADR-016](01-architecture/adr/ADR-016-chapter-review-lives-in-book-insight.md) | Chapter review in `BookInsight` | Implemented |
 | [ADR-017](01-architecture/adr/ADR-017-mcp-oauth-authorization-server.md) | OAuth AS for MCP | In force |
+| [ADR-018](01-architecture/adr/ADR-018-reingest-updates-chapters-in-place.md) | Re-ingest updates chapters in place; reader data never cascades | In force |
 
 ## Governance
 
