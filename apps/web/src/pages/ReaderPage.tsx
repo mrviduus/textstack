@@ -65,7 +65,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
   // For userbook mode, chapterSlug comes from the :chapterSlug param
   const chapterIdentifier = mode === 'public' ? chapterSlug : userChapterSlug
 
-  const { isAuthenticated, isLoading: authLoading, user } = useAuth()
+  const { isAuthenticated, isLoading: authLoading, user, isGuest } = useAuth()
   const { language, getLocalizedPath } = useLanguage()
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -117,6 +117,8 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
     addPageBookmark,
     isPageBookmarked,
     getPageBookmark,
+    error: bookmarkError,
+    clearError: clearBookmarkError,
   } = useReaderBookmarks({
       mode,
       bookSlug,
@@ -126,11 +128,17 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
       book,
       isAuthenticated,
       userId: user?.id,
+      isGuest,
     })
   // /me/library holds editions only; an upload is already the reader's own.
   const { add: addToLibrary, isInLibrary } = useLibrary({ enabled: mode === 'public' })
   const [toastMessage, setToastMessage] = useState<string | null>(null)
   const [bookCompleted, setBookCompleted] = useState(false)
+  useEffect(() => {
+    if (!bookmarkError) return
+    setToastMessage(t('reader.bookmarkFailed'))
+    clearBookmarkError()
+  }, [bookmarkError, clearBookmarkError, t])
   const { setCurrentBook: setGuestCurrentBook } = useGuestLimits()
 
   // There is deliberately NO guest pre-warm here. Opening a chapter used to mint

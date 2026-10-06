@@ -6,9 +6,11 @@ import type { Bookmark } from '../../lib/bookmarkStore'
 
 // In-memory IndexedDB: each mutateBookmarks call is one atomic step, like the real transaction.
 const db = new Map<string, Bookmark>()
+const idb = { down: false }
 vi.mock('../../lib/bookmarkStore', () => ({
   mutateBookmarks: async (bookId: string, fn: (rows: Bookmark[]) => { put?: Bookmark[]; del?: string[]; result: unknown }) => {
     await Promise.resolve()
+    if (idb.down) throw new Error('IndexedDB unavailable')
     const out = fn([...db.values()].filter((b) => b.bookId === bookId).map((b) => ({ ...b })))
     for (const b of out.put ?? []) db.set(b.id, b)
     for (const id of out.del ?? []) db.delete(id)
@@ -57,6 +59,7 @@ const slugs = (h: { result: { current: { bookmarks: Bookmark[] } } }) => h.resul
 beforeEach(() => {
   vi.clearAllMocks()
   db.clear()
+  idb.down = false
   vi.mocked(userData.getPublicBookmarks).mockResolvedValue([])
   vi.mocked(userBooks.getUserBookBookmarks).mockResolvedValue([])
 })
@@ -246,5 +249,81 @@ describe('useBookmarks — uploads (same queue)', () => {
     expect(h.result.current.isPageBookmarked(12)).toBe(false)
     await waitFor(() => expect(userBooks.deleteUserBookBookmark).toHaveBeenCalledWith(UB, 'bm9'))
     await waitFor(() => expect(db.size).toBe(0))
+  })
+})
+
+describe('useBookmarks — review fixes', () => {
+  it('a tombstone whose server row is gone does not delete a new bookmark for the same chapter', async () => {
+    // Deleted S1 offline here; meanwhile another device deleted S1 and bookmarked the chapter again as S2.
+    db.set(S1, { id: S1, bookId: 'book', owner: 'user-a', chapterSlug: 'one', chapterTitle: 'One', createdAt: 1, syncStatus: 'synced', deleted: true })
+    vi.mocked(userData.getPublicBookmarks).mockResolvedValue([srv(S2, 'one') as never])
+    const h = await mount()
+    await waitFor(() => expect(ids(h)).toEqual([S2]))
+    expect(userData.deletePublicBookmark).not.toHaveBeenCalled()
+    expect(db.has(S1)).toBe(false)
+  })
+
+  it('re-added after a DELETE whose response was lost: created again, not dropped', async () => {
+    vi.mocked(userData.getPublicBookmarks).mockResolvedValue([srv(S1, 'one') as never])
+    vi.mocked(userData.deletePublicBookmark).mockImplementation(async () => {
+      vi.mocked(userData.getPublicBookmarks).mockResolvedValue([]) // it did land
+      throw offline()
+    })
+    vi.mocked(userData.createPublicBookmark).mockImplementation(async () => {
+      vi.mocked(userData.getPublicBookmarks).mockResolvedValue([srv(S2, 'one') as never])
+      return srv(S2, 'one') as never
+    })
+    const h = await mount()
+    await act(async () => { await h.result.current.removeBookmark(S1) })
+    await waitFor(() => expect(userData.deletePublicBookmark).toHaveBeenCalled())
+    await act(async () => { await h.result.current.addBookmark('one', 'One', CH1) })
+    await waitFor(() => expect(ids(h)).toEqual([S2]))
+  })
+
+  it("a guest's offline bookmark survives signing in to an existing account (new user id)", async () => {
+    vi.mocked(userData.getPublicBookmarks).mockRejectedValue(offline())
+    const guest = await mount({ editionId: ED, isAuthenticated: true, userId: 'guest-1', isGuest: true })
+    await act(async () => { await guest.result.current.addBookmark('one', 'One', CH1) })
+    guest.unmount()
+
+    vi.mocked(userData.getPublicBookmarks).mockResolvedValue([])
+    vi.mocked(userData.createPublicBookmark).mockImplementation(async () => {
+      vi.mocked(userData.getPublicBookmarks).mockResolvedValue([srv(S1, 'one') as never])
+      return srv(S1, 'one') as never
+    })
+    const h = await mount()
+    await waitFor(() => expect(ids(h)).toEqual([S1]))
+  })
+
+  it('no IndexedDB: lists from the server and adds/removes against it', async () => {
+    idb.down = true
+    const upload = { userBook: true, isAuthenticated: true, userId: 'user-a' }
+    vi.mocked(userBooks.getUserBookBookmarks).mockResolvedValue([
+      { id: 'bm9', chapterId: null, chapterSlug: null, locator: 'page:12', title: 'Page 12', createdAt: '2026-10-01T00:00:00Z' },
+    ])
+    vi.mocked(userBooks.createUserBookBookmark).mockResolvedValue(
+      { id: 'bm4', chapterId: null, chapterSlug: null, locator: 'page:4', title: 'Page 4', createdAt: '2026-10-02T00:00:00Z' },
+    )
+    vi.mocked(userBooks.deleteUserBookBookmark).mockResolvedValue(undefined)
+    const h = await mount(upload, UB)
+    await waitFor(() => expect(h.result.current.isPageBookmarked(12)).toBe(true))
+
+    await act(async () => { await h.result.current.addPageBookmark(4) })
+    expect(userBooks.createUserBookBookmark).toHaveBeenCalledWith(UB, { chapterId: null, locator: 'page:4', title: 'Page 4' })
+    expect(h.result.current.isPageBookmarked(4)).toBe(true)
+
+    await act(async () => { await h.result.current.removeBookmark('bm9') })
+    expect(userBooks.deleteUserBookBookmark).toHaveBeenCalledWith(UB, 'bm9')
+    expect(h.result.current.isPageBookmarked(12)).toBe(false)
+    expect(h.result.current.error).toBe(null)
+  })
+
+  it('no IndexedDB and the server fails too: the error is surfaced, not swallowed', async () => {
+    idb.down = true
+    vi.mocked(userBooks.createUserBookBookmark).mockRejectedValue(offline())
+    const h = await mount({ userBook: true, isAuthenticated: true, userId: 'user-a' }, UB)
+    await act(async () => { await h.result.current.addPageBookmark(4) })
+    expect(h.result.current.error).toBe('bookmark_failed')
+    expect(h.result.current.bookmarks).toHaveLength(0)
   })
 })

@@ -702,6 +702,7 @@
   "reader.coachmarkTitle": "Press and hold a word",
   "reader.explanationPopup.close": "Close",
   "reader.finishBook": "Finish book",
+  "reader.bookmarkFailed": "Couldn't save the bookmark. Check your connection and try again.",
   "reader.explanationPopup.copy": "Copy explanation",
   "reader.explanationPopup.loading": "Thinking…",
   "reader.explanationPopup.title": "Explanation",

@@ -4,6 +4,10 @@ import {
   ANON,
   addLocalBookmark,
   bookmarkLocator,
+  createServerBookmark,
+  deleteServerBookmark,
+  fetchServerBookmarks,
+  guestOwner,
   loadBookmarks,
   removeLocalBookmark,
   syncBookmarks,
@@ -24,6 +28,8 @@ interface UseBookmarksOptions {
   isAuthenticated?: boolean
   /** The signed-in user: local rows are kept per user. */
   userId?: string | null
+  /** The session is a guest: its rows stay claimable after a sign-in changes the id. */
+  isGuest?: boolean
   /** The book's chapters: resolves a slug to the server id for a row saved under an offline cache key. */
   chapters?: ChapterRef[]
 }
@@ -33,9 +39,9 @@ interface UseBookmarksOptions {
  * Offline-first: every action is written locally and replayed (lib/bookmarkSync).
  */
 export function useBookmarks(bookId: string, options: UseBookmarksOptions = {}) {
-  const { editionId, userBook, isAuthenticated, userId, chapters } = options
+  const { editionId, userBook, isAuthenticated, userId, isGuest, chapters } = options
   // Signed in but the user not known yet: wait rather than file rows under 'anon'.
-  const owner = isAuthenticated ? userId || null : ANON
+  const owner = !isAuthenticated ? ANON : !userId ? null : isGuest ? guestOwner(userId) : userId
   const target = useMemo<BookmarkTarget | null>(
     () => (!bookId ? null : userBook ? { kind: 'userbook', bookId } : editionId ? { kind: 'edition', bookId, editionId } : null),
     [bookId, userBook, editionId]
@@ -43,6 +49,13 @@ export function useBookmarks(bookId: string, options: UseBookmarksOptions = {}) 
   const canSync = !!(isAuthenticated && owner && target)
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([])
   const [loading, setLoading] = useState(true)
+  // A failed action (server-only mode, below) — the caller shows it.
+  const [error, setError] = useState<string | null>(null)
+  const clearError = useCallback(() => setError(null), [])
+  // No IndexedDB (private mode, blocked, quota): server-only, like uploads before the queue.
+  const localOkRef = useRef(true)
+  const bookmarksRef = useRef(bookmarks)
+  bookmarksRef.current = bookmarks
   const chaptersRef = useRef(chapters)
   chaptersRef.current = chapters
   // Results for another book / reader arriving late are dropped.
@@ -50,20 +63,29 @@ export function useBookmarks(bookId: string, options: UseBookmarksOptions = {}) 
   keyRef.current = `${bookId}|${owner}`
 
   const refresh = useCallback(async () => {
-    if (!bookId || !owner) return
+    if (!bookId || !owner || !localOkRef.current) return
     const key = `${bookId}|${owner}`
     try {
       const list = await loadBookmarks(bookId, owner)
       if (keyRef.current === key) setBookmarks(list)
     } catch {
-      // IndexedDB unavailable
+      localOkRef.current = false
     }
   }, [bookId, owner])
 
-  const sync = useCallback((): Promise<void> => {
-    if (!canSync || !target || !owner) return Promise.resolve()
-    return syncBookmarks(target, owner, { chapters: chaptersRef.current, onChange: () => void refresh() })
-  }, [canSync, target, owner, refresh])
+  const sync = useCallback(async (): Promise<void> => {
+    if (!canSync || !target || !owner) return
+    if (localOkRef.current) {
+      return syncBookmarks(target, owner, { chapters: chaptersRef.current, onChange: () => void refresh() })
+    }
+    const key = `${bookId}|${owner}`
+    try {
+      const list = await fetchServerBookmarks(target, owner)
+      if (keyRef.current === key) setBookmarks(list)
+    } catch {
+      // offline with no local store: nothing to show
+    }
+  }, [canSync, target, owner, bookId, refresh])
 
   useEffect(() => {
     if (!bookId || !owner) {
@@ -90,18 +112,32 @@ export function useBookmarks(bookId: string, options: UseBookmarksOptions = {}) 
   const add = useCallback(
     async (draft: BookmarkDraft): Promise<Bookmark | null> => {
       if (!bookId || !owner) return null
-      let bm: Bookmark
+      if (localOkRef.current) {
+        try {
+          const bm = await addLocalBookmark(bookId, owner, draft)
+          await refresh()
+          emitDataChange('bookmarks')
+          void sync()
+          return bm
+        } catch {
+          localOkRef.current = false
+        }
+      }
+      // Server-only: straight to the server; a failure is shown, never swallowed.
+      const existing = bookmarksRef.current.find((b) => bookmarkLocator(b) === bookmarkLocator(draft))
+      if (existing) return existing
       try {
-        bm = await addLocalBookmark(bookId, owner, draft)
+        if (!canSync || !target) throw new Error('no session')
+        const bm = await createServerBookmark(target, owner, draft, chaptersRef.current)
+        setBookmarks((prev) => [bm, ...prev])
+        emitDataChange('bookmarks')
+        return bm
       } catch {
+        setError('bookmark_failed')
         return null
       }
-      await refresh()
-      emitDataChange('bookmarks')
-      void sync()
-      return bm
     },
-    [bookId, owner, refresh, sync]
+    [bookId, owner, canSync, target, refresh, sync]
   )
 
   const addBookmark = useCallback(
@@ -122,18 +158,29 @@ export function useBookmarks(bookId: string, options: UseBookmarksOptions = {}) 
   const removeBookmark = useCallback(
     async (id: string) => {
       if (!bookId || !owner) return
-      try {
-        // Any account row may be on the server — tombstone it even before the
-        // edition id is known; a no-session row is purely local.
-        await removeLocalBookmark(bookId, owner, id, owner !== ANON)
-      } catch {
-        return
+      if (localOkRef.current) {
+        try {
+          // Any account row may be on the server — tombstone it even before the
+          // edition id is known; a no-session row is purely local.
+          await removeLocalBookmark(bookId, owner, id, owner !== ANON)
+          await refresh()
+          emitDataChange('bookmarks')
+          void sync()
+          return
+        } catch {
+          localOkRef.current = false
+        }
       }
-      await refresh()
-      emitDataChange('bookmarks')
-      void sync()
+      try {
+        if (!canSync || !target) throw new Error('no session')
+        await deleteServerBookmark(target, id)
+        setBookmarks((prev) => prev.filter((b) => b.id !== id))
+        emitDataChange('bookmarks')
+      } catch {
+        setError('bookmark_failed')
+      }
     },
-    [bookId, owner, refresh, sync]
+    [bookId, owner, canSync, target, refresh, sync]
   )
 
   const isBookmarked = useCallback(
@@ -159,6 +206,8 @@ export function useBookmarks(bookId: string, options: UseBookmarksOptions = {}) 
   return {
     bookmarks,
     loading,
+    error,
+    clearError,
     addBookmark,
     removeBookmark,
     isBookmarked,

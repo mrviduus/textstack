@@ -13,6 +13,7 @@ interface Params {
   isAuthenticated: boolean
   /** Signed-in user id: offline bookmark rows are kept per user. */
   userId?: string | null
+  isGuest?: boolean
 }
 
 export interface UseReaderBookmarksResult {
@@ -25,6 +26,9 @@ export interface UseReaderBookmarksResult {
   addPageBookmark: (page: number) => Promise<unknown>
   isPageBookmarked: (page: number) => boolean
   getPageBookmark: (page: number) => Bookmark | undefined
+  /** A bookmark action failed (no local store and the server failed too). */
+  error: string | null
+  clearError: () => void
 }
 
 export function useReaderBookmarks({
@@ -36,6 +40,7 @@ export function useReaderBookmarks({
   book,
   isAuthenticated,
   userId,
+  isGuest,
 }: Params): UseReaderBookmarksResult {
   const isUpload = mode === 'userbook'
   // One offline queue for catalog books and uploads (lib/bookmarkSync).
@@ -44,6 +49,7 @@ export function useReaderBookmarks({
     userBook: isUpload,
     isAuthenticated,
     userId,
+    isGuest,
     chapters: book?.chapters,
   })
   const { addBookmark: add } = active
@@ -66,5 +72,7 @@ export function useReaderBookmarks({
     addPageBookmark: active.addPageBookmark,
     isPageBookmarked: active.isPageBookmarked,
     getPageBookmark: active.getPageBookmark,
+    error: active.error,
+    clearError: active.clearError,
   }
 }

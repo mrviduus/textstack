@@ -14,6 +14,11 @@ export type { Bookmark }
 /** Owner of rows written with no session. */
 export const ANON = 'anon'
 
+/** Owner tag for a guest session's rows: `guest:<userId>`. A guest's id changes when it
+ *  signs in to an existing account, so its unsynced rows must be claimable (claimRow). */
+export const guestOwner = (userId: string) => `guest:${userId}`
+const isGuestOwner = (owner: string | undefined) => !!owner?.startsWith('guest:')
+
 export type BookmarkTarget =
   | { kind: 'edition'; bookId: string; editionId: string }
   | { kind: 'userbook'; bookId: string }
@@ -50,17 +55,23 @@ export function fromServer(sb: ServerBookmark, bookId: string, owner: string): B
 
 /**
  * The row as `owner` sees it, or null when it is another account's.
- * - Rows from before the queue carry no owner: they were the server list as last
- *   fetched (the old load replaced local with it), so they join the reader as
- *   synced — the next server list keeps or drops them. Never re-POSTed: that would
- *   resurrect a delete made on another device, or hand one account's bookmarks to
- *   the next one to sign in.
+ * - Rows from before the queue carry no owner and no sync state, so whose they are
+ *   and whether they ever reached a server is unknowable. Deliberate trade-off: they
+ *   are claimed by whoever reads first as *synced*, so the next server list keeps or
+ *   drops them — an offline-made legacy bookmark is lost at sign-in (as with the old
+ *   code). Re-POSTing them instead could hand one account's cached bookmarks to the
+ *   next one to sign in, or resurrect deletes made elsewhere.
  * - A no-session reader's rows join the account that signs in on this browser.
+ * - So do a guest's unsynced rows (pending, tombstones): signing in to an existing
+ *   account replaces the guest's id, and the server merge only carries what it has.
+ *   Any guest's, not just "the previous one": the browser is the guest's only
+ *   identity, exactly as for 'anon' rows.
  */
 export function claimRow(b: Bookmark, owner: string): Bookmark | null {
   if (b.owner === owner) return b
   if (b.owner === undefined) return { ...b, owner, syncStatus: 'synced' }
   if (b.owner === ANON) return { ...b, owner }
+  if (isGuestOwner(b.owner) && (b.syncStatus === 'pending' || b.deleted)) return { ...b, owner }
   return null
 }
 
@@ -110,7 +121,9 @@ export function addLocalBookmark(bookId: string, owner: string, draft: BookmarkD
     // is gone back into a pending create.
     const tomb = same[0]
     if (tomb) {
-      const revived = { ...tomb, deleted: false, chapterTitle: draft.chapterTitle }
+      // Pending: its DELETE may already have landed (response lost) — a "synced" row
+      // the server no longer lists would be dropped.
+      const revived: Bookmark = { ...tomb, deleted: false, syncStatus: 'pending', chapterTitle: draft.chapterTitle }
       return { put: [...put, revived], result: revived }
     }
     const bm: Bookmark = {
@@ -159,13 +172,17 @@ export function planBookmarkSync(server: Bookmark[], local: Bookmark[]): Bookmar
   const plan: BookmarkSyncPlan = { store: [], drop: [], create: [], remove: [] }
   const removed = new Set<string>()
 
-  // A tombstone names its server row by id, else by locator (a pending row whose
-  // create response was lost, a legacy row stored under a local id).
+  // A tombstone names its server row by id. Only one that never had a server id (a
+  // pending row whose create response was lost, a legacy row under a local id) falls
+  // back to the locator — a server id missing from the list was deleted elsewhere, and
+  // the same chapter's bookmark there now is a different one.
   for (const t of local) {
     if (!t.deleted) continue
     const twin = serverIds.has(t.id)
       ? t.id
-      : server.find((s) => !removed.has(s.id) && bookmarkLocator(s) === bookmarkLocator(t))?.id
+      : GUID_RE.test(t.id)
+        ? undefined
+        : server.find((s) => !removed.has(s.id) && bookmarkLocator(s) === bookmarkLocator(t))?.id
     if (twin && !removed.has(twin)) {
       removed.add(twin)
       plan.remove.push({ serverId: twin, localId: t.id })
@@ -203,6 +220,30 @@ function serverChapterId(b: Bookmark, chapters?: ChapterRef[]): string | undefin
     ? b.chapterId
     : chapters?.find((c) => c.identifier === b.chapterSlug)?.id
   return id && GUID_RE.test(id) ? id : undefined
+}
+
+// --- Server-only path: no IndexedDB (private mode, blocked, quota). Throws on failure. ---
+
+export async function fetchServerBookmarks(target: BookmarkTarget, owner: string): Promise<Bookmark[]> {
+  return (await api.list(target)).map((sb) => fromServer(sb, target.bookId, owner)).sort(byNewest)
+}
+
+export async function createServerBookmark(
+  target: BookmarkTarget, owner: string, draft: BookmarkDraft, chapters?: ChapterRef[],
+): Promise<Bookmark> {
+  const b = { ...draft, page: draft.page ?? null } as Bookmark
+  const chapterId = b.page != null ? null : serverChapterId(b, chapters) ?? null
+  if (b.page == null && !chapterId) throw new Error('chapter id unknown')
+  const saved = fromServer(await api.create(target, b, chapterId), target.bookId, owner)
+  return { ...saved, chapterTitle: draft.chapterTitle || saved.chapterTitle }
+}
+
+export const deleteServerBookmark = async (target: BookmarkTarget, id: string): Promise<void> => {
+  try {
+    await api.remove(target, id)
+  } catch (e) {
+    if (!is404(e)) throw e
+  }
 }
 
 export interface BookmarkSyncOptions {
