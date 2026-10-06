@@ -23,6 +23,12 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Reader** — re-ingest also moves positions that name a chapter by slug: progress locator + text-anchor position, bookmarks, upload progress, insights (matched chapter keeps offset/anchor; re-pointed one opens at chapter start; insight on a taken slug skipped + logged) — backend
+- **Reader** — progress write with no client timestamp (mark finished/unread, MCP `set_book_progress`) stamps server now instead of null, so an older queued write can no longer undo it — backend
+- **API** — `/me/library` and `/me/progress` return the whole list by default (was a silent 50; no client pages; ceiling 1000, explicit `limit`/`offset` kept) — backend
+- **API** — double-submit of vocabulary save / add-to-library answers like the dedup path instead of 500 (lost insert race, 23505, re-reads the winner) — backend
+- **AI** — explain/translate cache key carries prompt version + configured model, so #712's language-name prompt reaches cached answers now, not in 30 days — backend
+
 - **Reader** — re-processing a book keeps readers' progress, bookmarks and highlights (re-ingest/reimport/upload Retry update chapters in place, keeping Ids; a vanished chapter hands its readers to its neighbour; progress/bookmark/note → chapter FKs are NO ACTION, not CASCADE — `ChapterDependentsNoActionOnDelete`) — backend
 
 - **Reader** — mobile R2: a PDF upload on a slow network no longer opens as text first (layout from the device — original file / download meta / remembered flag — else loading until the server answers; debounced save reads the gate when it fires; a text save of a PDF keeps `page`); offline Next/‹ ›/TOC/bookmarks never dead-end (a tap navigates at once when online or the chapter is in SQLite, else stays put with a toast; double tap navigates once; a downloaded PDF opened at a chapter waits for its start page from SQLite; next mount knows the edition id; downloaded book's offline TOC from SQLite); returning to the foreground checks for a newer position against the latest local record; newer-position toast hides with the reader and only its action label acts — mobile
