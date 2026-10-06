@@ -77,6 +77,11 @@ export function useEditionReaderSource({
     if (editionIdRef.current) await cacheChapter(editionIdRef.current, ch)
   }, [bookSlug, language])
 
+  const isChapterOnDevice = useCallback(async (slug: string) => {
+    const id = editionIdRef.current
+    return !!id && !!(await getCachedChapter(id, slug))
+  }, [])
+
   // The chapter list, in a ref so `persist` can read it without being rebuilt on every change —
   // it is handed to useReaderPersistence, which keys effects on its identity.
   const chaptersRef = useRef(chapters)
@@ -94,8 +99,10 @@ export function useEditionReaderSource({
     // by joining this id — so an id that disagrees with the locator makes resume open the wrong
     // chapter (#496). One chapter per document now, so the snapshot slug is the route slug and the
     // fallback is the route's own id; the list lookup stays as the authority when it has loaded.
+    // `||`, not `??`: an offline table of contents built from the device carries '' for a row
+    // cached before chapter ids were stored (useReaderBook, M2).
     const chapterId = chapterIdForSlug(chaptersRef.current, snap.chapterSlug)
-      ?? (snap.chapterSlug === routeChapterSlugRef.current ? snap.chapterId : null)
+      || (snap.chapterSlug === routeChapterSlugRef.current ? snap.chapterId : null)
     // Assigned, never carried forward — the same rule the server applies. An
     // anchor kept beside a fresher pixel offset is a record contradicting itself.
     const positionJson = serializeTextPosition(snap.position) ?? undefined
@@ -165,11 +172,15 @@ export function useEditionReaderSource({
 
   /** Background, after the open: the server's position, when provably newer than
    *  the local record the chapter opened from (another device, or a new phone). */
-  const loadNewerPosition = useCallback(async (slug: string): Promise<NewerPosition | null> => {
+  const loadNewerPosition = useCallback(async (slug: string, opts?: { latest?: boolean }): Promise<NewerPosition | null> => {
     const id = editionIdRef.current
     if (!isAuthenticated || !id) return null
+    // Foreground return (H3): the record as it is at the return, so this device's own writes since
+    // the open never look like another device's. Read before the request: a scroll made while it
+    // is in flight must not hide the other device's position — that one gets the prompt.
+    const base = opts?.latest ? await getLocalProgress(id) : openedFromRef.current
     const server = await readingProgressApi.getProgress(id)
-    if (!serverProvablyNewer(openedFromRef.current, server)) return null
+    if (!serverProvablyNewer(base, server)) return null
     // Position comes from the LOCATOR, never from the percent: the stored percent
     // spans the whole book. The locator names its chapter; `chapterSlug` can lag (#496).
     const parsed = parseScrollLocator(server.locator)
@@ -229,6 +240,7 @@ export function useEditionReaderSource({
     progressRef, scrollOffsetRef, currentChapterSlugRef, bookProgressRef, positionRef, totalWordCountRef,
     saveProgress, bumpProgress, onWebViewLoaded, onRestoreLanded, onDocumentRebuild, beginReflow,
     ensureChapter,
+    isChapterOnDevice,
     onNavigateChapter: navigateToChapter,
     chapterNavigatorRef,
     bookmarks,

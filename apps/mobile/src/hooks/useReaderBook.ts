@@ -1,7 +1,8 @@
 import { useEffect, useState, MutableRefObject } from 'react'
 import { createBooksApi, bookmarksApi } from '@textstack/shared'
 import type { ChapterSummary, Language, BookmarkDto } from '@textstack/shared'
-import { getAllCachedBooks } from '../lib/offlineDb'
+import { getAllCachedBooks, isBookFullyCached, listCachedChapters } from '../lib/offlineDb'
+import { knownEditionId, rememberEditionId } from '../lib/editionIds'
 
 type Options = {
   bookSlug: string | undefined
@@ -49,16 +50,28 @@ export function useReaderBook({
     if (!bookSlug) return
     let cancelled = false
     setChaptersLoading(true)
+    // An earlier mount of this book in this process already knew the id — the only source for a
+    // book read online and never downloaded, once the signal drops (H2).
+    const known = knownEditionId(bookSlug)
+    if (known && !editionIdRef.current) {
+      editionIdRef.current = known
+      setEditionId(known)
+    }
     // The DEVICE first, never awaited by the request: a downloaded book has its edition id
     // here, and the id is what restore and every save are keyed on. Waiting for getBook left a
     // hung network with no id at all — no restore, no saves for the visit (C1). The server's
     // answer, when it comes, is the same id.
-    getAllCachedBooks().then(books => {
-      if (cancelled || editionIdRef.current) return
+    const deviceId = getAllCachedBooks().then(books => {
+      if (cancelled) return
       const match = books.find(b => b.slug === bookSlug)
       if (!match) return
-      editionIdRef.current = match.editionId
-      setEditionId(match.editionId)
+      // The in-memory id (above) may already be set, but the title only lives here — skipping
+      // left the header blank and saved words with bookTitle: null offline.
+      if (!editionIdRef.current) {
+        rememberEditionId(bookSlug, match.editionId)
+        editionIdRef.current = match.editionId
+        setEditionId(match.editionId)
+      }
       if (!bookTitleRef.current) {
         bookTitleRef.current = match.title
         setBookTitle(match.title)
@@ -68,6 +81,7 @@ export function useReaderBook({
     api.getBook(bookSlug)
       .then(b => {
         if (cancelled) return
+        rememberEditionId(bookSlug, b.id)
         editionIdRef.current = b.id
         setEditionId(b.id)
         bookTitleRef.current = b.title
@@ -88,7 +102,29 @@ export function useReaderBook({
             .catch(() => {})
         }
       })
-      .catch(() => { /* offline: the device answer above stands */ })
+      .catch(async () => {
+        // Offline: the device answer above stands — and the table of contents comes from the
+        // chapters on the device, or a downloaded book opened offline had an empty one (M2).
+        // Only a complete download: a partial list would also feed the book-% maths a wrong total.
+        // The device lookup above is not awaited by the request, and offline the request fails
+        // first — so wait for it here, or the id is not there yet and the TOC stays empty.
+        await deviceId
+        const id = editionIdRef.current
+        if (!id) return
+        try {
+          if (!(await isBookFullyCached(id))) return
+          const cached = await listCachedChapters(id)
+          if (cancelled || cached.length === 0) return
+          setChapters(cached.map((c, idx) => ({
+            id: c.chapterId ?? '',
+            chapterNumber: idx,
+            slug: c.slug,
+            title: c.title,
+            wordCount: c.wordCount,
+          })))
+          totalWordCountRef.current = cached.reduce((sum, c) => sum + (c.wordCount && c.wordCount > 0 ? c.wordCount : 0), 0)
+        } catch { /* no cache: an empty TOC, as before */ }
+      })
       .finally(() => { if (!cancelled) setChaptersLoading(false) })
     return () => { cancelled = true }
   }, [bookSlug, isAuthenticated, language, editionIdRef, bookTitleRef, totalWordCountRef, setBookmarks])

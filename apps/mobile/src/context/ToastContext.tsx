@@ -15,8 +15,8 @@
  *   - Auto-dismisses after `duration` ms (default 2200).
  *   - Slides up from the bottom, fades in; on dismiss fades + slides down.
  *   - Non-interactive background — toast sits above the tab bar, taps pass
- *     through to content (only the toast body is pressable if `onPress` is
- *     provided).
+ *     through to content. A tap on the toast dismisses it; only the action
+ *     label runs `onPress`.
  */
 
 import {
@@ -51,7 +51,8 @@ export interface ToastOptions {
   icon?: keyof typeof Ionicons.glyphMap
   /** Auto-dismiss duration in ms. Default 2200. 0 = sticky (no auto dismiss). */
   duration?: number
-  /** Optional tap action. If set, the toast body becomes pressable. */
+  /** The action behind `actionLabel` — run by the label only. A tap on the body dismisses (M1):
+   *  a reader swatting a toast away must not be taken somewhere. */
   onPress?: () => void
   /** Optional CTA label shown on the right. Requires onPress. */
   actionLabel?: string
@@ -65,13 +66,18 @@ export interface ToastOptions {
 }
 
 interface ToastContextValue {
-  show: (options: ToastOptions) => void
+  /** Returns the toast's id, for `dismiss`. */
+  show: (options: ToastOptions) => number
   hide: () => void
+  /** Hide the toast `id` — only if it is still the one on screen. For a screen dismissing its own
+   *  toast on unmount without taking down whatever replaced it. */
+  dismiss: (id: number | null) => void
 }
 
 const ToastContext = createContext<ToastContextValue>({
-  show: () => {},
+  show: () => 0,
   hide: () => {},
+  dismiss: () => {},
 })
 
 const DEFAULT_DURATION = 2200
@@ -85,6 +91,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const translateY = useRef(new Animated.Value(40)).current
   const opacity = useRef(new Animated.Value(0)).current
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const idRef = useRef(0)
+  const currentIdRef = useRef<number | null>(null)
   const insets = useSafeAreaInsets()
   const { colors, isDark } = useTheme()
 
@@ -111,13 +119,19 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         useNativeDriver: true,
       }),
     ]).start(({ finished }) => {
-      if (finished) setCurrent(null)
+      if (finished) { setCurrent(null); currentIdRef.current = null }
     })
   }, [clearTimer, opacity, translateY])
+
+  const dismiss = useCallback((id: number | null) => {
+    if (id != null && id === currentIdRef.current) hide()
+  }, [hide])
 
   const show = useCallback(
     (options: ToastOptions) => {
       clearTimer()
+      const id = ++idRef.current
+      currentIdRef.current = id
       setCurrent(options)
       // Snap values so the new toast animates in from off-screen regardless
       // of where the previous one was in its lifecycle.
@@ -142,6 +156,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       if (duration > 0) {
         timerRef.current = setTimeout(hide, duration)
       }
+      return id
     },
     [clearTimer, hide, opacity, translateY],
   )
@@ -151,8 +166,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   }, [clearTimer])
 
   const value = useMemo<ToastContextValue>(
-    () => ({ show, hide }),
-    [show, hide],
+    () => ({ show, hide, dismiss }),
+    [show, hide, dismiss],
   )
 
   const variant = current?.variant ?? 'info'
@@ -190,8 +205,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             ]}
           >
             <Pressable
-              onPress={current.onPress ?? hide}
-              accessibilityRole={current.onPress ? 'button' : undefined}
+              onPress={hide}
               accessibilityLabel={current.message}
               style={[
                 styles.toast,
@@ -205,10 +219,17 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               <Text style={styles.message} numberOfLines={2}>
                 {current.message}
               </Text>
-              {current.actionLabel ? (
-                <Text style={[styles.action, { color: variantColor }]}>
-                  {current.actionLabel}
-                </Text>
+              {current.actionLabel && current.onPress ? (
+                <Pressable
+                  onPress={() => { hide(); current.onPress?.() }}
+                  accessibilityRole="button"
+                  accessibilityLabel={current.actionLabel}
+                  hitSlop={12}
+                >
+                  <Text style={[styles.action, { color: variantColor }]}>
+                    {current.actionLabel}
+                  </Text>
+                </Pressable>
               ) : null}
             </Pressable>
           </Animated.View>

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, MutableRefObject } from 'react'
 import { createBooksApi } from '@textstack/shared'
 import type { Chapter, Language } from '@textstack/shared'
 import { getCachedChapter, refreshCachedChapter, getAllCachedBooks } from '../lib/offlineDb'
+import { knownEditionId } from '../lib/editionIds'
 
 type Options = {
   bookSlug: string | undefined
@@ -51,8 +52,10 @@ export function useReaderChapter({ bookSlug, chapterSlug, language, editionIdRef
     ;(async () => {
       // Resolve the edition id the cache is keyed by. Prefer the one the book
       // effect already resolved; fall back to the cached-book list so a cold
-      // start (no book meta yet) still finds the download.
-      let editionId = editionIdRef.current
+      // start (no book meta yet) still finds the download. The id an earlier mount of this book
+      // resolved comes first: a chapter prefetched by the end block of a book never downloaded is
+      // in SQLite, but the book is not in the cached-book list (H2).
+      let editionId = editionIdRef.current ?? knownEditionId(bookSlug)
       if (!editionId) {
         try {
           const books = await getAllCachedBooks()

@@ -118,11 +118,33 @@ export async function clearAllLocalProgress(): Promise<void> {
     // Explicit union — clears catalog AND user-book rows. Listing both
     // prefixes by name (rather than relying on the substring coincidence)
     // makes the intent obvious and survives a future prefix rename.
-    const progressKeys = keys.filter(k => isCatalogKey(k) || k.startsWith(USERBOOK_KEY_PREFIX))
+    const progressKeys = keys.filter(k => isCatalogKey(k) || k.startsWith(USERBOOK_KEY_PREFIX) || k.startsWith(USERBOOK_PDF_PREFIX))
     if (progressKeys.length === 0) return
     await AsyncStorage.multiRemove(progressKeys)
   } catch {
     // Storage unavailable — ignore; next successful write will resume.
+  }
+}
+
+// Not under USERBOOK_KEY_PREFIX: getAllUserBookLocalProgress lists that prefix as progress rows.
+const USERBOOK_PDF_PREFIX = 'reading.userbook-is-pdf.'
+
+/** Whether an upload is a PDF, remembered from the last time the server said so — so the next
+ *  open knows its viewer without a network (deviceLayout, H1). Null: never known here. */
+export async function getUserBookIsPdf(bookId: string): Promise<boolean | null> {
+  try {
+    const raw = await AsyncStorage.getItem(`${USERBOOK_PDF_PREFIX}${bookId}`)
+    return raw === '1' ? true : raw === '0' ? false : null
+  } catch {
+    return null
+  }
+}
+
+export async function setUserBookIsPdf(bookId: string, isPdf: boolean): Promise<void> {
+  try {
+    await AsyncStorage.setItem(`${USERBOOK_PDF_PREFIX}${bookId}`, isPdf ? '1' : '0')
+  } catch {
+    // Non-fatal: the next open asks the server again.
   }
 }
 
@@ -167,14 +189,22 @@ export interface UserBookLocalProgress {
  *  every save. Every OTHER field is assigned, never carried forward: a stale
  *  chapter slug left beside a fresh page number is a record that contradicts
  *  itself, which is the failure the position model exists to end. */
-export async function saveUserBookLocalProgress(bookId: string, data: UserBookLocalProgress): Promise<void> {
+export async function saveUserBookLocalProgress(
+  bookId: string,
+  data: UserBookLocalProgress,
+  /** `keepPage`: a text-space save of a PDF book (read as text) — the one exception to the rule
+   *  above. `page` belongs to the Original viewer, and dropping it reopened the PDF at page 1. */
+  opts?: { keepPage?: boolean },
+): Promise<void> {
   try {
     let toWrite = data
-    if (data.bookPercent == null) {
+    const keepPage = opts?.keepPage && data.page === undefined
+    if (data.bookPercent == null || keepPage) {
       const prev = await getUserBookLocalProgress(bookId)
-      if (prev && typeof prev.bookPercent === 'number') {
-        toWrite = { ...data, bookPercent: prev.bookPercent }
+      if (data.bookPercent == null && prev && typeof prev.bookPercent === 'number') {
+        toWrite = { ...toWrite, bookPercent: prev.bookPercent }
       }
+      if (keepPage && typeof prev?.page === 'number') toWrite = { ...toWrite, page: prev.page }
     }
     await AsyncStorage.setItem(`${USERBOOK_KEY_PREFIX}${bookId}`, JSON.stringify(toWrite))
   } catch {

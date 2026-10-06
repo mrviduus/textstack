@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { decideNewerPosition, readerMovedSince, serverProvablyNewer } from './progressRestore'
+import { decideNewerPosition, readerMovedSince, returnedToForeground, serverProvablyNewer } from './progressRestore'
 
 const T = Date.parse('2026-05-01T10:00:00Z')
 const iso = (ms: number) => new Date(ms).toISOString()
@@ -64,5 +64,18 @@ describe('readerMovedSince', () => {
   it('pages: any change is a move', () => {
     expect(readerMovedSince(12, 12, 0)).toBe(false)
     expect(readerMovedSince(12, 13, 0)).toBe(true)
+  })
+})
+
+describe('returnedToForeground (H3)', () => {
+  it('background/inactive → active is a return', () => {
+    expect(returnedToForeground('background', 'active')).toBe(true)
+    expect(returnedToForeground('inactive', 'active')).toBe(true)
+  })
+
+  it('anything else is not', () => {
+    expect(returnedToForeground('active', 'active')).toBe(false)
+    expect(returnedToForeground('active', 'background')).toBe(false)
+    expect(returnedToForeground('background', 'inactive')).toBe(false)
   })
 })

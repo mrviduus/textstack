@@ -28,10 +28,35 @@ export interface ReaderWriteModeInput {
  * True when the reflow persistence path may write.
  *
  * Note the default for an unloaded book: `hasOriginalPdf` is false until the
- * book fetch lands, so this returns true early in the session. That is correct
- * — a reflow book is the common case, and the PDF path does not write until its
- * viewer is up either.
+ * book fetch lands, so this returns true early in the session. The caller ANDs
+ * it with "the layout is known" (`deviceLayout` below) — returning true here
+ * alone let a PDF be scrolled and saved as text on a slow network (H1).
  */
 export function reflowWritesEnabled({ hasOriginalPdf, forceReflow }: ReaderWriteModeInput): boolean {
   return !hasOriginalPdf || forceReflow
+}
+
+/**
+ * Which viewer an upload opens in, answered by the DEVICE alone — or null when only the server
+ * can say (H1).
+ *
+ * `hasOriginalPdf` above is false until the book fetch lands. On a slow network the reflow
+ * WebView rendered a PDF in that window, the reader scrolled, and a reflow save wrote
+ * `scroll:<slug>:<y>` over `page:N`. So the reader now shows its loading state until the layout
+ * is known, and the device answers whenever it can, because the reading path never waits on a
+ * network: the original file AND the opened chapter are here → Original; known not to be a PDF →
+ * reflow. A PDF whose file is not here is streamed online and read as text offline — that is the
+ * network's call. The chapter row matters because its start page is the page the viewer opens at,
+ * read once at mount: Original before it is known opened chapter 7 at the saved page or page 1.
+ */
+export function deviceLayout({ hasLocalOriginal, routeChapterOnDevice, knownPdf }: {
+  hasLocalOriginal: boolean
+  /** The chapter in the route is cached here — with its source start page. */
+  routeChapterOnDevice: boolean
+  /** From the download's meta row or the remembered flag; null = this device has never known. */
+  knownPdf: boolean | null
+}): 'original' | 'reflow' | null {
+  if (hasLocalOriginal) return routeChapterOnDevice ? 'original' : null
+  if (knownPdf === false) return 'reflow'
+  return null
 }

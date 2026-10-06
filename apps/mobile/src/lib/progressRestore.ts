@@ -57,5 +57,14 @@ export function readerMovedSince(baseline: number | null, current: number | null
   return Math.abs(current - baseline) > tolerance
 }
 
+/**
+ * The app came back to the screen (H3). A phone left open on a chapter is a reopen too: another
+ * device may have read on since, and only the open used to ask — so the first scroll here wrote
+ * this phone's stale place over it.
+ */
+export function returnedToForeground(prev: string, next: string): boolean {
+  return prev !== 'active' && next === 'active'
+}
+
 /** Pixels of scroll that still count as "where the restore put them". */
 export const REFLOW_MOVE_TOLERANCE_PX = 48

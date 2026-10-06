@@ -208,6 +208,8 @@ export async function refreshCachedChapter(editionId: string, chapter: Chapter):
  * sequence in DownloadContext).
  */
 export interface CachedChapterSummary {
+  /** Null on rows cached before the column existed. */
+  chapterId: string | null
   slug: string
   title: string
   wordCount: number | null
@@ -217,10 +219,11 @@ export async function listCachedChapters(editionId: string): Promise<CachedChapt
   const d = await getDb()
   if (!d) return []
   const rows = await d.getAllAsync(
-    'SELECT chapter_slug, title, word_count FROM chapters WHERE edition_id = ? ORDER BY cached_at ASC',
+    'SELECT chapter_id, chapter_slug, title, word_count FROM chapters WHERE edition_id = ? ORDER BY cached_at ASC',
     [editionId],
-  ) as { chapter_slug: string; title: string; word_count: number | null }[]
+  ) as { chapter_id: string | null; chapter_slug: string; title: string; word_count: number | null }[]
   return rows.map(r => ({
+    chapterId: r.chapter_id,
     slug: r.chapter_slug,
     title: r.title,
     wordCount: r.word_count,
