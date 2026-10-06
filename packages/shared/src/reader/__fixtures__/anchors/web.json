@@ -23,6 +23,14 @@
     "endOffset": 95,
     "chapterId": "11111111-1111-4111-8111-111111111111"
   },
+  "across-paragraphs-short": {
+    "prefix": " and the clocks were striking ",
+    "exact": "thirteen.The",
+    "suffix": " hallway smelt of boiled cabba",
+    "startOffset": 75,
+    "endOffset": 87,
+    "chapterId": "11111111-1111-4111-8111-111111111111"
+  },
   "nbsp": {
     "prefix": "clocks were striking thirteen.",
     "exact": "The hallway smelt",
@@ -54,6 +62,22 @@
     "startOffset": 269,
     "endOffset": 279,
     "chapterId": "11111111-1111-4111-8111-111111111111"
+  },
+  "edge-repeat-start": {
+    "prefix": "",
+    "exact": "said the word again",
+    "suffix": ", and much later he said the w",
+    "startOffset": 0,
+    "endOffset": 19,
+    "chapterId": "44444444-4444-4444-8444-444444444444"
+  },
+  "edge-repeat-end": {
+    "prefix": "word again, and much later he ",
+    "exact": "said the word again",
+    "suffix": "",
+    "startOffset": 39,
+    "endOffset": 58,
+    "chapterId": "44444444-4444-4444-8444-444444444444"
   },
   "cyrillic": {
     "prefix": "зділ третійСлово за словом, і ",

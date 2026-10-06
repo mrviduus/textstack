@@ -8,6 +8,7 @@ import {
   ANCHOR_CHAPTERS,
   CHAPTER_A_ID,
   CHAPTER_B_ID,
+  CHAPTER_EDGE_ID,
   PRODUCER_ONLY_CASES,
   caseStart,
   type AnchorFixtureFile,
@@ -151,6 +152,18 @@ describe('repeated phrase', () => {
     })
   }
 
+  for (const file of ['web.json', 'mobile.json']) {
+    it(`${file}: at the chapter's edges, the one-sided context picks the occurrence`, () => {
+      const scope = article(CHAPTER_EDGE_ID)
+      const text = scope.textContent!
+      const fx = read(file)
+      const start = findTextByAnchor(fx['edge-repeat-start'] as unknown as HighlightAnchor, container, CHAPTER_EDGE_ID)!
+      const end = findTextByAnchor(fx['edge-repeat-end'] as unknown as HighlightAnchor, container, CHAPTER_EDGE_ID)!
+      expect(offsetIn(scope, start)).toBe(0)
+      expect(offsetIn(scope, end)).toBe(text.lastIndexOf('said the word again'))
+    })
+  }
+
   it('mcp.json: no context, so a repeated quote lands on the first occurrence (known limit)', () => {
     const r = findTextByAnchor(read('mcp.json')['repeated-first'] as unknown as HighlightAnchor, container, CHAPTER_A_ID)!
     expect(offsetIn(article(CHAPTER_A_ID), r)).toBe(first())
@@ -188,27 +201,20 @@ describe('an anchor from chapter A never paints in chapter B', () => {
   }
 })
 
-describe('KNOWN BUG: a mobile selection across paragraphs, as a real WebView serializes it', () => {
-  // getSelectionAnchor (apps/mobile/src/lib/readerBridge.ts) takes `exact` from
-  // Selection.toString(), which Chromium/WebKit serialize like innerText —
-  // block breaks become "\n\n" — while prefix/suffix come from Range.toString()
-  // (raw text nodes). jsdom serializes both raw, so mobile.json cannot show it;
-  // this is the anchor a phone would actually send. `it.fails`: flips red once
-  // the creator takes `exact` from the Range — then make it a plain `it`.
-  const fromDevice = (exact: string) => ({
-    ...read('mobile.json')['across-paragraphs'],
-    exact,
-  }) as unknown as HighlightAnchor
-
-  it.fails('resolves to the selected passage', () => {
-    const range = findTextByAnchor(fromDevice('striking thirteen.\n\nThe hallway'), container, CHAPTER_A_ID)
-    // Today: the fuzzy fallback lands 2 characters early ("e striking thirteen.The hallway").
-    expect(range?.toString()).toBe('striking thirteen.The hallway')
+describe('a mobile selection across paragraphs', () => {
+  // Until 2026-10 the bridge took `exact` from Selection.toString(), which a
+  // real WebView serializes like innerText ("thirteen.\n\nThe"): the long one
+  // landed 2 characters early, the short one never painted. It now takes the
+  // Range's raw text, like its prefix and suffix (apps/mobile crossAppAnchors.test.ts
+  // pins that against a device-style Selection).
+  it('resolves to the selected passage', () => {
+    const range = findTextByAnchor(read('mobile.json')['across-paragraphs'] as unknown as HighlightAnchor, container, CHAPTER_A_ID)
+    expect(range?.toString()).toBe('striking thirteen.The\u00a0hallway')
   })
 
-  it.fails('a short cross-paragraph selection still resolves', () => {
-    // Today: null — the highlight is saved but never painted, on either client.
-    expect(findTextByAnchor(fromDevice('thirteen.\n\nThe'), container, CHAPTER_A_ID)).not.toBeNull()
+  it('a short cross-paragraph selection still resolves', () => {
+    const range = findTextByAnchor(read('mobile.json')['across-paragraphs-short'] as unknown as HighlightAnchor, container, CHAPTER_A_ID)
+    expect(range?.toString()).toBe('thirteen.The')
   })
 })
 

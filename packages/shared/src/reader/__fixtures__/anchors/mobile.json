@@ -1,11 +1,11 @@
 {
   "chapter-start": {
-    "prefix": "\n  ",
+    "prefix": "",
     "exact": "Chapter One",
     "suffix": "It was a bright cold day in Ap"
   },
   "inline-tags": {
-    "prefix": "\n  Chapter OneIt was a ",
+    "prefix": "Chapter OneIt was a ",
     "exact": "bright cold day in April",
     "suffix": ", and the clocks were striking"
   },
@@ -13,6 +13,11 @@
     "prefix": "in April, and the clocks were ",
     "exact": "striking thirteen.The hallway",
     "suffix": " smelt of boiled cabbage and o"
+  },
+  "across-paragraphs-short": {
+    "prefix": " and the clocks were striking ",
+    "exact": "thirteen.The",
+    "suffix": " hallway smelt of boiled cabba"
   },
   "nbsp": {
     "prefix": "clocks were striking thirteen.",
@@ -32,7 +37,17 @@
   "chapter-end": {
     "prefix": " room went quiet.That was the ",
     "exact": "end of it.",
-    "suffix": "\n  \n  \n  registerChapter(\"chap"
+    "suffix": ""
+  },
+  "edge-repeat-start": {
+    "prefix": "",
+    "exact": "said the word again",
+    "suffix": ", and much later he said the w"
+  },
+  "edge-repeat-end": {
+    "prefix": "word again, and much later he ",
+    "exact": "said the word again",
+    "suffix": ""
   },
   "cyrillic": {
     "prefix": "зділ третійСлово за словом, і ",
@@ -42,6 +57,6 @@
   "rtl-arabic": {
     "prefix": " слово — так минав день.مرحبا ",
     "exact": "بالعالم",
-    "suffix": "، هذه جملة قصيرة.\n  \n  \n  regi"
+    "suffix": "، هذه جملة قصيرة."
   }
 }

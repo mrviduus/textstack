@@ -36,6 +36,7 @@ export type AnchorFixtureFile = Record<string, { prefix?: string; exact: string;
 export const CHAPTER_A_ID = '11111111-1111-4111-8111-111111111111'
 export const CHAPTER_B_ID = '22222222-2222-4222-8222-222222222222'
 export const CHAPTER_UK_ID = '33333333-3333-4333-8333-333333333333'
+export const CHAPTER_EDGE_ID = '44444444-4444-4444-8444-444444444444'
 
 export const ANCHOR_CHAPTERS: AnchorFixtureChapter[] = [
   {
@@ -66,16 +67,26 @@ export const ANCHOR_CHAPTERS: AnchorFixtureChapter[] = [
       '<p>Слово за словом, і знову <em>слово</em> — так минав день.</p>' +
       '<p dir="rtl">مرحبا بالعالم، هذه جملة قصيرة.</p>',
   },
+  {
+    // The same phrase opens and closes the chapter: at either edge one side of
+    // the context is empty, and the other side alone has to pick the occurrence.
+    id: CHAPTER_EDGE_ID,
+    slug: 'edge',
+    html: '<p>said the word again, and much later he said the word again</p>',
+  },
 ]
 
 export const ANCHOR_CASES: AnchorFixtureCase[] = [
   { name: 'chapter-start', chapter: CHAPTER_A_ID, exact: 'Chapter One', occurrence: 0 },
   { name: 'inline-tags', chapter: CHAPTER_A_ID, exact: 'bright cold day in April', occurrence: 0 },
   { name: 'across-paragraphs', chapter: CHAPTER_A_ID, exact: 'striking thirteen.The hallway', occurrence: 0 },
+  { name: 'across-paragraphs-short', chapter: CHAPTER_A_ID, exact: 'thirteen.The', occurrence: 0 },
   { name: 'nbsp', chapter: CHAPTER_A_ID, exact: 'The hallway smelt', occurrence: 0 },
   { name: 'repeated-first', chapter: CHAPTER_A_ID, exact: 'said the word again', occurrence: 0 },
   { name: 'repeated-second', chapter: CHAPTER_A_ID, exact: 'said the word again', occurrence: 1 },
   { name: 'chapter-end', chapter: CHAPTER_A_ID, exact: 'end of it.', occurrence: 0 },
+  { name: 'edge-repeat-start', chapter: CHAPTER_EDGE_ID, exact: 'said the word again', occurrence: 0 },
+  { name: 'edge-repeat-end', chapter: CHAPTER_EDGE_ID, exact: 'said the word again', occurrence: 1 },
   { name: 'cyrillic', chapter: CHAPTER_UK_ID, exact: 'знову слово', occurrence: 0 },
   { name: 'rtl-arabic', chapter: CHAPTER_UK_ID, exact: 'بالعالم', occurrence: 0 },
 ]

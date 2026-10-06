@@ -8,6 +8,7 @@ import {
   ANCHOR_CHAPTERS,
   CHAPTER_A_ID,
   CHAPTER_B_ID,
+  CHAPTER_EDGE_ID,
   caseStart,
   chapterById,
   PRODUCER_ONLY_CASES,
@@ -115,6 +116,37 @@ describe('mobile anchor creator (getSelectionAnchor in the real reader document)
     })
   }
 
+  it('quotes the same context as the web for every selection', () => {
+    // Both cut prefix/suffix from the chapter element, so the only difference
+    // left is the fields mobile does not send (offsets, chapterId).
+    const web = read('web.json')
+    for (const c of ANCHOR_CASES) {
+      const { prefix, exact, suffix } = web[c.name]
+      expect(generated[c.name], c.name).toEqual({ prefix, exact, suffix })
+    }
+  })
+
+  it('takes exact from the Range, not from a WebView-serialized Selection', () => {
+    // Chromium/WebKit serialize a Selection like innerText — a paragraph break
+    // becomes newlines. jsdom does not, so fake the device's serialization.
+    const w = reader(chapterById(CHAPTER_A_ID))
+    const c = ANCHOR_CASES.find((x) => x.name === 'across-paragraphs')!
+    const el = chapterEl(w)
+    const range = rangeAt(w, el, caseStart(el.textContent!, c), c.exact.length)
+    const real = w.getSelection
+    w.getSelection = () => ({
+      isCollapsed: false,
+      rangeCount: 1,
+      getRangeAt: () => range,
+      toString: () => 'striking thirteen.\n\nThe hallway',
+    }) as unknown as Selection
+    try {
+      expect(w.getSelectionAnchor()!.exact).toBe(c.exact)
+    } finally {
+      w.getSelection = real
+    }
+  })
+
   afterAll(() => {
     if (UPDATE) writeFileSync(join(FIXTURES, 'mobile.json'), JSON.stringify(generated, null, 2) + '\n')
   })
@@ -140,26 +172,32 @@ describe('mobile resolver (hlBuildRange) resolves every producer', () => {
     })
   }
 
-  it('repeated phrase: context picks the right occurrence (web + mobile)', () => {
-    const w = reader(chapterById(CHAPTER_A_ID))
-    const text = w.document.body.textContent!
-    const first = text.indexOf('said the word again')
-    const second = text.indexOf('said the word again', first + 1)
-    for (const file of ['web.json', 'mobile.json']) {
-      const fx = read(file)
-      const r1 = w.hlBuildRange(fx['repeated-first'])!
-      const r2 = w.hlBuildRange(fx['repeated-second'])!
-      // Offset of each range's start within the body's text.
-      const offsetOf = (r: Range) => {
-        const pre = w.document.createRange()
-        pre.setStart(w.document.body, 0)
-        pre.setEnd(r.startContainer, r.startOffset)
-        return pre.toString().length
+  /** Offset of a range's start within the body's text. */
+  const offsetOf = (w: ReaderWindow, r: Range) => {
+    const pre = w.document.createRange()
+    pre.setStart(w.document.body, 0)
+    pre.setEnd(r.startContainer, r.startOffset)
+    return pre.toString().length
+  }
+
+  const repeats: [string, string, string][] = [
+    [CHAPTER_A_ID, 'repeated-first', 'repeated-second'],
+    // At the chapter's edges one side of the context is empty.
+    [CHAPTER_EDGE_ID, 'edge-repeat-start', 'edge-repeat-end'],
+  ]
+  for (const [chapterId, firstCase, secondCase] of repeats) {
+    it(`repeated phrase (${firstCase}/${secondCase}): context picks the right occurrence (web + mobile)`, () => {
+      const w = reader(chapterById(chapterId))
+      const text = w.document.body.textContent!
+      const first = text.indexOf('said the word again')
+      const second = text.indexOf('said the word again', first + 1)
+      for (const file of ['web.json', 'mobile.json']) {
+        const fx = read(file)
+        expect(offsetOf(w, w.hlBuildRange(fx[firstCase])!), file).toBe(first)
+        expect(offsetOf(w, w.hlBuildRange(fx[secondCase])!), file).toBe(second)
       }
-      expect(offsetOf(r1), file).toBe(first)
-      expect(offsetOf(r2), file).toBe(second)
-    }
-  })
+    })
+  }
 
   it('an anchor from chapter A resolves nowhere in chapter B unless its text is there', () => {
     // The WebView has no chapter gate of its own (see header). This pins the

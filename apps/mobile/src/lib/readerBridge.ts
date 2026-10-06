@@ -253,10 +253,25 @@ export const READER_SELECTION_BRIDGE = `
     // the lifecycle, so it also owns the ending.
     window.__tsClearWordMark = clearWordMark;
 
+    // The chapter's own element, or the body where there is none (the PDF
+    // viewer). Context cut from the body picked up the template's whitespace,
+    // the inline registerChapter script and the end-of-chapter labels -- text
+    // no other client has, so it could only ever fail to match.
+    function anchorScope(range) {
+      var n = range.startContainer;
+      var el = n && n.nodeType === 1 ? n : n && n.parentElement;
+      return (el && el.closest && el.closest('[data-chapter-slug]')) || document.body;
+    }
+
     function getRangeAnchor(range) {
-      var text = range.toString().trim();
+      var scope = anchorScope(range);
+      // Range.toString(), untrimmed -- the same raw text nodes the prefix,
+      // the suffix and both resolvers read. Selection.toString() serializes
+      // like innerText (paragraph breaks become newlines), so an exact taken
+      // from it matched nothing once a selection crossed a paragraph.
+      var text = range.toString();
       var preRange = document.createRange();
-      preRange.setStart(document.body, 0);
+      preRange.setStart(scope, 0);
       preRange.setEnd(range.startContainer, range.startOffset);
       // 30, not 50: the resolver compares 30 characters of context
       // (ANCHOR_CONTEXT_LENGTH in @textstack/shared), so a longer prefix only
@@ -265,7 +280,7 @@ export const READER_SELECTION_BRIDGE = `
       var prefix = preRange.toString().slice(-30);
       var sufRange = document.createRange();
       sufRange.setStart(range.endContainer, range.endOffset);
-      sufRange.setEnd(document.body, document.body.childNodes.length);
+      sufRange.setEnd(scope, scope.childNodes.length);
       var suffix = sufRange.toString().substring(0, 30);
       return { prefix: prefix, exact: text, suffix: suffix };
     }
@@ -511,24 +526,7 @@ export const READER_SELECTION_BRIDGE = `
     function getSelectionAnchor() {
       var sel = window.getSelection();
       if (!sel || sel.isCollapsed || !sel.rangeCount) return null;
-      var range = sel.getRangeAt(0);
-      var text = sel.toString().trim();
-      // Get prefix (up to 30 chars before selection — must match
-      // ANCHOR_CONTEXT_LENGTH, which the resolver compares against)
-      var preRange = document.createRange();
-      preRange.setStart(document.body, 0);
-      preRange.setEnd(range.startContainer, range.startOffset);
-      // 30, not 50: the resolver compares 30 characters of context
-      // (ANCHOR_CONTEXT_LENGTH in @textstack/shared), so a longer prefix only
-      // made anchors created here score worse when the same book was opened
-      // on the web.
-      var prefix = preRange.toString().slice(-30);
-      // Get suffix (up to 30 chars after selection)
-      var sufRange = document.createRange();
-      sufRange.setStart(range.endContainer, range.endOffset);
-      sufRange.setEnd(document.body, document.body.childNodes.length);
-      var suffix = sufRange.toString().substring(0, 30);
-      return { prefix: prefix, exact: text, suffix: suffix };
+      return getRangeAnchor(sel.getRangeAt(0));
     }
 
     // Tap pulse: wrap selection in temporary span with animation
