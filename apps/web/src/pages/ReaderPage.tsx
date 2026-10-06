@@ -65,7 +65,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
   // For userbook mode, chapterSlug comes from the :chapterSlug param
   const chapterIdentifier = mode === 'public' ? chapterSlug : userChapterSlug
 
-  const { isAuthenticated, isLoading: authLoading } = useAuth()
+  const { isAuthenticated, isLoading: authLoading, user } = useAuth()
   const { language, getLocalizedPath } = useLanguage()
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -125,6 +125,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
       publicChapter,
       book,
       isAuthenticated,
+      userId: user?.id,
     })
   // /me/library holds editions only; an upload is already the reader's own.
   const { add: addToLibrary, isInLibrary } = useLibrary({ enabled: mode === 'public' })
