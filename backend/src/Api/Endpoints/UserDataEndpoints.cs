@@ -466,7 +466,7 @@ public static class UserDataEndpoints
         return Results.Ok(new { total, items });
     }
 
-    private static async Task<IResult> AddToLibrary(
+    internal static async Task<IResult> AddToLibrary(
         Guid editionId,
         HttpContext httpContext,
         AuthService authService,
@@ -499,19 +499,25 @@ public static class UserDataEndpoints
             : null;
 
         // Check if already in library
-        var existing = await db.UserLibraries
-            .FirstOrDefaultAsync(l => l.UserId == userId.Value && l.EditionId == editionId, ct);
+        async Task<IResult?> AlreadyInLibraryAsync()
+        {
+            var existing = await db.UserLibraries
+                .FirstOrDefaultAsync(l => l.UserId == userId.Value && l.EditionId == editionId, ct);
+            return existing == null
+                ? null
+                : Results.Ok(new LibraryItemDto(
+                    existing.EditionId,
+                    editionInfo.Slug,
+                    editionInfo.Title,
+                    editionInfo.Language,
+                    editionInfo.CoverPath,
+                    existing.CreatedAt,
+                    authorJoined
+                ));
+        }
 
-        if (existing != null)
-            return Results.Ok(new LibraryItemDto(
-                existing.EditionId,
-                editionInfo.Slug,
-                editionInfo.Title,
-                editionInfo.Language,
-                editionInfo.CoverPath,
-                existing.CreatedAt,
-                authorJoined
-            ));
+        if (await AlreadyInLibraryAsync() is { } already)
+            return already;
 
         var libraryItem = new UserLibrary
         {
@@ -522,7 +528,18 @@ public static class UserDataEndpoints
         };
 
         db.UserLibraries.Add(libraryItem);
-        await db.SaveChangesAsync(ct);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (IsUniqueViolation(ex))
+        {
+            // Double tap: the other request inserted between our read and this insert.
+            db.UserLibraries.Remove(libraryItem);
+            if (await AlreadyInLibraryAsync() is { } winner)
+                return winner;
+            throw;
+        }
 
         return Results.Created($"/me/library/{editionId}", new LibraryItemDto(
             libraryItem.EditionId,
