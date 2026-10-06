@@ -19,7 +19,7 @@
 # into a directory of its own. The old `pnpm install --filter textstack-web...`
 # did not isolate anything: the workspace is hoisted (for Metro), so it installed
 # web's devDependencies (vite, vitest, playwright, jsdom…) and mobile's whole tree.
-FROM node:24.20.0-alpine@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf AS deps
+FROM node:26.10.0-alpine@sha256:0b36e8c136b94cd4fcf02188228e76c31ad5872eef3fec8cbd2eee500cfd9e80 AS deps
 WORKDIR /repo
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 RUN corepack enable && corepack prepare --activate
@@ -37,7 +37,7 @@ ENV PUPPETEER_SKIP_DOWNLOAD=true
 RUN pnpm --filter textstack-web deploy --prod --legacy --frozen-lockfile /deploy
 
 # ---- runtime ----
-FROM node:24.20.0-alpine@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf
+FROM node:26.10.0-alpine@sha256:0b36e8c136b94cd4fcf02188228e76c31ad5872eef3fec8cbd2eee500cfd9e80
 
 RUN apk add --no-cache \
     chromium \
