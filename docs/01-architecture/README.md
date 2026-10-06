@@ -6,6 +6,8 @@ Verified against code on 2026-10-04.
 
 ## High-Level View
 
+How requests move between these parts: the interactive [map](https://mrviduus.github.io/textstack/architecture/) (source [textstack-map.html](textstack-map.html)), or the same as Mermaid in [flows.md](flows.md).
+
 ```
 Internet ─► Cloudflare (DNS + TLS) ─► Cloudflare Tunnel ─► nginx on host (:80)
    textstack.app ─┬─ bots → prerendered SSG HTML, humans → SPA (apps/web/dist)
@@ -155,6 +157,7 @@ are superseded or obsolete.
 
 ## See also
 
+- [flows.md](flows.md) — runtime view: upload, read, MCP, SSG, background AI
 - [data-model.md](data-model.md) — entity map + PII
 - [multisite.md](multisite.md) — host → site resolution
 - [frontend.md](frontend.md) — apps and packages
