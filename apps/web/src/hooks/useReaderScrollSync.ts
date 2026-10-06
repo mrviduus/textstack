@@ -65,6 +65,8 @@ interface Params {
    * does the normal restore run.
    */
   holdRestore?: boolean
+  /** The hold hit its deadline (HOLD_DEADLINE_MS after the chapter is ready) and was dropped. */
+  onHoldExpired?: () => void
 }
 
 
@@ -120,6 +122,9 @@ const SAVE_DEBOUNCE_MS = 1500
 /** How long a typography change keeps re-anchoring on article resizes (webfont swap). */
 const REFLOW_SETTLE_MS = 1000
 
+/** A ?highlight= link may hold restore this long after the chapter is ready, no longer. */
+const HOLD_DEADLINE_MS = 5000
+
 /** Scroll pause after which the reading line is remembered for a later reflow. */
 const LINE_IDLE_MS = 150
 
@@ -154,6 +159,7 @@ export function useReaderScrollSync({
   userProgress,
   settingsKey,
   holdRestore = false,
+  onHoldExpired,
 }: Params) {
   const scrollRestoredRef = useRef(false)
   // The reading line as of the last scroll pause. The live capture reads the
@@ -221,6 +227,25 @@ export function useReaderScrollSync({
     return writeProgress(pending.identifier, pending.offset)
   }, [writeProgress])
 
+  // Every hold has a deadline: if the link never resolves (a book id that never
+  // arrives, a list that never loads) restore and every save would stay blocked.
+  const [holdExpiredFor, setHoldExpiredFor] = useState<string | null>(null)
+  const held = holdRestore && holdExpiredFor !== chapterIdentifier
+  const onHoldExpiredRef = useRef(onHoldExpired)
+  onHoldExpiredRef.current = onHoldExpired
+  useEffect(() => {
+    if (!holdRestore) setHoldExpiredFor(null)
+  }, [holdRestore])
+  useEffect(() => {
+    if (!held || !chapterLoaded || originalActive) return
+    const forId = chapterIdentifier ?? null
+    const timer = window.setTimeout(() => {
+      setHoldExpiredFor(forId)
+      onHoldExpiredRef.current?.()
+    }, HOLD_DEADLINE_MS)
+    return () => clearTimeout(timer)
+  }, [held, chapterLoaded, originalActive, chapterIdentifier])
+
   // Reset restore guard on chapter change.
   useEffect(() => {
     scrollRestoredRef.current = false
@@ -231,7 +256,7 @@ export function useReaderScrollSync({
   // top — React Router preserves scrollY across route changes, so without
   // this, hitting "Next" at the bottom of ch1 leaves you mid-/end-of ch2.
   useEffect(() => {
-    if (scrollRestoredRef.current || effectiveLoading || holdRestore) return
+    if (scrollRestoredRef.current || effectiveLoading || held) return
     if (originalActive || !chapterLoaded) return
 
     // This session's own last position in this chapter beats anything fetched
@@ -271,7 +296,7 @@ export function useReaderScrollSync({
       setRestoredFor(forId ?? null)
       if (forId) lastLineRef.current = captureReadingPosition(forId)
     })
-  }, [originalActive, chapterLoaded, effectiveLoading, effectiveProgress, chapterIdentifier, holdRestore])
+  }, [originalActive, chapterLoaded, effectiveLoading, effectiveProgress, chapterIdentifier, held])
 
   /** Something else (a `?highlight=` jump) positioned the reader: treat it as the restore. */
   const markPositioned = useCallback(() => {

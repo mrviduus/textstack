@@ -391,6 +391,7 @@ export function ReaderHighlights({
     scrollToHighlightId,
     highlightLinkReady,
     onHighlightLinkDone,
+    pdfLinkJumps: liveActionsOnly,
     scrollToHl,
     onNavigateToHighlight,
   })

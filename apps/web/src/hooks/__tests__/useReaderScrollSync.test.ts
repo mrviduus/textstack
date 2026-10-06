@@ -498,3 +498,24 @@ describe('useReaderScrollSync — highlight link holds restore', () => {
     expect(updateProgress.mock.calls[0][2]).toBe('scroll:ch1:1234')
   })
 })
+
+// R2 third review #3: every hold has a deadline.
+describe('useReaderScrollSync — the highlight hold has a deadline', () => {
+  afterEach(() => vi.useRealTimers())
+  it('a link that never resolves releases after 5s: normal restore runs and the reader is told', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    realScrollTo()
+    const onHoldExpired = vi.fn()
+    const updateProgress = vi.fn()
+    renderHook(() => useReaderScrollSync({
+      ...baseProps, effectiveProgress: { locator: 'scroll:ch1:5000' }, publicProgress: { updateProgress, flushSave: vi.fn() },
+      holdRestore: true, onHoldExpired,
+    } as Props))
+    act(() => { vi.advanceTimersByTime(4900) })
+    expect(window.scrollTo).not.toHaveBeenCalled()
+    act(() => { vi.advanceTimersByTime(200) })
+    expect(onHoldExpired).toHaveBeenCalledTimes(1)
+    expect(window.scrollTo).toHaveBeenCalledWith({ top: 5000, behavior: 'instant' })
+    expect(updateProgress.mock.calls[0][2]).toBe('scroll:ch1:5000')
+  })
+})

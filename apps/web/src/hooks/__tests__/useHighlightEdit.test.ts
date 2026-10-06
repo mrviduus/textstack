@@ -194,3 +194,28 @@ describe('useHighlightEdit — ?highlight= link reports its outcome', () => {
     expect(done).not.toHaveBeenCalled()
   })
 })
+
+describe('useHighlightEdit — ?highlight= link to a PDF highlight', () => {
+  type Opts = Parameters<typeof useHighlightEdit>[0]
+  const pdf = (): StoredHighlight => ({
+    ...hl('p'), chapterId: '',
+    anchor: { v: 1, kind: 'pdf', page: 3, rects: [{ x: 1, y: 1, w: 1, h: 1 }], exact: 'p' } as unknown as StoredHighlight['anchor'],
+  })
+  it('reflow (PDF fell back to text): nothing jumps → not found, the normal restore runs', async () => {
+    const done = vi.fn()
+    renderHook(() => useHighlightEdit({
+      highlights: [pdf()], addHighlight, updateHighlight, removeHighlight, chapterId: 'c1', containerRef: makeContainer(),
+      scrollToHighlightId: 'p', highlightLinkReady: true, onHighlightLinkDone: done, pdfLinkJumps: false,
+    } as Opts))
+    await vi.waitFor(() => expect(done).toHaveBeenCalled())
+    expect(done).toHaveBeenCalledWith(false)
+  })
+  it('Original layout: the page jump positions it → landed', async () => {
+    const done = vi.fn()
+    renderHook(() => useHighlightEdit({
+      highlights: [pdf()], addHighlight, updateHighlight, removeHighlight, chapterId: 'c1', containerRef: makeContainer(),
+      scrollToHighlightId: 'p', highlightLinkReady: true, onHighlightLinkDone: done, pdfLinkJumps: true,
+    } as Opts))
+    await vi.waitFor(() => expect(done).toHaveBeenCalledWith(true))
+  })
+})

@@ -31,12 +31,15 @@ export function useHighlights(editionId?: string, userBookId?: string, options?:
   const { isAuthenticated } = options || {}
   const [highlights, setHighlights] = useState<StoredHighlight[]>([])
   const [loading, setLoading] = useState(true)
-  // The book whose list is fully loaded. `loading` alone is false before the
-  // book id is known and stale for one render after it changes — a ?highlight=
-  // link reading it gave up on an empty list.
-  const [loadedBookId, setLoadedBookId] = useState<string | null>(null)
   const bookId = userBookId || editionId || ''
   const isUserBook = !!userBookId
+  // Which (book, auth) the list is fully loaded for. `loading` alone is false
+  // before the book id is known and stale for a render after the book or auth
+  // changes — a ?highlight= link reading it gave up on the wrong list (a
+  // signed-out local read standing in for the signed-in server list).
+  const loadKey = `${bookId}|${!!isAuthenticated}`
+  const [loadedKey, setLoadedKey] = useState<string | null>(null)
+  const loaded = !!bookId && loadedKey === loadKey
 
   // Merge server + local pending, then replay (lib/highlightSync — shared with the
   // post-sign-in replay, and serialized with it).
@@ -77,13 +80,13 @@ export function useHighlights(editionId?: string, userBookId?: string, options?:
       localLoaded
         .then(() => syncWithServer(() => cancelled))
         .finally(() => {
-          if (!cancelled) { setLoading(false); setLoadedBookId(bookId) }
+          if (!cancelled) { setLoading(false); setLoadedKey(`${bookId}|true`) }
         })
     } else {
       // After the local read: "loaded" with an empty list made a ?highlight= link
       // give up before the highlight it names had been read.
       localLoaded.finally(() => {
-        if (!cancelled) { setLoading(false); setLoadedBookId(bookId) }
+        if (!cancelled) { setLoading(false); setLoadedKey(`${bookId}|false`) }
       })
     }
 
@@ -266,7 +269,8 @@ export function useHighlights(editionId?: string, userBookId?: string, options?:
   return {
     highlights,
     loading,
-    loadedBookId,
+    /** The list is complete for the current book and auth state. */
+    loaded,
     addHighlight,
     updateHighlight,
     removeHighlight,

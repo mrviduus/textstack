@@ -34,6 +34,8 @@ interface UseHighlightEditOptions {
    * appeared). The reader then drops the param and, on false, runs its normal restore.
    */
   onHighlightLinkDone?: (found: boolean) => void
+  /** The Original-layout PDF viewer is up and page-jumps to a PDF highlight. */
+  pdfLinkJumps?: boolean
   /** Nonce-driven jump from the TOC drawer's Highlights tab (reflow only). */
   scrollToHl?: ScrollToHighlight | null
   /**
@@ -71,6 +73,7 @@ export function useHighlightEdit({
   scrollToHighlightId,
   highlightLinkReady = false,
   onHighlightLinkDone,
+  pdfLinkJumps = false,
   scrollToHl,
   onNavigateToHighlight,
   onAfterCreate,
@@ -126,9 +129,11 @@ export function useHighlightEdit({
       onLinkDoneRef.current?.(false)
       return
     }
-    // A PDF highlight is positioned by ReaderPage's page jump.
+    // A PDF highlight is positioned by ReaderPage's page jump — only in Original
+    // layout. In reflow (the PDF fell back to text) nothing would move, and
+    // "landed" would let save-on-open record wherever the reader happens to be.
     if (isPdfAnchor(target.anchor)) {
-      onLinkDoneRef.current?.(true)
+      onLinkDoneRef.current?.(pdfLinkJumps)
       return
     }
     let tries = 0
@@ -140,7 +145,7 @@ export function useHighlightEdit({
     }
     attempt()
     return () => clearTimeout(timer)
-  }, [scrollToHighlightId, highlightLinkReady, tryScrollToTarget])
+  }, [scrollToHighlightId, highlightLinkReady, pdfLinkJumps, tryScrollToTarget])
 
   // Drawer jump: nonce-driven so re-selecting the same highlight re-fires.
   const lastNonceRef = useRef<number | null>(null)

@@ -65,7 +65,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
   // For userbook mode, chapterSlug comes from the :chapterSlug param
   const chapterIdentifier = mode === 'public' ? chapterSlug : userChapterSlug
 
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, isLoading: authLoading } = useAuth()
   const { language, getLocalizedPath } = useLanguage()
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -441,13 +441,13 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
     settingsKey: `${settings.fontSize} ${settings.lineHeight} ${settings.fontFamily} ${settings.textAlign}`,
     // A ?highlight= link positions the reader; restore and save-on-open wait for it.
     holdRestore: !!scrollToHighlightId && !originalActive,
+    onHoldExpired: () => handleHighlightLinkDoneRef.current(false),
   })
 
   // ?highlight= resolved: landed → that is the restored position; not found →
   // the held restore runs. Either way the param goes (replace), so Back and
   // reload restore normally instead of jumping again.
-  const highlightLinkReady = !!highlightsApi.loadedBookId
-    && highlightsApi.loadedBookId === (mode === 'userbook' ? id : book?.id)
+  const highlightLinkReady = highlightsApi.loaded && !authLoading
     && (originalActive || isChapterReady(chapter, chapterIdentifier, loading))
   const handleHighlightLinkDone = useCallback((found: boolean) => {
     if (found) markPositioned()
@@ -456,6 +456,8 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
     const q = sp.toString()
     navigate({ pathname: location.pathname, search: q ? `?${q}` : '', hash: location.hash }, { replace: true, state: location.state })
   }, [markPositioned, location, navigate])
+  const handleHighlightLinkDoneRef = useRef(handleHighlightLinkDone)
+  handleHighlightLinkDoneRef.current = handleHighlightLinkDone
 
   // Track current book for guest returning user feature
   useEffect(() => {

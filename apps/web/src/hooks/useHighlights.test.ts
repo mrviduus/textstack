@@ -259,3 +259,20 @@ describe('replayAllPendingHighlights', () => {
     expect(offlineDb.deleteHighlight).toHaveBeenCalledWith(guestRow.id)
   })
 })
+
+// R2 third review #1: "loaded" must describe the CURRENT book and auth state —
+// a signed-out local load is not the signed-in list a ?highlight= link needs.
+describe('useHighlights.loaded', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('is false again from the very render auth resolves until the server list is in', async () => {
+    vi.mocked(offlineDb.getHighlightsForEdition).mockResolvedValue([])
+    vi.mocked(userData.getPublicHighlights).mockReturnValue(new Promise(() => {}))
+    const { result, rerender } = renderHook((auth: boolean) => useHighlights('ed-1', undefined, { isAuthenticated: auth }), { initialProps: false })
+    await waitFor(() => expect((result.current as { loaded?: boolean }).loaded).toBe(true))
+    rerender(true)
+    expect((result.current as { loaded?: boolean }).loaded).toBe(false)
+    await new Promise((r) => setTimeout(r, 30))
+    expect((result.current as { loaded?: boolean }).loaded).toBe(false)
+  })
+})
