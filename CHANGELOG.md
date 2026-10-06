@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **CI** — advisory GHSA-68fv (source-map-js) allowlisted: build/test tooling only; 1.2.2 rides the next dependency refresh — ci
 - **Reader** — re-ingest also moves positions that name a chapter by slug: progress locator + text-anchor position, bookmarks, upload progress, insights (matched chapter keeps offset/anchor; re-pointed one opens at chapter start; insight on a taken slug skipped + logged) — backend
 - **Reader** — progress write with no client timestamp (mark finished/unread, MCP `set_book_progress`) stamps server now instead of null, so an older queued write can no longer undo it — backend
 - **API** — `/me/library` and `/me/progress` return the whole list by default (was a silent 50; no client pages; ceiling 1000, explicit `limit`/`offset` kept) — backend
