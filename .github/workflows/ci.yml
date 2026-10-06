@@ -49,12 +49,86 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
+# A new push to a pull request cancels the run it makes obsolete. Everything else
+# — the `deps/**` push and above all the `merged-tree` call from deploy.yml — is
+# keyed on its own run id, so it shares a group with nothing and is never
+# cancelled (a group also drops older *pending* runs, so keying a deploy's call on
+# the ref would not be safe even with cancel-in-progress off).
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 # Every job carries `timeout-minutes`, and the comment above each one is what it
 # actually takes, measured. None of them had a ceiling until a hung `mobile-runtime`
 # on a Dependabot PR ran for six hours — GitHub's default — and was billed for all
 # six. The numbers are deliberately loose: a ceiling is there to end a hang, not to
 # police a slow run, so a job that trips one is reporting a hang, not a bad estimate.
 jobs:
+  # Which areas a pull request touches, so the expensive jobs can sit out the ones
+  # they cannot be affected by. A docs-only PR used to pay the full 12 minutes.
+  #
+  # Pull requests only. On the `deps/**` push and the `merged-tree` call this job
+  # is skipped, and every job below treats "changes did not succeed" as "run" —
+  # so those paths behave exactly as before, and so does a PR whose diff this
+  # step fails to read (fail open: a broken filter costs time, never coverage).
+  #
+  # Required checks: backend, frontend, docker and e2e are required, and a job
+  # skipped by its own `if:` reports success to branch protection. That is also
+  # true of a job skipped because a job it `needs` FAILED — which is why every
+  # `if:` below starts with `!cancelled()` and the fail-open clause: without them
+  # a broken `changes` job would skip all four and let the PR merge green.
+  #
+  # Areas: `docs/**` and root-level *.md touch nothing. Markdown INSIDE a code
+  # directory is that directory's (Application embeds ChapterReview/ReviewMethod.md;
+  # the MCP package ships its README). Anything shared or unrecognised —
+  # packages/, scripts/, .github/, root package/lock files, .nvmrc — is
+  # everything.
+  changes:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    # ~5s.
+    timeout-minutes: 5
+    outputs:
+      backend: ${{ steps.areas.outputs.backend }}
+      web: ${{ steps.areas.outputs.web }}
+      mobile: ${{ steps.areas.outputs.mobile }}
+      extension: ${{ steps.areas.outputs.extension }}
+    steps:
+      # A pull_request checkout is GitHub's merge commit; its first parent is the
+      # base tip. Depth 2 is both commits and nothing more.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+
+      - name: Classify changed paths
+        id: areas
+        run: |
+          set -euo pipefail
+          files=$(git diff --name-only HEAD^1 HEAD)
+          echo "$files"
+          backend=false web=false mobile=false extension=false
+          everything() { backend=true web=true mobile=true extension=true; }
+          [ -n "$files" ] || everything
+          while IFS= read -r f; do
+            case "$f" in
+              '') ;;
+              docs/*) ;;
+              backend/*|tests/*|*.sln|Directory.*.props|NuGet.Config|global.json|docker-compose*.yml) backend=true ;;
+              apps/web/*|apps/admin/*) web=true ;;
+              apps/mobile/*) mobile=true ;;
+              extension/*) extension=true ;;
+              */*) everything ;;
+              *.md) ;;
+              *) everything ;;
+            esac
+          done <<< "$files"
+          {
+            echo "backend=$backend"
+            echo "web=$web"
+            echo "mobile=$mobile"
+            echo "extension=$extension"
+          } | tee -a "$GITHUB_OUTPUT"
+
   # Cheapest job in the file and the one that would have saved the most time:
   # an EAS workflow pinned to Node 20 could not install eas-cli 23, and finding
   # that out cost two round trips. See scripts/check-node-version.mjs.
@@ -80,7 +154,8 @@ jobs:
   # file would ever look at it. Its README documented a check and asked a person
   # to remember it; nothing ran it, and it could not have failed if it had.
   extension:
-    if: inputs.scope != 'merged-tree'
+    needs: changes
+    if: ${{ !cancelled() && inputs.scope != 'merged-tree' && (needs.changes.result != 'success' || needs.changes.outputs.extension == 'true') }}
     runs-on: ubuntu-latest
     # 12s typical.
     timeout-minutes: 10
@@ -119,6 +194,8 @@ jobs:
       - run: node scripts/check-advisories.mjs
 
   backend:
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.backend == 'true') }}
     runs-on: ubuntu-latest
     # 5m typical.
     timeout-minutes: 20
@@ -207,6 +284,9 @@ jobs:
         run: node scripts/report-drift.mjs nuget
 
   frontend:
+    # Mobile too: this job drift-checks the reader bundles generated into apps/mobile.
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.web == 'true' || needs.changes.outputs.mobile == 'true') }}
     runs-on: ubuntu-latest
     # 1m45 typical.
     timeout-minutes: 15
@@ -296,7 +376,8 @@ jobs:
   # build in a Pixel-sized viewport — it exercises no native code path, so running
   # it in CI would buy confidence it cannot actually provide.
   mobile:
-    if: inputs.scope != 'merged-tree'
+    needs: changes
+    if: ${{ !cancelled() && inputs.scope != 'merged-tree' && (needs.changes.result != 'success' || needs.changes.outputs.mobile == 'true') }}
     runs-on: ubuntu-latest
     # 1m10 typical.
     timeout-minutes: 15
@@ -433,9 +514,10 @@ jobs:
             "${{ steps.head.outputs.runtime }}"
 
   docker:
-    if: inputs.scope != 'merged-tree'
+    needs: changes
+    if: ${{ !cancelled() && inputs.scope != 'merged-tree' && (needs.changes.result != 'success' || needs.changes.outputs.backend == 'true') }}
     runs-on: ubuntu-latest
-    # 12m typical.
+    # 12m typical uncached; a layer-cache hit should cut the build share (unmeasured).
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
@@ -444,6 +526,12 @@ jobs:
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
           docker system prune -af
+
+      # Layer cache in the Actions cache (.github/docker-compose.ci.yml). buildx
+      # gives compose a builder that can export to it; the runtime action hands
+      # the cache token to `run:` steps, which do not get it otherwise.
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: crazy-max/ghaction-github-runtime@04d248b84655b509d8c44dc1d6f990c879747487 # v4.0.0
 
       - name: Create .env for CI
         run: |
@@ -479,8 +567,10 @@ jobs:
           mkdir -p data/storage data/textstack data/postgres-prod data/explain-cache
           chmod 777 data/storage data/textstack data/explain-cache
 
+      # Loaded into the local daemon under compose's own names, so the plain
+      # `up -d` below starts them without building again.
       - name: Build containers
-        run: docker compose build
+        run: docker compose -f docker-compose.yml -f .github/docker-compose.ci.yml build
 
       - name: Start services
         run: docker compose up -d
@@ -523,9 +613,10 @@ jobs:
         run: docker compose down
 
   e2e:
-    if: inputs.scope != 'merged-tree'
+    needs: changes
+    if: ${{ !cancelled() && inputs.scope != 'merged-tree' && (needs.changes.result != 'success' || needs.changes.outputs.backend == 'true' || needs.changes.outputs.web == 'true') }}
     runs-on: ubuntu-latest
-    # 11m typical.
+    # 11m typical uncached; same layer cache as `docker` (unmeasured).
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
@@ -534,6 +625,12 @@ jobs:
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
           docker system prune -af
+
+      # Layer cache in the Actions cache (.github/docker-compose.ci.yml). buildx
+      # gives compose a builder that can export to it; the runtime action hands
+      # the cache token to `run:` steps, which do not get it otherwise.
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: crazy-max/ghaction-github-runtime@04d248b84655b509d8c44dc1d6f990c879747487 # v4.0.0
 
       - name: Create .env for CI
         run: |
@@ -565,8 +662,12 @@ jobs:
           mkdir -p data/storage data/textstack data/postgres-prod data/explain-cache
           chmod 777 data/storage data/textstack data/explain-cache
 
-      - name: Build & start services
-        run: docker compose up -d --build
+      # Same images and cache scopes as `docker`; see the note there.
+      - name: Build containers
+        run: docker compose -f docker-compose.yml -f .github/docker-compose.ci.yml build
+
+      - name: Start services
+        run: docker compose up -d
 
       - name: Wait for API health
         run: |

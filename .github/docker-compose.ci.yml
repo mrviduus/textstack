@@ -1,0 +1,32 @@
+# CI-only overlay: Docker layer cache in the GitHub Actions cache. Used by the
+# `docker` and `e2e` jobs in ci.yml as
+#   docker compose -f docker-compose.yml -f .github/docker-compose.ci.yml build
+# and by nothing else. The images keep compose's own names, so a plain
+# `docker compose up -d` afterwards finds them and does not rebuild.
+#
+# One scope per image: a shared scope would let each image's cache manifest
+# overwrite the last. Both jobs build the same images from the same args, so they
+# share scopes. `ignore-error=true`: a cache that cannot be written (two jobs
+# racing on one scope, the repo's cache quota) costs the next run time, never
+# this run its result.
+services:
+  migrator:
+    build:
+      cache_from: ["type=gha,scope=compose-migrator"]
+      cache_to: ["type=gha,scope=compose-migrator,mode=max,ignore-error=true"]
+  api:
+    build:
+      cache_from: ["type=gha,scope=compose-api"]
+      cache_to: ["type=gha,scope=compose-api,mode=max,ignore-error=true"]
+  worker:
+    build:
+      cache_from: ["type=gha,scope=compose-worker"]
+      cache_to: ["type=gha,scope=compose-worker,mode=max,ignore-error=true"]
+  admin:
+    build:
+      cache_from: ["type=gha,scope=compose-admin"]
+      cache_to: ["type=gha,scope=compose-admin,mode=max,ignore-error=true"]
+  ssg-worker:
+    build:
+      cache_from: ["type=gha,scope=compose-ssg-worker"]
+      cache_to: ["type=gha,scope=compose-ssg-worker,mode=max,ignore-error=true"]
