@@ -34,6 +34,9 @@ describe('M5 wiring — the book language reaches TTS, translate, explain and sa
     expect(shell + wordActions).not.toMatch(/lang: language \}/)
     expect(shell + wordActions).not.toMatch(/fromLang=\{language\}/)
     expect(wordActions).toMatch(/bookLanguage: textLanguage/)
-    expect(wordActions).toMatch(/textLanguage,\n/)
+    // Passed to useReaderVocabActions as itself — `bookLanguage: textLanguage,` elsewhere must not satisfy it.
+    const at = wordActions.indexOf('useReaderVocabActions({')
+    expect(at).toBeGreaterThan(-1)
+    expect(wordActions.slice(at, wordActions.indexOf('\n  })', at))).toMatch(/\n\s+textLanguage,\n/)
   })
 })
