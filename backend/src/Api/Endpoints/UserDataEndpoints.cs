@@ -14,6 +14,15 @@ namespace Api.Endpoints;
 
 public static class UserDataEndpoints
 {
+    /// <summary>
+    /// Page size for the reader's own lists (/me/library, /me/progress). No client pages them, so the
+    /// default is the whole list; the ceiling only bounds one response.
+    /// </summary>
+    internal const int MaxOwnListPage = 1000;
+
+    private static int OwnListTake(int? limit) => limit is > 0 ? Math.Min(limit.Value, MaxOwnListPage) : MaxOwnListPage;
+    private static int OwnListSkip(int? offset) => Math.Max(offset ?? 0, 0);
+
     public static void MapUserDataEndpoints(this WebApplication app)
     {
         var group = app.MapGroup("/me").WithTags("User Data");
@@ -38,7 +47,7 @@ public static class UserDataEndpoints
 
     // Reading Progress Endpoints
 
-    private static async Task<IResult> GetAllProgress(
+    internal static async Task<IResult> GetAllProgress(
         HttpContext httpContext,
         AuthService authService,
         IAppDbContext db,
@@ -56,8 +65,8 @@ public static class UserDataEndpoints
 
         var total = await query.CountAsync(ct);
         var items = await query
-            .Skip(offset ?? 0)
-            .Take(limit ?? 50)
+            .Skip(OwnListSkip(offset))
+            .Take(OwnListTake(limit))
             .Join(db.Chapters, p => p.ChapterId, c => c.Id, (p, c) => new { p, c })
             .Select(x => new ReadingProgressDto(
                 x.p.EditionId,
@@ -419,7 +428,7 @@ public static class UserDataEndpoints
 
     // Library Endpoints
 
-    private static async Task<IResult> GetLibrary(
+    internal static async Task<IResult> GetLibrary(
         HttpContext httpContext,
         AuthService authService,
         IAppDbContext db,
@@ -436,8 +445,8 @@ public static class UserDataEndpoints
 
         var total = await query.CountAsync(ct);
         var raw = await query
-            .Skip(offset ?? 0)
-            .Take(limit ?? 50)
+            .Skip(OwnListSkip(offset))
+            .Take(OwnListTake(limit))
             .Select(l => new
             {
                 l.EditionId,
