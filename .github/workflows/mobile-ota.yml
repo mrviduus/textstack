@@ -74,6 +74,10 @@ concurrency:
   group: mobile-release
   cancel-in-progress: false
 
+# Read-only by default; a job that needs more says so itself.
+permissions:
+  contents: read
+
 jobs:
   ota:
     runs-on: ubuntu-latest
@@ -83,7 +87,7 @@ jobs:
       run:
         working-directory: apps/mobile
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Before the expo action, so a missing token says so instead of surfacing
       # as an authentication failure three steps later. Read from env rather
@@ -104,9 +108,9 @@ jobs:
               ;;
           esac
 
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           # Version comes from .nvmrc, the one place that declares it. It must
           # stay >= 22: eas-cli 23 pulls @oclif/plugin-autocomplete, which
@@ -114,7 +118,7 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
 
-      - uses: expo/expo-github-action@v9
+      - uses: expo/expo-github-action@eab7a230208c952974db8c3245cfd78402c7b385 # v9.0.0
         with:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
@@ -287,6 +291,24 @@ jobs:
               echo "another build. \`production\` is still a human click: **mobile-release.yml**."
             fi
           } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # The JS bundle every installed app downloads. EXPO_PUBLIC_* values are inlined
+      # into it, so a secret put in EAS's production environment under that prefix
+      # would ship to every phone. Exported here with the same environment `eas
+      # update` uses (env:exec loads its plain-text variables; secret-visibility ones
+      # never reach a bundle either way) and scanned with the image scanner's
+      # patterns plus EXPO_TOKEN's own value. Runs on a dry run too, so the gate can
+      # be tried without publishing. `eas update` below bundles again from the same
+      # commit and environment — this is an equivalent bundle, not the uploaded bytes.
+      - name: Secret scan the OTA bundle (gates the publish)
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/ota-scan"
+          eas env:exec production "npx expo export --platform android --output-dir '$out'" --non-interactive
+          SCAN_SECRET_VALUES="$EXPO_TOKEN" "$GITHUB_WORKSPACE/scripts/scan-image-secrets.sh" --dir "$out"
+          rm -rf "$out"
 
       # Commit subject only, passed through the environment rather than
       # interpolated into the script: a commit message is attacker-controlled

@@ -79,3 +79,32 @@ updates:
     groups:
       actions:
         patterns: ['*']
+
+  # Base images. Every pulled image and every Dockerfile FROM is pinned by digest
+  # (`tag@sha256:…`): a tag is mutable, a digest is the bytes we reviewed. A pin
+  # nobody moves is a base that never gets patched, so these two lanes move them —
+  # weekly, one grouped pull request each, and CI + the image secret scan gate it
+  # like any other change. Not here: images named inside scripts and workflow
+  # `run:` lines (the scanner in scripts/scan-image-secrets.sh, restic in
+  # backup.yml, alpine in the Makefile) — Dependabot cannot see those; bump by hand.
+  - package-ecosystem: docker
+    directories: [/backend/Docker, /apps/admin, /apps/web]
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 1
+    groups:
+      base-images:
+        patterns: ['*']
+
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 1
+    groups:
+      compose-images:
+        patterns: ['*']
+    ignore:
+      # pg16 → pg17 is a data-directory upgrade (dump/restore), never a bump.
+      - dependency-name: pgvector/pgvector
+        update-types: [version-update:semver-major]

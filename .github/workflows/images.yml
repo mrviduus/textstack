@@ -21,11 +21,21 @@ on:
         description: Commit to build. Empty = the commit that triggered the run.
         type: string
         default: ''
+    outputs:
+      digests:
+        description: >-
+          `<service>@sha256:<digest>` per image, space-separated. deploy.yml pulls
+          these, not the tag: a tag can be re-pushed between build and pull, a
+          digest cannot. Empty when nothing was published (old commit, failed run).
+        value: ${{ jobs.publish.outputs.digests }}
   workflow_dispatch:
     inputs:
       ref:
         description: Commit to build (empty = the selected branch head)
         required: false
+
+permissions:
+  contents: read
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
@@ -38,12 +48,14 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      digests: ${{ steps.digests.outputs.digests }}
     env:
       IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}/textstack
       # Every service with a `build:` in docker-compose.yml. deploy.yml pulls the same list.
       SERVICES: migrator api worker admin ssg-worker mcp-server
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref || github.sha }}
 
@@ -82,6 +94,8 @@ jobs:
           echo "All images for $IMAGE_TAG already published"
           echo "all=true" >> "$GITHUB_OUTPUT"
 
+      # Still needed while the worker/admin/ssg-worker images weigh 3-5 GB each.
+      # Delete it once the slim Dockerfiles land and a run shows the space is there.
       - name: Free disk space
         if: steps.exists.outputs.all == 'false'
         run: |
@@ -94,14 +108,18 @@ jobs:
       # Every value a canary. Compose interpolates .env into build args, so if anyone
       # ever forwards a real variable into a build (`args: KEY: ${OPENAI_API_KEY}`),
       # the canary lands in the image and the scan fails.
+      #
+      # Names come from .env.example AND every `${VAR}` the compose files reference,
+      # so a variable added to compose but not to .env.example is still a canary
+      # (a hand list here missed MOBILE_MIN_SUPPORTED_BUILD). The three this job
+      # sets itself are left out; the shell env would override them anyway.
       - name: Create canary .env
         if: steps.exists.outputs.all == 'false'
         run: |
-          sed -n 's/^\([A-Z_][A-Z0-9_]*\)=.*/\1=CANARY_SECRET_\1/p' .env.example > .env
-          for v in SENTRY_DSN GOOGLE_LEGACY_CLIENT_IDS GUEST_SESSION_PERMIT_LIMIT USER_LOGIN_PERMIT_LIMIT \
-                   CLIP_PERMIT_LIMIT ACCOUNT_DELETE_PERMIT_LIMIT GUEST_DAILY_ENRICHMENT_CAP ENABLE_TEST_AUTH; do
-            echo "$v=CANARY_SECRET_$v" >> .env
-          done
+          { sed -n 's/^\([A-Z_][A-Z0-9_]*\)=.*/\1/p' .env.example
+            grep -ohE '\$\{[A-Z_][A-Z0-9_]*' docker-compose.yml .github/docker-compose.ci.yml | cut -c3-
+          } | sort -u | grep -vxE 'IMAGE_REGISTRY|IMAGE_TAG|GIT_SHA' \
+            | awk '{ print $0 "=CANARY_SECRET_" $0 }' > .env
           cat .env
 
       - name: Build
@@ -117,6 +135,38 @@ jobs:
           scripts/scan-image-secrets.sh $(for s in $SERVICES; do echo "$IMAGE_REGISTRY-$s:$IMAGE_TAG"; done)
 
       - name: Push
+        id: push
         if: steps.exists.outputs.all == 'false'
         run: |
-          for s in $SERVICES; do docker push "$IMAGE_REGISTRY-$s:$IMAGE_TAG"; done
+          set -o pipefail
+          # The digest `docker push` reports is the one for the bytes this job built
+          # and scanned. Asking the registry afterwards would trust whatever the tag
+          # points at by then.
+          d=""
+          for s in $SERVICES; do
+            digest=$(docker push "$IMAGE_REGISTRY-$s:$IMAGE_TAG" | tee /dev/stderr \
+              | sed -n 's/.*digest: \(sha256:[0-9a-f]\{64\}\).*/\1/p' | tail -1)
+            [ -n "$digest" ] || { echo "::error::no digest in the push output for $s"; exit 1; }
+            d="$d $s@$digest"
+          done
+          echo "digests=${d# }" >> "$GITHUB_OUTPUT"
+
+      - name: Digests
+        id: digests
+        if: steps.tag.outputs.publish == 'true'
+        env:
+          PUSHED: ${{ steps.push.outputs.digests }}
+        run: |
+          set -o pipefail
+          d=$PUSHED
+          if [ -z "$d" ]; then
+            # Already published by an earlier run (a rollback): the registry is the only record.
+            for s in $SERVICES; do
+              digest=$(docker buildx imagetools inspect "$IMAGE_REGISTRY-$s:$IMAGE_TAG" --format '{{json .Manifest}}' | jq -r .digest)
+              d="$d $s@$digest"
+            done
+          fi
+          for x in $d; do
+            [[ $x =~ ^[a-z-]+@sha256:[0-9a-f]{64}$ ]] || { echo "::error::bad digest entry: $x"; exit 1; }
+          done
+          echo "digests=${d# }" | tee -a "$GITHUB_OUTPUT"

@@ -14,6 +14,9 @@ env:
   # on any HTTP error, --retry-connrefused on a restarting container.
   CURL_RETRY: '--retry 5 --retry-delay 15 --retry-all-errors --retry-connrefused'
 
+# No checkout and no API calls: the job token gets nothing.
+permissions: {}
+
 jobs:
   health:
     runs-on: ubuntu-latest

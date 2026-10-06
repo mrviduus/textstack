@@ -7,13 +7,21 @@ on:
     # `/`, deliberately: markdown inside code directories is code here
     # (Application embeds ChapterReview/ReviewMethod.md). A push touching docs AND
     # anything else still deploys; workflow_dispatch is unaffected.
+    #
+    # Mobile and the browser extension never reach the server: mobile ships by OTA
+    # (mobile-ota.yml), the extension by hand. NEVER add packages/**, the lockfile or
+    # pnpm-workspace.yaml here — the admin and ssg-worker images and the server's web
+    # build consume them.
     paths-ignore:
       - 'docs/**'
       - '*.md'
+      - 'apps/mobile/**'
+      - 'extension/**'
+      - '.github/workflows/mobile-*.yml'
   workflow_dispatch:
     inputs:
       rollback_commit:
-        description: 'Commit SHA to rollback to (optional)'
+        description: 'Commit SHA on main to roll back to (7-40 hex; optional)'
         required: false
       rebuild_ssg:
         description: 'Full SSG rebuild now (otherwise it runs nightly after the backup)'
@@ -24,12 +32,47 @@ concurrency:
   group: deploy-production
   cancel-in-progress: false
 
+# Read-only by default; `images` widens itself to packages: write.
+permissions:
+  contents: read
+
 env:
   PROJECT_DIR: /home/vasyl/projects/onlinelib/textstack
   # Opt JS actions into Node 24 ahead of June 2026 forced cutover.
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
+  # Rollbacks only. `rollback_commit` is typed by a human and ends up in
+  # `git checkout` on the production box and as the ref `images` builds and
+  # publishes, so it must be a commit that is already on main: hex only (no
+  # option or ref syntax), resolved here in a full clone of main, and an ancestor
+  # of origin/main (a fork commit fetched by SHA is not). Everything downstream
+  # uses the full SHA this job prints, never the raw input. Skipped on a push.
+  guard:
+    if: github.event.inputs.rollback_commit != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.check.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - id: check
+        env:
+          ROLLBACK: ${{ github.event.inputs.rollback_commit }}
+        run: |
+          [[ $ROLLBACK =~ ^[0-9a-f]{7,40}$ ]] \
+            || { echo "::error::rollback_commit must be 7-40 lowercase hex characters"; exit 1; }
+          sha=$(git rev-parse --verify --quiet "$ROLLBACK^{commit}") \
+            || { echo "::error::$ROLLBACK is not a commit in this repository (or is ambiguous)"; exit 1; }
+          git merge-base --is-ancestor "$sha" origin/main \
+            || { echo "::error::$sha is not on main — only a commit already merged can be deployed"; exit 1; }
+          echo "Rolling back to $sha"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
   # Not the whole suite. The pull request already ran it; what this adds is the
   # one thing a pull request cannot prove under `strict: false` branch
   # protection — that the MERGED tree still compiles and passes. That is
@@ -48,25 +91,27 @@ jobs:
   # a separate workflow the server polls for: `needs` gives the exact SHA with no
   # timeout to guess and no race, and the rollback input reaches it directly.
   images:
+    needs: guard
+    if: ${{ !cancelled() && needs.guard.result != 'failure' }}
     uses: ./.github/workflows/images.yml
     permissions:
       contents: read
       packages: write
     with:
-      ref: ${{ github.event.inputs.rollback_commit }}
+      ref: ${{ needs.guard.outputs.sha }}
 
-  deploy:
-    needs: [ci, images]
-    # A failed `images` must not block a deploy: the server builds instead, as it
-    # always did. A failed `ci` still does.
-    if: ${{ !cancelled() && needs.ci.result == 'success' }}
+  # Its own job so the dump (~2.5 min) runs while `ci` and `images` build, not
+  # after them. It needs neither: it only reads the live DB. `deploy` needs it, so
+  # a failed backup still blocks the deploy, and it still lands before migrations
+  # run (the migrator starts in `deploy`). Writes made between this dump and the
+  # migration — a few minutes now instead of seconds — are not in it.
+  backup:
+    needs: guard
+    if: ${{ !cancelled() && needs.guard.result != 'failure' }}
     runs-on: self-hosted
-    permissions:
-      contents: read
-      packages: read
-    # 2m typical, 30m at worst.
-    timeout-minutes: 60
-
+    permissions: {}
+    # 2.5m typical.
+    timeout-minutes: 20
     steps:
       - name: Pre-deploy backup
         run: |
@@ -79,21 +124,43 @@ jobs:
           zcat ~/backups/textstack/pre-deploy-$DATE.sql.gz | tail -n 5 | grep -q 'PostgreSQL database dump complete' \
             || { echo "::error::pre-deploy dump is incomplete"; exit 1; }
           echo "Backup created: pre-deploy-$DATE.sql.gz"
-          # Keep only 5 newest pre-deploy backups
+          # Keep only the 2 newest pre-deploy backups
           cd ~/backups/textstack && ls -1t pre-deploy-*.sql.gz 2>/dev/null | tail -n +3 | xargs -r rm -v
 
+  deploy:
+    needs: [guard, ci, images, backup]
+    # A failed `images` must not block a deploy: the server builds instead, as it
+    # always did. A failed `ci` or `backup` still does (and a failed `guard` skips
+    # `backup`, so it does too).
+    if: ${{ !cancelled() && needs.ci.result == 'success' && needs.backup.result == 'success' }}
+    runs-on: self-hosted
+    permissions:
+      contents: read
+      packages: read
+    # 2m typical, 30m at worst.
+    timeout-minutes: 60
+
+    steps:
       - name: Pull latest code
+        env:
+          # Set only on a rollback, and only after `guard` proved it is on main.
+          ROLLBACK_SHA: ${{ needs.guard.outputs.sha }}
+          RUN_SHA: ${{ github.sha }}
         run: |
           cd $PROJECT_DIR
           git fetch origin
-          if [ -n "${{ github.event.inputs.rollback_commit }}" ]; then
-            git checkout ${{ github.event.inputs.rollback_commit }}
+          if [ -n "$ROLLBACK_SHA" ]; then
+            # Checked again against this clone: guard ran on GitHub's copy.
+            if ! [[ $ROLLBACK_SHA =~ ^[0-9a-f]{40}$ ]] || ! git merge-base --is-ancestor "$ROLLBACK_SHA" origin/main; then
+              echo "::error::$ROLLBACK_SHA is not on origin/main here"; exit 1
+            fi
+            git checkout "$ROLLBACK_SHA"
           else
             # This run's own commit, not main's tip: the images job built exactly
             # github.sha, and a newer merge queued behind us gets its own run.
             # ff-only: re-running an older deploy fails loudly — use rollback_commit.
             git checkout main
-            git merge --ff-only ${{ github.sha }}
+            git merge --ff-only "$RUN_SHA"
           fi
 
       # The frontend that reaches production is built by this job, and until now
@@ -139,6 +206,21 @@ jobs:
             fi
             echo "SSG rebuild in progress ($ACTIVE active) — waiting… ($(date +%T))"
             sleep 30
+          done
+
+      # Vite reads apps/web/.env* and inlines VITE_* values into public JS. Nothing
+      # here needs those files — the four VITE_ variables the code reads are passed
+      # inline to the build below and win over any file — and the box had a stale,
+      # gitignored .env.production (wrong Google client id). Moved aside, not
+      # deleted, before the snapshot step, so this step can never strand dist/ssg.
+      - name: Move stray web env files aside
+        run: |
+          cd "$PROJECT_DIR/apps/web"
+          for f in .env .env.local .env.production .env.production.local; do
+            [ -e "$f" ] || continue
+            dest=~/backups/textstack/stray-web-env/$(date +%F-%H%M%S)
+            mkdir -p "$dest" && mv "$f" "$dest/"
+            echo "::warning::moved apps/web/$f to $dest — vite must not read it"
           done
 
       - name: Snapshot SSG dir + referenced assets before vite wipes dist
@@ -312,6 +394,21 @@ jobs:
           rm -rf "$STAGING"
           echo "Restored $RESTORED legacy assets (the rest were superseded by vite)"
 
+      # The bundle every visitor downloads, scanned with the image scanner's patterns
+      # plus the server's real secret values (names ending SECRET, PASSWORD, TOKEN,
+      # API_KEY — INDEXNOW_KEY and the DSN are public by design). A hit prints the
+      # file, never the value. Runs after the restore so a failure here can't strand
+      # dist/ssg. Limit: vite has already replaced dist, so this stops the deploy
+      # (no new containers) but the bundle is live — page the owner, rotate, redeploy.
+      - name: Secret scan web dist
+        run: |
+          cd "$PROJECT_DIR"
+          SCAN_SECRET_VALUES=$(awk '/^[A-Z_][A-Z0-9_]*=/ { n = substr($0, 1, index($0, "=") - 1)
+              if (n ~ /(SECRET|PASSWORD|TOKEN|API_KEY)$/) { v = substr($0, index($0, "=") + 1)
+                gsub(/^["\047]|["\047]$/, "", v); print v } }' .env)
+          export SCAN_SECRET_VALUES
+          scripts/scan-image-secrets.sh --dir apps/web/dist
+
       - name: Fix cache volume permissions
         # Container runs as uid 1000 but host-mounted cache dirs default to
         # root ownership. Without this, every translate/explain/tts cache
@@ -329,9 +426,16 @@ jobs:
         # Images come from GHCR, built once by the `images` job for this exact
         # commit. If any pull fails (job failed, registry down, a commit from before
         # images were published) the server builds them itself, as it used to.
+        #
+        # Pulled by DIGEST (from the `images` job), then tagged :<sha> locally for
+        # compose and for humans. A tag in GHCR can be re-pushed by anyone with
+        # packages: write between build and pull; the digest is the exact bytes
+        # that passed the scan. No digest for a service (images failed or was
+        # skipped) → the same server-build fallback as a failed pull.
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GHCR_USER: ${{ github.actor }}
+          DIGESTS: ${{ needs.images.outputs.digests }}
         run: |
           cd $PROJECT_DIR
           # Stamp the deployed commit into the images as SENTRY_RELEASE (build arg →
@@ -358,7 +462,10 @@ jobs:
             if echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin; then
               PULLED=true
               for s in migrator api worker admin ssg-worker mcp-server; do
-                timeout 900 docker pull "$IMAGE_REGISTRY-$s:$IMAGE_TAG" || { PULLED=false; break; }
+                d=$(tr ' ' '\n' <<< "$DIGESTS" | sed -n "s/^$s@\(sha256:[0-9a-f]\{64\}\)$/\1/p")
+                [ -n "$d" ] || { echo "no digest for $s"; PULLED=false; break; }
+                timeout 900 docker pull "$IMAGE_REGISTRY-$s@$d" || { PULLED=false; break; }
+                docker tag "$IMAGE_REGISTRY-$s@$d" "$IMAGE_REGISTRY-$s:$IMAGE_TAG"
               done
             fi
             rm -rf "$DOCKER_CONFIG"; unset DOCKER_CONFIG
