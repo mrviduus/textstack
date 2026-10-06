@@ -201,7 +201,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
   const highlightsApi = useHighlights(
     mode === 'userbook' ? undefined : book?.id,
     mode === 'userbook' ? id : undefined,
-    { isAuthenticated },
+    { isAuthenticated, chapters: book?.chapters },
   )
   // Reviewed-highlight badges (chapter-review.md §12): one /me/insights read per book.
   const reviewTarget = !isAuthenticated ? null

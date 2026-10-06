@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { isPdfAnchor } from '@textstack/shared'
 import {
   type StoredHighlight,
@@ -16,7 +16,7 @@ import {
 } from '../api/userData'
 import { ApiError } from '../api/client'
 import { emitDataChange } from '../lib/dataEvents'
-import { syncBookHighlights, isLocalHighlightId, fromServerHighlight } from '../lib/highlightSync'
+import { syncBookHighlights, isLocalHighlightId, fromServerHighlight, type ChapterRef } from '../lib/highlightSync'
 import { useNetworkRecovery } from './useNetworkRecovery'
 
 function generateId(): string {
@@ -25,10 +25,14 @@ function generateId(): string {
 
 interface UseHighlightsOptions {
   isAuthenticated?: boolean
+  /** The book's chapters: re-keys pending rows saved under an offline cache key. */
+  chapters?: ChapterRef[]
 }
 
 export function useHighlights(editionId?: string, userBookId?: string, options?: UseHighlightsOptions) {
-  const { isAuthenticated } = options || {}
+  const { isAuthenticated, chapters } = options || {}
+  const chaptersRef = useRef(chapters)
+  chaptersRef.current = chapters
   const [highlights, setHighlights] = useState<StoredHighlight[]>([])
   const [loading, setLoading] = useState(true)
   const bookId = userBookId || editionId || ''
@@ -49,7 +53,7 @@ export function useHighlights(editionId?: string, userBookId?: string, options?:
         isCancelled,
         onVisible: setHighlights,
         onReplaced: (oldId, saved) => setHighlights((prev) => prev.map((p) => (p.id === oldId ? saved : p))),
-      }),
+      }, chaptersRef.current),
     [bookId, isUserBook]
   )
 
