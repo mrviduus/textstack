@@ -10,7 +10,7 @@ import {
   type RestoreGateEvent,
 } from '../lib/readerWriteGate'
 import { READINESS_INITIAL, readinessReduce, readyToRestore, type ReadinessEvent } from '../lib/restoreReadiness'
-import { claimPosition, handOffPosition } from '../lib/positionHandoff'
+import { claimPosition, handOffPosition, recallChapterPosition, rememberChapterPosition } from '../lib/positionHandoff'
 import { duringRestorePlan, landingBaseline, pendingRestoreTarget, rebuildRestoreJs, rebuildRestoreTarget, savedRestoreTarget, type RebuildTarget } from '../lib/rebuildRestore'
 import type { SessionJump } from '../lib/sessionMath'
 import { useFlushOnBackground } from './useFlushOnBackground'
@@ -393,16 +393,24 @@ export function useReaderPersistence({
     // is what the local record is keyed by; each source decides for itself
     // whether it has enough to also write to the server.
     const slug = currentChapterSlugRef.current || gate.chapterSlug
+    // Only when it belongs to the chapter being saved. The refs are written by
+    // one message each, and a progress message with no text under the reading
+    // line leaves the position at its previous value — which may name the
+    // chapter before this one.
+    const position = positionRef.current?.chapterSlug === slug ? positionRef.current : null
+    const percent = progressRef.current
+    // Same filters as the sources' loadPosition: a zero offset or a ~start/~end percent is "top".
+    if (bookKey) rememberChapterPosition<SavedPosition>(bookKey, slug, {
+      position,
+      offset: scrollOffsetRef.current > 0 ? scrollOffsetRef.current : null,
+      percent: percent > 0.005 && percent < 0.999 ? percent : null,
+    })
     const written = persist({
       chapterId,
       chapterSlug: slug,
-      chapterPercent: progressRef.current,
+      chapterPercent: percent,
       scrollOffset: scrollOffsetRef.current,
-      // Only when it belongs to the chapter being saved. The refs are written by
-      // one message each, and a progress message with no text under the reading
-      // line leaves the position at its previous value — which may name the
-      // chapter before this one.
-      position: positionRef.current?.chapterSlug === slug ? positionRef.current : null,
+      position,
       bookPercent: bookProgressRef.current,
       updatedAt: Date.now(),
     })
@@ -495,7 +503,10 @@ export function useReaderPersistence({
       .catch((): SavedPosition => ({ position: null, offset: null, percent: null }))
       .then(pos => {
         if (cancelled) return
-        const p = handed ?? pos
+        // The device record names one chapter per book; for any other chapter it has nothing, and
+        // the place this run left that chapter at (Next → Prev) is the best the phone knows.
+        const onDevice = pos.position || pos.offset != null || pos.percent != null
+        const p = handed ?? (onDevice ? null : recallChapterPosition<SavedPosition>(bookKey, chapterSlug)) ?? pos
         savedOffsetRef.current = p.offset
         savedPercentRef.current = p.percent
         savedPositionRef.current = p.position

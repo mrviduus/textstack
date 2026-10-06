@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { TextPosition } from '@textstack/shared'
 import { renderHook } from '../test/renderHook'
 import { useReaderPersistence } from './useReaderPersistence'
+import { forgetChapterPositions } from '../lib/positionHandoff'
 import { useReaderSessionFeed } from '../components/reader/useReaderSessionFeed'
 import { useReaderMessages } from '../components/reader/useReaderMessages'
 import { useReaderDocument } from '../components/reader/useReaderDocument'
@@ -196,6 +197,7 @@ async function openLanded() {
 // Unmounted after each test, so no AppState listener or timer outlives it.
 const mounted: (() => void)[] = []
 beforeEach(() => {
+  forgetChapterPositions()
   vi.useFakeTimers()
   appState.current = 'active'
   toast.show.mockClear()
@@ -524,6 +526,48 @@ describe('chapter change', () => {
     r.unmount()                                               // router.replace remounts the screen
     r.tick(5000)
     for (const [snap] of r.io.persist.mock.calls) expect(snap).toMatchObject({ chapterSlug: 'ch-1', scrollOffset: 1500 })
+  })
+
+  it('Next, read on, Prev → back where the chapter was left, though the device keeps one record per book', async () => {
+    // Both sources' device record (progressStorage) is ONE row per book: it names the last chapter
+    // saved, and loadPosition answers only for that chapter.
+    let record: ProgressSnapshot | null = null
+    const fromRecord = (slug: string) => record?.chapterSlug === slug
+      ? saved({ offset: record.scrollOffset, position: record.position })
+      : saved({})
+    const a = await openLanded()                              // ch-1 at 900
+    a.io.persist.mockImplementation(s => { record = s })
+    a.web.progress(1500, 0.5)
+    await act(async () => a.web.send({ type: 'chapterEnd', action: 'next' }))
+    a.unmount()
+
+    const b = mountReader({ chapterSlug: 'ch-2' })
+    b.io.persist.mockImplementation(s => { record = s })
+    await b.answerPosition(fromRecord('ch-2'))
+    await b.answerNewer(null)
+    b.web.loadEnd()
+    b.web.progress(300, 0.1)                                  // a little reading in ch-2, then wait
+    b.tick(6000)
+    expect(record).toMatchObject({ chapterSlug: 'ch-2', scrollOffset: 300 })
+    await act(async () => b.web.send({ type: 'chapterEnd', action: 'prev' }))
+    expect(b.io.onNavigateChapter).toHaveBeenCalledWith('ch-1')
+    b.unmount()
+
+    const c = mountReader({ chapterSlug: 'ch-1' })
+    await c.answerPosition(fromRecord('ch-1'))                // nothing: the record names ch-2
+    c.web.loadEnd()
+    expect(c.web.lastRestore()).toMatchObject({ kind: 'RestoreScroll', arg: '1500' })
+  })
+
+  it('a chapter left in another book is never recalled', async () => {
+    const a = await openLanded()
+    a.web.progress(1500, 0.5)
+    await act(async () => a.web.send({ type: 'chapterEnd', action: 'next' }))
+    a.unmount()
+    const c = mountReader({ bookKey: 'other', chapterSlug: 'ch-1' })
+    await c.answerPosition(saved({}))
+    c.web.loadEnd()
+    expect(c.web.restores()).toEqual([])
   })
 })
 

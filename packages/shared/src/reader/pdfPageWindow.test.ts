@@ -114,9 +114,9 @@ describe('dimsReadyUpTo', () => {
     expect(dimsReadyUpTo([], 1)).toBe(false)
   })
 
-  it('does not require dims beyond the array length', () => {
+  it('is false while the array is still shorter than the target (filled as sizes arrive)', () => {
     const dims = [{ w: 1, h: 1 }]
-    expect(dimsReadyUpTo(dims, 5)).toBe(true)
+    expect(dimsReadyUpTo(dims, 5)).toBe(false)
   })
 })
 

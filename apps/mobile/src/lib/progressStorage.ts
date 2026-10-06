@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { forgetChapterPositions } from './positionHandoff'
 
 // Catalog (edition) progress keys. Kept as-is for backwards compatibility
 // with installed users — changing the prefix would lose their progress.
@@ -113,6 +114,7 @@ export function markUserBookLocalProgressSynced(bookId: string, updatedAt: numbe
  * is the source of truth once the next user reads anything).
  */
 export async function clearAllLocalProgress(): Promise<void> {
+  forgetChapterPositions()
   try {
     const keys = await AsyncStorage.getAllKeys()
     // Explicit union — clears catalog AND user-book rows. Listing both

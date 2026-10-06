@@ -88,8 +88,11 @@ export function dimsReadyUpTo(
   dims: readonly (unknown | undefined)[],
   targetPage: number,
 ): boolean {
-  if (dims.length === 0) return false
-  const upto = Math.min(Math.max(1, targetPage), dims.length)
+  // A missing entry and a missing tail mean the same thing: not measured yet. The mobile viewer
+  // fills its array as sizes arrive, and clamping to its length made "page 1 measured" read as
+  // "ready" for every target — the jump was settled on estimated heights, and each reopen drifted.
+  const upto = Math.max(1, Math.floor(targetPage))
+  if (dims.length < upto) return false
   for (let i = 0; i < upto; i++) {
     if (!dims[i]) return false
   }

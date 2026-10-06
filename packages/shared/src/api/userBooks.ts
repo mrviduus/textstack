@@ -50,8 +50,26 @@ export function getUserBook(id: string) {
   return authFetch<UserBookDetailResponse>(`/me/books/${id}`)
 }
 
-export function getUserBookChapter(bookId: string, chapterSlug: string) {
-  return authFetch<UserBookChapterDto>(`/me/books/${bookId}/chapters/${chapterSlug}`)
+/** A chapter link as the server sends it (`UserChapterNavDto`); slug may be null. */
+interface UserChapterNavWire { chapterNumber: number; slug: string | null; title: string }
+
+/** Backend `UserChapterDto` names the back link `previous` (the catalogue
+ *  `ChapterDto` says `prev`). Mapping it here, once, is what lets mobile's
+ *  Prev button enable in an upload — reading `prev` off the wire was always null. */
+export interface UserBookChapterWire extends Omit<UserBookChapterDto, 'prev' | 'next'> {
+  previous: UserChapterNavWire | null
+  next: UserChapterNavWire | null
+}
+
+const toNav = (n: UserChapterNavWire | null) =>
+  n ? { slug: n.slug || String(n.chapterNumber), title: n.title } : null
+
+export function toUserBookChapter({ previous, next, ...rest }: UserBookChapterWire): UserBookChapterDto {
+  return { ...rest, prev: toNav(previous), next: toNav(next) }
+}
+
+export async function getUserBookChapter(bookId: string, chapterSlug: string): Promise<UserBookChapterDto> {
+  return toUserBookChapter(await authFetch<UserBookChapterWire>(`/me/books/${bookId}/chapters/${chapterSlug}`))
 }
 
 export function uploadUserBook(formData: FormData) {
