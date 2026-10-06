@@ -50,6 +50,10 @@ services:
 
   migrator:
     logging: *default-logging
+    # Production pulls ghcr.io/<owner>/textstack-<service>:<sha> (deploy.yml sets
+    # IMAGE_REGISTRY + IMAGE_TAG; images.yml publishes them). Unset — local dev, CI —
+    # it is a plain local name and `build:` below makes it, exactly as before.
+    image: ${IMAGE_REGISTRY:-textstack}-migrator:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: backend/Docker/Migrator.Dockerfile
@@ -63,6 +67,7 @@ services:
 
   api:
     logging: *default-logging
+    image: ${IMAGE_REGISTRY:-textstack}-api:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: backend/Docker/Api.Dockerfile
@@ -142,6 +147,7 @@ services:
 
   worker:
     logging: *default-logging
+    image: ${IMAGE_REGISTRY:-textstack}-worker:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: backend/Docker/Worker.Dockerfile
@@ -188,6 +194,7 @@ services:
 
   admin:
     logging: *default-logging
+    image: ${IMAGE_REGISTRY:-textstack}-admin:${IMAGE_TAG:-latest}
     build:
       # Root context — see ssg-worker above.
       context: .
@@ -226,6 +233,7 @@ services:
   # it up on the server with: docker compose --profile mcp up -d mcp-server
   mcp-server:
     logging: *default-logging
+    image: ${IMAGE_REGISTRY:-textstack}-mcp-server:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: backend/Docker/Mcp.Dockerfile
@@ -261,6 +269,7 @@ services:
 
   ssg-worker:
     logging: *default-logging
+    image: ${IMAGE_REGISTRY:-textstack}-ssg-worker:${IMAGE_TAG:-latest}
     build:
       # Root context: the workspace lockfile and pnpm-workspace.yaml live here,
       # and `catalog:` cannot be resolved without them.
