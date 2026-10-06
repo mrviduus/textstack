@@ -45,6 +45,8 @@ describe('bug 3 — back in the foreground during a rebuild or restore (M6 remou
     const dispatch = body(persistence, 'const dispatchGate = useCallback(')
     expect(dispatch).toContain('gateOpened(prev, gateRef.current)')
     expect(dispatch).toContain('afterLandRef.current')
+    const listener = body(persistence, "AppState.addEventListener('change'", 'return () => sub.remove()')
+    expect(listener).toContain('landedNow ? scrollOffsetRef.current : (lastLandingRef.current ?? scrollOffsetRef.current)')
   })
 })
 
@@ -58,8 +60,21 @@ describe('bug 4 — the restore ack carries the landing', () => {
 
   it("persistence takes the ack's scrollY as the move baseline; the shell passes it", () => {
     const landed = body(persistence, 'const onRestoreLanded = useCallback(')
-    expect(landed).toMatch(/moveBaselineRef\.current = scrollY/)
+    expect(landed).toContain('moveBaselineRef.current = landingBaseline(moveBaselineRef.current, scrollY)')
     expect(shell).toContain('onRestoreLanded(data.restoreId, data.scrollY)')
+  })
+
+  it('review #2: pending is asked through pendingRestoreTarget, rebuild target first', () => {
+    const p = body(persistence, 'const pendingTarget = useCallback(')
+    expect(p).toContain('pendingRestoreTarget(')
+    expect(p).toContain('rebuildTarget: rebuildTargetRef.current')
+  })
+
+  it('review #3: a new WebView source (PDF → "Read as text") resets the loaded flag and the applied typography', () => {
+    const eff = body(shell, 'useEffect(() => {\n    docLoadedRef.current = false', '}, [webViewSource])')
+    expect(eff).toContain('readerAppliedTypographyRef.current = builtTypographyRef.current')
+    // Before the typography effect, so a change in the same render waits for onLoadEnd.
+    expect(shell.indexOf('}, [webViewSource])')).toBeLessThan(shell.indexOf('useEffect(() => { applyTypography() }'))
   })
 
   it('the ponytail ceiling on a silent landing is gone', () => {

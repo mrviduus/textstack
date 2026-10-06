@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { TextPosition } from '@textstack/shared'
-import { duringRestorePlan, rebuildRestoreJs, rebuildRestoreTarget, savedRestoreTarget } from './rebuildRestore'
+import { duringRestorePlan, landingBaseline, pendingRestoreTarget, rebuildRestoreJs, rebuildRestoreTarget, savedRestoreTarget } from './rebuildRestore'
 import { READINESS_INITIAL, readinessReduce, readyToRestore, type Readiness, type ReadinessEvent } from './restoreReadiness'
 import { canPersistPosition, restoreGateReduce, restoredChapter, RESTORE_GATE_INITIAL, type RestoreGateEvent } from './readerWriteGate'
 
@@ -102,6 +102,43 @@ describe('duringRestorePlan — rule 8', () => {
     r = readinessReduce(r, { type: 'positionLoaded' })
     expect(readyToRestore(r)).toBe(false)                    // not into the document being replaced
     expect(readyToRestore(readinessReduce(r, { type: 'webViewLoaded' }))).toBe(true)
+  })
+})
+
+describe('pendingRestoreTarget — what is still in flight (review #2)', () => {
+  const A = { kind: 'anchor', position: pos('ch-2') } as const
+  const B = { kind: 'percent', percent: 0.6 } as const
+  const gate = (phase: 'awaiting' | 'issued' | 'open', restoreId: number) => ({ ...RESTORE_GATE_INITIAL, chapterSlug: 'ch-2', phase, restoreId })
+
+  it('the open restore in flight → its target', () => {
+    expect(pendingRestoreTarget({ rebuildTarget: undefined, pending: { restoreId: 1, target: A }, gate: gate('issued', 1), currentId: 1 })).toEqual(A)
+  })
+
+  it('landed at A, read to B, rebuild #1 snapshots B, rebuild #2 before the load → B, not A', () => {
+    // Rebuild #1 moved the gate to 'awaiting' under the same id; A is long landed.
+    expect(pendingRestoreTarget({ rebuildTarget: B, pending: { restoreId: 1, target: A }, gate: gate('awaiting', 1), currentId: 1 })).toEqual(B)
+    // And without a rebuild target, a landed restore is not pending just because the gate shut.
+    expect(pendingRestoreTarget({ rebuildTarget: undefined, pending: { restoreId: 1, target: A }, gate: gate('awaiting', 1), currentId: 1 })).toBeUndefined()
+  })
+
+  it('a reflow (newer id) or a landing ends it', () => {
+    expect(pendingRestoreTarget({ rebuildTarget: undefined, pending: { restoreId: 1, target: A }, gate: gate('issued', 2), currentId: 2 })).toBeUndefined()
+    expect(pendingRestoreTarget({ rebuildTarget: undefined, pending: { restoreId: 1, target: A }, gate: gate('open', 1), currentId: 1 })).toBeUndefined()
+  })
+
+  it('a pending rebuild target of "top" (null) still counts', () => {
+    expect(pendingRestoreTarget({ rebuildTarget: null, pending: null, gate: gate('awaiting', 1), currentId: 1 })).toBeNull()
+  })
+})
+
+describe('landingBaseline — only a restore that moves the reader sets it (review #1)', () => {
+  it('a reflow or rebuild re-landing keeps the baseline from the open restore', () => {
+    // Open restore landed at A=900, reader scrolled to B=2000, font change → reflow acks 2000.
+    expect(landingBaseline(900, 2000)).toBe(900)
+  })
+  it('the open restore and a newer-position move (baseline cleared first) set it', () => {
+    expect(landingBaseline(null, 900)).toBe(900)
+    expect(landingBaseline(null, undefined)).toBeNull()
   })
 })
 

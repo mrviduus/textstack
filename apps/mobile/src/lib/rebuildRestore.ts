@@ -1,4 +1,5 @@
 import type { TextPosition } from '@textstack/shared'
+import type { RestoreGateState } from './readerWriteGate'
 
 /**
  * Where a REBUILT document of the chapter already open goes back to — a font-face
@@ -38,6 +39,31 @@ export function savedRestoreTarget(saved: { position: TextPosition | null; offse
  *
  * `pendingTarget` is undefined when nothing is in flight; null is a pending "top of the chapter".
  */
+export function pendingRestoreTarget(o: {
+  /** A rebuild's target not yet consumed by its document's load. */
+  rebuildTarget: RebuildTarget | undefined
+  /** The newest restore issued, with its target. */
+  pending: { restoreId: number; target: RebuildTarget } | null
+  gate: RestoreGateState
+  currentId: number
+}): RebuildTarget | undefined {
+  // A second rebuild before the first one's document loaded keeps the first one's target — the
+  // gate is 'awaiting' then, which says nothing about whether an older restore is in flight.
+  if (o.rebuildTarget !== undefined) return o.rebuildTarget
+  const p = o.pending
+  if (!p || p.restoreId !== o.currentId) return undefined  // a reflow (newer id) took over
+  return o.gate.phase === 'issued' && o.gate.restoreId === p.restoreId ? p.target : undefined
+}
+
+/**
+ * The "moved since?" baseline after an ack. Only a restore that moved the reader somewhere new
+ * sets it — the open restore and a newer-position move, which both clear it first. A reflow or a
+ * rebuild re-landing puts the reader back where they were and must not hide that they had moved.
+ */
+export function landingBaseline(baseline: number | null, ackScrollY: number | undefined): number | null {
+  return baseline ?? (typeof ackScrollY === 'number' ? ackScrollY : null)
+}
+
 export type DuringRestorePlan =
   | { kind: 'keepPending'; target: RebuildTarget }
   | { kind: 'snapshot'; target: RebuildTarget }

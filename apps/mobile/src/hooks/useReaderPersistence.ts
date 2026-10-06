@@ -11,7 +11,7 @@ import {
 } from '../lib/readerWriteGate'
 import { READINESS_INITIAL, readinessReduce, readyToRestore, type ReadinessEvent } from '../lib/restoreReadiness'
 import { claimPosition, handOffPosition } from '../lib/positionHandoff'
-import { duringRestorePlan, rebuildRestoreJs, rebuildRestoreTarget, savedRestoreTarget, type RebuildTarget } from '../lib/rebuildRestore'
+import { duringRestorePlan, landingBaseline, pendingRestoreTarget, rebuildRestoreJs, rebuildRestoreTarget, savedRestoreTarget, type RebuildTarget } from '../lib/rebuildRestore'
 import type { SessionJump } from '../lib/sessionMath'
 import { useFlushOnBackground } from './useFlushOnBackground'
 import { t, type TextPosition } from '@textstack/shared'
@@ -193,23 +193,30 @@ export function useReaderPersistence({
   const moveBaselineRef = useRef<number | null>(null)
 
   /** The WebView finished a restore we asked for. Signalled by ReaderShell's `restored` message. */
+  // Where the newest restore landed (its ack's scrollY, chapter-relative) — the baseline a
+  // foreground check deferred across a remount takes, whatever kind of restore it was.
+  const lastLandingRef = useRef<number | null>(null)
   const onRestoreLanded = useCallback((restoreId: number, scrollY?: number) => {
     if (restoreId === restoreIdRef.current) {
       if (sessionJumpRef.current === 'pending') sessionJumpRef.current = 'landed'
-      // Chapter-relative, like a progress report. Before any deferred check runs (dispatchGate).
-      if (typeof scrollY === 'number') moveBaselineRef.current = scrollY
+      // Before any deferred check runs (dispatchGate). Only a move sets the baseline (landingBaseline).
+      lastLandingRef.current = typeof scrollY === 'number' ? scrollY : null
+      moveBaselineRef.current = landingBaseline(moveBaselineRef.current, scrollY)
     }
     dispatchGate({ type: 'restoreLanded', restoreId })
   }, [dispatchGate])
 
+  // Where a rebuild goes back to (L1), until its document loads and consumes it — see rebuildRestore.ts.
+  const rebuildTargetRef = useRef<RebuildTarget | undefined>(undefined)
   // The target of the newest restore issued (not of a reflow, which aims wherever the reader is).
-  // Pending while it is still the newest id and has not landed — rule 8 keeps it across a rebuild
-  // or reflow started in that window, instead of a snapshot of the load event's zeros.
+  // Rule 8 keeps the pending one across a rebuild or reflow started before it lands.
   const pendingRestoreRef = useRef<{ restoreId: number; target: RebuildTarget } | null>(null)
-  const pendingTarget = useCallback((): RebuildTarget | undefined => {
-    const p = pendingRestoreRef.current
-    return p && p.restoreId === restoreIdRef.current && gateRef.current.phase !== 'open' ? p.target : undefined
-  }, [])
+  const pendingTarget = useCallback((): RebuildTarget | undefined => pendingRestoreTarget({
+    rebuildTarget: rebuildTargetRef.current,
+    pending: pendingRestoreRef.current,
+    gate: gateRef.current,
+    currentId: restoreIdRef.current,
+  }), [])
 
   /** Ask the WebView to go to `target` behind a fresh restore id. Null (top): nothing to ask, landed. */
   const restoreTo = useCallback((target: RebuildTarget) => {
@@ -310,8 +317,6 @@ export function useReaderPersistence({
    * event's zero, which is exactly the value that used to be written over a
    * half-read book, so the gate shuts here.
    */
-  // Where the reader was when the rebuild started (L1) — see rebuildRestore.ts.
-  const rebuildTargetRef = useRef<RebuildTarget | undefined>(undefined)
   const onDocumentRebuild = useCallback(() => {
     // Rule 8: a restore still in flight keeps its target; only a landed one is snapshotted.
     const plan = duringRestorePlan({
@@ -465,6 +470,7 @@ export function useReaderPersistence({
     pendingSaveRef.current = false
     rebuildTargetRef.current = undefined
     pendingRestoreRef.current = null
+    lastLandingRef.current = null
     afterLandRef.current = null
     sessionJumpRef.current = 'idle'
     // Restoring a reflow scroll position into a PDF viewer would fight the
@@ -546,8 +552,9 @@ export function useReaderPersistence({
       const landedNow = gateRef.current.phase === 'open'
       whenLanded(() => {
         if (unmountedRef.current || leavingRef.current || chapterSlugRef.current !== slug) return
-        // Landed long ago: where the reader is now. Just landed: the landing, set by onRestoreLanded.
-        if (landedNow || moveBaselineRef.current == null) moveBaselineRef.current = scrollOffsetRef.current
+        // Landed long ago: where the reader is now. Just landed: the landing (the ack's scrollY) —
+        // the live ref still holds the remounted document's load-event zero here.
+        moveBaselineRef.current = landedNow ? scrollOffsetRef.current : (lastLandingRef.current ?? scrollOffsetRef.current)
         load(slug, { latest: true })
           .then(newer => {
             if (!newer) return

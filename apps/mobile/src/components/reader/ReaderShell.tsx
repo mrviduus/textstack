@@ -278,6 +278,8 @@ export function ReaderShell(props: ReaderShellProps) {
   const readerAppliedTypographyRef = useRef<ReaderTypography | null>(null)
   // The reflow document has loaded and can take injections. Reset by every rebuild (the html memo).
   const docLoadedRef = useRef(false)
+  // The typography the reflow html was built with — what a freshly loaded copy of it shows.
+  const builtTypographyRef = useRef<ReaderTypography | null>(null)
   // S4c — top-visible page + page count for the PDF chrome + page-bookmark
   // state. Kept in React state (not just the ref) so the chrome + bookmark icon
   // re-render as the user scrolls.
@@ -1060,6 +1062,7 @@ export function ReaderShell(props: ReaderShellProps) {
         textAlign: settings.textAlign,
       }
       readerAppliedTypographyRef.current = typography
+      builtTypographyRef.current = typography
       docLoadedRef.current = false  // a new document; onLoadEnd says when it can take injections
       return buildReaderHtml(chapter.html, {
         fontSize: typography.fontSize,
@@ -1107,7 +1110,6 @@ export function ReaderShell(props: ReaderShellProps) {
     readerAppliedTypographyRef.current = next
     reflow(id => readerTypographyInjectionJs(next, id))
   }, [original, resolvedFontFamily, settings.fontSize, settings.lineHeight, settings.textAlign, reflow])
-  useEffect(() => { applyTypography() }, [applyTypography])
 
   // ADR-012 S4b — the Original-layout PDF document. Rebuilt when the token
   // refreshes (nonce) so a silent 401 recovery reloads at the tracked page.
@@ -1171,6 +1173,16 @@ export function ReaderShell(props: ReaderShellProps) {
     // change only when `pdfHtml` does, or a theme switch reloads the document.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [original, pdfTokenReady, pdfHtml, html, isLocalOriginal, originalFileUrl])
+
+  // A new source is a new document even when the reflow html is the same memo — PDF → "Read as
+  // text" swaps the source, not the html. It takes no injections until its onLoadEnd, and it is
+  // styled as the html was built, not as later injections restyled the one before it.
+  useEffect(() => {
+    docLoadedRef.current = false
+    readerAppliedTypographyRef.current = builtTypographyRef.current
+  }, [webViewSource])
+  // Declared after the reset above, so a change in the same render waits for onLoadEnd.
+  useEffect(() => { applyTypography() }, [applyTypography])
 
   // Chrome changes reach the OPEN document instead of rebuilding it. This is the
   // other half of the fix: the memo above stopped depending on insets and theme,
