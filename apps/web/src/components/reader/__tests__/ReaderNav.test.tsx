@@ -67,6 +67,27 @@ describe('ReaderNav', () => {
     expect(onNext).toHaveBeenCalledTimes(1)
   })
 
+  it('last chapter: the next button finishes the book (L2)', () => {
+    const onFinish = vi.fn()
+    const { container } = render(
+      <ReaderNav
+        chapterTitle="x"
+        chapterNumber={2}
+        totalChapters={2}
+        chapterProgress={1}
+        onPrev={null}
+        onNext={null}
+        onFinish={onFinish}
+        finishLabel="Finish book"
+      />,
+    )
+    const next = container.querySelector('.reader-nav__btn--next') as HTMLButtonElement
+    expect(next.disabled).toBe(false)
+    expect(next.getAttribute('aria-label')).toBe('Finish book')
+    fireEvent.click(next)
+    expect(onFinish).toHaveBeenCalledTimes(1)
+  })
+
   it('disables buttons when handler is null', () => {
     const { container } = render(
       <ReaderNav

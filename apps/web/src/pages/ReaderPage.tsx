@@ -768,6 +768,9 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
                   chapterProgress={overlayScrollProgress}
                   onPrev={chapter.prev ? () => { flushProgress(); navigate(getChapterUrl(chapter.prev!.identifier)) } : null}
                   onNext={chapter.next ? () => { flushProgress(); navigate(getChapterUrl(chapter.next!.identifier)) } : null}
+                  // The only way to the "finished" screen since the reader stopped paging.
+                  onFinish={() => setBookCompleted(true)}
+                  finishLabel={t('reader.finishBook')}
                 />
               </>
             )}
