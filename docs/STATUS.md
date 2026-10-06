@@ -106,6 +106,11 @@ answers "what happened" and nothing answered "what is half-finished right now".
   - *Re-ingest ([ADR-018](01-architecture/adr/ADR-018-reingest-updates-chapters-in-place.md) known
     limits):* admin chapter delete and quality-pipeline delete/merge re-point Ids but **don't rewrite
     slug locators**; `MaxChapterNumber` is **not remapped** when chapters are renumbered.
+  - *Size:* the reader's big files mix many jobs — mobile `ReaderShell.tsx` 1593 lines, `readerHtml.ts`
+    1566 (JS in a string, untyped), `readerBridge.ts` 625; web `ReaderPage.tsx` 884,
+    `ReaderHighlights.tsx` 661. Split by job (restore/save, decorations, toolbar, bridge). The
+    `readerHtml`/`readerBridge` part belongs to the reader-engine work (moving that JS into typed TS
+    modules); `ReaderShell` and the web page can be split on their own, after R3.
   - *Coverage:* the mobile reader hooks have no tests of their own (fixes were tested through pure
     modules extracted from them); **web has no service worker**, so "Download" is not real offline in
     a fresh tab.
