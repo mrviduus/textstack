@@ -380,6 +380,10 @@ function main(): void {
   }
 
   function reportTopPage(): void {
+    // Travelling: the jump has not landed, and the page under the top is wherever estimated
+    // heights put it. RN saves what it is told (a ±1 landing or the 4s settle opens its gate),
+    // so these pages became the position and every reopen drifted. The landing reports itself.
+    if (pendingTarget != null) return
     const now = Date.now()
     const wait = PAGE_REPORT_THROTTLE_MS - (now - lastPageReportAt)
     if (wait > 0) {
@@ -433,6 +437,25 @@ function main(): void {
     pendingTarget = target
     pendingJumpId = jumpId
     scrollToPageEl(target)
+    // Every size above it already known (the prefetch may be done): this IS the landing.
+    settleIfReady()
+  }
+
+  /** Land the pending jump once every page above it is measured — sizes applied, scrolled,
+   *  acknowledged. One path for the boot seed and every RN jump. Synchronous: reading the rect
+   *  forces the layout the new sizes produce, and no report can slip in between. */
+  function settleIfReady(): void {
+    if (pendingTarget == null || !dimsReadyUpTo(pageDims, pendingTarget)) return
+    const t = pendingTarget
+    const id = pendingJumpId
+    applyPlaceholderSizes()
+    scrollToPageEl(t)
+    pendingTarget = null
+    pendingJumpId = 0
+    appliedJumpId = id
+    // Tell RN this jump landed. Position alone is ambiguous — the page it would
+    // report may be the one it already reported — so the id travels.
+    reportTopPageNow()
   }
 
   function buildPageEls(): void {
@@ -488,25 +511,13 @@ function main(): void {
         }
         if (i % 10 === 0) applyPlaceholderSizes()
       } catch {
-        /* keep fallback dim */
+        // Keep the estimate pageBox already draws it at — recorded, so a jump past this page can
+        // still land (an unmeasured page would hold it, and the reports, forever).
+        pageDims[i - 1] = pageDims[0] || FALLBACK_DIM
       }
-      // One correction path for both the boot seed and every RN jump. Heights
-      // stream in lazily, so a jump issued before the pages above the target are
+      // Heights stream in lazily, so a jump issued before the pages above the target are
       // measured lands in the wrong place and has to be redone once they are.
-      if (pendingTarget != null && dimsReadyUpTo(pageDims, pendingTarget)) {
-        const t = pendingTarget
-        const id = pendingJumpId
-        pendingTarget = null
-        pendingJumpId = 0
-        applyPlaceholderSizes()
-        requestAnimationFrame(() => {
-          scrollToPageEl(t)
-          appliedJumpId = id
-          // Tell RN this jump landed. Position alone is ambiguous — the page it
-          // would report may be the one it already reported — so the id travels.
-          reportTopPageNow()
-        })
-      }
+      settleIfReady()
     }
     applyPlaceholderSizes()
     syncRings()
