@@ -43,7 +43,9 @@ COPY apps/mobile/package.json apps/mobile/
 COPY packages/shared/package.json packages/shared/
 COPY packages/reader-overlay/package.json packages/reader-overlay/
 
-RUN pnpm install --frozen-lockfile --filter textstack-web...
+# Store deleted in the same layer — see apps/admin/Dockerfile.
+RUN pnpm install --frozen-lockfile --filter textstack-web... \
+    && rm -rf "$(pnpm store path)"
 
 COPY apps/web/scripts/ ./apps/web/scripts/
 COPY packages/ ./packages/

@@ -39,6 +39,23 @@ tests/
 # Logs
 *.log
 
-# Local env
-.env
-.env.local
+# Secrets, at any depth. The images are published to GHCR (images.yml), so a file
+# that reaches a build context can reach the internet. `.env` alone matched only
+# the root one: apps/admin/.env* went into the admin image (and `vite build` reads
+# .env.production), and `COPY backend/src/` + `dotnet publish` shipped any
+# untracked appsettings.<Env>.json into /app. A clean CI checkout has none of these;
+# a server or laptop checkout can. scripts/scan-image-secrets.sh checks the result.
+**/.env
+**/.env.*
+!.env.example
+**/appsettings.*.json
+**/*service-account*.json
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+
+# Local .NET build output. COPY backend/src/ would otherwise carry a laptop's
+# bin/obj into the build stage, and all of it into the single-stage migrator.
+**/bin/
+**/obj/

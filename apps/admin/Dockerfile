@@ -39,7 +39,13 @@ COPY packages/reader-overlay/package.json packages/reader-overlay/
 # instead of silently updating. Catches dep changes that weren't reviewed
 # locally, and removes the class of "different rebuild → different versions"
 # bugs that surfaced when this container ran `vite dev` in prod.
-RUN pnpm install --frozen-lockfile --filter textstack-admin...
+#
+# The pnpm store is deleted in the same layer: the image is published (images.yml),
+# and the store holds every package again under hash names — including
+# expo-updates' test-fixture private keys, which no scanner allowlist can then
+# tell apart from a real key. node_modules is hard-linked from it, so it survives.
+RUN pnpm install --frozen-lockfile --filter textstack-admin... \
+    && rm -rf "$(pnpm store path)"
 
 COPY apps/admin/ ./apps/admin/
 COPY packages/ ./packages/

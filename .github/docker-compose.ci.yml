@@ -1,8 +1,10 @@
 # CI-only overlay: Docker layer cache in the GitHub Actions cache. Used by the
 # `docker` and `e2e` jobs in ci.yml as
 #   docker compose -f docker-compose.yml -f .github/docker-compose.ci.yml build
-# and by nothing else. The images keep compose's own names, so a plain
-# `docker compose up -d` afterwards finds them and does not rebuild.
+# and by images.yml, which publishes the same images to GHCR (and so keeps this
+# cache warm for pull requests). The images keep the names docker-compose.yml
+# gives them, so a plain `docker compose up -d` afterwards finds them and does
+# not rebuild.
 #
 # One scope per image: a shared scope would let each image's cache manifest
 # overwrite the last. Both jobs build the same images from the same args, so they
@@ -30,3 +32,7 @@ services:
     build:
       cache_from: ["type=gha,scope=compose-ssg-worker"]
       cache_to: ["type=gha,scope=compose-ssg-worker,mode=max,ignore-error=true"]
+  mcp-server:
+    build:
+      cache_from: ["type=gha,scope=compose-mcp-server"]
+      cache_to: ["type=gha,scope=compose-mcp-server,mode=max,ignore-error=true"]

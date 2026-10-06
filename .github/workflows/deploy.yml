@@ -43,9 +43,27 @@ jobs:
     with:
       scope: merged-tree
 
+  # Builds and pushes the images for this commit (or the rollback commit) on a
+  # GitHub-hosted runner, in parallel with `ci`. A job in the same run rather than
+  # a separate workflow the server polls for: `needs` gives the exact SHA with no
+  # timeout to guess and no race, and the rollback input reaches it directly.
+  images:
+    uses: ./.github/workflows/images.yml
+    permissions:
+      contents: read
+      packages: write
+    with:
+      ref: ${{ github.event.inputs.rollback_commit }}
+
   deploy:
-    needs: ci
+    needs: [ci, images]
+    # A failed `images` must not block a deploy: the server builds instead, as it
+    # always did. A failed `ci` still does.
+    if: ${{ !cancelled() && needs.ci.result == 'success' }}
     runs-on: self-hosted
+    permissions:
+      contents: read
+      packages: read
     # 2m typical, 30m at worst.
     timeout-minutes: 60
 
@@ -304,18 +322,61 @@ jobs:
         # `runtime: nvidia` + GPU device reservation to the ollama service.
         # CI runners don't have nvidia-container-toolkit, so it's NOT in
         # the default compose file (that would break the ci/docker job).
+        #
+        # Images come from GHCR, built once by the `images` job for this exact
+        # commit. If any pull fails (job failed, registry down, a commit from before
+        # images were published) the server builds them itself, as it used to.
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
         run: |
           cd $PROJECT_DIR
           # Stamp the deployed commit into the images as SENTRY_RELEASE (build arg →
           # ENV). Without a release Sentry can't do regression detection or tell you
           # which deploy an issue started with. .dockerignore excludes .git, so the
-          # build arg is the only way in.
-          export GIT_SHA=$(git rev-parse --short HEAD)
+          # build arg is the only way in. --short=12, the same as images.yml, so a
+          # pulled and a fallback-built image report the same release.
+          GIT_SHA=$(git rev-parse --short=12 HEAD)
+          IMAGE_TAG=$(git rev-parse HEAD)
+          IMAGE_REGISTRY=ghcr.io/${{ github.repository_owner }}/textstack
+          export GIT_SHA IMAGE_TAG IMAGE_REGISTRY
           echo "Deploying release $GIT_SHA"
           # --profile mcp brings up the remote MCP server (mcp-server) in prod.
           # It's profile-gated so CI's bare `compose up` (docker/e2e jobs) never
           # builds/runs it; prod opts in here. nginx /mcp is synced below.
-          docker compose --profile mcp -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+          COMPOSE="docker compose --profile mcp -f docker-compose.yml -f docker-compose.gpu.yml"
+
+          PULLED=false
+          if grep -q 'IMAGE_TAG' docker-compose.yml; then
+            # The token goes into a throwaway config dir for these pulls only, never
+            # into ~/.docker on the server. It expires with this job anyway. Once the
+            # packages are public the login is unnecessary but harmless.
+            DOCKER_CONFIG=$(mktemp -d) && export DOCKER_CONFIG
+            if echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin; then
+              PULLED=true
+              for s in migrator api worker admin ssg-worker mcp-server; do
+                timeout 900 docker pull "$IMAGE_REGISTRY-$s:$IMAGE_TAG" || { PULLED=false; break; }
+              done
+            fi
+            rm -rf "$DOCKER_CONFIG"; unset DOCKER_CONFIG
+          fi
+
+          if [ "$PULLED" = true ]; then
+            echo "Deploying pulled images $IMAGE_REGISTRY-*:$IMAGE_TAG"
+            $COMPOSE up -d --no-build
+          else
+            echo "::warning::Images for $IMAGE_TAG not pulled — building on the server"
+            $COMPOSE up -d --build
+          fi
+
+          # A hand-run `docker compose up -d <svc>` on the server (e.g. after editing .env)
+          # has no IMAGE_TAG and resolves `textstack-<svc>:latest`. Point that at what is
+          # running now, or it would silently start an older image.
+          if grep -q 'IMAGE_TAG' docker-compose.yml; then
+            for s in migrator api worker admin ssg-worker mcp-server; do
+              docker tag "$IMAGE_REGISTRY-$s:$IMAGE_TAG" "textstack-$s:latest"
+            done
+          fi
 
       # Keep the local model current. A no-op when the manifest hasn't changed (seconds); the model
       # was otherwise pulled once by hand and never again. Non-fatal: a failed pull keeps the model
@@ -530,4 +591,12 @@ jobs:
           systemctl --user restart quality-poller && echo "Quality poller restarted" || echo "Quality poller restart FAILED (run: make quality-poll-setup if not installed)"
 
       - name: Cleanup old images
-        run: docker image prune -f
+        run: |
+          # Every deploy pulls a new SHA tag, and a tagged image is never "dangling", so
+          # prune alone would keep them all. Drop every published tag but this deploy's.
+          # In-use images refuse removal, which is the point.
+          KEEP=$(git -C "$PROJECT_DIR" rev-parse HEAD)
+          docker image ls --format '{{.Repository}}:{{.Tag}}' \
+            | grep '^ghcr\.io/${{ github.repository_owner }}/textstack-' | grep -v ":$KEEP\$" \
+            | xargs -r docker rmi || true
+          docker image prune -f
