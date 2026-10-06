@@ -490,7 +490,7 @@ That single command builds the AAB and pushes it to Internal Testing. Service ac
 
 **GitHub Actions workflows** (`.github/workflows/`):
 - **ci.yml** — runs on PR + push to main. Jobs: backend (build, lint, migrations, search tests), frontend (web + admin build), docker (integration tests), e2e (Playwright)
-- **deploy.yml** — self-hosted runner on server. Pre-deploy backup → git pull → frontend build → docker compose up → health checks → SSG content check → image cleanup. Full SSG rebuild only with the `rebuild_ssg` input; otherwise nightly in backup.yml
+- **deploy.yml** — `images` job (GitHub-hosted, `images.yml`) builds every image once, gates it on `scripts/scan-image-secrets.sh`, pushes `ghcr.io/mrviduus/textstack-<svc>:<sha>`; then the self-hosted runner: pre-deploy backup → checkout this run's SHA → frontend build → pull images by SHA (`up -d --no-build`; a failed pull falls back to building on the server) → health checks → SSG content check → image cleanup. Secrets live only in the server's `.env` at runtime, never in an image. Full SSG rebuild only with the `rebuild_ssg` input; otherwise nightly in backup.yml
 - **backup.yml** — daily at 3 AM UTC. DB dump + storage tar.gz, keeps 5 newest of each
 - **health-check.yml** — every 5 min. Checks API + both frontends
 

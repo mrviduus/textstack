@@ -89,8 +89,11 @@ jobs:
           if [ -n "${{ github.event.inputs.rollback_commit }}" ]; then
             git checkout ${{ github.event.inputs.rollback_commit }}
           else
+            # This run's own commit, not main's tip: the images job built exactly
+            # github.sha, and a newer merge queued behind us gets its own run.
+            # ff-only: re-running an older deploy fails loudly — use rollback_commit.
             git checkout main
-            git pull origin main
+            git merge --ff-only ${{ github.sha }}
           fi
 
       # The frontend that reaches production is built by this job, and until now
