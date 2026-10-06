@@ -187,6 +187,36 @@ describe('a font-size change mid-chapter', () => {
   })
 })
 
+describe('the restore ack carries the landing (R4 bug 4)', () => {
+  // ackRestore itself, not the stub above: chapter-relative scrollY, then a report RN can book as
+  // the landing even when the restore moved less than the report threshold.
+  function run(scrollY: number, lastProgress: number) {
+    const sent: { type: string; scrollY?: number; progress?: number }[] = []
+    const pad = 120
+    const win = { scrollY, innerHeight: VIEWPORT, ReactNativeWebView: { postMessage: (m: string) => sent.push(JSON.parse(m)) } }
+    const ctx: Record<string, unknown> = {
+      tsChapter: { slug: 'ch-1', el: { getBoundingClientRect: () => ({ top: pad - win.scrollY, bottom: pad + 3000 - win.scrollY }) } },
+      window: win,
+      document: { documentElement: { scrollHeight: pad + 3000 + END_BLOCK }, body: { innerText: 'prose' } },
+      lastProgress, isFinite, Math, JSON,
+    }
+    const script = [extractFunction('currentChapterBounds'), extractFunction('reportProgress'), extractFunction('ackRestore')].join('\n')
+    // eslint-disable-next-line no-new-func
+    new Function('ctx', `with (ctx) { ${script}; ackRestore(7); }`)(ctx)
+    return sent
+  }
+
+  it('scrollY is chapter-relative, like a progress report', () => {
+    expect(run(620, 0)[0]).toMatchObject({ type: 'restored', restoreId: 7, scrollY: 500 })
+  })
+
+  it('a landing that moved under the threshold is still reported, after the ack', () => {
+    const sent = run(620, 500 / (3000 - VIEWPORT))
+    expect(sent.map(m => m.type)).toEqual(['restored', 'progress'])
+    expect(sent[1].scrollY).toBe(500)
+  })
+})
+
 describe('chapter bounds are measured, never remembered', () => {
   it('follows the chapter when the layout moves under it', () => {
     // An image or a webfont landing fires no message to RN. A remembered height

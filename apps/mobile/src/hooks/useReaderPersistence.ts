@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, MutableRefObject, useState } from 'reac
 import { AppState } from 'react-native'
 import {
   canPersistPosition,
+  gateOpened,
   restoreGateReduce,
   restoredChapter,
   RESTORE_GATE_INITIAL,
@@ -10,7 +11,7 @@ import {
 } from '../lib/readerWriteGate'
 import { READINESS_INITIAL, readinessReduce, readyToRestore, type ReadinessEvent } from '../lib/restoreReadiness'
 import { claimPosition, handOffPosition } from '../lib/positionHandoff'
-import { rebuildRestoreJs, rebuildRestoreTarget, type RebuildTarget } from '../lib/rebuildRestore'
+import { duringRestorePlan, landingBaseline, pendingRestoreTarget, rebuildRestoreJs, rebuildRestoreTarget, savedRestoreTarget, type RebuildTarget } from '../lib/rebuildRestore'
 import type { SessionJump } from '../lib/sessionMath'
 import { useFlushOnBackground } from './useFlushOnBackground'
 import { t, type TextPosition } from '@textstack/shared'
@@ -125,8 +126,24 @@ export function useReaderPersistence({
   // so dispatching on every scroll message costs no render.
   const [gate, setGate] = useState(RESTORE_GATE_INITIAL)
   const restoredFor = restoredChapter(gate)
+  // The same gate, synchronously: callbacks ask "has the restore landed?" between renders (R4).
+  const gateRef = useRef(RESTORE_GATE_INITIAL)
+  // Work waiting for the restore in flight to land — the foreground check after a remount (R4 bug 3).
+  const afterLandRef = useRef<(() => void) | null>(null)
   const dispatchGate = useCallback((event: RestoreGateEvent) => {
-    setGate(prev => restoreGateReduce(prev, event))
+    const prev = gateRef.current
+    gateRef.current = restoreGateReduce(prev, event)
+    setGate(gateRef.current)
+    if (gateOpened(prev, gateRef.current) && afterLandRef.current) {
+      const run = afterLandRef.current
+      afterLandRef.current = null
+      run()
+    }
+  }, [])
+  /** Run now if the restore has landed, else once it does. One slot: the latest ask wins. */
+  const whenLanded = useCallback((fn: () => void) => {
+    if (gateRef.current.phase === 'open') fn()
+    else afterLandRef.current = fn
   }, [])
   // Mints the token that travels into the WebView and back, so an acknowledgement from the chapter
   // just left cannot open the gate on this one. Mirrors `pdfJumpIdRef` in ReaderShell.
@@ -171,12 +188,55 @@ export function useReaderPersistence({
     return restoreId
   }, [dispatchGate])
 
+  // Where the last restore landed (its ack's scrollY), else the first scroll offset reported after
+  // it — the "has the reader moved since?" baseline. Null: nothing reported yet.
+  const moveBaselineRef = useRef<number | null>(null)
+
+  /** The WebView finished a restore we asked for. Signalled by ReaderShell's `restored` message. */
+  // Where the newest restore landed (its ack's scrollY, chapter-relative) — the baseline a
+  // foreground check deferred across a remount takes, whatever kind of restore it was.
+  const lastLandingRef = useRef<number | null>(null)
+  const onRestoreLanded = useCallback((restoreId: number, scrollY?: number) => {
+    if (restoreId === restoreIdRef.current) {
+      if (sessionJumpRef.current === 'pending') sessionJumpRef.current = 'landed'
+      // Before any deferred check runs (dispatchGate). Only a move sets the baseline (landingBaseline).
+      lastLandingRef.current = typeof scrollY === 'number' ? scrollY : null
+      moveBaselineRef.current = landingBaseline(moveBaselineRef.current, scrollY)
+    }
+    dispatchGate({ type: 'restoreLanded', restoreId })
+  }, [dispatchGate])
+
+  // Where a rebuild goes back to (L1), until its document loads and consumes it — see rebuildRestore.ts.
+  const rebuildTargetRef = useRef<RebuildTarget | undefined>(undefined)
+  // The target of the newest restore issued (not of a reflow, which aims wherever the reader is).
+  // Rule 8 keeps the pending one across a rebuild or reflow started before it lands.
+  const pendingRestoreRef = useRef<{ restoreId: number; target: RebuildTarget } | null>(null)
+  const pendingTarget = useCallback((): RebuildTarget | undefined => pendingRestoreTarget({
+    rebuildTarget: rebuildTargetRef.current,
+    pending: pendingRestoreRef.current,
+    gate: gateRef.current,
+    currentId: restoreIdRef.current,
+  }), [])
+
+  /** Ask the WebView to go to `target` behind a fresh restore id. Null (top): nothing to ask, landed. */
+  const restoreTo = useCallback((target: RebuildTarget) => {
+    const restoreId = issueRestore()
+    pendingRestoreRef.current = { restoreId, target }
+    const js = rebuildRestoreJs(target, restoreId)
+    if (js) injectJs(js)
+    else onRestoreLanded(restoreId)
+  }, [injectJs, issueRestore, onRestoreLanded])
+
   /** Scroll the WebView to the saved refs (anchor → offset → percent), behind a fresh restore id. */
   const injectSaved = useCallback(() => {
-    const offset = savedOffsetRef.current
-    const pct = savedPercentRef.current
-    const pos = savedPositionRef.current
-    if (pos == null && offset == null && pct == null) {
+    // The anchor first: it is the only one of the three that is still true after the text has
+    // reflowed. The WebView resolves it against the text it is showing and acks either way.
+    const target = savedRestoreTarget({
+      position: savedPositionRef.current,
+      offset: savedOffsetRef.current,
+      percent: savedPercentRef.current,
+    })
+    if (target == null) {
       // Nothing saved: the top of the chapter IS the restored position. Open the gate now, or a
       // book opened for the first time could never be saved at all.
       dispatchGate({ type: 'nothingToRestore' })
@@ -184,18 +244,8 @@ export function useReaderPersistence({
     }
     // Asked, not arrived. The gate stays shut until the WebView reports back — this is the window
     // in which a back-press used to persist the load event's zero over a half-read book.
-    const restoreId = issueRestore()
-    // The anchor first: it is the only one of the three that is still true after
-    // the text has reflowed. The WebView resolves it against the text it is
-    // actually showing and answers with the same ack either way.
-    if (pos != null) {
-      injectJs(`window.__textstackRestoreAnchor && window.__textstackRestoreAnchor(${JSON.stringify(JSON.stringify(pos))}, ${restoreId})`)
-    } else if (offset != null) {
-      injectJs(`window.__textstackRestoreScroll && window.__textstackRestoreScroll(${offset}, ${restoreId})`)
-    } else {
-      injectJs(`window.__textstackRestorePercent && window.__textstackRestorePercent(${pct}, ${restoreId})`)
-    }
-  }, [injectJs, dispatchGate, issueRestore])
+    restoreTo(target)
+  }, [dispatchGate, restoreTo])
 
   const tryRestore = useCallback(() => {
     if (!readyToRestore(readinessRef.current)) return
@@ -204,9 +254,6 @@ export function useReaderPersistence({
     injectSaved()
   }, [injectSaved, readiness])
 
-  // First scroll offset reported after this chapter's restore settled — the
-  // "has the reader moved since?" baseline. Null: nothing reported yet.
-  const moveBaselineRef = useRef<number | null>(null)
   const chapterSlugRef = useRef(chapterSlug)
   chapterSlugRef.current = chapterSlug
 
@@ -263,12 +310,6 @@ export function useReaderPersistence({
   const loadNewerRef = useRef(loadNewerPosition)
   loadNewerRef.current = loadNewerPosition
 
-  /** The WebView finished a restore we asked for. Signalled by ReaderShell's `restored` message. */
-  const onRestoreLanded = useCallback((restoreId: number) => {
-    if (restoreId === restoreIdRef.current && sessionJumpRef.current === 'pending') sessionJumpRef.current = 'landed'
-    dispatchGate({ type: 'restoreLanded', restoreId })
-  }, [dispatchGate])
-
   /**
    * A rebuild of the WebView document is starting (a re-parsed chapter, the
    * OpenDyslexic face) — told by ReaderShell before the new document loads.
@@ -276,16 +317,23 @@ export function useReaderPersistence({
    * event's zero, which is exactly the value that used to be written over a
    * half-read book, so the gate shuts here.
    */
-  // Where the reader was when the rebuild started (L1) — see rebuildRestore.ts.
-  const rebuildTargetRef = useRef<RebuildTarget | undefined>(undefined)
   const onDocumentRebuild = useCallback(() => {
-    if (readinessRef.current.restored) {
-      rebuildTargetRef.current = rebuildRestoreTarget(positionRef.current, progressRef.current, chapterSlug)
+    // Rule 8: a restore still in flight keeps its target; only a landed one is snapshotted.
+    const plan = duringRestorePlan({
+      restoreFired: readinessRef.current.restored,
+      pendingTarget: pendingTarget(),
+      live: rebuildRestoreTarget(positionRef.current, progressRef.current, chapterSlug),
+    })
+    if (plan.kind === 'awaitRestore') {
+      // Not asked yet: the open restore runs on the NEW document, once it loads and the position is read.
+      readiness({ type: 'documentReplaced' })
+    } else {
+      rebuildTargetRef.current = plan.target
       // The new document's load event reports the chapter top — travel, not reading.
       sessionJumpRef.current = 'pending'
     }
     dispatchGate({ type: 'chapterEntered', chapterSlug: chapterSlug ?? null })
-  }, [dispatchGate, chapterSlug, positionRef, progressRef])
+  }, [dispatchGate, chapterSlug, positionRef, progressRef, pendingTarget, readiness])
 
   // Signalled by ReaderShell's onLoadEnd.
   const onWebViewLoaded = useCallback(() => {
@@ -296,16 +344,26 @@ export function useReaderPersistence({
         ? rebuildTargetRef.current
         : rebuildRestoreTarget(positionRef.current, progressRef.current, chapterSlug)
       rebuildTargetRef.current = undefined
-      const restoreId = issueRestore()
-      const js = rebuildRestoreJs(target, restoreId)
-      // Null: top of the chapter is where they were; nothing to ask the WebView for.
-      if (js) injectJs(js)
-      else onRestoreLanded(restoreId)
+      restoreTo(target)
       return
     }
     readiness({ type: 'webViewLoaded' })
     tryRestore()
-  }, [tryRestore, injectJs, progressRef, positionRef, chapterSlug, issueRestore, onRestoreLanded, readiness])
+  }, [tryRestore, progressRef, positionRef, chapterSlug, restoreTo, readiness])
+
+  /**
+   * Typography injected into the open document (font size, line height, serif↔sans). It measures,
+   * restyles and re-anchors as one restore. Rule 8: while the open restore is in flight the reader
+   * is not where the reflow would measure, so the pending target is asked for again after it; before
+   * the restore has fired, the reflow carries an inert id (0 is never issued) and the restore that
+   * follows supplies the position.
+   */
+  const reflow = useCallback((buildJs: (restoreId: number) => string) => {
+    const plan = duringRestorePlan({ restoreFired: readinessRef.current.restored, pendingTarget: pendingTarget(), live: null })
+    if (plan.kind === 'awaitRestore') { injectJs(buildJs(0)); return }
+    injectJs(buildJs(issueRestore()))
+    if (plan.kind === 'keepPending') restoreTo(plan.target)
+  }, [injectJs, issueRestore, pendingTarget, restoreTo])
 
   // Pending-save buffer: chapterId resolves AFTER the chapter fetch lands, so a
   // save requested during rapid chapter tap-through (e.g. emit-on-load firing
@@ -411,6 +469,9 @@ export function useReaderPersistence({
     moveBaselineRef.current = null
     pendingSaveRef.current = false
     rebuildTargetRef.current = undefined
+    pendingRestoreRef.current = null
+    lastLandingRef.current = null
+    afterLandRef.current = null
     sessionJumpRef.current = 'idle'
     // Restoring a reflow scroll position into a PDF viewer would fight the
     // page jump the PDF path is already performing.
@@ -475,6 +536,11 @@ export function useReaderPersistence({
   // position another device had read on to. Same rules as the open (decideNewerPosition), against
   // the device's record as it is now; the baseline is where the reader is at the return, so the
   // silent move happens only if they have not moved since.
+  //
+  // A renderer killed in the background is remounted on the return (M6), so the return often lands
+  // mid-rebuild or mid-restore, where the live refs are the load event's zeros. Then the check waits
+  // for the restore to land and takes the landing (the ack's scrollY) as the baseline (R4 bug 3);
+  // an answer that arrives mid-restore waits the same way.
   useEffect(() => {
     let prev: string = AppState.currentState
     const sub = AppState.addEventListener('change', next => {
@@ -482,18 +548,26 @@ export function useReaderPersistence({
       prev = next
       const load = loadNewerRef.current
       const slug = chapterSlugRef.current
-      if (!back || !load || !slug || !bookKeyRef.current || !enabledRef.current) return
-      if (leavingRef.current || !readinessRef.current.restored) return
-      moveBaselineRef.current = scrollOffsetRef.current
-      load(slug, { latest: true })
-        .then(newer => {
-          if (!newer || unmountedRef.current || leavingRef.current || chapterSlugRef.current !== slug) return
-          applyNewerRef.current(newer, slug)
-        })
-        .catch(() => { /* offline: this device's place stands */ })
+      if (!back || !load || !slug || !bookKeyRef.current || !enabledRef.current || leavingRef.current) return
+      const landedNow = gateRef.current.phase === 'open'
+      whenLanded(() => {
+        if (unmountedRef.current || leavingRef.current || chapterSlugRef.current !== slug) return
+        // Landed long ago: where the reader is now. Just landed: the landing (the ack's scrollY) —
+        // the live ref still holds the remounted document's load-event zero here.
+        moveBaselineRef.current = landedNow ? scrollOffsetRef.current : (lastLandingRef.current ?? scrollOffsetRef.current)
+        load(slug, { latest: true })
+          .then(newer => {
+            if (!newer) return
+            whenLanded(() => {
+              if (unmountedRef.current || leavingRef.current || chapterSlugRef.current !== slug) return
+              applyNewerRef.current(newer, slug)
+            })
+          })
+          .catch(() => { /* offline: this device's place stands */ })
+      })
     })
     return () => sub.remove()
-  }, [scrollOffsetRef])
+  }, [scrollOffsetRef, whenLanded])
 
   // Android OS-kill skips React cleanup; AppState background fires first so we
   // get one last sync write of scroll position + book-percent cache.
@@ -502,5 +576,5 @@ export function useReaderPersistence({
   // The reader is where the restore put them (or nothing needed restoring) — reports from here
   // on are reading, not the restore travelling (M8).
   const positionSettled = !!chapterSlug && restoredFor === chapterSlug
-  return { saveProgress, bumpProgress, onWebViewLoaded, onRestoreLanded, onDocumentRebuild, beginReflow: issueRestore, chapterNavigatorRef, positionSettled, sessionJumpRef }
+  return { saveProgress, bumpProgress, onWebViewLoaded, onRestoreLanded, onDocumentRebuild, reflow, chapterNavigatorRef, positionSettled, sessionJumpRef }
 }

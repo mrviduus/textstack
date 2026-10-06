@@ -75,8 +75,11 @@ describe('the restore follows the document', () => {
     // A re-parsed chapter or the OpenDyslexic face still rebuilds the document;
     // its load event reports zero, which must not be written over a real place.
     const src = read('../hooks/useReaderPersistence.ts')
-    // (The L1 snapshot of where the reader was is taken first, then the gate shuts.)
-    expect(src).toMatch(/const onDocumentRebuild = useCallback\(\(\) => \{[^}]*\}\s*dispatchGate\(\{ type: 'chapterEntered', chapterSlug: chapterSlug \?\? null \}\)/)
+    // (The target is decided first — rule 8, pending before a snapshot — then the gate shuts.)
+    const start = src.indexOf('const onDocumentRebuild = useCallback(')
+    const body = src.slice(start, src.indexOf('}, [', start))
+    expect(body.trimEnd()).toMatch(/dispatchGate\(\{ type: 'chapterEntered', chapterSlug: chapterSlug \?\? null \}\)$/)
+    expect(body.indexOf('duringRestorePlan(')).toBeLessThan(body.indexOf("type: 'chapterEntered'"))
   })
 })
 

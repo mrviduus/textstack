@@ -160,6 +160,11 @@ export function restoreGateReduce(
   }
 }
 
+/** The restore just landed (ack, standby or timeout) — what work deferred until then waits for. */
+export function gateOpened(prev: RestoreGateState, next: RestoreGateState): boolean {
+  return prev.phase !== 'open' && next.phase === 'open'
+}
+
 /** The chapter whose restore has completed, in the shape `canPersistPosition` consumes. */
 export function restoredChapter(state: RestoreGateState): string | null {
   return state.phase === 'open' ? state.chapterSlug : null

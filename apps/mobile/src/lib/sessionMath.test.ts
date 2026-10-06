@@ -71,11 +71,15 @@ describe('jump wiring (review #2)', () => {
   it('every programmatic restore marks the session jump pending, in issueRestore', () => {
     const start = persistence.indexOf('const issueRestore = useCallback(')
     expect(persistence.slice(start, persistence.indexOf('}, [dispatchGate])', start))).toContain("sessionJumpRef.current = 'pending'")
-    // goHere / applyNewer / the toast all restore through injectSaved → issueRestore, and the
-    // typography reflow is beginReflow = issueRestore.
-    const inject = persistence.indexOf('const injectSaved = useCallback(')
-    expect(persistence.slice(inject, persistence.indexOf('}, [injectJs', inject))).toContain('issueRestore()')
-    expect(persistence).toContain('beginReflow: issueRestore')
+    // goHere / applyNewer / the toast / a rebuild all restore through restoreTo → issueRestore, and
+    // the typography reflow issues its own id the same way (R4).
+    const body = (name: string) => {
+      const at = persistence.indexOf(`const ${name} = useCallback(`)
+      return persistence.slice(at, persistence.indexOf('}, [', at))
+    }
+    expect(body('injectSaved')).toContain('restoreTo(target)')
+    expect(body('restoreTo')).toContain('issueRestore()')
+    expect(body('reflow')).toContain('issueRestore()')
   })
 
   it('the ack (or the settle timeout) turns it into a landing', () => {
@@ -114,7 +118,7 @@ describe('session wiring (M8, L2)', () => {
 
   it('both sources hand the settled flag to the shell', () => {
     for (const f of ['src/components/reader/useUserBookReaderSource.ts', 'src/components/reader/useEditionReaderSource.ts']) {
-      expect(read(f)).toMatch(/beginReflow, positionSettled,/)
+      expect(read(f)).toMatch(/reflow, positionSettled,/)
     }
   })
 })

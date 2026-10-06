@@ -38,6 +38,7 @@ import { returnedToForeground } from '../../lib/progressRestore'
 import { saveWordIntent } from '../../lib/saveWordIntent'
 import { readerTextLanguage } from '../../lib/bookLanguage'
 import type { SessionJump } from '../../lib/sessionMath'
+import { initialPdfJump } from '../../lib/pdfInitialJump'
 import { capabilitiesFor } from '../../lib/capabilities'
 import { claimGuestNudge } from '../../lib/guestNudge'
 import { decideNewerPosition, readerMovedSince } from '../../lib/progressRestore'
@@ -122,13 +123,13 @@ export interface ReaderShellProps {
   onWebViewLoaded: () => void
 
   /** The WebView acknowledged a restore, carrying back the id it was issued with. */
-  onRestoreLanded: (restoreId: number) => void
+  onRestoreLanded: (restoreId: number, scrollY?: number) => void
   /** The chapter's restore has landed (or there was nothing to restore). M8. */
   positionSettled: boolean
   /** Where a programmatic restore stands — its travel and its distance are not reading. */
   sessionJumpRef: MutableRefObject<SessionJump>
   onDocumentRebuild: () => void
-  beginReflow: () => number
+  reflow: (buildJs: (restoreId: number) => string) => void
 
   /** Put a chapter on the device before opening it (end-of-chapter block). */
   ensureChapter: (slug: string) => Promise<void>
@@ -199,7 +200,7 @@ export function ReaderShell(props: ReaderShellProps) {
     bookTitle, chapters, chaptersLoading,
     progressRef, scrollOffsetRef, currentChapterSlugRef, bookProgressRef, positionRef, totalWordCountRef,
     bumpProgress, saveProgress,
-    onWebViewLoaded, onRestoreLanded, positionSettled, sessionJumpRef, onDocumentRebuild, beginReflow,
+    onWebViewLoaded, onRestoreLanded, positionSettled, sessionJumpRef, onDocumentRebuild, reflow,
     ensureChapter, isChapterOnDevice, onNavigateChapter, chapterNavigatorRef,
     bookmarks, onToggleCurrentBookmark, onDeleteBookmark, bookmarkChapterSlug,
     bookTitleRef, wordCount, explainBookId,
@@ -275,6 +276,10 @@ export function ReaderShell(props: ReaderShellProps) {
   const chromeRef = useRef<ReaderChrome | null>(null)
   const appliedChromeRef = useRef<ReaderChrome | null>(null)
   const readerAppliedTypographyRef = useRef<ReaderTypography | null>(null)
+  // The reflow document has loaded and can take injections. Reset by every rebuild (the html memo).
+  const docLoadedRef = useRef(false)
+  // The typography the reflow html was built with — what a freshly loaded copy of it shows.
+  const builtTypographyRef = useRef<ReaderTypography | null>(null)
   // S4c — top-visible page + page count for the PDF chrome + page-bookmark
   // state. Kept in React state (not just the ref) so the chrome + bookmark icon
   // re-render as the user scrolls.
@@ -545,26 +550,22 @@ export function ReaderShell(props: ReaderShellProps) {
       pdfGateRef.current = pdfGateReduce(pdfGateRef.current, { type: 'noJumpNeeded' }).state
       return
     }
-    if (!originalResumeReady && originalInitialPage == null) return
-    if (originalInitialPage != null && !originalResumeReady) {
-      // The chapter's start page came from the bootstrap; the document already
-      // opens where it should. Nothing to wait for, so saving can begin.
-      pdfResumedPageRef.current = originalInitialPage
-      pdfGateRef.current = pdfGateReduce(pdfGateRef.current, { type: 'noJumpNeeded' }).state
-      return
-    }
+    // Waits for the device's page even when the chapter's start page is known (R4 bug 2) — a local
+    // read, never the network. A saved page inside this chapter wins over its start.
     const idx = chapters.findIndex(c => c.slug === chapterSlug)
-    const target = resolvePdfResumePage({
+    const first = initialPdfJump({
+      resumeReady: !!originalResumeReady,
       chapterStartPage: originalInitialPage,
       chapterEndPage: idx >= 0 ? chapterEndPage(chapters, idx) : null,
       // A newer server page that arrived before the jump is simply the target ('adopt').
       resumePage: originalNewerPage?.page ?? originalResumePage,
     })
-    pdfResumedPageRef.current = target
+    if (first.kind === 'wait') return
+    pdfResumedPageRef.current = first.page
     // The gate is armed by `scrollPdfToPage` itself, AFTER the target is known —
     // the old code set its flag first and then computed the target, so the
     // viewer's page-1 report sailed through the guard meant to catch it.
-    if (target > 1 && target !== originalInitialPage) scrollPdfToPage(target)
+    if (first.kind === 'jump') scrollPdfToPage(first.page)
     else pdfGateRef.current = pdfGateReduce(pdfGateRef.current, { type: 'noJumpNeeded' }).state
   }, [original, originalInitialPage, originalResumeReady, originalResumePage, originalNewerPage, scrollPdfToPage, chapters, chapterSlug])
 
@@ -705,9 +706,8 @@ export function ReaderShell(props: ReaderShellProps) {
         // chapter. Until the chapter list lands there is no book progress, and the
         // session is only told the reader is active.
         // A programmatic restore in flight is travel; the report after it lands is a jump whose
-        // distance is not reading (newer position elsewhere, rebuild, reflow).
-        // ponytail: a restore that lands without moving >0.5% posts no report, so the reader's next
-        // scroll is taken as the landing and its own small delta is dropped; ack-with-progress if it matters.
+        // distance is not reading (newer position elsewhere, rebuild, reflow). The WebView reports
+        // every landing right after its ack, so this is always the landing, never the next scroll.
         const jump = sessionJumpRef.current
         if (bp != null && sessionSettledRef.current && jump !== 'pending') {
           if (jump === 'landed') sessionJumpRef.current = 'idle'
@@ -719,7 +719,7 @@ export function ReaderShell(props: ReaderShellProps) {
         // we hold is the load event's zero, and writing it wipes the reader's place — so this
         // message, not the injection, is what opens the write gate.
         sessionSettledRef.current = true
-        onRestoreLanded(data.restoreId)
+        onRestoreLanded(data.restoreId, data.scrollY)
       } else if (data.type === 'chapterEnd') {
         onChapterEndActionRef.current(data.action)
       } else if (data.type === 'highlightTap') {
@@ -1062,6 +1062,8 @@ export function ReaderShell(props: ReaderShellProps) {
         textAlign: settings.textAlign,
       }
       readerAppliedTypographyRef.current = typography
+      builtTypographyRef.current = typography
+      docLoadedRef.current = false  // a new document; onLoadEnd says when it can take injections
       return buildReaderHtml(chapter.html, {
         fontSize: typography.fontSize,
         lineHeight: typography.lineHeight,
@@ -1091,8 +1093,13 @@ export function ReaderShell(props: ReaderShellProps) {
   // Typography changes reach the OPEN document instead of rebuilding it. The
   // injection measures, restyles and re-anchors as one operation and acks the
   // restoreId, so the write gate is shut across the reflow.
-  useEffect(() => {
-    if (original) return
+  //
+  // Only into a LOADED document: settings arrive from AsyncStorage while the
+  // first one is still loading, and an injection then finds no script to run
+  // and is lost — the reader kept the default size for the whole visit. So
+  // onLoadEnd applies whatever changed in the meantime (R4).
+  const applyTypography = useCallback(() => {
+    if (original || !docLoadedRef.current) return
     const next = {
       fontFamily: resolvedFontFamily,
       fontSize: settings.fontSize,
@@ -1101,8 +1108,8 @@ export function ReaderShell(props: ReaderShellProps) {
     }
     if (!readerTypographyChanged(readerAppliedTypographyRef.current, next)) return
     readerAppliedTypographyRef.current = next
-    injectJs(readerTypographyInjectionJs(next, beginReflow()))
-  }, [original, resolvedFontFamily, settings.fontSize, settings.lineHeight, settings.textAlign, injectJs, beginReflow])
+    reflow(id => readerTypographyInjectionJs(next, id))
+  }, [original, resolvedFontFamily, settings.fontSize, settings.lineHeight, settings.textAlign, reflow])
 
   // ADR-012 S4b — the Original-layout PDF document. Rebuilt when the token
   // refreshes (nonce) so a silent 401 recovery reloads at the tracked page.
@@ -1167,6 +1174,16 @@ export function ReaderShell(props: ReaderShellProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [original, pdfTokenReady, pdfHtml, html, isLocalOriginal, originalFileUrl])
 
+  // A new source is a new document even when the reflow html is the same memo — PDF → "Read as
+  // text" swaps the source, not the html. It takes no injections until its onLoadEnd, and it is
+  // styled as the html was built, not as later injections restyled the one before it.
+  useEffect(() => {
+    docLoadedRef.current = false
+    readerAppliedTypographyRef.current = builtTypographyRef.current
+  }, [webViewSource])
+  // Declared after the reset above, so a change in the same render waits for onLoadEnd.
+  useEffect(() => { applyTypography() }, [applyTypography])
+
   // Chrome changes reach the OPEN document instead of rebuilding it. This is the
   // other half of the fix: the memo above stopped depending on insets and theme,
   // so something still has to apply them when they change mid-read — the status
@@ -1217,6 +1234,10 @@ export function ReaderShell(props: ReaderShellProps) {
             // Scroll-restore is owned by useReaderPersistence — it coordinates
             // this signal with the async saved-position fetch (no race).
             onWebViewLoaded()
+            // Typography that changed while this document loaded. After the restore is asked,
+            // so the reflow knows a restore is in flight and re-asks its target (rule 8).
+            docLoadedRef.current = true
+            applyTypography()
           }}
           originWhitelist={['*']}
           // Android denies a WebView any file access by default, and denies a
