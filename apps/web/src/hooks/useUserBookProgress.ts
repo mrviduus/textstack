@@ -1,7 +1,7 @@
 import { PERCENT_UNIT_BOOK, LOCATOR_SPACE_SCROLL } from '@textstack/shared'
 import { useEffect, useCallback, useMemo, useRef, useState } from 'react'
-import { getUserBookProgress, saveUserBookProgress } from '../api/userBooks'
-import { preferLocalProgress, markProgressSynced } from '../lib/progressSync'
+import { readUserBookProgress, saveUserBookProgress, type UserBookProgress } from '../api/userBooks'
+import { preferLocalProgress, markProgressSynced, PROGRESS_GET_TIMEOUT_MS, timeoutSignal } from '../lib/progressSync'
 
 const STORAGE_KEY = 'userbook.progress.'
 const DEBOUNCE_MS = 2000
@@ -31,6 +31,13 @@ export function useUserBookProgress(bookId: string) {
   // Legacy progress requiring migration (has chapterNumber, needs slug)
   const [legacyProgress, setLegacyProgress] = useState<LegacyProgress | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  // The progress GET got no answer for this book (timeout, offline, 5xx, 401): the restore used
+  // the local record. Sticky for the book; the reader re-asks in the background.
+  const [unansweredFor, setUnansweredFor] = useState<string | null>(null)
+  // The server row as answered, whichever record won the merge. A PDF read in Original layout
+  // resumes from its `page:<N>` when it is provably newer than this device's page — the only
+  // progress GET the reader makes at open.
+  const [serverRow, setServerRow] = useState<UserBookProgress | null>(null)
   // Only advanced after server ACK — transient fails stay retriable.
   const lastAckedKeyRef = useRef<string>('')
   const serverSyncTimerRef = useRef<number | null>(null)
@@ -44,6 +51,7 @@ export function useUserBookProgress(bookId: string) {
     }
 
     let cancelled = false
+    setServerRow(null)
 
     // 1. Load from localStorage (instant)
     try {
@@ -62,8 +70,11 @@ export function useUserBookProgress(bookId: string) {
     }
 
     // 2. Fetch from server in background
-    getUserBookProgress(bookId).then((serverProgress) => {
-      if (cancelled || !serverProgress?.chapterSlug) return
+    readUserBookProgress(bookId, timeoutSignal(PROGRESS_GET_TIMEOUT_MS)).then((serverProgress) => {
+      if (cancelled) return
+      if (serverProgress === undefined) setUnansweredFor(bookId)
+      setServerRow(serverProgress ?? null)
+      if (!serverProgress?.chapterSlug) return
 
       const serverData: SavedProgress = {
         chapterSlug: serverProgress.chapterSlug,
@@ -262,8 +273,10 @@ export function useUserBookProgress(bookId: string) {
     savedProgress,
     legacyProgress, // For migration: caller can use chapterNumber to look up slug
     isLoading,
+    serverUnanswered: !!bookId && unansweredFor === bookId,
+    serverRow,
     saveProgress,
     flushSave,
     clearProgress,
-  }), [savedProgress, legacyProgress, isLoading, saveProgress, flushSave, clearProgress])
+  }), [savedProgress, legacyProgress, isLoading, bookId, unansweredFor, serverRow, saveProgress, flushSave, clearProgress])
 }

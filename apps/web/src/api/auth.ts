@@ -1,7 +1,7 @@
 import { PERCENT_UNIT_BOOK, PROGRESS_LOCATOR_END, PROGRESS_LOCATOR_START } from '@textstack/shared'
 import type { ReadingProgressDto, GuestMergeSkipReason } from '@textstack/shared'
 
-import { authFetch as meFetch, API_BASE } from './client'
+import { authFetch as meFetch, API_BASE, ApiError } from './client'
 
 /** /me/* data calls: the shared cookie-mode client (401 → refresh → retry). The session
  *  flow below (login/refresh/logout/guest/device) stays on the local `authFetch`, which
@@ -195,10 +195,19 @@ export interface UpsertProgressRequest {
 }
 
 export async function getProgress(editionId: string): Promise<ReadingProgressDto | null> {
+  return (await readProgress(editionId)) ?? null
+}
+
+/**
+ * The reader's read. `null`: the server ANSWERED and holds no row (404). `undefined`: there was
+ * no answer — aborted (the reader's timeout), offline, 5xx, 401. The two used to be one `null`,
+ * so a failed read looked like "nothing newer elsewhere" and a stale local place was trusted.
+ */
+export async function readProgress(editionId: string, signal?: AbortSignal): Promise<ReadingProgressDto | null | undefined> {
   try {
-    return await meFetch<ReadingProgressDto>(`/me/progress/${editionId}`)
-  } catch {
-    return null
+    return await meFetch<ReadingProgressDto>(`/me/progress/${editionId}`, { signal })
+  } catch (e) {
+    return e instanceof ApiError && e.status === 404 ? null : undefined
   }
 }
 

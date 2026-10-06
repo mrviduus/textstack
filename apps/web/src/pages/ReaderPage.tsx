@@ -33,8 +33,9 @@ import { trackBookOpened } from '../lib/analytics'
 import { ReaderStatsWidget } from '../components/reader/ReaderStatsWidget'
 import { useGuestLimits } from '../context/GuestLimitsContext'
 import { WordHint } from '../components/reader/WordHint'
-import { getUserBookFileUrl, getUserBookProgress } from '../api/userBooks'
-import { parsePdfPageLocator, computeBookProgress, clampPage, isPdfAnchor, bookMinutesLeft, type PdfAnchor } from '@textstack/shared'
+import { getUserBookFileUrl } from '../api/userBooks'
+import { serverResumePage, fetchNewerPdfPageFor } from '../lib/originalLayoutPref'
+import { computeBookProgress, clampPage, isPdfAnchor, bookMinutesLeft, type PdfAnchor } from '@textstack/shared'
 import { useHighlights } from '../hooks/useHighlights'
 import { useBookReviews, chapterReviewPath } from '../hooks/useBookReviews'
 import { reviewedHighlightMarks, isReviewableChapter } from '@textstack/shared'
@@ -254,28 +255,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
     setPdfScrollTo({ page: clampPage(h.anchor.page, pdfNumPages), nonce: Date.now() })
   }, [originalActive, scrollToHighlightId, highlightsApi.highlights, pdfNumPages])
 
-  // Server resume page for the chapterless Original view (parsed from the
-  // "page:<N>" progress locator). Fetched once when Original is active; wins over
-  // localStorage but loses to a chapter's sourceStartPage. `resumeReady` gates
-  // the initial scroll so a cross-device open lands on the saved page.
-  const [pdfResumePage, setPdfResumePage] = useState<number | null>(null)
-  const [pdfResumeReady, setPdfResumeReady] = useState(false)
-  useEffect(() => {
-    if (!originalActive || !id) {
-      setPdfResumeReady(true)
-      return
-    }
-    let cancelled = false
-    setPdfResumeReady(false)
-    setPdfResumePage(null)
-    getUserBookProgress(id)
-      .then((p) => { if (!cancelled) setPdfResumePage(parsePdfPageLocator(p?.locator)) })
-      .catch(() => { /* offline → PdfOriginalView falls back to localStorage */ })
-      .finally(() => { if (!cancelled) setPdfResumeReady(true) })
-    return () => { cancelled = true }
-  }, [originalActive, id])
-
-  const { publicProgress, userProgress, effectiveProgress, effectiveLoading, autoSaveInfo } =
+  const { publicProgress, userProgress, effectiveProgress, effectiveLoading, autoSaveInfo, serverUnanswered, fetchNewerPosition } =
     useReaderProgress({
       mode,
       bookSlug,
@@ -285,6 +265,22 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
       publicChapter,
       book,
     })
+
+  // Server resume page for the chapterless Original view (parsed from the
+  // "page:<N>" progress locator); used only when provably newer than this
+  // device's page (serverResumePage — read at every render, so a reflow →
+  // Original switch reopens at the page just read, not the row fetched at
+  // mount), and loses to a chapter's sourceStartPage. Read from the userbook
+  // progress hook's GET — there used to be a second, identical GET here.
+  // `resumeReady` gates the initial scroll so a cross-device open lands on the
+  // saved page; that GET is time-bounded, so a hanging network opens at the
+  // local page instead of never.
+  const pdfResumePage = originalActive && id ? serverResumePage(id, userProgress.serverRow) : null
+  const pdfResumeReady = !originalActive || !userProgress.isLoading
+  const fetchNewerPdfPage = useCallback(
+    (signal: AbortSignal) => fetchNewerPdfPageFor(id, { isLoading: authLoading, isAuthenticated }, signal),
+    [id, isAuthenticated, authLoading],
+  )
 
   // Migrate legacy progress (chapterNumber -> slug) for userbooks. Stays in
   // page because it owns routing.
@@ -415,18 +411,16 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
     return chapterList.findIndex(c => c.identifier === id)
   }, [chapterList, chapterIdentifier])
 
-  // Track scroll activity for reading session
-  useEffect(() => {
-    let lastScroll = 0
-    const handleScroll = () => {
-      const now = Date.now()
-      if (now - lastScroll > 5000) { // throttle: once per 5s
-        lastScroll = now
-        readingSession.recordActivity()
-      }
+  // Reading-session activity from the reader's OWN scrolls (useReaderScrollSync filters out
+  // the restore's echo). A window listener here used to count the restore as the session's first
+  // activity, before its progress landed — so the restored offset was counted as words read.
+  const lastActivityScrollRef = useRef(0)
+  const onReaderScroll = useCallback(() => {
+    const now = Date.now()
+    if (now - lastActivityScrollRef.current > 5000) { // throttle: once per 5s
+      lastActivityScrollRef.current = now
+      readingSession.recordActivity()
     }
-    window.addEventListener('scroll', handleScroll, { passive: true })
-    return () => window.removeEventListener('scroll', handleScroll)
   }, [readingSession])
 
   // Scroll-position restore + debounced save + flush on visibility/unload.
@@ -452,6 +446,11 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
     // A ?highlight= link positions the reader; restore and save-on-open wait for it.
     holdRestore: !!scrollToHighlightId && !originalActive,
     onHoldExpired: () => handleHighlightLinkDoneRef.current(false),
+    serverUnanswered,
+    fetchNewerPosition,
+    // A TOC open names its place: a newer position from elsewhere never replaces it.
+    explicitOpen: new URLSearchParams(location.search).get('direct') === '1',
+    onReaderScroll,
   })
 
   // ?highlight= resolved: landed → that is the restored position; not found →
@@ -724,6 +723,8 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
                   initialPage={initialPdfPage}
                   resumePage={pdfResumePage}
                   resumeReady={pdfResumeReady}
+                  resumeUnanswered={userProgress.serverUnanswered}
+                  fetchNewerPage={fetchNewerPdfPage}
                   scrollToPage={pdfScrollTo}
                   onPageChange={setPdfCurrentPage}
                   onNumPages={setPdfNumPages}

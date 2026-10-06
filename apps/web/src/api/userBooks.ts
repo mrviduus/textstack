@@ -1,4 +1,4 @@
-import { authFetch, API_BASE } from './client'
+import { authFetch, API_BASE, ApiError } from './client'
 import { trackBookUploaded } from '../lib/analytics'
 
 export interface UserBook {
@@ -360,13 +360,21 @@ export interface UserBookProgress {
   /** Where the reader is IN THE TEXT, serialised (ADR-015). Prefer it over
    *  `locator`: a pixel offset stops being true the moment the text reflows. */
   positionJson?: string | null
+  /** Client clock of the kept write — compare local stamps with this, never `updatedAt`. */
+  clientUpdatedAt?: string | null
 }
 
 export async function getUserBookProgress(bookId: string): Promise<UserBookProgress | null> {
+  return (await readUserBookProgress(bookId)) ?? null
+}
+
+/** The reader's read: `null` answered with nothing, `undefined` no answer — see `readProgress`
+ *  in api/auth.ts. */
+export async function readUserBookProgress(bookId: string, signal?: AbortSignal): Promise<UserBookProgress | null | undefined> {
   try {
-    return await authFetch<UserBookProgress>(`/me/books/${bookId}/progress`)
-  } catch {
-    return null
+    return await authFetch<UserBookProgress>(`/me/books/${bookId}/progress`, { signal })
+  } catch (e) {
+    return e instanceof ApiError && e.status === 404 ? null : undefined
   }
 }
 

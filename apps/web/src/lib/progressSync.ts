@@ -115,6 +115,22 @@ export async function flushLocalProgress(): Promise<number> {
  * pass it here and return `local.updatedAt > serverClientUpdatedAt` in the unsynced branch —
  * both callers (useRestoreProgress, useUserBookProgress) already route through this function.
  */
+/**
+ * How long the reader waits for a progress GET before restoring from this device. Without a
+ * bound, a hanging network meant no restore — and, since every save waits for the restore, no
+ * save either.
+ */
+export const PROGRESS_GET_TIMEOUT_MS = 3000
+/** The background re-ask after an unanswered restore: its whole point is a slow network. */
+export const PROGRESS_LATE_CHECK_TIMEOUT_MS = 15_000
+
+/** Aborts after `ms`. Plain setTimeout, not `AbortSignal.timeout`, so tests drive it with fake timers. */
+export function timeoutSignal(ms: number): AbortSignal {
+  const c = new AbortController()
+  setTimeout(() => c.abort(), ms)
+  return c.signal
+}
+
 export function preferLocalProgress(local: { synced?: boolean } | null, hasServer: boolean): boolean {
   return !!local && (!hasServer || !local.synced)
 }
