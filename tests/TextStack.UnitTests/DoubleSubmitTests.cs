@@ -42,6 +42,7 @@ public class DoubleSubmitTests
         public List<VocabularyWord> Words { get; } = [];
         public List<PendingVocabularyWord> Pending { get; } = [];
         public List<UserVocabularySettings> Settings { get; } = [];
+        public List<WordLookup> Lookups { get; } = [];
         public Mock<IAppDbContext> Db { get; } = new();
         public Action? OnSave { get; set; }
 
@@ -49,7 +50,7 @@ public class DoubleSubmitTests
         {
             Db.Setup(x => x.VocabularyWords).Returns(new FakeDbSet<VocabularyWord>(Words));
             Db.Setup(x => x.PendingVocabularyWords).Returns(new FakeDbSet<PendingVocabularyWord>(Pending));
-            Db.Setup(x => x.WordLookups).Returns(new FakeDbSet<WordLookup>([]));
+            Db.Setup(x => x.WordLookups).Returns(new FakeDbSet<WordLookup>(Lookups));
             Db.Setup(x => x.UserVocabularySettings).Returns(new FakeDbSet<UserVocabularySettings>(Settings));
             Db.Setup(x => x.Users).Returns(new FakeDbSet<User>([]));
             Db.Setup(x => x.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(() =>
@@ -103,6 +104,42 @@ public class DoubleSubmitTests
         var ok = Assert.IsType<Ok<SaveWordResponse>>(result);
         Assert.Equal("pending", ok.Value!.Outcome);
         Assert.Equal(winner.Id, ok.Value.PendingId);
+    }
+
+    /// <summary>
+    /// A word tapped before (a WordLookup row exists): both racing saves delete that lookup in the
+    /// same SaveChanges as their insert. The loser's DELETE hits 0 rows, so EF throws
+    /// DbUpdateConcurrencyException — not 23505 — before the insert ever conflicts.
+    /// </summary>
+    [Theory]
+    [InlineData(5000)] // SRS insert
+    [InlineData(0)]    // daily cap reached → pending insert
+    public async Task SaveWord_ConcurrentSaveAlreadyDeletedTheLookup_ReturnsWinner(int dailyCap)
+    {
+        var h = new VocabHarness();
+        h.Settings.Add(new UserVocabularySettings { UserId = UserId, SiteId = SiteId, DailyNewCap = dailyCap });
+        h.Lookups.Add(new WordLookup { Id = Guid.NewGuid(), UserId = UserId, SiteId = SiteId, Word = "quiver", Language = "en" });
+        h.OnSave = () =>
+        {
+            if (dailyCap > 0)
+                h.Words.Add(new VocabularyWord { Id = Guid.NewGuid(), UserId = UserId, SiteId = SiteId, Word = "quiver", Language = "en" });
+            else
+                h.Pending.Add(new PendingVocabularyWord { Id = Guid.NewGuid(), UserId = UserId, SiteId = SiteId, Word = "quiver", Language = "en" });
+            throw new DbUpdateConcurrencyException("expected 1 row affected, got 0");
+        };
+
+        var result = await h.Save("quiver");
+
+        var ok = Assert.IsType<Ok<SaveWordResponse>>(result);
+        Assert.Equal(dailyCap > 0 ? "already_saved" : "pending", ok.Value!.Outcome);
+    }
+
+    [Fact]
+    public async Task SaveWord_ConcurrencyExceptionWithNoWinnerRow_Throws()
+    {
+        var h = new VocabHarness { OnSave = () => throw new DbUpdateConcurrencyException("0 rows") };
+
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => h.Save("quiver"));
     }
 
     [Fact]

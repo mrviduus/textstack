@@ -214,7 +214,7 @@ public static partial class VocabularyEndpoints
             {
                 await db.SaveChangesAsync(ct);
             }
-            catch (DbUpdateException ex) when (UserDataEndpoints.IsUniqueViolation(ex))
+            catch (DbUpdateException ex) when (IsLostSaveRace(ex))
             {
                 db.PendingVocabularyWords.Remove(pending);
                 if (await FindAlreadySavedAsync(db, userId, word, request.Language, ct) is { } winner)
@@ -257,7 +257,7 @@ public static partial class VocabularyEndpoints
         {
             await db.SaveChangesAsync(ct);
         }
-        catch (DbUpdateException ex) when (UserDataEndpoints.IsUniqueViolation(ex))
+        catch (DbUpdateException ex) when (IsLostSaveRace(ex))
         {
             // Lost a double-submit race: the other request inserted this word between our dedup
             // read and this insert. Answer as the dedup path would, and skip enrichment (the
@@ -273,6 +273,15 @@ public static partial class VocabularyEndpoints
 
         return Results.Ok(SaveWordResponse.Srs(ToDto(entry)));
     }
+
+    /// <summary>
+    /// How a double-submit loser's SaveChanges fails: 23505 on the insert, or — when the word had a
+    /// WordLookup that both requests delete in that same save — a DELETE hitting 0 rows
+    /// (<see cref="DbUpdateConcurrencyException"/>), which EF raises before the insert conflicts.
+    /// The whole save rolls back either way; the caller re-reads the winner.
+    /// </summary>
+    private static bool IsLostSaveRace(DbUpdateException ex) =>
+        ex is DbUpdateConcurrencyException || UserDataEndpoints.IsUniqueViolation(ex);
 
     /// <summary>
     /// The "already saved" answer for a word in the SRS table or the pending buffer, else null. Used by
