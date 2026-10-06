@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { usePdfDocument } from '../../hooks/usePdfDocument'
 import { useTranslation } from '../../hooks/useTranslation'
 import { refreshToken } from '../../api/auth'
@@ -17,6 +17,7 @@ import {
   type PageRect,
 } from '@textstack/shared'
 import { readPdfPage, writePdfPage } from '../../lib/originalLayoutPref'
+import { capturePageAnchor, scrollDeltaForAnchor, type PageAnchor } from '../../lib/pdfZoomAnchor'
 import { saveUserBookProgress } from '../../api/userBooks'
 import '../../styles/pdfOriginal.css'
 
@@ -188,6 +189,9 @@ export default function PdfOriginalView({
   // that made every open land one page earlier (C3). It stays the fallback only
   // until the first measurement.
   const [topPage, setTopPage] = useState<number | null>(null)
+  // Page + fraction into it under the top line, kept current on every measure
+  // and jump. A scale change (zoom, Fit, width) re-applies it (H4).
+  const scaleAnchorRef = useRef<PageAnchor | null>(null)
   const visibleRef = useRef(visible)
   visibleRef.current = visible
   const measureTopPage = useCallback(() => {
@@ -200,8 +204,12 @@ export default function PdfOriginalView({
       const r = el.getBoundingClientRect()
       rects.push({ page: pn, top: r.top, bottom: r.bottom })
     }
-    const pn = pageAtViewportTop(rects, root.getBoundingClientRect().top)
+    const viewportTop = root.getBoundingClientRect().top
+    const pn = pageAtViewportTop(rects, viewportTop)
     if (pn != null) setTopPage(pn)
+    // A stale render set (right after a jump) measures nothing: keep the last anchor.
+    const anchor = capturePageAnchor(rects, viewportTop)
+    if (anchor) scaleAnchorRef.current = anchor
   }, [])
   const currentPage = topPage ?? topVisiblePage(visible, openPage)
 
@@ -320,6 +328,7 @@ export default function PdfOriginalView({
     // the correction pass).
     suppressIntentUntilRef.current = Date.now() + SCROLL_SUPPRESS_MS
     root.scrollTop += el.getBoundingClientRect().top - root.getBoundingClientRect().top
+    scaleAnchorRef.current = { page: pn, fraction: 0 }
   }, [])
 
   // Any jump (initial open / TOC / page-input / reload) goes through here so it
@@ -329,6 +338,9 @@ export default function PdfOriginalView({
       const target = clampPage(raw, numPages)
       pendingTargetRef.current = target
       userInteractedRef.current = false
+      // Before the element exists too: a scale change before the next measure
+      // must restore to the target, not to where the reader was.
+      scaleAnchorRef.current = { page: target, fraction: 0 }
       scrollToPageEl(target)
     },
     [numPages, scrollToPageEl],
@@ -358,6 +370,24 @@ export default function PdfOriginalView({
       cancelAnimationFrame(frame)
     }
   }, [pdf, measureTopPage])
+
+  // Zoom / Fit / width change rescales every page; the old scrollTop then sits
+  // on another page, which the persist effect would save (H4). Re-apply the
+  // page + fraction anchor before paint, with the new heights already laid out.
+  const prevScaleRef = useRef(scale)
+  useLayoutEffect(() => {
+    if (prevScaleRef.current === scale) return
+    prevScaleRef.current = scale
+    const anchor = scaleAnchorRef.current
+    const root = scrollRef.current
+    const el = anchor && pageEls.current.get(anchor.page)
+    if (!anchor || !root || !el) return
+    const r = el.getBoundingClientRect()
+    const delta = scrollDeltaForAnchor(anchor, [{ page: anchor.page, top: r.top, bottom: r.bottom }], root.getBoundingClientRect().top)
+    if (!delta) return
+    suppressIntentUntilRef.current = Date.now() + SCROLL_SUPPRESS_MS
+    root.scrollTop += delta
+  }, [scale])
 
   // Layout changes without a scroll (pages entering the render set, heights
   // streaming in, zoom) also move what sits under the top line.

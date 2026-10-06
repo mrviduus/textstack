@@ -108,7 +108,9 @@ export function createTextAnchor(
     suffix,
     startOffset,
     endOffset,
-    chapterId,
+    // The wrapper the selection actually sits in wins over the caller's
+    // "active chapter" id — that is the id findTextByAnchor matches against.
+    chapterId: scope.dataset?.chapterId || chapterId,
   }
 }
 
@@ -120,18 +122,59 @@ export function createTextAnchor(
  */
 export function findTextByAnchor(
   anchor: HighlightAnchor,
-  container: HTMLElement
+  container: HTMLElement,
+  chapterKey: string | null = isPdfAnchor(anchor) ? null : anchor.chapterId || null,
 ): Range | null {
   // PDF (quad-rect) anchors can't be re-located by text over a pdf.js text
   // layer — they're painted from stored rects, never re-anchored via `exact`.
   // Guard so reflow consumers skip them instead of fuzzy-matching the display
   // text into the wrong place.
   if (isPdfAnchor(anchor)) return null
+  // Only the highlight's own chapter. Text recurs across chapters, so matching any
+  // mounted chapter painted "ghost" copies of other chapters' highlights (and a
+  // tap on one edited/deleted the real one). No chapter key = orphan: never painted.
   for (const scope of chapterScopes(container)) {
+    if (scope !== container && !scopeIsChapter(scope, chapterKey)) continue
     const range = findTextInScope(anchor, scope)
     if (range) return range
   }
   return null
+}
+
+/** An id written while a chapter came from the offline cache: `${editionId}:${slug}`. Never a server id. */
+export function isCacheChapterKey(id: string | null | undefined): boolean {
+  return !!id && id.includes(':')
+}
+
+function scopeIsChapter(scope: HTMLElement, key: string | null): boolean {
+  if (!key) return false
+  if (scope.dataset.chapterId === key) return true
+  const slug = scope.dataset.chapterSlug
+  return !!slug && isCacheChapterKey(key) && key.endsWith(`:${slug}`)
+}
+
+type HighlightRow = { anchor: HighlightAnchor; chapterId?: string | null; userChapterId?: string | null }
+
+/**
+ * The chapter a reflow highlight belongs to. The anchor's own id first; mobile
+ * anchors carry none ({prefix, exact, suffix}) and some web rows saved '', so
+ * the row's columns fill in (an upload's server row has only userChapterId).
+ * Null = orphan: nothing says which chapter, so it is never painted.
+ */
+export function highlightChapterKey(h: HighlightRow): string | null {
+  const own = isPdfAnchor(h.anchor) ? '' : h.anchor.chapterId
+  return own || h.chapterId || h.userChapterId || null
+}
+
+/** The book chapter a highlight lives in, for a cross-chapter jump. */
+export function chapterForHighlight<C extends { id: string; identifier: string }>(
+  chapters: C[] | undefined,
+  h: HighlightRow,
+): C | undefined {
+  const key = highlightChapterKey(h)
+  if (!key || !chapters) return undefined
+  return chapters.find((c) => c.id === key)
+    ?? (isCacheChapterKey(key) ? chapters.find((c) => key.endsWith(`:${c.identifier}`)) : undefined)
 }
 
 function findTextInScope(anchor: TextAnchor, scope: HTMLElement): Range | null {
@@ -295,3 +338,10 @@ export function rangeAtCharOffset(article: HTMLElement, target: number): Range |
   return null
 }
 
+
+/** The chapter id a vocabulary save may send: none for uploads (the server keys them by book) and
+ *  none for an offline cache key, which the server would reject and stall the pending queue. */
+export function vocabChapterId(chapterId: string | null | undefined, userBookId?: string | null): string | undefined {
+  if (userBookId || !chapterId || isCacheChapterKey(chapterId)) return undefined
+  return chapterId
+}

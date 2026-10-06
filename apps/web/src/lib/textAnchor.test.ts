@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { createTextAnchor, findTextByAnchor } from './textAnchor'
+import { createTextAnchor, findTextByAnchor, highlightChapterKey, chapterForHighlight, vocabChapterId } from './textAnchor'
 import type { TextAnchor, HighlightAnchor } from './offlineDb'
 
 describe('textAnchor', () => {
@@ -281,5 +281,69 @@ describe('textAnchor', () => {
       expect(anchor.startOffset).toBe(4)
       expect(anchor.endOffset).toBe(7)
     })
+
+    // H1: a highlight from another chapter must not paint wherever its text recurs.
+    it('does not match an anchor from another chapter (ghost)', () => {
+      container.innerHTML = '<article data-chapter-id="ch-3"><p>He went into the room.</p></article>'
+      const anchor: TextAnchor = {
+        prefix: 'She left ', exact: 'the room', suffix: '.', startOffset: 9, endOffset: 17, chapterId: 'ch-2',
+      }
+      expect(findTextByAnchor(anchor, container)).toBeNull()
+    })
+
+    it('does not match an orphan anchor (no chapterId) inside a chapter scope', () => {
+      container.innerHTML = '<article data-chapter-id="ch-3"><p>He went into the room.</p></article>'
+      const anchor = { prefix: '', exact: 'the room', suffix: '', startOffset: 13, endOffset: 21 } as unknown as TextAnchor
+      expect(findTextByAnchor(anchor, container)).toBeNull()
+    })
+
+    it('anchors to the chapter wrapper id, not the passed fallback id', () => {
+      container.innerHTML = '<article data-chapter-id="real"><p>The dog ran.</p></article>'
+      const t = container.querySelector('p')!.firstChild as Text
+      const range = document.createRange()
+      range.setStart(t, 4)
+      range.setEnd(t, 7)
+      expect(createTextAnchor(range, 'stale', container).chapterId).toBe('real')
+    })
+  })
+
+  // Review of #719: mobile anchors carry no chapterId ({prefix,exact,suffix}); the row does.
+  describe('chapter key from the row', () => {
+    const mobileAnchor = { prefix: 'went into ', exact: 'the room', suffix: '.', startOffset: 13, endOffset: 21 } as unknown as TextAnchor
+
+    it('paints a mobile anchor in the chapter its ROW names', () => {
+      container.innerHTML = '<article data-chapter-id="ch-3"><p>He went into the room.</p></article>'
+      expect(findTextByAnchor(mobileAnchor, container, 'ch-3')?.toString()).toBe('the room')
+      expect(findTextByAnchor(mobileAnchor, container, 'ch-2')).toBeNull()
+    })
+
+    it('row ids fill in for a missing/empty anchor chapterId; neither = orphan', () => {
+      const row = { anchor: mobileAnchor, chapterId: '', userChapterId: 'uc-1' }
+      expect(highlightChapterKey(row)).toBe('uc-1')
+      expect(highlightChapterKey({ ...row, anchor: { ...mobileAnchor, chapterId: '' }, userChapterId: undefined, chapterId: 'c-9' })).toBe('c-9')
+      expect(highlightChapterKey({ anchor: mobileAnchor, chapterId: '' })).toBeNull()
+    })
+
+    it('a cache-key id ("editionId:slug") matches the chapter by slug', () => {
+      container.innerHTML = '<article data-chapter-id="real-guid" data-chapter-slug="3-iii"><p>He went into the room.</p></article>'
+      expect(findTextByAnchor(mobileAnchor, container, 'ed-1:3-iii')?.toString()).toBe('the room')
+      expect(findTextByAnchor(mobileAnchor, container, 'ed-1:2-ii')).toBeNull()
+    })
+
+    it('resolves the chapter to jump to from any of the ids', () => {
+      const chapters = [{ id: 'g-2', identifier: '2-ii' }, { id: 'g-3', identifier: '3-iii' }]
+      expect(chapterForHighlight(chapters, { anchor: mobileAnchor, chapterId: 'g-3' })?.identifier).toBe('3-iii')
+      expect(chapterForHighlight(chapters, { anchor: mobileAnchor, chapterId: 'ed:2-ii' })?.identifier).toBe('2-ii')
+      expect(chapterForHighlight(chapters, { anchor: mobileAnchor, chapterId: '' })).toBeUndefined()
+    })
+  })
+})
+
+describe('vocabChapterId', () => {
+  it('never sends an offline cache key or an upload chapter as the vocabulary chapter id', () => {
+    expect(vocabChapterId('3f2b8c1e-0000-4000-8000-000000000001')).toBe('3f2b8c1e-0000-4000-8000-000000000001')
+    expect(vocabChapterId('3f2b8c1e-0000-4000-8000-00000000000a:2-ii')).toBeUndefined()
+    expect(vocabChapterId('abc', 'user-book-id')).toBeUndefined()
+    expect(vocabChapterId('')).toBeUndefined()
   })
 })

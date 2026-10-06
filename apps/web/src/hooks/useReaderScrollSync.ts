@@ -59,6 +59,14 @@ interface Params {
    * and this hook had no idea it ever happened.
    */
   settingsKey: string
+  /**
+   * A `?highlight=` link is positioning the reader. Restore and save-on-open
+   * wait: the link either lands (markPositioned) or gives up, and only then
+   * does the normal restore run.
+   */
+  holdRestore?: boolean
+  /** The hold hit its deadline (HOLD_DEADLINE_MS after the chapter is ready) and was dropped. */
+  onHoldExpired?: () => void
 }
 
 
@@ -111,6 +119,15 @@ function captureReadingPosition(chapterSlug: string): string | null {
  */
 const SAVE_DEBOUNCE_MS = 1500
 
+/** How long a typography change keeps re-anchoring on article resizes (webfont swap). */
+const REFLOW_SETTLE_MS = 1000
+
+/** A ?highlight= link may hold restore this long after the chapter is ready, no longer. */
+const HOLD_DEADLINE_MS = 5000
+
+/** Scroll pause after which the reading line is remembered for a later reflow. */
+const LINE_IDLE_MS = 150
+
 /**
  * True only when the chapter in state IS the one the URL asks for and its fetch
  * has settled. `!!chapter` was true for the PREVIOUS chapter while the next one
@@ -141,8 +158,14 @@ export function useReaderScrollSync({
   publicProgress,
   userProgress,
   settingsKey,
+  holdRestore = false,
+  onHoldExpired,
 }: Params) {
   const scrollRestoredRef = useRef(false)
+  // The reading line as of the last scroll pause. The live capture reads the
+  // line by hit-testing, and the settings drawer — where every typography
+  // change is made — covers it, so the live read finds nothing there.
+  const lastLineRef = useRef<string | null>(null)
   const saveTimerRef = useRef<number | null>(null)
   const pendingSaveRef = useRef<{ identifier: string; offset: number } | null>(null)
   // State-backed mirror of scrollRestoredRef so the save-on-open effect can
@@ -204,6 +227,25 @@ export function useReaderScrollSync({
     return writeProgress(pending.identifier, pending.offset)
   }, [writeProgress])
 
+  // Every hold has a deadline: if the link never resolves (a book id that never
+  // arrives, a list that never loads) restore and every save would stay blocked.
+  const [holdExpiredFor, setHoldExpiredFor] = useState<string | null>(null)
+  const held = holdRestore && holdExpiredFor !== chapterIdentifier
+  const onHoldExpiredRef = useRef(onHoldExpired)
+  onHoldExpiredRef.current = onHoldExpired
+  useEffect(() => {
+    if (!holdRestore) setHoldExpiredFor(null)
+  }, [holdRestore])
+  useEffect(() => {
+    if (!held || !chapterLoaded || originalActive) return
+    const forId = chapterIdentifier ?? null
+    const timer = window.setTimeout(() => {
+      setHoldExpiredFor(forId)
+      onHoldExpiredRef.current?.()
+    }, HOLD_DEADLINE_MS)
+    return () => clearTimeout(timer)
+  }, [held, chapterLoaded, originalActive, chapterIdentifier])
+
   // Reset restore guard on chapter change.
   useEffect(() => {
     scrollRestoredRef.current = false
@@ -214,7 +256,7 @@ export function useReaderScrollSync({
   // top — React Router preserves scrollY across route changes, so without
   // this, hitting "Next" at the bottom of ch1 leaves you mid-/end-of ch2.
   useEffect(() => {
-    if (scrollRestoredRef.current || effectiveLoading) return
+    if (scrollRestoredRef.current || effectiveLoading || held) return
     if (originalActive || !chapterLoaded) return
 
     // This session's own last position in this chapter beats anything fetched
@@ -252,41 +294,57 @@ export function useReaderScrollSync({
       window.scrollTo({ top, behavior: 'instant' })
       scrollRestoredRef.current = true
       setRestoredFor(forId ?? null)
+      if (forId) lastLineRef.current = captureReadingPosition(forId)
     })
-  }, [originalActive, chapterLoaded, effectiveLoading, effectiveProgress, chapterIdentifier])
+  }, [originalActive, chapterLoaded, effectiveLoading, effectiveProgress, chapterIdentifier, held])
+
+  /** Something else (a `?highlight=` jump) positioned the reader: treat it as the restore. */
+  const markPositioned = useCallback(() => {
+    const id = identifierRef.current
+    if (!id) return
+    scrollRestoredRef.current = true
+    setRestoredFor(id)
+    lastLineRef.current = captureReadingPosition(id)
+  }, [])
 
   /**
    * Keep the reader in place when the text reflows under them.
    *
-   * Web applies typography as inline styles on the article, so there is no
-   * remount and no restore. The position is captured before the browser has
-   * re-laid-out (this effect runs in the same commit as the style change) and
-   * re-applied once the article actually resizes — a ResizeObserver is the only
-   * reliable signal that the reflow has landed. The re-anchoring scrollTo fires
-   * a scroll event, so the trailing save then records the corrected position.
+   * The anchor must be read from the OLD layout. An effect runs after the new
+   * inline styles are committed, so any measurement there already sees the
+   * reflowed text and records whatever now sits on the reading line (H2) — so
+   * the settings update path calls `captureBeforeReflow()` first, and this
+   * effect only restores. It restores at once (the measurement forces the new
+   * layout) and again on every article resize for a short window, because a
+   * font-family change keeps reflowing until the webfont lands.
    */
+  const reflowAnchorRef = useRef<string | null>(null)
+  const captureBeforeReflow = useCallback(() => {
+    const id = identifierRef.current
+    reflowAnchorRef.current = id && !latest.current.originalActive && scrollRestoredRef.current
+      ? captureReadingPosition(id) ?? lastLineRef.current
+      : null
+  }, [])
+
   useEffect(() => {
-    if (originalActive || !chapterLoaded || !chapterIdentifier) return
+    const before = reflowAnchorRef.current
+    reflowAnchorRef.current = null
+    if (!before || originalActive || !chapterLoaded || !chapterIdentifier) return
     if (restoredFor !== chapterIdentifier) return
     const article = readerArticle()
-    if (!article || typeof ResizeObserver === 'undefined') return
+    if (!article) return
 
-    const before = captureReadingPosition(chapterIdentifier)
-    if (!before) return
-
-    let done = false
-    const observer = new ResizeObserver(() => {
-      if (done) return
-      done = true
-      observer.disconnect()
+    const reanchor = () => {
       const resolved = resolveTextPosition(parseTextPosition(before), chapterIdentifier, articleText(article))
       const top = anchoredScrollTop(article, resolved)
       if (top != null) window.scrollTo({ top, behavior: 'instant' })
-    })
+    }
+    reanchor()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(reanchor)
     observer.observe(article)
-    // A settings change that does not resize the article (a theme swap) leaves
-    // the observer waiting; drop it on the next change rather than leak it.
-    return () => observer.disconnect()
+    const stop = window.setTimeout(() => observer.disconnect(), REFLOW_SETTLE_MS)
+    return () => { observer.disconnect(); clearTimeout(stop) }
   }, [settingsKey, originalActive, chapterLoaded, chapterIdentifier, restoredFor])
 
   // Save-on-chapter-open: chapter→chapter navigation (route param change;
@@ -308,14 +366,23 @@ export function useReaderScrollSync({
   useEffect(() => {
     if (!chapterIdentifier) return
     const id = chapterIdentifier
+    lastLineRef.current = null
+    let lineTimer: number | undefined
+    const rememberLine = () => {
+      const line = captureReadingPosition(id)
+      if (line) lastLineRef.current = line
+    }
     const onScroll = () => {
       if (!scrollRestoredRef.current || latest.current.originalActive) return
+      clearTimeout(lineTimer)
+      lineTimer = window.setTimeout(rememberLine, LINE_IDLE_MS)
       pendingSaveRef.current = { identifier: id, offset: currentScrollTop() }
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
       saveTimerRef.current = window.setTimeout(writePending, SAVE_DEBOUNCE_MS)
     }
     window.addEventListener('scroll', onScroll, { passive: true })
     return () => {
+      clearTimeout(lineTimer)
       window.removeEventListener('scroll', onScroll)
       // Leaving the chapter by any route (TOC, back button): the position the
       // reader left it at is written now, not dropped with the timer.
@@ -345,5 +412,5 @@ export function useReaderScrollSync({
     }
   }, [flushSave])
 
-  return { flushSave }
+  return { flushSave, captureBeforeReflow, markPositioned }
 }

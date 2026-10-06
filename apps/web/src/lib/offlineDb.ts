@@ -3,6 +3,8 @@ import type { PdfAnchor } from '@textstack/shared'
 
 export interface CachedChapter {
   key: string // `${editionId}:${chapterSlug}`
+  /** The server chapter id. Absent on rows cached before it was stored. */
+  chapterId?: string
   editionId: string
   chapterSlug: string
   html: string
@@ -232,6 +234,7 @@ export async function cacheChapter(
   const db = await openOfflineDb()
   const cached: CachedChapter = {
     key: makeChapterKey(editionId, chapter.slug),
+    chapterId: chapter.id,
     editionId,
     chapterSlug: chapter.slug,
     html: chapter.html,

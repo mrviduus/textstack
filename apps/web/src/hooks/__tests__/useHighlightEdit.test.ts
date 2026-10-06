@@ -12,6 +12,8 @@ const createTextAnchor = vi.fn((..._a: unknown[]) => ({
 vi.mock('../../lib/textAnchor', () => ({
   findTextByAnchor: (...a: unknown[]) => findTextByAnchor(...a),
   createTextAnchor: (...a: unknown[]) => createTextAnchor(...a),
+  highlightChapterKey: (h: { anchor: { chapterId?: string } }) => h.anchor.chapterId ?? null,
+  isCacheChapterKey: (id: string) => id.includes(':'),
 }))
 
 import { useHighlightEdit } from '../useHighlightEdit'
@@ -61,6 +63,22 @@ describe('useHighlightEdit — hoisted highlights (no internal load)', () => {
       await result.current.createHighlightFromSelection(range, 'hello', 'green')
     })
     expect(addHighlight).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not save a highlight under an offline cache key (editionId:slug)', async () => {
+    createTextAnchor.mockReturnValueOnce({
+      prefix: '', exact: 'x', suffix: '', startOffset: 0, endOffset: 1, chapterId: 'ed-1:2-ii',
+    })
+    const { result } = renderHook(() =>
+      useHighlightEdit({
+        highlights: [], addHighlight, updateHighlight, removeHighlight,
+        chapterId: 'ed-1:2-ii', containerRef: makeContainer(),
+      }),
+    )
+    await act(async () => {
+      await result.current.createHighlightFromSelection(document.createRange(), 'x', 'green')
+    })
+    expect(addHighlight).not.toHaveBeenCalled()
   })
 
   it('delete routes to the injected removeHighlight', async () => {
@@ -134,5 +152,70 @@ describe('useHighlightEdit — nonce-driven drawer jump', () => {
     expect(onNavigateToHighlight).toHaveBeenCalledTimes(1)
     expect(onNavigateToHighlight.mock.calls[0][0].id).toBe('a')
     unmount() // clears the pending retry poll
+  })
+})
+
+describe('useHighlightEdit — ?highlight= link reports its outcome', () => {
+  type Opts = Parameters<typeof useHighlightEdit>[0]
+  it('found → scrolls instantly and reports true', async () => {
+    const done = vi.fn()
+    renderHook(() =>
+      useHighlightEdit({
+        highlights: [hl('a')], addHighlight, updateHighlight, removeHighlight,
+        chapterId: 'c1', containerRef: makeContainer(),
+        scrollToHighlightId: 'a', highlightLinkReady: true, onHighlightLinkDone: done,
+      } as Opts),
+    )
+    await vi.waitFor(() => expect(done).toHaveBeenCalledWith(true))
+    expect(window.scrollTo).toHaveBeenCalledWith(expect.objectContaining({ behavior: 'instant' }))
+  })
+
+  it('not in the list → reports false (the reader falls back to restore)', async () => {
+    const done = vi.fn()
+    renderHook(() =>
+      useHighlightEdit({
+        highlights: [hl('a')], addHighlight, updateHighlight, removeHighlight,
+        chapterId: 'c1', containerRef: makeContainer(),
+        scrollToHighlightId: 'gone', highlightLinkReady: true, onHighlightLinkDone: done,
+      } as Opts),
+    )
+    await vi.waitFor(() => expect(done).toHaveBeenCalledWith(false))
+  })
+
+  it('waits until ready (highlights + chapter loaded)', () => {
+    const done = vi.fn()
+    renderHook(() =>
+      useHighlightEdit({
+        highlights: [], addHighlight, updateHighlight, removeHighlight,
+        chapterId: 'c1', containerRef: makeContainer(),
+        scrollToHighlightId: 'a', highlightLinkReady: false, onHighlightLinkDone: done,
+      } as Opts),
+    )
+    expect(done).not.toHaveBeenCalled()
+  })
+})
+
+describe('useHighlightEdit — ?highlight= link to a PDF highlight', () => {
+  type Opts = Parameters<typeof useHighlightEdit>[0]
+  const pdf = (): StoredHighlight => ({
+    ...hl('p'), chapterId: '',
+    anchor: { v: 1, kind: 'pdf', page: 3, rects: [{ x: 1, y: 1, w: 1, h: 1 }], exact: 'p' } as unknown as StoredHighlight['anchor'],
+  })
+  it('reflow (PDF fell back to text): nothing jumps → not found, the normal restore runs', async () => {
+    const done = vi.fn()
+    renderHook(() => useHighlightEdit({
+      highlights: [pdf()], addHighlight, updateHighlight, removeHighlight, chapterId: 'c1', containerRef: makeContainer(),
+      scrollToHighlightId: 'p', highlightLinkReady: true, onHighlightLinkDone: done, pdfLinkJumps: false,
+    } as Opts))
+    await vi.waitFor(() => expect(done).toHaveBeenCalled())
+    expect(done).toHaveBeenCalledWith(false)
+  })
+  it('Original layout: the page jump positions it → landed', async () => {
+    const done = vi.fn()
+    renderHook(() => useHighlightEdit({
+      highlights: [pdf()], addHighlight, updateHighlight, removeHighlight, chapterId: 'c1', containerRef: makeContainer(),
+      scrollToHighlightId: 'p', highlightLinkReady: true, onHighlightLinkDone: done, pdfLinkJumps: true,
+    } as Opts))
+    await vi.waitFor(() => expect(done).toHaveBeenCalledWith(true))
   })
 })

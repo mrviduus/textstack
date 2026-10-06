@@ -1,4 +1,4 @@
-import { forwardRef, useImperativeHandle, useRef } from 'react'
+import { forwardRef, useImperativeHandle, useMemo, useRef } from 'react'
 import type { ReaderSettings } from '../../hooks/useReaderSettings'
 import { sanitizeHtml } from '../../utils/sanitize'
 import type { Overlayer } from '@textstack/reader-overlay'
@@ -17,6 +17,8 @@ export interface ReaderSectionHandle {
 
 interface Props {
   chapterId: string
+  /** Lets a highlight saved under an offline cache key ("editionId:slug") find its chapter. */
+  chapterSlug?: string
   chapterIndex: number
   html: string
   settings: ReaderSettings
@@ -38,11 +40,16 @@ function fontFamily(f: ReaderSettings['fontFamily']): string {
 }
 
 export const ReaderSection = forwardRef<ReaderSectionHandle, Props>(function ReaderSection(
-  { chapterId, chapterIndex, html, settings, overlayEnabled = true },
+  { chapterId, chapterSlug, chapterIndex, html, settings, overlayEnabled = true },
   ref,
 ) {
   const articleRef = useRef<HTMLElement | null>(null)
   const overlayerRef = useRef<Overlayer | null>(null)
+  // Stable object: React 19 re-sets innerHTML whenever this prop's identity
+  // changes, so a literal here rebuilt the chapter DOM on EVERY render (each
+  // scroll-progress tick) — killing every live Range: highlights, vocab marks,
+  // the selection, a drawer jump's freshly painted highlight.
+  const innerHtml = useMemo(() => ({ __html: sanitizeHtml(html) }), [html])
 
   useImperativeHandle(
     ref,
@@ -63,6 +70,7 @@ export const ReaderSection = forwardRef<ReaderSectionHandle, Props>(function Rea
         ref={articleRef}
         className="reader-section__article"
         data-chapter-id={chapterId}
+        data-chapter-slug={chapterSlug}
         data-chapter-index={chapterIndex}
         style={{
           fontSize: `${settings.fontSize}px`,
@@ -70,7 +78,7 @@ export const ReaderSection = forwardRef<ReaderSectionHandle, Props>(function Rea
           fontFamily: fontFamily(settings.fontFamily),
           textAlign: settings.textAlign,
         }}
-        dangerouslySetInnerHTML={{ __html: sanitizeHtml(html) }}
+        dangerouslySetInnerHTML={innerHtml}
       />
       <ReaderOverlay
         containerRef={articleRef}

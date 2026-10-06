@@ -26,6 +26,7 @@ import { TtsHighlightOverlay } from './TtsHighlightOverlay'
 import { ImageLightbox } from './ImageLightbox'
 import { Toast } from '../Toast'
 import { useAuth } from '../../context/AuthContext'
+import { vocabChapterId } from '../../lib/textAnchor'
 
 interface ReaderHighlightsProps {
   editionId: string
@@ -37,6 +38,8 @@ interface ReaderHighlightsProps {
   userBookId?: string
   ttsSpeed?: number
   scrollToHighlightId?: string | null
+  highlightLinkReady?: boolean
+  onHighlightLinkDone?: (found: boolean) => void
   /** Nonce-driven jump from the TOC drawer's Highlights tab (reflow highlights). */
   scrollToHl?: ScrollToHighlight | null
   /** Route to a reflow highlight's chapter when a drawer jump lands off-screen. */
@@ -91,6 +94,8 @@ export function ReaderHighlights({
   userBookId,
   ttsSpeed = 1.0,
   scrollToHighlightId,
+  highlightLinkReady,
+  onHighlightLinkDone,
   scrollToHl,
   onNavigateToHighlight,
   showInlineTranslations = false,
@@ -198,7 +203,7 @@ export function ReaderHighlights({
         word,
         language: bookLanguage,
         editionId: userBookId ? undefined : (editionId || undefined),
-        chapterId: userBookId ? undefined : (chapterId || undefined),
+        chapterId: vocabChapterId(chapterId, userBookId),
         userBookId: userBookId || undefined,
         sentence: sentence || undefined,
         bookTitle: bookTitle || undefined,
@@ -385,6 +390,9 @@ export function ReaderHighlights({
     chapterId,
     containerRef,
     scrollToHighlightId,
+    highlightLinkReady,
+    onHighlightLinkDone,
+    pdfLinkJumps: liveActionsOnly,
     scrollToHl,
     onNavigateToHighlight,
   })
@@ -491,6 +499,7 @@ export function ReaderHighlights({
           <HighlightOverlayLayer
             highlights={highlights}
             containerRef={containerRef}
+            chapterId={chapterId}
             onHighlightClick={handleHighlightClick}
           />
 

@@ -6,6 +6,7 @@ import {
   deletePublicBookmark,
 } from '../api/userData'
 import { emitDataChange } from '../lib/dataEvents'
+import { GUID_RE } from '../lib/progressSync'
 
 export interface Bookmark {
   id: string
@@ -169,6 +170,14 @@ export function useBookmarks(bookId: string, options?: UseBookmarksOptions) {
       // Check if already bookmarked
       const existing = bookmarks.find((b) => b.chapterSlug === chapterSlug)
       if (existing) return existing
+
+      // Only a server id may reach the server. A chapter read from an old offline
+      // cache row can carry the cache key "editionId:slug" (POST → 500, and the
+      // local copy was then wiped by the server list). No-op until it resolves.
+      if (isAuthenticated && editionId && chapterId && !GUID_RE.test(chapterId)) {
+        console.warn('[bookmarks] chapter id is not a server id; bookmark not saved', chapterId)
+        return undefined
+      }
 
       // If authenticated with editionId, create on server first
       if (isAuthenticated && editionId && chapterId) {

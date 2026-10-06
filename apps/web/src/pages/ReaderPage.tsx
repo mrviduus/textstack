@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useParams, useNavigate, useLocation, Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
 import { useReaderSettings } from '../hooks/useReaderSettings'
@@ -23,6 +23,7 @@ import { ReaderSettingsDrawer } from '../components/reader/ReaderSettingsDrawer'
 import { ReaderTocDrawer } from '../components/reader/ReaderTocDrawer'
 import { ReaderSearchDrawer } from '../components/reader/ReaderSearchDrawer'
 import { ReaderHighlights } from '../components/reader/ReaderHighlights'
+import { chapterForHighlight } from '../lib/textAnchor'
 import { SearchOverlayLayer } from '../components/reader/SearchOverlayLayer'
 import { useReadingSession } from '../hooks/useReadingSession'
 import { useQuickStats } from '../hooks/useQuickStats'
@@ -64,7 +65,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
   // For userbook mode, chapterSlug comes from the :chapterSlug param
   const chapterIdentifier = mode === 'public' ? chapterSlug : userChapterSlug
 
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, isLoading: authLoading } = useAuth()
   const { language, getLocalizedPath } = useLanguage()
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -98,7 +99,10 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
   const [pdfNumPages, setPdfNumPages] = useState(0)
 
   // Highlight ID from URL — scroll to this highlight after chapter loads
-  const [scrollToHighlightId] = useState(() => new URLSearchParams(window.location.search).get('highlight'))
+  // Live, not read once at mount: a drawer jump to another chapter adds it by
+  // SPA navigation. Removed once the link is resolved, so Back / reload restore normally.
+  const location = useLocation()
+  const scrollToHighlightId = new URLSearchParams(location.search).get('highlight')
 
   const scrollContainerRef = useRef<HTMLDivElement>(null)
 
@@ -418,7 +422,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
   // Scroll-position restore + debounced save + flush on visibility/unload.
   // flushProgress ships the LEAVING chapter's latest scroll before a
   // same-component route change (ReaderPage stays mounted, so no unmount flush).
-  const { flushSave: flushProgress } = useReaderScrollSync({
+  const { flushSave: flushProgress, captureBeforeReflow, markPositioned } = useReaderScrollSync({
     mode,
     chapterIdentifier,
     chapterLoaded: isChapterReady(chapter, chapterIdentifier, loading),
@@ -435,7 +439,25 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
     // Typography only. Theme is a data-attribute swap and does not re-wrap text,
     // so re-anchoring for it would cost a layout read for nothing.
     settingsKey: `${settings.fontSize} ${settings.lineHeight} ${settings.fontFamily} ${settings.textAlign}`,
+    // A ?highlight= link positions the reader; restore and save-on-open wait for it.
+    holdRestore: !!scrollToHighlightId && !originalActive,
+    onHoldExpired: () => handleHighlightLinkDoneRef.current(false),
   })
+
+  // ?highlight= resolved: landed → that is the restored position; not found →
+  // the held restore runs. Either way the param goes (replace), so Back and
+  // reload restore normally instead of jumping again.
+  const highlightLinkReady = highlightsApi.loaded && !authLoading
+    && (originalActive || isChapterReady(chapter, chapterIdentifier, loading))
+  const handleHighlightLinkDone = useCallback((found: boolean) => {
+    if (found) markPositioned()
+    const sp = new URLSearchParams(location.search)
+    sp.delete('highlight')
+    const q = sp.toString()
+    navigate({ pathname: location.pathname, search: q ? `?${q}` : '', hash: location.hash }, { replace: true, state: location.state })
+  }, [markPositioned, location, navigate])
+  const handleHighlightLinkDoneRef = useRef(handleHighlightLinkDone)
+  handleHighlightLinkDoneRef.current = handleHighlightLinkDone
 
   // Track current book for guest returning user feature
   useEffect(() => {
@@ -494,11 +516,13 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
   // Drawer jump to a reflow highlight in a chapter the reader hasn't mounted
   // (one-chapter-at-a-time). Resolve its chapter id → slug and route there;
   // useHighlightEdit re-runs the scroll once the new chapter's DOM lands.
+  // Same chapter key the overlay paints by (anchor id, else the row's chapterId /
+  // userChapterId — mobile anchors carry none). An orphan has nowhere to go.
   const handleHighlightNavigate = useCallback((h: StoredHighlight) => {
-    const target = book?.chapters.find(c => c.id === h.chapterId)
+    const target = chapterForHighlight(book?.chapters, h)
     if (!target || target.identifier === activeChapterIdentifier) return
     flushProgress()
-    navigate(getChapterUrl(target.identifier))
+    navigate(`${getChapterUrl(target.identifier)}?highlight=${encodeURIComponent(h.id)}`)
   }, [book?.chapters, activeChapterIdentifier, flushProgress, navigate, getChapterUrl])
 
   // PDF.js hard-failed to open the original (NOT the internal 401 reload, which
@@ -656,7 +680,9 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
       <main id="reader-content" className="reader-main">
         <ReaderHighlights
           editionId={book?.id || ''}
-          chapterId={activeChapter?.id || ''}
+          // The rendered chapter first: the URL's chapter changes before its
+          // content lands, and highlights re-map when this changes.
+          chapterId={chapter?.id || activeChapter?.id || ''}
           containerRef={scrollContainerRef}
           isAuthenticated={isAuthenticated}
           bookLanguage={publicBook?.language}
@@ -665,6 +691,8 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
           ttsSpeed={settings.ttsSpeed}
           showInlineTranslations={settings.showInlineTranslations}
           scrollToHighlightId={scrollToHighlightId}
+          highlightLinkReady={highlightLinkReady}
+          onHighlightLinkDone={handleHighlightLinkDone}
           scrollToHl={scrollToHl}
           onNavigateToHighlight={handleHighlightNavigate}
           highlights={highlightsApi.highlights}
@@ -704,6 +732,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
               <>
                 <ReaderSection
                   chapterId={chapter.id}
+                  chapterSlug={chapter.identifier}
                   chapterIndex={chapter.chapterNumber}
                   html={chapter.html}
                   settings={settings}
@@ -797,7 +826,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
       <ReaderSettingsDrawer
         open={settingsOpen}
         settings={settings}
-        onUpdate={update}
+        onUpdate={(patch) => { captureBeforeReflow(); update(patch) }}
         onClose={() => setSettingsOpen(false)}
         originalMode={originalActive}
       />

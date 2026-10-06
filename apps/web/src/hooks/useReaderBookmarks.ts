@@ -45,10 +45,11 @@ export function useReaderBookmarks({
 
   const addBookmark = useCallback(
     async (chapterSlug: string, chapterTitle: string) => {
-      if (mode === 'public') {
-        return publicBookmarks.addBookmark(chapterSlug, chapterTitle, publicChapter?.id)
-      }
+      // The book's chapter list holds the server id for the slug being bookmarked.
       const ch = book?.chapters.find(c => c.identifier === chapterSlug)
+      if (mode === 'public') {
+        return publicBookmarks.addBookmark(chapterSlug, chapterTitle, ch?.id ?? publicChapter?.id)
+      }
       return userBookmarks.addBookmark(ch?.id || '', chapterSlug, chapterTitle)
     },
     [mode, publicChapter?.id, book?.chapters, publicBookmarks, userBookmarks],
