@@ -1,8 +1,18 @@
 # Textstack Docker Compose
 # Usage: docker compose up -d
 
+# Container log rotation for every service. Without it json-file grows forever, so how long
+# application logs were kept was undefined (the privacy policy states a bound). Size-based: the
+# oldest file is overwritten once 5 x 10 MB fill up.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   db:
+    logging: *default-logging
     # pgvector image = stock postgres:16 + the `vector` extension binary.
     # Existing ./data/postgres-prod volume is compatible (no re-init); the
     # extension is activated by the AddPgVectorAndChunks migration.
@@ -39,6 +49,7 @@ services:
           memory: 256M
 
   migrator:
+    logging: *default-logging
     build:
       context: .
       dockerfile: backend/Docker/Migrator.Dockerfile
@@ -51,6 +62,7 @@ services:
     restart: "no"
 
   api:
+    logging: *default-logging
     build:
       context: .
       dockerfile: backend/Docker/Api.Dockerfile
@@ -129,6 +141,7 @@ services:
           memory: 256M
 
   worker:
+    logging: *default-logging
     build:
       context: .
       dockerfile: backend/Docker/Worker.Dockerfile
@@ -174,6 +187,7 @@ services:
           memory: 512M
 
   admin:
+    logging: *default-logging
     build:
       # Root context — see ssg-worker above.
       context: .
@@ -211,6 +225,7 @@ services:
   # docker/e2e jobs, which only wait on the API /health) does NOT start it. Bring
   # it up on the server with: docker compose --profile mcp up -d mcp-server
   mcp-server:
+    logging: *default-logging
     build:
       context: .
       dockerfile: backend/Docker/Mcp.Dockerfile
@@ -245,6 +260,7 @@ services:
   # ===========================================
 
   ssg-worker:
+    logging: *default-logging
     build:
       # Root context: the workspace lockfile and pnpm-workspace.yaml live here,
       # and `catalog:` cannot be resolved without them.
@@ -300,6 +316,7 @@ services:
   # ===========================================
 
   aspire-dashboard:
+    logging: *default-logging
     image: mcr.microsoft.com/dotnet/aspire-dashboard:latest
     container_name: textstack_aspire_prod
     profiles: ["observability"]
@@ -326,6 +343,7 @@ services:
   # ===========================================
 
   ollama:
+    logging: *default-logging
     # gemma4 needs Ollama >= 0.30.9 (`ollama show`); 0.23.1 ran it from May to 2026-10. Pinned, not
     # :latest — an image bump is a deliberate change. 0.35.1 is what the local evals ran on.
     image: ollama/ollama:0.35.1
