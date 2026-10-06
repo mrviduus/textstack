@@ -26,7 +26,7 @@
     "onWebHeading": "Delete on the website",
     "onWebBody": "Sign in at textstack.app, open the user menu in the top-right corner, choose \"Edit profile\", then scroll to the \"Danger zone\" section and select \"Delete account\". You'll be asked to type DELETE to confirm.",
     "retentionHeading": "Timing and what remains",
-    "retentionBody": "Deletion happens immediately, in a single transaction — there is no waiting period and no recovery window. Operational records of AI requests are kept as an anonymous cost-and-quality log, with the link to your account removed, so nothing in them identifies you afterwards."
+    "retentionBody": "Deletion happens immediately, in a single transaction — there is no waiting period and no recovery window. A few copies outlive it for a limited time and then expire on their own: encrypted backups (up to about 90 days), cached translations, explanations and speech (30 days), web server request logs (14 days), application logs (overwritten by size, typically within weeks) and crash reports (Sentry's retention period). Records of AI requests are kept without any link to your account; they can contain the passage and question you sent, but not your name or email. Anything you shared with an outside assistant (such as Claude or ChatGPT) through a connector is covered by that assistant's policy."
   },
   "home": {
     "hero": {

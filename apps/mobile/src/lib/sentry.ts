@@ -2,7 +2,7 @@ import * as Sentry from '@sentry/react-native'
 import Constants from 'expo-constants'
 import * as Updates from 'expo-updates'
 import { sentryEnabled } from './sentryEnabled'
-import { scrubEvent, scrubUrl } from './sentryScrub'
+import { scrubEvent, scrubTransaction, scrubUrl } from './sentryScrub'
 
 /**
  * Crash reporting for the mobile app.
@@ -53,6 +53,8 @@ export function initSentry(): void {
     tracesSampleRate: 0.1,
 
     beforeSend: scrubEvent,
+    // Transactions bypass beforeSend; their fetch spans carry full URLs (?q=, ?text=).
+    beforeSendTransaction: scrubTransaction,
     beforeBreadcrumb: crumb => {
       if (crumb?.data?.url && typeof crumb.data.url === 'string') {
         crumb.data.url = scrubUrl(crumb.data.url)

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { scrubUrl, scrubEvent } from './sentryScrub'
+import { scrubUrl, scrubEvent, scrubTransaction } from './sentryScrub'
 
 // The app's entire purpose is reading books, much of it copyrighted or personal.
 // A breadcrumb that records a TTS or translate request carries the passage the user
@@ -14,6 +14,7 @@ describe('scrubUrl', () => {
   it('redacts a translate call and a search query', () => {
     expect(scrubUrl('/api/translate?text=secret&target=uk')).toBe('/api/translate?text=[redacted]&target=uk')
     expect(scrubUrl('/api/search?q=my%20private%20book')).toBe('/api/search?q=[redacted]')
+    expect(scrubUrl('/me/highlights/all?search=my%20note&limit=20')).toBe('/me/highlights/all?search=[redacted]&limit=20')
   })
 
   it('keeps non-sensitive parameters intact so URLs stay debuggable', () => {
@@ -49,5 +50,36 @@ describe('scrubEvent', () => {
 
   it('tolerates an event with nothing to scrub', () => {
     expect(scrubEvent({})).toEqual({})
+  })
+})
+
+// Transactions do not go through beforeSend. A sampled session's fetch span for a search
+// carried the query in several places; all of them must come out.
+describe('scrubTransaction', () => {
+  it('strips the query string from fetch spans, the trace context and the request', () => {
+    const event = scrubTransaction({
+      request: { url: 'https://textstack.app/api/search?q=private', query_string: 'q=private' },
+      spans: [
+        {
+          description: 'GET https://textstack.app/api/search?q=private',
+          data: {
+            url: 'https://textstack.app/api/search?q=private',
+            'http.query': '?q=private',
+            'http.method': 'GET',
+          },
+        },
+        { description: 'GET https://textstack.app/api/tts?text=a%20passage#x', data: {} },
+      ],
+      contexts: { trace: { data: { url: 'https://textstack.app/api/tts?text=a%20passage' } } },
+      breadcrumbs: [{ data: { url: '/api/translate?text=secret' } }],
+    })
+    expect(JSON.stringify(event)).not.toMatch(/private|passage|secret/)
+    expect(event.spans?.[0].description).toBe('GET https://textstack.app/api/search')
+    expect(event.spans?.[0].data?.['http.method']).toBe('GET')
+    expect(event.request?.url).toBe('https://textstack.app/api/search')
+  })
+
+  it('tolerates a transaction with no spans or request', () => {
+    expect(scrubTransaction({})).toEqual({})
   })
 })
