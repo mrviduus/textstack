@@ -115,31 +115,73 @@ Still requested, still unresolved — see the WATCH list in that script:
 
 ## Data Safety answers
 
-Submitted answers, verbatim. **Fill this form and the privacy policy in the same
-sitting** — a Data Safety declaration that contradicts the policy is a suspension
-category, not a warning category.
+The answers to give, re-derived from the code on 2026-10-06 (the previous table said "no
+crash SDK on mobile" a month after mobile Sentry was armed, and left out User IDs, Device
+IDs and search). **Fill this form and the privacy policy in the same sitting** — a Data
+Safety declaration that contradicts the policy is a suspension category, not a warning
+category. Over-declaring is safe; under-declaring is the suspension risk.
 
-| Data type | Collected | Shared | Linked to identity | Purpose |
+Play's terms, briefly: *collected* = leaves the device, SDKs included; *shared* = goes to a
+third party, except a **service provider** acting on our instructions, a transfer the user
+starts (the MCP connectors), or anonymous data. Play does not ask "linked to identity" —
+that is Apple's question.
+
+**Data collection and security**
+
+| Question | Answer |
+|---|---|
+| Collects or shares required user data types? | Yes |
+| All data encrypted in transit? | Yes (HTTPS only, Cloudflare in front) |
+| Account creation methods | Username and password; OAuth (Google). Apple sign-in is iOS-only (`app/(auth)/login.tsx`, `Platform.OS === 'ios'`), so not on the Android form |
+| Delete-account URL | `https://textstack.app/en/delete-account` |
+| Users can request deletion? | Yes — Profile → Delete account (or Delete guest data), the website, or email |
+| Independent security review (MASA)? | No |
+
+**Data types** — everything not listed is *not collected* (location, financial, health,
+messages, audio, contacts, calendar, browsing, installed apps, phone, address, advertising
+ID). Nothing is *ephemeral*: every path writes to a cache, a trace table, a log or a backup.
+
+| Category → type | Collected | Shared | Required? | Purposes |
 |---|---|---|---|---|
-| Name, Email address | Yes | No | Yes | App functionality, Account management |
-| Photos (avatar) | Yes (optional) | No | Yes | App functionality |
-| Files & docs (uploaded books) | Yes | **Yes → OpenAI** | Yes | App functionality |
-| App activity → other UGC (prompts, highlights, vocabulary) | Yes | **Yes → OpenAI** | Yes | App functionality |
-| App activity → app interactions (reading sessions) | Yes | No | Yes | App functionality, Analytics |
-| App info & performance → Crash logs, Diagnostics | *Not yet — no crash SDK on mobile* | — | — | — |
+| Personal info → Name | Yes | No | Optional | App functionality, Account management |
+| Personal info → Email address | Yes | No | Optional | App functionality, Account management |
+| Personal info → User IDs | Yes | No | **Required** | App functionality, Account management, Fraud prevention & security |
+| Personal info → Other info (native language) | Yes | No | Optional | App functionality, Personalization |
+| Photos and videos → Photos (avatar) | Yes | No | Optional | App functionality, Account management |
+| Files and docs (uploads; passages for translate/explain/speech) | Yes | **Yes** | Optional | App functionality |
+| App activity → App interactions (progress, sessions, goals, achievements, review answers) | Yes | No | **Required** | App functionality, Personalization |
+| App activity → In-app search history | Yes | No | Optional | App functionality |
+| App activity → Other user-generated content (highlights, notes, bookmarks, vocabulary, collections, tutor, assistant insights) | Yes | **Yes** | Optional | App functionality, Personalization |
+| App info and performance → Crash logs | Yes | No | Required | Analytics |
+| App info and performance → Diagnostics (Sentry traces, 10%) | Yes | No | Required | Analytics |
+| Device or other IDs (Sentry installation ID, Expo update client ID) | Yes | No | Required | App functionality, Analytics |
 
-Also: encryption in transit **Yes**; users can request deletion **Yes**, at
-`https://textstack.app/en/delete-account`; "data processed ephemerally" **No** —
-`llm_traces` stores prompts and book excerpts, so that box must stay unticked.
+Why:
+- **User IDs and App interactions are Required.** Opening any book on mobile mints a guest
+  account (`SessionGate`), so reading always creates an ID and syncs progress.
+- **Files and docs / Other UGC → Shared: Yes**, for two recipients we have no contract with:
+  Microsoft's consumer Edge read-aloud endpoint (`EdgeTtsClient.cs`) gets passages, words
+  and saved sentences; Open Library gets upload titles and authors. OpenAI (translate,
+  explain, tutor, and every upload's title + author + first 600 characters of chapter one)
+  is disclosed in the policy and not relied on as a service provider under a signed DPA —
+  these rows say Yes either way.
+- **Crash logs, Diagnostics, Device IDs → Shared: No.** Sentry and Expo are service
+  providers.
+- **Analytics only on the crash/diagnostics rows.** Reading data is used to run the app,
+  not analysed in aggregate (owner, 2026-10-06), so App interactions carries no Analytics
+  purpose. Crash logs and performance traces are, in Play's own taxonomy, data "about how
+  the app performs" — that is the Analytics purpose, and over-declaring a purpose is safe.
+  (Web has GA behind a consent banner; this form is for the app.)
+- **No Approximate location.** IPs feed rate limits and logs, never a location.
 
-Sending book text to OpenAI **is "sharing"** under Play's definition. Files & docs →
-Shared: Yes is the row people most often get wrong.
+**Data deletion** — Yes. Play allows keeping some data for a stated time; the delete page
+(`deleteAccount.retentionBody`) states it: backups ~90 days (restic `--keep-monthly 3`),
+caches 30 days, nginx access logs 14 days (server logrotate `rotate 14`, query strings not
+logged), Sentry's own retention, AI request records with no account link.
 
-Two rows change the moment `@sentry/react-native` ships (Crash logs, Diagnostics, and
-Device or other IDs → Shared: Yes → Sentry, since the DSN points at hosted
-`ingest.us.sentry.io` rather than a self-hosted instance). Adding an analytics
-transport to `apps/mobile/src/lib/analytics.ts` would add more — which is why it is
-deliberately still a no-op.
+This table changes if the app ever gains an analytics SDK (none in
+`apps/mobile/package.json` today), a push token (reminders are local notifications only),
+Apple sign-in on Android, or a new outside recipient of reader text.
 
 ## Privacy policy
 
@@ -158,8 +200,9 @@ update the Data Safety table above in the same commit.
 
 ## Crash reporting
 
-`@sentry/react-native` is wired but **dormant**. Two switches turn it on, and they
-belong in the same change.
+`@sentry/react-native` is **armed** in production since 2026-09-03 (`docs/STATUS.md`,
+Observability). The two switches below are how it was turned on — and how to turn it off;
+they belong in the same change.
 
 **1. Reporting.** Set `EXPO_PUBLIC_SENTRY_DSN` for the build. With it unset,
 `initSentry()` returns immediately, the SDK never initialises, and nothing is sent —

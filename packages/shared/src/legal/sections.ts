@@ -32,6 +32,7 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
       'privacy.collectBody4',
       'privacy.collectBody5',
       'privacy.collectBody6',
+      'privacy.collectBody7',
     ],
   },
   { heading: 'privacy.purposeHeading', bodies: ['privacy.purposeBody'] },
@@ -41,12 +42,15 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
       'privacy.thirdPartiesIntro',
       'privacy.thirdPartiesOpenai',
       'privacy.thirdPartiesTts',
+      'privacy.thirdPartiesOpenLibrary',
       'privacy.thirdPartiesAuth',
       'privacy.thirdPartiesEmail',
       'privacy.thirdPartiesSentry',
+      'privacy.thirdPartiesExpo',
       'privacy.thirdPartiesAnalytics',
       'privacy.thirdPartiesCloudflare',
       'privacy.thirdPartiesOllama',
+      'privacy.thirdPartiesConnectors',
     ],
   },
   {
@@ -57,7 +61,12 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
   { heading: 'privacy.securityHeading', bodies: ['privacy.securityBody'] },
   {
     heading: 'privacy.retentionHeading',
-    bodies: ['privacy.retentionBody1', 'privacy.retentionBody2', 'privacy.retentionBody3'],
+    bodies: [
+      'privacy.retentionBody1',
+      'privacy.retentionBody2',
+      'privacy.retentionBody3',
+      'privacy.retentionBody4',
+    ],
   },
   {
     heading: 'privacy.rightsHeading',
