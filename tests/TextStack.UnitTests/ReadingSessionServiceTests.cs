@@ -340,4 +340,54 @@ public class ReadingSessionServiceTests
         Assert.Equal(Guid.Empty, r.SessionId);                 // row was NOT inserted
         Assert.Empty(r.NewAchievements);
     }
+
+    // ── Reader audit L6: achievements are judged on the reader's clock, not UTC's ───────────────
+    // 20:00 UTC is 06:00 in UTC+10: an early-bird session there, an evening one in UTC.
+    [Theory]
+    [InlineData(600, true)]
+    [InlineData(0, false)]
+    public async Task SubmitAsync_TzOffset_EarlyBirdByLocalHour(int tzMinutes, bool expected)
+    {
+        var h = new Harness();
+        var started = new DateTimeOffset(2025, 3, 15, 20, 0, 0, TimeSpan.Zero);
+
+        var r = await h.Service.SubmitAsync(Guid.NewGuid(), Guid.NewGuid(),
+            EditionReq(h.SeedEdition(), started, started.AddMinutes(5)), CancellationToken.None,
+            TimeSpan.FromMinutes(tzMinutes));
+
+        Assert.Equal(expected, r!.NewAchievements.Contains("early_bird"));
+    }
+
+    // UTC−5, reading at 23:30 local on the 13th and 14th (04:30 UTC the next day) and 10:00 on the
+    // 15th: three local days, but only two UTC days.
+    [Theory]
+    [InlineData(-300, true)]
+    [InlineData(0, false)]
+    public async Task SubmitAsync_TzOffset_StreakCountsLocalDays(int tzMinutes, bool expected)
+    {
+        var h = new Harness();
+        var userId = Guid.NewGuid();
+        var editionId = h.SeedEdition();
+        h.Sessions.Add(SeedSession(userId, editionId, null, new DateTimeOffset(2025, 3, 14, 4, 30, 0, TimeSpan.Zero)));
+        h.Sessions.Add(SeedSession(userId, editionId, null, new DateTimeOffset(2025, 3, 15, 4, 30, 0, TimeSpan.Zero)));
+        var started = new DateTimeOffset(2025, 3, 15, 15, 0, 0, TimeSpan.Zero);
+
+        var r = await h.Service.SubmitAsync(userId, Guid.NewGuid(),
+            EditionReq(editionId, started, started.AddMinutes(5)), CancellationToken.None,
+            TimeSpan.FromMinutes(tzMinutes));
+
+        Assert.Equal(expected, r!.NewAchievements.Contains("streak_3"));
+    }
+
+    [Theory]
+    [InlineData("120", 120)]
+    [InlineData("-300", -300)]
+    [InlineData("840", 840)]
+    [InlineData("99999", 0)]
+    [InlineData("abc", 0)]
+    [InlineData(null, 0)]
+    public void ParseTzOffset_Input_ClampedToRealOffsets(string? tz, int expectedMinutes)
+    {
+        Assert.Equal(TimeSpan.FromMinutes(expectedMinutes), Api.Endpoints.ReadingTrackingEndpoints.ParseTzOffset(tz));
+    }
 }

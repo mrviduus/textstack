@@ -37,13 +37,14 @@ public static partial class ReadingTrackingEndpoints
 
     // --- Helpers ---
 
-    internal static TimeSpan ParseTzOffset(string? tz)
-    {
-        if (string.IsNullOrEmpty(tz)) return TimeSpan.Zero;
-        if (int.TryParse(tz, out var minutes))
-            return TimeSpan.FromMinutes(minutes);
-        return TimeSpan.Zero;
-    }
+    /// <summary>
+    /// The client's UTC offset in minutes (<c>-new Date().getTimezoneOffset()</c>). Anything that is
+    /// not a real offset (beyond ±14h) is UTC: <see cref="DateTimeOffset.ToOffset"/> throws on it.
+    /// </summary>
+    internal static TimeSpan ParseTzOffset(string? tz) =>
+        int.TryParse(tz, out var minutes) && Math.Abs(minutes) <= 14 * 60
+            ? TimeSpan.FromMinutes(minutes)
+            : TimeSpan.Zero;
 }
 
 // DTOs

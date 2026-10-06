@@ -18,7 +18,9 @@ export function submitSession(data: {
     startedAt: data.startedAt || new Date(now.getTime() - data.durationSeconds * 1000).toISOString(),
     endedAt: data.endedAt || now.toISOString(),
   }
-  return authFetch<{ sessionId: string; newAchievements: string[] }>('/me/reading/sessions', jsonBody('POST', payload))
+  // tz: the server counts the streak and time-of-day achievements in the reader's day, not UTC's.
+  return authFetch<{ sessionId: string; newAchievements: string[] }>(
+    `/me/reading/sessions${buildQuery({ tz: -new Date().getTimezoneOffset() })}`, jsonBody('POST', payload))
 }
 
 export function getStats(tz?: number) {

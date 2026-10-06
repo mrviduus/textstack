@@ -73,7 +73,8 @@ public partial class AdminService
 
         // Readers on this chapter move to its neighbour; a bare delete is refused by the FKs.
         await using var tx = await db.BeginTransactionAsync(ct);
-        await ChapterReconciler.RemoveEditionChapterAsync(db, chapter, null, ct);
+        var before = await ChapterReconciler.SnapshotEditionAsync(db, editionId, ct);
+        var successor = await ChapterReconciler.RemoveEditionChapterAsync(db, chapter, null, ct);
 
         // Renumber remaining chapters
         var remaining = await db.Chapters
@@ -87,6 +88,10 @@ public partial class AdminService
             ch.UpdatedAt = DateTimeOffset.UtcNow;
         }
 
+        await db.SaveChangesAsync(ct);
+        // Locators naming the deleted slug, and the review frontier, follow the readers (ADR-018).
+        await ChapterReconciler.MoveEditionPositionsAfterRemovalAsync(db, editionId, before,
+            new Dictionary<Guid, Guid?> { [id] = successor }, null, ct);
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         return (true, null);

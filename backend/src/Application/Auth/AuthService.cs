@@ -156,7 +156,8 @@ public class AuthService
     /// Re-parents every user-keyed entity from <paramref name="guestUserId"/> to <paramref name="realUserId"/>.
     /// On unique-key conflict (e.g. both have ReadingProgress for the same edition), prefers the guest's row
     /// for ReadingProgress when it's newer (LWW by UpdatedAt); for all other unique-keyed tables, the real
-    /// account's row wins (guest's conflicting row is dropped). UserVocabularySettings is COPIED
+    /// account's row wins (guest's conflicting row is dropped) — except uploads, which are renamed
+    /// (<see cref="MergedUploadSlug"/>) and always move. UserVocabularySettings is COPIED
     /// rather than re-parented — (UserId, SiteId) is its primary key — and only when the account
     /// has none. Also carries the guest's
     /// <see cref="User.NativeLanguage"/> across when the real account has none — see the inline note.
@@ -275,22 +276,22 @@ public class AuthService
             _db.UserLibraries, guestUserId, realUserId,
             x => x.EditionId, ct);
 
-        // Every guest upload, before the re-parent: the ones not dropped below move to the account,
-        // and so must their files (after commit).
-        var guestBookIds = await _db.UserBooks.Where(b => b.UserId == guestUserId).Select(b => b.Id).ToListAsync(ct);
-        var droppedBooks = await ReparentDropOnConflictAsync(
-            _db.UserBooks, guestUserId, realUserId,
-            x => x.Slug, ct);
-        var droppedBookIds = droppedBooks.Select(b => b.Id).ToList();
-        // Read now, while the dropped books' file rows still exist (the delete is only staged): their
-        // bytes leave with them and must not be carried to the account's quota below.
-        var droppedBytes = droppedBookIds.Count == 0
-            ? 0L
-            : await _db.UserBookFiles.Where(f => droppedBookIds.Contains(f.UserBookId)).SumAsync(f => f.FileSize, ct);
-        // book_collection has no FK to the book, so the guest's collections (re-parented below)
-        // would keep 'userbook' rows pointing at an upload deleted here. Same rule as DeleteAsync.
-        foreach (var book in droppedBooks)
-            await CollectionService.RemoveFromAllCollectionsAsync(_db, null, book.Id, "userbook", ct);
+        // Every guest upload moves to the account. One whose slug the account already uses is
+        // renamed, never dropped: a dropped upload took the guest's progress with it and orphaned
+        // its highlights (2026-10 reader audit, M1). Its files move after commit.
+        var guestBooks = await _db.UserBooks.Where(b => b.UserId == guestUserId).ToListAsync(ct);
+        var guestBookIds = guestBooks.Select(b => b.Id).ToList();
+        if (guestBooks.Count > 0)
+        {
+            var accountSlugs = (await _db.UserBooks.Where(b => b.UserId == realUserId)
+                .Select(b => b.Slug).ToListAsync(ct)).ToHashSet(StringComparer.Ordinal);
+            var taken = new HashSet<string>(accountSlugs.Concat(guestBooks.Select(b => b.Slug)), StringComparer.Ordinal);
+            foreach (var book in guestBooks)
+            {
+                book.Slug = MergedUploadSlug(book.Slug, book.Id, accountSlugs, taken);
+                book.UserId = realUserId;
+            }
+        }
 
         await ReparentDropOnConflictAsync(
             _db.ReadingGoals, guestUserId, realUserId,
@@ -429,12 +430,11 @@ public class AuthService
             .Where(x => x.Id == guestUserId)
             .Select(x => x.StorageUsedBytes)
             .FirstOrDefaultAsync(ct);
-        var carriedBytes = Math.Max(0, guestUsedBytes - droppedBytes);
-        if (carriedBytes > 0)
+        if (guestUsedBytes > 0)
         {
             await _db.Users
                 .Where(x => x.Id == realUserId)
-                .ExecuteUpdateAsync(s => s.SetProperty(x => x.StorageUsedBytes, x => x.StorageUsedBytes + carriedBytes), ct);
+                .ExecuteUpdateAsync(s => s.SetProperty(x => x.StorageUsedBytes, x => x.StorageUsedBytes + guestUsedBytes), ct);
         }
 
         // Delete guest user (cascades refresh tokens, password reset tokens — reparented rows survive).
@@ -442,16 +442,9 @@ public class AuthService
 
         await tx.CommitAsync(ct);
 
-        // The dropped uploads' rows are gone; their files are not. They live under the GUEST's
-        // directory, and the guest row was just deleted, so nothing would ever find them again
-        // (GuestCleanupWorker only sweeps guests that still exist). After commit, never before:
-        // a rolled-back merge must leave the guest's files with its rows.
+        // After commit, never before: a rolled-back merge must leave the guest's files with its rows.
         if (_storage is not null)
-        {
-            await DeleteUploadFilesBestEffortAsync(_storage, guestUserId, droppedBookIds, _logger, ct);
-            await MoveUploadFilesBestEffortAsync(
-                guestUserId, realUserId, guestBookIds.Except(droppedBookIds).ToList(), ct);
-        }
+            await MoveUploadFilesBestEffortAsync(guestUserId, realUserId, guestBookIds, ct);
 
         return deleted > 0;
     }
@@ -530,26 +523,23 @@ public class AuthService
     }
 
     /// <summary>
-    /// Deletes each upload's stored directory, best-effort: the database is already committed, so
-    /// a storage failure must not fail the sign-in. Each failure is logged and the rest continue.
+    /// The slug a merged guest upload takes on the account: its own when the account does not use
+    /// it, else suffixed with the book id like a same-title upload (<c>UserBookService</c>), the
+    /// full id if even that is <paramref name="taken"/>. Adds the result to <paramref name="taken"/>.
     /// </summary>
-    public static async Task DeleteUploadFilesBestEffortAsync(
-        IFileStorageService storage, Guid ownerUserId, IReadOnlyCollection<Guid> bookIds,
-        ILogger? logger, CancellationToken ct)
+    public static string MergedUploadSlug(
+        string slug, Guid bookId, IReadOnlySet<string> accountSlugs, ISet<string> taken)
     {
-        foreach (var bookId in bookIds)
-        {
-            try
-            {
-                await storage.DeleteUserBookDirectoryAsync(ownerUserId, bookId, ct);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                logger?.LogWarning(ex,
-                    "Guest merge: could not delete files of dropped upload {UserBookId} (owner {OwnerUserId})",
-                    bookId, ownerUserId);
-            }
-        }
+        if (!accountSlugs.Contains(slug)) return slug;
+        const int maxLength = 500; // user_books.slug
+        var id = bookId.ToString("N");
+        var result = Suffixed(id[..8]);
+        if (taken.Contains(result)) result = Suffixed(id);
+        taken.Add(result);
+        return result;
+
+        string Suffixed(string suffix) =>
+            $"{slug[..Math.Min(slug.Length, maxLength - suffix.Length - 1)]}-{suffix}";
     }
 
     /// <summary>
