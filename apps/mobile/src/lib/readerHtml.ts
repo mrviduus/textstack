@@ -819,6 +819,10 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
       if (!hlOverlayEnabled()) return null;
       try {
         _hlOverlayer = window.__TSOverlayer.create();
+        // Viewport-anchored, as web's fixed host is: rects are document coords
+        // counter-translated by -scrollY, so an absolute svg (which already
+        // scrolls with the page) drew every highlight scrollY px above its text.
+        _hlOverlayer.element.style.position = 'fixed';
         _hlOverlayer.element.style.zIndex = '2';
         document.body.appendChild(_hlOverlayer.element);
         // Reflow on font load, resize, orientation change — overlayer draws
