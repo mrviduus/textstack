@@ -88,6 +88,13 @@ export interface RestoreGateState {
   /** Identifies the in-flight restore, so a stale ack from the previous chapter cannot open it. */
   restoreId: number
   issuedAt: number
+  /**
+   * An ack for an OLDER restore arrived while this one is in flight. Its landing report follows it,
+   * so position reports no longer stand in for this restore's ack — a typography reflow injected
+   * mid-restore scrolls back to the top it captured, and that report would land in an open gate.
+   * The id-matched ack or the deadline opens it instead.
+   */
+  staleAck: boolean
 }
 
 export type RestoreGateEvent =
@@ -113,6 +120,7 @@ export const RESTORE_GATE_INITIAL: RestoreGateState = {
   chapterSlug: null,
   restoreId: 0,
   issuedAt: 0,
+  staleAck: false,
 }
 
 /**
@@ -135,17 +143,18 @@ export function restoreGateReduce(
       return { ...RESTORE_GATE_INITIAL, chapterSlug: event.chapterSlug, restoreId: state.restoreId }
 
     case 'restoreIssued':
-      return { ...state, phase: 'issued', restoreId: event.restoreId, issuedAt: event.at }
+      return { ...state, phase: 'issued', restoreId: event.restoreId, issuedAt: event.at, staleAck: false }
 
     case 'nothingToRestore':
       return { ...state, phase: 'open' }
 
     case 'restoreLanded':
-      if (state.phase !== 'issued' || event.restoreId !== state.restoreId) return state
+      if (state.phase !== 'issued') return state
+      if (event.restoreId !== state.restoreId) return state.staleAck ? state : { ...state, staleAck: true }
       return { ...state, phase: 'open' }
 
     case 'positionReported':
-      if (state.phase !== 'issued') return state
+      if (state.phase !== 'issued' || state.staleAck) return state
       // A non-zero offset is the reader demonstrably somewhere other than the top, whatever put
       // them there — which is the one thing the load event's zero can never be. It stands in for a
       // lost ack. The zero itself, deliberately, opens nothing.

@@ -75,7 +75,18 @@ describe('restoreGateReduce', () => {
 
   it('ignores an acknowledgement from a restore it did not issue', () => {
     // Leaving a chapter mid-restore and entering another: the old ack must not open the new gate.
-    expect(restoreGateReduce(issued, { type: 'restoreLanded', restoreId: 6 })).toBe(issued)
+    expect(restoredChapter(restoreGateReduce(issued, { type: 'restoreLanded', restoreId: 6 }))).toBeNull()
+  })
+
+  it('after a stale ack, a position report no longer stands in for the ack; the id-matched ack or the deadline still opens', () => {
+    // Its landing report follows the stale ack — and a reflow injected mid-restore then reports the top.
+    const stale = restoreGateReduce(issued, { type: 'restoreLanded', restoreId: 6 })
+    expect(restoredChapter(restoreGateReduce(stale, { type: 'positionReported', scrollY: 7488 }))).toBeNull()
+    expect(restoredChapter(restoreGateReduce(stale, { type: 'restoreLanded', restoreId: issued.restoreId }))).toBe('4-act-iii')
+    expect(restoredChapter(restoreGateReduce(stale, { type: 'restoreTimedOut', restoreId: issued.restoreId }))).toBe('4-act-iii')
+    // A new restore starts clean.
+    const next = restoreGateReduce(stale, { type: 'restoreIssued', restoreId: issued.restoreId + 1, at: 0 })
+    expect(restoredChapter(restoreGateReduce(next, { type: 'positionReported', scrollY: 7488 }))).toBe('4-act-iii')
   })
 
   it('opens on a reported position that is not the top', () => {
