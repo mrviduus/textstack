@@ -14,6 +14,7 @@ describe('scrubUrl', () => {
   it('redacts a translate call and a search query', () => {
     expect(scrubUrl('/api/translate?text=secret&target=uk')).toBe('/api/translate?text=[redacted]&target=uk')
     expect(scrubUrl('/api/search?q=my%20private%20book')).toBe('/api/search?q=[redacted]')
+    expect(scrubUrl('/me/highlights/all?search=my%20note&limit=20')).toBe('/me/highlights/all?search=[redacted]&limit=20')
   })
 
   it('keeps non-sensitive parameters intact so URLs stay debuggable', () => {

@@ -15,7 +15,7 @@
  * take the text as a parameter.
  */
 
-const SENSITIVE_URL_PARAMS = ['text', 'q', 'word', 'sentence', 'prompt', 'question']
+const SENSITIVE_URL_PARAMS = ['text', 'q', 'query', 'search', 'word', 'sentence', 'prompt', 'question']
 
 export function scrubUrl(url: string): string {
   if (!url) return url
