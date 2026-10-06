@@ -14,9 +14,16 @@ export function initialPdfJump(o: {
   resumeReady: boolean
   chapterStartPage: number | null | undefined
   chapterEndPage: number | null
+  /** This chapter owns the front matter (pages before its start). */
+  firstChapter?: boolean
   resumePage: number | null | undefined
+  pageCount?: number | null
 }): InitialPdfJump {
   if (!o.resumeReady) return { kind: 'wait' }
   const page = resolvePdfResumePage(o)
-  return page > 1 && page !== o.chapterStartPage ? { kind: 'jump', page } : { kind: 'stay', page }
+  // Where the bootstrap opened: the chapter's start page, else page 1. A target BELOW the start
+  // (front matter) must jump too — `page > 1` used to leave the reader on the start, which was saved.
+  const s = o.chapterStartPage
+  const opened = typeof s === 'number' && Number.isFinite(s) && s >= 1 ? Math.floor(s) : 1
+  return page !== opened ? { kind: 'jump', page } : { kind: 'stay', page }
 }

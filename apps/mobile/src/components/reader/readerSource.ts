@@ -171,6 +171,9 @@ export interface ReaderRuntime {
    *  set it WINS over the server resume page (the user chose this chapter). Null
    *  → fall back to the server resume page, else page 1. */
   originalInitialPage?: number | null
+  /** The reader opened this chapter explicitly (book-detail chapter row), not via Continue. Then
+   *  the first chapter does NOT claim a saved front-matter page — the pick opens its start. */
+  originalChapterPicked?: boolean
   /** Resume page from the device's own record (`page:<N>`). Used when the
    *  chapter carries no page — it loses to `originalInitialPage`. A newer page
    *  from the server arrives later as `originalNewerPage`. (ADR-012 S4c) */

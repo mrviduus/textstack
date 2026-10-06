@@ -19,9 +19,13 @@ export interface ChapterPageAnchor {
   sourceStartPage?: number | null
 }
 
+const isPage = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n >= 1
+
 /**
  * The chapter containing a 1-based page — the last chapter that starts at or
- * before it.
+ * before it. Front matter (pages before the first measured start) belongs to the
+ * first chapter: it is the nearest one, and returning null there sent "Continue"
+ * to chapter one's start page, which was then saved over the reader's page.
  *
  * Chapters are assumed to be in reading order, which is how both the detail
  * payload and the reader's chapter list are built. Returns null when nothing
@@ -36,15 +40,23 @@ export function chapterSlugForPage(
 
   let found: string | null = null
   let bestStart = 0
+  let first: string | null | undefined
   for (const c of chapters) {
     const start = c.sourceStartPage
-    if (typeof start !== 'number' || !Number.isFinite(start) || start < 1) continue
+    if (!isPage(start)) continue
+    if (first === undefined) first = c.slug ?? null
     if (start <= page && start >= bestStart) {
       bestStart = start
       found = c.slug ?? null
     }
   }
-  return found
+  return bestStart > 0 ? found : (first ?? null)
+}
+
+/** True when no chapter before `index` has a measured start page — so this one owns the front matter. */
+export function isFirstPagedChapter(chapters: readonly ChapterPageAnchor[], index: number): boolean {
+  if (index < 0 || index >= chapters.length) return false
+  return !chapters.slice(0, index).some(c => isPage(c.sourceStartPage))
 }
 
 /**
@@ -59,14 +71,29 @@ export function chapterSlugForPage(
  *     → open the exact page, not the top of the chapter.
  *
  * `chapterEndPage` is exclusive (the next chapter's start); omit it for the
- * last chapter.
+ * last chapter. `firstChapter` extends the range down to page 1 — the front
+ * matter is the first chapter's, so a saved page 1 is not clamped to its start
+ * (and then saved as that start). `pageCount`, when known, is the only upper
+ * clamp: a page past the last chapter is still the reader's page.
  */
 export function resolvePdfResumePage(input: {
   chapterStartPage?: number | null
   chapterEndPage?: number | null
+  firstChapter?: boolean
+  resumePage?: number | null
+  pageCount?: number | null
+}): number {
+  const page = resolveUnclamped(input)
+  return isPage(input.pageCount) ? Math.min(page, Math.floor(input.pageCount)) : page
+}
+
+function resolveUnclamped(input: {
+  chapterStartPage?: number | null
+  chapterEndPage?: number | null
+  firstChapter?: boolean
   resumePage?: number | null
 }): number {
-  const { chapterStartPage, chapterEndPage, resumePage } = input
+  const { chapterStartPage, chapterEndPage, firstChapter, resumePage } = input
 
   const validResume = typeof resumePage === 'number' && Number.isFinite(resumePage) && resumePage >= 1
     ? Math.floor(resumePage)
@@ -77,7 +104,7 @@ export function resolvePdfResumePage(input: {
 
   if (validStart == null) return validResume ?? 1
 
-  if (validResume != null && validResume >= validStart) {
+  if (validResume != null && (firstChapter || validResume >= validStart)) {
     const end = typeof chapterEndPage === 'number' && Number.isFinite(chapterEndPage) && chapterEndPage >= 1
       ? Math.floor(chapterEndPage)
       : null

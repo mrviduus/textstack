@@ -759,7 +759,7 @@ export default function UserBookDetailScreen() {
                 <TouchableOpacity
                   key={ch.id}
                   style={[styles.chapterRow, { borderBottomColor: colors.border }]}
-                  onPress={() => router.push(`/my-books/read/${id}/${userBookChapterSlug(ch)}`)}
+                  onPress={() => router.push(`/my-books/read/${id}/${userBookChapterSlug(ch)}?pick=1`)}
                 >
                   <Text style={[styles.chapterNumber, { color: isCurrentChapter ? colors.primary : colors.textSecondary }]}>{i + 1}</Text>
                   <View style={{ flex: 1 }}>

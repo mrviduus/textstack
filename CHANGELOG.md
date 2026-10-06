@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Reader** — on the phone: a PDF saved on a page before its first chapter (cover, front matter) reopens on that page; it was clamped to the first chapter's start and that page was saved over yours. Front matter now counts as the first chapter (Continue, TOC), a page past the end lands on the last page, nothing outside a chapter is clamped — mobile, shared
 - **Reader** — on the phone: a PDF no longer creeps forward on reopen or after a TOC jump plus a drag (the viewer fit to the pinch-zoomed width and re-sized pages under a fixed scroll; it now fits the layout width and keeps page + offset through every size change, deferred while the reader is scrolling); the theme survives a chapter change (settings kept in memory across remounts, chrome applied after load); the TOC sheet scrolls through every chapter — mobile
 - **Mobile** — app sends `X-App-Version`/`X-App-Build`; API puts them in log scope, traces and Sentry tags; `GET /app/config` serves `Mobile:MinSupportedBuild` (versionCode — every build's version name is 1.0.0) and the Android app below it shows a blocking "Please update TextStack" screen (never blocks offline or on a bad config; server never refuses old builds) — review #23 — api, mobile, shared
 - **CI** — shell-quote 1.10.0 → 1.12.0 (critical GHSA-pqg4-j6r4-53mv; dev-only, under react-native's react-devtools-core), lockfile-only — deps

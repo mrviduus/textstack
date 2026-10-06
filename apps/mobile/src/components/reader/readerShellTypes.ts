@@ -97,6 +97,9 @@ export interface ReaderShellProps {
   /** 1-based page to open the PDF at (chapter start page). Wins over the server
    *  resume page. Null → use the server resume page, else page 1. */
   originalInitialPage?: number | null
+  /** The reader opened this chapter explicitly (book-detail chapter row), not via Continue. Then
+   *  the first chapter does NOT claim a saved front-matter page — the pick opens its start. */
+  originalChapterPicked?: boolean
   /** Server-persisted resume page (parsed from the `page:<N>` locator). Used
    *  when the chapter carries no page. (ADR-012 S4c) */
   originalResumePage?: number | null

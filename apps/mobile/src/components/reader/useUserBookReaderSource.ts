@@ -24,6 +24,8 @@ type Params = {
   bookId: string
   chapterSlug: string
   showToast: ToastFn
+  /** Opened from the book-detail chapter row (`?pick=1`), not Continue. */
+  chapterPicked?: boolean
 }
 
 /** Chapter → source start page, from the chapters cached on the device. */
@@ -42,7 +44,7 @@ const bookmarkSlug = (b: BookmarkDto) => (b.locator.startsWith('chapter:') ? b.l
  * Server stores chapter-level percent only; book-percent is cached locally
  * for the home/library "% of book" UX.
  */
-export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Params): ReaderRuntime {
+export function useUserBookReaderSource({ bookId, chapterSlug, showToast, chapterPicked = false }: Params): ReaderRuntime {
   const router = useRouter()
 
   const webViewRef = useRef<WebView>(null)
@@ -721,6 +723,7 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
       ? (localOriginalUri ?? userBooksApi.getUserBookFileUrl(bookId, API_URL))
       : null,
     originalInitialPage: sourceStartPageBySlugRef.current[chapterSlug] ?? null,
+    originalChapterPicked: chapterPicked,
     originalResumePage: pdfResumePage,
     originalResumeReady: pdfResumeReady,
     originalNewerPage: pdfNewerPage,
