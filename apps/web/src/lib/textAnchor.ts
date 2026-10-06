@@ -338,3 +338,10 @@ export function rangeAtCharOffset(article: HTMLElement, target: number): Range |
   return null
 }
 
+
+/** The chapter id a vocabulary save may send: none for uploads (the server keys them by book) and
+ *  none for an offline cache key, which the server would reject and stall the pending queue. */
+export function vocabChapterId(chapterId: string | null | undefined, userBookId?: string | null): string | undefined {
+  if (userBookId || !chapterId || isCacheChapterKey(chapterId)) return undefined
+  return chapterId
+}

@@ -26,6 +26,7 @@ import { TtsHighlightOverlay } from './TtsHighlightOverlay'
 import { ImageLightbox } from './ImageLightbox'
 import { Toast } from '../Toast'
 import { useAuth } from '../../context/AuthContext'
+import { vocabChapterId } from '../../lib/textAnchor'
 
 interface ReaderHighlightsProps {
   editionId: string
@@ -202,7 +203,7 @@ export function ReaderHighlights({
         word,
         language: bookLanguage,
         editionId: userBookId ? undefined : (editionId || undefined),
-        chapterId: userBookId ? undefined : (chapterId || undefined),
+        chapterId: vocabChapterId(chapterId, userBookId),
         userBookId: userBookId || undefined,
         sentence: sentence || undefined,
         bookTitle: bookTitle || undefined,

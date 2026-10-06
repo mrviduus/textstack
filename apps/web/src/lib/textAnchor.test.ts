@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { createTextAnchor, findTextByAnchor, highlightChapterKey, chapterForHighlight } from './textAnchor'
+import { createTextAnchor, findTextByAnchor, highlightChapterKey, chapterForHighlight, vocabChapterId } from './textAnchor'
 import type { TextAnchor, HighlightAnchor } from './offlineDb'
 
 describe('textAnchor', () => {
@@ -336,5 +336,14 @@ describe('textAnchor', () => {
       expect(chapterForHighlight(chapters, { anchor: mobileAnchor, chapterId: 'ed:2-ii' })?.identifier).toBe('2-ii')
       expect(chapterForHighlight(chapters, { anchor: mobileAnchor, chapterId: '' })).toBeUndefined()
     })
+  })
+})
+
+describe('vocabChapterId', () => {
+  it('never sends an offline cache key or an upload chapter as the vocabulary chapter id', () => {
+    expect(vocabChapterId('3f2b8c1e-0000-4000-8000-000000000001')).toBe('3f2b8c1e-0000-4000-8000-000000000001')
+    expect(vocabChapterId('3f2b8c1e-0000-4000-8000-00000000000a:2-ii')).toBeUndefined()
+    expect(vocabChapterId('abc', 'user-book-id')).toBeUndefined()
+    expect(vocabChapterId('')).toBeUndefined()
   })
 })
