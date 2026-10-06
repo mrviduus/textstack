@@ -20,11 +20,27 @@
 export function serverProvablyNewer(
   local: { updatedAt: number } | null | undefined,
   server: { clientUpdatedAt?: string | null } | null | undefined,
+  now: number = Date.now(),
 ): boolean {
   if (!server) return false
   if (!local) return true
   const ms = server.clientUpdatedAt ? Date.parse(server.clientUpdatedAt) : NaN
-  return Number.isFinite(ms) && ms > local.updatedAt
+  return Number.isFinite(ms) && ms > trustedLocalStamp(local.updatedAt, now)
+}
+
+/** Mirrors the server's `ProgressClock.MaxClientSkew`. */
+export const MAX_CLIENT_SKEW_MS = 5 * 60_000
+
+/**
+ * A local stamp, never later than now + skew (L5) — ProgressClock's clamp, applied on the device.
+ *
+ * A record written while this phone's clock ran ahead (then corrected, by NTP or by hand) carries
+ * a stamp from the future, and every honest position from another device compared "older" than it
+ * until real time caught up — hours, or a day, of the other device never being offered. The server
+ * bounds that freeze for itself by clamping; this bounds it here the same way.
+ */
+export function trustedLocalStamp(updatedAt: number, now: number): number {
+  return Math.min(updatedAt, now + MAX_CLIENT_SKEW_MS)
 }
 
 /**

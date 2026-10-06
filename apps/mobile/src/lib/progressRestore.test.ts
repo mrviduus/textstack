@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { decideNewerPosition, readerMovedSince, returnedToForeground, serverProvablyNewer } from './progressRestore'
+import { decideNewerPosition, readerMovedSince, returnedToForeground, serverProvablyNewer, MAX_CLIENT_SKEW_MS } from './progressRestore'
 
 const T = Date.parse('2026-05-01T10:00:00Z')
 const iso = (ms: number) => new Date(ms).toISOString()
@@ -24,6 +24,17 @@ describe('serverProvablyNewer', () => {
 
   it('never reads the server-clock updatedAt', () => {
     expect(serverProvablyNewer({ updatedAt: T }, { updatedAt: iso(T + 3_600_000), clientUpdatedAt: iso(T - 1) } as never)).toBe(false)
+  })
+
+  it('L5: a local stamp from the future (clock was ahead, since corrected) is clamped to now + skew', () => {
+    const now = T
+    const future = { updatedAt: T + 24 * 3_600_000 }
+    // Another device's honest write, just now: offered, not frozen out for a day.
+    expect(serverProvablyNewer(future, { clientUpdatedAt: iso(T + MAX_CLIENT_SKEW_MS + 1) }, now)).toBe(true)
+    // Inside the skew the local record still wins, exactly as the server would order them.
+    expect(serverProvablyNewer(future, { clientUpdatedAt: iso(T + MAX_CLIENT_SKEW_MS - 1) }, now)).toBe(false)
+    // An honest local stamp is untouched.
+    expect(serverProvablyNewer({ updatedAt: T - 1 }, { clientUpdatedAt: iso(T - 2) }, now)).toBe(false)
   })
 
   it('a row without a client stamp is not proof → no', () => {

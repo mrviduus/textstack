@@ -198,3 +198,17 @@ export function shouldInterceptReaderBack(input: {
   if (input.otherOverlayOpen) return false
   return input.prompt === 'own-book'
 }
+
+/**
+ * What Android's hardware back does in the reader (M3).
+ *
+ * The word toolbar is not a Modal, so nothing consumed the press and it popped the
+ * whole screen — a reader dismissing a translation lost their book. Back closes
+ * what is on top first; the sheets are Modals and close themselves.
+ */
+export function readerBackAction(input: Parameters<typeof shouldInterceptReaderBack>[0] & {
+  selectionOpen: boolean
+}): 'close-selection' | 'exit-prompt' | 'leave' {
+  if (input.selectionOpen) return 'close-selection'
+  return shouldInterceptReaderBack(input) ? 'exit-prompt' : 'leave'
+}

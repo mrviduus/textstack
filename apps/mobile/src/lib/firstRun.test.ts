@@ -4,6 +4,7 @@ import {
   decideReaderExitPrompt,
   latchChapterEnd,
   shouldInterceptReaderBack,
+  readerBackAction,
   READ_SOMETHING_MIN_FRACTION,
   CHAPTER_END_PROGRESS,
   OWN_BOOK_ASK_SEEN_KEY,
@@ -165,5 +166,22 @@ describe('demo book', () => {
 describe('storage keys', () => {
   it('follows the onboarding.* convention already on disk', () => {
     expect(OWN_BOOK_ASK_SEEN_KEY).toBe('onboarding.ownBookAsk.seen')
+  })
+})
+
+describe('readerBackAction (M3)', () => {
+  const base = { promptVisible: false, otherOverlayOpen: false, prompt: 'none' as const, selectionOpen: false }
+
+  it('closes the word toolbar instead of leaving the book', () => {
+    expect(readerBackAction({ ...base, selectionOpen: true, otherOverlayOpen: true })).toBe('close-selection')
+  })
+
+  it('the toolbar wins over the own-book ask', () => {
+    expect(readerBackAction({ ...base, selectionOpen: true, prompt: 'own-book' })).toBe('close-selection')
+  })
+
+  it('nothing open: leaves, or shows the ask when it is due', () => {
+    expect(readerBackAction(base)).toBe('leave')
+    expect(readerBackAction({ ...base, prompt: 'own-book' })).toBe('exit-prompt')
   })
 })

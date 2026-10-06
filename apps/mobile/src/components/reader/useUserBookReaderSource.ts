@@ -66,6 +66,8 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
   const [chapters, setChapters] = useState<ReaderChapterMeta[]>([])
   const [chaptersLoading, setChaptersLoading] = useState(true)
   const [bookTitle, setBookTitle] = useState<string | null>(null)
+  // The upload's own language — what TTS, translate and saves read the page as (M5).
+  const [bookLanguage, setBookLanguage] = useState<string | null>(null)
   // ADR-012 S4b — Original-layout PDF. `hasOriginalPdf` gates the pdf.js viewer;
   // sourceStartPage per chapter drives the open page when a chapter is chosen.
   const [hasOriginalPdf, setHasOriginalPdf] = useState(false)
@@ -235,6 +237,7 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
     userBooksApi.getUserBook(bookId).then(async b => {
       bookTitleRef.current = b.title || null
       setBookTitle(b.title || null)
+      setBookLanguage(b.language || null)
       offlineReflowOfPdfRef.current = false
       // Online, but read from disk if the reader downloaded it: faster to open
       // than a Range stream, and it keeps this path in daily use.
@@ -286,6 +289,7 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
         if (!meta) return
         bookTitleRef.current = meta.title || null
         setBookTitle(meta.title || null)
+        setBookLanguage(meta.language || null)
         // The original, if this device has it. When it does, an offline PDF
         // opens in the SAME Original layout as online — same coordinate space,
         // so nothing has to be suppressed and no images go missing. When it
@@ -442,7 +446,7 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
     router.replace(`/my-books/read/${bookId}/${slug}`)
   }, [router, bookId])
 
-  const { saveProgress, bumpProgress, onWebViewLoaded, onRestoreLanded, onDocumentRebuild, beginReflow, chapterNavigatorRef } = useReaderPersistence({
+  const { saveProgress, bumpProgress, onWebViewLoaded, onRestoreLanded, onDocumentRebuild, beginReflow, chapterNavigatorRef, positionSettled } = useReaderPersistence({
     bookKey: bookId || null,
     chapterSlug,
     chapterId: chapter?.id ?? null,
@@ -693,11 +697,12 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
     htmlChapterSlug: chapterSlug,
     bookTitle,
     bookTitleRef,
+    bookLanguage,
     chapters,
     chaptersLoading,
     wordCount: wordCountRef.current,
     progressRef, scrollOffsetRef, currentChapterSlugRef, bookProgressRef, positionRef, totalWordCountRef,
-    saveProgress, bumpProgress, onWebViewLoaded, onRestoreLanded, onDocumentRebuild, beginReflow,
+    saveProgress, bumpProgress, onWebViewLoaded, onRestoreLanded, onDocumentRebuild, beginReflow, positionSettled,
     ensureChapter,
     isChapterOnDevice,
     onNavigateChapter: navigateToChapter,

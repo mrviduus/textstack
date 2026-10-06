@@ -10,6 +10,7 @@ import {
 } from '../lib/readerWriteGate'
 import { READINESS_INITIAL, readinessReduce, readyToRestore, type ReadinessEvent } from '../lib/restoreReadiness'
 import { claimPosition, handOffPosition } from '../lib/positionHandoff'
+import { rebuildRestoreJs, rebuildRestoreTarget, type RebuildTarget } from '../lib/rebuildRestore'
 import { useFlushOnBackground } from './useFlushOnBackground'
 import { t, type TextPosition } from '@textstack/shared'
 import type { NewerPosition, ProgressSnapshot, SavedPosition } from '../components/reader/readerSource'
@@ -266,28 +267,34 @@ export function useReaderPersistence({
    * event's zero, which is exactly the value that used to be written over a
    * half-read book, so the gate shuts here.
    */
+  // Where the reader was when the rebuild started (L1) — see rebuildRestore.ts.
+  const rebuildTargetRef = useRef<RebuildTarget | undefined>(undefined)
   const onDocumentRebuild = useCallback(() => {
+    if (readinessRef.current.restored) {
+      rebuildTargetRef.current = rebuildRestoreTarget(positionRef.current, progressRef.current, chapterSlug)
+    }
     dispatchGate({ type: 'chapterEntered', chapterSlug: chapterSlug ?? null })
-  }, [dispatchGate, chapterSlug])
+  }, [dispatchGate, chapterSlug, positionRef, progressRef])
 
   // Signalled by ReaderShell's onLoadEnd.
   const onWebViewLoaded = useCallback(() => {
     // Already restored this chapter once → this onLoadEnd is a rebuild of the
-    // same chapter (the document holds one chapter, so the fraction applies).
+    // same chapter: back to the text anchor, else the fraction (L1).
     if (readinessRef.current.restored) {
-      const pct = progressRef.current
+      const target = rebuildTargetRef.current !== undefined
+        ? rebuildTargetRef.current
+        : rebuildRestoreTarget(positionRef.current, progressRef.current, chapterSlug)
+      rebuildTargetRef.current = undefined
       const restoreId = issueRestore()
-      if (Number.isFinite(pct) && pct > 0.001) {
-        injectJs(`window.__textstackRestorePercent && window.__textstackRestorePercent(${pct}, ${restoreId})`)
-      } else {
-        // Top of the chapter is where they were; nothing to ask the WebView for.
-        dispatchGate({ type: 'restoreLanded', restoreId })
-      }
+      const js = rebuildRestoreJs(target, restoreId)
+      // Null: top of the chapter is where they were; nothing to ask the WebView for.
+      if (js) injectJs(js)
+      else dispatchGate({ type: 'restoreLanded', restoreId })
       return
     }
     readiness({ type: 'webViewLoaded' })
     tryRestore()
-  }, [tryRestore, injectJs, progressRef, issueRestore, dispatchGate, readiness])
+  }, [tryRestore, injectJs, progressRef, positionRef, chapterSlug, issueRestore, dispatchGate, readiness])
 
   // Pending-save buffer: chapterId resolves AFTER the chapter fetch lands, so a
   // save requested during rapid chapter tap-through (e.g. emit-on-load firing
@@ -392,6 +399,7 @@ export function useReaderPersistence({
     savedPositionRef.current = null
     moveBaselineRef.current = null
     pendingSaveRef.current = false
+    rebuildTargetRef.current = undefined
     // Restoring a reflow scroll position into a PDF viewer would fight the
     // page jump the PDF path is already performing.
     if (!enabled || !bookKey || !chapterSlug) return
@@ -479,5 +487,8 @@ export function useReaderPersistence({
   // get one last sync write of scroll position + book-percent cache.
   useFlushOnBackground(saveProgress)
 
-  return { saveProgress, bumpProgress, onWebViewLoaded, onRestoreLanded, onDocumentRebuild, beginReflow: issueRestore, chapterNavigatorRef }
+  // The reader is where the restore put them (or nothing needed restoring) — reports from here
+  // on are reading, not the restore travelling (M8).
+  const positionSettled = !!chapterSlug && restoredFor === chapterSlug
+  return { saveProgress, bumpProgress, onWebViewLoaded, onRestoreLanded, onDocumentRebuild, beginReflow: issueRestore, chapterNavigatorRef, positionSettled }
 }

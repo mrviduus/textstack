@@ -3,6 +3,7 @@ import { AppState } from 'react-native'
 import type { PendingSession } from '@textstack/shared'
 import { enqueuePendingSession, flushPendingSessions } from '../lib/pendingSessions'
 import type { SessionSnapshot } from '../lib/readerVisit'
+import { applySessionProgress, tickSeconds } from '../lib/sessionMath'
 
 const HEARTBEAT_MS = 30_000
 const MIN_SECONDS = 10
@@ -35,6 +36,8 @@ export function useReadingSession(config: SessionConfig) {
   const lastActivityRef = useRef(Date.now())
   const startPercentRef = useRef(carried?.startPercent ?? 0)
   const currentPercentRef = useRef(carried?.currentPercent ?? 0)
+  // The start percent is a real report, not "whatever was there while both were 0" (M8).
+  const baselinedRef = useRef(carried !== null)
   const submittedRef = useRef(carried?.submitted ?? false)
   // Adopted, not reset, the first time a book key arrives.
   const adoptRef = useRef(carried !== null)
@@ -42,10 +45,22 @@ export function useReadingSession(config: SessionConfig) {
   const handedOffRef = useRef(false)
   const autoEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  /** Credit the reading since the last heartbeat (L2) — clamped against the clock (L5). */
+  const creditTick = useCallback(() => {
+    const now = Date.now()
+    activeSecondsRef.current += tickSeconds({
+      now, lastTick: lastTickRef.current, lastActivity: lastActivityRef.current, idleMs: IDLE_THRESHOLD_MS,
+    })
+    lastTickRef.current = now
+  }, [])
+
   const submit = useCallback(() => {
     if (submittedRef.current) return
     if (!config.isAuthenticated) return
     if (!config.editionId && !config.userBookId) return
+    // A handed-off session was credited at the hand-off; its fallback flush runs after the
+    // reader is gone, and the time since is not reading.
+    if (!handedOffRef.current) creditTick()
 
     const duration = activeSecondsRef.current
     if (duration < MIN_SECONDS) return
@@ -70,7 +85,7 @@ export function useReadingSession(config: SessionConfig) {
     // Queued before it is sent: a failed submit (offline, 5xx) stays on disk and is retried by the
     // next flush instead of being thrown away. The server acks a resend idempotently.
     void enqueuePendingSession(data).then(() => flushPendingSessions()).catch(() => {})
-  }, [config.isAuthenticated, config.editionId, config.userBookId, config.wordCount])
+  }, [config.isAuthenticated, config.editionId, config.userBookId, config.wordCount, creditTick])
 
   const clearAutoEndTimer = useCallback(() => {
     if (autoEndTimerRef.current) {
@@ -112,16 +127,10 @@ export function useReadingSession(config: SessionConfig) {
         lastTickRef.current = Date.now()
         return
       }
-      const now = Date.now()
-      const sinceActivity = now - lastActivityRef.current
-      if (sinceActivity < IDLE_THRESHOLD_MS) {
-        const elapsed = Math.round((now - lastTickRef.current) / 1000)
-        activeSecondsRef.current += Math.min(elapsed, 60)
-      }
-      lastTickRef.current = now
+      creditTick()
     }, HEARTBEAT_MS)
     return () => clearInterval(interval)
-  }, [])
+  }, [creditTick])
 
   // AppState: submit on background, resume on foreground
   useEffect(() => {
@@ -167,11 +176,7 @@ export function useReadingSession(config: SessionConfig) {
   const handOff = useCallback((): { snapshot: SessionSnapshot; flush: () => void } => {
     handedOffRef.current = true
     clearAutoEndTimer()
-    const now = Date.now()
-    const partial = now - lastActivityRef.current < IDLE_THRESHOLD_MS
-      ? Math.min(Math.round((now - lastTickRef.current) / 1000), 60) : 0
-    activeSecondsRef.current += partial
-    lastTickRef.current = now
+    creditTick()
     return {
       snapshot: {
         startedAt: startTimeRef.current,
@@ -182,14 +187,17 @@ export function useReadingSession(config: SessionConfig) {
       },
       flush: () => submitRef.current(),
     }
-  }, [clearAutoEndTimer])
+  }, [clearAutoEndTimer, creditTick])
 
   const updateProgress = useCallback((progress: number) => {
     lastActivityRef.current = Date.now() // user is active (scrolling)
-    if (startPercentRef.current === 0 && currentPercentRef.current === 0) {
-      startPercentRef.current = progress
-    }
-    currentPercentRef.current = progress
+    const next = applySessionProgress(
+      { start: startPercentRef.current, current: currentPercentRef.current, baselined: baselinedRef.current },
+      progress,
+    )
+    startPercentRef.current = next.start
+    currentPercentRef.current = next.current
+    baselinedRef.current = next.baselined
 
     // No point arming the auto-end after the session is closed —
     // otherwise we'd resurrect a dead session and resubmit it.

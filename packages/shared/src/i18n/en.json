@@ -605,6 +605,7 @@
       "library": "Back to library",
       "unavailable": "This chapter isn't on your phone, and you're offline."
     },
+    "pdfReconnect": "Couldn't load the rest of this PDF. Check your connection.",
     "newerElsewhere": {
       "message": "You read further on another device: {target}",
       "action": "Go there",

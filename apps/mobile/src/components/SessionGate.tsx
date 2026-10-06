@@ -3,7 +3,7 @@ import { View } from 'react-native'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import type { EnsureSessionResult } from '../lib/guestSession'
-import { readerGateState, READER_SESSION_GATE_TIMEOUT_MS } from '../lib/readerSessionGate'
+import { readerGateState, READER_SESSION_GATE_TIMEOUT_MS, gateMemory, gateGaveUp } from '../lib/readerSessionGate'
 
 /**
  * Settles the session question BEFORE the thing behind it mounts, then gets out
@@ -35,16 +35,22 @@ export function SessionGate({ children }: { children: ReactNode }) {
   const { isLoading, ensureSession } = useAuth()
   const { colors } = useTheme()
   const [outcome, setOutcome] = useState<EnsureSessionResult | null>(null)
-  const [timedOut, setTimedOut] = useState(false)
-  const startedRef = useRef(false)
+  // A recent gate already gave up (M4): open at once, and do not mint under the reader.
+  const [skipped] = useState(() => gateMemory.skipsWait())
+  const [timedOut, setTimedOut] = useState(skipped)
+  const startedRef = useRef(skipped)
 
   // The deadline runs from mount, independently of the request, so a socket
   // that hangs open with no answer cannot keep the book — or the upload —
   // closed.
   useEffect(() => {
-    const timer = setTimeout(() => setTimedOut(true), READER_SESSION_GATE_TIMEOUT_MS)
+    if (skipped) return
+    const timer = setTimeout(() => {
+      setTimedOut(true)
+      gateMemory.record(true)
+    }, READER_SESSION_GATE_TIMEOUT_MS)
     return () => clearTimeout(timer)
-  }, [])
+  }, [skipped])
 
   useEffect(() => {
     // Runs once per gate mount. `ensureSession` is itself single-flighted, but
@@ -53,7 +59,11 @@ export function SessionGate({ children }: { children: ReactNode }) {
     startedRef.current = true
     let cancelled = false
     ensureSession()
-      .then((result) => { if (!cancelled) setOutcome(result) })
+      .then((result) => {
+        // Recorded even after this gate is gone: it is the network's answer, not the screen's.
+        gateMemory.record(gateGaveUp({ outcome: result, timedOut: false }))
+        if (!cancelled) setOutcome(result)
+      })
       // `ensureSession` is documented never to reject; this is the belt for
       // the day that stops being true. A rejection must still open the book.
       .catch((error: unknown) => { if (!cancelled) setOutcome({ status: 'failed', error }) })

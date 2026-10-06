@@ -63,3 +63,33 @@ export function readerGateState(input: {
   if (input.outcome === null) return 'wait'
   return 'render'
 }
+
+/**
+ * How long a gate that opened WITHOUT a session (mint failed, or the deadline
+ * passed) lets the next gate skip the wait (M4).
+ *
+ * Every chapter change remounts the reader route and with it this gate, so on a
+ * dead-but-connected network a signed-out reader stared at a blank for the full
+ * 3s on every chapter. One failed attempt is the answer for a while: the next
+ * gates render at once and do not mint (a mint landing mid-read is the race the
+ * gate exists to prevent). A success clears it.
+ */
+export const READER_SESSION_GATE_RETRY_MS = 5 * 60_000
+
+/** Should a gate mounting at `now` skip the wait, given when one last gave up? */
+export function gateSkipsWait(gaveUpAt: number | null, now: number): boolean {
+  return gaveUpAt != null && now - gaveUpAt >= 0 && now - gaveUpAt < READER_SESSION_GATE_RETRY_MS
+}
+
+/** Did this gate open without a session? A settled `existing`/`minted`/`discarded` is a session. */
+export function gateGaveUp(input: { outcome: EnsureSessionResult | null; timedOut: boolean }): boolean {
+  if (input.outcome) return input.outcome.status === 'failed' || input.outcome.status === 'skipped'
+  return input.timedOut
+}
+
+// One slot, module state: one app process, one answer about the network.
+let lastGaveUpAt: number | null = null
+export const gateMemory = {
+  skipsWait: (now = Date.now()) => gateSkipsWait(lastGaveUpAt, now),
+  record: (gaveUp: boolean, now = Date.now()) => { lastGaveUpAt = gaveUp ? now : null },
+}

@@ -1191,6 +1191,7 @@
   "reader.chapterEnd.reviewWords": "Review {n} {noun}",
   "reader.chapterEnd.library": "Back to library",
   "reader.chapterEnd.unavailable": "This chapter isn't on your phone, and you're offline.",
+  "reader.pdfReconnect": "Couldn't load the rest of this PDF. Check your connection.",
   "reader.newerElsewhere.message": "You read further on another device: {target}",
   "reader.newerElsewhere.action": "Go there",
   "reader.newerElsewhere.page": "page {page}",
