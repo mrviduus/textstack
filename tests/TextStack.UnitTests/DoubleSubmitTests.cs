@@ -124,7 +124,10 @@ public class DoubleSubmitTests
         var library = new List<UserLibrary>();
         var winner = new UserLibrary
         {
-            Id = Guid.NewGuid(), UserId = UserId, EditionId = editionId, CreatedAt = DateTimeOffset.UnixEpoch,
+            Id = Guid.NewGuid(),
+            UserId = UserId,
+            EditionId = editionId,
+            CreatedAt = DateTimeOffset.UnixEpoch,
         };
         var db = new Mock<IAppDbContext>();
         db.Setup(x => x.Editions).Returns(new FakeDbSet<Edition>(editions));
