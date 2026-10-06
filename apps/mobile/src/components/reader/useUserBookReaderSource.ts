@@ -15,6 +15,7 @@ import {
   pdfFlushDecision, shouldFlushOnClose, PDF_FLUSH_DEBOUNCE_MS,
 } from '../../lib/pdfWritePolicy'
 import { useReaderPersistence } from '../../hooks/useReaderPersistence'
+import { fillChapterLinks } from '../../lib/chapterLinks'
 import type { NewerPosition, PdfNewerOffer, ProgressSnapshot, ReaderChapterMeta, ReaderRuntime, SavedPosition } from './readerSource'
 
 type ToastFn = (t: { message: string; variant: 'error' | 'success' | 'info' }) => void
@@ -689,7 +690,7 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
     webViewRef,
     injectJs,
     chapter: chapter
-      ? { id: chapter.id, title: chapter.title, html: chapter.html, prev: chapter.prev, next: chapter.next }
+      ? fillChapterLinks({ id: chapter.id, title: chapter.title, html: chapter.html, prev: chapter.prev, next: chapter.next }, chapters, chapterSlug)
       : null,
     loading: loading || !layoutKnown,
     chapterError,
