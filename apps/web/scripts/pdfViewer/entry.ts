@@ -34,6 +34,8 @@ import {
   clampPage,
   dimsReadyUpTo,
   pageAtViewportTop,
+  capturePageAnchor,
+  scrollDeltaForAnchor,
   type PageRect,
 } from '../../../../packages/shared/src/reader/pdfPageWindow'
 import {
@@ -171,8 +173,10 @@ function main(): void {
   let reportTimer: ReturnType<typeof setTimeout> | null = null
   const openPage = resolveOpenPage(cfg.initialPage)
 
+  /** The layout viewport. Not `innerWidth`: in a pinch-zoomable Android WebView that is the
+   *  VISUAL viewport, which shrinks with the zoom — the fit then came out different per open. */
   function containerWidth(): number {
-    return window.innerWidth || document.documentElement.clientWidth || 360
+    return document.documentElement.clientWidth || window.innerWidth || 360
   }
 
   function computeScale(): number {
@@ -186,12 +190,34 @@ function main(): void {
     return { w: Math.round(dim.w * scale), h: Math.round(dim.h * scale) }
   }
 
-  function applyPlaceholderSizes(): void {
+  /** Every change to the column's sizes — a measured page, a re-fit — goes through here, and keeps
+   *  the reader where they are: a travelling jump stays aimed at its target, otherwise the page under
+   *  the top line and how far into it (web's zoom anchor). Under a fixed scrollY the pages above
+   *  changing height carried the reader off their page, and the next report saved that (+3 per
+   *  reopen after a late re-fit; 139 → 146 after a TOC jump cancelled by a drag). */
+  function applyPlaceholderSizes(nextScale = scale): void {
+    const anchor = pendingTarget == null ? capturePageAnchor(pageRects(), 0) : null
+    scale = nextScale
     states.forEach((st, pn) => {
       const box = pageBox(pn)
       st.el.style.width = box.w + 'px'
       st.el.style.height = box.h + 'px'
     })
+    if (pendingTarget != null) { scrollToPageEl(pendingTarget); return }
+    const d = anchor && scrollDeltaForAnchor(anchor, pageRects(), 0)
+    // Only when something above moved: a no-op scrollTo would still stop a fling.
+    if (d && Math.abs(d) >= 1) window.scrollTo(0, Math.max(0, window.scrollY + d))
+  }
+
+  function pageRects(): PageRect[] {
+    // ponytail: O(numPages) rect reads; binary-search the page column if a huge PDF ever shows up
+    // in a scroll profile.
+    const rects: PageRect[] = []
+    states.forEach((st, pn) => {
+      const r = st.el.getBoundingClientRect()
+      rects.push({ page: pn, top: r.top, bottom: r.bottom })
+    })
+    return rects
   }
 
   function freePage(st: PageState): void {
@@ -410,14 +436,7 @@ function main(): void {
    *  every open land a page earlier (C3). Measures every page, not just
    *  `visible`, because right after a jump the observer has not caught up yet. */
   function currentPage(): number {
-    // ponytail: O(numPages) rect reads per throttled report; binary-search the
-    // page column if a huge PDF ever shows up in a scroll profile.
-    const rects: PageRect[] = []
-    states.forEach((st, pn) => {
-      const r = st.el.getBoundingClientRect()
-      rects.push({ page: pn, top: r.top, bottom: r.bottom })
-    })
-    return pageAtViewportTop(rects, 0) ?? topVisiblePage(visible, openPage)
+    return pageAtViewportTop(pageRects(), 0) ?? topVisiblePage(visible, openPage)
   }
 
   /** Report immediately, bypassing the throttle and the unchanged-page check.
@@ -473,8 +492,7 @@ function main(): void {
 
   function armJumpDeadline(): void {
     if (jumpDeadline) clearTimeout(jumpDeadline)
-    // ponytail: after the deadline the column above may still change size and move the page under
-    // the top; pin the target until its sizes arrive if slow streams show that in QA.
+    // Sizes that arrive after the deadline keep the landed page under the top (applyPlaceholderSizes).
     jumpDeadline = setTimeout(() => { jumpDeadline = null; applyPlaceholderSizes(); endJump(true) }, JUMP_DEADLINE_MS)
   }
 
@@ -530,12 +548,9 @@ function main(): void {
         const page = await pdf.getPage(i)
         const vp = page.getViewport({ scale: 1 })
         pageDims[i - 1] = { w: vp.width, h: vp.height }
-        if (i === 1) {
-          // First real dim → recompute scale + placeholder sizes.
-          scale = computeScale()
-          applyPlaceholderSizes()
-        }
-        if (i % 10 === 0) applyPlaceholderSizes()
+        // First real dim → the fit scale for this document.
+        if (i === 1) applyPlaceholderSizes(computeScale())
+        else if (i % 10 === 0) applyPlaceholderSizes()
       } catch {
         // Keep the estimate pageBox already draws it at — recorded, so a jump past this page can
         // still land (an unmeasured page would hold it, and the reports, forever).
@@ -562,8 +577,7 @@ function main(): void {
       if (!pdf) throw new Error('empty document')
       numPages = pdf.numPages
       buildPageEls()
-      scale = computeScale()
-      applyPlaceholderSizes()
+      applyPlaceholderSizes(computeScale())
       observeAll()
       // Seed the one target variable. `pendingTarget` may already hold a page RN
       // asked for before the document finished opening — that request is newer
@@ -657,8 +671,7 @@ function main(): void {
       resizeRaf = 0
       const next = computeScale()
       if (Math.abs(next - scale) < 0.001) return
-      scale = next
-      applyPlaceholderSizes()
+      applyPlaceholderSizes(next)
       // Force redraw of on-screen pages at the new scale.
       states.forEach((st) => { if (st.drawnScale !== null) freePage(st) })
       syncRings()
