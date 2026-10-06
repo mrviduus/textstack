@@ -116,6 +116,16 @@ export const KNOWN = {
       'Reached through xcode@3.0.1, part of Expo prebuild tooling for iOS. Build-time only — ' +
       'it is never bundled, and it never runs anywhere but a build machine.',
   },
+  'GHSA-68fv-2mgg-jv7q': {
+    since: '2026-10-06',
+    module: 'source-map-js',
+    needs: '>=1.2.2 (published; lockfile has 1.2.1)',
+    why:
+      'Build and test tooling only: postcss (Vite build, @expo/metro-config) and css-tree under jsdom ' +
+      '(vitest). Never in the app bundle, the web bundle or the server, and it only parses source maps ' +
+      'we generate. Taking 1.2.2 means a lockfile change that can move the Expo runtime fingerprint, so ' +
+      'it rides the next dependency-refresh PR instead of an ad-hoc bump.',
+  },
   'GHSA-vfj7-8cjw-p6xm': {
     since: '2026-10-03',
     module: 'braces',
