@@ -1,6 +1,6 @@
 # Status
 
-**Last updated: 2026-10-05.** Where the project actually is — not what it does (that's
+**Last updated: 2026-10-06.** Where the project actually is — not what it does (that's
 [`docs/README.md`](README.md)) and not what changed (that's [`CHANGELOG.md`](../CHANGELOG.md)).
 
 If you read one page before picking work back up, read this one. It exists because the changelog
@@ -15,7 +15,7 @@ answers "what happened" and nothing answered "what is half-finished right now".
 
 | Area | State |
 |---|---|
-| **Reader** (web + mobile) | EPUB + PDF. PDFs are original-first ([ADR-012](01-architecture/adr/ADR-012-pdf-original-first-lazy-parse.md)), page-based progress, highlights, TTS, vocabulary SRS. One chapter at a time on both clients since 2026-10-03 (#683 dropped mobile infinite scroll for an end-of-chapter block: Next, Discuss, previous). The free dictionary (api.dictionaryapi.dev) is gone (2026-10-03, #685); on web, a same-language word tap shows the contextual Explain instead (`lib/wordBubbleFetch.ts`). **Reader bug hunt R1 + R2 done 2026-10-05** (#713–#719): last scroll saved, Next → Prev keeps the place, PDF no longer drifts a page per open, no ghost highlights, font change keeps the place, mobile restore never waits on the network; re-ingest keeps readers' data ([ADR-018](01-architecture/adr/ADR-018-reingest-updates-chapters-in-place.md)). R3 is open — see Known-broken. [Write-up](changelog-archive/2026-H2.md#2026-10-05-reader-bug-hunt-r1-r2). |
+| **Reader** (web + mobile) | EPUB + PDF. PDFs are original-first ([ADR-012](01-architecture/adr/ADR-012-pdf-original-first-lazy-parse.md)), page-based progress, highlights, TTS, vocabulary SRS. One chapter at a time on both clients since 2026-10-03 (#683 dropped mobile infinite scroll for an end-of-chapter block: Next, Discuss, previous). The free dictionary (api.dictionaryapi.dev) is gone (2026-10-03, #685); on web, a same-language word tap shows the contextual Explain instead (`lib/wordBubbleFetch.ts`). **Reader bug hunt R1 + R2 done 2026-10-05** (#713–#719): last scroll saved, Next → Prev keeps the place, PDF no longer drifts a page per open, no ghost highlights, font change keeps the place, mobile restore never waits on the network; re-ingest keeps readers' data ([ADR-018](01-architecture/adr/ADR-018-reingest-updates-chapters-in-place.md)). [Write-up](changelog-archive/2026-H2.md#2026-10-05-reader-bug-hunt-r1-r2). **R3 + R4 done 2026-10-06** (#723–#731; web R4 #729 and the anchor fixtures #730 were still merging when this was written): the 47-finding list is closed except `/storage` capability URLs — guest merge keeps uploads, offline bookmark queue on web, WebView crash recovery and Back closes the toolbar on mobile, custom typography no longer reopens at the top, web PDF no longer saves page 1 before the resume jump, progress GETs time out at 3 s; position logic follows [ADR-019](01-architecture/adr/ADR-019-reader-position-rules.md) (shared rules, not one state machine); phone and web highlight anchors are pinned by cross-app fixtures; mobile `ReaderShell.tsx` split 1689 → 617 lines. Write-ups: [R3](changelog-archive/2026-H2.md#2026-10-06-reader-bug-hunt-r3), [R4 + ADR-019](changelog-archive/2026-H2.md#2026-10-06-reader-r4-and-adr-019), [anchors](changelog-archive/2026-H2.md#2026-10-06-cross-app-anchors), [split](changelog-archive/2026-H2.md#2026-10-06-reader-shell-split). Device checks are still owed — see In flight. |
 | **Sync** | Progress last-write-wins compares the client clock only with itself, catalog and uploads (`client_updated_at`, #695/#710); offline highlights replay with a three-way merge (#694/#708/#709); reading sessions queued on both clients. [Write-up](changelog-archive/2026-H2.md#2026-10-05-sync-correctness). |
 | **Security & ops** | All P0/P1 items of the [architecture review 2026-10](01-architecture/review-2026-10/00-summary.md) fixed 2026-10-04/05 (#690–#704): sandboxed stored files, `/internal` closed at nginx, hashed refresh tokens + token audiences, EPUB limits, real `/api/health` check, disk alarm, SSG rebuild nightly instead of per deploy. [Write-up](changelog-archive/2026-H2.md#2026-10-05-security-ops-hardening). |
 | **Backups** | Nightly off-site copy to Cloudflare R2 (restic, encrypted, deduplicated, 9 GB guard; #696/#700) and a monthly restore drill on a clean runner (#703; first run passed: DB 206 s, files 37 s). [`backup.md`](03-ops/backup.md). |
@@ -32,9 +32,11 @@ answers "what happened" and nothing answered "what is half-finished right now".
 
 ## In flight
 
-- **Reader bug hunt R3 — next.** R1 (Criticals) and R2 (Highs) shipped 2026-10-05; R3 is the
-  Mediums/Lows and the follow-ups R2 deferred, listed under Known-broken below. Every R1/R2 mobile fix
-  is unit-tested only — a device pass is still owed.
+- **Reader — after R4.** ~~Reader bug hunt R3 — next~~: R3 and R4 shipped 2026-10-06 (#723–#731).
+  Next: **split web `ReaderPage.tsx` (~900 lines) / `ReaderHighlights.tsx` (661) by job**, the way
+  #731 split mobile `ReaderShell.tsx`; then an **e2e reader smoke** (open → scroll → reopen at the same
+  place, web + PDF). **Every R1–R4 mobile fix is unit-tested only — the owner's phone checklist
+  (Android first) is still owed**, after the OTA that carries #723/#728/#730/#731.
 - **Play Store → production application around 2026-10-16** — see the Play Store entry below.
 
 - **Owner-only checks left from the assistant handoff** — that the mobile Claude and ChatGPT apps
@@ -81,39 +83,59 @@ answers "what happened" and nothing answered "what is half-finished right now".
 
 ## Known-broken / open follow-ups
 
-- **Reader bug hunt — R3 open list** (2026-10-05). The hunt ran on `d92e83aa` in three tracks; R1/R2
-  fixed web C1–C3, H1–H4, M1, M4; mobile C1, C2, H1–H3, M1, M2, M9, L3; data C1, H1, M2, M3, M4, L3,
-  L5 ([write-up](changelog-archive/2026-H2.md#2026-10-05-reader-bug-hunt-r1-r2)). Still open:
-  - *Web:* M2 in-book search counts DOM matches vs text matches differently (nbsp); M3 a removed
-    pending vocab word is still synced when a guest is minted; L1 TTS keeps speaking after a chapter
-    change or leaving; L2 the "finished book" screen is unreachable; L3 search index not reset on
-    chapter change; L4 an offline bookmark delete comes back; L5 the bookmarks endpoint answers a
-    non-GUID chapter id with 500 (the client no longer sends one since #719).
-  - *Mobile:* M3 Android Back with the word toolbar open closes the book; M4 signed out on a dead
-    network, each chapter is blank for 3 s; M5 upload TTS/translate use the app language, not the
-    book's; M6 no recovery when the WebView renderer dies; M7 PDF page input hides under the keyboard;
-    M8 session word count inflated on reopen; L1 font rebuild restores by %, not anchor; L2 sessions
-    drop the partial heartbeat tick; L4 PDF 401 → refresh failure is silent; L5 clock trust.
-  - *Data:* M1 guest merge on a slug conflict drops the guest's upload with its progress, and its
-    highlights are orphaned; L1 client compares an unclamped local stamp with a clamped server one;
-    L2 highlight version check is not atomic; L4 unvalidated reader writes → 500 (vocab sentence
-    > 1000 chars, highlight anchor/colour); L6 streak achievements judged in UTC at session submit.
-    Also noted: `/storage` serves uploads publicly by GUID path (a capability URL).
-  - *Deferred from R2:* the **offline bookmark queue** (built, then descoped from #719); **pending
-    highlights created on a cache-loaded chapter carry `editionId:slug` ids** and need a one-off
-    repair; **upload bookmarks have no offline queue**; `VocabOverlayLayer` re-map on chapter swap
-    needs a check.
-  - *Re-ingest ([ADR-018](01-architecture/adr/ADR-018-reingest-updates-chapters-in-place.md) known
-    limits):* admin chapter delete and quality-pipeline delete/merge re-point Ids but **don't rewrite
-    slug locators**; `MaxChapterNumber` is **not remapped** when chapters are renumbered.
-  - *Size:* the reader's big files mix many jobs — mobile `ReaderShell.tsx` 1593 lines, `readerHtml.ts`
-    1566 (JS in a string, untyped), `readerBridge.ts` 625; web `ReaderPage.tsx` 884,
-    `ReaderHighlights.tsx` 661. Split by job (restore/save, decorations, toolbar, bridge). The
-    `readerHtml`/`readerBridge` part belongs to the reader-engine work (moving that JS into typed TS
-    modules); `ReaderShell` and the web page can be split on their own, after R3.
-  - *Coverage:* the mobile reader hooks have no tests of their own (fixes were tested through pure
-    modules extracted from them); **web has no service worker**, so "Download" is not real offline in
-    a fresh tab.
+- ~~**Reader bug hunt — R3 open list** (2026-10-05).~~ **Closed 2026-10-06** by #723 (mobile), #724
+  (data), #725 (web) — [write-up](changelog-archive/2026-H2.md#2026-10-06-reader-bug-hunt-r3). The
+  hunt ran on `d92e83aa`; R1/R2 had fixed web C1–C3, H1–H4, M1, M4; mobile C1, C2, H1–H3, M1, M2, M9,
+  L3; data C1, H1, M2, M3, M4, L3, L5.
+  - ~~*Web:* M2 search counts, M3 removed pending vocab word synced at guest mint, L1 TTS keeps
+    speaking, L2 "finished book" unreachable, L3 search index not reset, L4 offline bookmark delete
+    comes back~~ — #725. ~~L5 non-GUID bookmark chapter id → 500~~ — #724 (`BadHttpRequestException`
+    → 400 in `ExceptionMiddleware`).
+  - ~~*Mobile:* M3 Back closes the book, M4 3 s blank per chapter offline, M5 upload TTS/translate in
+    app language, M6 no WebView crash recovery, M7 PDF page input under keyboard, M8 inflated session
+    words, L1 font rebuild by %, L2 partial heartbeat dropped, L4 silent PDF 401, L5 clock trust~~ —
+    #723.
+  - ~~*Data:* M1 guest merge drops a slug-conflicting upload, L1 unclamped local stamp, L2 non-atomic
+    highlight version check, L4 unvalidated writes → 500, L6 streaks in UTC~~ — #724. **Still open:**
+    `/storage` serves uploads publicly by GUID path (a capability URL).
+  - ~~*Deferred from R2:* offline bookmark queue; `editionId:slug` pending highlight ids; upload
+    bookmarks offline; `VocabOverlayLayer` re-map~~ — #725 (the last one already worked; regression
+    test added).
+  - ~~*Re-ingest (ADR-018 limits):* chapter delete / merge don't rewrite slug locators;
+    `MaxChapterNumber` not remapped~~ — #724, ADR-018 updated.
+  - *Size:* ~~mobile `ReaderShell.tsx` 1593 lines~~ — split to 617 by #731. Web `ReaderPage.tsx` and
+    `ReaderHighlights.tsx` are next (In flight). `readerHtml.ts` (1576, JS in a string, untyped) and
+    `readerBridge.ts` (625) belong to the reader-engine work.
+  - *Coverage:* still open — see the list below.
+
+- **Reader — open after R3/R4** (2026-10-06):
+  - **Mobile reader hooks have no tests of their own.** Fixes are tested through pure modules
+    extracted from them and source-text wiring guards (`readerR3Wiring.test.ts`,
+    `readerR4Wiring.test.ts`). A small hooks harness would let a test drive the real hook.
+  - **Web has no service worker**, so "Download" is not real offline in a fresh tab.
+  - **ADR-019 owner questions** ([end of the ADR](01-architecture/adr/ADR-019-reader-position-rules.md#open-questions-owner)):
+    after a TOC jump, a newer same-chapter position from another device moves the reader silently on
+    mobile — keep that or ask? And should web get the "read further on another device" toast?
+  - **Web R4 `ponytail:` ceiling** (`apps/web/src/hooks/useReaderScrollSync.ts`, #729): after an open the server has not
+    answered, a layout shift above the reading line larger than 48 px (a late image) reads as the
+    reader moving, and the stale local place is saved. Upgrade path: the late server answer ends the
+    held open.
+  - **Vocab inline-translation text in anchors differs.** Web's anchor creator skips
+    `.vocab-inline-translation` and `[data-vocab-overlay]` text (`EXCLUDE_SELECTOR` in
+    `apps/web/src/lib/textAnchor.ts`); the phone's `getRangeAnchor` (`readerBridge.ts`) does not.
+    Since #730 the phone cuts context from the chapter element and its overlay sits outside it, so this
+    only matters for the body fallback (PDF viewer). No fixture covers it.
+  - **`mcp.json` anchor fixture is copied by hand** from `SynthesizeAnchor`
+    (`McpToolCatalog.cs`); a change to the C# will not regenerate it, so the fixture can drift.
+  - **An MCP highlight of a repeated quote lands on the first occurrence.** `SynthesizeAnchor` writes
+    no prefix/suffix, so the resolver cannot tell the copies apart. Pinned as a known limit in the
+    cross-app fixtures.
+
+- **GitHub scheduled backups run hours late.** `backup.yml` is cron `0 3 * * *` (3 AM UTC); on
+  2026-10-05 the scheduled run started at **10:12 UTC**. GitHub queues `schedule` events under load and
+  gives no start-time promise, so the nightly backup (and the full SSG rebuild after it) can drift into
+  the day. Consider triggering it from the server's own cron (`gh workflow run backup.yml`), keeping
+  the GitHub schedule as a fallback.
 
 - **Architecture review 2026-10 — open P2 items** ([summary](01-architecture/review-2026-10/00-summary.md)):
   #15 one claim rule for the 11 polled queues (only the catalog retry cap is fixed, #706/#707); #16
@@ -321,7 +343,12 @@ Brainstorming only — nothing here is decided, planned or started. Recorded so 
 and nobody mistakes them for a direction.
 
 
-Full write-up: [reader-engine-brainstorm.md](01-architecture/reader-engine-brainstorm.md).
+Full write-up: [reader-engine-brainstorm.md](01-architecture/reader-engine-brainstorm.md). Evidence from
+four open-source engines: [reader-engine-evaluation.md](01-architecture/reader-engine-evaluation.md)
+(#722). One part is now decided: restore/save/sync logic is **shared rules in
+`packages/shared/src/reader/`, not one state machine**
+([ADR-019](01-architecture/adr/ADR-019-reader-position-rules.md)) — and those rules are needed
+whatever engine is chosen.
 - **A shared reader engine** — `@textstack/reader-engine`, TypeScript, one engine for web and mobile
   behind a standards-based `Locator` / `Publication` contract (Readium-style), instead of two readers
   that share pure helpers. Prompted by R1/R2, where the same bug had to be fixed once per client (PDF page drift: #714 web,
