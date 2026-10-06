@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="description" content="Interactive architecture map of TextStack: how a book moves from upload to reader, MCP, SEO and background AI.">
+</head><body>
+<title>TextStack Map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Literata:opsz,wght@7..72,500;7..72,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: reading-room sheet. Title, breadcrumb + scenario switcher, wide diagram + step log, then notes. Click a box marked ⤢ to zoom in. */
+:root {
+  --paper: #f6f6f3; --sheet: #ffffff; --ink: #1b1d24; --muted: #5f6370; --rule: #cdd0d8;
+  --live: #3b4fc4; --live-soft: #e3e7fb; --out: #a5590f; --out-soft: #f7e9d8; --edge-zone: #6b7280; --stop: #b42318;
+  --display: "Literata", Georgia, serif; --body: "IBM Plex Sans", system-ui, sans-serif; --mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --paper: #121318; --sheet: #191b22; --ink: #e6e7ec; --muted: #9a9eab; --rule: #343844;
+  --live: #8c9cff; --live-soft: #242a4d; --out: #e6a25a; --out-soft: #3b2b18; --edge-zone: #9aa0ad; --stop: #f97066; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --paper: #121318; --sheet: #191b22; --ink: #e6e7ec; --muted: #9a9eab; --rule: #343844;
+  --live: #8c9cff; --live-soft: #242a4d; --out: #e6a25a; --out-soft: #3b2b18; --edge-zone: #9aa0ad; --stop: #f97066; color-scheme: dark }
+* { box-sizing: border-box }
+body { background: var(--paper); color: var(--ink); font: 15px/1.55 var(--body); padding-inline: 16px; padding-block: 28px 48px; margin: 0 }
+main { max-width: 1280px; margin: 0 auto; display: grid; gap: 22px }
+h1 { font: 600 clamp(28px, 4vw, 40px)/1.1 var(--display); margin: 0; text-wrap: balance }
+.lede { color: var(--muted); max-width: 70ch; margin: 6px 0 0 }
+.eyebrow { font: 500 11px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--live) }
+.bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center }
+.crumbs { font: 500 13px var(--mono); color: var(--muted); display: flex; gap: 8px; align-items: center }
+.crumbs button { font: inherit; color: var(--live); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 3px }
+.crumbs b { color: var(--ink); font-weight: 500 }
+.switch { display: flex; flex-wrap: wrap; gap: 8px }
+.switch button { font: 500 14px var(--body); color: var(--ink); background: var(--sheet); border: 1px solid var(--rule); border-radius: 999px; padding: 7px 14px; cursor: pointer }
+.switch button[aria-pressed="true"] { background: var(--live); border-color: var(--live); color: var(--sheet) }
+button:focus-visible, .zoomable:focus-visible { outline: 2px solid var(--live); outline-offset: 2px }
+.stage { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 18px; align-items: start }
+@media (max-width: 1000px) { .stage { grid-template-columns: minmax(0, 1fr) } }
+figure { margin: 0; background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; padding: 12px; min-width: 0 }
+.scroll { overflow-x: auto }
+svg { display: block; width: 100%; min-width: 760px; height: auto; color: var(--ink) }
+figcaption { font-size: 13px; color: var(--muted); padding: 8px 4px 0 }
+.box { fill: var(--sheet); stroke: var(--rule); stroke-width: 1.5 }
+.node.on .box { stroke: var(--live); stroke-width: 2.5; fill: var(--live-soft) }
+.ext .box { stroke: var(--out); fill: var(--out-soft) }
+.ext.on .box { stroke: var(--out); stroke-width: 2.5 }
+.zoomable { cursor: zoom-in }
+.zoomable:hover .box { stroke: var(--live); stroke-width: 2.5 }
+.zm { font: 600 13px var(--mono); fill: var(--live) }
+.t { font: 600 14px var(--body); fill: currentColor }
+.s { font: 400 11.5px var(--mono); fill: var(--muted) }
+.chip { font: 400 12px var(--mono); fill: currentColor }
+.lbl { font: 500 11px var(--body); fill: var(--muted) }
+.edge { fill: none; stroke: var(--rule); stroke-width: 1.7 }
+.edge.on { stroke: var(--live); stroke-width: 2.6; stroke-dasharray: 7 5; animation: flow .9s linear infinite }
+.edge.egress { stroke: var(--out); stroke-dasharray: 4 4; opacity: .55 }
+.edge.egress.on { opacity: 1; stroke-width: 2.6; animation: flow .9s linear infinite }
+.edge.blocked { stroke: var(--stop); stroke-dasharray: 3 4; opacity: .5 }
+.edge.blocked.on { opacity: 1; stroke-width: 2.4 }
+.xmark { stroke: var(--stop); stroke-width: 3; fill: none }
+.pipe { fill: var(--live-soft); stroke: var(--live); stroke-width: 1; opacity: .7 }
+.wall { stroke: var(--edge-zone); stroke-width: 4; stroke-dasharray: 10 6 }
+@keyframes flow { to { stroke-dashoffset: -24 } }
+@media (prefers-reduced-motion: reduce) { .edge.on, .edge.egress.on { animation: none } }
+.zone { fill: none; stroke: var(--edge-zone); stroke-width: 1.2; stroke-dasharray: 2 5 }
+.zl { font: 500 11px var(--mono); letter-spacing: .1em; fill: var(--edge-zone) }
+.zo { font: 500 11px var(--mono); letter-spacing: .1em; fill: var(--out) }
+.log { background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; padding: 16px 18px; display: grid; gap: 12px; min-width: 0 }
+.log h2 { font: 600 20px var(--display); margin: 0 }
+.log ol { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; counter-reset: s }
+.log li { counter-increment: s; display: grid; grid-template-columns: 26px 1fr; gap: 8px; color: var(--muted); transition: color .2s; cursor: default }
+.log li::before { content: counter(s); font: 500 12px var(--mono); width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--rule); display: grid; place-items: center }
+.log li.cur { color: var(--ink) }
+.log li.cur::before { background: var(--live); border-color: var(--live); color: var(--sheet) }
+code { font: 400 12.5px var(--mono); background: var(--paper); padding: 0 4px; border-radius: 3px; overflow-wrap: anywhere }
+.play { justify-self: start; font: 500 13px var(--body); background: none; border: 1px solid var(--live); color: var(--live); border-radius: 4px; padding: 5px 12px; cursor: pointer }
+section h2 { font: 600 22px var(--display); margin: 0 0 8px }
+.tbl { overflow-x: auto; background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px }
+table { border-collapse: collapse; width: 100%; font-size: 14px }
+th, td { text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--rule); vertical-align: top }
+th { font: 500 11px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--muted) }
+tr:last-child td { border-bottom: 0 }
+.notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px }
+.notes > div { min-width: 0 }
+.notes ul { margin: 0; padding-left: 18px; display: grid; gap: 6px }
+</style>
+
+<main>
+  <header>
+    <div class="eyebrow"><a href="../" style="color:inherit">TextStack</a> · modular monolith · Oct 2026 · <a href="https://github.com/mrviduus/textstack/tree/main/docs/01-architecture" style="color:inherit">source</a></div>
+    <h1 id="h1">How a book moves through TextStack</h1>
+    <p class="lede" id="lede">One ASP.NET Core API, one worker, one Postgres, three clients and an MCP bridge for Claude. Queues are Postgres tables that workers poll; there is no broker. Everything runs on a home server behind a Cloudflare tunnel. Pick a scenario to trace it, or click a box marked ⤢ to zoom in.</p>
+  </header>
+
+  <div class="bar">
+    <nav class="crumbs" aria-label="Zoom level" id="crumbs"><b>Map</b></nav>
+  </div>
+
+  <div class="switch" role="group" aria-label="Scenario" id="switch"></div>
+
+  <div class="stage">
+    <figure>
+      <div class="scroll">
+
+      <!-- ═══════════ VIEW: MAP ═══════════ -->
+      <svg id="v-map" viewBox="0 0 1215 700" role="img" aria-label="Clients reach a home server through Cloudflare and host nginx, which routes to the API and the MCP bridge. The API, worker and SSG worker share one Postgres with table queues; files and Ollama sit beside it. Only OpenAI, Edge TTS, email/auth providers and the Claude CLI are outside.">
+        <defs>
+          <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+          </marker>
+        </defs>
+
+        <rect class="zone" x="398" y="88" width="802" height="604" rx="10"/>
+        <text class="zl" x="412" y="106">HOME SERVER · PORTS ON 127.0.0.1</text>
+        <text class="zl" x="20" y="100">PUBLIC INTERNET</text>
+        <text class="zo" x="440" y="44">THIRD PARTIES</text>
+
+        <path id="e-web" class="edge" d="M190 145 H228" marker-end="url(#ah)"/>
+        <path id="e-mob" class="edge" d="M190 215 H228" marker-end="url(#ah)"/>
+        <path id="e-ext" class="edge" d="M190 285 H228" marker-end="url(#ah)"/>
+        <path id="e-mcpc" class="edge" d="M190 395 H228" marker-end="url(#ah)"/>
+        <path id="e-bot" class="edge" d="M190 475 H228" marker-end="url(#ah)"/>
+        <path id="e-cf" class="edge" d="M350 310 H418" marker-end="url(#ah)"/>
+        <text class="lbl" x="384" y="301" text-anchor="middle">tunnel</text>
+
+        <path id="e-ng-api" class="edge" d="M550 160 H608" marker-end="url(#ah)"/>
+        <text class="lbl" x="579" y="151" text-anchor="middle">/api</text>
+        <path id="e-ng-mcp" class="edge" d="M550 315 H608" marker-end="url(#ah)"/>
+        <text class="lbl" x="568" y="306" text-anchor="middle">/mcp</text>
+        <path id="e-mcp-api" class="edge" d="M700 280 V252" marker-end="url(#ah)"/>
+        <text class="lbl" x="708" y="270">bearer</text>
+
+        <path id="e-ssg-api" class="edge" d="M610 520 H595 V225 H608" marker-end="url(#ah)"/>
+        <path id="e-pol-api" class="edge" d="M610 610 H580 V237 H608" marker-end="url(#ah)"/>
+        <text class="lbl" x="566" y="600" text-anchor="end">/internal</text>
+        <text class="lbl" x="566" y="530" text-anchor="end">routes</text>
+
+        <path id="e-api-db" class="edge" d="M790 170 H848" marker-end="url(#ah)"/>
+        <text class="lbl" x="819" y="161" text-anchor="middle">EF Core</text>
+        <path id="e-wk-db" class="edge" d="M790 405 H848" marker-end="url(#ah)"/>
+        <text class="lbl" x="806" y="396" text-anchor="start">polls</text>
+        <path id="e-ssg-db" class="edge" d="M790 515 H848" marker-end="url(#ah)"/>
+        <text class="lbl" x="806" y="506" text-anchor="start">polls</text>
+
+        <path id="e-wk-fs" class="edge" d="M790 445 H822 V600 H1110 V292" marker-end="url(#ah)"/>
+        <path id="e-api-fs" class="edge" d="M790 240 H822 V600 H1110 V292" marker-end="url(#ah)"/>
+        <text class="lbl" x="1000" y="592" text-anchor="middle">uploads, covers</text>
+        <path id="e-api-oll" class="edge" d="M790 130 H830 V100 H1110 V118" marker-end="url(#ah)"/>
+        <text class="lbl" x="970" y="93" text-anchor="middle">api · worker → local LLM</text>
+
+        <path id="e-api-oai" class="edge egress" d="M650 120 V69" marker-end="url(#ah)"/>
+        <path id="e-wk-oai" class="edge egress" d="M790 425 H838 V78 H690 V69" marker-end="url(#ah)"/>
+        <path id="e-api-tts" class="edge egress" d="M756 120 V69" marker-end="url(#ah)"/>
+        <path id="e-api-mail" class="edge egress" d="M785 120 V84 H886 V69" marker-end="url(#ah)"/>
+        <path id="e-pol-anth" class="edge egress" d="M790 625 H1207 V42 H1189" marker-end="url(#ah)"/>
+        <text class="lbl" x="1000" y="640" text-anchor="middle">claude CLI (Max plan)</text>
+
+        <g id="n-web" class="node"><rect class="box" x="20" y="120" width="170" height="50" rx="6"/>
+          <text class="t" x="34" y="142">Web SPA</text><text class="s" x="34" y="160">React 19 · IndexedDB</text></g>
+        <g id="n-mob" class="node"><rect class="box" x="20" y="190" width="170" height="50" rx="6"/>
+          <text class="t" x="34" y="212">Mobile</text><text class="s" x="34" y="230">Expo · SQLite</text></g>
+        <g id="n-ext" class="node"><rect class="box" x="20" y="260" width="170" height="50" rx="6"/>
+          <text class="t" x="34" y="282">Chrome ext</text><text class="s" x="34" y="300">clip · device flow</text></g>
+        <g id="n-mcpc" class="node"><rect class="box" x="20" y="370" width="170" height="50" rx="6"/>
+          <text class="t" x="34" y="392">MCP clients</text><text class="s" x="34" y="410">claude.ai · ChatGPT</text></g>
+        <g id="n-bot" class="node"><rect class="box" x="20" y="450" width="170" height="50" rx="6"/>
+          <text class="t" x="34" y="472">Search bots</text><text class="s" x="34" y="490">crawlers</text></g>
+
+        <g id="n-cf" class="node zoomable" data-zoom="tunnel" tabindex="0" role="button" aria-label="Zoom into the Cloudflare tunnel">
+          <rect class="box" x="230" y="110" width="120" height="400" rx="6"/>
+          <text class="zm" x="336" y="130" text-anchor="end">⤢</text>
+          <text class="t" x="290" y="300" text-anchor="middle">Cloudflare</text>
+          <text class="s" x="290" y="318" text-anchor="middle">TLS · DNS</text>
+          <text class="s" x="290" y="334" text-anchor="middle">tunnel</text>
+          <text class="s" x="290" y="490" text-anchor="middle">click to zoom</text></g>
+
+        <g id="n-ng" class="node"><rect class="box" x="420" y="110" width="130" height="400" rx="6"/>
+          <text class="t" x="434" y="134">nginx :80</text>
+          <text class="s" x="434" y="152">host · only ingress</text>
+          <line x1="434" x2="536" y1="164" y2="164" stroke="var(--rule)"/>
+          <text class="chip" x="434" y="188">/ → SPA</text>
+          <text class="chip" x="434" y="210">bots → SSG</text>
+          <text class="chip" x="434" y="232">/api → :8080</text>
+          <text class="chip" x="434" y="254">/oauth → api</text>
+          <text class="chip" x="434" y="276">/mcp → :8090</text>
+          <text class="chip" x="434" y="358">/storage</text>
+          <text class="chip" x="434" y="380">/internal 404</text></g>
+
+        <g id="n-api" class="node"><rect class="box" x="610" y="120" width="180" height="130" rx="6"/>
+          <text class="t" x="624" y="146">api :8080</text>
+          <text class="s" x="624" y="164">ASP.NET Core · .NET 10</text>
+          <text class="chip" x="624" y="190">REST · JWT auth</text>
+          <text class="chip" x="624" y="210">OAuth 2.1 server</text>
+          <text class="chip" x="624" y="230">hosted jobs</text></g>
+
+        <g id="n-mcp" class="node"><rect class="box" x="610" y="280" width="180" height="70" rx="6"/>
+          <text class="t" x="624" y="306">mcp-server :8090</text>
+          <text class="s" x="624" y="324">21 tools · HTTP bridge</text>
+          <text class="s" x="624" y="340">forwards bearer</text></g>
+
+        <g id="n-wk" class="node"><rect class="box" x="610" y="380" width="180" height="80" rx="6"/>
+          <text class="t" x="624" y="406">worker</text>
+          <text class="s" x="624" y="424">ingestion every 5 s</text>
+          <text class="s" x="624" y="440">enrichment · cleanup</text></g>
+
+        <g id="n-ssg" class="node"><rect class="box" x="610" y="490" width="180" height="60" rx="6"/>
+          <text class="t" x="624" y="514">ssg-worker</text>
+          <text class="s" x="624" y="532">Node · Puppeteer</text></g>
+
+        <g id="n-pol" class="node"><rect class="box" x="610" y="580" width="180" height="60" rx="6"/>
+          <text class="t" x="624" y="604">host pollers</text>
+          <text class="s" x="624" y="622">systemd · SEO, quality</text></g>
+
+        <g id="n-db" class="node"><rect class="box" x="850" y="120" width="160" height="410" rx="6"/>
+          <text class="t" x="864" y="146">Postgres 16</text>
+          <text class="s" x="864" y="164">FTS · pgvector</text>
+          <line x1="864" x2="996" y1="176" y2="176" stroke="var(--rule)"/>
+          <text class="chip" x="864" y="198">catalog</text>
+          <text class="chip" x="864" y="220">users · OAuth</text>
+          <text class="chip" x="864" y="242">uploads</text>
+          <text class="chip" x="864" y="264">reading</text>
+          <text class="chip" x="864" y="286">highlights</text>
+          <text class="chip" x="864" y="308">vocabulary</text>
+          <text class="chip" x="864" y="330">AI ops · evals</text>
+          <line x1="864" x2="996" y1="346" y2="346" stroke="var(--rule)"/>
+          <text class="s" x="864" y="368">queues = tables</text>
+          <text class="chip" x="864" y="392">user_ingestion_jobs</text>
+          <text class="chip" x="864" y="414">ingestion_jobs</text>
+          <text class="chip" x="864" y="436">ssg_rebuild_jobs</text>
+          <text class="chip" x="864" y="458">seo · quality jobs</text>
+          <text class="chip" x="864" y="480">pending_vocabulary</text></g>
+
+        <g id="n-oll" class="node"><rect class="box" x="1040" y="120" width="140" height="60" rx="6"/>
+          <text class="t" x="1054" y="146">Ollama</text>
+          <text class="s" x="1054" y="164">gemma · internal</text></g>
+
+        <g id="n-fs" class="node"><rect class="box" x="1040" y="220" width="140" height="70" rx="6"/>
+          <text class="t" x="1054" y="246">data/storage</text>
+          <text class="s" x="1054" y="264">bind mount</text>
+          <text class="s" x="1054" y="280">+ tts/explain caches</text></g>
+
+        <g id="n-oai" class="node ext"><rect class="box" x="600" y="18" width="100" height="50" rx="6"/>
+          <text class="t" x="650" y="40" text-anchor="middle">OpenAI</text>
+          <text class="s" x="650" y="57" text-anchor="middle">gpt · embed</text></g>
+        <g id="n-tts" class="node ext"><rect class="box" x="712" y="18" width="88" height="50" rx="6"/>
+          <text class="t" x="756" y="40" text-anchor="middle">Edge TTS</text>
+          <text class="s" x="756" y="57" text-anchor="middle">WebSocket</text></g>
+        <g id="n-mail" class="node ext"><rect class="box" x="812" y="18" width="150" height="50" rx="6"/>
+          <text class="t" x="887" y="40" text-anchor="middle">Email · sign-in</text>
+          <text class="s" x="887" y="57" text-anchor="middle">Resend · Google · Apple</text></g>
+        <g id="n-anth" class="node ext"><rect class="box" x="1045" y="18" width="142" height="50" rx="6"/>
+          <text class="t" x="1116" y="40" text-anchor="middle">Anthropic</text>
+          <text class="s" x="1116" y="57" text-anchor="middle">Claude CLI</text></g>
+      </svg>
+
+      <!-- ═══════════ VIEW: ZOOM — CLOUDFLARE TUNNEL ═══════════ -->
+      <svg id="v-tunnel" viewBox="0 0 1215 560" role="img" aria-label="A browser resolves textstack.app to Cloudflare and connects over HTTPS to the edge. On the home server, cloudflared has already dialed out through the home router and keeps a tunnel open. The edge sends the request down the tunnel; cloudflared forwards it to nginx on localhost:80, which proxies to the API. A direct connection to the home IP finds nothing listening." hidden>
+        <defs>
+          <marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+          </marker>
+        </defs>
+
+        <text class="zl" x="20" y="40">PUBLIC INTERNET</text>
+        <rect class="zone" x="475" y="56" width="730" height="490" rx="10"/>
+        <text class="zl" x="490" y="76">HOME SERVER · NO INBOUND PORTS OPEN</text>
+
+        <line class="wall" x1="455" x2="455" y1="56" y2="546"/>
+        <text class="zl" x="447" y="540" text-anchor="end">home router · NAT</text>
+
+        <!-- the tunnel -->
+        <rect class="pipe" x="340" y="232" width="160" height="64" rx="32"/>
+        <text class="lbl" x="420" y="222" text-anchor="middle">dials out · QUIC :7844</text>
+        <text class="lbl" x="420" y="316" text-anchor="middle">requests come back down</text>
+
+        <path id="z-dial" class="edge" d="M498 250 H345" marker-end="url(#ah2)"/>
+        <path id="z-down" class="edge" d="M345 280 H498" marker-end="url(#ah2)"/>
+        <path id="z-dns" class="edge" d="M95 270 V318" marker-end="url(#ah2)"/>
+        <path id="z-https" class="edge" d="M170 240 H198" marker-end="url(#ah2)"/>
+        <text class="lbl" x="184" y="230" text-anchor="middle">HTTPS</text>
+        <path id="z-local" class="edge" d="M670 255 H718" marker-end="url(#ah2)"/>
+        <text class="lbl" x="694" y="245" text-anchor="middle">:80</text>
+        <path id="z-api" class="edge" d="M900 255 H948" marker-end="url(#ah2)"/>
+        <text class="lbl" x="924" y="245" text-anchor="middle">:8080</text>
+        <path id="z-blocked" class="edge blocked" d="M170 470 H445"/>
+        <path class="xmark" d="M440 460 L456 476 M456 460 L440 476"/>
+        <text class="lbl" x="300" y="460" text-anchor="middle">direct to home IP: nothing listens</text>
+
+        <g id="z-browser" class="node"><rect class="box" x="20" y="210" width="150" height="60" rx="6"/>
+          <text class="t" x="34" y="234">Browser</text><text class="s" x="34" y="254">reader · bot · Claude</text></g>
+        <g id="z-dnsn" class="node"><rect class="box" x="20" y="320" width="150" height="60" rx="6"/>
+          <text class="t" x="34" y="344">DNS</text><text class="s" x="34" y="364">→ Cloudflare IPs</text></g>
+        <g id="z-scan" class="node"><rect class="box" x="20" y="440" width="150" height="60" rx="6"/>
+          <text class="t" x="34" y="464">Port scan</text><text class="s" x="34" y="484">home IP, port 80</text></g>
+
+        <g id="z-edge" class="node ext"><rect class="box" x="200" y="110" width="140" height="330" rx="6"/>
+          <text class="t" x="214" y="136">Cloudflare edge</text>
+          <text class="s" x="214" y="154">nearest data center</text>
+          <line x1="214" x2="326" y1="166" y2="166" stroke="var(--rule)"/>
+          <text class="chip" x="214" y="190">TLS ends here</text>
+          <text class="chip" x="214" y="212">DDoS · WAF</text>
+          <text class="chip" x="214" y="360">adds header</text>
+          <text class="chip" x="214" y="380">CF-Connecting-IP</text></g>
+
+        <g id="z-cfd" class="node"><rect class="box" x="500" y="200" width="170" height="110" rx="6"/>
+          <text class="t" x="514" y="224">cloudflared</text>
+          <text class="s" x="514" y="242">daemon · systemd</text>
+          <text class="chip" x="514" y="268">4 connections</text>
+          <text class="chip" x="514" y="288">to 2 data centers</text></g>
+
+        <g id="z-ng" class="node"><rect class="box" x="720" y="160" width="180" height="190" rx="6"/>
+          <text class="t" x="734" y="184">nginx :80</text>
+          <text class="s" x="734" y="202">textstack.conf</text>
+          <line x1="734" x2="886" y1="214" y2="214" stroke="var(--rule)"/>
+          <text class="chip" x="734" y="238">peer = 127.0.0.1</text>
+          <text class="chip" x="734" y="260">$from_tunnel = 1</text>
+          <text class="chip" x="734" y="282">limit key =</text>
+          <text class="chip" x="734" y="302">  CF-Connecting-IP</text>
+          <text class="chip" x="734" y="328">/api → :8080</text></g>
+
+        <g id="z-apin" class="node"><rect class="box" x="950" y="200" width="200" height="110" rx="6"/>
+          <text class="t" x="964" y="224">api :8080</text>
+          <text class="s" x="964" y="242">Program.cs</text>
+          <text class="chip" x="964" y="268">ForwardedHeaders</text>
+          <text class="chip" x="964" y="288">walks X-Forwarded-For</text></g>
+      </svg>
+
+      </div>
+      <figcaption id="cap">Blue dashes: the path for the selected scenario. Orange: calls leaving the home server. Not drawn: Sentry, IndexNow, Aspire dashboard, admin SPA, migrator.</figcaption>
+    </figure>
+
+    <aside class="log" aria-live="polite">
+      <h2 id="log-title">Upload a book</h2>
+      <ol id="steps"></ol>
+      <button class="play" id="play">▶ Play step by step</button>
+    </aside>
+  </div>
+
+  <!-- notes: map -->
+  <section id="notes-map">
+    <h2>Trust boundaries and auth</h2>
+    <div class="tbl"><table>
+      <thead><tr><th>Who</th><th>How they prove identity</th><th>Where it is checked</th></tr></thead>
+      <tbody>
+        <tr><td>Web / mobile users</td><td>JWT access (60 min) + rotating refresh. Google, Apple, email or guest</td><td>api endpoints call <code>GetUserId</code></td></tr>
+        <tr><td>Claude, ChatGPT</td><td>OAuth 2.1 + PKCE, hashed <code>tso_</code>/<code>tsr_</code> tokens, scope <code>library</code></td><td>api (<code>McpKeyAuth</code>); MCP bridge only forwards</td></tr>
+        <tr><td>Extension, stdio MCP</td><td>Device flow JWT or <code>tsk_</code> connect key</td><td>api (<code>McpKeyAuth</code>)</td></tr>
+        <tr><td>Admin</td><td>Separate <code>admin_access_token</code> cookie</td><td><code>AdminAuthMiddleware</code> on <code>/admin/*</code></td></tr>
+        <tr><td>Host pollers</td><td>Loopback only; <code>/api/internal</code> is blocked from the internet</td><td>nginx</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- notes: tunnel zoom -->
+  <section id="notes-tunnel" hidden>
+    <h2>Why a tunnel</h2>
+    <div class="tbl"><table>
+      <thead><tr><th>What we gain</th><th>What it costs</th></tr></thead>
+      <tbody>
+        <tr><td>No open inbound port and no public IP; works behind a home router</td><td>Cloudflare is a single point of failure. Tunnel down means site down</td></tr>
+        <tr><td>Free TLS certificates and DDoS protection at the edge</td><td>Cloudflare ends TLS, so it sees all traffic</td></tr>
+        <tr><td>The home IP stays hidden</td><td>Every request reaches nginx from 127.0.0.1, so the real client IP only arrives as a header</td></tr>
+      </tbody>
+    </table></div>
+    <div class="notes" style="margin-top:18px">
+      <div>
+        <h2>In the code</h2>
+        <ul>
+          <li><code>infra/nginx/textstack.conf</code> lines 6–23: <code>$from_tunnel</code> and <code>$limit_key</code></li>
+          <li><code>backend/src/Api/Program.cs</code>: <code>ForwardedHeadersOptions</code>, trusted X-Forwarded-For walk</li>
+          <li><code>docs/03-ops/deployment.md</code> §3: tunnel setup, route <code>→ http://localhost:80</code></li>
+          <li><code>docs/03-ops/incident-runbook.md</code>: what to check when the tunnel is down</li>
+        </ul>
+      </div>
+      <div>
+        <h2>Questions to answer</h2>
+        <ul>
+          <li>Why does cloudflared dial out, instead of Cloudflare dialing in?</li>
+          <li>Why does nginx trust <code>CF-Connecting-IP</code> only from 127.0.0.1?</li>
+          <li>What breaks if Cloudflare is down, and what is the plan?</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+const VIEWS = {
+  map: {
+    svg: 'v-map', notes: 'notes-map',
+    h1: 'How a book moves through TextStack',
+    lede: document.getElementById('lede').textContent,
+    cap: 'Blue dashes: the path for the selected scenario. Orange: calls leaving the home server. Not drawn: Sentry, IndexNow, Aspire dashboard, admin SPA, migrator.',
+    scenarios: {
+      upload: { label: 'Upload a book', steps: [
+        [['n-web','n-cf','n-ng','n-api'], ['e-web','e-cf','e-ng-api'], 'Web or mobile sends <code>POST /api/me/books/upload</code> through Cloudflare and nginx.'],
+        [['n-api','n-fs','n-db'], ['e-api-fs','e-api-db'], 'api checks the quota, saves the file to <code>data/storage</code>, inserts the book and a queued <code>user_ingestion_jobs</code> row.'],
+        [['n-wk','n-db'], ['e-wk-db'], 'worker polls the jobs table every 5 s and takes the job.'],
+        [['n-wk','n-fs'], ['e-wk-fs'], 'worker reads the file and extracts chapters (EPUB, PDF, HTML).'],
+        [['n-wk','n-db'], ['e-wk-db'], 'Chapters are written; a trigger fills the full-text search vector.'],
+        [['n-wk','n-oai','n-oll'], ['e-wk-oai','e-api-oll'], 'worker enriches metadata (genre, year, description): OpenAI agent first, Ollama as fallback.'],
+      ] },
+      read: { label: 'Read a chapter', steps: [
+        [['n-web','n-cf','n-ng'], ['e-web','e-cf'], 'nginx serves the SPA to the browser.'],
+        [['n-ng','n-api','n-db'], ['e-ng-api','e-api-db'], 'SPA calls <code>GET /api/books/{slug}/chapters/{chapterSlug}</code>; api reads Postgres.'],
+        [['n-mob'], [], 'Mobile reads its SQLite copy first and refreshes it in the background. Web keeps chapters in IndexedDB only for downloaded books.'],
+        [['n-api','n-tts','n-fs'], ['e-api-tts'], 'Listen: <code>/api/tts</code> checks the disk cache, then calls Edge TTS.'],
+        [['n-api','n-oai'], ['e-api-oai'], 'Translate or explain a word: api calls OpenAI, cached on disk.'],
+      ] },
+      mcp: { label: 'Claude via MCP', steps: [
+        [['n-mcpc','n-cf','n-ng','n-mcp'], ['e-mcpc','e-cf','e-ng-mcp'], 'claude.ai calls <code>/mcp</code> without a token; the bridge answers 401 with resource metadata.'],
+        [['n-ng','n-api','n-db'], ['e-ng-api','e-api-db'], 'OAuth 2.1: register, authorize, you approve on the consent page; api issues hashed <code>tso_</code> / <code>tsr_</code> tokens.'],
+        [['n-mcp','n-api'], ['e-ng-mcp','e-mcp-api'], 'A tool call like <code>save_my_highlight</code> goes to the bridge, which forwards the bearer to api.'],
+        [['n-api','n-db'], ['e-api-db'], 'api resolves the token by hash and writes the highlight (max 200 per book).'],
+        [['n-api','n-oai','n-oll','n-db'], ['e-api-oai','e-api-oll','e-api-db'], '<code>add_vocabulary_words</code>: frequency filter and daily cap, then embedding (OpenAI, pgvector) and quiz hints (Ollama).'],
+      ] },
+      seo: { label: 'Bots & SEO', steps: [
+        [['n-api','n-db'], ['e-api-db'], 'Admin, a periodic job or the nightly backup inserts a row into <code>ssg_rebuild_jobs</code>.'],
+        [['n-ssg','n-db'], ['e-ssg-db'], 'ssg-worker polls the table every 5 s.'],
+        [['n-ssg','n-api'], ['e-ssg-api'], 'It gets the route list from <code>/ssg/routes</code>; Puppeteer renders each SPA page (the SPA calls api) into <code>dist/ssg-new</code>, then swaps it in atomically.'],
+        [['n-bot','n-cf','n-ng'], ['e-bot','e-cf'], 'Crawlers hit nginx and get prerendered HTML; humans get the SPA.'],
+      ] },
+      bg: { label: 'Background AI', steps: [
+        [['n-pol','n-api'], ['e-pol-api'], 'systemd pollers fetch SEO and quality jobs from <code>/internal</code> on loopback.'],
+        [['n-pol','n-anth'], ['e-pol-anth'], 'They run the Claude CLI on the Max plan to write SEO text or clean PDF text.'],
+        [['n-pol','n-api','n-db'], ['e-pol-api','e-api-db'], 'Results go back to api and into Postgres.'],
+        [['n-wk','n-db','n-oll'], ['e-wk-db','e-api-oll'], 'worker and api hosted jobs: metadata backfill, guest cleanup, vocab cap promotion, drift and eval runs.'],
+      ] },
+    },
+  },
+  tunnel: {
+    svg: 'v-tunnel', notes: 'notes-tunnel', crumb: 'Cloudflare tunnel',
+    h1: 'Zoom: the Cloudflare tunnel',
+    lede: 'How a request from the internet reaches a server that has no open ports. The trick: the server calls Cloudflare first, and requests come back down that call.',
+    cap: 'Blue dashes: the step. Red: what an attacker sees when they try the home IP directly.',
+    scenarios: {
+      request: { label: 'One request', steps: [
+        [['z-cfd','z-edge'], ['z-dial'], 'At boot, <code>cloudflared</code> dials <b>out</b> to Cloudflare and keeps the connections open. The router allows outgoing traffic, so no port is opened.'],
+        [['z-browser','z-dnsn'], ['z-dns'], 'The browser looks up <code>textstack.app</code>. DNS returns Cloudflare addresses, never the home IP.'],
+        [['z-browser','z-edge'], ['z-https'], 'The browser connects over HTTPS to the nearest Cloudflare data center. TLS ends here; Cloudflare adds the <code>CF-Connecting-IP</code> header.'],
+        [['z-edge','z-cfd'], ['z-down'], 'The edge sends the request down the tunnel that is already open.'],
+        [['z-cfd','z-ng'], ['z-local'], '<code>cloudflared</code> forwards it to <code>http://localhost:80</code>. nginx sees the peer as 127.0.0.1.'],
+        [['z-ng'], [], 'Peer is loopback, so <code>$from_tunnel = 1</code> and nginx rate-limits on <code>CF-Connecting-IP</code>, the real client.'],
+        [['z-ng','z-apin'], ['z-api'], 'nginx proxies <code>/api</code> to :8080; the api finds the client by walking <code>X-Forwarded-For</code> over trusted networks.'],
+      ] },
+      attack: { label: 'Direct attack', steps: [
+        [['z-scan'], ['z-blocked'], 'Someone finds the home IP and tries port 80. The router has no port forward, so nothing answers.'],
+        [['z-ng'], [], 'Even locally, Docker ports bind to 127.0.0.1. nginx is the only door, and only <code>cloudflared</code> reaches it.'],
+      ] },
+    },
+  },
+};
+
+const $ = (s) => document.querySelector(s);
+let view = 'map', cur = null, timer = null;
+
+function light(nodes, edges) {
+  document.querySelectorAll('.node').forEach((n) => n.classList.toggle('on', nodes.includes(n.id)));
+  document.querySelectorAll('.edge').forEach((e) => e.classList.toggle('on', edges.includes(e.id)));
+}
+function stopPlay() { clearInterval(timer); timer = null; $('#play').textContent = '▶ Play step by step'; }
+function showAll() {
+  const st = VIEWS[view].scenarios[cur].steps;
+  light([...new Set(st.flatMap((s) => s[0]))], [...new Set(st.flatMap((s) => s[1]))]);
+}
+function select(key) {
+  stopPlay(); cur = key;
+  const sc = VIEWS[view].scenarios[key];
+  document.querySelectorAll('#switch button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.sc === key)));
+  $('#log-title').textContent = sc.label;
+  $('#steps').innerHTML = sc.steps.map((s) => `<li><span>${s[2]}</span></li>`).join('');
+  document.querySelectorAll('#steps li').forEach((li, i) => {
+    li.addEventListener('mouseenter', () => step(i));
+    li.addEventListener('mouseleave', () => { if (!timer) { showAll(); li.classList.remove('cur'); } });
+  });
+  showAll();
+}
+function step(i) {
+  const s = VIEWS[view].scenarios[cur].steps[i];
+  light(s[0], s[1]);
+  document.querySelectorAll('#steps li').forEach((li, j) => li.classList.toggle('cur', j === i));
+}
+function go(name) {
+  view = name;
+  const v = VIEWS[name];
+  Object.values(VIEWS).forEach((o) => { $('#' + o.svg).hidden = o !== v; $('#' + o.notes).hidden = o !== v; });
+  $('#h1').textContent = v.h1; $('#lede').textContent = v.lede; $('#cap').textContent = v.cap;
+  const crumbs = $('#crumbs');
+  crumbs.innerHTML = name === 'map' ? '<b>Map</b>' : `<button type="button" id="back">Map</button> › <b>${v.crumb}</b>`;
+  if (name !== 'map') $('#back').addEventListener('click', () => go('map'));
+  $('#switch').innerHTML = Object.entries(v.scenarios)
+    .map(([k, s]) => `<button type="button" data-sc="${k}" aria-pressed="false">${s.label}</button>`).join('');
+  document.querySelectorAll('#switch button').forEach((b) => b.addEventListener('click', () => select(b.dataset.sc)));
+  select(Object.keys(v.scenarios)[0]);
+  try { history.replaceState(null, '', name === 'map' ? location.pathname : '#' + name); } catch (e) {}
+}
+document.querySelectorAll('.zoomable').forEach((g) => {
+  g.addEventListener('click', () => go(g.dataset.zoom));
+  g.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(g.dataset.zoom); } });
+});
+$('#play').addEventListener('click', () => {
+  if (timer) { select(cur); return; }
+  let i = 0; step(0); $('#play').textContent = '■ Stop';
+  timer = setInterval(() => {
+    i++;
+    if (i >= VIEWS[view].scenarios[cur].steps.length) { select(cur); return; }
+    step(i);
+  }, 2000);
+});
+go(VIEWS[location.hash.slice(1)] ? location.hash.slice(1) : 'map');
+</script>
+
+</body></html>
