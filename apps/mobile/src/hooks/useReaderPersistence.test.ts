@@ -223,8 +223,13 @@ describe('C1 — the restore waits for both the document and the saved position'
     expect(r.web.restores()).toEqual([])
     await r.answerPosition(saved({ offset: 900 }))
     expect(r.web.restores()).toEqual([{ kind: 'RestoreScroll', arg: '900', id: 1 }])
-    r.rerender({ fontSize: 18 })
-    expect(r.web.restores()).toHaveLength(1)
+    r.web.land(1, 900)
+    // A later render (a font-size change) reflows; it does not fire the open restore again.
+    r.rerender({ fontSize: 22 })
+    expect(r.web.restores()).toEqual([
+      { kind: 'RestoreScroll', arg: '900', id: 1 },
+      { kind: 'ApplyTypography', arg: expect.stringContaining('22px'), id: 2 },
+    ])
   })
 
   it('the book id resolving after the document loaded does not forget the load', async () => {
@@ -345,14 +350,36 @@ describe('rebuilds and reflows keep the restore target (rule 8)', () => {
       ['ApplyTypography', expect.stringContaining('22px')],
       ['RestoreScroll', '900'],
     ])
-    // The open restore's ack is stale now; only the re-ask opens the gate.
-    r.web.send({ type: 'restored', restoreId: r.web.restores()[0].id, scrollY: 900 })
-    r.web.progress(0, 0)
-    r.tick(2000)
-    expect(r.io.persist).not.toHaveBeenCalled()
-    r.web.land(r.web.lastRestore()!.id, 900)
+    // The real bridge order (readerHtml.ts). onLoadEnd injects the restore and the typography in
+    // one tick, so all three rAF callbacks run in the same frame, in injection order, and every
+    // ackRestore posts `restored` then a forced `progress`:
+    //   1. RestoreScroll(900, #1) → stale ack + landing report at 900. The report opens the gate
+    //      positionally (the lost-ack fallback, readerWriteGate `positionReported`).
+    //   2. ApplyTypography(#2) captured its anchor at injection time, before #1 scrolled: the
+    //      chapter top. It scrolls back there → stale ack + report at 0, with the gate open.
+    //   3. The re-ask RestoreScroll(900, #3) → ack + landing at 900.
+    // The debounce re-arms on every report, so the one write is the final place. The 0 is only
+    // written if a flush lands between 2 and 3 — pinned in the it.fails below.
+    const [first, typography, reask] = r.web.restores()
+    r.web.land(first.id, 900)
+    r.web.land(typography.id, 0, 0, pos('ch-1', 'chapter top'))
+    r.web.land(reask.id, 900)
     r.tick(2000)
     expect(r.io.persist).toHaveBeenCalledTimes(1)
+    expect(r.io.persist.mock.calls[0][0]).toMatchObject({ scrollOffset: 900 })
+  })
+
+  // Bug Report (R4 rule 8, not fixed here): the window between steps 2 and 3 above is writable.
+  it.fails('a flush between the reflow\'s top landing and the re-ask\'s landing writes nothing at the top', async () => {
+    const r = mountReader()
+    await r.answerPosition(saved({ offset: 900 }))
+    r.web.loadEnd()
+    r.rerender({ fontSize: 22 })
+    const [first, typography] = r.web.restores()
+    r.web.land(first.id, 900)
+    r.web.land(typography.id, 0, 0, pos('ch-1', 'chapter top'))
+    r.unmount()                                               // back press before #3 reports
+    for (const [snap] of r.io.persist.mock.calls) expect(snap.scrollOffset).not.toBe(0)
   })
 
   it('review #1: a reflow\'s ack does not reset "has the reader moved" — a late server answer prompts', async () => {
