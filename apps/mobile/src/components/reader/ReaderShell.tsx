@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import type { MutableRefObject, ReactNode, RefObject } from 'react'
-import { View, Text, StyleSheet, TouchableOpacity, Animated, Linking, BackHandler } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, Animated, Linking, BackHandler, AppState } from 'react-native'
 import { WebView } from 'react-native-webview'
 import { useRouter, Stack } from 'expo-router'
 import { t, computeBookProgress, estimateTimeLeft, formatMinutesLeft, plural, resolvePdfResumePage, chapterEndPage, buildChapterDiscussBrief, isReviewableChapter } from '@textstack/shared'
@@ -32,6 +32,9 @@ import { useTts } from '../../hooks/useTts'
 import { useQuickStats } from '../../hooks/useQuickStats'
 import { useHaptics } from '../../hooks/useHaptics'
 import { useToast } from '../../context/ToastContext'
+import { useOnline } from '../../hooks/useOnline'
+import type { PdfNewerOffer } from './readerSource'
+import { returnedToForeground } from '../../lib/progressRestore'
 import { saveWordIntent } from '../../lib/saveWordIntent'
 import { capabilitiesFor } from '../../lib/capabilities'
 import { claimGuestNudge } from '../../lib/guestNudge'
@@ -121,6 +124,8 @@ export interface ReaderShellProps {
 
   /** Put a chapter on the device before opening it (end-of-chapter block). */
   ensureChapter: (slug: string) => Promise<void>
+  /** The chapter is in SQLite — a local read, no network. */
+  isChapterOnDevice: (slug: string) => Promise<boolean>
 
   /** Perform the actual router.replace to a chapter slug (path differs per source). */
   onNavigateChapter: (slug: string) => void
@@ -157,7 +162,7 @@ export interface ReaderShellProps {
   originalResumeReady?: boolean
   /** A page the server holds that is provably newer than the one the PDF opened
    *  at, found after the open. See the effect that consumes it. */
-  originalNewerPage?: number | null
+  originalNewerPage?: PdfNewerOffer | null
   /** Persist a PDF page position to server progress (debounced by the source).
    *  Never feeds the word-based reading session. */
   persistPdfPage?: (page: number, numPages: number) => void
@@ -187,7 +192,7 @@ export function ReaderShell(props: ReaderShellProps) {
     progressRef, scrollOffsetRef, currentChapterSlugRef, bookProgressRef, positionRef, totalWordCountRef,
     bumpProgress, saveProgress,
     onWebViewLoaded, onRestoreLanded, onDocumentRebuild, beginReflow,
-    ensureChapter, onNavigateChapter, chapterNavigatorRef,
+    ensureChapter, isChapterOnDevice, onNavigateChapter, chapterNavigatorRef,
     bookmarks, onToggleCurrentBookmark, onDeleteBookmark, bookmarkChapterSlug,
     bookTitleRef, wordCount, explainBookId,
     original, originalFileUrl, originalInitialPage,
@@ -525,7 +530,7 @@ export function ReaderShell(props: ReaderShellProps) {
       chapterStartPage: originalInitialPage,
       chapterEndPage: idx >= 0 ? chapterEndPage(chapters, idx) : null,
       // A newer server page that arrived before the jump is simply the target ('adopt').
-      resumePage: originalNewerPage ?? originalResumePage,
+      resumePage: originalNewerPage?.page ?? originalResumePage,
     })
     pdfResumedPageRef.current = target
     // The gate is armed by `scrollPdfToPage` itself, AFTER the target is known —
@@ -539,12 +544,23 @@ export function ReaderShell(props: ReaderShellProps) {
   // device's one. Same rule as the reflow reader (decideNewerPosition): not
   // moved since → go there; moved, or outside the chapter opened → ask once.
   const pdfNewerHandledRef = useRef<number | null>(null)
+  // The page on screen when the app last came back to the foreground — the "moved since?" baseline
+  // for an offer found by the return check (H3), like the reflow reader's.
+  const pdfReturnPageRef = useRef<number | null>(null)
   useEffect(() => {
-    if (!original || originalNewerPage == null || pdfNewerHandledRef.current === originalNewerPage) return
+    let prev: string = AppState.currentState
+    const sub = AppState.addEventListener('change', next => {
+      if (returnedToForeground(prev, next)) pdfReturnPageRef.current = currentPdfPageRef.current
+      prev = next
+    })
+    return () => sub.remove()
+  }, [])
+  useEffect(() => {
+    if (!original || originalNewerPage == null || pdfNewerHandledRef.current === originalNewerPage.at) return
     // Not jumped yet: maybeInitialPdfJump picks it up as the target.
     if (pdfGateRef.current.phase === 'awaitingTarget') return
-    pdfNewerHandledRef.current = originalNewerPage
-    const page = originalNewerPage
+    pdfNewerHandledRef.current = originalNewerPage.at
+    const page = originalNewerPage.page
     const idx = chapters.findIndex(c => c.slug === chapterSlug)
     const inChapter = resolvePdfResumePage({
       chapterStartPage: originalInitialPage,
@@ -554,7 +570,7 @@ export function ReaderShell(props: ReaderShellProps) {
     const action = decideNewerPosition({
       sameChapter: inChapter,
       restoreApplied: true,
-      readerMoved: readerMovedSince(pdfResumedPageRef.current, currentPdfPageRef.current, 0),
+      readerMoved: readerMovedSince(originalNewerPage.onReturn ? pdfReturnPageRef.current : pdfResumedPageRef.current, currentPdfPageRef.current, 0),
     })
     if (action === 'move') { scrollPdfToPage(page); return }
     pdfNewerToastRef.current = showToast({
@@ -775,17 +791,22 @@ export function ReaderShell(props: ReaderShellProps) {
     }
     if (aliveRef.current) navigateChapter(slug)
   }
-  // Chevrons, TOC, bookmarks, highlights (M9): the same offline-aware path as the block. A chapter
-  // that is neither on the device nor reachable keeps the reader where they are, with a toast —
-  // navigating there meant an error screen whose "Go back" left the book.
+  // Chevrons, TOC, bookmarks, highlights (M9). A tap never waits on a network: online, or with the
+  // chapter in SQLite, it navigates at once (the next mount's loader is device-first, then network).
+  // Only offline AND not on the device does it stay put, with a toast — navigating there meant an
+  // error screen whose "Go back" left the book. `openingRef` makes a double tap navigate once; it is
+  // never reset after a navigation, because the route change remounts this screen.
+  const online = useOnline()
+  const openingRef = useRef(false)
   const openChapter = async (slug: string) => {
-    try {
-      await ensureChapter(slug)
-    } catch {
-      if (aliveRef.current) showToast({ variant: 'info', icon: 'cloud-offline-outline', message: t(language, 'reader.chapterEnd.unavailable'), bottomOffset: footerHeight })
+    if (openingRef.current) return
+    openingRef.current = true
+    if (online || await isChapterOnDevice(slug).catch(() => false)) {
+      if (aliveRef.current) navigateChapter(slug)
       return
     }
-    if (aliveRef.current) navigateChapter(slug)
+    openingRef.current = false
+    if (aliveRef.current) showToast({ variant: 'info', icon: 'cloud-offline-outline', message: t(language, 'reader.chapterEnd.unavailable'), bottomOffset: footerHeight })
   }
   const endLabels = useMemo<ChapterEndLabels>(() => ({
     next: t(language, 'reader.chapterEnd.next'),

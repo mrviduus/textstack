@@ -61,7 +61,7 @@ export function useReaderBook({
     // here, and the id is what restore and every save are keyed on. Waiting for getBook left a
     // hung network with no id at all — no restore, no saves for the visit (C1). The server's
     // answer, when it comes, is the same id.
-    getAllCachedBooks().then(books => {
+    const deviceId = getAllCachedBooks().then(books => {
       if (cancelled || editionIdRef.current) return
       const match = books.find(b => b.slug === bookSlug)
       if (!match) return
@@ -102,6 +102,9 @@ export function useReaderBook({
         // Offline: the device answer above stands — and the table of contents comes from the
         // chapters on the device, or a downloaded book opened offline had an empty one (M2).
         // Only a complete download: a partial list would also feed the book-% maths a wrong total.
+        // The device lookup above is not awaited by the request, and offline the request fails
+        // first — so wait for it here, or the id is not there yet and the TOC stays empty.
+        await deviceId
         const id = editionIdRef.current
         if (!id) return
         try {

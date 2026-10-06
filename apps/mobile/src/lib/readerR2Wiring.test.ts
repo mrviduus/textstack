@@ -30,6 +30,19 @@ describe('H1 — a PDF upload on a slow network never writes scroll: over page:'
     expect(userBook).toMatch(/enabled: reflowWrites && layoutKnown/)
   })
 
+  it('the device layout path publishes the chapter start pages before the layout (review #1)', () => {
+    const start = userBook.indexOf('const layout = deviceLayout(')
+    const block = userBook.slice(start, userBook.indexOf('}, [bookId])', start))
+    expect(block.indexOf('sourceStartPageBySlugRef.current =')).toBeGreaterThan(-1)
+    expect(block.indexOf('sourceStartPageBySlugRef.current =')).toBeLessThan(block.indexOf('setLayoutKnown(true)'))
+  })
+
+  it('the offline book path publishes the chapter start pages too', () => {
+    const start = userBook.indexOf('const [meta, cachedChapters] = await Promise.all(')
+    const block = userBook.slice(start, userBook.indexOf('}).finally(', start))
+    expect(block).toContain('sourceStartPageBySlugRef.current =')
+  })
+
   it('remembers the answer on the device for the next open', () => {
     expect(userBook).toContain('setUserBookIsPdf(')
   })
@@ -56,14 +69,25 @@ describe('H2 / M9 / M2 — offline chapter changes', () => {
     expect(read('src/hooks/useReaderBook.ts')).toContain('listCachedChapters(')
   })
 
+  it('the offline TOC waits for the device id instead of racing it (review #2)', () => {
+    const bookHook = read('src/hooks/useReaderBook.ts')
+    const catchAt = bookHook.indexOf('.catch(async () => {')
+    const block = bookHook.slice(catchAt, bookHook.indexOf('.finally(', catchAt))
+    expect(block).toMatch(/await deviceId/)
+    expect(block.indexOf('await deviceId')).toBeLessThan(block.indexOf('listCachedChapters('))
+  })
+
   it('chevrons, TOC, bookmarks and highlights go through the offline-aware path', () => {
     expect(shell).not.toMatch(/&& navigateChapter\(/)
     expect(shell).not.toContain('onNavigate={navigateChapter}')
     const start = shell.indexOf('const openChapter = async')
     expect(start).toBeGreaterThan(-1)
     const body = shell.slice(start, shell.indexOf('\n  }\n', start))
-    expect(body.indexOf('ensureChapter(')).toBeGreaterThan(-1)
-    expect(body.indexOf('navigateChapter(')).toBeGreaterThan(body.indexOf('ensureChapter('))
+    // A tap never waits on a network (review #3): online → navigate now; offline → SQLite only.
+    expect(body).not.toContain('ensureChapter(')
+    expect(body).toMatch(/if \(online \|\| await isChapterOnDevice\(/)
+    // One navigation per tap burst.
+    expect(body).toMatch(/if \(openingRef\.current\) return/)
     const toc = shell.slice(shell.indexOf('const handleTocSelect'), shell.indexOf('const toggleCurrentBookmark'))
     expect(toc).toContain('openChapter(')
   })
@@ -83,6 +107,15 @@ describe('H3 — returning to the foreground checks for a newer position', () =>
     const start = source.indexOf('const loadNewerPosition = useCallback(')
     const body = source.slice(start, source.indexOf('\n  }, [', start))
     expect(body).toContain('opts?.latest')
+  })
+})
+
+describe('H3 — the PDF foreground offer (review #4)', () => {
+  it('every offer is a new event, and a return offer measures "moved" from the page at return', () => {
+    expect(userBook).toMatch(/setPdfNewerPage\(\{ page: serverPage, at: Date\.now\(\), onReturn: true \}\)/)
+    expect(shell).toMatch(/pdfNewerHandledRef\.current === originalNewerPage\.at/)
+    expect(shell).toMatch(/originalNewerPage\.onReturn \? pdfReturnPageRef\.current : pdfResumedPageRef\.current/)
+    expect(shell).toMatch(/pdfReturnPageRef\.current = currentPdfPageRef\.current/)
   })
 })
 

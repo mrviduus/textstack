@@ -27,19 +27,25 @@ describe('reflowWritesEnabled', () => {
 })
 
 describe('deviceLayout (H1) — is it a PDF, answered by the device', () => {
-  it('the original file on the phone → Original layout, no network needed', () => {
-    expect(deviceLayout({ hasLocalOriginal: true, knownPdf: true })).toBe('original')
-    expect(deviceLayout({ hasLocalOriginal: true, knownPdf: null })).toBe('original')
+  it('the original file and the opened chapter on the phone → Original layout, no network needed', () => {
+    expect(deviceLayout({ hasLocalOriginal: true, routeChapterOnDevice: true, knownPdf: true })).toBe('original')
+    expect(deviceLayout({ hasLocalOriginal: true, routeChapterOnDevice: true, knownPdf: null })).toBe('original')
+  })
+
+  it('the original without the opened chapter → unknown (its start page is the open page)', () => {
+    // Opening chapter 7 before its start page is known jumped to the saved page or page 1, and the
+    // viewer's bootstrap page is read once, at mount.
+    expect(deviceLayout({ hasLocalOriginal: true, routeChapterOnDevice: false, knownPdf: true })).toBeNull()
   })
 
   it('known not to be a PDF → reflow, no network needed', () => {
-    expect(deviceLayout({ hasLocalOriginal: false, knownPdf: false })).toBe('reflow')
+    expect(deviceLayout({ hasLocalOriginal: false, routeChapterOnDevice: false, knownPdf: false })).toBe('reflow')
   })
 
   it('a PDF whose file is not here, or a book the device knows nothing about → unknown', () => {
     // Stream vs. extracted text is the network's call; the reflow WebView must not render first,
     // or its scroll writes `scroll:` over `page:N`.
-    expect(deviceLayout({ hasLocalOriginal: false, knownPdf: true })).toBeNull()
-    expect(deviceLayout({ hasLocalOriginal: false, knownPdf: null })).toBeNull()
+    expect(deviceLayout({ hasLocalOriginal: false, routeChapterOnDevice: true, knownPdf: true })).toBeNull()
+    expect(deviceLayout({ hasLocalOriginal: false, routeChapterOnDevice: true, knownPdf: null })).toBeNull()
   })
 })

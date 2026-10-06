@@ -77,6 +77,11 @@ export function useEditionReaderSource({
     if (editionIdRef.current) await cacheChapter(editionIdRef.current, ch)
   }, [bookSlug, language])
 
+  const isChapterOnDevice = useCallback(async (slug: string) => {
+    const id = editionIdRef.current
+    return !!id && !!(await getCachedChapter(id, slug))
+  }, [])
+
   // The chapter list, in a ref so `persist` can read it without being rebuilt on every change —
   // it is handed to useReaderPersistence, which keys effects on its identity.
   const chaptersRef = useRef(chapters)
@@ -235,6 +240,7 @@ export function useEditionReaderSource({
     progressRef, scrollOffsetRef, currentChapterSlugRef, bookProgressRef, positionRef, totalWordCountRef,
     saveProgress, bumpProgress, onWebViewLoaded, onRestoreLanded, onDocumentRebuild, beginReflow,
     ensureChapter,
+    isChapterOnDevice,
     onNavigateChapter: navigateToChapter,
     chapterNavigatorRef,
     bookmarks,

@@ -68,6 +68,13 @@ export interface SavedPosition {
 /** A position the server holds that is provably newer than the local record a
  *  chapter opened from (see `serverProvablyNewer`). Found in the background,
  *  after the open — never awaited by it. */
+export interface PdfNewerOffer {
+  page: number
+  at: number
+  /** Found on a return to the foreground: "moved" is measured from the page at return. */
+  onReturn?: boolean
+}
+
 export interface NewerPosition {
   chapterSlug: string
   saved: SavedPosition
@@ -126,6 +133,8 @@ export interface ReaderRuntime {
   /** Put a chapter on the device (cache first, then network) before opening it.
    *  Rejects when it is neither cached nor reachable. */
   ensureChapter: (slug: string) => Promise<void>
+  /** The chapter is in SQLite — a local read, no network. */
+  isChapterOnDevice: (slug: string) => Promise<boolean>
 
   // Navigation (path differs per source).
   onNavigateChapter: (slug: string) => void
@@ -163,9 +172,11 @@ export interface ReaderRuntime {
    *  network). Ignored when `originalInitialPage` is set (chapter jump is instant). */
   originalResumeReady?: boolean
   /** A page the server holds that is provably newer than the local one the PDF
-   *  opened at — found in the background after the open. The shell adopts it,
-   *  moves there, or asks, by `decideNewerPosition`. */
-  originalNewerPage?: number | null
+   *  opened at — found in the background after the open, or on a return to the
+   *  foreground (`onReturn`). The shell adopts it, moves there, or asks, by
+   *  `decideNewerPosition`. `at` makes every offer a new event, even for a page
+   *  offered before. */
+  originalNewerPage?: PdfNewerOffer | null
   /** Persist a PDF page position to server progress (page fraction → the same
    *  ProgressPercent field the library card reads). Debounced by the source. The
    *  shell calls this on the throttled `pdfPage` message; it never feeds the

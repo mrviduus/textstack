@@ -15,7 +15,7 @@ import {
   pdfFlushDecision, shouldFlushOnClose, PDF_FLUSH_DEBOUNCE_MS,
 } from '../../lib/pdfWritePolicy'
 import { useReaderPersistence } from '../../hooks/useReaderPersistence'
-import type { NewerPosition, ProgressSnapshot, ReaderChapterMeta, ReaderRuntime, SavedPosition } from './readerSource'
+import type { NewerPosition, PdfNewerOffer, ProgressSnapshot, ReaderChapterMeta, ReaderRuntime, SavedPosition } from './readerSource'
 
 type ToastFn = (t: { message: string; variant: 'error' | 'success' | 'info' }) => void
 
@@ -24,6 +24,10 @@ type Params = {
   chapterSlug: string
   showToast: ToastFn
 }
+
+/** Chapter → source start page, from the chapters cached on the device. */
+const startPagesBySlug = (rows: { chapterSlug: string; sourceStartPage: number | null }[]) =>
+  Object.fromEntries(rows.flatMap(r => (typeof r.sourceStartPage === 'number' && r.sourceStartPage >= 1 ? [[r.chapterSlug, r.sourceStartPage]] : [])))
 
 const bookmarkSlug = (b: BookmarkDto) => (b.locator.startsWith('chapter:') ? b.locator.slice(8) : b.locator)
 
@@ -108,7 +112,7 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
   // local page cache). `pdfResumeReady` gates the initial scroll.
   const [pdfResumePage, setPdfResumePage] = useState<number | null>(null)
   const [pdfResumeReady, setPdfResumeReady] = useState(false)
-  const [pdfNewerPage, setPdfNewerPage] = useState<number | null>(null)
+  const [pdfNewerPage, setPdfNewerPage] = useState<PdfNewerOffer | null>(null)
 
   useEffect(() => { userBookIdRef.current = bookId || null }, [bookId])
 
@@ -185,21 +189,30 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
   }, [bookId, chapterSlug])
 
   // Which viewer, from the DEVICE first (H1) — never waits on the network when the phone knows:
-  // the original file is here, or the book is known not to be a PDF. Otherwise the book fetch
-  // below decides, success or failure.
+  // the original file (and the opened chapter, for its start page) is here, or the book is known
+  // not to be a PDF. Otherwise the book fetch below decides, success or failure.
+  const routeSlugRef = useRef(chapterSlug)
+  routeSlugRef.current = chapterSlug
   useEffect(() => {
     if (!bookId) return
     let cancelled = false
     setLayoutKnown(false)
     ;(async () => {
-      const [uri, meta, flag] = await Promise.all([
+      const [uri, meta, flag, cachedChapters] = await Promise.all([
         getCachedOriginalUri(bookId, 'pdf').catch(() => null),
         getCachedUserBookMeta(bookId).catch(() => null),
         getUserBookIsPdf(bookId),
+        listCachedUserChapters(bookId).catch(() => []),
       ])
       if (cancelled) return
-      const layout = deviceLayout({ hasLocalOriginal: !!uri, knownPdf: meta?.isPdf ?? flag })
+      const layout = deviceLayout({
+        hasLocalOriginal: !!uri,
+        routeChapterOnDevice: cachedChapters.some(c => c.chapterSlug === routeSlugRef.current),
+        knownPdf: meta?.isPdf ?? flag,
+      })
       if (layout === 'original') {
+        // Before the layout is published: the shell reads the chapter's start page once, at mount.
+        sourceStartPageBySlugRef.current = startPagesBySlug(cachedChapters)
         void touchOriginal(bookId)
         setLocalOriginalUri(uri)
         setHasOriginalPdf(true)
@@ -281,6 +294,7 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
         const localOriginal = meta.isPdf ? await getCachedOriginalUri(bookId, 'pdf') : null
         if (localOriginal) void touchOriginal(bookId)
         setLocalOriginalUri(localOriginal)
+        sourceStartPageBySlugRef.current = startPagesBySlug(cachedChapters)
         setHasOriginalPdf(Boolean(localOriginal))
         offlineReflowOfPdfRef.current = meta.isPdf && !localOriginal
         const mapped: ReaderChapterMeta[] = cachedChapters.map((ch, idx) => ({
@@ -447,6 +461,8 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
     await cacheUserChapter(bookId, ch, chapters.find(c => c.slug === slug)?.chapterNumber ?? null)
   }, [bookId, chapters])
 
+  const isChapterOnDevice = useCallback(async (slug: string) => !!(await getCachedUserChapter(bookId, slug)), [bookId])
+
   // --- S4c: Original-layout PDF resume page. The DEVICE's page opens the
   // document (`setPdfResumeReady(true)` before any request); the server is asked
   // after, and only a page provably newer than that one is handed on as
@@ -469,7 +485,7 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
         const p = await userBooksApi.getUserBookProgress(bookId)
         if (cancelled) return
         const serverPage = parsePdfPageLocator(p?.locator)
-        if (serverPage != null && serverPage !== localPage && serverProvablyNewer(local, p)) setPdfNewerPage(serverPage)
+        if (serverPage != null && serverPage !== localPage && serverProvablyNewer(local, p)) setPdfNewerPage({ page: serverPage, at: Date.now() })
       } catch { /* offline / no row: the device's page stands */ }
     })()
     return () => { cancelled = true }
@@ -491,7 +507,7 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
           const p = await userBooksApi.getUserBookProgress(bookId)
           if (!alive) return
           const serverPage = parsePdfPageLocator(p?.locator)
-          if (serverPage != null && serverPage !== local?.page && serverProvablyNewer(local, p)) setPdfNewerPage(serverPage)
+          if (serverPage != null && serverPage !== local?.page && serverProvablyNewer(local, p)) setPdfNewerPage({ page: serverPage, at: Date.now(), onReturn: true })
         } catch { /* offline: this device's page stands */ }
       })()
     })
@@ -683,6 +699,7 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
     progressRef, scrollOffsetRef, currentChapterSlugRef, bookProgressRef, positionRef, totalWordCountRef,
     saveProgress, bumpProgress, onWebViewLoaded, onRestoreLanded, onDocumentRebuild, beginReflow,
     ensureChapter,
+    isChapterOnDevice,
     onNavigateChapter: navigateToChapter,
     chapterNavigatorRef,
     bookmarks,
