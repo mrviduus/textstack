@@ -23,6 +23,7 @@ import { ReaderSettingsDrawer } from '../components/reader/ReaderSettingsDrawer'
 import { ReaderTocDrawer } from '../components/reader/ReaderTocDrawer'
 import { ReaderSearchDrawer } from '../components/reader/ReaderSearchDrawer'
 import { ReaderHighlights } from '../components/reader/ReaderHighlights'
+import { chapterForHighlight } from '../lib/textAnchor'
 import { SearchOverlayLayer } from '../components/reader/SearchOverlayLayer'
 import { useReadingSession } from '../hooks/useReadingSession'
 import { useQuickStats } from '../hooks/useQuickStats'
@@ -494,12 +495,10 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
   // Drawer jump to a reflow highlight in a chapter the reader hasn't mounted
   // (one-chapter-at-a-time). Resolve its chapter id → slug and route there;
   // useHighlightEdit re-runs the scroll once the new chapter's DOM lands.
-  // The anchor's chapterId is the one id every row has (an upload's server row
-  // carries userChapterId and an empty chapterId) — the same id findTextByAnchor
-  // paints by. An orphan (no chapter) has nowhere to go.
+  // Same chapter key the overlay paints by (anchor id, else the row's chapterId /
+  // userChapterId — mobile anchors carry none). An orphan has nowhere to go.
   const handleHighlightNavigate = useCallback((h: StoredHighlight) => {
-    const chapterId = isPdfAnchor(h.anchor) ? '' : h.anchor.chapterId
-    const target = chapterId ? book?.chapters.find(c => c.id === chapterId) : undefined
+    const target = chapterForHighlight(book?.chapters, h)
     if (!target || target.identifier === activeChapterIdentifier) return
     flushProgress()
     navigate(`${getChapterUrl(target.identifier)}?highlight=${encodeURIComponent(h.id)}`)
@@ -710,6 +709,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
               <>
                 <ReaderSection
                   chapterId={chapter.id}
+                  chapterSlug={chapter.identifier}
                   chapterIndex={chapter.chapterNumber}
                   html={chapter.html}
                   settings={settings}

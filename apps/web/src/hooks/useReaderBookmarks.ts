@@ -38,6 +38,7 @@ export function useReaderBookmarks({
   const publicBookmarks = useBookmarks(mode === 'public' ? (bookSlug || '') : '', {
     editionId: publicEditionId,
     isAuthenticated,
+    chapters: book?.chapters,
   })
   const userBookmarks = useUserBookBookmarks(mode === 'userbook' ? (userBookId || '') : '')
 

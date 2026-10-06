@@ -33,6 +33,7 @@ vi.mock('../../lib/offlineDb', () => ({
 }))
 
 import { useReaderChapter } from '../useReaderChapter'
+import { cacheChapter } from '../../lib/offlineDb'
 
 describe('useReaderChapter — cache path chapter id', () => {
   it('resolves the real chapter id for a cached chapter', async () => {
@@ -47,5 +48,17 @@ describe('useReaderChapter — cache path chapter id', () => {
     expect(getChapter).toHaveBeenCalledTimes(1)
     expect(result.current.chapter?.id).toBe(ids.one)
     expect(result.current.publicChapter?.id).toBe(ids.one)
+  })
+
+  it('backfills the real id into an old cache row once the book list resolves it', async () => {
+    const { result, rerender } = renderHook(
+      (slug: string) => useReaderChapter({ mode: 'public', bookSlug: 'b', chapterSlug: slug, isAuthenticated: true }),
+      { initialProps: 'two' },
+    )
+    await waitFor(() => expect(result.current.chapter?.identifier).toBe('two'))
+    vi.mocked(cacheChapter).mockClear()
+    rerender('one')
+    await waitFor(() => expect(result.current.chapter?.identifier).toBe('one'))
+    await waitFor(() => expect(cacheChapter).toHaveBeenCalledWith(ED_ID, expect.objectContaining({ id: ids.one, slug: 'one' })))
   })
 })

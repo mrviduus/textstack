@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { createTextAnchor, findTextByAnchor } from './textAnchor'
+import { createTextAnchor, findTextByAnchor, highlightChapterKey, chapterForHighlight } from './textAnchor'
 import type { TextAnchor, HighlightAnchor } from './offlineDb'
 
 describe('textAnchor', () => {
@@ -304,6 +304,37 @@ describe('textAnchor', () => {
       range.setStart(t, 4)
       range.setEnd(t, 7)
       expect(createTextAnchor(range, 'stale', container).chapterId).toBe('real')
+    })
+  })
+
+  // Review of #719: mobile anchors carry no chapterId ({prefix,exact,suffix}); the row does.
+  describe('chapter key from the row', () => {
+    const mobileAnchor = { prefix: 'went into ', exact: 'the room', suffix: '.', startOffset: 13, endOffset: 21 } as unknown as TextAnchor
+
+    it('paints a mobile anchor in the chapter its ROW names', () => {
+      container.innerHTML = '<article data-chapter-id="ch-3"><p>He went into the room.</p></article>'
+      expect(findTextByAnchor(mobileAnchor, container, 'ch-3')?.toString()).toBe('the room')
+      expect(findTextByAnchor(mobileAnchor, container, 'ch-2')).toBeNull()
+    })
+
+    it('row ids fill in for a missing/empty anchor chapterId; neither = orphan', () => {
+      const row = { anchor: mobileAnchor, chapterId: '', userChapterId: 'uc-1' }
+      expect(highlightChapterKey(row)).toBe('uc-1')
+      expect(highlightChapterKey({ ...row, anchor: { ...mobileAnchor, chapterId: '' }, userChapterId: undefined, chapterId: 'c-9' })).toBe('c-9')
+      expect(highlightChapterKey({ anchor: mobileAnchor, chapterId: '' })).toBeNull()
+    })
+
+    it('a cache-key id ("editionId:slug") matches the chapter by slug', () => {
+      container.innerHTML = '<article data-chapter-id="real-guid" data-chapter-slug="3-iii"><p>He went into the room.</p></article>'
+      expect(findTextByAnchor(mobileAnchor, container, 'ed-1:3-iii')?.toString()).toBe('the room')
+      expect(findTextByAnchor(mobileAnchor, container, 'ed-1:2-ii')).toBeNull()
+    })
+
+    it('resolves the chapter to jump to from any of the ids', () => {
+      const chapters = [{ id: 'g-2', identifier: '2-ii' }, { id: 'g-3', identifier: '3-iii' }]
+      expect(chapterForHighlight(chapters, { anchor: mobileAnchor, chapterId: 'g-3' })?.identifier).toBe('3-iii')
+      expect(chapterForHighlight(chapters, { anchor: mobileAnchor, chapterId: 'ed:2-ii' })?.identifier).toBe('2-ii')
+      expect(chapterForHighlight(chapters, { anchor: mobileAnchor, chapterId: '' })).toBeUndefined()
     })
   })
 })

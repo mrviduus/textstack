@@ -122,6 +122,9 @@ export function useReaderChapter({
                 prev: cached.prev,
                 next: cached.next,
               }
+              // Heal a row cached before chapterId was stored, so the next
+              // offline read has the real id too.
+              if (!cached.chapterId && bookChapter) cacheChapter(cachedEditionId, rawChapter).catch(() => {})
               setPublicChapter(rawChapter)
               setChapter({
                 id: rawChapter.id,

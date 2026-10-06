@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, type RefObject } from 'react'
 import { isPdfAnchor } from '@textstack/shared'
-import { findTextByAnchor, createTextAnchor } from '../lib/textAnchor'
+import { findTextByAnchor, createTextAnchor, highlightChapterKey, isCacheChapterKey } from '../lib/textAnchor'
 import type { HighlightAnchor, HighlightColor, StoredHighlight } from '../lib/offlineDb'
 
 /** Repeatable drawer jump: same id re-fires when the nonce changes. */
@@ -80,7 +80,7 @@ export function useHighlightEdit({
   const tryScrollToTarget = useCallback(
     (target: StoredHighlight): boolean => {
       if (!containerRef.current) return false
-      const range = findTextByAnchor(target.anchor, containerRef.current)
+      const range = findTextByAnchor(target.anchor, containerRef.current, highlightChapterKey(target))
       if (!range) return false
       const rect = range.getBoundingClientRect()
       if (rect.width !== 0 || rect.height !== 0) {
@@ -176,6 +176,10 @@ export function useHighlightEdit({
     async (range: Range | null, text: string, color: HighlightColor) => {
       if (!range || !containerRef.current) return
       const anchor = createTextAnchor(range, chapterId, containerRef.current)
+      // An old offline-cache chapter whose real id is unknown: the server would
+      // reject the cache key, and the row could never sync. Not saved.
+      // ponytail: blocked, not queued — only an offline read of a pre-fix cache row hits it.
+      if (isCacheChapterKey(anchor.chapterId)) return
       await addHighlight(anchor, color, text)
       onAfterCreate?.()
     },

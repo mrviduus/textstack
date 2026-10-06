@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { Overlayer, type DrawFn } from '@textstack/reader-overlay'
 import { useOverlayAnnotations, type AnnotationSpec } from '../../hooks/useOverlayAnnotations'
 import { useOverlayReflow } from '../../hooks/useOverlayReflow'
-import { findTextByAnchor } from '../../lib/textAnchor'
+import { findTextByAnchor, highlightChapterKey } from '../../lib/textAnchor'
 import type { HighlightColor, StoredHighlight } from '../../lib/offlineDb'
 import { isReviewed, useReviewedMarks } from './ReviewedMarks'
 
@@ -71,7 +71,7 @@ export function HighlightOverlayLayer({ highlights, containerRef, chapterId, onH
     (h: StoredHighlight): AnnotationSpec<StoredHighlight> | null => {
       const container = containerRef.current
       if (!container) return null
-      const range = findTextByAnchor(h.anchor, container)
+      const range = findTextByAnchor(h.anchor, container, highlightChapterKey(h))
       if (!range) return null
       return {
         item: h,

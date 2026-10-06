@@ -17,6 +17,8 @@ export interface ReaderSectionHandle {
 
 interface Props {
   chapterId: string
+  /** Lets a highlight saved under an offline cache key ("editionId:slug") find its chapter. */
+  chapterSlug?: string
   chapterIndex: number
   html: string
   settings: ReaderSettings
@@ -38,7 +40,7 @@ function fontFamily(f: ReaderSettings['fontFamily']): string {
 }
 
 export const ReaderSection = forwardRef<ReaderSectionHandle, Props>(function ReaderSection(
-  { chapterId, chapterIndex, html, settings, overlayEnabled = true },
+  { chapterId, chapterSlug, chapterIndex, html, settings, overlayEnabled = true },
   ref,
 ) {
   const articleRef = useRef<HTMLElement | null>(null)
@@ -68,6 +70,7 @@ export const ReaderSection = forwardRef<ReaderSectionHandle, Props>(function Rea
         ref={articleRef}
         className="reader-section__article"
         data-chapter-id={chapterId}
+        data-chapter-slug={chapterSlug}
         data-chapter-index={chapterIndex}
         style={{
           fontSize: `${settings.fontSize}px`,

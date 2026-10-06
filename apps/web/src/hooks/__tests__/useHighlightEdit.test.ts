@@ -12,6 +12,8 @@ const createTextAnchor = vi.fn((..._a: unknown[]) => ({
 vi.mock('../../lib/textAnchor', () => ({
   findTextByAnchor: (...a: unknown[]) => findTextByAnchor(...a),
   createTextAnchor: (...a: unknown[]) => createTextAnchor(...a),
+  highlightChapterKey: (h: { anchor: { chapterId?: string } }) => h.anchor.chapterId ?? null,
+  isCacheChapterKey: (id: string) => id.includes(':'),
 }))
 
 import { useHighlightEdit } from '../useHighlightEdit'
@@ -61,6 +63,22 @@ describe('useHighlightEdit — hoisted highlights (no internal load)', () => {
       await result.current.createHighlightFromSelection(range, 'hello', 'green')
     })
     expect(addHighlight).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not save a highlight under an offline cache key (editionId:slug)', async () => {
+    createTextAnchor.mockReturnValueOnce({
+      prefix: '', exact: 'x', suffix: '', startOffset: 0, endOffset: 1, chapterId: 'ed-1:2-ii',
+    })
+    const { result } = renderHook(() =>
+      useHighlightEdit({
+        highlights: [], addHighlight, updateHighlight, removeHighlight,
+        chapterId: 'ed-1:2-ii', containerRef: makeContainer(),
+      }),
+    )
+    await act(async () => {
+      await result.current.createHighlightFromSelection(document.createRange(), 'x', 'green')
+    })
+    expect(addHighlight).not.toHaveBeenCalled()
   })
 
   it('delete routes to the injected removeHighlight', async () => {
