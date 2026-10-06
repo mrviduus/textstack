@@ -234,13 +234,14 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
   }, [pdfNumPages])
 
   // Deep-link: when opened with ?highlight=<id> on a PDF, scroll the viewer to
-  // the highlight's stored page once the highlights have loaded.
-  const pdfScrolledToHlRef = useRef(false)
+  // the highlight's stored page once the highlights have loaded. Once per link
+  // (the id), not once per mount: the param is read live and removed when resolved.
+  const pdfScrolledToHlRef = useRef<string | null>(null)
   useEffect(() => {
-    if (!originalActive || !scrollToHighlightId || pdfScrolledToHlRef.current) return
+    if (!originalActive || !scrollToHighlightId || pdfScrolledToHlRef.current === scrollToHighlightId) return
     const h = highlightsApi.highlights.find((x) => x.id === scrollToHighlightId)
     if (!h || !isPdfAnchor(h.anchor)) return
-    pdfScrolledToHlRef.current = true
+    pdfScrolledToHlRef.current = scrollToHighlightId
     setPdfScrollTo({ page: clampPage(h.anchor.page, pdfNumPages), nonce: Date.now() })
   }, [originalActive, scrollToHighlightId, highlightsApi.highlights, pdfNumPages])
 
