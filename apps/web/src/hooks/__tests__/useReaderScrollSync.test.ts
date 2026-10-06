@@ -458,6 +458,36 @@ describe('useReaderScrollSync — Next → Prev (C2)', () => {
     const ch1Writes = updateProgress.mock.calls.map(c => c[2] as string).filter(l => l.startsWith('scroll:ch1:'))
     expect(ch1Writes[ch1Writes.length - 1]).toBe('scroll:ch1:6000')
   })
+
+  it('a save in chapter II (the book record now names II) does not cost chapter I its place', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    realScrollTo()
+    const updateProgress = vi.fn()
+    const props: Props = {
+      ...baseProps,
+      publicBookChapters: [{ id: 'ch1-id', slug: 'ch1' }, { id: 'ch2-id', slug: 'ch2' }] as any,
+      effectiveProgress: { locator: 'scroll:ch1:3000' },
+      publicProgress: { updateProgress, flushSave: vi.fn() },
+    }
+    const { rerender } = renderHook((p: Props) => useReaderScrollSync(p), { initialProps: props })
+    act(() => { scrollBy(6000) })
+    act(() => { vi.advanceTimersByTime(3000) })
+
+    rerender({ ...props, chapterIdentifier: 'ch2', chapterLoaded: false })
+    setScroll(0)
+    rerender({ ...props, chapterIdentifier: 'ch2', chapterLoaded: true })
+    // Read on in II and let the save land; the one per-book record now points at II.
+    act(() => { scrollBy(2500) })
+    act(() => { vi.advanceTimersByTime(3000) })
+    const ch2Record = { locator: 'scroll:ch2:2500' }
+    rerender({ ...props, effectiveProgress: ch2Record, chapterIdentifier: 'ch2', chapterLoaded: true })
+
+    rerender({ ...props, effectiveProgress: ch2Record, chapterIdentifier: 'ch1', chapterLoaded: false })
+    ;(window.scrollTo as any).mockClear()
+    rerender({ ...props, effectiveProgress: ch2Record, chapterIdentifier: 'ch1', chapterLoaded: true })
+
+    expect(window.scrollTo).toHaveBeenLastCalledWith({ top: 6000, behavior: 'instant' })
+  })
 })
 
 describe('isChapterReady (C2)', () => {

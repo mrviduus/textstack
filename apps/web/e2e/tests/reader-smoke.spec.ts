@@ -196,6 +196,14 @@ test.describe('Reader smoke @reader-smoke', () => {
     await expect(article(page)).toContainText(CH2_ONLY_SENTENCE)
     // The next chapter opens at its top, not at the previous chapter's offset.
     await expect.poll(() => scrollY(page), { timeout: 10_000 }).toBeLessThanOrEqual(TOLERANCE_PX)
+    // Read a little in chapter II and let that save land: the book's one record now
+    // points at chapter II, so chapter I's place must come from this visit's memory.
+    await waitForOpenSave(page, book, book.ch2.slug)
+    const target2 = await scrollToMiddleAndSave(page, book, book.ch2.slug)
+    await expect.poll(async () => {
+      const resp = await page.context().request.get(`${API_URL}/me/progress/${book.editionId}`, { headers: API_HEADERS })
+      return resp.ok() ? (await resp.json())?.locator : null
+    }, { timeout: 15_000 }).toBe(`scroll:${book.ch2.slug}:${target2}`)
 
     await page.locator('.reader-nav__btn--prev').dispatchEvent('click')
     await expect(page).toHaveURL(atChapter(book.ch1.slug))
