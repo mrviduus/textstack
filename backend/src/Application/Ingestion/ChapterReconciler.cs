@@ -1,6 +1,10 @@
+using System.Text.Encodings.Web;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using Application.Common.Interfaces;
 using Domain.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace Application.Ingestion;
 
@@ -20,6 +24,13 @@ namespace Application.Ingestion;
 /// nearest surviving chapter before it, else the nearest after it (the previous one so a reader
 /// never skips text they have not read; it is also where a merged chapter's text now lives).
 /// </para>
+/// <para>
+/// <b>Positions name chapters by slug too</b> (progress locator <c>scroll:&lt;slug&gt;:&lt;px&gt;</c>,
+/// position JSON <c>chapterSlug</c>, bookmark <c>chapter:&lt;slug&gt;</c>, insight
+/// <c>ChapterSlug</c>), so keeping Ids is not enough: <see cref="SlugMoves"/> says where every old
+/// slug went. A matched chapter keeps the in-chapter part (same chapter); a re-pointed one is reset to
+/// the chapter start (the text there is different).
+/// </para>
 /// </summary>
 public static class ChapterReconciler
 {
@@ -28,6 +39,10 @@ public static class ChapterReconciler
     /// <param name="Matches">Per incoming chapter, the index of the existing chapter it replaces, or -1 (new).</param>
     /// <param name="Successors">Per existing chapter that matched nothing: (existing index, incoming index that inherits its readers).</param>
     public sealed record Result(int[] Matches, IReadOnlyList<(int Existing, int Incoming)> Successors);
+
+    /// <summary>Where an old chapter slug went. <paramref name="Reset"/>: the readers were handed to a
+    /// different chapter, so any in-chapter offset/anchor is meaningless there.</summary>
+    public readonly record struct SlugMove(string To, bool Reset);
 
     public static Result Plan(IReadOnlyList<Key> existing, IReadOnlyList<Key> incoming)
     {
@@ -79,7 +94,7 @@ public static class ChapterReconciler
     /// caller that then marks its job failed does not half-apply it.
     /// </summary>
     public static async Task ReconcileEditionAsync(
-        IAppDbContext db, Guid editionId, IReadOnlyList<Chapter> incoming, CancellationToken ct)
+        IAppDbContext db, Guid editionId, IReadOnlyList<Chapter> incoming, CancellationToken ct, ILogger? logger = null)
     {
         var existing = await db.Chapters.Where(c => c.EditionId == editionId).ToListAsync(ct);
         if (incoming.Count == 0 && existing.Count > 0)
@@ -89,7 +104,9 @@ public static class ChapterReconciler
         var plan = Plan(
             existing.Select(c => new Key(c.ChapterNumber, c.Slug, c.Title)).ToList(),
             incoming.Select(c => new Key(c.ChapterNumber, c.Slug, c.Title)).ToList());
+        var oldSlugs = existing.Select(c => c.Slug).ToArray();
         var final = new Chapter[incoming.Count];
+        var undo = new List<Action>();
 
         await using var tx = await db.BeginTransactionAsync(ct);
         try
@@ -125,19 +142,40 @@ public static class ChapterReconciler
 
             foreach (var (j, i) in plan.Successors)
                 await RemoveEditionChapterAsync(db, existing[j], final[i].Id, ct);
+
+            var moves = SlugMoves(plan, oldSlugs, final.Select(c => c.Slug).ToList());
+            if (moves.Count > 0)
+            {
+                // ponytail: loads every reader row of the edition; per-row SQL if editions get thousands.
+                var progress = await db.ReadingProgresses.IgnoreQueryFilters()
+                    .Where(x => x.EditionId == editionId).ToListAsync(ct);
+                var bookmarks = await db.Bookmarks.IgnoreQueryFilters()
+                    .Where(x => x.EditionId == editionId).ToListAsync(ct);
+                undo.Add(() => Detach(db.ReadingProgresses, progress));
+                undo.Add(() => Detach(db.Bookmarks, bookmarks));
+                foreach (var p in progress)
+                {
+                    p.Locator = MoveLocator(p.Locator, moves);
+                    p.PositionJson = MovePosition(p.PositionJson, moves);
+                }
+                foreach (var b in bookmarks) b.Locator = MoveLocator(b.Locator, moves);
+                await MoveInsightsAsync(db, db.BookInsights.IgnoreQueryFilters().Where(x => x.EditionId == editionId),
+                    moves, logger, undo, ct);
+            }
             await db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
         }
         catch
         {
             foreach (var c in existing.Concat(incoming)) db.Chapters.Entry(c).State = EntityState.Detached;
+            foreach (var u in undo) u();
             throw;
         }
     }
 
-    /// <summary>Same as <see cref="ReconcileEditionAsync"/> for an upload; also moves the book's progress slug.</summary>
+    /// <summary>Same as <see cref="ReconcileEditionAsync"/> for an upload; also moves the book's own progress.</summary>
     public static async Task ReconcileUserBookAsync(
-        IAppDbContext db, UserBook book, IReadOnlyList<UserChapter> incoming, CancellationToken ct)
+        IAppDbContext db, UserBook book, IReadOnlyList<UserChapter> incoming, CancellationToken ct, ILogger? logger = null)
     {
         var existing = await db.UserChapters.Where(c => c.UserBookId == book.Id).ToListAsync(ct);
         if (incoming.Count == 0 && existing.Count > 0)
@@ -148,8 +186,10 @@ public static class ChapterReconciler
             existing.Select(c => new Key(c.ChapterNumber, c.Slug, c.Title)).ToList(),
             incoming.Select(c => new Key(c.ChapterNumber, c.Slug, c.Title)).ToList());
         var oldSlugs = existing.Select(c => c.Slug).ToArray();
-        var oldProgressSlug = book.ProgressChapterSlug;
+        var (oldProgressSlug, oldLocator, oldPosition) =
+            (book.ProgressChapterSlug, book.ProgressLocator, book.ProgressPositionJson);
         var final = new UserChapter[incoming.Count];
+        var undo = new List<Action>();
 
         await using var tx = await db.BeginTransactionAsync(ct);
         try
@@ -184,17 +224,26 @@ public static class ChapterReconciler
             }
             await db.SaveChangesAsync(ct);
 
-            var slugMap = new Dictionary<string, string?>();
-            for (var i = 0; i < incoming.Count; i++)
-                if (plan.Matches[i] >= 0 && oldSlugs[plan.Matches[i]] is { } old) slugMap[old] = final[i].Slug;
             foreach (var (j, i) in plan.Successors)
             {
-                if (oldSlugs[j] is { } old) slugMap[old] = final[i].Slug;
                 await RepointUserChapterAsync(db, existing[j].Id, final[i].Id, ct);
                 db.UserChapters.Remove(existing[j]);
             }
-            if (book.ProgressChapterSlug is { } p && slugMap.TryGetValue(p, out var moved))
-                book.ProgressChapterSlug = moved;
+
+            var moves = SlugMoves(plan, oldSlugs, final.Select(c => c.Slug).ToList());
+            if (moves.Count > 0)
+            {
+                if (book.ProgressChapterSlug is { } p && moves.TryGetValue(p, out var moved))
+                    book.ProgressChapterSlug = moved.To;
+                if (book.ProgressLocator is { } l) book.ProgressLocator = MoveLocator(l, moves);
+                book.ProgressPositionJson = MovePosition(book.ProgressPositionJson, moves);
+
+                var bookmarks = await db.UserBookBookmarks.Where(x => x.UserBookId == book.Id).ToListAsync(ct);
+                undo.Add(() => Detach(db.UserBookBookmarks, bookmarks));
+                foreach (var b in bookmarks) b.Locator = MoveLocator(b.Locator, moves);
+                await MoveInsightsAsync(db, db.BookInsights.IgnoreQueryFilters().Where(x => x.UserBookId == book.Id),
+                    moves, logger, undo, ct);
+            }
 
             await db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
@@ -202,9 +251,129 @@ public static class ChapterReconciler
         catch
         {
             foreach (var c in existing.Concat(incoming)) db.UserChapters.Entry(c).State = EntityState.Detached;
-            book.ProgressChapterSlug = oldProgressSlug;
+            foreach (var u in undo) u();
+            (book.ProgressChapterSlug, book.ProgressLocator, book.ProgressPositionJson) =
+                (oldProgressSlug, oldLocator, oldPosition);
             throw;
         }
+    }
+
+    /// <summary>Old slug → where it went, for every chapter whose slug changed or whose readers moved.</summary>
+    public static IReadOnlyDictionary<string, SlugMove> SlugMoves(
+        Result plan, IReadOnlyList<string?> oldSlugs, IReadOnlyList<string?> newSlugs)
+    {
+        var moves = new Dictionary<string, SlugMove>(StringComparer.Ordinal);
+        for (var i = 0; i < plan.Matches.Length; i++)
+            if (plan.Matches[i] >= 0 && oldSlugs[plan.Matches[i]] is { } old && newSlugs[i] is { } to && old != to)
+                moves[old] = new SlugMove(to, Reset: false);
+        foreach (var (j, i) in plan.Successors)
+            if (oldSlugs[j] is { } old && newSlugs[i] is { } to)
+                moves[old] = new SlugMove(to, Reset: true);
+        return moves;
+    }
+
+    /// <summary>
+    /// <c>scroll:&lt;slug&gt;:&lt;offset&gt;</c> (offset kept, or 0 on a reset) and
+    /// <c>chapter:&lt;slug&gt;</c> with the slug moved; anything else (<c>page:N</c>, the end/start
+    /// sentinels, an unknown slug) unchanged. Parsed from the right like the client's
+    /// <c>parseScrollLocator</c>.
+    /// </summary>
+    public static string MoveLocator(string locator, IReadOnlyDictionary<string, SlugMove> moves)
+    {
+        const string chapter = "chapter:", scroll = "scroll:";
+        if (locator.StartsWith(chapter, StringComparison.Ordinal))
+            return moves.TryGetValue(locator[chapter.Length..], out var c) ? chapter + c.To : locator;
+        var lastColon = locator.LastIndexOf(':');
+        if (!locator.StartsWith(scroll, StringComparison.Ordinal) || lastColon < scroll.Length)
+            return locator;
+        if (!moves.TryGetValue(locator[scroll.Length..lastColon], out var m))
+            return locator;
+        return $"{scroll}{m.To}:{(m.Reset ? "0" : locator[(lastColon + 1)..])}";
+    }
+
+    private static readonly JsonSerializerOptions RelaxedJson = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+
+    /// <summary>
+    /// The text-anchor position (ADR-015) with its <c>chapterSlug</c> moved, anchor kept; <c>null</c>
+    /// on a reset (the anchor quotes text that chapter does not have — the locator says "start").
+    /// Anything unparseable or naming an unmoved chapter is returned as is.
+    /// </summary>
+    public static string? MovePosition(string? positionJson, IReadOnlyDictionary<string, SlugMove> moves)
+    {
+        if (string.IsNullOrWhiteSpace(positionJson)) return positionJson;
+        JsonNode? root;
+        try { root = JsonNode.Parse(positionJson); }
+        catch (JsonException) { return positionJson; }
+        if (root is not JsonObject obj
+            || obj["chapterSlug"] is not JsonValue v
+            || !v.TryGetValue<string>(out var slug)
+            || !moves.TryGetValue(slug, out var m))
+            return positionJson;
+        if (m.Reset) return null;
+        obj["chapterSlug"] = m.To;
+        return obj.ToJsonString(RelaxedJson);
+    }
+
+    /// <summary>
+    /// Which insights move to which slug. Only a matched chapter's insight moves (a re-pointed
+    /// chapter's text is gone; the conclusion is not about its neighbour). One insight per
+    /// (user, book, chapter) is a unique key, so a move onto a slug the user already holds is skipped
+    /// and reported — and that insight staying put can block the next move, hence the loop.
+    /// Caller passes one book's insights.
+    /// </summary>
+    public static IReadOnlyList<(BookInsight Insight, string To)> InsightMoves(
+        IReadOnlyList<BookInsight> insights, IReadOnlyDictionary<string, SlugMove> moves,
+        Action<BookInsight, string> onCollision)
+    {
+        var target = insights.Select(i =>
+            i.ChapterSlug is { } s && moves.TryGetValue(s, out var m) && !m.Reset ? m.To : i.ChapterSlug).ToArray();
+        bool skipped;
+        do
+        {
+            skipped = false;
+            var collisions = Enumerable.Range(0, insights.Count)
+                .GroupBy(k => (insights[k].UserId, target[k]))
+                .Where(g => g.Count() > 1)
+                .ToList();
+            foreach (var group in collisions)
+            {
+                var movers = group.Where(k => target[k] != insights[k].ChapterSlug).ToList();
+                // Someone already sits there: every mover yields. Otherwise the first mover keeps it.
+                foreach (var k in movers.Count < group.Count() ? movers : movers.Skip(1))
+                {
+                    onCollision(insights[k], target[k]!);
+                    target[k] = insights[k].ChapterSlug;
+                    skipped = true;
+                }
+            }
+        } while (skipped);
+
+        return Enumerable.Range(0, insights.Count)
+            .Where(k => target[k] != insights[k].ChapterSlug)
+            .Select(k => (insights[k], target[k]!))
+            .ToList();
+    }
+
+    private static async Task MoveInsightsAsync(
+        IAppDbContext db, IQueryable<BookInsight> bookInsights, IReadOnlyDictionary<string, SlugMove> moves,
+        ILogger? logger, List<Action> undo, CancellationToken ct)
+    {
+        var insights = await bookInsights.Where(x => x.ChapterSlug != null).ToListAsync(ct);
+        undo.Add(() => Detach(db.BookInsights, insights));
+        var moved = InsightMoves(insights, moves, (i, to) => logger?.LogWarning(
+            "Re-ingest: insight {InsightId} stays on chapter {From}; the user already has one on {To}",
+            i.Id, i.ChapterSlug, to));
+        if (moved.Count == 0) return;
+
+        // Park first: the unique key is checked per row, and one insight may take another's old slug.
+        foreach (var (i, _) in moved) i.ChapterSlug = $"~{i.Id:N}";
+        await db.SaveChangesAsync(ct);
+        foreach (var (i, to) in moved) i.ChapterSlug = to;
+    }
+
+    private static void Detach<T>(DbSet<T> set, IEnumerable<T> rows) where T : class
+    {
+        foreach (var r in rows) set.Entry(r).State = EntityState.Detached;
     }
 
     /// <summary>
