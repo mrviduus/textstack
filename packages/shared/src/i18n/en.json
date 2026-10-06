@@ -799,6 +799,11 @@
     "downloading": "Updating TextStack…",
     "readyInReader": "Update ready — applies when you leave the reader",
     "restarting": "Restarting to apply the update…",
-    "updated": "TextStack updated"
+    "updated": "TextStack updated",
+    "forceUpdate": {
+      "title": "Please update TextStack",
+      "body": "This version is no longer supported. Install the latest version from Google Play to keep reading.",
+      "cta": "Update"
+    }
   }
 }

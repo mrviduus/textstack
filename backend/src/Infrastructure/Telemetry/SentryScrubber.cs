@@ -31,6 +31,8 @@ public static class SentryScrubber
         "agent.name", "agent.model", "agent.outcome",
         // RAG indexing
         "rag.kind", "rag.book_id", "rag.outcome",
+        // Calling mobile build (AppVersionMiddleware): which version broke
+        "app.version", "app.build",
         // Span bookkeeping + Sentry's own
         "outcome", "environment", "release", "server_name", "transaction",
     }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);

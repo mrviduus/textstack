@@ -19,8 +19,9 @@ export type MobileAuthResult = MobileAuthResponse & { sentBearer: boolean }
 type QuietRefresh = (opts?: { quiet?: boolean }) => Promise<string | null>
 
 async function mobilePost(path: string, body: unknown): Promise<MobileAuthResult> {
-  const { baseUrl, getAccessToken, onUnauthorized } = getApiConfig()
+  const { baseUrl, getAccessToken, onUnauthorized, headers: base } = getApiConfig()
   const headers: Record<string, string> = {
+    ...base,
     'Content-Type': 'application/json',
     'X-Client': 'mobile',
   }
@@ -93,10 +94,10 @@ async function mobilePost(path: string, body: unknown): Promise<MobileAuthResult
  * into SecureStore and only find out on the next request.
  */
 export async function createGuestSession(): Promise<MobileAuthResponse> {
-  const { baseUrl } = getApiConfig()
+  const { baseUrl, headers: base } = getApiConfig()
   const res = await fetch(`${baseUrl}/auth/guest`, {
     method: 'POST',
-    headers: { 'X-Client': 'mobile' },
+    headers: { ...base, 'X-Client': 'mobile' },
   })
   if (!res.ok) {
     const data = await res.json().catch(() => null)
@@ -127,10 +128,10 @@ export async function loginWithApple(
 // `getAccessToken()` is what a refresh loop is made of. It is also not one of
 // the four merge entry points — GetGuestUserId is never consulted here.
 export async function refreshTokenMobile(refreshToken: string): Promise<MobileAuthResponse> {
-  const { baseUrl } = getApiConfig()
+  const { baseUrl, headers: base } = getApiConfig()
   const res = await fetch(`${baseUrl}/auth/refresh-mobile`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { ...base, 'Content-Type': 'application/json' },
     body: JSON.stringify({ refreshToken }),
   })
   if (!res.ok) throw new Error('Token refresh failed')
@@ -167,19 +168,19 @@ export async function loginWithEmail(
 // GetGuestUserId, both are reached by people who cannot sign in, and a bearer
 // on a password-reset call buys nothing while widening where the token travels.
 export async function forgotPassword(email: string): Promise<void> {
-  const { baseUrl } = getApiConfig()
+  const { baseUrl, headers: base } = getApiConfig()
   await fetch(`${baseUrl}/auth/forgot-password`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { ...base, 'Content-Type': 'application/json' },
     body: JSON.stringify({ email }),
   })
 }
 
 export async function resetPassword(token: string, password: string): Promise<void> {
-  const { baseUrl } = getApiConfig()
+  const { baseUrl, headers: base } = getApiConfig()
   const res = await fetch(`${baseUrl}/auth/reset-password`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { ...base, 'Content-Type': 'application/json' },
     body: JSON.stringify({ token, password }),
   })
   if (!res.ok) {
@@ -189,10 +190,10 @@ export async function resetPassword(token: string, password: string): Promise<vo
 }
 
 export async function logout(accessToken: string): Promise<void> {
-  const { baseUrl } = getApiConfig()
+  const { baseUrl, headers: base } = getApiConfig()
   await fetch(`${baseUrl}/auth/logout`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${accessToken}` },
+    headers: { ...base, Authorization: `Bearer ${accessToken}` },
   })
 }
 
@@ -205,12 +206,12 @@ export async function updateProfile(
   accessToken: string,
   nativeLanguage?: string | null,
 ): Promise<AuthResponse> {
-  const { baseUrl } = getApiConfig()
+  const { baseUrl, headers: base } = getApiConfig()
   const body: { name: string | null; nativeLanguage?: string | null } = { name }
   if (nativeLanguage !== undefined) body.nativeLanguage = nativeLanguage
   const res = await fetch(`${baseUrl}/me/profile`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+    headers: { ...base, 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
     body: JSON.stringify(body),
   })
   if (!res.ok) throw new Error('Failed to update profile')
@@ -221,17 +222,17 @@ export async function updateProfile(
 // cached user — mobile calls this on launch so a native language set on another
 // device shows up without re-login.
 export async function getProfile(accessToken: string): Promise<AuthResponse> {
-  const { baseUrl } = getApiConfig()
+  const { baseUrl, headers: base } = getApiConfig()
   const res = await fetch(`${baseUrl}/me/profile`, {
     method: 'GET',
-    headers: { Authorization: `Bearer ${accessToken}` },
+    headers: { ...base, Authorization: `Bearer ${accessToken}` },
   })
   if (!res.ok) throw new Error('Failed to fetch profile')
   return res.json()
 }
 
 export async function uploadAvatar(imageUri: string, accessToken: string): Promise<AuthResponse> {
-  const { baseUrl } = getApiConfig()
+  const { baseUrl, headers: base } = getApiConfig()
   const formData = new FormData()
   const filename = imageUri.split('/').pop() || 'avatar.jpg'
   const ext = filename.split('.').pop()?.toLowerCase() || 'jpg'
@@ -239,7 +240,7 @@ export async function uploadAvatar(imageUri: string, accessToken: string): Promi
   formData.append('file', { uri: imageUri, name: filename, type: mimeType } as any)
   const res = await fetch(`${baseUrl}/me/profile/avatar`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${accessToken}` },
+    headers: { ...base, Authorization: `Bearer ${accessToken}` },
     body: formData,
   })
   if (!res.ok) {
@@ -257,10 +258,10 @@ export async function uploadAvatar(imageUri: string, accessToken: string): Promi
 }
 
 export async function deleteAvatar(accessToken: string): Promise<void> {
-  const { baseUrl } = getApiConfig()
+  const { baseUrl, headers: base } = getApiConfig()
   const res = await fetch(`${baseUrl}/me/profile/avatar`, {
     method: 'DELETE',
-    headers: { Authorization: `Bearer ${accessToken}` },
+    headers: { ...base, Authorization: `Bearer ${accessToken}` },
   })
   if (!res.ok) throw new Error('Failed to delete avatar')
 }

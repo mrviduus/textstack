@@ -630,5 +630,8 @@
   "updates.downloading": "Updating TextStack…",
   "updates.readyInReader": "Update ready — applies when you leave the reader",
   "updates.restarting": "Restarting to apply the update…",
-  "updates.updated": "TextStack updated"
+  "updates.updated": "TextStack updated",
+  "updates.forceUpdate.title": "Please update TextStack",
+  "updates.forceUpdate.body": "This version is no longer supported. Install the latest version from Google Play to keep reading.",
+  "updates.forceUpdate.cta": "Update"
 }

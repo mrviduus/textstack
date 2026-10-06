@@ -142,8 +142,10 @@ answers "what happened" and nothing answered "what is half-finished right now".
   background services inside the API, vocab enrichment fire-and-forget; #18 auth is opt-in per
   endpoint (group-level filter); #19 admin roles unchecked, no audit log, admin API reachable on the
   public host; #20 one `BookRef` rule for new code (the collection-orphan part is fixed, #706); #22 no
-  metrics in prod, no Sentry on ssg-worker / mcp-server; #23 the server cannot tell which mobile app
-  version calls (`X-App-Version`); #24 web's own `api/` beside the shared client; #25 two SEO engines;
+  metrics in prod, no Sentry on ssg-worker / mcp-server; ~~#23 the server cannot tell which mobile app
+  version calls~~ — done 2026-10-06 (`X-App-Version`/`X-App-Build` in log scope, trace, Sentry tag;
+  `GET /app/config` serves `Mobile:MinSupportedBuild` (Android versionCode, env
+  `MOBILE_MIN_SUPPORTED_BUILD`), app shows a blocking update screen below it); #24 web's own `api/` beside the shared client; #25 two SEO engines;
   #26 GDPR delete leaves LLM trace text, caches, backups. Also open from #707:
   `claude-isolated.sh` under `env -i` is untested (needs a try on the server).
 

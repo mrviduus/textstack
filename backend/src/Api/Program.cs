@@ -156,6 +156,8 @@ foreach (var network in new[]
 app.UseForwardedHeaders(forwardedHeadersOptions);
 
 app.UseCors();
+// Above ExceptionMiddleware so its "Unhandled exception" log carries the app version scope.
+app.UseMiddleware<Api.Middleware.AppVersionMiddleware>();
 app.UseExceptionMiddleware();
 
 // Static files for uploaded content (author photos, book covers)
@@ -352,6 +354,7 @@ app.MapSearchEndpoints();
 app.MapAuthorsEndpoints();
 app.MapGenresEndpoints();
 app.MapSiteEndpoints();
+app.MapAppConfigEndpoints();
 app.MapSeoEndpoints();
 app.MapSsgEndpoints();
 app.MapAuthEndpoints();

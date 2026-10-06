@@ -1,5 +1,5 @@
 import { Platform } from 'react-native'
-import { API_URL, freshAccessToken } from './api'
+import { API_URL, APP_HEADERS, freshAccessToken } from './api'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import {
   CACHE_BUDGET_BYTES,
@@ -155,7 +155,7 @@ async function downloadOriginalOnce(
     downloaded = await File.downloadFileAsync(
       `${API_URL}/me/books/${bookId}/file`,
       destination,
-      { headers: { Authorization: `Bearer ${token}` }, idempotent: true },
+      { headers: { ...APP_HEADERS, Authorization: `Bearer ${token}` }, idempotent: true },
     )
   } catch (err) {
     console.warn('[originals] download failed:', err)

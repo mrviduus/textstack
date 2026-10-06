@@ -9,6 +9,7 @@ import { useAuth } from '../../src/context/AuthContext'
 import { useDownload } from '../../src/context/DownloadContext'
 import { capabilitiesFor } from '../../src/lib/capabilities'
 import { SessionGate } from '../../src/components/SessionGate'
+import { APP_HEADERS } from '../../src/lib/api'
 
 
 export default function UploadRoute() {
@@ -165,6 +166,7 @@ function UploadScreen() {
         }
         xhr.open('POST', `${baseUrl}/me/books/upload`)
         if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+        for (const [k, v] of Object.entries(APP_HEADERS)) xhr.setRequestHeader(k, v)
         xhr.send(formData)
       })
 
