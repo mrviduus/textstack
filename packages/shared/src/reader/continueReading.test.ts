@@ -270,6 +270,22 @@ describe('pickContinueReadingBook — user books', () => {
     expect(r?.percent).toBeCloseTo(0.5)
   })
 
+  it('a fast clock does not let a synced local record beat its own clamped server row', () => {
+    const T = Date.parse('2026-05-10T12:00:00Z')
+    const localUb: UserBookProgressLite = { bookPercent: 0.31, updatedAt: T + 3_600_000, synced: true }
+    const r = pickContinueReadingBook({
+      library: [], serverProgress: [],
+      userBooks: [ub({
+        progressPercent: 0.5,
+        progressUpdatedAt: new Date(T).toISOString(),
+        progressClientUpdatedAt: new Date(T + 5 * 60_000).toISOString(),
+      })],
+      localCatalogMap: emptyLocal,
+      localUserBookMap: new Map([['ub-1', localUb]]),
+    })
+    expect(r?.percent).toBeCloseTo(0.5)
+  })
+
   it('a newer write from another device beats an unsynced local record', () => {
     const localUb: UserBookProgressLite = { bookPercent: 0.31, updatedAt: Date.parse('2026-05-10T11:00:00Z') }
     const r = pickContinueReadingBook({

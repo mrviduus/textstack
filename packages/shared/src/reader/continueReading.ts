@@ -191,7 +191,7 @@ function pickUserBook(ub: UserBookDto, local: UserBookProgressLite | undefined):
 
   // Local record vs the server's CLIENT stamp — not a grace window around the
   // server-clock progressUpdatedAt, which was a cross-clock comparison.
-  const displayPercent = (local && localProgressWins(local, { clientUpdatedAt: ub.progressClientUpdatedAt }))
+  const displayPercent = (local && localProgressWins(local, { clientUpdatedAt: ub.progressClientUpdatedAt, updatedAt: ub.progressUpdatedAt }))
     ? local.bookPercent
     : ub.progressPercent
 
