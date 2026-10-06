@@ -2,26 +2,27 @@ import { defineConfig } from 'vitest/config'
 import { resolve } from 'node:path'
 
 /**
- * Vitest config for mobile — UNIT TESTS ONLY for pure utilities.
+ * Vitest config for mobile.
  *
- * Hooks/components are NOT in scope here. They depend on the React Native
- * runtime, which doesn't run under Vitest's Node/jsdom envs without a
- * full @testing-library/react-native + native-module mock setup. That's
- * a separate infra slice — when a real regression demands it, add it then.
- *
- * For now: pure logic in `src/lib/` is testable, and that's the highest
- * ROI per minute of setup. RN modules (AsyncStorage, Linking, Platform)
+ * `src/lib/` — pure logic, Node env. RN modules (AsyncStorage, Linking, Platform)
  * get aliased to in-process mocks at the top of this file so tests for
  * `progressStorage.ts`/`reviewMode.ts` etc. can run without bundling RN.
+ *
+ * `src/hooks/`, `src/components/reader/` — hook behaviour tests. No React Native
+ * renderer: the hooks touch no RN view, so they are rendered with react-dom under
+ * jsdom (`src/test/renderHook.ts`; opt in per file with `// @vitest-environment jsdom`),
+ * and each test file mocks the RN / context modules it reaches at the module boundary.
  */
 export default defineConfig({
   test: {
     // Default environment is Node — fast and matches the pure-fn target.
     // Tests that need DOM-like APIs can opt-in via `// @vitest-environment jsdom`.
     environment: 'node',
-    // Only the lib/ folder is in scope. Apps/components/hooks intentionally
-    // excluded — see header for rationale.
-    include: ['src/lib/**/*.test.ts'],
+    include: [
+      'src/lib/**/*.test.ts',
+      'src/hooks/**/*.test.{ts,tsx}',
+      'src/components/reader/**/*.test.{ts,tsx}',
+    ],
     // __DEV__ is a React Native global. Tests may run in Node where it
     // doesn't exist; define it so our utility code's `__DEV__ &&` paths
     // don't crash.
