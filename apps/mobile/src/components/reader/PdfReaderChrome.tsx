@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Animated, Keyboard, PanResponder, Modal, Pressable } from 'react-native'
+import { Ionicons } from '@expo/vector-icons'
 import { fonts } from '../../theme/typography'
 
 interface Props {
@@ -193,6 +194,38 @@ export function PdfReaderChrome({
   )
 }
 
+/** A corrupt / unreadable PDF (`pdfLoadError`): read the extracted text instead, or go back. */
+export function PdfErrorOverlay({ bg, barText, buttonColor, topInset, bottomInset, canReadAsText, onPress }: {
+  bg: string
+  barText: string
+  buttonColor: string
+  topInset: number
+  bottomInset: number
+  /** Reflow chapters exist to fall back to. */
+  canReadAsText: boolean
+  onPress: () => void
+}) {
+  return (
+    <View style={[styles.pdfErrorOverlay, { backgroundColor: bg, paddingTop: topInset, paddingBottom: bottomInset }]}>
+      <Ionicons name="alert-circle-outline" size={48} color={barText + '99'} />
+      <Text style={[styles.pdfErrorTitle, { color: barText }]}>Couldn't open this PDF</Text>
+      <Text style={[styles.pdfErrorBody, { color: barText + '99' }]}>
+        {canReadAsText
+          ? 'The original file could not be displayed. You can read the extracted text version instead.'
+          : 'The original file could not be displayed, and there is no text version to fall back to.'}
+      </Text>
+      <TouchableOpacity
+        style={[styles.pdfErrorBtn, { backgroundColor: buttonColor }]}
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel={canReadAsText ? 'Read as text' : 'Go back'}
+      >
+        <Text style={styles.pdfErrorBtnText}>{canReadAsText ? 'Read as text' : 'Go back'}</Text>
+      </TouchableOpacity>
+    </View>
+  )
+}
+
 const styles = StyleSheet.create({
   footer: {
     position: 'absolute',
@@ -229,4 +262,16 @@ const styles = StyleSheet.create({
   goBtn: { height: 34, paddingHorizontal: 12, justifyContent: 'center', borderWidth: StyleSheet.hairlineWidth, borderRadius: 8 },
   goText: { fontSize: 13, fontFamily: fonts.sansMedium },
   counter: { fontSize: 13, fontFamily: fonts.sans, fontVariant: ['tabular-nums'] },
+  pdfErrorOverlay: {
+    ...StyleSheet.absoluteFill,
+    zIndex: 150,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 32,
+    gap: 8,
+  },
+  pdfErrorTitle: { fontFamily: fonts.serifBold, fontSize: 20, marginTop: 12, textAlign: 'center' },
+  pdfErrorBody: { fontFamily: fonts.sans, fontSize: 14, textAlign: 'center', maxWidth: 320, lineHeight: 20 },
+  pdfErrorBtn: { marginTop: 16, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 20 },
+  pdfErrorBtnText: { fontFamily: fonts.sansMedium, fontSize: 15, color: '#fff' },
 })

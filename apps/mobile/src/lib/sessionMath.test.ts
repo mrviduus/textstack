@@ -66,7 +66,7 @@ describe('programmatic jumps are not reading (review #2)', () => {
 describe('jump wiring (review #2)', () => {
   const read = (f: string) => readFileSync(resolve(__dirname, '../..', f), 'utf8')
   const persistence = read('src/hooks/useReaderPersistence.ts')
-  const shell = read('src/components/reader/ReaderShell.tsx')
+  const feed = read('src/components/reader/useReaderSessionFeed.ts')
 
   it('every programmatic restore marks the session jump pending, in issueRestore', () => {
     const start = persistence.indexOf('const issueRestore = useCallback(')
@@ -88,15 +88,15 @@ describe('jump wiring (review #2)', () => {
   })
 
   it('the shell never feeds a pending restore, and feeds the landing as a jump', () => {
-    expect(shell).toMatch(/sessionSettledRef\.current && jump !== 'pending'/)
-    expect(shell).toContain("updateSessionProgress(bp, { jump: jump === 'landed' })")
+    expect(feed).toMatch(/sessionSettledRef\.current && jump !== 'pending'/)
+    expect(feed).toContain("updateSessionProgress(bp, { jump: jump === 'landed' })")
   })
 })
 
 describe('session wiring (M8, L2)', () => {
   const read = (f: string) => readFileSync(resolve(__dirname, '../..', f), 'utf8')
   const session = read('src/hooks/useReadingSession.ts')
-  const shell = read('src/components/reader/ReaderShell.tsx')
+  const feed = read('src/components/reader/useReaderSessionFeed.ts')
 
   it('submit credits the partial tick before it reads the duration', () => {
     const start = session.indexOf('const submit = useCallback(')
@@ -110,10 +110,10 @@ describe('session wiring (M8, L2)', () => {
   })
 
   it('the shell feeds the session only reports after the restore settled', () => {
-    expect(shell).toMatch(/if \(bp != null && sessionSettledRef\.current && jump !== 'pending'\)/)
-    const ack = shell.indexOf("data.type === 'restored'")
-    expect(shell.slice(ack, ack + 600)).toMatch(/sessionSettledRef\.current = true\s+onRestoreLanded/)
-    expect(shell).toMatch(/if \(!positionSettled \|\| sessionSettledRef\.current\) return/)
+    expect(feed).toMatch(/if \(bp != null && sessionSettledRef\.current && jump !== 'pending'\)/)
+    const ack = feed.indexOf("data.type === 'restored'")
+    expect(feed.slice(ack, ack + 600)).toMatch(/sessionSettledRef\.current = true\s+onRestoreLanded/)
+    expect(feed).toMatch(/if \(!positionSettled \|\| sessionSettledRef\.current\) return/)
   })
 
   it('both sources hand the settled flag to the shell', () => {

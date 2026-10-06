@@ -41,7 +41,9 @@ describe('one chapter per document', () => {
   })
 
   it('the shell has no second "visible chapter" to disagree with the route', () => {
-    const shell = read('../components/reader/ReaderShell.tsx')
+    // The shell is split into ReaderShell.tsx + its use* hooks next to it; none may grow one.
+    const shell = ['ReaderShell.tsx', 'useReaderSessionFeed.ts', 'useReaderChapterNav.ts', 'useReaderDocument.ts', 'useReaderPdf.ts', 'useReaderMessages.ts', 'useReaderWordActions.ts']
+      .map(f => read(`../components/reader/${f}`)).join('\n')
     expect(shell).not.toMatch(/visibleChapterSlug|finishedSlugRef/)
   })
 })

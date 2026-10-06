@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, MutableRefObject } from 'reac
 import { highlightsApi, isPdfAnchor } from '@textstack/shared'
 import type { PublicHighlight, PdfAnchor } from '@textstack/shared'
 import { highlightCache, userBookHighlightCache } from '../lib/readerOfflineCache'
+import { matchesChapter } from '../lib/highlightChapter'
 
 type Selection = { text: string; anchor?: unknown } | null
 type ToastFn = (t: { message: string; variant: 'error' | 'success' | 'info' }) => void
@@ -34,13 +35,6 @@ type Options = {
 /** Cache facade — both stores have identical (get, set) shape. */
 function pickCache(userBookMode: boolean) {
   return userBookMode ? userBookHighlightCache : highlightCache
-}
-
-/** Matches highlights against the current chapter regardless of edition vs
- *  user-book mode — the backend stores them on different FK columns
- *  (chapterId / userChapterId). */
-function matchesChapter(h: PublicHighlight, chapterId: string): boolean {
-  return h.chapterId === chapterId || h.userChapterId === chapterId
 }
 
 /**

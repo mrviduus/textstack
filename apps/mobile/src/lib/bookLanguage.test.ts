@@ -20,6 +20,7 @@ describe('readerTextLanguage (M5)', () => {
 
 describe('M5 wiring — the book language reaches TTS, translate, explain and saves', () => {
   const shell = readFileSync(resolve(__dirname, '../components/reader/ReaderShell.tsx'), 'utf8')
+  const wordActions = readFileSync(resolve(__dirname, '../components/reader/useReaderWordActions.ts'), 'utf8')
   const userBook = readFileSync(resolve(__dirname, '../components/reader/useUserBookReaderSource.ts'), 'utf8')
 
   it('the upload source hands its language over, online and offline', () => {
@@ -30,9 +31,12 @@ describe('M5 wiring — the book language reaches TTS, translate, explain and sa
 
   it('the shell speaks, translates, explains and saves in it — never the app language', () => {
     expect(shell).toContain('const textLanguage = readerTextLanguage(props.bookLanguage, language)')
-    expect(shell).not.toMatch(/lang: language \}/)
-    expect(shell).not.toMatch(/fromLang=\{language\}/)
-    expect(shell).toMatch(/bookLanguage: textLanguage/)
-    expect(shell).toMatch(/textLanguage,\n/)
+    expect(shell + wordActions).not.toMatch(/lang: language \}/)
+    expect(shell + wordActions).not.toMatch(/fromLang=\{language\}/)
+    expect(wordActions).toMatch(/bookLanguage: textLanguage/)
+    // Passed to useReaderVocabActions as itself — `bookLanguage: textLanguage,` elsewhere must not satisfy it.
+    const at = wordActions.indexOf('useReaderVocabActions({')
+    expect(at).toBeGreaterThan(-1)
+    expect(wordActions.slice(at, wordActions.indexOf('\n  })', at))).toMatch(/\n\s+textLanguage,\n/)
   })
 })
