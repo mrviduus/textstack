@@ -3,7 +3,7 @@ import { AppState } from 'react-native'
 import type { PendingSession } from '@textstack/shared'
 import { enqueuePendingSession, flushPendingSessions } from '../lib/pendingSessions'
 import type { SessionSnapshot } from '../lib/readerVisit'
-import { applySessionProgress, tickSeconds } from '../lib/sessionMath'
+import { applySessionProgress, jumpDistance, sessionWordsRead, tickSeconds } from '../lib/sessionMath'
 
 const HEARTBEAT_MS = 30_000
 const MIN_SECONDS = 10
@@ -38,6 +38,8 @@ export function useReadingSession(config: SessionConfig) {
   const currentPercentRef = useRef(carried?.currentPercent ?? 0)
   // The start percent is a real report, not "whatever was there while both were 0" (M8).
   const baselinedRef = useRef(carried !== null)
+  // Book distance covered by programmatic jumps — left out of the words read.
+  const jumpedRef = useRef(carried?.jumped ?? 0)
   const submittedRef = useRef(carried?.submitted ?? false)
   // Adopted, not reset, the first time a book key arrives.
   const adoptRef = useRef(carried !== null)
@@ -66,9 +68,9 @@ export function useReadingSession(config: SessionConfig) {
     if (duration < MIN_SECONDS) return
 
     submittedRef.current = true
-    const wordsRead = Math.round(
-      Math.abs(currentPercentRef.current - startPercentRef.current) * config.wordCount
-    )
+    const wordsRead = sessionWordsRead({
+      start: startPercentRef.current, current: currentPercentRef.current, jumped: jumpedRef.current, wordCount: config.wordCount,
+    })
 
     const now = new Date()
     const data: PendingSession = {
@@ -115,6 +117,7 @@ export function useReadingSession(config: SessionConfig) {
     lastActivityRef.current = now
     activeSecondsRef.current = 0
     startPercentRef.current = currentPercentRef.current
+    jumpedRef.current = 0
   }, [])
 
   // Heartbeat: increment active seconds only while a session is live
@@ -183,14 +186,18 @@ export function useReadingSession(config: SessionConfig) {
         activeSeconds: activeSecondsRef.current,
         startPercent: startPercentRef.current,
         currentPercent: currentPercentRef.current,
+        jumped: jumpedRef.current,
         submitted: submittedRef.current,
       },
       flush: () => submitRef.current(),
     }
   }, [clearAutoEndTimer, creditTick])
 
-  const updateProgress = useCallback((progress: number) => {
+  /** `jump`: this report is where a programmatic restore put the reader — its distance from the
+   *  last report is not reading (jumpDistance). */
+  const updateProgress = useCallback((progress: number, opts?: { jump?: boolean }) => {
     lastActivityRef.current = Date.now() // user is active (scrolling)
+    if (opts?.jump) jumpedRef.current += jumpDistance(baselinedRef.current ? currentPercentRef.current : null, progress)
     const next = applySessionProgress(
       { start: startPercentRef.current, current: currentPercentRef.current, baselined: baselinedRef.current },
       progress,

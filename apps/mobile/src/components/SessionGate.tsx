@@ -39,6 +39,8 @@ export function SessionGate({ children }: { children: ReactNode }) {
   const [skipped] = useState(() => gateMemory.skipsWait())
   const [timedOut, setTimedOut] = useState(skipped)
   const startedRef = useRef(skipped)
+  // Read by the deadline timer, which outlives the answer (the gate stays mounted).
+  const outcomeRef = useRef<EnsureSessionResult | null>(null)
 
   // The deadline runs from mount, independently of the request, so a socket
   // that hangs open with no answer cannot keep the book — or the upload —
@@ -47,7 +49,7 @@ export function SessionGate({ children }: { children: ReactNode }) {
     if (skipped) return
     const timer = setTimeout(() => {
       setTimedOut(true)
-      gateMemory.record(true)
+      gateMemory.deadlinePassed(outcomeRef.current)
     }, READER_SESSION_GATE_TIMEOUT_MS)
     return () => clearTimeout(timer)
   }, [skipped])
@@ -61,6 +63,7 @@ export function SessionGate({ children }: { children: ReactNode }) {
     ensureSession()
       .then((result) => {
         // Recorded even after this gate is gone: it is the network's answer, not the screen's.
+        outcomeRef.current = result
         gateMemory.record(gateGaveUp({ outcome: result, timedOut: false }))
         if (!cancelled) setOutcome(result)
       })

@@ -11,6 +11,7 @@ import {
 import { READINESS_INITIAL, readinessReduce, readyToRestore, type ReadinessEvent } from '../lib/restoreReadiness'
 import { claimPosition, handOffPosition } from '../lib/positionHandoff'
 import { rebuildRestoreJs, rebuildRestoreTarget, type RebuildTarget } from '../lib/rebuildRestore'
+import type { SessionJump } from '../lib/sessionMath'
 import { useFlushOnBackground } from './useFlushOnBackground'
 import { t, type TextPosition } from '@textstack/shared'
 import type { NewerPosition, ProgressSnapshot, SavedPosition } from '../components/reader/readerSource'
@@ -152,12 +153,19 @@ export function useReaderPersistence({
    * back. Whatever the WebView reports between this call and its acknowledgement
    * is a transient, and `canPersistPosition` refuses it.
    */
+  // Every programmatic move passes through issueRestore, so this one ref tells the reading session
+  // which reports are the restore travelling (`pending`) and which one is its landing (`landed`) —
+  // a jump to another device's position must not count as words read (M8). Synchronous on purpose:
+  // the gate above is React state and lags the WebView's messages by a render.
+  const sessionJumpRef = useRef<SessionJump>('idle')
   const issueRestore = useCallback(() => {
     const restoreId = ++restoreIdRef.current
+    sessionJumpRef.current = 'pending'
     dispatchGate({ type: 'restoreIssued', restoreId, at: Date.now() })
     if (settleTimerRef.current) clearTimeout(settleTimerRef.current)
     settleTimerRef.current = setTimeout(() => {
       settleTimerRef.current = null
+      if (restoreId === restoreIdRef.current) sessionJumpRef.current = 'landed'
       dispatchGate({ type: 'restoreTimedOut', restoreId })
     }, RESTORE_SETTLE_MS)
     return restoreId
@@ -257,6 +265,7 @@ export function useReaderPersistence({
 
   /** The WebView finished a restore we asked for. Signalled by ReaderShell's `restored` message. */
   const onRestoreLanded = useCallback((restoreId: number) => {
+    if (restoreId === restoreIdRef.current && sessionJumpRef.current === 'pending') sessionJumpRef.current = 'landed'
     dispatchGate({ type: 'restoreLanded', restoreId })
   }, [dispatchGate])
 
@@ -272,6 +281,8 @@ export function useReaderPersistence({
   const onDocumentRebuild = useCallback(() => {
     if (readinessRef.current.restored) {
       rebuildTargetRef.current = rebuildRestoreTarget(positionRef.current, progressRef.current, chapterSlug)
+      // The new document's load event reports the chapter top — travel, not reading.
+      sessionJumpRef.current = 'pending'
     }
     dispatchGate({ type: 'chapterEntered', chapterSlug: chapterSlug ?? null })
   }, [dispatchGate, chapterSlug, positionRef, progressRef])
@@ -289,12 +300,12 @@ export function useReaderPersistence({
       const js = rebuildRestoreJs(target, restoreId)
       // Null: top of the chapter is where they were; nothing to ask the WebView for.
       if (js) injectJs(js)
-      else dispatchGate({ type: 'restoreLanded', restoreId })
+      else onRestoreLanded(restoreId)
       return
     }
     readiness({ type: 'webViewLoaded' })
     tryRestore()
-  }, [tryRestore, injectJs, progressRef, positionRef, chapterSlug, issueRestore, dispatchGate, readiness])
+  }, [tryRestore, injectJs, progressRef, positionRef, chapterSlug, issueRestore, onRestoreLanded, readiness])
 
   // Pending-save buffer: chapterId resolves AFTER the chapter fetch lands, so a
   // save requested during rapid chapter tap-through (e.g. emit-on-load firing
@@ -400,6 +411,7 @@ export function useReaderPersistence({
     moveBaselineRef.current = null
     pendingSaveRef.current = false
     rebuildTargetRef.current = undefined
+    sessionJumpRef.current = 'idle'
     // Restoring a reflow scroll position into a PDF viewer would fight the
     // page jump the PDF path is already performing.
     if (!enabled || !bookKey || !chapterSlug) return
@@ -490,5 +502,5 @@ export function useReaderPersistence({
   // The reader is where the restore put them (or nothing needed restoring) — reports from here
   // on are reading, not the restore travelling (M8).
   const positionSettled = !!chapterSlug && restoredFor === chapterSlug
-  return { saveProgress, bumpProgress, onWebViewLoaded, onRestoreLanded, onDocumentRebuild, beginReflow: issueRestore, chapterNavigatorRef, positionSettled }
+  return { saveProgress, bumpProgress, onWebViewLoaded, onRestoreLanded, onDocumentRebuild, beginReflow: issueRestore, chapterNavigatorRef, positionSettled, sessionJumpRef }
 }

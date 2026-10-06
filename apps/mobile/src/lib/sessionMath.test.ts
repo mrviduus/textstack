@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { applySessionProgress, tickSeconds, MAX_TICK_SECONDS } from './sessionMath'
+import { applySessionProgress, jumpDistance, sessionWordsRead, tickSeconds, MAX_TICK_SECONDS } from './sessionMath'
 
 const IDLE = 180_000
 
@@ -42,6 +42,53 @@ describe('applySessionProgress (M8)', () => {
   })
 })
 
+describe('programmatic jumps are not reading (review #2)', () => {
+  it('device at 10%, other device at 60%: the jump counts nothing, the reading after it counts', () => {
+    const W = 100_000
+    const start = 0.1
+    let jumped = 0
+    jumped += jumpDistance(0.1, 0.6)          // the restore to the newer position lands at 60%
+    expect(sessionWordsRead({ start, current: 0.6, jumped, wordCount: W })).toBe(0)
+    expect(sessionWordsRead({ start, current: 0.62, jumped, wordCount: W })).toBe(2_000)
+  })
+
+  it('reading before the jump is kept', () => {
+    // read 10% → 15%, then jumped to 60%, then read to 61%: 6% of the book
+    const jumped = jumpDistance(0.15, 0.6)
+    expect(sessionWordsRead({ start: 0.1, current: 0.61, jumped, wordCount: 100 })).toBe(6)
+  })
+
+  it('a landing with nothing fed yet is just the baseline', () => {
+    expect(jumpDistance(null, 0.45)).toBe(0)
+  })
+})
+
+describe('jump wiring (review #2)', () => {
+  const read = (f: string) => readFileSync(resolve(__dirname, '../..', f), 'utf8')
+  const persistence = read('src/hooks/useReaderPersistence.ts')
+  const shell = read('src/components/reader/ReaderShell.tsx')
+
+  it('every programmatic restore marks the session jump pending, in issueRestore', () => {
+    const start = persistence.indexOf('const issueRestore = useCallback(')
+    expect(persistence.slice(start, persistence.indexOf('}, [dispatchGate])', start))).toContain("sessionJumpRef.current = 'pending'")
+    // goHere / applyNewer / the toast all restore through injectSaved → issueRestore, and the
+    // typography reflow is beginReflow = issueRestore.
+    const inject = persistence.indexOf('const injectSaved = useCallback(')
+    expect(persistence.slice(inject, persistence.indexOf('}, [injectJs', inject))).toContain('issueRestore()')
+    expect(persistence).toContain('beginReflow: issueRestore')
+  })
+
+  it('the ack (or the settle timeout) turns it into a landing', () => {
+    const start = persistence.indexOf('const onRestoreLanded = useCallback(')
+    expect(persistence.slice(start, start + 300)).toContain("sessionJumpRef.current = 'landed'")
+  })
+
+  it('the shell never feeds a pending restore, and feeds the landing as a jump', () => {
+    expect(shell).toMatch(/sessionSettledRef\.current && jump !== 'pending'/)
+    expect(shell).toContain("updateSessionProgress(bp, { jump: jump === 'landed' })")
+  })
+})
+
 describe('session wiring (M8, L2)', () => {
   const read = (f: string) => readFileSync(resolve(__dirname, '../..', f), 'utf8')
   const session = read('src/hooks/useReadingSession.ts')
@@ -59,7 +106,7 @@ describe('session wiring (M8, L2)', () => {
   })
 
   it('the shell feeds the session only reports after the restore settled', () => {
-    expect(shell).toMatch(/if \(bp != null && sessionSettledRef\.current\) updateSessionProgress\(bp\)/)
+    expect(shell).toMatch(/if \(bp != null && sessionSettledRef\.current && jump !== 'pending'\)/)
     const ack = shell.indexOf("data.type === 'restored'")
     expect(shell.slice(ack, ack + 600)).toMatch(/sessionSettledRef\.current = true\s+onRestoreLanded/)
     expect(shell).toMatch(/if \(!positionSettled \|\| sessionSettledRef\.current\) return/)

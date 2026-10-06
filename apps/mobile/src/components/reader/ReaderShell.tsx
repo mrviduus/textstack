@@ -37,6 +37,7 @@ import type { PdfNewerOffer } from './readerSource'
 import { returnedToForeground } from '../../lib/progressRestore'
 import { saveWordIntent } from '../../lib/saveWordIntent'
 import { readerTextLanguage } from '../../lib/bookLanguage'
+import type { SessionJump } from '../../lib/sessionMath'
 import { capabilitiesFor } from '../../lib/capabilities'
 import { claimGuestNudge } from '../../lib/guestNudge'
 import { decideNewerPosition, readerMovedSince } from '../../lib/progressRestore'
@@ -124,6 +125,8 @@ export interface ReaderShellProps {
   onRestoreLanded: (restoreId: number) => void
   /** The chapter's restore has landed (or there was nothing to restore). M8. */
   positionSettled: boolean
+  /** Where a programmatic restore stands — its travel and its distance are not reading. */
+  sessionJumpRef: MutableRefObject<SessionJump>
   onDocumentRebuild: () => void
   beginReflow: () => number
 
@@ -196,7 +199,7 @@ export function ReaderShell(props: ReaderShellProps) {
     bookTitle, chapters, chaptersLoading,
     progressRef, scrollOffsetRef, currentChapterSlugRef, bookProgressRef, positionRef, totalWordCountRef,
     bumpProgress, saveProgress,
-    onWebViewLoaded, onRestoreLanded, positionSettled, onDocumentRebuild, beginReflow,
+    onWebViewLoaded, onRestoreLanded, positionSettled, sessionJumpRef, onDocumentRebuild, beginReflow,
     ensureChapter, isChapterOnDevice, onNavigateChapter, chapterNavigatorRef,
     bookmarks, onToggleCurrentBookmark, onDeleteBookmark, bookmarkChapterSlug,
     bookTitleRef, wordCount, explainBookId,
@@ -701,8 +704,15 @@ export function ReaderShell(props: ReaderShellProps) {
         // which is 1.0 at the end of every chapter — minted a book-completion per
         // chapter. Until the chapter list lands there is no book progress, and the
         // session is only told the reader is active.
-        if (bp != null && sessionSettledRef.current) updateSessionProgress(bp)
-        else recordSessionActivity()
+        // A programmatic restore in flight is travel; the report after it lands is a jump whose
+        // distance is not reading (newer position elsewhere, rebuild, reflow).
+        // ponytail: a restore that lands without moving >0.5% posts no report, so the reader's next
+        // scroll is taken as the landing and its own small delta is dropped; ack-with-progress if it matters.
+        const jump = sessionJumpRef.current
+        if (bp != null && sessionSettledRef.current && jump !== 'pending') {
+          if (jump === 'landed') sessionJumpRef.current = 'idle'
+          updateSessionProgress(bp, { jump: jump === 'landed' })
+        } else recordSessionActivity()
         bumpProgress()
       } else if (data.type === 'restored') {
         // A restore we injected has actually been applied. Until this arrives the newest position

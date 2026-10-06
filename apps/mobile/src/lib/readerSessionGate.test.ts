@@ -119,6 +119,15 @@ describe('M4 — a gate that gave up lets the next chapter open at once', () => 
     expect(gateGaveUp({ outcome: { status: 'existing', isGuest: false }, timedOut: false })).toBe(false)
   })
 
+  it('the deadline firing AFTER a fast success does not set the skip (review #1)', () => {
+    gateMemory.record(false, 1_000)                    // ensureSession answered in < 3s
+    gateMemory.deadlinePassed({ status: 'minted' }, 3_000)
+    expect(gateMemory.skipsWait(4_000)).toBe(false)
+    gateMemory.deadlinePassed(null, 5_000)             // no answer by the deadline: gave up
+    expect(gateMemory.skipsWait(6_000)).toBe(true)
+    gateMemory.record(false, 7_000)
+  })
+
   it('a give-up is remembered, a success forgets it', () => {
     gateMemory.record(true, 5_000)
     expect(gateMemory.skipsWait(6_000)).toBe(true)
@@ -135,7 +144,9 @@ describe('M4 wiring — SessionGate consults and feeds the memory', () => {
     expect(gate).toMatch(/startedRef = useRef\(skipped\)/)
   })
   it('the deadline and the mint answer are both recorded', () => {
-    expect(gate).toContain('gateMemory.record(true)')
+    expect(gate).toContain('gateMemory.deadlinePassed(outcomeRef.current)')
+    expect(gate).not.toContain('gateMemory.record(true)')
+    expect(gate).toMatch(/outcomeRef\.current = result\s+gateMemory\.record/)
     expect(gate).toContain('gateMemory.record(gateGaveUp(')
   })
 })

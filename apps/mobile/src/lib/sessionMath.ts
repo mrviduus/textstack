@@ -46,3 +46,26 @@ export function applySessionProgress(s: SessionPercents, progress: number): Sess
   if (!s.baselined) return { start: progress, current: progress, baselined: true }
   return { ...s, current: progress }
 }
+
+/**
+ * A jump the reader did not read through — a restore to another device's newer position (move or
+ * the toast), a rebuild/reflow restore. The distance it covered is NOT reading. Accumulated apart
+ * so start/end percents stay real book positions while the words read leave the jumps out.
+ * `from` null: nothing fed yet, so the landing is simply the baseline.
+ */
+export function jumpDistance(from: number | null, to: number): number {
+  return from == null ? 0 : to - from
+}
+
+/** Words read: book distance travelled, minus the jumps, times the book's words. */
+export function sessionWordsRead(o: { start: number; current: number; jumped: number; wordCount: number }): number {
+  return Math.round(Math.abs(o.current - o.start - o.jumped) * o.wordCount)
+}
+
+/**
+ * Where a programmatic restore stands, for the session — set by useReaderPersistence (every
+ * restore goes through its `issueRestore`), read by the shell's progress handler.
+ * - `pending`: issued, not landed — reports are the restore travelling; never fed.
+ * - `landed`: the next report is where it put the reader; its distance is a jump.
+ */
+export type SessionJump = 'idle' | 'pending' | 'landed'

@@ -446,7 +446,7 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
     router.replace(`/my-books/read/${bookId}/${slug}`)
   }, [router, bookId])
 
-  const { saveProgress, bumpProgress, onWebViewLoaded, onRestoreLanded, onDocumentRebuild, beginReflow, chapterNavigatorRef, positionSettled } = useReaderPersistence({
+  const { saveProgress, bumpProgress, onWebViewLoaded, onRestoreLanded, onDocumentRebuild, beginReflow, chapterNavigatorRef, positionSettled, sessionJumpRef } = useReaderPersistence({
     bookKey: bookId || null,
     chapterSlug,
     chapterId: chapter?.id ?? null,
@@ -702,7 +702,7 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast }: Para
     chaptersLoading,
     wordCount: wordCountRef.current,
     progressRef, scrollOffsetRef, currentChapterSlugRef, bookProgressRef, positionRef, totalWordCountRef,
-    saveProgress, bumpProgress, onWebViewLoaded, onRestoreLanded, onDocumentRebuild, beginReflow, positionSettled,
+    saveProgress, bumpProgress, onWebViewLoaded, onRestoreLanded, onDocumentRebuild, beginReflow, positionSettled, sessionJumpRef,
     ensureChapter,
     isChapterOnDevice,
     onNavigateChapter: navigateToChapter,

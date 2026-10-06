@@ -19,6 +19,8 @@
 export interface SessionSnapshot {
   startedAt: number
   activeSeconds: number
+  /** Book distance covered by programmatic jumps — not reading (sessionMath.jumpDistance). */
+  jumped?: number
   startPercent: number
   currentPercent: number
   submitted: boolean

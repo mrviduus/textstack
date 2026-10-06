@@ -92,4 +92,9 @@ let lastGaveUpAt: number | null = null
 export const gateMemory = {
   skipsWait: (now = Date.now()) => gateSkipsWait(lastGaveUpAt, now),
   record: (gaveUp: boolean, now = Date.now()) => { lastGaveUpAt = gaveUp ? now : null },
+  /** The 3s deadline fired. It gave up only if no answer had arrived — the gate stays mounted
+   *  around the reader, so the timer still fires after a fast success, and must not undo it. */
+  deadlinePassed: (outcome: EnsureSessionResult | null, now = Date.now()) => {
+    if (outcome === null) lastGaveUpAt = now
+  },
 }
