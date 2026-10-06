@@ -1,0 +1,74 @@
+{
+  "chapter-start": {
+    "prefix": "",
+    "exact": "Chapter One",
+    "suffix": "It was a bright cold day in Ap",
+    "startOffset": 0,
+    "endOffset": 11,
+    "chapterId": "11111111-1111-4111-8111-111111111111"
+  },
+  "inline-tags": {
+    "prefix": "Chapter OneIt was a ",
+    "exact": "bright cold day in April",
+    "suffix": ", and the clocks were striking",
+    "startOffset": 20,
+    "endOffset": 44,
+    "chapterId": "11111111-1111-4111-8111-111111111111"
+  },
+  "across-paragraphs": {
+    "prefix": "in April, and the clocks were ",
+    "exact": "striking thirteen.The hallway",
+    "suffix": " smelt of boiled cabbage and o",
+    "startOffset": 66,
+    "endOffset": 95,
+    "chapterId": "11111111-1111-4111-8111-111111111111"
+  },
+  "nbsp": {
+    "prefix": "clocks were striking thirteen.",
+    "exact": "The hallway smelt",
+    "suffix": " of boiled cabbage and old rag",
+    "startOffset": 84,
+    "endOffset": 101,
+    "chapterId": "11111111-1111-4111-8111-111111111111"
+  },
+  "repeated-first": {
+    "prefix": "d cabbage and old rag mats.He ",
+    "exact": "said the word again",
+    "suffix": ". Nobody answered him.Much lat",
+    "startOffset": 140,
+    "endOffset": 159,
+    "chapterId": "11111111-1111-4111-8111-111111111111"
+  },
+  "repeated-second": {
+    "prefix": "uch later, by the window, she ",
+    "exact": "said the word again",
+    "suffix": " and the room went quiet.That ",
+    "startOffset": 212,
+    "endOffset": 231,
+    "chapterId": "11111111-1111-4111-8111-111111111111"
+  },
+  "chapter-end": {
+    "prefix": " room went quiet.That was the ",
+    "exact": "end of it.",
+    "suffix": "",
+    "startOffset": 269,
+    "endOffset": 279,
+    "chapterId": "11111111-1111-4111-8111-111111111111"
+  },
+  "cyrillic": {
+    "prefix": "зділ третійСлово за словом, і ",
+    "exact": "знову слово",
+    "suffix": " — так минав день.مرحبا بالعال",
+    "startOffset": 32,
+    "endOffset": 43,
+    "chapterId": "33333333-3333-4333-8333-333333333333"
+  },
+  "rtl-arabic": {
+    "prefix": " слово — так минав день.مرحبا ",
+    "exact": "بالعالم",
+    "suffix": "، هذه جملة قصيرة.",
+    "startOffset": 67,
+    "endOffset": 74,
+    "chapterId": "33333333-3333-4333-8333-333333333333"
+  }
+}
