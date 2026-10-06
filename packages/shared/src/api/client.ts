@@ -15,6 +15,11 @@ export interface ApiConfig {
    * (mobile), where `''` still means "no token".
    */
   credentials?: RequestCredentials
+  /**
+   * Sent on every request. Mobile puts `X-App-Version` / `X-App-Build` here so the
+   * server can tell which build is calling (review #23); web sets none.
+   */
+  headers?: Record<string, string>
 }
 
 let config: ApiConfig | null = null
@@ -93,10 +98,11 @@ async function errorFromResponse(res: Response, fallbackStatus = res.status): Pr
 }
 
 export async function authFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const { baseUrl, getAccessToken, onUnauthorized, credentials } = getApiConfig()
+  const { baseUrl, getAccessToken, onUnauthorized, credentials, headers: base } = getApiConfig()
 
   const token = await getAccessToken()
   const headers: Record<string, string> = {
+    ...base,
     ...(options?.headers as Record<string, string>),
   }
   if (token) {
@@ -129,9 +135,10 @@ export async function authFetch<T>(path: string, options?: RequestInit): Promise
 }
 
 export async function publicFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const { baseUrl, credentials } = getApiConfig()
+  const { baseUrl, credentials, headers } = getApiConfig()
 
-  const res = await safeFetch(`${baseUrl}${path}`, credentials ? { ...options, credentials } : options)
+  const init: RequestInit = { ...options, headers: { ...headers, ...(options?.headers as Record<string, string>) } }
+  const res = await safeFetch(`${baseUrl}${path}`, credentials ? { ...init, credentials } : init)
 
   if (!res.ok) {
     throw await errorFromResponse(res)

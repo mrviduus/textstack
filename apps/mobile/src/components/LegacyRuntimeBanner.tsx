@@ -1,11 +1,12 @@
 import { useState } from 'react'
-import { View, Text, TouchableOpacity, StyleSheet, Platform, Linking } from 'react-native'
+import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import * as Updates from 'expo-updates'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '../context/ThemeContext'
 import { fonts } from '../theme/typography'
 import { isLegacyRuntime } from '../lib/legacyRuntime'
+import { openPlayStore } from '../lib/playStore'
 
 /**
  * Tells users stuck on the legacy `1.0.0` runtime that their build no longer
@@ -42,10 +43,6 @@ import { isLegacyRuntime } from '../lib/legacyRuntime'
  * can receive this code necessarily has it.
  */
 
-const PACKAGE = 'app.textstack.mobile'
-const PLAY_WEB_URL = `https://play.google.com/store/apps/details?id=${PACKAGE}`
-const PLAY_APP_URL = `market://details?id=${PACKAGE}`
-
 export function LegacyRuntimeBanner() {
   const { colors } = useTheme()
   const insets = useSafeAreaInsets()
@@ -55,12 +52,6 @@ export function LegacyRuntimeBanner() {
 
   if (dismissed) return null
   if (!isLegacyRuntime(Updates.runtimeVersion, Updates.isEnabled, Platform.OS)) return null
-
-  const openStore = () => {
-    Linking.openURL(PLAY_APP_URL).catch(() => {
-      Linking.openURL(PLAY_WEB_URL).catch(() => {})
-    })
-  }
 
   return (
     <View
@@ -78,7 +69,7 @@ export function LegacyRuntimeBanner() {
         </Text>
       </View>
       <TouchableOpacity
-        onPress={openStore}
+        onPress={openPlayStore}
         style={[styles.cta, { backgroundColor: colors.primary }]}
         accessibilityRole="button"
         accessibilityLabel="Open Google Play to update TextStack"

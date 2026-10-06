@@ -1,6 +1,8 @@
 import { Platform } from 'react-native'
+import * as Application from 'expo-application'
 import { initApi, isTokenExpiring } from '@textstack/shared'
 import { emitAuthFailure } from './authEvents'
+import { appVersionHeaders } from './appVersion'
 
 // SecureStore shim: native → expo-secure-store, web → localStorage
 const SecureStore = {
@@ -22,6 +24,16 @@ const SecureStore = {
 }
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://textstack.app/api'
+
+/**
+ * `X-App-Version` / `X-App-Build` on every request, so the server can tell which
+ * build is calling (review #23). From the installed package, not the manifest, so
+ * an OTA does not blank them (see profile.tsx BUILD). Empty on web.
+ */
+export const APP_HEADERS = appVersionHeaders(
+  Application.nativeApplicationVersion,
+  Application.nativeBuildVersion,
+)
 
 /**
  * Single-flight guard: multiple concurrent 401s share one refresh call.
@@ -86,7 +98,7 @@ export async function onUnauthorized(opts?: { quiet?: boolean }): Promise<string
       try {
         res = await fetch(`${API_URL}/auth/refresh-mobile`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { ...APP_HEADERS, 'Content-Type': 'application/json' },
           body: JSON.stringify({ refreshToken }),
         })
       } catch {
@@ -143,7 +155,7 @@ export function resetAuthFailureLatch(): void {
 }
 
 export function setupApi() {
-  initApi({ baseUrl: API_URL, getAccessToken, onUnauthorized })
+  initApi({ baseUrl: API_URL, getAccessToken, onUnauthorized, headers: APP_HEADERS })
 }
 
 /**
@@ -156,7 +168,7 @@ export function setupApi() {
 export async function deleteAccount(accessToken: string): Promise<void> {
   const res = await fetch(`${API_URL}/me/account`, {
     method: 'DELETE',
-    headers: { Authorization: `Bearer ${accessToken}` },
+    headers: { ...APP_HEADERS, Authorization: `Bearer ${accessToken}` },
   })
   if (!res.ok) {
     const data = await res.json().catch(() => null)
@@ -178,7 +190,7 @@ export async function enrichUserBook(id: string): Promise<void> {
   const token = await getAccessToken()
   const res = await fetch(`${API_URL}/me/books/${id}/enrich`, {
     method: 'POST',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    headers: { ...APP_HEADERS, ...(token ? { Authorization: `Bearer ${token}` } : {}) },
   })
   if (!res.ok) {
     const data = await res.json().catch(() => null)

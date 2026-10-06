@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 
 // api.ts picks localStorage over SecureStore on web — the only branch Node can run.
 vi.mock('react-native', () => ({ Platform: { OS: 'web' } }))
+vi.mock('expo-application', () => ({ nativeApplicationVersion: null, nativeBuildVersion: null }))
 
 const store = new Map<string, string>()
 vi.stubGlobal('localStorage', {

@@ -1,5 +1,5 @@
 import { Platform } from 'react-native'
-import { API_URL, freshAccessToken } from './api'
+import { API_URL, APP_HEADERS, freshAccessToken } from './api'
 import { bookFileName } from './bookFileName'
 import { getCachedOriginalUri } from './originalFileCache'
 import type { OriginalFormat } from './originalFilePolicy'
@@ -83,7 +83,7 @@ export async function shareOriginalFile(
       await File.downloadFileAsync(
         `${API_URL}/me/books/${bookId}/file`,
         destination,
-        { headers: { Authorization: `Bearer ${token}` }, idempotent: true },
+        { headers: { ...APP_HEADERS, Authorization: `Bearer ${token}` }, idempotent: true },
       )
     } catch (err) {
       console.warn('[share] original download failed:', err)

@@ -113,6 +113,9 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://aspire-dashboard:18889
       # Empty ⇒ Sentry never initializes (local dev, CI, forks are unchanged).
       SENTRY_DSN: ${SENTRY_DSN:-}
+      # Oldest mobile version allowed to run (e.g. 1.1.0); below it the app shows "Please update".
+      # Empty = no minimum. Advisory: the API never refuses an old build.
+      Mobile__MinSupportedVersion: ${MOBILE_MIN_SUPPORTED_VERSION:-}
     volumes:
       - ./data/storage:/storage
       - ./data/textstack:/data/textstack

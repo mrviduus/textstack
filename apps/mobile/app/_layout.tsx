@@ -17,6 +17,7 @@ import { ErrorBoundary } from '../src/components/ErrorBoundary'
 import { LegacyRuntimeBanner } from '../src/components/LegacyRuntimeBanner'
 import { AutoUpdater } from '../src/components/AutoUpdater'
 import { UpdateBanner } from '../src/components/UpdateBanner'
+import { ForceUpdateGate } from '../src/components/ForceUpdateGate'
 import { useAppFonts } from '../src/theme/fonts'
 
 SplashScreen.preventAutoHideAsync()
@@ -155,6 +156,8 @@ function AppContent() {
       </View>
       {/* After the navigator so the overlay paints above every screen. */}
       <UpdateBanner />
+      {/* Last: when this build is below the server's minimum it covers everything. */}
+      <ForceUpdateGate />
     </View>
   )
 }
