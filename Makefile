@@ -39,7 +39,7 @@ status:
 # the host dir stays root-owned and the container (uid 1000) gets EACCES.
 fix-permissions:
 	@echo "Fixing volume permissions..."
-	@docker run --rm -v $$(pwd)/data:/data alpine sh -c '\
+	@docker run --rm -v $$(pwd)/data:/data alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8 sh -c '\
 		mkdir -p /data/textstack /data/tts-cache /data/explain-cache /data/translate-cache /data/pdf-cleanup-dataset && \
 		chown -R 1000:1000 /data/textstack /data/tts-cache /data/explain-cache /data/translate-cache /data/pdf-cleanup-dataset'
 	@echo "Done."

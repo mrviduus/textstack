@@ -16,7 +16,10 @@ services:
     # pgvector image = stock postgres:16 + the `vector` extension binary.
     # Existing ./data/postgres-prod volume is compatible (no re-init); the
     # extension is activated by the AddPgVectorAndChunks migration.
-    image: pgvector/pgvector:pg16
+    # Pulled images are pinned by digest (tags are mutable); Dependabot's
+    # docker-compose lane bumps them. Never take a pgNN major that way — a major
+    # needs dump/restore (dependabot.yml ignores it).
+    image: pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a
     container_name: textstack_db_prod
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
@@ -329,7 +332,7 @@ services:
 
   aspire-dashboard:
     logging: *default-logging
-    image: mcr.microsoft.com/dotnet/aspire-dashboard:latest
+    image: mcr.microsoft.com/dotnet/aspire-dashboard:13.6.0@sha256:064b50d557fcaffd10f06bf79ba4069bd50994a84034f1a0fc35c165500482d7
     container_name: textstack_aspire_prod
     profiles: ["observability"]
     ports:
@@ -358,7 +361,7 @@ services:
     logging: *default-logging
     # gemma4 needs Ollama >= 0.30.9 (`ollama show`); 0.23.1 ran it from May to 2026-10. Pinned, not
     # :latest — an image bump is a deliberate change. 0.35.1 is what the local evals ran on.
-    image: ollama/ollama:0.35.1
+    image: ollama/ollama:0.35.1@sha256:292ee7945dfc3d5840a181f3ab86fedb1e66703e02c8af98b50f4da56b7e278c
     container_name: textstack_ollama
     # GPU access (NVIDIA runtime + device reservation) lives in
     # docker-compose.gpu.yml and is layered on top of this file only by the

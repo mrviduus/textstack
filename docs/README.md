@@ -15,6 +15,7 @@ Free book library with Kindle-like reader. EPUB/PDF upload, parsing, SEO pages, 
 | [Changelog archive](changelog-archive/) | The full write-up behind every changelog line |
 | [Vision](00-vision/README.md) | Goals, principles, stack |
 | [Architecture](01-architecture/README.md) | System design: services, projects, pipeline, external deps |
+| [Delivery](01-architecture/delivery.md) | PR → images → deploy flow, external dependencies, secret controls |
 | [Data model](01-architecture/data-model.md) | All entities by area + PII map |
 | [Database](02-system/database.md) | Detailed schema of the core tables (partial) |
 | API Docs | http://localhost:8080/scalar/v1 (live) |
@@ -105,6 +106,7 @@ line at the top of each file.
 | [ADR-017](01-architecture/adr/ADR-017-mcp-oauth-authorization-server.md) | OAuth AS for MCP | In force |
 | [ADR-018](01-architecture/adr/ADR-018-reingest-updates-chapters-in-place.md) | Re-ingest updates chapters in place; reader data never cascades | In force |
 | [ADR-019](01-architecture/adr/ADR-019-reader-position-rules.md) | Reader position: shared rules, not a shared state machine | Accepted |
+| [ADR-020](01-architecture/adr/ADR-020-build-once-deploy-by-digest.md) | Build once on GitHub, deploy by digest (+ [delivery pipeline](01-architecture/delivery.md)) | Accepted |
 
 ## Governance
 

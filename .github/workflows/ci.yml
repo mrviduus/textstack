@@ -63,6 +63,10 @@ concurrency:
 # on a Dependabot PR ran for six hours — GitHub's default — and was billed for all
 # six. The numbers are deliberately loose: a ceiling is there to end a hang, not to
 # police a slow run, so a job that trips one is reporting a hang, not a bad estimate.
+# Read-only by default; a job that needs more says so itself.
+permissions:
+  contents: read
+
 jobs:
   # Which areas a pull request touches, so the expensive jobs can sit out the ones
   # they cannot be affected by. A docs-only PR used to pay the full 12 minutes.
@@ -96,7 +100,7 @@ jobs:
     steps:
       # A pull_request checkout is GitHub's merge commit; its first parent is the
       # base tip. Depth 2 is both commits and nothing more.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 2
 
@@ -138,8 +142,8 @@ jobs:
     # 6s typical.
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
           # This job installs nothing — it runs one plain Node script. Leave the
@@ -160,8 +164,8 @@ jobs:
     # 12s typical.
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
           # Same reason as above: one plain Node script, no install, and the
@@ -182,11 +186,11 @@ jobs:
     # wait for no information is the shape of failure worth making impossible.
     timeout-minutes: 3
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # No pnpm. The check reads pnpm-lock.yaml itself and asks the npm registry
       # directly, so there is no package manager in this lane at all — which is
       # the point: it cannot be broken by one.
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
           # Nothing is installed here; the lockfile is the input.
@@ -217,9 +221,9 @@ jobs:
           - 5432:5432
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-dotnet@v6
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: '10.0.x'
 
@@ -292,13 +296,13 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # No version here — pnpm/action-setup reads `packageManager` from the
       # root package.json, so CI, Docker and developers use the same one.
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
 
@@ -383,11 +387,11 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -451,13 +455,13 @@ jobs:
     timeout-minutes: 30
     if: github.event_name == 'pull_request' && inputs.scope != 'merged-tree'
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
           # No pnpm cache here. This job installs only when something mobile
@@ -520,7 +524,7 @@ jobs:
     # 12m typical uncached; a layer-cache hit should cut the build share (unmeasured).
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Free disk space
         run: |
@@ -580,7 +584,7 @@ jobs:
           timeout 120 bash -c 'until curl -s http://localhost:8080/health; do sleep 5; done'
 
 
-      - uses: actions/setup-dotnet@v6
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: '10.0.x'
 
@@ -619,7 +623,7 @@ jobs:
     # 11m typical uncached; same layer cache as `docker` (unmeasured).
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Free disk space
         run: |
@@ -686,9 +690,9 @@ jobs:
 
       # No version here — pnpm/action-setup reads `packageManager` from the
       # root package.json, so CI, Docker and developers use the same one.
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
 
@@ -702,7 +706,7 @@ jobs:
 
       - name: Cache Playwright browsers
         id: pw-cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ steps.pw-version.outputs.version }}
@@ -782,7 +786,7 @@ jobs:
           echo "Smoke passed, so the deploy proceeded. Download the \`playwright-report\` artifact for details." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload Playwright report
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: playwright-report

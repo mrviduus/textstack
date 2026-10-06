@@ -11,6 +11,9 @@ env:
   # Opt JS actions into Node 24 ahead of June 2026 forced cutover.
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
+# No checkout and no API calls: the job token gets nothing.
+permissions: {}
+
 jobs:
   backup:
     runs-on: self-hosted
@@ -84,7 +87,7 @@ jobs:
               -v "$HOME/.cache/restic:/root/.cache/restic" \
               -v "$PROJECT_DIR/data/storage:/backup/storage:ro" \
               -v "$PROJECT_DIR/.env:/backup/env:ro" \
-              restic/restic:0.17.3 "$@"
+              restic/restic:0.17.3@sha256:8f5a62b422a2cb1277ea0dd6e826fe1acf649e5b9f02d60e5268d5fd1976255a "$@"
           }
           mkdir -p "$HOME/.cache/restic"
           # Guard: stay inside R2's free 10 GB. Over 9 GB the job fails (email) instead of quietly

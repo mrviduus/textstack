@@ -30,6 +30,10 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
+# Read-only by default; a job that needs more says so itself.
+permissions:
+  contents: read
+
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -39,9 +43,9 @@ jobs:
       id-token: write   # OIDC token issuance for Trusted Publishing
       contents: read
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-dotnet@v6
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: '10.0.x'
 
@@ -52,7 +56,7 @@ jobs:
           ls -lh ./artifacts/*.nupkg
 
       - name: NuGet login (OIDC → short-lived API key)
-        uses: NuGet/login@v1
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
         id: login
         with:
           # nuget.org username (profile name, NOT email). Public (it's the package
