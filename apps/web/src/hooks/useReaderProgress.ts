@@ -1,4 +1,8 @@
-import { useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
+import { serverProvablyNewer } from '@textstack/shared'
+import { useAuth } from '../context/AuthContext'
+import { getProgress } from '../api/auth'
+import { getUserBookProgress } from '../api/userBooks'
 import { useReadingProgress } from './useReadingProgress'
 import { useRestoreProgress } from './useRestoreProgress'
 import { useUserBookProgress } from './useUserBookProgress'
@@ -30,6 +34,29 @@ export interface UseReaderProgressResult {
   effectiveProgress: EffectiveProgress | null
   effectiveLoading: boolean
   autoSaveInfo: AutoSaveInfo | null
+  /** The open restored from this device because the server did not answer in time. */
+  serverTimedOut: boolean
+  /** Re-ask the server; see {@link NewerPositionResult}. */
+  fetchNewerPosition: (timeoutMs: number) => Promise<NewerPositionResult>
+}
+
+/**
+ * - a position: the server row is provably newer than this device's record (another device read
+ *   on since — `serverProvablyNewer`, on client stamps, skew clamped);
+ * - `false`: the server answered and there is nothing newer;
+ * - `null`: no answer (auth not settled, timed out) — ask again later.
+ */
+export type NewerPositionResult = { chapterSlug: string; locator: string | null; positionJson: string | null } | false | null
+
+/** This device's record for the book: the restore source and every save land here. */
+function localStamp(key: string): { updatedAt: number } | null {
+  try {
+    const raw = localStorage.getItem(key)
+    const updatedAt = raw ? (JSON.parse(raw) as { updatedAt?: unknown }).updatedAt : undefined
+    return typeof updatedAt === 'number' ? { updatedAt } : null
+  } catch {
+    return null
+  }
 }
 
 export function useReaderProgress({
@@ -51,7 +78,7 @@ export function useReaderProgress({
 
   // Public-only restore (userbook restore lives inside useUserBookProgress).
   // URL is authoritative — we never auto-navigate away from a typed chapter.
-  const { savedProgress, isLoading: progressLoading } = useRestoreProgress(
+  const { savedProgress, isLoading: progressLoading, serverTimedOut: publicServerTimedOut } = useRestoreProgress(
     mode === 'public' ? publicBook?.id : undefined,
     chapterSlug,
   )
@@ -68,6 +95,21 @@ export function useReaderProgress({
       : null
 
   const effectiveLoading = mode === 'public' ? progressLoading : userProgress.isLoading
+  const serverTimedOut = mode === 'public' ? publicServerTimedOut : userProgress.serverTimedOut
+
+  const { isAuthenticated, isLoading: authLoading } = useAuth()
+  const editionId = publicBook?.id
+  const fetchNewerPosition = useCallback(async (timeoutMs: number): Promise<NewerPositionResult> => {
+    if (authLoading) return null
+    if (!isAuthenticated) return false
+    const signal = AbortSignal.timeout(timeoutMs)
+    const [server, key] = mode === 'public'
+      ? [editionId ? await getProgress(editionId, { signal }) : null, `reading.progress.${editionId}`]
+      : [userBookId ? await getUserBookProgress(userBookId, { signal }) : null, `userbook.progress.${userBookId}`]
+    if (signal.aborted) return null
+    if (!server?.chapterSlug || !serverProvablyNewer(localStamp(key), server)) return false
+    return { chapterSlug: server.chapterSlug, locator: server.locator ?? null, positionJson: server.positionJson ?? null }
+  }, [authLoading, isAuthenticated, mode, editionId, userBookId])
 
   const autoSaveInfo = useMemo((): AutoSaveInfo | null => {
     if (mode === 'public') {
@@ -100,5 +142,5 @@ export function useReaderProgress({
     }
   }, [mode, publicBook?.id, publicBook?.chapters, book?.chapters, userProgress.savedProgress])
 
-  return { publicProgress, userProgress, effectiveProgress, effectiveLoading, autoSaveInfo }
+  return { publicProgress, userProgress, effectiveProgress, effectiveLoading, autoSaveInfo, serverTimedOut, fetchNewerPosition }
 }

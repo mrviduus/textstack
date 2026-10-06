@@ -33,7 +33,7 @@ import { trackBookOpened } from '../lib/analytics'
 import { ReaderStatsWidget } from '../components/reader/ReaderStatsWidget'
 import { useGuestLimits } from '../context/GuestLimitsContext'
 import { WordHint } from '../components/reader/WordHint'
-import { getUserBookFileUrl, getUserBookProgress } from '../api/userBooks'
+import { getUserBookFileUrl } from '../api/userBooks'
 import { parsePdfPageLocator, computeBookProgress, clampPage, isPdfAnchor, bookMinutesLeft, type PdfAnchor } from '@textstack/shared'
 import { useHighlights } from '../hooks/useHighlights'
 import { useBookReviews, chapterReviewPath } from '../hooks/useBookReviews'
@@ -254,28 +254,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
     setPdfScrollTo({ page: clampPage(h.anchor.page, pdfNumPages), nonce: Date.now() })
   }, [originalActive, scrollToHighlightId, highlightsApi.highlights, pdfNumPages])
 
-  // Server resume page for the chapterless Original view (parsed from the
-  // "page:<N>" progress locator). Fetched once when Original is active; wins over
-  // localStorage but loses to a chapter's sourceStartPage. `resumeReady` gates
-  // the initial scroll so a cross-device open lands on the saved page.
-  const [pdfResumePage, setPdfResumePage] = useState<number | null>(null)
-  const [pdfResumeReady, setPdfResumeReady] = useState(false)
-  useEffect(() => {
-    if (!originalActive || !id) {
-      setPdfResumeReady(true)
-      return
-    }
-    let cancelled = false
-    setPdfResumeReady(false)
-    setPdfResumePage(null)
-    getUserBookProgress(id)
-      .then((p) => { if (!cancelled) setPdfResumePage(parsePdfPageLocator(p?.locator)) })
-      .catch(() => { /* offline → PdfOriginalView falls back to localStorage */ })
-      .finally(() => { if (!cancelled) setPdfResumeReady(true) })
-    return () => { cancelled = true }
-  }, [originalActive, id])
-
-  const { publicProgress, userProgress, effectiveProgress, effectiveLoading, autoSaveInfo } =
+  const { publicProgress, userProgress, effectiveProgress, effectiveLoading, autoSaveInfo, serverTimedOut, fetchNewerPosition } =
     useReaderProgress({
       mode,
       bookSlug,
@@ -285,6 +264,15 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
       publicChapter,
       book,
     })
+
+  // Server resume page for the chapterless Original view (parsed from the
+  // "page:<N>" progress locator); wins over localStorage but loses to a chapter's
+  // sourceStartPage. Read from the userbook progress hook's GET — there used to be
+  // a second, identical GET here. `resumeReady` gates the initial scroll so a
+  // cross-device open lands on the saved page; that GET is time-bounded, so a
+  // hanging network opens at the local page instead of never.
+  const pdfResumePage = originalActive ? parsePdfPageLocator(userProgress.serverLocator) : null
+  const pdfResumeReady = !originalActive || !userProgress.isLoading
 
   // Migrate legacy progress (chapterNumber -> slug) for userbooks. Stays in
   // page because it owns routing.
@@ -452,6 +440,8 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
     // A ?highlight= link positions the reader; restore and save-on-open wait for it.
     holdRestore: !!scrollToHighlightId && !originalActive,
     onHoldExpired: () => handleHighlightLinkDoneRef.current(false),
+    serverTimedOut,
+    fetchNewerPosition,
   })
 
   // ?highlight= resolved: landed → that is the restored position; not found →

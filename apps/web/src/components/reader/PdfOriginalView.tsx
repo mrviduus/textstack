@@ -14,6 +14,8 @@ import {
   topVisiblePage,
   buildPdfProgressPayload,
   pageAtViewportTop,
+  pdfGateReduce,
+  PDF_GATE_INITIAL,
   type PageRect,
 } from '@textstack/shared'
 import { readPdfPage, writePdfPage } from '../../lib/originalLayoutPref'
@@ -145,6 +147,10 @@ export default function PdfOriginalView({
   const lastReportedPageRef = useRef<number | null>(null)
   const prevPdfRef = useRef<typeof pdf>(null)
   const reloadTargetRef = useRef<number | null>(null)
+  // Is the page on screen one the reader chose? Closed from a document load until its open
+  // jump lands, so the page-1 report of a fresh document is never saved over the reader's place.
+  // The same gate mobile uses (packages/shared/src/reader/pdfPersistGate.ts).
+  const gateRef = useRef(PDF_GATE_INITIAL)
 
   const [pageDims, setPageDims] = useState<(PageDim | undefined)[]>([])
   const [visible, setVisible] = useState<Set<number>>(new Set())
@@ -331,11 +337,19 @@ export default function PdfOriginalView({
     scaleAnchorRef.current = { page: pn, fraction: 0 }
   }, [])
 
+  // A new document (first open, or the session-expired reload) closes the gate. Declared
+  // before every effect that jumps, so it can never reset a jump issued in the same commit.
+  useEffect(() => {
+    if (pdf) gateRef.current = pdfGateReduce(gateRef.current, { type: 'documentLoaded' }).state
+  }, [pdf])
+
   // Any jump (initial open / TOC / page-input / reload) goes through here so it
   // clamps to [1, numPages] and re-aligns once heights above the target settle.
   const jumpToPage = useCallback(
     (raw: number) => {
       const target = clampPage(raw, numPages)
+      const g = gateRef.current
+      gateRef.current = pdfGateReduce(g, { type: 'jumpIssued', page: target, jumpId: g.jumpId + 1, at: Date.now() }).state
       pendingTargetRef.current = target
       userInteractedRef.current = false
       // Before the element exists too: a scale change before the next measure
@@ -467,6 +481,9 @@ export default function PdfOriginalView({
   // resume works cross-device. Both write the SAME page — no double-counting. ---
   useEffect(() => {
     if (!visible.size) return
+    const gate = pdfGateReduce(gateRef.current, { type: 'pageReported', page: currentPage, at: Date.now() })
+    gateRef.current = gate.state
+    if (!gate.persist) return
     if (persistTimerRef.current) clearTimeout(persistTimerRef.current)
     persistTimerRef.current = setTimeout(() => writePdfPage(bookId, currentPage), 500)
 

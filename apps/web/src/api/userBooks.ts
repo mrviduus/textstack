@@ -360,11 +360,14 @@ export interface UserBookProgress {
   /** Where the reader is IN THE TEXT, serialised (ADR-015). Prefer it over
    *  `locator`: a pixel offset stops being true the moment the text reflows. */
   positionJson?: string | null
+  /** Client clock of the kept write — compare local stamps with this, never `updatedAt`. */
+  clientUpdatedAt?: string | null
 }
 
-export async function getUserBookProgress(bookId: string): Promise<UserBookProgress | null> {
+/** `signal`: see `getProgress` in api/auth.ts — the reader bounds this GET. */
+export async function getUserBookProgress(bookId: string, init?: { signal?: AbortSignal }): Promise<UserBookProgress | null> {
   try {
-    return await authFetch<UserBookProgress>(`/me/books/${bookId}/progress`)
+    return await authFetch<UserBookProgress>(`/me/books/${bookId}/progress`, init)
   } catch {
     return null
   }

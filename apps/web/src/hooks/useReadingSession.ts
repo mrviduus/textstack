@@ -41,8 +41,9 @@ export function useReadingSession(options: UseReadingSessionOptions) {
   const sessionActiveRef = useRef(false)
   const lastSubmitResponseRef = useRef<SubmitSessionResponse | null>(null)
 
-  // Update refs when props change
-  startPercentRef.current = startPercent
+  // The start is set once per session, in recordActivity. It used to be copied from the prop on
+  // every render — and ReaderPage passes the LIVE progress, so start == current at submit and
+  // every web session reported ~0 words read.
 
   const recordActivity = useCallback(() => {
     lastActivityRef.current = Date.now()

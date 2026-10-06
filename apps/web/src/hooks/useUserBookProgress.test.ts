@@ -73,3 +73,35 @@ describe('useUserBookProgress identity (M4)', () => {
     expect(result.current).toBe(first)
   })
 })
+
+describe('useUserBookProgress — the GET is bounded (R4-2)', () => {
+  afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
+
+  it('a hanging GET: after 3 s the local record is the restore, and the timeout is reported', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms: number) => {
+      const c = new AbortController()
+      setTimeout(() => c.abort(), ms)
+      return c.signal
+    })
+    localStorage.clear()
+    localStorage.setItem(KEY, JSON.stringify({ chapterSlug: 'ch-2', locator: 'scroll:ch-2:400', percent: 0.2, updatedAt: 1000, synced: true }))
+    vi.mocked(userBooks.getUserBookProgress).mockImplementation((_id, init) =>
+      new Promise((resolve) => init?.signal?.addEventListener('abort', () => resolve(null))))
+    const { result } = renderHook(() => useUserBookProgress('b1'))
+    expect(result.current.isLoading).toBe(true)
+    await act(async () => { vi.advanceTimersByTime(3000) })
+    expect(result.current.isLoading).toBe(false)
+    expect(result.current.serverTimedOut).toBe(true)
+    expect(result.current.savedProgress?.chapterSlug).toBe('ch-2')
+  })
+
+  it('exposes the server locator, so a PDF resumes from the same GET (R4-5)', async () => {
+    localStorage.clear()
+    vi.mocked(userBooks.getUserBookProgress).mockResolvedValue({ chapterSlug: null, locator: 'page:42', percent: 0.3, updatedAt: null })
+    const { result } = renderHook(() => useUserBookProgress('b1'))
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    expect(result.current.serverLocator).toBe('page:42')
+    expect(result.current.serverTimedOut).toBe(false)
+  })
+})

@@ -194,9 +194,11 @@ export interface UpsertProgressRequest {
   updatedAt?: string
 }
 
-export async function getProgress(editionId: string): Promise<ReadingProgressDto | null> {
+/** `signal`: the reader passes `AbortSignal.timeout(...)` so a hanging network cannot hold
+ *  the restore (and with it every save) forever. Other callers are unchanged. */
+export async function getProgress(editionId: string, init?: { signal?: AbortSignal }): Promise<ReadingProgressDto | null> {
   try {
-    return await meFetch<ReadingProgressDto>(`/me/progress/${editionId}`)
+    return await meFetch<ReadingProgressDto>(`/me/progress/${editionId}`, init)
   } catch {
     return null
   }
