@@ -25,7 +25,15 @@ interface UseHighlightEditOptions {
   removeHighlight: (id: string) => Promise<void>
   chapterId: string
   containerRef: RefObject<HTMLElement | null>
+  /** `?highlight=<id>` from the URL (live: a drawer jump to another chapter adds it). */
   scrollToHighlightId?: string | null
+  /** Highlights and the chapter are loaded: the link may be resolved now. */
+  highlightLinkReady?: boolean
+  /**
+   * The link landed (true) or cannot (false: no such highlight, or its text never
+   * appeared). The reader then drops the param and, on false, runs its normal restore.
+   */
+  onHighlightLinkDone?: (found: boolean) => void
   /** Nonce-driven jump from the TOC drawer's Highlights tab (reflow only). */
   scrollToHl?: ScrollToHighlight | null
   /**
@@ -61,78 +69,78 @@ export function useHighlightEdit({
   chapterId,
   containerRef,
   scrollToHighlightId,
+  highlightLinkReady = false,
+  onHighlightLinkDone,
   scrollToHl,
   onNavigateToHighlight,
   onAfterCreate,
 }: UseHighlightEditOptions): UseHighlightEditResult {
-  // Pending post-navigation retry poll for a cross-chapter drawer jump.
-  const jumpRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const clearJumpRetry = useCallback(() => {
-    if (jumpRetryTimerRef.current) {
-      clearTimeout(jumpRetryTimerRef.current)
-      jumpRetryTimerRef.current = null
-    }
-  }, [])
 
   // Locate a highlight's text anchor and center it. Returns false when the text
   // isn't in the mounted DOM yet (chapter not rendered / still loading) so the
   // caller can navigate + retry. A located-but-zero-size range counts as done.
   const tryScrollToTarget = useCallback(
-    (target: StoredHighlight): boolean => {
+    (target: StoredHighlight, behavior: ScrollBehavior = 'smooth'): boolean => {
       if (!containerRef.current) return false
       const range = findTextByAnchor(target.anchor, containerRef.current, highlightChapterKey(target))
       if (!range) return false
       const rect = range.getBoundingClientRect()
       if (rect.width !== 0 || rect.height !== 0) {
         const targetY = window.scrollY + rect.top - window.innerHeight / 2 + rect.height / 2
-        window.scrollTo({ top: targetY, behavior: 'smooth' })
+        window.scrollTo({ top: targetY, behavior })
       }
       return true
     },
     [containerRef],
   )
 
-  // Locate a reflow highlight by its text anchor and center it in the viewport.
-  // Shared by the URL-mount one-shot and the drawer's nonce-driven jump. On a
-  // miss (the highlight lives in a chapter the reader hasn't mounted) route to
-  // that chapter, then poll until its async-loaded DOM contains the anchor.
+  // Drawer jump: center a highlight in the mounted chapter. On a miss (its
+  // chapter is not the mounted one) route there — the route carries
+  // ?highlight=<id>, which the link effect below resolves.
   const scrollToHighlightById = useCallback(
     (id: string) => {
       const target = highlights.find((h) => h.id === id)
       if (!target || !containerRef.current) return
-      clearJumpRetry()
       requestAnimationFrame(() => {
         if (tryScrollToTarget(target)) return
         // PDF anchors jump via the pixel-perfect viewer's page path in
         // ReaderPage, so only reflow highlights should reach the nav fallback.
         if (isPdfAnchor(target.anchor) || !onNavigateToHighlight) return
         onNavigateToHighlight(target)
-        let tries = 0
-        const retry = () => {
-          if (tryScrollToTarget(target) || ++tries >= JUMP_MAX_RETRIES) {
-            jumpRetryTimerRef.current = null
-            return
-          }
-          jumpRetryTimerRef.current = setTimeout(retry, JUMP_RETRY_MS)
-        }
-        jumpRetryTimerRef.current = setTimeout(retry, JUMP_RETRY_MS)
       })
     },
-    [highlights, containerRef, onNavigateToHighlight, tryScrollToTarget, clearJumpRetry],
+    [highlights, containerRef, onNavigateToHighlight, tryScrollToTarget],
   )
 
-  // Drop any pending retry poll on unmount.
-  useEffect(() => clearJumpRetry, [clearJumpRetry])
-
-  // URL deep-link (?highlight=<id>): one-shot on mount once highlights load.
-  const scrolledRef = useRef(false)
+  // ?highlight=<id>: once highlights and the chapter are loaded, land on it
+  // (instant, so the reader is positioned before anything saves) and report the
+  // outcome either way — the reader holds its restore until then.
+  const onLinkDoneRef = useRef(onHighlightLinkDone)
+  onLinkDoneRef.current = onHighlightLinkDone
+  const highlightsRef = useRef(highlights)
+  highlightsRef.current = highlights
   useEffect(() => {
-    if (!scrollToHighlightId || scrolledRef.current) return
-    if (highlights.length === 0 || !containerRef.current) return
-    if (!highlights.some((h) => h.id === scrollToHighlightId)) return
-    scrolledRef.current = true
-    scrollToHighlightById(scrollToHighlightId)
-  }, [scrollToHighlightId, highlights, containerRef, scrollToHighlightById])
+    if (!scrollToHighlightId || !highlightLinkReady) return
+    const target = highlightsRef.current.find((h) => h.id === scrollToHighlightId)
+    if (!target) {
+      onLinkDoneRef.current?.(false)
+      return
+    }
+    // A PDF highlight is positioned by ReaderPage's page jump.
+    if (isPdfAnchor(target.anchor)) {
+      onLinkDoneRef.current?.(true)
+      return
+    }
+    let tries = 0
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const attempt = () => {
+      if (tryScrollToTarget(target, 'instant')) onLinkDoneRef.current?.(true)
+      else if (++tries >= JUMP_MAX_RETRIES) onLinkDoneRef.current?.(false)
+      else timer = setTimeout(attempt, JUMP_RETRY_MS)
+    }
+    attempt()
+    return () => clearTimeout(timer)
+  }, [scrollToHighlightId, highlightLinkReady, tryScrollToTarget])
 
   // Drawer jump: nonce-driven so re-selecting the same highlight re-fires.
   const lastNonceRef = useRef<number | null>(null)

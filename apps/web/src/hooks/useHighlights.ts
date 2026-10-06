@@ -31,6 +31,10 @@ export function useHighlights(editionId?: string, userBookId?: string, options?:
   const { isAuthenticated } = options || {}
   const [highlights, setHighlights] = useState<StoredHighlight[]>([])
   const [loading, setLoading] = useState(true)
+  // The book whose list is fully loaded. `loading` alone is false before the
+  // book id is known and stale for one render after it changes — a ?highlight=
+  // link reading it gave up on an empty list.
+  const [loadedBookId, setLoadedBookId] = useState<string | null>(null)
   const bookId = userBookId || editionId || ''
   const isUserBook = !!userBookId
 
@@ -73,10 +77,14 @@ export function useHighlights(editionId?: string, userBookId?: string, options?:
       localLoaded
         .then(() => syncWithServer(() => cancelled))
         .finally(() => {
-          if (!cancelled) setLoading(false)
+          if (!cancelled) { setLoading(false); setLoadedBookId(bookId) }
         })
     } else {
-      setLoading(false)
+      // After the local read: "loaded" with an empty list made a ?highlight= link
+      // give up before the highlight it names had been read.
+      localLoaded.finally(() => {
+        if (!cancelled) { setLoading(false); setLoadedBookId(bookId) }
+      })
     }
 
     return () => {
@@ -258,6 +266,7 @@ export function useHighlights(editionId?: string, userBookId?: string, options?:
   return {
     highlights,
     loading,
+    loadedBookId,
     addHighlight,
     updateHighlight,
     removeHighlight,

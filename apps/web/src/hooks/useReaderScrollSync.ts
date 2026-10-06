@@ -59,6 +59,12 @@ interface Params {
    * and this hook had no idea it ever happened.
    */
   settingsKey: string
+  /**
+   * A `?highlight=` link is positioning the reader. Restore and save-on-open
+   * wait: the link either lands (markPositioned) or gives up, and only then
+   * does the normal restore run.
+   */
+  holdRestore?: boolean
 }
 
 
@@ -147,6 +153,7 @@ export function useReaderScrollSync({
   publicProgress,
   userProgress,
   settingsKey,
+  holdRestore = false,
 }: Params) {
   const scrollRestoredRef = useRef(false)
   // The reading line as of the last scroll pause. The live capture reads the
@@ -224,7 +231,7 @@ export function useReaderScrollSync({
   // top — React Router preserves scrollY across route changes, so without
   // this, hitting "Next" at the bottom of ch1 leaves you mid-/end-of ch2.
   useEffect(() => {
-    if (scrollRestoredRef.current || effectiveLoading) return
+    if (scrollRestoredRef.current || effectiveLoading || holdRestore) return
     if (originalActive || !chapterLoaded) return
 
     // This session's own last position in this chapter beats anything fetched
@@ -258,18 +265,22 @@ export function useReaderScrollSync({
       // The chapter changed before this frame: this restore is for a page that
       // is no longer the one on screen.
       if (identifierRef.current !== forId) return
-      // A highlight link (?highlight=) owns this chapter's first position —
-      // useHighlightEdit scrolls to it. Restoring here raced that scroll and
-      // won, leaving the reader at the saved spot or the top.
-      if (!new URLSearchParams(window.location.search).has('highlight')) {
-        const top = anchoredScrollTop(article, anchored) ?? savedOffset
-        window.scrollTo({ top, behavior: 'instant' })
-      }
+      const top = anchoredScrollTop(article, anchored) ?? savedOffset
+      window.scrollTo({ top, behavior: 'instant' })
       scrollRestoredRef.current = true
       setRestoredFor(forId ?? null)
       if (forId) lastLineRef.current = captureReadingPosition(forId)
     })
-  }, [originalActive, chapterLoaded, effectiveLoading, effectiveProgress, chapterIdentifier])
+  }, [originalActive, chapterLoaded, effectiveLoading, effectiveProgress, chapterIdentifier, holdRestore])
+
+  /** Something else (a `?highlight=` jump) positioned the reader: treat it as the restore. */
+  const markPositioned = useCallback(() => {
+    const id = identifierRef.current
+    if (!id) return
+    scrollRestoredRef.current = true
+    setRestoredFor(id)
+    lastLineRef.current = captureReadingPosition(id)
+  }, [])
 
   /**
    * Keep the reader in place when the text reflows under them.
@@ -376,5 +387,5 @@ export function useReaderScrollSync({
     }
   }, [flushSave])
 
-  return { flushSave, captureBeforeReflow }
+  return { flushSave, captureBeforeReflow, markPositioned }
 }

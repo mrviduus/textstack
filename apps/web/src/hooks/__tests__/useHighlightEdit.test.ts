@@ -154,3 +154,43 @@ describe('useHighlightEdit — nonce-driven drawer jump', () => {
     unmount() // clears the pending retry poll
   })
 })
+
+describe('useHighlightEdit — ?highlight= link reports its outcome', () => {
+  type Opts = Parameters<typeof useHighlightEdit>[0]
+  it('found → scrolls instantly and reports true', async () => {
+    const done = vi.fn()
+    renderHook(() =>
+      useHighlightEdit({
+        highlights: [hl('a')], addHighlight, updateHighlight, removeHighlight,
+        chapterId: 'c1', containerRef: makeContainer(),
+        scrollToHighlightId: 'a', highlightLinkReady: true, onHighlightLinkDone: done,
+      } as Opts),
+    )
+    await vi.waitFor(() => expect(done).toHaveBeenCalledWith(true))
+    expect(window.scrollTo).toHaveBeenCalledWith(expect.objectContaining({ behavior: 'instant' }))
+  })
+
+  it('not in the list → reports false (the reader falls back to restore)', async () => {
+    const done = vi.fn()
+    renderHook(() =>
+      useHighlightEdit({
+        highlights: [hl('a')], addHighlight, updateHighlight, removeHighlight,
+        chapterId: 'c1', containerRef: makeContainer(),
+        scrollToHighlightId: 'gone', highlightLinkReady: true, onHighlightLinkDone: done,
+      } as Opts),
+    )
+    await vi.waitFor(() => expect(done).toHaveBeenCalledWith(false))
+  })
+
+  it('waits until ready (highlights + chapter loaded)', () => {
+    const done = vi.fn()
+    renderHook(() =>
+      useHighlightEdit({
+        highlights: [], addHighlight, updateHighlight, removeHighlight,
+        chapterId: 'c1', containerRef: makeContainer(),
+        scrollToHighlightId: 'a', highlightLinkReady: false, onHighlightLinkDone: done,
+      } as Opts),
+    )
+    expect(done).not.toHaveBeenCalled()
+  })
+})

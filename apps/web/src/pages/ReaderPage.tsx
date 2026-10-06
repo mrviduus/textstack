@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useParams, useNavigate, useLocation, Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
 import { useReaderSettings } from '../hooks/useReaderSettings'
@@ -99,7 +99,10 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
   const [pdfNumPages, setPdfNumPages] = useState(0)
 
   // Highlight ID from URL — scroll to this highlight after chapter loads
-  const [scrollToHighlightId] = useState(() => new URLSearchParams(window.location.search).get('highlight'))
+  // Live, not read once at mount: a drawer jump to another chapter adds it by
+  // SPA navigation. Removed once the link is resolved, so Back / reload restore normally.
+  const location = useLocation()
+  const scrollToHighlightId = new URLSearchParams(location.search).get('highlight')
 
   const scrollContainerRef = useRef<HTMLDivElement>(null)
 
@@ -419,7 +422,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
   // Scroll-position restore + debounced save + flush on visibility/unload.
   // flushProgress ships the LEAVING chapter's latest scroll before a
   // same-component route change (ReaderPage stays mounted, so no unmount flush).
-  const { flushSave: flushProgress, captureBeforeReflow } = useReaderScrollSync({
+  const { flushSave: flushProgress, captureBeforeReflow, markPositioned } = useReaderScrollSync({
     mode,
     chapterIdentifier,
     chapterLoaded: isChapterReady(chapter, chapterIdentifier, loading),
@@ -436,7 +439,23 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
     // Typography only. Theme is a data-attribute swap and does not re-wrap text,
     // so re-anchoring for it would cost a layout read for nothing.
     settingsKey: `${settings.fontSize} ${settings.lineHeight} ${settings.fontFamily} ${settings.textAlign}`,
+    // A ?highlight= link positions the reader; restore and save-on-open wait for it.
+    holdRestore: !!scrollToHighlightId && !originalActive,
   })
+
+  // ?highlight= resolved: landed → that is the restored position; not found →
+  // the held restore runs. Either way the param goes (replace), so Back and
+  // reload restore normally instead of jumping again.
+  const highlightLinkReady = !!highlightsApi.loadedBookId
+    && highlightsApi.loadedBookId === (mode === 'userbook' ? id : book?.id)
+    && (originalActive || isChapterReady(chapter, chapterIdentifier, loading))
+  const handleHighlightLinkDone = useCallback((found: boolean) => {
+    if (found) markPositioned()
+    const sp = new URLSearchParams(location.search)
+    sp.delete('highlight')
+    const q = sp.toString()
+    navigate({ pathname: location.pathname, search: q ? `?${q}` : '', hash: location.hash }, { replace: true, state: location.state })
+  }, [markPositioned, location, navigate])
 
   // Track current book for guest returning user feature
   useEffect(() => {
@@ -670,6 +689,8 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
           ttsSpeed={settings.ttsSpeed}
           showInlineTranslations={settings.showInlineTranslations}
           scrollToHighlightId={scrollToHighlightId}
+          highlightLinkReady={highlightLinkReady}
+          onHighlightLinkDone={handleHighlightLinkDone}
           scrollToHl={scrollToHl}
           onNavigateToHighlight={handleHighlightNavigate}
           highlights={highlightsApi.highlights}

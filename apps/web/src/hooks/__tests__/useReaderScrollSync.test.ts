@@ -469,3 +469,32 @@ describe('isChapterReady (C2)', () => {
     expect(isChapterReady({ identifier: '3-iii' }, '3-iii', false)).toBe(true)
   })
 })
+
+// ── R2 review #4: ?highlight= holds restore and save-on-open ───────────────
+describe('useReaderScrollSync — highlight link holds restore', () => {
+  it('held: no restore, no save; released (highlight not found) → normal restore, saved position kept', () => {
+    realScrollTo()
+    const updateProgress = vi.fn()
+    const props = { ...baseProps, effectiveProgress: { locator: 'scroll:ch1:5000' }, publicProgress: { updateProgress, flushSave: vi.fn() } }
+    const { rerender } = renderHook((p: Props) => useReaderScrollSync(p), { initialProps: { ...props, holdRestore: true } as Props })
+    expect(window.scrollTo).not.toHaveBeenCalled()
+    expect(updateProgress).not.toHaveBeenCalled()
+    rerender({ ...props, holdRestore: false } as Props)
+    expect(window.scrollTo).toHaveBeenCalledWith({ top: 5000, behavior: 'instant' })
+    expect(updateProgress).toHaveBeenCalledTimes(1)
+    expect(updateProgress.mock.calls[0][2]).toBe('scroll:ch1:5000')
+  })
+
+  it('jump landed (markPositioned): no restore over it; save-on-open records the jump position', () => {
+    realScrollTo()
+    const updateProgress = vi.fn()
+    const props = { ...baseProps, effectiveProgress: { locator: 'scroll:ch1:5000' }, publicProgress: { updateProgress, flushSave: vi.fn() } }
+    const { result, rerender } = renderHook((p: Props) => useReaderScrollSync(p), { initialProps: { ...props, holdRestore: true } as Props })
+    setScroll(1234) // the jump
+    act(() => (result.current as unknown as { markPositioned: () => void }).markPositioned())
+    rerender({ ...props, holdRestore: false } as Props)
+    expect(window.scrollTo).not.toHaveBeenCalled()
+    expect(updateProgress).toHaveBeenCalledTimes(1)
+    expect(updateProgress.mock.calls[0][2]).toBe('scroll:ch1:1234')
+  })
+})
