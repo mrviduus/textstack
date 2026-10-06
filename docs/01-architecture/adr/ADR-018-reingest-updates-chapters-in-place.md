@@ -79,13 +79,13 @@ Callers: `IngestionService`, `TextStackImportService`, admin chapter delete
 
 ## Known limits
 
-- **`MaxChapterNumber` is not remapped.** `ReadingProgress.MaxChapterNumber` is a raw chapter number
-  (read by `ChapterFrontier` for the chapter-review spoiler gate). If re-ingestion renumbers
-  chapters, the frontier can move by the shift.
-- **Standalone admin delete/merge paths do not rewrite locators.** Admin chapter delete and the
-  quality-pipeline delete/merge re-point Ids (decision 2) but do not run `SlugMoves`, so a locator or
-  insight naming the deleted slug is left as is; the reader opens that book at the chapter top.
-  Admin delete also renumbers later chapters (see the first limit).
+- ~~**`MaxChapterNumber` is not remapped.**~~ Fixed in R3: `RemapMaxChapterNumber` runs on re-ingest
+  and on standalone renumbering (new frontier = highest new number among old chapters at or below the
+  old one; a removed chapter counts as its predecessor).
+- ~~**Standalone admin delete/merge paths do not rewrite locators.**~~ Fixed in R3: admin delete and
+  the quality pipeline's delete/merge go through `PlanFromIds` + the same `SlugMoves`/`MoveLocator`/
+  `MovePosition`/`MoveInsightsAsync`. They pass a null logger, so insight-collision warnings there are
+  not logged.
 - **Duplicate titles pair greedily.** Two chapters with the same title (e.g. "Notes", "Chapter") are
   matched in number order by the title pass, which can pair the wrong two when chapters were added in
   front. Readers then land in a sibling chapter with the offset kept.
