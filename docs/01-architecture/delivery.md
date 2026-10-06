@@ -54,6 +54,19 @@ instead). The pre-deploy dump is a step inside `deploy`, after the SSG wait and 
 failed dump ships nothing, and the dump is minutes (web build + scan) before the migrator — see
 "Known limits" for why it is not parallel.
 
+## Images
+
+Compressed size (what CI pushes and the server pulls), after #748:
+
+| Image | Base | Size | Notes |
+|---|---|---|---|
+| api | `aspnet:10.0-alpine` | ~93 MB | single-RID publish (`linux-musl-<arch>`); keeps `git` for Standard Ebooks sync |
+| worker | `aspnet:10.0-alpine` | ~110 MB | no Node/browser; ICU on (`HtmlCleaner` normalises), PDFium + Skia musl natives, `font-dejavu` |
+| admin | `nginx-unprivileged:stable-alpine` | ~26 MB | static `dist` on :81, SPA fallback |
+| ssg-worker | `node:<.nvmrc>-alpine` | ~410 MB | apk Chromium; `pnpm deploy --prod` (pg + puppeteer only) |
+| migrator | `dotnet/sdk:10.0` | ~1.35 GB | full SDK + source; next step: EF migrations bundle (~100 MB) |
+| mcp-server | `aspnet:10.0-alpine` | ~52 MB | |
+
 ## External dependencies
 
 | dependency | used for | if it is down | fallback |
@@ -66,7 +79,7 @@ failed dump ships nothing, and the dump is minutes (web build + scan) before the
 | npm registry (+ corepack pnpm download) | all JS installs, CI and the server web build | CI, images and the server web build fail | none (cache in CI only) |
 | NuGet.org | .NET restore | CI and image builds fail | gha layer cache covers unchanged restores |
 | Alpine / Debian apt mirrors | `apk add`, `apt-get install` in Dockerfiles | Image build fails on cache miss | Retry loop (Worker); gha cache. The secret scan needs no mirror. |
-| storage.googleapis.com (Chrome for Testing) | Puppeteer browser download (ssg-worker, Worker, server `pnpm install`) | Builds fail on cache miss (blocked a deploy 2026-08-20) | Backoff loop; the slim Dockerfiles remove most of it |
+| storage.googleapis.com (Chrome for Testing) | Puppeteer browser download (server `pnpm install` only; images skip it — ssg-worker uses apk Chromium, the Worker has no browser since #748) | Builds fail on cache miss (blocked a deploy 2026-08-20) | Backoff loop |
 | registry.ollama.ai | `ollama pull` on each deploy | Warning only | Model already on disk |
 | Cloudflare DNS + SSL + Tunnel | all public traffic to the home server | **Site down** | None quick. Keep a way to repoint DNS; the tunnel is the only ingress |
 | Cloudflare R2 | off-site restic backups | Nightly off-site step fails (email); local backups still made | Local copies on the server (2 newest) |
@@ -99,7 +112,7 @@ Single points of failure that matter: **the home server + Cloudflare tunnel** (r
 | OTA bundle scan | `mobile-ota.yml` | Same patterns over an `expo export` made with the EAS production environment, plus `EXPO_TOKEN`'s value; gates `eas update`. |
 | `.dockerignore` | repo root | `.env*`, keys, service accounts, `appsettings.*.json`, `bin/`, `obj/` never enter a build context. |
 | Actions pinned by SHA | every `uses:` in `.github/workflows/` | A moved tag cannot change code that runs next to `EXPO_TOKEN`, a write token or the self-hosted runner. Dependabot bumps the SHA and the `# vX.Y` comment. |
-| Images pinned by digest | `docker-compose.yml`, `backup.yml` (restic), scanner, Makefile; Dockerfile `FROM`s **pending: slim-images PR** (`ci/slim-images`) | A re-pushed tag cannot swap the DB, the backup tool (sees R2 keys and `.env`) or the scanner. Dependabot (`docker`, `docker-compose`) bumps them weekly. |
+| Images pinned by digest | `docker-compose.yml`, `backup.yml` (restic), scanner, Makefile; every Dockerfile `FROM` (#748; `scripts/check-node-version.mjs` requires the node FROM to be a literal pinned `.nvmrc` version) | A re-pushed tag cannot swap the DB, the backup tool (sees R2 keys and `.env`) or the scanner. Dependabot (`docker`, `docker-compose`) bumps them weekly. |
 | Deploy pulls by digest | `images` output → `deploy` | A `:sha` tag re-pushed between build and pull is ignored; the server runs the bytes that passed the scan. |
 | Rollback input guarded | `deploy.yml` `guard` | `rollback_commit` must be 7–40 hex, resolve in a full clone, and be an ancestor of `origin/main`; passed via `env:`, never interpolated into `run:`. |
 | Least-privilege tokens | top-level `permissions:` in every workflow | Read-only (or none) by default; only `images` (packages: write), `deps-refresh` (contents + PRs) and `publish-mcp-nuget` (id-token) widen, per job. |

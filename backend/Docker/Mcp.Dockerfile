@@ -3,7 +3,7 @@
 # is a thin, stateless MCP↔HTTP bridge: it references the MCP SDK packages and the
 # dependency-free Contracts project (tool descriptions), never Application /
 # Infrastructure / Domain.
-FROM mcr.microsoft.com/dotnet/sdk:10.0-alpine AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0-alpine@sha256:3cc3bbbbf93d82104892f42aa9106b6be4d120346dea0649643a97c801525256 AS build
 WORKDIR /src
 
 COPY Directory.Build.props Directory.Packages.props ./
@@ -15,7 +15,7 @@ COPY backend/src/Ai/TextStack.Ai.Mcp/ backend/src/Ai/TextStack.Ai.Mcp/
 COPY backend/src/Contracts/ backend/src/Contracts/
 RUN dotnet publish backend/src/Ai/TextStack.Ai.Mcp/TextStack.Ai.Mcp.csproj -c Release -o /app/publish
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine@sha256:f62a272ac1b46e83f56b8ed0416572f31cd1128e2c4a5e63eb34d348e4a36095 AS runtime
 RUN deluser app 2>/dev/null; delgroup app 2>/dev/null; \
     addgroup -g 1000 app && adduser -D -u 1000 -G app app
 WORKDIR /app

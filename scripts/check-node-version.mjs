@@ -60,7 +60,10 @@ for (const file of readdirSync(join(ROOT, '.github/workflows'))) {
   })
 }
 
-// Dockerfiles cannot read .nvmrc, so they carry a build arg that has to agree.
+// Dockerfiles cannot read .nvmrc, so every `FROM node:<version>` has to agree.
+// A literal tag, not an ARG: the base is pinned by digest (`node:X-alpine@sha256:…`),
+// and with a digest present Docker ignores the tag — an ARG bump alone would leave
+// the old Node in place while reading as the new one.
 const dockerfiles = []
 for (const dir of ['apps/web', 'apps/admin']) {
   for (const f of readdirSync(join(ROOT, dir))) {
@@ -68,20 +71,17 @@ for (const dir of ['apps/web', 'apps/admin']) {
   }
 }
 for (const path of dockerfiles) {
-  const body = read(path)
-  if (!/^FROM node:/m.test(body) && !/^FROM node:\$\{NODE_VERSION\}/m.test(body)) continue
-  checked++
-  const pinned = body.match(/^FROM node:(\d+)/m)
-  if (pinned) {
-    problems.push(`${path} pins FROM node:${pinned[1]} — use "ARG NODE_VERSION=${expected}" + "FROM node:\${NODE_VERSION}-alpine"`)
-    continue
-  }
-  const arg = body.match(/^ARG NODE_VERSION=([\d.]+)/m)
-  if (!arg) {
-    problems.push(`${path} uses \${NODE_VERSION} without declaring ARG NODE_VERSION`)
-  } else if (arg[1] !== expected) {
-    problems.push(`${path} builds on Node ${arg[1]}, .nvmrc says ${expected}`)
-  }
+  read(path).split('\n').forEach((line, i) => {
+    const from = line.match(/^FROM\s+(?:--platform=\S+\s+)?node:(\S+)/)
+    if (!from) return
+    checked++
+    const version = from[1].match(/^(\d+(?:\.\d+)*)/)?.[1]
+    if (version !== expected) {
+      problems.push(`${path}:${i + 1} builds on node:${from[1]} — use "FROM node:${expected}-alpine@sha256:…"`)
+    } else if (!from[1].includes('@sha256:')) {
+      problems.push(`${path}:${i + 1} is not pinned by digest — use "FROM node:${expected}-alpine@sha256:…"`)
+    }
+  })
 }
 
 if (problems.length) {
