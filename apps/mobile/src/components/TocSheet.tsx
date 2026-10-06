@@ -26,6 +26,9 @@ interface TocSheetProps {
 export function TocSheet({ visible, chapters, currentChapterSlug, bookmarks, onNavigate, onClose, loading }: TocSheetProps) {
   const { colors } = useTheme()
   const listRef = useRef<FlatList<TocChapter>>(null)
+  // One scroll to the current chapter per opening (a closed Modal unmounts the list).
+  const scrolledRef = useRef(false)
+  if (!visible) scrolledRef.current = false
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
@@ -99,7 +102,15 @@ export function TocSheet({ visible, chapters, currentChapterSlug, bookmarks, onN
             // produced blank sections at the bottom (B-14). Dropping it
             // lets FlatList measure; onScrollToIndexFailed handles the
             // edge where the target hasn't been laid out yet.
-            initialScrollIndex={Math.max(0, chapters.findIndex(c => c.slug === currentChapterSlug) - 2)}
+            // NOT initialScrollIndex: without getItemLayout FlatList mounts only the rows from that
+            // index on, so the rows above were never there and the sheet could not scroll to them
+            // ("only some chapters are visible"). The list mounts from the top, then scrolls.
+            onLayout={() => {
+              if (scrolledRef.current) return
+              scrolledRef.current = true
+              const index = Math.max(0, chapters.findIndex(c => c.slug === currentChapterSlug) - 2)
+              if (index > 0) listRef.current?.scrollToIndex({ index, animated: false })
+            }}
             onScrollToIndexFailed={info => {
               // Two-step recovery (P2-1): first jump to the approximate
               // offset so FlatList renders the target region, then retry
