@@ -217,6 +217,12 @@ environment reports nothing on any service.
   `GITHUB_TOKEN` relies on the repo holding the admin role on each package (automatic for packages
   a workflow published) and on the REST path `users/<owner>/…` — a move to an org account changes it
   to `orgs/<org>/…`. GitHub calls workflow deletion via REST "public preview".
+  Rollbacks before this `run-name` have the default title "Deploy"; none ran after images were first
+  published (#742, 2026-10-06 — the last dispatched deploy was 2026-03-25), so none is unprotected.
+  Fewer than 5 successful deploys in the 30-day window (the re-run limit) fails the run closed.
+  **Race:** a rollback started after a retention run has listed the deploy runs is not protected by
+  it; if that run deletes the target's version, the deploy's pull by digest fails and the server
+  builds instead — slower, not broken.
 - **Scan blind spots:** nested archives (zip, nupkg, jar, tgz) are not unpacked; token shapes outside
   the regex (Resend `re_`, `GOCSPX-`, `gho_`/`ghs_`, `npm_`, R2 hex keys, the JWT secret) are caught
   only by value in the dist scan, not in images. Push protection is the first line.

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { plan, deployedRefs, selectDeploys } from './ghcr-retention.mjs'
+import { plan, deployedRefs, selectDeploys, uniqueRuns } from './ghcr-retention.mjs'
 
 const DAY = 86_400_000
 const NOW = Date.parse('2026-10-07T00:00:00Z')
@@ -86,7 +86,29 @@ describe('selectDeploys', () => {
     expect(later.map((r) => r.id)).toEqual([5, 4])
   })
 
-  it('returns no successes when there are none', () => {
-    expect(selectDeploys([run(1, 1, 'failure')], 5)).toEqual({ ok: [], later: [] })
+  it('fails closed with fewer successful deploys than asked for', () => {
+    expect(() => selectDeploys([run(1, 1, 'failure'), run(2, 2, 'success')], 2)).toThrow(/only 1 successful/)
+  })
+
+  it('orders by run_started_at, so a re-run of an old rollback counts as recent', () => {
+    const rerun = { ...run(9, 200, 'success'), run_started_at: new Date(NOW - 1 * 3_600_000).toISOString(), display_title: 'Rollback to abc1234' }
+    const { ok } = selectDeploys([run(1, 5, 'success'), run(2, 10, 'success'), rerun], 2)
+    expect(ok.map((r) => r.id)).toEqual([9, 1])
+  })
+
+  it('falls back to updated_at, then created_at', () => {
+    const upd = { ...run(3, 100, 'success'), updated_at: new Date(NOW).toISOString() }
+    expect(selectDeploys([run(1, 5, 'success'), upd], 1).ok.map((r) => r.id)).toEqual([3])
+  })
+})
+
+describe('uniqueRuns', () => {
+  it('drops a run seen on both pages', () => {
+    expect(uniqueRuns([{ id: 1 }, { id: 2 }, { id: 1 }], 2).map((r) => r.id)).toEqual([1, 2])
+  })
+
+  it('fails closed when a duplicate hides a missing run', () => {
+    // total 3, three rows returned, but run 3 never arrived and run 1 came twice
+    expect(() => uniqueRuns([{ id: 1 }, { id: 2 }, { id: 1 }], 3)).toThrow(/2 unique of 3/)
   })
 })

@@ -18,7 +18,8 @@
 //
 // Fails closed: any API error before the first delete (deploy runs, package listing, a
 // manifest of a kept version, a rollback SHA that does not resolve) exits 1 having deleted
-// nothing. No successful deploy at all also exits 1.
+// nothing. Duplicate/missing deploy runs, or fewer than DEPLOYS successful deploys in the
+// window, also exit 1.
 //
 // Env: GH_TOKEN, GITHUB_REPOSITORY, DRY_RUN (default true), KEEP_NEWEST (10), KEEP_DAYS (14),
 //      DEPLOYS (5), MAX_DELETE (150), PACKAGES (space-separated service names).
@@ -27,7 +28,11 @@ import { appendFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 
 const SHA = /^[0-9a-f]{40}$/
-const LOOKBACK_DAYS = 30 // must hold DEPLOYS successful deploys, or the run fails closed
+// Runs are fetched by `created` over this window. 30 days because GitHub refuses to re-run a run
+// older than that, so a re-run (which can restart an old rollback) is always inside it. Fewer than
+// DEPLOYS successful deploys in it fails the run closed: a month that quiet pushed almost no
+// images, so skipping the prune costs nothing, and widening the window would miss re-runs anyway.
+const LOOKBACK_DAYS = 30
 export const ROLLBACK_TITLE = /^Rollback to ([0-9a-f]{7,40})$/
 
 /**
@@ -60,12 +65,25 @@ export function plan(versions, { protectedShas, children = new Set(), now, keepN
   return { keep, del }
 }
 
-/** Pure: the last `deploys` successful runs, and every run (any outcome) since the oldest of them. */
+/** When a run last did anything: a re-run of an old rollback restarts it now, not at `created_at`. */
+export const startedAt = (r) => Date.parse(r.run_started_at ?? r.updated_at ?? r.created_at)
+
+/** Pure: unique runs by id; throws unless they are exactly `totalCount` (page order is unstable,
+ *  so a duplicate on one page can hide a run missing from the other). */
+export function uniqueRuns(runs, totalCount) {
+  const unique = [...new Map(runs.map((r) => [r.id, r])).values()]
+  if (unique.length !== totalCount) throw new Error(`deploy runs: ${unique.length} unique of ${totalCount} — refusing to delete anything`)
+  return unique
+}
+
+/** Pure: the last `deploys` successful runs, and every run (any outcome) started since the oldest
+ *  of them. Fewer than `deploys` successes throws (fail closed, see LOOKBACK_DAYS). */
 export function selectDeploys(runs, deploys) {
-  const sorted = [...runs].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
+  const sorted = [...runs].sort((a, b) => startedAt(b) - startedAt(a))
   const ok = sorted.filter((r) => r.conclusion === 'success').slice(0, deploys)
-  const since = ok.length ? Date.parse(ok[ok.length - 1].created_at) : Infinity
-  return { ok, later: sorted.filter((r) => Date.parse(r.created_at) >= since && !ok.includes(r)) }
+  if (ok.length < deploys) throw new Error(`only ${ok.length} successful deploys in ${LOOKBACK_DAYS} days, need ${deploys} — refusing to delete anything`)
+  const since = startedAt(ok[ok.length - 1])
+  return { ok, later: sorted.filter((r) => startedAt(r) >= since && !ok.includes(r)) }
 }
 
 /** Pure: the commit SHAs (full or short, as recorded) a set of deploy runs may have put live. */
@@ -102,16 +120,17 @@ async function protectedShas(repo, deploys) {
   // in no stable order (2026-10-07), so `status=success&per_page=5` is not "the last 5".
   const from = new Date(Date.now() - LOOKBACK_DAYS * 86_400_000).toISOString()
   const runs = []
+  let total
   for (let page = 1; ; page++) {
     const r = await gh(`${wf}?created=${encodeURIComponent('>=' + from)}&per_page=100&page=${page}`)
     runs.push(...r.workflow_runs)
     if (r.workflow_runs.length < 100) {
-      if (runs.length !== r.total_count) throw new Error(`deploy runs: got ${runs.length} of ${r.total_count}`)
+      total = r.total_count
       break
     }
   }
-  const { ok, later } = selectDeploys(runs, deploys)
-  for (const r of ok) console.log(`deploy run ${r.id} ${r.created_at} ${r.head_sha} "${r.display_title}"`)
+  const { ok, later } = selectDeploys(uniqueRuns(runs, total), deploys)
+  for (const r of ok) console.log(`deploy run ${r.id} ${r.run_started_at ?? r.created_at} ${r.head_sha} "${r.display_title}"`)
   const resolve = async (ref) => (SHA.test(ref) ? ref : (await gh(`repos/${repo}/commits/${ref}`)).sha)
   const full = new Set()
   // A successful run's ref must resolve (fail closed). An unsuccessful rollback may carry a
