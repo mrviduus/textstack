@@ -247,10 +247,6 @@ someone's memory.
   description.
 - **`RetrievedCard` carries no review history**, so the tutor's grounded re-projection cannot re-assert
   what the tools now send — the prompt rule is the only thing enforcing it.
-- **`make rebuild-ssg` skips the worker's guards.** It runs `prerender.mjs` and swaps in shell: no
-  survival floor, no carry-forward of failed routes' pages, and no emptying of a leftover `ssg-new`. A
-  run against a broken API swaps in a tree without those pages. Fix: make the target enqueue a job
-  (`POST /internal/ssg/rebuild-all`) so there is one path.
 - **SSG stall detection ignores first-pass failures.** A rebuild is stopped when no route has
   rendered (or been skipped as noindex) for 5 min (`SSG_JOB_STALL_MS`); in the retry pass every
   attempt counts. Failures do not count in the first pass, because a hung API still "completes" each

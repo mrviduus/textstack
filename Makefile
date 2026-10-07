@@ -44,16 +44,9 @@ fix-permissions:
 		chown -R 1000:1000 /data/textstack /data/tts-cache /data/explain-cache /data/translate-cache /data/pdf-cleanup-dataset'
 	@echo "Done."
 
+# Queues a Full rebuild for ssg-worker (same as the nightly) and follows it to the end.
 rebuild-ssg:
-	@echo "=== SSG Rebuild (atomic swap) ==="
-	cd apps/web && \
-	API_URL=http://localhost:8080 API_HOST=textstack.app CONCURRENCY=4 \
-	node scripts/prerender.mjs --output-dir dist/ssg-new && \
-	rm -rf dist/ssg-old && \
-	([ -d dist/ssg ] && mv dist/ssg dist/ssg-old || true) && \
-	mv dist/ssg-new dist/ssg && \
-	rm -rf dist/ssg-old
-	@echo "=== Done ==="
+	@./infra/scripts/rebuild-ssg.sh
 
 clean-ssg:
 	rm -rf apps/web/dist/ssg apps/web/dist/ssg-new apps/web/dist/ssg-old

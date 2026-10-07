@@ -197,17 +197,17 @@ make clean-ssg  # Removes ssg, ssg-new, ssg-old
 ### Via CLI
 
 ```bash
-# On production server
+# On production server: queues a Full job (POST /internal/ssg/rebuild-all) and follows it.
+# Exit 0 only when the job ends Completed. Ctrl-C stops following, not the job.
 make rebuild-ssg
-
-# Or manually
-cd apps/web
-API_URL=http://localhost:8080 API_HOST=textstack.app node scripts/prerender.mjs
 ```
+
+Do not run `scripts/prerender.mjs` by hand on the server: it writes straight into `dist/ssg` with none
+of the worker's checks.
 
 ### Via CI/CD
 
-`deploy.yml` queues a rebuild (`POST /internal/ssg/rebuild-all`), waits for it, then validates the SSG output. `health-check.yml` alarms on a failed or >72h-stale rebuild.
+`backup.yml` queues the nightly Full rebuild (`POST /internal/ssg/rebuild-all`); `deploy.yml` queues one only when run with `rebuild_ssg`. `health-check.yml` alarms on a failed or >72h-stale rebuild.
 
 ---
 
