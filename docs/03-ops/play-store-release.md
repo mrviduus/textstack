@@ -82,6 +82,17 @@ testers** — time the merge accordingly. `production` stays a manual
 Run it by hand from Actions → Mobile OTA (auto) with `dry_run` on to see the comparison
 without publishing. It needs the `EXPO_TOKEN` secret, like every other EAS workflow here.
 
+### Known limits of the automatic OTA
+
+- **Stranded update after a failed build.** A push while a store build is queued or running
+  publishes its OTA to that build's runtime. If the build then errors or is cancelled, that
+  update reaches no one until the next mobile push builds again. The run summary says so; the
+  fix is to re-run **mobile-release.yml → build**.
+- **One runtime at a time.** The OTA always targets the runtime of the newest *finished*
+  production build. Once the production track runs an older build than Closed testing,
+  production stops receiving OTAs. Tracked in `docs/STATUS.md`; must be fixed before the
+  second store release.
+
 ## Permissions
 
 The allowlist and the reasoning live in `apps/mobile/scripts/check-android-permissions.mjs`.

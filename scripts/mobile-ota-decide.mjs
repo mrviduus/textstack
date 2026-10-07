@@ -16,7 +16,14 @@
 //
 // A build that ERRORED or was CANCELED blocks nothing — the next push builds again.
 //
-// Run: node scripts/mobile-ota-decide.mjs <eas build:list --json file> <this commit's runtime>
+// Known gap, accepted: if the queued build then ERRORS or is CANCELED, the update published on
+// `queued` reaches no one until the next mobile push builds again. The summary says so.
+//
+// Input is several `eas build:list --json` files — one per status (the CLI filters on a single
+// status), so the newest finished build never falls out of a window full of other statuses.
+// They are concatenated and deduplicated by id.
+//
+// Run: node scripts/mobile-ota-decide.mjs <this commit's runtime> <builds.json>...
 // Writes action, runtime, id, inflight_id, inflight_status to $GITHUB_OUTPUT. Exits 1, with a
 // summary of what was searched, when no finished production build can be read.
 
@@ -24,6 +31,12 @@ import { appendFileSync, readFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 
 const IN_FLIGHT = new Set(['NEW', 'IN_QUEUE', 'IN_PROGRESS'])
+
+/** Pure. Concatenate per-status listings; first occurrence of an id wins. */
+export function merge(...lists) {
+  const seen = new Set()
+  return lists.flat().filter((b) => !seen.has(b.id) && seen.add(b.id))
+}
 
 const channelOf = (b) => (typeof b.updateChannel === 'object' ? b.updateChannel?.name : b.updateChannel)
 const statusOf = (b) => String(b.status ?? '').toUpperCase()
@@ -76,12 +89,12 @@ function explain(result, builds) {
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
-  const [file, hash] = process.argv.slice(2)
-  if (!file || !hash) {
-    console.error('usage: mobile-ota-decide.mjs <builds.json> <runtime>')
+  const [hash, ...files] = process.argv.slice(2)
+  if (!hash || !files.length) {
+    console.error('usage: mobile-ota-decide.mjs <runtime> <builds.json>...')
     process.exit(2)
   }
-  const builds = JSON.parse(readFileSync(file, 'utf8'))
+  const builds = merge(...files.map((f) => JSON.parse(readFileSync(f, 'utf8'))))
   const r = decide(builds, hash)
   if (r.error) {
     const text = explain(r, builds).join('\n') + '\n'

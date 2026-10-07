@@ -166,7 +166,7 @@ jobs:
           fi
           echo "hash=$hash" >> "$GITHUB_OUTPUT"
 
-      # Every status, not just finished: a production build still queued or running with this
+      # Finished builds AND queued/running ones: a production build still in flight with this
       # commit's runtime means the previous push already started the store build, and this one
       # must not start a second. The decision (publish / build / queued) and why it is shaped
       # like that: scripts/mobile-ota-decide.mjs, tested in mobile-ota-decide.test.mjs.
@@ -179,11 +179,21 @@ jobs:
           HASH: ${{ steps.fp.outputs.hash }}
         run: |
           set -euo pipefail
-          eas build:list \
-            --platform android \
-            --limit 50 \
-            --json --non-interactive > "$RUNNER_TEMP/builds.json"
-          node "$GITHUB_WORKSPACE/scripts/mobile-ota-decide.mjs" "$RUNNER_TEMP/builds.json" "$HASH"
+          # One call per status — the CLI takes a single --status — so the newest finished
+          # build cannot fall out of a window filled by errored builds or other profiles.
+          files=()
+          for status in finished new in-queue in-progress; do
+            limit=10
+            [ "$status" = finished ] && limit=20
+            f="$RUNNER_TEMP/builds-$status.json"
+            eas build:list \
+              --platform android \
+              --status "$status" \
+              --limit "$limit" \
+              --json --non-interactive > "$f"
+            files+=("$f")
+          done
+          node "$GITHUB_WORKSPACE/scripts/mobile-ota-decide.mjs" "$HASH" "${files[@]}"
 
       # The JS bundle every installed app downloads. EXPO_PUBLIC_* values are inlined
       # into it, so a secret put in EAS's production environment under that prefix
@@ -298,6 +308,9 @@ jobs:
                 echo
                 echo "No installed app runs this runtime yet. The queued build embeds an older commit and picks"
                 echo "this update up on first launch."
+                echo
+                echo "**If this build fails, these changes reach no one until the next mobile push.**"
+                echo "Re-run **mobile-release.yml → build**."
                 ;;
             esac
             echo

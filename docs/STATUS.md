@@ -88,6 +88,10 @@ answers "what happened" and nothing answered "what is half-finished right now".
 
 ## Known-broken / open follow-ups
 
+- **Mobile OTA targets one runtime only** (2026-10-07, #762). `mobile-ota.yml` publishes to the
+  runtime of the newest *finished* production build. Once the production track runs an older build
+  than Closed testing, production stops receiving OTAs. **Fix before the second store release.**
+  [Runbook](03-ops/play-store-release.md#known-limits-of-the-automatic-ota).
 - ~~**Reader bug hunt — R3 open list** (2026-10-05).~~ **Closed 2026-10-06** by #723 (mobile), #724
   (data), #725 (web) — [write-up](changelog-archive/2026-H2.md#2026-10-06-reader-bug-hunt-r3). The
   hunt ran on `d92e83aa`; R1/R2 had fixed web C1–C3, H1–H4, M1, M4; mobile C1, C2, H1–H3, M1, M2, M9,

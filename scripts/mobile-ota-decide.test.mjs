@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { decide, runtimeOf } from './mobile-ota-decide.mjs'
+import { decide, merge, runtimeOf } from './mobile-ota-decide.mjs'
 
 // Shaped like a real `eas build:list --json` record (runtime/updateChannel are objects).
 let n = 0
@@ -68,6 +68,23 @@ describe('decide', () => {
     expect(decide([], 'aaa').error).toBe('no-build')
     expect(decide([build('IN_QUEUE', 'aaa')], 'aaa').error).toBe('no-build')
     expect(decide([build('FINISHED', '', { fingerprint: null })], 'aaa').error).toBe('no-runtime')
+  })
+})
+
+describe('merge', () => {
+  it('concatenates per-status listings, drops duplicate ids, and decides over the result', () => {
+    const finished = [build('FINISHED', 'aaa')]
+    const queued = build('IN_QUEUE', 'bbb')
+    const builds = merge(finished, [queued], [], [queued])
+    expect(builds.map((b) => b.id)).toEqual([finished[0].id, queued.id])
+    expect(decide(builds, 'bbb').action).toBe('queued')
+  })
+
+  it('finds the finished build however many builds of other statuses are newer', () => {
+    // The single --limit 50 window over all statuses could miss it; per-status listings cannot.
+    const noise = Array.from({ length: 60 }, () => build('ERRORED', 'zzz'))
+    const finished = build('FINISHED', 'aaa', { createdAt: '2020-01-01T00:00:00Z' })
+    expect(decide(merge([finished], noise), 'aaa').action).toBe('publish')
   })
 })
 
