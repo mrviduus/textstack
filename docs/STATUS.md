@@ -265,11 +265,13 @@ someone's memory.
 - **`X-SEO-Render` lies.** It is set from `map $is_bot`, so it reports "you look like a bot", not "SSG
   was served". It cost real debugging time during the SSG incident.
 - **`.env.bak*` on the server** — three untracked backups holding live secrets.
-- **Two permission groups still requested and unjustified** — `FOREGROUND_SERVICE` +
-  `FOREGROUND_SERVICE_MEDIA_PLAYBACK` from `expo-audio` (TTS is foreground-only), and 20 OEM
-  launcher/badge permissions from ShortcutBadger via `expo-notifications` (the app never sets a
-  badge). Both are on the WATCH list in `apps/mobile/scripts/check-android-permissions.mjs` and need
-  a device to settle.
+- **One permission group still requested and unjustified**: 20 OEM launcher/badge permissions
+  from ShortcutBadger via `expo-notifications` (the app never sets a badge). It is on the WATCH list
+  in `apps/mobile/scripts/check-android-permissions.mjs`. ~~`FOREGROUND_SERVICE` +
+  `FOREGROUND_SERVICE_MEDIA_PLAYBACK` from `expo-audio`~~: removed 2026-10-07 in 1.1.0
+  (`enableBackgroundPlayback: false`), because Play blocked releases on the overdue
+  foreground-service declaration. Owner: once 1.1.0 is on Closed testing, confirm in
+  Play Console → App content that the declaration is gone.
 - **A new user is shown nothing that explains the app, and until 2026-09-05 three of the four tabs
   they could reach were dead ends.** `onboarding/language` is the only onboarding route, it asks one
   question — the native language — and its own code says guests are never asked, because they have

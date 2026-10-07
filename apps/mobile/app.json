@@ -2,7 +2,7 @@
   "expo": {
     "name": "TextStack",
     "slug": "textstack",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "runtimeVersion": {
       "policy": "fingerprint"
     },
@@ -81,7 +81,8 @@
       [
         "expo-audio",
         {
-          "microphonePermission": false
+          "microphonePermission": false,
+          "enableBackgroundPlayback": false
         }
       ],
       [
