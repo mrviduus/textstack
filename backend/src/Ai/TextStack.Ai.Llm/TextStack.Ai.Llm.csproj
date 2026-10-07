@@ -5,6 +5,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\TextStack.Ai.Core\TextStack.Ai.Core.csproj" />
+    <!-- TraceRedactor: the same PII redactor guards llm_traces and Sentry. -->
+    <ProjectReference Include="..\..\Observability\TextStack.Observability\TextStack.Observability.csproj" />
   </ItemGroup>
 
   <ItemGroup>

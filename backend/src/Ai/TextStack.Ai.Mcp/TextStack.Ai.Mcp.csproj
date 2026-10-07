@@ -40,6 +40,9 @@
   <ItemGroup>
     <!-- Tool descriptions live once, in Contracts' McpManifestCatalog (dependency-free). -->
     <ProjectReference Include="../../Contracts/Contracts.csproj" />
+    <!-- The shared Sentry setup + scrubber (Sentry only, no Application/Infrastructure).
+         Engaged in http mode with SENTRY_DSN set — never in stdio, which runs on readers' machines. -->
+    <ProjectReference Include="../../Observability/TextStack.Observability/TextStack.Observability.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -70,7 +73,8 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
-  <!-- Deliberately thin: NO reference to Application / Infrastructure / Ai.Tools.
+  <!-- Deliberately thin: NO reference to Application / Infrastructure / Ai.Tools (Observability,
+       above, is Sentry and nothing else).
        This is a stateless MCP <-> HTTP bridge; every tool call becomes an HTTP
        call to the existing public API. -->
 </Project>

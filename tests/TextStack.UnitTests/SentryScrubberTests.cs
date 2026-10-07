@@ -1,6 +1,6 @@
 using Domain.Exceptions;
-using Infrastructure.Telemetry;
 using Sentry;
+using TextStack.Observability;
 
 namespace TextStack.UnitTests;
 

@@ -1,11 +1,12 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Sentry.Extensions.Logging;
 
-namespace Infrastructure.Telemetry;
+namespace TextStack.Observability;
 
 /// <summary>
-/// Worker-host wiring for Sentry. The generic host has no request pipeline, so Sentry rides the
-/// logging provider: <c>logger.LogError(ex, …)</c> becomes an event.
+/// Sentry for hosts without a Sentry request pipeline — the Worker and the MCP server. Sentry rides
+/// the logging provider: <c>logger.LogError(ex, …)</c> becomes an event.
 ///
 /// No-op when no DSN is configured — we don't call into the SDK at all rather than initialising it
 /// with an empty DSN, so a local dev run, a CI run and a fork behave exactly as before this feature.
@@ -14,8 +15,11 @@ namespace Infrastructure.Telemetry;
 /// </summary>
 public static class SentryExtensions
 {
+    /// <param name="service">The <see cref="SentryBootstrap.ServiceTag"/> value — the compose service name.</param>
+    /// <param name="configure">Host-specific tightening, applied after the shared options.</param>
     public static ILoggingBuilder AddTextStackSentry(
-        this ILoggingBuilder logging, IConfiguration configuration, string environmentName)
+        this ILoggingBuilder logging, IConfiguration configuration, string environmentName, string service,
+        Action<SentryLoggingOptions>? configure = null)
     {
         var settings = SentryBootstrap.Resolve(configuration, environmentName);
         if (settings is null)
@@ -23,8 +27,9 @@ public static class SentryExtensions
 
         logging.AddSentry(options =>
         {
-            settings.Apply(options);
+            settings.Apply(options, service);
             options.MinimumEventLevel = LogLevel.Error;
+            configure?.Invoke(options);
         });
 
         return logging;

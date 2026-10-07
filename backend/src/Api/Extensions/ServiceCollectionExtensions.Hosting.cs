@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http.Features;
 using OpenTelemetry.Trace;
 using Sentry.AspNetCore;
 using Sentry.Extensibility;
+using TextStack.Observability;
 
 namespace Api.Extensions;
 
@@ -79,7 +80,7 @@ public static partial class ServiceCollectionExtensions
 
         builder.WebHost.UseSentry(options =>
         {
-            settings.Apply(options);
+            settings.Apply(options, "api");
 
             // Never read a request body into an event: our uploads are books and our POST bodies are
             // reader prompts — neither belongs in an error tracker.

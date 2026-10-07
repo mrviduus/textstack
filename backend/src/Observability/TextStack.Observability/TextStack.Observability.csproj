@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The one Sentry setup every .NET host shares: API, Worker and the MCP server.
+       Its own project because the MCP server is deliberately thin (no Application /
+       Infrastructure — see Mcp.Dockerfile) and still has to scrub exactly like the
+       others. Keep it dependency-light for the same reason: Sentry and nothing heavier. -->
+  <PropertyGroup>
+    <RootNamespace>TextStack.Observability</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Sentry" />
+    <!-- Hosts without a request pipeline (Worker, MCP) ride the ILogger provider. -->
+    <PackageReference Include="Sentry.Extensions.Logging" />
+  </ItemGroup>
+</Project>

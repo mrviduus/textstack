@@ -12,11 +12,7 @@
     <PackageReference Include="OpenTelemetry.Instrumentation.Http" />
     <PackageReference Include="OpenTelemetry.Instrumentation.EntityFrameworkCore" />
     <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
-    <PackageReference Include="OpenTelemetry.Exporter.Console" />
     <PackageReference Include="SixLabors.ImageSharp" />
-    <PackageReference Include="Sentry" />
-    <!-- Worker host has no request pipeline: Sentry rides the ILogger provider. -->
-    <PackageReference Include="Sentry.Extensions.Logging" />
   </ItemGroup>
 
   <ItemGroup>

@@ -4,9 +4,11 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
+using Sentry.Extensions.Logging;
 using TextStack.Ai.Mcp.Auth;
 using TextStack.Ai.Mcp.Http;
 using TextStack.Ai.Mcp.Tools;
+using TextStack.Observability;
 
 namespace TextStack.Ai.Mcp;
 
@@ -113,6 +115,11 @@ public static class McpHosts
         builder.Logging.AddFilter("Microsoft.AspNetCore.Hosting.Diagnostics", LogLevel.Warning);
         builder.Logging.AddFilter("Microsoft.AspNetCore.Routing", LogLevel.Warning);
 
+        // Sentry: a no-op without SENTRY_DSN, and wired HERE only. The stdio host runs on a reader's
+        // own machine, where a SENTRY_DSN in the environment belongs to somebody else's project.
+        builder.Logging.AddTextStackSentry(
+            builder.Configuration, builder.Environment.EnvironmentName, "mcp-server", ConfigureSentry);
+
         builder.Services.AddSingleton(options);
         builder.Services.AddHttpContextAccessor();
 
@@ -181,6 +188,20 @@ public static class McpHosts
         app.MapMcp("/mcp");
 
         return app;
+    }
+
+    /// <summary>
+    /// The bridge's tightening on top of the shared Sentry options. Every request here carries a
+    /// credential (a bearer, or a key in the <c>/mcp/k/</c> path) and most carry the reader's text, so:
+    /// Information lines are not breadcrumbs (an HttpClient line names the upstream URL a tool called),
+    /// and exception messages are dropped — see <see cref="SentryScrubber.ScrubStrict"/>. Request data
+    /// is never attached in the first place: this host reports through the logging provider, which has
+    /// no request to attach.
+    /// </summary>
+    internal static void ConfigureSentry(SentryLoggingOptions options)
+    {
+        options.MinimumBreadcrumbLevel = LogLevel.Warning;
+        options.SetBeforeSend((e, _) => SentryScrubber.ScrubStrict(e));
     }
 
     // Asks the API whether this request's OAuth token is still good. Fails OPEN on a transport fault:

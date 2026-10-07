@@ -1,14 +1,14 @@
 using Microsoft.Extensions.Configuration;
 using Sentry;
 
-namespace Infrastructure.Telemetry;
+namespace TextStack.Observability;
 
 /// <summary>Resolved Sentry configuration. Only ever constructed when a DSN is actually present.</summary>
 public sealed record SentrySettings(string Dsn, string Environment, double TracesSampleRate, bool Debug);
 
 /// <summary>
-/// Resolves Sentry configuration and applies the shared option block used by BOTH hosts (API and
-/// Worker), so the two can't drift on PII, scrubbing or sampling.
+/// Resolves Sentry configuration and applies the shared option block used by EVERY .NET host (API,
+/// Worker, MCP server), so they can't drift on PII, scrubbing or sampling.
 ///
 /// The no-op contract lives here: <see cref="Resolve"/> returns null when no DSN is configured, and
 /// the callers then never engage the SDK at all (see <c>SentryExtensions</c>). That is stricter than
@@ -100,12 +100,20 @@ public static class SentryBootstrap
         return baseRate;
     }
 
-    public static void Apply(this SentrySettings settings, SentryOptions options)
+    /// <summary>
+    /// Tag naming the process an event came from (<c>api</c>, <c>worker</c>, <c>mcp-server</c>; the
+    /// Node ssg-worker sets <c>ssg-worker</c>). Every host shares one Sentry project, so this is how
+    /// an issue is filtered to one of them. Values are the docker-compose service names.
+    /// </summary>
+    public const string ServiceTag = "service";
+
+    public static void Apply(this SentrySettings settings, SentryOptions options, string service)
     {
         options.Dsn = settings.Dsn;
         options.Environment = settings.Environment;
         options.Debug = settings.Debug;
         options.AttachStacktrace = true;
+        options.DefaultTags[ServiceTag] = service;
 
         // Privacy posture, layer 1: never let the SDK collect anything on its own — no IP, no cookies,
         // no username. (Request-body capture is an ASP.NET-Core-only option and is disabled next to

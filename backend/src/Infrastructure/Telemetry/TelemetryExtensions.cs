@@ -11,34 +11,40 @@ using OpenTelemetry.Trace;
 
 namespace Infrastructure.Telemetry;
 
+/// <summary>
+/// OpenTelemetry traces, metrics and logs — exported over OTLP when, and only when,
+/// <c>OTEL_EXPORTER_OTLP_ENDPOINT</c> is set. Without it nothing is registered: no exporter, no
+/// listener, no cost.
+///
+/// Production sets no endpoint. Until 2026-10 it pointed at <c>aspire-dashboard</c>, a container the
+/// deploy never starts, so every batch was built, failed to resolve and was dropped — silently, since
+/// the exporter reports through an EventSource rather than a log line. Errors and a sample of request
+/// traces go to Sentry instead (TextStack.Observability). Locally, start Aspire
+/// (<c>docker compose --profile observability up -d aspire-dashboard</c>) and set the endpoint.
+/// The console exporter that used to stand in for a missing endpoint is gone: in a container it
+/// printed every span and metric into the log. See docs/01-architecture/delivery.md, Observability.
+/// </summary>
 public static class TelemetryExtensions
 {
+    /// <summary>The configured OTLP endpoint, or null when telemetry export is off.</summary>
+    public static string? OtlpEndpoint(IConfiguration configuration)
+    {
+        var endpoint = configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]
+            ?? Environment.GetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT");
+        return string.IsNullOrWhiteSpace(endpoint) ? null : endpoint.Trim();
+    }
+
     public static IServiceCollection AddTextStackTelemetry(
         this IServiceCollection services,
         IConfiguration configuration,
         string serviceName,
         Action<TracerProviderBuilder>? configureTracing = null)
     {
-        var otlpEndpoint = configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]
-            ?? Environment.GetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT");
+        if (OtlpEndpoint(configuration) is not { } otlpEndpoint)
+            return services;
 
-        var useConsoleExporter = string.IsNullOrEmpty(otlpEndpoint);
-        var environment = configuration["ASPNETCORE_ENVIRONMENT"]
-            ?? Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")
-            ?? "Development";
+        var resourceBuilder = Resource(configuration, serviceName);
 
-        var serviceVersion = Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? "1.0.0";
-
-        var resourceBuilder = ResourceBuilder.CreateDefault()
-            .AddService(
-                serviceName: serviceName,
-                serviceVersion: serviceVersion)
-            .AddAttributes([
-                new("deployment.environment", environment),
-                new("host.name", Environment.MachineName)
-            ]);
-
-        // Tracing
         services.AddOpenTelemetry()
             .WithTracing(builder =>
             {
@@ -57,18 +63,11 @@ public static class TelemetryExtensions
                 // Allow additional instrumentation configuration
                 configureTracing?.Invoke(builder);
 
-                if (useConsoleExporter)
+                builder.AddOtlpExporter(options =>
                 {
-                    builder.AddConsoleExporter();
-                }
-                else
-                {
-                    builder.AddOtlpExporter(options =>
-                    {
-                        options.Endpoint = new Uri(otlpEndpoint!);
-                        options.Protocol = OtlpExportProtocol.Grpc;
-                    });
-                }
+                    options.Endpoint = new Uri(otlpEndpoint);
+                    options.Protocol = OtlpExportProtocol.Grpc;
+                });
             })
             .WithMetrics(builder =>
             {
@@ -77,20 +76,12 @@ public static class TelemetryExtensions
                     .AddMeter(TelemetryConstants.MeterName)
                     .AddRuntimeInstrumentation()
                     .AddAspNetCoreInstrumentation()
-                    .AddHttpClientInstrumentation();
-
-                if (useConsoleExporter)
-                {
-                    builder.AddConsoleExporter();
-                }
-                else
-                {
-                    builder.AddOtlpExporter(options =>
+                    .AddHttpClientInstrumentation()
+                    .AddOtlpExporter(options =>
                     {
-                        options.Endpoint = new Uri(otlpEndpoint!);
+                        options.Endpoint = new Uri(otlpEndpoint);
                         options.Protocol = OtlpExportProtocol.Grpc;
                     });
-                }
             });
 
         return services;
@@ -101,20 +92,6 @@ public static class TelemetryExtensions
         IConfiguration configuration,
         string serviceName)
     {
-        var otlpEndpoint = configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]
-            ?? Environment.GetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT");
-        var environment = configuration["ASPNETCORE_ENVIRONMENT"]
-            ?? Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")
-            ?? "Development";
-        var serviceVersion = Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? "1.0.0";
-
-        var resourceBuilder = ResourceBuilder.CreateDefault()
-            .AddService(serviceName: serviceName, serviceVersion: serviceVersion)
-            .AddAttributes([
-                new("deployment.environment", environment),
-                new("host.name", Environment.MachineName)
-            ]);
-
         builder.Configure(options =>
         {
             options.ActivityTrackingOptions =
@@ -123,22 +100,36 @@ public static class TelemetryExtensions
                 ActivityTrackingOptions.ParentId;
         });
 
+        if (OtlpEndpoint(configuration) is not { } otlpEndpoint)
+            return builder;
+
         builder.AddOpenTelemetry(options =>
         {
-            options.SetResourceBuilder(resourceBuilder);
+            options.SetResourceBuilder(Resource(configuration, serviceName));
             options.IncludeFormattedMessage = true;
             options.IncludeScopes = true;
-
-            if (!string.IsNullOrEmpty(otlpEndpoint))
+            options.AddOtlpExporter(exporterOptions =>
             {
-                options.AddOtlpExporter(exporterOptions =>
-                {
-                    exporterOptions.Endpoint = new Uri(otlpEndpoint);
-                    exporterOptions.Protocol = OtlpExportProtocol.Grpc;
-                });
-            }
+                exporterOptions.Endpoint = new Uri(otlpEndpoint);
+                exporterOptions.Protocol = OtlpExportProtocol.Grpc;
+            });
         });
 
         return builder;
+    }
+
+    private static ResourceBuilder Resource(IConfiguration configuration, string serviceName)
+    {
+        var environment = configuration["ASPNETCORE_ENVIRONMENT"]
+            ?? Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")
+            ?? "Development";
+        var serviceVersion = Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? "1.0.0";
+
+        return ResourceBuilder.CreateDefault()
+            .AddService(serviceName: serviceName, serviceVersion: serviceVersion)
+            .AddAttributes([
+                new("deployment.environment", environment),
+                new("host.name", Environment.MachineName)
+            ]);
     }
 }
