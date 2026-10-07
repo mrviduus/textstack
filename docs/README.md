@@ -108,6 +108,9 @@ line at the top of each file.
 | [ADR-019](01-architecture/adr/ADR-019-reader-position-rules.md) | Reader position: shared rules, not a shared state machine | Accepted |
 | [ADR-020](01-architecture/adr/ADR-020-build-once-deploy-by-digest.md) | Build once on GitHub, deploy by digest (+ [delivery pipeline](01-architecture/delivery.md)) | Accepted |
 | [ADR-021](01-architecture/adr/ADR-021-migrations-owned-by-the-migrator.md) | Migrations are owned by the migrator; Api reports a schema behind its build | Accepted |
+| [ADR-022](01-architecture/adr/ADR-022-one-claim-rule-for-job-queues.md) | One claim rule for the polled job queues (SKIP LOCKED claim, lease, attempts cap, stale sweep) | Proposed |
+| [ADR-023](01-architecture/adr/ADR-023-background-work-runs-in-the-worker.md) | Background work runs in the Worker; Api and Worker are single-instance | Proposed |
+| [ADR-024](01-architecture/adr/ADR-024-route-access-by-default.md) | Every route declares its access; unclassified fails closed | Proposed |
 
 ## Governance
 
