@@ -32,8 +32,9 @@ size (disk cleanup, scan, push), not with build work.
 3. **Everything third-party is pinned to content:** actions by commit SHA (`# vX.Y` comment), pulled
    images by `tag@sha256`. Dependabot (`github-actions`, `docker`, `docker-compose`) moves the pins, so
    a pin is not a freeze.
-4. **Every artifact users download is scanned:** images (gate before push), `apps/web/dist` (after the
-   server build), the OTA bundle (gate before `eas update`).
+4. **Every artifact users download is scanned:** images (gate before push), `apps/web/dist` (gate
+   before push on GitHub, and again before the swap on the server — since 2026-10-07; after the
+   server build only on the fallback), the OTA bundle (gate before `eas update`).
 
 ## Alternatives
 
@@ -55,6 +56,12 @@ size (disk cleanup, scan, push), not with build work.
   and are bumped by hand.
 - Published versions pile up (six per merge); `ghcr-retention.yml` prunes them weekly but never the
   deployed SHA or the last 5 deploys, so a rollback to a recent deploy still pulls by digest.
+- The web frontend follows the same path (2026-10-07, review P2-2): `images.yml` job `web` builds
+  `apps/web/dist` on GitHub with canary env, scans it, pushes a `FROM scratch` image
+  `textstack-web:<sha>`; the deploy pulls it by digest, copies `/dist` out, scans it with the real
+  values and swaps it in file by file (`scripts/swap-web-dist.sh`; `dist` is bind-mounted by
+  ssg-worker, so never renamed). A scan hit stops the deploy before anything is live, and npm no
+  longer runs on the production host — except on the fallback server build, kept as for images.
 - First deploy after the pins: `db`, `ollama` (and `aspire-dashboard` if its profile is up) are
   recreated because their image reference changed — a few seconds of DB restart inside the deploy,
   after the pre-deploy dump.

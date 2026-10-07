@@ -14,8 +14,8 @@ on:
     #
     # Mobile and the browser extension never reach the server: mobile ships by OTA
     # (mobile-ota.yml), the extension by hand. NEVER add packages/**, the lockfile or
-    # pnpm-workspace.yaml here — the admin and ssg-worker images and the server's web
-    # build consume them.
+    # pnpm-workspace.yaml here — the admin, ssg-worker and web images (and the
+    # server's fallback web build) consume them.
     paths-ignore:
       - 'docs/**'
       - '*.md'
@@ -132,6 +132,9 @@ jobs:
           # nginx config — is meant to be the target commit's.)
           git show "$RUN_SHA:scripts/scan-image-secrets.sh" > "$RUNNER_TEMP/scan-image-secrets.sh"
           chmod +x "$RUNNER_TEMP/scan-image-secrets.sh"
+          # Same reason: the web swap and the web build's public values.
+          git show "$RUN_SHA:scripts/swap-web-dist.sh" > "$RUNNER_TEMP/swap-web-dist.sh"
+          git show "$RUN_SHA:apps/web/production.env" > "$RUNNER_TEMP/production.env"
           if [ -n "$ROLLBACK_SHA" ]; then
             # Checked again against this clone: guard ran on GitHub's copy.
             if ! [[ $ROLLBACK_SHA =~ ^[0-9a-f]{40}$ ]] || ! git merge-base --is-ancestor "$ROLLBACK_SHA" origin/main; then
@@ -146,8 +149,56 @@ jobs:
             git merge --ff-only "$RUN_SHA"
           fi
 
-      # The frontend that reaches production is built by this job, and until now
-      # on whatever Node the runner happened to have — no setup-node, no pin,
+      # The web bundle `images` built, scanned and pushed (job `web`), pulled by digest
+      # and copied out of its image into $RUNNER_TEMP/web-dist. Nothing live changes
+      # here: "Secret scan web dist" checks it against the server's real values, then
+      # "Put web bundle live" swaps it in. No digest (images failed or was skipped, a
+      # commit from before the web image) or a failed pull → the server builds it, as
+      # it used to: the steps marked "fallback" below.
+      - name: Fetch web bundle
+        id: web
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+          DIGEST: ${{ needs.images.outputs.web_digest }}
+        run: |
+          cd "$PROJECT_DIR"
+          IMAGE=ghcr.io/${{ github.repository_owner }}/textstack-web
+          TAG=$(git rev-parse HEAD)
+          OUT=$RUNNER_TEMP/web-dist
+          rm -rf "$OUT"
+          ok=false
+          if [[ $DIGEST =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            # Throwaway config, as in "Deploy containers": the token never lands in ~/.docker.
+            DOCKER_CONFIG=$(mktemp -d) && export DOCKER_CONFIG
+            if echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin \
+              && timeout 300 docker pull "$IMAGE@$DIGEST"; then
+              ok=true
+            fi
+            rm -rf "$DOCKER_CONFIG"; unset DOCKER_CONFIG
+          fi
+          if [ "$ok" = true ]; then
+            # Tagged so "Cleanup old images" treats it like the others.
+            docker tag "$IMAGE@$DIGEST" "$IMAGE:$TAG" || true
+            # Never started: scratch has no command and `docker create` wants one.
+            if c=$(docker create "$IMAGE@$DIGEST" /none); then
+              docker cp "$c:/dist" "$OUT" || ok=false
+              docker rm "$c" > /dev/null || true
+            else
+              ok=false
+            fi
+          fi
+          if [ "$ok" = true ] && [ -f "$OUT/index.html" ]; then
+            echo "Web bundle $IMAGE@$DIGEST → $OUT ($(du -sh "$OUT" | cut -f1))"
+            echo "pulled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Web bundle for $TAG not pulled — building it on the server"
+            rm -rf "$OUT"
+            echo "pulled=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Fallback only. A server build of the frontend once ran on whatever Node the
+      # runner happened to have — no setup-node, no pin,
       # nothing that would notice a drift. It is checked rather than installed:
       # this job has no `actions/checkout` (it works inside $PROJECT_DIR), so
       # node-version-file has nothing to read, and silently swapping the
@@ -157,17 +208,19 @@ jobs:
       # and before the build, so a mismatch stops the deploy while it is still
       # only a git checkout.
       - name: Check the runner's Node against .nvmrc
+        if: steps.web.outputs.pulled != 'true'
         run: |
           cd $PROJECT_DIR
           want=$(tr -d '[:space:]' < .nvmrc)
           have=$(node -v | sed 's/^v//')
           echo "runner: Node v$have · .nvmrc: $want"
           if [ "$have" != "$want" ]; then
-            echo "::error::Deploy runner is on Node $have, this commit expects $want. Install it: asdf install nodejs $want (asdf reads .nvmrc here — ~/.asdfrc has legacy_version_file = yes). The production frontend is built on this machine."
+            echo "::error::Deploy runner is on Node $have, this commit expects $want. Install it: asdf install nodejs $want (asdf reads .nvmrc here — ~/.asdfrc has legacy_version_file = yes). The web bundle was not pulled, so the frontend is built on this machine."
             exit 1
           fi
 
-      # Never build while an SSG rebuild is rendering. The frontend build below empties
+      # Never deploy while an SSG rebuild is rendering: "Deploy containers" recreates
+      # ssg-worker (its image tag changes every deploy), and the fallback frontend build empties
       # apps/web/dist, which ssg-worker writes into (dist/ssg-new); a rebuild caught in that
       # window fails by design (assertBuildSurvived — the 2026-08-31 guard) and leaves
       # ssg-worker unhealthy. Rebuilds come from the nightly backup, publishing, the admin
@@ -191,12 +244,12 @@ jobs:
             sleep 30
           done
 
-      # After the SSG wait, before anything live changes (the web build rewrites the
-      # served dist/). A failed dump therefore ships nothing: same site, same
+      # After the SSG wait, before anything live changes (the web swap or fallback
+      # build rewrites the served dist/). A failed dump therefore ships nothing: same site, same
       # containers. Not at the start of the run and not in a parallel job: CI, images
       # and the up-to-40-min SSG wait could then put an hour of writes between the
       # dump and a bad migration, all lost on restore. Here it is minutes before the
-      # migrator (next: web build, scan, "Deploy containers"). Correctness of the
+      # migrator (next: web scan + swap or fallback build, "Deploy containers"). Correctness of the
       # rollback point beats the ~2.5 min this costs.
       - name: Pre-deploy backup
         run: |
@@ -213,8 +266,9 @@ jobs:
           cd ~/backups/textstack && ls -1t pre-deploy-*.sql.gz 2>/dev/null | tail -n +3 | xargs -r rm -v
 
       # Vite reads apps/web/.env* and inlines VITE_* values into public JS. Nothing
-      # here needs those files — the four VITE_ variables the code reads are passed
-      # inline to the build below and win over any file — and the box had a stale,
+      # here needs those files — the four VITE_ variables the code reads come from
+      # apps/web/production.env (the fallback build below exports them, and the
+      # environment wins over any file) — and the box had a stale,
       # gitignored .env.production (wrong Google client id). Moved aside, not
       # deleted, before the snapshot step, so this step can never strand dist/ssg.
       - name: Move stray web env files aside
@@ -228,6 +282,8 @@ jobs:
           done
 
       - name: Snapshot SSG dir + referenced assets before vite wipes dist
+        # Fallback only: a pulled bundle never wipes dist (scripts/swap-web-dist.sh).
+        if: steps.web.outputs.pulled != 'true'
         # Closes the deploy-race window where vite's emptyOutDir=true
         # nukes dist/ssg/ AND dist/assets/* before the SSG worker can
         # regenerate (5-10 min gap). During that gap, bots hit /en/books/*,
@@ -320,13 +376,16 @@ jobs:
           echo "Preserved $SSG_COUNT SSG files + $COPIED assets"
 
       - name: Build frontend
+        # Fallback only — normally `images` builds this on GitHub (job `web`).
+        if: steps.web.outputs.pulled != 'true'
         # --frozen-lockfile to match ci.yml — prevents transitive deps from
         # silently drifting between CI and deploy, which would produce
         # different chunk hashes per build and bloat the snapshot/restore
         # legacy-asset pool unnecessarily.
         #
-        # VITE_GOOGLE_CLIENT_ID is set here (not via prod's
-        # apps/web/.env.production which is gitignored, stale from Jan 10
+        # The VITE_ values come from apps/web/production.env at this workflow's
+        # commit (copied by "Pull latest code"), the same file images.yml builds
+        # with — not from prod's apps/web/.env.production, gitignored, stale from Jan 10
         # with the OLD project ID 301013894506-...). Mismatch with backend
         # Google__ClientId (726577729877-...) caused all /api/auth/google
         # POST to return 401 — silently broke login for months. OAuth
@@ -354,13 +413,16 @@ jobs:
           # version from `packageManager` in the root package.json.
           corepack enable
           corepack pnpm install --frozen-lockfile
-          VITE_API_URL=/api \
-            VITE_STORAGE_URL=https://textstack.app \
-            VITE_CANONICAL_URL=https://textstack.app \
-            VITE_GOOGLE_CLIENT_ID=726577729877-0lc197ngqf9qb297tvgh22q2k7g72l4l.apps.googleusercontent.com \
-            corepack pnpm --filter textstack-web build
+          set -a; . "$RUNNER_TEMP/production.env"; set +a
+          corepack pnpm --filter textstack-web build
+          # dist holds only vite's output until the restore: record it as the live
+          # release, so the next pulled swap removes what this one shipped and that does not.
+          (cd apps/web/dist && find . -type f ! -path './assets/*' | sed 's#^\./##' | sort) > apps/web/.web-release
 
       - name: Restore preserved SSG + assets
+        # Runs on both paths: a previous deploy that died between snapshot and
+        # restore left dist/ssg in staging, and this is what puts it back.
+        #
         # vite has now wiped dist/ and written fresh assets/. Put the
         # snapshot back: ssg/ goes back as-is; assets are restored
         # non-clobbering (vite's new files win where names collide).
@@ -402,9 +464,17 @@ jobs:
       # plus the server's real secret values (names ending SECRET, PASSWORD, TOKEN,
       # API_KEY — INDEXNOW_KEY and the DSN are public by design). A hit prints the
       # file, never the value. Runs after the restore so a failure here can't strand
-      # dist/ssg. Limit: vite has already replaced dist, so this stops the deploy
-      # (no new containers) but the bundle is live — page the owner, rotate, redeploy.
+      # dist/ssg.
+      #
+      # A pulled bundle was already scanned on GitHub (patterns + canaries); this adds
+      # the real values, which GitHub never sees, and it runs BEFORE the swap — a hit
+      # stops the deploy with nothing live changed. Kept as defence in depth: seconds,
+      # and the only check that knows the production secrets. Fallback limit: vite has
+      # already replaced dist, so a hit stops the deploy (no new containers) but the
+      # bundle is live — page the owner, rotate, redeploy.
       - name: Secret scan web dist
+        env:
+          PULLED: ${{ steps.web.outputs.pulled }}
         run: |
           cd "$PROJECT_DIR"
           SCAN_SECRET_VALUES=$(awk '/^[A-Z_][A-Z0-9_]*=/ { n = substr($0, 1, index($0, "=") - 1)
@@ -414,10 +484,24 @@ jobs:
           # Vite's output only (index.html + assets/): dist/ssg and dist/ssg-new are
           # Puppeteer's, rewritten by ssg-worker while this runs (a file vanishing
           # mid-grep is a scan error), and vite inlines env into neither.
-          web=$(mktemp -d "$RUNNER_TEMP/web-scan.XXXX")
-          cp -a apps/web/dist/index.html apps/web/dist/assets "$web/"
-          "$RUNNER_TEMP/scan-image-secrets.sh" --dir "$web"
-          rm -rf "$web"
+          if [ "$PULLED" = true ]; then
+            # The whole release (no SSG in it), before it is live.
+            "$RUNNER_TEMP/scan-image-secrets.sh" --dir "$RUNNER_TEMP/web-dist"
+          else
+            web=$(mktemp -d "$RUNNER_TEMP/web-scan.XXXX")
+            cp -a apps/web/dist/index.html apps/web/dist/assets "$web/"
+            "$RUNNER_TEMP/scan-image-secrets.sh" --dir "$web"
+            rm -rf "$web"
+          fi
+
+      # The pulled bundle goes live: assets first, then every other file, index.html
+      # last, each renamed into place; dist/ssg* is never touched, so the SSG
+      # snapshot/restore above is not needed on this path. Not a rename of dist itself:
+      # ssg-worker bind-mounts it. Unreferenced old assets are pruned (one release of
+      # grace for open tabs). Details and the self-check: scripts/swap-web-dist.sh.
+      - name: Put web bundle live
+        if: steps.web.outputs.pulled == 'true'
+        run: bash "$RUNNER_TEMP/swap-web-dist.sh" "$RUNNER_TEMP/web-dist" "$PROJECT_DIR/apps/web/dist" "$PROJECT_DIR/apps/web/.web-release"
 
       - name: Fix cache volume permissions
         # Container runs as uid 1000 but host-mounted cache dirs default to

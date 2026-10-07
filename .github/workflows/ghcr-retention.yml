@@ -1,6 +1,6 @@
 name: GHCR retention
 
-# Every deploy pushes six images (images.yml). This deletes old versions of them:
+# Every deploy pushes seven images (images.yml: six services + web). This deletes old versions of them:
 # keep the newest 10 tagged per package, anything younger than 14 days, the SHAs of
 # the last 5 successful deploys (and of any deploy run since — a failed run may have
 # reached `compose up`), and the manifests those kept indexes reference. Rules and
@@ -59,6 +59,6 @@ jobs:
           KEEP_DAYS: ${{ inputs.keep_days || '14' }}
           DEPLOYS: '5'
           MAX_DELETE: '150'
-          # Same list as SERVICES in images.yml.
-          PACKAGES: migrator api worker admin ssg-worker mcp-server
+          # SERVICES in images.yml, plus its `web` job's image.
+          PACKAGES: migrator api worker admin ssg-worker mcp-server web
         run: node scripts/ghcr-retention.mjs

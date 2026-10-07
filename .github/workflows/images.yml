@@ -3,8 +3,9 @@ name: Images
 # Build once, deploy many. Builds the compose images on a GitHub-hosted runner,
 # scans them for secrets, and pushes them to GHCR as
 #   ghcr.io/<owner>/textstack-<service>:<full commit sha>
-# deploy.yml calls this next to its CI job, and the server pulls those exact tags
-# instead of building (it still builds itself if the pull fails).
+# and the web frontend's dist/ as ghcr.io/<owner>/textstack-web:<full commit sha>
+# (job `web`). deploy.yml calls this next to its CI job, and the server pulls those
+# exact digests instead of building (it still builds itself if a pull fails).
 #
 # It replaced ci-cache-warm.yml, which built the same images on main only to warm
 # the layer cache and threw them away. Same overlay and cache scopes, so pull
@@ -28,6 +29,11 @@ on:
           these, not the tag: a tag can be re-pushed between build and pull, a
           digest cannot. Empty when nothing was published (old commit, failed run).
         value: ${{ jobs.publish.outputs.digests }}
+      web_digest:
+        description: >-
+          `sha256:<digest>` of textstack-web (the web `dist/`), pulled the same way.
+          Empty when nothing was published — the server then builds the web itself.
+        value: ${{ jobs.web.outputs.digest }}
   workflow_dispatch:
     inputs:
       ref:
@@ -170,3 +176,120 @@ jobs:
             [[ $x =~ ^[a-z-]+@sha256:[0-9a-f]{64}$ ]] || { echo "::error::bad digest entry: $x"; exit 1; }
           done
           echo "digests=${d# }" | tee -a "$GITHUB_OUTPUT"
+
+  # The web frontend (apps/web/dist), built and scanned HERE instead of on the
+  # production host, so that (a) a secret in the bundle stops the deploy before
+  # anything is live, and (b) npm/pnpm install, its postinstalls and the vite build
+  # never run on the server. Shipped as a FROM-scratch image holding only /dist —
+  # never run, only copied out (`docker create` + `docker cp`) — so it rides the
+  # same pull-by-digest, rollback-by-SHA and retention path as the others.
+  # Its own job: it runs beside `publish`, not after it, and needs none of its
+  # disk cleanup.
+  web:
+    runs-on: ubuntu-latest
+    # ~3 min.
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.digest.outputs.digest }}
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/textstack-web
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+
+      - name: Resolve tag
+        id: tag
+        run: |
+          echo "IMAGE_TAG=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          # A rollback to a commit from before the web image: no production.env to
+          # build it with, so the server builds it, as it always did.
+          if [ -f apps/web/production.env ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::$(git rev-parse --short HEAD) predates the web image — the server will build it"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Log in to GHCR
+        if: steps.tag.outputs.publish == 'true'
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      # A rollback to a commit that was deployed before is already in the registry.
+      - name: Already published?
+        id: exists
+        if: steps.tag.outputs.publish == 'true'
+        run: |
+          if docker buildx imagetools inspect "$IMAGE:$IMAGE_TAG" >/dev/null 2>&1; then
+            echo "$IMAGE:$IMAGE_TAG already published"
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        if: steps.exists.outputs.found == 'false'
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: steps.exists.outputs.found == 'false'
+        with:
+          node-version-file: .nvmrc
+
+      # The whole workspace, as the server did: same lockfile resolution, same bundle.
+      # No Chrome: puppeteer is the ssg-worker's, not vite's.
+      - name: Install workspace
+        if: steps.exists.outputs.found == 'false'
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: 'true'
+        run: pnpm install --frozen-lockfile
+
+      # Every name the server's .env can hold is set to a canary first (the same list
+      # as the image canaries), so a vite config or plugin that ever inlines a
+      # non-VITE_ variable puts CANARY_SECRET_<name> into the bundle and the scan
+      # fails. Then the real public values, from the one file that holds them.
+      - name: Build web
+        if: steps.exists.outputs.found == 'false'
+        run: |
+          for n in $( { sed -n 's/^\([A-Z_][A-Z0-9_]*\)=.*/\1/p' .env.example
+              grep -ohE '\$\{[A-Z_][A-Z0-9_]*' docker-compose.yml .github/docker-compose.ci.yml | cut -c3-
+            } | sort -u | grep -vxE 'IMAGE_REGISTRY|IMAGE_TAG|GIT_SHA'); do
+            export "$n=CANARY_SECRET_$n"
+          done
+          set -a; . apps/web/production.env; set +a
+          pnpm --filter textstack-web build
+          du -sh apps/web/dist
+
+      # The whole dist (fresh: no SSG here): token shapes, private keys, secret-named
+      # files and the canaries. Gates the push.
+      - name: Secret scan (gates the push)
+        if: steps.exists.outputs.found == 'false'
+        run: scripts/scan-image-secrets.sh --dir apps/web/dist
+
+      - name: Push
+        id: push
+        if: steps.exists.outputs.found == 'false'
+        run: |
+          set -o pipefail
+          # No base image: nothing from Docker Hub, nothing but the scanned files.
+          printf 'FROM scratch\nCOPY . /dist/\n' | docker build -f - -t "$IMAGE:$IMAGE_TAG" apps/web/dist
+          digest=$(docker push "$IMAGE:$IMAGE_TAG" | tee /dev/stderr \
+            | sed -n 's/.*digest: \(sha256:[0-9a-f]\{64\}\).*/\1/p' | tail -1)
+          [ -n "$digest" ] || { echo "::error::no digest in the push output"; exit 1; }
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Digest
+        id: digest
+        if: steps.tag.outputs.publish == 'true'
+        env:
+          PUSHED: ${{ steps.push.outputs.digest }}
+        run: |
+          set -o pipefail
+          d=$PUSHED
+          # Already published by an earlier run (a rollback): the registry is the only record.
+          [ -n "$d" ] || d=$(docker buildx imagetools inspect "$IMAGE:$IMAGE_TAG" --format '{{json .Manifest}}' | jq -r .digest)
+          [[ $d =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::bad digest: $d"; exit 1; }
+          echo "digest=$d" | tee -a "$GITHUB_OUTPUT"
