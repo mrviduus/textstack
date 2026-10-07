@@ -118,7 +118,10 @@ services:
       Resend__ApiKey: ${RESEND_API_KEY:-}
       Resend__FromEmail: ${RESEND_FROM_EMAIL:-noreply@textstack.app}
       Resend__AdminAlertEmail: ${ADMIN_ALERT_EMAIL:-}
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://aspire-dashboard:18889
+      # Empty ⇒ no OpenTelemetry export at all (production: nothing receives it). Set it in .env
+      # only when something listens — locally, Aspire: `docker compose --profile observability up -d
+      # aspire-dashboard` and OTEL_EXPORTER_OTLP_ENDPOINT=http://aspire-dashboard:18889.
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       # Empty ⇒ Sentry never initializes (local dev, CI, forks are unchanged).
       SENTRY_DSN: ${SENTRY_DSN:-}
       # Oldest Android build (versionCode, e.g. 23) allowed to run; below it the app shows "Please update".
@@ -173,7 +176,7 @@ services:
       # call — symptom: words save with NULL distractors/hint/explanation).
       Ollama__BaseUrl: http://ollama:11434
       Ollama__Model: gemma4:e2b
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://aspire-dashboard:18889
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       SENTRY_DSN: ${SENTRY_DSN:-}
     volumes:
       - ./data/storage:/storage
@@ -243,6 +246,8 @@ services:
     build:
       context: .
       dockerfile: backend/Docker/Mcp.Dockerfile
+      args:
+        GIT_SHA: "${GIT_SHA:-}"
     container_name: textstack_mcp_prod
     profiles: ["mcp"]
     environment:
@@ -250,6 +255,10 @@ services:
       TEXTSTACK_API_URL: http://api:8080
       TEXTSTACK_SITE_HOST: textstack.app
       ASPNETCORE_URLS: http://+:8090
+      # Same environment as api/worker, so a local Development .env keeps this one out of Sentry too.
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      # The same DSN as api/worker — one project, told apart by the `service` tag. Empty ⇒ off.
+      SENTRY_DSN: ${SENTRY_DSN:-}
     ports:
       - "127.0.0.1:8090:8090"  # localhost only - nginx proxies /mcp
     restart: always
@@ -281,6 +290,8 @@ services:
       # and `catalog:` cannot be resolved without them.
       context: .
       dockerfile: apps/web/Dockerfile.ssg-worker
+      args:
+        GIT_SHA: "${GIT_SHA:-}"
     container_name: textstack_ssg_worker
     # tini reaps Chromium/chrome_crashpad children left behind by Puppeteer.
     # Without this, each prerender leaves a <defunct> Z process on the host
@@ -294,6 +305,10 @@ services:
       POLL_INTERVAL: "5000"
       INDEXNOW_KEY: ${INDEXNOW_KEY:-}
       INDEXNOW_ENABLED: ${INDEXNOW_ENABLED:-false}
+      # Errors only, scrubbed (apps/web/scripts/ssgSentry.mjs). Same DSN and project as the .NET
+      # services, tagged service=ssg-worker; off when empty, and off in Development like them.
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SENTRY_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
     volumes:
       - ./apps/web/dist:/repo/apps/web/dist
     restart: always

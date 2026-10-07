@@ -13,8 +13,8 @@
 
 # ---- deps: production dependencies of textstack-web only ----
 #
-# The scripts import two packages: pg (ssg-worker.mjs) and puppeteer
-# (prerender.mjs). Both are `dependencies` of textstack-web for this reason —
+# The scripts import three packages: pg and @sentry/node (ssg-worker.mjs) and
+# puppeteer (prerender.mjs). All are `dependencies` of textstack-web for this reason —
 # `pnpm deploy --prod` installs a package's production tree, from the lockfile,
 # into a directory of its own. The old `pnpm install --filter textstack-web...`
 # did not isolate anything: the workspace is hoisted (for Metro), so it installed
@@ -57,6 +57,12 @@ RUN mkdir -p dist/ssg
 
 ENV NODE_ENV=production
 ENV POLL_INTERVAL=5000
+
+# Sentry release, as in the .NET images. Declared late so a new SHA invalidates
+# only this trivial layer. Empty = no release, and the environment then reports
+# as production-unverified (ssgSentry.mjs).
+ARG GIT_SHA=""
+ENV SENTRY_RELEASE=$GIT_SHA
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD pgrep -f "ssg-worker.mjs" || exit 1
