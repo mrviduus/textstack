@@ -9,10 +9,12 @@ import {
   carryForwardFailedPages,
   countRenderedPages,
   createPool,
+  isProgress,
+  jobLimits,
   readResults,
   reportOncePerOutage,
+  superviseChild,
   survivalFloor,
-  waitForExit,
 } from './ssgJob.mjs'
 import { NOINDEX_SKIP } from './ssgRender.mjs'
 
@@ -108,30 +110,80 @@ describe('carryForwardFailedPages', () => {
   })
 })
 
-describe('waitForExit', () => {
+describe('superviseChild', () => {
   const node = (code) => spawn(process.execPath, ['-e', code], { stdio: ['ignore', 'pipe', 'pipe'] })
 
-  it('waitForExit_ChildExits_ReturnsItsCode', async () => {
-    const result = await waitForExit(node('process.exit(3)'), { deadlineMs: 5000 })
-    expect(result).toMatchObject({ code: 3, timedOut: false })
+  /** Every stdout chunk counts as progress, as a route result does in the worker. */
+  function supervise(child, limits) {
+    const supervisor = superviseChild(child, { graceMs: 5000, ...limits })
+    child.stdout.on('data', () => supervisor.progress())
+    return supervisor.exited
+  }
+
+  it('superviseChild_ChildExits_ReturnsItsCode', async () => {
+    const result = await supervise(node('process.exit(3)'), { stallMs: 5000, deadlineMs: 5000 })
+    expect(result).toMatchObject({ code: 3, stopped: null })
   })
 
-  // The worker waited on prerender with no limit, so a hung render kept the job Running forever.
-  it('waitForExit_ChildHangs_StoppedAtTheDeadline', async () => {
+  // The fixed deadline stopped a build that was still moving (a slow API, a bigger library). A child
+  // that keeps reporting runs past the stall window as long as it likes, up to the cap.
+  it('superviseChild_ChildKeepsProgressing_RunsPastTheStallWindow', async () => {
     const started = Date.now()
-    const result = await waitForExit(node('setInterval(() => {}, 1000)'), { deadlineMs: 300, graceMs: 5000 })
-    expect(result.timedOut).toBe(true)
+    const child = node('let n = 0; const t = setInterval(() => { console.log(n); if (++n === 12) { clearInterval(t) } }, 100)')
+    const result = await supervise(child, { stallMs: 400, deadlineMs: 10_000 })
+    expect(result).toMatchObject({ code: 0, stopped: null })
+    expect(Date.now() - started).toBeGreaterThan(1000)
+  })
+
+  it('superviseChild_ChildGoesSilent_StoppedAsStalled', async () => {
+    const started = Date.now()
+    const child = node("console.log('started'); setInterval(() => {}, 1000)")
+    const result = await supervise(child, { stallMs: 400, deadlineMs: 10_000 })
+    expect(result.stopped).toBe('stalled')
     expect(Date.now() - started).toBeLessThan(3000)
+  })
+
+  it('superviseChild_ChildProgressesPastTheCap_StoppedAtTheDeadline', async () => {
+    const child = node('setInterval(() => console.log(1), 50)')
+    const result = await supervise(child, { stallMs: 400, deadlineMs: 800 })
+    expect(result.stopped).toBe('deadline')
   })
 
   // SIGINT first, so puppeteer can kill Chrome's process group; SIGKILL if that does not end it.
-  it('waitForExit_ChildIgnoresSigint_KilledAfterGrace', async () => {
+  it('superviseChild_ChildIgnoresSigint_KilledAfterGrace', async () => {
     const started = Date.now()
     const child = node("process.on('SIGINT', () => {}); setInterval(() => {}, 1000); console.log('ready')")
     await new Promise((r) => child.stdout.once('data', r))
-    const result = await waitForExit(child, { deadlineMs: 200, graceMs: 300 })
-    expect(result).toMatchObject({ timedOut: true, signal: 'SIGKILL' })
+    const result = await superviseChild(child, { stallMs: 200, deadlineMs: 10_000, graceMs: 300 }).exited
+    expect(result).toMatchObject({ stopped: 'stalled', signal: 'SIGKILL' })
     expect(Date.now() - started).toBeLessThan(3000)
+  })
+})
+
+describe('jobLimits / isProgress', () => {
+  it('jobLimits_Defaults_FiveMinuteStallAndCapScaledByRoutes', () => {
+    expect(jobLimits(100, {})).toEqual({ stallMs: 5 * 60_000, deadlineMs: 60 * 60_000 })
+    expect(jobLimits(4000, {})).toEqual({ stallMs: 5 * 60_000, deadlineMs: 4000 * 2000 })
+  })
+
+  it('jobLimits_EnvOverrides_UsedWhenPositive', () => {
+    expect(jobLimits(4000, { SSG_JOB_STALL_MS: '60000', SSG_JOB_DEADLINE_MS: '90000' })).toEqual({ stallMs: 60_000, deadlineMs: 90_000 })
+    // setTimeout reads NaN as 1 ms, which would stop every job at once.
+    for (const bad of ['', '0', '-5', 'abc']) {
+      expect(jobLimits(100, { SSG_JOB_STALL_MS: bad, SSG_JOB_DEADLINE_MS: bad })).toEqual({ stallMs: 5 * 60_000, deadlineMs: 60 * 60_000 })
+    }
+  })
+
+  // A hung API still completes every route — as a failure, at the 30 s navigation timeout — so
+  // counting failures would keep a hung job alive to the cap. A retry pass is all failures by
+  // construction, so there every attempt counts, or a few persistently broken routes would stall a
+  // good build.
+  it('isProgress_RenderedOrSkippedOrAnyRetry_CountsFirstPassFailureDoesNot', () => {
+    expect(isProgress({ event: 'result', success: true })).toBe(true)
+    expect(isProgress({ event: 'result', success: false, error: NOINDEX_SKIP })).toBe(true)
+    expect(isProgress({ event: 'result', success: false, error: 'Navigation timeout of 30000 ms exceeded' })).toBe(false)
+    expect(isProgress({ event: 'result', success: false, error: 'x', retry: 1 })).toBe(true)
+    expect(isProgress({ event: 'progress', rendered: 1, failed: 0, total: 2 })).toBe(false)
   })
 })
 

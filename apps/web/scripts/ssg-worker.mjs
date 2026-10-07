@@ -10,7 +10,8 @@
  *   API_URL - API base URL (default: http://api:8080)
  *   API_HOST - Host header for API requests (default: general.localhost)
  *   POLL_INTERVAL - Polling interval in ms (default: 5000)
- *   SSG_JOB_DEADLINE_MS - longest a rebuild may render before it is stopped and Failed (default: 35 min)
+ *   SSG_JOB_STALL_MS - a rebuild with no progress for this long is stopped and Failed (default: 5 min)
+ *   SSG_JOB_DEADLINE_MS - cap for a rebuild that keeps moving (default: max(60 min, 2 s per route))
  *   SENTRY_DSN - error reporting; unset = off (see ssgSentry.mjs)
  */
 
@@ -24,9 +25,11 @@ import {
   assertBuildSurvived,
   carryForwardFailedPages,
   createPool,
+  isProgress,
+  jobLimits,
   readResults,
   reportOncePerOutage,
-  waitForExit,
+  superviseChild,
 } from './ssgJob.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -52,15 +55,6 @@ const DATABASE_URL = process.env.DATABASE_URL;
 const API_URL = process.env.API_URL || 'http://api:8080';
 const API_HOST = process.env.API_HOST || 'general.localhost';
 const POLL_INTERVAL = parseInt(process.env.POLL_INTERVAL || '5000', 10);
-
-// A rebuild still rendering at this point is stopped and marked Failed, keeping the live tree.
-// Without one, a render against an API that stopped answering held the job Running indefinitely —
-// and deploy.yml waits up to 40 min on a Running job before it deploys anyway. 35 min sits under
-// that wait and above a full rebuild (~25 min for ~2000 routes, 2026-09). The completion log prints
-// the time taken next to it, so a library outgrowing it shows before it bites.
-// Unset, empty, zero or not a number means the default: setTimeout reads NaN as 1 ms, which would
-// stop every job at once.
-const JOB_DEADLINE_MS = Number(process.env.SSG_JOB_DEADLINE_MS) > 0 ? Number(process.env.SSG_JOB_DEADLINE_MS) : 35 * 60_000;
 
 // Bounds the worker's own calls to the API and IndexNow, which had no timeout either.
 const FETCH_TIMEOUT_MS = 30_000;
@@ -228,6 +222,15 @@ async function processJob(job) {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
+    // A rebuild is stopped (and Failed, keeping the live tree) when it stops making progress, or at
+    // a cap that scales with the route count (jobLimits). Without either, a render against an API
+    // that stopped answering held the job Running indefinitely — and deploy.yml waits up to 40 min on
+    // a Running job before it deploys anyway. A fixed 35-min deadline replaced that first, and would
+    // have thrown away whole builds against a partly slow API or a library ~40 % bigger.
+    const limits = jobLimits(routes.length);
+    const supervisor = superviseChild(proc, limits);
+    console.log(`Job limits: stops after ${minutes(limits.stallMs)} min without progress, or at ${minutes(limits.deadlineMs)} min`);
+
     // 6. Parse stdout for progress events
     let buffer = '';
     proc.stdout.on('data', async (chunk) => {
@@ -239,6 +242,7 @@ async function processJob(job) {
         if (!line.trim()) continue;
         try {
           const event = JSON.parse(line);
+          if (isProgress(event)) supervisor.progress();
           if (event.event === 'progress') {
             await updateJobProgress(jobId, event.rendered, event.failed);
           } else if (event.event === 'complete') {
@@ -255,16 +259,22 @@ async function processJob(job) {
       console.error(`[prerender stderr] ${data.toString().trim()}`);
     });
 
-    // 7. Wait for completion, or the deadline. Every throw from here lands in the catch, which
-    // deletes ssg-new and keeps dist/ssg untouched.
-    const { code: exitCode, timedOut } = await waitForExit(proc, { deadlineMs: JOB_DEADLINE_MS });
+    // 7. Wait for completion, or for the supervisor to stop it. Every throw from here lands in the
+    // catch, which deletes ssg-new and keeps dist/ssg untouched.
+    const { code: exitCode, stopped } = await supervisor.exited;
 
     let results;
     try {
-      if (timedOut) {
+      if (stopped === 'stalled') {
         throw new Error(
-          `Prerender was still running at the job deadline (${minutes(JOB_DEADLINE_MS)} min) and was ` +
-          `stopped — an API that stopped answering does this. Keeping the current SSG tree.`
+          `Prerender rendered no route for ${minutes(limits.stallMs)} min and was stopped — an API ` +
+          `that stopped answering does this. Keeping the current SSG tree.`
+        );
+      }
+      if (stopped === 'deadline') {
+        throw new Error(
+          `Prerender was still running at the job cap (${minutes(limits.deadlineMs)} min) and was ` +
+          `stopped. Keeping the current SSG tree.`
         );
       }
       if (exitCode !== 0) throw new Error(`Prerender process exited with code ${exitCode}`);
@@ -305,7 +315,7 @@ async function processJob(job) {
       await submitToIndexNow(job.primary_domain, routes);
     }
 
-    console.log(`Job ${jobId} completed successfully in ${minutes(Date.now() - startedAt)} min (deadline ${minutes(JOB_DEADLINE_MS)} min)`);
+    console.log(`Job ${jobId} completed successfully in ${minutes(Date.now() - startedAt)} min (cap ${minutes(jobLimits(routes.length).deadlineMs)} min)`);
     await setJobStatus(jobId, 'Completed');
   } catch (error) {
     console.error(`Error processing job ${jobId}:`, error);
@@ -419,7 +429,7 @@ async function main() {
   console.log(`  API_URL: ${API_URL}`);
   console.log(`  API_HOST: ${API_HOST}`);
   console.log(`  POLL_INTERVAL: ${POLL_INTERVAL}ms`);
-  console.log(`  JOB DEADLINE: ${minutes(JOB_DEADLINE_MS)} min`);
+  console.log(`  JOB STALL LIMIT: ${minutes(jobLimits(0).stallMs)} min`);
   console.log(`  SENTRY: ${sentry ? 'on' : 'off'}`);
 
   // Test DB connection

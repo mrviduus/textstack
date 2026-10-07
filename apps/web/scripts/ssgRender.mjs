@@ -137,6 +137,18 @@ export function stopServer(server) {
   return closed;
 }
 
+/**
+ * Each URL's outcome is that of its last request that has one: the app retries, and a 503 followed
+ * by a 200 is a page whose data arrived. A request still in flight leaves the previous outcome.
+ */
+function finalOutcomeByUrl(requests, outcomes) {
+  const byUrl = new Map();
+  for (const req of requests) {
+    if (outcomes.has(req)) byUrl.set(req.url(), outcomes.get(req));
+  }
+  return byUrl;
+}
+
 /** An API call is broken when its last outcome is a 5xx, a 429, or no response at all. */
 function isApiFailure(outcome) {
   return outcome.failure !== undefined || outcome.status >= 500 || outcome.status === 429;
@@ -167,17 +179,28 @@ export async function renderRoute(browser, routeObj, { outputDir, port }) {
     if (res.status() >= 400) failedRequests.push(`HTTP ${res.status()} ${res.url()}`);
   });
 
-  // The last outcome of each of the page's API calls, by URL. A page counts as rendered only if its
-  // data loaded: an error state is a perfectly good-looking page (an <h1>, no noindex), and before
-  // this one was saved as SSG whenever the API was down. Last, not any: the app retries, and a 500
-  // followed by a 200 is a page whose data arrived.
+  // The outcome of each of the page's API requests. A page counts as rendered only if its data
+  // loaded: an error state is a perfectly good-looking page (an <h1>, no noindex), and before this
+  // one was saved as SSG whenever the API was down.
+  //
+  // Keyed by request, not URL. A request that got a status keeps it: the app reads a 404 or a 503
+  // and moves on without reading the body, and the browser then aborts that body — a requestfailed
+  // for a request that WAS answered. Keyed by URL, that abort overwrote the 404, and a deleted book
+  // counted as an API failure whose stale page was carried forward forever. Only a request with no
+  // response at all is "no response".
   const apiPrefix = `http://localhost:${port}/api/`;
-  const apiOutcomes = new Map();
+  const apiRequests = []; // in the order the page made them
+  const apiOutcomes = new Map(); // HTTPRequest → { status } | { failure }
+  page.on('request', req => {
+    if (req.url().startsWith(apiPrefix)) apiRequests.push(req);
+  });
   page.on('response', res => {
-    if (res.url().startsWith(apiPrefix)) apiOutcomes.set(res.url(), { status: res.status() });
+    if (res.url().startsWith(apiPrefix)) apiOutcomes.set(res.request(), { status: res.status() });
   });
   page.on('requestfailed', req => {
-    if (req.url().startsWith(apiPrefix)) apiOutcomes.set(req.url(), { failure: req.failure()?.errorText || 'failed' });
+    if (req.url().startsWith(apiPrefix) && !apiOutcomes.has(req)) {
+      apiOutcomes.set(req, { failure: req.failure()?.errorText || 'failed' });
+    }
   });
 
   try {
@@ -241,7 +264,7 @@ export async function renderRoute(browser, routeObj, { outputDir, port }) {
 
     // Before the noindex check below: the app's error states for a missing book or author carry
     // noindex too, and a deliberate noindex skip drops the page where a failure keeps the old one.
-    const apiFailures = [...apiOutcomes]
+    const apiFailures = [...finalOutcomeByUrl(apiRequests, apiOutcomes)]
       .filter(([, outcome]) => isApiFailure(outcome))
       .map(([u, outcome]) => `${outcome.failure ?? `HTTP ${outcome.status}`} ${new URL(u).pathname}`);
     if (apiFailures.length > 0) {
@@ -303,4 +326,70 @@ export async function renderRoute(browser, routeObj, { outputDir, port }) {
   } finally {
     await page.close();
   }
+}
+
+const MAX_RETRIES = 2;
+
+/**
+ * Renders every route, `concurrency` at a time, then retries the failures up to MAX_RETRIES times.
+ * `render(routeObj)` returns one result. `emit` gets a `result` event per attempt (a retry's carries
+ * `retry: n`) and a `progress` event per batch — the worker reads both from stdout.
+ *
+ * A retry that reaches a definitive outcome — rendered, or noindex — replaces the earlier failure.
+ * It used to replace it only on success, so a route that failed once (a transient 503) and was a
+ * draft or gone by its retry kept the failure, and the worker carried its old page forward. A
+ * noindex result is final and is not retried.
+ */
+export async function processRoutes(routes, render, { concurrency, emit = () => {} }) {
+  const results = [];
+  const total = routes.length;
+  const isFinal = (r) => r.success || r.error === NOINDEX_SKIP;
+  const counts = () => {
+    const rendered = results.filter((r) => r.success).length;
+    return { rendered, failed: results.length - rendered };
+  };
+  const report = (result, retry) => emit({
+    event: 'result',
+    route: result.route,
+    routeType: result.routeType,
+    success: result.success,
+    renderTimeMs: result.renderTimeMs,
+    error: result.error || null,
+    ...(retry ? { retry } : {}),
+  });
+
+  for (let i = 0; i < routes.length; i += concurrency) {
+    const batchResults = await Promise.all(routes.slice(i, i + concurrency).map(render));
+    for (const result of batchResults) {
+      results.push(result);
+      report(result, 0);
+    }
+    const { rendered, failed } = counts();
+    emit({ event: 'progress', rendered, failed, total });
+    process.stderr.write(`\rPrerendered ${rendered + failed}/${total} routes...`);
+  }
+  process.stderr.write('\n');
+
+  for (let retry = 1; retry <= MAX_RETRIES; retry++) {
+    const pending = results.map((r, idx) => ({ r, idx })).filter(({ r }) => !isFinal(r));
+    if (pending.length === 0) break;
+    process.stderr.write(`\nRetry ${retry}/${MAX_RETRIES}: ${pending.length} failed routes...\n`);
+
+    for (let i = 0; i < pending.length; i += concurrency) {
+      const batch = pending.slice(i, i + concurrency);
+      const batchResults = await Promise.all(
+        batch.map(({ r }) => render({ route: r.route, routeType: r.routeType }))
+      );
+      batchResults.forEach((result, k) => {
+        if (isFinal(result)) results[batch[k].idx] = result;
+        report(result, retry);
+      });
+    }
+
+    const { rendered, failed } = counts();
+    emit({ event: 'progress', rendered, failed, total });
+    process.stderr.write(`After retry ${retry}: ${rendered} rendered, ${failed} failed\n`);
+  }
+
+  return results;
 }

@@ -44,28 +44,78 @@ export function reportOncePerOutage(report) {
   };
 }
 
+const MINUTE = 60_000;
+
+/** A positive number of ms from the environment, else `fallback` (setTimeout reads NaN as 1 ms). */
+function positiveMs(value, fallback) {
+  const n = Number(value);
+  return n > 0 ? n : fallback;
+}
+
 /**
- * Waits for the child to exit, and stops it if it is still running at `deadlineMs`.
+ * How long a rebuild may run. `stallMs`: the longest it may go without progress (isProgress), 5 min.
+ * `deadlineMs`: a cap for a job that keeps moving but never ends — max(60 min, 2 s per route), so it
+ * grows with the library instead of one day stopping every rebuild of a bigger one.
+ */
+export function jobLimits(routeCount, env = process.env) {
+  return {
+    stallMs: positiveMs(env.SSG_JOB_STALL_MS, 5 * MINUTE),
+    deadlineMs: positiveMs(env.SSG_JOB_DEADLINE_MS, Math.max(60 * MINUTE, routeCount * 2000)),
+  };
+}
+
+/**
+ * Whether a prerender event shows the job moving. A route that rendered or was skipped counts, and
+ * so does any attempt in a retry pass. A failure in the first pass does not: a hung API still
+ * completes every route — as a failure, at the 30 s navigation timeout — and counting those kept a
+ * hung job alive to the cap. A retry pass is all failures by construction, so there every attempt
+ * counts, or a few persistently broken routes would stall a good build.
+ */
+export function isProgress(event) {
+  if (event?.event !== 'result') return false;
+  return event.success === true || event.error === NOINDEX_SKIP || event.retry > 0;
+}
+
+/**
+ * Watches a child: stops it when it goes `stallMs` without `progress()`, or at `deadlineMs`.
+ * `exited` resolves with { code, signal, stopped: null | 'stalled' | 'deadline' }.
  *
  * SIGINT first: prerender's Chrome runs in a process group of its own, which only puppeteer knows
  * how to kill, and puppeteer does that (then exits) on SIGINT. SIGKILL after `graceMs` if that did
  * not end it.
  */
-export function waitForExit(proc, { deadlineMs, graceMs = 10_000 }) {
-  return new Promise((resolve) => {
-    let timedOut = false;
-    let killTimer;
-    const deadline = setTimeout(() => {
-      timedOut = true;
-      proc.kill('SIGINT');
-      killTimer = setTimeout(() => proc.kill('SIGKILL'), graceMs);
-    }, deadlineMs);
+export function superviseChild(proc, { stallMs, deadlineMs, graceMs = 10_000 }) {
+  let stopped = null;
+  let killTimer;
+  let stallTimer;
+  const stop = (reason) => {
+    if (stopped) return;
+    stopped = reason;
+    clearTimeout(stallTimer);
+    clearTimeout(deadline);
+    proc.kill('SIGINT');
+    killTimer = setTimeout(() => proc.kill('SIGKILL'), graceMs);
+  };
+  const deadline = setTimeout(() => stop('deadline'), deadlineMs);
+  stallTimer = setTimeout(() => stop('stalled'), stallMs);
+
+  const exited = new Promise((resolve) => {
     proc.on('close', (code, signal) => {
+      clearTimeout(stallTimer);
       clearTimeout(deadline);
       clearTimeout(killTimer);
-      resolve({ code, signal, timedOut });
+      resolve({ code, signal, stopped });
     });
   });
+
+  return {
+    exited,
+    progress() {
+      if (stopped) return;
+      clearTimeout(stallTimer);
+      stallTimer = setTimeout(() => stop('stalled'), stallMs);
+    },
+  };
 }
 
 /** Pages actually written under `dir`: index.html files that are files and not empty. */

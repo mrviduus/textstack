@@ -19,7 +19,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { dirname, join, isAbsolute } from 'path';
 import { fileURLToPath } from 'url';
 import { URL } from 'url';
-import { startServer, stopServer, renderRoute } from './ssgRender.mjs';
+import { startServer, stopServer, renderRoute, processRoutes } from './ssgRender.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = join(__dirname, '..', 'dist');
@@ -140,99 +140,6 @@ async function getRoutes() {
 
 
 /**
- * Process routes in batches with concurrency control
- */
-async function processRoutes(browser, routes) {
-  const results = [];
-  let rendered = 0;
-  let failed = 0;
-  const total = routes.length;
-
-  // Process in batches
-  for (let i = 0; i < routes.length; i += CONCURRENCY) {
-    const batch = routes.slice(i, i + CONCURRENCY);
-    const batchResults = await Promise.all(
-      batch.map(routeObj => renderRoute(browser, routeObj, RENDER_OPTS))
-    );
-
-    for (const result of batchResults) {
-      results.push(result);
-
-      if (result.success) {
-        rendered++;
-      } else {
-        failed++;
-      }
-
-      // Emit result event for each route
-      emitEvent({
-        event: 'result',
-        route: result.route,
-        routeType: result.routeType,
-        success: result.success,
-        renderTimeMs: result.renderTimeMs,
-        error: result.error || null,
-      });
-    }
-
-    // Emit progress event after each batch
-    emitEvent({
-      event: 'progress',
-      rendered,
-      failed,
-      total,
-    });
-
-    // Also print progress for human-readable output
-    process.stderr.write(`\rPrerendered ${rendered + failed}/${total} routes...`);
-  }
-
-  process.stderr.write('\n'); // New line after progress
-
-  // Retry failed routes up to 2 times
-  const MAX_RETRIES = 2;
-  for (let retry = 1; retry <= MAX_RETRIES; retry++) {
-    const failedRoutes = results.filter(r => !r.success);
-    if (failedRoutes.length === 0) break;
-
-    process.stderr.write(`\nRetry ${retry}/${MAX_RETRIES}: ${failedRoutes.length} failed routes...\n`);
-
-    for (let i = 0; i < failedRoutes.length; i += CONCURRENCY) {
-      const batch = failedRoutes.slice(i, i + CONCURRENCY);
-      const batchResults = await Promise.all(
-        batch.map(prev => renderRoute(browser, { route: prev.route, routeType: prev.routeType }, RENDER_OPTS))
-      );
-
-      for (const result of batchResults) {
-        if (result.success) {
-          // Replace failed result with success
-          const idx = results.findIndex(r => r.route === result.route);
-          if (idx !== -1) {
-            results[idx] = result;
-            rendered++;
-            failed--;
-          }
-
-          emitEvent({
-            event: 'result',
-            route: result.route,
-            routeType: result.routeType,
-            success: true,
-            renderTimeMs: result.renderTimeMs,
-            error: null,
-          });
-        }
-      }
-    }
-
-    emitEvent({ event: 'progress', rendered, failed, total });
-    process.stderr.write(`After retry ${retry}: ${rendered} rendered, ${failed} failed\n`);
-  }
-
-  return results;
-}
-
-/**
  * Main function
  */
 async function main() {
@@ -263,7 +170,10 @@ async function main() {
   try {
     // Process all routes
     console.log(`\nStarting prerender with concurrency=${CONCURRENCY}...\n`);
-    const results = await processRoutes(browser, routes);
+    const results = await processRoutes(routes, (routeObj) => renderRoute(browser, routeObj, RENDER_OPTS), {
+      concurrency: CONCURRENCY,
+      emit: emitEvent,
+    });
 
     // Write results to output file if specified
     if (CLI_OPTS.outputFile) {
