@@ -53,6 +53,8 @@ size (disk cleanup, scan, push), not with build work.
 - A digest bump on a base is a Dependabot PR that CI and the scan gate like any change.
 - Pins inside scripts and `run:` lines (scanner, restic, Makefile alpine) are invisible to Dependabot
   and are bumped by hand.
+- Published versions pile up (six per merge); `ghcr-retention.yml` prunes them weekly but never the
+  deployed SHA or the last 5 deploys, so a rollback to a recent deploy still pulls by digest.
 - First deploy after the pins: `db`, `ollama` (and `aspire-dashboard` if its profile is up) are
   recreated because their image reference changed — a few seconds of DB restart inside the deploy,
   after the pre-deploy dump.
