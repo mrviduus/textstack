@@ -88,6 +88,18 @@ answers "what happened" and nothing answered "what is half-finished right now".
 
 ## Known-broken / open follow-ups
 
+- **A deploy fails the upload being processed** (found 2026-10-07, ADR-022). The Worker restarts on
+  every push; the cancelled extraction lands in the generic `catch` and the book is marked `Failed`,
+  "corrupted or password-protected" (`UserIngestionService.cs:393-405`; catalog
+  `Worker/Services/IngestionService.cs:305-338`). Fix: cancellation → `Queued` — ADR-022 PR 1.
+- **SSG rebuild after an admin edit or publish may be silently skipped** (found 2026-10-07, ADR-023).
+  Eight un-awaited enqueues use the request's scoped `DbContext` after the request (`AdminEndpoints.cs:438,513,579`,
+  `AdminGenresEndpoints.cs:298`, `AdminAuthorsEndpoints.cs:346`, `AdminService.Editions.cs:268-270,322,343`)
+  behind an empty `catch`. A job left `Queued` blocks every later identical enqueue through the duplicate
+  check. Fix: await + log — ADR-023 PR 1.
+- **Vocabulary words promoted by the hourly reconciler are never enriched** (found 2026-10-07, ADR-023):
+  `DailyCapService.ReconcileUserAsync` does not call `QueueEnrichment`. Fix: enrichment moves into an Application service; the reconciler awaits it word by word (owner, 2026-10-07).
+- **Uploaded originals are readable by URL without auth** (`/storage`, ADR-024). Fix: originals move behind `/me/books/{id}/file`; covers and chapter images only after they get an authenticated route (owner, 2026-10-07).
 - **Mobile OTA targets one runtime only** (2026-10-07, #762). `mobile-ota.yml` publishes to the
   runtime of the newest *finished* production build. Once the production track runs an older build
   than Closed testing, production stops receiving OTAs. **Fix before the second store release.**

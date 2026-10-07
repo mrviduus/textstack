@@ -108,6 +108,9 @@ line at the top of each file.
 | [ADR-019](01-architecture/adr/ADR-019-reader-position-rules.md) | Reader position: shared rules, not a shared state machine | Accepted |
 | [ADR-020](01-architecture/adr/ADR-020-build-once-deploy-by-digest.md) | Build once on GitHub, deploy by digest (+ [delivery pipeline](01-architecture/delivery.md)) | Accepted |
 | [ADR-021](01-architecture/adr/ADR-021-migrations-owned-by-the-migrator.md) | Migrations are owned by the migrator; Api reports a schema behind its build | Accepted |
+| [ADR-022](01-architecture/adr/ADR-022-one-consumer-per-queue.md) | One consumer per queue; recover at startup, give the claim back on shutdown | Accepted |
+| [ADR-023](01-architecture/adr/ADR-023-single-instance-no-fire-and-forget.md) | Api and Worker are single-instance; no fire-and-forget for real work | Accepted |
+| [ADR-024](01-architecture/adr/ADR-024-auth-fails-closed-by-path.md) | Auth fails closed by path (`/me`, `/internal` like `/admin`) + public-routes snapshot | Accepted |
 
 ## Governance
 
