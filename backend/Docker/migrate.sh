@@ -47,8 +47,8 @@ dotnet ef migrations list \
     --project "$PROJECT" \
     --startup-project "$STARTUP" \
     --no-connect \
-    --no-build 2>/dev/null | grep -E '^[0-9]{14}_' > /tmp/known-migrations || true
-[ -s /tmp/known-migrations ] || { echo "ERROR: could not list this image's migrations"; exit 1; }
+    --no-build 2>/tmp/known-migrations.err | grep -E '^[0-9]{14}_' > /tmp/known-migrations || true
+[ -s /tmp/known-migrations ] || { echo "ERROR: could not list this image's migrations:"; cat /tmp/known-migrations.err; exit 1; }
 
 # Plain assignments, so a psql failure stops the script (set -e) instead of passing the check.
 UNKNOWN=""
