@@ -8,7 +8,7 @@
     <PackageReference Include="HtmlAgilityPack" />
     <PackageReference Include="PdfPig" />
     <PackageReference Include="PDFtoImage" />
-    <PackageReference Include="SixLabors.ImageSharp" />
+    <PackageReference Include="SkiaSharp" />
   </ItemGroup>
 
   <ItemGroup>

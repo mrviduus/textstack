@@ -177,16 +177,26 @@ public class UserIngestionService
             }
 
             // Save cover
+            // An unreadable cover (format the decoder lacks, over the pixel limit) costs the cover,
+            // never the book. Storage failures still fail the job.
+            OptimizedImage? optimizedCover = null;
             if (result.Metadata.CoverImage is { Length: > 0 })
             {
-                var coverMime = result.Metadata.CoverMimeType ?? "image/jpeg";
-                var optimizedCover = await _imageOptimizer.OptimizeAsync(
-                    result.Metadata.CoverImage, coverMime, ct: ct);
-                var ext = optimizedCover.Extension;
-
+                try
+                {
+                    optimizedCover = await _imageOptimizer.OptimizeAsync(
+                        result.Metadata.CoverImage, result.Metadata.CoverMimeType ?? "image/jpeg", ct: ct);
+                }
+                catch (Exception ex) when (ex is InvalidDataException or InvalidOperationException)
+                {
+                    _logger.LogWarning(ex, "Skipped unreadable cover for user book {UserBookId}", job.UserBookId);
+                }
+            }
+            if (optimizedCover is not null)
+            {
                 using var coverStream = new MemoryStream(optimizedCover.Data);
                 var coverPath = await _storage.SaveUserFileAsync(
-                    job.UserBook.UserId, job.UserBookId, $"cover{ext}", coverStream, ct);
+                    job.UserBook.UserId, job.UserBookId, $"cover{optimizedCover.Extension}", coverStream, ct);
                 job.UserBook.CoverPath = coverPath;
             }
 

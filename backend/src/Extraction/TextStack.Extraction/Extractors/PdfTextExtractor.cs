@@ -5,8 +5,7 @@ using TextStack.Extraction.TextProcessing.Processors;
 using TextStack.Extraction.Toc;
 using TextStack.Extraction.Utilities;
 using PDFtoImage;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
+using SkiaSharp;
 using UglyToad.PdfPig;
 
 namespace TextStack.Extraction.Extractors;
@@ -568,7 +567,9 @@ public sealed class PdfTextExtractor : ITextExtractor
     {
         try
         {
-            using var image = Image.Load<Rgba32>(pngBytes);
+            using var image = SKBitmap.Decode(pngBytes);
+            if (image is null)
+                return false;
             if (image.Width <= 1 && image.Height <= 1)
                 return true;
 
@@ -579,7 +580,7 @@ public sealed class PdfTextExtractor : ITextExtractor
             {
                 for (var x = 0; x < image.Width; x += stepX)
                 {
-                    var alpha = image[x, y].A;
+                    var alpha = image.GetPixel(x, y).Alpha;
                     if (alpha > maxAlpha)
                         maxAlpha = alpha;
                     if (maxAlpha > 8)
@@ -591,7 +592,7 @@ public sealed class PdfTextExtractor : ITextExtractor
         catch
         {
             // If we can't decode it, don't treat it as degenerate — let the
-            // normal path keep it (a genuine PNG that ImageSharp choked on).
+            // normal path keep it (a genuine PNG the decoder choked on).
             return false;
         }
     }
