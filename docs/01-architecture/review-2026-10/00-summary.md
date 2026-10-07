@@ -34,6 +34,7 @@ All P0 and P1 items are fixed and live; the P2/P3 list is planned work.
 | 14 | Upload size checked before reading; storage path guard; EPUB entry/size limits | #704 |
 | — | Clients gap 2: JSON-LD escaped | this PR |
 | 17 | Migrator is the only migrator (Api: Development + launchSettings flag only); schema behind the build → Critical log + `/health/ready` 503; rollback via `docker compose run --rm -e MIGRATE_TARGET` (the documented form never reached the container) — [ADR-021](../adr/ADR-021-migrations-owned-by-the-migrator.md) | #706, 2026-10-07 |
+| 22 | OTLP export off in prod (it was exporting to a container that never runs); Sentry on mcp-server and ssg-worker, same scrubbing; one `service` tag across all four (2026-10-07) | this PR |
 | — | Also shipped: podcast deleted (#692), SSG full rebuild nightly not per deploy (#697), deploy waits for a running SSG rebuild (#698), deploy-failing test flake (#699) | |
 
 Open, not in the tables below: web tap-on-text doesn't reveal reader bars (since #157); removing a highlight
@@ -85,7 +86,7 @@ ADR if structural · **P3** note or accept.
 | 19 | Admin: roles never checked, no audit log, no MFA, admin API also reachable on the public host | security M2 | Cloudflare Access on textstack.dev + deny `/api/admin` on .app + audit row |
 | 20 | Two book models with 4 different "which book" patterns; `book_collections` orphaned on delete (counts wrong, no ownership check) | backend 4, 5 | Keep storage split; one `BookRef` rule for new code — ADR; fix the orphan bug now |
 | 21 | Prod LLM jobs depend on the owner's personal Claude login; poller units not deployed, one never restarted, no alarm when one dies | ops 8, 9 | Anthropic API key; deploy + check all pollers |
-| 22 | No metrics in prod (OTLP points at a container that isn't started); no Sentry on ssg-worker / mcp-server | ops 10 | Unset OTLP or free hosted tier; Sentry on both |
+| 22 | No metrics in prod (OTLP points at a container that isn't started); no Sentry on ssg-worker / mcp-server | ops 10 | Unset OTLP or free hosted tier; Sentry on both — **done**, see Status; a hosted metrics tier is the owner's call ([delivery.md § Observability](../delivery.md#observability)) |
 | 23 | Server can't tell which mobile app version is calling | clients 7 | `X-App-Version` + `minSupportedVersion` |
 | 24 | Web keeps its own ~1.8k-line `api/` beside the shared client; vocab highlight engine exists twice (mobile copy is untyped ES5 in a string) | clients 5, 6 | Move module by module |
 | 25 | Two SEO engines (shell + CLI in prod, in-process crews still reachable) | backend 6 | Keep one |

@@ -63,9 +63,9 @@ Compressed size (what CI pushes and the server pulls), after #748:
 | api | `aspnet:10.0-alpine` | ~93 MB | single-RID publish (`linux-musl-<arch>`); keeps `git` for Standard Ebooks sync |
 | worker | `aspnet:10.0-alpine` | ~110 MB | no Node/browser; ICU on (`HtmlCleaner` normalises), PDFium + Skia musl natives, `font-dejavu` |
 | admin | `nginx-unprivileged:stable-alpine` | ~26 MB | static `dist` on :81, SPA fallback |
-| ssg-worker | `node:<.nvmrc>-alpine` | ~410 MB | apk Chromium; `pnpm deploy --prod` (pg + puppeteer only) |
+| ssg-worker | `node:<.nvmrc>-alpine` | ~417 MB | apk Chromium; `pnpm deploy --prod` (pg, puppeteer, `@sentry/node`). Sentry added +6.9 MB compressed, +61 MB on disk (2026-10-07) |
 | migrator | `dotnet/sdk:10.0` | ~1.35 GB | full SDK + source; next step: EF migrations bundle (~100 MB) |
-| mcp-server | `aspnet:10.0-alpine` | ~52 MB | |
+| mcp-server | `aspnet:10.0-alpine` | ~53 MB | Sentry added +0.35 MB |
 
 ## External dependencies
 
@@ -92,7 +92,7 @@ Compressed size (what CI pushes and the server pulls), after #748:
 | Edge TTS (speech.platform.bing.com) | text-to-speech | TTS fails for uncached text | Disk + IndexedDB cache |
 | Google OAuth / Apple Sign-In | sign-in | Those sign-ins fail | Email/password; guest reading |
 | Resend | password reset, admin alerts | No emails | none |
-| Sentry | error tracking | Blind to errors; app unaffected | Logs, Aspire |
+| Sentry | errors (api, worker, mcp-server, ssg-worker; mobile in its own project) + 20 % of API request traces | Blind to errors; app unaffected (no DSN = SDK never loaded) | Container logs (`docker compose logs`, 5 × 10 MB per service) |
 | Anthropic (Claude CLI on the server) | auto-publish SEO, SEO backfill, quality poller | Jobs fail/queue | Retry next poll |
 | IndexNow (Bing/Yandex) | crawl pings | Slower indexing | Sitemaps |
 | Open Library | metadata/cover lookups | Missing enrichment | none needed |
@@ -101,6 +101,42 @@ Compressed size (what CI pushes and the server pulls), after #748:
 
 Single points of failure that matter: **the home server + Cloudflare tunnel** (runtime) and
 **GitHub** (delivery). Everything else degrades one feature or blocks one build.
+
+## Observability
+
+What reaches the owner, and what deliberately does not exist.
+
+| signal | where it goes | covers |
+|---|---|---|
+| Errors | Sentry, one project (`dotnet-aspnetcore`), filtered by the `service` tag: `api`, `worker`, `mcp-server`, `ssg-worker` | api, worker, mcp-server: anything logged at Error (the API's unhandled exceptions arrive through `ExceptionMiddleware`'s `LogError`). mcp-server logs one when a tool's mapping breaks — before 2026-10-07 that branch reported nothing. ssg-worker: a failed rebuild job, each route that still fails after prerender's retries (capped at 20 per job, grouped into one issue), a poll-loop failure (once until the loop recovers), a crash. |
+| Request traces | Sentry, API only: 20 % of `http.server` (`SentryBootstrap` default; compose does not forward `Sentry__TracesSampleRate`), every AI agent run, never `/health` | Latency and the AI routing spans. No other service sends transactions. |
+| Mobile crashes | Sentry project `textstack-mobile` | The reader app (its own scrubber, `apps/mobile/src/lib/sentryScrub.ts`) |
+| Uptime | `health-check.yml` every 5 min (GitHub email); UptimeRobot (see `docs/03-ops/uptime-monitoring.md`) | Both hosts, API body, SSG freshness |
+| Metrics | **none in production** | — |
+
+**OpenTelemetry is off in production.** Traces, metrics and logs are exported over OTLP only when
+`OTEL_EXPORTER_OTLP_ENDPOINT` is set; without it nothing is registered (`TelemetryExtensions`). Until
+2026-10-07 production pointed it at `aspire-dashboard`, a container behind the `observability` profile
+that the deploy never starts: every batch was built, failed to resolve and was dropped, with no log line
+(the exporter reports through an EventSource). Aspire is still the local tool — `docker compose
+--profile observability up -d aspire-dashboard`, `OTEL_EXPORTER_OTLP_ENDPOINT=http://aspire-dashboard:18889`
+in `.env`, UI on `127.0.0.1:18888` — and keeps telemetry in memory only.
+
+**If metrics are wanted later:** a hosted OTLP backend (e.g. Grafana Cloud's free tier) is the
+endpoint plus an auth header — no code change. It is the owner's call because of cost and privacy:
+OTLP traces carry full SQL text (`SetDbStatementForText`) and the client IP (`http.client_ip`), and
+none of it passes the Sentry scrubber. Strip both before pointing production at a third party.
+
+**Privacy (the policy's promise).** Every service scrubs before sending, by allowlist: tags and
+extras not blessed are dropped or redacted; no user, no cookies, no request bodies, no query strings;
+free text loses credentials (bearer, `tsk_`/`tso_` keys, JWTs) and query strings, and is truncated.
+The .NET hosts share `TextStack.Observability` (`SentryScrubber`), which also redacts emails, phones and
+the `/mcp/k/<key>` segment; mcp-server additionally drops exception messages (tool arguments are the
+reader's text) and keeps Information lines out of breadcrumbs. The ssg-worker ports the URL and
+credential rules (`apps/web/scripts/ssgSentry.mjs`; it handles only the public catalog, plus URL
+userinfo for `DATABASE_URL`), sends no breadcrumbs (prerender's console quotes page HTML) and reports a
+failed route by path and the first line of its error only. A local `Development`
+environment reports nothing on any service.
 
 ## Security controls
 
@@ -169,3 +205,5 @@ Single points of failure that matter: **the home server + Cloudflare tunnel** (r
 | Full SSG rebuild on deploy | Run workflow with `rebuild_ssg`, or `make rebuild-ssg` |
 | Workflow permissions | top-level `permissions:` stays read/none; widen per job |
 | Database schema / rollback | Only the `migrator` service migrates ([ADR-021](adr/ADR-021-migrations-owned-by-the-migrator.md)); rollback `docker compose run --rm -e MIGRATE_TARGET=<name> migrator` with the **current** image, **before** `rollback_commit`. Behind-schema alarm: `health-check.yml` step "Schema matches the build" |
+| What Sentry may receive | .NET: `backend/src/Observability/TextStack.Observability/SentryScrubber.cs` (+ `McpHosts.ConfigureSentry`); ssg-worker: `apps/web/scripts/ssgSentry.mjs`; mobile: `apps/mobile/src/lib/sentryScrub.ts`. Change all three together, and the privacy policy if the promise changes |
+| OpenTelemetry export | `OTEL_EXPORTER_OTLP_ENDPOINT` in the server `.env` (unset = off) |
