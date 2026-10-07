@@ -146,9 +146,11 @@ rate-limited, refuses OAuth tokens).
 
 - Count: 138. Not all additive: e.g. `RemoveAdminAuditLog` (2026-01-22), `DropSearchDocuments` (2026-10-01).
 - Tool: `dotnet ef migrations add <Name> --project backend/src/Infrastructure --startup-project backend/src/Api`
-- Rollback all: `MIGRATE_TARGET=0 docker compose up migrator`
+- Rollback all: `docker compose run --rm -e MIGRATE_TARGET=0 migrator`
 - Migrator runs as one-shot container in prod compose; `api` waits on
-  `service_completed_successfully`.
+  `service_completed_successfully`. It is the only thing that migrates
+  ([ADR-021](adr/ADR-021-migrations-owned-by-the-migrator.md)); a schema behind the Api's build shows as
+  `/health/ready` 503 (`components.schema`).
 
 ## See also
 

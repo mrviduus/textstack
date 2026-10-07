@@ -144,7 +144,10 @@ answers "what happened" and nothing answered "what is half-finished right now".
 
 - **Architecture review 2026-10 — open P2 items** ([summary](01-architecture/review-2026-10/00-summary.md)):
   #15 one claim rule for the 11 polled queues (only the catalog retry cap is fixed, #706/#707); #16
-  background services inside the API, vocab enrichment fire-and-forget; #18 auth is opt-in per
+  background services inside the API, vocab enrichment fire-and-forget; ~~#17 migrations run twice~~ —
+  done 2026-10-07 ([ADR-021](01-architecture/adr/ADR-021-migrations-owned-by-the-migrator.md): only the
+  migrator migrates; a schema behind the build → `/health/ready` 503; rollback is
+  `docker compose run --rm -e MIGRATE_TARGET=<name> migrator`); #18 auth is opt-in per
   endpoint (group-level filter); #19 admin roles unchecked, no audit log, admin API reachable on the
   public host; #20 one `BookRef` rule for new code (the collection-orphan part is fixed, #706); #22 no
   metrics in prod, no Sentry on ssg-worker / mcp-server; ~~#23 the server cannot tell which mobile app
