@@ -7,6 +7,9 @@ BUNDLE=/app/efbundle
 KNOWN=/app/known-migrations
 # Required: unset, the bundle would fall back to AppDbContextFactory's localhost default.
 CONNECTION="${ConnectionStrings__Default:?ConnectionStrings__Default is not set}"
+# The bundle gets it through AppDbContextFactory (CONNECTION_STRING) and psql through PG* variables:
+# environment, never argv, so the password is not in `ps`.
+export CONNECTION_STRING="$CONNECTION"
 
 echo "=== EF Core Migration Runner ==="
 echo "Target: ${MIGRATE_TARGET:-latest}"
@@ -67,10 +70,10 @@ echo ""
 echo "=== Applying migrations ==="
 if [ -n "$MIGRATE_TARGET" ]; then
     echo "Migrating to target: $MIGRATE_TARGET"
-    "$BUNDLE" "$MIGRATE_TARGET" --connection "$CONNECTION"
+    "$BUNDLE" "$MIGRATE_TARGET"
 else
     echo "Applying all pending migrations..."
-    "$BUNDLE" --connection "$CONNECTION"
+    "$BUNDLE"
 fi
 
 # Step 3: Verify
