@@ -199,6 +199,8 @@ make clean-ssg  # Removes ssg, ssg-new, ssg-old
 ```bash
 # On production server: queues a Full job (POST /internal/ssg/rebuild-all) and follows it.
 # Exit 0 only when the job ends Completed. Ctrl-C stops following, not the job.
+# Exit 1 if ssg-worker does not start it in 5 min or it stops moving for 30 min (worker down).
+# A Full rebuild already queued or running is waited for, then a fresh one is queued.
 make rebuild-ssg
 ```
 

@@ -143,6 +143,29 @@ describe('static server + API proxy shutdown', () => {
     expect(JSON.parse(storage.body)).toEqual({ path: '/storage/ab/cover.jpg?v=2' })
   })
 
+  // Only /api, /api/…, /storage and /storage/… are the API's; a static path that merely starts
+  // with those letters is the app's.
+  it('routing_PrefixLookalikes_AreStaticNotProxied', async () => {
+    let hits = 0
+    api = await fakeApi((req, res) => {
+      hits++
+      res.end('api')
+    })
+    server = await startServer({ distDir: dist, apiUrl: api.url, apiHost: 'localhost', port: 0 })
+    const port = server.address().port
+
+    for (const path of ['/apiary', '/api-docs', '/storagefoo']) {
+      const { status, body } = await get(port, path).response
+      expect({ path, status, body }).toEqual({ path, status: 200, body: '<!doctype html><title>t</title>' })
+    }
+    expect(hits).toBe(0)
+
+    for (const path of ['/api', '/api/x', '/storage', '/storage/x']) {
+      expect((await get(port, path).response).body).toBe('api')
+    }
+    expect(hits).toBe(4)
+  })
+
   it('static_QueryString_StillServesTheFile', async () => {
     writeFileSync(join(dist, 'app.js'), 'ok()')
     server = await startServer({ distDir: dist, apiUrl: 'http://127.0.0.1:1', apiHost: 'localhost', port: 0 })

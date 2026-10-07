@@ -91,14 +91,14 @@ export function startServer({ distDir, apiUrl, apiHost, port, upstreamTimeoutMs 
       const url = req.url.split('?')[0];
       const query = req.url.slice(url.length);
 
-      // Proxy API requests (React app uses /api prefix)
-      if (url.startsWith('/api/') || url.startsWith('/api')) {
+      // Proxy API requests (React app uses /api prefix). Whole segments only: /apiary is the app's.
+      if (url === '/api' || url.startsWith('/api/')) {
         const apiPath = url.replace(/^\/api/, '');
         return proxyToApi(req, res, (apiPath || '/') + query, api);
       }
 
       // Proxy storage requests (images, covers)
-      if (url.startsWith('/storage')) {
+      if (url === '/storage' || url.startsWith('/storage/')) {
         return proxyToApi(req, res, url + query, api);
       }
 

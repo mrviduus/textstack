@@ -40,7 +40,10 @@ Who enqueues jobs: admin SSG page (`/admin/ssg/*` API), `PublishEditionAsync() �
 (auto-publish), `SsgPeriodicRebuildWorker` in the API (interval set in admin), the nightly
 `backup.yml` and a manual deploy with `rebuild_ssg` (both `POST /internal/ssg/rebuild-all`), and
 `make rebuild-ssg` on the server (`infra/scripts/rebuild-ssg.sh`: the same POST, then follows the job
-and exits 0 only on `Completed`). Every rebuild is a job, so every one gets the checks above.
+and exits 0 only on `Completed`). Every rebuild is a job, so every one gets the checks above — and none
+runs while ssg-worker is down: the script exits 1 if the worker has not started the job in 5 min, or
+if its counts have not moved in 30 min. If a Full rebuild is already queued or running, it waits for
+that one and then queues its own, so the result includes changes made just before the call.
 
 ## nginx split (`infra/nginx/textstack.conf`)
 
@@ -80,6 +83,7 @@ cd apps/web && API_URL=http://localhost:8080 API_HOST=localhost node scripts/pre
 | `SSG_JOB_STALL_MS` | ssg-worker | 5 min without a rendered route → stopped, `Failed` |
 | `SSG_JOB_DEADLINE_MS` | ssg-worker | cap, max(60 min, 2 s per route) |
 | `SSG_API_URL`, `SSG_POLL_SECS` | `make rebuild-ssg` | `http://localhost:8080`, `10` |
+| `SSG_START_TIMEOUT_SECS`, `SSG_STALL_TIMEOUT_SECS` | `make rebuild-ssg` | `300` (not started), `1800` (no progress) → exit 1 |
 
 ## Output
 
