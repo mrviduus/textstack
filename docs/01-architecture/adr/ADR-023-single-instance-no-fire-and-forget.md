@@ -95,7 +95,7 @@ admin-started runs the admin can see and repeat (run evals now).
 | `SsgPeriodicRebuildWorker` | **Delete**, with the two `ssg.periodicRebuild*` settings and their admin form. `backup.yml` is the one nightly trigger |
 | `DriftDetectionWorker` | **Delete**, with `drift_centroids` (migration) and its admin tab (review #29) |
 | `MetadataBackfillWorker` (Worker) | **Delete** — a one-shot heal for an old env-var bug that still calls Ollama on every Worker start |
-| Reconciler gap | **Owner decision.** Smallest fix: `ReconcileUserAsync` calls the same enrichment enqueue as the endpoints (needs a native language, read from the profile). Durable enrichment in the Worker (a column + a loop) is **deferred** |
+| Reconciler gap | **Owner decision.** Not a one-liner (code review): `QueueEnrichment` is a private static in `Api/Endpoints/VocabularyEndpoints.cs:342`, `DailyCapService` lives in Application and may not call into Api, and `QueueEnrichment` is itself a `Task.Run`, which rule 2 forbids. Fix: move the enrichment body into an Application service; the endpoints keep their kick, and `ReconcileUserAsync` **awaits** it word by word after promoting (never a parallel burst: the hourly sweep can promote a whole cap across every user, and Ollama is one local model). Native language read from the profile. Durable enrichment in the Worker (a column + a loop) is **deferred** |
 | The 5 timers (`AutoRetire`, `DailyCap`, `ClusterCandidate`, `ConceptClustering`, `WordFrequency`) | **Stay in the Api, unchanged.** The reset after each deploy is accepted: it costs local CPU (Ollama), not money or data |
 | `ContinuousEvalWorker` | Stays as is |
 | `EdgeTtsService` cache sweep | Stays |
@@ -132,4 +132,4 @@ All as recommended.
 
 1. **"One Api, one Worker":** accepted as a written rule.
 2. **Admin SSG periodic-rebuild settings:** deleted. `backup.yml`'s nightly rebuild is the only schedule.
-3. **Words promoted by the reconciler:** add the one enrichment call. Durable enrichment stays deferred.
+3. **Words promoted by the reconciler:** enrich them: the enrichment moves into an Application service and the reconciler awaits it one word at a time (see the table). Durable enrichment stays deferred.

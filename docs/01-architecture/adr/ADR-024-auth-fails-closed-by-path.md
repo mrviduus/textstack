@@ -73,6 +73,16 @@ already exists: `GET /me/books/{id}/file`.
 **Owner decision.** Accept the risk, or move uploads out of the static root so they are reachable only
 through `/me/books/{id}/file`. **Recommended: move them.**
 
+**Scope of the move (code review).** The same folder also holds the upload's cover and the images
+extracted from it (`UserIngestionService.cs:188-209`), and clients load those as plain `<img>` URLs
+through `/storage` (`getUserBookCoverUrl` in `apps/web/src/api/userBooks.ts:229`, and the mobile
+equivalent). An `<img>` cannot send a bearer token. So the move is two steps, never one:
+1. **The original** moves out of the static root; `/me/books/{id}/file` is its only door. Nothing loads
+   it as an `<img>`, so nothing else changes.
+2. **Covers and chapter images** need their own authenticated route (cookie on web, a short-lived signed
+   URL or the bearer on mobile) before they leave `/storage`. Until then they stay where they are: a
+   cover or a figure is far less private than the book, and moving them blind breaks every reader.
+
 ### `/internal`: a later hardening note
 
 `ForwardedHeaders` trusts `X-Forwarded-For` from 127/8, 10/8, 172.16/12, **192.168/16** and fc00::/7 with
@@ -110,6 +120,6 @@ Later item: a shared-secret header for `/internal` callers (the pollers, ssg-wor
 
 All as recommended.
 
-1. **`/storage` uploads:** move behind `/me/books/{id}/file`. Readers' files leave the static root.
+1. **`/storage` uploads:** move behind `/me/books/{id}/file`, in the two steps above: the original first; covers and chapter images only once they have an authenticated route.
 2. **`routes.public.txt`:** accepted as a review gate.
 3. **Shared secret for `/internal` callers:** yes, as a later item, after #19.
