@@ -115,6 +115,8 @@ Still requested, still unresolved — see the WATCH list in that script:
 
 ## Data Safety answers
 
+**Submitted for review 2026-10-07** (Play Console → Publishing overview, exactly as below).
+
 The answers to give, re-derived from the code on 2026-10-06 (the previous table said "no
 crash SDK on mobile" a month after mobile Sentry was armed, and left out User IDs, Device
 IDs and search). **Fill this form and the privacy policy in the same sitting** — a Data
@@ -135,6 +137,7 @@ that is Apple's question.
 | Account creation methods | Username and password; OAuth (Google). Apple sign-in is iOS-only (`app/(auth)/login.tsx`, `Platform.OS === 'ios'`), so not on the Android form |
 | Delete-account URL | `https://textstack.app/en/delete-account` |
 | Users can request deletion? | Yes — Profile → Delete account (or Delete guest data), the website, or email |
+| Delete some data without deleting the account? | **No** (as submitted 2026-10-07). Items can be deleted one by one in the app, but "Yes" requires a separate public page with the steps, which does not exist. Add that page first, then switch to Yes |
 | Independent security review (MASA)? | No |
 
 **Data types** — everything not listed is *not collected* (location, financial, health,
