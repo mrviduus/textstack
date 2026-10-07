@@ -1,4 +1,6 @@
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using ModelContextProtocol.Protocol;
 using TextStack.Ai.Mcp.Http;
 
@@ -25,9 +27,11 @@ namespace TextStack.Ai.Mcp.Tools;
 public sealed class McpToolCatalog
 {
     private readonly IReadOnlyDictionary<string, McpToolDescriptor> _byName;
+    private readonly ILogger<McpToolCatalog> _logger;
 
-    public McpToolCatalog(TextStackApiClient api)
+    public McpToolCatalog(TextStackApiClient api, ILogger<McpToolCatalog>? logger = null)
     {
+        _logger = logger ?? NullLogger<McpToolCatalog>.Instance;
         var tools = new[]
         {
             BuildSearchBooks(api),
@@ -82,7 +86,7 @@ public sealed class McpToolCatalog
     ///   • <see cref="McpUnauthorizedException"/> → "authentication required …" (user-scoped tools).
     /// The handler body is only validation + the upstream call + mapping.
     /// </summary>
-    private static async Task<CallToolResult> InvokeAsync(
+    private async Task<CallToolResult> InvokeAsync(
         string tool, CancellationToken ct, Func<Task<CallToolResult>> body)
     {
         try
@@ -121,8 +125,14 @@ public sealed class McpToolCatalog
         // protocol stream intact and return a clean, non-leaking tool error.
         // EXCLUDES OperationCanceledException so genuine caller cancellation (token
         // IS cancelled) still propagates and the SDK ends the call cooperatively.
+        //
+        // The one branch that is OUR bug rather than the upstream's or the caller's, so it is
+        // logged at Error — which is what reaches Sentry in http mode. Until it was, a broken
+        // mapping looked to the owner exactly like a quiet day. The template names the tool and
+        // nothing else: the arguments are the reader's text, and stay out of the log.
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            _logger.LogError(ex, "MCP tool {Tool} failed with an unexpected error", tool);
             return Error($"{tool} failed: unexpected error");
         }
     }
@@ -142,7 +152,7 @@ public sealed class McpToolCatalog
         }
         """).RootElement;
 
-    private static McpToolDescriptor BuildSearchBooks(TextStackApiClient api) => new()
+    private McpToolDescriptor BuildSearchBooks(TextStackApiClient api) => new()
     {
         Name = "search_books",
         Title = "Search the catalog",
@@ -184,7 +194,7 @@ public sealed class McpToolCatalog
         }
         """).RootElement;
 
-    private static McpToolDescriptor BuildGetBook(TextStackApiClient api) => new()
+    private McpToolDescriptor BuildGetBook(TextStackApiClient api) => new()
     {
         Name = "get_book",
         Title = "Get a catalog book",
@@ -244,7 +254,7 @@ public sealed class McpToolCatalog
         }
         """).RootElement;
 
-    private static McpToolDescriptor BuildGetChapter(TextStackApiClient api) => new()
+    private McpToolDescriptor BuildGetChapter(TextStackApiClient api) => new()
     {
         Name = "get_chapter",
         Title = "Read a catalog chapter",
@@ -308,7 +318,7 @@ public sealed class McpToolCatalog
         }
         """).RootElement;
 
-    private static McpToolDescriptor BuildSearchMyLibrary(TextStackApiClient api) => new()
+    private McpToolDescriptor BuildSearchMyLibrary(TextStackApiClient api) => new()
     {
         Name = "search_my_library",
         Title = "Search my uploaded books",
@@ -359,7 +369,7 @@ public sealed class McpToolCatalog
         }
         """).RootElement;
 
-    private static McpToolDescriptor BuildGetMyBook(TextStackApiClient api) => new()
+    private McpToolDescriptor BuildGetMyBook(TextStackApiClient api) => new()
     {
         Name = "get_my_book",
         Title = "Get one of my uploaded books",
@@ -427,7 +437,7 @@ public sealed class McpToolCatalog
         }
         """).RootElement;
 
-    private static McpToolDescriptor BuildGetMyChapter(TextStackApiClient api) => new()
+    private McpToolDescriptor BuildGetMyChapter(TextStackApiClient api) => new()
     {
         Name = "get_my_chapter",
         Title = "Read a chapter of my uploaded book",
@@ -480,7 +490,7 @@ public sealed class McpToolCatalog
         }
         """).RootElement;
 
-    private static McpToolDescriptor BuildListMyHighlights(TextStackApiClient api) => new()
+    private McpToolDescriptor BuildListMyHighlights(TextStackApiClient api) => new()
     {
         Name = "list_my_highlights",
         Title = "List my highlights",
@@ -527,7 +537,7 @@ public sealed class McpToolCatalog
         }
         """).RootElement;
 
-    private static McpToolDescriptor BuildListMyVocabulary(TextStackApiClient api) => new()
+    private McpToolDescriptor BuildListMyVocabulary(TextStackApiClient api) => new()
     {
         Name = "list_my_vocabulary",
         Title = "List my vocabulary",
@@ -607,7 +617,7 @@ public sealed class McpToolCatalog
         DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
     };
 
-    private static McpToolDescriptor BuildAddVocabularyWords(TextStackApiClient api) => new()
+    private McpToolDescriptor BuildAddVocabularyWords(TextStackApiClient api) => new()
     {
         Name = "add_vocabulary_words",
         Title = "Add words to my vocabulary",
@@ -748,7 +758,7 @@ public sealed class McpToolCatalog
         }
         """).RootElement;
 
-    private static McpToolDescriptor BuildUpdateVocabularyWord(TextStackApiClient api) => new()
+    private McpToolDescriptor BuildUpdateVocabularyWord(TextStackApiClient api) => new()
     {
         Name = "update_vocabulary_word",
         Title = "Edit a vocabulary word",
@@ -803,7 +813,7 @@ public sealed class McpToolCatalog
         }
         """).RootElement;
 
-    private static McpToolDescriptor BuildDeleteVocabularyWord(TextStackApiClient api) => new()
+    private McpToolDescriptor BuildDeleteVocabularyWord(TextStackApiClient api) => new()
     {
         Name = "delete_vocabulary_word",
         Title = "Delete a vocabulary word",
@@ -855,7 +865,7 @@ public sealed class McpToolCatalog
     // Match the web reader's HighlightColor palette (offlineDb.ts) — no "orange".
     private static readonly string[] HighlightColors = ["yellow", "green", "blue", "pink"];
 
-    private static McpToolDescriptor BuildSaveHighlight(TextStackApiClient api) => new()
+    private McpToolDescriptor BuildSaveHighlight(TextStackApiClient api) => new()
     {
         Name = "save_highlight",
         Title = "Save a highlight",
@@ -928,7 +938,7 @@ public sealed class McpToolCatalog
         }
         """).RootElement;
 
-    private static McpToolDescriptor BuildSaveMyHighlight(TextStackApiClient api) => new()
+    private McpToolDescriptor BuildSaveMyHighlight(TextStackApiClient api) => new()
     {
         Name = "save_my_highlight",
         Title = "Save a highlight in my uploaded book",
@@ -985,7 +995,7 @@ public sealed class McpToolCatalog
         }
         """).RootElement;
 
-    private static McpToolDescriptor BuildListMyBookHighlights(TextStackApiClient api) => new()
+    private McpToolDescriptor BuildListMyBookHighlights(TextStackApiClient api) => new()
     {
         Name = "list_my_book_highlights",
         Title = "List highlights in my uploaded book",
@@ -1039,7 +1049,7 @@ public sealed class McpToolCatalog
         }
         """).RootElement;
 
-    private static McpToolDescriptor BuildSaveInsight(TextStackApiClient api) => new()
+    private McpToolDescriptor BuildSaveInsight(TextStackApiClient api) => new()
     {
         Name = "save_insight",
         Title = "Save an insight",
@@ -1092,7 +1102,7 @@ public sealed class McpToolCatalog
         }
         """).RootElement;
 
-    private static McpToolDescriptor BuildGetMyInsights(TextStackApiClient api) => new()
+    private McpToolDescriptor BuildGetMyInsights(TextStackApiClient api) => new()
     {
         Name = "get_my_insights",
         Title = "Get my insights",
@@ -1156,7 +1166,7 @@ public sealed class McpToolCatalog
         }
         """).RootElement;
 
-    private static McpToolDescriptor BuildGetChapterReview(TextStackApiClient api) => new()
+    private McpToolDescriptor BuildGetChapterReview(TextStackApiClient api) => new()
     {
         Name = "get_chapter_review",
         Title = "Get a chapter review",
@@ -1241,7 +1251,7 @@ public sealed class McpToolCatalog
         }
         """).RootElement;
 
-    private static McpToolDescriptor BuildSaveChapterReview(TextStackApiClient api) => new()
+    private McpToolDescriptor BuildSaveChapterReview(TextStackApiClient api) => new()
     {
         Name = "save_chapter_review",
         Title = "Save a chapter review",
@@ -1366,7 +1376,7 @@ public sealed class McpToolCatalog
     /// The shelf, with no arguments. Everything else here needs an id the model does not have yet;
     /// this is the tool that gives it one, and the only answer to "what have I been reading".
     /// </summary>
-    private static McpToolDescriptor BuildGetMyReading(TextStackApiClient api) => new()
+    private McpToolDescriptor BuildGetMyReading(TextStackApiClient api) => new()
     {
         Name = "get_my_reading",
         Title = "Get my reading shelf",
@@ -1443,7 +1453,7 @@ public sealed class McpToolCatalog
     /// Where the reader is in one book. Nothing exposed this before: the position used to leak only
     /// as <c>ask_book</c>'s spoiler refusal, which named no chapter and is now deleted.
     /// </summary>
-    private static McpToolDescriptor BuildGetBookProgress(TextStackApiClient api) => new()
+    private McpToolDescriptor BuildGetBookProgress(TextStackApiClient api) => new()
     {
         Name = "get_book_progress",
         Title = "Get book progress",
@@ -1511,7 +1521,7 @@ public sealed class McpToolCatalog
     /// Record that the reader finished a chapter somewhere else — an audiobook, paper, another app.
     /// The position lives here whether or not the reading did.
     /// </summary>
-    private static McpToolDescriptor BuildSetBookProgress(TextStackApiClient api) => new()
+    private McpToolDescriptor BuildSetBookProgress(TextStackApiClient api) => new()
     {
         Name = "set_book_progress",
         Title = "Mark a chapter finished",

@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using TextStack.Ai.Core;
 using TextStack.Ai.Llm;
+using TextStack.Observability;
 
 namespace TextStack.UnitTests;
 

@@ -67,6 +67,18 @@ allowBuilds:
 # actually exercises it.
 catalog:
   '@playwright/test': ^1.63.0
+  # The ssg-worker's error reporting (apps/web/scripts/ssgSentry.mjs). Server-side only — the
+  # web SPA deliberately has no Sentry.
+  #
+  # Exact, and equal to the @sentry/core that mobile's @sentry/react-native pins (8.28.0 →
+  # 10.75.2). The workspace is hoisted for Metro, and the two then share ONE @sentry/core;
+  # a caret took 10.76.1 and nested four extra copies of it. Move it with mobile's SDK.
+  #
+  # The 10 line on purpose: 11.x makes @sentry/bundler-plugins a hard dependency, which
+  # drags the 15 MB `sentry` CLI and a native oxc-parser into a runtime image that only
+  # reports errors (81 MB installed against 66 MB). Revisit when 11 drops it, or when
+  # mobile's SDK moves to 11.
+  '@sentry/node': 10.75.2
   # Tilde, not caret, and the reason is Expo. `expo install --check` pins the
   # types to React's own line — SDK 57 wants `@types/react` `~19.2.4` — while a
   # caret let a fresh resolution take 19.3.0 the day it was published and fail

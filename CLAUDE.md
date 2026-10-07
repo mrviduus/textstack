@@ -538,7 +538,9 @@ The write-back exists because the reasoning happens in Claude/ChatGPT — where 
 
 ## Telemetry
 
-OpenTelemetry → Aspire Dashboard (`localhost:18888`). OTLP: `:18889`. Services: `textstack-api`, `textstack-worker`.
+**Errors:** Sentry on api, worker, mcp-server (http mode only) and ssg-worker, one project, `service` tag; one shared scrubber (`backend/src/Observability/TextStack.Observability/SentryScrubber.cs`, Node twin `apps/web/scripts/ssgSentry.mjs`) strips tokens (`ts[kocr]_`, Bearer, JWT), `/mcp/k/<key>`, query strings and SQL. No DSN = off.
+
+**Traces/metrics:** OpenTelemetry is registered only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set — locally Aspire Dashboard (`--profile observability`, UI `localhost:18888`, OTLP `:18889`); unset in production (nothing receives it). Details: `docs/01-architecture/delivery.md` § Observability.
 
 ## Package Management
 

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using TextStack.Ai.Core;
 using TextStack.Ai.Llm;
+using TextStack.Observability;
 
 namespace TextStack.UnitTests;
 

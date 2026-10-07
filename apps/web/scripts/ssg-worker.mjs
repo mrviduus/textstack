@@ -10,6 +10,7 @@
  *   API_URL - API base URL (default: http://api:8080)
  *   API_HOST - Host header for API requests (default: general.localhost)
  *   POLL_INTERVAL - Polling interval in ms (default: 5000)
+ *   SENTRY_DSN - error reporting; unset = off (see ssgSentry.mjs)
  */
 
 import pg from 'pg';
@@ -18,6 +19,7 @@ import { writeFileSync, unlinkSync, existsSync, readdirSync, readFileSync } from
 import { rename, rm } from 'fs/promises';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import { initSentry, routeFailuresToReport } from './ssgSentry.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -50,6 +52,9 @@ if (!DATABASE_URL) {
 
 // PostgreSQL pool
 const pool = new pg.Pool({ connectionString: DATABASE_URL });
+
+// Error reporting. Null when SENTRY_DSN is unset, and every call below is `sentry?.` for that reason.
+const sentry = await initSentry();
 
 /**
  * Poll for next job with status "Running"
@@ -222,7 +227,11 @@ async function processJob(job) {
       proc.on('close', resolve);
     });
 
-    // 7. Cleanup temp files
+    // 7. Report routes that never rendered — prerender exits 0 with failures, so the job status
+    // alone would never show them. Before cleanup, which deletes the results file.
+    reportRouteFailures(jobId, outputFile);
+
+    // 8. Cleanup temp files
     try {
       unlinkSync(routesFile);
     } catch {}
@@ -230,7 +239,7 @@ async function processJob(job) {
       unlinkSync(outputFile);
     } catch {}
 
-    // 8. Update job status based on exit code
+    // 9. Update job status based on exit code
     if (exitCode === 0) {
       // A clean exit says the renders succeeded, not that they survived. Deploy wipes
       // apps/web/dist to rebuild the frontend and only snapshots dist/ssg — a rebuild
@@ -254,13 +263,32 @@ async function processJob(job) {
       // Cleanup failed build
       await cleanupFailedBuild();
       console.error(`Job ${jobId} failed with exit code ${exitCode}`);
-      await setJobStatus(jobId, 'Failed', `Prerender process exited with code ${exitCode}`);
+      const reason = `Prerender process exited with code ${exitCode}`;
+      sentry?.jobFailed(jobId, new Error(reason));
+      await setJobStatus(jobId, 'Failed', reason);
     }
   } catch (error) {
     console.error(`Error processing job ${jobId}:`, error);
+    sentry?.jobFailed(jobId, error);
     await cleanupFailedBuild();
     await setJobStatus(jobId, 'Failed', error.message || String(error));
   }
+}
+
+/**
+ * One Sentry event per route that failed to render, from prerender's results file. A missing or
+ * unreadable file is not reported here: prerender then exited non-zero, and that is reported as
+ * the job's failure.
+ */
+function reportRouteFailures(jobId, resultsFile) {
+  if (!sentry) return;
+  let results;
+  try {
+    results = JSON.parse(readFileSync(resultsFile, 'utf8'));
+  } catch {
+    return;
+  }
+  sentry.routesFailed(jobId, routeFailuresToReport(results));
 }
 
 /**
@@ -404,6 +432,7 @@ async function main() {
   console.log(`  API_URL: ${API_URL}`);
   console.log(`  API_HOST: ${API_HOST}`);
   console.log(`  POLL_INTERVAL: ${POLL_INTERVAL}ms`);
+  console.log(`  SENTRY: ${sentry ? 'on' : 'off'}`);
 
   // Test DB connection
   try {
@@ -425,10 +454,15 @@ async function main() {
   }, 30_000);
   writeFileSync(HEARTBEAT, new Date().toISOString());
 
+  // The last poll-loop failure reported, so a persistent one (the database gone, a renamed column)
+  // is one event rather than one every POLL_INTERVAL. Cleared by the next poll that succeeds.
+  let lastLoopError = null;
+
   // Main polling loop
   while (true) {
     try {
       const job = await pollForJob();
+      lastLoopError = null;
 
       if (job) {
         await processJob(job);
@@ -437,6 +471,10 @@ async function main() {
       }
     } catch (error) {
       console.error('Error in main loop:', error);
+      if (String(error) !== lastLoopError) {
+        lastLoopError = String(error);
+        sentry?.error(error);
+      }
       await sleep(POLL_INTERVAL);
     }
   }
@@ -445,18 +483,22 @@ async function main() {
 // Handle shutdown
 process.on('SIGTERM', async () => {
   console.log('Received SIGTERM, shutting down...');
+  await sentry?.close();
   await pool.end();
   process.exit(0);
 });
 
 process.on('SIGINT', async () => {
   console.log('Received SIGINT, shutting down...');
+  await sentry?.close();
   await pool.end();
   process.exit(0);
 });
 
 // Start
-main().catch((err) => {
+main().catch(async (err) => {
   console.error('Fatal error:', err);
+  sentry?.error(err);
+  await sentry?.close();
   process.exit(1);
 });

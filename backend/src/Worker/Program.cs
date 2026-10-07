@@ -9,6 +9,7 @@ using Npgsql;
 using TextStack.Extraction.Extractors;
 using TextStack.Extraction.Registry;
 using TextStack.Ai.Tools;
+using TextStack.Observability;
 using Worker.Services;
 
 var builder = Host.CreateApplicationBuilder(args);
@@ -18,7 +19,7 @@ builder.Services.AddTextStackTelemetry(builder.Configuration, "textstack-worker"
 builder.Logging.AddTelemetryLogging(builder.Configuration, "textstack-worker");
 
 // Sentry (no-op without SENTRY_DSN). Additive: the OTLP logging provider above is untouched.
-builder.Logging.AddTextStackSentry(builder.Configuration, builder.Environment.EnvironmentName);
+builder.Logging.AddTextStackSentry(builder.Configuration, builder.Environment.EnvironmentName, "worker");
 
 // Database
 var connectionString = builder.Configuration.GetConnectionString("Default")

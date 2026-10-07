@@ -1,8 +1,8 @@
 using System.Collections.Frozen;
+using System.Text.RegularExpressions;
 using Sentry;
-using TextStack.Ai.Llm;
 
-namespace Infrastructure.Telemetry;
+namespace TextStack.Observability;
 
 /// <summary>
 /// The privacy edge. Everything Sentry is about to send passes through here, and the rule is an
@@ -33,6 +33,8 @@ public static class SentryScrubber
         "rag.kind", "rag.book_id", "rag.outcome",
         // Calling mobile build (AppVersionMiddleware): which version broke
         "app.version", "app.build",
+        // Which host (api / worker / mcp-server) — they share one project
+        SentryBootstrap.ServiceTag,
         // Span bookkeeping + Sentry's own
         "outcome", "environment", "release", "server_name", "transaction",
     }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
@@ -74,6 +76,7 @@ public static class SentryScrubber
             request.Data = null;
             request.Cookies = null;
             request.QueryString = null;
+            request.Url = StripQuery(request.Url);
 
             foreach (var header in request.Headers.Keys.ToList())
             {
@@ -130,8 +133,14 @@ public static class SentryScrubber
             request.Url = StripQuery(request.Url);
         }
 
+        // A db.* span's description IS the SQL statement. SentryBootstrap.Apply turns off the
+        // DiagnosticSource integration that records them; this is the guard if anything else does.
         foreach (var span in transaction.Spans)
-            span.Description = StripQuery(span.Description);
+        {
+            span.Description = span.Operation?.StartsWith("db", StringComparison.OrdinalIgnoreCase) == true
+                ? Redacted
+                : StripQuery(span.Description);
+        }
 
         return transaction;
     }
@@ -210,10 +219,61 @@ public static class SentryScrubber
             x.Type is { } type && DroppedExceptionTypes.Any(d => type.EndsWith(d, StringComparison.Ordinal))) == true;
     }
 
-    /// <summary>Redacts emails/phones (reusing the same redactor that guards llm_traces) and truncates.</summary>
+    /// <summary>
+    /// <see cref="Scrub"/>, then every exception's message is replaced — type and stack trace stay.
+    ///
+    /// For the MCP server. Every tool call there carries the reader's own text (a highlight, an
+    /// insight, a chapter review) or a book's, and a .NET exception message can echo its input
+    /// (<c>FormatException</c> quotes the string it could not parse). The other hosts keep messages
+    /// because theirs are what make a database or provider error debuggable; the bridge has neither,
+    /// and an exception TYPE plus a stack trace is enough to find a mapping bug in it.
+    /// </summary>
+    public static SentryEvent? ScrubStrict(SentryEvent e)
+    {
+        if (Scrub(e) is not { } scrubbed)
+            return null;
+
+        if (scrubbed.SentryExceptions is not null)
+        {
+            foreach (var ex in scrubbed.SentryExceptions)
+                ex.Value = Redacted;
+        }
+
+        return scrubbed;
+    }
+
+    // Credentials that can surface in free text (a log line, an exception message). Bearer values,
+    // every prefix we issue (tsk_ connect key — McpKeys; tso_ access, tsr_ refresh, tsc_ client id —
+    // OAuth; a test fails if Application declares one this misses), JWTs (the device-flow token), and
+    // the key segment of the MCP connect URL, which is the key itself. Compiled Regex, not
+    // [GeneratedRegex] — the ARM64 SIGILL caveat in CLAUDE.md.
+    private static readonly (Regex Pattern, string Replacement)[] SecretPatterns =
+    [
+        (new(@"\bBearer\s+[^\s""',;]+", RegexOptions.Compiled | RegexOptions.IgnoreCase), "Bearer " + Redacted),
+        (new(@"/mcp/k/[^\s/?#""']+", RegexOptions.Compiled), "/mcp/k/" + Redacted),
+        (new(@"\bts[kocr]_[A-Za-z0-9_-]+", RegexOptions.Compiled), Redacted),
+        (new(@"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*", RegexOptions.Compiled), Redacted),
+    ];
+
+    // A query string inside free text: "GET /search?q=<what the reader typed> failed". A '?' only
+    // counts when a key=value follows it, so ordinary prose survives. Cut to the next whitespace —
+    // the same "drop the whole query, not known keys" rule StripQuery applies to URLs.
+    private static readonly Regex QueryInText = new(@"\?[\w.%\[\]-]+=\S*", RegexOptions.Compiled);
+
+    /// <summary>Credentials and query strings removed from free text. Public for the tests.</summary>
+    public static string? RedactSecrets(string? text)
+    {
+        if (string.IsNullOrEmpty(text)) return text;
+        foreach (var (pattern, replacement) in SecretPatterns)
+            text = pattern.Replace(text, replacement);
+        return QueryInText.Replace(text, string.Empty);
+    }
+
+    /// <summary>Redacts credentials, query strings, emails and phones (the last two with the same
+    /// redactor that guards llm_traces), then truncates.</summary>
     private static string? Clean(string? text)
     {
-        var redacted = TraceRedactor.Redact(text);
+        var redacted = TraceRedactor.Redact(RedactSecrets(text));
         if (redacted is null)
             return null;
 

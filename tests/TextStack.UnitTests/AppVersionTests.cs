@@ -1,12 +1,12 @@
 using System.Diagnostics;
 using Api.Endpoints;
 using Api.Middleware;
-using Infrastructure.Telemetry;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Sentry;
+using TextStack.Observability;
 
 namespace TextStack.UnitTests;
 

@@ -1,4 +1,4 @@
-using Infrastructure.Telemetry;
+using TextStack.Observability;
 using Microsoft.Extensions.Configuration;
 
 namespace TextStack.UnitTests;
