@@ -24,8 +24,10 @@ set -euo pipefail
 
 NEW=${1:?NEW}; DIST=${2:?DIST}; MANIFEST=${3:?MANIFEST}
 [ -f "$NEW/index.html" ] && [ -d "$NEW/assets" ] || { echo "::error::$NEW is not a vite build (no index.html or assets/)"; exit 1; }
+# Loops here end on `if`, never on `[ … ] && …`: a false test as a loop's last command is
+# its exit status, and under pipefail a loop feeding a pipe then kills the script silently.
 for d in "$NEW"/ssg*; do
-  [ -e "$d" ] && { echo "::error::$NEW carries ${d##*/} — SSG trees are ssg-worker's, never a release's"; exit 1; }
+  if [ -e "$d" ]; then echo "::error::$NEW carries ${d##*/} — SSG trees are ssg-worker's, never a release's"; exit 1; fi
 done
 mkdir -p "$DIST/assets"
 # nginx reads as another user.
@@ -46,7 +48,8 @@ prev=-1
 while [ "$(wc -l < "$work/keep")" != "$prev" ]; do
   prev=$(wc -l < "$work/keep")
   while IFS= read -r f; do
-    case $f in *.js|*.css|*.mjs|*.cjs) [ -f "$DIST/assets/$f" ] && printf '%s\0' "$DIST/assets/$f" ;; esac
+    # An SSG page may name an asset that is already gone: skip it.
+    case $f in *.js|*.css|*.mjs|*.cjs) if [ -f "$DIST/assets/$f" ]; then printf '%s\0' "$DIST/assets/$f"; fi ;; esac
   done < "$work/keep" | refs > "$work/more"
   sort -u "$work/keep" "$work/more" -o "$work/keep"
 done
@@ -63,7 +66,7 @@ added=0
 find "$DIST/assets" -maxdepth 1 -name '.*.swap-tmp' -delete # a run that died mid-copy
 for f in "$NEW"/assets/*; do
   b=${f##*/}
-  [ -e "$DIST/assets/$b" ] && continue
+  if [ -e "$DIST/assets/$b" ]; then continue; fi
   cp -p "$f" "$DIST/assets/.$b.swap-tmp"
   mv -f "$DIST/assets/.$b.swap-tmp" "$DIST/assets/$b"
   added=$((added + 1))
@@ -84,8 +87,9 @@ removed=0
 if [ -f "$MANIFEST" ]; then
   while IFS= read -r f; do
     case $f in ''|/*|*..*|assets/*|ssg*) continue ;; esac # never outside the release's own files
-    grep -qxF -- "$f" "$work/files" && continue
-    rm -f -- "$DIST/$f" && removed=$((removed + 1))
+    if grep -qxF -- "$f" "$work/files"; then continue; fi
+    rm -f -- "$DIST/$f"
+    removed=$((removed + 1))
   done < "$MANIFEST"
 fi
 cp "$work/files" "$MANIFEST.tmp" && mv -f "$MANIFEST.tmp" "$MANIFEST"
@@ -97,7 +101,7 @@ if [ "$prune" = true ]; then
   sort -u "$work/keep" -o "$work/keep"
   for f in "$DIST"/assets/*; do
     [ -f "$f" ] || continue
-    grep -qxF -- "${f##*/}" "$work/keep" || { rm -f -- "$f"; pruned=$((pruned + 1)); }
+    if ! grep -qxF -- "${f##*/}" "$work/keep"; then rm -f -- "$f"; pruned=$((pruned + 1)); fi
   done
 fi
 

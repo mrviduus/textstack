@@ -132,8 +132,9 @@ jobs:
           # nginx config — is meant to be the target commit's.)
           git show "$RUN_SHA:scripts/scan-image-secrets.sh" > "$RUNNER_TEMP/scan-image-secrets.sh"
           chmod +x "$RUNNER_TEMP/scan-image-secrets.sh"
-          # Same reason: the web swap and the web build's public values.
+          # Same reason: the web swap, the SSG restore and the web build's public values.
           git show "$RUN_SHA:scripts/swap-web-dist.sh" > "$RUNNER_TEMP/swap-web-dist.sh"
+          git show "$RUN_SHA:scripts/restore-ssg-staging.sh" > "$RUNNER_TEMP/restore-ssg-staging.sh"
           git show "$RUN_SHA:apps/web/production.env" > "$RUNNER_TEMP/production.env"
           if [ -n "$ROLLBACK_SHA" ]; then
             # Checked again against this clone: guard ran on GitHub's copy.
@@ -420,45 +421,21 @@ jobs:
           (cd apps/web/dist && find . -type f ! -path './assets/*' | sed 's#^\./##' | sort) > apps/web/.web-release
 
       - name: Restore preserved SSG + assets
-        # Runs on both paths: a previous deploy that died between snapshot and
-        # restore left dist/ssg in staging, and this is what puts it back.
-        #
-        # vite has now wiped dist/ and written fresh assets/. Put the
-        # snapshot back: ssg/ goes back as-is; assets are restored
-        # non-clobbering (vite's new files win where names collide).
-        # Result: dist/assets/ now contains both NEW (vite) and OLD
-        # (preserved-because-SSG-referenced) bundles, side-by-side.
-        # SSG worker rebuilds dist/ssg/ atomically a few minutes later;
-        # the next deploy's snapshot pass naturally drops these OLD
-        # assets (no longer referenced by the new SSG). Self-cleaning.
-        run: |
-          set -e
-          DIST=$PROJECT_DIR/apps/web/dist
-          STAGING=$PROJECT_DIR/apps/web/.ssg-staging
-
-          [ -d "$STAGING" ] || { echo "No staging — skip restore"; exit 0; }
-
-          if [ -d "$STAGING/ssg" ]; then
-            rm -rf "$DIST/ssg"
-            cp -a "$STAGING/ssg" "$DIST/ssg"
-            echo "Restored SSG dir ($(find "$DIST/ssg" -name index.html | wc -l) files)"
-            # Only now is dropping the copy safe: the pages are back where
-            # nginx serves them.
-            rm -rf "$STAGING/ssg"
-          fi
-
-          RESTORED=0
-          if [ -d "$STAGING/assets" ]; then
-            while IFS= read -r f; do
-              base=$(basename "$f")
-              if [ ! -e "$DIST/assets/$base" ]; then
-                cp "$f" "$DIST/assets/$base"
-                RESTORED=$((RESTORED + 1))
-              fi
-            done < <(find "$STAGING/assets" -type f)
-          fi
-          rm -rf "$STAGING"
-          echo "Restored $RESTORED legacy assets (the rest were superseded by vite)"
+        # Runs on both paths; the decision is scripts/restore-ssg-staging.sh (self-check
+        # in ci.yml `frontend`).
+        #  - Fallback (built): vite has wiped dist/ and written fresh assets/. Put the
+        #    snapshot back: ssg/ as-is, assets non-clobbering (vite's new files win), so
+        #    dist/assets holds the NEW bundle and the OLD one the SSG pages reference
+        #    until ssg-worker swaps in a fresh tree; the next deploy's snapshot drops the
+        #    OLD ones. Self-cleaning. Also recovers a deploy that died between snapshot
+        #    and restore (the snapshot step leaves that staging alone).
+        #  - Pulled: no snapshot ran, so any staging is from a deploy that died mid-flight.
+        #    Restored only if dist/ssg is missing; if dist/ssg is live it is newer than
+        #    the copy, so the copy is removed (with a warning) instead of rm -rf'ing the
+        #    live tree to put older pages back.
+        env:
+          MODE: ${{ steps.web.outputs.pulled == 'true' && 'pulled' || 'built' }}
+        run: bash "$RUNNER_TEMP/restore-ssg-staging.sh" "$MODE" "$PROJECT_DIR/apps/web/dist" "$PROJECT_DIR/apps/web/.ssg-staging"
 
       # The bundle every visitor downloads, scanned with the image scanner's patterns
       # plus the server's real secret values (names ending SECRET, PASSWORD, TOKEN,

@@ -66,8 +66,11 @@ named), every other file renamed into place, `index.html` last, files the previo
 this one does not removed, assets referenced by nothing pruned — keeping the previous `index.html`'s
 graph (open tabs) and every `dist/ssg*` page's graph. `dist` itself is never renamed: ssg-worker
 bind-mounts it, and a bind mount follows the directory, not the path. So the SSG snapshot/restore steps
-run only on the fallback (a server vite build, which empties `dist`); the restore runs on both paths,
-because it is also what recovers a deploy that died between snapshot and restore. The build-time
+run only on the fallback (a server vite build, which empties `dist`). The restore runs on both paths
+(`scripts/restore-ssg-staging.sh`), because it is also what recovers a deploy that died between
+snapshot and restore — but on the pulled path no snapshot ran, so it restores a leftover
+`.ssg-staging` only when `dist/ssg` is missing; when `dist/ssg` is live (newer than the copy) it
+removes the leftover with a warning rather than replace live pages with older ones. The build-time
 `VITE_*` values live in `apps/web/production.env`, the one file both builds read.
 
 ## Images
@@ -263,6 +266,7 @@ environment reports nothing on any service.
 | The list of published images | `SERVICES` in `images.yml` **and** the service loops in `deploy.yml` "Deploy containers" (the web image is its own job and step: `images.yml` `web`, `deploy.yml` "Fetch web bundle") |
 | The web build's `VITE_*` values | `apps/web/production.env` — read by `images.yml` `web` and by the deploy's fallback build; public by design, never a secret |
 | How the web release goes live | `scripts/swap-web-dist.sh` (self-check `scripts/swap-web-dist.test.sh`, run by `ci.yml` `frontend`) |
+| Putting back / dropping SSG staging | `scripts/restore-ssg-staging.sh` (`built` = fallback, `pulled` = normal path; self-check `scripts/restore-ssg-staging.test.sh`) |
 | Secret patterns, allowlist, scanner image | `scripts/scan-image-secrets.sh` (`CONTENT`, `PEM`, `NAMES`, `ALLOW`, `SCANNER`) |
 | Which server values the web scan treats as secret | `deploy.yml` "Secret scan web dist" (the awk name filter) |
 | An action version | Let Dependabot do it; by hand: `gh api repos/<owner>/<repo>/commits/<tag> --jq .sha`, keep the `# vX.Y` comment |

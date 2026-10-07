@@ -359,10 +359,13 @@ jobs:
       - name: Repo script tests
         run: pnpm test:scripts
 
-      # The deploy's web swap (deploy.yml "Put web bundle live"): a fake dist with
-      # SSG trees, two releases, and a reader racing the swap.
+      # The deploy's web swap and SSG restore (deploy.yml "Put web bundle live",
+      # "Restore preserved SSG + assets"): fake dists with SSG trees, two releases, a
+      # reader racing the swap, and stale staging on both paths.
       - name: Web swap self-check
-        run: bash scripts/swap-web-dist.test.sh
+        run: |
+          bash scripts/swap-web-dist.test.sh
+          bash scripts/restore-ssg-staging.test.sh
 
       # A gauge, not a gate — it cannot fail the build. The bump lane runs twice
       # a year now (deps-refresh.yml), and a calendar that quiet needs something

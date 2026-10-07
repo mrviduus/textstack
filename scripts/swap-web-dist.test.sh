@@ -57,6 +57,18 @@ rm -rf "$T/bad/ssg" "$T/bad/index.html"
 bash "$SWAP" "$T/bad" "$T/dist" "$T/manifest" 2>/dev/null && fail "accepted a release without index.html"
 [ "$before" = "$(cd "$T/dist" && find . -type f | sort | cksum)" ] || fail "a refusal changed dist"
 
+# An SSG page naming an asset that is gone, sorting last in the keep set: the graph walk
+# must skip it, not end on a failed test under pipefail (review of #764).
+mkdir -p "$T/m/dist/assets" "$T/m/dist/ssg/en" "$T/m/new/assets"
+echo '<script src="/assets/a.js"></script>' > "$T/m/dist/index.html"
+echo a > "$T/m/dist/assets/a.js"
+echo '<script src="/assets/zz-missing.js"></script>' > "$T/m/dist/ssg/en/index.html"
+echo '<script src="/assets/b.js"></script>' > "$T/m/new/index.html"
+echo b > "$T/m/new/assets/b.js"
+bash "$SWAP" "$T/m/new" "$T/m/dist" "$T/m/manifest" > /dev/null || fail "swap failed on an SSG page naming a missing asset"
+grep -q b.js "$T/m/dist/index.html" || fail "missing-asset case: index.html not swapped"
+[ -e "$T/m/dist/assets/a.js" ] || fail "missing-asset case: previous release's asset pruned"
+
 # A reader never sees an index.html naming an asset that is not there, or a torn file,
 # while releases swap back and forth.
 mkdir -p "$T/r3/assets"
