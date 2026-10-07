@@ -73,7 +73,7 @@ Compressed size (what CI pushes and the server pulls), after #748:
 |---|---|---|---|
 | GitHub repo + Actions (hosted runners) | CI, images build, OTA, restore drill, health check | No CI, no deploy, no images | Break-glass by hand on the server (`git pull` + `compose up --build`). Not yet a runbook in `docs/03-ops`. |
 | GitHub self-hosted runner service | deploy, pre-deploy + nightly backup, SSG rebuild | No deploy, no nightly backup (site stays up) | Run the same steps by SSH; backups also in R2 |
-| GHCR | published images | Pull fails | Deploy falls back to a server build |
+| GHCR | published images; `ghcr-retention.yml` prunes them weekly | Pull fails; retention run fails (deletes nothing) | Deploy falls back to a server build |
 | Docker Hub | `node`, `debian` (scanner), `alpine`, `pgvector`, `ollama`, `restic` | Image builds and scans fail; nightly R2 backup fails (restic) if not cached; prod keeps running on cached images | Images cached on the server. If it hurts: mirror bases to GHCR or use `mirror.gcr.io` / `public.ecr.aws/docker/library` |
 | MCR (mcr.microsoft.com) | .NET SDK/runtime, Aspire dashboard | .NET image builds fail | gha layer cache; server cache |
 | npm registry (+ corepack pnpm download) | all JS installs, CI and the server web build | CI, images and the server web build fail | none (cache in CI only) |
@@ -161,7 +161,7 @@ environment reports nothing on any service.
 | Images pinned by digest | `docker-compose.yml`, `backup.yml` (restic), scanner, Makefile; every Dockerfile `FROM` (#748; `scripts/check-node-version.mjs` requires the node FROM to be a literal pinned `.nvmrc` version) | A re-pushed tag cannot swap the DB, the backup tool (sees R2 keys and `.env`) or the scanner. Dependabot (`docker`, `docker-compose`) bumps them weekly. |
 | Deploy pulls by digest | `images` output → `deploy` | A `:sha` tag re-pushed between build and pull is ignored; the server runs the bytes that passed the scan. |
 | Rollback input guarded | `deploy.yml` `guard` | `rollback_commit` must be 7–40 hex, resolve in a full clone, and be an ancestor of `origin/main`; passed via `env:`, never interpolated into `run:`. |
-| Least-privilege tokens | top-level `permissions:` in every workflow | Read-only (or none) by default; only `images` (packages: write), `deps-refresh` (contents + PRs) and `publish-mcp-nuget` (id-token) widen, per job. |
+| Least-privilege tokens | top-level `permissions:` in every workflow | Read-only (or none) by default; only `images` (packages: write), `ghcr-retention` (packages: write, actions: read), `deps-refresh` (contents + PRs) and `publish-mcp-nuget` (id-token) widen, per job. |
 | Fork-PR approval | repo setting `all_external_contributors` | No outside PR runs any workflow without the owner's click. |
 | Self-hosted runner never runs `pull_request` | `ci.yml` is all `ubuntu-latest`; no `pull_request_target` anywhere | PR code never touches the prod box. Keep it that way. |
 | Push protection + secret scanning | repo settings | First line: a secret in a commit is refused at `git push`, before any image exists. |
@@ -204,6 +204,19 @@ environment reports nothing on any service.
   build wiped.
 - **Free disk space** in `images.yml` stays until the slim Dockerfiles land and a run shows the room.
 - **GHCR packages are public**: they expose OS patch levels and the deploy cadence. Accepted.
+- **GHCR retention** (`ghcr-retention.yml`, weekly + manual dry run). Public packages cost nothing
+  to store; it runs because six images per merge, ~10 merges a day, is ~400 versions a week nobody
+  reads. Per package it keeps the newest 10 tagged, anything younger than 14 days, the SHAs of the
+  last 5 successful deploys **and of every deploy run since the oldest of them** (a failed run may
+  have reached `compose up`), any non-SHA tag, and every manifest a kept index references; the rest
+  goes, oldest first, at most 150 per package per run. Any API failure before the first delete
+  (deploy runs, listing, a manifest) deletes nothing. A rollback deploys `rollback_commit`, not its
+  run's `head_sha`, and the API does not expose inputs — so `deploy.yml`'s `run-name` is
+  "Rollback to <sha>" and the script reads it; **keep that run-name**. A rollback to a SHA already
+  pruned still works: `images` rebuilds it for that ref (or the server does), slower. Deleting with
+  `GITHUB_TOKEN` relies on the repo holding the admin role on each package (automatic for packages
+  a workflow published) and on the REST path `users/<owner>/…` — a move to an org account changes it
+  to `orgs/<org>/…`. GitHub calls workflow deletion via REST "public preview".
 - **Scan blind spots:** nested archives (zip, nupkg, jar, tgz) are not unpacked; token shapes outside
   the regex (Resend `re_`, `GOCSPX-`, `gho_`/`ghs_`, `npm_`, R2 hex keys, the JWT secret) are caught
   only by value in the dist scan, not in images. Push protection is the first line.
@@ -222,6 +235,7 @@ environment reports nothing on any service.
 | Rollback | Actions → Deploy → Run workflow → `rollback_commit` = a SHA on main |
 | Full SSG rebuild on deploy | Run workflow with `rebuild_ssg`, or `make rebuild-ssg` |
 | Workflow permissions | top-level `permissions:` stays read/none; widen per job |
+| GHCR retention | `ghcr-retention.yml` env (`KEEP_NEWEST`, `KEEP_DAYS`, `DEPLOYS`, `MAX_DELETE`, `PACKAGES` = `SERVICES` in `images.yml`); rules in `scripts/ghcr-retention.mjs`. Preview: Actions → GHCR retention → Run workflow (dry run is the default) |
 | Database schema / rollback | Only the `migrator` service migrates ([ADR-021](adr/ADR-021-migrations-owned-by-the-migrator.md)); rollback `docker compose run --rm -e MIGRATE_TARGET=<name> migrator` with the **current** image, **before** `rollback_commit`. Behind-schema alarm: `health-check.yml` step "Schema matches the build" |
 | What Sentry may receive | .NET: `backend/src/Observability/TextStack.Observability/SentryScrubber.cs` (+ `McpHosts.ConfigureSentry`); ssg-worker: `apps/web/scripts/ssgSentry.mjs`; mobile: `apps/mobile/src/lib/sentryScrub.ts`. Change all three together, and the privacy policy if the promise changes |
 | OpenTelemetry export | `OTEL_EXPORTER_OTLP_ENDPOINT` in the server `.env` (unset = off) |

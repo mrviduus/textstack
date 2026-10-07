@@ -1,0 +1,64 @@
+name: GHCR retention
+
+# Every deploy pushes six images (images.yml). This deletes old versions of them:
+# keep the newest 10 tagged per package, anything younger than 14 days, the SHAs of
+# the last 5 successful deploys (and of any deploy run since — a failed run may have
+# reached `compose up`), and the manifests those kept indexes reference. Rules and
+# fail-closed behaviour: scripts/ghcr-retention.mjs. Why: docs/01-architecture/delivery.md.
+#
+# A rollback to a SHA deleted here still works: images.yml rebuilds it for the
+# rollback ref (or the server builds it) — it is slower, not impossible.
+
+on:
+  schedule:
+    - cron: '17 5 * * 1' # Mondays 05:17 UTC — clear of the 03:00 backup
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: List what would be deleted, delete nothing
+        type: boolean
+        default: true
+      keep_newest:
+        description: Tagged versions to keep per package (floor 5)
+        default: '10'
+      keep_days:
+        description: Keep anything younger than this many days (floor 1)
+        default: '14'
+
+concurrency:
+  group: ghcr-retention
+  cancel-in-progress: false
+
+permissions: {}
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read # checkout + resolving a rollback's short SHA
+      actions: read # deploy.yml run history
+      packages: write # list + delete versions
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ghcr-retention.mjs
+          sparse-checkout-cone-mode: false
+
+      - name: Prune
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Deletes only on the schedule or a manual run with dry_run unticked; any other
+          # event (a trigger added later, say) lists and deletes nothing.
+          DRY_RUN: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.dry_run)) && 'false' || 'true' }}
+          KEEP_NEWEST: ${{ inputs.keep_newest || '10' }}
+          KEEP_DAYS: ${{ inputs.keep_days || '14' }}
+          DEPLOYS: '5'
+          MAX_DELETE: '150'
+          # Same list as SERVICES in images.yml.
+          PACKAGES: migrator api worker admin ssg-worker mcp-server
+        run: node scripts/ghcr-retention.mjs

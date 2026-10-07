@@ -1,4 +1,8 @@
 name: Deploy
+# A rollback deploys `rollback_commit`, not the run's head_sha, and the API exposes no
+# inputs: this title is how ghcr-retention.yml knows which images are live. Empty
+# (push, plain dispatch) = GitHub's default title.
+run-name: ${{ inputs.rollback_commit != '' && format('Rollback to {0}', inputs.rollback_commit) || '' }}
 
 on:
   push:
