@@ -247,6 +247,8 @@ If the CLI stays, the crews, the CrewAb eval and ~1.5k lines are portfolio code.
 - Migrations are applied **twice**, by the `migrator` container (`docker-compose.yml:41-51`) and by `db.Database.Migrate()` at Api startup
   (`Api/Program.cs:71`). Harmless today, because the second run is a no-op. Pick one source (the migrator) so rollback via `MIGRATE_TARGET` cannot be undone by an Api restart.
   Check this: with `MIGRATE_TARGET=0`, the next Api start migrates forward again.
+  **Done** — #706 + 2026-10-07, [ADR-021](../adr/ADR-021-migrations-owned-by-the-migrator.md). The check also found the
+  documented rollback never reached the migrator (compose dropped `MIGRATE_TARGET` in #12); it is now `docker compose run --rm -e`.
 
 ### N7 — Delete order: files before DB commit — **Low**
 `UserBookService.cs:400-412` deletes the storage directory, then calls `SaveChangesAsync`. If the save fails, the book row points at missing files.

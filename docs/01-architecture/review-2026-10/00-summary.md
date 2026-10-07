@@ -33,6 +33,7 @@ All P0 and P1 items are fixed and live; the P2/P3 list is planned work.
 | 13 | Refresh tokens hashed (in place, no sign-out); admin/user audiences; HS256 pinned | #704 |
 | 14 | Upload size checked before reading; storage path guard; EPUB entry/size limits | #704 |
 | — | Clients gap 2: JSON-LD escaped | this PR |
+| 17 | Migrator is the only migrator (Api: Development + launchSettings flag only); schema behind the build → Critical log + `/health/ready` 503; rollback via `docker compose run --rm -e MIGRATE_TARGET` (the documented form never reached the container) — [ADR-021](../adr/ADR-021-migrations-owned-by-the-migrator.md) | #706, 2026-10-07 |
 | — | Also shipped: podcast deleted (#692), SSG full rebuild nightly not per deploy (#697), deploy waits for a running SSG rebuild (#698), deploy-failing test flake (#699) | |
 
 Open, not in the tables below: web tap-on-text doesn't reveal reader bars (since #157); removing a highlight
@@ -79,7 +80,7 @@ ADR if structural · **P3** note or accept.
 |---|---|---|---|
 | 15 | Queues: 11 polled tables, 4 claim styles. Catalog ingestion has no retry cap (poison job loops forever); shell pollers never recover stuck rows; no tests on any claim | backend 2, 3, 10 | One claim rule (status flip + attempts + stale sweep), one test each — ADR |
 | 16 | 8 background services run inside the API; vocab enrichment is `Task.Run` fire-and-forget, lost on every deploy | backend 7, map | Rule: Api and Worker are single-instance; move jobs to Worker before any 2nd Api |
-| 17 | Migrations run twice (migrator + API start); API start undoes a `MIGRATE_TARGET` rollback | backend 9 | Migrator only |
+| 17 | Migrations run twice (migrator + API start); API start undoes a `MIGRATE_TARGET` rollback | backend 9 | **Done** 2026-10-07 — migrator only, behind schema → `/health/ready` 503 ([ADR-021](../adr/ADR-021-migrations-owned-by-the-migrator.md)) |
 | 18 | Auth is opt-in per endpoint (no gap found today, but fail-open by design) | security M3 | Group-level `RequireUser()` filter |
 | 19 | Admin: roles never checked, no audit log, no MFA, admin API also reachable on the public host | security M2 | Cloudflare Access on textstack.dev + deny `/api/admin` on .app + audit row |
 | 20 | Two book models with 4 different "which book" patterns; `book_collections` orphaned on delete (counts wrong, no ownership check) | backend 4, 5 | Keep storage split; one `BookRef` rule for new code — ADR; fix the orphan bug now |

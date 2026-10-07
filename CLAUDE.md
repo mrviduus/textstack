@@ -92,7 +92,8 @@ pnpm -C apps/admin build
 
 # Migrations
 dotnet ef migrations add <Name> --project backend/src/Infrastructure --startup-project backend/src/Api
-MIGRATE_TARGET=0 docker compose up migrator   # Rollback all migrations
+docker compose run --rm -e MIGRATE_TARGET=<Name> migrator   # Roll back to <Name> (0 = all). Never put MIGRATE_TARGET in .env
+# Only the migrator migrates (ADR-021). Api: Development + launchSettings flag only; behind schema → /health/ready 503
 
 # Mobile app (apps/mobile)
 cd apps/mobile

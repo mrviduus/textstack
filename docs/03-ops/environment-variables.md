@@ -89,7 +89,8 @@ Ollama (`Ollama__BaseUrl`, `Ollama__Model=gemma4:e2b`) and the cache paths (`Tts
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `MIGRATE_TARGET` | No | (latest) | Target migration name, or `0` to rollback all |
+| `MIGRATE_TARGET` | No | (latest) | Target migration name, or `0` to rollback all. One-off only: `docker compose run --rm -e MIGRATE_TARGET=<name> migrator`. **Never in `.env`** — every deploy would roll back ([ADR-021](../01-architecture/adr/ADR-021-migrations-owned-by-the-migrator.md)) |
+| `Database__MigrateOnStartup` | No | `false` | Api migrates at start. Honoured only with `ASPNETCORE_ENVIRONMENT=Development`; set by `launchSettings.json` for `dotnet run`, never in compose |
 
 ### MCP server (`--profile mcp`)
 

@@ -60,6 +60,46 @@ jobs:
           # map, so it says "you look like a bot", not "SSG was served".
           [ "$size" -gt 5000 ] || { echo "SSG page is only $size bytes — probably a 404"; exit 1; }
           printf '%s' "$body" | grep -q '<title>' || { echo "no <title> in the prerendered page"; exit 1; }
+      # Read /health/ready once; the schema and SSG steps below parse the same response.
+      # No -f: a 503 carries the body that says WHICH component is down, and a schema behind
+      # the build answers 503 by design (ADR-021). curl still retries a 503 under CURL_RETRY,
+      # which rides out a deploy. This step fails only on what neither step below can label:
+      # no response, a non-JSON body (nginx error page), or db/storage down.
+      - name: Readiness probe
+        id: ready
+        # Runs even if a smoke above failed, so its own alarms still carry their own label.
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          f="$RUNNER_TEMP/ready.json"
+          code=$(curl -s $CURL_RETRY -o "$f" -w '%{http_code}' https://textstack.app/api/health/ready) || {
+            echo "::error::no response from /api/health/ready"; exit 1; }
+          jq -e '.components' "$f" > /dev/null || {
+            echo "::error::/api/health/ready returned HTTP $code and no readiness JSON"; head -c 500 "$f"; exit 1; }
+          down=$(jq -r '[.components | to_entries[] | select((.key == "db" or .key == "storage") and .value.status != "ok") | .key] | join(", ")' "$f")
+          [ -z "$down" ] || { echo "::error::/api/health/ready (HTTP $code): critical component down: $down"; exit 1; }
+          echo "readiness HTTP $code"
+
+      # The Api never migrates (ADR-021). A schema behind the running build — a MIGRATE_TARGET
+      # rollback, a migrator that did not run — shows here as components.schema != ok.
+      - name: Schema matches the build
+        if: ${{ !cancelled() && steps.ready.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          f="$RUNNER_TEMP/ready.json"
+          schema=$(jq -c '.components.schema // empty' "$f")
+          if [ -z "$schema" ]; then
+            echo "::warning::readiness probe has no schema component yet — API not redeployed"
+            exit 0
+          fi
+          status=$(printf '%s' "$schema" | jq -r '.status')
+          if [ "$status" != "ok" ]; then
+            pending=$(printf '%s' "$schema" | jq -r '(.pending // []) | join(", ")')
+            echo "::error::Database schema is $status for the running API. Pending migrations: ${pending:-none listed} ($schema). Run the migrator, or roll the code back too (ADR-021)."
+            exit 1
+          fi
+          echo "schema ok"
+
       # Two ways SSG dies, and they need different patience.
       #
       # A failing rebuild is a malfunction whatever the cadence — the next one
@@ -67,10 +107,10 @@ jobs:
       # runs nightly after the backup (backup.yml), so a healthy tree is <25h
       # old. 36 hours means one night was missed — worth an alarm, not a page.
       - name: SSG freshness
+        if: ${{ !cancelled() && steps.ready.outcome == 'success' }}
         run: |
           set -euo pipefail
-          body=$(curl -sf $CURL_RETRY https://textstack.app/api/health/ready)
-          ssg=$(printf '%s' "$body" | jq -c '.components.ssg // empty')
+          ssg=$(jq -c '.components.ssg // empty' "$RUNNER_TEMP/ready.json")
           # Missing field means the API predates this check, which is the
           # normal state for the ~40 minutes between merging it and the deploy
           # finishing. Not an SSG problem, so not an alarm.

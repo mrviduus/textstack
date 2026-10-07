@@ -144,6 +144,10 @@ Single points of failure that matter: **the home server + Cloudflare tunnel** (r
 - **One non-ephemeral self-hosted runner, repo-level.** A `workflow_dispatch` from another branch
   runs that branch's workflow on it (write access required). Limiting the runner to `deploy.yml` /
   `backup.yml` on `main` needs an org runner group.
+- **The deploy gate does not check the schema.** It waits on `/health` (liveness). The migrator
+  exiting non-zero already stops the deploy (`api` needs `service_completed_successfully`); any other
+  schema behind the build is caught by `health-check.yml` "Schema matches the build" within 5 min, not
+  by the deploy ([ADR-021](adr/ADR-021-migrations-owned-by-the-migrator.md)).
 - **Free disk space** in `images.yml` stays until the slim Dockerfiles land and a run shows the room.
 - **GHCR packages are public**: they expose OS patch levels and the deploy cadence. Accepted.
 - **Scan blind spots:** nested archives (zip, nupkg, jar, tgz) are not unpacked; token shapes outside
@@ -164,3 +168,4 @@ Single points of failure that matter: **the home server + Cloudflare tunnel** (r
 | Rollback | Actions → Deploy → Run workflow → `rollback_commit` = a SHA on main |
 | Full SSG rebuild on deploy | Run workflow with `rebuild_ssg`, or `make rebuild-ssg` |
 | Workflow permissions | top-level `permissions:` stays read/none; widen per job |
+| Database schema / rollback | Only the `migrator` service migrates ([ADR-021](adr/ADR-021-migrations-owned-by-the-migrator.md)); rollback `docker compose run --rm -e MIGRATE_TARGET=<name> migrator` with the **current** image, **before** `rollback_commit`. Behind-schema alarm: `health-check.yml` step "Schema matches the build" |

@@ -29,7 +29,9 @@ proxy) and `textstack.dev` as admin. There are no `*.localhost` gateway hosts an
 
 ## Migrations
 
-Migrations run automatically via dedicated Docker service.
+Only the dedicated `migrator` Docker service migrates ([ADR-021](../01-architecture/adr/ADR-021-migrations-owned-by-the-migrator.md));
+the Api never does under Docker. If the schema is behind the Api's build, the Api logs Critical at start
+and `/health/ready` answers 503 with `components.schema.pending` until the migrator runs.
 
 ### Apply All (default)
 ```bash
@@ -38,13 +40,23 @@ docker compose up
 
 ### Target Specific Migration
 ```bash
-MIGRATE_TARGET=Initial_Content docker compose up migrator
+docker compose run --rm -e MIGRATE_TARGET=Initial_Content migrator
 ```
 
 ### Rollback All
 ```bash
-MIGRATE_TARGET=0 docker compose up migrator
+docker compose run --rm -e MIGRATE_TARGET=0 migrator
 ```
+
+`-e` on a one-off `run`, never `.env`: compose reads `.env` on every `up`, so a target left there would
+roll back on every deploy. The old `MIGRATE_TARGET=… docker compose up migrator` form never reached
+the container. After a rollback, restart the Api with `docker compose restart api` (or `up -d --no-deps api`);
+a plain `docker compose up -d` re-runs the migrator to head.
+
+Rolling back a release: **schema first, with the current image**, check `/health/ready` shows the
+expected `pending`, **then** the code (`rollback_commit`). An older image cannot revert migrations it
+does not contain; the migrator now exits 1 if asked to
+([ADR-021](../01-architecture/adr/ADR-021-migrations-owned-by-the-migrator.md#rolling-back-a-release-with-a-migration--order-matters)).
 
 ### Create New Migration
 ```bash
@@ -100,7 +112,7 @@ Copy `.env.example` to `.env` for overrides.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | none — required | DB credentials |
-| `MIGRATE_TARGET` | (latest) | Target migration |
+| `MIGRATE_TARGET` | (latest) | Target migration — pass with `docker compose run --rm -e`, not `.env` |
 
 Full list: [environment-variables.md](environment-variables.md).
 

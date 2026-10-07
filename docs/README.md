@@ -107,6 +107,7 @@ line at the top of each file.
 | [ADR-018](01-architecture/adr/ADR-018-reingest-updates-chapters-in-place.md) | Re-ingest updates chapters in place; reader data never cascades | In force |
 | [ADR-019](01-architecture/adr/ADR-019-reader-position-rules.md) | Reader position: shared rules, not a shared state machine | Accepted |
 | [ADR-020](01-architecture/adr/ADR-020-build-once-deploy-by-digest.md) | Build once on GitHub, deploy by digest (+ [delivery pipeline](01-architecture/delivery.md)) | Accepted |
+| [ADR-021](01-architecture/adr/ADR-021-migrations-owned-by-the-migrator.md) | Migrations are owned by the migrator; Api reports a schema behind its build | Accepted |
 
 ## Governance
 
