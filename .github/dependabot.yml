@@ -51,16 +51,6 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 0
-    ignore:
-      # Applies to security updates too, which is why it stays. ImageSharp v4 is
-      # not a version we can take: the build fails with "No Six Labors license
-      # found. Set $(SixLaborsLicenseKey) ... obtain a license from
-      # sixlabors.com/pricing". v3 is the last release usable under the split
-      # licence on our terms, and this repository is BUSL-1.1 with paid
-      # inference behind it — a per-seat image library is a business decision,
-      # not a dependency bump.
-      - dependency-name: SixLabors.ImageSharp
-        update-types: [version-update:semver-major]
 
   # The workflows in this repo pin action majors (actions/checkout@v5). Those
   # move rarely and silently, and one of them is what installs the Node version

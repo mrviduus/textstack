@@ -232,8 +232,8 @@ public class PdfExtractorTests
         Assert.NotEmpty(inlined);
         foreach (var img in inlined)
         {
-            using var image = SixLabors.ImageSharp.Image.Load<
-                SixLabors.ImageSharp.PixelFormats.Rgba32>(img.Data);
+            using var image = SkiaSharp.SKBitmap.Decode(img.Data);
+            Assert.NotNull(image);
 
             long visibleLuma = 0;
             var visiblePixels = 0;
@@ -245,10 +245,10 @@ public class PdfExtractorTests
                 for (var x = 0; x < image.Width; x += stepX)
                 {
                     totalPixels++;
-                    var px = image[x, y];
-                    if (px.A <= 8) continue; // transparent — not "black"
+                    var px = image.GetPixel(x, y);
+                    if (px.Alpha <= 8) continue; // transparent — not "black"
                     visiblePixels++;
-                    visibleLuma += (px.R + px.G + px.B) / 3;
+                    visibleLuma += (px.Red + px.Green + px.Blue) / 3;
                 }
             }
 

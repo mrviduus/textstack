@@ -214,7 +214,7 @@ Not a hosted service but background work in the API: vocabulary enrichment is a
 flowchart BT
     Domain["Domain<br/>pkg: Npgsql"]
     Contracts["Contracts"]
-    Extraction["TextStack.Extraction<br/>VersOne.Epub, PdfPig, PDFtoImage, ImageSharp"]
+    Extraction["TextStack.Extraction<br/>VersOne.Epub, PdfPig, PDFtoImage, SkiaSharp"]
     Search["TextStack.Search<br/>Dapper, Npgsql"]
     Tts["TextStack.Tts"]
     Vocab["TextStack.Vocabulary<br/>HdbscanSharp"]
@@ -226,7 +226,7 @@ flowchart BT
     AiEvalSuite["Ai.EvalSuite"]
     AiMcp["Ai.Mcp<br/>ModelContextProtocol"]
     App["Application<br/>EF Core, Npgsql.EFCore, BCrypt,<br/>Google.Apis.Auth, JWT"]
-    Infra["Infrastructure<br/>EF Core, Pgvector, OTel incl. AspNetCore,<br/>ImageSharp, Sentry"]
+    Infra["Infrastructure<br/>EF Core, Pgvector, OTel incl. AspNetCore,<br/>SkiaSharp, Sentry"]
     Api["Api<br/>OpenApi, Scalar, OTel, Sentry.AspNetCore"]
     Worker["Worker<br/>Hosting, OTel, Sentry"]
 
