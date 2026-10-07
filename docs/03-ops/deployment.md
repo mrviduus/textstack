@@ -213,7 +213,7 @@ docker compose up -d --build
 SSG pages are pre-rendered for SEO. Rebuild after content changes:
 
 ```bash
-# Via Makefile (runs on host)
+# Via Makefile on the server: queues a Full job for ssg-worker and follows it to the end
 make rebuild-ssg
 
 # Via Admin Panel (recommended)

@@ -125,6 +125,56 @@ describe('static server + API proxy shutdown', () => {
     expect(status).toBe(200)
     expect(JSON.parse(body)).toEqual({ path: '/en/books', host: 'textstack.test' })
   })
+
+  // The proxy used to cut every URL at '?', so /authors?sort=recent&limit=12 reached the API as
+  // /authors and SSG pages were rendered with the API's defaults instead of what the SPA asks for.
+  it('proxy_QueryString_ReachesApiIntact', async () => {
+    api = await fakeApi((req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ path: req.url }))
+    })
+    server = await startServer({ distDir: dist, apiUrl: api.url, apiHost: 'localhost', port: 0 })
+    const port = server.address().port
+
+    const apiCall = await get(port, '/api/en/authors?sort=recent&limit=12&q=a%20b').response
+    const storage = await get(port, '/storage/ab/cover.jpg?v=2').response
+
+    expect(JSON.parse(apiCall.body)).toEqual({ path: '/en/authors?sort=recent&limit=12&q=a%20b' })
+    expect(JSON.parse(storage.body)).toEqual({ path: '/storage/ab/cover.jpg?v=2' })
+  })
+
+  // Only /api, /api/…, /storage and /storage/… are the API's; a static path that merely starts
+  // with those letters is the app's.
+  it('routing_PrefixLookalikes_AreStaticNotProxied', async () => {
+    let hits = 0
+    api = await fakeApi((req, res) => {
+      hits++
+      res.end('api')
+    })
+    server = await startServer({ distDir: dist, apiUrl: api.url, apiHost: 'localhost', port: 0 })
+    const port = server.address().port
+
+    for (const path of ['/apiary', '/api-docs', '/storagefoo']) {
+      const { status, body } = await get(port, path).response
+      expect({ path, status, body }).toEqual({ path, status: 200, body: '<!doctype html><title>t</title>' })
+    }
+    expect(hits).toBe(0)
+
+    for (const path of ['/api', '/api/x', '/storage', '/storage/x']) {
+      expect((await get(port, path).response).body).toBe('api')
+    }
+    expect(hits).toBe(4)
+  })
+
+  it('static_QueryString_StillServesTheFile', async () => {
+    writeFileSync(join(dist, 'app.js'), 'ok()')
+    server = await startServer({ distDir: dist, apiUrl: 'http://127.0.0.1:1', apiHost: 'localhost', port: 0 })
+
+    const { status, body } = await get(server.address().port, '/app.js?v=1').response
+
+    expect(status).toBe(200)
+    expect(body).toBe('ok()')
+  })
 })
 
 // A page shaped like the app: it fetches its data through /api/, retries once, and on failure shows

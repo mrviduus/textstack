@@ -37,9 +37,13 @@ route that fails and then renders noindex on retry is skipped the same way.
 A refused or `Failed` job leaves `dist/ssg` untouched and reports to Sentry (`service:ssg-worker`).
 
 Who enqueues jobs: admin SSG page (`/admin/ssg/*` API), `PublishEditionAsync() → EnqueueSsgSafe()`
-(auto-publish), `SsgPeriodicRebuildWorker` in the API (interval set in admin), deploy workflow.
-`make rebuild-ssg` bypasses the queue: it runs `prerender.mjs` on the host and swaps in shell, with
-none of the checks above. Prefer a job (admin, or `POST /internal/ssg/rebuild-all` on the server).
+(auto-publish), `SsgPeriodicRebuildWorker` in the API (interval set in admin), the nightly
+`backup.yml` and a manual deploy with `rebuild_ssg` (both `POST /internal/ssg/rebuild-all`), and
+`make rebuild-ssg` on the server (`infra/scripts/rebuild-ssg.sh`: the same POST, then follows the job
+and exits 0 only on `Completed`). Every rebuild is a job, so every one gets the checks above — and none
+runs while ssg-worker is down: the script exits 1 if the worker has not started the job in 5 min, or
+if its counts have not moved in 30 min. If a Full rebuild is already queued or running, it waits for
+that one and then queues its own, so the result includes changes made just before the call.
 
 ## nginx split (`infra/nginx/textstack.conf`)
 
@@ -63,9 +67,9 @@ Not prerendered: reader (`/en/books/:slug/:chapter`, noindex), library, search, 
 ## Commands
 
 ```bash
-make rebuild-ssg                      # host: run prerender.mjs directly + atomic swap (no job row)
-pnpm -C apps/web build:ssg            # local: tsc + vite build + prerender.mjs (needs API running)
-cd apps/web && API_URL=http://localhost:8080 API_HOST=localhost node scripts/prerender.mjs
+make rebuild-ssg                      # server: queue a Full job for ssg-worker, follow it to the end
+pnpm -C apps/web build:ssg            # local only: tsc + vite build + prerender.mjs into dist/ssg, no checks
+cd apps/web && API_URL=http://localhost:8080 API_HOST=localhost node scripts/prerender.mjs   # local only
 ```
 
 ## Environment
@@ -78,6 +82,8 @@ cd apps/web && API_URL=http://localhost:8080 API_HOST=localhost node scripts/pre
 | `INDEXNOW_KEY`, `INDEXNOW_ENABLED` | ssg-worker | off unless `INDEXNOW_ENABLED=true` and a key is set |
 | `SSG_JOB_STALL_MS` | ssg-worker | 5 min without a rendered route → stopped, `Failed` |
 | `SSG_JOB_DEADLINE_MS` | ssg-worker | cap, max(60 min, 2 s per route) |
+| `SSG_API_URL`, `SSG_POLL_SECS` | `make rebuild-ssg` | `http://localhost:8080`, `10` |
+| `SSG_START_TIMEOUT_SECS`, `SSG_STALL_TIMEOUT_SECS` | `make rebuild-ssg` | `300` (not started), `1800` (no progress) → exit 1 |
 
 ## Output
 
@@ -94,6 +100,7 @@ apps/web/dist/ssg/en/{index.html, books/<slug>/index.html, authors/<slug>/…, g
 | `apps/web/scripts/prerender.mjs` | Puppeteer renderer (CLI) |
 | `apps/web/scripts/ssgRender.mjs` | Static server + API proxy, `renderRoute` (what counts as rendered) |
 | `apps/web/scripts/ssgJob.mjs` | Survival floor, carry-forward, job deadline, DB pool |
+| `infra/scripts/rebuild-ssg.sh` | `make rebuild-ssg`: queue a Full job, follow it |
 | `apps/web/Dockerfile.ssg-worker` | Image with Chromium |
 | `backend/src/Api/Endpoints/SsgEndpoints.cs` | `/ssg/routes`, `/ssg/books`, `/ssg/authors`, `/ssg/genres` |
 | `backend/src/Api/Endpoints/AdminSsgRebuildEndpoints.cs` | Admin queue + settings |

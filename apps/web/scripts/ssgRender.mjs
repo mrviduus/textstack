@@ -86,17 +86,20 @@ export function startServer({ distDir, apiUrl, apiHost, port, upstreamTimeoutMs 
   const api = { apiUrl: new URL(apiUrl), apiHost, upstreamTimeoutMs };
   return new Promise((resolve) => {
     const server = createServer((req, res) => {
+      // The path alone picks the handler and the static file; the query goes on to the API. It was
+      // dropped for both until 2026-10, so pages rendered with the API's defaults (limit, sort).
       const url = req.url.split('?')[0];
+      const query = req.url.slice(url.length);
 
-      // Proxy API requests (React app uses /api prefix)
-      if (url.startsWith('/api/') || url.startsWith('/api')) {
+      // Proxy API requests (React app uses /api prefix). Whole segments only: /apiary is the app's.
+      if (url === '/api' || url.startsWith('/api/')) {
         const apiPath = url.replace(/^\/api/, '');
-        return proxyToApi(req, res, apiPath || '/', api);
+        return proxyToApi(req, res, (apiPath || '/') + query, api);
       }
 
       // Proxy storage requests (images, covers)
-      if (url.startsWith('/storage')) {
-        return proxyToApi(req, res, url, api);
+      if (url === '/storage' || url.startsWith('/storage/')) {
+        return proxyToApi(req, res, url + query, api);
       }
 
       // Static files

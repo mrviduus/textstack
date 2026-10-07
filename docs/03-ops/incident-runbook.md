@@ -138,7 +138,9 @@ First-response:
 2. **Puppeteer crash** → logs show `Protocol error` or similar. Usually
    OOM or chromium version mismatch after base-image update.
 3. **Manual trigger**: admin panel → SSG Rebuild → trigger new job. Or
-   `make rebuild-ssg`.
+   `make rebuild-ssg`. Both are jobs for ssg-worker: with the worker down or
+   failing, fix it first (1, 2). There is no host-side render any more;
+   `make rebuild-ssg` exits 1 if the worker does not start the job in 5 min.
 4. **Atomic swap failed** → `apps/web/dist/ssg-new` still present. Next
    successful run cleans up.
 
@@ -157,7 +159,9 @@ grep -n "SSG_BOT_UA\|map.*bot" infra/nginx/textstack.conf
 ```
 
 Fix:
-1. Rebuild SSG: `make rebuild-ssg`.
+1. If `dist/ssg` is missing or stale, check ssg-worker first (`docker compose ps ssg-worker`,
+   `docker compose logs --tail=50 ssg-worker`, and §5): every rebuild is a job it renders. Restart
+   it if it is down (`docker compose restart ssg-worker`), then `make rebuild-ssg`.
 2. Reload nginx: `sudo systemctl reload nginx`.
 
 ---

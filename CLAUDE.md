@@ -51,7 +51,7 @@ make featured-show            # Print the current Popular shelf
 
 # Deploy
 # Deploy: merge to main (deploy.yml). Break-glass: gh workflow run deploy.yml [-f rollback_commit=<sha>]
-make rebuild-ssg              # Rebuild SSG pages only
+make rebuild-ssg              # Queue a Full SSG rebuild job (ssg-worker), follow it to the end
 
 # Database
 make backup                   # Backup to ~/backups/textstack/
