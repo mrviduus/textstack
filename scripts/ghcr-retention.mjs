@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 //
-// GHCR retention for the six images.yml publishes (ghcr.io/<owner>/textstack-<svc>:<full sha>).
+// GHCR retention for the seven images.yml publishes (ghcr.io/<owner>/textstack-<svc>:<full sha>).
 // Run by .github/workflows/ghcr-retention.yml; see docs/01-architecture/delivery.md.
 //
 // Per package, a version is KEPT if any of these holds:
@@ -189,7 +189,7 @@ async function main() {
   const keepNewest = Math.max(5, Number(env.KEEP_NEWEST ?? 10))
   const keepDays = Math.max(1, Number(env.KEEP_DAYS ?? 14))
   const maxDelete = Math.max(0, Number(env.MAX_DELETE ?? 150))
-  const packages = (env.PACKAGES ?? 'api worker admin ssg-worker migrator mcp-server').split(/\s+/).filter(Boolean)
+  const packages = (env.PACKAGES ?? 'api worker admin ssg-worker migrator mcp-server web').split(/\s+/).filter(Boolean)
   if (!Number.isFinite(keepNewest) || !Number.isFinite(keepDays) || !Number.isFinite(maxDelete)) throw new Error('KEEP_NEWEST, KEEP_DAYS and MAX_DELETE must be numbers')
 
   const { full: shas, live } = await protectedShas(repo, Math.max(1, Number(env.DEPLOYS ?? 5)))
@@ -202,7 +202,16 @@ async function main() {
   const now = Date.now()
   for (const svc of packages) {
     const pkg = `textstack-${svc}`
-    const versions = await listVersions(owner, pkg)
+    let versions
+    try {
+      versions = await listVersions(owner, pkg)
+    } catch (e) {
+      // A package added to PACKAGES before its first push (textstack-web, 2026-10-07) has
+      // nothing to prune. Skipping it deletes nothing anywhere; any other error still aborts.
+      if (e.status !== 404) throw e
+      console.log(`::warning::${pkg}: not found (404) — not published yet? Nothing to prune`)
+      continue
+    }
     const opts = { protectedShas: shas, now, keepNewest, keepDays }
     const first = plan(versions, opts)
     const children = new Set()

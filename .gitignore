@@ -20,6 +20,8 @@ obj/
 node_modules/
 .pnpm-store/
 dist/
+# deploy.yml: file list of the live web release (scripts/swap-web-dist.sh)
+apps/web/.web-release
 .next/
 .expo/
 *.tsbuildinfo
