@@ -98,8 +98,8 @@ answers "what happened" and nothing answered "what is half-finished right now".
   behind an empty `catch`. A job left `Queued` blocks every later identical enqueue through the duplicate
   check. Fix: await + log — ADR-023 PR 1.
 - **Vocabulary words promoted by the hourly reconciler are never enriched** (found 2026-10-07, ADR-023):
-  `DailyCapService.ReconcileUserAsync` does not call `QueueEnrichment`. Fix: add that call (owner, 2026-10-07).
-- **Uploaded originals are readable by URL without auth** (`/storage`, ADR-024). Fix: move them behind `/me/books/{id}/file` (owner, 2026-10-07).
+  `DailyCapService.ReconcileUserAsync` does not call `QueueEnrichment`. Fix: enrichment moves into an Application service; the reconciler awaits it word by word (owner, 2026-10-07).
+- **Uploaded originals are readable by URL without auth** (`/storage`, ADR-024). Fix: originals move behind `/me/books/{id}/file`; covers and chapter images only after they get an authenticated route (owner, 2026-10-07).
 - **Mobile OTA targets one runtime only** (2026-10-07, #762). `mobile-ota.yml` publishes to the
   runtime of the newest *finished* production build. Once the production track runs an older build
   than Closed testing, production stops receiving OTAs. **Fix before the second store release.**
