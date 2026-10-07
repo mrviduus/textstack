@@ -34,6 +34,10 @@ name: Mobile OTA (auto)
 # this outage in a quieter way. `production` stays manual in mobile-release.yml,
 # because it has an audience that did not ask to be a test.
 #
+# That run publishes no update: nothing installed has the new runtime yet, and the
+# build carries the commit's JS itself. A push while that build is still queued or
+# running does not start a second one. Both rules: scripts/mobile-ota-decide.mjs.
+#
 # One track, not two. Play identifies a release by `versionCode` and refuses a
 # second upload of the same one — submitting build 28 to `internal` and then to
 # `closed` failed with "You've already submitted this version of the app", and
@@ -162,74 +166,24 @@ jobs:
           fi
           echo "hash=$hash" >> "$GITHUB_OUTPUT"
 
+      # Every status, not just finished: a production build still queued or running with this
+      # commit's runtime means the previous push already started the store build, and this one
+      # must not start a second. The decision (publish / build / queued) and why it is shaped
+      # like that: scripts/mobile-ota-decide.mjs, tested in mobile-ota-decide.test.mjs.
+      # Filtered there, not with a CLI flag — the profile filter has been spelled --profile and
+      # --buildProfile across EAS versions, and a wrong flag name fails the run for a reason
+      # that has nothing to do with the app.
       - name: Read the runtime of the newest production build
         id: build
+        env:
+          HASH: ${{ steps.fp.outputs.hash }}
         run: |
           set -euo pipefail
-          # Filtered in jq, not with a CLI flag — the profile filter has been
-          # spelled --profile and --buildProfile across EAS versions, and a
-          # wrong flag name fails the run for a reason that has nothing to do
-          # with the app. Match on either field the JSON might carry.
-          json=$(eas build:list \
+          eas build:list \
             --platform android \
-            --status finished \
             --limit 50 \
-            --json --non-interactive)
-          prod=$(printf '%s' "$json" | jq -c '[.[] | select(.buildProfile == "production" or .updateChannel == "production")][0] // empty')
-          id=$(printf '%s' "$prod" | jq -r '.id // empty' 2>/dev/null || true)
-          # The field is `runtime`, not `runtimeVersion` — confirmed from a real
-          # response, whose keys are: buildProfile, runtime, updateChannel,
-          # fingerprint, … The first version of this step guessed
-          # `runtimeVersion` and `channel`, matched nothing, and reported it as
-          # "no production build". Accept a bare string or an object, and fall
-          # back to the fingerprint hash, since under a fingerprint policy that
-          # is the same value.
-          rt=$(printf '%s' "$prod" | jq -r '
-            (.runtime | if type == "object" then (.version // .runtimeVersion // empty) else . end)
-            // .runtimeVersion
-            // (.fingerprint | if type == "object" then (.hash // empty) else . end)
-            // empty' 2>/dev/null || true)
-
-          # A build that was found but carries no runtime is a different problem
-          # from no build at all, and the two used to share one message.
-          if [ -n "$prod" ] && [ -z "$rt" ]; then
-            {
-              echo "### Production build found, but no runtime on it"
-              echo
-              echo "Build \`$id\`."
-              echo
-              echo "\`runtime\`: \`$(printf '%s' "$prod" | jq -c '.runtime // "absent"')\`"
-              echo
-              echo "\`fingerprint\`: \`$(printf '%s' "$prod" | jq -c '.fingerprint // "absent"')\`"
-            } | tee -a "$GITHUB_STEP_SUMMARY"
-            echo "::error::The newest production build carries no runtime this step can read. See above."
-            exit 1
-          fi
-
-          if [ -z "$rt" ]; then
-            # Say what was actually looked at. "No production build exists" and
-            # "matched on the wrong field" produce identical silence otherwise,
-            # and the first version of this step could not tell them apart —
-            # which cost a round trip. Profiles, channels and key names only.
-            {
-              echo "### No production build to publish against"
-              echo
-              echo "Searched $(printf '%s' "$json" | jq 'length') finished Android builds."
-              echo
-              echo "Build profiles seen: \`$(printf '%s' "$json" | jq -r '[.[].buildProfile // "null"] | unique | join(", ")')\`"
-              echo
-              echo "Update channels seen: \`$(printf '%s' "$json" | jq -r '[.[].updateChannel // "null"] | unique | join(", ")')\`"
-              echo
-              echo "Keys on the newest record: \`$(printf '%s' "$json" | jq -r '(.[0] // {}) | keys | join(", ")')\`"
-              echo
-              echo "Either no production build exists yet — run **mobile-release.yml → build** —"
-              echo "or the fields above are not the ones this step matches on."
-            } | tee -a "$GITHUB_STEP_SUMMARY"
-            echo "::error::No finished Android production build to publish against. See above for what was searched."
-            exit 1
-          fi
-          echo "runtime=$rt" >> "$GITHUB_OUTPUT"
-          echo "id=$id" >> "$GITHUB_OUTPUT"
+            --json --non-interactive > "$RUNNER_TEMP/builds.json"
+          node "$GITHUB_WORKSPACE/scripts/mobile-ota-decide.mjs" "$RUNNER_TEMP/builds.json" "$HASH"
 
       # The JS bundle every installed app downloads. EXPO_PUBLIC_* values are inlined
       # into it, so a secret put in EAS's production environment under that prefix
@@ -261,7 +215,7 @@ jobs:
       # it than that. Android's permission strategy here is blocklist-only, with no
       # allowlist, so this is the cheapest place a surprise shows up.
       - name: Check the permissions this build would declare
-        if: ${{ steps.fp.outputs.hash != steps.build.outputs.runtime && inputs.dry_run != true }}
+        if: ${{ steps.build.outputs.action == 'build' && inputs.dry_run != true }}
         run: |
           set -euo pipefail
           npx expo prebuild --platform android --clean
@@ -273,51 +227,32 @@ jobs:
       # ago — the exact poisoning docs/03-ops/play-store-release.md warns about for
       # local fingerprint runs, with a build attached.
       - name: Put the tree back the way EAS expects it
-        if: ${{ steps.fp.outputs.hash != steps.build.outputs.runtime && inputs.dry_run != true }}
+        if: ${{ steps.build.outputs.action == 'build' && inputs.dry_run != true }}
         run: rm -rf android
 
+      # --json for the build id the summary links to (logs go to stderr). Implies --non-interactive.
       - name: Build and submit to Closed testing, since no update can reach anyone
         id: ship
-        if: ${{ steps.fp.outputs.hash != steps.build.outputs.runtime && inputs.dry_run != true }}
+        if: ${{ steps.build.outputs.action == 'build' && inputs.dry_run != true }}
         run: |
           set -euo pipefail
-          eas build --platform android --profile production \
-            --auto-submit-with-profile closed --non-interactive --no-wait
+          out=$(eas build --platform android --profile production \
+            --auto-submit-with-profile closed --non-interactive --no-wait --json)
+          echo "$out"
+          # The build has started by now; a JSON shape change must not fail the run over a link.
+          id=$(printf '%s' "$out" | jq -r 'if type == "array" then .[0].id else .id end // empty' 2>/dev/null || true)
+          echo "id=$id" >> "$GITHUB_OUTPUT"
 
-      - name: Say a build went out instead of an update
-        if: ${{ steps.fp.outputs.hash != steps.build.outputs.runtime }}
-        run: |
-          {
-            echo "### Built instead of updated"
-            echo
-            echo "This commit's runtime does not match the installed build, so an update"
-            echo "would have published to a runtime no one has and reported success."
-            echo
-            echo "| | |"
-            echo "|---|---|"
-            echo "| this commit | \`${{ steps.fp.outputs.hash }}\` |"
-            echo "| newest production build | \`${{ steps.build.outputs.runtime }}\` (\`${{ steps.build.outputs.id }}\`) |"
-            echo
-            echo "Something native changed — a dependency, an Expo plugin, or app.json."
-            if [ "${{ inputs.dry_run }}" = "true" ]; then
-              echo "Dry run: nothing was built."
-            else
-              echo "An EAS build was started and will submit itself to **closed testing**"
-              echo "(Play's \`alpha\`) when it finishes — \`--no-wait\`, so this run ends first."
-              echo "That is the track with testers on it; Internal's list is empty."
-              echo "Permissions were checked at the **source** manifest level only."
-              echo
-              echo "A build reaches ONE track per upload — Play refuses a second submit of the"
-              echo "same \`versionCode\`. Another track means promoting it in Play Console, or"
-              echo "another build. \`production\` is still a human click: **mobile-release.yml**."
-            fi
-          } | tee -a "$GITHUB_STEP_SUMMARY"
-
+      # No update when this run started the store build: its runtime is on no installed app
+      # yet, and the binary itself carries this commit's JS. Publishing anyway gave a green
+      # "OTA published" that reached nobody (run 37661100905, #761). On `queued` it does
+      # publish — see scripts/mobile-ota-decide.mjs.
+      #
       # Commit subject only, passed through the environment rather than
       # interpolated into the script: a commit message is attacker-controlled
       # text and `${{ }}` inside `run:` would execute what it contains.
       - name: Publish the update
-        if: ${{ inputs.dry_run != true }}
+        if: ${{ inputs.dry_run != true && steps.build.outputs.action != 'build' }}
         env:
           COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
@@ -332,13 +267,42 @@ jobs:
 
       - name: Say what happened
         if: ${{ success() }}
+        env:
+          ACTION: ${{ steps.build.outputs.action }}
+          DRY_RUN: ${{ inputs.dry_run == true }}
+          HASH: ${{ steps.fp.outputs.hash }}
+          RUNTIME: ${{ steps.build.outputs.runtime }}
+          BUILD_ID: ${{ steps.build.outputs.id }}
+          INFLIGHT_ID: ${{ steps.build.outputs.inflight_id }}
+          INFLIGHT_STATUS: ${{ steps.build.outputs.inflight_status }}
+          NEW_ID: ${{ steps.ship.outputs.id }}
         run: |
+          builds=https://expo.dev/accounts/$(jq -r .expo.owner app.json)/projects/$(jq -r .expo.slug app.json)/builds
+          link() { if [ -n "$1" ]; then echo "[\`$1\`]($builds/$1)"; else echo "[the build list]($builds)"; fi; }
           {
-            if [ "${{ inputs.dry_run }}" = "true" ]; then
-              echo "### Runtime matches — dry run, nothing published"
-            else
-              echo "### OTA published to the production channel"
-            fi
+            case "$ACTION/$DRY_RUN" in
+              publish/true) echo "### Runtime matches — dry run, nothing published" ;;
+              publish/false) echo "### OTA published to the production channel" ;;
+              build/true) echo "### Runtime changed — dry run, nothing built or published" ;;
+              build/false)
+                echo "### Runtime changed → store build $(link "$NEW_ID") submitted to Closed testing; no OTA published"
+                echo
+                echo "No installed app runs this runtime yet. Installs get these changes from the store build."
+                echo "It submits itself to **closed testing** (Play's \`alpha\`) when it finishes — \`--no-wait\`,"
+                echo "so this run ends first. Permissions were checked at the **source** manifest level only."
+                echo "A build reaches ONE track per upload; \`production\` is still a human click: **mobile-release.yml**."
+                ;;
+              queued/true) echo "### Runtime changed, store build $(link "$INFLIGHT_ID") already $INFLIGHT_STATUS — dry run, nothing published" ;;
+              queued/false)
+                echo "### Runtime changed, store build $(link "$INFLIGHT_ID") already $INFLIGHT_STATUS → no second build; OTA published for its runtime"
+                echo
+                echo "No installed app runs this runtime yet. The queued build embeds an older commit and picks"
+                echo "this update up on first launch."
+                ;;
+            esac
             echo
-            echo "Runtime \`${{ steps.fp.outputs.hash }}\`, matching build \`${{ steps.build.outputs.id }}\`."
+            echo "| | |"
+            echo "|---|---|"
+            echo "| this commit | \`$HASH\` |"
+            echo "| newest finished production build | \`$RUNTIME\` ($(link "$BUILD_ID")) |"
           } | tee -a "$GITHUB_STEP_SUMMARY"

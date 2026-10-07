@@ -42,7 +42,8 @@ flowchart TD
 
   OTA --> FP{runtime matches<br/>production build?}
   FP -->|yes| SCAN[export with EAS env → scan bundle] --> PUB[eas update]
-  FP -->|no| EAS[eas build + submit to closed testing]
+  FP -->|no, build of this runtime in flight| SCAN
+  FP -->|no| EAS[eas build + submit to closed testing<br/>no OTA]
 
   NIGHT[backup.yml 03:00 UTC — self-hosted] --> R2[(restic → Cloudflare R2)]
   NIGHT --> SSGN[full SSG rebuild]
