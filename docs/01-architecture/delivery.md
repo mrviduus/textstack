@@ -168,4 +168,4 @@ Single points of failure that matter: **the home server + Cloudflare tunnel** (r
 | Rollback | Actions → Deploy → Run workflow → `rollback_commit` = a SHA on main |
 | Full SSG rebuild on deploy | Run workflow with `rebuild_ssg`, or `make rebuild-ssg` |
 | Workflow permissions | top-level `permissions:` stays read/none; widen per job |
-| Database schema / rollback | Only the `migrator` service migrates ([ADR-021](adr/ADR-021-migrations-owned-by-the-migrator.md)); rollback `docker compose run --rm -e MIGRATE_TARGET=<name> migrator`. Behind-schema alarm: `health-check.yml` step "Schema matches the build" |
+| Database schema / rollback | Only the `migrator` service migrates ([ADR-021](adr/ADR-021-migrations-owned-by-the-migrator.md)); rollback `docker compose run --rm -e MIGRATE_TARGET=<name> migrator` with the **current** image, **before** `rollback_commit`. Behind-schema alarm: `health-check.yml` step "Schema matches the build" |

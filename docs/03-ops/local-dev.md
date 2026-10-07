@@ -53,6 +53,11 @@ roll back on every deploy. The old `MIGRATE_TARGET=… docker compose up migrato
 the container. After a rollback, restart the Api with `docker compose restart api` (or `up -d --no-deps api`);
 a plain `docker compose up -d` re-runs the migrator to head.
 
+Rolling back a release: **schema first, with the current image**, check `/health/ready` shows the
+expected `pending`, **then** the code (`rollback_commit`). An older image cannot revert migrations it
+does not contain; the migrator now exits 1 if asked to
+([ADR-021](../01-architecture/adr/ADR-021-migrations-owned-by-the-migrator.md#rolling-back-a-release-with-a-migration--order-matters)).
+
 ### Create New Migration
 ```bash
 dotnet ef migrations add <Name> \

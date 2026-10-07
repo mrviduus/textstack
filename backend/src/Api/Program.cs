@@ -90,7 +90,8 @@ if (!app.Environment.IsEnvironment("Test"))
         if (pending.Count > 0)
             app.Logger.LogCritical(
                 "Database schema is behind this build: {PendingCount} pending migration(s), newest {NewestPending}. " +
-                "The Api does not migrate; run the migrator (docker compose up migrator). /health/ready is 503 until then",
+                "The Api does not migrate. Unless the schema was rolled back on purpose (ADR-021), the migrator should run. " +
+                "/health/ready is 503 until the schema matches",
                 pending.Count, pending[^1]);
     }
     catch (Exception ex)
@@ -228,22 +229,27 @@ app.MapGet("/health/ready", async (AppDbContext db, IHttpClientFactory httpFacto
 
     // Critical: the Api never migrates (ADR-021), so after a MIGRATE_TARGET rollback, or a
     // migrator that did not run, this build is serving against a schema it was not written for.
-    try
+    // Skipped with the db down: already a 503, and a second connect timeout per probe buys nothing.
+    if (!criticalOk)
+        components["schema"] = new { status = "skipped" };
+    else
     {
-        var pending = (await db.Database.GetPendingMigrationsAsync(ct)).ToList();
-        if (pending.Count == 0)
-            components["schema"] = new { status = "ok" };
-        else
+        try
         {
-            components["schema"] = new { status = "behind", pending };
+            var pending = (await db.Database.GetPendingMigrationsAsync(ct)).ToList();
+            if (pending.Count == 0)
+                components["schema"] = new { status = "ok" };
+            else
+            {
+                components["schema"] = new { status = "behind", pending };
+                criticalOk = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            components["schema"] = new { status = "unknown", error = ex.GetType().Name };
             criticalOk = false;
         }
-    }
-    catch (Exception ex)
-    {
-        // Normally the db being down, which the probe above already reports.
-        components["schema"] = new { status = "unknown", error = ex.GetType().Name };
-        criticalOk = false;
     }
 
     try

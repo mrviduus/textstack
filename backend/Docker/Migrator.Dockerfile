@@ -1,5 +1,6 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0-alpine@sha256:3cc3bbbbf93d82104892f42aa9106b6be4d120346dea0649643a97c801525256 AS build
-RUN apk add --no-cache krb5-libs
+# postgresql-client: migrate.sh reads __EFMigrationsHistory to refuse a rollback this image cannot do.
+RUN apk add --no-cache krb5-libs postgresql-client
 WORKDIR /src
 
 COPY Directory.Build.props Directory.Packages.props ./
