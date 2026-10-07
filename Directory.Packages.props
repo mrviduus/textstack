@@ -82,7 +82,10 @@
     <!-- Hosting -->
     <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.12" />
     <!-- Image Optimization -->
-    <PackageVersion Include="SixLabors.ImageSharp" Version="3.1.12" />
+    <!-- Images: SkiaSharp, the same version PDFtoImage brings in. ImageSharp was removed
+         2026-10-07 (advisories fixed only in v4, which requires a licence key). -->
+    <PackageVersion Include="SkiaSharp" Version="4.150.1" />
+    <PackageVersion Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.150.1" />
     <!-- Worker -->
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.12" />
     <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.12" />
