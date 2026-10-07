@@ -1,6 +1,6 @@
 # ADR-024 — Auth fails closed by path: `/me` and `/internal` like `/admin`
 
-**Status:** Proposed · **Date:** 2026-10-07 · **Review:** [2026-10 #18](../review-2026-10/00-summary.md)
+**Status:** Accepted · **Date:** 2026-10-07 · **Review:** [2026-10 #18](../review-2026-10/00-summary.md)
 (security M3) · **Related:** [ADR-014](ADR-014-guest-sessions.md) (guests have sessions),
 [ADR-017](ADR-017-mcp-oauth-authorization-server.md) (assistant credentials), review #19 (admin roles,
 audit) · **Implement after:** the Play production launch (~2026-10-16)
@@ -106,7 +106,10 @@ Later item: a shared-secret header for `/internal` callers (the pollers, ssg-wor
 2. `/storage` per the owner's answer.
 3. Later: shared secret for `/internal`; admin roles and audit with #19.
 
-## Open questions (owner)
+## Owner decisions (2026-10-07)
 
-1. `/storage` uploads: move behind `/me/books/{id}/file` (recommended) or accept?
-2. Accept `routes.public.txt` as a review gate?
+All as recommended.
+
+1. **`/storage` uploads:** move behind `/me/books/{id}/file`. Readers' files leave the static root.
+2. **`routes.public.txt`:** accepted as a review gate.
+3. **Shared secret for `/internal` callers:** yes, as a later item, after #19.

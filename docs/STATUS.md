@@ -98,8 +98,8 @@ answers "what happened" and nothing answered "what is half-finished right now".
   behind an empty `catch`. A job left `Queued` blocks every later identical enqueue through the duplicate
   check. Fix: await + log — ADR-023 PR 1.
 - **Vocabulary words promoted by the hourly reconciler are never enriched** (found 2026-10-07, ADR-023):
-  `DailyCapService.ReconcileUserAsync` does not call `QueueEnrichment`. Fix: owner decision.
-- **Uploaded originals are readable by URL without auth** (`/storage`, ADR-024): owner decision.
+  `DailyCapService.ReconcileUserAsync` does not call `QueueEnrichment`. Fix: add that call (owner, 2026-10-07).
+- **Uploaded originals are readable by URL without auth** (`/storage`, ADR-024). Fix: move them behind `/me/books/{id}/file` (owner, 2026-10-07).
 - ~~**Reader bug hunt — R3 open list** (2026-10-05).~~ **Closed 2026-10-06** by #723 (mobile), #724
   (data), #725 (web) — [write-up](changelog-archive/2026-H2.md#2026-10-06-reader-bug-hunt-r3). The
   hunt ran on `d92e83aa`; R1/R2 had fixed web C1–C3, H1–H4, M1, M4; mobile C1, C2, H1–H3, M1, M2, M9,

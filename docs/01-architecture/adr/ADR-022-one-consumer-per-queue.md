@@ -1,6 +1,6 @@
 # ADR-022 — One consumer per queue; recover at startup, give back on shutdown
 
-**Status:** Proposed · **Date:** 2026-10-07 · **Review:** [2026-10 #15](../review-2026-10/00-summary.md),
+**Status:** Accepted · **Date:** 2026-10-07 · **Review:** [2026-10 #15](../review-2026-10/00-summary.md),
 backend G4, N2, N3, N10 · **Related:** [ADR-023](ADR-023-single-instance-no-fire-and-forget.md)
 (single-instance rule), review #21 (pollers on the owner's Claude login), #25 (two SEO engines) ·
 **Implement after:** the Play production launch (~2026-10-16), except the live bug below
@@ -116,7 +116,9 @@ that worker; `backup.yml` stays the one nightly trigger.
    delete `StartJobAsync` + endpoint + button.
 4. **Docs:** architecture queue section, STATUS.
 
-## Open questions (owner)
+## Owner decisions (2026-10-07)
 
-1. Book quality queue: delete (recommended) or keep?
-2. OK to drop admin's separate SSG Start step?
+All as recommended.
+
+1. **Book quality queue:** delete it (poller, systemd unit, Make targets, entity, the 12 `/internal` routes, admin page, auto-queue).
+2. **Admin's separate SSG Start step:** dropped. Creating a job means it is Queued; ssg-worker claims it.

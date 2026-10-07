@@ -1,6 +1,6 @@
 # ADR-023 — Api and Worker are single-instance; no fire-and-forget for real work
 
-**Status:** Proposed · **Date:** 2026-10-07 · **Review:** [2026-10 #16](../review-2026-10/00-summary.md),
+**Status:** Accepted · **Date:** 2026-10-07 · **Review:** [2026-10 #16](../review-2026-10/00-summary.md),
 backend G3, G4 (fire-and-forget row), G9, N5 · **Related:** [ADR-022](ADR-022-one-consumer-per-queue.md)
 (one consumer per queue), review #29 (pgvector / Drift) · **Implement after:** the Play production launch
 (~2026-10-16)
@@ -126,8 +126,10 @@ admin-started runs the admin can see and repeat (run evals now).
    architecture README.
 3. **Reconciler enrichment** if the owner says yes.
 
-## Open questions (owner)
+## Owner decisions (2026-10-07)
 
-1. Accept "one Api, one Worker" as a written rule?
-2. Delete the admin SSG periodic-rebuild settings and trust `backup.yml` alone?
-3. Reconciler-promoted words: add the one enrichment call, or leave them on the fallback pool?
+All as recommended.
+
+1. **"One Api, one Worker":** accepted as a written rule.
+2. **Admin SSG periodic-rebuild settings:** deleted. `backup.yml`'s nightly rebuild is the only schedule.
+3. **Words promoted by the reconciler:** add the one enrichment call. Durable enrichment stays deferred.
