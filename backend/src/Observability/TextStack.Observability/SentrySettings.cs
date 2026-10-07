@@ -115,6 +115,19 @@ public static class SentryBootstrap
         options.AttachStacktrace = true;
         options.DefaultTags[ServiceTag] = service;
 
+        // No SQL text, at the source: the DiagnosticSource integration records EF Core / Npgsql
+        // `db.*` spans whose description is the full statement, and transactions never pass Scrub().
+        // Costs the API's traces their database child spans; the http.server transaction and its
+        // outgoing-HTTP and AI spans are unaffected. ScrubTransaction blanks db.* as a backstop.
+        options.DisableDiagnosticSourceIntegration();
+
+        // Outgoing HTTP (OpenAI, Edge TTS, Open Library, the MCP bridge's own API calls). A failed
+        // call is already reported by the code that made it; an extra event per 5xx would double it
+        // and carry the URL. And no sentry-trace/baggage headers to anyone: every downstream we call
+        // is a third party, and none of our services continues a trace from another.
+        options.CaptureFailedRequests = false;
+        options.TracePropagationTargets = [];
+
         // Privacy posture, layer 1: never let the SDK collect anything on its own — no IP, no cookies,
         // no username. (Request-body capture is an ASP.NET-Core-only option and is disabled next to
         // the API wiring, where the options type exposes it.)

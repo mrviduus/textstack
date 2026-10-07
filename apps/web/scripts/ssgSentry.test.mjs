@@ -1,4 +1,6 @@
 // @vitest-environment node
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createTransport } from '@sentry/node'
 import {
@@ -72,6 +74,21 @@ describe('stripQuery / cleanText', () => {
     ['GET http://api:8080/search?q=what+the+reader+typed 500', 'what+the+reader+typed'],
   ])('cleanText_Secret_IsRemoved: %s', (text, secret) => {
     expect(cleanText(text)).not.toContain(secret)
+  })
+
+  // The prefixes come from the code that issues them, so a new one fails here until the regex knows it.
+  it('cleanText_EveryIssuedTokenPrefix_IsRemoved', () => {
+    const repo = fileURLToPath(new URL('../../../', import.meta.url))
+    const sources = ['backend/src/Application/Auth/OAuth.cs', 'backend/src/Application/Auth/McpKeys.cs']
+      .map((f) => readFileSync(`${repo}${f}`, 'utf8'))
+      .join('\n')
+    const prefixes = [...sources.matchAll(/const string \w*Prefix = "(ts[a-z]_)"/g)].map((m) => m[1])
+
+    expect(prefixes.sort()).toEqual(['tsc_', 'tsk_', 'tso_', 'tsr_'])
+    for (const prefix of prefixes) {
+      const secret = `${prefix}AbCdEf0123456789_-xyz`
+      expect(cleanText(`token ${secret} rejected`)).not.toContain(secret)
+    }
   })
 
   it('cleanText_OrdinaryText_IsUnchanged', () => {

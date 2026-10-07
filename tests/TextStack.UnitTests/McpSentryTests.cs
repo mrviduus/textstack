@@ -41,6 +41,27 @@ public class McpSentryTests
         Assert.Contains(SentryScrubber.Redacted, redacted);
     }
 
+    /// <summary>Every token prefix the codebase issues, found by reflection over Application — a new
+    /// one (the refresh token's tsr_ was once missed) fails here until the scrubber covers it.</summary>
+    [Fact]
+    public void RedactSecrets_EveryIssuedTokenPrefix_IsRemoved()
+    {
+        var prefixes = typeof(Application.Auth.OAuth).Assembly.GetTypes()
+            .SelectMany(t => t.GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static))
+            .Where(f => f.IsLiteral && f.FieldType == typeof(string))
+            .Select(f => (string)f.GetRawConstantValue()!)
+            .Where(v => System.Text.RegularExpressions.Regex.IsMatch(v, "^ts[a-z]_$"))
+            .Distinct()
+            .ToList();
+
+        Assert.Superset(new HashSet<string> { "tsk_", "tso_", "tsr_", "tsc_" }, prefixes.ToHashSet());
+        foreach (var prefix in prefixes)
+        {
+            var secret = prefix + "AbCdEf0123456789_-xyz";
+            Assert.DoesNotContain(secret, SentryScrubber.RedactSecrets($"token {secret} rejected"));
+        }
+    }
+
     [Theory]
     [InlineData("POST https://textstack.app/mcp/k/" + ConnectKey + " failed")]
     [InlineData("POST /mcp/k/" + ConnectKey + "/ failed")]
@@ -170,6 +191,61 @@ public class McpSentryTests
         McpHosts.ConfigureSentry(options);
 
         Assert.Equal(LogLevel.Warning, options.MinimumBreadcrumbLevel);
+    }
+
+    [Fact]
+    public void ConfigureSentry_HttpHandler_IsNotAttached()
+    {
+        var options = new SentryLoggingOptions();
+
+        McpHosts.ConfigureSentry(options);
+
+        Assert.True(options.DisableSentryHttpMessageHandler);
+    }
+
+    [Fact]
+    public void Apply_OutgoingHttp_NoFailedRequestEventsNoTraceHeaders()
+    {
+        var options = new SentryOptions();
+        Assert.True(options.CaptureFailedRequests); // the SDK defaults this fix exists to override
+        Assert.NotEmpty(options.TracePropagationTargets);
+
+        new SentrySettings("https://k@example.ingest.sentry.io/1", "Production", 0.2, false).Apply(options, "api");
+
+        Assert.False(options.CaptureFailedRequests);
+        Assert.Empty(options.TracePropagationTargets);
+    }
+
+    [Fact]
+    public void Apply_DiagnosticSourceIntegration_IsRemoved()
+    {
+        // It records EF Core / Npgsql db spans with the SQL as their description. The SDK has no public
+        // getter, so this reads the internal list it edits; if Sentry renames it, this fails loudly.
+        static string Integrations(SentryOptions o) =>
+            typeof(SentryOptions).GetField("_defaultIntegrations",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+                .GetValue(o)!.ToString()!;
+        var options = new SentryOptions();
+        Assert.Contains("SentryDiagnosticListenerIntegration", Integrations(options));
+
+        new SentrySettings("https://k@example.ingest.sentry.io/1", "Production", 0.2, false).Apply(options, "api");
+
+        Assert.DoesNotContain("SentryDiagnosticListenerIntegration", Integrations(options));
+    }
+
+    [Fact]
+    public void ScrubTransaction_DbSpan_SqlIsRemoved()
+    {
+        var tracer = new TransactionTracer(Sentry.Extensibility.HubAdapter.Instance,
+            new TransactionContext("GET /api/search", "http.server", isSampled: true));
+        tracer.StartChild("db.query", "SELECT * FROM chapters WHERE plain_text @@ 'reader query'").Finish();
+        tracer.StartChild("http.client", "GET https://openlibrary.org/search.json?title=Secret").Finish();
+
+        var scrubbed = SentryScrubber.ScrubTransaction(new SentryTransaction(tracer))!;
+
+        var spans = scrubbed.Spans.ToDictionary(s => s.Operation);
+        Assert.Equal(SentryScrubber.Redacted, spans["db.query"].Description);
+        Assert.Equal("GET https://openlibrary.org/search.json", spans["http.client"].Description);
     }
 
     [Fact]

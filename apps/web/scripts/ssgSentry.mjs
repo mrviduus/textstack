@@ -78,7 +78,8 @@ const SECRET_PATTERNS = [
   // user:password@ in a connection string or URL (DATABASE_URL carries one).
   [/(\b[a-z][a-z0-9+.-]*:\/\/)[^\s/@:]+:[^\s/@]+@/gi, `$1${REDACTED}@`],
   [/\bBearer\s+[^\s"',;]+/gi, `Bearer ${REDACTED}`],
-  [/\bts[ko]_[A-Za-z0-9_-]+/g, REDACTED],
+  // Every prefix we issue: tsk_ (McpKeys), tso_/tsr_/tsc_ (OAuth). The test reads them from the C#.
+  [/\bts[kocr]_[A-Za-z0-9_-]+/g, REDACTED],
   [/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*/g, REDACTED],
   // A query string inside text — a '?' followed by key=value, cut to the next whitespace.
   [/\?[\w.%[\]-]+=\S*/g, ''],

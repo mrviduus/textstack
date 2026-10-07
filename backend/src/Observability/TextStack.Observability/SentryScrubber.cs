@@ -133,8 +133,14 @@ public static class SentryScrubber
             request.Url = StripQuery(request.Url);
         }
 
+        // A db.* span's description IS the SQL statement. SentryBootstrap.Apply turns off the
+        // DiagnosticSource integration that records them; this is the guard if anything else does.
         foreach (var span in transaction.Spans)
-            span.Description = StripQuery(span.Description);
+        {
+            span.Description = span.Operation?.StartsWith("db", StringComparison.OrdinalIgnoreCase) == true
+                ? Redacted
+                : StripQuery(span.Description);
+        }
 
         return transaction;
     }
@@ -237,14 +243,15 @@ public static class SentryScrubber
     }
 
     // Credentials that can surface in free text (a log line, an exception message). Bearer values,
-    // our own key formats (tsk_ connect keys, tso_ OAuth tokens), JWTs (the device-flow token), and
+    // every prefix we issue (tsk_ connect key — McpKeys; tso_ access, tsr_ refresh, tsc_ client id —
+    // OAuth; a test fails if Application declares one this misses), JWTs (the device-flow token), and
     // the key segment of the MCP connect URL, which is the key itself. Compiled Regex, not
     // [GeneratedRegex] — the ARM64 SIGILL caveat in CLAUDE.md.
     private static readonly (Regex Pattern, string Replacement)[] SecretPatterns =
     [
         (new(@"\bBearer\s+[^\s""',;]+", RegexOptions.Compiled | RegexOptions.IgnoreCase), "Bearer " + Redacted),
         (new(@"/mcp/k/[^\s/?#""']+", RegexOptions.Compiled), "/mcp/k/" + Redacted),
-        (new(@"\bts[ko]_[A-Za-z0-9_-]+", RegexOptions.Compiled), Redacted),
+        (new(@"\bts[kocr]_[A-Za-z0-9_-]+", RegexOptions.Compiled), Redacted),
         (new(@"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*", RegexOptions.Compiled), Redacted),
     ];
 

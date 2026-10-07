@@ -194,13 +194,17 @@ public static class McpHosts
     /// The bridge's tightening on top of the shared Sentry options. Every request here carries a
     /// credential (a bearer, or a key in the <c>/mcp/k/</c> path) and most carry the reader's text, so:
     /// Information lines are not breadcrumbs (an HttpClient line names the upstream URL a tool called),
-    /// and exception messages are dropped — see <see cref="SentryScrubber.ScrubStrict"/>. Request data
+    /// exception messages are dropped — see <see cref="SentryScrubber.ScrubStrict"/> — and the Sentry
+    /// HTTP handler is not attached to outgoing calls. Request data
     /// is never attached in the first place: this host reports through the logging provider, which has
     /// no request to attach.
     /// </summary>
     internal static void ConfigureSentry(SentryLoggingOptions options)
     {
         options.MinimumBreadcrumbLevel = LogLevel.Warning;
+        // No Sentry handler on TextStackApiClient: this host sends no traces, so it would only add
+        // headers to every upstream call and HTTP breadcrumbs naming the URL a tool fetched.
+        options.DisableSentryHttpMessageHandler = true;
         options.SetBeforeSend((e, _) => SentryScrubber.ScrubStrict(e));
     }
 

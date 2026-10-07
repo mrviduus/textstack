@@ -122,6 +122,15 @@ that the deploy never starts: every batch was built, failed to resolve and was d
 --profile observability up -d aspire-dashboard`, `OTEL_EXPORTER_OTLP_ENDPOINT=http://aspire-dashboard:18889`
 in `.env`, UI on `127.0.0.1:18888` — and keeps telemetry in memory only.
 
+**SDK defaults overridden for every .NET host** (`SentryBootstrap.Apply`):
+
+| default | ours | why |
+|---|---|---|
+| DiagnosticSource integration on | **off** | It records EF Core / Npgsql `db.*` spans whose description is the full SQL. API traces lose their database child spans; the `http.server` transaction, outgoing-HTTP and AI spans stay. `ScrubTransaction` also blanks any `db.*` description. |
+| `CaptureFailedRequests` true | **false** | A failed outgoing call (OpenAI, Edge TTS, Open Library, the bridge's API calls) is reported by the code that made it; the SDK's extra event would double it and carry the URL. |
+| `TracePropagationTargets` `.*` | **empty** | No `sentry-trace`/`baggage` headers to anyone: every downstream is a third party, and no service of ours continues another's trace. |
+| HTTP handler on every `HttpClient` | **off on mcp-server** (`DisableSentryHttpMessageHandler`) | That host sends no traces; the handler would only add headers and URL breadcrumbs. Kept on API/Worker for the outgoing-HTTP spans in API traces. |
+
 **If metrics are wanted later:** a hosted OTLP backend (e.g. Grafana Cloud's free tier) is the
 endpoint plus an auth header — no code change. It is the owner's call because of cost and privacy:
 OTLP traces carry full SQL text (`SetDbStatementForText`) and the client IP (`http.client_ip`), and
@@ -129,7 +138,8 @@ none of it passes the Sentry scrubber. Strip both before pointing production at 
 
 **Privacy (the policy's promise).** Every service scrubs before sending, by allowlist: tags and
 extras not blessed are dropped or redacted; no user, no cookies, no request bodies, no query strings;
-free text loses credentials (bearer, `tsk_`/`tso_` keys, JWTs) and query strings, and is truncated.
+free text loses credentials (bearer, every issued prefix — `tsk_`, `tso_`, `tsr_`, `tsc_` — JWTs) and
+query strings, and is truncated.
 The .NET hosts share `TextStack.Observability` (`SentryScrubber`), which also redacts emails, phones and
 the `/mcp/k/<key>` segment; mcp-server additionally drops exception messages (tool arguments are the
 reader's text) and keeps Information lines out of breadcrumbs. The ssg-worker ports the URL and
