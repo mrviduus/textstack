@@ -34,9 +34,9 @@ All P0 and P1 items are fixed and live; the P2/P3 list is planned work.
 | 14 | Upload size checked before reading; storage path guard; EPUB entry/size limits | #704 |
 | — | Clients gap 2: JSON-LD escaped | this PR |
 | 17 | Migrator is the only migrator (Api: Development + launchSettings flag only); schema behind the build → Critical log + `/health/ready` 503; rollback via `docker compose run --rm -e MIGRATE_TARGET` (the documented form never reached the container) — [ADR-021](../adr/ADR-021-migrations-owned-by-the-migrator.md) | #706, 2026-10-07 |
-| 15 | Queues: **ADR drafted** — [ADR-022](../adr/ADR-022-one-claim-rule-for-job-queues.md) (Proposed): one SKIP LOCKED claim + lease + attempts cap + stale sweep, one tested implementation; 7 queues, 4 claim styles today | ADR only |
-| 16 | Background work: **ADR drafted** — [ADR-023](../adr/ADR-023-background-work-runs-in-the-worker.md) (Proposed): single-instance rule; Api keeps 1 hosted service; vocab enrichment durable in the Worker | ADR only |
-| 18 | Auth by default: **ADR drafted** — [ADR-024](../adr/ADR-024-route-access-by-default.md) (Proposed): access class per route group, unclassified = 401, CI test over all 312 routes | ADR only |
+| 15 | Queues: **ADR drafted** — [ADR-022](../adr/ADR-022-one-consumer-per-queue.md) (Proposed): one consumer per queue, startup recovery, shutdown gives the claim back; first fix = a deploy marks in-flight uploads "corrupted" | ADR only |
+| 16 | Background work: **ADR drafted** — [ADR-023](../adr/ADR-023-single-instance-no-fire-and-forget.md) (Proposed): single-instance rule; await the 8 SSG enqueues; delete 3 dead workers | ADR only |
+| 18 | Auth by default: **ADR drafted** — [ADR-024](../adr/ADR-024-auth-fails-closed-by-path.md) (Proposed): `/me` + `/internal` path gates, public-routes snapshot; `/storage` uploads public by URL (owner) | ADR only |
 | 22 | OTLP export off in prod (it was exporting to a container that never runs); Sentry on mcp-server and ssg-worker, same scrubbing; one `service` tag across all four (2026-10-07) | this PR |
 | — | Also shipped: podcast deleted (#692), SSG full rebuild nightly not per deploy (#697), deploy waits for a running SSG rebuild (#698), deploy-failing test flake (#699) | |
 

@@ -88,15 +88,18 @@ answers "what happened" and nothing answered "what is half-finished right now".
 
 ## Known-broken / open follow-ups
 
-- **SSG rebuild after an admin edit may be silently skipped** (found 2026-10-07, ADR-023). Cover upload,
-  import, Standard Ebooks sync, genre and author edits queue the rebuild in a `Task.Run` that uses the
-  request's scoped `ISsgJobService`/`DbContext` after the request ends; `catch { }` hides the failure
-  (`AdminEndpoints.cs:438,513,579`, `AdminGenresEndpoints.cs:298`, `AdminAuthorsEndpoints.cs:346`).
-  The nightly Full rebuild repairs the pages. Fix: `await` the insert — ADR-023 PR 1.
-- **Vocabulary words promoted by the hourly reconciler get no distractors, hint, explanation or
-  embedding** (found 2026-10-07, ADR-023). Only the endpoint paths call `QueueEnrichment`
-  (`VocabularyEndpoints.cs:273`, `.Pending.cs:84`, `.Lookups.cs:137`); `DailyCapService.ReconcileUserAsync`
-  does not. Review falls back to random distractors. Fix: durable enrichment in the Worker — ADR-023 PR 2.
+- **A deploy fails the upload being processed** (found 2026-10-07, ADR-022). The Worker restarts on
+  every push; the cancelled extraction lands in the generic `catch` and the book is marked `Failed`,
+  "corrupted or password-protected" (`UserIngestionService.cs:393-405`; catalog
+  `Worker/Services/IngestionService.cs:305-338`). Fix: cancellation → `Queued` — ADR-022 PR 1.
+- **SSG rebuild after an admin edit or publish may be silently skipped** (found 2026-10-07, ADR-023).
+  Eight un-awaited enqueues use the request's scoped `DbContext` after the request (`AdminEndpoints.cs:438,513,579`,
+  `AdminGenresEndpoints.cs:298`, `AdminAuthorsEndpoints.cs:346`, `AdminService.Editions.cs:268-270,322,343`)
+  behind an empty `catch`. A job left `Queued` blocks every later identical enqueue through the duplicate
+  check. Fix: await + log — ADR-023 PR 1.
+- **Vocabulary words promoted by the hourly reconciler are never enriched** (found 2026-10-07, ADR-023):
+  `DailyCapService.ReconcileUserAsync` does not call `QueueEnrichment`. Fix: owner decision.
+- **Uploaded originals are readable by URL without auth** (`/storage`, ADR-024): owner decision.
 - ~~**Reader bug hunt — R3 open list** (2026-10-05).~~ **Closed 2026-10-06** by #723 (mobile), #724
   (data), #725 (web) — [write-up](changelog-archive/2026-H2.md#2026-10-06-reader-bug-hunt-r3). The
   hunt ran on `d92e83aa`; R1/R2 had fixed web C1–C3, H1–H4, M1, M4; mobile C1, C2, H1–H3, M1, M2, M9,
