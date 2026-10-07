@@ -68,9 +68,12 @@ comparison. It was never written. What does it now is
 [`.github/workflows/mobile-ota.yml`](../../.github/workflows/mobile-ota.yml): on every
 push to `main` touching `apps/mobile/**` or `packages/**` it resolves the runtime,
 compares it with the newest finished Android production build, and publishes the OTA
-only on a match. A mismatch **fails the run** and says a build is needed — deliberately,
-because `eas update` succeeds either way, and a silent skip is indistinguishable from a
-delivered update.
+only on a match. ~~A mismatch fails the run~~ — no longer: since 2026-09-28 (#625) a mismatch
+**starts an EAS production build and auto-submits it to Closed testing** (`alpha`), and
+then still publishes the update, which lands on the new runtime only. So **merging any
+native change (a dependency, a config plugin, `app.json`) ships a store build to the
+testers** — time the merge accordingly. `production` stays a manual
+`mobile-release.yml` run.
 
 Run it by hand from Actions → Mobile OTA (auto) with `dry_run` on to see the comparison
 without publishing. It needs the `EXPO_TOKEN` secret, like every other EAS workflow here.
@@ -101,14 +104,31 @@ Blocked on purpose, via `app.json` → `android.blockedPermissions`:
 | `SYSTEM_ALERT_WINDOW` | `expo-dev-launcher` **config plugin** — writes into the shared main manifest even in release builds | No overlay feature exists. |
 | `CAMERA` | `expo-image-picker` default | Avatars come from the photo library only. |
 
+Removed at the source, via a plugin option rather than `blockedPermissions` (2026-10-07,
+version 1.1.0):
+
+| Permission / component | Why it appeared | How it is removed |
+|---|---|---|
+| `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PLAYBACK`, service `expo.modules.audio.service.AudioControlsService` (`foregroundServiceType="mediaPlayback"`) | `expo-audio` config plugin: `enableBackgroundPlayback` defaults to `true` | `app.json` → `expo-audio` plugin `"enableBackgroundPlayback": false` |
+
+These were the only foreground-service entries in the merged release manifest (checked with
+the merger blame report). Their presence made Play Console mark the **Foreground service
+permissions** declaration overdue and block new releases. The service only ever starts
+from `player.setActiveForLockScreen()`, which the app never calls: TTS is foreground-only
+and **pauses when the app goes to the background**, as it did before. The same option
+also drops iOS `UIBackgroundModes: audio`. Checked on an emulator release build: a word
+plays, backgrounding pauses it without a crash, and it plays again after resume. If
+background or lock-screen playback is ever wanted, it comes back together with the Play
+declaration (a form plus a demo video). `check:permissions` now fails if either
+permission returns.
+
+Play still flags the declaration while **any active release on any track** carries
+the permission. When 1.1.0 is live on Closed testing, check App content again; if it still
+complains, an older bundle on another track (Internal) is the cause. Supersede or
+deactivate that release instead of filling in the form.
+
 Still requested, still unresolved — see the WATCH list in that script:
 
-- `FOREGROUND_SERVICE` + `FOREGROUND_SERVICE_MEDIA_PLAYBACK` from `expo-audio`. The app
-  plays TTS in the foreground only, so they look unused — and `MEDIA_PLAYBACK` drags the
-  app into Play's foreground-service declaration flow (a form plus a demo video). Not
-  blocked blind: if `expo-audio` starts a service internally, blocking them turns TTS
-  into a `SecurityException`. **Decide on a device**: block both, build, then play a
-  word, a sentence and a full paragraph.
 - 20 OEM launcher/badge permissions from ShortcutBadger via `expo-notifications`. The app
   never sets a badge. On a reading app's listing, "read your settings" and "install
   shortcuts" read badly.
@@ -261,6 +281,12 @@ points at hosted `ingest.us.sentry.io` rather than a self-hosted instance. Keep 
 1. `npm run typecheck && npm test` in `apps/mobile` (CI runs both).
 2. Permission check — the four levels above.
 3. If native deps or plugins changed: build, do **not** OTA.
+3a. **Bump `expo.version` in `app.json` for every store release** (semver; 1.1.0 was the
+    first bump, 2026-10-07). It is the `versionName` users see in Play. Do not touch
+    `versionCode`: `eas.json` has `appVersionSource: "remote"` + `autoIncrement`, so EAS
+    owns it. The bump changes the fingerprint, so the build gets a new runtime. OTAs
+    published after that reach only installs of the new build. Older installs keep their
+    old runtime and get no more OTAs until they update from the store.
 4. Bump `privacy.updated` if the policy text moved; update Data Safety the same day.
 5. Submit to the track: `npm run submit:closed` (or `:production`).
 6. Read the **pre-launch report** — a free crawl on ~10 real devices, and the cheapest

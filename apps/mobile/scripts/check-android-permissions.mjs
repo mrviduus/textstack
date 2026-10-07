@@ -61,21 +61,15 @@ const ALLOWED_PATTERNS = [
 
 // Requested, tolerated, but not yet justified — warned about on every run so they
 // cannot settle into the background.
-const WATCH = new Map([
-  // expo-audio injects these unconditionally. This app plays TTS in the FOREGROUND
-  // only: useTts.ts sets { playsInSilentMode: true, allowsRecording: false }, there
-  // is no UIBackgroundModes on iOS, and nothing starts a media service. So they look
-  // unused — and FOREGROUND_SERVICE_MEDIA_PLAYBACK is not free: it pulls the app into
-  // Play's foreground-service declaration flow (a form plus a demo video).
-  //
-  // Not blocked yet, because if expo-audio does start a foreground service
-  // internally, blocking them turns TTS into a SecurityException — and TTS is a core
-  // feature. Decide on a real device: block both in app.json
-  // android.blockedPermissions, build, then play a word, a sentence and a full
-  // paragraph. If audio still works, block them for good.
-  ['android.permission.FOREGROUND_SERVICE', 'expo-audio default; app plays TTS in the foreground only'],
-  ['android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK', 'expo-audio default; triggers Play foreground-service declaration'],
-])
+//
+// FOREGROUND_SERVICE / FOREGROUND_SERVICE_MEDIA_PLAYBACK used to sit here. expo-audio
+// adds them (plus AudioControlsService, foregroundServiceType=mediaPlayback) unless
+// its plugin gets `enableBackgroundPlayback: false` — which app.json now sets
+// (2026-10-07). The service only starts from player.setActiveForLockScreen(), which
+// this app never calls; TTS is foreground-only. Their presence made Play demand the
+// foreground-service declaration and blocked releases. They are deliberately in
+// neither list now, so if one comes back this script fails as "unsanctioned".
+const WATCH = new Map()
 
 // ShortcutBadger, pulled in transitively by expo-notifications, requests a launcher
 // permission for every OEM it knows about. The app never sets a badge count. These
