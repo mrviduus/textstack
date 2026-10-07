@@ -50,7 +50,9 @@ migrator logged `Target: latest`. Rollback had been a no-op for nine months.
   re-applies what you removed.
 - A code rollback over a newer schema (DB ahead of the build) is not flagged: additive migrations make
   that the normal state of a code rollback.
-- `health-check.yml` fails within 5 min if production serves against a schema behind its build: its
-  SSG-freshness step reads `/health/ready` with `curl -sf`, so the 503 fails it (under the SSG label).
+- `health-check.yml` alarms within 5 min if production serves against a schema behind its build: step
+  **"Schema matches the build"** fails with `::error::` naming the pending migrations. It reads the one
+  `/health/ready` response fetched by "Readiness probe" (no `-f`, so the 503 body is kept), which the SSG
+  step reuses; each alarm carries its own label.
 - Local `dotnet run` is unchanged. `dotnet run --no-launch-profile` skips the flag: run
   `dotnet ef database update --project backend/src/Infrastructure --startup-project backend/src/Api`.
