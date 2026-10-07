@@ -194,6 +194,11 @@ environment reports nothing on any service.
   exiting non-zero already stops the deploy (`api` needs `service_completed_successfully`); any other
   schema behind the build is caught by `health-check.yml` "Schema matches the build" within 5 min, not
   by the deploy ([ADR-021](adr/ADR-021-migrations-owned-by-the-migrator.md)).
+- **The deploy's SSG wait and the worker's job deadline go together.** deploy.yml waits up to 40 min
+  for a `Running` rebuild started in the last 60 min. ssg-worker stops any rebuild at 35 min
+  (`SSG_JOB_DEADLINE_MS`) and marks it `Failed`. Before 2026-10-07, a rebuild against a hung API
+  stayed `Running`, and every deploy in the next hour waited the full 40 min, then deployed beside a
+  live job. A deadline above 40 min brings that back, so change the two together.
 - **Free disk space** in `images.yml` stays until the slim Dockerfiles land and a run shows the room.
 - **GHCR packages are public**: they expose OS patch levels and the deploy cadence. Accepted.
 - **Scan blind spots:** nested archives (zip, nupkg, jar, tgz) are not unpacked; token shapes outside
