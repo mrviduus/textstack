@@ -17,6 +17,8 @@
  * A failed route is reported by its path and the first line of its error, never its HTML.
  */
 
+import { NOINDEX_SKIP } from './ssgRender.mjs'
+
 export const SERVICE = 'ssg-worker'
 
 /** Same cap as the .NET scrubber: the only free text we send is our own and exception messages. */
@@ -127,9 +129,6 @@ export function scrubEvent(event) {
 
 // ── What gets reported ───────────────────────────────────────────────────────
 
-/** A render that prerender skips on purpose: the page is a 404 or a draft, so there is no file. */
-const NOINDEX = 'Page has noindex meta tag'
-
 /**
  * The routes worth an event, from prerender's results file: still failed after its retries, and not
  * deliberately skipped. Each carries the first line of its error only — prerender appends the
@@ -138,7 +137,7 @@ const NOINDEX = 'Page has noindex meta tag'
 export function routeFailuresToReport(results) {
   if (!Array.isArray(results)) return []
   return results
-    .filter((r) => r && r.success === false && r.error !== NOINDEX)
+    .filter((r) => r && r.success === false && r.error !== NOINDEX_SKIP)
     .map((r) => ({
       route: stripQuery(String(r.route ?? '')),
       routeType: String(r.routeType ?? 'unknown'),

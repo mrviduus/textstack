@@ -14,11 +14,12 @@
  */
 
 import puppeteer from 'puppeteer';
-import { createServer, request as httpRequest } from 'http';
+import { request as httpRequest } from 'http';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { dirname, join, isAbsolute } from 'path';
 import { fileURLToPath } from 'url';
 import { URL } from 'url';
+import { startServer, stopServer, renderRoute, processRoutes } from './ssgRender.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = join(__dirname, '..', 'dist');
@@ -65,101 +66,13 @@ const PORT = 3456;
 
 // Parse API URL
 const apiUrl = new URL(API_URL);
-
-// MIME types for static server
-const MIME_TYPES = {
-  '.html': 'text/html',
-  '.js': 'application/javascript',
-  '.css': 'text/css',
-  '.json': 'application/json',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.svg': 'image/svg+xml',
-  '.woff': 'font/woff',
-  '.woff2': 'font/woff2',
-};
+const RENDER_OPTS = { outputDir: SSG_DIR, port: PORT };
 
 /**
  * Emit a JSON event to stdout for Worker to parse
  */
 function emitEvent(event) {
   console.log(JSON.stringify(event));
-}
-
-/**
- * Proxy request to API
- */
-function proxyToApi(req, res, path) {
-  const options = {
-    hostname: apiUrl.hostname,
-    port: apiUrl.port || 80,
-    path: path,
-    method: req.method,
-    headers: {
-      ...req.headers,
-      host: API_HOST,
-    },
-  };
-
-  const proxyReq = httpRequest(options, (proxyRes) => {
-    res.writeHead(proxyRes.statusCode, proxyRes.headers);
-    proxyRes.pipe(res);
-  });
-
-  proxyReq.on('error', (err) => {
-    console.error('Proxy error:', err.message);
-    res.writeHead(502);
-    res.end('Bad Gateway');
-  });
-
-  req.pipe(proxyReq);
-}
-
-/**
- * Start a static file server with API proxy
- */
-function startServer() {
-  return new Promise((resolve) => {
-    const server = createServer((req, res) => {
-      const url = req.url.split('?')[0];
-
-      // Proxy API requests (React app uses /api prefix)
-      if (url.startsWith('/api/') || url.startsWith('/api')) {
-        const apiPath = url.replace(/^\/api/, '');
-        return proxyToApi(req, res, apiPath || '/');
-      }
-
-      // Proxy storage requests (images, covers)
-      if (url.startsWith('/storage')) {
-        return proxyToApi(req, res, url);
-      }
-
-      // Static files
-      let filePath = join(DIST_DIR, url === '/' ? '/index.html' : url);
-
-      // SPA fallback: serve index.html for all non-file routes
-      if (!existsSync(filePath) || !filePath.includes('.')) {
-        filePath = join(DIST_DIR, 'index.html');
-      }
-
-      try {
-        const content = readFileSync(filePath);
-        const ext = filePath.substring(filePath.lastIndexOf('.'));
-        const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-        res.writeHead(200, { 'Content-Type': contentType });
-        res.end(content);
-      } catch (err) {
-        res.writeHead(404);
-        res.end('Not found');
-      }
-    });
-
-    server.listen(PORT, () => {
-      console.log(`Static server with API proxy running at http://localhost:${PORT}`);
-      console.log(`API proxy target: ${API_URL} (Host: ${API_HOST})`);
-      resolve(server);
-    });
-  });
 }
 
 /**
@@ -225,239 +138,6 @@ async function getRoutes() {
   return fetchRoutesFromApi();
 }
 
-/**
- * Render a single route using Puppeteer
- */
-async function renderRoute(browser, routeObj) {
-  const route = typeof routeObj === 'string' ? routeObj : routeObj.route || routeObj.Route;
-  const routeType = typeof routeObj === 'string' ? 'unknown' : (routeObj.routeType || routeObj.RouteType || 'unknown');
-
-  const page = await browser.newPage();
-  const startTime = Date.now();
-
-  // Capture diagnostics for timeout reporting
-  const consoleMessages = [];
-  const failedRequests = [];
-  page.on('console', msg => {
-    const type = msg.type();
-    if (type === 'error' || type === 'warning') {
-      consoleMessages.push(`[${type}] ${msg.text()}`);
-    }
-  });
-  page.on('pageerror', err => consoleMessages.push(`[pageerror] ${err.message}`));
-  page.on('requestfailed', req => failedRequests.push(`${req.method()} ${req.url()} — ${req.failure()?.errorText || 'unknown'}`));
-  page.on('response', res => {
-    if (res.status() >= 400) failedRequests.push(`HTTP ${res.status()} ${res.url()}`);
-  });
-
-  try {
-    // Set viewport for consistent rendering
-    await page.setViewport({ width: 1280, height: 800 });
-
-    // Override fetch to redirect localhost:8080 API calls to our proxy
-    await page.evaluateOnNewDocument((proxyPort) => {
-      const originalFetch = window.fetch;
-      window.fetch = function(input, init) {
-        let url = typeof input === 'string' ? input : input.url;
-        if (url.includes('localhost:8080')) {
-          // Rewrite to proxy, avoiding double /api prefix
-          let newUrl = url.replace('http://localhost:8080', `http://localhost:${proxyPort}`);
-          if (!newUrl.includes('/api/')) {
-            newUrl = newUrl.replace(`http://localhost:${proxyPort}/`, `http://localhost:${proxyPort}/api/`);
-          }
-          if (typeof input === 'string') {
-            return originalFetch.call(this, newUrl, init);
-          } else {
-            return originalFetch.call(this, new Request(newUrl, input), init);
-          }
-        }
-        return originalFetch.call(this, input, init);
-      };
-    }, PORT);
-
-    // Navigate to the route
-    const url = `http://localhost:${PORT}${route}`;
-    await page.goto(url, { waitUntil: 'networkidle0', timeout: 30000 });
-
-    // Wait for React to render (content OR error page)
-    // Returns: 'content' | 'error' | 'skeleton' (still loading)
-    const renderState = await page.waitForFunction(() => {
-      // Check for error pages first (fast exit)
-      const errorPage = document.querySelector('.error-page, .not-found, [class*="error"], [class*="not-found"]');
-      const errorText = document.body?.innerText || '';
-      if (errorPage || errorText.includes('not found') || errorText.includes('404') || errorText.includes('API error')) {
-        return 'error';
-      }
-
-      // Check if still loading (skeleton visible)
-      const skeleton = document.querySelector('.book-detail__skeleton, .books-grid__skeleton, .author-detail__skeleton, .author-detail__header--skeleton, .genre-detail__skeleton');
-      if (skeleton) return 'skeleton';
-
-      // Check for loaded content (match H1 tags specifically, not shared skeleton classes)
-      const bookDetail = document.querySelector('h1.book-hero__title, .book-detail__header h1');
-      const booksList = document.querySelector('.books-grid .book-card:not(.book-card--skeleton)');
-      const authorDetail = document.querySelector('h1.author-detail__name');
-      const genreDetail = document.querySelector('h1.genre-detail__title, .genre-detail__title');
-      const staticPage = document.querySelector('.about-page, .static-content, main h1');
-      const homePage = document.querySelector('.home-hero__title');
-      const listPage = document.querySelector('.authors-page h1, .genres-page h1');
-
-      if (bookDetail || booksList || authorDetail || genreDetail || staticPage || homePage || listPage) {
-        return 'content';
-      }
-
-      return null; // Keep waiting
-    }, { timeout: 5000 }).then(h => h?.jsonValue()).catch(() => 'timeout');
-
-    // Fail loudly on timeout or skeleton — previously we silently saved empty shells,
-    // producing 247 SSG files with no H1, canonical, or og:image. Bots got nothing.
-    if (renderState === 'timeout' || renderState === 'skeleton') {
-      const bodySnippet = await page.evaluate(() => {
-        const root = document.querySelector('#root');
-        return (root?.innerHTML || document.body?.innerHTML || '').slice(0, 500);
-      }).catch(() => '<unavailable>');
-      const diag = [
-        `renderState=${renderState}`,
-        `console: ${consoleMessages.slice(-10).join(' | ') || '<none>'}`,
-        `failedRequests: ${failedRequests.slice(-10).join(' | ') || '<none>'}`,
-        `bodySnippet: ${bodySnippet.replace(/\s+/g, ' ')}`,
-      ].join('\n    ');
-      throw new Error(`prerender failed for ${route}\n    ${diag}`);
-    }
-
-    // Small stabilization delay for successful content
-    if (renderState === 'content') {
-      await new Promise(r => setTimeout(r, 100));
-    }
-
-    // Get the rendered HTML
-    let html = await page.content();
-
-    // Skip saving pages with noindex (real 404 or error state) — keep existing SSG file
-    const hasNoindex = html.includes('content="noindex');
-    if (hasNoindex) {
-      const renderTimeMs = Date.now() - startTime;
-      return { route, routeType, success: false, error: 'Page has noindex meta tag', renderTimeMs };
-    }
-
-    // Strip JS module scripts to prevent hydration overwriting SSG content
-    // Googlebot executes JS which causes React to re-render and potentially show errors
-    html = html.replace(/<script type="module"[^>]*crossorigin[^>]*src="\/assets\/[^"]*"[^>]*><\/script>/g, '');
-    // Also strip modulepreload links
-    html = html.replace(/<link rel="modulepreload"[^>]*href="\/assets\/[^"]*"[^>]*\/?>/g, '');
-
-    // Determine output path
-    const outputPath = route.endsWith('/')
-      ? join(SSG_DIR, route, 'index.html')
-      : join(SSG_DIR, route, 'index.html');
-
-    // Create directory and write file
-    const outputDir = dirname(outputPath);
-    mkdirSync(outputDir, { recursive: true });
-    writeFileSync(outputPath, html);
-
-    const renderTimeMs = Date.now() - startTime;
-    return { route, routeType, success: true, renderTimeMs };
-  } catch (error) {
-    const renderTimeMs = Date.now() - startTime;
-    return { route, routeType, success: false, error: error.message, renderTimeMs };
-  } finally {
-    await page.close();
-  }
-}
-
-/**
- * Process routes in batches with concurrency control
- */
-async function processRoutes(browser, routes) {
-  const results = [];
-  let rendered = 0;
-  let failed = 0;
-  const total = routes.length;
-
-  // Process in batches
-  for (let i = 0; i < routes.length; i += CONCURRENCY) {
-    const batch = routes.slice(i, i + CONCURRENCY);
-    const batchResults = await Promise.all(
-      batch.map(routeObj => renderRoute(browser, routeObj))
-    );
-
-    for (const result of batchResults) {
-      results.push(result);
-
-      if (result.success) {
-        rendered++;
-      } else {
-        failed++;
-      }
-
-      // Emit result event for each route
-      emitEvent({
-        event: 'result',
-        route: result.route,
-        routeType: result.routeType,
-        success: result.success,
-        renderTimeMs: result.renderTimeMs,
-        error: result.error || null,
-      });
-    }
-
-    // Emit progress event after each batch
-    emitEvent({
-      event: 'progress',
-      rendered,
-      failed,
-      total,
-    });
-
-    // Also print progress for human-readable output
-    process.stderr.write(`\rPrerendered ${rendered + failed}/${total} routes...`);
-  }
-
-  process.stderr.write('\n'); // New line after progress
-
-  // Retry failed routes up to 2 times
-  const MAX_RETRIES = 2;
-  for (let retry = 1; retry <= MAX_RETRIES; retry++) {
-    const failedRoutes = results.filter(r => !r.success);
-    if (failedRoutes.length === 0) break;
-
-    process.stderr.write(`\nRetry ${retry}/${MAX_RETRIES}: ${failedRoutes.length} failed routes...\n`);
-
-    for (let i = 0; i < failedRoutes.length; i += CONCURRENCY) {
-      const batch = failedRoutes.slice(i, i + CONCURRENCY);
-      const batchResults = await Promise.all(
-        batch.map(prev => renderRoute(browser, { route: prev.route, routeType: prev.routeType }))
-      );
-
-      for (const result of batchResults) {
-        if (result.success) {
-          // Replace failed result with success
-          const idx = results.findIndex(r => r.route === result.route);
-          if (idx !== -1) {
-            results[idx] = result;
-            rendered++;
-            failed--;
-          }
-
-          emitEvent({
-            event: 'result',
-            route: result.route,
-            routeType: result.routeType,
-            success: true,
-            renderTimeMs: result.renderTimeMs,
-            error: null,
-          });
-        }
-      }
-    }
-
-    emitEvent({ event: 'progress', rendered, failed, total });
-    process.stderr.write(`After retry ${retry}: ${rendered} rendered, ${failed} failed\n`);
-  }
-
-  return results;
-}
 
 /**
  * Main function
@@ -478,7 +158,7 @@ async function main() {
   mkdirSync(SSG_DIR, { recursive: true });
 
   // Start static server
-  const server = await startServer();
+  const server = await startServer({ distDir: DIST_DIR, apiUrl: API_URL, apiHost: API_HOST, port: PORT });
 
   // Launch browser
   console.log('Launching browser...');
@@ -490,7 +170,10 @@ async function main() {
   try {
     // Process all routes
     console.log(`\nStarting prerender with concurrency=${CONCURRENCY}...\n`);
-    const results = await processRoutes(browser, routes);
+    const results = await processRoutes(routes, (routeObj) => renderRoute(browser, routeObj, RENDER_OPTS), {
+      concurrency: CONCURRENCY,
+      emit: emitEvent,
+    });
 
     // Write results to output file if specified
     if (CLI_OPTS.outputFile) {
@@ -520,11 +203,19 @@ async function main() {
 
   } finally {
     await browser.close();
-    server.close();
+    await stopServer(server);
   }
 }
 
-main().catch(err => {
+main().then(() => {
+  // Everything main() opened is closed by now, and the process normally exits here on its own. If
+  // something still holds the event loop, it must not hold the rebuild job: the results are
+  // written, so finish. unref() keeps this timer from being that something.
+  setTimeout(() => {
+    console.error('Prerender finished but was still running 10 s later; exiting');
+    process.exit(0);
+  }, 10_000).unref();
+}).catch(err => {
   console.error('Prerender failed:', err);
   process.exit(1);
 });

@@ -10,16 +10,27 @@
  *   API_URL - API base URL (default: http://api:8080)
  *   API_HOST - Host header for API requests (default: general.localhost)
  *   POLL_INTERVAL - Polling interval in ms (default: 5000)
+ *   SSG_JOB_STALL_MS - a rebuild with no progress for this long is stopped and Failed (default: 5 min)
+ *   SSG_JOB_DEADLINE_MS - cap for a rebuild that keeps moving (default: max(60 min, 2 s per route))
  *   SENTRY_DSN - error reporting; unset = off (see ssgSentry.mjs)
  */
 
-import pg from 'pg';
 import { spawn } from 'child_process';
-import { writeFileSync, unlinkSync, existsSync, readdirSync, readFileSync } from 'fs';
+import { writeFileSync, unlinkSync, existsSync, readFileSync } from 'fs';
 import { rename, rm } from 'fs/promises';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { initSentry, routeFailuresToReport } from './ssgSentry.mjs';
+import {
+  assertBuildSurvived,
+  carryForwardFailedPages,
+  createPool,
+  isProgress,
+  jobLimits,
+  readResults,
+  reportOncePerOutage,
+  superviseChild,
+} from './ssgJob.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -45,16 +56,27 @@ const API_URL = process.env.API_URL || 'http://api:8080';
 const API_HOST = process.env.API_HOST || 'general.localhost';
 const POLL_INTERVAL = parseInt(process.env.POLL_INTERVAL || '5000', 10);
 
+// Bounds the worker's own calls to the API and IndexNow, which had no timeout either.
+const FETCH_TIMEOUT_MS = 30_000;
+
 if (!DATABASE_URL) {
   console.error('ERROR: DATABASE_URL environment variable is required');
   process.exit(1);
 }
 
-// PostgreSQL pool
-const pool = new pg.Pool({ connectionString: DATABASE_URL });
-
 // Error reporting. Null when SENTRY_DSN is unset, and every call below is `sentry?.` for that reason.
 const sentry = await initSentry();
+
+// Database trouble — a poll that throws, an idle connection the server dropped — reported once per
+// outage rather than every POLL_INTERVAL. Cleared by the next poll that succeeds.
+const dbErrors = reportOncePerOutage((error) => sentry?.error(error));
+
+// PostgreSQL pool. A database restart surfaces here as an idle client's error; pg drops that client
+// and connects afresh on the next query, so logging it is all there is to do.
+const pool = createPool(DATABASE_URL, (error) => {
+  console.error('Database connection lost (idle client):', error.message);
+  dbErrors.report(error);
+});
 
 /**
  * Poll for next job with status "Running"
@@ -86,7 +108,7 @@ async function getRoutesFromApi() {
   const url = `${API_URL}/ssg/routes`;
   console.log(`Fetching routes from ${url} (Host: ${API_HOST})`);
 
-  const res = await fetch(url, { headers: { host: API_HOST } });
+  const res = await fetch(url, { headers: { host: API_HOST }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
 
   if (!res.ok) {
     throw new Error(`Failed to fetch routes: ${res.status} ${res.statusText}`);
@@ -150,6 +172,7 @@ async function processJob(job) {
   const apiHost = job.primary_domain || API_HOST;
 
   console.log(`Processing job ${jobId} for site ${siteCode} (${apiHost})`);
+  const startedAt = Date.now();
 
   try {
     // 1. Get routes via API (site resolved from the Host header)
@@ -168,12 +191,16 @@ async function processJob(job) {
       [routes.length, jobId]
     );
 
-    // 3. Write routes to temp file
+    // 3. Start from an empty ssg-new. A leftover from a job that was killed before its swap would
+    // count towards the survival floor and be promoted with the new pages.
+    await cleanupFailedBuild();
+
+    // 4. Write routes to temp file
     const routesFile = `/tmp/ssg-routes-${jobId}.json`;
     const outputFile = `/tmp/ssg-results-${jobId}.json`;
     writeFileSync(routesFile, JSON.stringify(routes));
 
-    // 4. Spawn prerender.mjs (output to ssg-new for atomic swap)
+    // 5. Spawn prerender.mjs (output to ssg-new for atomic swap)
     const prerenderScript = join(__dirname, 'prerender.mjs');
     const args = [
       prerenderScript,
@@ -195,7 +222,16 @@ async function processJob(job) {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
-    // 5. Parse stdout for progress events
+    // A rebuild is stopped (and Failed, keeping the live tree) when it stops making progress, or at
+    // a cap that scales with the route count (jobLimits). Without either, a render against an API
+    // that stopped answering held the job Running indefinitely — and deploy.yml waits up to 40 min on
+    // a Running job before it deploys anyway. A fixed 35-min deadline replaced that first, and would
+    // have thrown away whole builds against a partly slow API or a library ~40 % bigger.
+    const limits = jobLimits(routes.length);
+    const supervisor = superviseChild(proc, limits);
+    console.log(`Job limits: stops after ${minutes(limits.stallMs)} min without progress, or at ${minutes(limits.deadlineMs)} min`);
+
+    // 6. Parse stdout for progress events
     let buffer = '';
     proc.stdout.on('data', async (chunk) => {
       buffer += chunk.toString();
@@ -206,6 +242,7 @@ async function processJob(job) {
         if (!line.trim()) continue;
         try {
           const event = JSON.parse(line);
+          if (isProgress(event)) supervisor.progress();
           if (event.event === 'progress') {
             await updateJobProgress(jobId, event.rendered, event.failed);
           } else if (event.event === 'complete') {
@@ -222,51 +259,64 @@ async function processJob(job) {
       console.error(`[prerender stderr] ${data.toString().trim()}`);
     });
 
-    // 6. Wait for completion
-    const exitCode = await new Promise((resolve) => {
-      proc.on('close', resolve);
-    });
+    // 7. Wait for completion, or for the supervisor to stop it. Every throw from here lands in the
+    // catch, which deletes ssg-new and keeps dist/ssg untouched.
+    const { code: exitCode, stopped } = await supervisor.exited;
 
-    // 7. Report routes that never rendered — prerender exits 0 with failures, so the job status
-    // alone would never show them. Before cleanup, which deletes the results file.
-    reportRouteFailures(jobId, outputFile);
-
-    // 8. Cleanup temp files
+    let results;
     try {
-      unlinkSync(routesFile);
-    } catch {}
-    try {
-      unlinkSync(outputFile);
-    } catch {}
-
-    // 9. Update job status based on exit code
-    if (exitCode === 0) {
-      // A clean exit says the renders succeeded, not that they survived. Deploy wipes
-      // apps/web/dist to rebuild the frontend and only snapshots dist/ssg — a rebuild
-      // running at that moment has its dist/ssg-new emptied underneath it, then promotes
-      // the remains over the good tree the deploy just restored. That is how the whole
-      // site went 404-to-crawlers on 2026-08-31. Count what is actually on disk before
-      // trusting it; throwing lands in the catch, which keeps dist/ssg untouched.
-      assertBuildSurvived(routes.length);
-
-      // Atomic swap: ssg-new → ssg
-      await atomicSwap();
-
-      // Submit to IndexNow (Bing/Yandex)
-      if (process.env.INDEXNOW_ENABLED === 'true' && process.env.INDEXNOW_KEY) {
-        await submitToIndexNow(job.primary_domain, routes);
+      if (stopped === 'stalled') {
+        throw new Error(
+          `Prerender rendered no route for ${minutes(limits.stallMs)} min and was stopped — an API ` +
+          `that stopped answering does this. Keeping the current SSG tree.`
+        );
       }
-
-      console.log(`Job ${jobId} completed successfully`);
-      await setJobStatus(jobId, 'Completed');
-    } else {
-      // Cleanup failed build
-      await cleanupFailedBuild();
-      console.error(`Job ${jobId} failed with exit code ${exitCode}`);
-      const reason = `Prerender process exited with code ${exitCode}`;
-      sentry?.jobFailed(jobId, new Error(reason));
-      await setJobStatus(jobId, 'Failed', reason);
+      if (stopped === 'deadline') {
+        throw new Error(
+          `Prerender was still running at the job cap (${minutes(limits.deadlineMs)} min) and was ` +
+          `stopped. Keeping the current SSG tree.`
+        );
+      }
+      if (exitCode !== 0) throw new Error(`Prerender process exited with code ${exitCode}`);
+      results = readResults(outputFile);
+    } finally {
+      try {
+        unlinkSync(routesFile);
+      } catch {}
+      try {
+        unlinkSync(outputFile);
+      } catch {}
     }
+
+    // 8. Report routes that never rendered — prerender exits 0 with failures, so the job status
+    // alone would never show them.
+    sentry?.routesFailed(jobId, routeFailuresToReport(results));
+
+    // 9. A clean exit says the renders succeeded, not that they survived. Deploy wipes
+    // apps/web/dist to rebuild the frontend and only snapshots dist/ssg — a rebuild
+    // running at that moment has its dist/ssg-new emptied underneath it, then promotes
+    // the remains over the good tree the deploy just restored. That is how the whole
+    // site went 404-to-crawlers on 2026-08-31. Count what is actually on disk before
+    // trusting it. Failed renders write nothing, so this also refuses a build that
+    // mostly failed (an API returning errors).
+    assertBuildSurvived(SSG_NEW_DIR, routes.length);
+
+    // 10. Keep the live page of each route that failed this time; the swap replaces the whole tree.
+    const carried = carryForwardFailedPages(results, SSG_DIR, SSG_NEW_DIR);
+    if (carried.length > 0) {
+      console.log(`Kept the previous page for ${carried.length} route(s) that failed to render: ${carried.slice(0, 10).join(', ')}`);
+    }
+
+    // 11. Atomic swap: ssg-new → ssg
+    await atomicSwap();
+
+    // Submit to IndexNow (Bing/Yandex)
+    if (process.env.INDEXNOW_ENABLED === 'true' && process.env.INDEXNOW_KEY) {
+      await submitToIndexNow(job.primary_domain, routes);
+    }
+
+    console.log(`Job ${jobId} completed successfully in ${minutes(Date.now() - startedAt)} min (cap ${minutes(jobLimits(routes.length).deadlineMs)} min)`);
+    await setJobStatus(jobId, 'Completed');
   } catch (error) {
     console.error(`Error processing job ${jobId}:`, error);
     sentry?.jobFailed(jobId, error);
@@ -275,20 +325,8 @@ async function processJob(job) {
   }
 }
 
-/**
- * One Sentry event per route that failed to render, from prerender's results file. A missing or
- * unreadable file is not reported here: prerender then exited non-zero, and that is reported as
- * the job's failure.
- */
-function reportRouteFailures(jobId, resultsFile) {
-  if (!sentry) return;
-  let results;
-  try {
-    results = JSON.parse(readFileSync(resultsFile, 'utf8'));
-  } catch {
-    return;
-  }
-  sentry.routesFailed(jobId, routeFailuresToReport(results));
+function minutes(ms) {
+  return (ms / 60_000).toFixed(1);
 }
 
 /**
@@ -328,7 +366,8 @@ async function submitToIndexNow(host, routes) {
             key,
             keyLocation: `https://${host}/${key}.txt`,
             urlList: batch
-          })
+          }),
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
         });
         // The body carries the reason (e.g. Bing's "UserForbiddedToAccessSite"); a bare status hid
         // two different 403s behind one log line.
@@ -340,48 +379,6 @@ async function submitToIndexNow(host, routes) {
       }
     }
   }
-}
-
-/** Pages actually written under `dir`, counted as index.html files. */
-function countRenderedPages(dir) {
-  let n = 0;
-  const walk = (d) => {
-    let entries;
-    try {
-      entries = readdirSync(d, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const e of entries) {
-      if (e.isDirectory()) walk(join(d, e.name));
-      else if (e.name === 'index.html') n++;
-    }
-  };
-  walk(dir);
-  return n;
-}
-
-/**
- * Refuse to promote a build that lost most of itself between rendering and swapping.
- *
- * The floor is deliberately loose: routes legitimately go unwritten when a page renders
- * noindex (a draft book, a not-found), so a healthy build lands a little short of its
- * route count. It is not trying to catch a handful of missing pages — it is there for the
- * case where the directory is gone, which is not subtle: on 2026-08-31 a build reported
- * 1990 of 1992 rendered and had 127 files left on disk.
- */
-function assertBuildSurvived(expectedRoutes) {
-  const MIN_RATIO = 0.9;
-  const found = countRenderedPages(SSG_NEW_DIR);
-  const floor = Math.floor(expectedRoutes * MIN_RATIO);
-  if (found < floor) {
-    throw new Error(
-      `Refusing atomic swap: ${SSG_NEW_DIR} holds ${found} pages, expected at least ${floor} ` +
-      `of ${expectedRoutes} routes. Something removed the build while it ran (a concurrent ` +
-      `deploy wipes apps/web/dist). Keeping the current SSG tree.`
-    );
-  }
-  console.log(`Build survived: ${found} pages on disk (floor ${floor} of ${expectedRoutes})`);
 }
 
 /**
@@ -432,6 +429,7 @@ async function main() {
   console.log(`  API_URL: ${API_URL}`);
   console.log(`  API_HOST: ${API_HOST}`);
   console.log(`  POLL_INTERVAL: ${POLL_INTERVAL}ms`);
+  console.log(`  JOB STALL LIMIT: ${minutes(jobLimits(0).stallMs)} min`);
   console.log(`  SENTRY: ${sentry ? 'on' : 'off'}`);
 
   // Test DB connection
@@ -454,15 +452,11 @@ async function main() {
   }, 30_000);
   writeFileSync(HEARTBEAT, new Date().toISOString());
 
-  // The last poll-loop failure reported, so a persistent one (the database gone, a renamed column)
-  // is one event rather than one every POLL_INTERVAL. Cleared by the next poll that succeeds.
-  let lastLoopError = null;
-
   // Main polling loop
   while (true) {
     try {
       const job = await pollForJob();
-      lastLoopError = null;
+      dbErrors.recovered();
 
       if (job) {
         await processJob(job);
@@ -471,10 +465,7 @@ async function main() {
       }
     } catch (error) {
       console.error('Error in main loop:', error);
-      if (String(error) !== lastLoopError) {
-        lastLoopError = String(error);
-        sentry?.error(error);
-      }
+      dbErrors.report(error);
       await sleep(POLL_INTERVAL);
     }
   }
