@@ -64,7 +64,7 @@ Compressed size (what CI pushes and the server pulls), after #748:
 | worker | `aspnet:10.0-alpine` | ~110 MB | no Node/browser; ICU on (`HtmlCleaner` normalises), PDFium + Skia musl natives, `font-dejavu` |
 | admin | `nginx-unprivileged:stable-alpine` | ~26 MB | static `dist` on :81, SPA fallback |
 | ssg-worker | `node:<.nvmrc>-alpine` | ~417 MB | apk Chromium; `pnpm deploy --prod` (pg, puppeteer, `@sentry/node`). Sentry added +6.9 MB compressed, +61 MB on disk (2026-10-07) |
-| migrator | `dotnet/sdk:10.0` | ~1.35 GB | full SDK + source; next step: EF migrations bundle (~100 MB) |
+| migrator | `runtime-deps:10.0-alpine` | ~89 MB | self-contained EF Core migrations bundle (`linux-musl-<arch>`) + `psql` + the build-time list of its migrations; was ~1.4 GB (full SDK + source + `dotnet-ef`) until 2026-10-07 |
 | mcp-server | `aspnet:10.0-alpine` | ~53 MB | Sentry added +0.35 MB |
 
 ## External dependencies

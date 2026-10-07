@@ -73,5 +73,9 @@ not contain the newer migrations. Before step 5 it silently did nothing; now it 
   **"Schema matches the build"** fails with `::error::` naming the pending migrations. It reads the one
   `/health/ready` response fetched by "Readiness probe" (no `-f`, so the 503 body is kept), which the SSG
   step reuses; each alarm carries its own label.
+- The migrator image is an EF Core migrations bundle on `runtime-deps` (2026-10-07), not the SDK: the
+  migrations this image contains come from `/app/known-migrations`, written at build time by
+  `dotnet ef migrations list --no-connect`; step 5's check and the pending list compare it with
+  `__EFMigrationsHistory` (psql). Same rollback command, same exits.
 - Local `dotnet run` is unchanged. `dotnet run --no-launch-profile` skips the flag: run
   `dotnet ef database update --project backend/src/Infrastructure --startup-project backend/src/Api`.

@@ -1,62 +1,39 @@
 #!/bin/sh
 set -e
 
-PROJECT="backend/src/Infrastructure/Infrastructure.csproj"
-STARTUP="backend/src/Api/Api.csproj"
-CONNECTION="$ConnectionStrings__Default"
+# Runs in the migrator image (Migrator.Dockerfile): an EF Core migrations bundle (/app/efbundle),
+# the list of migrations it contains (/app/known-migrations, written at build time) and psql.
+BUNDLE=/app/efbundle
+KNOWN=/app/known-migrations
+# Required: unset, the bundle would fall back to AppDbContextFactory's localhost default.
+CONNECTION="${ConnectionStrings__Default:?ConnectionStrings__Default is not set}"
 
 echo "=== EF Core Migration Runner ==="
 echo "Target: ${MIGRATE_TARGET:-latest}"
-echo ""
+echo "Image contains $(wc -l < "$KNOWN" | tr -d ' ') migrations (newest: $(tail -n 1 "$KNOWN"))."
 
-# Function to list pending migrations
-list_pending() {
-    dotnet ef migrations list \
-        --project "$PROJECT" \
-        --startup-project "$STARTUP" \
-        --connection "$CONNECTION" \
-        --no-build 2>/dev/null | grep "(Pending)" || true
-}
-
-# Function to list applied migrations
-list_applied() {
-    dotnet ef migrations list \
-        --project "$PROJECT" \
-        --startup-project "$STARTUP" \
-        --connection "$CONNECTION" \
-        --no-build 2>/dev/null | grep -v "(Pending)" | grep -v "^Build" | grep -v "^$" || true
-}
-
-# Restore and build
-echo "Restoring packages..."
-dotnet restore "$STARTUP" -v q
-
-echo "Building project..."
-dotnet build "$STARTUP" -c Debug -v q
-
-# Step 0: migrations the DB has applied that this image does not contain (ADR-021).
-# EF reverts only what its own assembly knows, so a rollback run by an OLDER image (e.g. after a code
-# rollback re-tagged textstack-migrator:latest) reverts nothing and exits 0. Refuse that loudly.
-# Without a target this is the normal state after a code rollback: report it, change nothing.
+# psql reads the same database. Never echo CONNECTION: it carries the password.
 conn_field() { printf '%s' "$CONNECTION" | tr ';' '\n' | sed -n "s/^ *$1=//p" | head -n 1; }
 PGHOST=$(conn_field Host); PGPORT=$(conn_field Port); PGDATABASE=$(conn_field Database)
 PGUSER=$(conn_field Username); PGPASSWORD=$(conn_field Password)
 export PGHOST PGPORT PGDATABASE PGUSER PGPASSWORD
 
-dotnet ef migrations list \
-    --project "$PROJECT" \
-    --startup-project "$STARTUP" \
-    --no-connect \
-    --no-build 2>/tmp/known-migrations.err | grep -E '^[0-9]{14}_' > /tmp/known-migrations || true
-[ -s /tmp/known-migrations ] || { echo "ERROR: could not list this image's migrations:"; cat /tmp/known-migrations.err; exit 1; }
+# Applied migration ids, oldest first; empty on a fresh database (no history table yet).
+# A psql failure returns non-zero, and the plain assignments that call it stop the script (set -e)
+# instead of reading as "nothing applied".
+applied() {
+    has=$(psql -XAtc "SELECT to_regclass('\"__EFMigrationsHistory\"') IS NOT NULL") || return 1
+    if [ "$has" = "t" ]; then psql -XAtc 'SELECT migration_id FROM "__EFMigrationsHistory" ORDER BY 1' || return 1; fi
+}
+# Lines of $1 that are not lines of file $2.
+minus() { printf '%s\n' "$1" | grep -vxF -f "$2" | grep . || true; }
 
-# Plain assignments, so a psql failure stops the script (set -e) instead of passing the check.
-UNKNOWN=""
-HAS_HISTORY=$(psql -XAtc "SELECT to_regclass('\"__EFMigrationsHistory\"') IS NOT NULL")
-if [ "$HAS_HISTORY" = "t" ]; then
-    APPLIED=$(psql -XAtc 'SELECT migration_id FROM "__EFMigrationsHistory" ORDER BY 1')
-    UNKNOWN=$(printf '%s\n' "$APPLIED" | grep -vxF -f /tmp/known-migrations || true)
-fi
+# Step 0: migrations the DB has applied that this image does not contain (ADR-021).
+# EF reverts only what its own assembly knows, so a rollback run by an OLDER image (e.g. after a code
+# rollback re-tagged textstack-migrator:latest) reverts nothing and exits 0. Refuse that loudly.
+# Without a target this is the normal state after a code rollback: report it, change nothing.
+APPLIED=$(applied)
+UNKNOWN=$(minus "$APPLIED" "$KNOWN")
 if [ -n "$UNKNOWN" ]; then
     COUNT=$(printf '%s\n' "$UNKNOWN" | wc -l | tr -d ' ')
     NEWEST=$(printf '%s\n' "$UNKNOWN" | tail -n 1)
@@ -70,10 +47,13 @@ if [ -n "$UNKNOWN" ]; then
     echo "Normal after a code rollback; they are left in place."
 fi
 
+# Pending = in the image, not applied. Written to a file so minus() can read it as a pattern list.
+pending() { printf '%s\n' "$1" > /tmp/applied; minus "$(cat "$KNOWN")" /tmp/applied; }
+
 # Step 1: Check current state
 echo ""
 echo "=== Pre-migration state ==="
-PENDING_BEFORE=$(list_pending)
+PENDING_BEFORE=$(pending "$APPLIED")
 if [ -z "$PENDING_BEFORE" ]; then
     echo "No pending migrations."
 else
@@ -81,53 +61,40 @@ else
     echo "$PENDING_BEFORE"
 fi
 
-# Step 2: Apply migrations
+# Step 2: Apply migrations. The bundle is `dotnet ef database update`: with a target it migrates up
+# or down to it (`0` = everything reverted); an unknown target fails with "not found", exit non-zero.
 echo ""
 echo "=== Applying migrations ==="
-
 if [ -n "$MIGRATE_TARGET" ]; then
     echo "Migrating to target: $MIGRATE_TARGET"
-    dotnet ef database update "$MIGRATE_TARGET" \
-        --project "$PROJECT" \
-        --startup-project "$STARTUP" \
-        --connection "$CONNECTION" \
-        --no-build
+    "$BUNDLE" "$MIGRATE_TARGET" --connection "$CONNECTION"
 else
     echo "Applying all pending migrations..."
-    dotnet ef database update \
-        --project "$PROJECT" \
-        --startup-project "$STARTUP" \
-        --connection "$CONNECTION" \
-        --no-build
+    "$BUNDLE" --connection "$CONNECTION"
 fi
 
 # Step 3: Verify
 echo ""
 echo "=== Post-migration verification ==="
-PENDING_AFTER=$(list_pending)
+APPLIED=$(applied)
+PENDING_AFTER=$(pending "$APPLIED")
 
 if [ -z "$MIGRATE_TARGET" ]; then
     # Normal case: should have no pending
-    if [ -z "$PENDING_AFTER" ]; then
-        echo "SUCCESS: All migrations applied."
-        echo ""
-        echo "Applied migrations:"
-        list_applied
-        exit 0
-    else
+    if [ -n "$PENDING_AFTER" ]; then
         echo "ERROR: Migrations still pending after update!"
         echo "$PENDING_AFTER"
         exit 1
     fi
+    echo "SUCCESS: All migrations applied."
 else
-    # Targeted migration: just report state
     echo "Migration to '$MIGRATE_TARGET' complete."
+fi
+echo ""
+echo "Applied migrations:"
+printf '%s\n' "$APPLIED" | grep . || echo "(none)"
+if [ -n "$PENDING_AFTER" ]; then
     echo ""
-    echo "Current state:"
-    dotnet ef migrations list \
-        --project "$PROJECT" \
-        --startup-project "$STARTUP" \
-        --connection "$CONNECTION" \
-        --no-build
-    exit 0
+    echo "Pending migrations:"
+    echo "$PENDING_AFTER"
 fi
