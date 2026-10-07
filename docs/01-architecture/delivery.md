@@ -195,10 +195,13 @@ environment reports nothing on any service.
   schema behind the build is caught by `health-check.yml` "Schema matches the build" within 5 min, not
   by the deploy ([ADR-021](adr/ADR-021-migrations-owned-by-the-migrator.md)).
 - **The deploy's SSG wait and the worker's job deadline go together.** deploy.yml waits up to 40 min
-  for a `Running` rebuild started in the last 60 min. ssg-worker stops any rebuild at 35 min
-  (`SSG_JOB_DEADLINE_MS`) and marks it `Failed`. Before 2026-10-07, a rebuild against a hung API
-  stayed `Running`, and every deploy in the next hour waited the full 40 min, then deployed beside a
-  live job. A deadline above 40 min brings that back, so change the two together.
+  for a `Running` rebuild started in the last 60 min. ssg-worker stops a rebuild that has rendered
+  nothing for 5 min (`SSG_JOB_STALL_MS`) and marks it `Failed`, so a hung job ends within ~5 min of
+  its last rendered route. Before 2026-10-07 it stayed `Running`, and every deploy in the next hour
+  waited the full 40 min, then deployed beside a live job. A rebuild that keeps rendering may run
+  longer than the wait, up to max(60 min, 2 s per route) (`SSG_JOB_DEADLINE_MS`); the deploy then goes
+  ahead after 40 min, as it always has, and the worker's survival floor refuses a build the web
+  build wiped.
 - **Free disk space** in `images.yml` stays until the slim Dockerfiles land and a run shows the room.
 - **GHCR packages are public**: they expose OS patch levels and the deploy cadence. Accepted.
 - **Scan blind spots:** nested archives (zip, nupkg, jar, tgz) are not unpacked; token shapes outside

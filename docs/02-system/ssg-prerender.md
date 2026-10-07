@@ -19,11 +19,17 @@ admin "Rebuild" / publish / periodic timer
 
 **What counts as rendered** (`scripts/ssgRender.mjs`): the page shows content, not a skeleton, and
 none of its `/api/` calls ended in a 5xx, a 429 or no response. Only the last outcome per URL counts,
-because the app retries. A page with noindex (a 404, a draft) is skipped on purpose and leaves the tree.
+because the app retries. Outcomes are per request: a 404 whose unread body the browser then aborts
+is still a 404. A page with noindex (a 404, a draft) is skipped on purpose and leaves the tree; a
+route that fails and then renders noindex on retry is skipped the same way.
 
 **When a build is promoted** (`scripts/ssgJob.mjs`, run by the worker):
-- prerender exited 0 before the **job deadline**: 35 min, `SSG_JOB_DEADLINE_MS`. Past it, prerender
-  is stopped and the job ends `Failed`.
+- prerender exited 0 without being stopped. The worker stops it, and the job ends `Failed`, when
+  **no route rendered for 5 min** (`SSG_JOB_STALL_MS`). Rendered means rendered or skipped as
+  noindex, or any attempt in the retry pass; first-pass failures do not count, because a hung API
+  fails every route at the 30 s timeout. It is also stopped at a **cap** of max(60 min, 2 s per
+  route) (`SSG_JOB_DEADLINE_MS`). Progress comes from the per-route `result` lines prerender already
+  prints to stdout.
 - `ssg-new` holds at least `max(1, floor(0.9 × routes))` non-empty pages. Failed renders write
   nothing, so this refuses a mostly failed build as well as one a deploy wiped.
 - each route that failed (not noindex) gets its live page copied into `ssg-new`, so the swap keeps it.
@@ -70,7 +76,8 @@ cd apps/web && API_URL=http://localhost:8080 API_HOST=localhost node scripts/pre
 | `API_HOST` | Host header | `localhost` in compose; script default `general.localhost`. Note: undici drops a custom `Host`, so the API's resolver falls back to the single site anyway |
 | `CONCURRENCY` | prerender | `4` (jobs can override) |
 | `INDEXNOW_KEY`, `INDEXNOW_ENABLED` | ssg-worker | off unless `INDEXNOW_ENABLED=true` and a key is set |
-| `SSG_JOB_DEADLINE_MS` | ssg-worker | 35 min. Keep it under deploy.yml's 40-min SSG wait |
+| `SSG_JOB_STALL_MS` | ssg-worker | 5 min without a rendered route → stopped, `Failed` |
+| `SSG_JOB_DEADLINE_MS` | ssg-worker | cap, max(60 min, 2 s per route) |
 
 ## Output
 
