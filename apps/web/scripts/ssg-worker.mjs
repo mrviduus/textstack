@@ -13,13 +13,13 @@
  *   SENTRY_DSN - error reporting; unset = off (see ssgSentry.mjs)
  */
 
-import pg from 'pg';
 import { spawn } from 'child_process';
-import { writeFileSync, unlinkSync, existsSync, readdirSync, readFileSync } from 'fs';
+import { writeFileSync, unlinkSync, existsSync, readFileSync } from 'fs';
 import { rename, rm } from 'fs/promises';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { initSentry, routeFailuresToReport } from './ssgSentry.mjs';
+import { assertBuildSurvived, createPool, reportOncePerOutage, waitForExit } from './ssgJob.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -51,7 +51,7 @@ if (!DATABASE_URL) {
 }
 
 // PostgreSQL pool
-const pool = new pg.Pool({ connectionString: DATABASE_URL });
+const pool = createPool(DATABASE_URL);
 
 // Error reporting. Null when SENTRY_DSN is unset, and every call below is `sentry?.` for that reason.
 const sentry = await initSentry();
@@ -223,9 +223,7 @@ async function processJob(job) {
     });
 
     // 6. Wait for completion
-    const exitCode = await new Promise((resolve) => {
-      proc.on('close', resolve);
-    });
+    const { code: exitCode } = await waitForExit(proc);
 
     // 7. Report routes that never rendered — prerender exits 0 with failures, so the job status
     // alone would never show them. Before cleanup, which deletes the results file.
@@ -247,7 +245,7 @@ async function processJob(job) {
       // the remains over the good tree the deploy just restored. That is how the whole
       // site went 404-to-crawlers on 2026-08-31. Count what is actually on disk before
       // trusting it; throwing lands in the catch, which keeps dist/ssg untouched.
-      assertBuildSurvived(routes.length);
+      assertBuildSurvived(SSG_NEW_DIR, routes.length);
 
       // Atomic swap: ssg-new → ssg
       await atomicSwap();
@@ -342,48 +340,6 @@ async function submitToIndexNow(host, routes) {
   }
 }
 
-/** Pages actually written under `dir`, counted as index.html files. */
-function countRenderedPages(dir) {
-  let n = 0;
-  const walk = (d) => {
-    let entries;
-    try {
-      entries = readdirSync(d, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const e of entries) {
-      if (e.isDirectory()) walk(join(d, e.name));
-      else if (e.name === 'index.html') n++;
-    }
-  };
-  walk(dir);
-  return n;
-}
-
-/**
- * Refuse to promote a build that lost most of itself between rendering and swapping.
- *
- * The floor is deliberately loose: routes legitimately go unwritten when a page renders
- * noindex (a draft book, a not-found), so a healthy build lands a little short of its
- * route count. It is not trying to catch a handful of missing pages — it is there for the
- * case where the directory is gone, which is not subtle: on 2026-08-31 a build reported
- * 1990 of 1992 rendered and had 127 files left on disk.
- */
-function assertBuildSurvived(expectedRoutes) {
-  const MIN_RATIO = 0.9;
-  const found = countRenderedPages(SSG_NEW_DIR);
-  const floor = Math.floor(expectedRoutes * MIN_RATIO);
-  if (found < floor) {
-    throw new Error(
-      `Refusing atomic swap: ${SSG_NEW_DIR} holds ${found} pages, expected at least ${floor} ` +
-      `of ${expectedRoutes} routes. Something removed the build while it ran (a concurrent ` +
-      `deploy wipes apps/web/dist). Keeping the current SSG tree.`
-    );
-  }
-  console.log(`Build survived: ${found} pages on disk (floor ${floor} of ${expectedRoutes})`);
-}
-
 /**
  * Atomic swap: ssg-new → ssg (zero downtime)
  */
@@ -454,15 +410,15 @@ async function main() {
   }, 30_000);
   writeFileSync(HEARTBEAT, new Date().toISOString());
 
-  // The last poll-loop failure reported, so a persistent one (the database gone, a renamed column)
-  // is one event rather than one every POLL_INTERVAL. Cleared by the next poll that succeeds.
-  let lastLoopError = null;
+  // A persistent poll-loop failure (the database gone, a renamed column) is one event rather than
+  // one every POLL_INTERVAL. Cleared by the next poll that succeeds.
+  const loopErrors = reportOncePerOutage((error) => sentry?.error(error));
 
   // Main polling loop
   while (true) {
     try {
       const job = await pollForJob();
-      lastLoopError = null;
+      loopErrors.recovered();
 
       if (job) {
         await processJob(job);
@@ -471,10 +427,7 @@ async function main() {
       }
     } catch (error) {
       console.error('Error in main loop:', error);
-      if (String(error) !== lastLoopError) {
-        lastLoopError = String(error);
-        sentry?.error(error);
-      }
+      loopErrors.report(error);
       await sleep(POLL_INTERVAL);
     }
   }
