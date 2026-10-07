@@ -6,6 +6,7 @@
  */
 
 import { createServer, request as httpRequest } from 'http';
+import { pipeline } from 'stream';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { dirname, join } from 'path';
 
@@ -25,10 +26,18 @@ const MIME_TYPES = {
   '.woff2': 'font/woff2',
 };
 
+/** How long the proxy waits on the API before answering the page 504 itself. */
+export const UPSTREAM_TIMEOUT_MS = 30_000;
+
 /**
- * Proxy request to API
+ * Proxy request to API.
+ *
+ * Every request it opens to the API ends when the browser's does, or after `upstreamTimeoutMs`.
+ * It used to have neither: against an API that accepted connections and never answered, the
+ * requests stayed open after the pages that made them had closed, and they kept prerender's event
+ * loop alive after its last route — so it never exited, and the job stayed Running.
  */
-function proxyToApi(req, res, path, { apiUrl, apiHost }) {
+function proxyToApi(req, res, path, { apiUrl, apiHost, upstreamTimeoutMs }) {
   const options = {
     hostname: apiUrl.hostname,
     port: apiUrl.port || 80,
@@ -42,13 +51,28 @@ function proxyToApi(req, res, path, { apiUrl, apiHost }) {
 
   const proxyReq = httpRequest(options, (proxyRes) => {
     res.writeHead(proxyRes.statusCode, proxyRes.headers);
-    proxyRes.pipe(res);
+    // pipeline, not pipe: an API that drops the connection mid-body ends this response too,
+    // instead of an unhandled 'error' on proxyRes.
+    pipeline(proxyRes, res, () => {});
+  });
+
+  // The page gave up (its fetch timed out, it was closed, the server is stopping).
+  res.on('close', () => {
+    if (!res.writableFinished) proxyReq.destroy();
+  });
+
+  let timedOut = false;
+  proxyReq.setTimeout(upstreamTimeoutMs, () => {
+    timedOut = true;
+    proxyReq.destroy();
   });
 
   proxyReq.on('error', (err) => {
-    console.error('Proxy error:', err.message);
-    res.writeHead(502);
-    res.end('Bad Gateway');
+    if (res.destroyed) return; // the page is gone; nobody to answer
+    if (res.headersSent) return void res.destroy();
+    console.error(`Proxy error: ${timedOut ? `no answer in ${upstreamTimeoutMs} ms` : err.message}`);
+    res.writeHead(timedOut ? 504 : 502);
+    res.end(timedOut ? 'Gateway Timeout' : 'Bad Gateway');
   });
 
   req.pipe(proxyReq);
@@ -58,8 +82,8 @@ function proxyToApi(req, res, path, { apiUrl, apiHost }) {
  * Start a static file server with API proxy. `port` 0 picks a free one (tests); read it back from
  * `server.address().port`.
  */
-export function startServer({ distDir, apiUrl, apiHost, port }) {
-  const api = { apiUrl: new URL(apiUrl), apiHost };
+export function startServer({ distDir, apiUrl, apiHost, port, upstreamTimeoutMs = UPSTREAM_TIMEOUT_MS }) {
+  const api = { apiUrl: new URL(apiUrl), apiHost, upstreamTimeoutMs };
   return new Promise((resolve) => {
     const server = createServer((req, res) => {
       const url = req.url.split('?')[0];
@@ -103,9 +127,19 @@ export function startServer({ distDir, apiUrl, apiHost, port }) {
   });
 }
 
-/** Stops the server. */
+/**
+ * Stops the server, closing the connections still open rather than waiting for them: `close()`
+ * alone waits on every in-flight request, and a request to a hung API never finishes.
+ */
 export function stopServer(server) {
-  return new Promise((resolve) => server.close(() => resolve()));
+  const closed = new Promise((resolve) => server.close(() => resolve()));
+  server.closeAllConnections();
+  return closed;
+}
+
+/** An API call is broken when its last outcome is a 5xx, a 429, or no response at all. */
+function isApiFailure(outcome) {
+  return outcome.failure !== undefined || outcome.status >= 500 || outcome.status === 429;
 }
 
 /**
@@ -131,6 +165,19 @@ export async function renderRoute(browser, routeObj, { outputDir, port }) {
   page.on('requestfailed', req => failedRequests.push(`${req.method()} ${req.url()} — ${req.failure()?.errorText || 'unknown'}`));
   page.on('response', res => {
     if (res.status() >= 400) failedRequests.push(`HTTP ${res.status()} ${res.url()}`);
+  });
+
+  // The last outcome of each of the page's API calls, by URL. A page counts as rendered only if its
+  // data loaded: an error state is a perfectly good-looking page (an <h1>, no noindex), and before
+  // this one was saved as SSG whenever the API was down. Last, not any: the app retries, and a 500
+  // followed by a 200 is a page whose data arrived.
+  const apiPrefix = `http://localhost:${port}/api/`;
+  const apiOutcomes = new Map();
+  page.on('response', res => {
+    if (res.url().startsWith(apiPrefix)) apiOutcomes.set(res.url(), { status: res.status() });
+  });
+  page.on('requestfailed', req => {
+    if (req.url().startsWith(apiPrefix)) apiOutcomes.set(req.url(), { failure: req.failure()?.errorText || 'failed' });
   });
 
   try {
@@ -192,6 +239,17 @@ export async function renderRoute(browser, routeObj, { outputDir, port }) {
       return null; // Keep waiting
     }, { timeout: 5000 }).then(h => h?.jsonValue()).catch(() => 'timeout');
 
+    // Before the noindex check below: the app's error states for a missing book or author carry
+    // noindex too, and a deliberate noindex skip drops the page where a failure keeps the old one.
+    const apiFailures = [...apiOutcomes]
+      .filter(([, outcome]) => isApiFailure(outcome))
+      .map(([u, outcome]) => `${outcome.failure ?? `HTTP ${outcome.status}`} ${new URL(u).pathname}`);
+    if (apiFailures.length > 0) {
+      throw new Error(
+        `prerender failed for ${route}: API ${apiFailures.join(', ')}\n    renderState=${renderState}`
+      );
+    }
+
     // Fail loudly on timeout or skeleton — previously we silently saved empty shells,
     // producing 247 SSG files with no H1, canonical, or og:image. Bots got nothing.
     if (renderState === 'timeout' || renderState === 'skeleton') {
@@ -216,7 +274,8 @@ export async function renderRoute(browser, routeObj, { outputDir, port }) {
     // Get the rendered HTML
     let html = await page.content();
 
-    // Skip saving pages with noindex (real 404 or error state) — keep existing SSG file
+    // Skip saving pages with noindex (a real 404, a draft). Deliberate, so the worker does not keep
+    // the previous copy: the page has left the index.
     const hasNoindex = html.includes('content="noindex');
     if (hasNoindex) {
       const renderTimeMs = Date.now() - startTime;

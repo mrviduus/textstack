@@ -297,7 +297,15 @@ async function main() {
   }
 }
 
-main().catch(err => {
+main().then(() => {
+  // Everything main() opened is closed by now, and the process normally exits here on its own. If
+  // something still holds the event loop, it must not hold the rebuild job: the results are
+  // written, so finish. unref() keeps this timer from being that something.
+  setTimeout(() => {
+    console.error('Prerender finished but was still running 10 s later; exiting');
+    process.exit(0);
+  }, 10_000).unref();
+}).catch(err => {
   console.error('Prerender failed:', err);
   process.exit(1);
 });
