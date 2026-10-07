@@ -69,14 +69,29 @@ comparison. It was never written. What does it now is
 push to `main` touching `apps/mobile/**` or `packages/**` it resolves the runtime,
 compares it with the newest finished Android production build, and publishes the OTA
 only on a match. ~~A mismatch fails the run~~ — no longer: since 2026-09-28 (#625) a mismatch
-**starts an EAS production build and auto-submits it to Closed testing** (`alpha`), and
-then still publishes the update, which lands on the new runtime only. So **merging any
+**starts an EAS production build and auto-submits it to Closed testing** (`alpha`).
+~~and then still publishes the update~~ — not since 2026-10-07: that run publishes **no**
+OTA (no installed app has the new runtime; the build carries the JS). A push while that
+build is still queued or running starts no second build and publishes its OTA to the new
+runtime, which the build picks up on first launch; once the build finishes, pushes compare
+against it and publish as usual. Logic: `scripts/mobile-ota-decide.mjs`. So **merging any
 native change (a dependency, a config plugin, `app.json`) ships a store build to the
 testers** — time the merge accordingly. `production` stays a manual
 `mobile-release.yml` run.
 
 Run it by hand from Actions → Mobile OTA (auto) with `dry_run` on to see the comparison
 without publishing. It needs the `EXPO_TOKEN` secret, like every other EAS workflow here.
+
+### Known limits of the automatic OTA
+
+- **Stranded update after a failed build.** A push while a store build is queued or running
+  publishes its OTA to that build's runtime. If the build then errors or is cancelled, that
+  update reaches no one until the next mobile push builds again. The run summary says so; the
+  fix is to re-run **mobile-release.yml → build**.
+- **One runtime at a time.** The OTA always targets the runtime of the newest *finished*
+  production build. Once the production track runs an older build than Closed testing,
+  production stops receiving OTAs. Tracked in `docs/STATUS.md`; must be fixed before the
+  second store release.
 
 ## Permissions
 
