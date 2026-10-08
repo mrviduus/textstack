@@ -1,0 +1,4 @@
+{
+  "one-line": "{\"v\":1,\"kind\":\"pdf\",\"page\":7,\"rects\":[{\"x\":72,\"y\":144.5,\"w\":200,\"h\":12}],\"exact\":\"consensus is reached\"}",
+  "two-lines": "{\"v\":1,\"kind\":\"pdf\",\"page\":12,\"rects\":[{\"x\":300,\"y\":90,\"w\":240,\"h\":11.5},{\"x\":72,\"y\":102,\"w\":150,\"h\":11.5}],\"exact\":\"a leader is elected for each term\"}"
+}

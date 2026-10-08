@@ -1,0 +1,9 @@
+{
+  "page": "page:7",
+  "chapter": "chapter:chapter-two",
+  "scroll": "scroll:chapter-one:1840",
+  "scroll-slug-with-colon": "scroll:part-1:chapter-2:0",
+  "finished": "{\"type\":\"end\"}",
+  "start-sentinel": "{\"type\":\"start\"}",
+  "percent": "percent:0.4200"
+}

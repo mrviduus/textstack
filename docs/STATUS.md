@@ -34,10 +34,10 @@ answers "what happened" and nothing answered "what is half-finished right now".
 ## In flight
 
 > **Focus (owner, 2026-10-08): no new side work.** Order:
-> 1. Finish what is running: #770 (auth fails closed by path) and #771 (SSG: one consumer, no per-edit rebuild).
+> 1. ~~Finish what is running: #770 and #771~~ — both merged 2026-10-08.
 > 2. **Reader engine** — decided 2026-10-08: separate package `packages/reader-engine`, strangler
->    migration behind flags, no iframe, scroll only, reflow then PDF. Phase 0 (lock today's behaviour)
->    #774; next: ADR-025 + API contract + skeleton, then the Android spike. Production engine
+>    migration behind flags, no iframe, scroll only, reflow then PDF. Phase 0 #774 merged; Phase 1: [ADR-025](01-architecture/adr/ADR-025-reader-engine-package.md)
+>    accepted, `packages/reader-engine` = API types + stored-shape mappers (test-first). Next: the Android spike. Production engine
 >    code only after Play launch. Owner runs [QA-007](qa/scenarios/QA-007-reader-android-r1-r4.md).
 > 3. Later, in 2–3 bundled PRs while reader work waits on something: the rest of
 >    [review 2026-10](01-architecture/review-2026-10/00-summary.md) (#19 admin roles/audit, #20 book models,
@@ -186,10 +186,13 @@ answers "what happened" and nothing answered "what is half-finished right now".
   - *Coverage:* still open — see the list below.
 
 - **Reader — open after R3/R4** (2026-10-06):
-  - **Mobile highlight edges (review of #774), for engine Phase 2:** a fuzzy anchor match still paints
-    `exact.length` characters, not the matched length; on the legacy `<mark>` vocab path a highlight
-    range that spans an inline translation also paints that floating label. Both go when the engine
-    merges the walkers and deletes the legacy path.
+  - **Mobile legacy `<mark>` vocab path, for engine Phase 2/6** (old WebViews without CSS Highlights
+    only; no test phone has one): a highlight over a word with an inline translation also paints the
+    floating label; `vhlLegacyMark` rewrites text nodes, which moves live highlight ranges' boundaries;
+    nothing redraws highlights after marking. A per-consumer wrapper (#776, closed unmerged) was inert
+    on chapter load and could crash on a collapsed range. Root fix: one text-only measurement inside the
+    overlay (Phase 2); the legacy path is deleted in Phase 6. The "fuzzy match paints `exact.length`"
+    item was not a bug: the resolver's fuzzy window is `exact.length` wide by design.
   - **Mobile reader hooks have no tests of their own.** Fixes are tested through pure modules
     extracted from them and source-text wiring guards (`readerR3Wiring.test.ts`,
     `readerR4Wiring.test.ts`). A small hooks harness would let a test drive the real hook.

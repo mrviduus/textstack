@@ -299,6 +299,18 @@ importers:
         specifier: 'catalog:'
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@25.9.8)(@vitest/coverage-v8@4.1.11)(jsdom@28.1.0)(vite@6.4.3(@types/node@25.9.8)(lightningcss@1.33.0)(terser@5.51.2)(yaml@2.9.1))
 
+  packages/reader-engine:
+    devDependencies:
+      '@types/node':
+        specifier: ^25.8.0
+        version: 25.9.8
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@25.9.8)(@vitest/coverage-v8@4.1.11)(jsdom@28.1.0)(vite@6.4.3(@types/node@25.9.8)(lightningcss@1.33.0)(terser@5.51.2)(yaml@2.9.1))
+
   packages/reader-overlay: {}
 
   packages/shared:

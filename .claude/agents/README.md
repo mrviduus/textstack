@@ -12,6 +12,7 @@ system prompt + tool access (`.claude/agents/*.md`). Files live under `.claude/`
 | **backend-engineer** | Server-side work | API/Application/Domain/Infra, EF migrations, `TextStack.Ai.*`, Worker |
 | **frontend-engineer** | Web/admin UI | React, hooks, SSE clients, i18n, `packages/` |
 | **mobile-engineer** | Mobile app | Expo Router, WebView reader, EAS, Android launch |
+| **reader-engine** | Reader engine work, test-first (ADR-025) | `packages/reader-engine`: render, position, decorations, selection |
 | **qa-automation** | Verify before ship — adversarially | xUnit/Vitest/Playwright, eval suites, blind spots, CI |
 | **tech-writer** | After a feature lands | CHANGELOG, ADRs, architecture docs, `CLAUDE.md` |
 | **product-manager** | When *what/why/for whom* is unclear | Scope, DoD, value framing, PR slicing, roadmap |
