@@ -17,6 +17,7 @@ import {
 import { useReaderPersistence } from '../../hooks/useReaderPersistence'
 import { fillChapterLinks } from '../../lib/chapterLinks'
 import type { NewerPosition, PdfNewerOffer, ProgressSnapshot, ReaderChapterMeta, ReaderRuntime, SavedPosition } from './readerSource'
+import { parseChapterLocator } from '@textstack/shared'
 
 type ToastFn = (t: { message: string; variant: 'error' | 'success' | 'info' }) => void
 
@@ -32,7 +33,7 @@ type Params = {
 const startPagesBySlug = (rows: { chapterSlug: string; sourceStartPage: number | null }[]) =>
   Object.fromEntries(rows.flatMap(r => (typeof r.sourceStartPage === 'number' && r.sourceStartPage >= 1 ? [[r.chapterSlug, r.sourceStartPage]] : [])))
 
-const bookmarkSlug = (b: BookmarkDto) => (b.locator.startsWith('chapter:') ? b.locator.slice(8) : b.locator)
+const bookmarkSlug = (b: BookmarkDto) => parseChapterLocator(b.locator) ?? b.locator
 
 /**
  * User-uploaded book data source for the unified `<Reader>`. Owns the

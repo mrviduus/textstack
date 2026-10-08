@@ -4,9 +4,10 @@ import { parsePdfPageLocator } from '@textstack/shared'
 import type { BookmarkDto } from '@textstack/shared'
 import { useTheme } from '../context/ThemeContext'
 import { fonts } from '../theme/typography'
+import { parseChapterLocator } from '@textstack/shared'
 
 function getSlugFromLocator(locator: string): string {
-  return locator.startsWith('chapter:') ? locator.slice(8) : locator
+  return parseChapterLocator(locator) ?? locator
 }
 
 interface Props {

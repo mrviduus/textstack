@@ -1,16 +1,10 @@
 // Mobile WebView entry point for text-anchor resolution ALONE.
 //
-// `mobileBootstrap.ts` already installs `window.__TSAnchor` — but that bundle is
-// inlined only when the overlay-v2 flag is on (`readerHtml.ts` emits it
-// conditionally), and the flag is a per-device override that can be off. With it
-// off, `hlFindAnchor` degrades to a bare `indexOf`: no context ladder, no offset
-// verification, no fuzzy fallback.
-//
-// That was survivable for highlights, which have a legacy `<mark>` path behind
-// them. It is not survivable for the reading position, which is resolved from an
-// anchor on every chapter open and has nowhere else to go. So the resolver gets
-// an entry of its own, always inlined, and the overlay bundle keeps meaning
-// exactly what it means.
+// `mobileBootstrap.ts` also installs `window.__TSAnchor`. When that bundle was
+// inlined only behind the (since removed) overlay-v2 flag, `hlFindAnchor`
+// degraded to a bare `indexOf` without it. The reading position has nowhere else
+// to go, so the resolver keeps an entry of its own; `readerHtml.ts` now inlines
+// both bundles unconditionally.
 //
 // Both bundles guard on `!window.__TSAnchor`, so loading both installs one.
 //

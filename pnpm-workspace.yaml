@@ -84,6 +84,7 @@ catalog:
   # caret let a fresh resolution take 19.3.0 the day it was published and fail
   # the mobile lane. React itself is 19.2.3 here, so types from the 19.3 line
   # describe a React this repo does not have.
+  '@types/node': ^25.8.0
   '@types/react': ~19.2.18
   '@types/react-dom': ~19.2.7
   '@vitejs/plugin-react': ^4.7.0

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { vocabularyApi } from '@textstack/shared'
 import { vocabMapCache } from '../lib/readerOfflineCache'
 import { cachedTranslate } from '../lib/translateCache'
+import { vocabPaintJs } from '../lib/vocabPaintJs'
 
 export type VocabMapEntry = { stage: number; id: string; translation?: string }
 export type VocabMap = Record<string, VocabMapEntry>
@@ -49,7 +50,7 @@ export function useReaderVocabMap({
       return
     }
     const t = setTimeout(() => {
-      injectJs(`markVocabWords(${JSON.stringify(vocabMapRef.current)})`)
+      injectJs(vocabPaintJs(vocabMapRef.current))
     }, 100)
     return () => clearTimeout(t)
   }, [vocabVersion, injectJs])
@@ -66,7 +67,7 @@ export function useReaderVocabMap({
       vocabMapCache.get(uid).then(cached => {
         if (!cancelled && cached && Object.keys(cached).length > 0) {
           vocabMapRef.current = cached
-          injectJs(`markVocabWords(${JSON.stringify(cached)})`)
+          injectJs(vocabPaintJs(cached))
           // Bump so the backfill effect sees the populated map.
           bumpVocab()
         }
@@ -79,7 +80,7 @@ export function useReaderVocabMap({
         const map: VocabMap = {}
         for (const w of words) map[w.word.toLowerCase()] = { stage: w.stage, id: w.id, translation: w.translation }
         vocabMapRef.current = map
-        injectJs(`markVocabWords(${JSON.stringify(map)})`)
+        injectJs(vocabPaintJs(map))
         if (uid) vocabMapCache.set(uid, map)
         // Re-evaluate backfill against the fresh map (API may have
         // returned translations the cache didn't have).

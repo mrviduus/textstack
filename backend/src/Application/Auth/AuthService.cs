@@ -740,6 +740,14 @@ public class AuthService
         return (user, accessToken, refreshToken);
     }
 
+    // A malformed stored hash makes BCrypt throw; that is a failed login (401), not a 500.
+    private static bool PasswordMatches(string password, string hash)
+    {
+        try { return BCrypt.Net.BCrypt.Verify(password, hash); }
+        catch (BCrypt.Net.SaltParseException) { return false; }
+        catch (ArgumentException) { return false; }
+    }
+
     public async Task<(User user, string accessToken, string refreshToken)?> LoginWithEmailAsync(
         string email, string password, CancellationToken ct)
     {
@@ -749,7 +757,7 @@ public class AuthService
         if (user == null || user.PasswordHash == null)
             return null;
 
-        if (!BCrypt.Net.BCrypt.Verify(password, user.PasswordHash))
+        if (!PasswordMatches(password, user.PasswordHash))
             return null;
 
         var accessToken = GenerateAccessToken(user);

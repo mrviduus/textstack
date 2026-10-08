@@ -19,3 +19,8 @@ export const PROGRESS_LOCATOR_END = '{"type":"end"}'
 
 /** Back to the beginning — what "mark as unfinished" writes, with `percent: 0`. */
 export const PROGRESS_LOCATOR_START = '{"type":"start"}'
+
+/** The slug of a chapter bookmark locator (`chapter:<slug>`), or null for any other locator. */
+export function parseChapterLocator(locator: string): string | null {
+  return locator.startsWith('chapter:') && locator.length > 8 ? locator.slice(8) : null
+}

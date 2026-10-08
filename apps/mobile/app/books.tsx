@@ -34,7 +34,8 @@ export default function BooksScreen() {
   const [query, setQuery] = useState('')
   const [queryDebounced, setQueryDebounced] = useState('')
   const [sort, setSort] = useState('popular')
-  const [genre, setGenre] = useState('popular')
+  // '' = all genres. 'popular' is a SORT; as a genre it matched nothing and the list was always empty.
+  const [genre, setGenre] = useState('')
   const [genres, setGenres] = useState<Genre[]>([])
   const lastFetchRef = useRef(0)
   const genresGenRef = useRef(0)
@@ -239,14 +240,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   sortChipText: { fontFamily: fonts.sansMedium, fontSize: 13 },
-  genreRow: { paddingHorizontal: 16, paddingVertical: 8, gap: 6 },
-  genreChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    borderWidth: 1,
-  },
-  genreChipText: { fontFamily: fonts.sansMedium, fontSize: 12 },
   grid: { padding: 16 },
   gridRow: { justifyContent: 'space-between' },
   emptyBox: { alignItems: 'center', marginTop: 40, gap: 12 },

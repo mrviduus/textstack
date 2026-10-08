@@ -43,6 +43,9 @@ export function FilterChips({ options, selected, onSelect, scrollable = true }: 
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
+        // ScrollView grows by default; inside a flex column it took a share of the screen
+        // and stretched every chip to that height.
+        style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
       >
         {chips}
@@ -54,7 +57,8 @@ export function FilterChips({ options, selected, onSelect, scrollable = true }: 
 }
 
 const styles = StyleSheet.create({
-  scrollContent: { paddingHorizontal: 16, paddingVertical: 8, gap: 6 },
+  scroll: { flexGrow: 0 },
+  scrollContent: { paddingHorizontal: 16, paddingVertical: 8, gap: 6, alignItems: 'center' },
   row: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   chip: {
     paddingHorizontal: 12,
