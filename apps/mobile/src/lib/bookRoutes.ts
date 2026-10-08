@@ -1,4 +1,5 @@
-import type { ContinueReadingPick } from '@textstack/shared'
+import { resumeChapterSlug, type ContinueReadingPick } from '@textstack/shared'
+import { userBookChapterSlug } from './userBookChapters'
 
 /**
  * Deep link that resumes a book at the chapter the reader last had open.
@@ -18,4 +19,24 @@ export function resumeRoute(pick: ContinueReadingPick): string {
     return pick.chapterSlug ? `/reader/${pick.slug}/${pick.chapterSlug}` : `/book/${pick.slug}`
   }
   return pick.chapterSlug ? `/my-books/read/${pick.id}/${pick.chapterSlug}` : `/my-books/${pick.id}`
+}
+
+/**
+ * Where Continue goes for an upload whose pick carries no chapter — a PDF read in Original layout
+ * saves `page:<N>` with no chapter, so `resumeRoute` alone could only offer the detail screen
+ * (QA-007). With the chapter list the page resolves to its chapter, the same answer the detail
+ * screen's own Continue Reading gives; the reader then resumes the saved page.
+ */
+export function userBookReadRoute(
+  id: string,
+  progress: { chapterSlug: string | null; locator: string | null } | null,
+  chapters: readonly { slug?: string | null; chapterNumber: number; sourceStartPage?: number | null }[],
+): string {
+  const first = chapters[0]
+  const slug = resumeChapterSlug(
+    progress?.chapterSlug,
+    progress?.locator,
+    chapters.map(c => ({ slug: userBookChapterSlug(c), sourceStartPage: c.sourceStartPage })),
+  ) ?? (first ? userBookChapterSlug(first) : null)
+  return slug ? `/my-books/read/${id}/${slug}` : `/my-books/${id}`
 }

@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useCallback, useRef, useEffect, type ReactNode } from 'react'
-import { createBooksApi, plural, userBooksApi } from '@textstack/shared'
+import { createBooksApi, libraryApi, plural, userBooksApi } from '@textstack/shared'
 import type { BookDetail, UserBookDetailResponse } from '@textstack/shared'
 import {
   cacheChapter,
@@ -345,6 +345,12 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
 
     setDownloads(prev => new Map(prev).set(editionId, info))
 
+    // A download is a book the reader means to keep, so it goes on the shelf too. Online the Library
+    // lists /me/library and offline it lists these downloads; a book downloaded without "Save to
+    // Library" was therefore on the shelf only with the network off (QA-007). Idempotent server
+    // side; fire-and-forget, because a failed add must not cost the download.
+    if (isAuthenticated) libraryApi.addToLibrary(editionId).catch(err => console.warn('Library add on download failed:', err))
+
     // Save book meta
     await setCachedBookMeta({
       editionId,
@@ -365,7 +371,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       saveCount,
       n => `${plural(n, 'chapter', 'chapters')} failed. Tap Retry to finish the download.`,
     )
-  }, [storeFor, runDownload])
+  }, [storeFor, runDownload, isAuthenticated])
 
   /**
    * Cache an upload for offline reading: its chapters AND, for a PDF, the

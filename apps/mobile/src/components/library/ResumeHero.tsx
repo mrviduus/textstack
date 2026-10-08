@@ -2,14 +2,14 @@ import { View, Text, StyleSheet } from 'react-native'
 import { Image } from 'expo-image'
 import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
-import { getStorageUrl } from '@textstack/shared'
+import { getStorageUrl, userBooksApi } from '@textstack/shared'
 import type { ContinueReadingPick } from '@textstack/shared'
 import { useTheme } from '../../context/ThemeContext'
 import { useLanguage } from '../../context/LanguageContext'
 import { fonts } from '../../theme/typography'
 import { PressableScale } from '../ui/PressableScale'
 import { GeneratedCover } from './GeneratedCover'
-import { resumeRoute } from '../../lib/bookRoutes'
+import { resumeRoute, userBookReadRoute } from '../../lib/bookRoutes'
 
 /**
  * The single largest, topmost thing a returning reader sees.
@@ -28,6 +28,23 @@ export function ResumeHero({ pick }: { pick: ContinueReadingPick }) {
   const router = useRouter()
 
   const percent = Math.round(pick.percent * 100)
+
+  // An upload with no chapter in its pick is a PDF read in Original layout (`page:<N>`, no
+  // chapter). `resumeRoute` can only send that to the detail screen — QA-007's "Continue opens the
+  // book, not the reader" — so ask for the chapter list and resolve the page here. Offline or on
+  // any failure, the detail screen is still a correct answer.
+  const resume = async () => {
+    if (pick.type !== 'userbook' || pick.chapterSlug) { router.push(resumeRoute(pick) as never); return }
+    try {
+      const [book, progress] = await Promise.all([
+        userBooksApi.getUserBook(pick.id),
+        userBooksApi.getUserBookProgress(pick.id).catch(() => null),
+      ])
+      router.push(userBookReadRoute(pick.id, progress, book.chapters) as never)
+    } catch {
+      router.push(resumeRoute(pick) as never)
+    }
+  }
   const cover = pick.coverPath ? getStorageUrl(pick.coverPath) : null
 
   return (
@@ -36,7 +53,7 @@ export function ResumeHero({ pick }: { pick: ContinueReadingPick }) {
       accessibilityLabel={t('library.resume.a11yResume')
         .replace('{title}', pick.title)
         .replace('{percent}', String(percent))}
-      onPress={() => router.push(resumeRoute(pick) as never)}
+      onPress={() => { void resume() }}
       style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}
     >
       {cover ? (

@@ -512,7 +512,8 @@ export default function BookDetailScreen() {
             onRemove={() => removeDownload(book.id).then(() => setCached(false))}
             onCancel={() => cancelDownload(book.id)}
             onRetry={() => retryFailed(book.id)}
-            onStart={() => startDownload(book, language)}
+            // startDownload also puts the book on the shelf (QA-007); say so here.
+            onStart={() => { if (isAuthenticated) setInLibrary(true); void startDownload(book, language) }}
             onRestart={() => startDownload(book, language)}
             buttonStyle={styles.secondaryButton}
             textStyle={styles.secondaryButtonText}

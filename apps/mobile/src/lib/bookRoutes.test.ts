@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { resumeRoute } from './bookRoutes'
+import { resumeRoute, userBookReadRoute } from './bookRoutes'
 import type { ContinueReadingPick } from '@textstack/shared'
 
 describe('resumeRoute', () => {
@@ -38,5 +38,24 @@ describe('resumeRoute', () => {
   it('falls back to the detail screen when there is no chapter to resume', () => {
     expect(resumeRoute(edition({ chapterSlug: null }))).toBe('/book/dracula')
     expect(resumeRoute(userbook({ chapterSlug: null }))).toBe('/my-books/ub-1')
+  })
+})
+
+describe('userBookReadRoute — Continue on an upload the pick could not place (QA-007)', () => {
+  const chapters = [
+    { slug: 'part-1', chapterNumber: 2, sourceStartPage: 1 },
+    { slug: 'part-2', chapterNumber: 3, sourceStartPage: 10 },
+  ]
+
+  it('a chapterless PDF opens the reader at the chapter holding its saved page, not the detail screen', () => {
+    expect(userBookReadRoute('ub-1', { chapterSlug: null, locator: 'page:12' }, chapters)).toBe('/my-books/read/ub-1/part-2')
+  })
+
+  it('a book with no usable position starts at the first chapter', () => {
+    expect(userBookReadRoute('ub-1', null, chapters)).toBe('/my-books/read/ub-1/part-1')
+  })
+
+  it('falls back to the detail screen only when there is no chapter at all', () => {
+    expect(userBookReadRoute('ub-1', { chapterSlug: null, locator: 'page:3' }, [])).toBe('/my-books/ub-1')
   })
 })

@@ -1,4 +1,4 @@
-import { useRef, useCallback } from 'react'
+import { useRef, useCallback, useEffect } from 'react'
 import type { MutableRefObject } from 'react'
 import { t, type Language } from '@textstack/shared'
 import type { Chapter } from '@textstack/shared'
@@ -16,6 +16,8 @@ import { saveWordIntent } from '../../lib/saveWordIntent'
 import { capabilitiesFor } from '../../lib/capabilities'
 import { claimGuestNudge } from '../../lib/guestNudge'
 import type { ReaderShellProps } from './readerShellTypes'
+
+const CLEAR_SELECTION_JS = 'try{window.getSelection&&window.getSelection().removeAllRanges()}catch(e){};try{window.__tsClearWordMark&&window.__tsClearWordMark()}catch(e){}'
 
 /** Lightweight {key} interpolation — shared `t()` returns raw keys, we fill them in here. */
 function interpolate(template: string, vars: Record<string, string | number>): string {
@@ -147,11 +149,21 @@ export function useReaderWordActions({
     showToast,
   })
 
-  // The word toolbar's close — its X button and Android back (M3).
-  const closeSelection = useCallback(() => {
-    injectJs('try{window.getSelection&&window.getSelection().removeAllRanges()}catch(e){};try{window.__tsClearWordMark&&window.__tsClearWordMark()}catch(e){}')
-    setSelection(null)
-  }, [injectJs, setSelection])
+  // The word toolbar's close — its X button and Android back (M3). The WebView side is the effect
+  // below, which every other way of ending the selection needs too.
+  const closeSelection = useCallback(() => setSelection(null), [setSelection])
+
+  // Whenever the selection ends, the WebView's must end with it — the native range (Android keeps
+  // its handles up) and the word mark (a span that otherwise stays under the new highlight as a
+  // darker second layer until reload). Only the X close did this (QA-007): highlight, mark known,
+  // remove, add-anyway and the save outcomes all set the selection to null and left both behind.
+  const selectionWasOpenRef = useRef(false)
+  useEffect(() => {
+    if (selection) { selectionWasOpenRef.current = true; return }
+    if (!selectionWasOpenRef.current) return
+    selectionWasOpenRef.current = false
+    injectJs(CLEAR_SELECTION_JS)
+  }, [selection, injectJs])
 
   // Save is now on screen for guests too (SelectionActionBar), so this handler owns
   // the answer for them — and the answer stays in the book. No action, no router:
@@ -213,6 +225,9 @@ export function useReaderWordActions({
       setSelection(null)
       return
     }
+    // Before painting: clearing the mark unwraps its span and normalizes the text nodes, which
+    // would collapse the live Range the new highlight is drawn from.
+    injectJs(CLEAR_SELECTION_JS)
     await createHighlight({ color, selection, chapter: { id: chapter.id } })
     setSelection(null)
   }, [selection, chapter.id, createHighlight, updateSettings, original, injectJs])
