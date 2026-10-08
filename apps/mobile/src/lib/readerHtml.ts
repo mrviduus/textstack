@@ -898,12 +898,35 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
       }
       return _hlOverlayer;
     }
+    // Legacy <mark> vocab path: an inline translation is an absolutely positioned span inside the
+    // text, so a Range over those words also reports the label's box and the highlight painted over
+    // it. The overlayer only measures (collapsed + getClientRects), so hand it the range minus labels.
+    function hlMeasurable(range) {
+      var root = range.commonAncestorContainer;
+      if (root && root.nodeType !== 1) root = root.parentElement;
+      var labels = root && root.querySelectorAll ? root.querySelectorAll('.vocab-inline-translation') : [];
+      if (!labels.length) return range;
+      return {
+        collapsed: false,
+        getClientRects: function() {
+          var skip = [];
+          for (var i = 0; i < labels.length; i++) {
+            if (!range.intersectsNode(labels[i])) continue;
+            var lr = labels[i].getClientRects();
+            for (var j = 0; j < lr.length; j++) skip.push(lr[j]);
+          }
+          return Array.prototype.filter.call(range.getClientRects(), function(r) {
+            return !skip.some(function(s) { return s.left === r.left && s.top === r.top && s.width === r.width && s.height === r.height; });
+          });
+        }
+      };
+    }
     function hlPaintRangeOverlay(range, id, color) {
       var ov = hlEnsureOverlayer();
       if (!ov) return { ok: false, painted: 0, total: 0 };
       var bg = HIGHLIGHT_BG[color] || HIGHLIGHT_BG.yellow;
       try {
-        ov.add('user-hl:' + id, range, window.__TSOverlayer.highlight, { color: bg, opacity: 1, blendMode: 'multiply' });
+        ov.add('user-hl:' + id, hlMeasurable(range), window.__TSOverlayer.highlight, { color: bg, opacity: 1, blendMode: 'multiply' });
         return { ok: true, painted: 1, total: 1 };
       } catch (e) {
         console.warn('[diag] hlPaintRangeOverlay failed:', id, e && e.message);

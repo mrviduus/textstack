@@ -119,4 +119,31 @@ describe('renderHighlight reads the chapter text, not document.body', () => {
     )
     expect(painted.at(-1)).toBe('the moon.')
   })
+
+  it('does not paint the floating inline-translation label inside the highlight (legacy <mark> path)', () => {
+    const html = '<p>She sat in the garden<span class="vocab-inline-translation">сад</span> and watched the moon.</p>'
+    const word = { x: 0, y: 40, left: 0, top: 40, right: 200, bottom: 60, width: 200, height: 20 }
+    const label = { x: 90, y: 28, left: 90, top: 28, right: 110, bottom: 36, width: 20, height: 8 }
+    const dom = new JSDOM(buildReaderHtml(html, undefined, 'ch-6'), {
+      runScripts: 'dangerously',
+      pretendToBeVisual: true,
+      virtualConsole: new VirtualConsole(),
+      beforeParse(win: Window & typeof globalThis & { ReactNativeWebView: unknown }) {
+        win.ReactNativeWebView = { postMessage: () => {} }
+        // A Range over the words also reports the absolutely positioned label's box.
+        win.Range.prototype.getClientRects = function () { return [word, label] as unknown as DOMRectList }
+        win.Range.prototype.getBoundingClientRect = function () { return word as DOMRect }
+        win.Element.prototype.getClientRects = function (this: Element) {
+          return (this.classList.contains('vocab-inline-translation') ? [label] : [word]) as unknown as DOMRectList
+        }
+      },
+    })
+    const anchor = { prefix: 'She sat in the ', exact: 'garden and watched', suffix: ' the moon.' }
+    ;(dom.window as unknown as { eval: (s: string) => void }).eval(
+      `renderHighlight("h3", ${JSON.stringify(JSON.stringify(anchor))}, "yellow", "garden and watched")`,
+    )
+    const rects = Array.from(dom.window.document.querySelectorAll('svg[data-reader-overlay] rect'))
+    expect(rects).toHaveLength(1)
+    expect(Number(rects[0].getAttribute('height'))).toBe(word.height)
+  })
 })
