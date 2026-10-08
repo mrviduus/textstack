@@ -295,11 +295,7 @@ public static class AdminGenresEndpoints
             .AnyAsync(g => g.Editions.Any(e => e.Status == EditionStatus.Published), ct);
         if (hasPublished)
         {
-            _ = Task.Run(async () =>
-            {
-                try { await ssgService.EnqueueSsgRebuildAsync(new CreateSsgRebuildJobRequest(genre.SiteId, "Specific", GenreSlugs: [genre.Slug]), CancellationToken.None); }
-                catch { }
-            });
+            await ssgService.TryEnqueueSsgRebuildAsync(new CreateSsgRebuildJobRequest(genre.SiteId, "Specific", GenreSlugs: [genre.Slug]));
         }
 
         return Results.Ok();

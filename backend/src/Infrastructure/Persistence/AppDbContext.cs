@@ -108,7 +108,6 @@ public partial class AppDbContext : DbContext, IAppDbContext
     public DbSet<EvalRun> EvalRuns => Set<EvalRun>();
     public DbSet<AgentRun> AgentRuns => Set<AgentRun>();
     public DbSet<TutorSession> TutorSessions => Set<TutorSession>();
-    public DbSet<DriftCentroid> DriftCentroids => Set<DriftCentroid>();
     public DbSet<BookInsight> BookInsights => Set<BookInsight>();
     public DbSet<ReviewQuestion> ReviewQuestions => Set<ReviewQuestion>();
     public DbSet<McpAccessKey> McpAccessKeys => Set<McpAccessKey>();

@@ -61,16 +61,6 @@ export function SsgRebuildJobPage() {
     fetchResults()
   }, [id, routeTypeFilter, failedFilter, page])
 
-  const handleStart = async () => {
-    if (!id) return
-    try {
-      await adminApi.startSsgRebuildJob(id)
-      fetchJob()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to start')
-    }
-  }
-
   const handleCancel = async () => {
     if (!id) return
     try {
@@ -113,10 +103,7 @@ export function SsgRebuildJobPage() {
           <h1>SSG Rebuild Job</h1>
         </div>
         <div className="header-actions">
-          {job.status === 'Queued' && (
-            <button onClick={handleStart} className="btn btn--primary">Start Rebuild</button>
-          )}
-          {job.status === 'Running' && (
+          {(job.status === 'Queued' || job.status === 'Running') && (
             <button onClick={handleCancel} className="btn btn--danger">Cancel</button>
           )}
         </div>

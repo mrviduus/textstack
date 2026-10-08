@@ -4,6 +4,7 @@ using Contracts.Admin;
 using Domain.Entities;
 using Domain.Enums;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace Application.SsgRebuild;
 
@@ -20,11 +21,13 @@ public class SsgRebuildService : ISsgJobService
 {
     private readonly IAppDbContext _db;
     private readonly ISsgRouteProvider _routeProvider;
+    private readonly ILogger<SsgRebuildService> _logger;
 
-    public SsgRebuildService(IAppDbContext db, ISsgRouteProvider routeProvider)
+    public SsgRebuildService(IAppDbContext db, ISsgRouteProvider routeProvider, ILogger<SsgRebuildService> logger)
     {
         _db = db;
         _routeProvider = routeProvider;
+        _logger = logger;
     }
 
     public async Task<SsgRebuildPreviewDto> GetPreviewAsync(
@@ -122,18 +125,6 @@ public class SsgRebuildService : ISsgJobService
         return (total, items);
     }
 
-    public async Task<bool> StartJobAsync(Guid id, CancellationToken ct)
-    {
-        var job = await _db.SsgRebuildJobs.FirstOrDefaultAsync(j => j.Id == id, ct);
-        if (job == null || job.Status != SsgRebuildJobStatus.Queued)
-            return false;
-
-        job.Status = SsgRebuildJobStatus.Running;
-        job.StartedAt = DateTimeOffset.UtcNow;
-        await _db.SaveChangesAsync(ct);
-        return true;
-    }
-
     public async Task<bool> CancelJobAsync(Guid id, CancellationToken ct)
     {
         var job = await _db.SsgRebuildJobs.FirstOrDefaultAsync(j => j.Id == id, ct);
@@ -225,10 +216,11 @@ public class SsgRebuildService : ISsgJobService
     {
         var mode = ParseMode(request.Mode);
 
-        // Dedup: skip if identical job already queued or running
+        // Dedup against Queued only: ssg-worker has not claimed a Queued job yet, so it will read routes
+        // after this change and cover it. A Running job may already have rendered the page this
+        // change is about, so it is no reason to skip (ADR-022).
         var duplicateQuery = _db.SsgRebuildJobs
-            .Where(j => j.Mode == mode
-                && (j.Status == SsgRebuildJobStatus.Queued || j.Status == SsgRebuildJobStatus.Running));
+            .Where(j => j.Mode == mode && j.Status == SsgRebuildJobStatus.Queued);
 
         if (mode == SsgRebuildMode.Specific)
         {
@@ -244,9 +236,24 @@ public class SsgRebuildService : ISsgJobService
         if (await duplicateQuery.AnyAsync(ct))
             return null;
 
-        var job = await CreateJobAsync(request, ct);
-        await StartJobAsync(job.Id, ct);
-        return job;
+        // Queued is the whole enqueue: ssg-worker claims it (FOR UPDATE SKIP LOCKED) and sets Running.
+        return await CreateJobAsync(request, ct);
+    }
+
+    public async Task TryEnqueueSsgRebuildAsync(CreateSsgRebuildJobRequest request)
+    {
+        // Called after the caller's edit is committed. Awaited, so the request's DbContext is still
+        // alive; caught, so a failed enqueue never turns that committed edit into a 500 (ADR-023).
+        // CancellationToken.None: a client that hangs up after the commit still gets its rebuild.
+        try
+        {
+            await EnqueueSsgRebuildAsync(request, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "SSG enqueue failed ({Mode}; books {BookSlugs}; authors {AuthorSlugs}; genres {GenreSlugs})",
+                request.Mode, request.BookSlugs, request.AuthorSlugs, request.GenreSlugs);
+        }
     }
 
     #region Private Helpers

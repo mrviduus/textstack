@@ -6,6 +6,7 @@ using Contracts.Admin;
 using Domain.Entities;
 using Domain.Enums;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace Application.Seo;
 
@@ -20,7 +21,8 @@ public class SeoJobProcessor(
     SeoContextBuilder contextBuilder,
     SeoContentApplier applier,
     ISsgJobService ssg,
-    IEmailService email)
+    IEmailService email,
+    ILogger<SeoJobProcessor> logger)
 {
     public record JobContext(
         Guid JobId,
@@ -496,9 +498,13 @@ public class SeoJobProcessor(
                 "genre" => new CreateSsgRebuildJobRequest(siteId, "Specific", GenreSlugs: new[] { slug! }),
                 _ => null
             };
-            if (req is not null) await ssg.EnqueueSsgRebuildAsync(req, ct);
+            if (req is not null) await ssg.TryEnqueueSsgRebuildAsync(req);
         }
-        catch { /* best-effort */ }
+        catch (Exception ex)
+        {
+            // Best-effort: the SEO apply is committed; a missed rebuild is logged, never a failure.
+            logger.LogError(ex, "SSG enqueue after SEO job {JobId} failed", job.Id);
+        }
     }
 
     /// <summary>Enqueues a single entity for backfill of specified fields using the active templates.</summary>

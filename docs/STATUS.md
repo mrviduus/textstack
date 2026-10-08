@@ -101,11 +101,23 @@ answers "what happened" and nothing answered "what is half-finished right now".
   between leaves files with no row, and the rerun writes them again under new ids. This is disk
   only: nothing references the old files. Fix: write images under a deterministic name (hash of
   edition + original path), or sweep `assets/` against `book_assets` / chapter HTML.
-- **SSG rebuild after an admin edit or publish may be silently skipped** (found 2026-10-07, ADR-023).
+- ~~**SSG rebuild after an admin edit or publish may be silently skipped** (found 2026-10-07, ADR-023).
   Eight un-awaited enqueues use the request's scoped `DbContext` after the request (`AdminEndpoints.cs:438,513,579`,
   `AdminGenresEndpoints.cs:298`, `AdminAuthorsEndpoints.cs:346`, `AdminService.Editions.cs:268-270,322,343`)
   behind an empty `catch`. A job left `Queued` blocks every later identical enqueue through the duplicate
-  check. Fix: await + log — ADR-023 PR 1.
+  check. Fix: await + log — ADR-023 PR 1.~~ **Fixed 2026-10-08** ([write-up](changelog-archive/2026-H2.md#2026-10-08-ssg-one-consumer)).
+  Evidence it was live: prod `ssg_rebuild_jobs` had zero `Specific` jobs ever (112 Full in 30 days).
+  All sites await `TryEnqueueSsgRebuildAsync` (logs, never throws; `SsgEnqueueTests`); enqueue is one
+  `Queued` insert and ssg-worker claims it (`ssgJob.test.mjs`). Locally: an admin edit queued a
+  `Specific` job that ssg-worker claimed and `Completed`. Not yet watched on prod: after the deploy,
+  publish or edit one book and check `select mode, status from ssg_rebuild_jobs order by created_at desc limit 3`.
+- **ssg-worker renders every route whatever the job's mode** (found 2026-10-08). `processJob` asks
+  `/ssg/routes` for the full list and ignores `mode` / `*_slugs_json`, so a `Specific` job after one
+  edit is a full render (~25 min on prod), and it swaps the whole tree. Correct, just slow; now that
+  edits really queue jobs, a burst of edits queues a burst of full renders (one per distinct slug set).
+- **Cancelling a Running SSG job does not stop it** (found 2026-10-08). `CancelJobAsync` sets
+  `Cancelled`, but ssg-worker never re-reads the row and its final `setJobStatus` overwrites it with
+  `Completed`/`Failed`.
 - **Vocabulary words promoted by the hourly reconciler are never enriched** (found 2026-10-07, ADR-023):
   `DailyCapService.ReconcileUserAsync` does not call `QueueEnrichment`. Fix: enrichment moves into an Application service; the reconciler awaits it word by word (owner, 2026-10-07).
 - **Uploaded originals are readable by URL without auth** (`/storage`, ADR-024). Fix: originals move behind `/me/books/{id}/file`; covers and chapter images only after they get an authenticated route (owner, 2026-10-07).

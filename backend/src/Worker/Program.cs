@@ -82,7 +82,7 @@ builder.Services.AddHostedService<MetadataEnrichmentWorker>();
 
 // SSG Rebuild handled by dedicated ssg_worker container (apps/web/scripts/ssg-worker.mjs)
 
-// Guest cleanup (purge inactive guests every 6h)
+// Guest cleanup (purge inactive guests every 2h)
 builder.Services.AddHostedService<GuestCleanupWorker>();
 
 // Admin refresh token cleanup (purge expired rows daily)
@@ -90,11 +90,6 @@ builder.Services.AddHostedService<AdminRefreshTokenCleanupWorker>();
 
 // Heartbeat file for docker healthcheck
 builder.Services.AddHostedService<HeartbeatWorker>();
-
-// One-shot metadata backfill — heals user_books that have Genre=NULL because
-// the worker previously couldn't reach Ollama (wrong env var). Self-skips
-// when there's nothing to do, so safe to leave registered.
-builder.Services.AddHostedService<MetadataBackfillWorker>();
 
 // TextStack watcher (optional, enable via config)
 if (builder.Configuration.GetValue("TextStack:EnableWatcher", false))

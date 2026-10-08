@@ -2,8 +2,8 @@
 /**
  * SSG Worker
  *
- * Long-running process that polls PostgreSQL for SSG rebuild jobs
- * and executes prerender.mjs for each job.
+ * Long-running process that claims Queued SSG rebuild jobs from PostgreSQL (it is the queue's
+ * only consumer, ADR-022) and executes prerender.mjs for each job.
  *
  * Environment variables:
  *   DATABASE_URL - PostgreSQL connection string
@@ -24,7 +24,9 @@ import { initSentry, routeFailuresToReport } from './ssgSentry.mjs';
 import {
   assertBuildSurvived,
   carryForwardFailedPages,
+  claimNextJob,
   createPool,
+  failInterruptedJobs,
   isProgress,
   jobLimits,
   readResults,
@@ -77,23 +79,6 @@ const pool = createPool(DATABASE_URL, (error) => {
   console.error('Database connection lost (idle client):', error.message);
   dbErrors.report(error);
 });
-
-/**
- * Poll for next job with status "Running"
- */
-async function pollForJob() {
-  const { rows } = await pool.query(`
-    SELECT j.id, j.site_id, j.mode, j.concurrency, j.timeout_ms,
-           j.book_slugs_json, j.author_slugs_json, j.genre_slugs_json,
-           s.code as site_code, s.primary_domain
-    FROM ssg_rebuild_jobs j
-    JOIN sites s ON j.site_id = s.id
-    WHERE j.status = 'Running'
-    ORDER BY j.started_at
-    LIMIT 1
-  `);
-  return rows[0] || null;
-}
 
 /**
  * Get routes from API.
@@ -432,10 +417,15 @@ async function main() {
   console.log(`  JOB STALL LIMIT: ${minutes(jobLimits(0).stallMs)} min`);
   console.log(`  SENTRY: ${sentry ? 'on' : 'off'}`);
 
-  // Test DB connection
+  // Test the DB connection, then close whatever a previous worker left Running (ADR-022): this is the
+  // queue's only consumer, so at its start nothing can be in flight.
   try {
     await pool.query('SELECT 1');
     console.log('Database connection OK');
+    const interrupted = await failInterruptedJobs(pool);
+    if (interrupted.length > 0) {
+      console.log(`Failed ${interrupted.length} job(s) left Running by a previous worker: ${interrupted.join(', ')}`);
+    }
   } catch (err) {
     console.error('Failed to connect to database:', err.message);
     process.exit(1);
@@ -455,7 +445,7 @@ async function main() {
   // Main polling loop
   while (true) {
     try {
-      const job = await pollForJob();
+      const job = await claimNextJob(pool);
       dbErrors.recovered();
 
       if (job) {

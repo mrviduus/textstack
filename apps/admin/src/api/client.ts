@@ -289,11 +289,6 @@ export interface EditionGenre {
 }
 
 // SSG Rebuild
-export interface SsgPeriodicSettings {
-  enabled: boolean
-  intervalHours: number
-}
-
 export type SsgRebuildJobStatus = 'Queued' | 'Running' | 'Completed' | 'Failed' | 'Cancelled'
 export type SsgRebuildMode = 'Full' | 'Incremental' | 'Specific'
 
@@ -646,15 +641,7 @@ export interface ShadowSamplesPage {
   total: number
   items: ShadowSample[]
 }
-// Drift detection (RLOps)
-export type DriftAlertState = 'baseline' | 'ok' | 'warning' | 'alerting' | 'insufficient'
-export interface DriftPoint {
-  feature: string
-  day: string // date "YYYY-MM-DD"
-  driftScore: number | null
-  sampleSize: number
-  alertState: DriftAlertState
-}
+// Scheduled-eval trend (Evals tab)
 export interface ScheduledEvalPoint {
   feature: string
   modelId: string
@@ -1057,17 +1044,6 @@ export const adminApi = {
   },
 
   // SSG Rebuild
-  getSsgSettings: async (): Promise<SsgPeriodicSettings> => {
-    return fetchJson<SsgPeriodicSettings>('/admin/ssg/settings')
-  },
-
-  updateSsgSettings: async (data: SsgPeriodicSettings): Promise<void> => {
-    await fetchVoid('/admin/ssg/settings', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    })
-  },
 
   getSsgRebuildPreview: async (siteId: string, mode?: SsgRebuildMode): Promise<SsgRebuildPreview> => {
     const query = new URLSearchParams({ siteId })
@@ -1095,10 +1071,6 @@ export const adminApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     })
-  },
-
-  startSsgRebuildJob: async (id: string): Promise<void> => {
-    await fetchVoid(`/admin/ssg/jobs/${id}/start`, { method: 'POST' })
   },
 
   cancelSsgRebuildJob: async (id: string): Promise<void> => {
@@ -1359,14 +1331,6 @@ export const adminApi = {
     if (params.offset) query.set('offset', String(params.offset))
     const qs = query.toString()
     return fetchJson<ShadowSamplesPage>(`/admin/ai-quality/shadow/samples${qs ? `?${qs}` : ''}`)
-  },
-
-  getDrift: async (params?: { feature?: string; days?: number }): Promise<DriftPoint[]> => {
-    const query = new URLSearchParams()
-    if (params?.feature) query.set('feature', params.feature)
-    if (params?.days) query.set('days', String(params.days))
-    const qs = query.toString()
-    return fetchJson<DriftPoint[]>(`/admin/ai-quality/drift${qs ? `?${qs}` : ''}`)
   },
 
   getEvalTrend: async (params?: { feature?: string; limit?: number }): Promise<ScheduledEvalPoint[]> => {

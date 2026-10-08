@@ -106,30 +106,8 @@ public partial class AppDbContext
             e.Property(x => x.Score).HasColumnType("numeric(6,3)");
             e.Property(x => x.BreakdownJson).HasColumnType("jsonb");
             // RunType (slice 5a): "manual" | "scheduled". Existing rows backfill to "manual"
-            // via the migration default; the Drift tab + worker filter on RunType='scheduled'.
+            // via the migration default; the eval trend + worker filter on RunType='scheduled'.
             e.Property(x => x.RunType).HasMaxLength(20).HasDefaultValue("manual");
-        });
-
-        modelBuilder.Entity<DriftCentroid>(e =>
-        {
-            // One row per (feature, day): makes a same-day re-run idempotent AND doubles as the
-            // worker's "is it due?" probe (no row for today's UTC date = due).
-            e.HasIndex(x => new { x.Feature, x.Day }).IsUnique();
-
-            e.Property(x => x.Feature).HasMaxLength(64);
-
-            // float[] (framework-free Domain) <-> pgvector vector(1536).
-            // Nullable: an `insufficient` row has no centroid.
-            e.Property(x => x.Centroid)
-                .HasColumnType("vector(1536)")
-                .HasConversion(
-                    v => v == null ? null : new Vector(v),
-                    v => v == null ? null : v.ToArray());
-
-            // baseline | ok | warning | alerting | insufficient — stored as a plain string (no enum).
-            e.Property(x => x.AlertState).HasMaxLength(20);
-
-            e.Property(x => x.DriftScore).HasColumnType("numeric(6,4)");
         });
     }
 }

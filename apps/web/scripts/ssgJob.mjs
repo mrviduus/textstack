@@ -44,6 +44,53 @@ export function reportOncePerOutage(report) {
   };
 }
 
+/** What a job left Running by a previous ssg-worker is closed with at startup. */
+export const INTERRUPTED_ERROR = 'interrupted (ssg-worker restarted)';
+
+/**
+ * Startup recovery (ADR-022). ssg-worker is the queue's only consumer and runs one job at a time, so
+ * at its start nothing can legitimately be Running: any such row was orphaned by a crash or a restart
+ * mid-render. Failed, not re-queued: a job that crashes the worker would otherwise crash it again on
+ * every start. Returns the ids it closed.
+ */
+export async function failInterruptedJobs(pool) {
+  const { rows } = await pool.query(
+    `UPDATE ssg_rebuild_jobs
+        SET status = 'Failed', error = $1, finished_at = now()
+      WHERE status = 'Running'
+      RETURNING id`,
+    [INTERRUPTED_ERROR],
+  );
+  return rows.map((r) => r.id);
+}
+
+/**
+ * Claims the oldest Queued job (ADR-022): Queued -> Running in one statement, so the API's enqueue is a
+ * single insert and "Running" only ever means "ssg-worker is rendering it". SKIP LOCKED keeps a
+ * concurrent claimer (there should be none) off the same row. Null when nothing is queued.
+ */
+export async function claimNextJob(pool) {
+  const { rows } = await pool.query(`
+    WITH claimed AS (
+      UPDATE ssg_rebuild_jobs
+         SET status = 'Running', started_at = now()
+       WHERE id = (
+         SELECT id FROM ssg_rebuild_jobs
+          WHERE status = 'Queued'
+          ORDER BY created_at
+          LIMIT 1
+          FOR UPDATE SKIP LOCKED
+       )
+      RETURNING id, site_id, mode, concurrency, timeout_ms,
+                book_slugs_json, author_slugs_json, genre_slugs_json
+    )
+    SELECT c.*, s.code AS site_code, s.primary_domain
+      FROM claimed c
+      JOIN sites s ON c.site_id = s.id
+  `);
+  return rows[0] || null;
+}
+
 const MINUTE = 60_000;
 
 /** A positive number of ms from the environment, else `fallback` (setTimeout reads NaN as 1 ms). */

@@ -435,11 +435,7 @@ public static class AdminEndpoints
 
         if (edition.Status == EditionStatus.Published)
         {
-            _ = Task.Run(async () =>
-            {
-                try { await ssgService.EnqueueSsgRebuildAsync(new CreateSsgRebuildJobRequest(edition.SiteId, "Specific", BookSlugs: [edition.Slug]), CancellationToken.None); }
-                catch { }
-            });
+            await ssgService.TryEnqueueSsgRebuildAsync(new CreateSsgRebuildJobRequest(edition.SiteId, "Specific", BookSlugs: [edition.Slug]));
         }
 
         return Results.Ok(new { coverPath = relativePath });
@@ -510,11 +506,7 @@ public static class AdminEndpoints
 
         if (imported > 0)
         {
-            _ = Task.Run(async () =>
-            {
-                try { await ssgService.EnqueueSsgRebuildAsync(new CreateSsgRebuildJobRequest(request.SiteId, "Full"), CancellationToken.None); }
-                catch { }
-            });
+            await ssgService.TryEnqueueSsgRebuildAsync(new CreateSsgRebuildJobRequest(request.SiteId, "Full"));
         }
 
         return Results.Ok(new { imported, skipped, total = results.Count, results });
@@ -576,11 +568,7 @@ public static class AdminEndpoints
 
         if (result.Imported > 0)
         {
-            _ = Task.Run(async () =>
-            {
-                try { await ssgService.EnqueueSsgRebuildAsync(new CreateSsgRebuildJobRequest(request.SiteId, "Full"), CancellationToken.None); }
-                catch { }
-            });
+            await ssgService.TryEnqueueSsgRebuildAsync(new CreateSsgRebuildJobRequest(request.SiteId, "Full"));
         }
 
         return Results.Ok(new

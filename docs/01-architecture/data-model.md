@@ -88,7 +88,6 @@ Spaced-repetition language learning layer.
 - `ShadowRun` — primary vs shadow model comparisons
 - `ModelRegistration` (table `models`), `ModelPromotion` — model registry + promote/rollback
 - `EvalRun` — eval score history
-- `DriftCentroid` — daily embedding centroids (pgvector) for drift alerts
 - `AgentRun` — persisted agent run steps
 
 ### 8. Multisite (legacy — single-site permanent, ADR-007)

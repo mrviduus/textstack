@@ -289,8 +289,8 @@ What replaced it: the app hands back **the file the reader uploaded**, from the 
 **SSG**: Puppeteer prerenders SEO pages to static HTML
 - nginx serves SSG first, falls back to SPA
 - Run `make rebuild-ssg` after content changes
-- SSG worker: separate always-running container polling DB every 5s. Supports IndexNow (Bing/Yandex) via `INDEXNOW_KEY`
-- Periodic rebuild: configurable from admin panel (SSG Rebuild → Settings: enable/disable, interval hours)
+- SSG worker: separate always-running container, the queue's only consumer (ADR-022). The API only inserts a `Queued` job (awaited, failure logged — ADR-023); the worker claims it every 5s (`FOR UPDATE SKIP LOCKED` → `Running`) and fails leftover `Running` rows at startup. Supports IndexNow (Bing/Yandex) via `INDEXNOW_KEY`
+- Schedule: only `backup.yml`'s nightly Full rebuild (the periodic worker and its admin settings were deleted 2026-10-08)
 
 **When to rebuild SSG**:
 - After adding/publishing new books
@@ -314,7 +314,7 @@ What replaced it: the app hands back **the file the reader uploaded**, from the 
 
 **Vocabulary**: `POST /me/vocabulary/words`, `GET /me/vocabulary/words?filter=&sort=&search=&limit=&offset=`, `PATCH /me/vocabulary/words/{id}`, `DELETE /me/vocabulary/words/{id}`, `GET /me/vocabulary/review?limit=`, `POST /me/vocabulary/review`, `GET /me/vocabulary/stats`
 
-**Admin**: `POST /admin/books/upload`, `/admin/import/textstack`, `/admin/reimport/textstack`, `/admin/sync/standardebooks`, `/admin/reprocess/{editionId}`, `/admin/reprocess/all`, `GET /admin/ingestion/jobs`, `/admin/ingestion/jobs/{id}/retry`, `/admin/ingestion/jobs/{id}/preview`, `/admin/chapters/{id}` (GET/PUT/DELETE), `/admin/settings`, `/admin/ssg/jobs` (+ `/{id}`, `/start`, `/cancel`), `/admin/ssg/settings` (GET/PUT), `/admin/lint`, CRUD for `/admin/authors`, `/admin/genres`
+**Admin**: `POST /admin/books/upload`, `/admin/import/textstack`, `/admin/reimport/textstack`, `/admin/sync/standardebooks`, `/admin/reprocess/{editionId}`, `/admin/reprocess/all`, `GET /admin/ingestion/jobs`, `/admin/ingestion/jobs/{id}/retry`, `/admin/ingestion/jobs/{id}/preview`, `/admin/chapters/{id}` (GET/PUT/DELETE), `/admin/settings`, `/admin/ssg/jobs` (+ `/{id}`, `/cancel`), `/admin/lint`, CRUD for `/admin/authors`, `/admin/genres`
 
 **Auto Publish Admin**: `GET/PUT /admin/autopublish/settings`, `GET /admin/autopublish/jobs`, `GET /admin/autopublish/jobs/{id}`, `POST /admin/autopublish/jobs/{id}/approve`, `POST /admin/autopublish/jobs/{id}/reject`, `POST /admin/autopublish/jobs/{id}/retry`, `POST /admin/autopublish/trigger`, `POST /admin/autopublish/queue/{editionId}`, `GET /admin/autopublish/candidates`
 
@@ -370,7 +370,6 @@ What replaced it: the app hands back **the file the reader uploaded**, from the 
 | SEO Backfill systemd | `infra/systemd/seo-backfill-poller.service` |
 | SEO Backfill Admin UI | `apps/admin/src/pages/SeoBackfillPage.tsx` |
 | Internal Endpoints | `backend/src/Api/Endpoints/InternalEndpoints.cs` |
-| SSG Periodic Worker | `backend/src/Api/Services/SsgPeriodicRebuildWorker.cs` |
 | SSG | `apps/web/scripts/prerender.mjs` |
 | nginx config | `infra/nginx/textstack.conf` |
 | Profile API | `backend/src/Api/Endpoints/ProfileEndpoints.cs` |

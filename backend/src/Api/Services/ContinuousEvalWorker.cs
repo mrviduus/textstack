@@ -206,7 +206,6 @@ public sealed class ContinuousEvalWorker(
             .ToList();
     }
 
-    // Shared with DriftDetectionWorker (each passes its own key).
     internal static async Task<DbConnection> OpenConnectionAsync(IAppDbContext db, CancellationToken ct)
     {
         var conn = db.Database.GetDbConnection();

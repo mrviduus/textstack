@@ -265,9 +265,9 @@ public partial class AdminService
 
         if (edition.Status == EditionStatus.Published)
             // Featured order lives on home + /books, which only a Full rebuild re-renders.
-            _ = featuredChanged
+            await (featuredChanged
                 ? EnqueueSsgSafe(edition.SiteId)
-                : EnqueueSsgSafe(edition.SiteId, bookSlugs: [edition.Slug]);
+                : EnqueueSsgSafe(edition.SiteId, bookSlugs: [edition.Slug]));
 
         return (true, null);
     }
@@ -318,8 +318,8 @@ public partial class AdminService
 
         await db.SaveChangesAsync(ct);
 
-        // Trigger SSG rebuild for this book (fire and forget)
-        _ = EnqueueSsgSafe(edition.SiteId, bookSlugs: [edition.Slug]);
+        // Rebuild this book's pages (also the auto-publish path, via /internal/editions/{id}/publish).
+        await EnqueueSsgSafe(edition.SiteId, bookSlugs: [edition.Slug]);
 
         return (true, null);
     }
@@ -340,7 +340,7 @@ public partial class AdminService
         await db.SaveChangesAsync(ct);
 
         // Full rebuild — book removed from public listings
-        _ = EnqueueSsgSafe(edition.SiteId);
+        await EnqueueSsgSafe(edition.SiteId);
 
         return (true, null);
     }

@@ -3,8 +3,8 @@
 #
 # It goes through the job queue — the same POST the nightly backup makes — so ssg-worker renders it
 # with all of its guards (survival floor, carry-forward of failed routes, stall detection, Sentry).
-# Ctrl-C stops following, not the job. Exit 0 only when a job that started after this call ends
-# Completed.
+# Ctrl-C stops following, not the job. Exit 0 only when a job that read its routes after this call
+# ends Completed.
 #
 # SSG_API_URL             the API, default http://localhost:8080 (it must see the request as local)
 # SSG_POLL_SECS           seconds between checks, default 10
@@ -26,9 +26,9 @@ sql() {
 }
 
 # follow JOB → 0 Completed, 1 Failed/Cancelled, 2 gave up (the job itself is left alone).
-# The row has no "picked up" field: the API marks a job Running when it queues it, and fills
-# total_routes itself. So a job counts as started once the worker has written a count, which it does
-# after every batch (the first within ~30 s, the navigation timeout).
+# ssg-worker claims a job by setting it Running (ADR-022), but the API fills total_routes at enqueue,
+# so a job counts as started once the worker has written a count, which it does after every batch
+# (the first within ~30 s, the navigation timeout).
 follow() {
   local job=$1 since status rendered failed total moved=-1 done_now
   since=$(date +%s)
@@ -69,12 +69,12 @@ while :; do
     exit $((rc == 0 ? 0 : 1))
   fi
 
-  # "skipped": a Full rebuild is already queued or running. It may have read its routes, or rendered
-  # pages, before this call — and the row cannot say which — so its result does not count: wait for
-  # it, then queue our own.
+  # "skipped": a Full rebuild is already Queued (the API skips only for Queued, not Running). ssg-worker
+  # has not claimed it yet, so it reads its routes after this call and its result is ours. It may have
+  # been claimed since the POST, so look for the newest Full in either state.
   job=$(sql "SELECT id FROM ssg_rebuild_jobs WHERE mode = 'Full' AND status IN ('Queued','Running') ORDER BY created_at DESC LIMIT 1")
   [ -n "$job" ] || { sleep "$POLL"; continue; } # it ended between the POST and the query; ask again
-  echo "A Full rebuild is already queued or running and may predate this call. Waiting for it to end, then queuing a new one."
+  echo "A Full rebuild was already queued; following it."
   rc=0; follow "$job" || rc=$?
-  [ "$rc" -ne 2 ] || exit 1
+  exit $((rc == 0 ? 0 : 1))
 done

@@ -183,8 +183,9 @@ a calibrated `unknown`. The branching, the conflict resolution, the retry, and t
 - **Budget:** `AgentLoopOptions(MaxSteps: 5, MaxTokensPerStep: 800, CostCapUsd: 0.03)`. 5 steps is
   enough for: reason → OpenLibrary → GoogleBooks → reconcile → commit.
 - **Where it hooks in:** replace `IBookMetadataGenerator`'s single call. The Worker trigger points
-  stay identical — `MetadataBackfillWorker` (`Worker/Services/MetadataBackfillWorker.cs:86`) and
-  the post-ingestion fire-and-forget. Keep it **fire-and-forget, idempotent, NULL-fields-only**
+  stay identical — ~~`MetadataBackfillWorker` (`Worker/Services/MetadataBackfillWorker.cs:86`) and
+  the post-ingestion fire-and-forget~~ (both deleted: the kick 2026-10-07, the backfill worker
+  2026-10-08, ADR-022/023; `MetadataEnrichmentWorker` is the one consumer). Keep it **fire-and-forget, idempotent, NULL-fields-only**
   (the existing worker already does this, `MetadataBackfillWorker.cs:90`). Implement
   `IBookMetadataGenerator` with an `EnrichmentAgentMetadataGenerator` that runs the agent and maps
   `EnrichmentResult → BookMetadataResult` — **zero churn to callers**. Keep the old Ollama

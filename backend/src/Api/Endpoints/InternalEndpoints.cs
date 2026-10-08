@@ -72,7 +72,7 @@ public static class InternalEndpoints
 
         return job is not null
             ? Results.Ok(new { jobId = job.Id, status = "queued" })
-            : Results.Ok(new { status = "skipped", reason = "rebuild already in progress" });
+            : Results.Ok(new { status = "skipped", reason = "a Full rebuild is already queued" });
     }
 
     private static async Task<IResult> PublishEdition(
@@ -96,6 +96,7 @@ public static class InternalEndpoints
         BookService bookService,
         IAppDbContext db,
         ISsgJobService ssgService,
+        ILogger<ISsgJobService> logger,
         CancellationToken ct)
     {
         if (!InternalNetwork.IsLocalRequest(ctx))
@@ -119,9 +120,10 @@ public static class InternalEndpoints
                     new CreateSsgRebuildJobRequest(site.Id, "Full", Concurrency: 2), ct);
                 ssg = job is not null ? "queued" : "already-in-progress";
             }
-            catch
+            catch (Exception ex)
             {
                 // SSG failure must not undo or fail the shelf change.
+                logger.LogError(ex, "SSG enqueue after featured-shelf replace failed");
                 ssg = "failed";
             }
         }

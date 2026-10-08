@@ -91,15 +91,15 @@ admin-started runs the admin can see and repeat (run evals now).
 
 | Item | Decision |
 |---|---|
-| SSG enqueue, 8 sites | **Await it.** Keep a `try/catch` that **logs** the error (never empty), so a committed publish or edit never turns into a 500 |
-| `SsgPeriodicRebuildWorker` | **Delete**, with the two `ssg.periodicRebuild*` settings and their admin form. `backup.yml` is the one nightly trigger |
-| `DriftDetectionWorker` | **Delete**, with `drift_centroids` (migration) and its admin tab (review #29) |
-| `MetadataBackfillWorker` (Worker) | **Delete** — a one-shot heal for an old env-var bug that still calls Ollama on every Worker start |
+| SSG enqueue, 8 sites | **Await it.** Keep a `try/catch` that **logs** the error (never empty), so a committed publish or edit never turns into a 500. *Shipped 2026-10-08:* one `ISsgJobService.TryEnqueueSsgRebuildAsync` (await + log, never throws) used by all 8 sites, plus two more found by grep with empty catches (SEO-backfill apply, featured-shelf replace). Prod evidence it was live: zero `Specific` jobs ever |
+| `SsgPeriodicRebuildWorker` | **Delete**, with the two `ssg.periodicRebuild*` settings and their admin form. `backup.yml` is the one nightly trigger. *Shipped 2026-10-08* (the migration deletes the two rows) |
+| `DriftDetectionWorker` | **Delete**, with `drift_centroids` (migration) and its admin tab (review #29). *Shipped 2026-10-08*; the scheduled-eval trend that shared the tab moved to the Evals tab |
+| `MetadataBackfillWorker` (Worker) | **Delete** — a one-shot heal for an old env-var bug that still calls Ollama on every Worker start. *Shipped 2026-10-08* |
 | Reconciler gap | **Owner decision.** Not a one-liner (code review): `QueueEnrichment` is a private static in `Api/Endpoints/VocabularyEndpoints.cs:342`, `DailyCapService` lives in Application and may not call into Api, and `QueueEnrichment` is itself a `Task.Run`, which rule 2 forbids. Fix: move the enrichment body into an Application service; the endpoints keep their kick, and `ReconcileUserAsync` **awaits** it word by word after promoting (never a parallel burst: the hourly sweep can promote a whole cap across every user, and Ollama is one local model). Native language read from the profile. Durable enrichment in the Worker (a column + a loop) is **deferred** |
 | The 5 timers (`AutoRetire`, `DailyCap`, `ClusterCandidate`, `ConceptClustering`, `WordFrequency`) | **Stay in the Api, unchanged.** The reset after each deploy is accepted: it costs local CPU (Ollama), not money or data |
 | `ContinuousEvalWorker` | Stays as is |
 | `EdgeTtsService` cache sweep | Stays |
-| Guest cleanup comment | Fix `Worker/Program.cs:84` to "every 2h" |
+| Guest cleanup comment | Fix `Worker/Program.cs:84` to "every 2h". *Shipped 2026-10-08* |
 
 ## Alternatives
 

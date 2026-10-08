@@ -14,9 +14,6 @@ public static partial class ServiceCollectionExtensions
     /// </summary>
     public static IServiceCollection AddTextStackHostedServices(this IServiceCollection services)
     {
-        // SSG periodic rebuild
-        services.AddHostedService<SsgPeriodicRebuildWorker>();
-
         // Vocabulary anti-spiral: periodic auto-retire sweep (F4)
         services.AddHostedService<AutoRetireSweeperWorker>();
 
@@ -33,8 +30,6 @@ public static partial class ServiceCollectionExtensions
         services.AddHostedService<ConceptClusteringWorker>();
         // Phase 12 RLOps slice 5a: scheduled continuous evals (OFF by default — Eval:Scheduled:Enabled).
         services.AddHostedService<ContinuousEvalWorker>();
-        // Phase 12 RLOps slice 5b: embedding-drift detection (OFF by default — Drift:Enabled).
-        services.AddHostedService<DriftDetectionWorker>();
 
         return services;
     }
