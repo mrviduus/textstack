@@ -29,6 +29,7 @@ COPY apps/admin/package.json apps/admin/
 COPY apps/mobile/package.json apps/mobile/
 COPY packages/shared/package.json packages/shared/
 COPY packages/reader-overlay/package.json packages/reader-overlay/
+COPY packages/reader-engine/package.json packages/reader-engine/
 # Puppeteer drives the distro Chromium below; its own browser download is skipped.
 # (PUPPETEER_SKIP_CHROMIUM_DOWNLOAD, which this used to set, is the pre-v20 name and
 # Puppeteer 25 ignores it — so the image used to carry Chrome AND chrome-headless-shell
