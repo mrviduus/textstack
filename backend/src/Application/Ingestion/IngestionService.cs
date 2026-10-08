@@ -92,6 +92,20 @@ public class IngestionService(
         await db.SaveChangesAsync(ct);
     }
 
+    /// <summary>
+    /// ADR-022: a graceful shutdown gives the claim back — <see cref="JobStatus.Queued"/>, the attempt
+    /// the claim counted returned, no error. Matches only the row as this run claimed it (Processing at
+    /// <paramref name="claimedAttempt"/>): a claim that never committed, or a job that already finished,
+    /// is left alone, so a crashed attempt is never un-counted. Set-based, so nothing half-done from the
+    /// cancelled run is flushed with it; never cancellable, because the stopping token already fired.
+    /// </summary>
+    public static Task<int> ReturnToQueueAsync(IQueryable<IngestionJob> jobs, Guid jobId, int claimedAttempt) =>
+        jobs.Where(j => j.Id == jobId && j.Status == JobStatus.Processing && j.AttemptCount == claimedAttempt)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(j => j.Status, JobStatus.Queued)
+                .SetProperty(j => j.AttemptCount, claimedAttempt - 1)
+                .SetProperty(j => j.StartedAt, (DateTimeOffset?)null), CancellationToken.None);
+
     public async Task ProcessParsedBookAsync(
         IngestionJob job, ParsedBook parsed, ExtractionSummary? summary, string? tocJson, CancellationToken ct)
     {

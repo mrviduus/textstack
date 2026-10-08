@@ -12,8 +12,8 @@ namespace Worker.Services;
 /// Sweep that (a) drains <see cref="MetadataEnrichmentStatus.Pending"/> user books — this is how the API's
 /// re-enrich request reaches the worker, since the API host has no enrichment executor — and (b) recovers
 /// dead-process rows stuck in <see cref="MetadataEnrichmentStatus.Running"/> past the stale window back to
-/// Pending. Fresh ingestions are inline-kicked for latency; the atomic claim in
-/// <see cref="UserBookEnrichmentService.EnrichAsync"/> guards the sweep from double-running them.
+/// Pending. It is the only consumer (ADR-022): a fresh ingestion leaves the book Pending and the next
+/// tick takes it.
 /// </summary>
 public class MetadataEnrichmentWorker(
     IDbContextFactory<AppDbContext> dbFactory,

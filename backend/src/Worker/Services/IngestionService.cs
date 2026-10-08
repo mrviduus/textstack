@@ -139,6 +139,9 @@ public class IngestionWorkerService
             {
                 var extractor = _extractorRegistry.Resolve(request);
                 extractionResult = await extractor.ExtractAsync(request, ct);
+                // The PDF extractor stops early on cancellation and returns what it has; a truncated or
+                // empty result must not be read as "no text layer".
+                ct.ThrowIfCancellationRequested();
 
                 sourceFormat = extractionResult.SourceFormat.ToString();
                 textSource = extractionResult.Diagnostics.TextSource.ToString();
@@ -301,6 +304,14 @@ public class IngestionWorkerService
                 new KeyValuePair<string, object?>("format", sourceFormat));
 
             activity?.SetStatus(ActivityStatusCode.Ok);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // ADR-022: a deploy restarts the Worker mid-extraction. That is not a parse error.
+            await using var fresh = await _dbFactory.CreateDbContextAsync(CancellationToken.None);
+            var returned = await AppIngestion.IngestionService.ReturnToQueueAsync(fresh.IngestionJobs, jobId, job.AttemptCount);
+            _logger.LogInformation("Job {JobId} interrupted by shutdown; returned to queue: {Returned}", jobId, returned > 0);
+            throw;
         }
         catch (Exception ex)
         {
