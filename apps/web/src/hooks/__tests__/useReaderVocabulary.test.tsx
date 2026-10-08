@@ -321,4 +321,17 @@ describe('useReaderVocabulary', () => {
 
     await waitFor(() => expect(vi.mocked(translateApi)).toHaveBeenCalledWith('pocketed', 'en', 'pt', undefined, { sentence }))
   })
+
+  // Review of #780: sentences are opt-in — only when the backfill translates into another language.
+  it('load_TranslatingIntoAnotherLanguage_AsksForSentences', async () => {
+    renderHook(() => useReaderVocabulary('en', 'pt'))
+
+    await waitFor(() => expect(getReaderVocabMock).toHaveBeenCalledWith(true))
+  })
+
+  it('load_DefinitionMode_NoSentences', async () => {
+    renderHook(() => useReaderVocabulary('en', 'en'))
+
+    await waitFor(() => expect(getReaderVocabMock).toHaveBeenCalledWith(false))
+  })
 })

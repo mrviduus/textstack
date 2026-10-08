@@ -4,7 +4,8 @@ import { vocabMapCache } from '../lib/readerOfflineCache'
 import { cachedTranslate } from '../lib/translateCache'
 import { vocabPaintJs } from '../lib/vocabPaintJs'
 
-/** `sentence`: the one it was saved in, only known while `translation` is empty (backfill context). */
+/** `sentence`: the one it was saved in, when known — saved this session, or sent by the server
+ *  for an untranslated word (backfill context). Never injected into the WebView (vocabPaintJs). */
 export type VocabMapEntry = { stage: number; id: string; translation?: string; sentence?: string }
 export type VocabMap = Record<string, VocabMapEntry>
 
@@ -56,6 +57,9 @@ export function useReaderVocabMap({
     return () => clearTimeout(t)
   }, [vocabVersion, injectJs])
 
+  // Sentences only when the backfill below will translate into another language.
+  const includeSentences = !!bookLanguage && !!nativeLanguage && nativeLanguage !== bookLanguage
+
   // Load + paint vocab underlines. Cache-first so offline nav still shows
   // marks; API refresh overwrites. Keyed off chapterId (not chapter object)
   // so a refetch with the same id doesn't re-trigger.
@@ -75,7 +79,7 @@ export function useReaderVocabMap({
       })
     }
 
-    vocabularyApi.getReaderVocab()
+    vocabularyApi.getReaderVocab({ includeSentences })
       .then(words => {
         if (cancelled || words.length === 0) return
         const map: VocabMap = {}
@@ -90,7 +94,7 @@ export function useReaderVocabMap({
       })
       .catch(() => { /* offline — cache paint already rendered */ })
     return () => { cancelled = true }
-  }, [isAuthenticated, chapterId, user?.id, injectJs, bumpVocab])
+  }, [isAuthenticated, chapterId, user?.id, injectJs, bumpVocab, includeSentences])
 
   // Backfill translations for vocab entries that were saved without one
   // (early-save race, network error mid-translate, or older app version

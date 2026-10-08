@@ -678,21 +678,34 @@ public static partial class VocabularyEndpoints
         HttpContext httpContext,
         AuthService authService,
         IAppDbContext db,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool includeSentences = false)
     {
         if (!TryGetAuth(httpContext, authService, out var userId, out var siteId))
             return Results.Unauthorized();
 
-        var words = await db.VocabularyWords
+        var query = db.VocabularyWords
             .Where(w => w.UserId == userId)
             .OrderBy(w => w.Word)
-            .Take(MaxWordsPerUser)
-            .Select(w => new ReaderVocabWordDto(w.Id, w.Word, w.Stage, w.Translation,
-                string.IsNullOrEmpty(w.Translation) ? w.Sentence : null))
-            .ToListAsync(ct);
+            .Take(MaxWordsPerUser);
+        var words = await ProjectReaderVocab(query, includeSentences).ToListAsync(ct);
 
         return Results.Ok(words);
     }
+
+    internal const int MaxReaderSentenceLength = 300;
+
+    /// <summary>
+    /// Sentence only on request (the gloss backfill, translating into another language) and only for
+    /// an untranslated word, capped — the backfill's context, not every word's sentence on every open.
+    /// </summary>
+    internal static IQueryable<ReaderVocabWordDto> ProjectReaderVocab(IQueryable<VocabularyWord> words, bool includeSentences) =>
+        includeSentences
+            ? words.Select(w => new ReaderVocabWordDto(w.Id, w.Word, w.Stage, w.Translation,
+                string.IsNullOrEmpty(w.Translation) && w.Sentence != null
+                    ? (w.Sentence.Length > MaxReaderSentenceLength ? w.Sentence.Substring(0, MaxReaderSentenceLength) : w.Sentence)
+                    : null))
+            : words.Select(w => new ReaderVocabWordDto(w.Id, w.Word, w.Stage, w.Translation, null));
 
     // --- Mark word as Known (stage 4) ---
 
@@ -835,8 +848,8 @@ public record SubmitReviewResponse(
     double NextIntervalDays, DateTimeOffset NextReviewAt,
     int TotalReviews, int CorrectReviews);
 
-/// <summary>Sentence only when Translation is empty: the reader's gloss backfill needs it to translate the
-/// saved sense, and nothing else does — 5000 sentences on every reader open would not be "lightweight".</summary>
+/// <summary>Sentence only with <c>includeSentences=true</c> and an empty Translation: the reader's gloss backfill
+/// needs it to translate the saved sense, and nothing else does (see <c>ProjectReaderVocab</c>).</summary>
 public record ReaderVocabWordDto(Guid Id, string Word, int Stage, string? Translation, string? Sentence = null);
 
 public record WordClusterDto(

@@ -100,7 +100,8 @@ export function useReaderVocabActions({
   /** Shared post-save sequence: mark + count + notify + persist translation. */
   const onWordSaved = useCallback((saved: VocabularyWordDto, sourceText: string) => {
     const key = saved.word.toLowerCase()
-    vocabMapRef.current[key] = { stage: saved.stage, id: saved.id }
+    // Keep the sentence: it guards this sense against a bubble in another sentence.
+    vocabMapRef.current[key] = { stage: saved.stage, id: saved.id, sentence: saved.sentence ?? undefined }
     injectJs(`addVocabWord(${JSON.stringify(key)}, ${saved.stage})`)
     bumpVocab()
     setWordSaved(true)

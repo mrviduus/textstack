@@ -16,9 +16,17 @@ export interface TranslateContext {
   bookId?: string | null
 }
 
+/** A word or short phrase gets its sentence as context; a passage is its own context. */
+const MAX_CONTEXT_WORDS = 3
+
+/** The one place every client's translate body is built — web and mobile both route here. */
 export function translateBody(text: string, source: string, target: string, ctx?: TranslateContext) {
   const body: Record<string, string> = { text, sourceLang: source, targetLang: target }
-  if (ctx?.sentence?.trim()) body.sentence = ctx.sentence
+  const sentence = ctx?.sentence?.trim()
+  const words = text.trim().split(/\s+/).filter(Boolean).length
+  if (sentence && words <= MAX_CONTEXT_WORDS && sentence.toLowerCase() !== text.trim().toLowerCase()) {
+    body.sentence = ctx!.sentence!
+  }
   if (ctx?.bookId) body.bookId = ctx.bookId
   return body
 }

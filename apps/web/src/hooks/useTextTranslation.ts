@@ -51,7 +51,7 @@ export function useTextTranslation(options?: UseTextTranslationOptions) {
 
       // Check cache first
       try {
-        const cached = await getCachedTranslation(srcLang, tgtLang, text, ctx?.sentence)
+        const cached = await getCachedTranslation(srcLang, tgtLang, text, ctx?.sentence, ctx?.bookId)
         if (cached) {
           setState({
             translatedText: cached.translatedText,
@@ -79,7 +79,7 @@ export function useTextTranslation(options?: UseTextTranslationOptions) {
 
         // Cache the result
         try {
-          await cacheTranslation(srcLang, tgtLang, text, result.translatedText, ctx?.sentence)
+          await cacheTranslation(srcLang, tgtLang, text, result.translatedText, ctx?.sentence, ctx?.bookId)
         } catch {
           // Cache write failed, continue
         }

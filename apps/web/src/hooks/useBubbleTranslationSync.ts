@@ -18,15 +18,16 @@ export interface BubbleLike {
 
 /**
  * A saved word's translation is the sense of the sentence it was saved in. Write a
- * bubble's translation into it only when that bubble is in the same sentence — or,
- * when the stored sentence is unknown, only to fill an empty translation.
+ * bubble's translation into it unless the stored sentence is known AND is another one.
+ * Unknown → write: the server ships no sentence for a word that has a translation, so
+ * blocking on unknown would freeze every server-loaded word on a language switch.
  */
 export function mayWriteSavedTranslation(
   entry: { translation?: string; sentence?: string },
   bubbleSentence: string | undefined,
 ): boolean {
-  if (!entry.translation) return true
-  return entry.sentence !== undefined && entry.sentence.trim() === (bubbleSentence ?? '').trim()
+  if (!entry.translation || !entry.sentence) return true
+  return entry.sentence.trim() === (bubbleSentence ?? '').trim()
 }
 
 interface Options<B extends BubbleLike> {

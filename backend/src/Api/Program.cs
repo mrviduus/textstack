@@ -467,6 +467,46 @@ if (args.Length > 0 && args[0] == "import-textstack")
     return;
 }
 
+// CLI: backfill-pdf-page-counts — one-off for PDF uploads ingested before UserBook.PageCount
+// existed (#780). Reads each stored file's page tree; no re-ingestion. Idempotent.
+if (args.Length > 0 && args[0] == "backfill-pdf-page-counts")
+{
+    var dryRun = args.Contains("--dry-run");
+    using var cliScope = app.Services.CreateScope();
+    var db = cliScope.ServiceProvider.GetRequiredService<IAppDbContext>();
+    var storage = cliScope.ServiceProvider.GetRequiredService<IFileStorageService>();
+
+    var books = await db.UserBooks
+        .Where(b => b.PageCount == null && b.Status == UserBookStatus.Ready)
+        .Select(b => new
+        {
+            Book = b,
+            Path = b.BookFiles.Where(f => f.Format == BookFormat.Pdf)
+                .OrderByDescending(f => f.UploadedAt).Select(f => f.StoragePath).FirstOrDefault(),
+        })
+        .Where(x => x.Path != null)
+        .ToListAsync();
+
+    int updated = 0, failed = 0;
+    foreach (var x in books)
+    {
+        var fullPath = storage.GetFullPath(x.Path!);
+        int? pages = null;
+        if (File.Exists(fullPath))
+        {
+            await using var stream = File.OpenRead(fullPath);
+            pages = TextStack.Extraction.Extractors.PdfTextExtractor.CountPages(stream);
+        }
+        if (pages is null) { failed++; Console.WriteLine($"[FAIL] {x.Book.Id} {x.Path}"); continue; }
+        x.Book.PageCount = pages;
+        updated++;
+        Console.WriteLine($"[OK]   {x.Book.Id} {pages} pages");
+    }
+    if (!dryRun) await db.SaveChangesAsync(CancellationToken.None);
+    Console.WriteLine($"{(dryRun ? "DRY RUN — " : "")}{updated} updated, {failed} unreadable, of {books.Count}");
+    return;
+}
+
 // CLI: optimize-images command
 if (args.Length > 0 && args[0] == "optimize-images")
 {

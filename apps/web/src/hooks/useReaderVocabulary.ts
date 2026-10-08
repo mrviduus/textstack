@@ -50,7 +50,9 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
     commitMap(next)
   }, [commitMap])
 
-  // Load vocab from API once a session exists (guest or real).
+  // Load vocab from API once a session exists (guest or real). Sentences only when the
+  // backfill below will translate into another language — its context, nothing else needs them.
+  const includeSentences = !!targetLang && !!bookLanguage && targetLang !== bookLanguage
   useEffect(() => {
     if (!isAuthenticated) {
       commitMap(new Map())
@@ -58,7 +60,7 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
     }
     let cancelled = false
     setLoading(true)
-    getReaderVocab()
+    getReaderVocab(includeSentences)
       .then((words) => {
         if (cancelled) return
         const m: VocabMap = new Map()
@@ -70,7 +72,7 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [isAuthenticated, commitMap])
+  }, [isAuthenticated, includeSentences, commitMap])
 
   // Backfill translations for words missing them
   useEffect(() => {

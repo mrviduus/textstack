@@ -38,8 +38,9 @@ export interface UserBookDetailResponse {
    *  shows it, and the ask-before-mobile-data rule reads it. Null when the book
    *  has no stored original; absent on older payloads. */
   originalFileBytes?: number | null
-  /** Real page count of a PDF upload (last chapter's source end page). Null for
-   *  EPUBs / unknown; absent on older payloads → estimate from word count. */
+  /** The PDF's document page count, as the extractor read it at ingestion and stored
+   *  on the book (`UserBook.PageCount`) — not derived from chapter ranges. Null for
+   *  EPUBs / not yet known; absent on older payloads → estimate from word count. */
   pageCount?: number | null
   /** LLM metadata enrichment lifecycle (genre/year/description generation).
    *  "NotStarted" | "Pending" | "Running" | "Completed" | "Failed".

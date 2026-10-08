@@ -18,6 +18,23 @@ public sealed class PdfTextExtractor : ITextExtractor
 
     public SourceFormat SupportedFormat => SourceFormat.Pdf;
 
+    /// <summary>
+    /// The document's page count from its page tree alone — no text, no rendering. Null when the
+    /// stream is not a readable PDF. Used to backfill <c>UserBook.PageCount</c> without re-ingestion.
+    /// </summary>
+    public static int? CountPages(Stream content)
+    {
+        try
+        {
+            using var document = PdfDocument.Open(content);
+            return document.NumberOfPages;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
     public Task<ExtractionResult> ExtractAsync(ExtractionRequest request, CancellationToken ct = default)
     {
         var warnings = new List<ExtractionWarning>();

@@ -1,5 +1,6 @@
 import { authFetch, API_BASE, ApiError } from './client'
 import { trackBookUploaded } from '../lib/analytics'
+import type { UserBookDetailResponse } from '@textstack/shared'
 
 export interface UserBook {
   id: string
@@ -48,35 +49,11 @@ export interface TocEntry {
   children: TocEntry[] | null
 }
 
-export interface UserBookDetail {
-  id: string
-  title: string
-  slug: string
-  language: string
-  author: string | null
-  description: string | null
-  coverPath: string | null
-  genre: string | null
-  publishedYear: number | null
-  totalWordCount: number | null
+/** The shared wire type, with web's narrower status / chapter / TOC types. */
+export interface UserBookDetail extends Omit<UserBookDetailResponse, 'status' | 'chapters' | 'toc'> {
   status: 'Processing' | 'Ready' | 'Failed'
-  errorMessage: string | null
   chapters: UserChapterSummary[]
   toc: TocEntry[] | null
-  createdAt: string
-  updatedAt: string
-  completedAt: string | null
-  /** True when the original upload is a PDF that can be rendered pixel-perfect
-   *  in the opt-in "Original layout" view. Absent on older payloads → false. */
-  hasOriginalPdf?: boolean
-  /** LLM metadata enrichment lifecycle (genre/year/description generation).
-   *  "NotStarted" | "Pending" | "Running" | "Completed" | "Failed".
-   *  Absent on older payloads → treat as no enrichment in flight. */
-  metadataEnrichmentStatus?: string
-  /** Page a clipped article came from. Null for uploaded files; absent on older payloads. */
-  sourceUrl?: string | null
-  /** Real page count of a PDF upload. Null/absent → estimate from word count. */
-  pageCount?: number | null
 }
 
 export interface UserChapter {

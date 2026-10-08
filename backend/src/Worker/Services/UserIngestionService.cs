@@ -157,7 +157,7 @@ public class UserIngestionService
             // from having it read as a broken file.
             ct.ThrowIfCancellationRequested();
 
-            job.SourceFormat = result.SourceFormat.ToString();
+            RecordExtractionFacts(job, result);
 
             if (result.Diagnostics.TextSource == TextSource.None)
             {
@@ -301,7 +301,6 @@ public class UserIngestionService
                 job.UserBook.Language = result.Metadata.Language;
 
             job.UserBook.TotalWordCount = result.Units.Sum(u => u.WordCount ?? 0);
-            job.UserBook.PageCount = result.Metadata.PageCount;
 
             // If title was auto-generated, update with extracted title
             if (!string.IsNullOrEmpty(result.Metadata.Title))
@@ -445,4 +444,14 @@ public class UserIngestionService
         _ =>
             "This file format is not supported."
     };
+
+    /// <summary>
+    /// What the extractor learnt about the file, recorded before any early failure return: a
+    /// scanned PDF has no text layer but still opens in the Original layout with its page count.
+    /// </summary>
+    public static void RecordExtractionFacts(UserIngestionJob job, ExtractionResult result)
+    {
+        job.SourceFormat = result.SourceFormat.ToString();
+        job.UserBook.PageCount = result.Metadata.PageCount;
+    }
 }

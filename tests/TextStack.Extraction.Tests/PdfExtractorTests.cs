@@ -404,4 +404,22 @@ public class PdfExtractorTests
 
         Assert.Null(result.Metadata.PageCount);
     }
+
+    // Review of #780: PDFs uploaded before page_count existed are backfilled from the stored
+    // file (CLI backfill-pdf-page-counts) — page tree only, no re-ingestion.
+    [Fact]
+    public void CountPages_GeneratedPdf_ReturnsPageCount()
+    {
+        using var stream = new MemoryStream(PdfFixtureGenerator.GenerateMultiPagePdf(17));
+
+        Assert.Equal(17, PdfTextExtractor.CountPages(stream));
+    }
+
+    [Fact]
+    public void CountPages_InvalidStream_Null()
+    {
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes("not a valid pdf"));
+
+        Assert.Null(PdfTextExtractor.CountPages(stream));
+    }
 }

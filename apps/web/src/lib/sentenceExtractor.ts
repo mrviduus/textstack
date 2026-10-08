@@ -10,9 +10,23 @@ export function extractSentence(range: Range, container: HTMLElement): string {
   const block = findBlockParent(node, container)
   const fullText = block?.textContent || node.textContent || ''
 
-  // Find the selected word position within the block text
-  const selectedText = range.toString().trim()
-  const idx = fullText.indexOf(selectedText)
+  // Locate the selection by its own offset within the block — not by searching for its
+  // text, which finds the first occurrence rather than the one tapped.
+  const raw = range.toString()
+  const selectedText = raw.trim()
+  let idx: number
+  try {
+    const before = document.createRange()
+    if (block) before.selectNodeContents(block)
+    else before.setStart(node, 0)
+    before.setEnd(range.startContainer, range.startOffset)
+    idx = before.toString().length + (raw.length - raw.trimStart().length)
+  } catch {
+    idx = fullText.indexOf(selectedText)
+  }
+  if (idx < 0 || fullText.slice(idx, idx + selectedText.length) !== selectedText) {
+    idx = fullText.indexOf(selectedText)
+  }
   if (idx < 0) return fullText.slice(0, 200)
 
   // Walk backward to find sentence start

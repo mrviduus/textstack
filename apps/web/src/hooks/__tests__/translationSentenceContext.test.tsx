@@ -43,8 +43,8 @@ describe('translate sentence context (web)', () => {
     await act(async () => { await result.current.translate('pocketed the coins', 'en', 'pt', ctx) })
 
     expect(translate).toHaveBeenCalledWith('pocketed the coins', 'en', 'pt', undefined, ctx)
-    expect(getCachedTranslation).toHaveBeenCalledWith('en', 'pt', 'pocketed the coins', SENTENCE)
-    expect(cacheTranslation).toHaveBeenCalledWith('en', 'pt', 'pocketed the coins', 'embolsou', SENTENCE)
+    expect(getCachedTranslation).toHaveBeenCalledWith('en', 'pt', 'pocketed the coins', SENTENCE, 'book-1')
+    expect(cacheTranslation).toHaveBeenCalledWith('en', 'pt', 'pocketed the coins', 'embolsou', SENTENCE, 'book-1')
   })
 
   it('useTranslationPopup_TargetLangChange_ResendsSentenceItWasOpenedWith', async () => {
@@ -82,8 +82,8 @@ describe('translate sentence context (web)', () => {
 
 // Review of #780: a saved word's translation is the sense of the sentence it was
 // saved in. A bubble opened on that word in ANOTHER sentence (or a language switch
-// there) must not overwrite it with the other sense. Unknown stored sentence →
-// only fill an empty translation.
+// there) must not overwrite it with the other sense. Unknown stored sentence (the
+// server ships none for a word that has a translation) → write, as before #780.
 describe('saved-word translation is not overwritten from another sentence', () => {
   type Entry = { stage: number; id?: string; translation?: string; sentence?: string; isPending?: boolean }
 
@@ -127,11 +127,12 @@ describe('saved-word translation is not overwritten from another sentence', () =
     expect(updateWord).toHaveBeenCalledWith('w1', { translation: 'embolsou' })
   })
 
-  it('LangSwitch_UnknownSentenceHasTranslation_NotOverwritten', async () => {
-    const { rerender } = mountSync({ stage: 1, id: 'w1', translation: 'enterrou' })
+  it('LangSwitch_UnknownSentenceHasTranslation_Updated', async () => {
+    const { rerender, updateTranslation } = mountSync({ stage: 1, id: 'w1', translation: 'enterrou' })
     await act(async () => { rerender({ lang: 'uk' }) })
 
-    expect(updateWord).not.toHaveBeenCalled()
+    expect(updateWord).toHaveBeenCalledWith('w1', { translation: 'embolsou' })
+    expect(updateTranslation).toHaveBeenCalledWith('pocketed', 'embolsou')
   })
 
   it('BubbleOpen_SavedInOtherSentence_NoPatch', async () => {
@@ -146,5 +147,27 @@ describe('saved-word translation is not overwritten from another sentence', () =
     await act(async () => {})
 
     expect(updateWord).toHaveBeenCalledWith('w1', { translation: 'embolsou' })
+  })
+})
+
+describe('fetchWordBubble caption write', () => {
+  async function open(entry: { stage: number; id?: string; translation?: string; sentence?: string }) {
+    const { fetchWordBubble } = await import('../../lib/wordBubbleFetch')
+    const updateTranslation = vi.fn()
+    fetchWordBubble({
+      word: 'pocketed', bookLanguage: 'en', targetLang: 'pt', explainInContext: false,
+      vocabMap: new Map([['pocketed', entry]]), updateTranslation,
+      signal: new AbortController().signal, patch: vi.fn(), ...ctx,
+    })
+    await act(async () => {})
+    return updateTranslation
+  }
+
+  it('fetchWordBubble_ServerLoadedWordNoSentence_CaptionUpdated', async () => {
+    expect(await open({ stage: 1, id: 'w1', translation: 'enterrou' })).toHaveBeenCalledWith('pocketed', 'embolsou')
+  })
+
+  it('fetchWordBubble_SavedInOtherSentence_CaptionKept', async () => {
+    expect(await open({ stage: 1, id: 'w1', translation: 'enterrou', sentence: 'She pocketed the letter.' })).not.toHaveBeenCalled()
   })
 })

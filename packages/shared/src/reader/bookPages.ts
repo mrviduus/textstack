@@ -3,8 +3,8 @@ export const WORDS_PER_PAGE = 250
 
 /**
  * The page count a book detail shows. A PDF knows its real page count
- * (`pageCount`, from the stored page ranges) — show that, exactly. Anything
- * else is an estimate from the word count, rendered with a "~".
+ * (`pageCount`: the extractor's document page count, stored on the book) — show
+ * that, exactly. Anything else is an estimate from the word count, rendered with a "~".
  */
 export function bookPages(book: {
   pageCount?: number | null

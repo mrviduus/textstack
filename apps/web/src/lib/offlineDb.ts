@@ -438,19 +438,23 @@ function hashText(text: string): string {
 
 // The sentence is part of the key, as it is of the server's: "wound" in "she
 // wound the clock" and in "the wound bled" are two different translations.
-function makeTranslationKey(sourceLang: string, targetLang: string, text: string, sentence?: string | null): string {
+/** Varies by sentence and book, as the server's answer does. No sentence / no book → the old key. */
+export function makeTranslationKey(sourceLang: string, targetLang: string, text: string, sentence?: string | null, bookId?: string | null): string {
   const s = sentence?.trim()
-  return `${sourceLang}:${targetLang}:${hashText(s ? `${text}\n${s}` : text)}`
+  let material = s ? `${text}\n${s}` : text
+  if (bookId) material += `\n${bookId}`
+  return `${sourceLang}:${targetLang}:${hashText(material)}`
 }
 
 export async function getCachedTranslation(
   sourceLang: string,
   targetLang: string,
   text: string,
-  sentence?: string | null
+  sentence?: string | null,
+  bookId?: string | null
 ): Promise<CachedTranslation | null> {
   const db = await openOfflineDb()
-  const key = makeTranslationKey(sourceLang, targetLang, text, sentence)
+  const key = makeTranslationKey(sourceLang, targetLang, text, sentence, bookId)
 
   return new Promise((resolve, reject) => {
     const tx = db.transaction(TRANSLATIONS_STORE, 'readonly')
@@ -475,11 +479,12 @@ export async function cacheTranslation(
   targetLang: string,
   sourceText: string,
   translatedText: string,
-  sentence?: string | null
+  sentence?: string | null,
+  bookId?: string | null
 ): Promise<void> {
   const db = await openOfflineDb()
   const cached: CachedTranslation = {
-    key: makeTranslationKey(sourceLang, targetLang, sourceText, sentence),
+    key: makeTranslationKey(sourceLang, targetLang, sourceText, sentence, bookId),
     sourceText,
     translatedText,
     sourceLang,

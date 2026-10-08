@@ -20,9 +20,9 @@ beforeEach(() => {
   cachedTranslate.mockReset().mockResolvedValue({ translation: 'embolsou' })
 })
 
-const mount = () => renderHook(useReaderVocabMap, {
+const mount = (nativeLanguage = 'pt') => renderHook(useReaderVocabMap, {
   user: { id: 'u1' }, isAuthenticated: true, chapterId: 'c1', injectJs: () => {},
-  bookLanguage: 'en', nativeLanguage: 'pt',
+  bookLanguage: 'en', nativeLanguage,
 })
 
 describe('useReaderVocabMap gloss backfill', () => {
@@ -55,5 +55,24 @@ describe('useReaderVocabMap gloss backfill', () => {
     await flush()
 
     expect(cachedTranslate).not.toHaveBeenCalled()
+  })
+
+  // Review of #780: sentences are opt-in — only when the backfill translates into another language.
+  it('load_TranslatingIntoAnotherLanguage_AsksForSentences', async () => {
+    api.getReaderVocab.mockResolvedValue([])
+
+    mount('pt')
+    await flush()
+
+    expect(api.getReaderVocab).toHaveBeenCalledWith({ includeSentences: true })
+  })
+
+  it('load_DefinitionMode_NoSentences', async () => {
+    api.getReaderVocab.mockResolvedValue([])
+
+    mount('en')
+    await flush()
+
+    expect(api.getReaderVocab).toHaveBeenCalledWith({ includeSentences: false })
   })
 })
