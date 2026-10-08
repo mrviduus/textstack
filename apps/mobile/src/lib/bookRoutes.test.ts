@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { resumeRoute, userBookReadRoute } from './bookRoutes'
+import { editionStartRoute, resumeRoute, userBookReadRoute } from './bookRoutes'
 import type { ContinueReadingPick } from '@textstack/shared'
 
 describe('resumeRoute', () => {
@@ -38,6 +38,16 @@ describe('resumeRoute', () => {
   it('falls back to the detail screen when there is no chapter to resume', () => {
     expect(resumeRoute(edition({ chapterSlug: null }))).toBe('/book/dracula')
     expect(resumeRoute(userbook({ chapterSlug: null }))).toBe('/my-books/ub-1')
+  })
+})
+
+describe('editionStartRoute — Continue on a catalog book with no saved place (QA-007)', () => {
+  it('opens the reader at the first chapter', () => {
+    expect(editionStartRoute('dracula', [{ slug: 'chapter-1' }, { slug: 'chapter-2' }])).toBe('/reader/dracula/chapter-1')
+  })
+
+  it('falls back to the book screen when there is no chapter list', () => {
+    expect(editionStartRoute('dracula', [])).toBe('/book/dracula')
   })
 })
 

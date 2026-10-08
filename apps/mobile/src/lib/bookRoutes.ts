@@ -40,3 +40,8 @@ export function userBookReadRoute(
   ) ?? (first ? userBookChapterSlug(first) : null)
   return slug ? `/my-books/read/${id}/${slug}` : `/my-books/${id}`
 }
+
+/** Continue on a catalog book with no saved place: its first chapter, or the book screen without a list. */
+export function editionStartRoute(slug: string, chapters: readonly { slug: string }[]): string {
+  return chapters[0] ? `/reader/${slug}/${chapters[0].slug}` : `/book/${slug}`
+}

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useRouter } from 'expo-router'
 import { WebView } from 'react-native-webview'
-import { createBooksApi, readingProgressApi, parseScrollLocator, chapterIdForSlug, parseTextPosition, serializeTextPosition } from '@textstack/shared'
+import { createBooksApi, libraryApi, readingProgressApi, parseScrollLocator, chapterIdForSlug, parseTextPosition, serializeTextPosition } from '@textstack/shared'
 import type { Language, TextPosition } from '@textstack/shared'
 import { getLocalProgress, markLocalProgressSynced, saveLocalProgress, type LocalProgress } from '../../lib/progressStorage'
 import { serverProvablyNewer } from '../../lib/progressRestore'
+import { shouldAutoAddToLibrary } from '../../lib/libraryAutoAdd'
 import { getCachedChapter, cacheChapter } from '../../lib/offlineDb'
 import { useReaderChapter } from '../../hooks/useReaderChapter'
 import { useReaderBook } from '../../hooks/useReaderBook'
@@ -91,6 +92,9 @@ export function useEditionReaderSource({
   const routeChapterSlugRef = useRef(chapterSlug)
   routeChapterSlugRef.current = chapterSlug
 
+  // Once per open (this hook lives as long as the reader route). See libraryAutoAdd.ts.
+  const libraryAddedRef = useRef(false)
+
   const persist = useCallback((snap: ProgressSnapshot) => {
     const id = editionIdRef.current
     if (!id) return
@@ -122,6 +126,10 @@ export function useEditionReaderSource({
     }).catch(() => {})
 
     if (!isAuthenticated) return
+    if (shouldAutoAddToLibrary(snap.bookPercent, libraryAddedRef.current)) {
+      libraryAddedRef.current = true
+      libraryApi.addToLibrary(id).catch(e => console.warn('[library] auto-add failed', e))
+    }
     // The server row is keyed by chapter id. An offline-cached chapter has no
     // id to give, so there is nothing to send — the local write above is the
     // record, and useReaderPersistence repeats the save once an id appears.

@@ -2,14 +2,14 @@ import { View, Text, StyleSheet } from 'react-native'
 import { Image } from 'expo-image'
 import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
-import { getStorageUrl, userBooksApi } from '@textstack/shared'
+import { createBooksApi, getStorageUrl, userBooksApi } from '@textstack/shared'
 import type { ContinueReadingPick } from '@textstack/shared'
 import { useTheme } from '../../context/ThemeContext'
 import { useLanguage } from '../../context/LanguageContext'
 import { fonts } from '../../theme/typography'
 import { PressableScale } from '../ui/PressableScale'
 import { GeneratedCover } from './GeneratedCover'
-import { resumeRoute, userBookReadRoute } from '../../lib/bookRoutes'
+import { editionStartRoute, resumeRoute, userBookReadRoute } from '../../lib/bookRoutes'
 
 /**
  * The single largest, topmost thing a returning reader sees.
@@ -24,18 +24,24 @@ import { resumeRoute, userBookReadRoute } from '../../lib/bookRoutes'
  */
 export function ResumeHero({ pick }: { pick: ContinueReadingPick }) {
   const { colors } = useTheme()
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const router = useRouter()
 
   const percent = Math.round(pick.percent * 100)
 
-  // An upload with no chapter in its pick is a PDF read in Original layout (`page:<N>`, no
+  // A pick with no chapter — for an upload, a PDF read in Original layout (`page:<N>`, no
   // chapter). `resumeRoute` can only send that to the detail screen — QA-007's "Continue opens the
   // book, not the reader" — so ask for the chapter list and resolve the page here. Offline or on
   // any failure, the detail screen is still a correct answer.
   const resume = async () => {
-    if (pick.type !== 'userbook' || pick.chapterSlug) { router.push(resumeRoute(pick) as never); return }
+    if (pick.chapterSlug) { router.push(resumeRoute(pick) as never); return }
     try {
+      if (pick.type === 'edition') {
+        // A catalog book with no chapter and no position: start it rather than show its screen.
+        const book = await createBooksApi(language).getBook(pick.slug)
+        router.push(editionStartRoute(pick.slug, book.chapters) as never)
+        return
+      }
       const [book, progress] = await Promise.all([
         userBooksApi.getUserBook(pick.id),
         userBooksApi.getUserBookProgress(pick.id).catch(() => null),
