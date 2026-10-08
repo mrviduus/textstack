@@ -265,8 +265,8 @@ describe('restores jump, they do not animate', () => {
   //
   // This is a source assertion because the behaviour is a CSS-and-timing
   // interaction that no fake DOM reproduces.
-  it('still sets scroll-behavior: smooth, which is what makes this necessary', () => {
-    expect(SOURCE).toContain('scroll-behavior: smooth')
+  it('the document never makes scrolling smooth globally (it turned every restore into an animation)', () => {
+    expect(SOURCE).not.toMatch(/scroll-behavior:\s*smooth/)
   })
 
   it('routes every restore through scrollToInstant', () => {
@@ -277,13 +277,8 @@ describe('restores jump, they do not animate', () => {
     }
   })
 
-  it('scrollToInstant disables the CSS rule around the jump', () => {
-    // Not `behavior: 'instant'`: that value is not understood everywhere the
-    // app runs, and an unknown value falls back to the CSS — i.e. to smooth.
-    const body = extractFunction('scrollToInstant')
-    expect(body).toContain("scrollBehavior = 'auto'")
-    expect(body).toContain('window.scrollTo(0, y)')
-    expect(body).toContain('scrollBehavior = prev')
+  it('scrollToInstant is a plain jump', () => {
+    expect(extractFunction('scrollToInstant')).toContain('window.scrollTo(0, y)')
   })
 
   it('reads the saved offset in the same space reportProgress wrote it', () => {

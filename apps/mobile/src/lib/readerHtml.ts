@@ -181,7 +181,6 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
     .vocab-translation-overlay__item { position: absolute; top: 0; left: 0; transform: translate3d(0,0,0); white-space: nowrap; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; font-size: 0.42em; font-style: italic; font-weight: 400; letter-spacing: 0.015em; color: #6b6b6b; opacity: 0.85; line-height: 1; pointer-events: none; user-select: none; max-width: 160px; overflow: hidden; text-overflow: ellipsis; will-change: transform; }
 
     /* Progress tracking via scroll */
-    html { scroll-behavior: smooth; }
   </style>
   <script>${anchorScript}</script>
   <script>${READER_OVERLAY_SCRIPT}</script>
@@ -273,24 +272,16 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
     /**
      * Jump, without animating.
      *
-     * The document sets html { scroll-behavior: smooth }, which is right for
-     * the reader's own navigation and wrong for every restore: scrollTo becomes
-     * an animation, window.scrollY still reads the OLD position on the next
-     * line, and the acknowledgement below therefore reported a place the reader
-     * was not yet at. Meanwhile the animation kept firing reportProgress with
-     * intermediate positions after the gate had already opened, so the 2s
-     * debounce could persist one of them. A restore is a jump, not a journey.
-     *
-     * scroll-behavior is toggled on the element rather than passing
-     * behavior:'instant', because that value is not understood everywhere the
-     * app runs and an unknown value falls back to the CSS — i.e. to smooth.
+     * The document used to make html scrolling smooth by CSS, which made every restore an
+     * animation: window.scrollY still read the OLD position on the next line, so the
+     * acknowledgement below reported a place the reader was not yet at, and the animation's
+     * intermediate positions could be saved. A toggle of the rule around the jump raced the
+     * WebView's style recalculation (engine spike, 2026-10-08: a jump to the top animated in
+     * 20/20 runs). The rule is gone; the one scroll that wants to glide, to a highlight, asks for
+     * behavior:'smooth' itself.
      */
     function scrollToInstant(y) {
-      var root = document.documentElement;
-      var prev = root.style.scrollBehavior;
-      root.style.scrollBehavior = 'auto';
       window.scrollTo(0, y);
-      root.style.scrollBehavior = prev;
     }
 
     function ackRestore(restoreId) {

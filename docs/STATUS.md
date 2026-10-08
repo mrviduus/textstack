@@ -37,7 +37,8 @@ answers "what happened" and nothing answered "what is half-finished right now".
 > 1. ~~Finish what is running: #770 and #771~~ — both merged 2026-10-08.
 > 2. **Reader engine** — decided 2026-10-08: separate package `packages/reader-engine`, strangler
 >    migration behind flags, no iframe, scroll only, reflow then PDF. Phase 0 #774 merged; Phase 1: [ADR-025](01-architecture/adr/ADR-025-reader-engine-package.md)
->    accepted, `packages/reader-engine` = API types + stored-shape mappers (test-first). Next: the Android spike. Production engine
+>    accepted, `packages/reader-engine` = API types + stored-shape mappers (test-first). Android spike
+>    done: 8/8 pass ([results](01-architecture/adr/ADR-025-reader-engine-package.md#android-spike-results-phase-1b-2026-10-08)). Next: Phase 2 after launch. Production engine
 >    code only after Play launch. Owner runs [QA-007](qa/scenarios/QA-007-reader-android-r1-r4.md).
 > 3. Later, in 2–3 bundled PRs while reader work waits on something: the rest of
 >    [review 2026-10](01-architecture/review-2026-10/00-summary.md) (#19 admin roles/audit, #20 book models,
@@ -186,6 +187,12 @@ answers "what happened" and nothing answered "what is half-finished right now".
   - *Coverage:* still open — see the list below.
 
 - **Reader — open after R3/R4** (2026-10-06):
+  - **QA-007 findings 2026-10-08** ([report](qa/reports/2026-10-08-reader-android.md)), not started:
+    **PDF reopens one page back** when the next page fills most of the screen but the previous one's
+    margin still touches the top edge (saves the top-edge page); guest Library empty online after a
+    download without "Save to Library"; Books genre chips stretch tall and search "1984" → "No books
+    found"; Library "Continue" opens book detail, not the reader; native selection handles stay after
+    highlighting; a wrong pt-BR translation ("pocketed → enterrado"); PDF detail "~33 pages" for 15.
   - **Mobile legacy `<mark>` vocab path, for engine Phase 2/6** (old WebViews without CSS Highlights
     only; no test phone has one): a highlight over a word with an inline translation also paints the
     floating label; `vhlLegacyMark` rewrites text nodes, which moves live highlight ranges' boundaries;
