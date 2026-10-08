@@ -37,7 +37,7 @@ public class AdminAuthService
         if (user == null)
             return null;
 
-        if (!BCrypt.Net.BCrypt.Verify(password, user.PasswordHash))
+        if (!Application.Auth.PasswordHashing.Matches(password, user.PasswordHash))
             return null;
 
         var accessToken = await GenerateAccessTokenAsync(user, ct);

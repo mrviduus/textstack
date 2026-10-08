@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { PROGRESS_LOCATOR_END, PROGRESS_LOCATOR_START, parseChapterLocator } from './progressLocators'
+import { PROGRESS_LOCATOR_END, PROGRESS_LOCATOR_START, parseChapterLocator, bookmarkChapterSlug } from './progressLocators'
 import { locatorSpace } from './locatorSpace'
 
 describe('progress sentinels', () => {
@@ -28,5 +28,13 @@ describe('parseChapterLocator', () => {
     for (const s of ['chapter:', 'page:7', 'scroll:c:10', '{"type":"end"}', '', 'chapter-two']) {
       expect(parseChapterLocator(s)).toBeNull()
     }
+  })
+})
+
+describe('bookmarkChapterSlug', () => {
+  it('chapter: locators give their slug, a bare chapter: gives "", anything else is the slug', () => {
+    expect(bookmarkChapterSlug('chapter:part-1:chapter-2')).toBe('part-1:chapter-2')
+    expect(bookmarkChapterSlug('chapter:')).toBe('')
+    expect(bookmarkChapterSlug('chapter-two')).toBe('chapter-two')
   })
 })

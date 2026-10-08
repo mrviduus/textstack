@@ -49,4 +49,24 @@ public class AuthServiceLoginTests
 
         Assert.Null(result);
     }
+
+    [Fact]
+    public async Task LoginWithEmailAsync_ValidHash_RightPasswordSucceedsWrongFails()
+    {
+        _users.Add(new User { Id = Guid.NewGuid(), Email = "ok@test.dev", Name = "OK", PasswordHash = BCrypt.Net.BCrypt.HashPassword("right-password") });
+
+        Assert.Null(await _service.LoginWithEmailAsync("ok@test.dev", "wrong-password", CancellationToken.None));
+        Assert.NotNull(await _service.LoginWithEmailAsync("ok@test.dev", "right-password", CancellationToken.None));
+    }
+
+    [Theory]
+    [InlineData("a1.4p2eGarbage")]
+    [InlineData("$2a$11$tooShort")]
+    [InlineData("$2a$11$" + "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")]
+    [InlineData("")]
+    [InlineData(null)]
+    public void PasswordHashing_MalformedHash_IsNotAMatch(string? hash)
+    {
+        Assert.False(PasswordHashing.Matches("whatever", hash));
+    }
 }
