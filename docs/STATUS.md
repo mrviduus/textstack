@@ -187,6 +187,7 @@ answers "what happened" and nothing answered "what is half-finished right now".
   - *Coverage:* still open — see the list below.
 
 - **Reader — open after R3/R4** (2026-10-06):
+  - **Mobile: a save/highlight that resolves after a network wait calls `setSelection(null)`**, which can close a NEWER toolbar the reader opened meanwhile (pre-existing; seen while fixing SEL-1). Not started.
   - **QA-007 findings 2026-10-08** ([report](qa/reports/2026-10-08-reader-android.md)), not started:
     ~~PDF reopens one page back~~ (fixed #778, web had it too); guest Library empty online after a
     download without "Save to Library"; ~~Books genre chips stretch tall and search "1984" → "No books
