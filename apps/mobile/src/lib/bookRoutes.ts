@@ -1,4 +1,5 @@
-import type { ContinueReadingPick } from '@textstack/shared'
+import { parsePdfPageLocator, resumeChapterSlug, type ChapterPageAnchor, type ContinueReadingPick } from '@textstack/shared'
+import { userBookChapterSlug } from './userBookChapters'
 
 /**
  * Deep link that resumes a book at the chapter the reader last had open.
@@ -18,4 +19,25 @@ export function resumeRoute(pick: ContinueReadingPick): string {
     return pick.chapterSlug ? `/reader/${pick.slug}/${pick.chapterSlug}` : `/book/${pick.slug}`
   }
   return pick.chapterSlug ? `/my-books/read/${pick.id}/${pick.chapterSlug}` : `/my-books/${pick.id}`
+}
+
+type ChapterRow = ChapterPageAnchor & { chapterNumber: number }
+
+/**
+ * The Library hero's Continue (RES-1). An upload read as PDF pages saves `page:<N>` and no chapter,
+ * so `resumeRoute` sent it to the detail screen. Here the chapter list names the chapter holding
+ * that page, and the PDF reader then restores the page itself. Lookup fails → detail screen.
+ */
+export async function heroResumeRoute(
+  pick: ContinueReadingPick,
+  loadChapters: (bookId: string) => Promise<readonly ChapterRow[]>,
+): Promise<string> {
+  if (pick.type !== 'userbook' || pick.chapterSlug || parsePdfPageLocator(pick.locator) == null) return resumeRoute(pick)
+  try {
+    const chapters = (await loadChapters(pick.id)).map(c => ({ ...c, slug: userBookChapterSlug(c) }))
+    const slug = resumeChapterSlug(null, pick.locator, chapters)
+    return slug ? `/my-books/read/${pick.id}/${slug}` : resumeRoute(pick)
+  } catch {
+    return resumeRoute(pick)
+  }
 }

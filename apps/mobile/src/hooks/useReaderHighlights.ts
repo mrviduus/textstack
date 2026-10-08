@@ -3,8 +3,9 @@ import { highlightsApi, isPdfAnchor } from '@textstack/shared'
 import type { PublicHighlight, PdfAnchor } from '@textstack/shared'
 import { highlightCache, userBookHighlightCache } from '../lib/readerOfflineCache'
 import { matchesChapter } from '../lib/highlightChapter'
+import { clearSelectionJs } from '../lib/readerSelectionJs'
 
-type Selection = { text: string; anchor?: unknown } | null
+type Selection = { text: string; anchor?: unknown; token?: number } | null
 type ToastFn = (t: { message: string; variant: 'error' | 'success' | 'info' }) => void
 type User = { id: string } | null | undefined
 
@@ -157,16 +158,18 @@ export function useReaderHighlights({
   }, [userBookMode, userBookIdRef, editionIdRef])
 
   const create = useCallback(
-    async ({ color, selection, chapter }: { color: string; selection: NonNullable<Selection>; chapter: ChapterLike }) => {
+    async ({ color, selection, chapter }: { color: string; selection: NonNullable<Selection>; chapter: ChapterLike }): Promise<boolean> => {
       const bId = currentBookId()
-      if (!bId) return
+      if (!bId) return false
       try {
         const anchorJson = selection.anchor ? JSON.stringify(selection.anchor) : JSON.stringify({ exact: selection.text })
         const payload = userBookMode
           ? { userBookId: bId, userChapterId: chapter.id, anchorJson, color, selectedText: selection.text }
           : { editionId: bId, chapterId: chapter.id, anchorJson, color, selectedText: selection.text }
         const hl = await highlightsApi.createHighlight(payload)
-        injectJs(`renderHighlight(${JSON.stringify(hl.id)}, ${JSON.stringify(anchorJson)}, ${JSON.stringify(color)}, ${JSON.stringify(selection.text)})`)
+        // The word mark goes in the same script as the paint: unwrapping it merges text nodes,
+        // which would break a range built before it (SEL-1).
+        injectJs(`${clearSelectionJs(selection.token, true)};renderHighlight(${JSON.stringify(hl.id)}, ${JSON.stringify(anchorJson)}, ${JSON.stringify(color)}, ${JSON.stringify(selection.text)})`)
         highlightsRef.current = [...highlightsRef.current, hl]
         bumpHighlights()
         const uid = user?.id
@@ -175,9 +178,11 @@ export function useReaderHighlights({
             cache.set(uid, bId, [...(prev || []), hl])
           })
         }
+        return true
       } catch (e) {
         console.warn('Failed to create highlight:', e)
         showToast({ message: 'Could not add highlight. Try again.', variant: 'error' })
+        return false
       }
     },
     [currentBookId, userBookMode, cache, injectJs, showToast, user?.id, bumpHighlights]

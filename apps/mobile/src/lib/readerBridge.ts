@@ -208,7 +208,8 @@ export const READER_SELECTION_BRIDGE = `
         mode: 'tap',
         text: text,
         sentence: sentence,
-        anchor: anchor
+        anchor: anchor,
+        token: ++_selToken
       }));
       return true;
     }
@@ -250,8 +251,15 @@ export const READER_SELECTION_BRIDGE = `
     function applyTapPulseRange(range) { markRange(range); }
 
     // RN clears the mark when the selection toolbar closes — the toolbar owns
-    // the lifecycle, so it also owns the ending.
-    window.__tsClearWordMark = clearWordMark;
+    // the lifecycle, so it also owns the ending. Every selection posted to RN carries a token. RN hands the closed selection's token back
+    // here; once a newer selection (or a collapse) has been posted, that clear is stale and does
+    // nothing — it must not wipe the newer one (SEL-1). markOnly keeps the native range.
+    var _selToken = 0;
+    window.__tsClearSelection = function(token, markOnly) {
+      if (typeof token === 'number' && token !== _selToken) return;
+      if (!markOnly) { try { window.getSelection && window.getSelection().removeAllRanges(); } catch(e) {} }
+      clearWordMark();
+    };
 
     // The chapter's own element, or the body where there is none (the PDF
     // viewer). Context cut from the body picked up the template's whitespace,
@@ -329,7 +337,8 @@ export const READER_SELECTION_BRIDGE = `
         type: 'selection',
         text: text,
         sentence: sentence,
-        anchor: anchor
+        anchor: anchor,
+        token: ++_selToken
       }));
     }
 
@@ -582,6 +591,7 @@ export const READER_SELECTION_BRIDGE = `
         // so reporting "empty" would incorrectly tear down the WordCard.
         if (_lastDispatchedText && !_lastDispatchWasTap) {
           console.log('[diag] selectionchange: posting empty (prior drag-select collapsed)');
+          _selToken++;
           window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'selection', text: '' }));
         }
         _lastDispatchedText = '';
@@ -613,7 +623,8 @@ export const READER_SELECTION_BRIDGE = `
         text: text,
         sentence: sentence,
         anchor: anchor,
-        tooLong: text.length > SELECTION_MAX_CHARS
+        tooLong: text.length > SELECTION_MAX_CHARS,
+        token: ++_selToken
       }));
     }
     document.addEventListener('selectionchange', function() {

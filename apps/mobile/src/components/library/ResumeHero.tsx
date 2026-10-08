@@ -1,15 +1,16 @@
 import { View, Text, StyleSheet } from 'react-native'
 import { Image } from 'expo-image'
+import { useRef } from 'react'
 import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
-import { getStorageUrl } from '@textstack/shared'
+import { getStorageUrl, userBooksApi } from '@textstack/shared'
 import type { ContinueReadingPick } from '@textstack/shared'
 import { useTheme } from '../../context/ThemeContext'
 import { useLanguage } from '../../context/LanguageContext'
 import { fonts } from '../../theme/typography'
 import { PressableScale } from '../ui/PressableScale'
 import { GeneratedCover } from './GeneratedCover'
-import { resumeRoute } from '../../lib/bookRoutes'
+import { heroResumeRoute } from '../../lib/bookRoutes'
 
 /**
  * The single largest, topmost thing a returning reader sees.
@@ -26,6 +27,17 @@ export function ResumeHero({ pick }: { pick: ContinueReadingPick }) {
   const { colors } = useTheme()
   const { t } = useLanguage()
   const router = useRouter()
+  // One chapter-list lookup at a time (RES-1); repeat taps while it runs are ignored.
+  const busyRef = useRef(false)
+  const open = async () => {
+    if (busyRef.current) return
+    busyRef.current = true
+    try {
+      router.push(await heroResumeRoute(pick, id => userBooksApi.getUserBook(id).then(b => b.chapters)) as never)
+    } finally {
+      busyRef.current = false
+    }
+  }
 
   const percent = Math.round(pick.percent * 100)
   const cover = pick.coverPath ? getStorageUrl(pick.coverPath) : null
@@ -36,7 +48,7 @@ export function ResumeHero({ pick }: { pick: ContinueReadingPick }) {
       accessibilityLabel={t('library.resume.a11yResume')
         .replace('{title}', pick.title)
         .replace('{percent}', String(percent))}
-      onPress={() => router.push(resumeRoute(pick) as never)}
+      onPress={() => { void open() }}
       style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}
     >
       {cover ? (

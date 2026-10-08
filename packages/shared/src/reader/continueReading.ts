@@ -47,7 +47,7 @@ export interface UserBookProgressLite {
 
 export type ContinueReadingPick =
   | { type: 'edition'; slug: string; title: string; coverPath: string | null; percent: number; chapterSlug: string | null; updatedAtMs: number }
-  | { type: 'userbook'; id: string; title: string; coverPath: string | null; percent: number; chapterSlug: string | null; updatedAtMs: number }
+  | { type: 'userbook'; id: string; title: string; coverPath: string | null; percent: number; chapterSlug: string | null; /** Server locator — `page:<N>` for a PDF read as pages. */ locator?: string | null; updatedAtMs: number }
 
 export interface ContinueReadingInputs {
   library: UserLibraryItem[]
@@ -207,6 +207,7 @@ function pickUserBook(ub: UserBookDto, local: UserBookProgressLite | undefined):
     // has not yet cost anything — but one branch of one function obeying a rule
     // the other does not is how #496 turned into #500 turned into #501.
     chapterSlug: resumeChapterSlug(ub.progressChapterSlug, ub.progressLocator, null),
+    locator: ub.progressLocator ?? null,
     updatedAtMs: ubMs,
   }
 }

@@ -302,6 +302,17 @@ export default function BookDetailScreen() {
 
   const dl = book ? downloads.get(book.id) : undefined
 
+  // Save to Library and Download (LIB-1) share this: optimistic "In Library", rolled back if the add fails.
+  const addToLibrary = async () => {
+    setInLibrary(true)
+    try {
+      await libraryApi.addToLibrary(book!.id)
+    } catch (err) {
+      console.warn('library add failed:', err)
+      setInLibrary(false)
+    }
+  }
+
   if (loading) {
     return (
       <>
@@ -449,25 +460,21 @@ export default function BookDetailScreen() {
               style={[styles.secondaryButton, { borderColor: inLibrary ? colors.success : colors.primary }]}
               onPress={async () => {
                 const wasInLibrary = inLibrary
+                if (!wasInLibrary) return addToLibrary()
                 const toggle = async () => {
                   // Optimistic flip — roll back on failure so the button doesn't
                   // lie about the library state.
-                  setInLibrary(!wasInLibrary)
+                  setInLibrary(false)
                   try {
-                    if (wasInLibrary) {
-                      await libraryApi.removeFromLibrary(book.id)
-                      // The server took it out of its collections too (#706).
-                      invalidateCollectionsCache()
-                    } else {
-                      await libraryApi.addToLibrary(book.id)
-                    }
+                    await libraryApi.removeFromLibrary(book.id)
+                    // The server took it out of its collections too (#706).
+                    invalidateCollectionsCache()
                     // No shelf cache to drop: the Library tab refetches on focus.
                   } catch (err) {
                     console.warn('library toggle failed:', err)
-                    setInLibrary(wasInLibrary)
+                    setInLibrary(true)
                   }
                 }
-                if (!wasInLibrary) return toggle()
 
                 // Removing also empties the book out of every collection it is in,
                 // so ask first — but only when there is something to lose. No
@@ -512,7 +519,10 @@ export default function BookDetailScreen() {
             onRemove={() => removeDownload(book.id).then(() => setCached(false))}
             onCancel={() => cancelDownload(book.id)}
             onRetry={() => retryFailed(book.id)}
-            onStart={() => startDownload(book, language)}
+            onStart={() => {
+              startDownload(book, language)
+              if (isAuthenticated && !inLibrary) void addToLibrary()
+            }}
             onRestart={() => startDownload(book, language)}
             buttonStyle={styles.secondaryButton}
             textStyle={styles.secondaryButtonText}
