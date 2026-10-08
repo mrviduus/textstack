@@ -9,24 +9,34 @@ import { join, relative } from 'node:path'
 
 const SRC = join(__dirname)
 
-const FORBIDDEN: { rule: string; re: RegExp }[] = [
-  { rule: 'imports from apps/', re: /from\s+['"][^'"]*\/apps\/|from\s+['"]@\// },
-  { rule: 'imports React / React Native / Expo', re: /from\s+['"](react|react-dom|react-native|expo)[^'"]*['"]/ },
-  { rule: 'fetches (the host loads, the engine never does)', re: /\bfetch\s*\(|XMLHttpRequest/ },
+/** Module specifiers the engine may never load. */
+const FORBIDDEN_MODULES: { rule: string; re: RegExp }[] = [
+  { rule: 'imports from apps/', re: /(^|\/)apps\/|^@\// },
+  { rule: 'imports React / React Native / Expo', re: /^(@?(react|react-dom|react-native|expo)(\/|-|$)|@(expo|react-native|react-navigation)\/)/ },
+  { rule: "imports '@textstack/shared' (use a relative path: the mobile IIFE)", re: /^@textstack\/shared/ },
 ]
+const NETWORK = /\bfetch\s*\(|XMLHttpRequest|WebSocket|sendBeacon|EventSource/
+
+/** Every specifier: `from '…'`, side-effect `import '…'`, `import('…')`, `require('…')`. */
+const SPECIFIER = /(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\s*\(\s*)['"]([^'"]+)['"]/g
 
 function sources(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
     const p = join(dir, e.name)
     if (e.isDirectory()) return e.name === '__fixtures__' ? [] : sources(p)
-    return /\.ts$/.test(e.name) && !/\.test\.ts$/.test(e.name) ? [p] : []
+    return /\.m?[tj]sx?$/.test(e.name) && !/\.test\.m?[tj]sx?$/.test(e.name) ? [p] : []
   })
 }
 
 export function violations(files: { path: string; text: string }[]): string[] {
-  return files.flatMap(({ path, text }) =>
-    FORBIDDEN.filter(({ re }) => re.test(text)).map(({ rule }) => `${path}: ${rule}`),
-  )
+  return files.flatMap(({ path, text: raw }) => {
+    // Comments may name what the code must not do; only code counts.
+    const text = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
+    const specs = [...text.matchAll(SPECIFIER)].map((m) => m[1])
+    const found = FORBIDDEN_MODULES.filter(({ re }) => specs.some((s) => re.test(s))).map(({ rule }) => `${path}: ${rule}`)
+    if (NETWORK.test(text)) found.push(`${path}: network (the host loads, the engine never does)`)
+    return found
+  })
 }
 
 describe('engine boundary', () => {
@@ -36,13 +46,37 @@ describe('engine boundary', () => {
     expect(violations(files)).toEqual([])
   })
 
-  it('catches each forbidden kind', () => {
-    const planted = [
-      { path: 'a.ts', text: "import { x } from '../../../apps/web/src/lib/textAnchor'" },
-      { path: 'b.ts', text: "import { useState } from 'react'" },
-      { path: 'c.ts', text: 'const r = await fetch(url)' },
-      { path: 'd.ts', text: "import { y } from '@/hooks/useApi'" },
+  it('catches each forbidden kind, and names it', () => {
+    const planted: [string, string][] = [
+      ["import { x } from '../../../apps/web/src/lib/textAnchor'", 'apps/'],
+      ["import { useState } from 'react'", 'React'],
+      ['const r = await fetch(url)', 'network'],
+      ["import { y } from '@/hooks/useApi'", 'apps/'],
+      ["import 'react'", 'React'],
+      ["const m = await import('expo-haptics')", 'React'],
+      ["const r = require('react-native')", 'React'],
+      ["import { t } from '@textstack/shared'", '@textstack/shared'],
+      ['new WebSocket(url)', 'network'],
+      ['navigator.sendBeacon(url, body)', 'network'],
+      ["import {\n  a,\n} from 'react/jsx-runtime'", 'React'],
+      ["import { I } from '@expo/vector-icons'", 'React'],
+      ["import { N } from '@react-navigation/native'", 'React'],
     ]
-    expect(violations(planted)).toHaveLength(4)
+    for (const [text, rule] of planted) {
+      const v = violations([{ path: 'x.ts', text }])
+      expect(v, text).toHaveLength(1)
+      expect(v[0], text).toContain(rule)
+    }
+  })
+
+  it('ignores comments and look-alike names', () => {
+    const clean = [
+      "// never fetch(url) here, never import from 'react'",
+      '/* host does: await fetch(url) */',
+      'refetch(); prefetch(); const fetchedAt = 1',
+      "import { a } from '../../shared/src/reader/textAnchor'",
+      "const url = 'https://example.com'",
+    ]
+    for (const text of clean) expect(violations([{ path: 'x.ts', text }]), text).toEqual([])
   })
 })

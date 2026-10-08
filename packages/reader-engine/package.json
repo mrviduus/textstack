@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@types/node": "^25.8.0",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

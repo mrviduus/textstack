@@ -301,6 +301,9 @@ importers:
 
   packages/reader-engine:
     devDependencies:
+      '@types/node':
+        specifier: ^25.8.0
+        version: 25.9.8
       typescript:
         specifier: 'catalog:'
         version: 5.9.3

@@ -8,6 +8,8 @@ import type { PdfRect } from '../../shared/src/reader/pdfHighlightAnchor'
 /** Plain rect, viewport coordinates. DOMRect serialises to {} across the WebView bridge. */
 export interface Rect { x: number; y: number; width: number; height: number }
 
+export type StoredKind = 'anchor' | 'position' | 'pdf' | 'progress'
+
 /** Readium Locator + extension fields. */
 export interface Locator {
   /** Chapter SLUG, never a chapter id (ADR-015). Absent for a chapterless PDF. */
@@ -26,8 +28,12 @@ export interface Locator {
   /** W3C Web Annotation TextQuoteSelector. */
   text?: { before?: string; highlight?: string; after?: string }
   ext?: {
-    /** The stored JSON this locator was read from; written back unchanged. */
-    stored?: string
+    /**
+     * The stored value this locator was read from. Written back byte-identically only by the mapper
+     * of the same kind, and only while the locator still says what the value says; a moved locator
+     * writes a fresh value.
+     */
+    stored?: { kind: StoredKind; value: string }
     rects?: PdfRect[]
   }
 }

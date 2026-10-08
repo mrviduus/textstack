@@ -80,7 +80,7 @@ export interface Locator {
     legacyScrollY?: number                       // read/write `scroll:<slug>:<px>` until Phase 6
   }
   text?: { before?: string; highlight?: string; after?: string }   // W3C TextQuoteSelector
-  ext?: { stored?: string; rects?: PdfRect[] }   // stored = the original JSON, returned unchanged
+  ext?: { stored?: { kind: 'anchor' | 'position' | 'pdf' | 'progress'; value: string }; rects?: PdfRect[] }
 }
 
 export interface ChapterDoc {                    // one chapter; the host loaded it
@@ -152,7 +152,10 @@ Rules the types cannot say:
   then "a `'scroll'` arrived", so `readerMovedSince`'s pixel tolerance goes.
 - **Mappers are one pair per stored shape** (`TextPosition`, `TextAnchor`, `PdfAnchor`, `page:<N>`,
   `chapter:<slug>`, `scroll:<slug>:<px>`). A locator built from a stored value carries it in
-  `ext.stored` and maps back to it byte-identically; only a fresh capture writes a new value. A
+  `ext.stored` with its kind; the same kind's mapper writes it back byte-identically **only while the
+  locator still says what the value says** — a moved locator writes a fresh value, and a value is never
+  written back as another kind. A fresh write is either a value the readers accept or null (never
+  `chapter:` for "unknown", never page 0). A
   highlight anchor has no slug, so the host passes `href` in. Fixtures for every shape (not only
   anchors) exist before the first mapper test.
 - **PDF bytes come through `read()`, not a URL.** The host implements it (on mobile, in the bridge

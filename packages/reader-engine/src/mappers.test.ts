@@ -6,6 +6,7 @@ import positions from '../../shared/src/reader/__fixtures__/stored/positions.jso
 import pdf from '../../shared/src/reader/__fixtures__/stored/pdf.json'
 import locators from '../../shared/src/reader/__fixtures__/stored/locators.json'
 import { parseTextPosition, serializeTextPosition } from '../../shared/src/reader/textPosition'
+import type { Locator } from './api'
 import {
   anchorToLocator, locatorToAnchor,
   positionToLocator, locatorToPosition,
@@ -50,7 +51,7 @@ describe('TextAnchor ↔ Locator', () => {
   it('rejects what is not an anchor', () => {
     expect(anchorToLocator('not json', 'x')).toBeNull()
     expect(anchorToLocator('{"prefix":"a"}', 'x')).toBeNull()
-    expect(anchorToLocator(JSON.stringify(JSON.parse(pdf['one-line'])), 'x')).toBeNull()
+    expect(anchorToLocator(pdf['one-line'], 'x')).toBeNull()
   })
 })
 
@@ -134,5 +135,74 @@ describe('progress locator strings ↔ Locator', () => {
 
   it('rejects garbage', () => {
     for (const s of ['', 'page:0', 'page:x', 'scroll:c:-1', 'chapter:', 'hello']) expect(progressToLocator(s)).toBeNull()
+  })
+})
+
+describe('a stored value is written back only when nothing changed (review of #775)', () => {
+  const posJson = positions['mid-chapter']
+
+  it('a moved locator writes a fresh position, not the one it was read from', () => {
+    const loc = positionToLocator(posJson)!
+    const moved = { ...loc, locations: { ...loc.locations, progression: 0.6, charOffset: 200 }, text: { before: 'a', highlight: 'new quote', after: 'b' } }
+    const json = locatorToPosition(moved)!
+    expect(json).not.toBe(posJson)
+    expect(parseTextPosition(json)).toMatchObject({ chapterFraction: 0.6, charOffset: 200, anchor: { exact: 'new quote' } })
+  })
+
+  it('a value of one kind is never written back as another kind', () => {
+    expect(locatorToPosition(progressToLocator('chapter:chapter-two'))).toBeNull()
+    expect(locatorToAnchor(positionToLocator(posJson))).not.toBe(posJson)
+    expect(locatorToProgress(positionToLocator(posJson))).toBeNull()
+    expect(locatorToPdfAnchor(progressToLocator('page:7'))).toBeNull()
+  })
+})
+
+describe('fresh writes only produce values the readers accept (review of #775)', () => {
+  it('a position clamps progression and needs a charOffset', () => {
+    const base = { href: 'c', type: 'text/html' as const, text: { highlight: 'x' } }
+    expect(parseTextPosition(locatorToPosition({ ...base, locations: { progression: 1.02, charOffset: 0 } }))?.chapterFraction).toBe(1)
+    const nan = locatorToPosition({ ...base, locations: { progression: Number.NaN, charOffset: 0 } })!
+    expect(serializeTextPosition(parseTextPosition(nan))).toBe(nan)
+    expect(locatorToPosition({ ...base, locations: { progression: 0.5 } })).toBeNull()
+  })
+
+  it('a reflow progress locator needs legacyScrollY; never silently "start of chapter"', () => {
+    expect(locatorToProgress({ href: 'c', type: 'text/html', locations: { progression: 0.4, charOffset: 9 } })).toBeNull()
+  })
+
+  it('a PDF page must be a whole page >= 1', () => {
+    for (const position of [0.5, 0, -3, Number.NaN]) {
+      expect(locatorToProgress({ type: 'application/pdf', locations: { position } })).toBeNull()
+      expect(locatorToPdfAnchor({ type: 'application/pdf', locations: { position }, text: { highlight: 'x' }, ext: { rects: [] } })).toBeNull()
+    }
+  })
+
+  it('a malformed stored PDF anchor reads as nothing', () => {
+    for (const bad of ['{"kind":"pdf"}', '{"v":1,"kind":"pdf","page":0,"rects":[],"exact":"x"}', '{"v":1,"kind":"pdf","page":2,"exact":"x"}']) {
+      expect(pdfAnchorToLocator(bad)).toBeNull()
+    }
+  })
+})
+
+describe('the Locator alone carries the meaning (review of #775)', () => {
+  const strip = (l: Locator | null): Locator => ({ ...l!, ext: l!.ext?.rects ? { rects: l!.ext.rects } : undefined })
+
+  for (const [name, json] of Object.entries(positions)) {
+    it(`position ${name}: rebuilt from fields alone, without the stored value`, () => {
+      expect(locatorToPosition(strip(positionToLocator(json)))).toBe(json)
+    })
+  }
+  for (const [name, json] of Object.entries(pdf)) {
+    it(`pdf ${name}: rebuilt from fields alone, without the stored value`, () => {
+      expect(locatorToPdfAnchor(strip(pdfAnchorToLocator(json)))).toBe(json)
+    })
+  }
+
+  it('a moved MCP highlight keeps chapterId and source, so the assistant write cap still counts it', () => {
+    const json = JSON.stringify(mcp['inline-tags'])
+    const loc = anchorToLocator(json, 'chapter-one')!
+    const moved = { ...loc, locations: { charOffset: 12 }, text: { ...loc.text, before: 'It was a ' } }
+    const out = JSON.parse(locatorToAnchor(moved)!)
+    expect(out).toMatchObject({ prefix: 'It was a ', startOffset: 12, chapterId: mcp['inline-tags'].chapterId, source: 'mcp' })
   })
 })
