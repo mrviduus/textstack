@@ -453,7 +453,7 @@ export function ReaderShell(props: ReaderShellProps) {
             bottomOffset={footerHeight}
             onClose={closeSelection}
             lookup={lookupState}
-            onAddAnyway={lookupState ? () => { void vocabActions.addAnyway(lookupState) } : undefined}
+            onAddAnyway={lookupState ? () => { void vocabActions.addAnyway(lookupState, selection) } : undefined}
           />
         )}
 

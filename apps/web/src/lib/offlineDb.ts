@@ -1,5 +1,5 @@
 import type { Chapter, ChapterNav } from '../types/api'
-import type { PdfAnchor } from '@textstack/shared'
+import { translationApi, type PdfAnchor } from '@textstack/shared'
 
 export interface CachedChapter {
   key: string // `${editionId}:${chapterSlug}`
@@ -436,14 +436,10 @@ function hashText(text: string): string {
   return hash.toString(36)
 }
 
-// The sentence is part of the key, as it is of the server's: "wound" in "she
-// wound the clock" and in "the wound bled" are two different translations.
-/** Varies by sentence and book, as the server's answer does. No sentence / no book → the old key. */
+// One key rule with mobile (`translateCacheKey`): derived from the request body, so it varies
+// exactly as the server's answer can — sentence for a word / short phrase only, and bookId.
 export function makeTranslationKey(sourceLang: string, targetLang: string, text: string, sentence?: string | null, bookId?: string | null): string {
-  const s = sentence?.trim()
-  let material = s ? `${text}\n${s}` : text
-  if (bookId) material += `\n${bookId}`
-  return `${sourceLang}:${targetLang}:${hashText(material)}`
+  return `${sourceLang}:${targetLang}:${hashText(translationApi.translateCacheKey(text, sourceLang, targetLang, { sentence, bookId }))}`
 }
 
 export async function getCachedTranslation(

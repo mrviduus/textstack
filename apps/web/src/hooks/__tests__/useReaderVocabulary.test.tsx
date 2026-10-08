@@ -311,27 +311,80 @@ describe('useReaderVocabulary', () => {
     expect(saveWordMock).toHaveBeenCalledTimes(1)
   })
 
-  // Review of #780: the gloss backfill translated the bare word, so a saved word
-  // could get another sense than the one in the sentence it was saved from.
-  it('backfill_WordWithStoredSentence_TranslatesInThatSentence', async () => {
+  // Review r4 of #780: the backfill fetches its own sentences (the main load carries none),
+  // and translates in the stored sentence + the book — never the bare word when there is one.
+  it('backfill_ServerHasSentence_NeverTranslatesWithoutIt', async () => {
     const sentence = 'He pocketed the coins and walked out.'
-    getReaderVocabMock.mockResolvedValue([{ id: 'w1', word: 'pocketed', stage: 1, sentence }])
+    getReaderVocabMock.mockImplementation(async (withSentences?: boolean) =>
+      [{ id: 'w1', word: 'pocketed', stage: 1, ...(withSentences ? { sentence } : {}) }])
 
-    renderHook(() => useReaderVocabulary('en', 'pt'))
+    renderHook(() => useReaderVocabulary('en', 'pt', 'book-1'))
 
-    await waitFor(() => expect(vi.mocked(translateApi)).toHaveBeenCalledWith('pocketed', 'en', 'pt', undefined, { sentence }))
+    await waitFor(() => expect(vi.mocked(translateApi)).toHaveBeenCalledWith('pocketed', 'en', 'pt', undefined, { sentence, bookId: 'book-1' }))
+    expect(vi.mocked(translateApi)).toHaveBeenCalledTimes(1)
+    expect(getReaderVocabMock).toHaveBeenCalledWith(true)
   })
 
-  // Review of #780: sentences are opt-in — only when the backfill translates into another language.
-  it('load_TranslatingIntoAnotherLanguage_AsksForSentences', async () => {
-    renderHook(() => useReaderVocabulary('en', 'pt'))
+  it('backfill_SentenceFetchFails_NotMarkedDoneRetriesWithSentence', async () => {
+    const sentence = 'He pocketed the coins and walked out.'
+    let fail = true
+    getReaderVocabMock.mockImplementation(async (withSentences?: boolean) => {
+      if (withSentences && fail) throw new Error('offline')
+      return [{ id: 'w1', word: 'pocketed', stage: 1, ...(withSentences ? { sentence } : {}) }]
+    })
 
+    const { result } = renderHook(() => useReaderVocabulary('en', 'pt', 'book-1'))
     await waitFor(() => expect(getReaderVocabMock).toHaveBeenCalledWith(true))
+    expect(vi.mocked(translateApi)).not.toHaveBeenCalled()
+
+    // Any map change re-runs the backfill; it had not run, so it runs now — with the sentence.
+    fail = false
+    saveWordMock.mockResolvedValue({ outcome: 'saved', word: { id: 'w2', word: 'coins', stage: 0, translation: 'moedas' } })
+    await act(async () => { await result.current.addWord({ word: 'coins', language: 'en' }) })
+
+    await waitFor(() => expect(vi.mocked(translateApi)).toHaveBeenCalledWith('pocketed', 'en', 'pt', undefined, { sentence, bookId: 'book-1' }))
   })
 
-  it('load_DefinitionMode_NoSentences', async () => {
-    renderHook(() => useReaderVocabulary('en', 'en'))
+  it('backfill_DefinitionMode_NothingFetchedOrTranslated', async () => {
+    getReaderVocabMock.mockResolvedValue([{ id: 'w1', word: 'pocketed', stage: 1 }])
 
-    await waitFor(() => expect(getReaderVocabMock).toHaveBeenCalledWith(false))
+    renderHook(() => useReaderVocabulary('en', 'en', 'book-1'))
+    await waitFor(() => expect(getReaderVocabMock).toHaveBeenCalledTimes(1))
+
+    expect(getReaderVocabMock).not.toHaveBeenCalledWith(true)
+    expect(vi.mocked(translateApi)).not.toHaveBeenCalled()
+  })
+
+  // Review r4 of #780: the main load is once per auth state — a native-language change
+  // used to refetch and replace the map, wiping words saved locally since.
+  it('load_NativeLanguageChange_NoRefetchPendingEntrySurvives', async () => {
+    authState.isAuthenticated = false
+    guestLimits.commitmentThreshold = 99
+    const { result, rerender } = renderHook(
+      ({ target }: { target: string }) => useReaderVocabulary('en', target, 'book-1'),
+      { initialProps: { target: 'en' } },
+    )
+    await act(async () => { await result.current.addWord({ word: 'pocketed', language: 'en' }) })
+    expect(result.current.vocabMap.get('pocketed')?.isPending).toBe(true)
+
+    rerender({ target: 'pt' })
+    await act(async () => {})
+
+    expect(result.current.vocabMap.get('pocketed')?.isPending).toBe(true)
+  })
+
+  it('load_NativeLanguageChange_MainLoadNotRepeated', async () => {
+    getReaderVocabMock.mockResolvedValue([{ id: 'w1', word: 'pocketed', stage: 1, translation: 'embolsou' }])
+    const { rerender } = renderHook(
+      ({ target }: { target: string }) => useReaderVocabulary('en', target, 'book-1'),
+      { initialProps: { target: 'pt' } },
+    )
+    await waitFor(() => expect(getReaderVocabMock).toHaveBeenCalledTimes(1))
+
+    rerender({ target: 'uk' })
+    await act(async () => {})
+
+    expect(getReaderVocabMock).toHaveBeenCalledTimes(1)
+    expect(getReaderVocabMock).toHaveBeenCalledWith()
   })
 })

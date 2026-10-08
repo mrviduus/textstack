@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { translateBody } from './translation'
+import { translateBody, translateCacheKey } from './translation'
 
 describe('translateBody', () => {
   // QA-007: a tapped word went to the server with no sentence, so the model
@@ -31,5 +31,39 @@ describe('translateBody', () => {
 
   it('translateBody_TextIsTheSentence_OmitsSentence', () => {
     expect(translateBody('Run away!', 'en', 'pt', { sentence: ' run away! ' }).sentence).toBeUndefined()
+  })
+})
+
+// Review r4 of #780: one key rule for every client cache — derived from the body that is
+// actually sent, so context the server never saw cannot split (or merge) cache entries.
+describe('translateCacheKey', () => {
+  it('translateCacheKey_PassageWithSentence_SameAsWithout', () => {
+    const passage = 'He pocketed the coins and'
+    expect(translateCacheKey(passage, 'en', 'pt', { sentence: 'He pocketed the coins and left.' }))
+      .toBe(translateCacheKey(passage, 'en', 'pt'))
+  })
+
+  it('translateCacheKey_WordDifferentSentences_DifferentKeys', () => {
+    expect(translateCacheKey('wound', 'en', 'pt', { sentence: 'She wound the clock.' }))
+      .not.toBe(translateCacheKey('wound', 'en', 'pt', { sentence: 'The wound bled.' }))
+  })
+
+  it('translateCacheKey_DifferentBooks_DifferentKeys', () => {
+    expect(translateCacheKey('wound', 'en', 'pt', { bookId: 'b1' }))
+      .not.toBe(translateCacheKey('wound', 'en', 'pt', { bookId: 'b2' }))
+  })
+
+  it('translateCacheKey_NullBookIdOrBlankSentence_SameAsNoContext', () => {
+    expect(translateCacheKey('wound', 'en', 'pt', { sentence: '  ', bookId: null }))
+      .toBe(translateCacheKey('wound', 'en', 'pt'))
+  })
+
+  it('translateCacheKey_TextIsTheSentence_SameAsNoSentence', () => {
+    expect(translateCacheKey('Run away!', 'en', 'pt', { sentence: 'run away!' }))
+      .toBe(translateCacheKey('Run away!', 'en', 'pt'))
+  })
+
+  it('translateCacheKey_CaseAndWhitespace_Normalised', () => {
+    expect(translateCacheKey('  Wort ', 'de', 'en')).toBe(translateCacheKey('wort', 'de', 'en'))
   })
 })

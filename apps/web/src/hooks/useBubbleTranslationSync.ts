@@ -3,6 +3,7 @@ import type { Dispatch, MutableRefObject, SetStateAction } from 'react'
 import { updateWord } from '../api/vocabulary'
 import { translate as translateApi } from '../api/translation'
 import { normalizeVocabKey } from '../lib/vocabKey'
+import { mayWriteSavedTranslation } from '../lib/savedTranslation'
 import type { VocabMap } from './useReaderVocabulary'
 
 // Shared bubble shape. Callers extend this with their own extras (rect, range,
@@ -14,20 +15,6 @@ export interface BubbleLike {
   /** Sentence + book the popup was opened with — resent on a lang-switch refetch. */
   sentence?: string
   bookId?: string
-}
-
-/**
- * A saved word's translation is the sense of the sentence it was saved in. Write a
- * bubble's translation into it unless the stored sentence is known AND is another one.
- * Unknown → write: the server ships no sentence for a word that has a translation, so
- * blocking on unknown would freeze every server-loaded word on a language switch.
- */
-export function mayWriteSavedTranslation(
-  entry: { translation?: string; sentence?: string },
-  bubbleSentence: string | undefined,
-): boolean {
-  if (!entry.translation || !entry.sentence) return true
-  return entry.sentence.trim() === (bubbleSentence ?? '').trim()
 }
 
 interface Options<B extends BubbleLike> {
@@ -133,8 +120,10 @@ export function useBubbleTranslationSync<B extends BubbleLike>({
             ? { ...b, translation: translated, translationLoading: false }
             : b,
         )
+        // Language beats sense: the stored translation is in the old language, so the new
+        // one is written whatever sentence it was saved in (no mayWriteSavedTranslation here).
         const existing = vocabMap.get(normalizeVocabKey(word))
-        if (translated && existing && mayWriteSavedTranslation(existing, bubble?.sentence)) {
+        if (translated && existing) {
           if (existing.id && !existing.isPending) {
             updateWord(existing.id, { translation: translated }).catch(() => {})
           }

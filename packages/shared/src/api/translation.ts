@@ -31,6 +31,13 @@ export function translateBody(text: string, source: string, target: string, ctx?
   return body
 }
 
+/** The one client cache-key rule (web IndexedDB, mobile memory): derived from the body
+ *  `translateBody` sends, so a key varies exactly as the server's answer can. */
+export function translateCacheKey(text: string, source: string, target: string, ctx?: TranslateContext) {
+  const body = translateBody(text, source, target, ctx)
+  return `${source}|${target}|${text.trim().toLowerCase()}|${body.sentence?.trim() ?? ''}|${body.bookId ?? ''}`
+}
+
 export function translate(text: string, source: string, target: string, signal?: AbortSignal, ctx?: TranslateContext) {
   const opts = jsonBody('POST', translateBody(text, source, target, ctx))
   if (signal) opts.signal = signal

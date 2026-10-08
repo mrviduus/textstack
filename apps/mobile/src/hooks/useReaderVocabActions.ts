@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, MutableRefObject } from 'react'
 import { vocabularyApi, t } from '@textstack/shared'
 import { cachedTranslate } from '../lib/translateCache'
-import type { Chapter, VocabularyWordDto, Language } from '@textstack/shared'
+import type { Chapter, VocabularyWordDto, Language, TranslateContext } from '@textstack/shared'
 import type { VocabMap } from './useReaderVocabMap'
 import { vocabPaintJs } from '../lib/vocabPaintJs'
 
@@ -17,6 +17,8 @@ type Options = {
    *  backend stores either FK depending on which is provided. */
   editionIdRef?: MutableRefObject<string | null>
   userBookIdRef?: MutableRefObject<string | null>
+  /** The id the selection toolbar translates with (ReaderShell's translateBookId). */
+  bookId?: string
   chapter: Chapter | null
   /** UI language — toasts only. */
   language: Language
@@ -69,6 +71,7 @@ export function useReaderVocabActions({
   bookTitleRef,
   editionIdRef,
   userBookIdRef,
+  bookId,
   chapter,
   language,
   textLanguage,
@@ -98,7 +101,8 @@ export function useReaderVocabActions({
     } as const
   }
   /** Shared post-save sequence: mark + count + notify + persist translation. */
-  const onWordSaved = useCallback((saved: VocabularyWordDto, sourceText: string) => {
+  /** `sentence`: the one the toolbar translated with — so the save gloss is its cache hit. */
+  const onWordSaved = useCallback((saved: VocabularyWordDto, sourceText: string, sentence: string | null | undefined) => {
     const key = saved.word.toLowerCase()
     // Keep the sentence: it guards this sense against a bubble in another sentence.
     vocabMapRef.current[key] = { stage: saved.stage, id: saved.id, sentence: saved.sentence ?? undefined }
@@ -120,9 +124,9 @@ export function useReaderVocabActions({
 
     // cachedTranslate (not translationApi) so this reuses the gloss the
     // selection toolbar just fetched for the same word — no 2nd round-trip.
-    // Same `{ sentence, bookId }` as the toolbar (ReaderShell's translateBookId).
-    const bookId = userBookIdRef?.current || editionIdRef?.current || undefined
-    cachedTranslate(sourceText, textLanguage, targetLang, { sentence: saved.sentence, bookId })
+    // Same `{ sentence, bookId }` as the toolbar, so the cache key matches its call.
+    const ctx: TranslateContext = { sentence, bookId }
+    cachedTranslate(sourceText, textLanguage, targetLang, ctx)
       .then(({ translation }) => {
         if (translation && saved.id) {
           vocabularyApi.updateWord(saved.id, { translation }).catch(() => {})
@@ -133,7 +137,7 @@ export function useReaderVocabActions({
         }
       })
       .catch(() => {})
-  }, [vocabMapRef, injectJs, bumpVocab, setWordSaved, setSessionWordCount, notifyWordSaved, textLanguage, nativeLanguage, editionIdRef, userBookIdRef])
+  }, [vocabMapRef, injectJs, bumpVocab, setWordSaved, setSessionWordCount, notifyWordSaved, textLanguage, nativeLanguage, bookId])
 
   // In-flight guard for manual saves. Mirrors autoSavedRef but persists
   // across calls within the hook so a rapid double-tap on the toolbar's
@@ -183,7 +187,7 @@ export function useReaderVocabActions({
       }
       const saved = resp.word
       if (!saved) return
-      onWordSaved(saved, selection.text)
+      onWordSaved(saved, selection.text, selection.sentence)
       // Keep the toolbar OPEN after a manual save: in the peek-on-tap model the
       // save is explicit, so the user should see the saved state (stage badge)
       // and be able to immediately undo an accidental save via Remove. The ✕
@@ -202,13 +206,13 @@ export function useReaderVocabActions({
    * post-save flow so the word is underlined + translated. Web parity:
    * ReaderHighlights.handleAddAnyway.
    */
-  const addAnyway = useCallback(async (lookup: LookupState) => {
+  const addAnyway = useCallback(async (lookup: LookupState, selection?: Selection | null) => {
     if (lookup.busy) return
     setLookupState({ ...lookup, busy: true })
     try {
       const saved = await vocabularyApi.promoteLookup(lookup.id)
       setLookupState(null)
-      onWordSaved(saved, saved.word)
+      onWordSaved(saved, saved.word, selection?.sentence ?? saved.sentence)
       setSelection(null)
       showToast({ message: t(language, 'reader.vocab.addedToSrs'), variant: 'success' })
     } catch (e) {

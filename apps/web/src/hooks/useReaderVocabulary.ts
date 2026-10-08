@@ -15,11 +15,12 @@ import { normalizeVocabKey } from '../lib/vocabKey'
 import { trackVocabSaved } from '../lib/analytics'
 import { takeGuestNudge, type GuestNudge } from '../lib/guestNudge'
 
-// `sentence`: the one the word was saved in, when known (saved this session, or sent by the
-// server for a word with no translation). Guards a saved translation against another sense.
+// `sentence`: the one the word was saved in, when saved this session. Guards a saved
+// translation against another sense. The main load carries none (the backfill fetches its own).
 export type VocabMap = Map<string, { stage: number; id?: string; translation?: string; sentence?: string; isPending?: boolean }>
 
-export function useReaderVocabulary(bookLanguage?: string, targetLang?: string | null) {
+/** `bookId`: editionId or userBookId — sent with the backfill's translations, as the bubble does. */
+export function useReaderVocabulary(bookLanguage?: string, targetLang?: string | null, bookId?: string) {
   const { isAuthenticated, isGuest, waitForSession, ensureSession } = useAuth()
   const { commitmentThreshold } = useGuestLimits()
   const [vocabMap, setVocabMap] = useState<VocabMap>(new Map())
@@ -32,7 +33,8 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
   const [guestNudge, setGuestNudge] = useState<GuestNudge | null>(null)
   const dismissGuestNudge = useCallback(() => setGuestNudge(null), [])
   const mapRef = useRef<VocabMap>(new Map())
-  const backfillDone = useRef(false)
+  // 'done' only once the backfill has run with its own sentence data; a failed fetch → 'idle'.
+  const backfillState = useRef<'idle' | 'running' | 'done'>('idle')
   // Keep auth state available inside async callbacks without stale-closure races.
   const isAuthRef = useRef(isAuthenticated)
   isAuthRef.current = isAuthenticated
@@ -50,9 +52,7 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
     commitMap(next)
   }, [commitMap])
 
-  // Load vocab from API once a session exists (guest or real). Sentences only when the
-  // backfill below will translate into another language — its context, nothing else needs them.
-  const includeSentences = !!targetLang && !!bookLanguage && targetLang !== bookLanguage
+  // Load vocab from API once a session exists (guest or real).
   useEffect(() => {
     if (!isAuthenticated) {
       commitMap(new Map())
@@ -60,55 +60,64 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
     }
     let cancelled = false
     setLoading(true)
-    getReaderVocab(includeSentences)
+    getReaderVocab()
       .then((words) => {
         if (cancelled) return
         const m: VocabMap = new Map()
         for (const w of words) {
-          m.set(normalizeVocabKey(w.word), { stage: w.stage, id: w.id, translation: w.translation, sentence: w.sentence ?? undefined })
+          m.set(normalizeVocabKey(w.word), { stage: w.stage, id: w.id, translation: w.translation })
         }
         commitMap(m)
       })
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [isAuthenticated, includeSentences, commitMap])
+  }, [isAuthenticated, commitMap])
 
-  // Backfill translations for words missing them
+  // Backfill translations for words missing them. Rare, so it fetches its own data — each
+  // untranslated word's stored sentence — right before running, and translates in that
+  // sentence + this book, so the gloss is the sense the word was saved in.
   useEffect(() => {
-    if (!targetLang || !bookLanguage || backfillDone.current) return
-    if (vocabMap.size === 0 || loading) return
-
-    const missing: { word: string; id?: string; sentence?: string }[] = []
-    for (const [key, entry] of vocabMap) {
+    if (!targetLang || !bookLanguage || targetLang === bookLanguage) return
+    if (backfillState.current !== 'idle' || loading) return
+    let anyMissing = false
+    for (const entry of vocabMap.values()) {
       // Skip pending entries — their `id` is a local UUID, not a backend row.
-      if (entry.isPending) continue
-      if (!entry.translation) missing.push({ word: key, id: entry.id, sentence: entry.sentence })
+      if (!entry.isPending && !entry.translation) { anyMissing = true; break }
     }
-    if (missing.length === 0) return
+    if (!anyMissing) return
 
-    backfillDone.current = true
+    backfillState.current = 'running'
     const lang = bookLanguage
     const target = targetLang
 
-    // Translate in small batches to avoid overwhelming the API
     ;(async () => {
-      for (let i = 0; i < missing.length; i++) {
-        const { word, id, sentence } = missing[i]
+      let words: Awaited<ReturnType<typeof getReaderVocab>>
+      try {
+        words = await getReaderVocab(true)
+      } catch {
+        backfillState.current = 'idle' // never ran — the next map change retries
+        return
+      }
+      backfillState.current = 'done'
+      for (const w of words) {
+        if (w.translation) continue
+        const word = normalizeVocabKey(w.word)
+        const entry = mapRef.current.get(word)
+        if (!entry || entry.isPending || entry.translation) continue
         try {
-          // In the stored sentence, so the gloss is the sense the word was saved in.
-          const res = await translateWord(word, lang, target, undefined, { sentence })
+          const res = await translateWord(word, lang, target, undefined, { sentence: w.sentence, bookId })
           const translation = res.translatedText
           if (!translation) continue
           updateMap(m => {
-            const entry = m.get(word)
-            if (entry) m.set(word, { ...entry, translation })
+            const e = m.get(word)
+            if (e) m.set(word, { ...e, translation })
           })
-          if (id) updateWord(id, { translation }).catch(() => {})
+          updateWord(w.id, { translation }).catch(() => {})
         } catch { /* skip */ }
       }
     })()
-  }, [vocabMap, loading, targetLang, bookLanguage, updateMap])
+  }, [vocabMap, loading, targetLang, bookLanguage, bookId, updateMap])
 
   // I4: flush pending local vocab into backend. Called:
   //   (a) on threshold-crossing after ensureSession succeeds;

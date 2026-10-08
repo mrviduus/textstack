@@ -4,8 +4,8 @@ import { vocabMapCache } from '../lib/readerOfflineCache'
 import { cachedTranslate } from '../lib/translateCache'
 import { vocabPaintJs } from '../lib/vocabPaintJs'
 
-/** `sentence`: the one it was saved in, when known — saved this session, or sent by the server
- *  for an untranslated word (backfill context). Never injected into the WebView (vocabPaintJs). */
+/** `sentence`: the one it was saved in, when saved this session (the main load carries none).
+ *  Never injected into the WebView (vocabPaintJs). */
 export type VocabMapEntry = { stage: number; id: string; translation?: string; sentence?: string }
 export type VocabMap = Record<string, VocabMapEntry>
 
@@ -20,6 +20,8 @@ type Options = {
   bookLanguage?: string | null
   /** User's native language (target). When null/equal-to-book, backfill is skipped. */
   nativeLanguage?: string | null
+  /** editionId or userBookId — sent with the backfill's translations, as the toolbar does. */
+  bookId?: string | null
 }
 
 /**
@@ -36,6 +38,7 @@ export function useReaderVocabMap({
   injectJs,
   bookLanguage,
   nativeLanguage,
+  bookId,
 }: Options) {
   const vocabMapRef = useRef<VocabMap>({})
   const [vocabVersion, setVocabVersion] = useState(0)
@@ -57,8 +60,8 @@ export function useReaderVocabMap({
     return () => clearTimeout(t)
   }, [vocabVersion, injectJs])
 
-  // Sentences only when the backfill below will translate into another language.
-  const includeSentences = !!bookLanguage && !!nativeLanguage && nativeLanguage !== bookLanguage
+  // 'done' only once the backfill has run with its own sentence data; a failed fetch → 'idle'.
+  const backfillStateRef = useRef<'idle' | 'running' | 'done'>('idle')
 
   // Load + paint vocab underlines. Cache-first so offline nav still shows
   // marks; API refresh overwrites. Keyed off chapterId (not chapter object)
@@ -79,66 +82,69 @@ export function useReaderVocabMap({
       })
     }
 
-    vocabularyApi.getReaderVocab({ includeSentences })
+    vocabularyApi.getReaderVocab()
       .then(words => {
         if (cancelled || words.length === 0) return
         const map: VocabMap = {}
-        for (const w of words) map[w.word.toLowerCase()] = { stage: w.stage, id: w.id, translation: w.translation, sentence: w.sentence ?? undefined }
+        for (const w of words) map[w.word.toLowerCase()] = { stage: w.stage, id: w.id, translation: w.translation }
         vocabMapRef.current = map
         injectJs(vocabPaintJs(map))
         if (uid) vocabMapCache.set(uid, map)
         // Re-evaluate backfill against the fresh map (API may have
         // returned translations the cache didn't have).
-        backfillDoneRef.current = false
+        if (backfillStateRef.current === 'done') backfillStateRef.current = 'idle'
         bumpVocab()
       })
       .catch(() => { /* offline — cache paint already rendered */ })
     return () => { cancelled = true }
-  }, [isAuthenticated, chapterId, user?.id, injectJs, bumpVocab, includeSentences])
+  }, [isAuthenticated, chapterId, user?.id, injectJs, bumpVocab])
 
   // Backfill translations for vocab entries that were saved without one
   // (early-save race, network error mid-translate, or older app version
   // that never set it). Mirrors apps/web/src/hooks/useReaderVocabulary.ts
   // backfill loop — without it, those words underline forever but the
-  // gloss above them never appears.
-  const backfillDoneRef = useRef(false)
+  // gloss above them never appears. Rare, so it fetches its own data — each
+  // untranslated word's stored sentence — right before running, and translates
+  // in that sentence + this book, so the gloss is the sense the word was saved in.
   useEffect(() => {
     if (!isAuthenticated || !chapterId) return
     if (!bookLanguage || !nativeLanguage || nativeLanguage === bookLanguage) return
-    if (backfillDoneRef.current) return
-    const map = vocabMapRef.current
-    if (!map || Object.keys(map).length === 0) return
-    const missing: { key: string; id: string; sentence?: string }[] = []
-    for (const k of Object.keys(map)) {
-      if (!map[k].translation) missing.push({ key: k, id: map[k].id, sentence: map[k].sentence })
-    }
-    if (missing.length === 0) return
-    backfillDoneRef.current = true
-    let cancelled = false
+    if (backfillStateRef.current !== 'idle') return
+    if (!Object.values(vocabMapRef.current).some(e => !e.translation)) return
+    backfillStateRef.current = 'running'
     ;(async () => {
-      for (const { key, id, sentence } of missing) {
-        if (cancelled) return
+      let words: Awaited<ReturnType<typeof vocabularyApi.getReaderVocab>>
+      try {
+        words = await vocabularyApi.getReaderVocab({ includeSentences: true })
+      } catch {
+        backfillStateRef.current = 'idle' // never ran — the next bump retries
+        return
+      }
+      backfillStateRef.current = 'done'
+      for (const w of words) {
+        if (w.translation) continue
+        const key = w.word.toLowerCase()
+        if (vocabMapRef.current[key]?.translation) continue
         try {
           // cachedTranslate de-dupes against the toolbar/save path and
           // memoizes, so re-opening the chapter is free.
-          // In the stored sentence, so the gloss is the sense the word was saved in.
-          const { translation } = await cachedTranslate(key, bookLanguage, nativeLanguage, { sentence })
+          const { translation } = await cachedTranslate(key, bookLanguage, nativeLanguage, { sentence: w.sentence, bookId })
           if (!translation) continue
-          vocabMapRef.current[key] = { ...vocabMapRef.current[key], translation }
+          const entry = vocabMapRef.current[key]
+          if (entry) vocabMapRef.current[key] = { ...entry, translation }
           // Persist server-side so re-opens skip the round-trip.
-          vocabularyApi.updateWord(id, { translation }).catch(() => {})
+          vocabularyApi.updateWord(w.id, { translation }).catch(() => {})
           // Progressive paint: each gloss appears the moment its word
           // resolves, instead of all-at-once after the whole loop (which on
           // a page of N missing words felt like "glosses never show"). The
           // 100ms-debounced paint effect coalesces bursts.
-          if (!cancelled) bumpVocab()
+          bumpVocab()
         } catch {
           // Skip a single word's failure — keep going.
         }
       }
     })()
-    return () => { cancelled = true }
-  }, [isAuthenticated, chapterId, bookLanguage, nativeLanguage, vocabVersion, bumpVocab])
+  }, [isAuthenticated, chapterId, bookLanguage, nativeLanguage, bookId, vocabVersion, bumpVocab])
 
   /** Persist current map to per-user cache. Caller invokes when a selection closes. */
   const flushToCache = () => {

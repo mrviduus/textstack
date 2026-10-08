@@ -19,7 +19,7 @@ describe('rare-word notice is wired', () => {
   it('ReaderShell passes lookupState + addAnyway to the bar', () => {
     const shell = read('src/components/reader/ReaderShell.tsx')
     expect(shell).toContain('lookup={lookupState}')
-    expect(shell).toContain('vocabActions.addAnyway(lookupState)')
+    expect(shell).toContain('vocabActions.addAnyway(lookupState, selection)')
   })
 
   it('addAnyway promotes the lookup', () => {

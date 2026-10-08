@@ -18,4 +18,16 @@ describe('makeTranslationKey', () => {
     expect(makeTranslationKey('en', 'pt', 'wound', 'She wound it.', null))
       .toBe(makeTranslationKey('en', 'pt', 'wound', 'She wound it.'))
   })
+
+  // Review r4 of #780: a passage is sent without its sentence, so the sentence is not in its key.
+  it('makeTranslationKey_PassageWithSentence_SameAsWithout', () => {
+    const passage = 'He pocketed the coins and'
+    expect(makeTranslationKey('en', 'pt', passage, 'He pocketed the coins and left.'))
+      .toBe(makeTranslationKey('en', 'pt', passage))
+  })
+
+  it('makeTranslationKey_WordDifferentSentences_DifferentKeys', () => {
+    expect(makeTranslationKey('en', 'pt', 'wound', 'She wound the clock.'))
+      .not.toBe(makeTranslationKey('en', 'pt', 'wound', 'The wound bled.'))
+  })
 })

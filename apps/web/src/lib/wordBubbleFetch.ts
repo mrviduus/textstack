@@ -10,7 +10,7 @@ import { explain as explainApi } from '../api/explain'
 import { translate as translateApi } from '../api/translation'
 import { updateWord } from '../api/vocabulary'
 import type { VocabMap } from '../hooks/useReaderVocabulary'
-import { mayWriteSavedTranslation } from '../hooks/useBubbleTranslationSync'
+import { mayWriteSavedTranslation } from './savedTranslation'
 import { normalizeVocabKey } from './vocabKey'
 
 /** Subset of bubble fields the fetcher touches — caller extends their full state. */

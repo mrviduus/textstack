@@ -55,6 +55,8 @@ export function useReaderWordActions({
     injectJs,
     bookLanguage: textLanguage,
     nativeLanguage,
+    // Same id the toolbar translates with (ReaderShell's translateBookId).
+    bookId: source.id || undefined,
   })
 
   const {
@@ -132,6 +134,7 @@ export function useReaderWordActions({
     vocabMapRef,
     bookTitleRef,
     ...(source.kind === 'edition' ? { editionIdRef: source.idRef } : { userBookIdRef: source.idRef }),
+    bookId: source.id || undefined,
     chapter: { id: chapter.id } as unknown as Chapter,
     language,
     textLanguage,

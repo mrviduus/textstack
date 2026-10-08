@@ -9,7 +9,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
  */
 
 const translate = vi.hoisted(() => vi.fn())
-vi.mock('@textstack/shared', () => ({ translationApi: { translate } }))
+// The real key rule (translateCacheKey), a fake network.
+vi.mock('@textstack/shared', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@textstack/shared')>()
+  return { translationApi: { ...real.translationApi, translate } }
+})
 
 /** A promise plus its resolvers, so a test can hold a call open. */
 function deferred<T>() {
@@ -217,5 +221,18 @@ describe('cachedTranslate', () => {
     expect(translate).toHaveBeenCalledWith('warehouse', 'en', 'pt', undefined, { sentence, bookId: 'b1' })
     expect(translate).toHaveBeenCalledTimes(2)
   })
-})
 
+  // Review r4 of #780: the key is the request body's — a passage drops its sentence from the
+  // body, so the sentence must not split the cache either.
+  it('cachedTranslate_PassageWithAndWithoutSentence_OneCacheEntry', async () => {
+    const { cachedTranslate, peekTranslation } = await freshModule()
+    translate.mockResolvedValue({ translatedText: 'ele embolsou as moedas e' })
+    const passage = 'He pocketed the coins and'
+
+    await cachedTranslate(passage, 'en', 'pt', { sentence: 'He pocketed the coins and left.' })
+
+    expect(peekTranslation(passage, 'en', 'pt')?.translation).toBe('ele embolsou as moedas e')
+    await cachedTranslate(passage, 'en', 'pt')
+    expect(translate).toHaveBeenCalledTimes(1)
+  })
+})

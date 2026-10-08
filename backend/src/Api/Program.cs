@@ -7,6 +7,7 @@ using Application;
 using Application.AdminAuth;
 using Application.Common.Interfaces;
 using Application.TextStack;
+using Application.UserBooks;
 using Domain.Enums;
 using Infrastructure.Persistence;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -468,7 +469,8 @@ if (args.Length > 0 && args[0] == "import-textstack")
 }
 
 // CLI: backfill-pdf-page-counts — one-off for PDF uploads ingested before UserBook.PageCount
-// existed (#780). Reads each stored file's page tree; no re-ingestion. Idempotent.
+// existed (#780). Ready and Failed PDFs (both open in Original layout). Reads each stored
+// file's page tree; no re-ingestion. Idempotent.
 if (args.Length > 0 && args[0] == "backfill-pdf-page-counts")
 {
     var dryRun = args.Contains("--dry-run");
@@ -477,7 +479,7 @@ if (args.Length > 0 && args[0] == "backfill-pdf-page-counts")
     var storage = cliScope.ServiceProvider.GetRequiredService<IFileStorageService>();
 
     var books = await db.UserBooks
-        .Where(b => b.PageCount == null && b.Status == UserBookStatus.Ready)
+        .Where(PdfPageCountBackfill.NeedsPageCount)
         .Select(b => new
         {
             Book = b,

@@ -46,8 +46,13 @@ describe('reader translate calls carry sentence + bookId', () => {
     expect(read('src/components/SelectionActionBar.tsx')).toContain('const ctx = { sentence, bookId }')
   })
 
+  it('useReaderWordActions_VocabHooks_GetTheSourceId', () => {
+    const src = read('src/components/reader/useReaderWordActions.ts')
+    expect(src.match(/bookId: source\.id \|\| undefined/g)).toHaveLength(2)
+  })
+
   it('useReaderVocabActions_SaveGloss_PassesBookId', () => {
     expect(read('src/hooks/useReaderVocabActions.ts'))
-      .toMatch(/cachedTranslate\(sourceText, textLanguage, targetLang, \{ sentence: saved\.sentence, bookId \}\)/)
+      .toContain('cachedTranslate(sourceText, textLanguage, targetLang, ctx)')
   })
 })

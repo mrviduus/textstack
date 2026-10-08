@@ -22,57 +22,80 @@ beforeEach(() => {
 
 const mount = (nativeLanguage = 'pt') => renderHook(useReaderVocabMap, {
   user: { id: 'u1' }, isAuthenticated: true, chapterId: 'c1', injectJs: () => {},
-  bookLanguage: 'en', nativeLanguage,
+  bookLanguage: 'en', nativeLanguage, bookId: 'book-1',
 })
 
+const SENTENCE = 'He pocketed the coins and walked out.'
+/** The server: a sentence only when asked for (`includeSentences`). */
+const serve = (word: Record<string, unknown>) =>
+  api.getReaderVocab.mockImplementation(async (opts?: { includeSentences?: boolean }) =>
+    [{ id: 'w1', word: 'Pocketed', stage: 1, ...word, ...(opts?.includeSentences ? { sentence: SENTENCE } : {}) }])
+
 describe('useReaderVocabMap gloss backfill', () => {
-  // QA-007: the backfill translated the bare word, so a saved word could get
-  // another sense than the one in the sentence it was saved from.
-  it('backfill_WordWithStoredSentence_TranslatesInThatSentence', async () => {
-    const sentence = 'He pocketed the coins and walked out.'
-    api.getReaderVocab.mockResolvedValue([{ id: 'w1', word: 'Pocketed', stage: 1, sentence }])
+  // Review r4 of #780: the backfill fetches its own sentences (the main load carries none)
+  // and translates in the stored sentence + the book — never the bare word when there is one.
+  it('backfill_ServerHasSentence_NeverTranslatesWithoutIt', async () => {
+    serve({})
 
     mount()
     await flush()
 
-    expect(cachedTranslate).toHaveBeenCalledWith('pocketed', 'en', 'pt', { sentence })
+    expect(api.getReaderVocab).toHaveBeenCalledWith({ includeSentences: true })
+    expect(cachedTranslate).toHaveBeenCalledTimes(1)
+    expect(cachedTranslate).toHaveBeenCalledWith('pocketed', 'en', 'pt', { sentence: SENTENCE, bookId: 'book-1' })
     expect(api.updateWord).toHaveBeenCalledWith('w1', { translation: 'embolsou' })
   })
 
-  it('backfill_NoStoredSentence_StillTranslates', async () => {
-    api.getReaderVocab.mockResolvedValue([{ id: 'w1', word: 'pocketed', stage: 1 }])
+  it('backfill_SentenceFetchFails_NoTranslationUntilItRuns', async () => {
+    api.getReaderVocab.mockImplementation(async (opts?: { includeSentences?: boolean }) => {
+      if (opts?.includeSentences) throw new Error('offline')
+      return [{ id: 'w1', word: 'pocketed', stage: 1 }]
+    })
 
-    mount()
+    const { result } = mount()
     await flush()
+    expect(cachedTranslate).not.toHaveBeenCalled()
 
-    expect(cachedTranslate).toHaveBeenCalledWith('pocketed', 'en', 'pt', { sentence: undefined })
+    // Not marked done: the next map change runs it, with the sentence.
+    serve({})
+    await act(async () => { result.current.bumpVocab() })
+    await flush()
+    expect(cachedTranslate).toHaveBeenCalledWith('pocketed', 'en', 'pt', { sentence: SENTENCE, bookId: 'book-1' })
   })
 
   it('backfill_WordAlreadyTranslated_NotRequested', async () => {
-    api.getReaderVocab.mockResolvedValue([{ id: 'w1', word: 'pocketed', stage: 1, translation: 'embolsou' }])
+    serve({ translation: 'embolsou' })
 
     mount()
     await flush()
 
     expect(cachedTranslate).not.toHaveBeenCalled()
+    expect(api.getReaderVocab).not.toHaveBeenCalledWith({ includeSentences: true })
   })
 
-  // Review of #780: sentences are opt-in — only when the backfill translates into another language.
-  it('load_TranslatingIntoAnotherLanguage_AsksForSentences', async () => {
-    api.getReaderVocab.mockResolvedValue([])
-
-    mount('pt')
-    await flush()
-
-    expect(api.getReaderVocab).toHaveBeenCalledWith({ includeSentences: true })
-  })
-
-  it('load_DefinitionMode_NoSentences', async () => {
-    api.getReaderVocab.mockResolvedValue([])
+  it('backfill_DefinitionMode_NothingFetchedOrTranslated', async () => {
+    serve({})
 
     mount('en')
     await flush()
 
-    expect(api.getReaderVocab).toHaveBeenCalledWith({ includeSentences: false })
+    expect(api.getReaderVocab).not.toHaveBeenCalledWith({ includeSentences: true })
+    expect(cachedTranslate).not.toHaveBeenCalled()
+  })
+
+  // Review r4 of #780: the main load does not depend on the native language — a change used
+  // to refetch and replace the map, wiping words saved since.
+  it('load_NativeLanguageChange_NoRefetchSavedEntrySurvives', async () => {
+    serve({ translation: 'embolsou' })
+    const { result, rerender } = mount('pt')
+    await flush()
+    result.current.vocabMapRef.current.coins = { stage: 0, id: 'w2', translation: 'moedas' }
+
+    rerender({ nativeLanguage: 'uk' })
+    await flush()
+
+    expect(api.getReaderVocab).toHaveBeenCalledTimes(1)
+    expect(api.getReaderVocab).toHaveBeenCalledWith()
+    expect(result.current.vocabMapRef.current.coins?.id).toBe('w2')
   })
 })

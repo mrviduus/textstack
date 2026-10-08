@@ -81,8 +81,8 @@ describe('translate sentence context (web)', () => {
 })
 
 // Review of #780: a saved word's translation is the sense of the sentence it was
-// saved in. A bubble opened on that word in ANOTHER sentence (or a language switch
-// there) must not overwrite it with the other sense. Unknown stored sentence (the
+// saved in. A bubble opened on that word in ANOTHER sentence must not overwrite it
+// with the other sense — in the same language; a language switch always writes. Unknown stored sentence (the
 // server ships none for a word that has a translation) → write, as before #780.
 describe('saved-word translation is not overwritten from another sentence', () => {
   type Entry = { stage: number; id?: string; translation?: string; sentence?: string; isPending?: boolean }
@@ -104,13 +104,15 @@ describe('saved-word translation is not overwritten from another sentence', () =
     return { ...hook, updateTranslation }
   }
 
-  it('LangSwitch_SavedInOtherSentence_TranslationNotOverwritten', async () => {
+  // Review r4 of #780: language beats sense. After a switch the saved translation is in the
+  // old language; keeping it would caption the word in a language the reader just left.
+  it('LangSwitch_SavedInOtherSentence_NewLanguageWritten', async () => {
     const { rerender, updateTranslation } = mountSync({ stage: 1, id: 'w1', translation: 'enterrou', sentence: 'She pocketed the letter.' })
     await act(async () => { rerender({ lang: 'uk' }) })
 
     expect(translate).toHaveBeenCalledTimes(1)
-    expect(updateWord).not.toHaveBeenCalled()
-    expect(updateTranslation).not.toHaveBeenCalled()
+    expect(updateWord).toHaveBeenCalledWith('w1', { translation: 'embolsou' })
+    expect(updateTranslation).toHaveBeenCalledWith('pocketed', 'embolsou')
   })
 
   it('LangSwitch_SavedInSameSentence_TranslationUpdated', async () => {
