@@ -337,6 +337,15 @@ jobs:
         working-directory: packages/shared
         run: pnpm typecheck
 
+      # ADR-025. Its tests include the boundary check (no app imports, no fetch).
+      - name: Reader engine unit tests
+        working-directory: packages/reader-engine
+        run: pnpm test
+
+      - name: Reader engine typecheck
+        working-directory: packages/reader-engine
+        run: pnpm typecheck
+
       - name: Drift-check mobile overlay bundle
         working-directory: apps/web
         run: pnpm check:mobile-overlay

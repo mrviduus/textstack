@@ -1,0 +1,5 @@
+{
+  "mid-chapter": "{\"v\":1,\"chapterSlug\":\"chapter-one\",\"anchor\":{\"prefix\":\"It was a bright cold day in Ap\",\"exact\":\"ril, and the clocks were striking thirteen. Winston Smith, his c\",\"suffix\":\"hin nuzzled into his breast in \",\"startOffset\":41,\"endOffset\":105},\"charOffset\":41,\"chapterFraction\":0.25}",
+  "chapter-start": "{\"v\":1,\"chapterSlug\":\"chapter-one\",\"anchor\":{\"prefix\":\"\",\"exact\":\"Chapter OneIt was a bright cold day in April, and the clocks wer\",\"suffix\":\"e striking thirteen. Winston Sm\",\"startOffset\":0,\"endOffset\":64},\"charOffset\":0,\"chapterFraction\":0}",
+  "slug-with-colon": "{\"v\":1,\"chapterSlug\":\"part-1:chapter-2\",\"anchor\":{\"prefix\":\"\",\"exact\":\"The hallway smelt of boiled cabbage and old rag mats.\",\"suffix\":\"\",\"startOffset\":0,\"endOffset\":53},\"charOffset\":0,\"chapterFraction\":1}"
+}

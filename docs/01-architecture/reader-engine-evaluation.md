@@ -1,6 +1,8 @@
 # Reader engine — open-source evaluation (2026-10-05)
 
-**Status: investigation, no decision.** Companion to [`reader-engine-brainstorm.md`](reader-engine-brainstorm.md).
+**Status: superseded by [ADR-025](adr/ADR-025-reader-engine-package.md) (2026-10-08).** Kept as history; several facts here are stale (font-change re-anchor was already fixed in R2, ADR-019 replaced the state machine).
+
+~~**Status: investigation, no decision.**~~ Companion to [`reader-engine-brainstorm.md`](reader-engine-brainstorm.md).
 It answers one question: if we build `packages/reader-engine` (TypeScript, web + Expo WebView), how much
 can we take from open-source engines instead of writing it? Options and evidence only. The owner decides.
 
