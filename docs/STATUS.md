@@ -187,7 +187,10 @@ answers "what happened" and nothing answered "what is half-finished right now".
 
 - **Reader — open after R3/R4** (2026-10-06):
   - ~~**Mobile highlight edges (review of #774)**~~ — 2026-10-08: the legacy `<mark>` label no longer
-    gets painted (#776). The "fuzzy match paints `exact.length`" item was not a paint bug: the shared
+    gets painted (#776): measured at redraw time from the range's own text nodes, so labels added
+    after the highlight (chapter load order, word saves) are skipped. Verified in jsdom only — no test
+    phone has a WebView without CSS Highlights. The root fix (one text-only measurement inside the
+    overlay, shared by every layer) belongs to engine Phase 2. The "fuzzy match paints `exact.length`" item was not a paint bug: the shared
     resolver's fuzzy window is `exact.length` wide by design, so the paint matches what it matched. A
     length-aware fuzzy match is a resolver change (web too) — engine Phase 2 if a real case shows up.
   - **Mobile reader hooks have no tests of their own.** Fixes are tested through pure modules

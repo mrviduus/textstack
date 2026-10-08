@@ -91,9 +91,9 @@ describe('renderHighlight reads the chapter text, not document.body', () => {
     ;(dom.window as unknown as { eval: (s: string) => void }).eval(
       `renderHighlight("h1", ${JSON.stringify(JSON.stringify(anchor))}, "yellow", "garden and watched")`,
     )
-    expect(dom.window.document.querySelectorAll('svg[data-reader-overlay] rect').length).toBe(1)
-    // The Range spans the inline translation node; its text minus that node is the anchor.
-    expect(painted.at(-1)?.replace('сад', '')).toBe('garden and watched')
+    expect(dom.window.document.querySelectorAll('svg[data-reader-overlay] rect').length).toBeGreaterThan(0)
+    // What gets measured is exactly the anchored words: the label's text is skipped.
+    expect(painted.join('')).toBe('garden and watched')
   })
 
   it('paints a highlight that ends exactly at the end of the chapter', () => {
@@ -120,30 +120,42 @@ describe('renderHighlight reads the chapter text, not document.body', () => {
     expect(painted.at(-1)).toBe('the moon.')
   })
 
-  it('does not paint the floating inline-translation label inside the highlight (legacy <mark> path)', () => {
-    const html = '<p>She sat in the garden<span class="vocab-inline-translation">сад</span> and watched the moon.</p>'
-    const word = { x: 0, y: 40, left: 0, top: 40, right: 200, bottom: 60, width: 200, height: 20 }
-    const label = { x: 90, y: 28, left: 90, top: 28, right: 110, bottom: 36, width: 20, height: 8 }
+  it('does not paint a legacy inline-translation label added after the highlight (real load order)', () => {
+    // Chapter load paints highlights first; legacy markVocabWords adds <mark> + label later, and
+    // re-creates them on every word save. The highlight must skip whatever labels exist at redraw.
+    const html = '<p>She sat in the <mark data-vocab-mark="true">garden</mark> and watched the moon.</p>'
+    const word = { x: 0, y: 40, left: 0, top: 40, right: 60, bottom: 60, width: 60, height: 20 }
+    const label = { x: 20, y: 28, left: 20, top: 28, right: 40, bottom: 36, width: 20, height: 8 }
     const dom = new JSDOM(buildReaderHtml(html, undefined, 'ch-6'), {
       runScripts: 'dangerously',
       pretendToBeVisual: true,
       virtualConsole: new VirtualConsole(),
       beforeParse(win: Window & typeof globalThis & { ReactNativeWebView: unknown }) {
         win.ReactNativeWebView = { postMessage: () => {} }
-        // A Range over the words also reports the absolutely positioned label's box.
-        win.Range.prototype.getClientRects = function () { return [word, label] as unknown as DOMRectList }
-        win.Range.prototype.getBoundingClientRect = function () { return word as DOMRect }
-        win.Element.prototype.getClientRects = function (this: Element) {
-          return (this.classList.contains('vocab-inline-translation') ? [label] : [word]) as unknown as DOMRectList
+        // Like a real WebView: any range that covers the label reports the label's box too.
+        win.Range.prototype.getClientRects = function (this: Range) {
+          const lbl = win.document.querySelector('.vocab-inline-translation')
+          const out: unknown[] = []
+          if (this.toString().replace(lbl?.textContent ?? '\u0000', '').trim()) out.push(word)
+          if (lbl && this.intersectsNode(lbl)) out.push(label)
+          return out as unknown as DOMRectList
         }
+        win.Range.prototype.getBoundingClientRect = function () { return word as DOMRect }
       },
     })
+    const w = dom.window as unknown as Window & { eval: (s: string) => void }
     const anchor = { prefix: 'She sat in the ', exact: 'garden and watched', suffix: ' the moon.' }
-    ;(dom.window as unknown as { eval: (s: string) => void }).eval(
-      `renderHighlight("h3", ${JSON.stringify(JSON.stringify(anchor))}, "yellow", "garden and watched")`,
-    )
-    const rects = Array.from(dom.window.document.querySelectorAll('svg[data-reader-overlay] rect'))
-    expect(rects).toHaveLength(1)
-    expect(Number(rects[0].getAttribute('height'))).toBe(word.height)
+    w.eval(`renderHighlight("h3", ${JSON.stringify(JSON.stringify(anchor))}, "yellow", "garden and watched")`)
+
+    // markVocabWords (legacy) adds the label afterwards.
+    const sp = w.document.createElement('span')
+    sp.className = 'vocab-inline-translation'
+    sp.textContent = 'сад'
+    w.document.querySelector('mark')!.appendChild(sp)
+    w.dispatchEvent(new dom.window.Event('resize'))
+
+    const heights = Array.from(w.document.querySelectorAll('svg[data-reader-overlay] rect')).map((r) => Number(r.getAttribute('height')))
+    expect(heights.length).toBeGreaterThan(0)
+    expect(heights).not.toContain(label.height)
   })
 })

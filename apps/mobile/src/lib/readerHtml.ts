@@ -900,25 +900,38 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
     }
     // Legacy <mark> vocab path: an inline translation is an absolutely positioned span inside the
     // text, so a Range over those words also reports the label's box and the highlight painted over
-    // it. The overlayer only measures (collapsed + getClientRects), so hand it the range minus labels.
+    // it. The overlayer re-measures on every redraw, and labels come and go (chapter load paints
+    // highlights first; every word save re-creates them), so the check runs at measure time: with
+    // labels in the document, measure the range's own text nodes, skipping labels like chapterText().
     function hlMeasurable(range) {
-      var root = range.commonAncestorContainer;
-      if (root && root.nodeType !== 1) root = root.parentElement;
-      var labels = root && root.querySelectorAll ? root.querySelectorAll('.vocab-inline-translation') : [];
-      if (!labels.length) return range;
-      return {
-        collapsed: false,
-        getClientRects: function() {
-          var skip = [];
-          for (var i = 0; i < labels.length; i++) {
-            if (!range.intersectsNode(labels[i])) continue;
-            var lr = labels[i].getClientRects();
-            for (var j = 0; j < lr.length; j++) skip.push(lr[j]);
+      function textRects() {
+        if (!document.querySelector('.vocab-inline-translation')) return range.getClientRects();
+        var root = range.commonAncestorContainer;
+        if (root.nodeType !== 1) root = root.parentElement || document.body;
+        var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+          acceptNode: function(n) {
+            var p = n.parentElement;
+            if (!p || p.closest('.vocab-inline-translation') || p.closest('[data-vocab-overlay]')) return NodeFilter.FILTER_REJECT;
+            return range.intersectsNode(n) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
           }
-          return Array.prototype.filter.call(range.getClientRects(), function(r) {
-            return !skip.some(function(s) { return s.left === r.left && s.top === r.top && s.width === r.width && s.height === r.height; });
-          });
+        });
+        var out = [], n;
+        while ((n = walker.nextNode())) {
+          var r = document.createRange();
+          r.setStart(n, n === range.startContainer ? range.startOffset : 0);
+          r.setEnd(n, n === range.endContainer ? range.endOffset : n.nodeValue.length);
+          var rs = r.getClientRects();
+          for (var i = 0; i < rs.length; i++) out.push(rs[i]);
         }
+        return out;
+      }
+      // Measured by the overlayer; the rest delegates so a hit-test consumer still gets a Range's API.
+      return {
+        get collapsed() { return range.collapsed; },
+        getClientRects: textRects,
+        getBoundingClientRect: function() { return range.getBoundingClientRect(); },
+        cloneRange: function() { return range.cloneRange(); },
+        toString: function() { return range.toString(); }
       };
     }
     function hlPaintRangeOverlay(range, id, color) {
