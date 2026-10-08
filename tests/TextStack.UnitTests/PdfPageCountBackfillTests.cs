@@ -38,4 +38,45 @@ public class PdfPageCountBackfillTests
     [Fact]
     public void NeedsPageCount_Epub_NotSelected() =>
         Assert.False(Needs(Book(UserBookStatus.Ready, BookFormat.Epub)));
+
+    // Review r6 of #780: one book's failure is logged and skipped; the rest are written as it goes.
+    [Fact]
+    public async Task RunAsync_OneThrowsOneUnreadable_OthersWrittenFailuresLogged()
+    {
+        var (ok1, boom, unreadable, ok2) = (Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+        var written = new Dictionary<Guid, int>();
+        var log = new List<string>();
+
+        var (updated, failed) = await PdfPageCountBackfill.RunAsync(
+            [(ok1, "a"), (boom, "b"), (unreadable, "c"), (ok2, "d")],
+            path => path switch { "b" => throw new IOException("disk"), "c" => null, _ => 7 },
+            (id, pages) => { written[id] = pages; return Task.CompletedTask; },
+            log.Add);
+
+        Assert.Equal((2, 2), (updated, failed));
+        Assert.Equal(new Dictionary<Guid, int> { [ok1] = 7, [ok2] = 7 }, written);
+        Assert.Contains(log, l => l.Contains(boom.ToString()) && l.Contains("disk"));
+        Assert.Contains(log, l => l.Contains(unreadable.ToString()));
+    }
+
+    [Fact]
+    public async Task RunAsync_WriteThrows_CountedFailedLoopContinues()
+    {
+        var (bad, good) = (Guid.NewGuid(), Guid.NewGuid());
+        var written = new List<Guid>();
+
+        var (updated, failed) = await PdfPageCountBackfill.RunAsync(
+            [(bad, "a"), (good, "b")],
+            _ => 3,
+            (id, _) =>
+            {
+                if (id == bad) throw new InvalidOperationException("db");
+                written.Add(id);
+                return Task.CompletedTask;
+            },
+            _ => { });
+
+        Assert.Equal((1, 1), (updated, failed));
+        Assert.Equal([good], written);
+    }
 }

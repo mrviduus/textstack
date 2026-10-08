@@ -18,8 +18,6 @@ type Options = {
   bookLanguage?: string | null
   /** User's native language (target). When null/equal-to-book, backfill is skipped. */
   nativeLanguage?: string | null
-  /** editionId or userBookId — sent with the backfill's translations, as the toolbar does. */
-  bookId?: string | null
 }
 
 /**
@@ -36,7 +34,6 @@ export function useReaderVocabMap({
   injectJs,
   bookLanguage,
   nativeLanguage,
-  bookId,
 }: Options) {
   const vocabMapRef = useRef<VocabMap>({})
   const [vocabVersion, setVocabVersion] = useState(0)
@@ -102,7 +99,8 @@ export function useReaderVocabMap({
   // that never set it). Mirrors apps/web/src/hooks/useReaderVocabulary.ts
   // backfill loop — without it, those words underline forever but the
   // gloss above them never appears. Translates in the sentence the main load
-  // carries for each untranslated word + this book, so the gloss is that sense.
+  // carries for each untranslated word, so the gloss is that sense. No book id: the sentence may
+  // be from another book, and the open one's genre would bias it wrongly for good.
   // Cancelled on unmount, sign-out, account/book/language change — NOT on
   // bumpVocab (the loop bumps per word; an earlier version stopped after one).
   useEffect(() => {
@@ -114,16 +112,17 @@ export function useReaderVocabMap({
         if (cancelled) return
         if (w.translation) continue
         const key = w.word.toLowerCase()
-        // Removed since, or translated since — nothing to do.
+        // Removed since, or this row translated since — nothing to do. Per row id: 'Turkey' and
+        // 'turkey' share one key, and the second row must still get its own translation written.
         const current = vocabMapRef.current[key]
-        if (!current || current.translation) continue
+        if (!current || (current.id === w.id && current.translation)) continue
         try {
           // cachedTranslate de-dupes against the toolbar/save path and
           // memoizes, so re-opening the chapter is free.
-          const { translation } = await cachedTranslate(key, bookLanguage, nativeLanguage, { sentence: w.sentence, bookId })
+          const { translation } = await cachedTranslate(key, bookLanguage, nativeLanguage, { sentence: w.sentence })
           if (cancelled || !translation) continue
           const entry = vocabMapRef.current[key]
-          if (entry) vocabMapRef.current[key] = { ...entry, translation }
+          if (entry?.id === w.id) vocabMapRef.current[key] = { ...entry, translation }
           // Persist server-side so re-opens skip the round-trip.
           vocabularyApi.updateWord(w.id, { translation }).catch(() => {})
           // Progressive paint: each gloss appears the moment its word
@@ -137,7 +136,7 @@ export function useReaderVocabMap({
       }
     })()
     return () => { cancelled = true }
-  }, [loaded, user?.id, isAuthenticated, bookLanguage, nativeLanguage, bookId, bumpVocab])
+  }, [loaded, user?.id, isAuthenticated, bookLanguage, nativeLanguage, bumpVocab])
 
   /** Persist current map to per-user cache. Caller invokes when a selection closes. */
   const flushToCache = () => {

@@ -37,6 +37,8 @@ type Args = Pick<ReaderShellProps, 'source' | 'injectJs' | 'bookTitleRef' | 'ori
   sessionWordCountRef: MutableRefObject<number>
   setSessionWordCount: ReturnType<typeof useReaderExitSummary>['setSessionWordCount']
   footerHeight: number
+  /** ReaderShell's translateBookId — the id the selection toolbar translates with. */
+  translateBookId: string | undefined
 }
 
 /**
@@ -46,7 +48,7 @@ type Args = Pick<ReaderShellProps, 'source' | 'injectJs' | 'bookTitleRef' | 'ori
 export function useReaderWordActions({
   source, injectJs, bookTitleRef, original, chapter, user, isAuthenticated,
   language, textLanguage, nativeLanguage, settings, updateSettings, haptics, showToast, router,
-  sessionWordCountRef, setSessionWordCount, footerHeight,
+  sessionWordCountRef, setSessionWordCount, footerHeight, translateBookId,
 }: Args) {
   const { vocabMapRef, flushToCache: flushVocabMap, bumpVocab } = useReaderVocabMap({
     user,
@@ -55,8 +57,6 @@ export function useReaderWordActions({
     injectJs,
     bookLanguage: textLanguage,
     nativeLanguage,
-    // Same id the toolbar translates with (ReaderShell's translateBookId).
-    bookId: source.id || undefined,
   })
 
   const {
@@ -134,7 +134,7 @@ export function useReaderWordActions({
     vocabMapRef,
     bookTitleRef,
     ...(source.kind === 'edition' ? { editionIdRef: source.idRef } : { userBookIdRef: source.idRef }),
-    bookId: source.id || undefined,
+    bookId: translateBookId,
     chapter: { id: chapter.id } as unknown as Chapter,
     language,
     textLanguage,

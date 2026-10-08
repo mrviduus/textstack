@@ -312,14 +312,15 @@ describe('useReaderVocabulary', () => {
   })
 
   // Review r5 of #780: one fetch — the main load carries each untranslated word's sentence,
-  // and the backfill translates in it + the book, never the bare word when there is one.
-  it('backfill_MainLoadHasSentence_TranslatesInItWithoutSecondFetch', async () => {
+  // and the backfill translates in it, never the bare word when there is one. Review r6: no
+  // bookId — the sentence may come from another book, whose genre the open one's would misstate.
+  it('backfill_MainLoadHasSentence_TranslatesInItWithoutBookIdOrSecondFetch', async () => {
     const sentence = 'He pocketed the coins and walked out.'
     getReaderVocabMock.mockResolvedValue([{ id: 'w1', word: 'pocketed', stage: 1, sentence }])
 
-    renderHook(() => useReaderVocabulary('en', 'pt', 'book-1'))
+    renderHook(() => useReaderVocabulary('en', 'pt'))
 
-    await waitFor(() => expect(vi.mocked(translateApi)).toHaveBeenCalledWith('pocketed', 'en', 'pt', undefined, { sentence, bookId: 'book-1' }))
+    await waitFor(() => expect(vi.mocked(translateApi)).toHaveBeenCalledWith('pocketed', 'en', 'pt', undefined, { sentence }))
     expect(vi.mocked(translateApi)).toHaveBeenCalledTimes(1)
     expect(getReaderVocabMock).toHaveBeenCalledTimes(1)
   })
@@ -332,7 +333,7 @@ describe('useReaderVocabulary', () => {
       { id: 'w2', word: 'beta', stage: 1, sentence: 'Beta here.' },
     ])
 
-    const { result } = renderHook(() => useReaderVocabulary('en', 'pt', 'book-1'))
+    const { result } = renderHook(() => useReaderVocabulary('en', 'pt'))
     await waitFor(() => expect(vi.mocked(translateApi)).toHaveBeenCalledTimes(1))
     await act(async () => { await result.current.removeWord('w2', 'beta') })
     await act(async () => { release() })
@@ -343,7 +344,7 @@ describe('useReaderVocabulary', () => {
   it('backfill_DefinitionMode_NothingTranslated', async () => {
     getReaderVocabMock.mockResolvedValue([{ id: 'w1', word: 'pocketed', stage: 1, sentence: 'He pocketed it.' }])
 
-    renderHook(() => useReaderVocabulary('en', 'en', 'book-1'))
+    renderHook(() => useReaderVocabulary('en', 'en'))
     await waitFor(() => expect(getReaderVocabMock).toHaveBeenCalledTimes(1))
     await act(async () => {})
 
@@ -356,7 +357,7 @@ describe('useReaderVocabulary', () => {
     authState.isAuthenticated = false
     guestLimits.commitmentThreshold = 99
     const { result, rerender } = renderHook(
-      ({ target }: { target: string }) => useReaderVocabulary('en', target, 'book-1'),
+      ({ target }: { target: string }) => useReaderVocabulary('en', target),
       { initialProps: { target: 'en' } },
     )
     await act(async () => { await result.current.addWord({ word: 'pocketed', language: 'en' }) })
@@ -371,7 +372,7 @@ describe('useReaderVocabulary', () => {
   it('load_NativeLanguageChange_MainLoadNotRepeated', async () => {
     getReaderVocabMock.mockResolvedValue([{ id: 'w1', word: 'pocketed', stage: 1, translation: 'embolsou' }])
     const { rerender } = renderHook(
-      ({ target }: { target: string }) => useReaderVocabulary('en', target, 'book-1'),
+      ({ target }: { target: string }) => useReaderVocabulary('en', target),
       { initialProps: { target: 'pt' } },
     )
     await waitFor(() => expect(getReaderVocabMock).toHaveBeenCalledTimes(1))

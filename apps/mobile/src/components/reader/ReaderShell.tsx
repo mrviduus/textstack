@@ -203,7 +203,7 @@ export function ReaderShell(props: ReaderShellProps) {
   } = useReaderWordActions({
     source, injectJs, bookTitleRef, original, chapter, user, isAuthenticated, language, textLanguage,
     nativeLanguage, settings, updateSettings, haptics, showToast, router, sessionWordCountRef,
-    setSessionWordCount, footerHeight,
+    setSessionWordCount, footerHeight, translateBookId,
   })
 
   const pdf = useReaderPdf({

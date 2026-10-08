@@ -482,30 +482,27 @@ if (args.Length > 0 && args[0] == "backfill-pdf-page-counts")
         .Where(PdfPageCountBackfill.NeedsPageCount)
         .Select(b => new
         {
-            Book = b,
+            b.Id,
             Path = b.BookFiles.Where(f => f.Format == BookFormat.Pdf)
                 .OrderByDescending(f => f.UploadedAt).Select(f => f.StoragePath).FirstOrDefault(),
         })
         .Where(x => x.Path != null)
         .ToListAsync();
 
-    int updated = 0, failed = 0;
-    foreach (var x in books)
-    {
-        var fullPath = storage.GetFullPath(x.Path!);
-        int? pages = null;
-        if (File.Exists(fullPath))
+    var (updated, failed) = await PdfPageCountBackfill.RunAsync(
+        books.Select(x => (x.Id, x.Path!)),
+        path =>
         {
-            await using var stream = File.OpenRead(fullPath);
-            pages = TextStack.Extraction.Extractors.PdfTextExtractor.CountPages(stream);
-        }
-        if (pages is null) { failed++; Console.WriteLine($"[FAIL] {x.Book.Id} {x.Path}"); continue; }
-        x.Book.PageCount = pages;
-        updated++;
-        Console.WriteLine($"[OK]   {x.Book.Id} {pages} pages");
-    }
-    if (!dryRun) await db.SaveChangesAsync(CancellationToken.None);
-    Console.WriteLine($"{(dryRun ? "DRY RUN — " : "")}{updated} updated, {failed} unreadable, of {books.Count}");
+            var fullPath = storage.GetFullPath(path);
+            if (!File.Exists(fullPath)) return null;
+            using var stream = File.OpenRead(fullPath);
+            return TextStack.Extraction.Extractors.PdfTextExtractor.CountPages(stream);
+        },
+        // Written per book, so a crash part-way keeps everything before it.
+        (id, pages) => dryRun ? Task.CompletedTask : db.UserBooks.Where(b => b.Id == id)
+            .ExecuteUpdateAsync(s => s.SetProperty(b => b.PageCount, pages)),
+        Console.WriteLine);
+    Console.WriteLine($"{(dryRun ? "DRY RUN — " : "")}{updated} updated, {failed} failed, of {books.Count}");
     return;
 }
 

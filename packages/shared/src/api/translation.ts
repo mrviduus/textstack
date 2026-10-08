@@ -25,7 +25,7 @@ export function translateBody(text: string, source: string, target: string, ctx?
   const sentence = ctx?.sentence?.trim()
   const words = text.trim().split(/\s+/).filter(Boolean).length
   if (sentence && words <= MAX_CONTEXT_WORDS && sentence.toLowerCase() !== text.trim().toLowerCase()) {
-    body.sentence = ctx!.sentence!
+    body.sentence = sentence
   }
   if (ctx?.bookId) body.bookId = ctx.bookId
   return body
@@ -37,7 +37,7 @@ export function translateCacheKey(text: string, source: string, target: string, 
   const body = translateBody(text, source, target, ctx)
   // Case kept: "US" ≠ "us", "Turkey" ≠ "turkey" (the server keys the raw text too).
   // JSON, not a joined string: a "|" inside the text or sentence cannot shift fields.
-  return JSON.stringify([source, target, text.trim(), body.sentence?.trim() ?? '', body.bookId ?? ''])
+  return JSON.stringify([source, target, text.trim(), body.sentence ?? '',body.bookId ?? ''])
 }
 
 export function translate(text: string, source: string, target: string, signal?: AbortSignal, ctx?: TranslateContext) {

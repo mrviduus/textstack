@@ -39,7 +39,7 @@ public class ReaderVocabProjectionTests
 
         var window = VocabularyEndpoints.SentenceWindow(sentence, "pocketed");
 
-        Assert.Equal(VocabularyEndpoints.MaxReaderSentenceLength, window.Length);
+        Assert.True(window.Length <= VocabularyEndpoints.MaxReaderSentenceLength);
         Assert.Contains("Pocketed", window);
     }
 
@@ -50,13 +50,44 @@ public class ReaderVocabProjectionTests
 
         var window = VocabularyEndpoints.SentenceWindow(sentence, "absent");
 
-        Assert.Equal(VocabularyEndpoints.MaxReaderSentenceLength, window.Length);
-        Assert.StartsWith("Start ", window);
+        Assert.True(window.Length <= VocabularyEndpoints.MaxReaderSentenceLength);
+        Assert.StartsWith("Start", window);
     }
 
     [Fact]
     public void SentenceWindow_ShortSentence_Unchanged()
     {
         Assert.Equal("The wound bled.", VocabularyEndpoints.SentenceWindow("The wound bled.", "wound"));
+    }
+
+    // Review r6 of #780: the window never cuts a word in half, nor an emoji's surrogate pair.
+    [Fact]
+    public void SentenceWindow_LongWordsAtBothEdges_CutsOnlyAtWordBoundaries()
+    {
+        const string Long = "Incomprehensibilities";
+        var side = string.Join(" ", Enumerable.Repeat(Long, 30));
+        var sentence = side + " He pocketed the coins " + side;
+
+        var window = VocabularyEndpoints.SentenceWindow(sentence, "pocketed");
+
+        Assert.True(window.Length <= VocabularyEndpoints.MaxReaderSentenceLength);
+        Assert.Contains("pocketed", window);
+        Assert.All(window.Split(' '), t => Assert.Contains(t, new[] { Long, "He", "pocketed", "the", "coins" }));
+    }
+
+    [Theory]
+    [InlineData("a")] // pairs at odd offsets
+    [InlineData("")]  // pairs at even offsets
+    public void SentenceWindow_EmojiAtCutNoSpaces_NoLoneSurrogate(string pad)
+    {
+        var emojis = string.Concat(Enumerable.Repeat("\U0001F600", 300));
+        var sentence = pad + emojis + "pocketed" + emojis;
+
+        var window = VocabularyEndpoints.SentenceWindow(sentence, "pocketed");
+
+        Assert.True(window.Length <= VocabularyEndpoints.MaxReaderSentenceLength);
+        Assert.Contains("pocketed", window);
+        // Strict UTF-8 throws on a lone surrogate.
+        new System.Text.UTF8Encoding(false, true).GetBytes(window);
     }
 }

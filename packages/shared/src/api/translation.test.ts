@@ -9,6 +9,14 @@ describe('translateBody', () => {
       .toEqual({ text: 'pocketed', sourceLang: 'en', targetLang: 'pt', sentence: 'He pocketed the coins.', bookId: 'b1' })
   })
 
+  // Review r6 of #780: the body sends the sentence the cache key was built from.
+  it('translateBody_PaddedSentence_SentTrimmedAndKeyAgrees', () => {
+    expect(translateBody('pocketed', 'en', 'pt', { sentence: '  He pocketed the coins.\n' }).sentence)
+      .toBe('He pocketed the coins.')
+    expect(translateCacheKey('pocketed', 'en', 'pt', { sentence: '  He pocketed the coins.\n' }))
+      .toBe(translateCacheKey('pocketed', 'en', 'pt', { sentence: 'He pocketed the coins.' }))
+  })
+
   it('translateBody_NoContext_OmitsContextFields', () => {
     expect(translateBody('hello', 'en', 'uk')).toEqual({ text: 'hello', sourceLang: 'en', targetLang: 'uk' })
   })

@@ -116,7 +116,7 @@ export function ReaderHighlights({
   const isSingleWord = hasSelection && selectionWordCount === 1
 
   // --- Vocab map + save/update (guest = real User via cookie session, same API path) ---
-  const { vocabMap, addWord, removeWord, updateTranslation, recordSavedWord, idbUnavailable, dismissIdbUnavailable, guestNudge, dismissGuestNudge } = useReaderVocabulary(bookLanguage, targetLang, userBookId || editionId)
+  const { vocabMap, addWord, removeWord, updateTranslation, recordSavedWord, idbUnavailable, dismissIdbUnavailable, guestNudge, dismissGuestNudge } = useReaderVocabulary(bookLanguage, targetLang)
   const { openAuthModal } = useAuth()
 
   const {

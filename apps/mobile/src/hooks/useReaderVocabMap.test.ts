@@ -22,7 +22,7 @@ beforeEach(() => {
 
 const mount = (nativeLanguage = 'pt') => renderHook(useReaderVocabMap, {
   user: { id: 'u1' }, isAuthenticated: true, chapterId: 'c1', injectJs: () => {},
-  bookLanguage: 'en', nativeLanguage, bookId: 'book-1',
+  bookLanguage: 'en', nativeLanguage,
 })
 
 const SENTENCE = 'He pocketed the coins and walked out.'
@@ -31,8 +31,9 @@ const serve = (word: Record<string, unknown>) =>
   api.getReaderVocab.mockResolvedValue([{ id: 'w1', word: 'Pocketed', stage: 1, sentence: SENTENCE, ...word }])
 
 describe('useReaderVocabMap gloss backfill', () => {
-  // Review r5 of #780: one fetch — the backfill translates in the main load's sentence + the book.
-  it('backfill_MainLoadHasSentence_TranslatesInItWithoutSecondFetch', async () => {
+  // Review r5 of #780: one fetch — the backfill translates in the main load's sentence.
+  // Review r6: and no bookId — the sentence may be from another book than the open one.
+  it('backfill_MainLoadHasSentence_TranslatesInItWithoutBookIdOrSecondFetch', async () => {
     serve({})
 
     mount()
@@ -40,7 +41,7 @@ describe('useReaderVocabMap gloss backfill', () => {
 
     expect(api.getReaderVocab).toHaveBeenCalledTimes(1)
     expect(cachedTranslate).toHaveBeenCalledTimes(1)
-    expect(cachedTranslate).toHaveBeenCalledWith('pocketed', 'en', 'pt', { sentence: SENTENCE, bookId: 'book-1' })
+    expect(cachedTranslate).toHaveBeenCalledWith('pocketed', 'en', 'pt', { sentence: SENTENCE })
     expect(api.updateWord).toHaveBeenCalledWith('w1', { translation: 'embolsou' })
   })
 
@@ -113,6 +114,20 @@ describe('useReaderVocabMap gloss backfill', () => {
     await flush()
 
     expect(cachedTranslate).toHaveBeenCalledTimes(1)
+  })
+
+  // Review r6 of #780: two server rows share one map key; each row is translated and written.
+  it('backfill_CaseVariantRows_EachRowWritten', async () => {
+    api.getReaderVocab.mockResolvedValue([
+      { id: 'w1', word: 'Turkey', stage: 1, sentence: 'Turkey borders Greece.' },
+      { id: 'w2', word: 'turkey', stage: 1, sentence: 'We roasted a turkey.' },
+    ])
+
+    mount()
+    await flush()
+
+    expect(api.updateWord).toHaveBeenCalledWith('w1', { translation: 'embolsou' })
+    expect(api.updateWord).toHaveBeenCalledWith('w2', { translation: 'embolsou' })
   })
 
   // The loop bumps per word; that must not cancel it (an earlier version stopped after one).

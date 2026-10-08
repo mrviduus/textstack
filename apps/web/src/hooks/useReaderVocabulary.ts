@@ -19,8 +19,7 @@ import { takeGuestNudge, type GuestNudge } from '../lib/guestNudge'
 // translation against another sense. Not set by the main load (its sentences feed the backfill only).
 export type VocabMap = Map<string, { stage: number; id?: string; translation?: string; sentence?: string; isPending?: boolean }>
 
-/** `bookId`: editionId or userBookId — sent with the backfill's translations, as the bubble does. */
-export function useReaderVocabulary(bookLanguage?: string, targetLang?: string | null, bookId?: string) {
+export function useReaderVocabulary(bookLanguage?: string, targetLang?: string | null) {
   const { isAuthenticated, isGuest, waitForSession, ensureSession } = useAuth()
   const { commitmentThreshold } = useGuestLimits()
   const [vocabMap, setVocabMap] = useState<VocabMap>(new Map())
@@ -77,7 +76,8 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
   }, [isAuthenticated, commitMap])
 
   // Backfill translations for words missing them, in the sentence each was saved in (the
-  // main load carries it for untranslated words only) + this book, so the gloss is that sense.
+  // main load carries it for untranslated words only), so the gloss is that sense. No bookId: the
+  // sentence may be from another book, and the open one's genre would bias it wrongly for good.
   useEffect(() => {
     if (!loadedWords || !targetLang || !bookLanguage || targetLang === bookLanguage) return
     let cancelled = false
@@ -93,7 +93,7 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
         // Removed since, pending (local id) or translated since — nothing to do.
         if (!entry || entry.isPending || entry.translation) continue
         try {
-          const res = await translateWord(word, lang, target, undefined, { sentence: w.sentence, bookId })
+          const res = await translateWord(word, lang, target, undefined, { sentence: w.sentence })
           const translation = res.translatedText
           if (cancelled || !translation) continue
           updateMap(m => {
@@ -105,7 +105,7 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
       }
     })()
     return () => { cancelled = true }
-  }, [loadedWords, targetLang, bookLanguage, bookId, updateMap])
+  }, [loadedWords, targetLang, bookLanguage, updateMap])
 
   // I4: flush pending local vocab into backend. Called:
   //   (a) on threshold-crossing after ensureSession succeeds;

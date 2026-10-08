@@ -46,9 +46,14 @@ describe('reader translate calls carry sentence + bookId', () => {
     expect(read('src/components/SelectionActionBar.tsx')).toContain('const ctx = { sentence, bookId }')
   })
 
-  it('useReaderWordActions_VocabHooks_GetTheSourceId', () => {
+  // Review r6 of #780: derived once in ReaderShell and passed down; the gloss backfill
+  // (useReaderVocabMap) takes none — its sentences may be from other books.
+  it('useReaderWordActions_SaveGloss_GetsShellTranslateBookId', () => {
     const src = read('src/components/reader/useReaderWordActions.ts')
-    expect(src.match(/bookId: source\.id \|\| undefined/g)).toHaveLength(2)
+    expect(src).not.toMatch(/source\.id \|\| undefined/)
+    expect(src).toContain('bookId: translateBookId,')
+    expect(shell).toMatch(/useReaderWordActions\(\{[\s\S]*?translateBookId,[\s\S]*?\}\)/)
+    expect(read('src/hooks/useReaderVocabMap.ts')).not.toContain('bookId')
   })
 
   it('useReaderVocabActions_SaveGloss_PassesBookId', () => {

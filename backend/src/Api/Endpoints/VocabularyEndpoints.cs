@@ -704,13 +704,32 @@ public static partial class VocabularyEndpoints
         words.Select(w => new ReaderVocabWordDto(w.Id, w.Word, w.Stage, w.Translation,
             string.IsNullOrEmpty(w.Translation) ? w.Sentence : null));
 
-    /// <summary>At most <see cref="MaxReaderSentenceLength"/> chars centred on the word; the start if the word is absent.</summary>
+    /// <summary>At most <see cref="MaxReaderSentenceLength"/> chars centred on the word; the start if the word is absent.
+    /// Cut at word boundaries (a window-wide token is cut, but never inside a surrogate pair).</summary>
     internal static string SentenceWindow(string sentence, string word)
     {
         if (sentence.Length <= MaxReaderSentenceLength) return sentence;
         var at = sentence.IndexOf(word, StringComparison.OrdinalIgnoreCase);
         var start = at < 0 ? 0 : Math.Clamp(at + word.Length / 2 - MaxReaderSentenceLength / 2, 0, sentence.Length - MaxReaderSentenceLength);
-        return sentence.Substring(start, MaxReaderSentenceLength);
+        var end = start + MaxReaderSentenceLength;
+        // Shrink inward to whitespace, never past the word itself.
+        var keepFrom = at < 0 ? end : at;
+        var keepTo = at < 0 ? start : at + word.Length;
+        if (start > 0 && !char.IsWhiteSpace(sentence[start - 1]))
+        {
+            var s = start;
+            while (s < keepFrom && !char.IsWhiteSpace(sentence[s])) s++;
+            if (s < keepFrom) start = s;
+        }
+        if (end < sentence.Length && !char.IsWhiteSpace(sentence[end]))
+        {
+            var e = end;
+            while (e > keepTo && !char.IsWhiteSpace(sentence[e - 1])) e--;
+            if (e > keepTo) end = e;
+        }
+        if (char.IsLowSurrogate(sentence[start])) start++;
+        if (char.IsHighSurrogate(sentence[end - 1])) end--;
+        return sentence[start..end].Trim();
     }
 
     // --- Mark word as Known (stage 4) ---
