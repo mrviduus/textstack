@@ -37,7 +37,8 @@ export async function heroResumeRoute(
     server: (bookId: string) => Promise<readonly ChapterRow[]>
   },
 ): Promise<string> {
-  if (pick.type !== 'userbook' || pick.chapterSlug || parsePdfPageLocator(pick.locator) == null) return resumeRoute(pick)
+  // A page beats chapterSlug, which may be stale from an earlier reflow read.
+  if (pick.type !== 'userbook' || parsePdfPageLocator(pick.locator) == null) return resumeRoute(pick)
   try {
     const cached = await loaders.device(pick.id).catch(() => null)
     const chapters = cached && cached.totalChapters > 0 && cached.chapters.length >= cached.totalChapters

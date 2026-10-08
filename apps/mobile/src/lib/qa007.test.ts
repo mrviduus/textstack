@@ -76,7 +76,7 @@ describe('QA-007', () => {
     // No lookup for anything else.
     const load = vi.fn()
     const loaders = { device: load, server: load }
-    expect(await heroResumeRoute({ ...pick, chapterSlug: 'intro' }, loaders)).toBe('/my-books/read/ub1/intro')
+    expect(await heroResumeRoute({ ...pick, chapterSlug: 'intro', locator: null }, loaders)).toBe('/my-books/read/ub1/intro')
     expect(await heroResumeRoute({ ...pick, locator: null }, loaders)).toBe('/my-books/ub1')
     expect(await heroResumeRoute({ type: 'edition', slug: 'dracula', title: 'D', coverPath: null, percent: 0.1, chapterSlug: null, updatedAtMs: 1 }, loaders)).toBe('/book/dracula')
     expect(load).not.toHaveBeenCalled()
@@ -86,6 +86,14 @@ describe('QA-007', () => {
     const hero = read('src/components/library/ResumeHero.tsx')
     expect(hero).toMatch(/if \(busyRef\.current\) return/)
     expect(hero).toContain('heroResumeRoute(pick')
+  })
+
+  it('RES-1: a page:N locator beats a stale chapterSlug', async () => {
+    const pick = { type: 'userbook' as const, id: 'ub1', title: 'PDF', coverPath: null, percent: 0.5, chapterSlug: 'ch-2', locator: 'page:300', updatedAtMs: 1 }
+    // ch-2 is stale (written earlier in reflow); page 300 lives in chapter 9.
+    const chapters = Array.from({ length: 12 }, (_, i) => ({ slug: `ch-${i}`, sourceStartPage: i * 35 + 1 }))
+    chapters[9].sourceStartPage = 290 // ch-9: 290..350
+    expect(await heroResumeRoute(pick, { device: async () => ({ chapters, totalChapters: 12 }), server: vi.fn() })).toBe('/my-books/read/ub1/ch-9')
   })
 
   it('RES-1: the device answers first — chapters on the phone open the reader without asking the server', async () => {
