@@ -129,6 +129,36 @@ export function pageAtViewportTop(rects: Iterable<PageRect>, viewportTop: number
   return best
 }
 
+/**
+ * The page the reader is reading — what gets reported and saved, so what a
+ * reopen jumps back to. The page under the top line is not it: when only the
+ * bottom margin of page 6 still touched the top edge and page 7 filled the
+ * screen, that saved 6 and every reopen landed a page back (QA-007 #3).
+ *
+ * Score = visible px / the most of that page the viewport could show
+ * (min(page height, viewport height)): a page filling the screen and a small
+ * page shown whole both score 1, a sliver scores ~0. Raw px would let a taller
+ * fully-visible page beat a shorter one above it and drift a reopen forward.
+ * Ties go to the lower page, so a reopen (page top on the viewport top) keeps
+ * its page. `pageAtViewportTop` stays the scroll anchor for re-fits and zoom.
+ */
+export function readingPage(rects: Iterable<PageRect>, viewportTop: number, viewportBottom: number): number | null {
+  const vh = viewportBottom - viewportTop
+  let best: number | null = null
+  let bestScore = 0
+  for (const r of rects) {
+    const px = Math.min(r.bottom, viewportBottom) - Math.max(r.top, viewportTop)
+    if (px <= EDGE_PX) continue
+    const score = px / Math.min(r.bottom - r.top, vh)
+    const tie = Math.abs(score - bestScore) < 0.01
+    if (best === null || (!tie && score > bestScore) || (tie && r.page < best)) {
+      best = r.page
+      bestScore = score
+    }
+  }
+  return best
+}
+
 /** Where the reader is in a PDF, independent of scale: the page under the top line and how far into it. */
 export interface PageAnchor {
   page: number

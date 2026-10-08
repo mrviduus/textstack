@@ -34,6 +34,7 @@ import {
   clampPage,
   dimsReadyUpTo,
   pageAtViewportTop,
+  readingPage,
   type PageRect,
 } from '../../../../packages/shared/src/reader/pdfPageWindow'
 import {
@@ -482,12 +483,14 @@ function main(): void {
     post({ type: 'pdfPage', page: top, numPages, jumpId: appliedJumpId })
   }
 
-  /** The page under the viewport top. `visible` is the RENDER set (300px
-   *  rootMargin): its lowest page is usually the one above, and saving that made
-   *  every open land a page earlier (C3). Measures every page, not just
-   *  `visible`, because right after a jump the observer has not caught up yet. */
+  /** The page being read (shared `readingPage`: most of the viewport), not the
+   *  page whose bottom margin still touches the top edge (QA-007 #3). `visible`
+   *  is the RENDER set (300px rootMargin): its lowest page is usually the one
+   *  above, and saving that made every open land a page earlier (C3). Measures
+   *  every page, not just `visible`, because right after a jump the observer has
+   *  not caught up yet. */
   function currentPage(): number {
-    return pageAtViewportTop(pageRects(), 0) ?? topVisiblePage(visible, openPage)
+    return readingPage(pageRects(), 0, window.innerHeight) ?? topVisiblePage(visible, openPage)
   }
 
   /** Report immediately, bypassing the throttle and the unchanged-page check.
