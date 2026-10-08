@@ -1,6 +1,6 @@
 # Status
 
-**Last updated: 2026-10-06.** Where the project actually is — not what it does (that's
+**Last updated: 2026-10-08.** Where the project actually is — not what it does (that's
 [`docs/README.md`](README.md)) and not what changed (that's [`CHANGELOG.md`](../CHANGELOG.md)).
 
 If you read one page before picking work back up, read this one. It exists because the changelog
@@ -32,6 +32,19 @@ answers "what happened" and nothing answered "what is half-finished right now".
 | **Codebase** | Refactor + perf sweep 2026-10-01/02 (#661–#678): dead code out on backend, web and mobile; `search_documents` and the Meilisearch provider dropped (search is Postgres FTS over `chapters` only); web runs `@textstack/shared`'s api client in cookie mode, so one `authFetch` serves both apps; shared pure logic moved to `packages/shared`; fewer requests and DB round trips on hot paths; one reading-time rule (own pace at ≥3 sessions, else 200 wpm). No behaviour change intended. |
 
 ## In flight
+
+> **Focus (owner, 2026-10-08): no new side work.** Order:
+> 1. Finish what is running: #770 (auth fails closed by path) and #771 (SSG: one consumer, no per-edit rebuild).
+> 2. **Reader engine**, blocked on the owner's 8 questions in
+>    [`reader-engine-evaluation.md`](01-architecture/reader-engine-evaluation.md).
+> 3. Later, in 2–3 bundled PRs while reader work waits on something: the rest of
+>    [review 2026-10](01-architecture/review-2026-10/00-summary.md) (#19 admin roles/audit, #20 book models,
+>    #21 LLM jobs on the owner's Claude login, #24 web `api/` duplicate, #25 two SEO engines, #26 GDPR traces,
+>    #31 ADR numbering, #32 housekeeping) and the ADR-022/023/024 remainder (`/storage` originals move,
+>    delete the book quality queue, reconciler enrichment).
+>
+> Anything new goes into **Known-broken** below and is not started, unless it is a production outage or a
+> security problem.
 
 - **Reader — after R4.** ~~Reader bug hunt R3 — next~~: R3 and R4 shipped 2026-10-06 (#723–#731).
   Next: **split web `ReaderPage.tsx` (~900 lines) / `ReaderHighlights.tsx` (661) by job**, the way

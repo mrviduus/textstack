@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Docs** — STATUS: owner's focus rule (2026-10-08): finish #770/#771, then the reader engine; review leftovers bundled later; new findings logged, not started — docs
 - **Security** — `/me` and `/internal` fail closed by path like `/admin`: `PathGates` answers 401 under `/me` when `GetUserId` finds no user (OPTIONS passes) and 403 under `/internal` off the docker network, before body binding; the 20 per-handler `IsLocalRequest` copies are gone; anonymous sweep of every `/me` and `/internal` route from the Api's own endpoint table (no hole on `main`); `routes.public.txt` snapshot of every ungated route — ADR-024 PR 0+1 — backend, tests, docs · [details](docs/changelog-archive/2026-H2.md#2026-10-07-auth-fails-closed-by-path)
 - **CI** — source-map-js 1.2.1 → 1.2.2 (high GHSA-68fv-2mgg-jv7q; build/test tooling only — postcss, css-tree), lockfile-only, Expo fingerprint unchanged; allowlist entry removed. braces (GHSA-vfj7) and node-forge (GHSA-86w9) stay allowlisted: no fixed release exists — deps
 - **Fix** — GHCR retention fails closed when its deploy-run listing lacks the live deploy: a `GITHUB_TOKEN` dry run got a self-consistent but 4-day-stale listing and protected only 2026-10-03 deploys (live images survived on the 14-day rule alone); the live deploy is now looked up per main commit by `head_sha` and must be in the protected set — infra, docs · [details](docs/changelog-archive/2026-H2.md#2026-10-08-ghcr-retention-live-check)
