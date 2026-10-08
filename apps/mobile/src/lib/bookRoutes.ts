@@ -1,3 +1,22 @@
+/** What a progress row says about the place, in the fields every client stores. */
+export type SavedPlace = {
+  chapterSlug: string | null
+  locator: string | null
+  positionJson?: string | null
+  percent?: number | null
+} | null
+
+/** The fields a resume needs; a `ContinueReadingPick` is one. */
+export type ResumePick =
+  | {
+      type: 'edition'; slug: string; chapterSlug: string | null
+      /** Known to the caller → progress is fetched alongside the book, not after it. */
+      editionId?: string
+      /** The progress row the caller already holds — not fetched again. */
+      place?: SavedPlace
+    }
+  | { type: 'userbook'; id: string; chapterSlug: string | null }
+
 
 /**
  * Deep link that resumes a book at the chapter the reader last had open.
@@ -12,17 +31,6 @@
  * `/my-books/read/{bookId}/{chapterSlug}`. Getting those two backwards once made
  * Continue Reading look broken for every uploaded book.
  */
-/** The fields a resume needs; a `ContinueReadingPick` is one. */
-export type ResumePick =
-  | {
-      type: 'edition'; slug: string; chapterSlug: string | null
-      /** Known to the caller → progress is fetched alongside the book, not after it. */
-      editionId?: string
-      /** The progress row the caller already holds — not fetched again. */
-      place?: { chapterSlug: string | null; locator: string | null; positionJson?: string | null; percent?: number | null } | null
-    }
-  | { type: 'userbook'; id: string; chapterSlug: string | null }
-
 export function resumeRoute(pick: ResumePick): string {
   if (pick.type === 'edition') {
     return pick.chapterSlug ? `/reader/${pick.slug}/${pick.chapterSlug}` : `/book/${pick.slug}`

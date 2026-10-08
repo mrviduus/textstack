@@ -18,31 +18,27 @@ describe('a downloaded catalog book is in the Library online too', () => {
   // that never reached /me/library showed up offline only.
   const screen = read('app/book/[slug].tsx')
 
-  it('a first download adds the book from the screen, awaited, rolled back on failure (review #3)', () => {
-    const add = body(screen, 'const addOnDownload = useCallback(', '}, [')
-    expect(add).toContain('wasLibraryRemoved(')
-    expect(add).toContain('setInLibrary(true)')
-    expect(add).toMatch(/await libraryApi\.addToLibrary\(/)
-    expect(add).toMatch(/catch[\s\S]*setInLibrary\(false\)/)
-    expect(screen).toMatch(/onStart=\{\(\) => \{[^}]*addOnDownload\(\)/)
+  it('a download adds the book only after it actually started; optimistic, rolled back on failure (review 3 #3)', () => {
+    const start = body(screen, 'const startAndAdd = useCallback(', '}, [')
+    expect(start).toMatch(/await startDownload\(book, language\)[\s\S]*catch[\s\S]*return[\s\S]*setInLibrary\(true\)[\s\S]*await libraryApi\.addToLibrary\([\s\S]*catch[\s\S]*setInLibrary\(false\)/)
+    expect(start).not.toMatch(/LibraryRemoved/)
+    expect(screen).toMatch(/onStart=\{\(\) => \{ void startAndAdd\(\) \}\}/)
   })
 
-  it('Restart does not add, and the download loop itself never touches the library (review #4)', () => {
+  it('Restart does not add, and the download loop itself never touches the library', () => {
     expect(screen).toMatch(/onRestart=\{\(\) => startDownload\(book, language\)\}/)
     expect(body(read('src/context/DownloadContext.tsx'), 'const startDownload = useCallback(', '}, [')).not.toContain('addToLibrary')
   })
 
-  it('removals are remembered per account, explicit adds forget them (review 2 #1)', () => {
-    expect(screen).toContain('markLibraryRemoved(userId, book.id)')
-    expect(screen).toContain('clearLibraryRemoved(userId, book.id)')
-    expect(screen).toContain('wasLibraryRemoved(userId, id)')
-    expect(read('src/hooks/useBookActions.ts')).toContain('markLibraryRemoved(userId, item.editionId)')
+  it('no auto-add machinery is left: no 1% add, no removal markers (review 3 #1, #2)', () => {
+    expect(read('src/components/reader/useEditionReaderSource.ts')).not.toMatch(/autoAdd|addToLibrary/)
+    expect(screen).not.toMatch(/autoAdd|LibraryRemoved/)
+    expect(read('src/hooks/useBookActions.ts')).not.toMatch(/LibraryRemoved/)
   })
 
-  it('the focus refresh waits for an in-flight auto-add and loses to any tap made meanwhile (review 2 #5)', () => {
+  it('focus re-reads "In Library"; only a Save tap made meanwhile beats it (review 3 #4)', () => {
     const focus = body(screen, 'useFocusEffect(', '}, [book?.id, isAuthenticated, offlineMode])')
-    expect(focus).toMatch(/libraryGuard\.begin\(\)[\s\S]*autoAddSettled\([\s\S]*libraryApi\.getLibrary\(\)[\s\S]*libraryGuard\.mayApply\(/)
-    expect(body(screen, 'const addOnDownload = useCallback(', '}, [')).toContain('libraryGuard.touch()')
+    expect(focus).toMatch(/libraryGuard\.begin\(\)[\s\S]*libraryApi\.getLibrary\(\)[\s\S]*libraryGuard\.mayApply\(/)
     expect(body(screen, 'const toggle = async () => {', 'if (!wasInLibrary) return toggle()')).toContain('libraryGuard.touch()')
   })
 })
@@ -59,7 +55,6 @@ describe('the WebView selection ends with the toolbar', () => {
   it('a late clear cannot wipe a newer selection: the clear carries the closed selection\'s token (review 2 #7)', () => {
     const effect = body(actions, 'selectionWasOpenRef', 'return {')
     expect(effect).toContain('closedTokenRef.current')
-    expect(actions).toMatch(/__tsClearSelection\(/)
     const bridge = read('src/lib/readerBridge.ts')
     expect(bridge).toMatch(/window\.__tsClearSelection = function\(token, markOnly\)[\s\S]*token !== _selToken\) return/)
     // Every non-empty selection message names its token.
@@ -71,12 +66,14 @@ describe('the WebView selection ends with the toolbar', () => {
 
   it('a highlight touches neither the native selection nor the mark until the save succeeds (review #5)', () => {
     const highlight = body(actions, 'const handleHighlight = useCallback(', '}, [')
-    expect(highlight).not.toContain('CLEAR_SELECTION_JS')
-    // The selection is closed (→ effect clears range + mark) only on success; on failure it stays.
-    expect(highlight).toMatch(/const ok = await createHighlight\([\s\S]*if \(ok\) setSelection\(null\)/)
-    // The mark is unwrapped in the same script that paints, so the new range is built on clean DOM.
+    // On success only the selection that was highlighted closes — not a newer one (review 3 #5).
+    expect(highlight).toMatch(/const ok = await createHighlight\([\s\S]*if \(ok\) setSelection\(cur => \(cur\?\.selectionId === selection\.selectionId \? null : cur\)\)/)
+    // The mark is unwrapped in the same script that paints, so the new range is built on clean DOM —
+    // through the one shared helper, not a hand-written copy.
     const create = body(read('src/hooks/useReaderHighlights.ts'), 'const create = useCallback(', 'const createPdf')
-    expect(create).toMatch(/__tsClearSelection\([\s\S]*renderHighlight\(/)
+    expect(create).toMatch(/clearSelectionJs\(selection\.token, \{ markOnly: true \}\)[\s\S]*renderHighlight\(/)
+    expect(create).not.toContain('__tsClearSelection')
+    expect(actions).not.toContain('__tsClearSelection')
     expect(create).toContain('return true')
     expect(create).toContain('return false')
   })

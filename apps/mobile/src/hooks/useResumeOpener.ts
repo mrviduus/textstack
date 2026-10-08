@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useFocusEffect, useRouter } from 'expo-router'
 import { createBooksApi, readingProgressApi, userBooksApi } from '@textstack/shared'
 import { useLanguage } from '../context/LanguageContext'
-import { createResumeOpener } from '../lib/resumeOpener'
+import { createResumeOpener, releaseResumeFlight } from '../lib/resumeOpener'
 import { resolveResumeRoute } from '../lib/resumeTarget'
 
 /**
@@ -16,7 +16,8 @@ export function useResumeOpener() {
   const activeRef = useRef(true)
   useFocusEffect(useCallback(() => {
     activeRef.current = true
-    return () => { activeRef.current = false }
+    // Leaving the screen frees the shared Continue flag: nothing in flight will navigate now.
+    return () => { activeRef.current = false; releaseResumeFlight() }
   }, []))
   useEffect(() => () => { activeRef.current = false }, [])
 

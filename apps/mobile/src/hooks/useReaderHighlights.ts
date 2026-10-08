@@ -3,6 +3,7 @@ import { highlightsApi, isPdfAnchor } from '@textstack/shared'
 import type { PublicHighlight, PdfAnchor } from '@textstack/shared'
 import { highlightCache, userBookHighlightCache } from '../lib/readerOfflineCache'
 import { matchesChapter } from '../lib/highlightChapter'
+import { clearSelectionJs } from '../lib/readerSelectionJs'
 
 type Selection = { text: string; anchor?: unknown; token?: number } | null
 type ToastFn = (t: { message: string; variant: 'error' | 'success' | 'info' }) => void
@@ -175,7 +176,7 @@ export function useReaderHighlights({
         // nodes and would collapse a live range built before it (the darker second layer, QA-007).
         // Not earlier — touching the DOM mid-request could end the native selection, and on failure
         // the reader keeps it to retry.
-        injectJs(`try{window.__tsClearSelection&&window.__tsClearSelection(${typeof selection.token === 'number' ? selection.token : 'null'}, true)}catch(e){};renderHighlight(${JSON.stringify(hl.id)}, ${JSON.stringify(anchorJson)}, ${JSON.stringify(color)}, ${JSON.stringify(selection.text)})`)
+        injectJs(`${clearSelectionJs(selection.token, { markOnly: true })};renderHighlight(${JSON.stringify(hl.id)}, ${JSON.stringify(anchorJson)}, ${JSON.stringify(color)}, ${JSON.stringify(selection.text)})`)
         highlightsRef.current = [...highlightsRef.current, hl]
         bumpHighlights()
         const uid = user?.id

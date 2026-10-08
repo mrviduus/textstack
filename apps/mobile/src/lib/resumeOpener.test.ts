@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { createResumeOpener, createResumeFlight } from './resumeOpener'
+import { createResumeOpener, createResumeFlight, releaseResumeFlight } from './resumeOpener'
 
 const unplaced = { type: 'edition' as const, slug: 'dracula', chapterSlug: null }
 
@@ -63,5 +63,28 @@ describe('createResumeOpener — Continue tapped while the place is being looked
     hero.release('/reader/dracula/ch-5')
     await p
     expect(hero.push).toHaveBeenCalledTimes(1)
+  })
+
+  it('a hanging lookup cannot block Continue forever: the flag expires after 8s (review 3 #6)', async () => {
+    let now = 1000
+    const flight = createResumeFlight(() => now)
+    const hung = setup(true, flight)
+    void hung.open(unplaced) // never released
+    const next = setup(true, flight)
+    await next.open({ type: 'userbook', id: 'ub-1', chapterSlug: 'ch-2' })
+    expect(next.push).not.toHaveBeenCalled()
+    now += 8001
+    await next.open({ type: 'userbook', id: 'ub-1', chapterSlug: 'ch-2' })
+    expect(next.push).toHaveBeenCalledWith('/my-books/read/ub-1/ch-2')
+  })
+
+  it('leaving the screen frees the flag at once', async () => {
+    const flight = createResumeFlight()
+    const hung = setup(true, flight)
+    void hung.open(unplaced)
+    releaseResumeFlight(flight)
+    const next = setup(true, flight)
+    await next.open({ type: 'userbook', id: 'ub-1', chapterSlug: 'ch-2' })
+    expect(next.push).toHaveBeenCalled()
   })
 })

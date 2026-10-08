@@ -15,13 +15,8 @@ import { useReaderSelection } from '../../hooks/useReaderSelection'
 import { saveWordIntent } from '../../lib/saveWordIntent'
 import { capabilitiesFor } from '../../lib/capabilities'
 import { claimGuestNudge } from '../../lib/guestNudge'
+import { clearSelectionJs } from '../../lib/readerSelectionJs'
 import type { ReaderShellProps } from './readerShellTypes'
-
-/** End the WebView's selection: native range + word mark — only if `token` is still the WebView's
- *  current selection (readerBridge `__tsClearSelection`). The PDF viewer has no such function and
- *  only needs its range dropped. */
-const clearSelectionJs = (token: number | undefined) =>
-  `try{if(window.__tsClearSelection){window.__tsClearSelection(${typeof token === 'number' ? token : 'null'})}else if(window.getSelection){window.getSelection().removeAllRanges()}}catch(e){}`
 
 /** Lightweight {key} interpolation — shared `t()` returns raw keys, we fill them in here. */
 function interpolate(template: string, vars: Record<string, string | number>): string {
@@ -237,7 +232,9 @@ export function useReaderWordActions({
     // (useReaderHighlights) and closing the selection clears the range (the effect above); on
     // failure the selection stays so the reader can retry.
     const ok = await createHighlight({ color, selection, chapter: { id: chapter.id } })
-    if (ok) setSelection(null)
+    // Close only the selection that was highlighted — the reader may have started another while the
+    // save was in flight.
+    if (ok) setSelection(cur => (cur?.selectionId === selection.selectionId ? null : cur))
   }, [selection, chapter.id, createHighlight, updateSettings, original, injectJs])
 
   return {

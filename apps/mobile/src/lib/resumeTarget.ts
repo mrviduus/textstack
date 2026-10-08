@@ -1,14 +1,8 @@
 import { parseTextPosition, resumeChapterSlug } from '@textstack/shared'
-import { resumeRoute, type ResumePick } from './bookRoutes'
+import { resumeRoute, type ResumePick, type SavedPlace } from './bookRoutes'
 import { userBookChapterSlug } from './userBookChapters'
 
-/** What a progress row says about the place, in the fields every client stores. */
-export type SavedPlace = {
-  chapterSlug: string | null
-  locator: string | null
-  positionJson?: string | null
-  percent?: number | null
-} | null
+export type { SavedPlace }
 
 type ChapterRow = { slug?: string | null; chapterNumber: number; sourceStartPage?: number | null }
 

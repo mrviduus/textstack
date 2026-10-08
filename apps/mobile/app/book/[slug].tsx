@@ -7,8 +7,6 @@ import { collectionsApi, createBooksApi, currentReviewChapter, formatBookPercent
 import type { BookDetail } from '@textstack/shared'
 import { useDownload } from '../../src/context/DownloadContext'
 import { resumeSlugFor } from '../../src/lib/resumeTarget'
-import { clearLibraryRemoved, markLibraryRemoved, wasLibraryRemoved } from '../../src/lib/libraryRemovals'
-import { autoAddSettled } from '../../src/lib/libraryAutoAddInstance'
 import { createLocalChangeGuard } from '../../src/lib/localChangeGuard'
 import { useAuth } from '../../src/context/AuthContext'
 import { useTheme } from '../../src/context/ThemeContext'
@@ -36,8 +34,7 @@ import { SkeletonLoader } from '../../src/components/ui/SkeletonLoader'
 export default function BookDetailScreen() {
   const { slug } = useLocalSearchParams<{ slug: string }>()
   const router = useRouter()
-  const { isAuthenticated, user } = useAuth()
-  const userId = user?.id ?? null
+  const { isAuthenticated } = useAuth()
   const { colors } = useTheme()
   const { language, t } = useLanguage()
   const toast = useToast()
@@ -291,11 +288,10 @@ export default function BookDetailScreen() {
         return () => { cancelled = true }
       }
       if (!isAuthenticated) return
-      // "In Library" too: the reader may have added the book at 1% (libraryAutoAdd.ts). Wait for an
-      // add still in flight, and drop the answer if a tap changed the button meanwhile.
+      // "In Library" too (a download elsewhere, another device). One GET of the library: there is no
+      // per-book membership endpoint. A Save tap made meanwhile wins (localChangeGuard.ts).
       const token = libraryGuard.begin()
-      ;(userId ? autoAddSettled(userId, editionId) : Promise.resolve())
-        .then(() => libraryApi.getLibrary())
+      libraryApi.getLibrary()
         .then(lib => {
           if (!cancelled && libraryGuard.mayApply(token)) setInLibrary(lib.some(item => item.editionId === editionId))
         })
@@ -319,22 +315,28 @@ export default function BookDetailScreen() {
 
   const dl = book ? downloads.get(book.id) : undefined
 
-  // A first download also adds the book to the library — unless it is there already or the reader
-  // removed it. Optimistic like the Save toggle, and rolled back if the server refuses.
-  const addOnDownload = useCallback(async () => {
-    const id = book?.id
-    if (!id || !userId || !isAuthenticated || inLibrary) return
-    if (await wasLibraryRemoved(userId, id)) return
+  // Downloading is an explicit "keep this book", so it also puts the book on the shelf — after the
+  // download actually started, never on Restart. Optimistic like the Save toggle, rolled back if the
+  // server refuses.
+  const startAndAdd = useCallback(async () => {
+    if (!book) return
+    try {
+      await startDownload(book, language)
+    } catch (err) {
+      console.warn('Download did not start:', err)
+      return
+    }
+    if (!isAuthenticated || inLibrary) return
     libraryGuard.touch()
     setInLibrary(true)
     try {
-      await libraryApi.addToLibrary(id)
+      await libraryApi.addToLibrary(book.id)
     } catch (err) {
       console.warn('Library add on download failed:', err)
       libraryGuard.touch()
       setInLibrary(false)
     }
-  }, [book?.id, userId, isAuthenticated, inLibrary, libraryGuard])
+  }, [book, language, startDownload, isAuthenticated, inLibrary, libraryGuard])
 
   if (loading) {
     return (
@@ -491,13 +493,10 @@ export default function BookDetailScreen() {
                   try {
                     if (wasInLibrary) {
                       await libraryApi.removeFromLibrary(book.id)
-                      // Neither a download nor reading 1% may put it back (libraryRemovals.ts).
-                      if (userId) void markLibraryRemoved(userId, book.id)
                       // The server took it out of its collections too (#706).
                       invalidateCollectionsCache()
                     } else {
                       await libraryApi.addToLibrary(book.id)
-                      if (userId) void clearLibraryRemoved(userId, book.id)
                     }
                     // No shelf cache to drop: the Library tab refetches on focus.
                   } catch (err) {
@@ -550,8 +549,8 @@ export default function BookDetailScreen() {
             onRemove={() => removeDownload(book.id).then(() => setCached(false))}
             onCancel={() => cancelDownload(book.id)}
             onRetry={() => retryFailed(book.id)}
-            // A first download also puts the book on the shelf (QA-007); Restart does not.
-            onStart={() => { void startDownload(book, language); void addOnDownload() }}
+            // A download also puts the book on the shelf (QA-007); Restart does not.
+            onStart={() => { void startAndAdd() }}
             onRestart={() => startDownload(book, language)}
             buttonStyle={styles.secondaryButton}
             textStyle={styles.secondaryButtonText}
