@@ -16,6 +16,7 @@ Units live next door in [`../systemd/`](../systemd/README.md).
 | `seo-backfill-generate.sh` | One-shot per-job runner: fetches rendered prompts from API, invokes Claude CLI per field with retries, POSTs output back. | Invoked by `seo-backfill-poll.sh` |
 | `seo-generate.sh` | Manual SEO generation for a single edition or author. Admin-invoked, not polled. | `./infra/scripts/seo-generate.sh edition <uuid>` |
 | `rebuild-ssg.sh` | Queues a Full SSG rebuild (`POST /internal/ssg/rebuild-all`) and follows the job until it ends. Not a poller. | `make rebuild-ssg` |
+| `arxiv-to-epub.py` | Builds an EPUB (with a CC BY attribution page) from a paper's arXiv HTML. Refuses anything not CC BY 4.0. Needs `pandoc`. Upload the result via admin Upload Book; it publishes immediately. | `python3 -I infra/scripts/arxiv-to-epub.py <arxiv_id> <out_dir>` (on a laptop) |
 | `quality-poll.sh` | Polls `book_quality_jobs`. Validates book text (spelling, formatting) then applies fixes via internal API. | systemd unit `quality-poller` |
 
 ## Dependencies
