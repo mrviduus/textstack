@@ -24,9 +24,8 @@ import { initSentry, routeFailuresToReport } from './ssgSentry.mjs';
 import {
   assertBuildSurvived,
   carryForwardFailedPages,
-  claimNextJob,
   createPool,
-  failInterruptedJobs,
+  nextJob,
   isProgress,
   jobLimits,
   readResults,
@@ -417,15 +416,10 @@ async function main() {
   console.log(`  JOB STALL LIMIT: ${minutes(jobLimits(0).stallMs)} min`);
   console.log(`  SENTRY: ${sentry ? 'on' : 'off'}`);
 
-  // Test the DB connection, then close whatever a previous worker left Running (ADR-022): this is the
-  // queue's only consumer, so at its start nothing can be in flight.
+  // Test DB connection
   try {
     await pool.query('SELECT 1');
     console.log('Database connection OK');
-    const interrupted = await failInterruptedJobs(pool);
-    if (interrupted.length > 0) {
-      console.log(`Failed ${interrupted.length} job(s) left Running by a previous worker: ${interrupted.join(', ')}`);
-    }
   } catch (err) {
     console.error('Failed to connect to database:', err.message);
     process.exit(1);
@@ -445,8 +439,15 @@ async function main() {
   // Main polling loop
   while (true) {
     try {
-      const job = await claimNextJob(pool);
+      // Between jobs nothing of ours is Running (one job at a time, ADR-022), so nextJob fails any
+      // Running row before it claims. That includes this worker's own last job when processJob could
+      // not record its outcome (DB down, so setJobStatus threw into the catch below): failing it on
+      // the next pass is the correct outcome — nobody is rendering it.
+      const { interrupted, job } = await nextJob(pool);
       dbErrors.recovered();
+      if (interrupted.length > 0) {
+        console.log(`Failed ${interrupted.length} job(s) left Running with no render behind them: ${interrupted.join(', ')}`);
+      }
 
       if (job) {
         await processJob(job);

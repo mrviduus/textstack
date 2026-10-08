@@ -610,9 +610,9 @@ jobs:
 
       # A full rebuild is ~25 min of Puppeteer on the prod box and held the only runner for it.
       # Not needed per deploy: the snapshot step above keeps the old SSG tree AND the assets it
-      # references, so crawlers keep complete pages; publishing a book rebuilds that book. The
-      # full rebuild runs nightly after the backup (backup.yml). Tick `rebuild_ssg` on a manual
-      # run when a release changes how SEO pages render.
+      # references, so crawlers keep complete pages. Nothing rebuilds per edit (ADR-023): a published
+      # book reaches crawlers after the nightly Full rebuild (backup.yml), or after `make rebuild-ssg`
+      # / the admin button. Tick `rebuild_ssg` on a manual run when a release changes how SEO pages render.
       - name: Queue SSG rebuild
         if: inputs.rebuild_ssg
         run: |

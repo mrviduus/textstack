@@ -289,7 +289,7 @@ What replaced it: the app hands back **the file the reader uploaded**, from the 
 **SSG**: Puppeteer prerenders SEO pages to static HTML
 - nginx serves SSG first, falls back to SPA
 - Run `make rebuild-ssg` after content changes
-- SSG worker: separate always-running container, the queue's only consumer (ADR-022). The API only inserts a `Queued` Full job (nightly / `make rebuild-ssg` / admin button; a Queued or Running Full blocks the nightly and `make` path); the worker claims it every 5s (`FOR UPDATE SKIP LOCKED` → `Running`) and fails leftover `Running` rows at startup. Supports IndexNow (Bing/Yandex) via `INDEXNOW_KEY`
+- SSG worker: separate always-running container, the queue's only consumer (ADR-022). The API only inserts a `Queued` Full job (nightly / `make rebuild-ssg` / admin button; a Queued or Running Full blocks the nightly and `make` path); the worker claims it every 5s (`FOR UPDATE SKIP LOCKED` → `Running`) and, before every claim, fails any `Running` row (between jobs nothing of its own is running, so such a row is dead). Supports IndexNow (Bing/Yandex) via `INDEXNOW_KEY`
 - Schedule: only `backup.yml`'s nightly Full rebuild (the periodic worker and its admin settings were deleted 2026-10-08)
 
 **When to rebuild SSG**: nothing rebuilds on an edit (no per-edit jobs since 2026-10-08, ADR-023).

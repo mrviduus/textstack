@@ -44,14 +44,16 @@ export function reportOncePerOutage(report) {
   };
 }
 
-/** What a job left Running by a previous ssg-worker is closed with at startup. */
-export const INTERRUPTED_ERROR = 'interrupted (ssg-worker restarted)';
+/** What a Running row nobody is rendering is closed with. */
+export const INTERRUPTED_ERROR = 'interrupted (not owned by the running ssg-worker)';
 
 /**
- * Startup recovery (ADR-022). ssg-worker is the queue's only consumer and runs one job at a time, so
- * at its start nothing can legitimately be Running: any such row was orphaned by a crash or a restart
- * mid-render. Failed, not re-queued: a job that crashes the worker would otherwise crash it again on
- * every start. Returns the ids it closed.
+ * Recovery (ADR-022), run before every claim. ssg-worker is the queue's only consumer and runs one job
+ * at a time, so between jobs nothing of ours is Running: any such row is dead. It was left by a
+ * previous worker (crash, restart mid-render), by this one when the database dropped mid-job and both
+ * status writes failed, or by a claim whose UPDATE committed but whose reply was lost. Without this,
+ * one such row stays Running for good and every later enqueue is skipped as a duplicate. Failed, not
+ * re-queued: a job that kills the worker would otherwise kill it again. Returns the ids it closed.
  */
 export async function failInterruptedJobs(pool) {
   const { rows } = await pool.query(
@@ -88,6 +90,16 @@ export async function claimNextJob(pool) {
       JOIN sites s ON c.site_id = s.id
   `);
   return rows[0] || null;
+}
+
+/**
+ * One main-loop step: fail dead Running rows, then claim the oldest Queued job. Both before the job
+ * starts, so the sweep can never hit the job this iteration is about to render.
+ */
+export async function nextJob(pool) {
+  const interrupted = await failInterruptedJobs(pool);
+  const job = await claimNextJob(pool);
+  return { interrupted, job };
 }
 
 const MINUTE = 60_000;

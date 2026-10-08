@@ -101,7 +101,7 @@ apps/web/dist/ssg/en/{index.html, books/<slug>/index.html, authors/<slug>/…, g
 | `apps/web/scripts/ssg-worker.mjs` | Long-running poller, atomic swap, IndexNow |
 | `apps/web/scripts/prerender.mjs` | Puppeteer renderer (CLI) |
 | `apps/web/scripts/ssgRender.mjs` | Static server + API proxy, `renderRoute` (what counts as rendered) |
-| `apps/web/scripts/ssgJob.mjs` | Claim + startup recovery, survival floor, carry-forward, job deadline, DB pool |
+| `apps/web/scripts/ssgJob.mjs` | Claim + Running-row sweep before each claim, survival floor, carry-forward, job deadline, DB pool |
 | `infra/scripts/rebuild-ssg.sh` | `make rebuild-ssg`: queue a Full job, follow it |
 | `apps/web/Dockerfile.ssg-worker` | Image with Chromium |
 | `backend/src/Api/Endpoints/SsgEndpoints.cs` | `/ssg/routes`, `/ssg/books`, `/ssg/authors`, `/ssg/genres` |

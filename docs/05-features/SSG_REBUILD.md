@@ -43,7 +43,7 @@ SSG (Static Site Generation) Rebuild is a feature that pre-renders React pages t
 │              ssg_worker container (Node.js)                     │
 │              apps/web/scripts/ssg-worker.mjs                    │
 │                                                                 │
-│  0. At startup: Running rows → Failed (interrupted)             │
+│  0. Before each claim: Running rows → Failed (no render behind) │
 │  1. Every 5s claims the oldest Queued job → Running (SKIP LOCKED)│
 │  2. Fetches routes from API: GET /ssg/routes (site from Host)    │
 │  3. Spawns prerender.mjs with routes                            │
