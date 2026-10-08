@@ -110,26 +110,19 @@ describe('useReaderVocabulary', () => {
     expect(result.current.vocabMap.get('wound')?.translation).toBe('ferida')
   })
 
-  it('TR-2: same saved sentence replaces the translation (a correction); another sentence does not', async () => {
+  it('TR-2: a translated word (even one loaded from the server) is PATCHed only with ifSentence; the server decides', async () => {
     const { updateWord } = await import('../../api/vocabulary')
-    vi.mocked(updateWord).mockResolvedValue(undefined as never)
     const S = 'He pocketed the coins and walked out.'
-    saveWordMock.mockResolvedValue({
-      outcome: 'already_saved',
-      word: { id: 'w1', word: 'pocketed', stage: 1, translation: 'enterrado', sentence: S },
-      pendingId: null,
-      reason: null,
-    })
+    getReaderVocabMock.mockResolvedValue([{ id: 'w1', word: 'pocketed', stage: 1, translation: 'enterrado' }])
+    vi.mocked(updateWord).mockResolvedValue({ id: 'w1', word: 'pocketed', translation: 'embolsou' } as never)
     const { result } = renderHook(() => useReaderVocabulary('en', 'pt'))
-    await waitFor(() => expect(getReaderVocabMock).toHaveBeenCalled())
-    await act(async () => { await result.current.addWord({ word: 'pocketed', language: 'en' }) })
+    await waitFor(() => expect(result.current.vocabMap.get('pocketed')?.translation).toBe('enterrado'))
 
-    act(() => result.current.updateTranslation('pocketed', 'guardou', 'She pocketed the note.'))
-    act(() => result.current.updateTranslation('pocketed', 'guardou'))
+    act(() => result.current.updateTranslation('pocketed', 'guardou')) // language switch: no sentence
     expect(updateWord).not.toHaveBeenCalled()
 
-    act(() => result.current.updateTranslation('pocketed', 'embolsou', ` ${S} `))
-    expect(updateWord).toHaveBeenCalledWith('w1', { translation: 'embolsou' })
+    await act(async () => { result.current.updateTranslation('pocketed', 'embolsou', S) })
+    expect(updateWord).toHaveBeenCalledWith('w1', { translation: 'embolsou', ifSentence: S })
     expect(result.current.vocabMap.get('pocketed')?.translation).toBe('embolsou')
   })
 

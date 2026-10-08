@@ -15,8 +15,7 @@ import { normalizeVocabKey } from '../lib/vocabKey'
 import { trackVocabSaved } from '../lib/analytics'
 import { takeGuestNudge, type GuestNudge } from '../lib/guestNudge'
 
-/** `sentence`: the one the word was saved with, when the client knows it (TR-2). */
-export type VocabMap = Map<string, { stage: number; id?: string; translation?: string; isPending?: boolean; sentence?: string }>
+export type VocabMap = Map<string, { stage: number; id?: string; translation?: string; isPending?: boolean }>
 
 export function useReaderVocabulary(bookLanguage?: string, targetLang?: string | null) {
   const { isAuthenticated, isGuest, waitForSession, ensureSession } = useAuth()
@@ -151,7 +150,6 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
             stage: saved.stage,
             id: saved.id,
             translation: preserved ?? undefined,
-            sentence: saved.sentence ?? p.sentence ?? undefined,
           })
         })
       } catch {
@@ -184,12 +182,10 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
       if (saved) {
         const key = normalizeVocabKey(saved.word)
         const existing = mapRef.current.get(key)
-        if (!(existing && existing.id === saved.id && existing.stage === saved.stage && !existing.isPending
-          && (existing.sentence || !saved.sentence))) {
+        if (!(existing && existing.id === saved.id && existing.stage === saved.stage && !existing.isPending)) {
           updateMap(m => m.set(key, {
             stage: saved.stage, id: saved.id,
             translation: existing?.translation || saved.translation || undefined,
-            sentence: saved.sentence ?? existing?.sentence ?? undefined,
           }))
         }
         // Notify the Vocabulary page (and any other vocab consumer) so it
@@ -231,7 +227,6 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
       id: pending.id,                // local UUID; replaced with backend id after flush
       translation: req.translation ?? undefined,
       isPending: true,
-      sentence: req.sentence ?? undefined,
     }))
     // Track anonymous saves too — measures guest engagement before commitment threshold.
     trackVocabSaved({ language: req.language, nativeLanguage: req.nativeLanguage ?? undefined, source: 'reader' })
@@ -287,21 +282,29 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
       stage: dto.stage,
       id: dto.id,
       translation: existing?.translation || dto.translation || undefined,
-      sentence: dto.sentence ?? existing?.sentence ?? undefined,
     }))
   }, [updateMap])
 
-  /** TR-2: the ONE place a reader translation reaches a saved word (map + PATCH). An existing
-   *  translation is replaced only from the sentence the word was saved with (a correction);
-   *  another sentence, a language switch (no `sentence`) or an unknown saved sentence: display-only. */
+  /** TR-2: the ONE place a reader translation reaches a saved word (map + PATCH). An untranslated
+   *  word gets it. An existing translation is replaced only by the server, and only when `sentence`
+   *  equals the one the word was saved with (a correction); a language switch passes no sentence. */
   const updateTranslation = useCallback((word: string, translation: string, sentence?: string) => {
     const key = normalizeVocabKey(word)
     const entry = mapRef.current.get(key)
     if (!entry || entry.translation === translation) return
-    const sameSentence = !!sentence?.trim() && sentence.trim() === entry.sentence?.trim()
-    if (entry.translation && !sameSentence) return
-    updateMap(m => m.set(key, { ...entry, translation }))
-    if (entry.id && !entry.isPending) updateWord(entry.id, { translation }).catch(() => {})
+    if (!entry.translation) {
+      updateMap(m => m.set(key, { ...entry, translation }))
+      if (entry.id && !entry.isPending) updateWord(entry.id, { translation }).catch(() => {})
+      return
+    }
+    const ifSentence = sentence?.trim()
+    if (!ifSentence || !entry.id || entry.isPending) return
+    updateWord(entry.id, { translation, ifSentence })
+      .then((dto) => {
+        const kept = dto?.translation
+        if (kept) updateMap(m => { const e = m.get(key); if (e) m.set(key, { ...e, translation: kept }) })
+      })
+      .catch(() => {})
   }, [updateMap])
 
   const refreshMarks = useCallback(() => {
