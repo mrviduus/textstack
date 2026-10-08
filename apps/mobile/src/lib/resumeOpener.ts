@@ -29,10 +29,12 @@ export function createResumeOpener(o: {
   flight?: ResumeFlight
 }) {
   const flight = o.flight ?? appResumeFlight
+  let latest = 0 // this opener's newest flight: only it may clear the spinner
   return async (pick: ResumePick): Promise<void> => {
     if (isBusy(flight)) return
     if (pick.chapterSlug) { o.push(resumeRoute(pick)); return }
     const me = nextOwner++
+    latest = me
     flight.owner = me
     flight.since = flight.now()
     o.onPending(resumePickKey(pick))
@@ -42,7 +44,7 @@ export function createResumeOpener(o: {
       if (flight.owner === me && o.isActive()) o.push(route)
     } finally {
       if (flight.owner === me) flight.owner = null
-      o.onPending(null)
+      if (latest === me) o.onPending(null)
     }
   }
 }

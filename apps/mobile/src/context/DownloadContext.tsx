@@ -79,7 +79,7 @@ interface DownloadContextValue {
   startDownload: (book: BookDetail, language: string, opts?: { onStarted?: () => void }) => Promise<void>
   /** Cache every extracted chapter of an upload for offline reading. */
   startUserBookDownload: (book: UserBookDetailResponse) => Promise<void>
-  retryFailed: (id: string) => Promise<void>
+  retryFailed: (id: string, opts?: { onStarted?: () => void }) => Promise<void>
   cancelDownload: (id: string) => void
   removeDownload: (editionId: string) => Promise<void>
   removeUserBookDownload: (bookId: string) => Promise<void>
@@ -491,7 +491,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
    * than re-downloading the whole book. Resets failure state, keeps the
    * existing downloaded count (P1-5).
    */
-  const retryFailed = useCallback(async (id: string) => {
+  const retryFailed = useCallback(async (id: string, opts?: { onStarted?: () => void }) => {
     const current = downloads.get(id)
     if (!current) return
     const toRetry = [...current.failedChapterSlugs]
@@ -533,6 +533,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       store,
       saveCount,
       n => `${plural(n, 'chapter', 'chapters')} still failing. Check your connection and retry.`,
+      opts?.onStarted,
     )
   }, [downloads, updateDownload, storeFor, runDownload])
 

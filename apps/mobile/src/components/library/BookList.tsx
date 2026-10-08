@@ -25,7 +25,7 @@ import { listStoredOriginalIds } from '../../lib/originalFileCache'
 import { useResumeOpener } from '../../hooks/useResumeOpener'
 import { resumePickKey } from '../../lib/resumeOpener'
 import type { ResumePick } from '../../lib/bookRoutes'
-import { resumeSlugFor } from '../../lib/resumeTarget'
+import { editionListPick, resumeSlugFor } from '../../lib/resumeTarget'
 
 /**
  * The reader's books — all of them, in one list.
@@ -241,21 +241,14 @@ export function BookList({
     }
 
     const serverProgress = e.kind === 'saved' ? progressMap[e.item.editionId] : undefined
-    // `serverProgress.chapterSlug` is derived server-side from the row's `chapterId`, and that id
-    // stopped moving while the reader still appended chapters (until 2026-10-03); rows written then
-    // still disagree. Following it sent a reader 45% in back to the top of chapter two. The locator
-    // is the position.
     // What Continue resumes — a catalog row with a progress row, or a ready upload in progress.
     // A null chapter is not "nothing to resume" (a PDF page, a text position): the shared opener
     // looks the chapter up, exactly as the hero does.
-    // Finished books offer no Continue on either half. The edition pick carries the id and the row
-    // it already has, so the opener does not fetch either again.
+    // Finished books offer no Continue on either half. A catalog slug only the text position names
+    // is checked against the chapter list first (editionListPick), like the hero.
     const resumePick: ResumePick | null = e.kind === 'saved'
       ? (serverProgress && !isFinished
-          ? {
-              type: 'edition', slug: e.item.slug, editionId: e.item.editionId, place: serverProgress,
-              chapterSlug: resumeSlugFor(serverProgress, []),
-            }
+          ? editionListPick(e.item.slug, e.item.editionId, serverProgress)
           : null)
       : (isReady && pct > 0 && !isFinished
           ? { type: 'userbook', id: e.book.id, chapterSlug: resumeSlugFor({ chapterSlug: e.book.progressChapterSlug, locator: e.book.progressLocator ?? null }, []) }

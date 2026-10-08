@@ -319,18 +319,20 @@ export default function BookDetailScreen() {
   // the first chapter is stored (DownloadContext `onStarted`): not at the tap, so a download that
   // cannot start adds nothing; not at the end, so a big book does not lag minutes. Never on Restart.
   // Optimistic like the Save toggle, rolled back if the server refuses.
-  const addOnDownloadStart = useCallback(async () => {
-    if (!book || !isAuthenticated || inLibrary) return
-    libraryGuard.touch()
+  const inLibraryRef = useRef(inLibrary)
+  inLibraryRef.current = inLibrary
+  // `tap` is the guard token taken at the tap: if Save/Remove was pressed since, the reader decided
+  // — do not override it. Reads the CURRENT "In Library", not the value captured at the tap.
+  const addOnDownloadStart = useCallback(async (tap: number) => {
+    if (!book || !isAuthenticated || inLibraryRef.current || !libraryGuard.mayApply(tap)) return
     setInLibrary(true)
     try {
-      await libraryApi.addToLibrary(book.id)
+      await libraryGuard.track(libraryApi.addToLibrary(book.id))
     } catch (err) {
       console.warn('Library add on download failed:', err)
-      libraryGuard.touch()
       setInLibrary(false)
     }
-  }, [book, isAuthenticated, inLibrary, libraryGuard])
+  }, [book, isAuthenticated, libraryGuard])
 
   if (loading) {
     return (
@@ -486,11 +488,11 @@ export default function BookDetailScreen() {
                   setInLibrary(!wasInLibrary)
                   try {
                     if (wasInLibrary) {
-                      await libraryApi.removeFromLibrary(book.id)
+                      await libraryGuard.track(libraryApi.removeFromLibrary(book.id))
                       // The server took it out of its collections too (#706).
                       invalidateCollectionsCache()
                     } else {
-                      await libraryApi.addToLibrary(book.id)
+                      await libraryGuard.track(libraryApi.addToLibrary(book.id))
                     }
                     // No shelf cache to drop: the Library tab refetches on focus.
                   } catch (err) {
@@ -542,9 +544,9 @@ export default function BookDetailScreen() {
             cached={offlineMode || cached}
             onRemove={() => removeDownload(book.id).then(() => setCached(false))}
             onCancel={() => cancelDownload(book.id)}
-            onRetry={() => retryFailed(book.id)}
+            onRetry={() => { const tap = libraryGuard.begin(); void retryFailed(book.id, { onStarted: () => { void addOnDownloadStart(tap) } }) }}
             // A download also puts the book on the shelf (QA-007); Restart does not.
-            onStart={() => { void startDownload(book, language, { onStarted: addOnDownloadStart }) }}
+            onStart={() => { const tap = libraryGuard.begin(); void startDownload(book, language, { onStarted: () => { void addOnDownloadStart(tap) } }) }}
             onRestart={() => startDownload(book, language)}
             buttonStyle={styles.secondaryButton}
             textStyle={styles.secondaryButtonText}

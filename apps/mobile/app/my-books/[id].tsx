@@ -330,7 +330,7 @@ export default function UserBookDetailScreen() {
   // half-read PDF reported "never opened". This rule now lives in
   // `resumeChapterSlug` because the catalog screen needed it too and did not
   // have it — the same defect, one screen over.
-  const continueSlug = resumeSlugFor(savedProgress, book?.chapters ?? [])
+  const continueSlug = resumeSlugFor(savedProgress, book?.chapters ?? [], { synthesize: true })
 
   const handleDelete = () => {
     if (!id) return

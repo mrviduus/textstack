@@ -87,4 +87,23 @@ describe('createResumeOpener — Continue tapped while the place is being looked
     await next.open({ type: 'userbook', id: 'ub-1', chapterSlug: 'ch-2' })
     expect(next.push).toHaveBeenCalled()
   })
+
+  it('a stale flight finishing late does not clear the spinner of the newer one (review 4 #6)', async () => {
+    let now = 0
+    const flight = createResumeFlight(() => now)
+    const releases: ((r: string) => void)[] = []
+    const resolve = vi.fn(() => new Promise<string>(r => { releases.push(r) }))
+    const onPending = vi.fn()
+    const open = createResumeOpener({ resolve, push: vi.fn(), isActive: () => true, onPending, flight })
+    const first = open(unplaced)
+    now += 9000 // first one expired
+    const second = open({ type: 'userbook', id: 'ub-2', chapterSlug: null })
+    releases[0]('/book/dracula')
+    await first
+    expect(onPending).toHaveBeenLastCalledWith('userbook:ub-2')
+    releases[1]('/my-books/ub-2')
+    await second
+    expect(onPending).toHaveBeenLastCalledWith(null)
+  })
 })
+

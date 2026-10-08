@@ -24,9 +24,23 @@ describe('a downloaded catalog book is in the Library online too', () => {
     // Fired once, on the first chapter actually stored; never if nothing could be stored.
     expect(loop).toMatch(/if \(ok\) \{[\s\S]*downloaded\+\+[\s\S]*if \(!started\) \{ started = true; onStarted\?\.\(\) \}/)
     expect(body(ctx, 'const startDownload = useCallback(', '}, [')).toMatch(/opts\?\.onStarted/)
+    // Retry of a download that stored nothing adds on its first stored chapter too (review 4 #5).
+    expect(body(ctx, 'const retryFailed = useCallback(', '}, [')).toMatch(/opts\?\.onStarted/)
+    expect(screen).toMatch(/onStart=\{\(\) => \{ const tap = libraryGuard\.begin\(\); void startDownload\(book, language, \{ onStarted: \(\) => \{ void addOnDownloadStart\(tap\) \} \}\) \}\}/)
+    expect(screen).toMatch(/onRetry=\{\(\) => \{ const tap = libraryGuard\.begin\(\); void retryFailed\(book\.id, \{ onStarted: \(\) => \{ void addOnDownloadStart\(tap\) \} \}\) \}\}/)
+  })
+
+  it('the add reads the CURRENT state when the download starts: no add if already in, or if Remove was tapped since (review 4 #2)', () => {
     const add = body(screen, 'const addOnDownloadStart = useCallback(', '}, [')
-    expect(add).toMatch(/setInLibrary\(true\)[\s\S]*await libraryApi\.addToLibrary\([\s\S]*catch[\s\S]*setInLibrary\(false\)/)
-    expect(screen).toMatch(/onStart=\{\(\) => \{ void startDownload\(book, language, \{ onStarted: addOnDownloadStart \}\) \}\}/)
+    expect(add).toMatch(/inLibraryRef\.current/)
+    expect(add).toMatch(/!libraryGuard\.mayApply\(tap\)/)
+    expect(add).toMatch(/setInLibrary\(true\)[\s\S]*await libraryGuard\.track\(libraryApi\.addToLibrary\([\s\S]*catch[\s\S]*setInLibrary\(false\)/)
+  })
+
+  it('the Save toggle\'s POST is tracked, so a focus refresh cannot land on top of it (review 4 #3)', () => {
+    const toggle = body(screen, 'const toggle = async () => {', 'if (!wasInLibrary) return toggle()')
+    expect(toggle).toMatch(/libraryGuard\.track\(libraryApi\.removeFromLibrary\(/)
+    expect(toggle).toMatch(/libraryGuard\.track\(libraryApi\.addToLibrary\(/)
   })
 
   it('Restart does not add, and the download loop itself never touches the library', () => {
@@ -40,10 +54,9 @@ describe('a downloaded catalog book is in the Library online too', () => {
     expect(read('src/hooks/useBookActions.ts')).not.toMatch(/LibraryRemoved/)
   })
 
-  it('focus re-reads "In Library"; only a Save tap made meanwhile beats it (review 3 #4)', () => {
+  it('focus re-reads "In Library"; a tap or a POST in flight beats it', () => {
     const focus = body(screen, 'useFocusEffect(', '}, [book?.id, isAuthenticated, offlineMode])')
     expect(focus).toMatch(/libraryGuard\.begin\(\)[\s\S]*libraryApi\.getLibrary\(\)[\s\S]*libraryGuard\.mayApply\(/)
-    expect(body(screen, 'const toggle = async () => {', 'if (!wasInLibrary) return toggle()')).toContain('libraryGuard.touch()')
   })
 })
 
@@ -93,7 +106,12 @@ describe('code review 2 — the rest', () => {
     const list = read('src/components/library/BookList.tsx')
     const pick = body(list, 'const resumePick: ResumePick | null', '\n\n')
     expect(pick).toMatch(/e\.kind === 'saved'[\s\S]*!isFinished/)
-    expect((pick.match(/resumeSlugFor\(/g) ?? []).length).toBe(2)
+    expect(pick).toContain('editionListPick(e.item.slug, e.item.editionId, serverProgress)')
+    expect(pick).toContain('resumeSlugFor(')
     expect(pick).not.toContain('resumeChapterSlug(')
+  })
+
+  it('the stale chapterSlug comment is gone (review 4 #8)', () => {
+    expect(read('src/components/library/BookList.tsx')).not.toContain('Following it sent a reader 45%')
   })
 })

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { resolveResumeRoute, resumeSlugFor, type ResumeDeps } from './resumeTarget'
+import { resolveResumeRoute, resumeSlugFor, editionListPick, type ResumeDeps } from './resumeTarget'
 
 const textPos = (chapterSlug: string) =>
   JSON.stringify({ v: 1, chapterSlug, anchor: { prefix: '', exact: 'x', suffix: '' } })
@@ -81,3 +81,46 @@ describe('resolveResumeRoute — one answer for the hero, the list and the detai
     expect(await resolveResumeRoute({ type: 'edition', slug: 'dracula', chapterSlug: null }, d)).toBe('/book/dracula')
   })
 })
+
+const httpError = (status: number) => Object.assign(new Error(`API error: ${status}`), { status })
+
+describe('review 4 — a failed progress read is not "no progress"', () => {
+  it('catalog: 404 (never read) starts at chapter 1; a 5xx / timeout opens the book screen', async () => {
+    const notFound = deps({ getEditionProgress: vi.fn(async () => { throw httpError(404) }) })
+    expect(await resolveResumeRoute({ type: 'edition', slug: 'dracula', chapterSlug: null }, notFound)).toBe('/reader/dracula/ch-1')
+    const down = deps({ getEditionProgress: vi.fn(async () => { throw httpError(503) }) })
+    expect(await resolveResumeRoute({ type: 'edition', slug: 'dracula', chapterSlug: null }, down)).toBe('/book/dracula')
+    const offline = deps({ getEditionProgress: vi.fn(async () => { throw new TypeError('Network request failed') }) })
+    expect(await resolveResumeRoute({ type: 'edition', slug: 'dracula', chapterSlug: null, editionId: 'ed-1' }, offline)).toBe('/book/dracula')
+  })
+
+  it('uploads too', async () => {
+    const notFound = deps({ getUserBookProgress: vi.fn(async () => { throw httpError(404) }) })
+    expect(await resolveResumeRoute({ type: 'userbook', id: 'ub-1', chapterSlug: null }, notFound)).toBe('/my-books/read/ub-1/part-1')
+    const down = deps({ getUserBookProgress: vi.fn(async () => { throw httpError(500) }) })
+    expect(await resolveResumeRoute({ type: 'userbook', id: 'ub-1', chapterSlug: null }, down)).toBe('/my-books/ub-1')
+  })
+})
+
+describe('review 4 — catalog chapters are matched by their real slugs (#7)', () => {
+  const catalog = [{ slug: null, chapterNumber: 2 }, { slug: 'b', chapterNumber: 3 }]
+  it('no synthetic chapter-N for a catalog book', () => {
+    expect(resumeSlugFor({ chapterSlug: 'chapter-2', locator: null }, catalog)).toBeNull()
+  })
+  it('uploads keep the chapter-N key the reader route uses', () => {
+    expect(resumeSlugFor({ chapterSlug: 'chapter-2', locator: null }, catalog, { synthesize: true })).toBe('chapter-2')
+  })
+})
+
+describe('editionListPick — the Library list never pushes an unverified slug (#4)', () => {
+  it('a slug the server derived opens directly', () => {
+    expect(editionListPick('dracula', 'ed-1', { chapterSlug: 'ch-2', locator: 'scroll:ch-2:10', positionJson: null }).chapterSlug).toBe('ch-2')
+  })
+  it('a slug that only the text position names is left to the resolver (checked against the chapter list)', () => {
+    const pick = editionListPick('dracula', 'ed-1', { chapterSlug: 'ch-2', locator: '', positionJson: textPos('ch-5') })
+    expect(pick.chapterSlug).toBeNull()
+    expect(pick.editionId).toBe('ed-1')
+    expect(pick.place?.positionJson).toBe(textPos('ch-5'))
+  })
+})
+
