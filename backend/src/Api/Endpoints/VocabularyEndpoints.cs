@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Api.Extensions;
 using Api.Mapping;
 using Api.Sites;
@@ -704,12 +705,14 @@ public static partial class VocabularyEndpoints
         words.Select(w => new ReaderVocabWordDto(w.Id, w.Word, w.Stage, w.Translation,
             string.IsNullOrEmpty(w.Translation) ? w.Sentence : null));
 
-    /// <summary>At most <see cref="MaxReaderSentenceLength"/> chars centred on the word; the start if the word is absent.
+    /// <summary>At most <see cref="MaxReaderSentenceLength"/> chars centred on the word (whole word first, then
+    /// substring); the start if the word is absent.
     /// Cut at word boundaries (a window-wide token is cut, but never inside a surrogate pair).</summary>
     internal static string SentenceWindow(string sentence, string word)
     {
         if (sentence.Length <= MaxReaderSentenceLength) return sentence;
-        var at = sentence.IndexOf(word, StringComparison.OrdinalIgnoreCase);
+        var whole = Regex.Match(sentence, $@"\b{Regex.Escape(word)}\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        var at = whole.Success ? whole.Index : sentence.IndexOf(word, StringComparison.OrdinalIgnoreCase);
         var start = at < 0 ? 0 : Math.Clamp(at + word.Length / 2 - MaxReaderSentenceLength / 2, 0, sentence.Length - MaxReaderSentenceLength);
         var end = start + MaxReaderSentenceLength;
         // Shrink inward to whitespace, never past the word itself.

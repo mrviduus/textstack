@@ -3,7 +3,6 @@ import type { Dispatch, MutableRefObject, SetStateAction } from 'react'
 import { updateWord } from '../api/vocabulary'
 import { translate as translateApi } from '../api/translation'
 import { normalizeVocabKey } from '../lib/vocabKey'
-import { mayWriteSavedTranslation } from '../lib/savedTranslation'
 import type { VocabMap } from './useReaderVocabulary'
 
 // Shared bubble shape. Callers extend this with their own extras (rect, range,
@@ -30,15 +29,15 @@ interface Options<B extends BubbleLike> {
 /**
  * Two concerns shared by both readers:
  *
- * 1. **Backend translation patch** after auto-save: `fetchWordBubble`'s built-in
- *    patch closes over `vocabMap` at call time — before auto-save inserts the
- *    entry — so it misses. This effect watches `bubble.translation` + current
- *    `vocabMap` and fires one PATCH per `(wordId, translation)` pair.
+ * 1. **Save-time translation**: auto-save fires as the bubble opens, before its
+ *    translation arrives. When it does, write it onto the word THIS bubble saved
+ *    (in this sentence) — once. A word saved earlier is never written: its
+ *    translation is set at save time or by the gloss backfill, nowhere else.
  *
  * 2. **Mid-popup lang switch**: when the user opens the popup's language picker
  *    and chooses a different native language, `targetLang` changes while the
- *    same word is visible. Refetch translation in place instead of forcing the
- *    user to re-open the popup. Definition stays (always in book language).
+ *    same word is visible. Refetch translation in place for display only — the
+ *    saved row is not written. Definition stays (always in book language).
  *
  * Returns `autoSavedRef` so consumers can dedup their own auto-save triggers
  * synchronously (vocabMap state commit lags a render; a ref Set seals rapid
@@ -56,20 +55,20 @@ export function useBubbleTranslationSync<B extends BubbleLike>({
   const autoSavedRef = useRef<Set<string>>(new Set())
   const patchedRef = useRef<Set<string>>(new Set())
 
-  // (1) Backend translation patch — once per (wordId, translation).
+  // (1) Save-time translation — only onto a word this bubble saved, only while it has none.
   useEffect(() => {
     const word = bubble?.word
     const translation = bubble?.translation
     if (!word || !translation) return
-    const entry = vocabMap.get(normalizeVocabKey(word))
-    if (!entry?.id || entry.isPending) return
-    if (!mayWriteSavedTranslation(entry, bubble?.sentence)) return
-    const patchKey = `${entry.id}:${translation}`
-    if (patchedRef.current.has(patchKey)) return
-    patchedRef.current.add(patchKey)
+    const key = normalizeVocabKey(word)
+    if (!autoSavedRef.current.has(key)) return
+    const entry = vocabMap.get(key)
+    if (!entry?.id || entry.isPending || entry.translation) return
+    if (patchedRef.current.has(entry.id)) return
+    patchedRef.current.add(entry.id)
     updateWord(entry.id, { translation }).catch(() => {})
     updateTranslation(word, translation)
-  }, [bubble?.word, bubble?.translation, bubble?.sentence, vocabMap, updateTranslation])
+  }, [bubble?.word, bubble?.translation, vocabMap, updateTranslation])
 
   // (2) Lang-picker mid-popup refetch. Track (word, lang) pair — word changes
   // are owned by the openBubble path, this effect only fires on lang flips for
@@ -120,22 +119,13 @@ export function useBubbleTranslationSync<B extends BubbleLike>({
             ? { ...b, translation: translated, translationLoading: false }
             : b,
         )
-        // Language beats sense: the stored translation is in the old language, so the new
-        // one is written whatever sentence it was saved in (no mayWriteSavedTranslation here).
-        const existing = vocabMap.get(normalizeVocabKey(word))
-        if (translated && existing) {
-          if (existing.id && !existing.isPending) {
-            updateWord(existing.id, { translation: translated }).catch(() => {})
-          }
-          updateTranslation(word, translated)
-        }
       })
       .catch((err) => {
         if (ctrl.signal.aborted) return
         if ((err as { name?: string })?.name === 'AbortError') return
         setBubble((b) => (b && b.word === word ? { ...b, translationLoading: false } : b))
       })
-  }, [bubble?.word, bubble?.sentence, bubble?.bookId, targetLang, bookLanguage, vocabMap, updateTranslation, setBubble, abortRef])
+  }, [bubble?.word, bubble?.sentence, bubble?.bookId, targetLang, bookLanguage, setBubble, abortRef])
 
   const triggerAutoSave = useCallback(
     (word: string, save: () => Promise<unknown>) => {

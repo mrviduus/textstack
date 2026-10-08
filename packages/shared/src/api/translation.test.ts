@@ -40,6 +40,17 @@ describe('translateBody', () => {
   it('translateBody_TextIsTheSentence_OmitsSentence', () => {
     expect(translateBody('Run away!', 'en', 'pt', { sentence: ' run away! ' }).sentence).toBeUndefined()
   })
+
+  // Review r7 of #780: a script without spaces is one "word" however long — length caps it too.
+  it('translateBody_LongPassageWithoutSpaces_OmitsSentence', () => {
+    const passage = '吾輩は猫である。名前はまだ無い。どこで生れたかとんと見当がつかぬ。何でも薄暗いじめじめ'
+    expect(passage.length).toBeGreaterThan(40)
+    expect(translateBody(passage, 'ja', 'en', { sentence: passage + 'した所で泣いていた事だけは記憶している。' }).sentence).toBeUndefined()
+  })
+
+  it('translateBody_ShortWordWithoutSpaces_IncludesSentence', () => {
+    expect(translateBody('猫', 'ja', 'en', { sentence: '吾輩は猫である。' }).sentence).toBe('吾輩は猫である。')
+  })
 })
 
 // Review r4 of #780: one key rule for every client cache — derived from the body that is

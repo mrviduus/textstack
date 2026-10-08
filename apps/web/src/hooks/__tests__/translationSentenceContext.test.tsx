@@ -80,96 +80,68 @@ describe('translate sentence context (web)', () => {
   })
 })
 
-// Review of #780: a saved word's translation is the sense of the sentence it was
-// saved in. A bubble opened on that word in ANOTHER sentence must not overwrite it
-// with the other sense — in the same language; a language switch always writes. Unknown stored sentence (the
-// server ships none for a word that has a translation) → write, as before #780.
-describe('saved-word translation is not overwritten from another sentence', () => {
+// Review r7 of #780: a saved word's translation is written at save time (with its sentence)
+// and by the gloss backfill — never by a bubble opened on it later, in any sentence or language.
+describe('bubble never writes onto an already-saved word', () => {
   type Entry = { stage: number; id?: string; translation?: string; sentence?: string; isPending?: boolean }
 
-  function mountSync(entry: Entry, bubbleTranslation: string | null = null) {
-    const bubble: BubbleLike = { word: 'pocketed', translation: bubbleTranslation, translationLoading: false, ...ctx }
-    const vocabMap = new Map([['pocketed', entry]])
+  function mountSync(entry: Entry | null, bubbleTranslation: string | null = null) {
     const updateTranslation = vi.fn()
     const hook = renderHook(
-      ({ lang }: { lang: string }) => {
+      ({ lang, map, b }: { lang: string; map: Map<string, Entry>; b: BubbleLike }) => {
         const abortRef = useRef<AbortController | null>(null)
         return useBubbleTranslationSync<BubbleLike>({
-          bubble, setBubble: vi.fn(), vocabMap, updateTranslation,
+          bubble: b, setBubble: vi.fn(), vocabMap: map, updateTranslation,
           targetLang: lang, bookLanguage: 'en', abortRef,
         })
       },
-      { initialProps: { lang: 'pt' } },
+      {
+        initialProps: {
+          lang: 'pt',
+          map: new Map(entry ? [['pocketed', entry]] : []),
+          b: { word: 'pocketed', translation: bubbleTranslation, translationLoading: false, ...ctx } as BubbleLike,
+        },
+      },
     )
     return { ...hook, updateTranslation }
   }
 
-  // Review r4 of #780: language beats sense. After a switch the saved translation is in the
-  // old language; keeping it would caption the word in a language the reader just left.
-  it('LangSwitch_SavedInOtherSentence_NewLanguageWritten', async () => {
-    const { rerender, updateTranslation } = mountSync({ stage: 1, id: 'w1', translation: 'enterrou', sentence: 'She pocketed the letter.' })
-    await act(async () => { rerender({ lang: 'uk' }) })
+  it('BubbleOpen_SavedWordOtherSentence_NoPatch', async () => {
+    const { updateTranslation } = mountSync({ stage: 1, id: 'w1', translation: 'enterrou', sentence: 'She pocketed the letter.' }, 'embolsou')
+    await act(async () => {})
 
-    expect(translate).toHaveBeenCalledTimes(1)
-    expect(updateWord).toHaveBeenCalledWith('w1', { translation: 'embolsou' })
-    expect(updateTranslation).toHaveBeenCalledWith('pocketed', 'embolsou')
+    expect(updateWord).not.toHaveBeenCalled()
+    expect(updateTranslation).not.toHaveBeenCalled()
   })
 
-  it('LangSwitch_SavedInSameSentence_TranslationUpdated', async () => {
-    const { rerender } = mountSync({ stage: 1, id: 'w1', translation: 'embolsou', sentence: `  ${SENTENCE} ` })
-    await act(async () => { rerender({ lang: 'uk' }) })
-
-    expect(updateWord).toHaveBeenCalledWith('w1', { translation: 'embolsou' })
-  })
-
-  it('LangSwitch_UnknownSentenceEmptyTranslation_Filled', async () => {
-    const { rerender } = mountSync({ stage: 1, id: 'w1' })
-    await act(async () => { rerender({ lang: 'uk' }) })
-
-    expect(updateWord).toHaveBeenCalledWith('w1', { translation: 'embolsou' })
-  })
-
-  it('LangSwitch_UnknownSentenceHasTranslation_Updated', async () => {
-    const { rerender, updateTranslation } = mountSync({ stage: 1, id: 'w1', translation: 'enterrou' })
-    await act(async () => { rerender({ lang: 'uk' }) })
-
-    expect(updateWord).toHaveBeenCalledWith('w1', { translation: 'embolsou' })
-    expect(updateTranslation).toHaveBeenCalledWith('pocketed', 'embolsou')
-  })
-
-  it('BubbleOpen_SavedInOtherSentence_NoPatch', async () => {
-    mountSync({ stage: 1, id: 'w1', translation: 'enterrou', sentence: 'She pocketed the letter.' }, 'embolsou')
+  it('BubbleOpen_SavedWordWithoutTranslation_NoPatch', async () => {
+    mountSync({ stage: 1, id: 'w1' }, 'embolsou')
     await act(async () => {})
 
     expect(updateWord).not.toHaveBeenCalled()
   })
 
-  it('BubbleOpen_JustSavedInThisSentence_Patched', async () => {
-    mountSync({ stage: 0, id: 'w1', sentence: SENTENCE }, 'embolsou')
-    await act(async () => {})
-
-    expect(updateWord).toHaveBeenCalledWith('w1', { translation: 'embolsou' })
-  })
-})
-
-describe('fetchWordBubble caption write', () => {
-  async function open(entry: { stage: number; id?: string; translation?: string; sentence?: string }) {
-    const { fetchWordBubble } = await import('../../lib/wordBubbleFetch')
-    const updateTranslation = vi.fn()
-    fetchWordBubble({
-      word: 'pocketed', bookLanguage: 'en', targetLang: 'pt', explainInContext: false,
-      vocabMap: new Map([['pocketed', entry]]), updateTranslation,
-      signal: new AbortController().signal, patch: vi.fn(), ...ctx,
+  it('LangSwitch_SavedWord_RefetchesForDisplayOnly', async () => {
+    const { rerender, updateTranslation } = mountSync({ stage: 1, id: 'w1', translation: 'enterrou' }, 'embolsou')
+    await act(async () => {
+      rerender({ lang: 'uk', map: new Map([['pocketed', { stage: 1, id: 'w1', translation: 'enterrou' }]]), b: { word: 'pocketed', translation: 'embolsou', translationLoading: false, ...ctx } })
     })
-    await act(async () => {})
-    return updateTranslation
-  }
 
-  it('fetchWordBubble_ServerLoadedWordNoSentence_CaptionUpdated', async () => {
-    expect(await open({ stage: 1, id: 'w1', translation: 'enterrou' })).toHaveBeenCalledWith('pocketed', 'embolsou')
+    expect(translate).toHaveBeenCalledTimes(1)
+    expect(updateWord).not.toHaveBeenCalled()
+    expect(updateTranslation).not.toHaveBeenCalled()
   })
 
-  it('fetchWordBubble_SavedInOtherSentence_CaptionKept', async () => {
-    expect(await open({ stage: 1, id: 'w1', translation: 'enterrou', sentence: 'She pocketed the letter.' })).not.toHaveBeenCalled()
+  it('AutoSaveThenTranslationArrives_JustSavedWord_PatchedOnce', async () => {
+    const b: BubbleLike = { word: 'pocketed', translation: 'embolsou', translationLoading: false, ...ctx }
+    const { result, rerender, updateTranslation } = mountSync(null, 'embolsou')
+    act(() => { result.current.triggerAutoSave('pocketed', () => Promise.resolve()) })
+    const saved = new Map([['pocketed', { stage: 0, id: 'w1' } as Entry]])
+    await act(async () => { rerender({ lang: 'pt', map: saved, b }) })
+    await act(async () => { rerender({ lang: 'pt', map: new Map(saved), b }) })
+
+    expect(updateWord).toHaveBeenCalledTimes(1)
+    expect(updateWord).toHaveBeenCalledWith('w1', { translation: 'embolsou' })
+    expect(updateTranslation).toHaveBeenCalledWith('pocketed', 'embolsou')
   })
 })

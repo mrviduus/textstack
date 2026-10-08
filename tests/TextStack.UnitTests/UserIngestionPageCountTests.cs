@@ -32,13 +32,15 @@ public class UserIngestionPageCountTests
         Assert.Equal("Pdf", job.SourceFormat);
     }
 
+    // Review r7 of #780: a retry whose extraction learnt nothing keeps the stored count.
     [Fact]
-    public void RecordExtractionFacts_NoPageCount_Null()
+    public void RecordExtractionFacts_NoPageCount_StoredCountKept()
     {
         var job = Job();
+        job.UserBook.PageCount = 42;
 
-        UserIngestionService.RecordExtractionFacts(job, Result(TextSource.NativeText, null));
+        UserIngestionService.RecordExtractionFacts(job, Result(TextSource.None, null));
 
-        Assert.Null(job.UserBook.PageCount);
+        Assert.Equal(42, job.UserBook.PageCount);
     }
 }

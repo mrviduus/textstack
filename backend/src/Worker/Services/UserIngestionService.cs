@@ -448,10 +448,11 @@ public class UserIngestionService
     /// <summary>
     /// What the extractor learnt about the file, recorded before any early failure return: a
     /// scanned PDF has no text layer but still opens in the Original layout with its page count.
+    /// A run that learnt no count (a failed retry) keeps the stored one.
     /// </summary>
     public static void RecordExtractionFacts(UserIngestionJob job, ExtractionResult result)
     {
         job.SourceFormat = result.SourceFormat.ToString();
-        job.UserBook.PageCount = result.Metadata.PageCount;
+        if (result.Metadata.PageCount is { } pages) job.UserBook.PageCount = pages;
     }
 }

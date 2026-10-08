@@ -38,6 +38,37 @@ public class PdfExtractorTests
         Assert.Null(exception);
     }
 
+    // Review r7 of #780: the document opened, so its page count is known even when extraction fails later.
+    [Fact]
+    public async Task ExtractAsync_OpenedThenExtractionThrows_PageCountStillReturned()
+    {
+        var extractor = new PdfTextExtractor();
+        await using var stream = new CopyThrowsStream(PdfFixtureGenerator.GenerateSimplePdf(pageCount: 5));
+        var request = new ExtractionRequest { Content = stream, FileName = "broken.pdf" };
+
+        var result = await extractor.ExtractAsync(request);
+
+        Assert.Contains(result.Diagnostics.Warnings, w => w.Code == ExtractionWarningCode.ParseError);
+        Assert.Equal(5, result.Metadata.PageCount);
+    }
+
+    /// <summary>Opens fine (PdfPig reads it); the extractor's byte copy then throws.</summary>
+    private sealed class CopyThrowsStream(byte[] bytes) : Stream
+    {
+        private readonly MemoryStream _inner = new(bytes);
+        public override bool CanRead => true;
+        public override bool CanSeek => true;
+        public override bool CanWrite => false;
+        public override long Length => _inner.Length;
+        public override long Position { get => _inner.Position; set => _inner.Position = value; }
+        public override int Read(byte[] buffer, int offset, int count) => _inner.Read(buffer, offset, count);
+        public override long Seek(long offset, SeekOrigin origin) => _inner.Seek(offset, origin);
+        public override void CopyTo(Stream destination, int bufferSize) => throw new IOException("copy failed");
+        public override void Flush() { }
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
     [Fact]
     public async Task ExtractAsync_EmptyPdf_ReturnsWarning()
     {

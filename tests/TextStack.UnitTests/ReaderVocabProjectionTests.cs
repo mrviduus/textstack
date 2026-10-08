@@ -43,6 +43,26 @@ public class ReaderVocabProjectionTests
         Assert.Contains("Pocketed", window);
     }
 
+    // Review r7 of #780: 'art' is found as a word, not inside 'Start'.
+    [Fact]
+    public void SentenceWindow_WordAlsoInsideEarlierWord_CentredOnWholeWord()
+    {
+        var sentence = "Start " + new string('x', 400) + " the Art of war " + new string('y', 400);
+
+        var window = VocabularyEndpoints.SentenceWindow(sentence, "art");
+
+        Assert.Contains("the Art of war", window);
+        Assert.DoesNotContain("Start", window);
+    }
+
+    [Fact]
+    public void SentenceWindow_WordOnlyInsideAnother_FallsBackToSubstring()
+    {
+        var sentence = new string('x', 400) + " Restarted " + new string('y', 400);
+
+        Assert.Contains("Restarted", VocabularyEndpoints.SentenceWindow(sentence, "start"));
+    }
+
     [Fact]
     public void SentenceWindow_WordMissing_TakesStart()
     {

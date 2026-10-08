@@ -24,7 +24,7 @@ import {
 import { ShareButtons } from '../components/ShareButtons'
 import { BookInsightsSection } from '../components/library/BookInsightsSection'
 import { AssistantMenu } from '../components/library/AssistantMenu'
-import { currentReviewChapter } from '@textstack/shared'
+import { currentReviewChapter, bookPages } from '@textstack/shared'
 import { ChapterReviewAction } from '../components/library/ChapterReviewAction'
 import { useBookReviews } from '../hooks/useBookReviews'
 import { useAuth } from '../context/AuthContext'
@@ -195,9 +195,8 @@ export function BookDetailPage() {
       />
       <JsonLd
         data={(() => {
-          // Sum chapter word counts to estimate page count (~250 words per page is standard)
-          const totalWords = book.chapters.reduce((sum, c) => sum + (c.wordCount ?? 0), 0)
-          const numberOfPages = totalWords > 0 ? Math.max(1, Math.round(totalWords / 250)) : undefined
+          const totalWordCount = book.chapters.reduce((sum, c) => sum + (c.wordCount ?? 0), 0)
+          const numberOfPages = bookPages({ totalWordCount })?.pages
 
           // datePublished must be ISO 8601 (YYYY-MM-DD) for schema.org
           const datePublished = book.publishedAt

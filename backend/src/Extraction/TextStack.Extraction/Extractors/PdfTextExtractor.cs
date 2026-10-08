@@ -82,9 +82,10 @@ public sealed class PdfTextExtractor : ITextExtractor
                 ExtractionWarningCode.ParseError,
                 $"PDF extraction failed: {ex.Message}"));
 
+            // The document opened, so the Original layout can still page it.
             return Task.FromResult(new ExtractionResult(
                 SourceFormat.Pdf,
-                new ExtractionMetadata(null, null, null, null),
+                new ExtractionMetadata(null, null, null, null, PageCount: document.NumberOfPages),
                 [],
                 [],
                 new ExtractionDiagnostics(TextSource.None, null, warnings)));

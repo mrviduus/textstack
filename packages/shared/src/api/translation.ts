@@ -16,15 +16,18 @@ export interface TranslateContext {
   bookId?: string | null
 }
 
-/** A word or short phrase gets its sentence as context; a passage is its own context. */
+/** A word or short phrase gets its sentence as context; a passage is its own context.
+ *  Characters too: a script without spaces (Japanese, Chinese, Thai) is one "word" at any length. */
 const MAX_CONTEXT_WORDS = 3
+const MAX_CONTEXT_CHARS = 40
 
 /** The one place every client's translate body is built — web and mobile both route here. */
 export function translateBody(text: string, source: string, target: string, ctx?: TranslateContext) {
   const body: Record<string, string> = { text, sourceLang: source, targetLang: target }
   const sentence = ctx?.sentence?.trim()
-  const words = text.trim().split(/\s+/).filter(Boolean).length
-  if (sentence && words <= MAX_CONTEXT_WORDS && sentence.toLowerCase() !== text.trim().toLowerCase()) {
+  const trimmed = text.trim()
+  const short = trimmed.split(/\s+/).filter(Boolean).length <= MAX_CONTEXT_WORDS && trimmed.length <= MAX_CONTEXT_CHARS
+  if (sentence && short && sentence.toLowerCase() !== trimmed.toLowerCase()) {
     body.sentence = sentence
   }
   if (ctx?.bookId) body.bookId = ctx.bookId
