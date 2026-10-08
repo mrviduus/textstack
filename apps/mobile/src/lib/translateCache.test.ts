@@ -180,4 +180,28 @@ describe('cachedTranslate', () => {
 
     expect(translate).toHaveBeenCalledTimes(3)
   })
+
+  // QA-007: "pocketed" → pt-BR "enterrado" (buried). The server prompt
+  // disambiguates with the sentence, but the mobile client never sent it.
+  it('cachedTranslate_WithSentence_SendsSentenceToApi', async () => {
+    const { cachedTranslate } = await freshModule()
+    translate.mockResolvedValue({ translatedText: 'embolsou' })
+    const sentence = 'He pocketed the coins and walked out.'
+
+    await cachedTranslate('pocketed', 'en', 'pt', { sentence })
+
+    expect(translate).toHaveBeenCalledWith('pocketed', 'en', 'pt', undefined, { sentence })
+  })
+
+  it('cachedTranslate_SameWordDifferentSentences_NotServedFromOneCacheEntry', async () => {
+    const { cachedTranslate, peekTranslation } = await freshModule()
+    translate.mockImplementation(async (_t: string, _f: string, _to: string, _s: unknown, ctx?: { sentence?: string }) =>
+      ({ translatedText: ctx?.sentence?.includes('clock') ? 'enrolou' : 'ferida' }))
+
+    expect((await cachedTranslate('wound', 'en', 'pt', { sentence: 'She wound the clock.' })).translation).toBe('enrolou')
+    expect((await cachedTranslate('wound', 'en', 'pt', { sentence: 'The wound bled.' })).translation).toBe('ferida')
+    expect(translate).toHaveBeenCalledTimes(2)
+    expect(peekTranslation('wound', 'en', 'pt', { sentence: 'The wound bled.' })?.translation).toBe('ferida')
+  })
 })
+

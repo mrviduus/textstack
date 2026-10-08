@@ -29,6 +29,9 @@ export type HighlightColorKey = 'yellow' | 'green' | 'pink' | 'blue'
 
 interface SelectionActionBarProps {
   selectedText: string
+  /** The sentence the word was tapped in — sent with the translate call so the
+   *  model picks the sense in context ("pocketed" ≠ "buried", QA-007). */
+  sentence?: string
   isMultiWord: boolean
   /** Source language code — used for fetching the inline translation
    *  when a single word is tapped. Same value the reader passes to TTS. */
@@ -84,6 +87,7 @@ interface SelectionActionBarProps {
  */
 export function SelectionActionBar({
   selectedText,
+  sentence,
   isMultiWord,
   language,
   onTranslate,
@@ -134,7 +138,8 @@ export function SelectionActionBar({
       return
     }
     // Instant render on a cache hit (re-tap of a seen word) — no spinner.
-    const cached = peekTranslation(selectedText, fromLang, translationTarget!)
+    const ctx = { sentence }
+    const cached = peekTranslation(selectedText, fromLang, translationTarget!, ctx)
     if (cached !== undefined) {
       setTranslation(cached.translation)
       setCategory(cached.category)
@@ -145,12 +150,12 @@ export function SelectionActionBar({
     setTranslation('')
     setCategory(undefined)
     setTranslating(true)
-    cachedTranslate(selectedText, fromLang, translationTarget!)
+    cachedTranslate(selectedText, fromLang, translationTarget!, ctx)
       .then((r) => { if (!cancelled) { setTranslation(r.translation); setCategory(r.category) } })
       .catch(() => { if (!cancelled) setTranslation('') })
       .finally(() => { if (!cancelled) setTranslating(false) })
     return () => { cancelled = true }
-  }, [selectedText, isMultiWord, fromLang, translationTarget, isSameLang])
+  }, [selectedText, sentence, isMultiWord, fromLang, translationTarget, isSameLang])
 
   const handleCopy = () => {
     if (selectedText) Clipboard.setStringAsync(selectedText)

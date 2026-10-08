@@ -62,7 +62,10 @@ public class MetadataService(IAppDbContext db)
                 .OrderByDescending(f => f.UploadedAt)
                 .Select(f => (long?)f.FileSize)
                 .FirstOrDefault(),
-            book.SourceUrl);
+            book.SourceUrl,
+            book.BookFiles.Any(f => f.Format == Domain.Enums.BookFormat.Pdf)
+                ? book.Chapters.Max(c => c.SourceEndPage)
+                : null);
 
         return (dto, null);
     }

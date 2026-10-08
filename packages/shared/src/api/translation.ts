@@ -8,8 +8,23 @@ export interface TranslationResult {
   category?: 'common' | 'learnable' | 'rare'
 }
 
-export function translate(text: string, source: string, target: string, signal?: AbortSignal) {
-  const opts = jsonBody('POST', { text, sourceLang: source, targetLang: target })
+/** What lets the server pick the right sense of an ambiguous word. */
+export interface TranslateContext {
+  /** The sentence the word was tapped in ("pocketed the coins" ≠ "buried"). */
+  sentence?: string | null
+  /** editionId / userBookId — the server biases the prompt by the book's genre. */
+  bookId?: string | null
+}
+
+export function translateBody(text: string, source: string, target: string, ctx?: TranslateContext) {
+  const body: Record<string, string> = { text, sourceLang: source, targetLang: target }
+  if (ctx?.sentence?.trim()) body.sentence = ctx.sentence
+  if (ctx?.bookId) body.bookId = ctx.bookId
+  return body
+}
+
+export function translate(text: string, source: string, target: string, signal?: AbortSignal, ctx?: TranslateContext) {
+  const opts = jsonBody('POST', translateBody(text, source, target, ctx))
   if (signal) opts.signal = signal
   return publicFetch<TranslationResult>('/translate', opts)
 }

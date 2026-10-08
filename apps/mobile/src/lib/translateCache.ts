@@ -1,4 +1,4 @@
-import { translationApi } from '@textstack/shared'
+import { translationApi, type TranslateContext } from '@textstack/shared'
 import { createSingleFlight, type SingleFlight } from './singleFlight'
 
 export type SaveCategory = 'common' | 'learnable' | 'rare'
@@ -36,17 +36,19 @@ const cache = new Map<string, CachedTranslation>()
  */
 const inFlight = new Map<string, SingleFlight<CachedTranslation>>()
 
-const keyOf = (text: string, from: string, to: string) =>
-  `${from}|${to}|${text.trim().toLowerCase()}`
+// The sentence is part of the key, as it is of the server's: "wound" in "she
+// wound the clock" and in "the wound bled" are two different translations.
+const keyOf = (text: string, from: string, to: string, ctx?: TranslateContext) =>
+  `${from}|${to}|${text.trim().toLowerCase()}|${ctx?.sentence?.trim() ?? ''}`
 
 /** Synchronous peek — lets the toolbar render instantly on a cache hit. */
-export function peekTranslation(text: string, from: string, to: string): CachedTranslation | undefined {
-  return cache.get(keyOf(text, from, to))
+export function peekTranslation(text: string, from: string, to: string, ctx?: TranslateContext): CachedTranslation | undefined {
+  return cache.get(keyOf(text, from, to, ctx))
 }
 
 /** Cached translate. On miss, hits the API once and memoizes a non-empty result. */
-export async function cachedTranslate(text: string, from: string, to: string): Promise<CachedTranslation> {
-  const k = keyOf(text, from, to)
+export async function cachedTranslate(text: string, from: string, to: string, ctx?: TranslateContext): Promise<CachedTranslation> {
+  const k = keyOf(text, from, to, ctx)
   const hit = cache.get(k)
   if (hit !== undefined) return hit
 
@@ -57,7 +59,7 @@ export async function cachedTranslate(text: string, from: string, to: string): P
   }
   const claimed = slot
   const call = claimed.run(async () => {
-    const res = await translationApi.translate(text, from, to) as { translatedText?: string; translation?: string; category?: SaveCategory }
+    const res = await translationApi.translate(text, from, to, undefined, ctx) as { translatedText?: string; translation?: string; category?: SaveCategory }
     const out: CachedTranslation = { translation: res.translatedText || res.translation || '', category: res.category }
     if (out.translation) cache.set(k, out)
     return out

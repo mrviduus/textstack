@@ -173,4 +173,50 @@ public class UserBookDetailMappingTests
         Assert.NotNull(dto);
         Assert.All(dto!.Chapters, c => Assert.Null(c.SourceStartPage));
     }
+
+    // QA-007: a 15-page PDF showed "~33 pages" (word count / 250). A PDF's real page
+    // count is already stored as the chapters' SourceEndPage — the last one is the
+    // document's last page.
+    [Fact]
+    public async Task GetBookAsync_PdfWithPageRanges_PageCountIsLastSourceEndPage()
+    {
+        var h = new Harness();
+        var userId = Guid.NewGuid();
+        var bookId = Guid.NewGuid();
+        var book = SeedBook(h, userId, bookId, BookFormat.Pdf, (1, 1), (2, 6));
+        book.Chapters.First(c => c.ChapterNumber == 1).SourceEndPage = 5;
+        book.Chapters.First(c => c.ChapterNumber == 2).SourceEndPage = 15;
+        book.TotalWordCount = 8250;
+
+        var dto = await h.Service.GetBookAsync(userId, bookId, CancellationToken.None);
+
+        Assert.Equal(15, dto!.PageCount);
+    }
+
+    [Fact]
+    public async Task GetBookAsync_PdfWithoutPageRanges_PageCountNull()
+    {
+        var h = new Harness();
+        var userId = Guid.NewGuid();
+        var bookId = Guid.NewGuid();
+        SeedBook(h, userId, bookId, BookFormat.Pdf, (1, null));
+
+        var dto = await h.Service.GetBookAsync(userId, bookId, CancellationToken.None);
+
+        Assert.Null(dto!.PageCount);
+    }
+
+    [Fact]
+    public async Task GetBookAsync_Epub_PageCountNull()
+    {
+        var h = new Harness();
+        var userId = Guid.NewGuid();
+        var bookId = Guid.NewGuid();
+        var book = SeedBook(h, userId, bookId, BookFormat.Epub, (1, null));
+        book.Chapters.First().SourceEndPage = 9; // defensive: only a PDF has physical pages
+
+        var dto = await h.Service.GetBookAsync(userId, bookId, CancellationToken.None);
+
+        Assert.Null(dto!.PageCount);
+    }
 }

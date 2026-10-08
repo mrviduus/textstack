@@ -73,7 +73,13 @@ public record UserBookDetailDto(
     /// </summary>
     long? OriginalFileBytes = null,
     /// <summary>Page a clipped article came from; null for uploaded files.</summary>
-    string? SourceUrl = null
+    string? SourceUrl = null,
+    /// <summary>
+    /// Real page count of a PDF upload: the last chapter's <c>SourceEndPage</c>.
+    /// Null for non-PDF books and PDFs ingested before page ranges were stored —
+    /// clients then estimate from <see cref="TotalWordCount"/>.
+    /// </summary>
+    int? PageCount = null
 );
 
 public record UserChapterSummaryDto(

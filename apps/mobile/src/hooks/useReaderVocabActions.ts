@@ -119,7 +119,7 @@ export function useReaderVocabActions({
 
     // cachedTranslate (not translationApi) so this reuses the gloss the
     // selection toolbar just fetched for the same word — no 2nd round-trip.
-    cachedTranslate(sourceText, textLanguage, targetLang)
+    cachedTranslate(sourceText, textLanguage, targetLang, { sentence: saved.sentence })
       .then(({ translation }) => {
         if (translation && saved.id) {
           vocabularyApi.updateWord(saved.id, { translation }).catch(() => {})

@@ -38,6 +38,9 @@ export interface UserBookDetailResponse {
    *  shows it, and the ask-before-mobile-data rule reads it. Null when the book
    *  has no stored original; absent on older payloads. */
   originalFileBytes?: number | null
+  /** Real page count of a PDF upload (last chapter's source end page). Null for
+   *  EPUBs / unknown; absent on older payloads → estimate from word count. */
+  pageCount?: number | null
   /** LLM metadata enrichment lifecycle (genre/year/description generation).
    *  "NotStarted" | "Pending" | "Running" | "Completed" | "Failed".
    *  Absent on older payloads → treat as no enrichment in flight. */

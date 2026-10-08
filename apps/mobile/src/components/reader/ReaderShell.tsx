@@ -429,6 +429,7 @@ export function ReaderShell(props: ReaderShellProps) {
         {selection && (
           <SelectionActionBar
             selectedText={selection.text}
+            sentence={selection.sentence}
             isMultiWord={isMultiWord}
             language={textLanguage}
             onTranslate={() => setTranslateOpen(true)}
