@@ -164,7 +164,8 @@ export function useReaderWordActions({
   const closedTokenRef = useRef<number | undefined | null>(null) // null = nothing open
   useEffect(() => {
     if (selection) { closedTokenRef.current = selection.token; return }
-    if (closedTokenRef.current === null) return
+    // No token (closed record unknown to the WebView): close the toolbar only, never a blind clear.
+    if (typeof closedTokenRef.current !== 'number') { closedTokenRef.current = null; return }
     injectJs(clearSelectionJs(closedTokenRef.current))
     closedTokenRef.current = null
   }, [selection, injectJs])

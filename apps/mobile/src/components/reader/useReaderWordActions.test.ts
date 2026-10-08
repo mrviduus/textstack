@@ -94,6 +94,14 @@ describe('SEL-1 — a late action closes only its own selection', () => {
     expect(h.result.current.selection).toBeNull()
     expect(injected).toContain(clearSelectionJs(31))
   })
+
+  it('closing a selection with no token closes the toolbar only — no WebView clear', () => {
+    const { h, injected } = mount()
+    act(() => { h.result.current.openSelection({ text: 'alpha', sentence: 'alpha.', mode: 'tap' }) })
+    act(() => { h.result.current.closeSelection() })
+    expect(h.result.current.selection).toBeNull()
+    expect(injected.some(js => js.includes('__tsClearSelection'))).toBe(false)
+  })
 })
 
 describe('SEL-1 — highlight create with no book id', () => {

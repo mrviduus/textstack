@@ -148,7 +148,7 @@ describe('QA-007', () => {
     expect(a).not.toBe(b)
   })
 
-  it('SEL-1: closing the word mark leaves the text nodes a vocab range was painted on', async () => {
+  it('SEL-1: closing the word mark unwraps it and repaints the vocab layer with the current map', async () => {
     // @ts-expect-error -- jsdom ships no types and vitest's jsdom env is all we need it for
     const { JSDOM } = await import('jsdom')
     const dom = new JSDOM('<p id="p">alpha beta gamma</p>', { url: 'https://reader.test/', runScripts: 'outside-only' })
@@ -157,6 +157,10 @@ describe('QA-007', () => {
     const posted: { token?: number }[] = []
     w.ReactNativeWebView = { postMessage: (m: string) => { const x = JSON.parse(m); if (x.type === 'selection' && x.text) posted.push(x) } }
     w.eval(READER_SELECTION_BRIDGE)
+    // The reader page's vocab layer (readerHtml): a global map + the paint function.
+    const painted: Record<string, unknown>[] = []
+    w.__painted = (m: Record<string, unknown>) => painted.push(m)
+    w.eval('var _currentVocabMap = {}; function markVocabWords(m) { _currentVocabMap = m; window.__painted(JSON.parse(JSON.stringify(m))) }')
     const p = d.getElementById('p')
     // Hold on "beta": the tap path marks the word it resolves at the point.
     d.caretRangeFromPoint = () => { const c = d.createRange(); c.setStart(p.firstChild, 7); return c }
@@ -164,15 +168,15 @@ describe('QA-007', () => {
     Object.defineProperty(touch, 'changedTouches', { value: [{ clientX: 1, clientY: 1 }] })
     p.dispatchEvent(touch)
     await new Promise(res => setTimeout(res, 500))
-    const mark = p.querySelector('.ts-word-mark')
-    expect(mark.textContent).toBe('beta')
-    // The vocab layer paints "beta" while the mark is up (CSS.highlights keeps live Ranges).
-    const word = mark.firstChild
-    const vocab = d.createRange(); vocab.setStart(word, 0); vocab.setEnd(word, 4)
+    expect(p.querySelector('.ts-word-mark').textContent).toBe('beta')
+    // "beta" saved while the mark is up.
+    w.eval('_currentVocabMap = { beta: { stage: 0 } }')
     w.eval(clearSelectionJs(posted.at(-1)!.token))
-    expect(p.querySelector('.ts-word-mark')).toBeNull()
-    expect(word.isConnected).toBe(true)
-    expect(vocab.startContainer).toBe(word)
-    expect(vocab.toString()).toBe('beta')
+    // No leftover span, text nodes merged back.
+    expect(p.querySelector('span')).toBeNull()
+    expect(p.childNodes.length).toBe(1)
+    // ...and the just-saved word is painted again on the restored text.
+    expect(painted.at(-1)).toEqual({ beta: { stage: 0 } })
   })
+
 })

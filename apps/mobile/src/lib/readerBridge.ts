@@ -230,10 +230,14 @@ export const READER_SELECTION_BRIDGE = `
       try {
         var span = _wordMarkSpan;
         _wordMarkSpan = null;
-        // Strip the mark, keep the element. Unwrapping moves the word's text node, and a move
-        // collapses every live Range on it — the vocab underline painted while the mark was up
-        // (SEL-1). A bare inline span changes no layout and no text offsets.
-        if (span) span.removeAttribute('class');
+        if (!span || !span.parentNode) return;
+        var parent = span.parentNode;
+        while (span.firstChild) parent.insertBefore(span.firstChild, span);
+        parent.removeChild(span);
+        parent.normalize();
+        // Unwrapping moves the word's text node, which collapses every live Range on it — the vocab
+        // underline painted while the mark was up (SEL-1). Repaint once with the current map.
+        if (typeof markVocabWords === 'function' && typeof _currentVocabMap === 'object' && _currentVocabMap) markVocabWords(_currentVocabMap);
       } catch(e) {}
     }
 
