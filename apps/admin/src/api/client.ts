@@ -290,7 +290,8 @@ export interface EditionGenre {
 
 // SSG Rebuild
 export type SsgRebuildJobStatus = 'Queued' | 'Running' | 'Completed' | 'Failed' | 'Cancelled'
-export type SsgRebuildMode = 'Full' | 'Incremental'
+// Full is the only mode since 2026-10-08; old rows also read back as Full.
+export type SsgRebuildMode = 'Full'
 
 export interface SsgRebuildJobListItem {
   id: string
@@ -355,7 +356,6 @@ export interface SsgRebuildPreview {
 
 export interface CreateSsgRebuildJobRequest {
   siteId: string
-  mode?: SsgRebuildMode
   concurrency?: number
 }
 
@@ -1039,9 +1039,8 @@ export const adminApi = {
 
   // SSG Rebuild
 
-  getSsgRebuildPreview: async (siteId: string, mode?: SsgRebuildMode): Promise<SsgRebuildPreview> => {
+  getSsgRebuildPreview: async (siteId: string): Promise<SsgRebuildPreview> => {
     const query = new URLSearchParams({ siteId })
-    if (mode) query.set('mode', mode)
     return fetchJson<SsgRebuildPreview>(`/admin/ssg/preview?${query}`)
   },
 

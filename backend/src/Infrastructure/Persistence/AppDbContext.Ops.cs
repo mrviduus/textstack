@@ -26,7 +26,8 @@ public partial class AppDbContext
             e.HasIndex(x => x.SiteId);
             e.HasIndex(x => x.Status);
             e.HasIndex(x => x.CreatedAt);
-            e.Property(x => x.Mode).HasConversion<string>().HasMaxLength(20);
+            // Full is the only mode; any legacy string (Incremental, Specific) reads as Full, never throws.
+            e.Property(x => x.Mode).HasConversion(v => v.ToString(), _ => Domain.Enums.SsgRebuildMode.Full).HasMaxLength(20);
             e.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
             e.Property(x => x.BookSlugsJson).HasColumnType("jsonb");
             e.Property(x => x.AuthorSlugsJson).HasColumnType("jsonb");

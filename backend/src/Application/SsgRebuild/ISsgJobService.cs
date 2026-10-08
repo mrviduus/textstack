@@ -30,7 +30,6 @@ public interface ISsgJobService
     /// <summary>Gets preview of routes to render.</summary>
     Task<SsgRebuildPreviewDto> GetPreviewAsync(
         Guid siteId,
-        string modeStr,
         CancellationToken ct);
 
     /// <summary>Gets job statistics.</summary>

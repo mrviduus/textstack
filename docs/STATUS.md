@@ -111,8 +111,10 @@ answers "what happened" and nothing answered "what is half-finished right now".
   rather than repair it: ssg-worker renders every route whatever the mode (~20 min, ~2000 IndexNow URLs
   per job). The nightly Full rebuild is the only automatic trigger; an edit reaches crawlers after it,
   or at once with the admin "New Rebuild" button / `make rebuild-ssg`.
-- **`Incremental` SSG mode is a full render** (2026-10-08). The admin form still offers it; the route
-  provider and ssg-worker treat it exactly like Full. Remove it, or make it mean something.
+- ~~**`Incremental` SSG mode is a full render** (2026-10-08). The admin form still offers it; the route
+  provider and ssg-worker treat it exactly like Full. Remove it, or make it mean something.~~ **Removed
+  2026-10-08** (#771): Full is the only mode. Prod had only Full rows (11,640, read-only check); the
+  column's converter reads any legacy string as Full (`SsgRebuildModeMappingTests`).
 - **Unverified: does ssg-worker's `Host` header reach the API?** (2026-10-08). In a local run, Node's
   `fetch` to `http://127.0.0.1:<port>` with `headers: { host: 'localhost' }` got a 400 from Kestrel,
   while `http://localhost:<port>` worked, so `fetch` may send the URL's host, not ours. Prod Full jobs

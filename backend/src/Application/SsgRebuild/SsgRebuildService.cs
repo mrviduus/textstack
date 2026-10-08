@@ -28,11 +28,9 @@ public class SsgRebuildService : ISsgJobService
 
     public async Task<SsgRebuildPreviewDto> GetPreviewAsync(
         Guid siteId,
-        string modeStr,
         CancellationToken ct)
     {
-        var mode = ParseMode(modeStr);
-        var routes = await _routeProvider.GetRoutesAsync(siteId, mode, ct);
+        var routes = await _routeProvider.GetRoutesAsync(siteId, ct);
 
         return new SsgRebuildPreviewDto(
             TotalRoutes: routes.Count,
@@ -49,14 +47,13 @@ public class SsgRebuildService : ISsgJobService
         if (!siteExists)
             throw new ArgumentException($"Site with ID {request.SiteId} not found");
 
-        var mode = ParseMode(request.Mode);
-        var routes = await _routeProvider.GetRoutesAsync(request.SiteId, mode, ct);
+        var routes = await _routeProvider.GetRoutesAsync(request.SiteId, ct);
 
         var job = new SsgRebuildJob
         {
             Id = Guid.NewGuid(),
             SiteId = request.SiteId,
-            Mode = mode,
+            Mode = SsgRebuildMode.Full,
             Concurrency = request.Concurrency ?? 4,
             TimeoutMs = 30000,
             Status = SsgRebuildJobStatus.Queued,
@@ -207,18 +204,15 @@ public class SsgRebuildService : ISsgJobService
         // too: re-rendering every route right after it is wasted work (~20 min, ~2000 IndexNow URLs),
         // and an edit made during the run waits for the next nightly — or the admin "New Rebuild"
         // button, which creates a job without this check. `make rebuild-ssg` waits it out and asks again.
-        if (await _db.SsgRebuildJobs.AnyAsync(j => j.Mode == SsgRebuildMode.Full
-                && (j.Status == SsgRebuildJobStatus.Queued || j.Status == SsgRebuildJobStatus.Running), ct))
+        if (await _db.SsgRebuildJobs.AnyAsync(j =>
+                j.Status == SsgRebuildJobStatus.Queued || j.Status == SsgRebuildJobStatus.Running, ct))
             return null;
 
         // Queued is the whole enqueue: ssg-worker claims it (FOR UPDATE SKIP LOCKED) and sets Running.
-        return await CreateJobAsync(new CreateSsgRebuildJobRequest(siteId, "Full", Concurrency: 4), ct);
+        return await CreateJobAsync(new CreateSsgRebuildJobRequest(siteId, Concurrency: 4), ct);
     }
 
     #region Private Helpers
-
-    private static SsgRebuildMode ParseMode(string? mode) =>
-        Enum.TryParse<SsgRebuildMode>(mode, true, out var m) ? m : SsgRebuildMode.Full;
 
     private static SsgRebuildJobDetailDto MapToDetail(SsgRebuildJob job) =>
         new(

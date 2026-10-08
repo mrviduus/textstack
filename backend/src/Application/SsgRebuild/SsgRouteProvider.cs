@@ -18,7 +18,6 @@ public class SsgRouteProvider : ISsgRouteProvider
 
     public async Task<List<SsgRoute>> GetRoutesAsync(
         Guid siteId,
-        SsgRebuildMode mode,
         CancellationToken ct)
     {
         var site = await _db.Sites.FirstOrDefaultAsync(s => s.Id == siteId, ct);
@@ -27,7 +26,6 @@ public class SsgRouteProvider : ISsgRouteProvider
 
         var routes = new List<SsgRoute>();
 
-        // Full and Incremental produce the same list (ssg-worker renders every route either way).
         AddStaticRoutes(routes, site.DefaultLanguage);
         await AddBookRoutesAsync(routes, ct);
         await AddAuthorRoutesAsync(routes, site.DefaultLanguage, ct);

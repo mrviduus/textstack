@@ -270,7 +270,7 @@ describe('claimNextJob / failInterruptedJobs', () => {
         INSERT INTO sites VALUES ('${SITE}', 'general', 'localhost');
         INSERT INTO ssg_rebuild_jobs (id, site_id, mode, status, concurrency, timeout_ms, created_at) VALUES
           ('${id('a')}', '${SITE}', 'Full', 'Running', 4, 30000, now() - interval '3 hours'),
-          ('${id('b')}', '${SITE}', 'Incremental', 'Queued', 2, 30000, now() - interval '2 hours'),
+          ('${id('b')}', '${SITE}', 'Full', 'Queued', 2, 30000, now() - interval '2 hours'),
           ('${id('c')}', '${SITE}', 'Full', 'Queued', 4, 30000, now() - interval '1 hour'),
           ('${id('d')}', '${SITE}', 'Full', 'Completed', 4, 30000, now() - interval '4 hours');
       `)
@@ -289,7 +289,7 @@ describe('claimNextJob / failInterruptedJobs', () => {
       expect(rows[0].finished_at).not.toBeNull()
 
       expect(await claimNextJob(pool)).toMatchObject({
-        id: id('b'), mode: 'Incremental', concurrency: 2, site_code: 'general', primary_domain: 'localhost',
+        id: id('b'), mode: 'Full', concurrency: 2, site_code: 'general', primary_domain: 'localhost',
       })
       expect(await statuses()).toEqual({ a: 'Failed', b: 'Running', c: 'Queued', d: 'Completed' })
 

@@ -74,7 +74,7 @@ SSG (Static Site Generation) Rebuild is a feature that pre-renders React pages t
 | `Domain/Entities/SsgRebuildJob.cs` | Job entity with status, progress, timestamps |
 | `Domain/Entities/SsgRebuildResult.cs` | Individual route render results |
 | `Domain/Enums/SsgRebuildJobStatus.cs` | Queued, Running, Completed, Failed, Cancelled |
-| `Domain/Enums/SsgRebuildMode.cs` | Full, Incremental (same routes; Specific removed 2026-10-08) |
+| `Domain/Enums/SsgRebuildMode.cs` | Full only (Incremental and Specific removed 2026-10-08) |
 | `Application/SsgRebuild/SsgRebuildService.cs` | Creates and manages jobs |
 | `Application/SsgRebuild/SsgRouteProvider.cs` | Provides routes to render |
 | `Api/Endpoints/AdminSsgRebuildEndpoints.cs` | Admin CRUD endpoints |
@@ -140,7 +140,7 @@ CREATE TABLE ssg_rebuild_jobs (
     id UUID PRIMARY KEY,
     site_id UUID NOT NULL REFERENCES sites(id),
     status VARCHAR(20) NOT NULL,  -- Queued, Running, Completed, Failed, Cancelled
-    mode VARCHAR(20) NOT NULL,    -- Full, Incremental
+    mode VARCHAR(20) NOT NULL,    -- Full (legacy values read as Full)
     total_routes INT,
     rendered_count INT DEFAULT 0,
     failed_count INT DEFAULT 0,

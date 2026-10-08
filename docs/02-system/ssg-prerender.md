@@ -9,7 +9,7 @@ SPA. Checked against code 2026-10-07.
 
 ```
 nightly backup.yml / make rebuild-ssg / admin "New Rebuild"
-   → Queued row in ssg_rebuild_jobs (mode Full | Incremental — both render every route)
+   → Queued row in ssg_rebuild_jobs (mode Full, the only mode since 2026-10-08)
    → ssg-worker container (apps/web/scripts/ssg-worker.mjs) claims it every 5 s (SKIP LOCKED → Running)
    → empties dist/ssg-new, runs scripts/prerender.mjs: GET /ssg/routes → Puppeteer renders → dist/ssg-new
    → survival check, failed routes keep their live page, then

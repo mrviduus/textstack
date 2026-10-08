@@ -14,7 +14,6 @@ export const getJobStatusClass = (status: string): string => {
 export const getModeClass = (mode: string): string => {
   const classes: Record<string, string> = {
     Full: 'badge badge--info',
-    Incremental: 'badge badge--warning',
   }
   return classes[mode] || 'badge'
 }

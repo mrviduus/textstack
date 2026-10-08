@@ -44,11 +44,10 @@ public static class AdminSsgRebuildEndpoints
 
     private static async Task<IResult> GetPreview(
         [FromQuery] Guid siteId,
-        [FromQuery] string mode = "Full",
         ISsgJobService service = null!,
         CancellationToken ct = default)
     {
-        var preview = await service.GetPreviewAsync(siteId, mode, ct);
+        var preview = await service.GetPreviewAsync(siteId, ct);
 
         return Results.Ok(preview);
     }

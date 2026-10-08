@@ -12,7 +12,6 @@ export function SsgRebuildPage() {
 
   // Create form
   const [showCreate, setShowCreate] = useState(false)
-  const [createMode, setCreateMode] = useState<SsgRebuildMode>('Full')
   const [createConcurrency, setCreateConcurrency] = useState(4)
   const [preview, setPreview] = useState<SsgRebuildPreview | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
@@ -40,7 +39,7 @@ export function SsgRebuildPage() {
     return () => clearInterval(interval)
   }, [statusFilter])
 
-  // Load preview when create form opens or mode changes
+  // Load preview when create form opens
   useEffect(() => {
     if (!showCreate) {
       setPreview(null)
@@ -50,7 +49,7 @@ export function SsgRebuildPage() {
     const loadPreview = async () => {
       setPreviewLoading(true)
       try {
-        const data = await adminApi.getSsgRebuildPreview(DEFAULT_SITE_ID, createMode)
+        const data = await adminApi.getSsgRebuildPreview(DEFAULT_SITE_ID)
         setPreview(data)
       } catch (err) {
         setPreview(null)
@@ -59,7 +58,7 @@ export function SsgRebuildPage() {
       }
     }
     loadPreview()
-  }, [showCreate, createMode])
+  }, [showCreate])
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -68,7 +67,6 @@ export function SsgRebuildPage() {
     try {
       await adminApi.createSsgRebuildJob({
         siteId: DEFAULT_SITE_ID,
-        mode: createMode,
         concurrency: createConcurrency,
       })
       setShowCreate(false)
@@ -104,7 +102,6 @@ export function SsgRebuildPage() {
   const getModeBadge = (mode: SsgRebuildMode) => {
     const classes: Record<SsgRebuildMode, string> = {
       Full: 'badge badge--info',
-      Incremental: 'badge badge--warning',
     }
     return <span className={classes[mode] || 'badge'}>{mode}</span>
   }
@@ -143,21 +140,8 @@ export function SsgRebuildPage() {
         <form onSubmit={handleCreate} className="create-form">
           <h3>Create New SSG Rebuild Job</h3>
           <p className="form-description">
-            Pre-render pages to static HTML for faster SEO indexing.
+            Pre-render every page to static HTML (a Full rebuild; the only mode).
           </p>
-
-          <div className="form-row">
-            <label>
-              Mode
-              <select
-                value={createMode}
-                onChange={e => setCreateMode(e.target.value as SsgRebuildMode)}
-              >
-                <option value="Full">Full - All pages</option>
-                <option value="Incremental">Incremental - New/changed only</option>
-              </select>
-            </label>
-          </div>
 
           <div className="form-row">
             <label>

@@ -4,7 +4,6 @@ namespace Contracts.Admin;
 
 public record CreateSsgRebuildJobRequest(
     Guid SiteId,
-    string Mode = "Full",
     int? Concurrency = null
 );
 
