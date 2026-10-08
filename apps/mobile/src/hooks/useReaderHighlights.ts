@@ -160,15 +160,15 @@ export function useReaderHighlights({
   const create = useCallback(
     async ({ color, selection, chapter }: { color: string; selection: NonNullable<Selection>; chapter: ChapterLike }): Promise<boolean> => {
       const bId = currentBookId()
-      if (!bId) return false
+      const failed = () => { showToast({ message: 'Could not add highlight. Try again.', variant: 'error' }); return false }
+      if (!bId) return failed()
       try {
         const anchorJson = selection.anchor ? JSON.stringify(selection.anchor) : JSON.stringify({ exact: selection.text })
         const payload = userBookMode
           ? { userBookId: bId, userChapterId: chapter.id, anchorJson, color, selectedText: selection.text }
           : { editionId: bId, chapterId: chapter.id, anchorJson, color, selectedText: selection.text }
         const hl = await highlightsApi.createHighlight(payload)
-        // The word mark goes in the same script as the paint: unwrapping it merges text nodes,
-        // which would break a range built before it (SEL-1).
+        // The paint drops this selection's word mark itself, by its own token (SEL-1).
         injectJs(`${clearSelectionJs(selection.token, true)};renderHighlight(${JSON.stringify(hl.id)}, ${JSON.stringify(anchorJson)}, ${JSON.stringify(color)}, ${JSON.stringify(selection.text)})`)
         highlightsRef.current = [...highlightsRef.current, hl]
         bumpHighlights()
@@ -181,8 +181,7 @@ export function useReaderHighlights({
         return true
       } catch (e) {
         console.warn('Failed to create highlight:', e)
-        showToast({ message: 'Could not add highlight. Try again.', variant: 'error' })
-        return false
+        return failed()
       }
     },
     [currentBookId, userBookMode, cache, injectJs, showToast, user?.id, bumpHighlights]

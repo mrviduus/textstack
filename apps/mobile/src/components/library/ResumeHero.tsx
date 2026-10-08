@@ -1,7 +1,7 @@
 import { View, Text, StyleSheet } from 'react-native'
 import { Image } from 'expo-image'
-import { useRef } from 'react'
-import { useRouter } from 'expo-router'
+import { useCallback, useRef } from 'react'
+import { useFocusEffect, useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { getStorageUrl, userBooksApi } from '@textstack/shared'
 import type { ContinueReadingPick } from '@textstack/shared'
@@ -11,6 +11,7 @@ import { fonts } from '../../theme/typography'
 import { PressableScale } from '../ui/PressableScale'
 import { GeneratedCover } from './GeneratedCover'
 import { heroResumeRoute } from '../../lib/bookRoutes'
+import { listCachedUserChapters } from '../../lib/offlineDb'
 
 /**
  * The single largest, topmost thing a returning reader sees.
@@ -29,11 +30,21 @@ export function ResumeHero({ pick }: { pick: ContinueReadingPick }) {
   const router = useRouter()
   // One chapter-list lookup at a time (RES-1); repeat taps while it runs are ignored.
   const busyRef = useRef(false)
+  // A lookup that resolves after the reader left the Library (or the hero unmounted) must not navigate.
+  const focusedRef = useRef(true)
+  useFocusEffect(useCallback(() => {
+    focusedRef.current = true
+    return () => { focusedRef.current = false }
+  }, []))
   const open = async () => {
     if (busyRef.current) return
     busyRef.current = true
     try {
-      router.push(await heroResumeRoute(pick, id => userBooksApi.getUserBook(id).then(b => b.chapters)) as never)
+      const route = await heroResumeRoute(pick, {
+        device: id => listCachedUserChapters(id).then(cs => cs.map(c => ({ slug: c.chapterSlug, sourceStartPage: c.sourceStartPage }))),
+        server: id => userBooksApi.getUserBook(id).then(b => b.chapters),
+      })
+      if (focusedRef.current) router.push(route as never)
     } finally {
       busyRef.current = false
     }

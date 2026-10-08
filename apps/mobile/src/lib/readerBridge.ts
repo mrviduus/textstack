@@ -230,11 +230,10 @@ export const READER_SELECTION_BRIDGE = `
       try {
         var span = _wordMarkSpan;
         _wordMarkSpan = null;
-        if (!span || !span.parentNode) return;
-        var parent = span.parentNode;
-        while (span.firstChild) parent.insertBefore(span.firstChild, span);
-        parent.removeChild(span);
-        parent.normalize();
+        // Strip the mark, keep the element. Unwrapping moves the word's text node, and a move
+        // collapses every live Range on it — the vocab underline painted while the mark was up
+        // (SEL-1). A bare inline span changes no layout and no text offsets.
+        if (span) span.removeAttribute('class');
       } catch(e) {}
     }
 
@@ -254,7 +253,8 @@ export const READER_SELECTION_BRIDGE = `
     // the lifecycle, so it also owns the ending. Every selection posted to RN carries a token. RN hands the closed selection's token back
     // here; once a newer selection (or a collapse) has been posted, that clear is stale and does
     // nothing — it must not wipe the newer one (SEL-1). markOnly keeps the native range.
-    var _selToken = 0;
+    // Random base: a clear for the previous chapter's document never matches this one's (SEL-1).
+    var _selToken = Math.floor(Math.random() * 1e12);
     window.__tsClearSelection = function(token, markOnly) {
       if (typeof token === 'number' && token !== _selToken) return;
       if (!markOnly) { try { window.getSelection && window.getSelection().removeAllRanges(); } catch(e) {} }

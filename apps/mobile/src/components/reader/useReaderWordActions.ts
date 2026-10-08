@@ -129,6 +129,13 @@ export function useReaderWordActions({
     })
   }, [haptics, showToast, language, router, isGuest, vocabMapRef])
 
+  // A network-bound action closes the selection it started with — never one the reader opened
+  // while it waited (SEL-1).
+  const closeOwnSelection = useCallback(
+    (s: { selectionId: number }) => setSelection(cur => (cur && cur.selectionId === s.selectionId ? null : cur)),
+    [setSelection],
+  )
+
   const vocabActions = useReaderVocabActions({
     vocabMapRef,
     bookTitleRef,
@@ -143,7 +150,7 @@ export function useReaderWordActions({
     notifyWordSaved,
     setSessionWordCount,
     setWordSaved,
-    setSelection,
+    closeSelection: closeOwnSelection,
     setLookupState,
     showToast,
   })
@@ -223,8 +230,8 @@ export function useReaderWordActions({
       return
     }
     // Failure keeps the selection for a retry.
-    if (await createHighlight({ color, selection, chapter: { id: chapter.id } })) setSelection(null)
-  }, [selection, chapter.id, createHighlight, updateSettings, original, injectJs])
+    if (await createHighlight({ color, selection, chapter: { id: chapter.id } })) closeOwnSelection(selection)
+  }, [selection, chapter.id, createHighlight, updateSettings, original, injectJs, closeOwnSelection])
 
   return {
     vocabMapRef, vocabActions,

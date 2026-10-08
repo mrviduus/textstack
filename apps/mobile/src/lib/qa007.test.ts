@@ -29,13 +29,16 @@ describe('QA-007', () => {
       { slug: null, chapterNumber: 1, sourceStartPage: 30 },
       { slug: 'end', chapterNumber: 2, sourceStartPage: 60 },
     ]
-    expect(await heroResumeRoute(pick, async () => chapters)).toBe('/my-books/read/ub1/chapter-1')
-    expect(await heroResumeRoute(pick, async () => { throw new Error('offline') })).toBe('/my-books/ub1')
+    const none = async () => []
+    expect(await heroResumeRoute(pick, { device: none, server: async () => chapters })).toBe('/my-books/read/ub1/chapter-1')
+    expect(await heroResumeRoute(pick, { device: none, server: async () => { throw new Error('offline') } })).toBe('/my-books/ub1')
+    expect(await heroResumeRoute(pick, { device: async () => { throw new Error('db') }, server: async () => { throw new Error('offline') } })).toBe('/my-books/ub1')
     // No lookup for anything else.
     const load = vi.fn()
-    expect(await heroResumeRoute({ ...pick, chapterSlug: 'intro' }, load)).toBe('/my-books/read/ub1/intro')
-    expect(await heroResumeRoute({ ...pick, locator: null }, load)).toBe('/my-books/ub1')
-    expect(await heroResumeRoute({ type: 'edition', slug: 'dracula', title: 'D', coverPath: null, percent: 0.1, chapterSlug: null, updatedAtMs: 1 }, load)).toBe('/book/dracula')
+    const loaders = { device: load, server: load }
+    expect(await heroResumeRoute({ ...pick, chapterSlug: 'intro' }, loaders)).toBe('/my-books/read/ub1/intro')
+    expect(await heroResumeRoute({ ...pick, locator: null }, loaders)).toBe('/my-books/ub1')
+    expect(await heroResumeRoute({ type: 'edition', slug: 'dracula', title: 'D', coverPath: null, percent: 0.1, chapterSlug: null, updatedAtMs: 1 }, loaders)).toBe('/book/dracula')
     expect(load).not.toHaveBeenCalled()
     // The PDF reader restores the page itself when Continue opens the chapter holding it.
     expect(read('src/components/reader/useReaderPdf.ts')).toContain('resumePage: originalNewerPage?.page ?? originalResumePage')
@@ -43,6 +46,23 @@ describe('QA-007', () => {
     const hero = read('src/components/library/ResumeHero.tsx')
     expect(hero).toMatch(/if \(busyRef\.current\) return/)
     expect(hero).toContain('heroResumeRoute(pick')
+  })
+
+  it('RES-1: the device answers first — chapters on the phone open the reader without asking the server', async () => {
+    const pick = { type: 'userbook' as const, id: 'ub1', title: 'PDF', coverPath: null, percent: 0.3, chapterSlug: null, locator: 'page:42', updatedAtMs: 1 }
+    const server = vi.fn(async () => [])
+    const device = vi.fn(async () => [{ slug: 'intro', sourceStartPage: 1 }, { slug: 'chapter-1', sourceStartPage: 30 }])
+    expect(await heroResumeRoute(pick, { device, server })).toBe('/my-books/read/ub1/chapter-1')
+    expect(device).toHaveBeenCalledWith('ub1')
+    expect(server).not.toHaveBeenCalled()
+    // ResumeHero wires the device loader to SQLite.
+    expect(read('src/components/library/ResumeHero.tsx')).toMatch(/device: id => listCachedUserChapters\(id\)/)
+  })
+
+  it('RES-1: no navigation once the hero has lost focus or unmounted', () => {
+    const hero = read('src/components/library/ResumeHero.tsx')
+    expect(hero).toMatch(/useFocusEffect\(useCallback\(\(\) => \{\s*focusedRef\.current = true\s*return \(\) => \{ focusedRef\.current = false \}/)
+    expect(hero).toMatch(/if \(focusedRef\.current\) router\.push\(route as never\)/)
   })
 
   it('SEL-1: closing a selection clears the WebView one, never a newer one; highlight keeps it on failure', async () => {
@@ -76,6 +96,55 @@ describe('QA-007', () => {
     expect(actions).toMatch(/injectJs\(clearSelectionJs\(closedTokenRef\.current\)\)/)
     // Highlight: the paint script drops the word mark itself; failure keeps the selection.
     expect(read('src/hooks/useReaderHighlights.ts')).toMatch(/injectJs\(`\$\{clearSelectionJs\(selection\.token, true\)\};renderHighlight\(/)
-    expect(actions).toMatch(/if \(await createHighlight\([^)]*\)\) setSelection\(null\)/)
+    expect(actions).toMatch(/if \(await createHighlight\([^)]*\)\) closeOwnSelection\(selection\)/)
+  })
+  it('SEL-1: selection tokens are unique across documents — a stale clear from the last chapter never matches', async () => {
+    // @ts-expect-error -- jsdom ships no types and vitest's jsdom env is all we need it for
+    const { JSDOM } = await import('jsdom')
+    const firstToken = async () => {
+      const dom = new JSDOM('<p id="p">alpha beta</p>', { url: 'https://reader.test/', runScripts: 'outside-only' })
+      const w = dom.window as any
+      const posted: { token?: number }[] = []
+      w.ReactNativeWebView = { postMessage: (m: string) => { const d = JSON.parse(m); if (d.type === 'selection' && d.text) posted.push(d) } }
+      w.eval(READER_SELECTION_BRIDGE)
+      const t = w.document.getElementById('p').firstChild
+      const r = w.document.createRange(); r.setStart(t, 0); r.setEnd(t, 5)
+      w.getSelection().addRange(r)
+      w.document.dispatchEvent(new w.Event('selectionchange'))
+      await new Promise(res => setTimeout(res, 300))
+      return posted.at(-1)!.token
+    }
+    const a = await firstToken()
+    const b = await firstToken()
+    expect(typeof a).toBe('number')
+    expect(a).not.toBe(b)
+  })
+
+  it('SEL-1: closing the word mark leaves the text nodes a vocab range was painted on', async () => {
+    // @ts-expect-error -- jsdom ships no types and vitest's jsdom env is all we need it for
+    const { JSDOM } = await import('jsdom')
+    const dom = new JSDOM('<p id="p">alpha beta gamma</p>', { url: 'https://reader.test/', runScripts: 'outside-only' })
+    const w = dom.window as any
+    const d = w.document
+    const posted: { token?: number }[] = []
+    w.ReactNativeWebView = { postMessage: (m: string) => { const x = JSON.parse(m); if (x.type === 'selection' && x.text) posted.push(x) } }
+    w.eval(READER_SELECTION_BRIDGE)
+    const p = d.getElementById('p')
+    // Hold on "beta": the tap path marks the word it resolves at the point.
+    d.caretRangeFromPoint = () => { const c = d.createRange(); c.setStart(p.firstChild, 7); return c }
+    const touch = new w.Event('touchstart', { bubbles: true })
+    Object.defineProperty(touch, 'changedTouches', { value: [{ clientX: 1, clientY: 1 }] })
+    p.dispatchEvent(touch)
+    await new Promise(res => setTimeout(res, 500))
+    const mark = p.querySelector('.ts-word-mark')
+    expect(mark.textContent).toBe('beta')
+    // The vocab layer paints "beta" while the mark is up (CSS.highlights keeps live Ranges).
+    const word = mark.firstChild
+    const vocab = d.createRange(); vocab.setStart(word, 0); vocab.setEnd(word, 4)
+    w.eval(clearSelectionJs(posted.at(-1)!.token))
+    expect(p.querySelector('.ts-word-mark')).toBeNull()
+    expect(word.isConnected).toBe(true)
+    expect(vocab.startContainer).toBe(word)
+    expect(vocab.toString()).toBe('beta')
   })
 })

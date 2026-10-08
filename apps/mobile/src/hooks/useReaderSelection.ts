@@ -20,6 +20,8 @@ export type LookupState = {
   id: string
   tapsRemaining: number | null
   busy: boolean
+  /** The selection that asked — add-anyway closes only that one (SEL-1). */
+  selectionId: number
 }
 
 type Options = {
