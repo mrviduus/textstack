@@ -188,11 +188,19 @@ answers "what happened" and nothing answered "what is half-finished right now".
 
 - **Reader — open after R3/R4** (2026-10-06):
   - **QA-007 findings 2026-10-08** ([report](qa/reports/2026-10-08-reader-android.md)), not started:
-    **PDF reopens one page back** when the next page fills most of the screen but the previous one's
-    margin still touches the top edge (saves the top-edge page); guest Library empty online after a
+    ~~PDF reopens one page back~~ (fixed #778, web had it too); guest Library empty online after a
     download without "Save to Library"; Books genre chips stretch tall and search "1984" → "No books
     found"; Library "Continue" opens book detail, not the reader; native selection handles stay after
-    highlighting; a wrong pt-BR translation ("pocketed → enterrado"); PDF detail "~33 pages" for 15.
+    highlighting; a wrong pt-BR translation ("pocketed → enterrado"); PDF detail "~33 pages" for 15;
+    dev build toasts "injectJs failed: markVocabWords is …" in both PDF and text readers (RN injects
+    vocab into a document that has no such function yet, or none at all for PDF) — check whether vocab
+    marks can miss on first paint.
+  - **PDF current page (review of #778), minor:** the mobile viewer measures against `innerHeight`,
+    which includes any strip RN chrome overlays; and the saved page (`readingPage`) and the zoom/re-fit
+    anchor (`pageAtViewportTop`) are two different notions on purpose — anything new needing "the
+    current page" should use `readingPage`. Engine Phase 5 (PDF as the `fixed` layout) owns both.
+  - **Login answers 500, not 401, when a stored password hash is malformed** (BCrypt throws in
+    `AuthService` login). Only reachable with bad data; found 2026-10-08 after a hand-edited hash.
   - **Mobile legacy `<mark>` vocab path, for engine Phase 2/6** (old WebViews without CSS Highlights
     only; no test phone has one): a highlight over a word with an inline translation also paints the
     floating label; `vhlLegacyMark` rewrites text nodes, which moves live highlight ranges' boundaries;

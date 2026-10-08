@@ -13,7 +13,7 @@ import {
   resolveOpenPage,
   topVisiblePage,
   buildPdfProgressPayload,
-  pageAtViewportTop,
+  readingPage,
   pdfGateReduce,
   PDF_GATE_INITIAL,
   type PageRect,
@@ -215,7 +215,7 @@ export default function PdfOriginalView({
     [bookId, initialPage, resumePage],
   )
 
-  // The page under the top of the scroll viewport. `visible` is the RENDER set
+  // The page being read (shared `readingPage`, QA-007 #3). `visible` is the RENDER set
   // (300px rootMargin) and its lowest page is often the one above — persisting
   // that made every open land one page earlier (C3). It stays the fallback only
   // until the first measurement.
@@ -235,8 +235,9 @@ export default function PdfOriginalView({
       const r = el.getBoundingClientRect()
       rects.push({ page: pn, top: r.top, bottom: r.bottom })
     }
-    const viewportTop = root.getBoundingClientRect().top
-    const pn = pageAtViewportTop(rects, viewportTop)
+    const { top: viewportTop, bottom: viewportBottom } = root.getBoundingClientRect()
+    const atEnd = root.scrollTop + root.clientHeight >= root.scrollHeight - 2
+    const pn = readingPage(rects, viewportTop, viewportBottom, atEnd)
     if (pn != null) setTopPage(pn)
     // A stale render set (right after a jump) measures nothing: keep the last anchor.
     const anchor = capturePageAnchor(rects, viewportTop)

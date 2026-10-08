@@ -7,6 +7,7 @@ import {
   resolveOpenPage,
   dimsReadyUpTo,
   pageAtViewportTop,
+  readingPage,
 } from './pdfPageWindow'
 
 describe('pagesInRange', () => {
@@ -150,5 +151,56 @@ describe('pageAtViewportTop (C3)', () => {
 
   it('non-zero viewport top (rects are client coords)', () => {
     expect(pageAtViewportTop([rect(39, 100 - 1266), rect(40, 100)], 100)).toBe(40)
+  })
+})
+
+// QA-007 #3: the page saved for reopen is the page the reader is reading, not
+// whatever page's bottom margin still touches the top edge.
+describe('readingPage (QA-007 #3)', () => {
+  const page = (p: number, top: number, h: number) => ({ page: p, top, bottom: top + h })
+
+  it('page 6 sliver at the top, page 7 filling ~90% of the screen → 7', () => {
+    // The old rule (page under the top line) said 6 here.
+    expect(pageAtViewportTop([page(6, -1220, 1250), page(7, 46, 1250)], 0)).toBe(6)
+    // 1000px viewport; page 6 ends 30px below the top, 16px gap, page 7 fills the rest.
+    expect(readingPage([page(6, -1220, 1250), page(7, 46, 1250)], 0, 1000)).toBe(7)
+  })
+
+  it('stable across reopen: a jump aligns the page top with the viewport top', () => {
+    expect(readingPage([page(39, -1266, 1250), page(40, 0, 1250), page(41, 1266, 1250)], 0, 1000)).toBe(40)
+    expect(readingPage([page(39, -1265.5, 1250), page(40, 0.5, 1250)], 0, 1000)).toBe(40)
+  })
+
+  it('pages shorter than the viewport, several fully visible → the first of them (no drift on reopen)', () => {
+    expect(readingPage([page(4, 0, 400), page(5, 416, 500), page(6, 932, 400)], 0, 1000)).toBe(4)
+  })
+
+  it('mixed sizes: a tall page filling most of the screen beats a short page peeking in below', () => {
+    expect(readingPage([page(6, -1700, 2500), page(7, 816, 400)], 0, 1000)).toBe(6)
+  })
+
+  it('most of the screen is still the page above → that page', () => {
+    expect(readingPage([page(6, -650, 1250), page(7, 616, 1250)], 0, 1000)).toBe(6)
+  })
+
+  it('does not depend on the order of the rects (web passes them in IntersectionObserver order)', () => {
+    // Near-tie chain: scores ≈ .985 / .994 / 1.0. The best is 7; 6 is within the tie window of 7, 5 is not.
+    const rects = [page(5, -6, 400), page(6, 413.6, 400), page(7, 830, 160)]
+    const want = readingPage(rects, 0, 1000)
+    expect(want).toBe(6)
+    for (const order of [[2, 1, 0], [1, 2, 0], [2, 0, 1], [0, 2, 1]]) {
+      expect(readingPage(order.map((i) => rects[i]), 0, 1000)).toBe(want)
+    }
+  })
+
+  it('scrolled to the very end, several short pages fully visible → the last of them (a jump to the last page)', () => {
+    const end = [page(38, 0, 250), page(39, 266, 250), page(40, 532, 250)]
+    expect(readingPage(end, 0, 1000)).toBe(38)
+    expect(readingPage(end, 0, 1000, true)).toBe(40)
+  })
+
+  it('non-zero viewport top (client coords); nothing → null', () => {
+    expect(readingPage([page(6, 100 - 1220, 1250), page(7, 146, 1250)], 100, 1100)).toBe(7)
+    expect(readingPage([], 0, 1000)).toBeNull()
   })
 })
