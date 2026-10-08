@@ -183,6 +183,22 @@ describe('readingPage (QA-007 #3)', () => {
     expect(readingPage([page(6, -650, 1250), page(7, 616, 1250)], 0, 1000)).toBe(6)
   })
 
+  it('does not depend on the order of the rects (web passes them in IntersectionObserver order)', () => {
+    // Near-tie chain: scores ≈ .985 / .994 / 1.0. The best is 7; 6 is within the tie window of 7, 5 is not.
+    const rects = [page(5, -6, 400), page(6, 413.6, 400), page(7, 830, 160)]
+    const want = readingPage(rects, 0, 1000)
+    expect(want).toBe(6)
+    for (const order of [[2, 1, 0], [1, 2, 0], [2, 0, 1], [0, 2, 1]]) {
+      expect(readingPage(order.map((i) => rects[i]), 0, 1000)).toBe(want)
+    }
+  })
+
+  it('scrolled to the very end, several short pages fully visible → the last of them (a jump to the last page)', () => {
+    const end = [page(38, 0, 250), page(39, 266, 250), page(40, 532, 250)]
+    expect(readingPage(end, 0, 1000)).toBe(38)
+    expect(readingPage(end, 0, 1000, true)).toBe(40)
+  })
+
   it('non-zero viewport top (client coords); nothing → null', () => {
     expect(readingPage([page(6, 100 - 1220, 1250), page(7, 146, 1250)], 100, 1100)).toBe(7)
     expect(readingPage([], 0, 1000)).toBeNull()

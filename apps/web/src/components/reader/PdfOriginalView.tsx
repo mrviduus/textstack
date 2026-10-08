@@ -236,7 +236,8 @@ export default function PdfOriginalView({
       rects.push({ page: pn, top: r.top, bottom: r.bottom })
     }
     const { top: viewportTop, bottom: viewportBottom } = root.getBoundingClientRect()
-    const pn = readingPage(rects, viewportTop, viewportBottom)
+    const atEnd = root.scrollTop + root.clientHeight >= root.scrollHeight - 2
+    const pn = readingPage(rects, viewportTop, viewportBottom, atEnd)
     if (pn != null) setTopPage(pn)
     // A stale render set (right after a jump) measures nothing: keep the last anchor.
     const anchor = capturePageAnchor(rects, viewportTop)

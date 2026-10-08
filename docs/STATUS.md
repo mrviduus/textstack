@@ -195,6 +195,10 @@ answers "what happened" and nothing answered "what is half-finished right now".
     dev build toasts "injectJs failed: markVocabWords is …" in both PDF and text readers (RN injects
     vocab into a document that has no such function yet, or none at all for PDF) — check whether vocab
     marks can miss on first paint.
+  - **PDF current page (review of #778), minor:** the mobile viewer measures against `innerHeight`,
+    which includes any strip RN chrome overlays; and the saved page (`readingPage`) and the zoom/re-fit
+    anchor (`pageAtViewportTop`) are two different notions on purpose — anything new needing "the
+    current page" should use `readingPage`. Engine Phase 5 (PDF as the `fixed` layout) owns both.
   - **Login answers 500, not 401, when a stored password hash is malformed** (BCrypt throws in
     `AuthService` login). Only reachable with bad data; found 2026-10-08 after a hand-edited hash.
   - **Mobile legacy `<mark>` vocab path, for engine Phase 2/6** (old WebViews without CSS Highlights
