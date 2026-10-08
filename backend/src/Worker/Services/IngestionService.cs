@@ -139,8 +139,8 @@ public class IngestionWorkerService
             {
                 var extractor = _extractorRegistry.Resolve(request);
                 extractionResult = await extractor.ExtractAsync(request, ct);
-                // The PDF extractor stops early on cancellation and returns what it has; a truncated or
-                // empty result must not be read as "no text layer".
+                // Extractors throw on cancellation; this keeps a future one that returns a partial result
+                // from having it read as "no text layer".
                 ct.ThrowIfCancellationRequested();
 
                 sourceFormat = extractionResult.SourceFormat.ToString();
@@ -183,6 +183,7 @@ public class IngestionWorkerService
                     .Where(a => a.EditionId == job.EditionId)
                     .ToDictionaryAsync(a => a.OriginalPath, a => a.Id, ct);
 
+                var saved = 0;
                 foreach (var image in ImagesToStore(extractionResult.Images, stored, imageMap))
                 {
                     try
@@ -210,6 +211,7 @@ public class IngestionWorkerService
                         };
                         db.BookAssets.Add(asset);
                         imageMap[image.OriginalPath] = assetId;
+                        saved++;
                     }
                     catch (Exception ex)
                     {
@@ -218,11 +220,11 @@ public class IngestionWorkerService
                     }
                 }
 
-                if (imageMap.Count > 0)
+                if (saved > 0)
                 {
                     await db.SaveChangesAsync(ct);
-                    _logger.LogInformation("Saved {Count} images for edition {EditionId}",
-                        imageMap.Count, job.EditionId);
+                    _logger.LogInformation("Saved {Count} images for edition {EditionId} ({Reused} reused)",
+                        saved, job.EditionId, imageMap.Count - saved);
                 }
             }
 

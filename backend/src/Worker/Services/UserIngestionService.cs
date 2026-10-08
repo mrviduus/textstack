@@ -153,8 +153,8 @@ public class UserIngestionService
             // Extract content
             var extractor = _extractorRegistry.Resolve(request);
             var result = await extractor.ExtractAsync(request, ct);
-            // The PDF extractor stops early on cancellation and returns what it has; a truncated or
-            // empty result must not be read as a broken file.
+            // Extractors throw on cancellation; this keeps a future one that returns a partial result
+            // from having it read as a broken file.
             ct.ThrowIfCancellationRequested();
 
             job.SourceFormat = result.SourceFormat.ToString();
