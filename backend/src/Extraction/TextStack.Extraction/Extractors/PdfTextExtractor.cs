@@ -59,7 +59,7 @@ public sealed class PdfTextExtractor : ITextExtractor
             return Task.FromResult(ExtractFromDocument(
                 document, pdfBytes, request.Options.ExtractInlineImages, warnings, ct));
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             warnings.Add(new ExtractionWarning(
                 ExtractionWarningCode.ParseError,
@@ -139,8 +139,8 @@ public sealed class PdfTextExtractor : ITextExtractor
 
         for (var chapterIdx = 0; chapterIdx < chapters.Count; chapterIdx++)
         {
-            if (ct.IsCancellationRequested)
-                break;
+            // Throw, never break: a truncated result would be saved as the whole book.
+            ct.ThrowIfCancellationRequested();
 
             var chapter = chapters[chapterIdx];
             var chapterNumber = chapterIdx + 1;

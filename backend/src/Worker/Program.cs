@@ -71,8 +71,8 @@ builder.Services.AddSingleton<IBookMetadataGenerator, EnrichmentAgentMetadataGen
 builder.Services.AddHostedService<AiProviderReadinessCheck>();
 builder.Services.AddSingleton<ITagSuggestionGenerator, TagSuggestionGenerator>();
 builder.Services.AddSingleton<IngestionWorkerService>();
-// Enrichment-reliability: shared executor (atomic claim + terminal status) used by the ingestion
-// inline-kick and the sweep worker below. Singleton — depends only on the DbContext factory + the
+// Enrichment-reliability: executor (atomic claim + terminal status) used only by the sweep worker
+// below (ADR-022: one consumer per queue). Singleton — depends only on the DbContext factory + the
 // singleton IBookMetadataGenerator.
 builder.Services.AddSingleton<UserBookEnrichmentService>();
 builder.Services.AddSingleton<UserIngestionService>();
