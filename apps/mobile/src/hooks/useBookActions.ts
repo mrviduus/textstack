@@ -7,6 +7,7 @@ import {
 } from '@textstack/shared'
 import { useLanguage } from '../context/LanguageContext'
 import { useToast } from '../context/ToastContext'
+import { useAuth } from '../context/AuthContext'
 import { markLibraryRemoved } from '../lib/libraryRemovals'
 
 interface SavedCtx {
@@ -26,6 +27,8 @@ interface UploadCtx {
 export function useBookActions() {
   const { language, t } = useLanguage()
   const { show: showToast } = useToast()
+  const { user } = useAuth()
+  const userId = user?.id ?? null
 
   const showSavedActions = useCallback((item: UserLibraryItem, ctx: SavedCtx) => {
     const progress = ctx.progressMap[item.editionId]
@@ -86,7 +89,7 @@ export function useBookActions() {
         try {
           await libraryApi.removeFromLibrary(item.editionId)
           // Neither a download nor reading 1% may put it back (libraryRemovals.ts).
-          void markLibraryRemoved(item.editionId)
+          if (userId) void markLibraryRemoved(userId, item.editionId)
         } catch (e) {
           console.warn('Remove from library failed:', e)
           ctx.setLibrary(snapshot)
@@ -97,7 +100,7 @@ export function useBookActions() {
 
     buttons.push({ text: t('library.actions.cancel'), style: 'cancel' })
     Alert.alert(item.title, undefined, buttons)
-  }, [language, t, showToast])
+  }, [language, t, showToast, userId])
 
   const showUploadActions = useCallback((item: UserBookDto, ctx: UploadCtx) => {
     const s = item.status.toLowerCase()

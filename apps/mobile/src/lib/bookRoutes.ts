@@ -14,7 +14,13 @@
  */
 /** The fields a resume needs; a `ContinueReadingPick` is one. */
 export type ResumePick =
-  | { type: 'edition'; slug: string; chapterSlug: string | null }
+  | {
+      type: 'edition'; slug: string; chapterSlug: string | null
+      /** Known to the caller → progress is fetched alongside the book, not after it. */
+      editionId?: string
+      /** The progress row the caller already holds — not fetched again. */
+      place?: { chapterSlug: string | null; locator: string | null; positionJson?: string | null; percent?: number | null } | null
+    }
   | { type: 'userbook'; id: string; chapterSlug: string | null }
 
 export function resumeRoute(pick: ResumePick): string {

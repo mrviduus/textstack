@@ -46,7 +46,7 @@ export interface UserBookProgressLite {
 }
 
 export type ContinueReadingPick =
-  | { type: 'edition'; slug: string; title: string; coverPath: string | null; percent: number; chapterSlug: string | null; updatedAtMs: number }
+  | { type: 'edition'; slug: string; /** Lets a resume fetch progress alongside the book. */ editionId?: string; title: string; coverPath: string | null; percent: number; chapterSlug: string | null; updatedAtMs: number }
   | { type: 'userbook'; id: string; title: string; coverPath: string | null; percent: number; chapterSlug: string | null; updatedAtMs: number }
 
 export interface ContinueReadingInputs {
@@ -174,6 +174,7 @@ function pickCatalog(
   return {
     type: 'edition',
     slug: item.slug,
+    editionId: item.editionId,
     title: item.title,
     coverPath: item.coverPath,
     percent: Math.max(0, Math.min(1, percent)),

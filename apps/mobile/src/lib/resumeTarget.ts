@@ -19,11 +19,13 @@ type ChapterRow = { slug?: string | null; chapterNumber: number; sourceStartPage
  */
 export function resumeSlugFor(place: SavedPlace, chapters: readonly ChapterRow[]): string | null {
   const fromText = parseTextPosition(place?.positionJson)?.chapterSlug
-  return resumeChapterSlug(
-    fromText ?? place?.chapterSlug,
-    place?.locator,
-    chapters.map(c => ({ slug: userBookChapterSlug(c), sourceStartPage: c.sourceStartPage })),
-  )
+  const list = chapters.map(c => ({ slug: userBookChapterSlug(c), sourceStartPage: c.sourceStartPage }))
+  // No list to check against (Library rows): the text position is the best answer there is.
+  if (list.length === 0) return fromText ?? resumeChapterSlug(place?.chapterSlug, place?.locator, null)
+  // A text position naming a chapter the book no longer has (re-ingest renamed it) must not cost
+  // a valid chapterSlug or the page locator: fall through to them (code review #781).
+  if (fromText && list.some(c => c.slug === fromText)) return fromText
+  return resumeChapterSlug(place?.chapterSlug, place?.locator, list)
 }
 
 export type { ResumePick }
@@ -51,8 +53,14 @@ export async function resolveResumeRoute(pick: ResumePick, deps: ResumeDeps): Pr
   if (pick.chapterSlug) return fallback
   try {
     if (pick.type === 'edition') {
-      const book = await deps.getEdition(pick.slug)
-      const place = await deps.getEditionProgress(book.id).catch(() => null)
+      // The caller usually knows the edition (Library rows, the hero): ask for both at once, or
+      // reuse the progress row it already holds. Only a bare slug costs two round-trips.
+      const progressFor = (id: string) => pick.place !== undefined
+        ? Promise.resolve(pick.place)
+        : deps.getEditionProgress(id).catch(() => null)
+      const [book, place] = pick.editionId
+        ? await Promise.all([deps.getEdition(pick.slug), progressFor(pick.editionId)])
+        : await deps.getEdition(pick.slug).then(async b => [b, await progressFor(b.id)] as const)
       const slug = pickSlug(place, book.chapters)
       return slug ? `/reader/${pick.slug}/${slug}` : fallback
     }

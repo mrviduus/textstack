@@ -8,6 +8,8 @@ import type { BookDetail } from '@textstack/shared'
 import { useDownload } from '../../src/context/DownloadContext'
 import { resumeSlugFor } from '../../src/lib/resumeTarget'
 import { clearLibraryRemoved, markLibraryRemoved, wasLibraryRemoved } from '../../src/lib/libraryRemovals'
+import { autoAddSettled } from '../../src/lib/libraryAutoAddInstance'
+import { createLocalChangeGuard } from '../../src/lib/localChangeGuard'
 import { useAuth } from '../../src/context/AuthContext'
 import { useTheme } from '../../src/context/ThemeContext'
 import { useLanguage } from '../../src/context/LanguageContext'
@@ -34,7 +36,8 @@ import { SkeletonLoader } from '../../src/components/ui/SkeletonLoader'
 export default function BookDetailScreen() {
   const { slug } = useLocalSearchParams<{ slug: string }>()
   const router = useRouter()
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, user } = useAuth()
+  const userId = user?.id ?? null
   const { colors } = useTheme()
   const { language, t } = useLanguage()
   const toast = useToast()
@@ -64,6 +67,8 @@ export default function BookDetailScreen() {
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [cached, setCached] = useState(false)
   const [inLibrary, setInLibrary] = useState(false)
+  // Taps set "In Library" optimistically; the focus refresh must not undo one it raced (localChangeGuard.ts).
+  const libraryGuard = useRef(createLocalChangeGuard()).current
   const [collectionSheetOpen, setCollectionSheetOpen] = useState(false)
   // Not mounted until first opened — see useSheetMount. This screen is public,
   // so the sheet's `useCollections` was 401ing on every open for a signed-out
@@ -214,8 +219,9 @@ export default function BookDetailScreen() {
       // still render the book, just without the saved/continue state. We log
       // the error instead of swallowing silently (P1-4/P3-2).
       try {
+        const token = libraryGuard.begin()
         const lib = await libraryApi.getLibrary()
-        if (!cancelled) setInLibrary(lib.some(item => item.editionId === editionId))
+        if (!cancelled && libraryGuard.mayApply(token)) setInLibrary(lib.some(item => item.editionId === editionId))
       } catch (err) {
         console.warn('getLibrary failed on book detail:', err)
       }
@@ -285,9 +291,14 @@ export default function BookDetailScreen() {
         return () => { cancelled = true }
       }
       if (!isAuthenticated) return
-      // "In Library" too: the reader may have added the book at 1% (libraryAutoAdd.ts).
-      libraryApi.getLibrary()
-        .then(lib => { if (!cancelled) setInLibrary(lib.some(item => item.editionId === editionId)) })
+      // "In Library" too: the reader may have added the book at 1% (libraryAutoAdd.ts). Wait for an
+      // add still in flight, and drop the answer if a tap changed the button meanwhile.
+      const token = libraryGuard.begin()
+      ;(userId ? autoAddSettled(userId, editionId) : Promise.resolve())
+        .then(() => libraryApi.getLibrary())
+        .then(lib => {
+          if (!cancelled && libraryGuard.mayApply(token)) setInLibrary(lib.some(item => item.editionId === editionId))
+        })
         .catch(() => {})
       readingProgressApi.getProgress(editionId)
         .then(p => {
@@ -312,16 +323,18 @@ export default function BookDetailScreen() {
   // removed it. Optimistic like the Save toggle, and rolled back if the server refuses.
   const addOnDownload = useCallback(async () => {
     const id = book?.id
-    if (!id || !isAuthenticated || inLibrary) return
-    if (await wasLibraryRemoved(id)) return
+    if (!id || !userId || !isAuthenticated || inLibrary) return
+    if (await wasLibraryRemoved(userId, id)) return
+    libraryGuard.touch()
     setInLibrary(true)
     try {
       await libraryApi.addToLibrary(id)
     } catch (err) {
       console.warn('Library add on download failed:', err)
+      libraryGuard.touch()
       setInLibrary(false)
     }
-  }, [book?.id, isAuthenticated, inLibrary])
+  }, [book?.id, userId, isAuthenticated, inLibrary, libraryGuard])
 
   if (loading) {
     return (
@@ -473,17 +486,18 @@ export default function BookDetailScreen() {
                 const toggle = async () => {
                   // Optimistic flip — roll back on failure so the button doesn't
                   // lie about the library state.
+                  libraryGuard.touch()
                   setInLibrary(!wasInLibrary)
                   try {
                     if (wasInLibrary) {
                       await libraryApi.removeFromLibrary(book.id)
                       // Neither a download nor reading 1% may put it back (libraryRemovals.ts).
-                      void markLibraryRemoved(book.id)
+                      if (userId) void markLibraryRemoved(userId, book.id)
                       // The server took it out of its collections too (#706).
                       invalidateCollectionsCache()
                     } else {
                       await libraryApi.addToLibrary(book.id)
-                      void clearLibraryRemoved(book.id)
+                      if (userId) void clearLibraryRemoved(userId, book.id)
                     }
                     // No shelf cache to drop: the Library tab refetches on focus.
                   } catch (err) {

@@ -24,6 +24,20 @@ describe('resumeSlugFor — the saved place, by chapter', () => {
   it('prefers the text position over a lagging chapterSlug projection', () => {
     expect(resumeSlugFor({ chapterSlug: 'ch-2', locator: null, positionJson: textPos('ch-5') }, chapters)).toBe('ch-5')
   })
+
+  it('a text position naming a chapter no longer in the list never drops a valid chapterSlug (review 2 #2)', () => {
+    expect(resumeSlugFor({ chapterSlug: 'ch-2', locator: null, positionJson: textPos('gone') }, chapters)).toBe('ch-2')
+  })
+
+  it('…then falls to the page locator', () => {
+    const pdf = [{ slug: 'part-1', chapterNumber: 0, sourceStartPage: 1 }, { slug: 'part-2', chapterNumber: 1, sourceStartPage: 10 }]
+    expect(resumeSlugFor({ chapterSlug: null, locator: 'page:12', positionJson: textPos('gone') }, pdf)).toBe('part-2')
+  })
+
+  it('without a chapter list, the text position still names the chapter (Library rows)', () => {
+    expect(resumeSlugFor({ chapterSlug: 'ch-2', locator: null, positionJson: textPos('ch-5') }, [])).toBe('ch-5')
+    expect(resumeSlugFor({ chapterSlug: 'ch-2', locator: null, positionJson: null }, [])).toBe('ch-2')
+  })
 })
 
 describe('resolveResumeRoute — one answer for the hero, the list and the detail screens', () => {
@@ -41,6 +55,16 @@ describe('resolveResumeRoute — one answer for the hero, the list and the detai
   it('a catalog book with a position nobody can place goes to the book screen, not chapter 1', async () => {
     const d = deps({ getEditionProgress: vi.fn(async () => ({ chapterSlug: null, locator: '', positionJson: null, percent: 0.45 })) })
     expect(await resolveResumeRoute({ type: 'edition', slug: 'dracula', chapterSlug: null }, d)).toBe('/book/dracula')
+  })
+
+  it('uses the editionId the caller has: book and progress fetched in parallel (review 2 #8)', async () => {
+    let releaseBook!: () => void
+    const getEdition = vi.fn(() => new Promise<{ id: string; chapters: typeof chapters }>(r => { releaseBook = () => r({ id: 'ed-1', chapters }) }))
+    const getEditionProgress = vi.fn(async () => ({ chapterSlug: null, locator: '', positionJson: textPos('ch-5'), percent: 0.4 }))
+    const p = resolveResumeRoute({ type: 'edition', slug: 'dracula', chapterSlug: null, editionId: 'ed-1' }, deps({ getEdition, getEditionProgress }))
+    expect(getEditionProgress).toHaveBeenCalledWith('ed-1') // before the book answered
+    releaseBook()
+    expect(await p).toBe('/reader/dracula/ch-5')
   })
 
   it('a catalog book never opened starts at its first chapter', async () => {

@@ -8,7 +8,7 @@ import { markLibraryRemoved, clearLibraryRemoved, wasLibraryRemoved } from './li
 function deps(o: Partial<AutoAddDeps> = {}): AutoAddDeps {
   return {
     wasRemoved: vi.fn(async () => false),
-    isInLibrary: vi.fn(async () => false),
+    isOnline: vi.fn(async () => true),
     add: vi.fn(async () => {}),
     ...o,
   }
@@ -17,61 +17,88 @@ function deps(o: Partial<AutoAddDeps> = {}): AutoAddDeps {
 describe('createLibraryAutoAdd — web parity (useReaderLibraryTracking: 1% in)', () => {
   it('adds once the reader is 1% in, not before, not with an unknown percent', async () => {
     const d = deps()
-    const maybeAdd = createLibraryAutoAdd(d)
-    await maybeAdd('ed-1', 0.009)
-    await maybeAdd('ed-1', null)
+    const { maybeAdd } = createLibraryAutoAdd(d)
+    await maybeAdd('u1', 'ed-1', 0.009)
+    await maybeAdd('u1', 'ed-1', null)
     expect(d.add).not.toHaveBeenCalled()
-    await maybeAdd('ed-1', 0.01)
+    await maybeAdd('u1', 'ed-1', 0.01)
     expect(d.add).toHaveBeenCalledWith('ed-1')
   })
 
-  it('asks once per book per app session — a chapter remount does not POST again', async () => {
+  it('one idempotent POST per book per account per session — no library download (review 2 #4)', async () => {
     const d = deps()
-    const maybeAdd = createLibraryAutoAdd(d)
-    await maybeAdd('ed-1', 0.2)
-    await maybeAdd('ed-1', 0.3)
-    expect(d.isInLibrary).toHaveBeenCalledTimes(1)
+    const { maybeAdd } = createLibraryAutoAdd(d)
+    await maybeAdd('u1', 'ed-1', 0.2)
+    await maybeAdd('u1', 'ed-1', 0.3)
     expect(d.add).toHaveBeenCalledTimes(1)
+    expect(d).not.toHaveProperty('isInLibrary')
   })
 
-  it('does not POST a book already in the library', async () => {
-    const d = deps({ isInLibrary: vi.fn(async () => true) })
-    await createLibraryAutoAdd(d)('ed-1', 0.5)
-    expect(d.add).not.toHaveBeenCalled()
+  it('is scoped to the account: another user on the same device is asked again (review 2 #1)', async () => {
+    const d = deps()
+    const { maybeAdd } = createLibraryAutoAdd(d)
+    await maybeAdd('u1', 'ed-1', 0.2)
+    await maybeAdd('u2', 'ed-1', 0.2)
+    expect(d.add).toHaveBeenCalledTimes(2)
+    expect(d.wasRemoved).toHaveBeenLastCalledWith('u2', 'ed-1')
   })
 
   it('never re-adds a book the reader removed', async () => {
     const d = deps({ wasRemoved: vi.fn(async () => true) })
-    await createLibraryAutoAdd(d)('ed-1', 0.5)
+    await createLibraryAutoAdd(d).maybeAdd('u1', 'ed-1', 0.5)
     expect(d.add).not.toHaveBeenCalled()
   })
 
-  it('a failed add is retried on the next save', async () => {
-    const add = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue(undefined)
-    const d = deps({ add })
-    const maybeAdd = createLibraryAutoAdd(d)
-    await maybeAdd('ed-1', 0.5)
-    await maybeAdd('ed-1', 0.5)
+  it('offline: does not even try (review 2 #3)', async () => {
+    const d = deps({ isOnline: vi.fn(async () => false) })
+    await createLibraryAutoAdd(d).maybeAdd('u1', 'ed-1', 0.5)
+    expect(d.add).not.toHaveBeenCalled()
+  })
+
+  it('a failure is retried at most once per book per session — no storm on a 5xx (review 2 #3)', async () => {
+    const add = vi.fn(async () => { throw new Error('500') })
+    const { maybeAdd } = createLibraryAutoAdd(deps({ add }))
+    for (let i = 0; i < 5; i++) await maybeAdd('u1', 'ed-1', 0.5)
     expect(add).toHaveBeenCalledTimes(2)
+  })
+
+  it('exposes the in-flight add so a screen can wait for it before reading the library', async () => {
+    let release!: () => void
+    const add = vi.fn(() => new Promise<void>(r => { release = r }))
+    const { maybeAdd, settled } = createLibraryAutoAdd(deps({ add }))
+    const p = maybeAdd('u1', 'ed-1', 0.5)
+    let done = false
+    const waiting = settled('u1', 'ed-1').then(() => { done = true })
+    await vi.waitFor(() => expect(add).toHaveBeenCalled())
+    expect(done).toBe(false)
+    release()
+    await p
+    await waiting
+    expect(done).toBe(true)
   })
 
   it('is wired into the catalog reader save, behind the session check', () => {
     const src = readFileSync(resolve(__dirname, '../components/reader/useEditionReaderSource.ts'), 'utf8')
-    const persist = src.slice(src.indexOf('const persist = useCallback('), src.indexOf('}, [isAuthenticated])'))
+    const persist = src.slice(src.indexOf('const persist = useCallback('), src.indexOf('const openedFromRef'))
     const session = persist.indexOf('if (!isAuthenticated) return')
     expect(session).toBeGreaterThan(-1)
-    expect(persist.indexOf('autoAddToLibrary(id, snap.bookPercent)')).toBeGreaterThan(session)
+    expect(persist.indexOf('autoAddToLibrary(')).toBeGreaterThan(session)
   })
 })
 
-describe('libraryRemovals — a removal is remembered on the device', () => {
+describe('libraryRemovals — a removal is remembered per account (review 2 #1)', () => {
   beforeEach(async () => { await AsyncStorage.clear() })
 
   it('remembers a removal until the reader adds the book back', async () => {
-    expect(await wasLibraryRemoved('ed-1')).toBe(false)
-    await markLibraryRemoved('ed-1')
-    expect(await wasLibraryRemoved('ed-1')).toBe(true)
-    await clearLibraryRemoved('ed-1')
-    expect(await wasLibraryRemoved('ed-1')).toBe(false)
+    expect(await wasLibraryRemoved('u1', 'ed-1')).toBe(false)
+    await markLibraryRemoved('u1', 'ed-1')
+    expect(await wasLibraryRemoved('u1', 'ed-1')).toBe(true)
+    await clearLibraryRemoved('u1', 'ed-1')
+    expect(await wasLibraryRemoved('u1', 'ed-1')).toBe(false)
+  })
+
+  it('one account removing a book says nothing about another account', async () => {
+    await markLibraryRemoved('u1', 'ed-1')
+    expect(await wasLibraryRemoved('u2', 'ed-1')).toBe(false)
   })
 })

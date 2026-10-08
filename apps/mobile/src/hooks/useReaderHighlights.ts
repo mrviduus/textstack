@@ -4,7 +4,7 @@ import type { PublicHighlight, PdfAnchor } from '@textstack/shared'
 import { highlightCache, userBookHighlightCache } from '../lib/readerOfflineCache'
 import { matchesChapter } from '../lib/highlightChapter'
 
-type Selection = { text: string; anchor?: unknown } | null
+type Selection = { text: string; anchor?: unknown; token?: number } | null
 type ToastFn = (t: { message: string; variant: 'error' | 'success' | 'info' }) => void
 type User = { id: string } | null | undefined
 
@@ -159,7 +159,12 @@ export function useReaderHighlights({
   const create = useCallback(
     async ({ color, selection, chapter }: { color: string; selection: NonNullable<Selection>; chapter: ChapterLike }): Promise<boolean> => {
       const bId = currentBookId()
-      if (!bId) return false
+      if (!bId) {
+        // The book id has not resolved yet. Say so — returning silently left the toolbar open with
+        // a button that did nothing (code review #781). The selection stays for a retry.
+        showToast({ message: 'Could not add highlight. Try again.', variant: 'error' })
+        return false
+      }
       try {
         const anchorJson = selection.anchor ? JSON.stringify(selection.anchor) : JSON.stringify({ exact: selection.text })
         const payload = userBookMode
@@ -170,7 +175,7 @@ export function useReaderHighlights({
         // nodes and would collapse a live range built before it (the darker second layer, QA-007).
         // Not earlier — touching the DOM mid-request could end the native selection, and on failure
         // the reader keeps it to retry.
-        injectJs(`try{window.__tsClearWordMark&&window.__tsClearWordMark()}catch(e){};renderHighlight(${JSON.stringify(hl.id)}, ${JSON.stringify(anchorJson)}, ${JSON.stringify(color)}, ${JSON.stringify(selection.text)})`)
+        injectJs(`try{window.__tsClearSelection&&window.__tsClearSelection(${typeof selection.token === 'number' ? selection.token : 'null'}, true)}catch(e){};renderHighlight(${JSON.stringify(hl.id)}, ${JSON.stringify(anchorJson)}, ${JSON.stringify(color)}, ${JSON.stringify(selection.text)})`)
         highlightsRef.current = [...highlightsRef.current, hl]
         bumpHighlights()
         const uid = user?.id

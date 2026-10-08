@@ -28,7 +28,7 @@ export default function ReaderScreen() {
 
 function EditionReader() {
   const { bookSlug, chapterSlug } = useLocalSearchParams<{ bookSlug: string; chapterSlug: string }>()
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, user } = useAuth()
   const { language } = useLanguage()
   const { show: showToast } = useToast()
 
@@ -37,6 +37,7 @@ function EditionReader() {
     chapterSlug: chapterSlug ?? '',
     language,
     isAuthenticated,
+    userId: user?.id ?? null,
     showToast,
   })
 

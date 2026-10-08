@@ -6,7 +6,7 @@ import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import {
   getStorageUrl,
-  entryKey, entryTitle, entryAuthor, entryCoverPath, entryProgress, resumeChapterSlug,
+  entryKey, entryTitle, entryAuthor, entryCoverPath, entryProgress,
   type LibraryEntry, type UserLibraryItem, type ReadingProgressDto, formatTimeAgo, userBooksApi, createBooksApi } from '@textstack/shared'
 import { useTheme } from '../../context/ThemeContext'
 import { useLanguage } from '../../context/LanguageContext'
@@ -25,6 +25,7 @@ import { listStoredOriginalIds } from '../../lib/originalFileCache'
 import { useResumeOpener } from '../../hooks/useResumeOpener'
 import { resumePickKey } from '../../lib/resumeOpener'
 import type { ResumePick } from '../../lib/bookRoutes'
+import { resumeSlugFor } from '../../lib/resumeTarget'
 
 /**
  * The reader's books — all of them, in one list.
@@ -247,12 +248,17 @@ export function BookList({
     // What Continue resumes — a catalog row with a progress row, or a ready upload in progress.
     // A null chapter is not "nothing to resume" (a PDF page, a text position): the shared opener
     // looks the chapter up, exactly as the hero does.
+    // Finished books offer no Continue on either half. The edition pick carries the id and the row
+    // it already has, so the opener does not fetch either again.
     const resumePick: ResumePick | null = e.kind === 'saved'
-      ? (serverProgress
-          ? { type: 'edition', slug: e.item.slug, chapterSlug: resumeChapterSlug(serverProgress.chapterSlug, serverProgress.locator, null) }
+      ? (serverProgress && !isFinished
+          ? {
+              type: 'edition', slug: e.item.slug, editionId: e.item.editionId, place: serverProgress,
+              chapterSlug: resumeSlugFor(serverProgress, []),
+            }
           : null)
       : (isReady && pct > 0 && !isFinished
-          ? { type: 'userbook', id: e.book.id, chapterSlug: resumeChapterSlug(e.book.progressChapterSlug, e.book.progressLocator, null) }
+          ? { type: 'userbook', id: e.book.id, chapterSlug: resumeSlugFor({ chapterSlug: e.book.progressChapterSlug, locator: e.book.progressLocator ?? null }, []) }
           : null)
     const lastRead = e.kind === 'saved' ? serverProgress?.updatedAt : e.book.progressUpdatedAt
 

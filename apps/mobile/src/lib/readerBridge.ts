@@ -200,6 +200,7 @@ export const READER_SELECTION_BRIDGE = `
       if (_hlOverlayer && _hlOverlayer.markJustAnchored) _hlOverlayer.markJustAnchored();
       _lastDispatchedText = text;
       _lastDispatchWasTap = true;
+      _selToken++;
       // mode:'tap' tells RN to always route to WordCard regardless of whitespace —
       // sentence captures the surrounding paragraph but the popup is always
       // single-word for the tapped word.
@@ -208,7 +209,8 @@ export const READER_SELECTION_BRIDGE = `
         mode: 'tap',
         text: text,
         sentence: sentence,
-        anchor: anchor
+        anchor: anchor,
+        token: _selToken
       }));
       return true;
     }
@@ -252,6 +254,17 @@ export const READER_SELECTION_BRIDGE = `
     // RN clears the mark when the selection toolbar closes — the toolbar owns
     // the lifecycle, so it also owns the ending.
     window.__tsClearWordMark = clearWordMark;
+
+    // Every selection posted to RN carries a token; RN hands the token of the selection it closed
+    // back to this clear. A clear arriving after the reader already made a NEW selection (its
+    // token moved on) is stale and does nothing — it must not wipe the newer mark or range.
+    // markOnly: unwrap the mark but keep the native range (the highlight paint, mid-toolbar).
+    var _selToken = 0;
+    window.__tsClearSelection = function(token, markOnly) {
+      if (typeof token === 'number' && token !== _selToken) return;
+      if (!markOnly) { try { window.getSelection && window.getSelection().removeAllRanges(); } catch(e) {} }
+      clearWordMark();
+    };
 
     // The chapter's own element, or the body where there is none (the PDF
     // viewer). Context cut from the body picked up the template's whitespace,
@@ -325,11 +338,13 @@ export const READER_SELECTION_BRIDGE = `
       _suppressSelectionChangeUntil = Date.now() + 200;
       _lastDispatchedText = text;
       _lastDispatchWasTap = false;
+      _selToken++;
       window.ReactNativeWebView.postMessage(JSON.stringify({
         type: 'selection',
         text: text,
         sentence: sentence,
-        anchor: anchor
+        anchor: anchor,
+        token: _selToken
       }));
     }
 
@@ -607,13 +622,15 @@ export const READER_SELECTION_BRIDGE = `
       _lastDispatchedText = text;
       // mode:'drag' = native drag / long-press. RN routes by content: single
       // word → WordCard, multi-word → SelectionActionBar (palette).
+      _selToken++;
       window.ReactNativeWebView.postMessage(JSON.stringify({
         type: 'selection',
         mode: 'drag',
         text: text,
         sentence: sentence,
         anchor: anchor,
-        tooLong: text.length > SELECTION_MAX_CHARS
+        tooLong: text.length > SELECTION_MAX_CHARS,
+        token: _selToken
       }));
     }
     document.addEventListener('selectionchange', function() {

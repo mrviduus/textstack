@@ -1,15 +1,15 @@
 import { describe, it, expect, vi } from 'vitest'
-import { createResumeOpener } from './resumeOpener'
+import { createResumeOpener, createResumeFlight } from './resumeOpener'
 
 const unplaced = { type: 'edition' as const, slug: 'dracula', chapterSlug: null }
 
-function setup(active = true) {
+function setup(active = true, flight = createResumeFlight()) {
   let release!: (route: string) => void
   const resolve = vi.fn(() => new Promise<string>(r => { release = r }))
   const push = vi.fn()
   const onPending = vi.fn()
   const state = { active }
-  const open = createResumeOpener({ resolve, push, isActive: () => state.active, onPending })
+  const open = createResumeOpener({ resolve, push, isActive: () => state.active, onPending, flight })
   return { open, resolve, push, onPending, state, release: (r: string) => release(r) }
 }
 
@@ -49,5 +49,19 @@ describe('createResumeOpener — Continue tapped while the place is being looked
     await s.open({ type: 'userbook', id: 'ub-1', chapterSlug: 'ch-2' })
     expect(s.resolve).not.toHaveBeenCalled()
     expect(s.push).toHaveBeenCalledWith('/my-books/read/ub-1/ch-2')
+  })
+
+  it('hero and list share one guard: two Continues cannot push two readers (review 2 #9)', async () => {
+    const flight = createResumeFlight()
+    const hero = setup(true, flight)
+    const list = setup(true, flight)
+    const p = hero.open(unplaced)
+    await list.open({ type: 'userbook', id: 'ub-1', chapterSlug: null })
+    await list.open({ type: 'userbook', id: 'ub-1', chapterSlug: 'ch-2' })
+    expect(list.resolve).not.toHaveBeenCalled()
+    expect(list.push).not.toHaveBeenCalled()
+    hero.release('/reader/dracula/ch-5')
+    await p
+    expect(hero.push).toHaveBeenCalledTimes(1)
   })
 })

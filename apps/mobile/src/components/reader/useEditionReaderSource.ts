@@ -5,7 +5,7 @@ import { createBooksApi, readingProgressApi, parseScrollLocator, chapterIdForSlu
 import type { Language, TextPosition } from '@textstack/shared'
 import { getLocalProgress, markLocalProgressSynced, saveLocalProgress, type LocalProgress } from '../../lib/progressStorage'
 import { serverProvablyNewer } from '../../lib/progressRestore'
-import { autoAddToLibrary } from '../../lib/libraryAutoAdd'
+import { autoAddToLibrary } from '../../lib/libraryAutoAddInstance'
 import { getCachedChapter, cacheChapter } from '../../lib/offlineDb'
 import { useReaderChapter } from '../../hooks/useReaderChapter'
 import { useReaderBook } from '../../hooks/useReaderBook'
@@ -20,6 +20,8 @@ type Params = {
   chapterSlug: string
   language: Language
   isAuthenticated: boolean
+  /** Scopes the 1% library auto-add to the account (libraryAutoAdd.ts). */
+  userId: string | null
   showToast: ToastFn
 }
 
@@ -36,6 +38,7 @@ export function useEditionReaderSource({
   chapterSlug,
   language,
   isAuthenticated,
+  userId,
   showToast,
 }: Params): ReaderRuntime {
   const router = useRouter()
@@ -124,7 +127,7 @@ export function useEditionReaderSource({
 
     if (!isAuthenticated) return
     // Web parity: in the library once 1% in — once per book per session. See libraryAutoAdd.ts.
-    void autoAddToLibrary(id, snap.bookPercent)
+    if (userId) void autoAddToLibrary(userId, id, snap.bookPercent)
     // The server row is keyed by chapter id. An offline-cached chapter has no
     // id to give, so there is nothing to send — the local write above is the
     // record, and useReaderPersistence repeats the save once an id appears.
@@ -147,7 +150,7 @@ export function useEditionReaderSource({
       // server's row is now at least as new as this one).
       .then(() => markLocalProgressSynced(id, snap.updatedAt))
       .catch((e) => { console.warn('[progress] save failed', e) })
-  }, [isAuthenticated])
+  }, [isAuthenticated, userId])
 
   // The local record this chapter opened from — what a server answer has to be
   // newer than. Kept rather than re-read: the reader's own first save would

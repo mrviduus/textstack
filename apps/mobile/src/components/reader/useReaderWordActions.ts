@@ -17,7 +17,11 @@ import { capabilitiesFor } from '../../lib/capabilities'
 import { claimGuestNudge } from '../../lib/guestNudge'
 import type { ReaderShellProps } from './readerShellTypes'
 
-const CLEAR_SELECTION_JS = 'try{window.getSelection&&window.getSelection().removeAllRanges()}catch(e){};try{window.__tsClearWordMark&&window.__tsClearWordMark()}catch(e){}'
+/** End the WebView's selection: native range + word mark — only if `token` is still the WebView's
+ *  current selection (readerBridge `__tsClearSelection`). The PDF viewer has no such function and
+ *  only needs its range dropped. */
+const clearSelectionJs = (token: number | undefined) =>
+  `try{if(window.__tsClearSelection){window.__tsClearSelection(${typeof token === 'number' ? token : 'null'})}else if(window.getSelection){window.getSelection().removeAllRanges()}}catch(e){}`
 
 /** Lightweight {key} interpolation — shared `t()` returns raw keys, we fill them in here. */
 function interpolate(template: string, vars: Record<string, string | number>): string {
@@ -158,11 +162,14 @@ export function useReaderWordActions({
   // darker second layer until reload). Only the X close did this (QA-007): highlight, mark known,
   // remove, add-anyway and the save outcomes all set the selection to null and left both behind.
   const selectionWasOpenRef = useRef(false)
+  // The token of the selection being closed: the clear is ignored by the WebView if the reader has
+  // since made a newer one (a late clear must not wipe it).
+  const closedTokenRef = useRef<number | undefined>(undefined)
   useEffect(() => {
-    if (selection) { selectionWasOpenRef.current = true; return }
+    if (selection) { selectionWasOpenRef.current = true; closedTokenRef.current = selection.token; return }
     if (!selectionWasOpenRef.current) return
     selectionWasOpenRef.current = false
-    injectJs(CLEAR_SELECTION_JS)
+    injectJs(clearSelectionJs(closedTokenRef.current))
   }, [selection, injectJs])
 
   // Save is now on screen for guests too (SelectionActionBar), so this handler owns
