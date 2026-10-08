@@ -251,6 +251,11 @@ environment reports nothing on any service.
   Rollbacks before this `run-name` have the default title "Deploy"; none ran after images were first
   published (#742, 2026-10-06 — the last dispatched deploy was 2026-03-25), so none is unprotected.
   Fewer than 5 successful deploys in the 30-day window (the re-run limit) fails the run closed.
+  So does a listing that lacks the newest successful deploy run of the newest main commit that has
+  one (main's commits paged back to the window, each looked up by `head_sha`, independently of the
+  listing), or no such run in the window: under `GITHUB_TOKEN` the listing once came back
+  self-consistent but four days stale (2026-10-07). Live is the listing's newest by start time, so a
+  re-run of an old rollback counts.
   **Race:** a rollback started after a retention run has listed the deploy runs is not protected by
   it; if that run deletes the target's version, the deploy's pull by digest fails and the server
   builds instead — slower, not broken.
