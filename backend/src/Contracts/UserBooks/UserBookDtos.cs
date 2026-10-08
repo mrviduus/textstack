@@ -75,9 +75,9 @@ public record UserBookDetailDto(
     /// <summary>Page a clipped article came from; null for uploaded files.</summary>
     string? SourceUrl = null,
     /// <summary>
-    /// Real page count of a PDF upload: the last chapter's <c>SourceEndPage</c>.
-    /// Null for non-PDF books and PDFs ingested before page ranges were stored —
-    /// clients then estimate from <see cref="TotalWordCount"/>.
+    /// Real page count of a PDF upload, as the extractor read it off the document
+    /// (<c>UserBook.PageCount</c>, stored once at ingestion). Null for non-PDF books and
+    /// PDFs ingested before it was stored — clients then estimate from <see cref="TotalWordCount"/>.
     /// </summary>
     int? PageCount = null
 );

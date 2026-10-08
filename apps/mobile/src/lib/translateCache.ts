@@ -37,9 +37,10 @@ const cache = new Map<string, CachedTranslation>()
 const inFlight = new Map<string, SingleFlight<CachedTranslation>>()
 
 // The sentence is part of the key, as it is of the server's: "wound" in "she
-// wound the clock" and in "the wound bled" are two different translations.
+// wound the clock" and in "the wound bled" are two different translations. So is
+// the bookId: the server biases the prompt by the book's genre.
 const keyOf = (text: string, from: string, to: string, ctx?: TranslateContext) =>
-  `${from}|${to}|${text.trim().toLowerCase()}|${ctx?.sentence?.trim() ?? ''}`
+  `${from}|${to}|${text.trim().toLowerCase()}|${ctx?.sentence?.trim() ?? ''}|${ctx?.bookId ?? ''}`
 
 /** Synchronous peek — lets the toolbar render instantly on a cache hit. */
 export function peekTranslation(text: string, from: string, to: string, ctx?: TranslateContext): CachedTranslation | undefined {

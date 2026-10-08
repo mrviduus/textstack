@@ -32,6 +32,8 @@ interface SelectionActionBarProps {
   /** The sentence the word was tapped in — sent with the translate call so the
    *  model picks the sense in context ("pocketed" ≠ "buried", QA-007). */
   sentence?: string
+  /** editionId or userBookId — the server biases the sense by the book's genre. */
+  bookId?: string
   isMultiWord: boolean
   /** Source language code — used for fetching the inline translation
    *  when a single word is tapped. Same value the reader passes to TTS. */
@@ -88,6 +90,7 @@ interface SelectionActionBarProps {
 export function SelectionActionBar({
   selectedText,
   sentence,
+  bookId,
   isMultiWord,
   language,
   onTranslate,
@@ -138,7 +141,7 @@ export function SelectionActionBar({
       return
     }
     // Instant render on a cache hit (re-tap of a seen word) — no spinner.
-    const ctx = { sentence }
+    const ctx = { sentence, bookId }
     const cached = peekTranslation(selectedText, fromLang, translationTarget!, ctx)
     if (cached !== undefined) {
       setTranslation(cached.translation)
@@ -155,7 +158,7 @@ export function SelectionActionBar({
       .catch(() => { if (!cancelled) setTranslation('') })
       .finally(() => { if (!cancelled) setTranslating(false) })
     return () => { cancelled = true }
-  }, [selectedText, sentence, isMultiWord, fromLang, translationTarget, isSameLang])
+  }, [selectedText, sentence, bookId, isMultiWord, fromLang, translationTarget, isSameLang])
 
   const handleCopy = () => {
     if (selectedText) Clipboard.setStringAsync(selectedText)

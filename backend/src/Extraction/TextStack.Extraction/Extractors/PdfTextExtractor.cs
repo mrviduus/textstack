@@ -93,6 +93,8 @@ public sealed class PdfTextExtractor : ITextExtractor
                 new ExtractionDiagnostics(TextSource.None, null, warnings));
         }
 
+        // The real total, before the MaxPages clamp below — this is what the reader sees.
+        var totalPages = pageCount;
         if (pageCount > MaxPages)
         {
             warnings.Add(new ExtractionWarning(
@@ -124,7 +126,7 @@ public sealed class PdfTextExtractor : ITextExtractor
 
             return new ExtractionResult(
                 SourceFormat.Pdf,
-                new ExtractionMetadata(title, authors, null, description),
+                new ExtractionMetadata(title, authors, null, description, PageCount: totalPages),
                 [], [],
                 new ExtractionDiagnostics(TextSource.None, null, warnings));
         }
@@ -301,7 +303,7 @@ public sealed class PdfTextExtractor : ITextExtractor
 
             return new ExtractionResult(
                 SourceFormat.Pdf,
-                new ExtractionMetadata(title, authors, null, description),
+                new ExtractionMetadata(title, authors, null, description, PageCount: totalPages),
                 [], allImages,
                 new ExtractionDiagnostics(TextSource.None, null, warnings));
         }
@@ -349,7 +351,7 @@ public sealed class PdfTextExtractor : ITextExtractor
             }
         }
 
-        var metadata = new ExtractionMetadata(title, authors, null, description, coverImage, coverMimeType);
+        var metadata = new ExtractionMetadata(title, authors, null, description, coverImage, coverMimeType, totalPages);
         var diagnostics = new ExtractionDiagnostics(TextSource.NativeText, null, warnings);
 
         return new ExtractionResult(SourceFormat.Pdf, metadata, units, allImages, diagnostics, toc);

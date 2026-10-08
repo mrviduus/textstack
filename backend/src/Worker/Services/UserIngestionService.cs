@@ -301,6 +301,7 @@ public class UserIngestionService
                 job.UserBook.Language = result.Metadata.Language;
 
             job.UserBook.TotalWordCount = result.Units.Sum(u => u.WordCount ?? 0);
+            job.UserBook.PageCount = result.Metadata.PageCount;
 
             // If title was auto-generated, update with extracted title
             if (!string.IsNullOrEmpty(result.Metadata.Title))

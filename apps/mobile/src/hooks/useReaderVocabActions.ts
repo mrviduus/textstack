@@ -119,7 +119,9 @@ export function useReaderVocabActions({
 
     // cachedTranslate (not translationApi) so this reuses the gloss the
     // selection toolbar just fetched for the same word — no 2nd round-trip.
-    cachedTranslate(sourceText, textLanguage, targetLang, { sentence: saved.sentence })
+    // Same `{ sentence, bookId }` as the toolbar (ReaderShell's translateBookId).
+    const bookId = userBookIdRef?.current || editionIdRef?.current || undefined
+    cachedTranslate(sourceText, textLanguage, targetLang, { sentence: saved.sentence, bookId })
       .then(({ translation }) => {
         if (translation && saved.id) {
           vocabularyApi.updateWord(saved.id, { translation }).catch(() => {})
@@ -130,7 +132,7 @@ export function useReaderVocabActions({
         }
       })
       .catch(() => {})
-  }, [vocabMapRef, injectJs, bumpVocab, setWordSaved, setSessionWordCount, notifyWordSaved, textLanguage, nativeLanguage])
+  }, [vocabMapRef, injectJs, bumpVocab, setWordSaved, setSessionWordCount, notifyWordSaved, textLanguage, nativeLanguage, editionIdRef, userBookIdRef])
 
   // In-flight guard for manual saves. Mirrors autoSavedRef but persists
   // across calls within the hook so a rapid double-tap on the toolbar's

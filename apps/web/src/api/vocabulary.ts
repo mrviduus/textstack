@@ -311,6 +311,8 @@ export interface ReaderVocabWordDto {
   word: string
   stage: number
   translation?: string
+  /** Only sent for a word with no translation — the backfill's context. */
+  sentence?: string | null
 }
 
 export async function getReaderVocab(): Promise<ReaderVocabWordDto[]> {

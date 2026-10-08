@@ -6,5 +6,7 @@ public sealed record ExtractionMetadata(
     string? Language,
     string? Description,
     byte[]? CoverImage = null,
-    string? CoverMimeType = null
+    string? CoverMimeType = null,
+    /// <summary>The document's physical page count (PDF only; null otherwise).</summary>
+    int? PageCount = null
 );

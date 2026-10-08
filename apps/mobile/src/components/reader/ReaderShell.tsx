@@ -78,6 +78,9 @@ export function ReaderShell(props: ReaderShellProps) {
   const { isAuthenticated, user } = useAuth()
   const { settings, update: updateSettings, resolvedFontFamily, resolvedTheme } = useReaderSettings()
   const { colors } = useTheme()
+  // Translate's bookId: editionId or userBookId, the same id web sends — the server
+  // resolves the genre from either (`ResolveGenreAsync`). Explain keeps `explainBookId`.
+  const translateBookId = source.id || undefined
   const { language } = useLanguage()
   // The UI speaks `language`; the page is written in this one (M5).
   const textLanguage = readerTextLanguage(props.bookLanguage, language)
@@ -430,6 +433,7 @@ export function ReaderShell(props: ReaderShellProps) {
           <SelectionActionBar
             selectedText={selection.text}
             sentence={selection.sentence}
+            bookId={translateBookId}
             isMultiWord={isMultiWord}
             language={textLanguage}
             onTranslate={() => setTranslateOpen(true)}
@@ -531,6 +535,8 @@ export function ReaderShell(props: ReaderShellProps) {
         <TranslationSheet
           visible={translateOpen}
           text={selection?.text || ''}
+          sentence={selection?.sentence}
+          bookId={translateBookId}
           onClose={() => setTranslateOpen(false)}
           onSpeak={(txt) => toggleTts(txt, { rate: settings.ttsSpeed, lang: textLanguage })}
           fromLang={textLanguage}

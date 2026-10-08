@@ -14,6 +14,10 @@ import { cachedTranslate } from '../lib/translateCache'
 interface TranslationSheetProps {
   visible: boolean
   text: string
+  /** Sentence + book the text was selected in — same context the toolbar sends,
+   *  so the sense matches and its cached answer is reused (QA-007). */
+  sentence?: string
+  bookId?: string
   onClose: () => void
   onSpeak: (text: string) => void
   /**
@@ -23,7 +27,7 @@ interface TranslationSheetProps {
   fromLang?: string
 }
 
-export function TranslationSheet({ visible, text, onClose, onSpeak, fromLang: fromOverride }: TranslationSheetProps) {
+export function TranslationSheet({ visible, text, sentence, bookId, onClose, onSpeak, fromLang: fromOverride }: TranslationSheetProps) {
   const { colors } = useTheme()
   const { t } = useLanguage()
   const { fromLang, translationTarget } = useTargetLanguage(fromOverride)
@@ -69,7 +73,7 @@ export function TranslationSheet({ visible, text, onClose, onSpeak, fromLang: fr
     // gloss for exactly this text — going direct re-bought a paid
     // `gpt-4.1-nano` call for a string the process was holding in memory, and
     // never wrote its own answer back for the next reader of the same word.
-    cachedTranslate(text, fromLang, translationTarget)
+    cachedTranslate(text, fromLang, translationTarget, { sentence, bookId })
       .then(({ translation }) => {
         setTranslated(translation)
       })
@@ -78,7 +82,7 @@ export function TranslationSheet({ visible, text, onClose, onSpeak, fromLang: fr
     // `needsLanguage` is a dependency, not just a guard: answering with the
     // language we had already guessed leaves `translationTarget` unchanged, and
     // without it in the list the sheet would sit empty after a correct answer.
-  }, [visible, text, fromLang, translationTarget, needsLanguage])
+  }, [visible, text, sentence, bookId, fromLang, translationTarget, needsLanguage])
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>

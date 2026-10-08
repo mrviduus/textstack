@@ -1,5 +1,6 @@
 using Application.Common.Interfaces;
 using Application.UserBooks;
+using Contracts.UserBooks;
 using Domain.Entities;
 using Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -28,7 +29,10 @@ public class UserBookDetailMappingTests
             db.Setup(x => x.UserBookFiles).Returns(() => FakeSet(UserBookFiles).Object);
             var storage = new Mock<IFileStorageService>();
             Service = new UserBookService(db.Object, storage.Object, TestEntitlements.Resolver);
+            Metadata = new MetadataService(db.Object);
         }
+
+        public MetadataService Metadata { get; }
     }
 
     private static Mock<DbSet<T>> FakeSet<T>(List<T> data) where T : class
@@ -174,49 +178,57 @@ public class UserBookDetailMappingTests
         Assert.All(dto!.Chapters, c => Assert.Null(c.SourceStartPage));
     }
 
-    // QA-007: a 15-page PDF showed "~33 pages" (word count / 250). A PDF's real page
-    // count is already stored as the chapters' SourceEndPage — the last one is the
-    // document's last page.
+    // QA-007: a 15-page PDF showed "~33 pages" (word count / 250). The real total is
+    // what the extractor read off the document (UserBook.PageCount), stored once at
+    // ingestion — never re-derived from chapter ranges, which end where the last
+    // detected chapter ends, not where the document does.
     [Fact]
-    public async Task GetBookAsync_PdfWithPageRanges_PageCountIsLastSourceEndPage()
+    public async Task GetBookAsync_PageCountColumnSet_ReturnsColumnNotChapterMax()
     {
         var h = new Harness();
         var userId = Guid.NewGuid();
         var bookId = Guid.NewGuid();
         var book = SeedBook(h, userId, bookId, BookFormat.Pdf, (1, 1), (2, 6));
-        book.Chapters.First(c => c.ChapterNumber == 1).SourceEndPage = 5;
-        book.Chapters.First(c => c.ChapterNumber == 2).SourceEndPage = 15;
-        book.TotalWordCount = 8250;
+        book.Chapters.First(c => c.ChapterNumber == 2).SourceEndPage = 12; // last chapter ends early
+        book.PageCount = 15;
 
         var dto = await h.Service.GetBookAsync(userId, bookId, CancellationToken.None);
 
         Assert.Equal(15, dto!.PageCount);
     }
 
+    // A PDF ingested before the column existed: null, so clients fall back to the
+    // word estimate — not a chapter-range guess.
     [Fact]
-    public async Task GetBookAsync_PdfWithoutPageRanges_PageCountNull()
+    public async Task GetBookAsync_PageCountColumnNull_PageCountNullEvenWithChapterRanges()
     {
         var h = new Harness();
         var userId = Guid.NewGuid();
         var bookId = Guid.NewGuid();
-        SeedBook(h, userId, bookId, BookFormat.Pdf, (1, null));
+        var book = SeedBook(h, userId, bookId, BookFormat.Pdf, (1, 1));
+        book.Chapters.First().SourceEndPage = 15;
 
         var dto = await h.Service.GetBookAsync(userId, bookId, CancellationToken.None);
 
         Assert.Null(dto!.PageCount);
     }
 
+    // The metadata-edit response replaces the client's detail state; it must carry
+    // the same stored count, not a second derivation.
     [Fact]
-    public async Task GetBookAsync_Epub_PageCountNull()
+    public async Task MetadataUpdateAsync_PageCountColumnSet_CarriedIntoResponse()
     {
         var h = new Harness();
         var userId = Guid.NewGuid();
         var bookId = Guid.NewGuid();
-        var book = SeedBook(h, userId, bookId, BookFormat.Epub, (1, null));
-        book.Chapters.First().SourceEndPage = 9; // defensive: only a PDF has physical pages
+        var book = SeedBook(h, userId, bookId, BookFormat.Pdf, (1, 1));
+        book.Chapters.First().SourceEndPage = 12;
+        book.PageCount = 15;
 
-        var dto = await h.Service.GetBookAsync(userId, bookId, CancellationToken.None);
+        var (dto, error) = await h.Metadata.UpdateAsync(userId, bookId,
+            new UpdateUserBookMetadataRequest("New title", null, "en", null, null, null), CancellationToken.None);
 
-        Assert.Null(dto!.PageCount);
+        Assert.Null(error);
+        Assert.Equal(15, dto!.PageCount);
     }
 }

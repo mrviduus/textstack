@@ -687,7 +687,8 @@ public static partial class VocabularyEndpoints
             .Where(w => w.UserId == userId)
             .OrderBy(w => w.Word)
             .Take(MaxWordsPerUser)
-            .Select(w => new ReaderVocabWordDto(w.Id, w.Word, w.Stage, w.Translation))
+            .Select(w => new ReaderVocabWordDto(w.Id, w.Word, w.Stage, w.Translation,
+                string.IsNullOrEmpty(w.Translation) ? w.Sentence : null))
             .ToListAsync(ct);
 
         return Results.Ok(words);
@@ -834,7 +835,9 @@ public record SubmitReviewResponse(
     double NextIntervalDays, DateTimeOffset NextReviewAt,
     int TotalReviews, int CorrectReviews);
 
-public record ReaderVocabWordDto(Guid Id, string Word, int Stage, string? Translation);
+/// <summary>Sentence only when Translation is empty: the reader's gloss backfill needs it to translate the
+/// saved sense, and nothing else does — 5000 sentences on every reader open would not be "lightweight".</summary>
+public record ReaderVocabWordDto(Guid Id, string Word, int Stage, string? Translation, string? Sentence = null);
 
 public record WordClusterDto(
     Guid Id, string Title, string? Theme,

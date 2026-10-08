@@ -15,7 +15,9 @@ import { normalizeVocabKey } from '../lib/vocabKey'
 import { trackVocabSaved } from '../lib/analytics'
 import { takeGuestNudge, type GuestNudge } from '../lib/guestNudge'
 
-export type VocabMap = Map<string, { stage: number; id?: string; translation?: string; isPending?: boolean }>
+// `sentence`: the one the word was saved in, when known (saved this session, or sent by the
+// server for a word with no translation). Guards a saved translation against another sense.
+export type VocabMap = Map<string, { stage: number; id?: string; translation?: string; sentence?: string; isPending?: boolean }>
 
 export function useReaderVocabulary(bookLanguage?: string, targetLang?: string | null) {
   const { isAuthenticated, isGuest, waitForSession, ensureSession } = useAuth()
@@ -61,7 +63,7 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
         if (cancelled) return
         const m: VocabMap = new Map()
         for (const w of words) {
-          m.set(normalizeVocabKey(w.word), { stage: w.stage, id: w.id, translation: w.translation })
+          m.set(normalizeVocabKey(w.word), { stage: w.stage, id: w.id, translation: w.translation, sentence: w.sentence ?? undefined })
         }
         commitMap(m)
       })
@@ -75,11 +77,11 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
     if (!targetLang || !bookLanguage || backfillDone.current) return
     if (vocabMap.size === 0 || loading) return
 
-    const missing: { word: string; id?: string }[] = []
+    const missing: { word: string; id?: string; sentence?: string }[] = []
     for (const [key, entry] of vocabMap) {
       // Skip pending entries — their `id` is a local UUID, not a backend row.
       if (entry.isPending) continue
-      if (!entry.translation) missing.push({ word: key, id: entry.id })
+      if (!entry.translation) missing.push({ word: key, id: entry.id, sentence: entry.sentence })
     }
     if (missing.length === 0) return
 
@@ -90,9 +92,10 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
     // Translate in small batches to avoid overwhelming the API
     ;(async () => {
       for (let i = 0; i < missing.length; i++) {
-        const { word, id } = missing[i]
+        const { word, id, sentence } = missing[i]
         try {
-          const res = await translateWord(word, lang, target)
+          // In the stored sentence, so the gloss is the sense the word was saved in.
+          const res = await translateWord(word, lang, target, undefined, { sentence })
           const translation = res.translatedText
           if (!translation) continue
           updateMap(m => {
@@ -150,6 +153,7 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
             stage: saved.stage,
             id: saved.id,
             translation: preserved ?? undefined,
+            sentence: saved.sentence ?? undefined,
           })
         })
       } catch {
@@ -186,6 +190,7 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
           updateMap(m => m.set(key, {
             stage: saved.stage, id: saved.id,
             translation: existing?.translation || saved.translation || undefined,
+            sentence: saved.sentence ?? undefined,
           }))
         }
         // Notify the Vocabulary page (and any other vocab consumer) so it
@@ -226,6 +231,7 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
       stage: 0,
       id: pending.id,                // local UUID; replaced with backend id after flush
       translation: req.translation ?? undefined,
+      sentence: req.sentence ?? undefined,
       isPending: true,
     }))
     // Track anonymous saves too — measures guest engagement before commitment threshold.
@@ -282,6 +288,7 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
       stage: dto.stage,
       id: dto.id,
       translation: existing?.translation || dto.translation || undefined,
+      sentence: dto.sentence ?? undefined,
     }))
   }, [updateMap])
 

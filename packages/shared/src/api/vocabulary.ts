@@ -92,7 +92,8 @@ export function getVocabularyDailyStats(tz?: number, from?: string, to?: string)
 }
 
 export function getReaderVocab() {
-  return authFetch<{ id: string; word: string; stage: number; translation?: string }[]>('/me/vocabulary/words/reader')
+  // sentence: only sent for a word with no translation — the gloss backfill's context.
+  return authFetch<{ id: string; word: string; stage: number; translation?: string; sentence?: string | null }[]>('/me/vocabulary/words/reader')
 }
 
 export function markAsKnown(id: string) {

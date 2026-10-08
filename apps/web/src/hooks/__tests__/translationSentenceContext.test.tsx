@@ -19,7 +19,8 @@ vi.mock('../../api/translation', () => ({
   translate: (...a: unknown[]) => translate(...a),
   getLanguages: vi.fn(),
 }))
-vi.mock('../../api/vocabulary', () => ({ updateWord: vi.fn(() => Promise.resolve()) }))
+const updateWord = vi.fn((..._a: unknown[]) => Promise.resolve())
+vi.mock('../../api/vocabulary', () => ({ updateWord: (...a: unknown[]) => updateWord(...a) }))
 
 import { useTextTranslation } from '../useTextTranslation'
 import { useTranslationPopup } from '../useTranslationPopup'
@@ -30,6 +31,7 @@ const ctx = { sentence: SENTENCE, bookId: 'book-1' }
 
 beforeEach(() => {
   translate.mockClear()
+  updateWord.mockClear()
   getCachedTranslation.mockClear()
   cacheTranslation.mockClear()
 })
@@ -75,5 +77,74 @@ describe('translate sentence context (web)', () => {
     expect(translate.mock.calls[0][0]).toBe('pocketed')
     expect(translate.mock.calls[0][2]).toBe('uk')
     expect(translate.mock.calls[0][4]).toEqual(ctx)
+  })
+})
+
+// Review of #780: a saved word's translation is the sense of the sentence it was
+// saved in. A bubble opened on that word in ANOTHER sentence (or a language switch
+// there) must not overwrite it with the other sense. Unknown stored sentence →
+// only fill an empty translation.
+describe('saved-word translation is not overwritten from another sentence', () => {
+  type Entry = { stage: number; id?: string; translation?: string; sentence?: string; isPending?: boolean }
+
+  function mountSync(entry: Entry, bubbleTranslation: string | null = null) {
+    const bubble: BubbleLike = { word: 'pocketed', translation: bubbleTranslation, translationLoading: false, ...ctx }
+    const vocabMap = new Map([['pocketed', entry]])
+    const updateTranslation = vi.fn()
+    const hook = renderHook(
+      ({ lang }: { lang: string }) => {
+        const abortRef = useRef<AbortController | null>(null)
+        return useBubbleTranslationSync<BubbleLike>({
+          bubble, setBubble: vi.fn(), vocabMap, updateTranslation,
+          targetLang: lang, bookLanguage: 'en', abortRef,
+        })
+      },
+      { initialProps: { lang: 'pt' } },
+    )
+    return { ...hook, updateTranslation }
+  }
+
+  it('LangSwitch_SavedInOtherSentence_TranslationNotOverwritten', async () => {
+    const { rerender, updateTranslation } = mountSync({ stage: 1, id: 'w1', translation: 'enterrou', sentence: 'She pocketed the letter.' })
+    await act(async () => { rerender({ lang: 'uk' }) })
+
+    expect(translate).toHaveBeenCalledTimes(1)
+    expect(updateWord).not.toHaveBeenCalled()
+    expect(updateTranslation).not.toHaveBeenCalled()
+  })
+
+  it('LangSwitch_SavedInSameSentence_TranslationUpdated', async () => {
+    const { rerender } = mountSync({ stage: 1, id: 'w1', translation: 'embolsou', sentence: `  ${SENTENCE} ` })
+    await act(async () => { rerender({ lang: 'uk' }) })
+
+    expect(updateWord).toHaveBeenCalledWith('w1', { translation: 'embolsou' })
+  })
+
+  it('LangSwitch_UnknownSentenceEmptyTranslation_Filled', async () => {
+    const { rerender } = mountSync({ stage: 1, id: 'w1' })
+    await act(async () => { rerender({ lang: 'uk' }) })
+
+    expect(updateWord).toHaveBeenCalledWith('w1', { translation: 'embolsou' })
+  })
+
+  it('LangSwitch_UnknownSentenceHasTranslation_NotOverwritten', async () => {
+    const { rerender } = mountSync({ stage: 1, id: 'w1', translation: 'enterrou' })
+    await act(async () => { rerender({ lang: 'uk' }) })
+
+    expect(updateWord).not.toHaveBeenCalled()
+  })
+
+  it('BubbleOpen_SavedInOtherSentence_NoPatch', async () => {
+    mountSync({ stage: 1, id: 'w1', translation: 'enterrou', sentence: 'She pocketed the letter.' }, 'embolsou')
+    await act(async () => {})
+
+    expect(updateWord).not.toHaveBeenCalled()
+  })
+
+  it('BubbleOpen_JustSavedInThisSentence_Patched', async () => {
+    mountSync({ stage: 0, id: 'w1', sentence: SENTENCE }, 'embolsou')
+    await act(async () => {})
+
+    expect(updateWord).toHaveBeenCalledWith('w1', { translation: 'embolsou' })
   })
 })

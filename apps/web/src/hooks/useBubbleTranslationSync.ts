@@ -16,6 +16,19 @@ export interface BubbleLike {
   bookId?: string
 }
 
+/**
+ * A saved word's translation is the sense of the sentence it was saved in. Write a
+ * bubble's translation into it only when that bubble is in the same sentence — or,
+ * when the stored sentence is unknown, only to fill an empty translation.
+ */
+export function mayWriteSavedTranslation(
+  entry: { translation?: string; sentence?: string },
+  bubbleSentence: string | undefined,
+): boolean {
+  if (!entry.translation) return true
+  return entry.sentence !== undefined && entry.sentence.trim() === (bubbleSentence ?? '').trim()
+}
+
 interface Options<B extends BubbleLike> {
   bubble: B | null
   setBubble: Dispatch<SetStateAction<B | null>>
@@ -62,12 +75,13 @@ export function useBubbleTranslationSync<B extends BubbleLike>({
     if (!word || !translation) return
     const entry = vocabMap.get(normalizeVocabKey(word))
     if (!entry?.id || entry.isPending) return
+    if (!mayWriteSavedTranslation(entry, bubble?.sentence)) return
     const patchKey = `${entry.id}:${translation}`
     if (patchedRef.current.has(patchKey)) return
     patchedRef.current.add(patchKey)
     updateWord(entry.id, { translation }).catch(() => {})
     updateTranslation(word, translation)
-  }, [bubble?.word, bubble?.translation, vocabMap, updateTranslation])
+  }, [bubble?.word, bubble?.translation, bubble?.sentence, vocabMap, updateTranslation])
 
   // (2) Lang-picker mid-popup refetch. Track (word, lang) pair — word changes
   // are owned by the openBubble path, this effect only fires on lang flips for
@@ -118,12 +132,12 @@ export function useBubbleTranslationSync<B extends BubbleLike>({
             ? { ...b, translation: translated, translationLoading: false }
             : b,
         )
-        if (translated) {
-          const existing = vocabMap.get(normalizeVocabKey(word))
-          if (existing?.id && !existing.isPending) {
+        const existing = vocabMap.get(normalizeVocabKey(word))
+        if (translated && existing && mayWriteSavedTranslation(existing, bubble?.sentence)) {
+          if (existing.id && !existing.isPending) {
             updateWord(existing.id, { translation: translated }).catch(() => {})
           }
-          if (existing) updateTranslation(word, translated)
+          updateTranslation(word, translated)
         }
       })
       .catch((err) => {

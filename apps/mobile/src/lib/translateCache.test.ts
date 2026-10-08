@@ -203,5 +203,19 @@ describe('cachedTranslate', () => {
     expect(translate).toHaveBeenCalledTimes(2)
     expect(peekTranslation('wound', 'en', 'pt', { sentence: 'The wound bled.' })?.translation).toBe('ferida')
   })
+
+  // The server biases by the book's genre (bookId) and keys its cache on it; the
+  // client key must too, or one book's gloss is served in another.
+  it('cachedTranslate_WithBookId_SendsBookIdAndKeysOnIt', async () => {
+    const { cachedTranslate } = await freshModule()
+    translate.mockResolvedValue({ translatedText: 'armazém' })
+    const sentence = 'Load it into the warehouse.'
+
+    await cachedTranslate('warehouse', 'en', 'pt', { sentence, bookId: 'b1' })
+    await cachedTranslate('warehouse', 'en', 'pt', { sentence, bookId: 'b2' })
+
+    expect(translate).toHaveBeenCalledWith('warehouse', 'en', 'pt', undefined, { sentence, bookId: 'b1' })
+    expect(translate).toHaveBeenCalledTimes(2)
+  })
 })
 

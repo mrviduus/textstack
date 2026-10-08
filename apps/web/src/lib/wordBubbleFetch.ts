@@ -10,6 +10,7 @@ import { explain as explainApi } from '../api/explain'
 import { translate as translateApi } from '../api/translation'
 import { updateWord } from '../api/vocabulary'
 import type { VocabMap } from '../hooks/useReaderVocabulary'
+import { mayWriteSavedTranslation } from '../hooks/useBubbleTranslationSync'
 import { normalizeVocabKey } from './vocabKey'
 
 /** Subset of bubble fields the fetcher touches — caller extends their full state. */
@@ -75,7 +76,8 @@ export function fetchWordBubble(opts: FetchWordBubbleOpts) {
         if (existing?.id && !existing.isPending && !existing.translation) {
           updateWord(existing.id, { translation: translatedText }).catch(() => {})
         }
-        if (existing) updateTranslation(word, translatedText)
+        // Not the inline caption either, when this is another sentence's sense.
+        if (existing && mayWriteSavedTranslation(existing, sentence ?? undefined)) updateTranslation(word, translatedText)
       }
     })
     .catch((err) => {

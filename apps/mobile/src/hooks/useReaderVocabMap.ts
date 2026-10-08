@@ -4,7 +4,8 @@ import { vocabMapCache } from '../lib/readerOfflineCache'
 import { cachedTranslate } from '../lib/translateCache'
 import { vocabPaintJs } from '../lib/vocabPaintJs'
 
-export type VocabMapEntry = { stage: number; id: string; translation?: string }
+/** `sentence`: the one it was saved in, only known while `translation` is empty (backfill context). */
+export type VocabMapEntry = { stage: number; id: string; translation?: string; sentence?: string }
 export type VocabMap = Record<string, VocabMapEntry>
 
 type User = { id: string } | null | undefined
@@ -78,7 +79,7 @@ export function useReaderVocabMap({
       .then(words => {
         if (cancelled || words.length === 0) return
         const map: VocabMap = {}
-        for (const w of words) map[w.word.toLowerCase()] = { stage: w.stage, id: w.id, translation: w.translation }
+        for (const w of words) map[w.word.toLowerCase()] = { stage: w.stage, id: w.id, translation: w.translation, sentence: w.sentence ?? undefined }
         vocabMapRef.current = map
         injectJs(vocabPaintJs(map))
         if (uid) vocabMapCache.set(uid, map)
@@ -103,20 +104,21 @@ export function useReaderVocabMap({
     if (backfillDoneRef.current) return
     const map = vocabMapRef.current
     if (!map || Object.keys(map).length === 0) return
-    const missing: { key: string; id: string }[] = []
+    const missing: { key: string; id: string; sentence?: string }[] = []
     for (const k of Object.keys(map)) {
-      if (!map[k].translation) missing.push({ key: k, id: map[k].id })
+      if (!map[k].translation) missing.push({ key: k, id: map[k].id, sentence: map[k].sentence })
     }
     if (missing.length === 0) return
     backfillDoneRef.current = true
     let cancelled = false
     ;(async () => {
-      for (const { key, id } of missing) {
+      for (const { key, id, sentence } of missing) {
         if (cancelled) return
         try {
           // cachedTranslate de-dupes against the toolbar/save path and
           // memoizes, so re-opening the chapter is free.
-          const { translation } = await cachedTranslate(key, bookLanguage, nativeLanguage)
+          // In the stored sentence, so the gloss is the sense the word was saved in.
+          const { translation } = await cachedTranslate(key, bookLanguage, nativeLanguage, { sentence })
           if (!translation) continue
           vocabMapRef.current[key] = { ...vocabMapRef.current[key], translation }
           // Persist server-side so re-opens skip the round-trip.

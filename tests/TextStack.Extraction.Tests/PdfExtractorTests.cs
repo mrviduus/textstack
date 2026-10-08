@@ -377,4 +377,31 @@ public class PdfExtractorTests
         // 30 pages / 15 per split = 2 chapters
         Assert.Equal(2, result.Units.Count);
     }
+
+    // QA-007: the detail page needs the document's real page count, which only the
+    // extractor knows (chapter ranges stop where the last chapter does).
+    [Fact]
+    public async Task ExtractAsync_GeneratedPdf_MetadataCarriesPageCount()
+    {
+        var extractor = new PdfTextExtractor();
+        var pdfBytes = PdfFixtureGenerator.GenerateMultiPagePdf(17);
+        using var stream = new MemoryStream(pdfBytes);
+        var request = new ExtractionRequest { Content = stream, FileName = "generated.pdf" };
+
+        var result = await extractor.ExtractAsync(request);
+
+        Assert.Equal(17, result.Metadata.PageCount);
+    }
+
+    [Fact]
+    public async Task ExtractAsync_InvalidStream_PageCountNull()
+    {
+        var extractor = new PdfTextExtractor();
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes("not a valid pdf"));
+        var request = new ExtractionRequest { Content = stream, FileName = "invalid.pdf" };
+
+        var result = await extractor.ExtractAsync(request);
+
+        Assert.Null(result.Metadata.PageCount);
+    }
 }

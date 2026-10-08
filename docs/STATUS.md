@@ -194,7 +194,7 @@ answers "what happened" and nothing answered "what is half-finished right now".
     always empty — not a search bug); Library "Continue" opens book detail, not the reader; native selection handles stay after
     highlighting; ~~a wrong pt-BR translation ("pocketed → enterrado")~~ (#780: mobile never sent the
     sentence with a word tap; nano vs mini eval built, run pending); ~~PDF detail "~33 pages" for 15~~
-    (#780: real page count from stored page ranges);
+    (#780: real page count, stored at ingestion; PDFs uploaded before it still show the estimate until retried);
     dev build toasts "injectJs failed: markVocabWords is …" in both PDF and text readers (RN injects
     vocab into a document that has no such function yet, or none at all for PDF) — check whether vocab
     marks can miss on first paint.

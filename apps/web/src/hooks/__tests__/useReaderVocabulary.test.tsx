@@ -69,6 +69,7 @@ if (!globalThis.crypto || !globalThis.crypto.randomUUID) {
 
 // Import under test AFTER mocks are registered.
 import { useReaderVocabulary } from '../useReaderVocabulary'
+import { translate as translateApi } from '../../api/translation'
 
 describe('useReaderVocabulary', () => {
   beforeEach(() => {
@@ -308,5 +309,16 @@ describe('useReaderVocabulary', () => {
     })
 
     expect(saveWordMock).toHaveBeenCalledTimes(1)
+  })
+
+  // Review of #780: the gloss backfill translated the bare word, so a saved word
+  // could get another sense than the one in the sentence it was saved from.
+  it('backfill_WordWithStoredSentence_TranslatesInThatSentence', async () => {
+    const sentence = 'He pocketed the coins and walked out.'
+    getReaderVocabMock.mockResolvedValue([{ id: 'w1', word: 'pocketed', stage: 1, sentence }])
+
+    renderHook(() => useReaderVocabulary('en', 'pt'))
+
+    await waitFor(() => expect(vi.mocked(translateApi)).toHaveBeenCalledWith('pocketed', 'en', 'pt', undefined, { sentence }))
   })
 })
