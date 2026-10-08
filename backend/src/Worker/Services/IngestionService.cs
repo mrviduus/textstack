@@ -179,10 +179,12 @@ public class IngestionWorkerService
                 using var imagesActivity = IngestionActivitySource.Source.StartActivity("persist.images");
                 imagesActivity?.SetTag("images.count", extractionResult.Images.Count);
 
-                foreach (var image in extractionResult.Images)
-                {
-                    if (image.IsCover) continue; // Cover saved separately
+                var stored = await db.BookAssets
+                    .Where(a => a.EditionId == job.EditionId)
+                    .ToDictionaryAsync(a => a.OriginalPath, a => a.Id, ct);
 
+                foreach (var image in ImagesToStore(extractionResult.Images, stored, imageMap))
+                {
                     try
                     {
                         var assetId = Guid.NewGuid();
@@ -348,6 +350,25 @@ public class IngestionWorkerService
                 : null;
 
             await service.MarkJobFailedAsync(job, ex.Message, summary, CancellationToken.None);
+        }
+    }
+
+    /// <summary>
+    /// The inline images this run must write. One an earlier run of the edition already stored (same
+    /// <c>OriginalPath</c> — a reprocess, or a rerun after a deploy gave the job back) keeps its asset id:
+    /// <c>book_assets</c> is unique on (edition_id, original_path), so writing it again failed the job,
+    /// and the live chapters already point at that id. Covers are saved separately.
+    /// </summary>
+    public static IEnumerable<ExtractedImage> ImagesToStore(
+        IEnumerable<ExtractedImage> images, IReadOnlyDictionary<string, Guid> stored, Dictionary<string, Guid> imageMap)
+    {
+        foreach (var image in images)
+        {
+            if (image.IsCover) continue;
+            if (stored.TryGetValue(image.OriginalPath, out var assetId))
+                imageMap[image.OriginalPath] = assetId;
+            else
+                yield return image;
         }
     }
 
