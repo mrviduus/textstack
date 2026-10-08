@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { readdirSync, readFileSync } from 'node:fs'
-import { join, relative } from 'node:path'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { dirname, join, relative } from 'node:path'
 
 /**
  * The engine's boundary (ADR-025), enforced by a test instead of a linter: no app code, no UI
@@ -39,9 +39,31 @@ export function violations(files: { path: string; text: string }[]): string[] {
   })
 }
 
+/** The files plus every module they reach by relative import (the shared reader modules end up in the IIFE too). */
+function withImports(start: string[]): string[] {
+  const seen = new Set<string>()
+  const queue = [...start]
+  while (queue.length) {
+    const file = queue.pop()!
+    if (seen.has(file)) continue
+    seen.add(file)
+    for (const m of readFileSync(file, 'utf8').matchAll(SPECIFIER)) {
+      if (!m[1].startsWith('.')) continue
+      const base = join(dirname(file), m[1])
+      const hit = [base, `${base}.ts`, `${base}.tsx`, join(base, 'index.ts')].find((p) => existsSync(p) && /\.tsx?$/.test(p))
+      if (hit && !/\.test\.tsx?$/.test(hit)) queue.push(hit)
+    }
+  }
+  return [...seen]
+}
+
 describe('engine boundary', () => {
-  it('src/ has no forbidden import or network call', () => {
-    const files = sources(SRC).map((p) => ({ path: relative(SRC, p), text: readFileSync(p, 'utf8') }))
+  it('follows relative imports into packages/shared', () => {
+    expect(withImports(sources(SRC)).some((p) => p.endsWith('shared/src/reader/textPosition.ts'))).toBe(true)
+  })
+
+  it('src/ and every module it imports by relative path have no forbidden import or network call', () => {
+    const files = withImports(sources(SRC)).map((p) => ({ path: relative(SRC, p), text: readFileSync(p, 'utf8') }))
     expect(files.length).toBeGreaterThan(0)
     expect(violations(files)).toEqual([])
   })

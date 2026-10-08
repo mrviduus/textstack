@@ -7,6 +7,7 @@ import { parseTextPosition, serializeTextPosition, TEXT_POSITION_VERSION } from 
 import { isPdfAnchor } from '../../shared/src/reader/pdfHighlightAnchor'
 import { parsePdfPageLocator } from '../../shared/src/reader/pdfProgress'
 import { parseScrollLocator } from '../../shared/src/reader/progressPayload'
+import { PROGRESS_LOCATOR_END, PROGRESS_LOCATOR_START } from '../../shared/src/reader/progressLocators'
 
 function parseObject(json: string): Record<string, unknown> | null {
   try {
@@ -19,7 +20,10 @@ function parseObject(json: string): Record<string, unknown> | null {
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '')
 const isPage = (n: unknown): n is number => Number.isInteger(n) && (n as number) >= 1
-const stored = (kind: StoredKind, value: string) => ({ kind, value })
+const stored = (kind: StoredKind, value: string, href?: string) => ({ kind, value, href })
+const num = (v: unknown) => typeof v === 'number' && Number.isFinite(v)
+const isRects = (v: unknown): v is { x: number; y: number; w: number; h: number }[] =>
+  Array.isArray(v) && v.every((r) => r && num(r.x) && num(r.y) && num(r.w) && num(r.h))
 
 /** Key-order-independent JSON, so a spread copy of a locator compares equal to the original. */
 function canon(v: unknown): string {
@@ -49,7 +53,7 @@ export function anchorToLocator(json: string, href: string): Locator | null {
     type: 'text/html',
     locations: typeof a.startOffset === 'number' ? { charOffset: a.startOffset } : {},
     text: { before: str(a.prefix), highlight: a.exact, after: str(a.suffix) },
-    ext: { stored: stored('anchor', json) },
+    ext: { stored: stored('anchor', json, href) },
   }
 }
 
@@ -68,8 +72,10 @@ export function locatorToAnchor(loc: Locator | null): string | null {
   }
   // A moved highlight is still the same highlight: keep who made it. `source:'mcp'` is what the
   // assistant write cap counts (HighlightsEndpoints.MaxAssistantHighlightsPerBook).
-  const was = loc.ext?.stored?.kind === 'anchor' ? parseObject(loc.ext.stored.value) : null
-  if (typeof was?.chapterId === 'string') anchor.chapterId = was.chapterId
+  const s = loc.ext?.stored
+  const was = s?.kind === 'anchor' ? parseObject(s.value) : null
+  // The chapter id only while it is still that chapter.
+  if (typeof was?.chapterId === 'string' && s?.href === loc.href) anchor.chapterId = was.chapterId
   if (typeof was?.source === 'string') anchor.source = was.source
   return JSON.stringify(anchor)
 }
@@ -108,7 +114,7 @@ export function locatorToPosition(loc: Locator | null): string | null {
 /** A highlight on an Original-layout PDF page (page geometry, ADR-012). */
 export function pdfAnchorToLocator(json: string): Locator | null {
   const a = parseObject(json)
-  if (!isPdfAnchor(a) || !isPage(a.page) || !Array.isArray(a.rects) || typeof a.exact !== 'string') return null
+  if (!isPdfAnchor(a) || !isPage(a.page) || !isRects(a.rects) || typeof a.exact !== 'string') return null
   return {
     type: 'application/pdf',
     locations: { position: a.page },
@@ -122,18 +128,23 @@ export function locatorToPdfAnchor(loc: Locator | null): string | null {
   const same = unchanged(loc, 'pdf', pdfAnchorToLocator)
   if (same) return same
   const page = loc.locations.position
-  if (!isPage(page) || !Array.isArray(loc.ext?.rects)) return null
-  return JSON.stringify({ v: 1, kind: 'pdf', page, rects: loc.ext.rects, exact: loc.text?.highlight ?? '' })
+  const rects = loc.ext?.rects
+  if (!isPage(page) || !isRects(rects)) return null
+  return JSON.stringify({ v: 1, kind: 'pdf', page, rects, exact: loc.text?.highlight ?? '' })
 }
 
-/** The progress row's locator string: `page:<N>`, `chapter:<slug>`, `scroll:<slug>:<px>`. */
+/** The progress row's locator string: `page:<N>`, `chapter:<slug>`, `scroll:<slug>:<px>`, `percent:<n>`, sentinels. */
 export function progressToLocator(s: string): Locator | null {
   const page = parsePdfPageLocator(s)
   if (page) return { type: 'application/pdf', locations: { position: page }, ext: { stored: stored('progress', s) } }
   const chapter = /^chapter:(.+)$/.exec(s)
   if (chapter) return { href: chapter[1], type: 'text/html', locations: { progression: 0 }, ext: { stored: stored('progress', s) } }
-  const scroll = s.startsWith('scroll:') ? parseScrollLocator(s) : null
+  const scroll = parseScrollLocator(s)
   if (scroll) return { href: scroll.slug, type: 'text/html', locations: { legacyScrollY: scroll.offset }, ext: { stored: stored('progress', s) } }
+  // Book-level only: "finished" / "start over" sentinels and web's `percent:<0..1>`.
+  const book = s === PROGRESS_LOCATOR_END ? 1 : s === PROGRESS_LOCATOR_START ? 0 : /^percent:(\d+(?:\.\d+)?)$/.exec(s)?.[1]
+  const total = typeof book === 'string' ? Number(book) : book
+  if (typeof total === 'number' && total >= 0 && total <= 1) return { type: 'text/html', locations: { totalProgression: total }, ext: { stored: stored('progress', s) } }
   return null
 }
 

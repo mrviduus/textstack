@@ -18,6 +18,8 @@ export interface Locator {
   locations: {
     /** Fraction of the chapter, 0..1. */
     progression?: number
+    /** Fraction of the book, 0..1 (`percent:<n>`, and the start/end sentinels). */
+    totalProgression?: number
     /** PDF page, 1-based. */
     position?: number
     /** Hint, verified, never trusted. */
@@ -33,7 +35,7 @@ export interface Locator {
      * of the same kind, and only while the locator still says what the value says; a moved locator
      * writes a fresh value.
      */
-    stored?: { kind: StoredKind; value: string }
+    stored?: { kind: StoredKind; value: string; href?: string }
     rects?: PdfRect[]
   }
 }

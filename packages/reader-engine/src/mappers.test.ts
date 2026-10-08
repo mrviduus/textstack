@@ -206,3 +206,25 @@ describe('the Locator alone carries the meaning (review of #775)', () => {
     expect(out).toMatchObject({ prefix: 'It was a ', startOffset: 12, chapterId: mcp['inline-tags'].chapterId, source: 'mcp' })
   })
 })
+
+describe('final review of #775', () => {
+  it('reads the finished/start sentinels and web percent as a book fraction', () => {
+    expect(progressToLocator('{"type":"end"}')).toMatchObject({ locations: { totalProgression: 1 } })
+    expect(progressToLocator('{"type":"start"}')).toMatchObject({ locations: { totalProgression: 0 } })
+    expect(progressToLocator('percent:0.4200')).toMatchObject({ locations: { totalProgression: 0.42 } })
+    expect(progressToLocator('percent:1.5')).toBeNull()
+  })
+
+  it('a highlight moved to another chapter drops the old chapterId, keeps source', () => {
+    const loc = anchorToLocator(JSON.stringify(mcp['inline-tags']), 'chapter-one')!
+    const out = JSON.parse(locatorToAnchor({ ...loc, href: 'chapter-two', locations: { charOffset: 3 } })!)
+    expect(out.chapterId).toBeUndefined()
+    expect(out.source).toBe('mcp')
+  })
+
+  it('PDF rects must be {x,y,w,h} numbers both ways', () => {
+    expect(pdfAnchorToLocator('{"v":1,"kind":"pdf","page":2,"rects":[{"left":1,"top":2,"width":3,"height":4}],"exact":"x"}')).toBeNull()
+    expect(locatorToPdfAnchor({ type: 'application/pdf', locations: { position: 2 }, text: { highlight: 'x' },
+      ext: { rects: [{ left: 1, top: 2, width: 3, height: 4 } as never] } })).toBeNull()
+  })
+})

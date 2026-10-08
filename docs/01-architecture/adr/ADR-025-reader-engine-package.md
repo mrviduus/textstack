@@ -75,12 +75,13 @@ export interface Locator {
   type: 'text/html' | 'application/pdf'
   locations: {
     progression?: number                         // fraction of the chapter, 0..1
+    totalProgression?: number                    // fraction of the book: `percent:<n>`, start/end sentinels
     position?: number                            // PDF page, 1-based
     charOffset?: number                          // hint, verified, never trusted
     legacyScrollY?: number                       // read/write `scroll:<slug>:<px>` until Phase 6
   }
   text?: { before?: string; highlight?: string; after?: string }   // W3C TextQuoteSelector
-  ext?: { stored?: { kind: 'anchor' | 'position' | 'pdf' | 'progress'; value: string }; rects?: PdfRect[] }
+  ext?: { stored?: { kind: 'anchor' | 'position' | 'pdf' | 'progress'; value: string; href?: string }; rects?: PdfRect[] }
 }
 
 export interface ChapterDoc {                    // one chapter; the host loaded it
@@ -151,7 +152,7 @@ Rules the types cannot say:
 - **`'scroll'` means user input after the last op settled.** "The reader moved since the restore" is
   then "a `'scroll'` arrived", so `readerMovedSince`'s pixel tolerance goes.
 - **Mappers are one pair per stored shape** (`TextPosition`, `TextAnchor`, `PdfAnchor`, `page:<N>`,
-  `chapter:<slug>`, `scroll:<slug>:<px>`). A locator built from a stored value carries it in
+  `chapter:<slug>`, `scroll:<slug>:<px>`, `percent:<n>`, the `{"type":"start"|"end"}` sentinels). A locator built from a stored value carries it in
   `ext.stored` with its kind; the same kind's mapper writes it back byte-identically **only while the
   locator still says what the value says** — a moved locator writes a fresh value, and a value is never
   written back as another kind. A fresh write is either a value the readers accept or null (never
