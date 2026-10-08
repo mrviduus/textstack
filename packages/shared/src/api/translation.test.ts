@@ -63,7 +63,12 @@ describe('translateCacheKey', () => {
       .toBe(translateCacheKey('Run away!', 'en', 'pt'))
   })
 
-  it('translateCacheKey_CaseAndWhitespace_Normalised', () => {
-    expect(translateCacheKey('  Wort ', 'de', 'en')).toBe(translateCacheKey('wort', 'de', 'en'))
+  it('translateCacheKey_SurroundingWhitespace_Normalised', () => {
+    expect(translateCacheKey('  Wort ', 'de', 'en')).toBe(translateCacheKey('Wort', 'de', 'en'))
+  })
+
+  // Review r5 of #780: "US" is not "us", "Turkey" is not "turkey" — the server keys the raw text.
+  it('translateCacheKey_DifferentCase_DifferentKeys', () => {
+    expect(translateCacheKey('US', 'en', 'pt')).not.toBe(translateCacheKey('us', 'en', 'pt'))
   })
 })

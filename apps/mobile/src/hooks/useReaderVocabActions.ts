@@ -104,8 +104,7 @@ export function useReaderVocabActions({
   /** `sentence`: the one the toolbar translated with — so the save gloss is its cache hit. */
   const onWordSaved = useCallback((saved: VocabularyWordDto, sourceText: string, sentence: string | null | undefined) => {
     const key = saved.word.toLowerCase()
-    // Keep the sentence: it guards this sense against a bubble in another sentence.
-    vocabMapRef.current[key] = { stage: saved.stage, id: saved.id, sentence: saved.sentence ?? undefined }
+    vocabMapRef.current[key] = { stage: saved.stage, id: saved.id }
     injectJs(`addVocabWord(${JSON.stringify(key)}, ${saved.stage})`)
     bumpVocab()
     setWordSaved(true)

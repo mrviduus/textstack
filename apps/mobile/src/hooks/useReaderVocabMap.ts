@@ -4,9 +4,7 @@ import { vocabMapCache } from '../lib/readerOfflineCache'
 import { cachedTranslate } from '../lib/translateCache'
 import { vocabPaintJs } from '../lib/vocabPaintJs'
 
-/** `sentence`: the one it was saved in, when saved this session (the main load carries none).
- *  Never injected into the WebView (vocabPaintJs). */
-export type VocabMapEntry = { stage: number; id: string; translation?: string; sentence?: string }
+export type VocabMapEntry = { stage: number; id: string; translation?: string }
 export type VocabMap = Record<string, VocabMapEntry>
 
 type User = { id: string } | null | undefined
@@ -60,8 +58,10 @@ export function useReaderVocabMap({
     return () => clearTimeout(t)
   }, [vocabVersion, injectJs])
 
-  // 'done' only once the backfill has run with its own sentence data; a failed fetch → 'idle'.
-  const backfillStateRef = useRef<'idle' | 'running' | 'done'>('idle')
+  // The main load's words, tagged with whose they are: the backfill runs once per load, over
+  // its untranslated ones, and never over a previous account's list.
+  type ReaderWord = Awaited<ReturnType<typeof vocabularyApi.getReaderVocab>>[number]
+  const [loaded, setLoaded] = useState<{ uid: string | undefined; words: ReaderWord[] } | null>(null)
 
   // Load + paint vocab underlines. Cache-first so offline nav still shows
   // marks; API refresh overwrites. Keyed off chapterId (not chapter object)
@@ -90,9 +90,7 @@ export function useReaderVocabMap({
         vocabMapRef.current = map
         injectJs(vocabPaintJs(map))
         if (uid) vocabMapCache.set(uid, map)
-        // Re-evaluate backfill against the fresh map (API may have
-        // returned translations the cache didn't have).
-        if (backfillStateRef.current === 'done') backfillStateRef.current = 'idle'
+        setLoaded({ uid, words })
         bumpVocab()
       })
       .catch(() => { /* offline — cache paint already rendered */ })
@@ -103,33 +101,27 @@ export function useReaderVocabMap({
   // (early-save race, network error mid-translate, or older app version
   // that never set it). Mirrors apps/web/src/hooks/useReaderVocabulary.ts
   // backfill loop — without it, those words underline forever but the
-  // gloss above them never appears. Rare, so it fetches its own data — each
-  // untranslated word's stored sentence — right before running, and translates
-  // in that sentence + this book, so the gloss is the sense the word was saved in.
+  // gloss above them never appears. Translates in the sentence the main load
+  // carries for each untranslated word + this book, so the gloss is that sense.
+  // Cancelled on unmount, sign-out, account/book/language change — NOT on
+  // bumpVocab (the loop bumps per word; an earlier version stopped after one).
   useEffect(() => {
-    if (!isAuthenticated || !chapterId) return
+    if (!loaded || loaded.uid !== user?.id || !isAuthenticated) return
     if (!bookLanguage || !nativeLanguage || nativeLanguage === bookLanguage) return
-    if (backfillStateRef.current !== 'idle') return
-    if (!Object.values(vocabMapRef.current).some(e => !e.translation)) return
-    backfillStateRef.current = 'running'
+    let cancelled = false
     ;(async () => {
-      let words: Awaited<ReturnType<typeof vocabularyApi.getReaderVocab>>
-      try {
-        words = await vocabularyApi.getReaderVocab({ includeSentences: true })
-      } catch {
-        backfillStateRef.current = 'idle' // never ran — the next bump retries
-        return
-      }
-      backfillStateRef.current = 'done'
-      for (const w of words) {
+      for (const w of loaded.words) {
+        if (cancelled) return
         if (w.translation) continue
         const key = w.word.toLowerCase()
-        if (vocabMapRef.current[key]?.translation) continue
+        // Removed since, or translated since — nothing to do.
+        const current = vocabMapRef.current[key]
+        if (!current || current.translation) continue
         try {
           // cachedTranslate de-dupes against the toolbar/save path and
           // memoizes, so re-opening the chapter is free.
           const { translation } = await cachedTranslate(key, bookLanguage, nativeLanguage, { sentence: w.sentence, bookId })
-          if (!translation) continue
+          if (cancelled || !translation) continue
           const entry = vocabMapRef.current[key]
           if (entry) vocabMapRef.current[key] = { ...entry, translation }
           // Persist server-side so re-opens skip the round-trip.
@@ -144,7 +136,8 @@ export function useReaderVocabMap({
         }
       }
     })()
-  }, [isAuthenticated, chapterId, bookLanguage, nativeLanguage, bookId, vocabVersion, bumpVocab])
+    return () => { cancelled = true }
+  }, [loaded, user?.id, isAuthenticated, bookLanguage, nativeLanguage, bookId, bumpVocab])
 
   /** Persist current map to per-user cache. Caller invokes when a selection closes. */
   const flushToCache = () => {

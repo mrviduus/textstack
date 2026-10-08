@@ -35,7 +35,9 @@ export function translateBody(text: string, source: string, target: string, ctx?
  *  `translateBody` sends, so a key varies exactly as the server's answer can. */
 export function translateCacheKey(text: string, source: string, target: string, ctx?: TranslateContext) {
   const body = translateBody(text, source, target, ctx)
-  return `${source}|${target}|${text.trim().toLowerCase()}|${body.sentence?.trim() ?? ''}|${body.bookId ?? ''}`
+  // Case kept: "US" ≠ "us", "Turkey" ≠ "turkey" (the server keys the raw text too).
+  // JSON, not a joined string: a "|" inside the text or sentence cannot shift fields.
+  return JSON.stringify([source, target, text.trim(), body.sentence?.trim() ?? '', body.bookId ?? ''])
 }
 
 export function translate(text: string, source: string, target: string, signal?: AbortSignal, ctx?: TranslateContext) {

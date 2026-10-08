@@ -86,19 +86,30 @@ describe('cachedTranslate', () => {
     expect(translate).toHaveBeenCalledTimes(3)
   })
 
-  it('normalises case and surrounding whitespace, so those join instead of paying', async () => {
+  it('normalises surrounding whitespace, so those join instead of paying', async () => {
     const { cachedTranslate } = await freshModule()
     const gate = deferred<{ translatedText: string }>()
     translate.mockReturnValue(gate.promise)
 
     const callers = [
       cachedTranslate('Wort', 'de', 'en'),
-      cachedTranslate('  wort ', 'de', 'en'),
+      cachedTranslate('  Wort ', 'de', 'en'),
     ]
     gate.resolve({ translatedText: 'word' })
     await Promise.all(callers)
 
     expect(translate).toHaveBeenCalledTimes(1)
+  })
+
+  // Review r5 of #780: "US" must not be answered with the cached "us".
+  it('keeps case, so "US" is not served the translation of "us"', async () => {
+    const { cachedTranslate } = await freshModule()
+    translate.mockResolvedValueOnce({ translatedText: 'nós' }).mockResolvedValueOnce({ translatedText: 'EUA' })
+
+    await cachedTranslate('us', 'en', 'pt')
+    const res = await cachedTranslate('US', 'en', 'pt')
+
+    expect(res.translation).toBe('EUA')
   })
 
   it('carries the backend save-recommendation category through to every joiner', async () => {

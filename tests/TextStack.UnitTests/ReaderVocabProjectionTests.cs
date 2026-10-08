@@ -3,9 +3,9 @@ using Domain.Entities;
 
 namespace TextStack.UnitTests;
 
-// Review of #780: the reader word list ships a sentence only when the gloss backfill asks
-// (includeSentences=true), only for an untranslated word, and capped — not every saved
-// word's sentence on every reader open.
+// Review of #780: the reader word list ships a sentence only for an untranslated word (the
+// gloss backfill's context), as a short window around the word — not every saved word's
+// whole sentence on every reader open.
 public class ReaderVocabProjectionTests
 {
     private static VocabularyWord Word(string word, string? translation, string? sentence) => new()
@@ -21,33 +21,42 @@ public class ReaderVocabProjectionTests
     [
         Word("wound", null, "Later she wound the clock."),
         Word("bled", "sangrou", "The wound bled."),
-        Word("long", null, new string('x', 1000)),
     ];
 
     [Fact]
-    public void ProjectReaderVocab_NotRequested_NoSentences()
+    public void ProjectReaderVocab_Always_SentenceOnlyForUntranslated()
     {
-        var dtos = VocabularyEndpoints.ProjectReaderVocab(Words.AsQueryable(), includeSentences: false).ToList();
-
-        Assert.All(dtos, d => Assert.Null(d.Sentence));
-    }
-
-    [Fact]
-    public void ProjectReaderVocab_Requested_SentenceOnlyForUntranslated()
-    {
-        var dtos = VocabularyEndpoints.ProjectReaderVocab(Words.AsQueryable(), includeSentences: true)
-            .ToDictionary(d => d.Word);
+        var dtos = VocabularyEndpoints.ProjectReaderVocab(Words.AsQueryable()).ToDictionary(d => d.Word);
 
         Assert.Equal("Later she wound the clock.", dtos["wound"].Sentence);
         Assert.Null(dtos["bled"].Sentence);
     }
 
     [Fact]
-    public void ProjectReaderVocab_LongSentence_CappedAtMax()
+    public void SentenceWindow_WordNearEndOfLongSentence_WordInsideCappedWindow()
     {
-        var dto = VocabularyEndpoints.ProjectReaderVocab(Words.AsQueryable(), includeSentences: true)
-            .Single(d => d.Word == "long");
+        var sentence = new string('x', 590) + " Pocketed.";
 
-        Assert.Equal(VocabularyEndpoints.MaxReaderSentenceLength, dto.Sentence!.Length);
+        var window = VocabularyEndpoints.SentenceWindow(sentence, "pocketed");
+
+        Assert.Equal(VocabularyEndpoints.MaxReaderSentenceLength, window.Length);
+        Assert.Contains("Pocketed", window);
+    }
+
+    [Fact]
+    public void SentenceWindow_WordMissing_TakesStart()
+    {
+        var sentence = "Start " + new string('x', 600);
+
+        var window = VocabularyEndpoints.SentenceWindow(sentence, "absent");
+
+        Assert.Equal(VocabularyEndpoints.MaxReaderSentenceLength, window.Length);
+        Assert.StartsWith("Start ", window);
+    }
+
+    [Fact]
+    public void SentenceWindow_ShortSentence_Unchanged()
+    {
+        Assert.Equal("The wound bled.", VocabularyEndpoints.SentenceWindow("The wound bled.", "wound"));
     }
 }

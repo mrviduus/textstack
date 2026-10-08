@@ -311,13 +311,12 @@ export interface ReaderVocabWordDto {
   word: string
   stage: number
   translation?: string
-  /** Only with includeSentences, for a word with no translation — the backfill's context. */
+  /** Only for a word with no translation, windowed round it — the backfill's context. */
   sentence?: string | null
 }
 
-/** `includeSentences`: only for the gloss backfill (translating into another language). */
-export async function getReaderVocab(includeSentences = false): Promise<ReaderVocabWordDto[]> {
-  return authFetch<ReaderVocabWordDto[]>(`/me/vocabulary/words/reader${includeSentences ? '?includeSentences=true' : ''}`)
+export async function getReaderVocab(): Promise<ReaderVocabWordDto[]> {
+  return authFetch<ReaderVocabWordDto[]>('/me/vocabulary/words/reader')
 }
 
 export async function markAsKnown(id: string): Promise<VocabWordDto> {

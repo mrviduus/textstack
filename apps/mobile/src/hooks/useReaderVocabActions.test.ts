@@ -12,9 +12,8 @@ import { useReaderVocabActions } from './useReaderVocabActions'
 import type { VocabMap } from './useReaderVocabMap'
 
 describe('useReaderVocabActions', () => {
-  // Review of #780: the map entry keeps the sentence the word was saved in, so a later
-  // bubble in another sentence does not overwrite this sense.
-  it('saveWord_Saved_MapEntryKeepsSentence', async () => {
+  // Review r5 of #780: nothing on mobile reads a sentence off the map entry, so none is kept.
+  it('saveWord_Saved_MapEntryMarked', async () => {
     const sentence = 'He pocketed the coins and walked out.'
     api.saveWord.mockResolvedValue({ outcome: 'saved', word: { id: 'w1', word: 'pocketed', stage: 0, sentence } })
     const vocabMapRef = { current: {} as VocabMap }
@@ -28,7 +27,7 @@ describe('useReaderVocabActions', () => {
 
     await act(async () => { await result.current.saveWord({ text: 'pocketed', sentence, selectionId: 1 }) })
 
-    expect(vocabMapRef.current.pocketed).toEqual({ stage: 0, id: 'w1', sentence })
+    expect(vocabMapRef.current.pocketed).toEqual({ stage: 0, id: 'w1' })
   })
 
   // Review r4 of #780: the save gloss looks up the toolbar's cache entry — same sentence (the

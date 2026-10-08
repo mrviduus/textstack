@@ -438,8 +438,10 @@ function hashText(text: string): string {
 
 // One key rule with mobile (`translateCacheKey`): derived from the request body, so it varies
 // exactly as the server's answer can — sentence for a word / short phrase only, and bookId.
+// The full string, not hashText: with sentence + book in it there are enough entries for a
+// 32-bit collision to serve one word another's translation.
 export function makeTranslationKey(sourceLang: string, targetLang: string, text: string, sentence?: string | null, bookId?: string | null): string {
-  return `${sourceLang}:${targetLang}:${hashText(translationApi.translateCacheKey(text, sourceLang, targetLang, { sentence, bookId }))}`
+  return translationApi.translateCacheKey(text, sourceLang, targetLang, { sentence, bookId })
 }
 
 export async function getCachedTranslation(

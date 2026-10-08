@@ -30,4 +30,13 @@ describe('makeTranslationKey', () => {
     expect(makeTranslationKey('en', 'pt', 'wound', 'She wound the clock.'))
       .not.toBe(makeTranslationKey('en', 'pt', 'wound', 'The wound bled.'))
   })
+
+  // Review r5 of #780: "Aa" and "BB" share a 32-bit string hash; the key must not.
+  it('makeTranslationKey_HashCollidingTexts_DifferentKeys', () => {
+    expect(makeTranslationKey('en', 'pt', 'Aa')).not.toBe(makeTranslationKey('en', 'pt', 'BB'))
+  })
+
+  it('makeTranslationKey_DifferentCase_DifferentKeys', () => {
+    expect(makeTranslationKey('en', 'pt', 'US')).not.toBe(makeTranslationKey('en', 'pt', 'us'))
+  })
 })

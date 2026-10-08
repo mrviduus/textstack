@@ -91,11 +91,9 @@ export function getVocabularyDailyStats(tz?: number, from?: string, to?: string)
   return authFetch<VocabDailyStatDto[]>(`/me/vocabulary/stats/daily${params}`)
 }
 
-/** `includeSentences`: only for the gloss backfill (translating into another language) — the
- *  server then sends each untranslated word's sentence, capped, as the backfill's context. */
-export function getReaderVocab(opts: { includeSentences?: boolean } = {}) {
-  const qs = opts.includeSentences ? '?includeSentences=true' : ''
-  return authFetch<{ id: string; word: string; stage: number; translation?: string; sentence?: string | null }[]>(`/me/vocabulary/words/reader${qs}`)
+/** `sentence`: only for an untranslated word, windowed round it — the gloss backfill's context. */
+export function getReaderVocab() {
+  return authFetch<{ id: string; word: string; stage: number; translation?: string; sentence?: string | null }[]>('/me/vocabulary/words/reader')
 }
 
 export function markAsKnown(id: string) {

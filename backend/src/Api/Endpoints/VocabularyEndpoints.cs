@@ -678,8 +678,7 @@ public static partial class VocabularyEndpoints
         HttpContext httpContext,
         AuthService authService,
         IAppDbContext db,
-        CancellationToken ct,
-        bool includeSentences = false)
+        CancellationToken ct)
     {
         if (!TryGetAuth(httpContext, authService, out var userId, out var siteId))
             return Results.Unauthorized();
@@ -688,24 +687,31 @@ public static partial class VocabularyEndpoints
             .Where(w => w.UserId == userId)
             .OrderBy(w => w.Word)
             .Take(MaxWordsPerUser);
-        var words = await ProjectReaderVocab(query, includeSentences).ToListAsync(ct);
+        var words = await ProjectReaderVocab(query).ToListAsync(ct);
 
-        return Results.Ok(words);
+        return Results.Ok(words.Select(w => w.Sentence == null ? w : w with { Sentence = SentenceWindow(w.Sentence, w.Word) }));
     }
 
-    internal const int MaxReaderSentenceLength = 300;
+    internal const int MaxReaderSentenceLength = 200;
 
     /// <summary>
-    /// Sentence only on request (the gloss backfill, translating into another language) and only for
-    /// an untranslated word, capped — the backfill's context, not every word's sentence on every open.
+    /// Sentence only for an untranslated word — the gloss backfill's context, so it glosses the
+    /// sense the word was saved in. Translated words (the common case) carry none.
+    /// ponytail: definition-mode readers (nothing to translate into) have no translations, so every
+    /// word ships a sentence; the <see cref="SentenceWindow"/> cap keeps that to ~200 chars a word.
     /// </summary>
-    internal static IQueryable<ReaderVocabWordDto> ProjectReaderVocab(IQueryable<VocabularyWord> words, bool includeSentences) =>
-        includeSentences
-            ? words.Select(w => new ReaderVocabWordDto(w.Id, w.Word, w.Stage, w.Translation,
-                string.IsNullOrEmpty(w.Translation) && w.Sentence != null
-                    ? (w.Sentence.Length > MaxReaderSentenceLength ? w.Sentence.Substring(0, MaxReaderSentenceLength) : w.Sentence)
-                    : null))
-            : words.Select(w => new ReaderVocabWordDto(w.Id, w.Word, w.Stage, w.Translation, null));
+    internal static IQueryable<ReaderVocabWordDto> ProjectReaderVocab(IQueryable<VocabularyWord> words) =>
+        words.Select(w => new ReaderVocabWordDto(w.Id, w.Word, w.Stage, w.Translation,
+            string.IsNullOrEmpty(w.Translation) ? w.Sentence : null));
+
+    /// <summary>At most <see cref="MaxReaderSentenceLength"/> chars centred on the word; the start if the word is absent.</summary>
+    internal static string SentenceWindow(string sentence, string word)
+    {
+        if (sentence.Length <= MaxReaderSentenceLength) return sentence;
+        var at = sentence.IndexOf(word, StringComparison.OrdinalIgnoreCase);
+        var start = at < 0 ? 0 : Math.Clamp(at + word.Length / 2 - MaxReaderSentenceLength / 2, 0, sentence.Length - MaxReaderSentenceLength);
+        return sentence.Substring(start, MaxReaderSentenceLength);
+    }
 
     // --- Mark word as Known (stage 4) ---
 
@@ -848,7 +854,7 @@ public record SubmitReviewResponse(
     double NextIntervalDays, DateTimeOffset NextReviewAt,
     int TotalReviews, int CorrectReviews);
 
-/// <summary>Sentence only with <c>includeSentences=true</c> and an empty Translation: the reader's gloss backfill
+/// <summary>Sentence only with an empty Translation, windowed round the word: the reader's gloss backfill
 /// needs it to translate the saved sense, and nothing else does (see <c>ProjectReaderVocab</c>).</summary>
 public record ReaderVocabWordDto(Guid Id, string Word, int Stage, string? Translation, string? Sentence = null);
 

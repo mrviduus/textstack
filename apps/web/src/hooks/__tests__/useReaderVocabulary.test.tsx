@@ -311,47 +311,42 @@ describe('useReaderVocabulary', () => {
     expect(saveWordMock).toHaveBeenCalledTimes(1)
   })
 
-  // Review r4 of #780: the backfill fetches its own sentences (the main load carries none),
-  // and translates in the stored sentence + the book — never the bare word when there is one.
-  it('backfill_ServerHasSentence_NeverTranslatesWithoutIt', async () => {
+  // Review r5 of #780: one fetch — the main load carries each untranslated word's sentence,
+  // and the backfill translates in it + the book, never the bare word when there is one.
+  it('backfill_MainLoadHasSentence_TranslatesInItWithoutSecondFetch', async () => {
     const sentence = 'He pocketed the coins and walked out.'
-    getReaderVocabMock.mockImplementation(async (withSentences?: boolean) =>
-      [{ id: 'w1', word: 'pocketed', stage: 1, ...(withSentences ? { sentence } : {}) }])
+    getReaderVocabMock.mockResolvedValue([{ id: 'w1', word: 'pocketed', stage: 1, sentence }])
 
     renderHook(() => useReaderVocabulary('en', 'pt', 'book-1'))
 
     await waitFor(() => expect(vi.mocked(translateApi)).toHaveBeenCalledWith('pocketed', 'en', 'pt', undefined, { sentence, bookId: 'book-1' }))
     expect(vi.mocked(translateApi)).toHaveBeenCalledTimes(1)
-    expect(getReaderVocabMock).toHaveBeenCalledWith(true)
+    expect(getReaderVocabMock).toHaveBeenCalledTimes(1)
   })
 
-  it('backfill_SentenceFetchFails_NotMarkedDoneRetriesWithSentence', async () => {
-    const sentence = 'He pocketed the coins and walked out.'
-    let fail = true
-    getReaderVocabMock.mockImplementation(async (withSentences?: boolean) => {
-      if (withSentences && fail) throw new Error('offline')
-      return [{ id: 'w1', word: 'pocketed', stage: 1, ...(withSentences ? { sentence } : {}) }]
-    })
+  it('backfill_WordRemovedBeforeItsTurn_Skipped', async () => {
+    let release!: () => void
+    vi.mocked(translateApi).mockImplementationOnce(() => new Promise(r => { release = () => r({ translatedText: 'a', sourceLang: 'en', targetLang: 'pt' }) }))
+    getReaderVocabMock.mockResolvedValue([
+      { id: 'w1', word: 'alpha', stage: 1, sentence: 'Alpha here.' },
+      { id: 'w2', word: 'beta', stage: 1, sentence: 'Beta here.' },
+    ])
 
     const { result } = renderHook(() => useReaderVocabulary('en', 'pt', 'book-1'))
-    await waitFor(() => expect(getReaderVocabMock).toHaveBeenCalledWith(true))
-    expect(vi.mocked(translateApi)).not.toHaveBeenCalled()
+    await waitFor(() => expect(vi.mocked(translateApi)).toHaveBeenCalledTimes(1))
+    await act(async () => { await result.current.removeWord('w2', 'beta') })
+    await act(async () => { release() })
 
-    // Any map change re-runs the backfill; it had not run, so it runs now — with the sentence.
-    fail = false
-    saveWordMock.mockResolvedValue({ outcome: 'saved', word: { id: 'w2', word: 'coins', stage: 0, translation: 'moedas' } })
-    await act(async () => { await result.current.addWord({ word: 'coins', language: 'en' }) })
-
-    await waitFor(() => expect(vi.mocked(translateApi)).toHaveBeenCalledWith('pocketed', 'en', 'pt', undefined, { sentence, bookId: 'book-1' }))
+    expect(vi.mocked(translateApi)).toHaveBeenCalledTimes(1)
   })
 
-  it('backfill_DefinitionMode_NothingFetchedOrTranslated', async () => {
-    getReaderVocabMock.mockResolvedValue([{ id: 'w1', word: 'pocketed', stage: 1 }])
+  it('backfill_DefinitionMode_NothingTranslated', async () => {
+    getReaderVocabMock.mockResolvedValue([{ id: 'w1', word: 'pocketed', stage: 1, sentence: 'He pocketed it.' }])
 
     renderHook(() => useReaderVocabulary('en', 'en', 'book-1'))
     await waitFor(() => expect(getReaderVocabMock).toHaveBeenCalledTimes(1))
+    await act(async () => {})
 
-    expect(getReaderVocabMock).not.toHaveBeenCalledWith(true)
     expect(vi.mocked(translateApi)).not.toHaveBeenCalled()
   })
 
