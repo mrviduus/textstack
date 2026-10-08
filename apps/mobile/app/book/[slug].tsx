@@ -24,7 +24,7 @@ import {
 } from '../../src/lib/offlineDb'
 import { getLocalProgress } from '../../src/lib/progressStorage'
 import { countCollectionsHolding, decideLibraryRemoval } from '../../src/lib/libraryRemoval'
-import { downloadLibraryLink } from '../../src/lib/downloadLibraryLink'
+import { downloadAndSave, downloadLibraryLink } from '../../src/lib/downloadLibraryLink'
 import { invalidateCollectionsCache } from '../../src/hooks/useCollections'
 import { fonts } from '../../src/theme/typography'
 import { OfflineBanner } from '../../src/components/ui/OfflineBanner'
@@ -33,7 +33,7 @@ import { SkeletonLoader } from '../../src/components/ui/SkeletonLoader'
 export default function BookDetailScreen() {
   const { slug } = useLocalSearchParams<{ slug: string }>()
   const router = useRouter()
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, ensureSession } = useAuth()
   const { colors } = useTheme()
   const { language, t } = useLanguage()
   const toast = useToast()
@@ -218,16 +218,7 @@ export default function BookDetailScreen() {
       // Library + progress are non-fatal for the detail page — if they fail we
       // still render the book, just without the saved/continue state. We log
       // the error instead of swallowing silently (P1-4/P3-2).
-      try {
-        const gen = libraryGenRef.current
-        const lib = await libraryApi.getLibrary()
-        if (!cancelled && gen === libraryGenRef.current) {
-          libraryKnownRef.current = true
-          setInLibrary(lib.some(item => item.editionId === editionId))
-        }
-      } catch (err) {
-        console.warn('getLibrary failed on book detail:', err)
-      }
+      await loadLibrary(() => cancelled)
       try {
         const p = await readingProgressApi.getProgress(editionId)
         // Not `p?.chapterSlug` alone: a PDF read in Original layout is
@@ -313,7 +304,21 @@ export default function BookDetailScreen() {
 
   const dl = book ? downloads.get(book.id) : undefined
 
-  // Save to Library and Download (LIB-1) share this: optimistic "In Library", rolled back if the add fails.
+  // getLibrary, applied only if no local change landed while it was in flight — then "not in library" is known (LIB-1).
+  const loadLibrary = async (isCancelled = () => false) => {
+    const editionId = book!.id
+    try {
+      const gen = libraryGenRef.current
+      const lib = await libraryApi.getLibrary()
+      if (!isCancelled() && gen === libraryGenRef.current) {
+        libraryKnownRef.current = true
+        setInLibrary(lib.some(item => item.editionId === editionId))
+      }
+    } catch (err) {
+      console.warn('getLibrary failed on book detail:', err)
+    }
+  }
+  // Save to Library and Download (LIB-1) share this: optimistic "In Library"; a failed add re-reads the server.
   const addToLibrary = async (): Promise<boolean> => {
     libraryGenRef.current++
     setInLibrary(true)
@@ -323,6 +328,7 @@ export default function BookDetailScreen() {
     } catch (err) {
       console.warn('library add failed:', err)
       setInLibrary(false)
+      void loadLibrary()
       return false
     }
   }
@@ -369,10 +375,13 @@ export default function BookDetailScreen() {
     )
   }
   // Download, Retry and Restart (LIB-1): the download, then the Library add.
+  // No session: a guest is minted first (LIB-1a).
   const onDownload = (run: () => unknown) => () => {
-    void run()
-    if (isAuthenticated) libraryLink.start(inLibrary ? 'in' : libraryKnownRef.current ? 'out' : 'unknown', addToLibrary)
+    void downloadAndSave({ run, hasSession: isAuthenticated, ensureSession,
+      save: fresh => libraryLink.start(fresh ? 'out' : inLibrary ? 'in' : libraryKnownRef.current ? 'out' : 'unknown', addToLibrary) })
   }
+  // A finished download ends the link: a later re-download + Cancel never removes the book (LIB-1).
+  useEffect(() => { if (dl?.status === 'complete') libraryLink.forget() }, [dl?.status, libraryLink])
 
   if (loading) {
     return (
@@ -538,7 +547,10 @@ export default function BookDetailScreen() {
           <DownloadButton
             dl={dl}
             cached={offlineMode || cached}
-            onRemove={() => removeDownload(book.id).then(() => setCached(false))}
+            onRemove={() => {
+              libraryLink.forget()
+              return removeDownload(book.id).then(() => setCached(false))
+            }}
             onCancel={() => {
               cancelDownload(book.id)
               void libraryLink.cancel(removeWithConfirm)

@@ -49,6 +49,8 @@ about the request is unusual.
 vocabulary word. Mobile mints from exactly one: opening a book, through `ReaderSessionGate`. Minting
 at launch would create a row for every install that browses the catalog and leaves.
 
+- Mobile: tapping Download on a catalog book (2026-10-09, QA-007 LIB-1) — a download is intent, and the book must land in the Library.
+
 **Reader mount was a third web trigger until 2026-09-28, and it was the mistake this paragraph was
 written to prevent — one level down.** Minting on render creates a row for every *client that
 executes JavaScript*, which on a public catalogue is mostly crawlers. On production it produced

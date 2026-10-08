@@ -224,31 +224,33 @@ export const READER_SELECTION_BRIDGE = `
     //
     // Deliberately NOT window.getSelection(): touching the Selection API here
     // raises Android's ActionMode over our own toolbar. See selectWordAtPoint.
-    var _wordMarkSpan = null;
+    //
+    // Drawn on the overlay layer, never into the chapter: wrapping the word in a span moved its text
+    // node, which collapsed every live Range on it — highlights, vocab underlines (SEL-1).
+    var WORD_MARK_KEY = 'ts-word-mark';
+    var _wordMarkOv = null;
+    function wordMarkLayer() {
+      // Reflow: the highlight overlayer (readerHtml), which already follows scroll and reflow.
+      if (typeof hlEnsureOverlayer === 'function') return hlEnsureOverlayer();
+      // PDF viewer: one of its own.
+      if (_wordMarkOv || !window.__TSOverlayer) return _wordMarkOv;
+      _wordMarkOv = window.__TSOverlayer.create();
+      _wordMarkOv.element.style.position = 'fixed';
+      _wordMarkOv.element.style.zIndex = '3';
+      document.body.appendChild(_wordMarkOv.element);
+      window.addEventListener('scroll', function() { try { _wordMarkOv.syncScroll(); } catch(e) {} }, { passive: true });
+      return _wordMarkOv;
+    }
 
-    function clearWordMark(repaint) {
-      try {
-        var span = _wordMarkSpan;
-        _wordMarkSpan = null;
-        if (!span || !span.parentNode) return;
-        var parent = span.parentNode;
-        while (span.firstChild) parent.insertBefore(span.firstChild, span);
-        parent.removeChild(span);
-        parent.normalize();
-        // Unwrapping moves the word's text node, which collapses every live Range on it — the vocab
-        // underline painted while the mark was up (SEL-1). Repaint once with the current map, on a
-        // real close only: markRange re-marks with a Range computed before this, which a repaint destroys.
-        if (repaint && typeof markVocabWords === 'function' && typeof _currentVocabMap === 'object' && _currentVocabMap) markVocabWords(_currentVocabMap);
-      } catch(e) {}
+    function clearWordMark() {
+      try { var ov = wordMarkLayer(); if (ov) ov.remove(WORD_MARK_KEY); } catch(e) {}
     }
 
     function markRange(range) {
       try {
-        clearWordMark();
-        var span = document.createElement('span');
-        span.className = 'ts-word-mark';
-        range.surroundContents(span);
-        _wordMarkSpan = span;
+        var ov = wordMarkLayer();
+        if (ov) ov.add(WORD_MARK_KEY, range.cloneRange(), window.__TSOverlayer && window.__TSOverlayer.highlight,
+          { color: 'rgba(196,112,75,0.35)', opacity: 1, blendMode: 'multiply' });
       } catch(e) {}
     }
 
@@ -263,7 +265,7 @@ export const READER_SELECTION_BRIDGE = `
     window.__tsClearSelection = function(token, markOnly) {
       if (typeof token === 'number' && token !== _selToken) return;
       if (!markOnly) { try { window.getSelection && window.getSelection().removeAllRanges(); } catch(e) {} }
-      clearWordMark(true);
+      clearWordMark();
     };
 
     // The chapter's own element, or the body where there is none (the PDF
@@ -543,7 +545,7 @@ export const READER_SELECTION_BRIDGE = `
       return getRangeAnchor(sel.getRangeAt(0));
     }
 
-    // Tap pulse: wrap selection in temporary span with animation
+    // Tap pulse: the word mark over the selection
     function applyTapPulse(sel) {
       // Native drag selections already paint themselves via ::selection, so this
       // only adds the mark for the single-word case the tap path shares.

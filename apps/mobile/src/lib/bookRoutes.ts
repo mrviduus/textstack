@@ -27,7 +27,7 @@ type ChapterRow = ChapterPageAnchor & { chapterNumber: number }
  * The Library hero's Continue (RES-1). An upload read as PDF pages saves `page:<N>` and no chapter,
  * so `resumeRoute` sent it to the detail screen. Here the chapter list names the chapter holding
  * that page, and the PDF reader then restores the page itself. The device's chapters first (the
- * reading path waits for no network), but only a complete download with page numbers; else the server, 3 s deadline. Lookup fails → detail.
+ * reading path waits for no network), but only a complete download with a page number on every chapter; else the server, 3 s deadline. Lookup fails → detail.
  */
 export async function heroResumeRoute(
   pick: ContinueReadingPick,
@@ -41,9 +41,9 @@ export async function heroResumeRoute(
   if (pick.type !== 'userbook' || parsePdfPageLocator(pick.locator) == null) return resumeRoute(pick)
   try {
     const cached = await loaders.device(pick.id).catch(() => null)
-    // Complete AND paged: rows cached without start pages can't place any page.
+    // Complete AND every row paged: one row cached without a start page can misplace the page.
     const chapters = cached && cached.totalChapters > 0 && cached.chapters.length >= cached.totalChapters
-      && cached.chapters.some(c => typeof c.sourceStartPage === 'number' && c.sourceStartPage >= 1)
+      && cached.chapters.every(c => typeof c.sourceStartPage === 'number' && c.sourceStartPage >= 1)
       ? cached.chapters
       : (await withDeadline(loaders.server(pick.id), SERVER_DEADLINE_MS)).map(c => ({ ...c, slug: userBookChapterSlug(c) }))
     const slug = resumeChapterSlug(null, pick.locator, chapters)

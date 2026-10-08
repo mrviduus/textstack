@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { heroResumeRoute } from './bookRoutes'
-import { downloadLibraryLink } from './downloadLibraryLink'
+import { downloadAndSave, downloadLibraryLink } from './downloadLibraryLink'
 import { READER_SELECTION_BRIDGE } from './readerBridge'
 import { clearSelectionJs } from './readerSelectionJs'
 
@@ -51,15 +51,16 @@ describe('QA-007', () => {
     expect(src).toMatch(/onStart=\{onDownload\(\(\) => startDownload\(book, language\)\)\}/)
     expect(src).toMatch(/onRetry=\{onDownload\(\(\) => retryFailed\(book\.id\)\)\}/)
     expect(src).toMatch(/onRestart=\{onDownload\(\(\) => startDownload\(book, language\)\)\}/)
-    expect(src).toMatch(/libraryLink\.start\(inLibrary \? 'in' : libraryKnownRef\.current \? 'out' : 'unknown', addToLibrary\)/)
+    expect(src).toMatch(/libraryLink\.start\(fresh \? 'out' : inLibrary \? 'in' : libraryKnownRef\.current \? 'out' : 'unknown', addToLibrary\)/)
     // Cancel: the same confirm-then-remove the Save toggle uses, after the add settles.
     expect(src).toMatch(/onCancel=\{\(\) => \{\s*cancelDownload\(book\.id\)\s*void libraryLink\.cancel\(removeWithConfirm\)\s*\}\}/)
     expect(src).toMatch(/libraryLink\.forget\(\)\s*if \(!inLibrary\) return addToLibrary\(\)\s*return removeWithConfirm\(\)/)
     expect(src).toMatch(/const removeWithConfirm = async \(\) => \{[\s\S]*?collectionsApi\.listCollections\(\)[\s\S]*?decideLibraryRemoval/)
     // Known only once getLibrary's answer was applied (gen-guarded against local changes in flight).
-    expect(src).toMatch(/const gen = libraryGenRef\.current\s*const lib = await libraryApi\.getLibrary\(\)\s*if \(!cancelled && gen === libraryGenRef\.current\) \{\s*libraryKnownRef\.current = true/)
+    expect(src).toMatch(/const gen = libraryGenRef\.current\s*const lib = await libraryApi\.getLibrary\(\)\s*if \(!isCancelled\(\) && gen === libraryGenRef\.current\) \{\s*libraryKnownRef\.current = true/)
+    expect(src).toMatch(/await loadLibrary\(\(\) => cancelled\)/)
     // The add reports success; failure rolls back.
-    expect(src).toMatch(/const addToLibrary = async \(\): Promise<boolean> => \{\s*libraryGenRef\.current\+\+\s*setInLibrary\(true\)[\s\S]*?return true[\s\S]*?setInLibrary\(false\)\s*return false/)
+    expect(src).toMatch(/const addToLibrary = async \(\): Promise<boolean> => \{\s*libraryGenRef\.current\+\+\s*setInLibrary\(true\)[\s\S]*?return true[\s\S]*?setInLibrary\(false\)[\s\S]*?return false/)
   })
 
   it('RES-1: hero Continue on a page:N upload opens the reader at the chapter holding the page; lookup failure → detail', async () => {
@@ -228,53 +229,19 @@ describe('QA-007', () => {
     expect(a).not.toBe(b)
   })
 
-  it('SEL-1: closing the word mark unwraps it and repaints the vocab layer with the current map', async () => {
-    // @ts-expect-error -- jsdom ships no types and vitest's jsdom env is all we need it for
-    const { JSDOM } = await import('jsdom')
-    const dom = new JSDOM('<p id="p">alpha beta gamma</p>', { url: 'https://reader.test/', runScripts: 'outside-only' })
-    const w = dom.window as any
-    const d = w.document
-    const posted: { token?: number }[] = []
-    w.ReactNativeWebView = { postMessage: (m: string) => { const x = JSON.parse(m); if (x.type === 'selection' && x.text) posted.push(x) } }
-    w.eval(READER_SELECTION_BRIDGE)
-    // The reader page's vocab layer (readerHtml): a global map + the paint function.
-    const painted: Record<string, unknown>[] = []
-    w.__painted = (m: Record<string, unknown>) => painted.push(m)
-    w.eval('var _currentVocabMap = {}; function markVocabWords(m) { _currentVocabMap = m; window.__painted(JSON.parse(JSON.stringify(m))) }')
-    const p = d.getElementById('p')
-    // Hold on "beta": the tap path marks the word it resolves at the point.
-    d.caretRangeFromPoint = () => { const c = d.createRange(); c.setStart(p.firstChild, 7); return c }
-    const touch = new w.Event('touchstart', { bubbles: true })
-    Object.defineProperty(touch, 'changedTouches', { value: [{ clientX: 1, clientY: 1 }] })
-    p.dispatchEvent(touch)
-    await new Promise(res => setTimeout(res, 500))
-    expect(p.querySelector('.ts-word-mark').textContent).toBe('beta')
-    // "beta" saved while the mark is up.
-    w.eval('_currentVocabMap = { beta: { stage: 0 } }')
-    w.eval(clearSelectionJs(posted.at(-1)!.token))
-    // No leftover span, text nodes merged back.
-    expect(p.querySelector('span')).toBeNull()
-    expect(p.childNodes.length).toBe(1)
-    // ...and the just-saved word is painted again on the restored text.
-    expect(painted.at(-1)).toEqual({ beta: { stage: 0 } })
-  })
-
-  /** Real bridge in its own jsdom, a legacy-style vocab painter (rebuilds text nodes) and a press-and-hold helper. */
+  /** Real bridge in its own jsdom; the reader page's overlayer (readerHtml hlEnsureOverlayer) recorded; a press-and-hold helper. */
   async function bridgeDoc() {
     // @ts-expect-error -- jsdom ships no types and vitest's jsdom env is all we need it for
     const { JSDOM } = await import('jsdom')
-    // Two paragraphs: jsdom lacks normalize()'s live-Range fixup (Chromium has it), so the second word lives in its own node.
     const dom = new JSDOM('<p id="p">alpha beta</p><p id="q">gamma delta</p>', { url: 'https://reader.test/', runScripts: 'outside-only' })
     const w = dom.window as any
     const d = w.document
     const posted: { token?: number }[] = []
     w.ReactNativeWebView = { postMessage: (m: string) => { const x = JSON.parse(m); if (x.type === 'selection' && x.text) posted.push(x) } }
     w.eval(READER_SELECTION_BRIDGE)
-    w.__paints = 0
-    // Legacy paint path replaces text nodes (vhlLegacyRemove/Mark) — any Range held across it dies.
-    w.eval(`var _currentVocabMap = { alpha: { stage: 0 } }; function markVocabWords(m) { window.__paints++; _currentVocabMap = m;
-      var w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT), ns = [], n; while (n = w.nextNode()) ns.push(n);
-      ns.forEach(function(t) { t.parentNode.replaceChild(document.createTextNode(t.data), t) }) }`)
+    const marks = new Map<string, Range>()
+    w.__ov = { add: (k: string, r: Range) => marks.set(k, r), remove: (k: string) => marks.delete(k) }
+    w.eval('function hlEnsureOverlayer() { return window.__ov }')
     const p = d.getElementById('p')
     const q = d.getElementById('q')
     const hold = async (el: HTMLElement, offset: number) => {
@@ -284,28 +251,101 @@ describe('QA-007', () => {
       el.dispatchEvent(touch)
       await new Promise(res => setTimeout(res, 500))
     }
-    return { w, d, p, q, posted, hold }
+    return { w, d, p, q, posted, hold, marks }
   }
 
-  it('SEL-1: tapping a second word while the first is marked marks the second (no vocab repaint on re-mark)', async () => {
-    const { w, d, p, q, hold } = await bridgeDoc()
+  it('SEL-1: the word mark is drawn on the overlayer — the chapter text gains no element', async () => {
+    const { d, p, hold, marks } = await bridgeDoc()
+    const before = { text: d.body.textContent, nodes: d.body.getElementsByTagName('*').length, children: p.childNodes.length }
     await hold(p, 7) // "beta"
-    expect(p.querySelector('.ts-word-mark').textContent).toBe('beta')
-    await hold(q, 2) // "gamma"
-    expect(q.querySelector('.ts-word-mark')?.textContent).toBe('gamma')
-    expect(d.querySelectorAll('.ts-word-mark').length).toBe(1)
-    expect(w.__paints).toBe(0)
+    expect(marks.get('ts-word-mark')?.toString()).toBe('beta')
+    expect({ text: d.body.textContent, nodes: d.body.getElementsByTagName('*').length, children: p.childNodes.length }).toEqual(before)
   })
 
-  it('SEL-1: a mark-only clear with no token is a no-op; a real close still clears and repaints', async () => {
-    const { w, p, posted, hold } = await bridgeDoc()
+  it('SEL-1: closing the mark leaves a highlight Range in the same paragraph intact', async () => {
+    const { w, d, p, posted, hold, marks } = await bridgeDoc()
+    const hl = d.createRange(); hl.setStart(p.firstChild, 0); hl.setEnd(p.firstChild, 5) // "alpha" highlighted
     await hold(p, 7)
-    expect(clearSelectionJs(undefined, true)).toBe('')
-    w.eval(clearSelectionJs(undefined, true) || 'void 0')
-    expect(p.querySelector('.ts-word-mark').textContent).toBe('beta')
     w.eval(clearSelectionJs(posted.at(-1)!.token))
-    expect(p.querySelector('.ts-word-mark')).toBeNull()
-    expect(w.__paints).toBe(1)
+    expect(marks.has('ts-word-mark')).toBe(false)
+    expect(hl.collapsed).toBe(false)
+    expect(hl.toString()).toBe('alpha')
   })
 
+  it('SEL-1: tapping a second word moves the mark', async () => {
+    const { p, q, hold, marks } = await bridgeDoc()
+    await hold(p, 7)
+    await hold(q, 2)
+    expect(marks.get('ts-word-mark')?.toString()).toBe('gamma')
+    expect(marks.size).toBe(1)
+  })
+
+  it('SEL-1: a stale clear leaves the newer mark; a mark-only clear with no token is a no-op', async () => {
+    const { w, p, q, posted, hold, marks } = await bridgeDoc()
+    await hold(p, 7)
+    const older = posted.at(-1)!.token
+    await hold(q, 2)
+    w.eval(clearSelectionJs(older))
+    expect(marks.get('ts-word-mark')?.toString()).toBe('gamma')
+    expect(clearSelectionJs(undefined, true)).toBe('')
+  })
+
+  it('LIB-1: a finished or removed download forgets it added the book — a later download + Cancel never removes it', async () => {
+    const remove = vi.fn()
+    // add → finish/remove download → download again (book already in) → cancel → NOT removed.
+    const link = downloadLibraryLink()
+    link.start('out', async () => true)
+    link.forget()
+    link.start('in', vi.fn())
+    await link.cancel(remove)
+    expect(remove).not.toHaveBeenCalled()
+    // Wiring: the screen forgets when the download completes and when it is removed.
+    const src = read('app/book/[slug].tsx')
+    expect(src).toMatch(/status === 'complete'\) libraryLink\.forget\(\)/)
+    expect(src).toMatch(/onRemove=\{\(\) => \{\s*libraryLink\.forget\(\)/)
+  })
+
+  it('LIB-1a: Download with no session mints a guest first, then saves; a failed or slow mint still downloads, without the save', async () => {
+    // No session → mint → save as a fresh (empty-Library) guest.
+    let run = vi.fn(); let save = vi.fn(); let ensureSession = vi.fn(async () => ({ status: 'minted' as const }))
+    await downloadAndSave({ run, hasSession: false, ensureSession, save })
+    expect(run).toHaveBeenCalledTimes(1); expect(ensureSession).toHaveBeenCalledTimes(1); expect(save).toHaveBeenCalledWith(true)
+    // Mint fails → download only.
+    run = vi.fn(); save = vi.fn()
+    await downloadAndSave({ run, hasSession: false, ensureSession: async () => ({ status: 'failed' as const, error: new Error('offline') }), save })
+    expect(run).toHaveBeenCalledTimes(1); expect(save).not.toHaveBeenCalled()
+    // Mint hangs → 3 s deadline → download only.
+    vi.useFakeTimers()
+    run = vi.fn(); save = vi.fn()
+    const p = downloadAndSave({ run, hasSession: false, ensureSession: () => new Promise(() => {}), save })
+    expect(run).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(3000); await p
+    expect(save).not.toHaveBeenCalled()
+    vi.useRealTimers()
+    // A session already there → no mint.
+    save = vi.fn(); ensureSession = vi.fn()
+    await downloadAndSave({ run: vi.fn(), hasSession: true, ensureSession, save })
+    expect(ensureSession).not.toHaveBeenCalled(); expect(save).toHaveBeenCalledWith(false)
+    // Wiring: the screen's Download handler goes through it with the auth context's ensureSession.
+    expect(read('app/book/[slug].tsx')).toMatch(/downloadAndSave\(\{ run, hasSession: isAuthenticated, ensureSession,/)
+  })
+
+  it('LIB-1: a failed optimistic add re-reads the Library, so the button shows the server and the state becomes known', () => {
+    const src = read('app/book/[slug].tsx')
+    expect(src).toMatch(/setInLibrary\(false\)\s*void loadLibrary\(\)\s*return false/)
+    expect(src).toMatch(/const loadLibrary = async \(isCancelled = \(\) => false\) => \{[\s\S]*?libraryApi\.getLibrary\(\)[\s\S]*?libraryKnownRef\.current = true/)
+  })
+
+  it('RES-1: a device cache with any chapter lacking a start page asks the server', async () => {
+    const pick = { type: 'userbook' as const, id: 'ub1', title: 'PDF', coverPath: null, percent: 0.3, chapterSlug: null, locator: 'page:50', updatedAtMs: 1 }
+    // Mixed old/new rows: ch1 cached before start pages were stored; page 50 lives in ch1 (starts 40).
+    const device = async () => ({ chapters: [{ slug: 'ch0', sourceStartPage: 1 }, { slug: 'ch1', sourceStartPage: null }, { slug: 'ch2', sourceStartPage: 80 }], totalChapters: 3 })
+    const server = vi.fn(async () => [
+      { slug: 'ch0', chapterNumber: 0, sourceStartPage: 1 },
+      { slug: 'ch1', chapterNumber: 1, sourceStartPage: 40 },
+      { slug: 'ch2', chapterNumber: 2, sourceStartPage: 80 },
+    ])
+    expect(await heroResumeRoute(pick, { device, server })).toBe('/my-books/read/ub1/ch1')
+    expect(server).toHaveBeenCalledWith('ub1')
+  })
 })
