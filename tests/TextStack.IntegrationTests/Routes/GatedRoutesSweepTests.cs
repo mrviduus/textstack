@@ -6,7 +6,8 @@ using TextStack.Tests.Routes;
 namespace TextStack.IntegrationTests.Routes;
 
 /// <summary>
-/// ADR-024 PR 0: every <c>/me</c> route, called with no credential, answers 401. The route list comes
+/// ADR-024: every <c>/me</c> route called with no credential answers 401, and every <c>/internal</c>
+/// route called from outside the docker network answers 403. The route list comes
 /// from the Api's own endpoint table (<see cref="ApiRouteTable"/>), so a route added tomorrow is
 /// swept tomorrow without anyone editing this file.
 ///
@@ -14,11 +15,11 @@ namespace TextStack.IntegrationTests.Routes;
 /// code under test; a stack older than it answers 404 for the newer routes, which fails here on
 /// purpose — run it against the build you are checking.</para>
 /// </summary>
-public class MeAnonymousSweepTests : IClassFixture<LiveApiFixture>
+public class GatedRoutesSweepTests : IClassFixture<LiveApiFixture>
 {
     private readonly LiveApiFixture _fixture;
 
-    public MeAnonymousSweepTests(LiveApiFixture fixture) => _fixture = fixture;
+    public GatedRoutesSweepTests(LiveApiFixture fixture) => _fixture = fixture;
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -37,28 +38,48 @@ public class MeAnonymousSweepTests : IClassFixture<LiveApiFixture>
     });
 
     [Fact]
-    public void RouteTable_MeRoutes_AreFound()
+    public void RouteTable_GatedRoutes_AreFound()
     {
-        // Guards the sweep against sweeping nothing: an empty table would pass it vacuously.
+        // Guards the sweeps against sweeping nothing: an empty table would pass them vacuously.
         Assert.True(ApiRouteTable.Routes.Count(r => r.Under("/me")) > 50);
+        Assert.True(ApiRouteTable.Routes.Count(r => r.Under("/internal")) >= 20);
     }
 
     [Fact]
     public async Task EveryMeRoute_Anonymous_Returns401()
     {
+        var failures = await SweepAsync("/me", HttpStatusCode.Unauthorized, _ => { });
+        Assert.True(failures.Count == 0, "Answered anonymously without 401:\n" + string.Join("\n", failures));
+    }
+
+    /// <summary>
+    /// "Outside" the way production sees it: through the proxy chain, which ForwardedHeaders turns
+    /// into the client's own address. A direct call from the test host would not do: Docker
+    /// publishes ports from a bridge address, which is on the allow-list by design.
+    /// </summary>
+    [Fact]
+    public async Task EveryInternalRoute_FromOutside_Returns403()
+    {
+        var failures = await SweepAsync("/internal", HttpStatusCode.Forbidden,
+            req => req.Headers.Add("X-Forwarded-For", "203.0.113.7"));
+        Assert.True(failures.Count == 0, "Answered an outside caller without 403:\n" + string.Join("\n", failures));
+    }
+
+    private async Task<List<string>> SweepAsync(string prefix, HttpStatusCode expected, Action<HttpRequestMessage> configure)
+    {
         var failures = new List<string>();
-        foreach (var route in ApiRouteTable.Routes.Where(r => r.Under("/me")))
+        foreach (var route in ApiRouteTable.Routes.Where(r => r.Under(prefix)))
         {
             var req = _fixture.CreateRequest(new HttpMethod(route.Method), Fill(route.Pattern));
             if (route.Method is "POST" or "PUT" or "PATCH")
                 req.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+            configure(req);
 
             using var resp = await _fixture.Client.SendAsync(req, Ct);
-            if (resp.StatusCode != HttpStatusCode.Unauthorized)
+            if (resp.StatusCode != expected)
                 failures.Add($"{route} -> {(int)resp.StatusCode}");
         }
-
-        Assert.True(failures.Count == 0, "Answered anonymously without 401:\n" + string.Join("\n", failures));
+        return failures;
     }
 
     /// <summary>The spellings the admin gate was probed with. None may reach a handler as anonymous.</summary>

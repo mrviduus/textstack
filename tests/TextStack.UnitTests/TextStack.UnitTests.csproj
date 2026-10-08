@@ -9,6 +9,13 @@
     <PackageReference Include="Moq" />
     <PackageReference Include="xunit.v3" />
     <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- One route table for the /me sweep and the public-routes snapshot (ADR-024). -->
+    <Compile Include="..\TextStack.IntegrationTests\Routes\ApiRouteTable.cs" Link="Routes\ApiRouteTable.cs" />
+    <None Update="Routes\routes.public.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

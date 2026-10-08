@@ -379,6 +379,10 @@ app.UseWhen(
         && !ctx.Request.Path.StartsWithSegments("/admin/auth"),
     branch => branch.UseAdminAuth());
 
+// /me → 401 without a user, /internal → 403 off the docker network (ADR-024). After McpKeyAuth so
+// connect keys and OAuth tokens count as a user; after the limiter so anonymous floods still meet it.
+app.UsePathGates();
+
 app.MapAdminAuthEndpoints();
 app.MapAdminEndpoints();
 app.MapAdminAuthorsEndpoints();

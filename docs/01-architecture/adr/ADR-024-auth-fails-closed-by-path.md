@@ -123,3 +123,21 @@ All as recommended.
 1. **`/storage` uploads:** move behind `/me/books/{id}/file`, in the two steps above: the original first; covers and chapter images only once they have an authenticated route.
 2. **`routes.public.txt`:** accepted as a review gate.
 3. **Shared secret for `/internal` callers:** yes, as a later item, after #19.
+
+## Implementation notes (PR 0+1, 2026-10-07)
+
+Shipped as decided, one PR. Where it differs from the text above:
+
+- **PR 0 result:** no `/me` route answered anonymously on `main`. Four answered 400/415 instead of 401
+  because binding refused the probe before the handler ran (two form uploads, two collection routes
+  with a required `bookType` query); with well-formed input all four were 401. The gate now answers
+  them 401 before binding.
+- The sweep also covers `/internal` (403 for a caller outside, via `X-Forwarded-For` — a direct call
+  from the test host arrives from a Docker bridge address, which is on the allow-list).
+- The gates live in `Api/Middleware/PathGates.cs` (`app.UsePathGates()`, right after the admin
+  `UseWhen`), so `PathGatesTests` can put them in front of endpoints that check nothing.
+- The route table is one file, `tests/TextStack.IntegrationTests/Routes/ApiRouteTable.cs`, linked
+  into UnitTests. The snapshot is `tests/TextStack.UnitTests/Routes/routes.public.txt`, and it lists
+  `/admin/auth/*` too: the admin gate skips that prefix, so those routes are public.
+- No database is needed to list the routes: environment `Test` skips migrations and config
+  validation, hosted services are removed, and nothing resolves a DbContext.
