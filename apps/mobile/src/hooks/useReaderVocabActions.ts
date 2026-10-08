@@ -98,7 +98,8 @@ export function useReaderVocabActions({
     } as const
   }
   /** Shared post-save sequence: mark + count + notify + persist translation. */
-  const onWordSaved = useCallback((saved: VocabularyWordDto, sourceText: string) => {
+  /** `sentence`: the one the word was tapped in (TR-1) — the toolbar's cache key too. */
+  const onWordSaved = useCallback((saved: VocabularyWordDto, sourceText: string, sentence: string | null | undefined) => {
     const key = saved.word.toLowerCase()
     vocabMapRef.current[key] = { stage: saved.stage, id: saved.id }
     injectJs(`addVocabWord(${JSON.stringify(key)}, ${saved.stage})`)
@@ -119,7 +120,8 @@ export function useReaderVocabActions({
 
     // cachedTranslate (not translationApi) so this reuses the gloss the
     // selection toolbar just fetched for the same word — no 2nd round-trip.
-    cachedTranslate(sourceText, textLanguage, targetLang)
+    const bookId = (editionIdRef ?? userBookIdRef)?.current || undefined
+    cachedTranslate(sourceText, textLanguage, targetLang, { sentence, bookId })
       .then(({ translation }) => {
         if (translation && saved.id) {
           vocabularyApi.updateWord(saved.id, { translation }).catch(() => {})
@@ -130,7 +132,7 @@ export function useReaderVocabActions({
         }
       })
       .catch(() => {})
-  }, [vocabMapRef, injectJs, bumpVocab, setWordSaved, setSessionWordCount, notifyWordSaved, textLanguage, nativeLanguage])
+  }, [vocabMapRef, injectJs, bumpVocab, setWordSaved, setSessionWordCount, notifyWordSaved, textLanguage, nativeLanguage, editionIdRef, userBookIdRef])
 
   // In-flight guard for manual saves. Mirrors autoSavedRef but persists
   // across calls within the hook so a rapid double-tap on the toolbar's
@@ -180,7 +182,7 @@ export function useReaderVocabActions({
       }
       const saved = resp.word
       if (!saved) return
-      onWordSaved(saved, selection.text)
+      onWordSaved(saved, selection.text, selection.sentence)
       // Keep the toolbar OPEN after a manual save: in the peek-on-tap model the
       // save is explicit, so the user should see the saved state (stage badge)
       // and be able to immediately undo an accidental save via Remove. The ✕
@@ -205,7 +207,7 @@ export function useReaderVocabActions({
     try {
       const saved = await vocabularyApi.promoteLookup(lookup.id)
       setLookupState(null)
-      onWordSaved(saved, saved.word)
+      onWordSaved(saved, saved.word, saved.sentence)
       setSelection(null)
       showToast({ message: t(language, 'reader.vocab.addedToSrs'), variant: 'success' })
     } catch (e) {

@@ -1,5 +1,5 @@
 import type { Chapter, ChapterNav } from '../types/api'
-import type { PdfAnchor } from '@textstack/shared'
+import { translationApi, type PdfAnchor, type TranslateContext } from '@textstack/shared'
 
 export interface CachedChapter {
   key: string // `${editionId}:${chapterSlug}`
@@ -436,17 +436,18 @@ function hashText(text: string): string {
   return hash.toString(36)
 }
 
-function makeTranslationKey(sourceLang: string, targetLang: string, text: string): string {
-  return `${sourceLang}:${targetLang}:${hashText(text)}`
-}
+// TR-1: the shared key rule — includes the sentence exactly as sent, keeps the text's case.
+const makeTranslationKey = (sourceLang: string, targetLang: string, text: string, ctx?: TranslateContext) =>
+  translationApi.translateCacheKey(text, sourceLang, targetLang, ctx)
 
 export async function getCachedTranslation(
   sourceLang: string,
   targetLang: string,
-  text: string
+  text: string,
+  ctx?: TranslateContext
 ): Promise<CachedTranslation | null> {
   const db = await openOfflineDb()
-  const key = makeTranslationKey(sourceLang, targetLang, text)
+  const key = makeTranslationKey(sourceLang, targetLang, text, ctx)
 
   return new Promise((resolve, reject) => {
     const tx = db.transaction(TRANSLATIONS_STORE, 'readonly')
@@ -470,11 +471,12 @@ export async function cacheTranslation(
   sourceLang: string,
   targetLang: string,
   sourceText: string,
-  translatedText: string
+  translatedText: string,
+  ctx?: TranslateContext
 ): Promise<void> {
   const db = await openOfflineDb()
   const cached: CachedTranslation = {
-    key: makeTranslationKey(sourceLang, targetLang, sourceText),
+    key: makeTranslationKey(sourceLang, targetLang, sourceText, ctx),
     sourceText,
     translatedText,
     sourceLang,

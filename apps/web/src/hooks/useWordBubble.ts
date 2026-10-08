@@ -83,6 +83,8 @@ export function useWordBubble({
     definitionLoading: boolean
     rect: DOMRect | null
     range: Range | null
+    sentence?: string
+    bookId?: string
   } | null>(null)
   const bubbleAbortRef = useRef<AbortController | null>(null)
   // Stabilization delay before opening popup. Filters out transient single-word
@@ -188,6 +190,12 @@ export function useWordBubble({
     setLookupState(null)
     // Definition mode (confirmed native == book language): Explain fills `definition`.
     const explainInContext = !targetLang && hasConfirmedLanguage
+    // Pass book context so translation can pick the domain-aware reading
+    // ("warehouse" in a CS book → data-warehouse, in a logistics book →
+    // storage facility). Kept on the bubble for a language-switch refetch (TR-1).
+    const container = containerRef.current
+    const sentence = range && container ? extractSentence(range, container) || undefined : undefined
+    const bookId = userBookId || editionId || undefined
     setBubble({
       word,
       translation: null,
@@ -196,13 +204,9 @@ export function useWordBubble({
       definitionLoading: explainInContext,
       rect,
       range,
+      sentence,
+      bookId,
     })
-    // Pass book context so translation can pick the domain-aware reading
-    // ("warehouse" in a CS book → data-warehouse, in a logistics book →
-    // storage facility). Same sentence-extraction logic the save flow uses.
-    const container = containerRef.current
-    const sentence = range && container ? extractSentence(range, container) ?? undefined : undefined
-    const bookId = userBookId || editionId || undefined
     fetchWordBubble({
       word, bookLanguage, targetLang,
       explainInContext, vocabMap, updateTranslation,

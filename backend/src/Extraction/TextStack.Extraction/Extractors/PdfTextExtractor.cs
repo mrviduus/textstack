@@ -18,6 +18,21 @@ public sealed class PdfTextExtractor : ITextExtractor
 
     public SourceFormat SupportedFormat => SourceFormat.Pdf;
 
+    /// <summary>PDF-2: the page count from the page tree alone; null when not a readable PDF.
+    /// Used by the <c>backfill-pdf-page-counts</c> CLI.</summary>
+    public static int? CountPages(Stream content)
+    {
+        try
+        {
+            using var document = PdfDocument.Open(content);
+            return document.NumberOfPages;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
     public Task<ExtractionResult> ExtractAsync(ExtractionRequest request, CancellationToken ct = default)
     {
         var warnings = new List<ExtractionWarning>();
@@ -65,9 +80,12 @@ public sealed class PdfTextExtractor : ITextExtractor
                 ExtractionWarningCode.ParseError,
                 $"PDF extraction failed: {ex.Message}"));
 
+            // PDF-2: the document opened, so its page count is still known — read safely.
+            int? pages = null;
+            try { pages = document.NumberOfPages; } catch (Exception) { /* keep null */ }
             return Task.FromResult(new ExtractionResult(
                 SourceFormat.Pdf,
-                new ExtractionMetadata(null, null, null, null),
+                new ExtractionMetadata(null, null, null, null, PageCount: pages),
                 [],
                 [],
                 new ExtractionDiagnostics(TextSource.None, null, warnings)));
@@ -83,6 +101,7 @@ public sealed class PdfTextExtractor : ITextExtractor
         List<ExtractionWarning> warnings, CancellationToken ct)
     {
         var pageCount = document.NumberOfPages;
+        var totalPages = pageCount; // PDF-2: the real total, before the MaxPages clamp
         if (pageCount == 0)
         {
             warnings.Add(new ExtractionWarning(ExtractionWarningCode.EmptyContent, "PDF has no pages"));
@@ -124,7 +143,7 @@ public sealed class PdfTextExtractor : ITextExtractor
 
             return new ExtractionResult(
                 SourceFormat.Pdf,
-                new ExtractionMetadata(title, authors, null, description),
+                new ExtractionMetadata(title, authors, null, description, PageCount: totalPages),
                 [], [],
                 new ExtractionDiagnostics(TextSource.None, null, warnings));
         }
@@ -301,7 +320,7 @@ public sealed class PdfTextExtractor : ITextExtractor
 
             return new ExtractionResult(
                 SourceFormat.Pdf,
-                new ExtractionMetadata(title, authors, null, description),
+                new ExtractionMetadata(title, authors, null, description, PageCount: totalPages),
                 [], allImages,
                 new ExtractionDiagnostics(TextSource.None, null, warnings));
         }
@@ -349,7 +368,7 @@ public sealed class PdfTextExtractor : ITextExtractor
             }
         }
 
-        var metadata = new ExtractionMetadata(title, authors, null, description, coverImage, coverMimeType);
+        var metadata = new ExtractionMetadata(title, authors, null, description, coverImage, coverMimeType, totalPages);
         var diagnostics = new ExtractionDiagnostics(TextSource.NativeText, null, warnings);
 
         return new ExtractionResult(SourceFormat.Pdf, metadata, units, allImages, diagnostics, toc);

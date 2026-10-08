@@ -75,7 +75,7 @@ export function fetchWordBubble(opts: FetchWordBubbleOpts) {
         if (existing?.id && !existing.isPending && !existing.translation) {
           updateWord(existing.id, { translation: translatedText }).catch(() => {})
         }
-        if (existing) updateTranslation(word, translatedText)
+        if (existing && !existing.translation) updateTranslation(word, translatedText) // TR-2
       }
     })
     .catch((err) => {

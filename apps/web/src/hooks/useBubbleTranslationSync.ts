@@ -11,6 +11,9 @@ export interface BubbleLike {
   word: string
   translation: string | null
   translationLoading: boolean
+  /** TR-1: the tapped sentence + book, resent on a language-switch refetch. */
+  sentence?: string
+  bookId?: string
 }
 
 interface Options<B extends BubbleLike> {
@@ -58,7 +61,8 @@ export function useBubbleTranslationSync<B extends BubbleLike>({
     const translation = bubble?.translation
     if (!word || !translation) return
     const entry = vocabMap.get(normalizeVocabKey(word))
-    if (!entry?.id || entry.isPending) return
+    // TR-2: never overwrite a saved word's translation (another sentence, another language).
+    if (!entry?.id || entry.isPending || entry.translation) return
     const patchKey = `${entry.id}:${translation}`
     if (patchedRef.current.has(patchKey)) return
     patchedRef.current.add(patchKey)
@@ -106,7 +110,7 @@ export function useBubbleTranslationSync<B extends BubbleLike>({
       b && b.word === word ? { ...b, translation: null, translationLoading: true } : b,
     )
 
-    translateApi(word, bookLanguage, targetLang, ctrl.signal)
+    translateApi(word, bookLanguage, targetLang, ctrl.signal, { sentence: bubble?.sentence, bookId: bubble?.bookId })
       .then((res) => {
         if (ctrl.signal.aborted) return
         const translated = res?.translatedText ?? null
@@ -117,6 +121,7 @@ export function useBubbleTranslationSync<B extends BubbleLike>({
         )
         if (translated) {
           const existing = vocabMap.get(normalizeVocabKey(word))
+          if (existing?.translation) return // TR-2: display only
           if (existing?.id && !existing.isPending) {
             updateWord(existing.id, { translation: translated }).catch(() => {})
           }
@@ -128,7 +133,7 @@ export function useBubbleTranslationSync<B extends BubbleLike>({
         if ((err as { name?: string })?.name === 'AbortError') return
         setBubble((b) => (b && b.word === word ? { ...b, translationLoading: false } : b))
       })
-  }, [bubble?.word, targetLang, bookLanguage, vocabMap, updateTranslation, setBubble, abortRef])
+  }, [bubble?.word, bubble?.sentence, bubble?.bookId, targetLang, bookLanguage, vocabMap, updateTranslation, setBubble, abortRef])
 
   const triggerAutoSave = useCallback(
     (word: string, save: () => Promise<unknown>) => {

@@ -377,4 +377,64 @@ public class PdfExtractorTests
         // 30 pages / 15 per split = 2 chapters
         Assert.Equal(2, result.Units.Count);
     }
+
+    // PDF-2: the detail page shows the document's real page count, which only the extractor knows.
+    [Fact]
+    public async Task PDF2_ExtractAsync_TextPdf_ReturnsDocumentPageCount()
+    {
+        using var stream = new MemoryStream(PdfFixtureGenerator.GenerateMultiPagePdf(17));
+
+        var result = await new PdfTextExtractor().ExtractAsync(new ExtractionRequest { Content = stream, FileName = "g.pdf" });
+
+        Assert.Equal(17, result.Metadata.PageCount);
+    }
+
+    [Fact]
+    public async Task PDF2_ExtractAsync_NoTextLayer_StillReturnsPageCount()
+    {
+        using var stream = new MemoryStream(PdfFixtureGenerator.GenerateImageOnlyPdf(5));
+
+        var result = await new PdfTextExtractor().ExtractAsync(new ExtractionRequest { Content = stream, FileName = "scan.pdf" });
+
+        Assert.Equal(TextSource.None, result.Diagnostics.TextSource);
+        Assert.Equal(5, result.Metadata.PageCount);
+    }
+
+    [Fact]
+    public async Task PDF2_ExtractAsync_OpenedThenExtractionThrows_StillReturnsPageCount()
+    {
+        await using var stream = new CopyThrowsStream(PdfFixtureGenerator.GenerateSimplePdf(pageCount: 5));
+
+        var result = await new PdfTextExtractor().ExtractAsync(new ExtractionRequest { Content = stream, FileName = "broken.pdf" });
+
+        Assert.Equal(TextSource.None, result.Diagnostics.TextSource);
+        Assert.Equal(5, result.Metadata.PageCount);
+    }
+
+    [Fact]
+    public void PDF2_CountPages_ValidAndInvalid_CountOrNull()
+    {
+        using var pdf = new MemoryStream(PdfFixtureGenerator.GenerateMultiPagePdf(17));
+        using var junk = new MemoryStream(Encoding.UTF8.GetBytes("not a valid pdf"));
+
+        Assert.Equal(17, PdfTextExtractor.CountPages(pdf));
+        Assert.Null(PdfTextExtractor.CountPages(junk));
+    }
+
+    /// <summary>Opens fine (PdfPig reads it); the extractor's byte copy then throws.</summary>
+    private sealed class CopyThrowsStream(byte[] bytes) : Stream
+    {
+        private readonly MemoryStream _inner = new(bytes);
+        public override bool CanRead => true;
+        public override bool CanSeek => true;
+        public override bool CanWrite => false;
+        public override long Length => _inner.Length;
+        public override long Position { get => _inner.Position; set => _inner.Position = value; }
+        public override int Read(byte[] buffer, int offset, int count) => _inner.Read(buffer, offset, count);
+        public override long Seek(long offset, SeekOrigin origin) => _inner.Seek(offset, origin);
+        public override void CopyTo(Stream destination, int bufferSize) => throw new IOException("copy failed");
+        public override void Flush() { }
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
 }

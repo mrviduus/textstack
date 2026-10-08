@@ -429,6 +429,8 @@ export function ReaderShell(props: ReaderShellProps) {
         {selection && (
           <SelectionActionBar
             selectedText={selection.text}
+            sentence={selection.sentence}
+            bookId={source.id || undefined}
             isMultiWord={isMultiWord}
             language={textLanguage}
             onTranslate={() => setTranslateOpen(true)}
@@ -530,6 +532,8 @@ export function ReaderShell(props: ReaderShellProps) {
         <TranslationSheet
           visible={translateOpen}
           text={selection?.text || ''}
+          sentence={selection?.sentence}
+          bookId={source.id || undefined}
           onClose={() => setTranslateOpen(false)}
           onSpeak={(txt) => toggleTts(txt, { rate: settings.ttsSpeed, lang: textLanguage })}
           fromLang={textLanguage}

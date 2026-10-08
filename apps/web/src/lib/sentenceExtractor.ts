@@ -10,9 +10,15 @@ export function extractSentence(range: Range, container: HTMLElement): string {
   const block = findBlockParent(node, container)
   const fullText = block?.textContent || node.textContent || ''
 
-  // Find the selected word position within the block text
-  const selectedText = range.toString().trim()
-  const idx = fullText.indexOf(selectedText)
+  // TR-1: locate the TAPPED occurrence by its offset in the block, not by indexOf
+  // (which finds the first one). Falls back to indexOf if the offset does not line up.
+  const raw = range.toString()
+  const selectedText = raw.trim()
+  const before = document.createRange()
+  before.setStart(block ?? node, 0)
+  before.setEnd(range.startContainer, range.startOffset)
+  let idx = before.toString().length + raw.length - raw.trimStart().length
+  if (fullText.slice(idx, idx + selectedText.length) !== selectedText) idx = fullText.indexOf(selectedText)
   if (idx < 0) return fullText.slice(0, 200)
 
   // Walk backward to find sentence start

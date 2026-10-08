@@ -75,6 +75,8 @@ export interface UserBookDetail {
   metadataEnrichmentStatus?: string
   /** Page a clipped article came from. Null for uploaded files; absent on older payloads. */
   sourceUrl?: string | null
+  /** PDF-2: the PDF's real page count; null/absent → estimate from words. */
+  pageCount?: number | null
 }
 
 export interface UserChapter {
