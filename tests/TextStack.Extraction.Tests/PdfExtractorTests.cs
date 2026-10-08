@@ -52,6 +52,15 @@ public class PdfExtractorTests
         Assert.Equal(5, result.Metadata.PageCount);
     }
 
+    // Review r8 of #780: a page-tree read that throws inside the failure path must not escape it,
+    // or the friendly TextSource.None result is lost.
+    [Fact]
+    public void PageCountOrNull_ReadThrows_Null()
+    {
+        Assert.Null(PdfTextExtractor.PageCountOrNull(() => throw new InvalidOperationException("broken page tree")));
+        Assert.Equal(3, PdfTextExtractor.PageCountOrNull(() => 3));
+    }
+
     /// <summary>Opens fine (PdfPig reads it); the extractor's byte copy then throws.</summary>
     private sealed class CopyThrowsStream(byte[] bytes) : Stream
     {

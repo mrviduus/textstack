@@ -119,7 +119,7 @@ export function useReaderVocabMap({
         try {
           // cachedTranslate de-dupes against the toolbar/save path and
           // memoizes, so re-opening the chapter is free.
-          const { translation } = await cachedTranslate(key, bookLanguage, nativeLanguage, { sentence: w.sentence })
+          const { translation } = await cachedTranslate(w.word, bookLanguage, nativeLanguage, { sentence: w.sentence })
           if (cancelled || !translation) continue
           const entry = vocabMapRef.current[key]
           if (entry?.id === w.id) vocabMapRef.current[key] = { ...entry, translation }

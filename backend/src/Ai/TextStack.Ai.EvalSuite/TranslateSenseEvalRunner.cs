@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Application.Ai;
 using TextStack.Ai.Core;
 
@@ -24,6 +25,16 @@ public static class TranslateSenseEvalRunner
         "there, and a translation of the word alone, decide whether the translation expresses THAT sense " +
         "(any inflection, synonym or short clarifier is fine). Reply with CORRECT or WRONG on the first " +
         "line, then one short reason.";
+
+    private static readonly Regex VerdictWord = new(@"\b(CORRECT|INCORRECT|WRONG)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    /// <summary>The first verdict word anywhere decides, so markdown or a label ("**CORRECT**",
+    /// "Verdict: CORRECT") still parses; INCORRECT, WRONG or none is wrong.</summary>
+    public static bool IsCorrectVerdict(string text)
+    {
+        var m = VerdictWord.Match(text);
+        return m.Success && m.Value.Equals("CORRECT", StringComparison.OrdinalIgnoreCase);
+    }
 
     public static IReadOnlyList<TranslateSenseGolden> LoadGoldens() =>
         GoldenLoader.Load<TranslateSenseGolden>("translate_senses.json");
@@ -76,7 +87,7 @@ public static class TranslateSenseEvalRunner
                     $"Word: {g.Word}\nSentence: {g.Sentence}\nSense in this sentence: {g.Sense}\n" +
                     $"Target language: {target}\nTranslation: {translation}")],
                 MaxOutputTokens: 60, FeatureTag: "eval-judge"), ct);
-            var correct = verdict.Text.TrimStart().StartsWith("CORRECT", StringComparison.OrdinalIgnoreCase);
+            var correct = IsCorrectVerdict(verdict.Text);
             return new TranslateSenseCase(g.Word, target, translation, correct, null);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

@@ -211,7 +211,7 @@ export function useReaderVocabActions({
     try {
       const saved = await vocabularyApi.promoteLookup(lookup.id)
       setLookupState(null)
-      onWordSaved(saved, saved.word, selection?.sentence ?? saved.sentence)
+      onWordSaved(saved, selection?.text ?? saved.word, selection?.sentence ?? saved.sentence)
       setSelection(null)
       showToast({ message: t(language, 'reader.vocab.addedToSrs'), variant: 'success' })
     } catch (e) {

@@ -41,7 +41,7 @@ describe('useReaderVocabMap gloss backfill', () => {
 
     expect(api.getReaderVocab).toHaveBeenCalledTimes(1)
     expect(cachedTranslate).toHaveBeenCalledTimes(1)
-    expect(cachedTranslate).toHaveBeenCalledWith('pocketed', 'en', 'pt', { sentence: SENTENCE })
+    expect(cachedTranslate).toHaveBeenCalledWith('Pocketed', 'en', 'pt', { sentence: SENTENCE })
     expect(api.updateWord).toHaveBeenCalledWith('w1', { translation: 'embolsou' })
   })
 
@@ -128,6 +128,9 @@ describe('useReaderVocabMap gloss backfill', () => {
 
     expect(api.updateWord).toHaveBeenCalledWith('w1', { translation: 'embolsou' })
     expect(api.updateWord).toHaveBeenCalledWith('w2', { translation: 'embolsou' })
+    // Review r8: each row's own word is the text — 'Turkey', not the lowercased map key.
+    expect(cachedTranslate).toHaveBeenCalledWith('Turkey', 'en', 'pt', { sentence: 'Turkey borders Greece.' })
+    expect(cachedTranslate).toHaveBeenCalledWith('turkey', 'en', 'pt', { sentence: 'We roasted a turkey.' })
   })
 
   // The loop bumps per word; that must not cancel it (an earlier version stopped after one).

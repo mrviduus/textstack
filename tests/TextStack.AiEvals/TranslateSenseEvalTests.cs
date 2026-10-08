@@ -56,6 +56,20 @@ public class TranslateSenseEvalTests
         new("wound", "He wound the clock.", "turned the key (past of wind)"),
     ];
 
+    // Review r8 of #780: a judge that decorates its verdict must not be scored WRONG.
+    [Theory]
+    [InlineData("**CORRECT** — keeps the sense", true)]
+    [InlineData("Verdict: CORRECT\nkeeps the sense", true)]
+    [InlineData("CORRECT", true)]
+    [InlineData("WRONG", false)]
+    [InlineData("**WRONG** — the correct sense is 'put away'", false)]
+    [InlineData("INCORRECT", false)]
+    [InlineData("I am not sure", false)]
+    public void IsCorrectVerdict_JudgeReply_ParsedByFirstVerdictWord(string reply, bool expected)
+    {
+        Assert.Equal(expected, TranslateSenseEvalRunner.IsCorrectVerdict(reply));
+    }
+
     [Fact]
     public void LoadGoldens_Dataset_ThirtyCasesEachSentenceContainsItsWord()
     {

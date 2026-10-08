@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using Api.Extensions;
 using Api.Mapping;
 using Api.Sites;
@@ -684,11 +683,12 @@ public static partial class VocabularyEndpoints
         if (!TryGetAuth(httpContext, authService, out var userId, out var siteId))
             return Results.Unauthorized();
 
+        var nativeLanguage = await db.Users.Where(u => u.Id == userId).Select(u => u.NativeLanguage).FirstOrDefaultAsync(ct);
         var query = db.VocabularyWords
             .Where(w => w.UserId == userId)
             .OrderBy(w => w.Word)
             .Take(MaxWordsPerUser);
-        var words = await ProjectReaderVocab(query).ToListAsync(ct);
+        var words = await ProjectReaderVocab(query, nativeLanguage).ToListAsync(ct);
 
         return Results.Ok(words.Select(w => w.Sentence == null ? w : w with { Sentence = SentenceWindow(w.Sentence, w.Word) }));
     }
@@ -697,13 +697,13 @@ public static partial class VocabularyEndpoints
 
     /// <summary>
     /// Sentence only for an untranslated word — the gloss backfill's context, so it glosses the
-    /// sense the word was saved in. Translated words (the common case) carry none.
-    /// ponytail: definition-mode readers (nothing to translate into) have no translations, so every
-    /// word ships a sentence; the <see cref="SentenceWindow"/> cap keeps that to ~200 chars a word.
+    /// sense the word was saved in. Translated words (the common case) carry none, and neither does a
+    /// word in the reader's native language (definition mode: nothing to translate into). No profile
+    /// native language → sentence kept, the client may still know one.
     /// </summary>
-    internal static IQueryable<ReaderVocabWordDto> ProjectReaderVocab(IQueryable<VocabularyWord> words) =>
+    internal static IQueryable<ReaderVocabWordDto> ProjectReaderVocab(IQueryable<VocabularyWord> words, string? nativeLanguage) =>
         words.Select(w => new ReaderVocabWordDto(w.Id, w.Word, w.Stage, w.Translation,
-            string.IsNullOrEmpty(w.Translation) ? w.Sentence : null));
+            string.IsNullOrEmpty(w.Translation) && (nativeLanguage == null || w.Language != nativeLanguage) ? w.Sentence : null));
 
     /// <summary>At most <see cref="MaxReaderSentenceLength"/> chars centred on the word (whole word first, then
     /// substring); the start if the word is absent.
@@ -711,8 +711,8 @@ public static partial class VocabularyEndpoints
     internal static string SentenceWindow(string sentence, string word)
     {
         if (sentence.Length <= MaxReaderSentenceLength) return sentence;
-        var whole = Regex.Match(sentence, $@"\b{Regex.Escape(word)}\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-        var at = whole.Success ? whole.Index : sentence.IndexOf(word, StringComparison.OrdinalIgnoreCase);
+        var at = WholeWordIndex(sentence, word);
+        if (at < 0) at = sentence.IndexOf(word, StringComparison.OrdinalIgnoreCase);
         var start = at < 0 ? 0 : Math.Clamp(at + word.Length / 2 - MaxReaderSentenceLength / 2, 0, sentence.Length - MaxReaderSentenceLength);
         var end = start + MaxReaderSentenceLength;
         // Shrink inward to whitespace, never past the word itself.
@@ -733,6 +733,20 @@ public static partial class VocabularyEndpoints
         if (char.IsLowSurrogate(sentence[start])) start++;
         if (char.IsHighSurrogate(sentence[end - 1])) end--;
         return sentence[start..end].Trim();
+    }
+
+    /// <summary>First case-insensitive occurrence of <paramref name="word"/> not flanked by a letter or digit; -1 if none.</summary>
+    private static int WholeWordIndex(string sentence, string word)
+    {
+        if (word.Length == 0) return -1;
+        for (var i = sentence.IndexOf(word, StringComparison.OrdinalIgnoreCase); i >= 0;
+             i = sentence.IndexOf(word, i + 1, StringComparison.OrdinalIgnoreCase))
+        {
+            var end = i + word.Length;
+            if ((i == 0 || !char.IsLetterOrDigit(sentence[i - 1])) && (end == sentence.Length || !char.IsLetterOrDigit(sentence[end])))
+                return i;
+        }
+        return -1;
     }
 
     // --- Mark word as Known (stage 4) ---

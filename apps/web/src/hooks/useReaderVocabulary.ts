@@ -94,7 +94,7 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
         // id: 'Turkey' and 'turkey' share one key, and each row still gets its own write.
         if (!entry || entry.isPending || (entry.id === w.id && entry.translation)) continue
         try {
-          const res = await translateWord(word, lang, target, undefined, { sentence: w.sentence })
+          const res = await translateWord(w.word, lang, target, undefined, { sentence: w.sentence })
           const translation = res.translatedText
           if (cancelled || !translation) continue
           updateMap(m => {

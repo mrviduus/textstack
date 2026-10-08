@@ -356,6 +356,9 @@ describe('useReaderVocabulary', () => {
 
     await waitFor(() => expect(vi.mocked(updateWordApi)).toHaveBeenCalledWith('w2', { translation: 'peru' }))
     expect(vi.mocked(updateWordApi)).toHaveBeenCalledWith('w1', { translation: 'peru' })
+    // Review r8: each row's own word is the text — 'Turkey', not the lowercased map key.
+    expect(vi.mocked(translateApi)).toHaveBeenCalledWith('Turkey', 'en', 'pt', undefined, { sentence: 'Turkey borders Greece.' })
+    expect(vi.mocked(translateApi)).toHaveBeenCalledWith('turkey', 'en', 'pt', undefined, { sentence: 'We roasted a turkey.' })
   })
 
   it('backfill_DefinitionMode_NothingTranslated', async () => {

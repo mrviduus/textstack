@@ -35,6 +35,19 @@ public sealed class PdfTextExtractor : ITextExtractor
         }
     }
 
+    /// <summary>The page count, or null if reading it throws — keeps the failure path's result friendly.</summary>
+    internal static int? PageCountOrNull(Func<int> read)
+    {
+        try
+        {
+            return read();
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
     public Task<ExtractionResult> ExtractAsync(ExtractionRequest request, CancellationToken ct = default)
     {
         var warnings = new List<ExtractionWarning>();
@@ -85,7 +98,7 @@ public sealed class PdfTextExtractor : ITextExtractor
             // The document opened, so the Original layout can still page it.
             return Task.FromResult(new ExtractionResult(
                 SourceFormat.Pdf,
-                new ExtractionMetadata(null, null, null, null, PageCount: document.NumberOfPages),
+                new ExtractionMetadata(null, null, null, null, PageCount: PageCountOrNull(() => document.NumberOfPages)),
                 [],
                 [],
                 new ExtractionDiagnostics(TextSource.None, null, warnings)));

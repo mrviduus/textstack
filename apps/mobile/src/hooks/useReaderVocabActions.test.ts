@@ -3,7 +3,7 @@ import { act } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { renderHook } from '../test/renderHook'
 
-const api = vi.hoisted(() => ({ saveWord: vi.fn(), updateWord: vi.fn() }))
+const api = vi.hoisted(() => ({ saveWord: vi.fn(), updateWord: vi.fn(), promoteLookup: vi.fn() }))
 vi.mock('@textstack/shared', () => ({ vocabularyApi: api, t: (_l: string, k: string) => k }))
 const cachedTranslate = vi.hoisted(() => vi.fn(() => new Promise(() => {})))
 vi.mock('../lib/translateCache', () => ({ cachedTranslate }))
@@ -46,5 +46,25 @@ describe('useReaderVocabActions', () => {
     await act(async () => { await result.current.saveWord({ text: 'pocketed', sentence, selectionId: 1 }) })
 
     expect(cachedTranslate).toHaveBeenCalledWith('pocketed', 'en', 'pt', { sentence, bookId: 'book-1' })
+  })
+
+  // Review r8 of #780: "add anyway" glosses the toolbar's selected text (its cache key), not the
+  // server's echo of the word — 'Turkey' selected must not become a second translate of 'turkey'.
+  it('addAnyway_Promoted_GlossUsesSelectionText', async () => {
+    const sentence = 'Turkey borders Greece.'
+    api.promoteLookup.mockResolvedValue({ id: 'w1', word: 'turkey', stage: 0, sentence: null })
+    const noop = () => {}
+    const { result } = renderHook(useReaderVocabActions, {
+      vocabMapRef: { current: {} as VocabMap }, bookTitleRef: { current: null }, chapter: null, language: 'en',
+      textLanguage: 'en', nativeLanguage: 'pt', isAuthenticated: true, injectJs: noop, bumpVocab: noop,
+      notifyWordSaved: noop, setSessionWordCount: noop, setWordSaved: noop, setSelection: noop,
+      setLookupState: noop, showToast: noop, bookId: 'book-1',
+    } as unknown as Parameters<typeof useReaderVocabActions>[0])
+
+    await act(async () => {
+      await result.current.addAnyway({ id: 'l1', busy: false } as never, { text: 'Turkey', sentence, selectionId: 1 })
+    })
+
+    expect(cachedTranslate).toHaveBeenCalledWith('Turkey', 'en', 'pt', { sentence, bookId: 'book-1' })
   })
 })

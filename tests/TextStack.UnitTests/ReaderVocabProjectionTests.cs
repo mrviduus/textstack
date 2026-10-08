@@ -26,10 +26,27 @@ public class ReaderVocabProjectionTests
     [Fact]
     public void ProjectReaderVocab_Always_SentenceOnlyForUntranslated()
     {
-        var dtos = VocabularyEndpoints.ProjectReaderVocab(Words.AsQueryable()).ToDictionary(d => d.Word);
+        var dtos = VocabularyEndpoints.ProjectReaderVocab(Words.AsQueryable(), "pt").ToDictionary(d => d.Word);
 
         Assert.Equal("Later she wound the clock.", dtos["wound"].Sentence);
         Assert.Null(dtos["bled"].Sentence);
+    }
+
+    // Review r8: definition mode (word language == native) never backfills, so no sentence ships.
+    [Fact]
+    public void ProjectReaderVocab_NativeEqualsWordLanguage_NoSentence()
+    {
+        var dtos = VocabularyEndpoints.ProjectReaderVocab(Words.AsQueryable(), "en").ToList();
+
+        Assert.All(dtos, d => Assert.Null(d.Sentence));
+    }
+
+    [Fact]
+    public void ProjectReaderVocab_NoNativeLanguage_SentenceForUntranslated()
+    {
+        var dtos = VocabularyEndpoints.ProjectReaderVocab(Words.AsQueryable(), null).ToDictionary(d => d.Word);
+
+        Assert.Equal("Later she wound the clock.", dtos["wound"].Sentence);
     }
 
     [Fact]
