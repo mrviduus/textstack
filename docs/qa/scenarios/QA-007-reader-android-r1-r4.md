@@ -5,7 +5,7 @@
 unit-tested only, and the reader engine (ADR-025, planned) will be measured against this list
 **Platform**: Android phone, the build carrying #723/#728/#730/#731 (check the OTA in About)
 **Last Tested**: 2026-10-08 (emulator, guest) — [report](../reports/2026-10-08-reader-android.md)
-**Status**: 11/12 runnable pass, #3 ⚠️; #9 and #12 owner-only, not run
+**Status**: 14/14 pass after #778 (#3 fixed); #9 and #12 run with the QA account
 
 ---
 
