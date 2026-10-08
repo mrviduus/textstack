@@ -29,7 +29,7 @@ describe('QA-007', () => {
       { slug: null, chapterNumber: 1, sourceStartPage: 30 },
       { slug: 'end', chapterNumber: 2, sourceStartPage: 60 },
     ]
-    const none = async () => []
+    const none = async () => ({ chapters: [], totalChapters: 0 })
     expect(await heroResumeRoute(pick, { device: none, server: async () => chapters })).toBe('/my-books/read/ub1/chapter-1')
     expect(await heroResumeRoute(pick, { device: none, server: async () => { throw new Error('offline') } })).toBe('/my-books/ub1')
     expect(await heroResumeRoute(pick, { device: async () => { throw new Error('db') }, server: async () => { throw new Error('offline') } })).toBe('/my-books/ub1')
@@ -51,12 +51,40 @@ describe('QA-007', () => {
   it('RES-1: the device answers first — chapters on the phone open the reader without asking the server', async () => {
     const pick = { type: 'userbook' as const, id: 'ub1', title: 'PDF', coverPath: null, percent: 0.3, chapterSlug: null, locator: 'page:42', updatedAtMs: 1 }
     const server = vi.fn(async () => [])
-    const device = vi.fn(async () => [{ slug: 'intro', sourceStartPage: 1 }, { slug: 'chapter-1', sourceStartPage: 30 }])
+    const device = vi.fn(async () => ({ chapters: [{ slug: 'intro', sourceStartPage: 1 }, { slug: 'chapter-1', sourceStartPage: 30 }], totalChapters: 2 }))
     expect(await heroResumeRoute(pick, { device, server })).toBe('/my-books/read/ub1/chapter-1')
     expect(device).toHaveBeenCalledWith('ub1')
     expect(server).not.toHaveBeenCalled()
-    // ResumeHero wires the device loader to SQLite.
-    expect(read('src/components/library/ResumeHero.tsx')).toMatch(/device: id => listCachedUserChapters\(id\)/)
+    // ResumeHero wires the device loader to SQLite: chapters + the cached book meta's count.
+    const hero = read('src/components/library/ResumeHero.tsx')
+    expect(hero).toMatch(/listCachedUserChapters\(id\)/)
+    expect(hero).toMatch(/getCachedUserBookMeta\(id\)/)
+  })
+
+  it('RES-1: a partial device cache is not trusted — the server names the chapter', async () => {
+    const pick = { type: 'userbook' as const, id: 'ub1', title: 'PDF', coverPath: null, percent: 0.3, chapterSlug: null, locator: 'page:75', updatedAtMs: 1 }
+    // Only ch0, ch1 downloaded of 4; page 75 lives in ch3.
+    const device = async () => ({ chapters: [{ slug: 'ch0', sourceStartPage: 1 }, { slug: 'ch1', sourceStartPage: 20 }], totalChapters: 4 })
+    const server = vi.fn(async () => [
+      { slug: 'ch0', chapterNumber: 0, sourceStartPage: 1 },
+      { slug: 'ch1', chapterNumber: 1, sourceStartPage: 20 },
+      { slug: 'ch2', chapterNumber: 2, sourceStartPage: 40 },
+      { slug: 'ch3', chapterNumber: 3, sourceStartPage: 70 },
+    ])
+    expect(await heroResumeRoute(pick, { device, server })).toBe('/my-books/read/ub1/ch3')
+    expect(server).toHaveBeenCalledWith('ub1')
+  })
+
+  it('RES-1: the server lookup has a 3 s deadline → detail screen; the button shows busy meanwhile', async () => {
+    vi.useFakeTimers()
+    const pick = { type: 'userbook' as const, id: 'ub1', title: 'PDF', coverPath: null, percent: 0.3, chapterSlug: null, locator: 'page:75', updatedAtMs: 1 }
+    const route = heroResumeRoute(pick, { device: async () => ({ chapters: [], totalChapters: 0 }), server: () => new Promise(() => {}) })
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(await route).toBe('/my-books/ub1')
+    vi.useRealTimers()
+    const hero = read('src/components/library/ResumeHero.tsx')
+    expect(hero).toMatch(/accessibilityState=\{\{ busy \}\}/)
+    expect(hero).toMatch(/\{busy \? <ActivityIndicator/)
   })
 
   it('RES-1: no navigation once the hero has lost focus or unmounted', () => {

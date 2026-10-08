@@ -43,6 +43,8 @@ export interface UserBookProgressLite {
   updatedAt: number
   /** The server acknowledged this exact write. See `localProgressWins`. */
   synced?: boolean
+  /** 1-based page, when last read as an Original-layout PDF. */
+  page?: number
 }
 
 export type ContinueReadingPick =
@@ -191,9 +193,8 @@ function pickUserBook(ub: UserBookDto, local: UserBookProgressLite | undefined):
 
   // Local record vs the server's CLIENT stamp — not a grace window around the
   // server-clock progressUpdatedAt, which was a cross-clock comparison.
-  const displayPercent = (local && localProgressWins(local, { clientUpdatedAt: ub.progressClientUpdatedAt, updatedAt: ub.progressUpdatedAt }))
-    ? local.bookPercent
-    : ub.progressPercent
+  const localWins = !!local && localProgressWins(local, { clientUpdatedAt: ub.progressClientUpdatedAt, updatedAt: ub.progressUpdatedAt })
+  const displayPercent = localWins ? local!.bookPercent : ub.progressPercent
 
   return {
     type: 'userbook',
@@ -207,7 +208,8 @@ function pickUserBook(ub: UserBookDto, local: UserBookProgressLite | undefined):
     // has not yet cost anything — but one branch of one function obeying a rule
     // the other does not is how #496 turned into #500 turned into #501.
     chapterSlug: resumeChapterSlug(ub.progressChapterSlug, ub.progressLocator, null),
-    locator: ub.progressLocator ?? null,
+    // The winning record's position, not just its percent (RES-1).
+    locator: localWins && local!.page ? `page:${local!.page}` : ub.progressLocator ?? null,
     updatedAtMs: ubMs,
   }
 }

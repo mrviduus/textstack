@@ -254,6 +254,24 @@ describe('pickContinueReadingBook — user books', () => {
     expect(r?.percent).toBeCloseTo(0.31) // local wins
   })
 
+  it('RES-1: a winning local record supplies the locator (its page), not the server row', () => {
+    const T = Date.parse('2026-05-10T12:00:00Z')
+    const pick = (local: UserBookProgressLite) => pickContinueReadingBook({
+      library: [], serverProgress: [],
+      userBooks: [ub({ progressChapterSlug: null, progressLocator: 'page:10' })],
+      localCatalogMap: emptyLocal,
+      localUserBookMap: new Map([['ub-1', local]]),
+    })
+    const p1 = pick({ bookPercent: 0.4, updatedAt: T, page: 75 })
+    expect(p1?.type === 'userbook' && p1.locator).toBe('page:75')
+    // No page on the local record → the server locator stays.
+    const p2 = pick({ bookPercent: 0.4, updatedAt: T })
+    expect(p2?.type === 'userbook' && p2.locator).toBe('page:10')
+    // Local loses (synced) → server locator.
+    const p3 = pick({ bookPercent: 0.4, updatedAt: T, page: 75, synced: true })
+    expect(p3?.type === 'userbook' && p3.locator).toBe('page:10')
+  })
+
   it('falls back to server progressPercent when the local record is synced', () => {
     const ubMs = Date.parse('2026-05-10T12:00:00Z')
     const localUb: UserBookProgressLite = {

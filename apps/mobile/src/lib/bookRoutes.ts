@@ -27,24 +27,34 @@ type ChapterRow = ChapterPageAnchor & { chapterNumber: number }
  * The Library hero's Continue (RES-1). An upload read as PDF pages saves `page:<N>` and no chapter,
  * so `resumeRoute` sent it to the detail screen. Here the chapter list names the chapter holding
  * that page, and the PDF reader then restores the page itself. The device's chapters first (the
- * reading path waits for no network); the server only when none are cached. Lookup fails → detail.
+ * reading path waits for no network), but only a complete download; else the server, 3 s deadline. Lookup fails → detail.
  */
 export async function heroResumeRoute(
   pick: ContinueReadingPick,
   loaders: {
-    device: (bookId: string) => Promise<readonly ChapterPageAnchor[]>
+    /** The cached chapters and the book meta's chapter count — a partial download can't place a page. */
+    device: (bookId: string) => Promise<{ chapters: readonly ChapterPageAnchor[]; totalChapters: number }>
     server: (bookId: string) => Promise<readonly ChapterRow[]>
   },
 ): Promise<string> {
   if (pick.type !== 'userbook' || pick.chapterSlug || parsePdfPageLocator(pick.locator) == null) return resumeRoute(pick)
   try {
-    const cached = await loaders.device(pick.id).catch(() => [])
-    const chapters = cached.length
-      ? cached
-      : (await loaders.server(pick.id)).map(c => ({ ...c, slug: userBookChapterSlug(c) }))
+    const cached = await loaders.device(pick.id).catch(() => null)
+    const chapters = cached && cached.totalChapters > 0 && cached.chapters.length >= cached.totalChapters
+      ? cached.chapters
+      : (await withDeadline(loaders.server(pick.id), SERVER_DEADLINE_MS)).map(c => ({ ...c, slug: userBookChapterSlug(c) }))
     const slug = resumeChapterSlug(null, pick.locator, chapters)
     return slug ? `/my-books/read/${pick.id}/${slug}` : resumeRoute(pick)
   } catch {
     return resumeRoute(pick)
   }
+}
+
+/** Every wait has a deadline: a captive portal must not hold the Continue tap. */
+const SERVER_DEADLINE_MS = 3000
+
+function withDeadline<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const deadline = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('deadline')), ms) })
+  return Promise.race([p, deadline]).finally(() => clearTimeout(timer))
 }

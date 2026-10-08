@@ -1,6 +1,6 @@
-import { View, Text, StyleSheet } from 'react-native'
+import { View, Text, StyleSheet, ActivityIndicator } from 'react-native'
 import { Image } from 'expo-image'
-import { useCallback, useRef } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { useFocusEffect, useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { getStorageUrl, userBooksApi } from '@textstack/shared'
@@ -11,7 +11,7 @@ import { fonts } from '../../theme/typography'
 import { PressableScale } from '../ui/PressableScale'
 import { GeneratedCover } from './GeneratedCover'
 import { heroResumeRoute } from '../../lib/bookRoutes'
-import { listCachedUserChapters } from '../../lib/offlineDb'
+import { getCachedUserBookMeta, listCachedUserChapters } from '../../lib/offlineDb'
 
 /**
  * The single largest, topmost thing a returning reader sees.
@@ -30,6 +30,7 @@ export function ResumeHero({ pick }: { pick: ContinueReadingPick }) {
   const router = useRouter()
   // One chapter-list lookup at a time (RES-1); repeat taps while it runs are ignored.
   const busyRef = useRef(false)
+  const [busy, setBusy] = useState(false)
   // A lookup that resolves after the reader left the Library (or the hero unmounted) must not navigate.
   const focusedRef = useRef(true)
   useFocusEffect(useCallback(() => {
@@ -39,14 +40,19 @@ export function ResumeHero({ pick }: { pick: ContinueReadingPick }) {
   const open = async () => {
     if (busyRef.current) return
     busyRef.current = true
+    setBusy(true)
     try {
       const route = await heroResumeRoute(pick, {
-        device: id => listCachedUserChapters(id).then(cs => cs.map(c => ({ slug: c.chapterSlug, sourceStartPage: c.sourceStartPage }))),
+        device: async id => {
+          const [cs, meta] = await Promise.all([listCachedUserChapters(id), getCachedUserBookMeta(id)])
+          return { chapters: cs.map(c => ({ slug: c.chapterSlug, sourceStartPage: c.sourceStartPage })), totalChapters: meta?.totalChapters ?? 0 }
+        },
         server: id => userBooksApi.getUserBook(id).then(b => b.chapters),
       })
       if (focusedRef.current) router.push(route as never)
     } finally {
       busyRef.current = false
+      setBusy(false)
     }
   }
 
@@ -59,6 +65,7 @@ export function ResumeHero({ pick }: { pick: ContinueReadingPick }) {
       accessibilityLabel={t('library.resume.a11yResume')
         .replace('{title}', pick.title)
         .replace('{percent}', String(percent))}
+      accessibilityState={{ busy }}
       onPress={() => { void open() }}
       style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}
     >
@@ -81,7 +88,7 @@ export function ResumeHero({ pick }: { pick: ContinueReadingPick }) {
         </View>
 
         <View style={[styles.cta, { backgroundColor: colors.primary }]}>
-          <Ionicons name="play" size={15} color="#fff" />
+          {busy ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="play" size={15} color="#fff" />}
           {/* Same promise, same condition — see BookList. */}
           <Text style={styles.ctaText}>
             {percent > 0 ? t('library.resume.continue') : t('library.resume.start')}
