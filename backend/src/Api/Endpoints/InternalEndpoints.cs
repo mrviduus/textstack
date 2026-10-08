@@ -1,4 +1,3 @@
-using Api.Extensions;
 using System.Net;
 using System.Text.RegularExpressions;
 using Application.Admin;
@@ -16,6 +15,7 @@ using static TextStack.Extraction.Utilities.HtmlCleaner;
 
 namespace Api.Endpoints;
 
+/// <summary>Docker-network only: <see cref="Api.Middleware.PathGates"/> refuses /internal/* from anywhere else (ADR-024).</summary>
 public static class InternalEndpoints
 {
     public static void MapInternalEndpoints(this WebApplication app)
@@ -54,14 +54,10 @@ public static class InternalEndpoints
     // ── SSG / Publish ──
 
     private static async Task<IResult> RebuildAll(
-        HttpContext ctx,
         IAppDbContext db,
         ISsgJobService ssgService,
         CancellationToken ct)
     {
-        if (!InternalNetwork.IsLocalRequest(ctx))
-            return Results.StatusCode(403);
-
         var site = await db.Sites.FirstOrDefaultAsync(ct);
         if (site is null)
             return Results.BadRequest(new { error = "No site found" });
@@ -77,13 +73,9 @@ public static class InternalEndpoints
 
     private static async Task<IResult> PublishEdition(
         Guid id,
-        HttpContext ctx,
         AdminService adminService,
         CancellationToken ct)
     {
-        if (!InternalNetwork.IsLocalRequest(ctx))
-            return Results.StatusCode(403);
-
         var (success, error) = await adminService.PublishEditionAsync(id, ct);
         return success ? Results.Ok() : Results.BadRequest(new { error });
     }
@@ -92,14 +84,11 @@ public static class InternalEndpoints
 
     private static async Task<IResult> ReplaceFeatured(
         [FromBody] ReplaceFeaturedRequest req,
-        HttpContext ctx,
         BookService bookService,
         IAppDbContext db,
         ISsgJobService ssgService,
         CancellationToken ct)
     {
-        if (!InternalNetwork.IsLocalRequest(ctx))
-            return Results.StatusCode(403);
         // Empty list would silently wipe the shelf — refuse; clear ranks in admin instead.
         if (req.Slugs is not { Count: > 0 })
             return Results.BadRequest(new { error = "slugs must be a non-empty array" });
@@ -132,10 +121,8 @@ public static class InternalEndpoints
     // ── Edition Chapters ──
 
     private static async Task<IResult> GetEditionChapters(
-        Guid id, HttpContext ctx, IAppDbContext db, CancellationToken ct)
+        Guid id, IAppDbContext db, CancellationToken ct)
     {
-        if (!InternalNetwork.IsLocalRequest(ctx)) return Results.StatusCode(403);
-
         var chapters = await db.Chapters
             .Where(c => c.EditionId == id)
             .OrderBy(c => c.ChapterNumber)
@@ -146,10 +133,8 @@ public static class InternalEndpoints
     }
 
     private static async Task<IResult> GetEditionChapterContent(
-        Guid id, int n, HttpContext ctx, IAppDbContext db, CancellationToken ct)
+        Guid id, int n, IAppDbContext db, CancellationToken ct)
     {
-        if (!InternalNetwork.IsLocalRequest(ctx)) return Results.StatusCode(403);
-
         var ch = await db.Chapters
             .Where(c => c.EditionId == id && c.ChapterNumber == n)
             .Select(c => new { c.Id, c.ChapterNumber, c.Title, c.Html, c.PlainText, c.WordCount })
@@ -160,10 +145,8 @@ public static class InternalEndpoints
 
     private static async Task<IResult> UpdateEditionChapter(
         Guid id, int n, [FromBody] UpdateInternalChapterRequest req,
-        HttpContext ctx, IAppDbContext db, CancellationToken ct)
+        IAppDbContext db, CancellationToken ct)
     {
-        if (!InternalNetwork.IsLocalRequest(ctx)) return Results.StatusCode(403);
-
         var ch = await db.Chapters.FirstOrDefaultAsync(c => c.EditionId == id && c.ChapterNumber == n, ct);
         if (ch is null) return Results.NotFound();
 
@@ -189,10 +172,8 @@ public static class InternalEndpoints
     internal const int QualityDeleteMaxWords = 300;
 
     private static async Task<IResult> DeleteEditionChapter(
-        Guid id, int n, HttpContext ctx, IAppDbContext db, CancellationToken ct)
+        Guid id, int n, IAppDbContext db, CancellationToken ct)
     {
-        if (!InternalNetwork.IsLocalRequest(ctx)) return Results.StatusCode(403);
-
         var ch = await db.Chapters.FirstOrDefaultAsync(c => c.EditionId == id && c.ChapterNumber == n, ct);
         if (ch is null) return Results.NotFound();
 
@@ -228,9 +209,8 @@ public static class InternalEndpoints
 
     private static async Task<IResult> MergeEditionChapters(
         Guid id, [FromBody] MergeChaptersRequest req,
-        HttpContext ctx, IAppDbContext db, CancellationToken ct)
+        IAppDbContext db, CancellationToken ct)
     {
-        if (!InternalNetwork.IsLocalRequest(ctx)) return Results.StatusCode(403);
         if (req.ChapterNumbers is not { Count: >= 2 })
             return Results.BadRequest(new { error = "At least 2 chapter numbers required" });
 
@@ -282,10 +262,8 @@ public static class InternalEndpoints
     // ── User Book Chapters ──
 
     private static async Task<IResult> GetUserBookChapters(
-        Guid id, HttpContext ctx, IAppDbContext db, CancellationToken ct)
+        Guid id, IAppDbContext db, CancellationToken ct)
     {
-        if (!InternalNetwork.IsLocalRequest(ctx)) return Results.StatusCode(403);
-
         var chapters = await db.UserChapters
             .Where(c => c.UserBookId == id)
             .OrderBy(c => c.ChapterNumber)
@@ -296,10 +274,8 @@ public static class InternalEndpoints
     }
 
     private static async Task<IResult> GetUserBookChapterContent(
-        Guid id, int n, HttpContext ctx, IAppDbContext db, CancellationToken ct)
+        Guid id, int n, IAppDbContext db, CancellationToken ct)
     {
-        if (!InternalNetwork.IsLocalRequest(ctx)) return Results.StatusCode(403);
-
         var ch = await db.UserChapters
             .Where(c => c.UserBookId == id && c.ChapterNumber == n)
             .Select(c => new { c.Id, c.ChapterNumber, c.Title, c.Html, c.PlainText, c.WordCount })
@@ -310,10 +286,8 @@ public static class InternalEndpoints
 
     private static async Task<IResult> UpdateUserBookChapter(
         Guid id, int n, [FromBody] UpdateInternalChapterRequest req,
-        HttpContext ctx, IAppDbContext db, CancellationToken ct)
+        IAppDbContext db, CancellationToken ct)
     {
-        if (!InternalNetwork.IsLocalRequest(ctx)) return Results.StatusCode(403);
-
         var ch = await db.UserChapters.FirstOrDefaultAsync(c => c.UserBookId == id && c.ChapterNumber == n, ct);
         if (ch is null) return Results.NotFound();
 
@@ -330,10 +304,8 @@ public static class InternalEndpoints
     }
 
     private static async Task<IResult> DeleteUserBookChapter(
-        Guid id, int n, HttpContext ctx, IAppDbContext db, CancellationToken ct)
+        Guid id, int n, IAppDbContext db, CancellationToken ct)
     {
-        if (!InternalNetwork.IsLocalRequest(ctx)) return Results.StatusCode(403);
-
         var ch = await db.UserChapters.FirstOrDefaultAsync(c => c.UserBookId == id && c.ChapterNumber == n, ct);
         if (ch is null) return Results.NotFound();
 
@@ -366,9 +338,8 @@ public static class InternalEndpoints
 
     private static async Task<IResult> MergeUserBookChapters(
         Guid id, [FromBody] MergeChaptersRequest req,
-        HttpContext ctx, IAppDbContext db, CancellationToken ct)
+        IAppDbContext db, CancellationToken ct)
     {
-        if (!InternalNetwork.IsLocalRequest(ctx)) return Results.StatusCode(403);
         if (req.ChapterNumbers is not { Count: >= 2 })
             return Results.BadRequest(new { error = "At least 2 chapter numbers required" });
 
@@ -413,10 +384,8 @@ public static class InternalEndpoints
     // ── Quality Jobs ──
 
     private static async Task<IResult> GetQualityJob(
-        Guid id, HttpContext ctx, IAppDbContext db, CancellationToken ct)
+        Guid id, IAppDbContext db, CancellationToken ct)
     {
-        if (!InternalNetwork.IsLocalRequest(ctx)) return Results.StatusCode(403);
-
         var job = await db.BookQualityJobs.FirstOrDefaultAsync(j => j.Id == id, ct);
         if (job is null) return Results.NotFound();
 
@@ -442,10 +411,8 @@ public static class InternalEndpoints
 
     private static async Task<IResult> UpdateQualityJob(
         Guid id, [FromBody] UpdateQualityJobRequest req,
-        HttpContext ctx, IAppDbContext db, CancellationToken ct)
+        IAppDbContext db, CancellationToken ct)
     {
-        if (!InternalNetwork.IsLocalRequest(ctx)) return Results.StatusCode(403);
-
         var job = await db.BookQualityJobs.FirstOrDefaultAsync(j => j.Id == id, ct);
         if (job is null) return Results.NotFound();
 

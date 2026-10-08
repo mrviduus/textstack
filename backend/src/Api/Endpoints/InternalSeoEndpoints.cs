@@ -1,4 +1,3 @@
-using Api.Extensions;
 using Application.Common.Interfaces;
 using Application.Seo;
 using Microsoft.AspNetCore.Mvc;
@@ -8,7 +7,7 @@ namespace Api.Endpoints;
 
 /// <summary>
 /// Endpoints consumed by the systemd seo-backfill-poll.sh script. Docker-network only
-/// (same IP allow-list as InternalEndpoints). Not listed in public API docs.
+/// (<see cref="Api.Middleware.PathGates"/>, ADR-024). Not listed in public API docs.
 /// </summary>
 public static class InternalSeoEndpoints
 {
@@ -21,31 +20,26 @@ public static class InternalSeoEndpoints
         app.MapPost("/internal/seo/jobs/{id:guid}/fail", Fail).ExcludeFromDescription();
     }
 
-    private static async Task<IResult> Enabled(HttpContext ctx, IAppDbContext db, CancellationToken ct)
+    private static async Task<IResult> Enabled(IAppDbContext db, CancellationToken ct)
     {
-        if (!InternalNetwork.IsLocalRequest(ctx)) return Results.StatusCode(403);
         var s = await db.SeoBackfillSettings.AsNoTracking().FirstOrDefaultAsync(ct);
         return Results.Ok(new { enabled = s?.Enabled ?? false, jobsPerRun = s?.JobsPerRun ?? 5, intervalSeconds = s?.IntervalSeconds ?? 60 });
     }
 
     private static async Task<IResult> Claim(
-        HttpContext ctx,
         SeoJobProcessor processor,
         [FromQuery] int limit = 1,
         CancellationToken ct = default)
     {
-        if (!InternalNetwork.IsLocalRequest(ctx)) return Results.StatusCode(403);
         var ids = await processor.ClaimNextAsync(limit, ct);
         return Results.Ok(new { claimed = ids });
     }
 
     private static async Task<IResult> GetContext(
         Guid id,
-        HttpContext ctx,
         SeoJobProcessor processor,
         CancellationToken ct)
     {
-        if (!InternalNetwork.IsLocalRequest(ctx)) return Results.StatusCode(403);
         try
         {
             var context = await processor.GetContextAsync(id, ct);
@@ -62,11 +56,9 @@ public static class InternalSeoEndpoints
     private static async Task<IResult> Apply(
         Guid id,
         [FromBody] ApplyRequest req,
-        HttpContext ctx,
         SeoJobProcessor processor,
         CancellationToken ct)
     {
-        if (!InternalNetwork.IsLocalRequest(ctx)) return Results.StatusCode(403);
         try
         {
             var status = await processor.ApplyAsync(id, req.FieldOutputs, ct);
@@ -83,11 +75,9 @@ public static class InternalSeoEndpoints
     private static async Task<IResult> Fail(
         Guid id,
         [FromBody] FailRequest req,
-        HttpContext ctx,
         SeoJobProcessor processor,
         CancellationToken ct)
     {
-        if (!InternalNetwork.IsLocalRequest(ctx)) return Results.StatusCode(403);
         try
         {
             await processor.FailAsync(id, req.Error, ct);
