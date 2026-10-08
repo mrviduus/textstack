@@ -212,8 +212,9 @@ debug build, production API as a guest, *1984* Part One (35 k chars, 26.8 k px).
 
 What it changes in this ADR:
 
-- **The engine owns instant scrolling** and flushes style before it scrolls. Today's `scrollToInstant`
-  could silently not move or animate; fixed in the old reader in the same PR as this section.
+- **The engine owns scrolling and never sets smooth scrolling globally.** The old reader's global
+  smooth-scroll rule turned restores into animations (the helper's toggle raced style recalculation);
+  the rule is removed in the same PR as this section. Only an explicit glide (to a highlight) is smooth.
 - **The `charOffset` tie-break must only break ties.** With no offset hint, `nearestOccurrence` in
   `resolveTextPosition` overrode a context-unique match (2 of 12 fixture rows). Not a production bug
   today — stored positions always carry their true offset — but a highlight-derived locator has none.

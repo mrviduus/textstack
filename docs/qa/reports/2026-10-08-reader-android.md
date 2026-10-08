@@ -21,7 +21,7 @@ account and are left to the owner.
 | 13 | Renderer crash | ✅ | CDP `Page.crash` → `restoreAnchor` 0.3 s later, same screen (debug). `am kill` on release cold-starts on Discover; reopening the book lands at the place |
 | 14 | Slow network | ✅ | `gsm`/`gprs` throttle: opened in 2 s at the place, still there at 12 s |
 
-**Scroll fix (#777), on device:** old `scrollToInstant` left scrollY at the start target in 20/20
+**Scroll bug, on device (#777):** old `scrollToInstant` left scrollY at the start target in 20/20
 runs of `10573,10573,0` / `5000,0` / `3000,0,7000,0` (a smooth animation instead of a jump); the fixed
 one landed within 0 px every time, and 20/20 real `__textstackRestoreScroll` calls landed exactly.
 
