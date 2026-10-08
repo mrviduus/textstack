@@ -18,8 +18,9 @@
 //
 // Fails closed: any API error before the first delete (deploy runs, package listing, a
 // manifest of a kept version, a rollback SHA that does not resolve) exits 1 having deleted
-// nothing. Duplicate/missing deploy runs, or fewer than DEPLOYS successful deploys in the
-// window, also exit 1.
+// nothing. Duplicate/missing deploy runs, fewer than DEPLOYS successful deploys in the
+// window, or a listing that lacks the live deploy (the newest successful deploy run of the
+// newest main commit that has one, looked up by head_sha) also exit 1.
 //
 // Env: GH_TOKEN, GITHUB_REPOSITORY, DRY_RUN (default true), KEEP_NEWEST (10), KEEP_DAYS (14),
 //      DEPLOYS (5), MAX_DELETE (150), PACKAGES (space-separated service names).
@@ -86,6 +87,20 @@ export function selectDeploys(runs, deploys) {
   return { ok, later: sorted.filter((r) => startedAt(r) >= since && !ok.includes(r)) }
 }
 
+/** Pure: the newest successful run (by startedAt) of one commit's deploy runs on main, or null. */
+export function newestSuccess(runs) {
+  return runs.filter((r) => r.conclusion === 'success' && r.head_branch === 'main').sort((a, b) => startedAt(b) - startedAt(a))[0] ?? null
+}
+
+/** Pure: the run listing must contain the live deploy, found independently of it. Under
+ *  GITHUB_TOKEN the listing has come back self-consistent (unique == total_count) yet days stale
+ *  (2026-10-07: newest success 2026-10-03, 70+ newer runs missing), and nothing else catches that. */
+export function checkLive(ok, live) {
+  if (!live || !ok.some((r) => r.id === live.id))
+    throw new Error(`live deploy ${live ? `run ${live.id} ${live.head_sha}` : '(none found)'} is not in the protected set — run listing incomplete, refusing to delete anything`)
+  return live
+}
+
 /** Pure: the commit SHAs (full or short, as recorded) a set of deploy runs may have put live. */
 export function deployedRefs(successRuns, sinceRuns) {
   if (!successRuns.length) throw new Error('no successful deploy.yml run found — refusing to delete anything')
@@ -131,6 +146,12 @@ async function protectedShas(repo, deploys) {
   }
   const { ok, later } = selectDeploys(uniqueRuns(runs, total), deploys)
   for (const r of ok) console.log(`deploy run ${r.id} ${r.run_started_at ?? r.created_at} ${r.head_sha} "${r.display_title}"`)
+  // The live deploy, looked up per commit (git order, newest first), not from the listing above.
+  let live = null
+  for (const c of await gh(`repos/${repo}/commits?sha=main&per_page=30`)) {
+    if ((live = newestSuccess((await gh(`${wf}?head_sha=${c.sha}&per_page=100`)).workflow_runs))) break
+  }
+  checkLive(ok, live)
   const resolve = async (ref) => (SHA.test(ref) ? ref : (await gh(`repos/${repo}/commits/${ref}`)).sha)
   const full = new Set()
   // A successful run's ref must resolve (fail closed). An unsuccessful rollback may carry a
@@ -145,7 +166,7 @@ async function protectedShas(repo, deploys) {
       console.log(`::warning::skipping unresolvable ref ${ref} from an unsuccessful deploy run: ${e.message}`)
     }
   }
-  return { full, live: await resolve([...deployedRefs([ok[0]], [])][0]) }
+  return { full, live: await resolve([...deployedRefs([live], [])][0]) }
 }
 
 async function listVersions(owner, pkg) {
