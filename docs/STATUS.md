@@ -88,10 +88,19 @@ answers "what happened" and nothing answered "what is half-finished right now".
 
 ## Known-broken / open follow-ups
 
-- **A deploy fails the upload being processed** (found 2026-10-07, ADR-022). The Worker restarts on
+- ~~**A deploy fails the upload being processed** (found 2026-10-07, ADR-022). The Worker restarts on
   every push; the cancelled extraction lands in the generic `catch` and the book is marked `Failed`,
   "corrupted or password-protected" (`UserIngestionService.cs:393-405`; catalog
-  `Worker/Services/IngestionService.cs:305-338`). Fix: cancellation → `Queued` — ADR-022 PR 1.
+  `Worker/Services/IngestionService.cs:305-338`). Fix: cancellation → `Queued` — ADR-022 PR 1.~~
+  **Fixed 2026-10-07** (ADR-022 PR 1, #769): both ingestion catches and
+  enrichment give the claim back on a graceful stop (`ShutdownRequeueTests`); the inline enrichment
+  kick is gone. Not yet watched through a real deploy: check the next deploy's Worker log for
+  "interrupted by shutdown; returned to queue" and that no upload ends `Failed` around it.
+- **Interrupted ingestion can leave orphan image files** (found 2026-10-07, #769 review). Both
+  ingestion paths write image files before the rows that reference them commit. A run stopped in
+  between leaves files with no row, and the rerun writes them again under new ids. This is disk
+  only: nothing references the old files. Fix: write images under a deterministic name (hash of
+  edition + original path), or sweep `assets/` against `book_assets` / chapter HTML.
 - **SSG rebuild after an admin edit or publish may be silently skipped** (found 2026-10-07, ADR-023).
   Eight un-awaited enqueues use the request's scoped `DbContext` after the request (`AdminEndpoints.cs:438,513,579`,
   `AdminGenresEndpoints.cs:298`, `AdminAuthorsEndpoints.cs:346`, `AdminService.Editions.cs:268-270,322,343`)

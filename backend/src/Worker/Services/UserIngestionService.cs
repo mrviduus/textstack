@@ -22,7 +22,6 @@ public class UserIngestionService
     private readonly IFileStorageService _storage;
     private readonly IExtractorRegistry _extractorRegistry;
     private readonly IImageOptimizer _imageOptimizer;
-    private readonly UserBookEnrichmentService _enrichmentService;
     private readonly ITagSuggestionGenerator _tagGenerator;
     private readonly ILogger<UserIngestionService> _logger;
 
@@ -31,7 +30,6 @@ public class UserIngestionService
         IFileStorageService storage,
         IExtractorRegistry extractorRegistry,
         IImageOptimizer imageOptimizer,
-        UserBookEnrichmentService enrichmentService,
         ITagSuggestionGenerator tagGenerator,
         ILogger<UserIngestionService> logger)
     {
@@ -39,7 +37,6 @@ public class UserIngestionService
         _storage = storage;
         _extractorRegistry = extractorRegistry;
         _imageOptimizer = imageOptimizer;
-        _enrichmentService = enrichmentService;
         _tagGenerator = tagGenerator;
         _logger = logger;
     }
@@ -85,6 +82,17 @@ public class UserIngestionService
             .OrderBy(j => j.CreatedAt)
             .FirstOrDefaultAsync(ct);
     }
+
+    /// <summary>
+    /// ADR-022 give-back for a user upload; same contract as
+    /// <see cref="IngestionService.ReturnToQueueAsync"/> (only the row as this run claimed it).
+    /// </summary>
+    public static Task<int> ReturnToQueueAsync(IQueryable<UserIngestionJob> jobs, Guid jobId, int claimedAttempt) =>
+        jobs.Where(j => j.Id == jobId && j.Status == JobStatus.Processing && j.AttemptCount == claimedAttempt)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(j => j.Status, JobStatus.Queued)
+                .SetProperty(j => j.AttemptCount, claimedAttempt - 1)
+                .SetProperty(j => j.StartedAt, (DateTimeOffset?)null), CancellationToken.None);
 
     public async Task ProcessJobAsync(Guid jobId, CancellationToken ct)
     {
@@ -145,6 +153,9 @@ public class UserIngestionService
             // Extract content
             var extractor = _extractorRegistry.Resolve(request);
             var result = await extractor.ExtractAsync(request, ct);
+            // Extractors throw on cancellation; this keeps a future one that returns a partial result
+            // from having it read as a broken file.
+            ct.ThrowIfCancellationRequested();
 
             job.SourceFormat = result.SourceFormat.ToString();
 
@@ -311,8 +322,9 @@ public class UserIngestionService
                 });
             }
 
-            // Mark success + enqueue enrichment. Pending is set in the SAME save as Ready so the sweep
-            // (or the inline-kick below) can atomically claim it — visible status from the first moment.
+            // Mark success + enqueue enrichment. Pending is set in the SAME save as Ready, so the book
+            // shows its enrichment status from the first moment and MetadataEnrichmentWorker — its one
+            // consumer (ADR-022) — takes it on its next tick.
             job.UserBook.Status = UserBookStatus.Ready;
             job.UserBook.MetadataEnrichmentStatus = MetadataEnrichmentStatus.Pending;
             job.UserBook.MetadataEnrichmentAt = null;
@@ -337,11 +349,6 @@ public class UserIngestionService
             var bookUserId = job.UserBook.UserId;
             var firstChapterExcerpt = result.Units.FirstOrDefault()?.PlainText;
             var bookHasTags = job.UserBook.Tags.Length > 0;
-
-            // Fire-and-forget metadata enrichment (genre, year, description) through the shared executor.
-            // The atomic Pending → Running claim inside makes this immediate kick safe against the sweep
-            // grabbing the same row; enrichment always lands on a terminal status (Completed / Failed).
-            _ = Task.Run(() => _enrichmentService.EnrichAsync(bookId, CancellationToken.None));
 
             // Fire-and-forget: AI auto-tags via Ollama (slice 17). Skip if user already tagged.
             if (!bookHasTags)
@@ -399,6 +406,15 @@ public class UserIngestionService
 
             // Auto-queue quality validation if enabled
             await IngestionWorkerService.TryQueueQualityJobAsync(db, null, job.UserBook.Id, _logger, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // ADR-022: a deploy restarts the Worker mid-extraction. That is not a corrupted file: the job
+            // goes back to Queued and the book stays Processing (as the upload / retry left it).
+            await using var fresh = await _dbFactory.CreateDbContextAsync(CancellationToken.None);
+            var returned = await ReturnToQueueAsync(fresh.UserIngestionJobs, jobId, job.AttemptCount);
+            _logger.LogInformation("User book job {JobId} interrupted by shutdown; returned to queue: {Returned}", jobId, returned > 0);
+            throw;
         }
         catch (Exception ex)
         {

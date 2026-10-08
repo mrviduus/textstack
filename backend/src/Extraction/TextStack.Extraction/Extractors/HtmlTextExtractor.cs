@@ -51,7 +51,7 @@ public sealed class HtmlTextExtractor : ITextExtractor
 
             foreach (var (sectionTitle, sectionHtml) in sections)
             {
-                if (ct.IsCancellationRequested) break;
+                ct.ThrowIfCancellationRequested(); // never a truncated clip
 
                 var (cleanHtml, plainText) = HtmlCleaner.Clean(sectionHtml);
                 if (string.IsNullOrWhiteSpace(plainText)) continue;
@@ -84,7 +84,7 @@ public sealed class HtmlTextExtractor : ITextExtractor
 
             return Task.FromResult(new ExtractionResult(SourceFormat.Html, metadata, units, [], diagnostics, toc));
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             warnings.Add(new ExtractionWarning(ExtractionWarningCode.ParseError, $"Failed to parse HTML clip: {ex.Message}"));
             return Task.FromResult(Empty(warnings));

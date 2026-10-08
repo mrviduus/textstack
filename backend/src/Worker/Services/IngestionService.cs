@@ -139,6 +139,9 @@ public class IngestionWorkerService
             {
                 var extractor = _extractorRegistry.Resolve(request);
                 extractionResult = await extractor.ExtractAsync(request, ct);
+                // Extractors throw on cancellation; this keeps a future one that returns a partial result
+                // from having it read as "no text layer".
+                ct.ThrowIfCancellationRequested();
 
                 sourceFormat = extractionResult.SourceFormat.ToString();
                 textSource = extractionResult.Diagnostics.TextSource.ToString();
@@ -176,10 +179,13 @@ public class IngestionWorkerService
                 using var imagesActivity = IngestionActivitySource.Source.StartActivity("persist.images");
                 imagesActivity?.SetTag("images.count", extractionResult.Images.Count);
 
-                foreach (var image in extractionResult.Images)
-                {
-                    if (image.IsCover) continue; // Cover saved separately
+                var stored = await db.BookAssets
+                    .Where(a => a.EditionId == job.EditionId)
+                    .ToDictionaryAsync(a => a.OriginalPath, a => a.Id, ct);
 
+                var saved = 0;
+                foreach (var image in ImagesToStore(extractionResult.Images, stored, imageMap))
+                {
                     try
                     {
                         var assetId = Guid.NewGuid();
@@ -205,6 +211,7 @@ public class IngestionWorkerService
                         };
                         db.BookAssets.Add(asset);
                         imageMap[image.OriginalPath] = assetId;
+                        saved++;
                     }
                     catch (Exception ex)
                     {
@@ -213,11 +220,11 @@ public class IngestionWorkerService
                     }
                 }
 
-                if (imageMap.Count > 0)
+                if (saved > 0)
                 {
                     await db.SaveChangesAsync(ct);
-                    _logger.LogInformation("Saved {Count} images for edition {EditionId}",
-                        imageMap.Count, job.EditionId);
+                    _logger.LogInformation("Saved {Count} images for edition {EditionId} ({Reused} reused)",
+                        saved, job.EditionId, imageMap.Count - saved);
                 }
             }
 
@@ -302,6 +309,14 @@ public class IngestionWorkerService
 
             activity?.SetStatus(ActivityStatusCode.Ok);
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // ADR-022: a deploy restarts the Worker mid-extraction. That is not a parse error.
+            await using var fresh = await _dbFactory.CreateDbContextAsync(CancellationToken.None);
+            var returned = await AppIngestion.IngestionService.ReturnToQueueAsync(fresh.IngestionJobs, jobId, job.AttemptCount);
+            _logger.LogInformation("Job {JobId} interrupted by shutdown; returned to queue: {Returned}", jobId, returned > 0);
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Job {JobId} failed", jobId);
@@ -337,6 +352,25 @@ public class IngestionWorkerService
                 : null;
 
             await service.MarkJobFailedAsync(job, ex.Message, summary, CancellationToken.None);
+        }
+    }
+
+    /// <summary>
+    /// The inline images this run must write. One an earlier run of the edition already stored (same
+    /// <c>OriginalPath</c> — a reprocess, or a rerun after a deploy gave the job back) keeps its asset id:
+    /// <c>book_assets</c> is unique on (edition_id, original_path), so writing it again failed the job,
+    /// and the live chapters already point at that id. Covers are saved separately.
+    /// </summary>
+    public static IEnumerable<ExtractedImage> ImagesToStore(
+        IEnumerable<ExtractedImage> images, IReadOnlyDictionary<string, Guid> stored, Dictionary<string, Guid> imageMap)
+    {
+        foreach (var image in images)
+        {
+            if (image.IsCover) continue;
+            if (stored.TryGetValue(image.OriginalPath, out var assetId))
+                imageMap[image.OriginalPath] = assetId;
+            else
+                yield return image;
         }
     }
 
