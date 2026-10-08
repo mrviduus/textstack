@@ -35,8 +35,10 @@ answers "what happened" and nothing answered "what is half-finished right now".
 
 > **Focus (owner, 2026-10-08): no new side work.** Order:
 > 1. Finish what is running: #770 (auth fails closed by path) and #771 (SSG: one consumer, no per-edit rebuild).
-> 2. **Reader engine**, blocked on the owner's 8 questions in
->    [`reader-engine-evaluation.md`](01-architecture/reader-engine-evaluation.md).
+> 2. **Reader engine** — decided 2026-10-08: separate package `packages/reader-engine`, strangler
+>    migration behind flags, no iframe, scroll only, reflow then PDF. Phase 0 (lock today's behaviour)
+>    in this PR; next: ADR-025 + API contract + skeleton, then the Android spike. Production engine
+>    code only after Play launch. Owner runs [QA-007](qa/scenarios/QA-007-reader-android-r1-r4.md).
 > 3. Later, in 2–3 bundled PRs while reader work waits on something: the rest of
 >    [review 2026-10](01-architecture/review-2026-10/00-summary.md) (#19 admin roles/audit, #20 book models,
 >    #21 LLM jobs on the owner's Claude login, #24 web `api/` duplicate, #25 two SEO engines, #26 GDPR traces,
@@ -48,8 +50,8 @@ answers "what happened" and nothing answered "what is half-finished right now".
 
 - **Reader — after R4.** ~~Reader bug hunt R3 — next~~: R3 and R4 shipped 2026-10-06 (#723–#731).
   Next: **split web `ReaderPage.tsx` (~900 lines) / `ReaderHighlights.tsx` (661) by job**, the way
-  #731 split mobile `ReaderShell.tsx`; then an **e2e reader smoke** (open → scroll → reopen at the same
-  place, web + PDF). **Every R1–R4 mobile fix is unit-tested only — the owner's phone checklist
+  #731 split mobile `ReaderShell.tsx`; ~~then an e2e reader smoke~~ — blocking `@reader-smoke` has 7 tests (2026-10-08); PDF reopen
+  waits for a CI PDF fixture (engine Phase 2). **Every R1–R4 mobile fix is unit-tested only — the owner's phone checklist
   (Android first) is still owed**, after the OTA that carries #723/#728/#730/#731.
 - **Delivery — owner steps after ADR-020.** Repo settings: require actions pinned to a full SHA,
   allowed actions = GitHub + verified + listed, turn off "Actions can approve PRs", delete the unused

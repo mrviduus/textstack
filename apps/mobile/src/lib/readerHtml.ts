@@ -766,9 +766,15 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
     // The fallback keeps highlights working if an older build has an overlay
     // bundle without the anchor API — exact match only, which is what the
     // shared resolver tries first anyway.
+    //
+    // Reads chapterText(), the text positions resolve against: body.textContent
+    // also counted inline translations, so a highlight over one painted short.
+    function hlRoot() {
+      return (tsChapter && tsChapter.el) || document.body;
+    }
     function hlFindAnchor(anchor) {
       if (!anchor || !anchor.exact) return null;
-      var full = document.body.textContent || '';
+      var full = chapterText(hlRoot());
       if (window.__TSAnchor && window.__TSAnchor.findOffset) {
         var at = window.__TSAnchor.findOffset(full, anchor);
         return at === null || at === undefined ? null : { start: at, length: anchor.exact.length };
@@ -777,34 +783,21 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
       return idx === -1 ? null : { start: idx, length: anchor.exact.length };
     }
 
-    // Convert a global offset into document.body's textContent to a
-    // (textNode, offset) pair by walking text nodes cumulatively.
-    function hlLocateNode(globalOffset) {
-      var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-      var consumed = 0;
-      var node;
-      while (node = walker.nextNode()) {
-        var len = node.nodeValue ? node.nodeValue.length : 0;
-        if (consumed + len >= globalOffset) {
-          return { node: node, offset: globalOffset - consumed };
-        }
-        consumed += len;
-      }
-      return null;
-    }
-
     // Build a Range spanning the requested text, even if it crosses multiple
     // text nodes (selection across <strong>, <em>, vocab <mark>, etc).
     function hlBuildRange(anchor) {
       var loc = hlFindAnchor(anchor);
-      if (!loc) return null;
-      var start = hlLocateNode(loc.start);
-      var end = hlLocateNode(loc.start + loc.length);
-      if (!start || !end) return null;
+      if (!loc || !loc.length) return null;
+      var root = hlRoot();
+      var start = locateCharOffset(root, loc.start);
+      // The last character's node, then past it: locateCharOffset never
+      // returns an end-of-node position, and the range may end the chapter.
+      var last = locateCharOffset(root, loc.start + loc.length - 1);
+      if (!start || !last) return null;
       var range = document.createRange();
       try {
         range.setStart(start.node, start.offset);
-        range.setEnd(end.node, end.offset);
+        range.setEnd(last.node, last.offset + 1);
       } catch (e) { return null; }
       return range;
     }

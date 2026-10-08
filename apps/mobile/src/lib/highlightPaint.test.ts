@@ -64,3 +64,35 @@ describe('renderHighlight paints over its words', () => {
     expect(paintedViewportTop(w)).toBe(WORD_VIEWPORT_TOP)
   })
 })
+
+describe('renderHighlight reads the chapter text, not document.body', () => {
+  // Positions resolve against chapterText() (vocab overlays and inline
+  // translations excluded); highlights read body.textContent, which counts
+  // them. A legacy inline translation inside the highlighted words made the
+  // exact text unfindable on the phone, though the same anchor resolves on web.
+  it('paints the exact words when an inline translation sits inside them', () => {
+    const html = '<p>She sat in the garden<span class="vocab-inline-translation">сад</span> and watched the moon.</p>'
+    const painted: string[] = []
+    const dom = new JSDOM(buildReaderHtml(html, undefined, 'ch-6'), {
+      runScripts: 'dangerously',
+      pretendToBeVisual: true,
+      virtualConsole: new VirtualConsole(),
+      beforeParse(win: Window & typeof globalThis & { ReactNativeWebView: unknown }) {
+        win.ReactNativeWebView = { postMessage: () => {} }
+        const rect = { x: 0, y: 0, left: 0, top: 0, right: 10, bottom: 10, width: 10, height: 10 }
+        win.Range.prototype.getClientRects = function (this: Range) {
+          painted.push(this.toString())
+          return [rect] as unknown as DOMRectList
+        }
+        win.Range.prototype.getBoundingClientRect = function () { return rect as DOMRect }
+      },
+    })
+    const anchor = { prefix: 'She sat in the ', exact: 'garden and watched', suffix: ' the moon.' }
+    ;(dom.window as unknown as { eval: (s: string) => void }).eval(
+      `renderHighlight("h1", ${JSON.stringify(JSON.stringify(anchor))}, "yellow", "garden and watched")`,
+    )
+    expect(dom.window.document.querySelectorAll('svg[data-reader-overlay] rect').length).toBe(1)
+    // The Range spans the inline translation node; its text minus that node is the anchor.
+    expect(painted.at(-1)?.replace('сад', '')).toBe('garden and watched')
+  })
+})

@@ -151,6 +151,15 @@ const paintedCount = (page: Page, color: 'pink' | 'blue') =>
     ).length
   }, color)
 
+/** Paragraph number under the reading line (25% down), where the reader anchors its position. */
+const paragraphAtReadingLine = (page: Page) =>
+  page.evaluate(() => {
+    const box = document.querySelector('.reader-section__article')!.getBoundingClientRect()
+    const el = document.elementFromPoint(Math.round(box.left + 40), Math.round(window.innerHeight * 0.25))
+    const m = /paragraph (\d+)\./.exec(el?.closest('p')?.textContent ?? '')
+    return m ? Number(m[1]) : null
+  })
+
 // Tolerance for "the same place": restore re-anchors on the text, so it can land
 // up to about a line away from the pixel the reader left.
 const TOLERANCE_PX = 60
@@ -237,6 +246,57 @@ test.describe('Reader smoke @reader-smoke', () => {
     await expect(page).toHaveURL(atChapter(book.ch2.slug))
     await expect.poll(() => paintedCount(page, 'blue'), { timeout: 15_000 }).toBe(1)
     expect(await paintedCount(page, 'pink')).toBe(0)
+  })
+
+  test('a font size change keeps the same paragraph at the reading line', async ({ browser }) => {
+    const { page, book } = await readerPage(browser, 'font')
+    await openChapter(page, book, 1)
+    await waitForOpenSave(page, book, book.ch1.slug)
+    await scrollToMiddleAndSave(page, book, book.ch1.slug)
+    const before = await paragraphAtReadingLine(page)
+    expect(before, 'reading line must sit on a fixture paragraph').not.toBeNull()
+    const heightBefore = await page.evaluate(() => document.documentElement.scrollHeight)
+
+    // The real control, twice, so the text genuinely re-wraps.
+    await page.locator('.reader-top-bar__btn[title="Settings"]').dispatchEvent('click')
+    const drawer = page.getByRole('dialog', { name: 'Reading Settings' })
+    await expect(drawer).toBeVisible()
+    await drawer.getByRole('button', { name: 'A+' }).click()
+    await drawer.getByRole('button', { name: 'A+' }).click()
+    await page.keyboard.press('Escape')
+
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight)).toBeGreaterThan(heightBefore)
+    await expect.poll(() => paragraphAtReadingLine(page), { timeout: 5_000 }).toBe(before)
+  })
+
+  test('?highlight= lands on the highlight, not on the saved place', async ({ browser }) => {
+    const { page, book } = await readerPage(browser, 'hljump')
+    // A saved place in the middle, so a restore that wins the race is visible.
+    await openChapter(page, book, 1)
+    await waitForOpenSave(page, book, book.ch1.slug)
+    const saved = await scrollToMiddleAndSave(page, book, book.ch1.slug)
+
+    const exact = 'Chapter 1, paragraph 36.'
+    const anchor = { prefix: '', exact, suffix: '', startOffset: 0, endOffset: exact.length, chapterId: book.ch1.id }
+    const resp = await page.context().request.post(`${API_URL}/me/highlights`, {
+      headers: API_HEADERS,
+      data: { editionId: book.editionId, chapterId: book.ch1.id, anchorJson: JSON.stringify(anchor), color: 'blue', selectedText: exact },
+    })
+    expect(resp.ok(), `create highlight: ${resp.status()}`).toBeTruthy()
+    const { id } = (await resp.json()) as { id: string }
+
+    const context = page.context()
+    await page.close()
+    const jumped = await context.newPage()
+    await jumped.goto(`/en/books/${book.slug}/${book.ch1.slug}?highlight=${id}`)
+    await waitForReaderLoad(jumped)
+    await expect.poll(() => paintedCount(jumped, 'blue'), { timeout: 15_000 }).toBe(1)
+    // The painted highlight is on screen, and the page is well past the saved place.
+    await expect.poll(() => jumped.evaluate(() => {
+      const r = document.querySelector('[data-highlight-overlay] g rect')?.getBoundingClientRect()
+      return !!r && r.top >= 0 && r.bottom <= window.innerHeight
+    }), { timeout: 10_000 }).toBe(true)
+    expect(await scrollY(jumped)).toBeGreaterThan(saved + TOLERANCE_PX)
   })
 
   // `blocked`: the progress GET fails fast (offline, refused). `hung`: it never
