@@ -92,7 +92,7 @@ answers "what happened" and nothing answered "what is half-finished right now".
   every push; the cancelled extraction lands in the generic `catch` and the book is marked `Failed`,
   "corrupted or password-protected" (`UserIngestionService.cs:393-405`; catalog
   `Worker/Services/IngestionService.cs:305-338`). Fix: cancellation → `Queued` — ADR-022 PR 1.~~
-  **Fixed 2026-10-07** (ADR-022 PR 1, branch `fix/shutdown-requeues-jobs`): both ingestion catches and
+  **Fixed 2026-10-07** (ADR-022 PR 1, #769): both ingestion catches and
   enrichment give the claim back on a graceful stop (`ShutdownRequeueTests`); the inline enrichment
   kick is gone. Not yet watched through a real deploy: check the next deploy's Worker log for
   "interrupted by shutdown; returned to queue" and that no upload ends `Failed` around it.
