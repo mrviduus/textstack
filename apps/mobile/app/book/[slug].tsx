@@ -62,6 +62,10 @@ export default function BookDetailScreen() {
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [cached, setCached] = useState(false)
   const [inLibrary, setInLibrary] = useState(false)
+  // Bumped by every local library change: the initial getLibrary answer is dropped if one landed while it was in flight (LIB-1).
+  const libraryGenRef = useRef(0)
+  // The Download tap added the book (not saved by hand) — cancelling that download takes it back out (LIB-1).
+  const addedByDownloadRef = useRef(false)
   const [collectionSheetOpen, setCollectionSheetOpen] = useState(false)
   // Not mounted until first opened — see useSheetMount. This screen is public,
   // so the sheet's `useCollections` was 401ing on every open for a signed-out
@@ -212,8 +216,9 @@ export default function BookDetailScreen() {
       // still render the book, just without the saved/continue state. We log
       // the error instead of swallowing silently (P1-4/P3-2).
       try {
+        const gen = libraryGenRef.current
         const lib = await libraryApi.getLibrary()
-        if (!cancelled) setInLibrary(lib.some(item => item.editionId === editionId))
+        if (!cancelled && gen === libraryGenRef.current) setInLibrary(lib.some(item => item.editionId === editionId))
       } catch (err) {
         console.warn('getLibrary failed on book detail:', err)
       }
@@ -304,12 +309,27 @@ export default function BookDetailScreen() {
 
   // Save to Library and Download (LIB-1) share this: optimistic "In Library", rolled back if the add fails.
   const addToLibrary = async () => {
+    libraryGenRef.current++
     setInLibrary(true)
     try {
       await libraryApi.addToLibrary(book!.id)
     } catch (err) {
       console.warn('library add failed:', err)
       setInLibrary(false)
+    }
+  }
+  // Save toggle and download-cancel (LIB-1) share this: optimistic removal, rolled back if it fails.
+  const removeFromLibrary = async () => {
+    libraryGenRef.current++
+    setInLibrary(false)
+    try {
+      await libraryApi.removeFromLibrary(book!.id)
+      // The server took it out of its collections too (#706).
+      invalidateCollectionsCache()
+      // No shelf cache to drop: the Library tab refetches on focus.
+    } catch (err) {
+      console.warn('library toggle failed:', err)
+      setInLibrary(true)
     }
   }
 
@@ -459,22 +479,10 @@ export default function BookDetailScreen() {
             <TouchableOpacity
               style={[styles.secondaryButton, { borderColor: inLibrary ? colors.success : colors.primary }]}
               onPress={async () => {
+                addedByDownloadRef.current = false
                 const wasInLibrary = inLibrary
                 if (!wasInLibrary) return addToLibrary()
-                const toggle = async () => {
-                  // Optimistic flip — roll back on failure so the button doesn't
-                  // lie about the library state.
-                  setInLibrary(false)
-                  try {
-                    await libraryApi.removeFromLibrary(book.id)
-                    // The server took it out of its collections too (#706).
-                    invalidateCollectionsCache()
-                    // No shelf cache to drop: the Library tab refetches on focus.
-                  } catch (err) {
-                    console.warn('library toggle failed:', err)
-                    setInLibrary(true)
-                  }
-                }
+                const toggle = removeFromLibrary
 
                 // Removing also empties the book out of every collection it is in,
                 // so ask first — but only when there is something to lose. No
@@ -517,11 +525,14 @@ export default function BookDetailScreen() {
             dl={dl}
             cached={offlineMode || cached}
             onRemove={() => removeDownload(book.id).then(() => setCached(false))}
-            onCancel={() => cancelDownload(book.id)}
+            onCancel={() => {
+              cancelDownload(book.id)
+              if (addedByDownloadRef.current) { addedByDownloadRef.current = false; void removeFromLibrary() }
+            }}
             onRetry={() => retryFailed(book.id)}
             onStart={() => {
               startDownload(book, language)
-              if (isAuthenticated && !inLibrary) void addToLibrary()
+              if (isAuthenticated && !inLibrary) { addedByDownloadRef.current = true; void addToLibrary() }
             }}
             onRestart={() => startDownload(book, language)}
             buttonStyle={styles.secondaryButton}

@@ -13,13 +13,30 @@ describe('QA-007', () => {
   it('LIB-1: Download adds to Library through the Save to Library path; Restart does not', () => {
     const src = read('app/book/[slug].tsx')
     // One add path: optimistic "In Library", rollback on failure.
-    expect(src).toMatch(/const addToLibrary = async \(\) => \{\s*setInLibrary\(true\)\s*try \{\s*await libraryApi\.addToLibrary\(book!?\.id\)\s*\} catch \(err\) \{[^}]*setInLibrary\(false\)/)
+    expect(src).toMatch(/const addToLibrary = async \(\) => \{\s*libraryGenRef\.current\+\+\s*setInLibrary\(true\)\s*try \{\s*await libraryApi\.addToLibrary\(book!?\.id\)\s*\} catch \(err\) \{[^}]*setInLibrary\(false\)/)
     // Save to Library uses it.
     expect(src).toContain('if (!wasInLibrary) return addToLibrary()')
-    // Download uses it, only when not already in the Library.
-    expect(src).toMatch(/onStart=\{\(\) => \{\s*startDownload\(book, language\)\s*if \(isAuthenticated && !inLibrary\) void addToLibrary\(\)\s*\}\}/)
+    // Download uses it, only when not already in the Library — and remembers that it did.
+    expect(src).toMatch(/onStart=\{\(\) => \{\s*startDownload\(book, language\)\s*if \(isAuthenticated && !inLibrary\) \{ addedByDownloadRef\.current = true; void addToLibrary\(\) \}\s*\}\}/)
     // Restart does not.
     expect(src).toContain('onRestart={() => startDownload(book, language)}')
+  })
+
+  it('LIB-1: Cancel takes the book back out only when the Download added it; a hand save stays', () => {
+    const src = read('app/book/[slug].tsx')
+    // One remove path, shared with the Save toggle: optimistic, rollback on failure.
+    expect(src).toMatch(/const removeFromLibrary = async \(\) => \{\s*libraryGenRef\.current\+\+\s*setInLibrary\(false\)\s*try \{\s*await libraryApi\.removeFromLibrary\(book!?\.id\)[\s\S]*?\} catch \(err\) \{[^}]*setInLibrary\(true\)/)
+    expect(src).toMatch(/const toggle = removeFromLibrary/)
+    // Download-added + Cancel → removed. Pre-saved (flag never set) + Cancel → stays.
+    expect(src).toMatch(/onCancel=\{\(\) => \{\s*cancelDownload\(book\.id\)\s*if \(addedByDownloadRef\.current\) \{ addedByDownloadRef\.current = false; void removeFromLibrary\(\) \}\s*\}\}/)
+    // A hand Save/remove makes the Library state the reader's own: Cancel no longer touches it.
+    expect(src).toMatch(/onPress=\{async \(\) => \{\s*addedByDownloadRef\.current = false\s*const wasInLibrary = inLibrary/)
+  })
+
+  it('LIB-1: the initial library read never overwrites a local change made while it was in flight', () => {
+    const src = read('app/book/[slug].tsx')
+    expect(src).toMatch(/const addToLibrary = async \(\) => \{\s*libraryGenRef\.current\+\+/)
+    expect(src).toMatch(/const gen = libraryGenRef\.current\s*const lib = await libraryApi\.getLibrary\(\)\s*if \(!cancelled && gen === libraryGenRef\.current\) setInLibrary\(/)
   })
 
   it('RES-1: hero Continue on a page:N upload opens the reader at the chapter holding the page; lookup failure → detail', async () => {
