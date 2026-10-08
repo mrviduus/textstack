@@ -141,6 +141,32 @@ describe('QA-007', () => {
     expect(hero).toMatch(/\{busy \? <ActivityIndicator/)
   })
 
+  it('RES-1: a device cache without page numbers falls through to the server', async () => {
+    const pick = { type: 'userbook' as const, id: 'ub1', title: 'PDF', coverPath: null, percent: 0.3, chapterSlug: null, locator: 'page:12', updatedAtMs: 1 }
+    // Complete download, but rows cached from the chapter endpoint, which sends no sourceStartPage.
+    const device = async () => ({ chapters: [{ slug: 'ch0', sourceStartPage: null }, { slug: 'ch1', sourceStartPage: null }], totalChapters: 2 })
+    const server = vi.fn(async () => [{ slug: 'ch0', chapterNumber: 0, sourceStartPage: 1 }, { slug: 'ch1', chapterNumber: 1, sourceStartPage: 10 }])
+    expect(await heroResumeRoute(pick, { device, server })).toBe('/my-books/read/ub1/ch1')
+    expect(server).toHaveBeenCalledWith('ub1')
+  })
+
+  it('RES-1: caching an upload stores sourceStartPage from the chapter list, so the device alone places page N', async () => {
+    // The download task carries the list's start page; the chapter endpoint does not send one.
+    const dl = read('src/context/DownloadContext.tsx')
+    expect(dl).toMatch(/number: ch\.chapterNumber,\s*sourceStartPage: ch\.sourceStartPage \?\? null,/)
+    expect(dl).toContain('cacheUserChapter(info.editionId, { ...chapter, sourceStartPage: chapter.sourceStartPage ?? task.sourceStartPage ?? null }, task.number)')
+    // The reader's own pre-cache does the same from its chapter list.
+    expect(read('src/components/reader/useUserBookReaderSource.ts')).toMatch(/cacheUserChapter\(bookId, \{ \.\.\.ch, sourceStartPage: ch\.sourceStartPage \?\? row\?\.sourceStartPage \?\? null \}/)
+    // A refresh from the chapter endpoint must not wipe the stored page.
+    expect(read('src/lib/offlineDb.ts')).toContain('source_start_page = COALESCE(?, source_start_page)')
+    // Those rows then answer the hero alone.
+    const pick = { type: 'userbook' as const, id: 'ub1', title: 'PDF', coverPath: null, percent: 0.3, chapterSlug: null, locator: 'page:12', updatedAtMs: 1 }
+    const server = vi.fn()
+    const device = async () => ({ chapters: [{ slug: 'ch0', sourceStartPage: 1 }, { slug: 'ch1', sourceStartPage: 10 }], totalChapters: 2 })
+    expect(await heroResumeRoute(pick, { device, server })).toBe('/my-books/read/ub1/ch1')
+    expect(server).not.toHaveBeenCalled()
+  })
+
   it('RES-1: no navigation once the hero has lost focus or unmounted', () => {
     const hero = read('src/components/library/ResumeHero.tsx')
     expect(hero).toMatch(/useFocusEffect\(useCallback\(\(\) => \{\s*focusedRef\.current = true\s*return \(\) => \{ focusedRef\.current = false \}/)

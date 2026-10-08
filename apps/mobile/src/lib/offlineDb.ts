@@ -461,7 +461,7 @@ export async function refreshCachedUserChapter(
   if (!d) return
   await d.runAsync(
     `UPDATE user_chapters
-        SET chapter_id = ?, html = ?, title = ?, word_count = ?, source_start_page = ?, prev_json = ?, next_json = ?
+        SET chapter_id = ?, html = ?, title = ?, word_count = ?, source_start_page = COALESCE(?, source_start_page), prev_json = ?, next_json = ?
       WHERE book_id = ? AND chapter_slug = ?`,
     [
       chapter.id,
