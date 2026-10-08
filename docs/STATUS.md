@@ -187,6 +187,12 @@ answers "what happened" and nothing answered "what is half-finished right now".
   - *Coverage:* still open — see the list below.
 
 - **Reader — open after R3/R4** (2026-10-06):
+  - **QA-007 findings 2026-10-08** ([report](qa/reports/2026-10-08-reader-android.md)), not started:
+    **PDF reopens one page back** when the next page fills most of the screen but the previous one's
+    margin still touches the top edge (saves the top-edge page); guest Library empty online after a
+    download without "Save to Library"; Books genre chips stretch tall and search "1984" → "No books
+    found"; Library "Continue" opens book detail, not the reader; native selection handles stay after
+    highlighting; a wrong pt-BR translation ("pocketed → enterrado"); PDF detail "~33 pages" for 15.
   - **Mobile legacy `<mark>` vocab path, for engine Phase 2/6** (old WebViews without CSS Highlights
     only; no test phone has one): a highlight over a word with an inline translation also paints the
     floating label; `vhlLegacyMark` rewrites text nodes, which moves live highlight ranges' boundaries;
