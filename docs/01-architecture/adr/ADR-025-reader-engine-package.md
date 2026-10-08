@@ -193,13 +193,43 @@ the chapter's text nodes (decorations draw over the text; `WordHint`'s `surround
   with a size budget (60 KB unminified; overlay + anchor are 28 KB today).
 - A change to `api.ts` amends this ADR.
 
+## Android spike results (Phase 1b, 2026-10-08)
+
+Throwaway es2017 IIFE (one text walker, capture at the 25% line, `goTo` through the shared resolver,
+re-anchor on font size) inlined into the reflow document behind a dev flag; Pixel 7 Pro emulator,
+debug build, production API as a guest, *1984* Part One (35 k chars, 26.8 k px).
+
+| # | Check | Result |
+|---|---|---|
+| 1 | No native change | PASS — runtime fingerprint identical before/after; no new navigation rule |
+| 2 | Size / speed | PASS — 14.5 KB unminified (budget 60); one walk over 35 k chars 0.2 ms |
+| 3 | Positions resolve | PASS — `goTo(capture())` exact, 20/20 exact on a sweep; `mobile.json` 12/12 with the true offset |
+| 4 | Long-press selection reaches RN | PASS |
+| 5 | Highlights paint | PASS |
+| 6 | Font change keeps the reading line | PASS — same sentence before/after, 3–5 ms |
+| 7 | Renderer crash → same place | PASS — CDP `Page.crash`; reopened about one line back (save debounce) |
+| 8 | Text anchors on the PDF text layer | PASS off-device (37/37 over 40 pages of a real PDF); not run on device (needs a production upload) |
+
+What it changes in this ADR:
+
+- **The engine owns instant scrolling** and flushes style before it scrolls. Today's `scrollToInstant`
+  could silently not move or animate; fixed in the old reader in the same PR as this section.
+- **The `charOffset` tie-break must only break ties.** With no offset hint, `nearestOccurrence` in
+  `resolveTextPosition` overrode a context-unique match (2 of 12 fixture rows). Not a production bug
+  today — stored positions always carry their true offset — but a highlight-derived locator has none.
+  Fixed test-first in Phase 2.
+- **`selection.rect` is new work:** today's selection messages carry no rect.
+- **The `fixed` layout normalises text:** the pdf.js text layer joins lines with no separator
+  (`theconfidence`); cross-layout anchors over 100 characters would miss, because fuzzy matching stops
+  at 100.
+
 ## Plan
 
 | # | Phase | Ships to users |
 |---|---|---|
 | 0 | Pin today's behaviour: smoke tests, QA-007 phone checklist, one mobile fix (#774) | yes (tests, fix) |
 | 1 | This ADR + API consilium; package skeleton; mappers test-first | no |
-| 1b | Android spike, 8 pass/fail checks (no native change, bundle, speed, anchors, selection, highlights, re-anchor, crash recovery, PDF text layer) | no |
+| 1b | Android spike, 8 pass/fail checks — **done 2026-10-08, all pass** (PDF off-device) | no |
 | 2 | Engine core, reflow, test-first; `reader-overlay`, the DOM anchor half and the ADR-019 modules move in | no |
 | 3 | Mobile adopts (flag), QA-007 rerun | yes, flag |
 | 4 | Web adopts (flag), smoke runs flag on and off | yes, flag |

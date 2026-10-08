@@ -289,6 +289,10 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
       var root = document.documentElement;
       var prev = root.style.scrollBehavior;
       root.style.scrollBehavior = 'auto';
+      // Read layout so the 'auto' above is applied before scrolling. Without it the Android WebView
+      // may scroll with the stale smooth behaviour, or not move at all (engine spike, 2026-10-08:
+      // si(10573); si(0) left scrollY at 10573), and a restore then acks the old place.
+      void root.offsetHeight;
       window.scrollTo(0, y);
       root.style.scrollBehavior = prev;
     }
