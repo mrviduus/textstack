@@ -101,6 +101,14 @@ answers "what happened" and nothing answered "what is half-finished right now".
 
 ## Known-broken / open follow-ups
 
+- **First-run sells a language app; two-audience onboarding is planned, not started** (2026-10-08).
+  The mobile card says "Learn a language by reading real books" and opens Alice. The owner decided on two
+  first-run audiences ("I work in tech" / "I'm learning English"), each with its own starter text and
+  Popular shelf. Content is ready: 10 CC BY arXiv AI papers are live. **Deferred until after Play
+  production approval (~2026-10-16)**: testers already passed first-run, so they would not see it, and a
+  mobile merge is an OTA. Plan and open questions: [`marketing/onboarding-consilium-2026-10-08.md`](marketing/onboarding-consilium-2026-10-08.md).
+  Prod nit: those 10 editions have their abstract inside "About this edition".
+
 - ~~**A deploy fails the upload being processed** (found 2026-10-07, ADR-022). The Worker restarts on
   every push; the cancelled extraction lands in the generic `catch` and the book is marked `Failed`,
   "corrupted or password-protected" (`UserIngestionService.cs:393-405`; catalog
