@@ -1,6 +1,6 @@
 # Onboarding, content & homepage — consilium 2026-10-08
 
-Seats: product, marketing/content, product designer (mobile first). Status: **proposed, awaiting owner answers** (bottom).
+Seats: product, marketing/content, product designer (mobile first). Status: **owner decisions recorded below; the seats' proposals after them are kept for the reasoning.** Where they differ, owner decisions win. Open questions at the bottom.
 
 ## Owner decisions (2026-10-08, after the consilium) — these override the seats where they differ
 
@@ -30,7 +30,7 @@ Seats: product, marketing/content, product designer (mobile first). Status: **pr
    - Admin upload **publishes immediately**, so all 10 are live. SEO fields were queued in SEO Backfill; some jobs stop at NeedsReview.
    - Not hostable (arXiv default licence): Attention, GPT-3, InstructGPT, DeepSeek-R1/V3, Llama 2/3, LoRA, RAG, Scaling Laws, Chinchilla, Toolformer.
    - Sparks of AGI is CC BY, but its arXiv HTML is broken (3 of ~10 sections), so it was skipped.
-   - Known gaps: a few formulas render as raw TeX (DPO, ToT); figures built from LaTeX tables lose their body and keep only the caption (e.g. CoT Fig. 3).
+   - Known gaps: on the 10 prod editions the author block + abstract sit inside the "About this edition" chapter (the builder now gives them their own Abstract chapter; prod not rebuilt); a few formulas render as raw TeX (DPO, ToT); figures built from LaTeX tables lose their body and keep only the caption (e.g. CoT Fig. 3).
 4. **Tech starter candidate:** Chain-of-Thought, §1–2 (~1,000 words, dense in terms, the origin of "reasoning" models).
 
 ## Problem
@@ -46,13 +46,13 @@ Root cause = **content + copy**, not the missing segmentation.
 
 ## Decisions (proposed, all 3 seats agree unless noted)
 
-1. **No role question** ("programmer / student / learning a language?").
+1. ~~**No role question**~~ — *superseded by owner decision 1 (two audiences).* ("programmer / student / learning a language?").
    - The answer changes nothing: every branch ends in the same reader.
    - The language-learner option reopens the audience we cut on 2026-10-04.
    - There are no analytics to act on the answer.
    - The question that matters already exists: native language (onboarding/language), which drives translate vs explain.
    - If the owner still wants it: one optional chip row on the existing language screen ("I mostly read: Tech books / Papers / Novels") that only picks the starter chapter. No new screen.
-2. **One starter for everyone: a real tech text, opened on a short section, no account.**
+2. ~~**One starter for everyone**~~ — *superseded: one starter per audience (owner decision 2).* The tech starter is still a real text, opened on a short section, no account.
    - Swap `DEMO_BOOK` (Alice) for it, mobile and web.
 3. **Wow moment = Explain on a term you half-know**, e.g. "quorum", "log matching", "replication lag".
    - You get a domain-aware explanation in your native language without leaving the page.
