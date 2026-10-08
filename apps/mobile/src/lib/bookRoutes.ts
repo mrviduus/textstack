@@ -45,9 +45,10 @@ export async function heroResumeRoute(
       ? cached.chapters
       : (await withDeadline(loaders.server(pick.id), SERVER_DEADLINE_MS)).map(c => ({ ...c, slug: userBookChapterSlug(c) }))
     const slug = resumeChapterSlug(null, pick.locator, chapters)
-    return slug ? `/my-books/read/${pick.id}/${slug}` : resumeRoute(pick)
+    return slug ? `/my-books/read/${pick.id}/${slug}` : `/my-books/${pick.id}`
   } catch {
-    return resumeRoute(pick)
+    // Not the stored chapterSlug: it may be stale, and opening it would save over the real page.
+    return `/my-books/${pick.id}`
   }
 }
 

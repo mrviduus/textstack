@@ -96,6 +96,12 @@ describe('QA-007', () => {
     expect(await heroResumeRoute(pick, { device: async () => ({ chapters, totalChapters: 12 }), server: vi.fn() })).toBe('/my-books/read/ub1/ch-9')
   })
 
+  it('RES-1: a failed lookup opens the detail screen, never a stale chapterSlug', async () => {
+    const pick = { type: 'userbook' as const, id: 'ub1', title: 'PDF', coverPath: null, percent: 0.5, chapterSlug: 'ch-2', locator: 'page:300', updatedAtMs: 1 }
+    const failing = { device: async () => ({ chapters: [], totalChapters: 0 }), server: async () => { throw new Error('offline') } }
+    expect(await heroResumeRoute(pick, failing)).toBe('/my-books/ub1')
+  })
+
   it('RES-1: the device answers first — chapters on the phone open the reader without asking the server', async () => {
     const pick = { type: 'userbook' as const, id: 'ub1', title: 'PDF', coverPath: null, percent: 0.3, chapterSlug: null, locator: 'page:42', updatedAtMs: 1 }
     const server = vi.fn(async () => [])
