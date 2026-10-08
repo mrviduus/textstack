@@ -76,12 +76,28 @@ describe('TR-2: the word bubble never overwrites a saved translation', () => {
   const saved = (): VocabMap => new Map([['pocketed', { stage: 1, id: 'w1', translation: 'enterrou' }]])
 
   it('TR-2: tap in another sentence or a language switch sends no PATCH for a translated word', async () => {
-    const { rerender, updateTranslation } = mountSync(saved(), { word: 'pocketed', translation: 'embolsou', translationLoading: false, ...ctx })
+    const { rerender } = mountSync(saved(), { word: 'pocketed', translation: 'embolsou', translationLoading: false, ...ctx })
     await act(async () => {})
     await act(async () => { rerender({ lang: 'uk' }) })
 
     expect(translate).toHaveBeenCalledTimes(1)
+    // The guard lives in ONE place — useReaderVocabulary.updateTranslation (tested there).
     expect(updateWord).not.toHaveBeenCalled()
-    expect(updateTranslation).not.toHaveBeenCalled()
+  })
+
+  it('TR-2: the bubble passes its sentence (a same-sentence correction), but never after a language switch', async () => {
+    const { rerender, updateTranslation } = mountSync(saved(), { word: 'pocketed', translation: 'embolsou', translationLoading: false, ...ctx })
+    await act(async () => {})
+    expect(updateTranslation).toHaveBeenLastCalledWith('pocketed', 'embolsou', SENTENCE)
+
+    updateTranslation.mockClear()
+    await act(async () => { rerender({ lang: 'uk' }) })
+    for (const call of updateTranslation.mock.calls) expect(call[2]).toBeUndefined()
+  })
+
+  it('TR-2: no bubble path PATCHes on its own — all go through updateTranslation', () => {
+    for (const f of ['../useWordBubble.ts', '../useBubbleTranslationSync.ts', '../../lib/wordBubbleFetch.ts']) {
+      expect(readFileSync(resolve(__dirname, f), 'utf8')).not.toMatch(/updateWord\(/)
+    }
   })
 })

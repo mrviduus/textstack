@@ -92,6 +92,66 @@ describe('useReaderVocabulary', () => {
     vi.clearAllMocks()
   })
 
+  it('TR-2: updateTranslation is the one PATCH path and never overwrites a saved translation (already_saved)', async () => {
+    const { updateWord } = await import('../../api/vocabulary')
+    saveWordMock.mockResolvedValue({
+      outcome: 'already_saved',
+      word: { id: 'w1', word: 'wound', stage: 1, translation: 'ferida' },
+      pendingId: null,
+      reason: null,
+    })
+    const { result } = renderHook(() => useReaderVocabulary('en', 'pt'))
+    await waitFor(() => expect(getReaderVocabMock).toHaveBeenCalled())
+    await act(async () => { await result.current.addWord({ word: 'wound', language: 'en' }) })
+
+    act(() => result.current.updateTranslation('wound', 'enrolou'))
+
+    expect(updateWord).not.toHaveBeenCalled()
+    expect(result.current.vocabMap.get('wound')?.translation).toBe('ferida')
+  })
+
+  it('TR-2: same saved sentence replaces the translation (a correction); another sentence does not', async () => {
+    const { updateWord } = await import('../../api/vocabulary')
+    vi.mocked(updateWord).mockResolvedValue(undefined as never)
+    const S = 'He pocketed the coins and walked out.'
+    saveWordMock.mockResolvedValue({
+      outcome: 'already_saved',
+      word: { id: 'w1', word: 'pocketed', stage: 1, translation: 'enterrado', sentence: S },
+      pendingId: null,
+      reason: null,
+    })
+    const { result } = renderHook(() => useReaderVocabulary('en', 'pt'))
+    await waitFor(() => expect(getReaderVocabMock).toHaveBeenCalled())
+    await act(async () => { await result.current.addWord({ word: 'pocketed', language: 'en' }) })
+
+    act(() => result.current.updateTranslation('pocketed', 'guardou', 'She pocketed the note.'))
+    act(() => result.current.updateTranslation('pocketed', 'guardou'))
+    expect(updateWord).not.toHaveBeenCalled()
+
+    act(() => result.current.updateTranslation('pocketed', 'embolsou', ` ${S} `))
+    expect(updateWord).toHaveBeenCalledWith('w1', { translation: 'embolsou' })
+    expect(result.current.vocabMap.get('pocketed')?.translation).toBe('embolsou')
+  })
+
+  it('TR-2: updateTranslation PATCHes a saved word that has no translation yet', async () => {
+    const { updateWord } = await import('../../api/vocabulary')
+    vi.mocked(updateWord).mockResolvedValue(undefined as never)
+    saveWordMock.mockResolvedValue({
+      outcome: 'saved',
+      word: { id: 'w1', word: 'wound', stage: 0, translation: null },
+      pendingId: null,
+      reason: null,
+    })
+    const { result } = renderHook(() => useReaderVocabulary('en', 'pt'))
+    await waitFor(() => expect(getReaderVocabMock).toHaveBeenCalled())
+    await act(async () => { await result.current.addWord({ word: 'wound', language: 'en' }) })
+
+    act(() => result.current.updateTranslation('wound', 'ferida'))
+
+    expect(updateWord).toHaveBeenCalledWith('w1', { translation: 'ferida' })
+    expect(result.current.vocabMap.get('wound')?.translation).toBe('ferida')
+  })
+
   it('calls getReaderVocab on mount when isAuthenticated=true', async () => {
     renderHook(() => useReaderVocabulary('en', 'de'))
     await waitFor(() => expect(getReaderVocabMock).toHaveBeenCalledTimes(1))

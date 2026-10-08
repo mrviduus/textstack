@@ -19,9 +19,9 @@ export interface TranslateContext {
 /** TR-1: the one translate body for every client. A word or short selection (<= 3 words AND
  *  <= 40 chars, not the sentence itself) carries its sentence; a passage is its own context. */
 export function translateBody(text: string, source: string, target: string, ctx?: TranslateContext) {
-  const body: { text: string; sourceLang: string; targetLang: string; sentence?: string; bookId?: string } =
-    { text, sourceLang: source, targetLang: target }
   const t = text.trim()
+  const body: { text: string; sourceLang: string; targetLang: string; sentence?: string; bookId?: string } =
+    { text: t, sourceLang: source, targetLang: target }
   const sentence = ctx?.sentence?.trim()
   if (sentence && sentence !== t && t.split(/\s+/).length <= 3 && t.length <= 40) body.sentence = sentence
   if (ctx?.bookId) body.bookId = ctx.bookId
@@ -31,7 +31,7 @@ export function translateBody(text: string, source: string, target: string, ctx?
 /** TR-1: the one client cache key — built from the body actually sent, text case kept. */
 export function translateCacheKey(text: string, source: string, target: string, ctx?: TranslateContext) {
   const body = translateBody(text, source, target, ctx)
-  return JSON.stringify([source, target, text.trim(), body.sentence ?? '', body.bookId ?? ''])
+  return JSON.stringify([source, target, body.text, body.sentence ?? '', body.bookId ?? ''])
 }
 
 export function translate(text: string, source: string, target: string, signal?: AbortSignal, ctx?: TranslateContext) {

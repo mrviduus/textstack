@@ -2,7 +2,7 @@ import { useRef, useCallback, useState, useEffect } from 'react'
 import type { TextSelectionState } from './useTextSelection'
 import type { useReaderVocabulary } from './useReaderVocabulary'
 import { useBubbleTranslationSync } from './useBubbleTranslationSync'
-import { updateWord, promoteLookup } from '../api/vocabulary'
+import { promoteLookup } from '../api/vocabulary'
 import { extractSentence } from '../lib/sentenceExtractor'
 import { tokenizeVocabWords, extractWordFromRange } from '../lib/vocabKey'
 import { fetchWordBubble } from '../lib/wordBubbleFetch'
@@ -169,10 +169,7 @@ export function useWordBubble({
       }
     }
     const saved = resp?.word
-    if (saved?.id && currentTranslation) {
-      updateWord(saved.id, { translation: currentTranslation }).catch(() => {})
-      updateTranslation(word, currentTranslation)
-    }
+    if (saved?.id && currentTranslation) updateTranslation(word, currentTranslation, sentence)
   }, [
     addWord, bookLanguage, bookTitle, chapterId, containerRef,
     editionId, nativeLanguage, hasConfirmedLanguage, userBookId, updateTranslation,
@@ -209,7 +206,7 @@ export function useWordBubble({
     })
     fetchWordBubble({
       word, bookLanguage, targetLang,
-      explainInContext, vocabMap, updateTranslation,
+      explainInContext, updateTranslation,
       signal: ctrl.signal,
       patch: (fields) => setBubble((prev) => (prev && prev.word === word ? { ...prev, ...fields } : prev)),
       bookId,
@@ -223,7 +220,7 @@ export function useWordBubble({
     if (hasConfirmedLanguage) {
       triggerAutoSave(word, () => handleSave(word, range))
     }
-  }, [bookLanguage, targetLang, vocabMap, updateTranslation, handleSave, triggerAutoSave, hasConfirmedLanguage, containerRef, userBookId, editionId])
+  }, [bookLanguage, targetLang, updateTranslation, handleSave, triggerAutoSave, hasConfirmedLanguage, containerRef, userBookId, editionId])
 
   // Catch-up auto-save: if the user taps a word BEFORE confirming native
   // language, openBubble opens the popup but skips the save. When they then

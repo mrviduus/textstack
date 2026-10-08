@@ -34,4 +34,11 @@ describe('translateCacheKey', () => {
     // A passage is sent without its sentence, so the sentence is not in its key.
     expect(k('He pocketed the coins and', 'He pocketed the coins and left.')).toBe(k('He pocketed the coins and'))
   })
+
+  it('TR-1: the body sends the text trimmed exactly as the key keys it', () => {
+    const body = translateBody(' wound\n', 'en', 'pt', { sentence: 'Later she wound the clock.' })
+    expect(body.text).toBe('wound')
+    expect(JSON.parse(translateCacheKey(' wound\n', 'en', 'pt', { sentence: 'Later she wound the clock.' }))[2])
+      .toBe(body.text)
+  })
 })

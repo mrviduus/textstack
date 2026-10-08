@@ -9,7 +9,7 @@ import { stringToColor } from '../utils/colors'
 import { BookStatsSection } from '../components/library/BookStatsSection'
 import { BookInsightsSection } from '../components/library/BookInsightsSection'
 import { AssistantMenu } from '../components/library/AssistantMenu'
-import { currentReviewChapter, bookPages } from '@textstack/shared'
+import { currentReviewChapter, bookPages, plural } from '@textstack/shared'
 import { ChapterReviewAction } from '../components/library/ChapterReviewAction'
 import { useBookReviews } from '../hooks/useBookReviews'
 import { emitDataChanges } from '../lib/dataEvents'
@@ -351,7 +351,7 @@ export function UserBookDetailPage() {
             {book.publishedYear && <span>{book.publishedYear}</span>}
             {isReady && <span>{book.chapters.length} chapters</span>}
             {pages && (
-              <span>{pages.exact ? '' : '~'}{pages.pages.toLocaleString()} pages</span>
+              <span>{plural(pages.pages, 'page', 'pages', `${pages.exact ? '' : '~'}${pages.pages.toLocaleString()} {noun}`)}</span>
             )}
           </div>
 

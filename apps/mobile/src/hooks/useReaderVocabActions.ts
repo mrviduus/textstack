@@ -141,6 +141,9 @@ export function useReaderVocabActions({
   // net so a stuck entry (e.g. abandoned tab on cellular drop) can't
   // permanently block re-saving that word in a later chapter.
   const savingRef = useRef<Set<string>>(new Set())
+  // TR-1: the selection behind the open lookup notice — "Add anyway" glosses with ITS text
+  // and sentence, so it hits the toolbar's translate cache entry instead of a 2nd call.
+  const lookupSelectionRef = useRef<Selection | null>(null)
   useEffect(() => {
     savingRef.current.clear()
   }, [chapter?.id])
@@ -170,6 +173,7 @@ export function useReaderVocabActions({
       }
       if (resp.outcome === 'lookup' || resp.outcome === 'lookup_pending') {
         if (resp.lookupId) {
+          lookupSelectionRef.current = selection
           setLookupState({ kind: resp.outcome, id: resp.lookupId, tapsRemaining: resp.tapsRemaining, busy: false })
         }
         return
@@ -207,7 +211,8 @@ export function useReaderVocabActions({
     try {
       const saved = await vocabularyApi.promoteLookup(lookup.id)
       setLookupState(null)
-      onWordSaved(saved, saved.word, saved.sentence)
+      const sel = lookupSelectionRef.current
+      onWordSaved(saved, sel?.text ?? saved.word, sel ? sel.sentence : saved.sentence)
       setSelection(null)
       showToast({ message: t(language, 'reader.vocab.addedToSrs'), variant: 'success' })
     } catch (e) {

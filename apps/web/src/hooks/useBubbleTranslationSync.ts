@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react'
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react'
-import { updateWord } from '../api/vocabulary'
 import { translate as translateApi } from '../api/translation'
 import { normalizeVocabKey } from '../lib/vocabKey'
 import type { VocabMap } from './useReaderVocabulary'
@@ -20,7 +19,7 @@ interface Options<B extends BubbleLike> {
   bubble: B | null
   setBubble: Dispatch<SetStateAction<B | null>>
   vocabMap: VocabMap
-  updateTranslation: (word: string, translation: string) => void
+  updateTranslation: (word: string, translation: string, sentence?: string) => void
   targetLang: string | null
   bookLanguage: string
   abortRef: MutableRefObject<AbortController | null>
@@ -32,7 +31,8 @@ interface Options<B extends BubbleLike> {
  * 1. **Backend translation patch** after auto-save: `fetchWordBubble`'s built-in
  *    patch closes over `vocabMap` at call time — before auto-save inserts the
  *    entry — so it misses. This effect watches `bubble.translation` + current
- *    `vocabMap` and fires one PATCH per `(wordId, translation)` pair.
+ *    `vocabMap` and hands the translation to `updateTranslation`, which PATCHes
+ *    a saved translation only from the sentence it was saved with (TR-2).
  *
  * 2. **Mid-popup lang switch**: when the user opens the popup's language picker
  *    and chooses a different native language, `targetLang` changes while the
@@ -53,22 +53,19 @@ export function useBubbleTranslationSync<B extends BubbleLike>({
   abortRef,
 }: Options<B>) {
   const autoSavedRef = useRef<Set<string>>(new Set())
-  const patchedRef = useRef<Set<string>>(new Set())
 
-  // (1) Backend translation patch — once per (wordId, translation).
+  // Set once the language is switched mid-popup: that translation is display-only (TR-2).
+  const langSwitchedRef = useRef(false)
+
+  // (1) Backend translation patch.
   useEffect(() => {
     const word = bubble?.word
     const translation = bubble?.translation
     if (!word || !translation) return
-    const entry = vocabMap.get(normalizeVocabKey(word))
-    // TR-2: never overwrite a saved word's translation (another sentence, another language).
-    if (!entry?.id || entry.isPending || entry.translation) return
-    const patchKey = `${entry.id}:${translation}`
-    if (patchedRef.current.has(patchKey)) return
-    patchedRef.current.add(patchKey)
-    updateWord(entry.id, { translation }).catch(() => {})
-    updateTranslation(word, translation)
-  }, [bubble?.word, bubble?.translation, vocabMap, updateTranslation])
+    // TR-2: updateTranslation owns the PATCH and the overwrite guard; the sentence lets a
+    // same-sentence tap correct the saved translation.
+    updateTranslation(word, translation, langSwitchedRef.current ? undefined : bubble?.sentence)
+  }, [bubble?.word, bubble?.translation, bubble?.sentence, vocabMap, updateTranslation])
 
   // (2) Lang-picker mid-popup refetch. Track (word, lang) pair — word changes
   // are owned by the openBubble path, this effect only fires on lang flips for
@@ -80,6 +77,7 @@ export function useBubbleTranslationSync<B extends BubbleLike>({
     const word = bubble?.word
     if (!word) {
       lastPairRef.current = null
+      langSwitchedRef.current = false
       return
     }
 
@@ -93,6 +91,7 @@ export function useBubbleTranslationSync<B extends BubbleLike>({
 
     lastPairRef.current = { word, lang: targetLang }
     // Word changed → openBubble owns the fetch.
+    langSwitchedRef.current = prev.word === word
     if (prev.word !== word) return
 
     // Same word, lang flipped. Definition-mode switch (no targetLang) → clear translation.
@@ -119,21 +118,14 @@ export function useBubbleTranslationSync<B extends BubbleLike>({
             ? { ...b, translation: translated, translationLoading: false }
             : b,
         )
-        if (translated) {
-          const existing = vocabMap.get(normalizeVocabKey(word))
-          if (existing?.translation) return // TR-2: display only
-          if (existing?.id && !existing.isPending) {
-            updateWord(existing.id, { translation: translated }).catch(() => {})
-          }
-          if (existing) updateTranslation(word, translated)
-        }
+        if (translated) updateTranslation(word, translated)
       })
       .catch((err) => {
         if (ctrl.signal.aborted) return
         if ((err as { name?: string })?.name === 'AbortError') return
         setBubble((b) => (b && b.word === word ? { ...b, translationLoading: false } : b))
       })
-  }, [bubble?.word, bubble?.sentence, bubble?.bookId, targetLang, bookLanguage, vocabMap, updateTranslation, setBubble, abortRef])
+  }, [bubble?.word, bubble?.sentence, bubble?.bookId, targetLang, bookLanguage, updateTranslation, setBubble, abortRef])
 
   const triggerAutoSave = useCallback(
     (word: string, save: () => Promise<unknown>) => {
