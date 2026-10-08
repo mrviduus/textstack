@@ -70,6 +70,7 @@ if (!globalThis.crypto || !globalThis.crypto.randomUUID) {
 // Import under test AFTER mocks are registered.
 import { useReaderVocabulary } from '../useReaderVocabulary'
 import { translate as translateApi } from '../../api/translation'
+import { updateWord as updateWordApi } from '../../api/vocabulary'
 
 describe('useReaderVocabulary', () => {
   beforeEach(() => {
@@ -339,6 +340,22 @@ describe('useReaderVocabulary', () => {
     await act(async () => { release() })
 
     expect(vi.mocked(translateApi)).toHaveBeenCalledTimes(1)
+  })
+
+  // Review r6 of #780: two server rows share one map key; each row is translated and written.
+  it('backfill_CaseVariantRows_EachRowWritten', async () => {
+    vi.mocked(updateWordApi).mockReset().mockResolvedValue({} as never)
+    const peru = { translatedText: 'peru', sourceLang: 'en', targetLang: 'pt' } as never
+    vi.mocked(translateApi).mockResolvedValueOnce(peru).mockResolvedValueOnce(peru)
+    getReaderVocabMock.mockResolvedValue([
+      { id: 'w1', word: 'Turkey', stage: 1, sentence: 'Turkey borders Greece.' },
+      { id: 'w2', word: 'turkey', stage: 1, sentence: 'We roasted a turkey.' },
+    ])
+
+    renderHook(() => useReaderVocabulary('en', 'pt'))
+
+    await waitFor(() => expect(vi.mocked(updateWordApi)).toHaveBeenCalledWith('w2', { translation: 'peru' }))
+    expect(vi.mocked(updateWordApi)).toHaveBeenCalledWith('w1', { translation: 'peru' })
   })
 
   it('backfill_DefinitionMode_NothingTranslated', async () => {

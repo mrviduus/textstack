@@ -90,15 +90,16 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
         if (w.translation) continue
         const word = normalizeVocabKey(w.word)
         const entry = mapRef.current.get(word)
-        // Removed since, pending (local id) or translated since — nothing to do.
-        if (!entry || entry.isPending || entry.translation) continue
+        // Removed since, pending (local id) or this row translated since — nothing to do. Per row
+        // id: 'Turkey' and 'turkey' share one key, and each row still gets its own write.
+        if (!entry || entry.isPending || (entry.id === w.id && entry.translation)) continue
         try {
           const res = await translateWord(word, lang, target, undefined, { sentence: w.sentence })
           const translation = res.translatedText
           if (cancelled || !translation) continue
           updateMap(m => {
             const e = m.get(word)
-            if (e) m.set(word, { ...e, translation })
+            if (e?.id === w.id) m.set(word, { ...e, translation })
           })
           updateWord(w.id, { translation }).catch(() => {})
         } catch { /* skip */ }
