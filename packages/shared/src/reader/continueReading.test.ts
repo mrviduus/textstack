@@ -272,6 +272,27 @@ describe('pickContinueReadingBook — user books', () => {
     expect(p3?.type === 'userbook' && p3.locator).toBe('page:10')
   })
 
+  it('RES-1: a winning local record in text mode resumes at its chapterSlug; a page-mode one at its page', () => {
+    const T = Date.parse('2026-05-10T12:00:00Z')
+    const pick = (local: UserBookProgressLite) => pickContinueReadingBook({
+      library: [], serverProgress: [],
+      userBooks: [ub({ progressChapterSlug: 'ch-1', progressLocator: 'page:10' })],
+      localCatalogMap: emptyLocal,
+      localUserBookMap: new Map([['ub-1', local]]),
+    })
+    // Text mode (a chapter slug; a kept page beside it is the Original viewer's, not this record's).
+    const text = pick({ bookPercent: 0.4, updatedAt: T, chapterSlug: 'ch-4', page: 75 })
+    expect(text?.type === 'userbook' && text.chapterSlug).toBe('ch-4')
+    expect(text?.type === 'userbook' && text.locator).toBeNull()
+    // Page mode (no slug) → the local page, never the server's stale chapter.
+    const page = pick({ bookPercent: 0.4, updatedAt: T, chapterSlug: null, page: 75 })
+    expect(page?.type === 'userbook' && page.chapterSlug).toBeNull()
+    expect(page?.type === 'userbook' && page.locator).toBe('page:75')
+    // Local loses → the server's chapter and locator.
+    const lost = pick({ bookPercent: 0.4, updatedAt: T, chapterSlug: 'ch-4', synced: true })
+    expect(lost?.type === 'userbook' && lost.chapterSlug).toBe('ch-1')
+  })
+
   it('falls back to server progressPercent when the local record is synced', () => {
     const ubMs = Date.parse('2026-05-10T12:00:00Z')
     const localUb: UserBookProgressLite = {

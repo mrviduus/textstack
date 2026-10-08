@@ -226,7 +226,7 @@ export const READER_SELECTION_BRIDGE = `
     // raises Android's ActionMode over our own toolbar. See selectWordAtPoint.
     var _wordMarkSpan = null;
 
-    function clearWordMark() {
+    function clearWordMark(repaint) {
       try {
         var span = _wordMarkSpan;
         _wordMarkSpan = null;
@@ -236,8 +236,9 @@ export const READER_SELECTION_BRIDGE = `
         parent.removeChild(span);
         parent.normalize();
         // Unwrapping moves the word's text node, which collapses every live Range on it — the vocab
-        // underline painted while the mark was up (SEL-1). Repaint once with the current map.
-        if (typeof markVocabWords === 'function' && typeof _currentVocabMap === 'object' && _currentVocabMap) markVocabWords(_currentVocabMap);
+        // underline painted while the mark was up (SEL-1). Repaint once with the current map, on a
+        // real close only: markRange re-marks with a Range computed before this, which a repaint destroys.
+        if (repaint && typeof markVocabWords === 'function' && typeof _currentVocabMap === 'object' && _currentVocabMap) markVocabWords(_currentVocabMap);
       } catch(e) {}
     }
 
@@ -262,7 +263,7 @@ export const READER_SELECTION_BRIDGE = `
     window.__tsClearSelection = function(token, markOnly) {
       if (typeof token === 'number' && token !== _selToken) return;
       if (!markOnly) { try { window.getSelection && window.getSelection().removeAllRanges(); } catch(e) {} }
-      clearWordMark();
+      clearWordMark(true);
     };
 
     // The chapter's own element, or the body where there is none (the PDF

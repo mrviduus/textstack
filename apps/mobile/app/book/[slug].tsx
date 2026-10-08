@@ -24,6 +24,7 @@ import {
 } from '../../src/lib/offlineDb'
 import { getLocalProgress } from '../../src/lib/progressStorage'
 import { countCollectionsHolding, decideLibraryRemoval } from '../../src/lib/libraryRemoval'
+import { downloadLibraryLink } from '../../src/lib/downloadLibraryLink'
 import { invalidateCollectionsCache } from '../../src/hooks/useCollections'
 import { fonts } from '../../src/theme/typography'
 import { OfflineBanner } from '../../src/components/ui/OfflineBanner'
@@ -64,8 +65,10 @@ export default function BookDetailScreen() {
   const [inLibrary, setInLibrary] = useState(false)
   // Bumped by every local library change: the initial getLibrary answer is dropped if one landed while it was in flight (LIB-1).
   const libraryGenRef = useRef(0)
-  // The Download tap added the book (not saved by hand) — cancelling that download takes it back out (LIB-1).
-  const addedByDownloadRef = useRef(false)
+  // getLibrary's answer was applied: only then is "not in library" a fact rather than a default (LIB-1).
+  const libraryKnownRef = useRef(false)
+  // Remembers whether the Download tap added the book — cancelling that download takes it back out (LIB-1).
+  const [libraryLink] = useState(downloadLibraryLink)
   const [collectionSheetOpen, setCollectionSheetOpen] = useState(false)
   // Not mounted until first opened — see useSheetMount. This screen is public,
   // so the sheet's `useCollections` was 401ing on every open for a signed-out
@@ -218,7 +221,10 @@ export default function BookDetailScreen() {
       try {
         const gen = libraryGenRef.current
         const lib = await libraryApi.getLibrary()
-        if (!cancelled && gen === libraryGenRef.current) setInLibrary(lib.some(item => item.editionId === editionId))
+        if (!cancelled && gen === libraryGenRef.current) {
+          libraryKnownRef.current = true
+          setInLibrary(lib.some(item => item.editionId === editionId))
+        }
       } catch (err) {
         console.warn('getLibrary failed on book detail:', err)
       }
@@ -308,17 +314,19 @@ export default function BookDetailScreen() {
   const dl = book ? downloads.get(book.id) : undefined
 
   // Save to Library and Download (LIB-1) share this: optimistic "In Library", rolled back if the add fails.
-  const addToLibrary = async () => {
+  const addToLibrary = async (): Promise<boolean> => {
     libraryGenRef.current++
     setInLibrary(true)
     try {
       await libraryApi.addToLibrary(book!.id)
+      return true
     } catch (err) {
       console.warn('library add failed:', err)
       setInLibrary(false)
+      return false
     }
   }
-  // Save toggle and download-cancel (LIB-1) share this: optimistic removal, rolled back if it fails.
+  // Optimistic removal, rolled back if it fails.
   const removeFromLibrary = async () => {
     libraryGenRef.current++
     setInLibrary(false)
@@ -331,6 +339,39 @@ export default function BookDetailScreen() {
       console.warn('library toggle failed:', err)
       setInLibrary(true)
     }
+  }
+  // Save toggle and download-cancel (LIB-1) share this.
+  const removeWithConfirm = async () => {
+    // Removing also empties the book out of every collection it is in,
+    // so ask first — but only when there is something to lose. No
+    // membership-by-book endpoint: one list per non-empty collection.
+    // If the lookup fails the removal goes ahead unasked, as it always
+    // did (offline, the removal itself fails and rolls back).
+    let count = 0
+    try {
+      const collections = await collectionsApi.listCollections()
+      const lists = await Promise.all(collections
+        .filter(c => c.count > 0)
+        .map(c => collectionsApi.getCollectionBookIds(c.id, 'savedbook')))
+      count = countCollectionsHolding(book!.id, lists)
+    } catch (err) {
+      console.warn('collection membership lookup failed:', err)
+    }
+    const decision = decideLibraryRemoval(count)
+    if (!decision.confirm) return removeFromLibrary()
+    Alert.alert(
+      t('library.actions.removeFromLibraryConfirmTitle'),
+      t(decision.bodyKey).replace('{{count}}', String(decision.count)),
+      [
+        { text: t('library.actions.cancel'), style: 'cancel' },
+        { text: t('library.actions.removeFromLibraryConfirm'), style: 'destructive', onPress: () => { void removeFromLibrary() } },
+      ],
+    )
+  }
+  // Download, Retry and Restart (LIB-1): the download, then the Library add.
+  const onDownload = (run: () => unknown) => () => {
+    void run()
+    if (isAuthenticated) libraryLink.start(inLibrary ? 'in' : libraryKnownRef.current ? 'out' : 'unknown', addToLibrary)
   }
 
   if (loading) {
@@ -479,36 +520,9 @@ export default function BookDetailScreen() {
             <TouchableOpacity
               style={[styles.secondaryButton, { borderColor: inLibrary ? colors.success : colors.primary }]}
               onPress={async () => {
-                addedByDownloadRef.current = false
-                const wasInLibrary = inLibrary
-                if (!wasInLibrary) return addToLibrary()
-                const toggle = removeFromLibrary
-
-                // Removing also empties the book out of every collection it is in,
-                // so ask first — but only when there is something to lose. No
-                // membership-by-book endpoint: one list per non-empty collection.
-                // If the lookup fails the removal goes ahead unasked, as it always
-                // did (offline, the removal itself fails and rolls back).
-                let count = 0
-                try {
-                  const collections = await collectionsApi.listCollections()
-                  const lists = await Promise.all(collections
-                    .filter(c => c.count > 0)
-                    .map(c => collectionsApi.getCollectionBookIds(c.id, 'savedbook')))
-                  count = countCollectionsHolding(book.id, lists)
-                } catch (err) {
-                  console.warn('collection membership lookup failed:', err)
-                }
-                const decision = decideLibraryRemoval(count)
-                if (!decision.confirm) return toggle()
-                Alert.alert(
-                  t('library.actions.removeFromLibraryConfirmTitle'),
-                  t(decision.bodyKey).replace('{{count}}', String(decision.count)),
-                  [
-                    { text: t('library.actions.cancel'), style: 'cancel' },
-                    { text: t('library.actions.removeFromLibraryConfirm'), style: 'destructive', onPress: () => { void toggle() } },
-                  ],
-                )
+                libraryLink.forget()
+                if (!inLibrary) return addToLibrary()
+                return removeWithConfirm()
               }}
               activeOpacity={0.85}
             >
@@ -527,14 +541,11 @@ export default function BookDetailScreen() {
             onRemove={() => removeDownload(book.id).then(() => setCached(false))}
             onCancel={() => {
               cancelDownload(book.id)
-              if (addedByDownloadRef.current) { addedByDownloadRef.current = false; void removeFromLibrary() }
+              void libraryLink.cancel(removeWithConfirm)
             }}
-            onRetry={() => retryFailed(book.id)}
-            onStart={() => {
-              startDownload(book, language)
-              if (isAuthenticated && !inLibrary) { addedByDownloadRef.current = true; void addToLibrary() }
-            }}
-            onRestart={() => startDownload(book, language)}
+            onRetry={onDownload(() => retryFailed(book.id))}
+            onStart={onDownload(() => startDownload(book, language))}
+            onRestart={onDownload(() => startDownload(book, language))}
             buttonStyle={styles.secondaryButton}
             textStyle={styles.secondaryButtonText}
           />
