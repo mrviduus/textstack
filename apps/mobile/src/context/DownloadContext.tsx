@@ -75,7 +75,8 @@ interface DownloadContextValue {
   downloads: Map<string, DownloadInfo>
   cachedBooks: CachedBookMeta[]
   cachedUserBooks: CachedUserBookMeta[]
-  startDownload: (book: BookDetail, language: string) => Promise<void>
+  /** `onStarted` fires once the first chapter is stored (never if none could be). */
+  startDownload: (book: BookDetail, language: string, opts?: { onStarted?: () => void }) => Promise<void>
   /** Cache every extracted chapter of an upload for offline reading. */
   startUserBookDownload: (book: UserBookDetailResponse) => Promise<void>
   retryFailed: (id: string) => Promise<void>
@@ -244,8 +245,11 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     store: (task: ChapterTask) => Promise<void>,
     saveCount: (n: number) => Promise<void>,
     failureMessage: (n: number) => string,
+    /** Called once, when the first chapter is actually stored — the download is real from here. */
+    onStarted?: () => void,
   ) => {
     let downloaded = alreadyDone
+    let started = false
     const failed: ChapterTask[] = []
 
     for (const task of tasks) {
@@ -273,8 +277,10 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         await refreshCachedBooks()
         return
       }
-      if (ok) downloaded++
-      else failed.push(task)
+      if (ok) {
+        downloaded++
+        if (!started) { started = true; onStarted?.() }
+      } else failed.push(task)
 
       await saveCount(downloaded)
       updateDownload(bookKey, {
@@ -326,7 +332,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const startDownload = useCallback(async (book: BookDetail, language: string) => {
+  const startDownload = useCallback(async (book: BookDetail, language: string, opts?: { onStarted?: () => void }) => {
     const editionId = book.id
     cancelledRef.current.delete(editionId)
 
@@ -364,6 +370,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       store,
       saveCount,
       n => `${plural(n, 'chapter', 'chapters')} failed. Tap Retry to finish the download.`,
+      opts?.onStarted,
     )
   }, [storeFor, runDownload])
 

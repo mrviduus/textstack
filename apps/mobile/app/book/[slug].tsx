@@ -315,18 +315,12 @@ export default function BookDetailScreen() {
 
   const dl = book ? downloads.get(book.id) : undefined
 
-  // Downloading is an explicit "keep this book", so it also puts the book on the shelf — after the
-  // download actually started, never on Restart. Optimistic like the Save toggle, rolled back if the
-  // server refuses.
-  const startAndAdd = useCallback(async () => {
-    if (!book) return
-    try {
-      await startDownload(book, language)
-    } catch (err) {
-      console.warn('Download did not start:', err)
-      return
-    }
-    if (!isAuthenticated || inLibrary) return
+  // Downloading is an explicit "keep this book", so it also puts the book on the shelf — as soon as
+  // the first chapter is stored (DownloadContext `onStarted`): not at the tap, so a download that
+  // cannot start adds nothing; not at the end, so a big book does not lag minutes. Never on Restart.
+  // Optimistic like the Save toggle, rolled back if the server refuses.
+  const addOnDownloadStart = useCallback(async () => {
+    if (!book || !isAuthenticated || inLibrary) return
     libraryGuard.touch()
     setInLibrary(true)
     try {
@@ -336,7 +330,7 @@ export default function BookDetailScreen() {
       libraryGuard.touch()
       setInLibrary(false)
     }
-  }, [book, language, startDownload, isAuthenticated, inLibrary, libraryGuard])
+  }, [book, isAuthenticated, inLibrary, libraryGuard])
 
   if (loading) {
     return (
@@ -550,7 +544,7 @@ export default function BookDetailScreen() {
             onCancel={() => cancelDownload(book.id)}
             onRetry={() => retryFailed(book.id)}
             // A download also puts the book on the shelf (QA-007); Restart does not.
-            onStart={() => { void startAndAdd() }}
+            onStart={() => { void startDownload(book, language, { onStarted: addOnDownloadStart }) }}
             onRestart={() => startDownload(book, language)}
             buttonStyle={styles.secondaryButton}
             textStyle={styles.secondaryButtonText}

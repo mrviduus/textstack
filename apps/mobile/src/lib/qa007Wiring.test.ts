@@ -18,11 +18,15 @@ describe('a downloaded catalog book is in the Library online too', () => {
   // that never reached /me/library showed up offline only.
   const screen = read('app/book/[slug].tsx')
 
-  it('a download adds the book only after it actually started; optimistic, rolled back on failure (review 3 #3)', () => {
-    const start = body(screen, 'const startAndAdd = useCallback(', '}, [')
-    expect(start).toMatch(/await startDownload\(book, language\)[\s\S]*catch[\s\S]*return[\s\S]*setInLibrary\(true\)[\s\S]*await libraryApi\.addToLibrary\([\s\S]*catch[\s\S]*setInLibrary\(false\)/)
-    expect(start).not.toMatch(/LibraryRemoved/)
-    expect(screen).toMatch(/onStart=\{\(\) => \{ void startAndAdd\(\) \}\}/)
+  it('a download adds the book once its first chapter is stored — not at the tap, not at the end (owner 1a)', () => {
+    const ctx = read('src/context/DownloadContext.tsx')
+    const loop = body(ctx, 'const runDownload = useCallback(', '}, [downloadChapter')
+    // Fired once, on the first chapter actually stored; never if nothing could be stored.
+    expect(loop).toMatch(/if \(ok\) \{[\s\S]*downloaded\+\+[\s\S]*if \(!started\) \{ started = true; onStarted\?\.\(\) \}/)
+    expect(body(ctx, 'const startDownload = useCallback(', '}, [')).toMatch(/opts\?\.onStarted/)
+    const add = body(screen, 'const addOnDownloadStart = useCallback(', '}, [')
+    expect(add).toMatch(/setInLibrary\(true\)[\s\S]*await libraryApi\.addToLibrary\([\s\S]*catch[\s\S]*setInLibrary\(false\)/)
+    expect(screen).toMatch(/onStart=\{\(\) => \{ void startDownload\(book, language, \{ onStarted: addOnDownloadStart \}\) \}\}/)
   })
 
   it('Restart does not add, and the download loop itself never touches the library', () => {
