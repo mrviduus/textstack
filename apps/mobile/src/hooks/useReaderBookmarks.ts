@@ -1,10 +1,10 @@
 import { useCallback, useState, MutableRefObject } from 'react'
-import { bookmarksApi } from '@textstack/shared'
+import { bookmarksApi, bookmarkChapterSlug } from '@textstack/shared'
 import type { BookmarkDto, Chapter } from '@textstack/shared'
 
 /** Extract chapterSlug from bookmark locator (format: "chapter:slug") */
 function getSlugFromLocator(locator: string): string {
-  return locator.startsWith('chapter:') ? locator.slice(8) : locator
+  return bookmarkChapterSlug(locator)
 }
 
 type ToastFn = (t: { message: string; variant: 'error' | 'success' | 'info' }) => void

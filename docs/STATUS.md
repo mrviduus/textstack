@@ -189,8 +189,9 @@ answers "what happened" and nothing answered "what is half-finished right now".
 - **Reader — open after R3/R4** (2026-10-06):
   - **QA-007 findings 2026-10-08** ([report](qa/reports/2026-10-08-reader-android.md)), not started:
     ~~PDF reopens one page back~~ (fixed #778, web had it too); guest Library empty online after a
-    download without "Save to Library"; Books genre chips stretch tall and search "1984" → "No books
-    found"; Library "Continue" opens book detail, not the reader; native selection handles stay after
+    download without "Save to Library"; ~~Books genre chips stretch tall and search "1984" → "No books
+    found"~~ (fixed #779: the Books screen's default genre was `'popular'`, a sort, so the list was
+    always empty — not a search bug); Library "Continue" opens book detail, not the reader; native selection handles stay after
     highlighting; a wrong pt-BR translation ("pocketed → enterrado"); PDF detail "~33 pages" for 15;
     dev build toasts "injectJs failed: markVocabWords is …" in both PDF and text readers (RN injects
     vocab into a document that has no such function yet, or none at all for PDF) — check whether vocab

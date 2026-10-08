@@ -43,6 +43,9 @@ export function FilterChips({ options, selected, onSelect, scrollable = true }: 
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
+        // Its own height only: a ScrollView in a flex column grows (chips stretched tall) and,
+        // with flexGrow 0 alone, shrinks under a long list (labels cut). Neither.
+        style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
       >
         {chips}
@@ -54,7 +57,8 @@ export function FilterChips({ options, selected, onSelect, scrollable = true }: 
 }
 
 const styles = StyleSheet.create({
-  scrollContent: { paddingHorizontal: 16, paddingVertical: 8, gap: 6 },
+  scroll: { flexGrow: 0, flexShrink: 0 },
+  scrollContent: { paddingHorizontal: 16, paddingVertical: 8, gap: 6, alignItems: 'center' },
   row: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   chip: {
     paddingHorizontal: 12,

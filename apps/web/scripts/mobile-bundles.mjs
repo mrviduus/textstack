@@ -13,10 +13,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(__dirname, '..', '..', '..')
 
 /**
- * Two bundles, because they are inlined under different conditions.
- *
- * The overlay is emitted only when the overlay-v2 flag is on. The anchor
- * resolver is emitted ALWAYS: the reading position is resolved from a text
+ * Two bundles, historically inlined under different conditions: the overlay
+ * used to sit behind the (since removed) overlay-v2 flag; both are now always
+ * inlined. The anchor resolver must ALWAYS be there: the reading position is resolved from a text
  * anchor on every chapter open (ADR-015) and, unlike a highlight, has no legacy
  * path behind it — with the resolver absent, `hlFindAnchor` degrades to a bare
  * `indexOf`. Both entries install `window.__TSAnchor` guarded, so loading both

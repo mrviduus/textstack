@@ -7,7 +7,7 @@ import { parseTextPosition, serializeTextPosition, TEXT_POSITION_VERSION } from 
 import { isPdfAnchor } from '../../shared/src/reader/pdfHighlightAnchor'
 import { parsePdfPageLocator } from '../../shared/src/reader/pdfProgress'
 import { parseScrollLocator } from '../../shared/src/reader/progressPayload'
-import { PROGRESS_LOCATOR_END, PROGRESS_LOCATOR_START } from '../../shared/src/reader/progressLocators'
+import { PROGRESS_LOCATOR_END, PROGRESS_LOCATOR_START, parseChapterLocator } from '../../shared/src/reader/progressLocators'
 
 function parseObject(json: string): Record<string, unknown> | null {
   try {
@@ -137,8 +137,8 @@ export function locatorToPdfAnchor(loc: Locator | null): string | null {
 export function progressToLocator(s: string): Locator | null {
   const page = parsePdfPageLocator(s)
   if (page) return { type: 'application/pdf', locations: { position: page }, ext: { stored: stored('progress', s) } }
-  const chapter = /^chapter:(.+)$/.exec(s)
-  if (chapter) return { href: chapter[1], type: 'text/html', locations: { progression: 0 }, ext: { stored: stored('progress', s) } }
+  const chapter = parseChapterLocator(s)
+  if (chapter) return { href: chapter, type: 'text/html', locations: { progression: 0 }, ext: { stored: stored('progress', s) } }
   const scroll = parseScrollLocator(s)
   if (scroll) return { href: scroll.slug, type: 'text/html', locations: { legacyScrollY: scroll.offset }, ext: { stored: stored('progress', s) } }
   // Book-level only: "finished" / "start over" sentinels and web's `percent:<0..1>`.

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Smoke test: the injected overlay script is syntactically valid, and
-// readerHtml.ts interpolates it correctly when overlayV2=true. Parses the
+// readerHtml.ts interpolates it correctly (it is always inlined; the overlay-v2 flag is gone). Parses the
 // extracted JS via vm.Script — catches unescaped `${…}`, broken template
 // boundaries, missing semicolons across slice-8b surface.
 //

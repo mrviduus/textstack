@@ -749,7 +749,7 @@ public class AuthService
         if (user == null || user.PasswordHash == null)
             return null;
 
-        if (!BCrypt.Net.BCrypt.Verify(password, user.PasswordHash))
+        if (!PasswordHashing.Matches(password, user.PasswordHash))
             return null;
 
         var accessToken = GenerateAccessToken(user);

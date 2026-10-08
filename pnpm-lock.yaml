@@ -12,6 +12,9 @@ catalogs:
     '@sentry/node':
       specifier: 10.75.2
       version: 10.75.2
+    '@types/node':
+      specifier: ^25.8.0
+      version: 25.9.8
     '@types/react':
       specifier: ~19.2.18
       version: 19.2.18
@@ -272,7 +275,7 @@ importers:
         specifier: ^16.3.2
         version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.2.7(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       '@types/node':
-        specifier: ^25.8.0
+        specifier: 'catalog:'
         version: 25.9.8
       '@types/react':
         specifier: 'catalog:'
@@ -302,7 +305,7 @@ importers:
   packages/reader-engine:
     devDependencies:
       '@types/node':
-        specifier: ^25.8.0
+        specifier: 'catalog:'
         version: 25.9.8
       typescript:
         specifier: 'catalog:'

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { AppState } from 'react-native'
 import { useRouter } from 'expo-router'
 import { WebView } from 'react-native-webview'
-import { userBooksApi, isOfflineError, parseScrollLocator, buildUserBookProgressPayload, buildPdfProgressPayload, parsePdfPageLocator, parseTextPosition, serializeTextPosition } from '@textstack/shared'
+import { userBooksApi, isOfflineError, parseScrollLocator, buildUserBookProgressPayload, buildPdfProgressPayload, parsePdfPageLocator, parseTextPosition, serializeTextPosition, bookmarkChapterSlug } from '@textstack/shared'
 import type { UserBookChapterDto, BookmarkDto, TextPosition } from '@textstack/shared'
 import { API_URL } from '../../lib/api'
 import { getUserBookLocalProgress, markUserBookLocalProgressSynced, saveUserBookLocalProgress, getUserBookIsPdf, setUserBookIsPdf, type UserBookLocalProgress } from '../../lib/progressStorage'
@@ -32,7 +32,7 @@ type Params = {
 const startPagesBySlug = (rows: { chapterSlug: string; sourceStartPage: number | null }[]) =>
   Object.fromEntries(rows.flatMap(r => (typeof r.sourceStartPage === 'number' && r.sourceStartPage >= 1 ? [[r.chapterSlug, r.sourceStartPage]] : [])))
 
-const bookmarkSlug = (b: BookmarkDto) => (b.locator.startsWith('chapter:') ? b.locator.slice(8) : b.locator)
+const bookmarkSlug = (b: BookmarkDto) => bookmarkChapterSlug(b.locator)
 
 /**
  * User-uploaded book data source for the unified `<Reader>`. Owns the

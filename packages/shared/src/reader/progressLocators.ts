@@ -19,3 +19,16 @@ export const PROGRESS_LOCATOR_END = '{"type":"end"}'
 
 /** Back to the beginning — what "mark as unfinished" writes, with `percent: 0`. */
 export const PROGRESS_LOCATOR_START = '{"type":"start"}'
+
+/** The slug of a chapter bookmark locator (`chapter:<slug>`), or null for any other locator. */
+export function parseChapterLocator(locator: string): string | null {
+  return locator.startsWith('chapter:') && locator.length > 8 ? locator.slice(8) : null
+}
+
+/**
+ * The chapter slug a bookmark points at. A `chapter:<slug>` locator gives its slug (a bare `chapter:`
+ * gives ''), and anything else is taken as the slug itself — the mobile bookmark rule, in one place.
+ */
+export function bookmarkChapterSlug(locator: string): string {
+  return locator.startsWith('chapter:') ? locator.slice(8) : locator
+}

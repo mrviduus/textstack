@@ -13,7 +13,7 @@
 //
 // It declares `var _hlOverlayer = null;` (the highlight overlayer handle) so the
 // tap/selection guards resolve in BOTH contexts; the reflow reader's highlight
-// code assigns it lazily, the PDF viewer leaves it null (highlight paint is S5).
+// code assigns it lazily; the PDF viewer paints its highlights itself (`__setPdfHighlights`).
 //
 // Reflow-specific concerns (progress, scroll-restore, citation scroll, infinite
 // scroll, chapter tracking, highlight PAINT, the vocab underline layer, the
@@ -120,7 +120,7 @@ export const READER_SELECTION_BRIDGE = `
 
     // Highlight overlayer handle — owned here so the tap/selection guards below
     // resolve in both readers. Reflow assigns it lazily (hlEnsureOverlayer); the
-    // PDF viewer leaves it null (highlight paint over the pdf text layer is S5).
+    // PDF viewer leaves it null and paints its own highlights (__setPdfHighlights).
     var _hlOverlayer = null;
 
     ${SCROLL_DIR_DETECTOR}

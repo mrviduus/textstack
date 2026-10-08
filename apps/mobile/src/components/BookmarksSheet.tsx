@@ -1,12 +1,12 @@
 import { View, Text, StyleSheet, TouchableOpacity, Modal, Pressable, FlatList } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
-import { parsePdfPageLocator } from '@textstack/shared'
+import { parsePdfPageLocator, bookmarkChapterSlug } from '@textstack/shared'
 import type { BookmarkDto } from '@textstack/shared'
 import { useTheme } from '../context/ThemeContext'
 import { fonts } from '../theme/typography'
 
 function getSlugFromLocator(locator: string): string {
-  return locator.startsWith('chapter:') ? locator.slice(8) : locator
+  return bookmarkChapterSlug(locator)
 }
 
 interface Props {

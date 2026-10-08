@@ -47,6 +47,7 @@ import { StatusBar } from 'expo-status-bar'
 import { readerBackAction } from '../../lib/firstRun'
 import { claimVisit } from '../../lib/readerVisit'
 import { discussAfterSave } from '../../lib/chapterEnd'
+import { vocabPaintJs } from '../../lib/vocabPaintJs'
 
 /**
  * The shared reader body for BOTH the public-library reader and the user-uploaded
@@ -350,7 +351,7 @@ export function ReaderShell(props: ReaderShellProps) {
               injectJs(`renderHighlight(${JSON.stringify(h.id)}, ${JSON.stringify(h.anchorJson)}, ${JSON.stringify(h.color)}, ${JSON.stringify(h.selectedText)})`)
             }
             if (Object.keys(vocabMapRef.current).length > 0) {
-              injectJs(`markVocabWords(${JSON.stringify(vocabMapRef.current)})`)
+              injectJs(vocabPaintJs(vocabMapRef.current))
             }
             injectJs(`setShowInlineTranslations(${settings.showInlineTranslations})`)
             injectJs(endModelJs)

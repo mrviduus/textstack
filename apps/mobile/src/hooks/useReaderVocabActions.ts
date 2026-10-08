@@ -3,6 +3,7 @@ import { vocabularyApi, t } from '@textstack/shared'
 import { cachedTranslate } from '../lib/translateCache'
 import type { Chapter, VocabularyWordDto, Language } from '@textstack/shared'
 import type { VocabMap } from './useReaderVocabMap'
+import { vocabPaintJs } from '../lib/vocabPaintJs'
 
 type ToastFn = (t: { message: string; variant: 'error' | 'success' | 'info' }) => void
 type Selection = { text: string; sentence: string; anchor?: any; selectionId: number }
@@ -125,7 +126,7 @@ export function useReaderVocabActions({
           vocabMapRef.current[key] = { ...vocabMapRef.current[key], translation }
           // Push full map so the inline-translation span renders above the underline.
           // addVocabWord alone only carries {stage}, wiping any prior translation.
-          injectJs(`markVocabWords(${JSON.stringify(vocabMapRef.current)})`)
+          injectJs(vocabPaintJs(vocabMapRef.current))
         }
       })
       .catch(() => {})
@@ -243,7 +244,7 @@ export function useReaderVocabActions({
     if (!entry) return
     const snapshot = { ...entry }
     delete vocabMapRef.current[key]
-    injectJs(`markVocabWords(${JSON.stringify(vocabMapRef.current)})`)
+    injectJs(vocabPaintJs(vocabMapRef.current))
     bumpVocab()
     setWordSaved(false)
     try {
@@ -252,7 +253,7 @@ export function useReaderVocabActions({
     } catch (e) {
       console.warn('Remove word failed:', e)
       vocabMapRef.current[key] = snapshot
-      injectJs(`markVocabWords(${JSON.stringify(vocabMapRef.current)})`)
+      injectJs(vocabPaintJs(vocabMapRef.current))
       bumpVocab()
       setWordSaved(true)
       showToast({ message: 'Could not remove word. Try again.', variant: 'error' })
