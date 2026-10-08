@@ -268,7 +268,6 @@ public static class DependencyInjection
         // SSG Rebuild - interfaces for SOLID compliance
         services.AddScoped<ISsgRouteProvider, SsgRouteProvider>();
         services.AddScoped<ISsgJobService, SsgRebuildService>();
-        services.AddScoped<SsgRebuildService>(); // Keep for backwards compatibility
 
         return services;
     }

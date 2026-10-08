@@ -3,12 +3,17 @@ import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import pg from 'pg'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   assertBuildSurvived,
   carryForwardFailedPages,
+  claimNextJob,
   countRenderedPages,
   createPool,
+  failInterruptedJobs,
+  INTERRUPTED_ERROR,
+  nextJob,
   isProgress,
   jobLimits,
   readResults,
@@ -207,5 +212,114 @@ describe('createPool / reportOncePerOutage', () => {
     outage.recovered()
     outage.report(new Error('db down'))
     expect(reported).toEqual(['Error: db down', 'Error: column missing', 'Error: db down'])
+  })
+})
+
+// The claim and the Running-row sweep before it (ADR-022). The API used to create jobs as Running and the worker
+// picked `status = 'Running'`, so "Running" meant both "ready" and "rendering", and a restart re-ran
+// whatever was mid-render. These pin the statements; the opt-in block below runs them on Postgres.
+describe('claimNextJob / failInterruptedJobs', () => {
+  function fakePool(rows) {
+    const calls = []
+    return {
+      calls,
+      query: async (sql, params) => {
+        calls.push({ sql: sql.replace(/\s+/g, ' ').trim(), params })
+        return { rows }
+      },
+    }
+  }
+
+  it('claimNextJob_QueuedJob_ClaimsOldestQueuedAsRunningWithSkipLocked', async () => {
+    const pool = fakePool([{ id: 'j1', site_code: 'general' }])
+    expect(await claimNextJob(pool)).toEqual({ id: 'j1', site_code: 'general' })
+    expect(pool.calls).toHaveLength(1)
+    const { sql } = pool.calls[0]
+    expect(sql).toMatch(/^WITH claimed AS \( UPDATE ssg_rebuild_jobs SET status = 'Running', started_at = now\(\)/)
+    expect(sql).toContain("WHERE status = 'Queued' ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED")
+  })
+
+  it('claimNextJob_NothingQueued_ReturnsNull', async () => {
+    expect(await claimNextJob(fakePool([]))).toBeNull()
+  })
+
+  it('failInterruptedJobs_RunningRows_FailedWithInterruptedError', async () => {
+    const pool = fakePool([{ id: 'a' }, { id: 'b' }])
+    expect(await failInterruptedJobs(pool)).toEqual(['a', 'b'])
+    const { sql, params } = pool.calls[0]
+    expect(sql).toBe(
+      "UPDATE ssg_rebuild_jobs SET status = 'Failed', error = $1, finished_at = now() WHERE status = 'Running' RETURNING id",
+    )
+    expect(params).toEqual([INTERRUPTED_ERROR])
+    expect(INTERRUPTED_ERROR).toBe('interrupted (not owned by the running ssg-worker)')
+  })
+
+  // The stuck-Running case while the worker stays up: every loop step sweeps before it claims.
+  it('nextJob_EveryIteration_SweepsRunningBeforeClaiming', async () => {
+    const pool = fakePool([])
+    await nextJob(pool)
+    await nextJob(pool)
+    const kinds = pool.calls.map(({ sql }) => (sql.startsWith('UPDATE') ? 'sweep' : 'claim'))
+    expect(kinds).toEqual(['sweep', 'claim', 'sweep', 'claim'])
+  })
+
+  // Real Postgres, when SSG_TEST_DATABASE_URL is set. Everything lives in TEMP tables on a one-connection
+  // pool (a temp table shadows the real one for that session), so no real row is read or written.
+  describe.skipIf(!process.env.SSG_TEST_DATABASE_URL)('on Postgres', () => {
+    const SITE = '00000000-0000-0000-0000-000000000001'
+    const id = (c) => `00000000-0000-0000-0000-00000000000${c}`
+    let pool
+    beforeEach(async () => {
+      pool = new pg.Pool({ connectionString: process.env.SSG_TEST_DATABASE_URL, max: 1 })
+      await pool.query(`
+        CREATE TEMP TABLE sites (id uuid PRIMARY KEY, code text, primary_domain text);
+        CREATE TEMP TABLE ssg_rebuild_jobs (
+          id uuid PRIMARY KEY, site_id uuid, mode varchar(20), status varchar(20), concurrency int,
+          timeout_ms int,
+          error text, created_at timestamptz, started_at timestamptz, finished_at timestamptz);
+        INSERT INTO sites VALUES ('${SITE}', 'general', 'localhost');
+        INSERT INTO ssg_rebuild_jobs (id, site_id, mode, status, concurrency, timeout_ms, created_at) VALUES
+          ('${id('a')}', '${SITE}', 'Full', 'Running', 4, 30000, now() - interval '3 hours'),
+          ('${id('b')}', '${SITE}', 'Full', 'Queued', 2, 30000, now() - interval '2 hours'),
+          ('${id('c')}', '${SITE}', 'Full', 'Queued', 4, 30000, now() - interval '1 hour'),
+          ('${id('d')}', '${SITE}', 'Full', 'Completed', 4, 30000, now() - interval '4 hours');
+      `)
+    })
+    afterEach(async () => pool.end())
+
+    const statuses = async () =>
+      Object.fromEntries(
+        (await pool.query('SELECT id, status FROM ssg_rebuild_jobs ORDER BY id')).rows.map((r) => [r.id.slice(-1), r.status]),
+      )
+
+    // A loop iteration while the worker stays up: a Running row nobody renders (DB dropped mid-job,
+    // lost claim reply) is failed, then the Queued job behind it is claimed.
+    it('nextJob_PlantedRunningRow_FailedThenQueuedClaimed', async () => {
+      const { interrupted, job } = await nextJob(pool)
+      expect(interrupted).toEqual([id('a')])
+      expect(job.id).toBe(id('b'))
+      expect(await statuses()).toEqual({ a: 'Failed', b: 'Running', c: 'Queued', d: 'Completed' })
+      // Next iteration: b was this worker's job and is still Running only if its outcome was never
+      // written; between jobs that means dead, so it is failed and c is claimed.
+      const second = await nextJob(pool)
+      expect(second.interrupted).toEqual([id('b')])
+      expect(second.job.id).toBe(id('c'))
+    })
+
+    it('startupThenClaim_RealSql_FailsRunningThenClaimsQueuedOldestFirst', async () => {
+      expect(await failInterruptedJobs(pool)).toEqual([id('a')])
+      const { rows } = await pool.query(`SELECT error, finished_at FROM ssg_rebuild_jobs WHERE id = '${id('a')}'`)
+      expect(rows[0].error).toBe(INTERRUPTED_ERROR)
+      expect(rows[0].finished_at).not.toBeNull()
+
+      expect(await claimNextJob(pool)).toMatchObject({
+        id: id('b'), mode: 'Full', concurrency: 2, site_code: 'general', primary_domain: 'localhost',
+      })
+      expect(await statuses()).toEqual({ a: 'Failed', b: 'Running', c: 'Queued', d: 'Completed' })
+
+      expect((await claimNextJob(pool)).id).toBe(id('c'))
+      expect(await claimNextJob(pool)).toBeNull()
+      expect(await statuses()).toEqual({ a: 'Failed', b: 'Running', c: 'Running', d: 'Completed' })
+    })
   })
 })

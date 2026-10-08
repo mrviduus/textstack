@@ -4,11 +4,7 @@ namespace Contracts.Admin;
 
 public record CreateSsgRebuildJobRequest(
     Guid SiteId,
-    string Mode = "Full",
-    int? Concurrency = null,
-    string[]? BookSlugs = null,
-    string[]? AuthorSlugs = null,
-    string[]? GenreSlugs = null
+    int? Concurrency = null
 );
 
 // --- Job DTOs ---
@@ -40,9 +36,6 @@ public record SsgRebuildJobDetailDto(
     int Concurrency,
     int TimeoutMs,
     string? Error,
-    string[]? BookSlugs,
-    string[]? AuthorSlugs,
-    string[]? GenreSlugs,
     DateTimeOffset CreatedAt,
     DateTimeOffset? StartedAt,
     DateTimeOffset? FinishedAt

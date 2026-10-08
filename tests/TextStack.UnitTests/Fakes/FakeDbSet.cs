@@ -6,10 +6,10 @@ namespace TextStack.UnitTests.Fakes;
 
 /// <summary>
 /// In-memory <see cref="DbSet{T}"/> backed by a <see cref="List{T}"/> with working async LINQ
-/// (via <see cref="TestAsyncEnumerable{T}"/>). Supports the operations DriftDetectionWorker uses:
+/// (via <see cref="TestAsyncEnumerable{T}"/>). Supports:
 /// <c>Where</c>/<c>OrderBy</c>/<c>Select</c>/<c>Take</c> + <c>AnyAsync</c>/<c>FirstOrDefaultAsync</c>/<c>ToListAsync</c>
-/// and <c>Add</c>/<c>Remove</c>/<c>RemoveRange</c>. No change-tracking — <c>Add</c> just appends to the backing list (the worker
-/// reads back via the same list after SaveChanges).
+/// and <c>Add</c>/<c>Remove</c>/<c>RemoveRange</c>. No change-tracking — <c>Add</c> just appends to the backing list (callers
+/// read back via the same list after SaveChanges).
 /// </summary>
 internal sealed class FakeDbSet<T>(List<T> store) : DbSet<T>, IQueryable<T>, IAsyncEnumerable<T>
     where T : class

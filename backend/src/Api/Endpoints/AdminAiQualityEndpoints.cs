@@ -11,7 +11,7 @@ namespace Api.Endpoints;
 ///
 ///   - AdminAiQualityEndpoints.Summary.cs      GetSummary + raw-SQL row types
 ///   - AdminAiQualityEndpoints.Traces.cs       GetTraces, GetTrace, GetAgentRuns, GetAgentRun
-///   - AdminAiQualityEndpoints.Evals.cs        RunEvals, GetEvalStatus, GetEvals, GetEvalTrend, GetDrift
+///   - AdminAiQualityEndpoints.Evals.cs        RunEvals, GetEvalStatus, GetEvals, GetEvalTrend
 ///   - AdminAiQualityEndpoints.EvalRunners.cs  per-agent/crew eval trigger endpoints
 ///   - AdminAiQualityEndpoints.Shadow.cs       GetShadowSummary, ToPairDto, GetShadowSamples
 ///   - AdminAiQualityEndpoints.Models.cs       GetModels, PromoteModel, RollbackModel
@@ -31,7 +31,6 @@ public static partial class AdminAiQualityEndpoints
         group.MapGet("/agent-runs/{id:guid}", GetAgentRun);
         group.MapGet("/evals", GetEvals);
         group.MapGet("/drift/eval-trend", GetEvalTrend);
-        group.MapGet("/drift", GetDrift);
         group.MapPost("/evals/run", RunEvals);
         group.MapGet("/evals/status", GetEvalStatus);
         group.MapPost("/evals/toolcalls/run", RunToolCallEval);

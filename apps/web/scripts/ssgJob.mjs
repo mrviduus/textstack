@@ -44,6 +44,64 @@ export function reportOncePerOutage(report) {
   };
 }
 
+/** What a Running row nobody is rendering is closed with. */
+export const INTERRUPTED_ERROR = 'interrupted (not owned by the running ssg-worker)';
+
+/**
+ * Recovery (ADR-022), run before every claim. ssg-worker is the queue's only consumer and runs one job
+ * at a time, so between jobs nothing of ours is Running: any such row is dead. It was left by a
+ * previous worker (crash, restart mid-render), by this one when the database dropped mid-job and both
+ * status writes failed, or by a claim whose UPDATE committed but whose reply was lost. Without this,
+ * one such row stays Running for good and every later enqueue is skipped as a duplicate. Failed, not
+ * re-queued: a job that kills the worker would otherwise kill it again. Returns the ids it closed.
+ */
+export async function failInterruptedJobs(pool) {
+  const { rows } = await pool.query(
+    `UPDATE ssg_rebuild_jobs
+        SET status = 'Failed', error = $1, finished_at = now()
+      WHERE status = 'Running'
+      RETURNING id`,
+    [INTERRUPTED_ERROR],
+  );
+  return rows.map((r) => r.id);
+}
+
+/**
+ * Claims the oldest Queued job (ADR-022): Queued -> Running in one statement, so the API's enqueue is a
+ * single insert and "Running" only ever means "ssg-worker is rendering it". SKIP LOCKED keeps a
+ * concurrent claimer (there should be none) off the same row. Null when nothing is queued.
+ */
+export async function claimNextJob(pool) {
+  const { rows } = await pool.query(`
+    WITH claimed AS (
+      UPDATE ssg_rebuild_jobs
+         SET status = 'Running', started_at = now()
+       WHERE id = (
+         SELECT id FROM ssg_rebuild_jobs
+          WHERE status = 'Queued'
+          ORDER BY created_at
+          LIMIT 1
+          FOR UPDATE SKIP LOCKED
+       )
+      RETURNING id, site_id, mode, concurrency, timeout_ms
+    )
+    SELECT c.*, s.code AS site_code, s.primary_domain
+      FROM claimed c
+      JOIN sites s ON c.site_id = s.id
+  `);
+  return rows[0] || null;
+}
+
+/**
+ * One main-loop step: fail dead Running rows, then claim the oldest Queued job. Both before the job
+ * starts, so the sweep can never hit the job this iteration is about to render.
+ */
+export async function nextJob(pool) {
+  const interrupted = await failInterruptedJobs(pool);
+  const job = await claimNextJob(pool);
+  return { interrupted, job };
+}
+
 const MINUTE = 60_000;
 
 /** A positive number of ms from the environment, else `fallback` (setTimeout reads NaN as 1 ms). */

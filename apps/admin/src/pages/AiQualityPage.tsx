@@ -19,12 +19,10 @@ import {
   ShadowSample,
   ModelRegistration,
   ModelPromotionResult,
-  DriftPoint,
-  DriftAlertState,
   ScheduledEvalPoint,
 } from '../api/client'
 
-type Tab = 'summary' | 'traces' | 'transcripts' | 'evals' | 'shadow' | 'models' | 'drift'
+type Tab = 'summary' | 'traces' | 'transcripts' | 'evals' | 'shadow' | 'models'
 
 const KNOWN_FEATURES = ['explain', 'translate', 'distractor', 'bookmeta', 'tagsuggestion', 'eval.judge']
 
@@ -34,7 +32,7 @@ export function AiQualityPage() {
     <div className="dashboard-page">
       <h1>AI Quality</h1>
       <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid #e5e7eb', margin: '12px 0 16px' }}>
-        {(['summary', 'traces', 'transcripts', 'evals', 'shadow', 'models', 'drift'] as Tab[]).map((t) => (
+        {(['summary', 'traces', 'transcripts', 'evals', 'shadow', 'models'] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -59,7 +57,6 @@ export function AiQualityPage() {
       {tab === 'evals' && <EvalsTab />}
       {tab === 'shadow' && <ShadowTab />}
       {tab === 'models' && <ModelsTab />}
-      {tab === 'drift' && <DriftTab />}
     </div>
   )
 }
@@ -1137,6 +1134,8 @@ function EvalsTab() {
           ))}
         </div>
       )}
+
+      <ScheduledEvalTrend feature="" />
     </>
   )
 }
@@ -1555,206 +1554,9 @@ function ModelConfirmDialog({
   )
 }
 
-// ─────────────────────────── Drift ───────────────────────────
+// ─────────────────────────── Scheduled eval trend (Evals tab) ───────────────────────────
 
-const DRIFT_THRESHOLD = 0.15
-
-function driftStateColor(state: DriftAlertState): string {
-  if (state === 'alerting') return '#dc2626' // red
-  if (state === 'warning') return '#d97706' // amber
-  if (state === 'ok') return '#059669' // green
-  return '#9ca3af' // baseline / insufficient — grey/muted
-}
-
-function DriftBadge({ state }: { state: DriftAlertState }) {
-  const color = driftStateColor(state)
-  const muted = state === 'baseline' || state === 'insufficient'
-  return (
-    <span
-      style={{
-        fontSize: 11,
-        fontWeight: 600,
-        textTransform: 'uppercase',
-        color: muted ? '#6b7280' : '#fff',
-        background: muted ? '#f3f4f6' : color,
-        border: muted ? '1px solid #e5e7eb' : 'none',
-        borderRadius: 4,
-        padding: '2px 8px',
-      }}
-    >
-      {state}
-    </span>
-  )
-}
-
-// Inline drift-over-time line, daily driftScore vs the 0.15 alert threshold.
-function DriftChart({ points }: { points: DriftPoint[] }) {
-  const w = 640
-  const h = 120
-  const padX = 8
-  const padY = 8
-  const scored = points.filter((p) => p.driftScore != null)
-  if (scored.length < 2) {
-    return (
-      <p style={{ fontSize: 12, color: '#9ca3af', margin: '8px 0 16px' }}>
-        Not enough scored days to chart yet (need ≥ 2). See the table below.
-      </p>
-    )
-  }
-  const vals = scored.map((p) => p.driftScore as number)
-  const maxVal = Math.max(...vals, DRIFT_THRESHOLD * 1.2)
-  const minVal = 0
-  const range = maxVal - minVal || 1
-  const step = points.length > 1 ? (w - padX * 2) / (points.length - 1) : 0
-  const y = (v: number) => h - padY - ((v - minVal) / range) * (h - padY * 2)
-  const x = (i: number) => padX + i * step
-  const thresholdY = y(DRIFT_THRESHOLD)
-
-  // Build the polyline only over days that have a score (skip nulls in coords).
-  const coords = points
-    .map((p, i) => (p.driftScore == null ? null : `${x(i).toFixed(1)},${y(p.driftScore).toFixed(1)}`))
-    .filter((c): c is string => c != null)
-    .join(' ')
-
-  return (
-    <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ margin: '8px 0 16px' }}>
-      {/* threshold line at 0.15 — the alert line, bold red dashed */}
-      <line x1={padX} y1={thresholdY} x2={w - padX} y2={thresholdY} stroke="#dc2626" strokeWidth="1.5" strokeDasharray="5 4" />
-      <polyline points={coords} fill="none" stroke="#2563eb" strokeWidth="2" />
-      {points.map((p, i) =>
-        p.driftScore == null ? null : (
-          <circle
-            key={p.day}
-            cx={x(i)}
-            cy={y(p.driftScore)}
-            r={p.alertState === 'alerting' ? 4 : 3}
-            fill={driftStateColor(p.alertState)}
-          >
-            <title>{`${p.day}: ${p.driftScore.toFixed(3)} (${p.alertState}, n=${p.sampleSize})`}</title>
-          </circle>
-        ),
-      )}
-    </svg>
-  )
-}
-
-function DriftTab() {
-  const [points, setPoints] = useState<DriftPoint[]>([])
-  const [feature, setFeature] = useState('')
-  const [days, setDays] = useState(30)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    setLoading(true)
-    adminApi
-      .getDrift({ feature: feature || undefined, days })
-      .then((d) => {
-        setPoints(d)
-        setError(null)
-      })
-      .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load'))
-      .finally(() => setLoading(false))
-  }, [feature, days])
-
-  // Feature options: union of KNOWN_FEATURES and any features in the response.
-  const featureOptions = [...new Set([...KNOWN_FEATURES, ...points.map((p) => p.feature)])].sort()
-  const alertingDays = points.filter((p) => p.alertState === 'alerting').length
-
-  return (
-    <>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <select value={feature} onChange={(e) => setFeature(e.target.value)} style={input}>
-            <option value="">All features</option>
-            {featureOptions.map((f) => (
-              <option key={f} value={f}>
-                {f}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div style={{ display: 'flex', gap: 4 }}>
-          {RANGES.map((r) => (
-            <button key={r.days} onClick={() => setDays(r.days)} style={rangeBtn(days === r.days)}>
-              {r.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <p className="dashboard-page__subtitle" style={{ margin: '12px 0 0' }}>
-        Daily output-drift score per feature vs a 0.15 alert threshold. Higher = more divergence from the rolling baseline.
-      </p>
-
-      {error && <Banner text={error} />}
-
-      {loading ? (
-        <p className="dashboard-page__subtitle" style={{ marginTop: 12 }}>Loading…</p>
-      ) : points.length === 0 ? (
-        <p className="dashboard-empty" style={{ marginTop: 24 }}>
-          Drift detection is OFF by default — enable Drift:Enabled to start sampling.
-        </p>
-      ) : (
-        <>
-          {alertingDays > 0 && (
-            <div
-              style={{
-                background: '#fef2f2',
-                color: '#b91c1c',
-                padding: '8px 12px',
-                borderRadius: 8,
-                margin: '12px 0',
-                fontSize: 13,
-                fontWeight: 600,
-              }}
-            >
-              ⚠ {alertingDays} day{alertingDays === 1 ? '' : 's'} over the 0.15 drift threshold.
-            </div>
-          )}
-          <DriftChart points={points} />
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-            <thead>
-              <tr style={{ textAlign: 'left', color: '#6b7280', borderBottom: '1px solid #e5e7eb' }}>
-                <th style={th}>Day</th>
-                {feature === '' && <th style={th}>Feature</th>}
-                <th style={th}>Drift score</th>
-                <th style={th}>Sample size</th>
-                <th style={th}>State</th>
-              </tr>
-            </thead>
-            <tbody>
-              {points.map((p) => {
-                const over = p.driftScore != null && p.driftScore >= DRIFT_THRESHOLD
-                return (
-                  <tr
-                    key={`${p.feature}|${p.day}`}
-                    style={{ borderBottom: '1px solid #f3f4f6', background: p.alertState === 'alerting' ? '#fef2f2' : undefined }}
-                  >
-                    <td style={td}>{p.day}</td>
-                    {feature === '' && <td style={td}>{p.feature}</td>}
-                    <td style={{ ...td, fontWeight: 600, color: over ? '#dc2626' : '#111827' }}>
-                      {p.driftScore != null ? p.driftScore.toFixed(3) : '—'}
-                      {over && <span> ▲</span>}
-                    </td>
-                    <td style={td}>{p.sampleSize}</td>
-                    <td style={td}>
-                      <DriftBadge state={p.alertState} />
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </>
-      )}
-
-      <DriftEvalTrend feature={feature} />
-    </>
-  )
-}
-
-function DriftEvalTrend({ feature }: { feature: string }) {
+function ScheduledEvalTrend({ feature }: { feature: string }) {
   const [points, setPoints] = useState<ScheduledEvalPoint[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -1775,7 +1577,7 @@ function DriftEvalTrend({ feature }: { feature: string }) {
     <div style={{ marginTop: 32 }}>
       <h2 style={{ margin: '0 0 4px', fontSize: 16 }}>Scheduled eval trend</h2>
       <p className="dashboard-page__subtitle" style={{ margin: '0 0 12px' }}>
-        Latest scheduled eval scores (1–5) over time — the quality signal drift is meant to catch early.
+        Latest scheduled eval scores (1–5) over time.
       </p>
 
       {error && <Banner text={error} />}

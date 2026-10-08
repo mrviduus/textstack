@@ -109,7 +109,7 @@ public static partial class AdminAiQualityEndpoints
         return Results.Ok(runs);
     }
 
-    // Phase 12 RLOps slice 5a: scheduled-only eval trend for the Drift tab (slice 5b UI).
+    // Phase 12 RLOps slice 5a: scheduled-only eval trend (Evals tab; the route keeps its /drift/ path).
     // Last N RunType='scheduled' rows (optionally per feature), newest-first.
     private static async Task<IResult> GetEvalTrend(
         AppDbContext db,
@@ -133,32 +133,5 @@ public static partial class AdminAiQualityEndpoints
             .ToListAsync(ct);
 
         return Results.Ok((IReadOnlyList<ScheduledEvalPointDto>)points);
-    }
-
-    // Phase 12 RLOps slice 5b: per-day input-drift series for the Drift tab. drift_centroids rows
-    // (optional feature filter), Day >= today-days, oldest-first for charting. Never returns the
-    // raw centroid vectors. Admin-auth inherited from the /admin/* middleware.
-    private static async Task<IResult> GetDrift(
-        AppDbContext db,
-        [FromQuery] string? feature,
-        [FromQuery] int days = 30,
-        CancellationToken ct = default)
-    {
-        days = Math.Clamp(days, 1, 365);
-        var since = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-days);
-
-        var query = db.DriftCentroids.Where(d => d.Day >= since);
-        if (!string.IsNullOrWhiteSpace(feature))
-        {
-            var feat = feature.Trim();
-            query = query.Where(d => d.Feature == feat);
-        }
-
-        var points = await query
-            .OrderBy(d => d.Day)
-            .Select(d => new DriftPointDto(d.Feature, d.Day, d.DriftScore, d.SampleSize, d.AlertState))
-            .ToListAsync(ct);
-
-        return Results.Ok((IReadOnlyList<DriftPointDto>)points);
     }
 }

@@ -8,9 +8,9 @@ SPA. Checked against code 2026-10-07.
 ## How it works
 
 ```
-admin "Rebuild" / publish / periodic timer
-   → row in ssg_rebuild_jobs (mode Full | Incremental | Specific)
-   → ssg-worker container (apps/web/scripts/ssg-worker.mjs) polls every 5 s
+nightly backup.yml / make rebuild-ssg / admin "New Rebuild"
+   → Queued row in ssg_rebuild_jobs (mode Full, the only mode since 2026-10-08)
+   → ssg-worker container (apps/web/scripts/ssg-worker.mjs) claims it every 5 s (SKIP LOCKED → Running)
    → empties dist/ssg-new, runs scripts/prerender.mjs: GET /ssg/routes → Puppeteer renders → dist/ssg-new
    → survival check, failed routes keep their live page, then
    → atomic swap dist/ssg-new → dist/ssg, then IndexNow ping (if enabled)
@@ -36,14 +36,16 @@ route that fails and then renders noindex on retry is skipped the same way.
 
 A refused or `Failed` job leaves `dist/ssg` untouched and reports to Sentry (`service:ssg-worker`).
 
-Who enqueues jobs: admin SSG page (`/admin/ssg/*` API), `PublishEditionAsync() → EnqueueSsgSafe()`
-(auto-publish), `SsgPeriodicRebuildWorker` in the API (interval set in admin), the nightly
+Who enqueues jobs (always one `Queued` insert; ssg-worker claims it, ADR-022/023): the admin SSG page
+(`/admin/ssg/*` API), the nightly
 `backup.yml` and a manual deploy with `rebuild_ssg` (both `POST /internal/ssg/rebuild-all`), and
 `make rebuild-ssg` on the server (`infra/scripts/rebuild-ssg.sh`: the same POST, then follows the job
 and exits 0 only on `Completed`). Every rebuild is a job, so every one gets the checks above — and none
 runs while ssg-worker is down: the script exits 1 if the worker has not started the job in 5 min, or
-if its counts have not moved in 30 min. If a Full rebuild is already queued or running, it waits for
-that one and then queues its own, so the result includes changes made just before the call.
+if its counts have not moved in 30 min. If a Full rebuild is already `Queued` or `Running`, the API
+skips. The script follows a Queued one (it has not read its routes yet), or waits out a Running one
+and asks again, so the result includes changes made before the call. Nothing else enqueues: no edit,
+publish or import queues a rebuild (ADR-023).
 
 ## nginx split (`infra/nginx/textstack.conf`)
 
@@ -99,12 +101,11 @@ apps/web/dist/ssg/en/{index.html, books/<slug>/index.html, authors/<slug>/…, g
 | `apps/web/scripts/ssg-worker.mjs` | Long-running poller, atomic swap, IndexNow |
 | `apps/web/scripts/prerender.mjs` | Puppeteer renderer (CLI) |
 | `apps/web/scripts/ssgRender.mjs` | Static server + API proxy, `renderRoute` (what counts as rendered) |
-| `apps/web/scripts/ssgJob.mjs` | Survival floor, carry-forward, job deadline, DB pool |
+| `apps/web/scripts/ssgJob.mjs` | Claim + Running-row sweep before each claim, survival floor, carry-forward, job deadline, DB pool |
 | `infra/scripts/rebuild-ssg.sh` | `make rebuild-ssg`: queue a Full job, follow it |
 | `apps/web/Dockerfile.ssg-worker` | Image with Chromium |
 | `backend/src/Api/Endpoints/SsgEndpoints.cs` | `/ssg/routes`, `/ssg/books`, `/ssg/authors`, `/ssg/genres` |
-| `backend/src/Api/Endpoints/AdminSsgRebuildEndpoints.cs` | Admin queue + settings |
-| `backend/src/Api/Services/SsgPeriodicRebuildWorker.cs` | Periodic rebuild |
+| `backend/src/Api/Endpoints/AdminSsgRebuildEndpoints.cs` | Admin queue |
 | `infra/nginx/textstack.conf` | Bot/human split |
 
 ## When to rebuild

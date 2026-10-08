@@ -1,42 +1,21 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { adminApi, SsgRebuildJobListItem, SsgRebuildJobStatus, SsgRebuildMode, SsgRebuildPreview, SsgPeriodicSettings, DEFAULT_SITE_ID } from '../api/client'
+import { adminApi, SsgRebuildJobListItem, SsgRebuildJobStatus, SsgRebuildMode, SsgRebuildPreview, DEFAULT_SITE_ID } from '../api/client'
 
 export function SsgRebuildPage() {
   const [jobs, setJobs] = useState<SsgRebuildJobListItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // Settings
-  const [settings, setSettings] = useState<SsgPeriodicSettings>({ enabled: true, intervalHours: 24 })
-  const [settingsSaving, setSettingsSaving] = useState(false)
-
   // Filters
   const [statusFilter, setStatusFilter] = useState<SsgRebuildJobStatus | ''>('')
 
   // Create form
   const [showCreate, setShowCreate] = useState(false)
-  const [createMode, setCreateMode] = useState<SsgRebuildMode>('Full')
   const [createConcurrency, setCreateConcurrency] = useState(4)
   const [preview, setPreview] = useState<SsgRebuildPreview | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [creating, setCreating] = useState(false)
-
-  // Fetch settings on mount only
-  useEffect(() => {
-    adminApi.getSsgSettings().then(setSettings).catch(() => {})
-  }, [])
-
-  const handleSaveSettings = async () => {
-    setSettingsSaving(true)
-    try {
-      await adminApi.updateSsgSettings(settings)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save settings')
-    } finally {
-      setSettingsSaving(false)
-    }
-  }
 
   const fetchData = async () => {
     try {
@@ -60,7 +39,7 @@ export function SsgRebuildPage() {
     return () => clearInterval(interval)
   }, [statusFilter])
 
-  // Load preview when create form opens or mode changes
+  // Load preview when create form opens
   useEffect(() => {
     if (!showCreate) {
       setPreview(null)
@@ -70,7 +49,7 @@ export function SsgRebuildPage() {
     const loadPreview = async () => {
       setPreviewLoading(true)
       try {
-        const data = await adminApi.getSsgRebuildPreview(DEFAULT_SITE_ID, createMode)
+        const data = await adminApi.getSsgRebuildPreview(DEFAULT_SITE_ID)
         setPreview(data)
       } catch (err) {
         setPreview(null)
@@ -79,7 +58,7 @@ export function SsgRebuildPage() {
       }
     }
     loadPreview()
-  }, [showCreate, createMode])
+  }, [showCreate])
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -88,7 +67,6 @@ export function SsgRebuildPage() {
     try {
       await adminApi.createSsgRebuildJob({
         siteId: DEFAULT_SITE_ID,
-        mode: createMode,
         concurrency: createConcurrency,
       })
       setShowCreate(false)
@@ -98,15 +76,6 @@ export function SsgRebuildPage() {
       setError(err instanceof Error ? err.message : 'Failed to create job')
     } finally {
       setCreating(false)
-    }
-  }
-
-  const handleStart = async (id: string) => {
-    try {
-      await adminApi.startSsgRebuildJob(id)
-      fetchData()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to start')
     }
   }
 
@@ -133,8 +102,6 @@ export function SsgRebuildPage() {
   const getModeBadge = (mode: SsgRebuildMode) => {
     const classes: Record<SsgRebuildMode, string> = {
       Full: 'badge badge--info',
-      Incremental: 'badge badge--warning',
-      Specific: 'badge badge--secondary',
     }
     return <span className={classes[mode] || 'badge'}>{mode}</span>
   }
@@ -169,54 +136,12 @@ export function SsgRebuildPage() {
 
       {error && <div className="error-banner">{error}</div>}
 
-      <div className="create-form" style={{ marginBottom: '1.5rem' }}>
-        <h3>Periodic Rebuild Settings</h3>
-        <div className="form-row" style={{ display: 'flex', gap: '2rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <input
-              type="checkbox"
-              checked={settings.enabled}
-              onChange={e => setSettings({ ...settings, enabled: e.target.checked })}
-            />
-            Enabled
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            Interval (hours)
-            <input
-              type="number"
-              value={settings.intervalHours}
-              onChange={e => setSettings({ ...settings, intervalHours: Number(e.target.value) })}
-              min={1}
-              max={168}
-              style={{ width: '80px' }}
-            />
-          </label>
-          <button onClick={handleSaveSettings} className="btn btn--primary" disabled={settingsSaving}>
-            {settingsSaving ? 'Saving...' : 'Save'}
-          </button>
-        </div>
-      </div>
-
       {showCreate && (
         <form onSubmit={handleCreate} className="create-form">
           <h3>Create New SSG Rebuild Job</h3>
           <p className="form-description">
-            Pre-render pages to static HTML for faster SEO indexing.
+            Pre-render every page to static HTML (a Full rebuild; the only mode).
           </p>
-
-          <div className="form-row">
-            <label>
-              Mode
-              <select
-                value={createMode}
-                onChange={e => setCreateMode(e.target.value as SsgRebuildMode)}
-              >
-                <option value="Full">Full - All pages</option>
-                <option value="Incremental">Incremental - New/changed only</option>
-                <option value="Specific">Specific - Selected items</option>
-              </select>
-            </label>
-          </div>
 
           <div className="form-row">
             <label>
@@ -301,10 +226,7 @@ export function SsgRebuildPage() {
                 <td>{formatDate(job.createdAt)}</td>
                 <td className="actions-cell">
                   <Link to={`/ssg-rebuild/${job.id}`} className="btn btn--small">View</Link>
-                  {job.status === 'Queued' && (
-                    <button onClick={() => handleStart(job.id)} className="btn btn--small btn--primary">Start</button>
-                  )}
-                  {job.status === 'Running' && (
+                  {(job.status === 'Queued' || job.status === 'Running') && (
                     <button onClick={() => handleCancel(job.id)} className="btn btn--small btn--danger">Cancel</button>
                   )}
                 </td>

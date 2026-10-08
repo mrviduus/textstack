@@ -1,7 +1,6 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 using Application.Common.Interfaces;
-using Application.SsgRebuild;
 using Contracts.Admin;
 using Contracts.Common;
 using Domain.Entities;
@@ -97,32 +96,12 @@ public record ChapterPreviewDto(int ChapterNumber, string Title, string Preview,
 ///   - AdminService.UserUploads.cs  GetUserUploads, GetUserUploadStats, DeleteUserUpload, TakedownUserUpload
 ///
 /// This file keeps the primary constructor (DI injection), file-level
-/// constants, the shared EnqueueSsgSafe helper, and the file-scope DTOs
+/// constants, and the file-scope DTOs
 /// above. Splits use C# `partial` — compile-identical to the original
 /// monolithic file.
 /// </summary>
-public partial class AdminService(IAppDbContext db, IFileStorageService storage, SsgRebuildService ssgRebuildService, UserBookService userBookService)
+public partial class AdminService(IAppDbContext db, IFileStorageService storage, UserBookService userBookService)
 {
     private static readonly string[] AllowedExtensions = [".epub", ".pdf"];
     private const long MaxFileSize = 100 * 1024 * 1024;
-
-    private async Task EnqueueSsgSafe(Guid siteId, string[]? bookSlugs = null, string[]? authorSlugs = null, string[]? genreSlugs = null)
-    {
-        try
-        {
-            var isSpecific = bookSlugs != null || authorSlugs != null || genreSlugs != null;
-            await ssgRebuildService.EnqueueSsgRebuildAsync(new CreateSsgRebuildJobRequest(
-                SiteId: siteId,
-                Mode: isSpecific ? "Specific" : "Full",
-                Concurrency: 2,
-                BookSlugs: bookSlugs,
-                AuthorSlugs: authorSlugs,
-                GenreSlugs: genreSlugs
-            ), CancellationToken.None);
-        }
-        catch
-        {
-            // SSG failure should never block admin operations
-        }
-    }
 }

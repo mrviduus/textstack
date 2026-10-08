@@ -224,12 +224,12 @@ jobs:
       # ssg-worker (its image tag changes every deploy), and the fallback frontend build empties
       # apps/web/dist, which ssg-worker writes into (dist/ssg-new); a rebuild caught in that
       # window fails by design (assertBuildSurvived — the 2026-08-31 guard) and leaves
-      # ssg-worker unhealthy. Rebuilds come from the nightly backup, publishing, the admin
-      # button and the periodic safety net, so any of them can be mid-run when a merge lands.
+      # ssg-worker unhealthy. Rebuilds come from the nightly backup, the admin button and make rebuild-ssg,
+      # so any of them can be mid-run when a merge lands.
       # Waits up to 40 min (a full rebuild is ~25), then proceeds with a warning: a wedged
       # job must not block deploys forever, and the guard still protects the live tree.
-      # Only jobs touched in the last hour count — nothing recovers a job left 'Running' by a
-      # crash, and one such row would otherwise cost every deploy the full 40 minutes.
+      # Only jobs touched in the last hour count: ssg-worker fails a job left 'Running' only when it
+      # next starts (ADR-022), and one such row would otherwise cost every deploy the full 40 minutes.
       - name: Wait for any running SSG rebuild
         run: |
           DEADLINE=$(( $(date +%s) + 2400 ))
@@ -610,9 +610,9 @@ jobs:
 
       # A full rebuild is ~25 min of Puppeteer on the prod box and held the only runner for it.
       # Not needed per deploy: the snapshot step above keeps the old SSG tree AND the assets it
-      # references, so crawlers keep complete pages; publishing a book rebuilds that book. The
-      # full rebuild runs nightly after the backup (backup.yml). Tick `rebuild_ssg` on a manual
-      # run when a release changes how SEO pages render.
+      # references, so crawlers keep complete pages. Nothing rebuilds per edit (ADR-023): a published
+      # book reaches crawlers after the nightly Full rebuild (backup.yml), or after `make rebuild-ssg`
+      # / the admin button. Tick `rebuild_ssg` on a manual run when a release changes how SEO pages render.
       - name: Queue SSG rebuild
         if: inputs.rebuild_ssg
         run: |

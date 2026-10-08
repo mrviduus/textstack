@@ -1,4 +1,3 @@
-using Application.AdminSettings;
 using Application.SsgRebuild;
 using Contracts.Admin;
 using Microsoft.AspNetCore.Mvc;
@@ -11,10 +10,6 @@ public static class AdminSsgRebuildEndpoints
     {
         var group = app.MapGroup("/admin/ssg").WithTags("SSG Rebuild");
 
-        // Settings
-        group.MapGet("/settings", GetSettings);
-        group.MapPut("/settings", UpdateSettings);
-
         // Preview
         group.MapGet("/preview", GetPreview)
             .WithName("GetSsgRebuildPreview")
@@ -23,7 +18,7 @@ public static class AdminSsgRebuildEndpoints
         // Jobs
         group.MapPost("/jobs", CreateJob)
             .WithName("CreateSsgRebuildJob")
-            .WithDescription("Create a new SSG rebuild job");
+            .WithDescription("Create a Queued SSG rebuild job; ssg-worker claims it");
 
         group.MapGet("/jobs", GetJobs)
             .WithName("GetSsgRebuildJobs")
@@ -32,10 +27,6 @@ public static class AdminSsgRebuildEndpoints
         group.MapGet("/jobs/{id:guid}", GetJob)
             .WithName("GetSsgRebuildJob")
             .WithDescription("Get SSG rebuild job details");
-
-        group.MapPost("/jobs/{id:guid}/start", StartJob)
-            .WithName("StartSsgRebuildJob")
-            .WithDescription("Start a queued SSG rebuild job");
 
         group.MapPost("/jobs/{id:guid}/cancel", CancelJob)
             .WithName("CancelSsgRebuildJob")
@@ -53,20 +44,10 @@ public static class AdminSsgRebuildEndpoints
 
     private static async Task<IResult> GetPreview(
         [FromQuery] Guid siteId,
-        [FromQuery] string mode = "Full",
-        [FromQuery] string? bookSlugs = null,
-        [FromQuery] string? authorSlugs = null,
-        [FromQuery] string? genreSlugs = null,
         ISsgJobService service = null!,
         CancellationToken ct = default)
     {
-        var preview = await service.GetPreviewAsync(
-            siteId,
-            mode,
-            ParseSlugs(bookSlugs),
-            ParseSlugs(authorSlugs),
-            ParseSlugs(genreSlugs),
-            ct);
+        var preview = await service.GetPreviewAsync(siteId, ct);
 
         return Results.Ok(preview);
     }
@@ -108,15 +89,6 @@ public static class AdminSsgRebuildEndpoints
         return job == null ? Results.NotFound() : Results.Ok(job);
     }
 
-    private static async Task<IResult> StartJob(
-        Guid id,
-        ISsgJobService service,
-        CancellationToken ct)
-    {
-        var started = await service.StartJobAsync(id, ct);
-        return started ? Results.Ok() : Results.BadRequest(new { error = "Job not found or not in Queued status" });
-    }
-
     private static async Task<IResult> CancelJob(
         Guid id,
         ISsgJobService service,
@@ -148,32 +120,4 @@ public static class AdminSsgRebuildEndpoints
         var (total, items) = await service.GetResultsAsync(id, filter, ct);
         return Results.Ok(new { total, items });
     }
-
-    private static async Task<IResult> GetSettings(AdminSettingsService settings, CancellationToken ct)
-    {
-        return Results.Ok(new
-        {
-            enabled = await settings.GetBoolAsync("ssg.periodicRebuildEnabled", true, ct),
-            intervalHours = await settings.GetIntAsync("ssg.periodicRebuildIntervalHours", 24, ct)
-        });
-    }
-
-    private static async Task<IResult> UpdateSettings(
-        [FromBody] SsgPeriodicSettingsDto request,
-        AdminSettingsService settings,
-        CancellationToken ct)
-    {
-        await settings.SetAsync("ssg.periodicRebuildEnabled", request.Enabled.ToString().ToLower(), ct);
-        await settings.SetAsync("ssg.periodicRebuildIntervalHours", Math.Clamp(request.IntervalHours, 1, 168).ToString(), ct);
-        return Results.Ok();
-    }
-
-    private static string[]? ParseSlugs(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-            return null;
-        return value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-    }
 }
-
-public record SsgPeriodicSettingsDto(bool Enabled, int IntervalHours);

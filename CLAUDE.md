@@ -271,7 +271,7 @@ What replaced it: the app hands back **the file the reader uploaded**, from the 
 - `seo-generate.sh` calls Claude CLI (`claude-sonnet-4-6`) to generate SEO fields (description, relevance, themes, FAQs)
 - Publishes via `POST /internal/editions/{id}/publish` (Docker network only)
 - Settings: books/day, hour UTC, require review, language filter, priority queue
-- Auto-triggers Specific SSG rebuild per published book via `PublishEditionAsync() → EnqueueSsgSafe()`
+- Publishing queues no SSG rebuild (ADR-023): the book reaches crawlers at the nightly Full rebuild
 
 **SEO Backfill**: Template-driven SEO field generation for Authors, Editions, Genres.
 - Admin page at `/seo-backfill` — Coverage, Templates, Jobs, Settings tabs
@@ -291,14 +291,13 @@ What replaced it: the app hands back **the file the reader uploaded**, from the 
 **SSG**: Puppeteer prerenders SEO pages to static HTML
 - nginx serves SSG first, falls back to SPA
 - Run `make rebuild-ssg` after content changes
-- SSG worker: separate always-running container polling DB every 5s. Supports IndexNow (Bing/Yandex) via `INDEXNOW_KEY`
-- Periodic rebuild: configurable from admin panel (SSG Rebuild → Settings: enable/disable, interval hours)
+- SSG worker: separate always-running container, the queue's only consumer (ADR-022). The API only inserts a `Queued` Full job (nightly / `make rebuild-ssg` / admin button; a Queued or Running Full blocks the nightly and `make` path); the worker claims it every 5s (`FOR UPDATE SKIP LOCKED` → `Running`) and, before every claim, fails any `Running` row (between jobs nothing of its own is running, so such a row is dead). Supports IndexNow (Bing/Yandex) via `INDEXNOW_KEY`
+- Schedule: only `backup.yml`'s nightly Full rebuild (the periodic worker and its admin settings were deleted 2026-10-08)
 
-**When to rebuild SSG**:
-- After adding/publishing new books
-- After updating book metadata
-- After adding/updating authors or genres
-- NOT needed for: reading progress, bookmarks, user data
+**When to rebuild SSG**: nothing rebuilds on an edit (no per-edit jobs since 2026-10-08, ADR-023).
+After adding/publishing books, editing metadata, authors, genres or the Popular shelf, crawlers see the
+change after the nightly Full rebuild; for it now, run `make rebuild-ssg` or the admin "New Rebuild"
+button. NOT needed for: reading progress, bookmarks, user data
 
 ## API Endpoints
 
@@ -316,7 +315,7 @@ What replaced it: the app hands back **the file the reader uploaded**, from the 
 
 **Vocabulary**: `POST /me/vocabulary/words`, `GET /me/vocabulary/words?filter=&sort=&search=&limit=&offset=`, `PATCH /me/vocabulary/words/{id}`, `DELETE /me/vocabulary/words/{id}`, `GET /me/vocabulary/review?limit=`, `POST /me/vocabulary/review`, `GET /me/vocabulary/stats`
 
-**Admin**: `POST /admin/books/upload`, `/admin/import/textstack`, `/admin/reimport/textstack`, `/admin/sync/standardebooks`, `/admin/reprocess/{editionId}`, `/admin/reprocess/all`, `GET /admin/ingestion/jobs`, `/admin/ingestion/jobs/{id}/retry`, `/admin/ingestion/jobs/{id}/preview`, `/admin/chapters/{id}` (GET/PUT/DELETE), `/admin/settings`, `/admin/ssg/jobs` (+ `/{id}`, `/start`, `/cancel`), `/admin/ssg/settings` (GET/PUT), `/admin/lint`, CRUD for `/admin/authors`, `/admin/genres`
+**Admin**: `POST /admin/books/upload`, `/admin/import/textstack`, `/admin/reimport/textstack`, `/admin/sync/standardebooks`, `/admin/reprocess/{editionId}`, `/admin/reprocess/all`, `GET /admin/ingestion/jobs`, `/admin/ingestion/jobs/{id}/retry`, `/admin/ingestion/jobs/{id}/preview`, `/admin/chapters/{id}` (GET/PUT/DELETE), `/admin/settings`, `/admin/ssg/jobs` (+ `/{id}`, `/cancel`), `/admin/lint`, CRUD for `/admin/authors`, `/admin/genres`
 
 **Auto Publish Admin**: `GET/PUT /admin/autopublish/settings`, `GET /admin/autopublish/jobs`, `GET /admin/autopublish/jobs/{id}`, `POST /admin/autopublish/jobs/{id}/approve`, `POST /admin/autopublish/jobs/{id}/reject`, `POST /admin/autopublish/jobs/{id}/retry`, `POST /admin/autopublish/trigger`, `POST /admin/autopublish/queue/{editionId}`, `GET /admin/autopublish/candidates`
 
@@ -372,7 +371,6 @@ What replaced it: the app hands back **the file the reader uploaded**, from the 
 | SEO Backfill systemd | `infra/systemd/seo-backfill-poller.service` |
 | SEO Backfill Admin UI | `apps/admin/src/pages/SeoBackfillPage.tsx` |
 | Internal Endpoints | `backend/src/Api/Endpoints/InternalEndpoints.cs` |
-| SSG Periodic Worker | `backend/src/Api/Services/SsgPeriodicRebuildWorker.cs` |
 | SSG | `apps/web/scripts/prerender.mjs` |
 | nginx config | `infra/nginx/textstack.conf` |
 | Profile API | `backend/src/Api/Endpoints/ProfileEndpoints.cs` |

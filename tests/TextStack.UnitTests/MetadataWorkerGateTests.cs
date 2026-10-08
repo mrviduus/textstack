@@ -31,12 +31,11 @@ public class MetadataWorkerGateTests
     public void ShouldDrainPending_BothAvailable_True() =>
         Assert.True(MetadataEnrichmentWorker.ShouldDrainPending(primaryAvailable: true, fallbackAvailable: true));
 
-    /// <summary>The backfill worker's tag must match what BookMetadataGenerator actually sends, or
-    /// the gate would consult a provider the work never uses.</summary>
+    /// <summary>The worker's tags must match what the generators actually send, or the gate would
+    /// consult a provider the work never uses.</summary>
     [Fact]
     public void FeatureTags_MatchTheRoutesTheyGate()
     {
-        Assert.Equal("bookmeta", MetadataBackfillWorker.FeatureTag);
         Assert.Equal("bookmeta", MetadataEnrichmentWorker.FallbackFeatureTag);
         Assert.Equal("bookmeta.agent", MetadataEnrichmentWorker.PrimaryFeatureTag);
     }

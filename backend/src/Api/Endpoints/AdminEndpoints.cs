@@ -1,7 +1,6 @@
 using Application.Admin;
 using Application.Common.Interfaces;
 using Application.Reprocessing;
-using Application.SsgRebuild;
 using Application.TextStack;
 using Contracts.Admin;
 using Domain.Enums;
@@ -395,7 +394,6 @@ public static class AdminEndpoints
         IAppDbContext db,
         IFileStorageService storage,
         IImageOptimizer imageOptimizer,
-        ISsgJobService ssgService,
         CancellationToken ct)
     {
         var edition = await db.Editions.FindAsync([id], ct);
@@ -433,15 +431,6 @@ public static class AdminEndpoints
         edition.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
 
-        if (edition.Status == EditionStatus.Published)
-        {
-            _ = Task.Run(async () =>
-            {
-                try { await ssgService.EnqueueSsgRebuildAsync(new CreateSsgRebuildJobRequest(edition.SiteId, "Specific", BookSlugs: [edition.Slug]), CancellationToken.None); }
-                catch { }
-            });
-        }
-
         return Results.Ok(new { coverPath = relativePath });
     }
 
@@ -469,7 +458,6 @@ public static class AdminEndpoints
     private static async Task<IResult> ImportTextStack(
         [FromBody] ImportTextStackRequest request,
         IServiceScopeFactory scopeFactory,
-        ISsgJobService ssgService,
         CancellationToken ct)
     {
         var path = request.Path ?? "/data/textstack";
@@ -505,15 +493,6 @@ public static class AdminEndpoints
                 images = result.ImageCount,
                 wasSkipped = result.WasSkipped,
                 error = result.Error
-            });
-        }
-
-        if (imported > 0)
-        {
-            _ = Task.Run(async () =>
-            {
-                try { await ssgService.EnqueueSsgRebuildAsync(new CreateSsgRebuildJobRequest(request.SiteId, "Full"), CancellationToken.None); }
-                catch { }
             });
         }
 
@@ -569,19 +548,9 @@ public static class AdminEndpoints
     private static async Task<IResult> SyncStandardEbooks(
         [FromBody] SyncStandardEbooksRequest request,
         StandardEbooksSyncService syncService,
-        ISsgJobService ssgService,
         CancellationToken ct)
     {
         var result = await syncService.SyncAsync(request.SiteId, "/data/textstack", request.Limit, ct);
-
-        if (result.Imported > 0)
-        {
-            _ = Task.Run(async () =>
-            {
-                try { await ssgService.EnqueueSsgRebuildAsync(new CreateSsgRebuildJobRequest(request.SiteId, "Full"), CancellationToken.None); }
-                catch { }
-            });
-        }
 
         return Results.Ok(new
         {

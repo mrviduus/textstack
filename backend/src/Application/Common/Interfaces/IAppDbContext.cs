@@ -69,7 +69,6 @@ public interface IAppDbContext
     DbSet<EvalRun> EvalRuns { get; }
     DbSet<AgentRun> AgentRuns { get; }
     DbSet<TutorSession> TutorSessions { get; }
-    DbSet<DriftCentroid> DriftCentroids { get; }
     DbSet<BookInsight> BookInsights { get; }
     DbSet<ReviewQuestion> ReviewQuestions { get; }
 

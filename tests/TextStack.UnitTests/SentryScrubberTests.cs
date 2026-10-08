@@ -231,8 +231,8 @@ public class SentryScrubberTests
     public void ScrubBreadcrumb_ApplicationLogLine_IsKept()
     {
         var crumb = new Breadcrumb(
-            "Metadata backfill: enriching 38 user books", "default",
-            category: "Worker.Services.MetadataBackfillWorker");
+            "Metadata enrichment: enriching 38 user books", "default",
+            category: "Worker.Services.MetadataEnrichmentWorker");
 
         Assert.NotNull(SentryScrubber.ScrubBreadcrumb(crumb));
     }

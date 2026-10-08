@@ -91,8 +91,8 @@ code does not pass `SiteId` by hand. The `site_id` columns stay. See [multisite.
 
 | Host | Hosted services |
 |------|-----------------|
-| Worker | `IngestionWorker` (admin + user uploads, polls every 5 s), `MetadataEnrichmentWorker`, `MetadataBackfillWorker`, `GuestCleanupWorker` (2 h / 30 d), `AdminRefreshTokenCleanupWorker`, `HeartbeatWorker`, `AiProviderReadinessCheck`, `TextStackWatcher` (optional) |
-| Api | `SsgPeriodicRebuildWorker`, `AutoRetireSweeperWorker`, `DailyCapReconcilerWorker`, `WordFrequencyLoaderWorker`, `ClusterCandidateBuilderWorker`, `ConceptClusteringWorker`, `ContinuousEvalWorker`, `DriftDetectionWorker`, `EdgeTtsService` (cache cleanup) |
+| Worker | `IngestionWorker` (admin + user uploads, polls every 5 s), `MetadataEnrichmentWorker`, `GuestCleanupWorker` (2 h / 30 d), `AdminRefreshTokenCleanupWorker`, `HeartbeatWorker`, `AiProviderReadinessCheck`, `TextStackWatcher` (optional) |
+| Api | `AutoRetireSweeperWorker`, `DailyCapReconcilerWorker`, `WordFrequencyLoaderWorker`, `ClusterCandidateBuilderWorker`, `ConceptClusteringWorker`, `ContinuousEvalWorker`, `EdgeTtsService` (cache cleanup) |
 | ssg-worker | Polls `ssg_rebuild_jobs` every 5 s, runs `prerender.mjs`, swaps `dist/ssg` atomically, pings IndexNow |
 | Host systemd | `seo-publish-poll.sh`, `seo-backfill-poll.sh`, `quality-poll.sh` (Claude CLI) |
 
@@ -102,7 +102,7 @@ All queues are Postgres tables polled by the consumer; there is no message broke
 
 | Store | What |
 |-------|------|
-| PostgreSQL 16 | ~63 tables ([data-model.md](data-model.md)). FTS: `chapters.search_vector` (trigger). pgvector: `vocabulary_words.embedding`, `drift_centroids.centroid` (1536-d) |
+| PostgreSQL 16 | ~63 tables ([data-model.md](data-model.md)). FTS: `chapters.search_vector` (trigger). pgvector: `vocabulary_words.embedding` (1536-d) |
 | `./data/storage` (bind mount, [ADR-001](adr/001-storage-bind-mounts.md)) | Original uploads + covers, served at `/storage` |
 | `./data/tts-cache`, `./data/explain-cache` | SHA256-keyed disk caches, 30-day TTL |
 | `./data/ollama` | Ollama models |

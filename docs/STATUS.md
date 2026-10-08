@@ -28,7 +28,7 @@ answers "what happened" and nothing answered "what is half-finished right now".
 | **Mobile** | Android on Play Internal + Closed testing (`versionCode 28`, 2026-09-27). Expo SDK 57 / RN 0.86 since 2026-09-28. OTA via `expo-updates` on merge; when the runtime fingerprint has moved an update cannot reach anyone, so the same workflow builds and submits to Internal instead. **Offline by default** (2026-09-27/28): the reader's own uploaded file is stored on the device (`originalFileCache.ts`, 2 GB LRU), the library downloads itself on Wi-Fi, the shelf shows each book's state, chapter loaders read the device before the network, and an account is for sync, quota and wiping private files at sign-out — not for reading. |
 | **Delivery** | Build once on GitHub, deploy by digest ([ADR-020](01-architecture/adr/ADR-020-build-once-deploy-by-digest.md), [`delivery.md`](01-architecture/delivery.md)): images secret-scanned before the push, pulled `name@digest`; the web `dist` too since 2026-10-07 — built and canary-scanned on GitHub (`textstack-web` image), scanned again with the server's real values and swapped in file by file before anything is live, no npm on the server unless the pull fails; OTA bundle scanned; actions SHA-pinned, pulled images digest-pinned (Dependabot moves both); read-only workflow tokens; rollback must be on main; mobile/extension merges skip the server; pre-deploy dump after the SSG wait, before anything live changes; GHCR pruned weekly (`ghcr-retention.yml`; the first real delete with `GITHUB_TOKEN` is unproven until the first scheduled run). Next: slim Dockerfiles (in flight), then drop *Free disk space*. |
 | **Build & deps** | One Node version in `.nvmrc` (24.20.0), enforced across CI, four Dockerfiles and the deploy runner. One pnpm workspace with a version catalog — the JS answer to `Directory.Packages.props`. Weekly dependency refresh by pull request. |
-| **Catalog** | Discover/home show a curated **Popular** shelf (2026-10-03, #680): order is `Edition.FeaturedRank`, set in admin or by `make featured` (`PUT /internal/featured`, whole-shelf replace + Full SSG rebuild). `/books` defaults to Popular; `sort=recent` keeps newest-first. |
+| **Catalog** | Discover/home show a curated **Popular** shelf (2026-10-03, #680): order is `Edition.FeaturedRank`, set in admin or by `make featured` (`PUT /internal/featured`, whole-shelf replace; crawlers see the new order after the nightly SSG rebuild). `/books` defaults to Popular; `sort=recent` keeps newest-first. |
 | **Codebase** | Refactor + perf sweep 2026-10-01/02 (#661–#678): dead code out on backend, web and mobile; `search_documents` and the Meilisearch provider dropped (search is Postgres FTS over `chapters` only); web runs `@textstack/shared`'s api client in cookie mode, so one `authFetch` serves both apps; shared pure logic moved to `packages/shared`; fewer requests and DB round trips on hot paths; one reading-time rule (own pace at ≥3 sessions, else 200 wpm). No behaviour change intended. |
 
 ## In flight
@@ -114,11 +114,28 @@ answers "what happened" and nothing answered "what is half-finished right now".
   between leaves files with no row, and the rerun writes them again under new ids. This is disk
   only: nothing references the old files. Fix: write images under a deterministic name (hash of
   edition + original path), or sweep `assets/` against `book_assets` / chapter HTML.
-- **SSG rebuild after an admin edit or publish may be silently skipped** (found 2026-10-07, ADR-023).
+- ~~**SSG rebuild after an admin edit or publish may be silently skipped** (found 2026-10-07, ADR-023).
   Eight un-awaited enqueues use the request's scoped `DbContext` after the request (`AdminEndpoints.cs:438,513,579`,
   `AdminGenresEndpoints.cs:298`, `AdminAuthorsEndpoints.cs:346`, `AdminService.Editions.cs:268-270,322,343`)
   behind an empty `catch`. A job left `Queued` blocks every later identical enqueue through the duplicate
-  check. Fix: await + log — ADR-023 PR 1.
+  check. Fix: await + log — ADR-023 PR 1.~~ **Resolved 2026-10-08 by deletion**
+  ([write-up](changelog-archive/2026-H2.md#2026-10-08-ssg-one-consumer)). Prod had zero `Specific` jobs
+  ever (112 Full in 30 days), so no edit ever queued a rebuild. Owner chose to remove the per-edit path
+  rather than repair it: ssg-worker renders every route whatever the mode (~20 min, ~2000 IndexNow URLs
+  per job). The nightly Full rebuild is the only automatic trigger; an edit reaches crawlers after it,
+  or at once with the admin "New Rebuild" button / `make rebuild-ssg`.
+- ~~**`Incremental` SSG mode is a full render** (2026-10-08). The admin form still offers it; the route
+  provider and ssg-worker treat it exactly like Full. Remove it, or make it mean something.~~ **Removed
+  2026-10-08** (#771): Full is the only mode. Prod had only Full rows (11,640, read-only check); the
+  column's converter reads any legacy string as Full (`SsgRebuildModeMappingTests`).
+- **Unverified: does ssg-worker's `Host` header reach the API?** (2026-10-08). In a local run, Node's
+  `fetch` to `http://127.0.0.1:<port>` with `headers: { host: 'localhost' }` got a 400 from Kestrel,
+  while `http://localhost:<port>` worked, so `fetch` may send the URL's host, not ours. Prod Full jobs
+  complete (`API_URL=http://api:8080`), so it works there; whether by the header or because the API
+  resolves `api` is not checked.
+- **Cancelling a Running SSG job does not stop it** (found 2026-10-08). `CancelJobAsync` sets
+  `Cancelled`, but ssg-worker never re-reads the row and its final `setJobStatus` overwrites it with
+  `Completed`/`Failed`.
 - **Vocabulary words promoted by the hourly reconciler are never enriched** (found 2026-10-07, ADR-023):
   `DailyCapService.ReconcileUserAsync` does not call `QueueEnrichment`. Fix: enrichment moves into an Application service; the reconciler awaits it word by word (owner, 2026-10-07).
 - **Uploaded originals are readable by URL without auth** (`/storage`, ADR-024). Fix: originals move behind `/me/books/{id}/file`; covers and chapter images only after they get an authenticated route (owner, 2026-10-07).

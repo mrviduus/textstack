@@ -2,8 +2,8 @@
 /**
  * SSG Worker
  *
- * Long-running process that polls PostgreSQL for SSG rebuild jobs
- * and executes prerender.mjs for each job.
+ * Long-running process that claims Queued SSG rebuild jobs from PostgreSQL (it is the queue's
+ * only consumer, ADR-022) and executes prerender.mjs for each job.
  *
  * Environment variables:
  *   DATABASE_URL - PostgreSQL connection string
@@ -25,6 +25,7 @@ import {
   assertBuildSurvived,
   carryForwardFailedPages,
   createPool,
+  nextJob,
   isProgress,
   jobLimits,
   readResults,
@@ -77,23 +78,6 @@ const pool = createPool(DATABASE_URL, (error) => {
   console.error('Database connection lost (idle client):', error.message);
   dbErrors.report(error);
 });
-
-/**
- * Poll for next job with status "Running"
- */
-async function pollForJob() {
-  const { rows } = await pool.query(`
-    SELECT j.id, j.site_id, j.mode, j.concurrency, j.timeout_ms,
-           j.book_slugs_json, j.author_slugs_json, j.genre_slugs_json,
-           s.code as site_code, s.primary_domain
-    FROM ssg_rebuild_jobs j
-    JOIN sites s ON j.site_id = s.id
-    WHERE j.status = 'Running'
-    ORDER BY j.started_at
-    LIMIT 1
-  `);
-  return rows[0] || null;
-}
 
 /**
  * Get routes from API.
@@ -455,8 +439,15 @@ async function main() {
   // Main polling loop
   while (true) {
     try {
-      const job = await pollForJob();
+      // Between jobs nothing of ours is Running (one job at a time, ADR-022), so nextJob fails any
+      // Running row before it claims. That includes this worker's own last job when processJob could
+      // not record its outcome (DB down, so setJobStatus threw into the catch below): failing it on
+      // the next pass is the correct outcome — nobody is rendering it.
+      const { interrupted, job } = await nextJob(pool);
       dbErrors.recovered();
+      if (interrupted.length > 0) {
+        console.log(`Failed ${interrupted.length} job(s) left Running with no render behind them: ${interrupted.join(', ')}`);
+      }
 
       if (job) {
         await processJob(job);

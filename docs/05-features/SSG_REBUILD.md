@@ -15,7 +15,7 @@ SSG (Static Site Generation) Rebuild is a feature that pre-renders React pages t
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        ADMIN PANEL                              │
-│                  POST /admin/ssg/jobs (+ /jobs/{id}/start)       │
+│                  POST /admin/ssg/jobs (created Queued)          │
 │                  (textstack.dev/ssg-rebuild)                    │
 └─────────────────────────┬───────────────────────────────────────┘
                           │
@@ -27,7 +27,7 @@ SSG (Static Site Generation) Rebuild is a feature that pre-renders React pages t
 │       ↓                                                         │
 │  SsgRebuildService.cs                                           │
 │       - Creates SsgRebuildJob entity                            │
-│       - Sets status: Queued → Running                           │
+│       - Inserts it Queued (one write)                           │
 │       - Stores job in PostgreSQL                                │
 └─────────────────────────┬───────────────────────────────────────┘
                           │
@@ -35,7 +35,7 @@ SSG (Static Site Generation) Rebuild is a feature that pre-renders React pages t
 ┌─────────────────────────────────────────────────────────────────┐
 │                 PostgreSQL                                      │
 │                 Table: ssg_rebuild_jobs                         │
-│                 Status: 'Running'                               │
+│                 Status: 'Queued'                                │
 └─────────────────────────┬───────────────────────────────────────┘
                           │
                           ▼
@@ -43,7 +43,8 @@ SSG (Static Site Generation) Rebuild is a feature that pre-renders React pages t
 │              ssg_worker container (Node.js)                     │
 │              apps/web/scripts/ssg-worker.mjs                    │
 │                                                                 │
-│  1. Polls DB every 5s for jobs with status='Running'            │
+│  0. Before each claim: Running rows → Failed (no render behind) │
+│  1. Every 5s claims the oldest Queued job → Running (SKIP LOCKED)│
 │  2. Fetches routes from API: GET /ssg/routes (site from Host)    │
 │  3. Spawns prerender.mjs with routes                            │
 │  4. Updates job progress (rendered_count, failed_count)         │
@@ -73,12 +74,11 @@ SSG (Static Site Generation) Rebuild is a feature that pre-renders React pages t
 | `Domain/Entities/SsgRebuildJob.cs` | Job entity with status, progress, timestamps |
 | `Domain/Entities/SsgRebuildResult.cs` | Individual route render results |
 | `Domain/Enums/SsgRebuildJobStatus.cs` | Queued, Running, Completed, Failed, Cancelled |
-| `Domain/Enums/SsgRebuildMode.cs` | Full, Incremental, Specific (per-book, enqueued by publish) |
+| `Domain/Enums/SsgRebuildMode.cs` | Full only (Incremental and Specific removed 2026-10-08) |
 | `Application/SsgRebuild/SsgRebuildService.cs` | Creates and manages jobs |
 | `Application/SsgRebuild/SsgRouteProvider.cs` | Provides routes to render |
 | `Api/Endpoints/AdminSsgRebuildEndpoints.cs` | Admin CRUD endpoints |
 | `Api/Endpoints/SsgEndpoints.cs` | Public `/ssg/routes` endpoint |
-| `Api/Services/SsgPeriodicRebuildWorker.cs` | Periodic rebuild (admin: enable + interval hours) |
 | `Api/Endpoints/InternalEndpoints.cs` | `POST /internal/ssg/rebuild-all` (used by deploy) |
 
 ### Frontend (Node.js)
@@ -113,12 +113,10 @@ ssg-worker:
 ### Admin Endpoints (authenticated)
 
 ```
-GET/PUT /admin/ssg/settings            Periodic rebuild settings
 GET    /admin/ssg/preview              Preview routes
 POST   /admin/ssg/jobs                 Create job
 GET    /admin/ssg/jobs                 List jobs
 GET    /admin/ssg/jobs/{id}            Job details
-POST   /admin/ssg/jobs/{id}/start      Start (Queued → Running)
 POST   /admin/ssg/jobs/{id}/cancel     Cancel
 GET    /admin/ssg/jobs/{id}/stats      Stats
 GET    /admin/ssg/jobs/{id}/results    Per-route results
@@ -142,7 +140,7 @@ CREATE TABLE ssg_rebuild_jobs (
     id UUID PRIMARY KEY,
     site_id UUID NOT NULL REFERENCES sites(id),
     status VARCHAR(20) NOT NULL,  -- Queued, Running, Completed, Failed, Cancelled
-    mode VARCHAR(20) NOT NULL,    -- Full, Incremental
+    mode VARCHAR(20) NOT NULL,    -- Full (legacy values read as Full)
     total_routes INT,
     rendered_count INT DEFAULT 0,
     failed_count INT DEFAULT 0,
@@ -200,7 +198,7 @@ make clean-ssg  # Removes ssg, ssg-new, ssg-old
 # On production server: queues a Full job (POST /internal/ssg/rebuild-all) and follows it.
 # Exit 0 only when the job ends Completed. Ctrl-C stops following, not the job.
 # Exit 1 if ssg-worker does not start it in 5 min or it stops moving for 30 min (worker down).
-# A Full rebuild already queued or running is waited for, then a fresh one is queued.
+# A Full rebuild already Queued is followed; a Running one is waited out, then a new one is queued.
 make rebuild-ssg
 ```
 

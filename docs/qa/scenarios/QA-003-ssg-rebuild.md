@@ -5,6 +5,10 @@
 **Last Tested**: 2026-01-23
 **Status**: PASSED
 
+> **2026-10-08 (ADR-022):** the Start step is gone. A created job is `Queued` and ssg-worker claims it
+> within ~5 s (`Running`); Queued and Running jobs show "Cancel". Steps 5 and the `/start` row below
+> describe the January run. There is no mode selector any more (Full is the only mode), so section 9 and the "Mode selector" check are gone.
+
 ---
 
 ## Preconditions
