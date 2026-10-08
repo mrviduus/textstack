@@ -151,12 +151,16 @@ const paintedCount = (page: Page, color: 'pink' | 'blue') =>
     ).length
   }, color)
 
-/** Paragraph number under the reading line (25% down), where the reader anchors its position. */
+/**
+ * Paragraph number at the reading line (25% down), where the reader anchors its position.
+ * The paragraph containing the line, or the next one when the line falls in a margin.
+ */
 const paragraphAtReadingLine = (page: Page) =>
   page.evaluate(() => {
-    const box = document.querySelector('.reader-section__article')!.getBoundingClientRect()
-    const el = document.elementFromPoint(Math.round(box.left + 40), Math.round(window.innerHeight * 0.25))
-    const m = /paragraph (\d+)\./.exec(el?.closest('p')?.textContent ?? '')
+    const y = window.innerHeight * 0.25
+    const ps = Array.from(document.querySelectorAll('.reader-section__article p'))
+    const p = ps.find((el) => el.getBoundingClientRect().bottom >= y)
+    const m = /paragraph (\d+)\./.exec(p?.textContent ?? '')
     return m ? Number(m[1]) : null
   })
 
@@ -266,7 +270,18 @@ test.describe('Reader smoke @reader-smoke', () => {
     await page.keyboard.press('Escape')
 
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight)).toBeGreaterThan(heightBefore)
-    await expect.poll(() => paragraphAtReadingLine(page), { timeout: 5_000 }).toBe(before)
+    // ±1: re-anchoring lands within about a line, which can cross a paragraph boundary.
+    // Without the re-anchor the reading line drifts ~6 paragraphs on this fixture.
+    await expect.poll(async () => Math.abs(((await paragraphAtReadingLine(page)) ?? -99) - before!), { timeout: 5_000 })
+      .toBeLessThanOrEqual(1)
+    // And what a reload would come back to: the saved position names this chapter
+    // and quotes text that is still in it (ADR-007: font changes do not break progress).
+    await expect.poll(async () => {
+      const raw = await page.evaluate((id) => localStorage.getItem(`reading.progress.${id}`), book.editionId)
+      const pos = raw ? JSON.parse(JSON.parse(raw).positionJson ?? 'null') : null
+      if (pos?.chapterSlug !== book.ch1.slug) return false
+      return ((await article(page).textContent()) ?? '').includes(pos.anchor.exact)
+    }, { timeout: 5_000 }).toBe(true)
   })
 
   test('?highlight= lands on the highlight, not on the saved place', async ({ browser }) => {
@@ -292,11 +307,10 @@ test.describe('Reader smoke @reader-smoke', () => {
     await waitForReaderLoad(jumped)
     await expect.poll(() => paintedCount(jumped, 'blue'), { timeout: 15_000 }).toBe(1)
     // The painted highlight is on screen, and the page is well past the saved place.
-    await expect.poll(() => jumped.evaluate(() => {
+    await expect.poll(() => jumped.evaluate((min) => {
       const r = document.querySelector('[data-highlight-overlay] g rect')?.getBoundingClientRect()
-      return !!r && r.top >= 0 && r.bottom <= window.innerHeight
-    }), { timeout: 10_000 }).toBe(true)
-    expect(await scrollY(jumped)).toBeGreaterThan(saved + TOLERANCE_PX)
+      return !!r && r.top >= 0 && r.bottom <= window.innerHeight && window.scrollY > min
+    }, saved + TOLERANCE_PX), { timeout: 10_000 }).toBe(true)
   })
 
   // `blocked`: the progress GET fails fast (offline, refused). `hung`: it never

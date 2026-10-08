@@ -752,7 +752,7 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
     // Highlight rendering
     var HIGHLIGHT_BG = { yellow: 'rgba(254,240,138,0.5)', green: 'rgba(187,247,208,0.5)', pink: 'rgba(251,207,232,0.5)', blue: 'rgba(191,219,254,0.5)' };
 
-    // Locate a Range inside document.body using a stored text-anchor. Mirrors
+    // Locate a Range inside the chapter using a stored text-anchor. Mirrors
     // web's findTextByAnchor: try prefix+exact+suffix, then exact-with-context,
     // then bare exact. Returns null if no reasonable match is found.
     // Anchor resolution is shared with web — window.__TSAnchor.findOffset comes
@@ -774,7 +774,10 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
     }
     function hlFindAnchor(anchor) {
       if (!anchor || !anchor.exact) return null;
-      var full = chapterText(hlRoot());
+      var root = hlRoot();
+      // No registered chapter: body gains UI text later, so never trust a cached copy of it.
+      if (root === document.body) delete root.__tsText;
+      var full = chapterText(root);
       if (window.__TSAnchor && window.__TSAnchor.findOffset) {
         var at = window.__TSAnchor.findOffset(full, anchor);
         return at === null || at === undefined ? null : { start: at, length: anchor.exact.length };
@@ -798,7 +801,7 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
       try {
         range.setStart(start.node, start.offset);
         range.setEnd(last.node, last.offset + 1);
-      } catch (e) { return null; }
+      } catch (e) { console.warn('[diag] hlBuildRange range error', e && e.message); return null; }
       return range;
     }
 

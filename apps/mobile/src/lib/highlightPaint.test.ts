@@ -95,4 +95,28 @@ describe('renderHighlight reads the chapter text, not document.body', () => {
     // The Range spans the inline translation node; its text minus that node is the anchor.
     expect(painted.at(-1)?.replace('сад', '')).toBe('garden and watched')
   })
+
+  it('paints a highlight that ends exactly at the end of the chapter', () => {
+    const html = '<p>She sat in the garden and watched the moon.</p>'
+    const painted: string[] = []
+    const dom = new JSDOM(buildReaderHtml(html, undefined, 'ch-6'), {
+      runScripts: 'dangerously',
+      pretendToBeVisual: true,
+      virtualConsole: new VirtualConsole(),
+      beforeParse(win: Window & typeof globalThis & { ReactNativeWebView: unknown }) {
+        win.ReactNativeWebView = { postMessage: () => {} }
+        const rect = { x: 0, y: 0, left: 0, top: 0, right: 10, bottom: 10, width: 10, height: 10 }
+        win.Range.prototype.getClientRects = function (this: Range) {
+          painted.push(this.toString())
+          return [rect] as unknown as DOMRectList
+        }
+        win.Range.prototype.getBoundingClientRect = function () { return rect as DOMRect }
+      },
+    })
+    const anchor = { prefix: 'and watched ', exact: 'the moon.', suffix: '' }
+    ;(dom.window as unknown as { eval: (s: string) => void }).eval(
+      `renderHighlight("h2", ${JSON.stringify(JSON.stringify(anchor))}, "yellow", "the moon.")`,
+    )
+    expect(painted.at(-1)).toBe('the moon.')
+  })
 })

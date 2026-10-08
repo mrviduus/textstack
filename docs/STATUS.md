@@ -37,7 +37,7 @@ answers "what happened" and nothing answered "what is half-finished right now".
 > 1. Finish what is running: #770 (auth fails closed by path) and #771 (SSG: one consumer, no per-edit rebuild).
 > 2. **Reader engine** — decided 2026-10-08: separate package `packages/reader-engine`, strangler
 >    migration behind flags, no iframe, scroll only, reflow then PDF. Phase 0 (lock today's behaviour)
->    in this PR; next: ADR-025 + API contract + skeleton, then the Android spike. Production engine
+>    #774; next: ADR-025 + API contract + skeleton, then the Android spike. Production engine
 >    code only after Play launch. Owner runs [QA-007](qa/scenarios/QA-007-reader-android-r1-r4.md).
 > 3. Later, in 2–3 bundled PRs while reader work waits on something: the rest of
 >    [review 2026-10](01-architecture/review-2026-10/00-summary.md) (#19 admin roles/audit, #20 book models,
@@ -186,6 +186,10 @@ answers "what happened" and nothing answered "what is half-finished right now".
   - *Coverage:* still open — see the list below.
 
 - **Reader — open after R3/R4** (2026-10-06):
+  - **Mobile highlight edges (review of #774), for engine Phase 2:** a fuzzy anchor match still paints
+    `exact.length` characters, not the matched length; on the legacy `<mark>` vocab path a highlight
+    range that spans an inline translation also paints that floating label. Both go when the engine
+    merges the walkers and deletes the legacy path.
   - **Mobile reader hooks have no tests of their own.** Fixes are tested through pure modules
     extracted from them and source-text wiring guards (`readerR3Wiring.test.ts`,
     `readerR4Wiring.test.ts`). A small hooks harness would let a test drive the real hook.
