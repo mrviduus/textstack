@@ -436,17 +436,21 @@ function hashText(text: string): string {
   return hash.toString(36)
 }
 
-function makeTranslationKey(sourceLang: string, targetLang: string, text: string): string {
-  return `${sourceLang}:${targetLang}:${hashText(text)}`
+// The sentence is part of the key, as it is of the server's: "wound" in "she
+// wound the clock" and in "the wound bled" are two different translations.
+function makeTranslationKey(sourceLang: string, targetLang: string, text: string, sentence?: string | null): string {
+  const s = sentence?.trim()
+  return `${sourceLang}:${targetLang}:${hashText(s ? `${text}\n${s}` : text)}`
 }
 
 export async function getCachedTranslation(
   sourceLang: string,
   targetLang: string,
-  text: string
+  text: string,
+  sentence?: string | null
 ): Promise<CachedTranslation | null> {
   const db = await openOfflineDb()
-  const key = makeTranslationKey(sourceLang, targetLang, text)
+  const key = makeTranslationKey(sourceLang, targetLang, text, sentence)
 
   return new Promise((resolve, reject) => {
     const tx = db.transaction(TRANSLATIONS_STORE, 'readonly')
@@ -470,11 +474,12 @@ export async function cacheTranslation(
   sourceLang: string,
   targetLang: string,
   sourceText: string,
-  translatedText: string
+  translatedText: string,
+  sentence?: string | null
 ): Promise<void> {
   const db = await openOfflineDb()
   const cached: CachedTranslation = {
-    key: makeTranslationKey(sourceLang, targetLang, sourceText),
+    key: makeTranslationKey(sourceLang, targetLang, sourceText, sentence),
     sourceText,
     translatedText,
     sourceLang,

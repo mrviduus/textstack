@@ -11,6 +11,9 @@ export interface BubbleLike {
   word: string
   translation: string | null
   translationLoading: boolean
+  /** Sentence + book the popup was opened with — resent on a lang-switch refetch. */
+  sentence?: string
+  bookId?: string
 }
 
 interface Options<B extends BubbleLike> {
@@ -106,7 +109,7 @@ export function useBubbleTranslationSync<B extends BubbleLike>({
       b && b.word === word ? { ...b, translation: null, translationLoading: true } : b,
     )
 
-    translateApi(word, bookLanguage, targetLang, ctrl.signal)
+    translateApi(word, bookLanguage, targetLang, ctrl.signal, { sentence: bubble?.sentence, bookId: bubble?.bookId })
       .then((res) => {
         if (ctrl.signal.aborted) return
         const translated = res?.translatedText ?? null
@@ -128,7 +131,7 @@ export function useBubbleTranslationSync<B extends BubbleLike>({
         if ((err as { name?: string })?.name === 'AbortError') return
         setBubble((b) => (b && b.word === word ? { ...b, translationLoading: false } : b))
       })
-  }, [bubble?.word, targetLang, bookLanguage, vocabMap, updateTranslation, setBubble, abortRef])
+  }, [bubble?.word, bubble?.sentence, bubble?.bookId, targetLang, bookLanguage, vocabMap, updateTranslation, setBubble, abortRef])
 
   const triggerAutoSave = useCallback(
     (word: string, save: () => Promise<unknown>) => {

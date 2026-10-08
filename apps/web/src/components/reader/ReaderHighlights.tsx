@@ -2,6 +2,7 @@ import { useRef, useCallback, useState, useEffect } from 'react'
 import { useTextSelection } from '../../hooks/useTextSelection'
 import { useHighlightEdit, type ScrollToHighlight } from '../../hooks/useHighlightEdit'
 import { useTranslationPopup } from '../../hooks/useTranslationPopup'
+import { extractSentence } from '../../lib/sentenceExtractor'
 import { useExplainPopup } from '../../hooks/useExplainPopup'
 import { useNativeLanguage } from '../../context/NativeLanguageContext'
 import { useTts } from '../../hooks/useTts'
@@ -181,8 +182,10 @@ export function ReaderHighlights({
 
   const handleTranslate = useCallback(() => {
     if (!selection.text || !selection.rect) return
-    translationPopup.open(selection.text, selection.rect)
-  }, [selection.text, selection.rect, translationPopup])
+    const container = containerRef.current
+    const sentence = selection.range && container ? extractSentence(selection.range, container) : undefined
+    translationPopup.open(selection.text, selection.rect, { sentence, bookId: userBookId || editionId })
+  }, [selection.text, selection.rect, selection.range, containerRef, userBookId, editionId, translationPopup])
 
   // --- Explain popup ---
   const explainPopup = useExplainPopup({

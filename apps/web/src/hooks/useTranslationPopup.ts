@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react'
 import { useTextTranslation } from './useTextTranslation'
+import type { TranslateContext } from '../api/translation'
 
 interface UseTranslationPopupOptions {
   bookLanguage: string
@@ -17,7 +18,8 @@ export interface UseTranslationPopupResult {
   languages: ReturnType<typeof useTextTranslation>['languages']
   sourceLang: string
   targetLang: string
-  open: (text: string, rect: DOMRect | null) => void
+  /** `ctx` = the sentence the selection sits in (+ book id); kept for lang-switch refetches. */
+  open: (text: string, rect: DOMRect | null, ctx?: TranslateContext) => void
   close: () => void
   setSourceLang: (lang: string) => void
   setTargetLang: (lang: string) => void
@@ -47,14 +49,16 @@ export function useTranslationPopup({
   const [show, setShow] = useState(false)
   const [text, setText] = useState('')
   const [rect, setRect] = useState<DOMRect | null>(null)
+  const [ctx, setCtx] = useState<TranslateContext | undefined>(undefined)
 
   const open = useCallback(
-    (input: string, sourceRect: DOMRect | null) => {
+    (input: string, sourceRect: DOMRect | null, context?: TranslateContext) => {
       const trimmed = input.slice(0, 500)
       setText(trimmed)
       setRect(sourceRect)
+      setCtx(context)
       setShow(true)
-      translate(trimmed)
+      translate(trimmed, undefined, undefined, context)
     },
     [translate],
   )
@@ -63,6 +67,7 @@ export function useTranslationPopup({
     setShow(false)
     setText('')
     setRect(null)
+    setCtx(undefined)
     resetTranslation()
     onClose?.()
   }, [resetTranslation, onClose])
@@ -70,17 +75,17 @@ export function useTranslationPopup({
   const handleSourceLangChange = useCallback(
     (lang: string) => {
       setSourceLangApi(lang)
-      if (text) translate(text, lang, translationTargetLang)
+      if (text) translate(text, lang, translationTargetLang, ctx)
     },
-    [setSourceLangApi, translate, text, translationTargetLang],
+    [setSourceLangApi, translate, text, translationTargetLang, ctx],
   )
 
   const handleTargetLangChange = useCallback(
     (lang: string) => {
       setTargetLangApi(lang)
-      if (text) translate(text, sourceLang, lang)
+      if (text) translate(text, sourceLang, lang, ctx)
     },
-    [setTargetLangApi, translate, text, sourceLang],
+    [setTargetLangApi, translate, text, sourceLang, ctx],
   )
 
   return {
