@@ -265,14 +265,14 @@ describe('claimNextJob / failInterruptedJobs', () => {
         CREATE TEMP TABLE sites (id uuid PRIMARY KEY, code text, primary_domain text);
         CREATE TEMP TABLE ssg_rebuild_jobs (
           id uuid PRIMARY KEY, site_id uuid, mode varchar(20), status varchar(20), concurrency int,
-          timeout_ms int, book_slugs_json jsonb, author_slugs_json jsonb, genre_slugs_json jsonb,
+          timeout_ms int,
           error text, created_at timestamptz, started_at timestamptz, finished_at timestamptz);
         INSERT INTO sites VALUES ('${SITE}', 'general', 'localhost');
-        INSERT INTO ssg_rebuild_jobs (id, site_id, mode, status, concurrency, timeout_ms, book_slugs_json, created_at) VALUES
-          ('${id('a')}', '${SITE}', 'Full', 'Running', 4, 30000, NULL, now() - interval '3 hours'),
-          ('${id('b')}', '${SITE}', 'Specific', 'Queued', 2, 30000, '["dracula"]', now() - interval '2 hours'),
-          ('${id('c')}', '${SITE}', 'Full', 'Queued', 4, 30000, NULL, now() - interval '1 hour'),
-          ('${id('d')}', '${SITE}', 'Full', 'Completed', 4, 30000, NULL, now() - interval '4 hours');
+        INSERT INTO ssg_rebuild_jobs (id, site_id, mode, status, concurrency, timeout_ms, created_at) VALUES
+          ('${id('a')}', '${SITE}', 'Full', 'Running', 4, 30000, now() - interval '3 hours'),
+          ('${id('b')}', '${SITE}', 'Incremental', 'Queued', 2, 30000, now() - interval '2 hours'),
+          ('${id('c')}', '${SITE}', 'Full', 'Queued', 4, 30000, now() - interval '1 hour'),
+          ('${id('d')}', '${SITE}', 'Full', 'Completed', 4, 30000, now() - interval '4 hours');
       `)
     })
     afterEach(async () => pool.end())
@@ -289,7 +289,7 @@ describe('claimNextJob / failInterruptedJobs', () => {
       expect(rows[0].finished_at).not.toBeNull()
 
       expect(await claimNextJob(pool)).toMatchObject({
-        id: id('b'), mode: 'Specific', site_code: 'general', primary_domain: 'localhost', book_slugs_json: ['dracula'],
+        id: id('b'), mode: 'Incremental', concurrency: 2, site_code: 'general', primary_domain: 'localhost',
       })
       expect(await statuses()).toEqual({ a: 'Failed', b: 'Running', c: 'Queued', d: 'Completed' })
 

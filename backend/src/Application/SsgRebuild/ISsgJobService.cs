@@ -11,14 +11,11 @@ public interface ISsgJobService
     /// <summary>Creates a new queued job.</summary>
     Task<SsgRebuildJob> CreateJobAsync(CreateSsgRebuildJobRequest request, CancellationToken ct);
 
-    /// <summary>Creates a Queued job (ssg-worker claims it), skipping if an identical one is already Queued.</summary>
-    Task<SsgRebuildJob?> EnqueueSsgRebuildAsync(CreateSsgRebuildJobRequest request, CancellationToken ct);
-
     /// <summary>
-    /// <see cref="EnqueueSsgRebuildAsync"/> for callers whose edit is already committed: never throws,
-    /// logs the failure instead. Await it — never fire-and-forget (ADR-023).
+    /// Queues a Full rebuild (ssg-worker claims it); null when a Full job is already Queued or Running.
+    /// The nightly trigger (backup.yml → /internal/ssg/rebuild-all) and `make rebuild-ssg` use it.
     /// </summary>
-    Task TryEnqueueSsgRebuildAsync(CreateSsgRebuildJobRequest request);
+    Task<SsgRebuildJob?> EnqueueFullRebuildAsync(Guid siteId, CancellationToken ct);
 
     /// <summary>Gets job details by ID.</summary>
     Task<SsgRebuildJobDetailDto?> GetJobAsync(Guid id, CancellationToken ct);
@@ -34,9 +31,6 @@ public interface ISsgJobService
     Task<SsgRebuildPreviewDto> GetPreviewAsync(
         Guid siteId,
         string modeStr,
-        string[]? bookSlugs,
-        string[]? authorSlugs,
-        string[]? genreSlugs,
         CancellationToken ct);
 
     /// <summary>Gets job statistics.</summary>

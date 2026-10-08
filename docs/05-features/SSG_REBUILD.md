@@ -27,7 +27,7 @@ SSG (Static Site Generation) Rebuild is a feature that pre-renders React pages t
 │       ↓                                                         │
 │  SsgRebuildService.cs                                           │
 │       - Creates SsgRebuildJob entity                            │
-│       - Inserts it Queued (one write; dedup vs Queued only)     │
+│       - Inserts it Queued (one write)                           │
 │       - Stores job in PostgreSQL                                │
 └─────────────────────────┬───────────────────────────────────────┘
                           │
@@ -74,7 +74,7 @@ SSG (Static Site Generation) Rebuild is a feature that pre-renders React pages t
 | `Domain/Entities/SsgRebuildJob.cs` | Job entity with status, progress, timestamps |
 | `Domain/Entities/SsgRebuildResult.cs` | Individual route render results |
 | `Domain/Enums/SsgRebuildJobStatus.cs` | Queued, Running, Completed, Failed, Cancelled |
-| `Domain/Enums/SsgRebuildMode.cs` | Full, Incremental, Specific (per-book, enqueued by publish) |
+| `Domain/Enums/SsgRebuildMode.cs` | Full, Incremental (same routes; Specific removed 2026-10-08) |
 | `Application/SsgRebuild/SsgRebuildService.cs` | Creates and manages jobs |
 | `Application/SsgRebuild/SsgRouteProvider.cs` | Provides routes to render |
 | `Api/Endpoints/AdminSsgRebuildEndpoints.cs` | Admin CRUD endpoints |
@@ -198,7 +198,7 @@ make clean-ssg  # Removes ssg, ssg-new, ssg-old
 # On production server: queues a Full job (POST /internal/ssg/rebuild-all) and follows it.
 # Exit 0 only when the job ends Completed. Ctrl-C stops following, not the job.
 # Exit 1 if ssg-worker does not start it in 5 min or it stops moving for 30 min (worker down).
-# A Full rebuild already Queued is followed instead (it reads its routes after the call).
+# A Full rebuild already Queued is followed; a Running one is waited out, then a new one is queued.
 make rebuild-ssg
 ```
 

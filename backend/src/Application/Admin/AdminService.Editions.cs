@@ -2,7 +2,6 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using Application.Collections;
 using Application.Common.Interfaces;
-using Application.SsgRebuild;
 using Contracts.Admin;
 using Contracts.Common;
 using Domain.Entities;
@@ -193,7 +192,6 @@ public partial class AdminService
 
         edition.Title = request.Title;
         edition.Description = request.Description;
-        var featuredChanged = edition.FeaturedRank != request.FeaturedRank;
         edition.FeaturedRank = request.FeaturedRank;
         edition.UpdatedAt = DateTimeOffset.UtcNow;
 
@@ -262,13 +260,6 @@ public partial class AdminService
         }
 
         await db.SaveChangesAsync(ct);
-
-        if (edition.Status == EditionStatus.Published)
-            // Featured order lives on home + /books, which only a Full rebuild re-renders.
-            await (featuredChanged
-                ? EnqueueSsgSafe(edition.SiteId)
-                : EnqueueSsgSafe(edition.SiteId, bookSlugs: [edition.Slug]));
-
         return (true, null);
     }
 
@@ -316,11 +307,8 @@ public partial class AdminService
         edition.PublishedAt = DateTimeOffset.UtcNow;
         edition.UpdatedAt = DateTimeOffset.UtcNow;
 
+        // No SSG enqueue (ADR-023): crawlers see the change after the nightly Full rebuild.
         await db.SaveChangesAsync(ct);
-
-        // Rebuild this book's pages (also the auto-publish path, via /internal/editions/{id}/publish).
-        await EnqueueSsgSafe(edition.SiteId, bookSlugs: [edition.Slug]);
-
         return (true, null);
     }
 
@@ -338,10 +326,6 @@ public partial class AdminService
         edition.UpdatedAt = DateTimeOffset.UtcNow;
 
         await db.SaveChangesAsync(ct);
-
-        // Full rebuild — book removed from public listings
-        await EnqueueSsgSafe(edition.SiteId);
-
         return (true, null);
     }
 }

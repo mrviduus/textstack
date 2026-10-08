@@ -269,7 +269,7 @@ What replaced it: the app hands back **the file the reader uploaded**, from the 
 - `seo-generate.sh` calls Claude CLI (`claude-sonnet-4-6`) to generate SEO fields (description, relevance, themes, FAQs)
 - Publishes via `POST /internal/editions/{id}/publish` (Docker network only)
 - Settings: books/day, hour UTC, require review, language filter, priority queue
-- Auto-triggers Specific SSG rebuild per published book via `PublishEditionAsync() → EnqueueSsgSafe()`
+- Publishing queues no SSG rebuild (ADR-023): the book reaches crawlers at the nightly Full rebuild
 
 **SEO Backfill**: Template-driven SEO field generation for Authors, Editions, Genres.
 - Admin page at `/seo-backfill` — Coverage, Templates, Jobs, Settings tabs
@@ -289,14 +289,13 @@ What replaced it: the app hands back **the file the reader uploaded**, from the 
 **SSG**: Puppeteer prerenders SEO pages to static HTML
 - nginx serves SSG first, falls back to SPA
 - Run `make rebuild-ssg` after content changes
-- SSG worker: separate always-running container, the queue's only consumer (ADR-022). The API only inserts a `Queued` job (awaited, failure logged — ADR-023); the worker claims it every 5s (`FOR UPDATE SKIP LOCKED` → `Running`) and fails leftover `Running` rows at startup. Supports IndexNow (Bing/Yandex) via `INDEXNOW_KEY`
+- SSG worker: separate always-running container, the queue's only consumer (ADR-022). The API only inserts a `Queued` Full job (nightly / `make rebuild-ssg` / admin button; a Queued or Running Full blocks the nightly and `make` path); the worker claims it every 5s (`FOR UPDATE SKIP LOCKED` → `Running`) and fails leftover `Running` rows at startup. Supports IndexNow (Bing/Yandex) via `INDEXNOW_KEY`
 - Schedule: only `backup.yml`'s nightly Full rebuild (the periodic worker and its admin settings were deleted 2026-10-08)
 
-**When to rebuild SSG**:
-- After adding/publishing new books
-- After updating book metadata
-- After adding/updating authors or genres
-- NOT needed for: reading progress, bookmarks, user data
+**When to rebuild SSG**: nothing rebuilds on an edit (no per-edit jobs since 2026-10-08, ADR-023).
+After adding/publishing books, editing metadata, authors, genres or the Popular shelf, crawlers see the
+change after the nightly Full rebuild; for it now, run `make rebuild-ssg` or the admin "New Rebuild"
+button. NOT needed for: reading progress, bookmarks, user data
 
 ## API Endpoints
 

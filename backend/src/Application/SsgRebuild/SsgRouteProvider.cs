@@ -19,9 +19,6 @@ public class SsgRouteProvider : ISsgRouteProvider
     public async Task<List<SsgRoute>> GetRoutesAsync(
         Guid siteId,
         SsgRebuildMode mode,
-        string[]? bookSlugs,
-        string[]? authorSlugs,
-        string[]? genreSlugs,
         CancellationToken ct)
     {
         var site = await _db.Sites.FirstOrDefaultAsync(s => s.Id == siteId, ct);
@@ -30,16 +27,11 @@ public class SsgRouteProvider : ISsgRouteProvider
 
         var routes = new List<SsgRoute>();
 
-        // Static routes (only for Full/Incremental)
-        if (mode == SsgRebuildMode.Full || mode == SsgRebuildMode.Incremental)
-        {
-            AddStaticRoutes(routes, site.DefaultLanguage);
-        }
-
-        // Content routes
-        await AddBookRoutesAsync(routes, siteId, mode, bookSlugs, ct);
-        await AddAuthorRoutesAsync(routes, siteId, site.DefaultLanguage, mode, authorSlugs, ct);
-        await AddGenreRoutesAsync(routes, siteId, site.DefaultLanguage, mode, genreSlugs, ct);
+        // Full and Incremental produce the same list (ssg-worker renders every route either way).
+        AddStaticRoutes(routes, site.DefaultLanguage);
+        await AddBookRoutesAsync(routes, ct);
+        await AddAuthorRoutesAsync(routes, site.DefaultLanguage, ct);
+        await AddGenreRoutesAsync(routes, site.DefaultLanguage, ct);
 
         return routes;
     }
@@ -54,12 +46,7 @@ public class SsgRouteProvider : ISsgRouteProvider
         routes.Add(new SsgRoute($"/{lang}/sitemap", "static"));
     }
 
-    private async Task AddBookRoutesAsync(
-        List<SsgRoute> routes,
-        Guid siteId,
-        SsgRebuildMode mode,
-        string[]? slugs,
-        CancellationToken ct)
+    private async Task AddBookRoutesAsync(List<SsgRoute> routes, CancellationToken ct)
     {
         // Book detail pages are rendered for every Published edition, even
         // when Indexable == false. The renderer reads the same DB column and
@@ -70,9 +57,6 @@ public class SsgRouteProvider : ISsgRouteProvider
         var query = _db.Editions
             .Where(e => e.Status == EditionStatus.Published);
 
-        if (mode == SsgRebuildMode.Specific && slugs?.Length > 0)
-            query = query.Where(e => slugs.Contains(e.Slug));
-
         var books = await query
             .Select(e => new { e.Slug, e.Language })
             .ToListAsync(ct);
@@ -80,47 +64,29 @@ public class SsgRouteProvider : ISsgRouteProvider
         routes.AddRange(books.Select(b => new SsgRoute($"/{b.Language}/books/{b.Slug}", "book")));
     }
 
-    private async Task AddAuthorRoutesAsync(
-        List<SsgRoute> routes,
-        Guid siteId,
-        string lang,
-        SsgRebuildMode mode,
-        string[]? slugs,
-        CancellationToken ct)
+    private async Task AddAuthorRoutesAsync(List<SsgRoute> routes, string lang, CancellationToken ct)
     {
         // `a.Indexable` is a manual hide override (admin UI). Default true.
         // See SsgEndpoints.GetAllRoutes for the 656-row backfill story —
         // same filter shape here on purpose: both route producers must agree
-        // or the periodic worker and the build-time prerender will drift.
+        // or the admin job count and the build-time prerender will drift.
         var query = _db.Authors
             .Where(a => a.Indexable)
             .Where(a => a.EditionAuthors.Any(ea =>
                 ea.Edition.Status == EditionStatus.Published &&
                 ea.Edition.Indexable));
 
-        if (mode == SsgRebuildMode.Specific && slugs?.Length > 0)
-            query = query.Where(a => slugs.Contains(a.Slug));
-
         var authors = await query.Select(a => a.Slug).ToListAsync(ct);
         routes.AddRange(authors.Select(a => new SsgRoute($"/{lang}/authors/{a}", "author")));
     }
 
-    private async Task AddGenreRoutesAsync(
-        List<SsgRoute> routes,
-        Guid siteId,
-        string lang,
-        SsgRebuildMode mode,
-        string[]? slugs,
-        CancellationToken ct)
+    private async Task AddGenreRoutesAsync(List<SsgRoute> routes, string lang, CancellationToken ct)
     {
         var query = _db.Genres
             .Where(g => g.Indexable)
             .Where(g => g.Editions.Any(e =>
                 e.Status == EditionStatus.Published &&
                 e.Indexable));
-
-        if (mode == SsgRebuildMode.Specific && slugs?.Length > 0)
-            query = query.Where(g => slugs.Contains(g.Slug));
 
         var genres = await query.Select(g => g.Slug).ToListAsync(ct);
         routes.AddRange(genres.Select(g => new SsgRoute($"/{lang}/genres/{g}", "genre")));

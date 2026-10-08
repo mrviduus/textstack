@@ -137,21 +137,6 @@ export function SsgRebuildJobPage() {
             <dt>Finished</dt><dd>{formatDate(job.finishedAt)}</dd>
           </dl>
           {job.error && <div className="job-error">Error: {job.error}</div>}
-          {job.bookSlugs && job.bookSlugs.length > 0 && (
-            <div className="slugs-list">
-              <strong>Book Slugs:</strong> {job.bookSlugs.join(', ')}
-            </div>
-          )}
-          {job.authorSlugs && job.authorSlugs.length > 0 && (
-            <div className="slugs-list">
-              <strong>Author Slugs:</strong> {job.authorSlugs.join(', ')}
-            </div>
-          )}
-          {job.genreSlugs && job.genreSlugs.length > 0 && (
-            <div className="slugs-list">
-              <strong>Genre Slugs:</strong> {job.genreSlugs.join(', ')}
-            </div>
-          )}
         </div>
 
         {stats && (

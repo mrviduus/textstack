@@ -91,7 +91,7 @@ admin-started runs the admin can see and repeat (run evals now).
 
 | Item | Decision |
 |---|---|
-| SSG enqueue, 8 sites | **Await it.** Keep a `try/catch` that **logs** the error (never empty), so a committed publish or edit never turns into a 500. *Shipped 2026-10-08:* one `ISsgJobService.TryEnqueueSsgRebuildAsync` (await + log, never throws) used by all 8 sites, plus two more found by grep with empty catches (SEO-backfill apply, featured-shelf replace). Prod evidence it was live: zero `Specific` jobs ever |
+| SSG enqueue, 8 sites | **Await it.** Keep a `try/catch` that **logs** the error (never empty), so a committed publish or edit never turns into a 500. *Shipped 2026-10-08 differently — removed, not awaited* (owner, option C). Prod had zero `Specific` jobs ever, so these sites never queued anything; and ssg-worker ignores mode and slugs, so each awaited enqueue would have been a ~20-min full render plus ~2000 IndexNow URLs per edit, with deploys waiting on it. All 8 sites, the SEO-backfill applies and the featured-shelf replace now queue nothing, and `Specific` mode is gone. The nightly Full rebuild is the only automatic trigger; the admin button and `make rebuild-ssg` are the on-demand path |
 | `SsgPeriodicRebuildWorker` | **Delete**, with the two `ssg.periodicRebuild*` settings and their admin form. `backup.yml` is the one nightly trigger. *Shipped 2026-10-08* (the migration deletes the two rows) |
 | `DriftDetectionWorker` | **Delete**, with `drift_centroids` (migration) and its admin tab (review #29). *Shipped 2026-10-08*; the scheduled-eval trend that shared the tab moved to the Evals tab |
 | `MetadataBackfillWorker` (Worker) | **Delete** — a one-shot heal for an old env-var bug that still calls Ollama on every Worker start. *Shipped 2026-10-08* |
@@ -113,7 +113,7 @@ admin-started runs the admin can see and repeat (run evals now).
 
 ## Consequences
 
-- An admin edit or publish either queues its rebuild or logs why not; the stuck-`Queued` trap is gone
+- An admin edit or publish queues nothing; crawlers see it after the nightly Full rebuild (as in practice they always did). The stuck-`Queued` trap is gone
   (ADR-022 also moves the claim into `ssg-worker`, so enqueue becomes one write).
 - Three dead workers and one admin form fewer.
 - Timers still restart with the Api. Accepted and written down.

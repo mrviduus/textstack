@@ -45,19 +45,10 @@ public static class AdminSsgRebuildEndpoints
     private static async Task<IResult> GetPreview(
         [FromQuery] Guid siteId,
         [FromQuery] string mode = "Full",
-        [FromQuery] string? bookSlugs = null,
-        [FromQuery] string? authorSlugs = null,
-        [FromQuery] string? genreSlugs = null,
         ISsgJobService service = null!,
         CancellationToken ct = default)
     {
-        var preview = await service.GetPreviewAsync(
-            siteId,
-            mode,
-            ParseSlugs(bookSlugs),
-            ParseSlugs(authorSlugs),
-            ParseSlugs(genreSlugs),
-            ct);
+        var preview = await service.GetPreviewAsync(siteId, mode, ct);
 
         return Results.Ok(preview);
     }
@@ -129,12 +120,5 @@ public static class AdminSsgRebuildEndpoints
         var filter = new SsgRebuildResultsFilter(failed, routeType, offset, limit);
         var (total, items) = await service.GetResultsAsync(id, filter, ct);
         return Results.Ok(new { total, items });
-    }
-
-    private static string[]? ParseSlugs(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-            return null;
-        return value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
     }
 }

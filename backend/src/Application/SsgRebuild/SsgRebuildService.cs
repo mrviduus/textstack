@@ -1,10 +1,8 @@
-using System.Text.Json;
 using Application.Common.Interfaces;
 using Contracts.Admin;
 using Domain.Entities;
 using Domain.Enums;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
 
 namespace Application.SsgRebuild;
 
@@ -21,25 +19,20 @@ public class SsgRebuildService : ISsgJobService
 {
     private readonly IAppDbContext _db;
     private readonly ISsgRouteProvider _routeProvider;
-    private readonly ILogger<SsgRebuildService> _logger;
 
-    public SsgRebuildService(IAppDbContext db, ISsgRouteProvider routeProvider, ILogger<SsgRebuildService> logger)
+    public SsgRebuildService(IAppDbContext db, ISsgRouteProvider routeProvider)
     {
         _db = db;
         _routeProvider = routeProvider;
-        _logger = logger;
     }
 
     public async Task<SsgRebuildPreviewDto> GetPreviewAsync(
         Guid siteId,
         string modeStr,
-        string[]? bookSlugs,
-        string[]? authorSlugs,
-        string[]? genreSlugs,
         CancellationToken ct)
     {
         var mode = ParseMode(modeStr);
-        var routes = await _routeProvider.GetRoutesAsync(siteId, mode, bookSlugs, authorSlugs, genreSlugs, ct);
+        var routes = await _routeProvider.GetRoutesAsync(siteId, mode, ct);
 
         return new SsgRebuildPreviewDto(
             TotalRoutes: routes.Count,
@@ -57,8 +50,7 @@ public class SsgRebuildService : ISsgJobService
             throw new ArgumentException($"Site with ID {request.SiteId} not found");
 
         var mode = ParseMode(request.Mode);
-        var routes = await _routeProvider.GetRoutesAsync(
-            request.SiteId, mode, request.BookSlugs, request.AuthorSlugs, request.GenreSlugs, ct);
+        var routes = await _routeProvider.GetRoutesAsync(request.SiteId, mode, ct);
 
         var job = new SsgRebuildJob
         {
@@ -67,9 +59,6 @@ public class SsgRebuildService : ISsgJobService
             Mode = mode,
             Concurrency = request.Concurrency ?? 4,
             TimeoutMs = 30000,
-            BookSlugsJson = SerializeSlugs(request.BookSlugs),
-            AuthorSlugsJson = SerializeSlugs(request.AuthorSlugs),
-            GenreSlugsJson = SerializeSlugs(request.GenreSlugs),
             Status = SsgRebuildJobStatus.Queued,
             TotalRoutes = routes.Count,
             CreatedAt = DateTimeOffset.UtcNow
@@ -212,57 +201,24 @@ public class SsgRebuildService : ISsgJobService
         return (total, items);
     }
 
-    public async Task<SsgRebuildJob?> EnqueueSsgRebuildAsync(CreateSsgRebuildJobRequest request, CancellationToken ct)
+    public async Task<SsgRebuildJob?> EnqueueFullRebuildAsync(Guid siteId, CancellationToken ct)
     {
-        var mode = ParseMode(request.Mode);
-
-        // Dedup against Queued only: ssg-worker has not claimed a Queued job yet, so it will read routes
-        // after this change and cover it. A Running job may already have rendered the page this
-        // change is about, so it is no reason to skip (ADR-022).
-        var duplicateQuery = _db.SsgRebuildJobs
-            .Where(j => j.Mode == mode && j.Status == SsgRebuildJobStatus.Queued);
-
-        if (mode == SsgRebuildMode.Specific)
-        {
-            var bookSlugsJson = SerializeSlugs(request.BookSlugs);
-            var authorSlugsJson = SerializeSlugs(request.AuthorSlugs);
-            var genreSlugsJson = SerializeSlugs(request.GenreSlugs);
-            duplicateQuery = duplicateQuery.Where(j =>
-                j.BookSlugsJson == bookSlugsJson &&
-                j.AuthorSlugsJson == authorSlugsJson &&
-                j.GenreSlugsJson == genreSlugsJson);
-        }
-
-        if (await duplicateQuery.AnyAsync(ct))
+        // A Queued Full covers this call: ssg-worker has not read its routes yet. A Running one blocks
+        // too: re-rendering every route right after it is wasted work (~20 min, ~2000 IndexNow URLs),
+        // and an edit made during the run waits for the next nightly — or the admin "New Rebuild"
+        // button, which creates a job without this check. `make rebuild-ssg` waits it out and asks again.
+        if (await _db.SsgRebuildJobs.AnyAsync(j => j.Mode == SsgRebuildMode.Full
+                && (j.Status == SsgRebuildJobStatus.Queued || j.Status == SsgRebuildJobStatus.Running), ct))
             return null;
 
         // Queued is the whole enqueue: ssg-worker claims it (FOR UPDATE SKIP LOCKED) and sets Running.
-        return await CreateJobAsync(request, ct);
-    }
-
-    public async Task TryEnqueueSsgRebuildAsync(CreateSsgRebuildJobRequest request)
-    {
-        // Called after the caller's edit is committed. Awaited, so the request's DbContext is still
-        // alive; caught, so a failed enqueue never turns that committed edit into a 500 (ADR-023).
-        // CancellationToken.None: a client that hangs up after the commit still gets its rebuild.
-        try
-        {
-            await EnqueueSsgRebuildAsync(request, CancellationToken.None);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "SSG enqueue failed ({Mode}; books {BookSlugs}; authors {AuthorSlugs}; genres {GenreSlugs})",
-                request.Mode, request.BookSlugs, request.AuthorSlugs, request.GenreSlugs);
-        }
+        return await CreateJobAsync(new CreateSsgRebuildJobRequest(siteId, "Full", Concurrency: 4), ct);
     }
 
     #region Private Helpers
 
     private static SsgRebuildMode ParseMode(string? mode) =>
         Enum.TryParse<SsgRebuildMode>(mode, true, out var m) ? m : SsgRebuildMode.Full;
-
-    private static string? SerializeSlugs(string[]? slugs) =>
-        slugs?.Length > 0 ? JsonSerializer.Serialize(slugs) : null;
 
     private static SsgRebuildJobDetailDto MapToDetail(SsgRebuildJob job) =>
         new(
@@ -277,16 +233,10 @@ public class SsgRebuildService : ISsgJobService
             job.Concurrency,
             job.TimeoutMs,
             job.Error,
-            DeserializeSlugs(job.BookSlugsJson),
-            DeserializeSlugs(job.AuthorSlugsJson),
-            DeserializeSlugs(job.GenreSlugsJson),
             job.CreatedAt,
             job.StartedAt,
             job.FinishedAt
         );
-
-    private static string[]? DeserializeSlugs(string? json) =>
-        json != null ? JsonSerializer.Deserialize<string[]>(json) : null;
 
     #endregion
 }

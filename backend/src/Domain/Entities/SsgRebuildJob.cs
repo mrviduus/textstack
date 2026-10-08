@@ -11,7 +11,7 @@ public class SsgRebuildJob : ISiteScoped
     public int Concurrency { get; set; } = 4;
     public int TimeoutMs { get; set; } = 30000;
 
-    // For Specific mode - JSON arrays of slugs
+    // Unused since Specific mode was removed (2026-10-08); columns kept, always null.
     public string? BookSlugsJson { get; set; }
     public string? AuthorSlugsJson { get; set; }
     public string? GenreSlugsJson { get; set; }

@@ -1,5 +1,4 @@
 using Application.Common.Interfaces;
-using Application.SsgRebuild;
 using Contracts.Admin;
 using Domain.Entities;
 using Domain.Enums;
@@ -287,7 +286,6 @@ public static class AdminAuthorsEndpoints
 
     private static async Task<IResult> UpdateAuthor(
         IAppDbContext db,
-        ISsgJobService ssgService,
         Guid id,
         [FromBody] UpdateAuthorRequest req,
         CancellationToken ct)
@@ -337,14 +335,6 @@ public static class AdminAuthorsEndpoints
         author.ExternalLinksJson = string.IsNullOrWhiteSpace(req.ExternalLinksJson) ? null : req.ExternalLinksJson;
 
         await db.SaveChangesAsync(ct);
-
-        // SSG rebuild if author has published books
-        var hasPublished = await db.EditionAuthors
-            .AnyAsync(ea => ea.AuthorId == id && ea.Edition.Status == EditionStatus.Published, ct);
-        if (hasPublished)
-        {
-            await ssgService.TryEnqueueSsgRebuildAsync(new Contracts.Admin.CreateSsgRebuildJobRequest(author.SiteId, "Specific", AuthorSlugs: [author.Slug]));
-        }
 
         return Results.Ok();
     }

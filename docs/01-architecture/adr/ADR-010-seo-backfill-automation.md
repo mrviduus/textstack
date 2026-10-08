@@ -271,7 +271,7 @@ Route: `/admin/seo?tab=...`. `apps/admin/src/api/seo.ts` — client wrapper.
 ## Reused infra
 
 - `IngestionJob` polling pattern (atomic UPDATE RETURNING).
-- `EnqueueSsgSafe()` — SSG rebuild trigger.
+- ~~`EnqueueSsgSafe()` — SSG rebuild trigger.~~ Removed 2026-10-08 (ADR-023): applies queue no rebuild; the nightly Full rebuild picks them up.
 - `InternalEndpoints.IsLocalRequest()` — Docker-network guard.
 - `AutoPublishSettings` singleton pattern.
 - AdminAuth middleware.

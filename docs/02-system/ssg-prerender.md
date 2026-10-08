@@ -8,9 +8,9 @@ SPA. Checked against code 2026-10-07.
 ## How it works
 
 ```
-admin "Rebuild" / publish / periodic timer
-   → row in ssg_rebuild_jobs (mode Full | Incremental | Specific)
-   → ssg-worker container (apps/web/scripts/ssg-worker.mjs) polls every 5 s
+nightly backup.yml / make rebuild-ssg / admin "New Rebuild"
+   → Queued row in ssg_rebuild_jobs (mode Full | Incremental — both render every route)
+   → ssg-worker container (apps/web/scripts/ssg-worker.mjs) claims it every 5 s (SKIP LOCKED → Running)
    → empties dist/ssg-new, runs scripts/prerender.mjs: GET /ssg/routes → Puppeteer renders → dist/ssg-new
    → survival check, failed routes keep their live page, then
    → atomic swap dist/ssg-new → dist/ssg, then IndexNow ping (if enabled)
@@ -36,16 +36,16 @@ route that fails and then renders noindex on retry is skipped the same way.
 
 A refused or `Failed` job leaves `dist/ssg` untouched and reports to Sentry (`service:ssg-worker`).
 
-Who enqueues jobs (always one `Queued` insert, awaited; ssg-worker claims it, ADR-022/023): admin SSG
-page (`/admin/ssg/*` API), admin edits of published books/authors/genres, `PublishEditionAsync() →
-EnqueueSsgSafe()` (auto-publish), SEO-backfill applies, the nightly
+Who enqueues jobs (always one `Queued` insert; ssg-worker claims it, ADR-022/023): the admin SSG page
+(`/admin/ssg/*` API), the nightly
 `backup.yml` and a manual deploy with `rebuild_ssg` (both `POST /internal/ssg/rebuild-all`), and
 `make rebuild-ssg` on the server (`infra/scripts/rebuild-ssg.sh`: the same POST, then follows the job
 and exits 0 only on `Completed`). Every rebuild is a job, so every one gets the checks above — and none
 runs while ssg-worker is down: the script exits 1 if the worker has not started the job in 5 min, or
-if its counts have not moved in 30 min. If a Full rebuild is already `Queued`, the API skips and the
-script follows that one: it has not read its routes yet, so it includes changes made before the call.
-A `Running` job never causes a skip.
+if its counts have not moved in 30 min. If a Full rebuild is already `Queued` or `Running`, the API
+skips. The script follows a Queued one (it has not read its routes yet), or waits out a Running one
+and asks again, so the result includes changes made before the call. Nothing else enqueues: no edit,
+publish or import queues a rebuild (ADR-023).
 
 ## nginx split (`infra/nginx/textstack.conf`)
 

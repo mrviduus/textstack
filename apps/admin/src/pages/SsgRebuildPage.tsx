@@ -105,7 +105,6 @@ export function SsgRebuildPage() {
     const classes: Record<SsgRebuildMode, string> = {
       Full: 'badge badge--info',
       Incremental: 'badge badge--warning',
-      Specific: 'badge badge--secondary',
     }
     return <span className={classes[mode] || 'badge'}>{mode}</span>
   }
@@ -156,7 +155,6 @@ export function SsgRebuildPage() {
               >
                 <option value="Full">Full - All pages</option>
                 <option value="Incremental">Incremental - New/changed only</option>
-                <option value="Specific">Specific - Selected items</option>
               </select>
             </label>
           </div>

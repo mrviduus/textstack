@@ -81,8 +81,7 @@ export async function claimNextJob(pool) {
           LIMIT 1
           FOR UPDATE SKIP LOCKED
        )
-      RETURNING id, site_id, mode, concurrency, timeout_ms,
-                book_slugs_json, author_slugs_json, genre_slugs_json
+      RETURNING id, site_id, mode, concurrency, timeout_ms
     )
     SELECT c.*, s.code AS site_code, s.primary_domain
       FROM claimed c

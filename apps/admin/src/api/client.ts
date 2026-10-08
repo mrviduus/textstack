@@ -290,7 +290,7 @@ export interface EditionGenre {
 
 // SSG Rebuild
 export type SsgRebuildJobStatus = 'Queued' | 'Running' | 'Completed' | 'Failed' | 'Cancelled'
-export type SsgRebuildMode = 'Full' | 'Incremental' | 'Specific'
+export type SsgRebuildMode = 'Full' | 'Incremental'
 
 export interface SsgRebuildJobListItem {
   id: string
@@ -319,9 +319,6 @@ export interface SsgRebuildJobDetail {
   concurrency: number
   timeoutMs: number
   error: string | null
-  bookSlugs: string[] | null
-  authorSlugs: string[] | null
-  genreSlugs: string[] | null
   createdAt: string
   startedAt: string | null
   finishedAt: string | null
@@ -360,9 +357,6 @@ export interface CreateSsgRebuildJobRequest {
   siteId: string
   mode?: SsgRebuildMode
   concurrency?: number
-  bookSlugs?: string[]
-  authorSlugs?: string[]
-  genreSlugs?: string[]
 }
 
 // Auto Publish

@@ -1,5 +1,4 @@
 using Application.Common.Interfaces;
-using Application.SsgRebuild;
 using Contracts.Admin;
 using Domain.Entities;
 using Domain.Enums;
@@ -244,7 +243,6 @@ public static class AdminGenresEndpoints
 
     private static async Task<IResult> UpdateGenre(
         IAppDbContext db,
-        ISsgJobService ssgService,
         Guid id,
         [FromBody] UpdateGenreRequest req,
         CancellationToken ct)
@@ -288,15 +286,6 @@ public static class AdminGenresEndpoints
         genre.SeoDescription = req.SeoDescription;
 
         await db.SaveChangesAsync(ct);
-
-        // SSG rebuild if genre has published editions
-        var hasPublished = await db.Genres
-            .Where(g => g.Id == id)
-            .AnyAsync(g => g.Editions.Any(e => e.Status == EditionStatus.Published), ct);
-        if (hasPublished)
-        {
-            await ssgService.TryEnqueueSsgRebuildAsync(new CreateSsgRebuildJobRequest(genre.SiteId, "Specific", GenreSlugs: [genre.Slug]));
-        }
 
         return Results.Ok();
     }

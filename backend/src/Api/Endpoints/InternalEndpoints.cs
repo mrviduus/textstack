@@ -66,13 +66,11 @@ public static class InternalEndpoints
         if (site is null)
             return Results.BadRequest(new { error = "No site found" });
 
-        var job = await ssgService.EnqueueSsgRebuildAsync(
-            new CreateSsgRebuildJobRequest(site.Id, "Full", Concurrency: 4),
-            ct);
+        var job = await ssgService.EnqueueFullRebuildAsync(site.Id, ct);
 
         return job is not null
             ? Results.Ok(new { jobId = job.Id, status = "queued" })
-            : Results.Ok(new { status = "skipped", reason = "a Full rebuild is already queued" });
+            : Results.Ok(new { status = "skipped", reason = "a Full rebuild is already queued or running" });
     }
 
     private static async Task<IResult> PublishEdition(
@@ -94,9 +92,6 @@ public static class InternalEndpoints
         [FromBody] ReplaceFeaturedRequest req,
         HttpContext ctx,
         BookService bookService,
-        IAppDbContext db,
-        ISsgJobService ssgService,
-        ILogger<ISsgJobService> logger,
         CancellationToken ct)
     {
         if (!InternalNetwork.IsLocalRequest(ctx))
@@ -109,26 +104,9 @@ public static class InternalEndpoints
 
         var result = await bookService.ReplaceFeaturedAsync(req.Slugs, ct);
 
-        // Home + /books are static routes, which only a Full rebuild re-renders.
-        var site = await db.Sites.FirstOrDefaultAsync(ct);
-        string ssg = "skipped";
-        if (site is not null)
-        {
-            try
-            {
-                var job = await ssgService.EnqueueSsgRebuildAsync(
-                    new CreateSsgRebuildJobRequest(site.Id, "Full", Concurrency: 2), ct);
-                ssg = job is not null ? "queued" : "already-in-progress";
-            }
-            catch (Exception ex)
-            {
-                // SSG failure must not undo or fail the shelf change.
-                logger.LogError(ex, "SSG enqueue after featured-shelf replace failed");
-                ssg = "failed";
-            }
-        }
-
-        return Results.Ok(new { applied = result.Applied, notFound = result.NotFound, ssg });
+        // No SSG enqueue (ADR-023): home + /books pick up the new order at the nightly Full rebuild,
+        // or now with `make rebuild-ssg`.
+        return Results.Ok(new { applied = result.Applied, notFound = result.NotFound });
     }
 
     // ── Edition Chapters ──

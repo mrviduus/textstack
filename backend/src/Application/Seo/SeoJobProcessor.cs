@@ -1,12 +1,10 @@
 using System.Text.Json;
 using Application.Auth;
 using Application.Common.Interfaces;
-using Application.SsgRebuild;
 using Contracts.Admin;
 using Domain.Entities;
 using Domain.Enums;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
 
 namespace Application.Seo;
 
@@ -20,9 +18,7 @@ public class SeoJobProcessor(
     IAppDbContext db,
     SeoContextBuilder contextBuilder,
     SeoContentApplier applier,
-    ISsgJobService ssg,
-    IEmailService email,
-    ILogger<SeoJobProcessor> logger)
+    IEmailService email)
 {
     public record JobContext(
         Guid JobId,
@@ -234,10 +230,6 @@ public class SeoJobProcessor(
         job.Status = SeoJobStatus.Success;
         job.CompletedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
-
-        // Best-effort SSG enqueue (errors logged but non-fatal)
-        await EnqueueSsgSafeAsync(job, ct);
-
         return "success";
     }
 
@@ -328,8 +320,6 @@ public class SeoJobProcessor(
         job.Status = SeoJobStatus.Success;
         job.CompletedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
-
-        await EnqueueSsgSafeAsync(job, ct);
         return "success";
     }
 
@@ -443,8 +433,6 @@ public class SeoJobProcessor(
         job.ApprovedAt = DateTimeOffset.UtcNow;
         job.CompletedAt ??= DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
-
-        await EnqueueSsgSafeAsync(job, ct);
     }
 
     /// <summary>
@@ -464,47 +452,6 @@ public class SeoJobProcessor(
         await applier.RevertAsync(job.EntityType, job.EntityId, job.BeforeSnapshot, ct);
         job.Status = SeoJobStatus.Reverted;
         await db.SaveChangesAsync(ct);
-
-        await EnqueueSsgSafeAsync(job, ct);
-    }
-
-    /// <summary>Resolves the entity's SiteId + slug and enqueues a Specific SSG rebuild.</summary>
-    private async Task EnqueueSsgSafeAsync(SeoBackfillJob job, CancellationToken ct)
-    {
-        try
-        {
-            Guid siteId; string? slug; string scope;
-            switch (job.EntityType)
-            {
-                case SeoEntityType.Author:
-                    var a = await db.Authors.AsNoTracking().FirstOrDefaultAsync(x => x.Id == job.EntityId, ct);
-                    if (a is null) return;
-                    siteId = a.SiteId; slug = a.Slug; scope = "author"; break;
-                case SeoEntityType.Edition:
-                    var e = await db.Editions.AsNoTracking().FirstOrDefaultAsync(x => x.Id == job.EntityId, ct);
-                    if (e is null) return;
-                    siteId = e.SiteId; slug = e.Slug; scope = "book"; break;
-                case SeoEntityType.Genre:
-                    var g = await db.Genres.AsNoTracking().FirstOrDefaultAsync(x => x.Id == job.EntityId, ct);
-                    if (g is null) return;
-                    siteId = g.SiteId; slug = g.Slug; scope = "genre"; break;
-                default:
-                    return;
-            }
-            var req = scope switch
-            {
-                "book" => new CreateSsgRebuildJobRequest(siteId, "Specific", BookSlugs: new[] { slug! }),
-                "author" => new CreateSsgRebuildJobRequest(siteId, "Specific", AuthorSlugs: new[] { slug! }),
-                "genre" => new CreateSsgRebuildJobRequest(siteId, "Specific", GenreSlugs: new[] { slug! }),
-                _ => null
-            };
-            if (req is not null) await ssg.TryEnqueueSsgRebuildAsync(req);
-        }
-        catch (Exception ex)
-        {
-            // Best-effort: the SEO apply is committed; a missed rebuild is logged, never a failure.
-            logger.LogError(ex, "SSG enqueue after SEO job {JobId} failed", job.Id);
-        }
     }
 
     /// <summary>Enqueues a single entity for backfill of specified fields using the active templates.</summary>
