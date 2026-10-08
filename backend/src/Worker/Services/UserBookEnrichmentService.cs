@@ -7,9 +7,9 @@ using Microsoft.Extensions.Logging;
 namespace Worker.Services;
 
 /// <summary>
-/// The single seam that runs a user book's metadata enrichment with a visible, terminal status. Both the
-/// ingestion inline-kick and the sweep <see cref="MetadataEnrichmentWorker"/> route through here, so the
-/// atomic claim (Pending → Running) makes a double-trigger safe. The enrichment itself is best-effort:
+/// The single seam that runs a user book's metadata enrichment with a visible, terminal status. Its one
+/// consumer is <see cref="MetadataEnrichmentWorker"/> (ADR-022; ingestion's inline kick was removed); the
+/// atomic claim (Pending → Running) still keeps a second trigger harmless. The enrichment itself is best-effort:
 /// the status always reaches a terminal state (Completed even when nothing was filled, or Failed on error)
 /// — that is what kills the "forever-enriching" badge.
 /// </summary>
@@ -22,8 +22,8 @@ public class UserBookEnrichmentService(
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
 
-        // Atomic claim: only the caller that flips Pending → Running proceeds. Concurrent inline-kick +
-        // sweep both race here; the loser sees rowcount 0 and returns. now() also stamps stale detection.
+        // Atomic claim: only the caller that flips Pending → Running proceeds; a second trigger sees
+        // rowcount 0 and returns. now() also stamps stale detection.
         var claimed = await db.UserBooks
             .Where(b => b.Id == bookId && b.MetadataEnrichmentStatus == MetadataEnrichmentStatus.Pending)
             .ExecuteUpdateAsync(s => s
@@ -57,6 +57,13 @@ public class UserBookEnrichmentService(
             book.UpdatedAt = DateTimeOffset.UtcNow;
             await db.SaveChangesAsync(ct);
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // ADR-022: a shutdown gives the claim back instead of failing the book.
+            await using var fresh = await dbFactory.CreateDbContextAsync(CancellationToken.None);
+            await ReturnClaimAsync(fresh.UserBooks, bookId);
+            throw;
+        }
         catch (Exception ex)
         {
             logger.LogError(ex, "Metadata enrichment failed for book {BookId}", bookId);
@@ -72,6 +79,12 @@ public class UserBookEnrichmentService(
             }
         }
     }
+
+    /// <summary>ADR-022: Running → Pending, so the worker's next tick (after the restart) runs it again.</summary>
+    public static Task<int> ReturnClaimAsync(IQueryable<UserBook> books, Guid bookId) =>
+        books.Where(b => b.Id == bookId && b.MetadataEnrichmentStatus == MetadataEnrichmentStatus.Running)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(b => b.MetadataEnrichmentStatus, MetadataEnrichmentStatus.Pending), CancellationToken.None);
 
     /// <summary>
     /// True when at least one target field the merge could fill is still empty (Genre or Description empty, or
