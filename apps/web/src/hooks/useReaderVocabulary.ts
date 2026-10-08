@@ -19,7 +19,7 @@ import { takeGuestNudge, type GuestNudge } from '../lib/guestNudge'
 // translation against another sense. Not set by the main load (its sentences feed the backfill only).
 export type VocabMap = Map<string, { stage: number; id?: string; translation?: string; sentence?: string; isPending?: boolean }>
 
-export function useReaderVocabulary(bookLanguage?: string, targetLang?: string | null) {
+export function useReaderVocabulary(targetLang?: string | null) {
   const { isAuthenticated, isGuest, waitForSession, ensureSession } = useAuth()
   const { commitmentThreshold } = useGuestLimits()
   const [vocabMap, setVocabMap] = useState<VocabMap>(new Map())
@@ -78,16 +78,17 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
   // Backfill translations for words missing them, in the sentence each was saved in (the
   // main load carries it for untranslated words only), so the gloss is that sense. No bookId: the
   // sentence may be from another book, and the open one's genre would bias it wrongly for good.
+  // Source = the word's own language, not the open book's, for the same reason.
   useEffect(() => {
-    if (!loadedWords || !targetLang || !bookLanguage || targetLang === bookLanguage) return
+    if (!loadedWords || !targetLang) return
     let cancelled = false
-    const lang = bookLanguage
     const target = targetLang
 
     ;(async () => {
       for (const w of loadedWords) {
         if (cancelled) return
-        if (w.translation) continue
+        const lang = w.language
+        if (w.translation || !lang || lang === target) continue
         const word = normalizeVocabKey(w.word)
         const entry = mapRef.current.get(word)
         // Removed since, pending (local id) or this row translated since — nothing to do. Per row
@@ -106,7 +107,7 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
       }
     })()
     return () => { cancelled = true }
-  }, [loadedWords, targetLang, bookLanguage, updateMap])
+  }, [loadedWords, targetLang, updateMap])
 
   // I4: flush pending local vocab into backend. Called:
   //   (a) on threshold-crossing after ensureSession succeeds;

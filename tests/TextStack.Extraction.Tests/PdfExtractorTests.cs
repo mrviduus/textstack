@@ -39,6 +39,8 @@ public class PdfExtractorTests
     }
 
     // Review r7 of #780: the document opened, so its page count is known even when extraction fails later.
+    // Review r9: the read is guarded inline (r8's helper inlined); PdfPig builds the page tree at Open,
+    // so a page-count read that throws after Open has no fixture — this pins the path that guard wraps.
     [Fact]
     public async Task ExtractAsync_OpenedThenExtractionThrows_PageCountStillReturned()
     {
@@ -50,15 +52,6 @@ public class PdfExtractorTests
 
         Assert.Contains(result.Diagnostics.Warnings, w => w.Code == ExtractionWarningCode.ParseError);
         Assert.Equal(5, result.Metadata.PageCount);
-    }
-
-    // Review r8 of #780: a page-tree read that throws inside the failure path must not escape it,
-    // or the friendly TextSource.None result is lost.
-    [Fact]
-    public void PageCountOrNull_ReadThrows_Null()
-    {
-        Assert.Null(PdfTextExtractor.PageCountOrNull(() => throw new InvalidOperationException("broken page tree")));
-        Assert.Equal(3, PdfTextExtractor.PageCountOrNull(() => 3));
     }
 
     /// <summary>Opens fine (PdfPig reads it); the extractor's byte copy then throws.</summary>

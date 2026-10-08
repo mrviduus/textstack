@@ -55,7 +55,9 @@ export function useBubbleTranslationSync<B extends BubbleLike>({
   const autoSavedRef = useRef<Set<string>>(new Set())
   const patchedRef = useRef<Set<string>>(new Set())
 
-  // (1) Save-time translation — only onto a word this bubble saved, only while it has none.
+  // (1) Save-time translation — only onto a word this bubble saved, only while it has none, and
+  // only in the sentence it was saved in: a later tap elsewhere is another sense. (The server
+  // trims the saved sentence, hence the trims.)
   useEffect(() => {
     const word = bubble?.word
     const translation = bubble?.translation
@@ -64,11 +66,12 @@ export function useBubbleTranslationSync<B extends BubbleLike>({
     if (!autoSavedRef.current.has(key)) return
     const entry = vocabMap.get(key)
     if (!entry?.id || entry.isPending || entry.translation) return
+    if ((entry.sentence ?? '').trim() !== (bubble?.sentence ?? '').trim()) return
     if (patchedRef.current.has(entry.id)) return
     patchedRef.current.add(entry.id)
     updateWord(entry.id, { translation }).catch(() => {})
     updateTranslation(word, translation)
-  }, [bubble?.word, bubble?.translation, vocabMap, updateTranslation])
+  }, [bubble?.word, bubble?.translation, bubble?.sentence, vocabMap, updateTranslation])
 
   // (2) Lang-picker mid-popup refetch. Track (word, lang) pair — word changes
   // are owned by the openBubble path, this effect only fires on lang flips for

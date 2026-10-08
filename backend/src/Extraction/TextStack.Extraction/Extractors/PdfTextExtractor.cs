@@ -35,19 +35,6 @@ public sealed class PdfTextExtractor : ITextExtractor
         }
     }
 
-    /// <summary>The page count, or null if reading it throws — keeps the failure path's result friendly.</summary>
-    internal static int? PageCountOrNull(Func<int> read)
-    {
-        try
-        {
-            return read();
-        }
-        catch (Exception)
-        {
-            return null;
-        }
-    }
-
     public Task<ExtractionResult> ExtractAsync(ExtractionRequest request, CancellationToken ct = default)
     {
         var warnings = new List<ExtractionWarning>();
@@ -95,10 +82,20 @@ public sealed class PdfTextExtractor : ITextExtractor
                 ExtractionWarningCode.ParseError,
                 $"PDF extraction failed: {ex.Message}"));
 
-            // The document opened, so the Original layout can still page it.
+            // The document opened, so the Original layout can still page it. A page-tree read that
+            // throws here must not escape, or the friendly TextSource.None result is lost.
+            int? pageCount;
+            try
+            {
+                pageCount = document.NumberOfPages;
+            }
+            catch (Exception)
+            {
+                pageCount = null;
+            }
             return Task.FromResult(new ExtractionResult(
                 SourceFormat.Pdf,
-                new ExtractionMetadata(null, null, null, null, PageCount: PageCountOrNull(() => document.NumberOfPages)),
+                new ExtractionMetadata(null, null, null, null, PageCount: pageCount),
                 [],
                 [],
                 new ExtractionDiagnostics(TextSource.None, null, warnings)));

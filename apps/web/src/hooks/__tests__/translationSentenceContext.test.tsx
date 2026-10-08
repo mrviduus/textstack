@@ -136,12 +136,26 @@ describe('bubble never writes onto an already-saved word', () => {
     const b: BubbleLike = { word: 'pocketed', translation: 'embolsou', translationLoading: false, ...ctx }
     const { result, rerender, updateTranslation } = mountSync(null, 'embolsou')
     act(() => { result.current.triggerAutoSave('pocketed', () => Promise.resolve()) })
-    const saved = new Map([['pocketed', { stage: 0, id: 'w1' } as Entry]])
+    const saved = new Map([['pocketed', { stage: 0, id: 'w1', sentence: SENTENCE } as Entry]])
     await act(async () => { rerender({ lang: 'pt', map: saved, b }) })
     await act(async () => { rerender({ lang: 'pt', map: new Map(saved), b }) })
 
     expect(updateWord).toHaveBeenCalledTimes(1)
     expect(updateWord).toHaveBeenCalledWith('w1', { translation: 'embolsou' })
     expect(updateTranslation).toHaveBeenCalledWith('pocketed', 'embolsou')
+  })
+
+  // Review r9 of #780: tap in sentence A auto-saves, the bubble closes before its translation;
+  // a tap in sentence B must not write B's sense onto the word saved in A.
+  it('AutoSaveInSentenceA_TranslationArrivesInSentenceB_NoPatch', async () => {
+    const { result, rerender, updateTranslation } = mountSync(null)
+    act(() => { result.current.triggerAutoSave('pocketed', () => Promise.resolve()) })
+    const saved = new Map([['pocketed', { stage: 0, id: 'w1', sentence: SENTENCE } as Entry]])
+    const inB: BubbleLike = { word: 'pocketed', translation: null, translationLoading: true, sentence: 'She pocketed the letter.', bookId: 'book-1' }
+    await act(async () => { rerender({ lang: 'pt', map: saved, b: inB }) })
+    await act(async () => { rerender({ lang: 'pt', map: saved, b: { ...inB, translation: 'enfiou', translationLoading: false } }) })
+
+    expect(updateWord).not.toHaveBeenCalled()
+    expect(updateTranslation).not.toHaveBeenCalled()
   })
 })

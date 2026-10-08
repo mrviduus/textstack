@@ -65,7 +65,12 @@ public class TranslateSenseEvalTests
     [InlineData("**WRONG** — the correct sense is 'put away'", false)]
     [InlineData("INCORRECT", false)]
     [InlineData("I am not sure", false)]
-    public void IsCorrectVerdict_JudgeReply_ParsedByFirstVerdictWord(string reply, bool expected)
+    // Review r9: a negation is wrong, not read as its CORRECT.
+    [InlineData("Not correct: it means 'buried'", false)]
+    [InlineData("**NOT CORRECT**", false)]
+    [InlineData("The translation is not  correct.", false)]
+    [InlineData("Incorrect — the sense is 'put into a pocket'", false)]
+    public void IsCorrectVerdict_JudgeReply_NegativesCheckedFirst(string reply, bool expected)
     {
         Assert.Equal(expected, TranslateSenseEvalRunner.IsCorrectVerdict(reply));
     }

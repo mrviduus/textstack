@@ -55,7 +55,6 @@ export function useReaderWordActions({
     isAuthenticated,
     chapterId: chapter.id,
     injectJs,
-    bookLanguage: textLanguage,
     nativeLanguage,
   })
 

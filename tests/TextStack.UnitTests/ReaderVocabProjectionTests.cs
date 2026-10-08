@@ -1,5 +1,6 @@
 using Api.Endpoints;
 using Domain.Entities;
+using Microsoft.EntityFrameworkCore;
 
 namespace TextStack.UnitTests;
 
@@ -17,6 +18,9 @@ public class ReaderVocabProjectionTests
         Sentence = sentence,
     };
 
+    // The user's NativeLanguage as the subquery the endpoint passes.
+    private static IQueryable<string?> Native(string? lang) => new[] { lang }.AsQueryable();
+
     private static readonly List<VocabularyWord> Words =
     [
         Word("wound", null, "Later she wound the clock."),
@@ -26,7 +30,7 @@ public class ReaderVocabProjectionTests
     [Fact]
     public void ProjectReaderVocab_Always_SentenceOnlyForUntranslated()
     {
-        var dtos = VocabularyEndpoints.ProjectReaderVocab(Words.AsQueryable(), "pt").ToDictionary(d => d.Word);
+        var dtos = VocabularyEndpoints.ProjectReaderVocab(Words.AsQueryable(), Native("pt")).ToDictionary(d => d.Word);
 
         Assert.Equal("Later she wound the clock.", dtos["wound"].Sentence);
         Assert.Null(dtos["bled"].Sentence);
@@ -36,15 +40,51 @@ public class ReaderVocabProjectionTests
     [Fact]
     public void ProjectReaderVocab_NativeEqualsWordLanguage_NoSentence()
     {
-        var dtos = VocabularyEndpoints.ProjectReaderVocab(Words.AsQueryable(), "en").ToList();
+        var dtos = VocabularyEndpoints.ProjectReaderVocab(Words.AsQueryable(), Native("en")).ToList();
 
         Assert.All(dtos, d => Assert.Null(d.Sentence));
+    }
+
+    // Review r9: the backfill translates from the word's own language, not the open book's.
+    [Fact]
+    public void ProjectReaderVocab_WordFromOtherLanguage_CarriesItsLanguage()
+    {
+        var de = Word("Haus", null, "Das Haus ist alt.");
+        de.Language = "de";
+
+        var dto = Assert.Single(VocabularyEndpoints.ProjectReaderVocab(new[] { de }.AsQueryable(), Native("pt")));
+
+        Assert.Equal("de", dto.Language);
+        Assert.Equal("Das Haus ist alt.", dto.Sentence);
+    }
+
+    // Review r9: the native language is a subquery of the one statement, not a second read.
+    [Fact]
+    public void ProjectReaderVocab_OnPostgres_OneStatementWithUserSubquery()
+    {
+        using var db = new Infrastructure.Persistence.AppDbContextFactory().CreateDbContext([]);
+        var userId = Guid.NewGuid();
+
+        var sql = VocabularyEndpoints.ProjectReaderVocab(
+            db.VocabularyWords.Where(w => w.UserId == userId),
+            db.Users.Where(u => u.Id == userId).Select(u => u.NativeLanguage)).ToQueryString();
+
+        Assert.Contains("native_language", sql);
+        Assert.Contains("vocabulary_words", sql);
+    }
+
+    [Fact]
+    public void ProjectReaderVocab_NoUserRow_SentenceForUntranslated()
+    {
+        var dtos = VocabularyEndpoints.ProjectReaderVocab(Words.AsQueryable(), Array.Empty<string?>().AsQueryable()).ToDictionary(d => d.Word);
+
+        Assert.Equal("Later she wound the clock.", dtos["wound"].Sentence);
     }
 
     [Fact]
     public void ProjectReaderVocab_NoNativeLanguage_SentenceForUntranslated()
     {
-        var dtos = VocabularyEndpoints.ProjectReaderVocab(Words.AsQueryable(), null).ToDictionary(d => d.Word);
+        var dtos = VocabularyEndpoints.ProjectReaderVocab(Words.AsQueryable(), Native(null)).ToDictionary(d => d.Word);
 
         Assert.Equal("Later she wound the clock.", dtos["wound"].Sentence);
     }

@@ -33,7 +33,11 @@ describe('M5 wiring — the book language reaches TTS, translate, explain and sa
     expect(shell).toContain('const textLanguage = readerTextLanguage(props.bookLanguage, language)')
     expect(shell + wordActions).not.toMatch(/lang: language \}/)
     expect(shell + wordActions).not.toMatch(/fromLang=\{language\}/)
-    expect(wordActions).toMatch(/bookLanguage: textLanguage/)
+    // Review r9 of #780: the vocab map's gloss backfill takes no book language — each saved word
+    // is translated from its own (it may come from another book).
+    const map = wordActions.indexOf('useReaderVocabMap({')
+    expect(map).toBeGreaterThan(-1)
+    expect(wordActions.slice(map, wordActions.indexOf('\n  })', map))).not.toMatch(/bookLanguage/)
     // Passed to useReaderVocabActions as itself — `bookLanguage: textLanguage,` elsewhere must not satisfy it.
     const at = wordActions.indexOf('useReaderVocabActions({')
     expect(at).toBeGreaterThan(-1)

@@ -26,15 +26,14 @@ public static class TranslateSenseEvalRunner
         "(any inflection, synonym or short clarifier is fine). Reply with CORRECT or WRONG on the first " +
         "line, then one short reason.";
 
-    private static readonly Regex VerdictWord = new(@"\b(CORRECT|INCORRECT|WRONG)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    private static readonly Regex NegativeVerdict = new(@"\b(INCORRECT|WRONG|NOT\s+CORRECT)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    private static readonly Regex CorrectVerdict = new(@"\bCORRECT\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
-    /// <summary>The first verdict word anywhere decides, so markdown or a label ("**CORRECT**",
-    /// "Verdict: CORRECT") still parses; INCORRECT, WRONG or none is wrong.</summary>
-    public static bool IsCorrectVerdict(string text)
-    {
-        var m = VerdictWord.Match(text);
-        return m.Success && m.Value.Equals("CORRECT", StringComparison.OrdinalIgnoreCase);
-    }
+    /// <summary>Any negative (INCORRECT, WRONG, NOT CORRECT) anywhere makes it wrong — checked first,
+    /// so "Not correct: …" is not read as CORRECT; otherwise CORRECT anywhere, so markdown or a label
+    /// ("**CORRECT**", "Verdict: CORRECT") still parses. No verdict word is wrong.</summary>
+    public static bool IsCorrectVerdict(string text) =>
+        !NegativeVerdict.IsMatch(text) && CorrectVerdict.IsMatch(text);
 
     public static IReadOnlyList<TranslateSenseGolden> LoadGoldens() =>
         GoldenLoader.Load<TranslateSenseGolden>("translate_senses.json");

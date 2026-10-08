@@ -95,13 +95,13 @@ describe('useReaderVocabulary', () => {
   })
 
   it('calls getReaderVocab on mount when isAuthenticated=true', async () => {
-    renderHook(() => useReaderVocabulary('en', 'de'))
+    renderHook(() => useReaderVocabulary('de'))
     await waitFor(() => expect(getReaderVocabMock).toHaveBeenCalledTimes(1))
   })
 
   it('does not call getReaderVocab when !isAuthenticated (no session yet)', async () => {
     authState.isAuthenticated = false
-    renderHook(() => useReaderVocabulary('en', 'de'))
+    renderHook(() => useReaderVocabulary('de'))
     await Promise.resolve()
     expect(getReaderVocabMock).not.toHaveBeenCalled()
   })
@@ -113,7 +113,7 @@ describe('useReaderVocabulary', () => {
       pendingId: null,
       reason: null,
     })
-    const { result } = renderHook(() => useReaderVocabulary('en', 'de'))
+    const { result } = renderHook(() => useReaderVocabulary('de'))
     await waitFor(() => expect(getReaderVocabMock).toHaveBeenCalled())
 
     await act(async () => {
@@ -142,7 +142,7 @@ describe('useReaderVocabulary', () => {
       reason: null,
     }))
 
-    const { result } = renderHook(() => useReaderVocabulary('en', 'de'))
+    const { result } = renderHook(() => useReaderVocabulary('de'))
 
     await act(async () => { await result.current.addWord({ word: 'one', language: 'en' }) })
     await act(async () => { await result.current.addWord({ word: 'two', language: 'en' }) })
@@ -161,7 +161,7 @@ describe('useReaderVocabulary', () => {
 
   it('a pending word removed before the guest mint is not flushed to the account (M3)', async () => {
     authState.isAuthenticated = false
-    const { result } = renderHook(() => useReaderVocabulary('en', 'de'))
+    const { result } = renderHook(() => useReaderVocabulary('de'))
     await act(async () => { await result.current.addWord({ word: 'one', language: 'en' }) })
     const id = result.current.vocabMap.get('one')!.id!
 
@@ -186,7 +186,7 @@ describe('useReaderVocabulary', () => {
     it('guest: nudges on the 3rd and 10th saved word, each once', async () => {
       authState.isGuest = true
       saveWordMock.mockImplementation(echoSave)
-      const { result } = renderHook(() => useReaderVocabulary('en', 'de'))
+      const { result } = renderHook(() => useReaderVocabulary('de'))
       await waitFor(() => expect(getReaderVocabMock).toHaveBeenCalled())
 
       await save(result, ['a', 'b'])
@@ -205,14 +205,14 @@ describe('useReaderVocabulary', () => {
 
     it('anonymous reader: the 3rd word (the one that mints the guest) nudges', async () => {
       authState.isAuthenticated = false
-      const { result } = renderHook(() => useReaderVocabulary('en', 'de'))
+      const { result } = renderHook(() => useReaderVocabulary('de'))
       await save(result, ['one', 'two', 'three'])
       expect(result.current.guestNudge).toBe('three')
     })
 
     it('account: never nudged', async () => {
       saveWordMock.mockImplementation(echoSave)
-      const { result } = renderHook(() => useReaderVocabulary('en', 'de'))
+      const { result } = renderHook(() => useReaderVocabulary('de'))
       await waitFor(() => expect(getReaderVocabMock).toHaveBeenCalled())
       await save(result, ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'])
       expect(result.current.guestNudge).toBe(null)
@@ -233,7 +233,7 @@ describe('useReaderVocabulary', () => {
       reason: null,
     }))
 
-    const { result } = renderHook(() => useReaderVocabulary('en', 'de'))
+    const { result } = renderHook(() => useReaderVocabulary('de'))
     await waitFor(() => expect(getReaderVocabMock).toHaveBeenCalled())
 
     await act(async () => {
@@ -263,7 +263,7 @@ describe('useReaderVocabulary', () => {
       }
     })
 
-    const { result } = renderHook(() => useReaderVocabulary('en', 'de'))
+    const { result } = renderHook(() => useReaderVocabulary('de'))
     await waitFor(() => expect(getReaderVocabMock).toHaveBeenCalled())
 
     await act(async () => {
@@ -292,7 +292,7 @@ describe('useReaderVocabulary', () => {
       reason: null,
     })
 
-    const { result, rerender } = renderHook(() => useReaderVocabulary('en', 'de'))
+    const { result, rerender } = renderHook(() => useReaderVocabulary('de'))
 
     let pending: Promise<unknown>
     await act(async () => {
@@ -317,9 +317,9 @@ describe('useReaderVocabulary', () => {
   // bookId — the sentence may come from another book, whose genre the open one's would misstate.
   it('backfill_MainLoadHasSentence_TranslatesInItWithoutBookIdOrSecondFetch', async () => {
     const sentence = 'He pocketed the coins and walked out.'
-    getReaderVocabMock.mockResolvedValue([{ id: 'w1', word: 'pocketed', stage: 1, sentence }])
+    getReaderVocabMock.mockResolvedValue([{ id: 'w1', word: 'pocketed', stage: 1, language: 'en', sentence }])
 
-    renderHook(() => useReaderVocabulary('en', 'pt'))
+    renderHook(() => useReaderVocabulary('pt'))
 
     await waitFor(() => expect(vi.mocked(translateApi)).toHaveBeenCalledWith('pocketed', 'en', 'pt', undefined, { sentence }))
     expect(vi.mocked(translateApi)).toHaveBeenCalledTimes(1)
@@ -330,11 +330,11 @@ describe('useReaderVocabulary', () => {
     let release!: () => void
     vi.mocked(translateApi).mockImplementationOnce(() => new Promise(r => { release = () => r({ translatedText: 'a', sourceLang: 'en', targetLang: 'pt' }) }))
     getReaderVocabMock.mockResolvedValue([
-      { id: 'w1', word: 'alpha', stage: 1, sentence: 'Alpha here.' },
-      { id: 'w2', word: 'beta', stage: 1, sentence: 'Beta here.' },
+      { id: 'w1', word: 'alpha', stage: 1, language: 'en', sentence: 'Alpha here.' },
+      { id: 'w2', word: 'beta', stage: 1, language: 'en', sentence: 'Beta here.' },
     ])
 
-    const { result } = renderHook(() => useReaderVocabulary('en', 'pt'))
+    const { result } = renderHook(() => useReaderVocabulary('pt'))
     await waitFor(() => expect(vi.mocked(translateApi)).toHaveBeenCalledTimes(1))
     await act(async () => { await result.current.removeWord('w2', 'beta') })
     await act(async () => { release() })
@@ -348,11 +348,11 @@ describe('useReaderVocabulary', () => {
     const peru = { translatedText: 'peru', sourceLang: 'en', targetLang: 'pt' } as never
     vi.mocked(translateApi).mockResolvedValueOnce(peru).mockResolvedValueOnce(peru)
     getReaderVocabMock.mockResolvedValue([
-      { id: 'w1', word: 'Turkey', stage: 1, sentence: 'Turkey borders Greece.' },
-      { id: 'w2', word: 'turkey', stage: 1, sentence: 'We roasted a turkey.' },
+      { id: 'w1', word: 'Turkey', stage: 1, language: 'en', sentence: 'Turkey borders Greece.' },
+      { id: 'w2', word: 'turkey', stage: 1, language: 'en', sentence: 'We roasted a turkey.' },
     ])
 
-    renderHook(() => useReaderVocabulary('en', 'pt'))
+    renderHook(() => useReaderVocabulary('pt'))
 
     await waitFor(() => expect(vi.mocked(updateWordApi)).toHaveBeenCalledWith('w2', { translation: 'peru' }))
     expect(vi.mocked(updateWordApi)).toHaveBeenCalledWith('w1', { translation: 'peru' })
@@ -362,13 +362,38 @@ describe('useReaderVocabulary', () => {
   })
 
   it('backfill_DefinitionMode_NothingTranslated', async () => {
-    getReaderVocabMock.mockResolvedValue([{ id: 'w1', word: 'pocketed', stage: 1, sentence: 'He pocketed it.' }])
+    getReaderVocabMock.mockResolvedValue([{ id: 'w1', word: 'pocketed', stage: 1, language: 'en', sentence: 'He pocketed it.' }])
 
-    renderHook(() => useReaderVocabulary('en', 'en'))
+    renderHook(() => useReaderVocabulary('en'))
     await waitFor(() => expect(getReaderVocabMock).toHaveBeenCalledTimes(1))
     await act(async () => {})
 
     expect(vi.mocked(translateApi)).not.toHaveBeenCalled()
+  })
+
+  // Review r9 of #780: words come from books in other languages — each is translated from its
+  // own language, not the open book's; a word with no language, or in the target, is skipped.
+  it('backfill_WordsFromOtherLanguages_TranslatedFromEachWordsLanguage', async () => {
+    getReaderVocabMock.mockResolvedValue([
+      { id: 'w1', word: 'Haus', stage: 1, language: 'de', sentence: 'Das Haus ist alt.' },
+      { id: 'w2', word: 'livro', stage: 1, language: 'pt', sentence: 'O livro.' },
+      { id: 'w3', word: 'mystery', stage: 1, sentence: 'A mystery.' },
+      { id: 'w4', word: 'pocketed', stage: 1, language: 'en', sentence: 'He pocketed it.' },
+    ])
+
+    renderHook(() => useReaderVocabulary('pt'))
+
+    await waitFor(() => expect(vi.mocked(translateApi)).toHaveBeenCalledWith('pocketed', 'en', 'pt', undefined, { sentence: 'He pocketed it.' }))
+    expect(vi.mocked(translateApi)).toHaveBeenCalledWith('Haus', 'de', 'pt', undefined, { sentence: 'Das Haus ist alt.' })
+    expect(vi.mocked(translateApi)).toHaveBeenCalledTimes(2)
+  })
+
+  it('backfill_BookInNativeLanguage_OtherLanguageWordsStillTranslated', async () => {
+    getReaderVocabMock.mockResolvedValue([{ id: 'w1', word: 'Haus', stage: 1, language: 'de', sentence: 'Das Haus.' }])
+
+    renderHook(() => useReaderVocabulary('pt'))
+
+    await waitFor(() => expect(vi.mocked(translateApi)).toHaveBeenCalledWith('Haus', 'de', 'pt', undefined, { sentence: 'Das Haus.' }))
   })
 
   // Review r4 of #780: the main load is once per auth state — a native-language change
@@ -377,7 +402,7 @@ describe('useReaderVocabulary', () => {
     authState.isAuthenticated = false
     guestLimits.commitmentThreshold = 99
     const { result, rerender } = renderHook(
-      ({ target }: { target: string }) => useReaderVocabulary('en', target),
+      ({ target }: { target: string }) => useReaderVocabulary(target),
       { initialProps: { target: 'en' } },
     )
     await act(async () => { await result.current.addWord({ word: 'pocketed', language: 'en' }) })
@@ -392,7 +417,7 @@ describe('useReaderVocabulary', () => {
   it('load_NativeLanguageChange_MainLoadNotRepeated', async () => {
     getReaderVocabMock.mockResolvedValue([{ id: 'w1', word: 'pocketed', stage: 1, translation: 'embolsou' }])
     const { rerender } = renderHook(
-      ({ target }: { target: string }) => useReaderVocabulary('en', target),
+      ({ target }: { target: string }) => useReaderVocabulary(target),
       { initialProps: { target: 'pt' } },
     )
     await waitFor(() => expect(getReaderVocabMock).toHaveBeenCalledTimes(1))

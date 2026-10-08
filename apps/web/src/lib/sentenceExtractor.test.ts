@@ -48,4 +48,17 @@ describe('extractSentence', () => {
 
     expect(extractSentence(rangeOver(text, at, at + 6), container)).toBe('Later she wound the clock.')
   })
+
+  // Review r9 of #780: the crop window is placed in the trimmed sentence — leading whitespace
+  // removed by trim must not shift it (the word sits 80 chars in, as for an unindented one).
+  it('extractSentence_IndentedLongSentence_CropKeepsWordAt80', () => {
+    const container = setup(`<p>Intro.${' '.repeat(50)}${'a '.repeat(60)}pocketed${' b'.repeat(100)}.</p>`)
+    const text = container.querySelector('p')!.firstChild as Text
+    const at = text.data.indexOf('pocketed')
+
+    const s = extractSentence(rangeOver(text, at, at + 8), container)
+
+    expect(s.startsWith('...')).toBe(true)
+    expect(s.indexOf('pocketed')).toBe(3 + 80)
+  })
 })

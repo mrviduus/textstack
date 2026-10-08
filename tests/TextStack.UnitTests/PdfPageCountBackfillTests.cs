@@ -24,12 +24,9 @@ public class PdfPageCountBackfillTests
     [Theory]
     [InlineData(UserBookStatus.Ready)]
     [InlineData(UserBookStatus.Failed)]
+    [InlineData(UserBookStatus.Processing)] // review r9: opens in Original layout too
     public void NeedsPageCount_PdfWithoutCount_Selected(UserBookStatus status) =>
         Assert.True(Needs(Book(status)));
-
-    [Fact]
-    public void NeedsPageCount_Processing_NotSelected() =>
-        Assert.False(Needs(Book(UserBookStatus.Processing)));
 
     [Fact]
     public void NeedsPageCount_AlreadyCounted_NotSelected() =>

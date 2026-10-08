@@ -14,9 +14,7 @@ type Options = {
   isAuthenticated: boolean
   chapterId: string | null | undefined
   injectJs: (js: string) => void
-  /** Source language of the current book — first arg to translationApi.translate. */
-  bookLanguage?: string | null
-  /** User's native language (target). When null/equal-to-book, backfill is skipped. */
+  /** User's native language (target). Null → backfill skipped; words already in it are skipped. */
   nativeLanguage?: string | null
 }
 
@@ -32,7 +30,6 @@ export function useReaderVocabMap({
   isAuthenticated,
   chapterId,
   injectJs,
-  bookLanguage,
   nativeLanguage,
 }: Options) {
   const vocabMapRef = useRef<VocabMap>({})
@@ -105,12 +102,14 @@ export function useReaderVocabMap({
   // bumpVocab (the loop bumps per word; an earlier version stopped after one).
   useEffect(() => {
     if (!loaded || loaded.uid !== user?.id || !isAuthenticated) return
-    if (!bookLanguage || !nativeLanguage || nativeLanguage === bookLanguage) return
+    if (!nativeLanguage) return
     let cancelled = false
     ;(async () => {
       for (const w of loaded.words) {
         if (cancelled) return
-        if (w.translation) continue
+        // Source = the word's own language: it may come from a book in another one than this.
+        const lang = w.language
+        if (w.translation || !lang || lang === nativeLanguage) continue
         const key = w.word.toLowerCase()
         // Removed since, or this row translated since — nothing to do. Per row id: 'Turkey' and
         // 'turkey' share one key, and the second row must still get its own translation written.
@@ -119,7 +118,7 @@ export function useReaderVocabMap({
         try {
           // cachedTranslate de-dupes against the toolbar/save path and
           // memoizes, so re-opening the chapter is free.
-          const { translation } = await cachedTranslate(w.word, bookLanguage, nativeLanguage, { sentence: w.sentence })
+          const { translation } = await cachedTranslate(w.word, lang, nativeLanguage, { sentence: w.sentence })
           if (cancelled || !translation) continue
           const entry = vocabMapRef.current[key]
           if (entry?.id === w.id) vocabMapRef.current[key] = { ...entry, translation }
@@ -136,7 +135,7 @@ export function useReaderVocabMap({
       }
     })()
     return () => { cancelled = true }
-  }, [loaded, user?.id, isAuthenticated, bookLanguage, nativeLanguage, bumpVocab])
+  }, [loaded, user?.id, isAuthenticated, nativeLanguage, bumpVocab])
 
   /** Persist current map to per-user cache. Caller invokes when a selection closes. */
   const flushToCache = () => {

@@ -313,6 +313,8 @@ export interface ReaderVocabWordDto {
   translation?: string
   /** Only for a word with no translation, windowed round it — the backfill's context. */
   sentence?: string | null
+  /** The word's own language — the backfill's source (it may be from another book than the open one). */
+  language?: string | null
 }
 
 export async function getReaderVocab(): Promise<ReaderVocabWordDto[]> {

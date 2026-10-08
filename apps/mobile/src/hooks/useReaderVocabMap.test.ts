@@ -22,13 +22,13 @@ beforeEach(() => {
 
 const mount = (nativeLanguage = 'pt') => renderHook(useReaderVocabMap, {
   user: { id: 'u1' }, isAuthenticated: true, chapterId: 'c1', injectJs: () => {},
-  bookLanguage: 'en', nativeLanguage,
+  nativeLanguage,
 })
 
 const SENTENCE = 'He pocketed the coins and walked out.'
 /** The server: an untranslated word carries its sentence in the one main load. */
 const serve = (word: Record<string, unknown>) =>
-  api.getReaderVocab.mockResolvedValue([{ id: 'w1', word: 'Pocketed', stage: 1, sentence: SENTENCE, ...word }])
+  api.getReaderVocab.mockResolvedValue([{ id: 'w1', word: 'Pocketed', stage: 1, language: 'en', sentence: SENTENCE, ...word }])
 
 describe('useReaderVocabMap gloss backfill', () => {
   // Review r5 of #780: one fetch — the backfill translates in the main load's sentence.
@@ -64,8 +64,8 @@ describe('useReaderVocabMap gloss backfill', () => {
   })
 
   const twoWords = () => api.getReaderVocab.mockResolvedValue([
-    { id: 'w1', word: 'alpha', stage: 1, sentence: 'Alpha here.' },
-    { id: 'w2', word: 'beta', stage: 1, sentence: 'Beta here.' },
+    { id: 'w1', word: 'alpha', stage: 1, language: 'en', sentence: 'Alpha here.' },
+    { id: 'w2', word: 'beta', stage: 1, language: 'en', sentence: 'Beta here.' },
   ])
   const holdFirstTranslate = () => {
     let release!: () => void
@@ -119,8 +119,8 @@ describe('useReaderVocabMap gloss backfill', () => {
   // Review r6 of #780: two server rows share one map key; each row is translated and written.
   it('backfill_CaseVariantRows_EachRowWritten', async () => {
     api.getReaderVocab.mockResolvedValue([
-      { id: 'w1', word: 'Turkey', stage: 1, sentence: 'Turkey borders Greece.' },
-      { id: 'w2', word: 'turkey', stage: 1, sentence: 'We roasted a turkey.' },
+      { id: 'w1', word: 'Turkey', stage: 1, language: 'en', sentence: 'Turkey borders Greece.' },
+      { id: 'w2', word: 'turkey', stage: 1, language: 'en', sentence: 'We roasted a turkey.' },
     ])
 
     mount()
@@ -131,6 +131,31 @@ describe('useReaderVocabMap gloss backfill', () => {
     // Review r8: each row's own word is the text — 'Turkey', not the lowercased map key.
     expect(cachedTranslate).toHaveBeenCalledWith('Turkey', 'en', 'pt', { sentence: 'Turkey borders Greece.' })
     expect(cachedTranslate).toHaveBeenCalledWith('turkey', 'en', 'pt', { sentence: 'We roasted a turkey.' })
+  })
+
+  // Review r9 of #780: words come from books in other languages — each is translated from its
+  // own language, not the open book's; a word with no language, or in the target, is skipped.
+  it('backfill_WordsFromOtherLanguages_TranslatedFromEachWordsLanguage', async () => {
+    api.getReaderVocab.mockResolvedValue([
+      { id: 'w1', word: 'Haus', stage: 1, language: 'de', sentence: 'Das Haus ist alt.' },
+      { id: 'w2', word: 'livro', stage: 1, language: 'pt', sentence: 'O livro.' },
+      { id: 'w3', word: 'mystery', stage: 1, sentence: 'A mystery.' },
+    ])
+
+    mount()
+    await flush()
+
+    expect(cachedTranslate).toHaveBeenCalledTimes(1)
+    expect(cachedTranslate).toHaveBeenCalledWith('Haus', 'de', 'pt', { sentence: 'Das Haus ist alt.' })
+  })
+
+  it('backfill_BookInNativeLanguage_OtherLanguageWordsStillTranslated', async () => {
+    api.getReaderVocab.mockResolvedValue([{ id: 'w1', word: 'Haus', stage: 1, language: 'de', sentence: 'Das Haus.' }])
+
+    mount('en')
+    await flush()
+
+    expect(cachedTranslate).toHaveBeenCalledWith('Haus', 'de', 'en', { sentence: 'Das Haus.' })
   })
 
   // The loop bumps per word; that must not cancel it (an earlier version stopped after one).

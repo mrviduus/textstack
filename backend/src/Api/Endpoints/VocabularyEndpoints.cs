@@ -683,7 +683,8 @@ public static partial class VocabularyEndpoints
         if (!TryGetAuth(httpContext, authService, out var userId, out var siteId))
             return Results.Unauthorized();
 
-        var nativeLanguage = await db.Users.Where(u => u.Id == userId).Select(u => u.NativeLanguage).FirstOrDefaultAsync(ct);
+        // A subquery of the main one, not its own read: one round-trip.
+        var nativeLanguage = db.Users.Where(u => u.Id == userId).Select(u => u.NativeLanguage);
         var query = db.VocabularyWords
             .Where(w => w.UserId == userId)
             .OrderBy(w => w.Word)
@@ -699,11 +700,14 @@ public static partial class VocabularyEndpoints
     /// Sentence only for an untranslated word — the gloss backfill's context, so it glosses the
     /// sense the word was saved in. Translated words (the common case) carry none, and neither does a
     /// word in the reader's native language (definition mode: nothing to translate into). No profile
-    /// native language → sentence kept, the client may still know one.
+    /// native language (or no user row) → sentence kept, the client may still know one.
+    /// <c>Language</c> is the backfill's source language: a word may come from a book in another
+    /// language than the open one.
     /// </summary>
-    internal static IQueryable<ReaderVocabWordDto> ProjectReaderVocab(IQueryable<VocabularyWord> words, string? nativeLanguage) =>
+    internal static IQueryable<ReaderVocabWordDto> ProjectReaderVocab(IQueryable<VocabularyWord> words, IQueryable<string?> nativeLanguage) =>
         words.Select(w => new ReaderVocabWordDto(w.Id, w.Word, w.Stage, w.Translation,
-            string.IsNullOrEmpty(w.Translation) && (nativeLanguage == null || w.Language != nativeLanguage) ? w.Sentence : null));
+            string.IsNullOrEmpty(w.Translation) && !nativeLanguage.Any(n => n != null && n == w.Language) ? w.Sentence : null,
+            w.Language));
 
     /// <summary>At most <see cref="MaxReaderSentenceLength"/> chars centred on the word (whole word first, then
     /// substring); the start if the word is absent.
@@ -892,7 +896,7 @@ public record SubmitReviewResponse(
 
 /// <summary>Sentence only with an empty Translation, windowed round the word: the reader's gloss backfill
 /// needs it to translate the saved sense, and nothing else does (see <c>ProjectReaderVocab</c>).</summary>
-public record ReaderVocabWordDto(Guid Id, string Word, int Stage, string? Translation, string? Sentence = null);
+public record ReaderVocabWordDto(Guid Id, string Word, int Stage, string? Translation, string? Sentence = null, string? Language = null);
 
 public record WordClusterDto(
     Guid Id, string Title, string? Theme,

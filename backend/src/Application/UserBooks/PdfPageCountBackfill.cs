@@ -7,11 +7,10 @@ namespace Application.UserBooks;
 /// <summary>Selection for the <c>backfill-pdf-page-counts</c> CLI (#780).</summary>
 public static class PdfPageCountBackfill
 {
-    /// <summary>A PDF upload with no stored page count, Ready or Failed — a failed PDF
-    /// (e.g. scanned, no text layer) still opens in the Original layout.</summary>
+    /// <summary>A PDF upload with no stored page count, in any status — a Processing or failed PDF
+    /// (e.g. scanned, no text layer) opens in the Original layout too.</summary>
     public static readonly Expression<Func<UserBook, bool>> NeedsPageCount = b =>
         b.PageCount == null
-        && (b.Status == UserBookStatus.Ready || b.Status == UserBookStatus.Failed)
         && b.BookFiles.Any(f => f.Format == BookFormat.Pdf);
 
     /// <summary>Counts and writes one book at a time: a failure is logged and skipped, and every

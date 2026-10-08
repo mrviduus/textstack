@@ -49,12 +49,13 @@ export function extractSentence(range: Range, container: HTMLElement): string {
     end++
   }
 
-  const sentence = fullText.slice(start, end).trim()
+  const untrimmed = fullText.slice(start, end)
+  const sentence = untrimmed.trim()
 
   // Cap at 200 chars
   if (sentence.length > 200) {
-    // Try to center the word
-    const wordStart = idx - start
+    // Try to center the word (its offset in the trimmed sentence: minus the leading whitespace)
+    const wordStart = idx - start - (untrimmed.length - untrimmed.trimStart().length)
     const cropStart = Math.max(0, wordStart - 80)
     const cropEnd = Math.min(sentence.length, cropStart + 200)
     return (cropStart > 0 ? '...' : '') + sentence.slice(cropStart, cropEnd) + (cropEnd < sentence.length ? '...' : '')
