@@ -18,8 +18,10 @@
 //
 // Fails closed: any API error before the first delete (deploy runs, package listing, a
 // manifest of a kept version, a rollback SHA that does not resolve) exits 1 having deleted
-// nothing. Duplicate/missing deploy runs, or fewer than DEPLOYS successful deploys in the
-// window, also exit 1.
+// nothing. Duplicate/missing deploy runs, fewer than DEPLOYS successful deploys in the
+// window, or a listing that lacks the newest successful deploy run of the newest main commit
+// that has one (looked up by head_sha, paging main's commits back to the LOOKBACK_DAYS window;
+// none in the window also exits 1) also exit 1.
 //
 // Env: GH_TOKEN, GITHUB_REPOSITORY, DRY_RUN (default true), KEEP_NEWEST (10), KEEP_DAYS (14),
 //      DEPLOYS (5), MAX_DELETE (150), PACKAGES (space-separated service names).
@@ -86,6 +88,37 @@ export function selectDeploys(runs, deploys) {
   return { ok, later: sorted.filter((r) => startedAt(r) >= since && !ok.includes(r)) }
 }
 
+/** Pure: the newest successful run (by startedAt) of one commit's deploy runs on main, or null. */
+export function newestSuccess(runs) {
+  return runs.filter((r) => r.conclusion === 'success' && r.head_branch === 'main').sort((a, b) => startedAt(b) - startedAt(a))[0] ?? null
+}
+
+/** The newest successful deploy of the newest main commit that has one. Pages main's commits
+ *  (deploy.yml skips docs/mobile/extension pushes, so long runs of commits have none) until one
+ *  is found or a commit predates `since`; null if none in the window. */
+export async function findDeployByCommit(commitsPage, runsOf, since) {
+  for (let page = 1; ; page++) {
+    const commits = await commitsPage(page)
+    for (const c of commits) {
+      if (Date.parse(c.commit.committer.date) < since) return null
+      const run = newestSuccess(await runsOf(c.sha))
+      if (run) return run
+    }
+    if (commits.length < 100) return null
+  }
+}
+
+/** Pure: the run listing must contain `byCommit` (found independently of it). Under GITHUB_TOKEN
+ *  the listing has come back self-consistent (unique == total_count) yet days stale (2026-10-07:
+ *  newest success 2026-10-03, 70+ newer runs missing), and nothing else catches that. Returns the
+ *  live run: ok[0]. Once `byCommit` is in `ok` the listing is no staler than it, and anything
+ *  sorted above it really started later — a re-run of an old rollback, which keeps its old head_sha. */
+export function checkLive(ok, byCommit) {
+  if (!byCommit || !ok.some((r) => r.id === byCommit.id))
+    throw new Error(`live deploy ${byCommit ? `run ${byCommit.id} ${byCommit.head_sha}` : '(none found)'} is not in the protected set — run listing incomplete, refusing to delete anything`)
+  return ok[0]
+}
+
 /** Pure: the commit SHAs (full or short, as recorded) a set of deploy runs may have put live. */
 export function deployedRefs(successRuns, sinceRuns) {
   if (!successRuns.length) throw new Error('no successful deploy.yml run found — refusing to delete anything')
@@ -131,6 +164,13 @@ async function protectedShas(repo, deploys) {
   }
   const { ok, later } = selectDeploys(uniqueRuns(runs, total), deploys)
   for (const r of ok) console.log(`deploy run ${r.id} ${r.run_started_at ?? r.created_at} ${r.head_sha} "${r.display_title}"`)
+  // Freshness check: the newest deploy by commit (git order), looked up apart from the listing above.
+  const byCommit = await findDeployByCommit(
+    (page) => gh(`repos/${repo}/commits?sha=main&per_page=100&page=${page}`),
+    async (sha) => (await gh(`${wf}?head_sha=${sha}&per_page=100`)).workflow_runs,
+    Date.parse(from),
+  )
+  const live = checkLive(ok, byCommit)
   const resolve = async (ref) => (SHA.test(ref) ? ref : (await gh(`repos/${repo}/commits/${ref}`)).sha)
   const full = new Set()
   // A successful run's ref must resolve (fail closed). An unsuccessful rollback may carry a
@@ -145,7 +185,7 @@ async function protectedShas(repo, deploys) {
       console.log(`::warning::skipping unresolvable ref ${ref} from an unsuccessful deploy run: ${e.message}`)
     }
   }
-  return { full, live: await resolve([...deployedRefs([ok[0]], [])][0]) }
+  return { full, live: await resolve([...deployedRefs([live], [])][0]) }
 }
 
 async function listVersions(owner, pkg) {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { plan, deployedRefs, selectDeploys, uniqueRuns } from './ghcr-retention.mjs'
+import { plan, deployedRefs, selectDeploys, uniqueRuns, checkLive, newestSuccess, findDeployByCommit } from './ghcr-retention.mjs'
 
 const DAY = 86_400_000
 const NOW = Date.parse('2026-10-07T00:00:00Z')
@@ -110,5 +110,57 @@ describe('uniqueRuns', () => {
   it('fails closed when a duplicate hides a missing run', () => {
     // total 3, three rows returned, but run 3 never arrived and run 1 came twice
     expect(() => uniqueRuns([{ id: 1 }, { id: 2 }, { id: 1 }], 3)).toThrow(/2 unique of 3/)
+  })
+})
+
+describe('checkLive', () => {
+  // 2026-10-07 20:20, GITHUB_TOKEN: the listing was self-consistent (unique == total_count) but its
+  // newest successful deploy was 2026-10-03; the live 2026-10-07 deploy was not in it.
+  const listing = [{ id: 37144301649, head_sha: sha(1) }, { id: 37143995310, head_sha: sha(2) }]
+
+  it('fails closed when the live deploy is missing from the listing', () => {
+    expect(() => checkLive(listing, { id: 37699392330, head_sha: sha(9) })).toThrow(/not in the protected set/)
+  })
+
+  it('fails closed when no live deploy was found', () => {
+    expect(() => checkLive(listing, null)).toThrow(/none found/)
+  })
+
+  it('passes when the listing holds the live deploy', () => {
+    expect(checkLive(listing, { id: 37144301649 }).id).toBe(37144301649)
+  })
+
+  it('returns the re-run of an old rollback as live when it started after the commit-order deploy', () => {
+    // ok is sorted by run_started_at: the re-run (old head_sha) sorts above the newest commit's deploy
+    const ok = [{ id: 7, head_sha: sha(1), display_title: 'Rollback to abc1234' }, { id: 8, head_sha: sha(5) }]
+    expect(checkLive(ok, { id: 8, head_sha: sha(5) }).id).toBe(7)
+  })
+})
+
+describe('findDeployByCommit', () => {
+  const SINCE = NOW - 30 * DAY
+  // 250 commits, newest first, one hour apart; only `deployed` has a successful deploy run
+  const commits = Array.from({ length: 250 }, (_, i) => ({ sha: sha(i + 1), commit: { committer: { date: new Date(NOW - i * 3_600_000).toISOString() } } }))
+  const pages = (page) => Promise.resolve(commits.slice((page - 1) * 100, page * 100))
+  const runsOf = (deployed) => (s) => Promise.resolve(s === deployed ? [{ id: 1, conclusion: 'success', head_branch: 'main' }] : [])
+
+  it('pages past 100 commits that deploy.yml skipped (docs, mobile) to the newest deploy', async () => {
+    expect((await findDeployByCommit(pages, runsOf(sha(150)), SINCE)).id).toBe(1)
+  })
+
+  it('is null when no commit inside the window has a deploy', async () => {
+    expect(await findDeployByCommit(pages, runsOf(sha(150)), NOW - 100 * 3_600_000)).toBeNull()
+  })
+})
+
+describe('newestSuccess', () => {
+  const r = (id, conclusion, hoursAgo, head_branch = 'main') => ({ id, conclusion, head_branch, run_started_at: new Date(NOW - hoursAgo * 3_600_000).toISOString() })
+
+  it('takes the newest successful main run of a commit (a rollback dispatched after its push deploy)', () => {
+    expect(newestSuccess([r(1, 'success', 5), r(2, 'success', 1), r(3, 'failure', 0), r(4, 'success', 0, 'feature')]).id).toBe(2)
+  })
+
+  it('is null when the commit has no successful deploy on main', () => {
+    expect(newestSuccess([r(1, 'failure', 1)])).toBeNull()
   })
 })
