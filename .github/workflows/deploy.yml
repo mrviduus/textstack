@@ -20,6 +20,7 @@ on:
       - 'docs/**'
       - '*.md'
       - 'apps/mobile/**'
+      - 'apps/web/e2e/**'   # Playwright specs; no image or web build reads them
       - 'extension/**'
       - '.github/workflows/mobile-*.yml'
   workflow_dispatch:
