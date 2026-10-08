@@ -168,11 +168,9 @@ export function useWordBubble({
         })
       }
     }
-    const saved = resp?.word
-    if (saved?.id && currentTranslation) updateTranslation(word, currentTranslation, sentence)
   }, [
     addWord, bookLanguage, bookTitle, chapterId, containerRef,
-    editionId, nativeLanguage, hasConfirmedLanguage, userBookId, updateTranslation,
+    editionId, nativeLanguage, hasConfirmedLanguage, userBookId,
     bubble?.word, bubble?.translation, t,
   ])
 
@@ -206,7 +204,7 @@ export function useWordBubble({
     })
     fetchWordBubble({
       word, bookLanguage, targetLang,
-      explainInContext, updateTranslation,
+      explainInContext,
       signal: ctrl.signal,
       patch: (fields) => setBubble((prev) => (prev && prev.word === word ? { ...prev, ...fields } : prev)),
       bookId,
@@ -220,7 +218,7 @@ export function useWordBubble({
     if (hasConfirmedLanguage) {
       triggerAutoSave(word, () => handleSave(word, range))
     }
-  }, [bookLanguage, targetLang, updateTranslation, handleSave, triggerAutoSave, hasConfirmedLanguage, containerRef, userBookId, editionId])
+  }, [bookLanguage, targetLang, handleSave, triggerAutoSave, hasConfirmedLanguage, containerRef, userBookId, editionId])
 
   // Catch-up auto-save: if the user taps a word BEFORE confirming native
   // language, openBubble opens the popup but skips the save. When they then

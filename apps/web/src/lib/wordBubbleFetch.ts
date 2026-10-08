@@ -1,7 +1,7 @@
 // Shared "open word popup" data pipeline:
 //   1. Definition mode (native == book language): contextual Explain → `definition`
 //   2. Translation fetch → target-lang text
-//   3. Hand the translation + sentence to updateTranslation (TR-2 owns the overwrite rule)
+//   (the translation reaches a saved word via useBubbleTranslationSync's effect only — TR-2)
 //
 // Caller owns bubble state + abort controller; we kick off the async fetches and
 // merge results via `patch`, which the caller guards against a stale bubble word.
@@ -24,7 +24,6 @@ interface FetchWordBubbleOpts {
   /** Definition mode: nothing to translate, so fetch the contextual Explain instead.
    *  Caller sets `definitionLoading: true` on the bubble when this is true. */
   explainInContext: boolean
-  updateTranslation: (word: string, translation: string, sentence?: string) => void
   signal: AbortSignal
   /** Merge a partial update into the active bubble if it's still the same word.
    *  Caller implements the stale-word guard using their bubble state. */
@@ -39,7 +38,7 @@ interface FetchWordBubbleOpts {
 export function fetchWordBubble(opts: FetchWordBubbleOpts) {
   const {
     word, bookLanguage, targetLang,
-    explainInContext, updateTranslation,
+    explainInContext,
     signal, patch,
     bookId, sentence,
   } = opts
@@ -64,7 +63,6 @@ export function fetchWordBubble(opts: FetchWordBubbleOpts) {
       if (signal.aborted) return
       const translatedText = res?.translatedText ?? null
       patch({ translation: translatedText, translationLoading: false })
-      if (translatedText) updateTranslation(word, translatedText, sentence ?? undefined)
     })
     .catch((err) => {
       if (signal.aborted) return

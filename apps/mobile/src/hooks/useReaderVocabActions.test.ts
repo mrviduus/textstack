@@ -50,4 +50,30 @@ describe('useReaderVocabActions', () => {
 
     expect(cachedTranslate).toHaveBeenCalledWith('Quiver', 'en', 'pt', { sentence, bookId: 'book-1' })
   })
+
+  it('TR-2: an already-translated saved word is PATCHed only with ifSentence (the selection sentence), never blind', async () => {
+    const sentence = 'He pocketed the coins and walked out.'
+    api.updateWord.mockReset()
+    api.updateWord.mockResolvedValue({ id: 'w3', word: 'pocketed', stage: 1, translation: 'enterrado' })
+    cachedTranslate.mockImplementation(() => Promise.resolve({ translation: 'embolsou' }) as never)
+    api.promoteLookup.mockResolvedValue({ id: 'w3', word: 'pocketed', stage: 1, sentence, translation: 'enterrado' })
+    api.saveWord.mockResolvedValue({ outcome: 'saved', word: { id: 'w3', word: 'pocketed', stage: 1, sentence, translation: 'enterrado' } })
+    const vocabMapRef = { current: {} as VocabMap }
+    const noop = () => {}
+    const { result } = renderHook(useReaderVocabActions, {
+      vocabMapRef, bookTitleRef: { current: null }, chapter: null, language: 'en',
+      editionIdRef: { current: 'book-1' },
+      textLanguage: 'en', nativeLanguage: 'pt', isAuthenticated: true, injectJs: noop, bumpVocab: noop,
+      notifyWordSaved: noop, setSessionWordCount: noop, setWordSaved: noop, setSelection: noop,
+      setLookupState: noop, showToast: noop,
+    } as unknown as Parameters<typeof useReaderVocabActions>[0])
+
+    await act(async () => { await result.current.saveWord({ text: 'pocketed', sentence, selectionId: 3 }) })
+    await act(async () => { await result.current.addAnyway({ kind: 'lookup', id: 'l3', tapsRemaining: 1, busy: false }) })
+
+    expect(api.updateWord).toHaveBeenCalledTimes(2)
+    for (const call of api.updateWord.mock.calls) expect(call).toEqual(['w3', { translation: 'embolsou', ifSentence: sentence }])
+    // The server kept its translation: the reader shows that one.
+    expect(vocabMapRef.current.pocketed.translation).toBe('enterrado')
+  })
 })

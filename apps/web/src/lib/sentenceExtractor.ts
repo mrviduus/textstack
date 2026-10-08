@@ -19,7 +19,7 @@ export function extractSentence(range: Range, container: HTMLElement): string {
   before.setEnd(range.startContainer, range.startOffset)
   let idx = before.toString().length + raw.length - raw.trimStart().length
   if (fullText.slice(idx, idx + selectedText.length) !== selectedText) idx = fullText.indexOf(selectedText)
-  if (idx < 0) return fullText.slice(0, 200)
+  if (idx < 0) return fullText.trim().slice(0, 200)
 
   // Walk backward to find sentence start
   const sentenceEnders = /[.!?\n]/
@@ -41,12 +41,13 @@ export function extractSentence(range: Range, container: HTMLElement): string {
     end++
   }
 
-  const sentence = fullText.slice(start, end).trim()
+  const lead = fullText.slice(start, end)
+  const sentence = lead.trim()
 
   // Cap at 200 chars
   if (sentence.length > 200) {
-    // Try to center the word
-    const wordStart = idx - start
+    // Try to center the word (its offset in the trimmed sentence, as in the mobile bridge)
+    const wordStart = idx - start - (lead.length - lead.trimStart().length)
     const cropStart = Math.max(0, wordStart - 80)
     const cropEnd = Math.min(sentence.length, cropStart + 200)
     return (cropStart > 0 ? '...' : '') + sentence.slice(cropStart, cropEnd) + (cropEnd < sentence.length ? '...' : '')

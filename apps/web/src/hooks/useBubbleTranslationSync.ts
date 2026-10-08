@@ -28,10 +28,9 @@ interface Options<B extends BubbleLike> {
 /**
  * Two concerns shared by both readers:
  *
- * 1. **Backend translation patch** after auto-save: `fetchWordBubble`'s built-in
- *    patch closes over `vocabMap` at call time — before auto-save inserts the
- *    entry — so it misses. This effect watches `bubble.translation` + current
- *    `vocabMap` and hands the translation to `updateTranslation`, which PATCHes
+ * 1. **Backend translation patch** — the ONE caller for the bubble's translation
+ *    (fetch, language switch, auto-save landing). Watches `bubble.translation` +
+ *    current `vocabMap` and hands the translation to `updateTranslation`, which PATCHes
  *    a saved translation only from the sentence it was saved with (TR-2).
  *
  * 2. **Mid-popup lang switch**: when the user opens the popup's language picker
@@ -54,8 +53,9 @@ export function useBubbleTranslationSync<B extends BubbleLike>({
 }: Options<B>) {
   const autoSavedRef = useRef<Set<string>>(new Set())
 
-  // Set once the language is switched mid-popup: that translation is display-only (TR-2).
-  const langSwitchedRef = useRef(false)
+  // The (word, sentence) whose language was switched mid-popup: that translation is display-only
+  // (TR-2). Tied to the sentence so a re-opened bubble / new sentence is a fresh tap again.
+  const langSwitchedRef = useRef<{ word: string; sentence?: string } | null>(null)
 
   // (1) Backend translation patch.
   useEffect(() => {
@@ -64,7 +64,9 @@ export function useBubbleTranslationSync<B extends BubbleLike>({
     if (!word || !translation) return
     // TR-2: updateTranslation owns the PATCH and the overwrite guard; the sentence lets a
     // same-sentence tap correct the saved translation.
-    updateTranslation(word, translation, langSwitchedRef.current ? undefined : bubble?.sentence)
+    const sw = langSwitchedRef.current
+    const switched = sw?.word === word && sw.sentence === bubble?.sentence
+    updateTranslation(word, translation, switched ? undefined : bubble?.sentence)
   }, [bubble?.word, bubble?.translation, bubble?.sentence, vocabMap, updateTranslation])
 
   // (2) Lang-picker mid-popup refetch. Track (word, lang) pair — word changes
@@ -77,7 +79,7 @@ export function useBubbleTranslationSync<B extends BubbleLike>({
     const word = bubble?.word
     if (!word) {
       lastPairRef.current = null
-      langSwitchedRef.current = false
+      langSwitchedRef.current = null
       return
     }
 
@@ -91,7 +93,7 @@ export function useBubbleTranslationSync<B extends BubbleLike>({
 
     lastPairRef.current = { word, lang: targetLang }
     // Word changed → openBubble owns the fetch.
-    langSwitchedRef.current = prev.word === word
+    langSwitchedRef.current = prev.word === word ? { word, sentence: bubble?.sentence } : null
     if (prev.word !== word) return
 
     // Same word, lang flipped. Definition-mode switch (no targetLang) → clear translation.
@@ -118,7 +120,6 @@ export function useBubbleTranslationSync<B extends BubbleLike>({
             ? { ...b, translation: translated, translationLoading: false }
             : b,
         )
-        if (translated) updateTranslation(word, translated)
       })
       .catch((err) => {
         if (ctrl.signal.aborted) return

@@ -28,7 +28,7 @@ public class UpdateWordIfSentenceTests
         return ctx;
     }
 
-    private static async Task<VocabularyWord> Patch(string? stored, UpdateWordRequest request)
+    private static async Task<VocabularyWord> Patch(string? stored, UpdateWordRequest request, Mock<IAppDbContext>? db = null)
     {
         var word = new VocabularyWord
         {
@@ -40,7 +40,7 @@ public class UpdateWordIfSentenceTests
             Translation = stored,
             Sentence = Saved,
         };
-        var db = new Mock<IAppDbContext>();
+        db ??= new Mock<IAppDbContext>();
         db.Setup(x => x.VocabularyWords).Returns(new FakeDbSet<VocabularyWord>([word]));
         var result = await VocabularyEndpoints.UpdateWord(word.Id, request, Ctx(), null!, db.Object, CancellationToken.None);
         Assert.IsType<Ok<VocabWordDto>>(result);
@@ -66,5 +66,14 @@ public class UpdateWordIfSentenceTests
     {
         var word = await Patch(null, new UpdateWordRequest("guardou", null, "She pocketed the note."));
         Assert.Equal("guardou", word.Translation);
+    }
+
+    [Fact]
+    public async Task UpdateWord_IfSentenceDiffers_DoesNotTouchUpdatedAtOrSave()
+    {
+        var db = new Mock<IAppDbContext>();
+        var word = await Patch("enterrado", new UpdateWordRequest("guardou", null, "She pocketed the note."), db);
+        Assert.Equal(default, word.UpdatedAt);
+        db.Verify(x => x.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 }

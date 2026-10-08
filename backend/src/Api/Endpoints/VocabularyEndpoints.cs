@@ -550,8 +550,13 @@ public static partial class VocabularyEndpoints
         // TR-2: with IfSentence, an existing translation is replaced only from the saved sentence.
         var keepTranslation = request.IfSentence != null && !string.IsNullOrWhiteSpace(word.Translation)
             && !string.Equals(request.IfSentence.Trim(), word.Sentence?.Trim(), StringComparison.Ordinal);
-        if (request.Translation != null && !keepTranslation) word.Translation = request.Translation.Trim();
-        if (request.Definition != null) word.Definition = request.Definition.Trim();
+        var translation = request.Translation != null && !keepTranslation ? request.Translation.Trim() : word.Translation;
+        var definition = request.Definition?.Trim() ?? word.Definition;
+        if (translation == word.Translation && definition == word.Definition)
+            return Results.Ok(ToDto(word)); // nothing changed: no write, UpdatedAt untouched
+
+        word.Translation = translation;
+        word.Definition = definition;
         word.UpdatedAt = DateTimeOffset.UtcNow;
 
         await db.SaveChangesAsync(ct);

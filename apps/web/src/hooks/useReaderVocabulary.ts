@@ -288,6 +288,7 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
   /** TR-2: the ONE place a reader translation reaches a saved word (map + PATCH). An untranslated
    *  word gets it. An existing translation is replaced only by the server, and only when `sentence`
    *  equals the one the word was saved with (a correction); a language switch passes no sentence. */
+  const correctionsAskedRef = useRef<Set<string>>(new Set())
   const updateTranslation = useCallback((word: string, translation: string, sentence?: string) => {
     const key = normalizeVocabKey(word)
     const entry = mapRef.current.get(key)
@@ -299,12 +300,19 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
     }
     const ifSentence = sentence?.trim()
     if (!ifSentence || !entry.id || entry.isPending) return
+    // Each (word, translation, sentence) is asked once: the server's answer won't change, and a
+    // rejection must not re-trigger the bubble's effect into a PATCH loop.
+    const ask = `${entry.id}\u0000${translation}\u0000${ifSentence}`
+    if (correctionsAskedRef.current.has(ask)) return
+    correctionsAskedRef.current.add(ask)
     updateWord(entry.id, { translation, ifSentence })
       .then((dto) => {
         const kept = dto?.translation
-        if (kept) updateMap(m => { const e = m.get(key); if (e) m.set(key, { ...e, translation: kept }) })
+        if (kept && kept !== mapRef.current.get(key)?.translation) {
+          updateMap(m => { const e = m.get(key); if (e) m.set(key, { ...e, translation: kept }) })
+        }
       })
-      .catch(() => {})
+      .catch(() => { correctionsAskedRef.current.delete(ask) })
   }, [updateMap])
 
   const refreshMarks = useCallback(() => {

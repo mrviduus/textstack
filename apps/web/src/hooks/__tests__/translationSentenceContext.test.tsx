@@ -33,17 +33,17 @@ beforeEach(() => {
   cacheTranslation.mockClear()
 })
 
-function mountSync(vocabMap: VocabMap, bubble: BubbleLike) {
+function mountSync(vocabMap: VocabMap, initial: BubbleLike) {
   const updateTranslation = vi.fn()
   const hook = renderHook(
-    ({ lang }: { lang: string }) => {
+    ({ lang, bubble = initial }: { lang: string; bubble?: BubbleLike }) => {
       const abortRef = useRef<AbortController | null>(null)
       return useBubbleTranslationSync<BubbleLike>({
         bubble, setBubble: vi.fn(), vocabMap, updateTranslation,
         targetLang: lang, bookLanguage: 'en', abortRef,
       })
     },
-    { initialProps: { lang: 'pt' } },
+    { initialProps: { lang: 'pt' } as { lang: string; bubble?: BubbleLike } },
   )
   return { ...hook, updateTranslation }
 }
@@ -93,6 +93,18 @@ describe('TR-2: the word bubble never overwrites a saved translation', () => {
     updateTranslation.mockClear()
     await act(async () => { rerender({ lang: 'uk' }) })
     for (const call of updateTranslation.mock.calls) expect(call[2]).toBeUndefined()
+  })
+
+  it('TR-2: a language switch stops covering the bubble once it shows a new sentence', async () => {
+    const b = { word: 'pocketed', translation: 'embolsou', translationLoading: false, ...ctx }
+    const { rerender, updateTranslation } = mountSync(saved(), b)
+    await act(async () => {})
+    await act(async () => { rerender({ lang: 'uk' }) })
+
+    updateTranslation.mockClear()
+    const NEW = 'She pocketed the key.'
+    await act(async () => { rerender({ lang: 'uk', bubble: { ...b, translation: 'поклав', sentence: NEW } }) })
+    expect(updateTranslation).toHaveBeenLastCalledWith('pocketed', 'поклав', NEW)
   })
 
   it('TR-2: no bubble path PATCHes on its own — all go through updateTranslation', () => {

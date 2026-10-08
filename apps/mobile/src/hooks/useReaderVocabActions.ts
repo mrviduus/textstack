@@ -122,14 +122,23 @@ export function useReaderVocabActions({
     // selection toolbar just fetched for the same word — no 2nd round-trip.
     const bookId = (editionIdRef ?? userBookIdRef)?.current || undefined
     cachedTranslate(sourceText, textLanguage, targetLang, { sentence, bookId })
-      .then(({ translation }) => {
-        if (translation && saved.id) {
+      .then(async ({ translation }) => {
+        if (!translation || !saved.id) return
+        // TR-2: an untranslated word gets the gloss; an existing translation is replaced only by
+        // the server, and only from the sentence the word was saved with (ifSentence).
+        const ifSentence = sentence?.trim()
+        let shown = translation
+        if (!saved.translation) {
           vocabularyApi.updateWord(saved.id, { translation }).catch(() => {})
-          vocabMapRef.current[key] = { ...vocabMapRef.current[key], translation }
-          // Push full map so the inline-translation span renders above the underline.
-          // addVocabWord alone only carries {stage}, wiping any prior translation.
-          injectJs(vocabPaintJs(vocabMapRef.current))
+        } else if (!ifSentence || saved.translation === translation) {
+          shown = saved.translation
+        } else {
+          shown = (await vocabularyApi.updateWord(saved.id, { translation, ifSentence }))?.translation || saved.translation
         }
+        vocabMapRef.current[key] = { ...vocabMapRef.current[key], translation: shown }
+        // Push full map so the inline-translation span renders above the underline.
+        // addVocabWord alone only carries {stage}, wiping any prior translation.
+        injectJs(vocabPaintJs(vocabMapRef.current))
       })
       .catch(() => {})
   }, [vocabMapRef, injectJs, bumpVocab, setWordSaved, setSessionWordCount, notifyWordSaved, textLanguage, nativeLanguage, editionIdRef, userBookIdRef])

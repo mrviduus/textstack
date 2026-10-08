@@ -1,6 +1,13 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { READER_SELECTION_BRIDGE } from './readerBridge'
+
+// TR-1: shared with the web extractor test (sentenceExtractor.test.ts) so the two can't drift.
+const cases: Array<{ name: string; text: string; offset: number; word: string; expected: string }> = JSON.parse(
+  readFileSync(resolve(__dirname, '../../../../packages/shared/src/text/__fixtures__/sentences.json'), 'utf8'),
+)
 
 /** TR-1: the real bridge, driven by a hold, sends the sentence of the TAPPED occurrence. */
 let posted: Array<Record<string, unknown>>
@@ -35,17 +42,9 @@ function para(content: string) {
 }
 
 describe('TR-1: mobile bridge extractSentence', () => {
-  it('TR-1: holding the second "wound" sends its own sentence', () => {
-    const src = 'The wound bled. Later she wound the clock.'
-    const msg = holdOn(para(src), src.lastIndexOf('wound') + 1)
-    expect(msg?.text).toBe('wound')
-    expect(msg?.sentence).toBe('Later she wound the clock.')
-  })
-
-  it('TR-1: a word past char 500 of a long paragraph is inside the sentence', () => {
-    const src = 'Filler sentence number here. '.repeat(25) + 'At last the zephyr arrived.'
-    const msg = holdOn(para(src), src.indexOf('zephyr') + 1)
-    expect(msg?.text).toBe('zephyr')
-    expect(msg?.sentence).toBe('At last the zephyr arrived.')
+  it.each(cases)('TR-1 shared fixture: $name', ({ text, offset, word, expected }) => {
+    const msg = holdOn(para(text), offset + 1)
+    expect(msg?.text).toBe(word)
+    expect(msg?.sentence).toBe(expected)
   })
 })
