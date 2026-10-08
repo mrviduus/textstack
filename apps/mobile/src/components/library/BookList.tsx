@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { View, Text, FlatList, TouchableOpacity, RefreshControl, useWindowDimensions } from 'react-native'
+import { View, Text, FlatList, TouchableOpacity, RefreshControl, useWindowDimensions, ActivityIndicator } from 'react-native'
 import { Image } from 'expo-image'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useRouter } from 'expo-router'
@@ -22,6 +22,9 @@ import { useDownload } from '../../context/DownloadContext'
 import { OfflineStateBadge } from './OfflineStateBadge'
 import { downloadPercent, offlineStateFor } from '../../lib/offlineState'
 import { listStoredOriginalIds } from '../../lib/originalFileCache'
+import { useResumeOpener } from '../../hooks/useResumeOpener'
+import { resumePickKey } from '../../lib/resumeOpener'
+import type { ResumePick } from '../../lib/bookRoutes'
 
 /**
  * The reader's books — all of them, in one list.
@@ -62,6 +65,8 @@ export function BookList({
   refreshing, onRefresh, viewMode, listHeader,
 }: Props) {
   const router = useRouter()
+  // The same resume path as the hero above the list (code review #781).
+  const { open: openResume, pendingKey: resumePending } = useResumeOpener()
   const { colors } = useTheme()
   const { t } = useLanguage()
   const { show: showToast } = useToast()
@@ -239,9 +244,16 @@ export function BookList({
     // stopped moving while the reader still appended chapters (until 2026-10-03); rows written then
     // still disagree. Following it sent a reader 45% in back to the top of chapter two. The locator
     // is the position.
-    const continueSlug = e.kind === 'saved'
-      ? resumeChapterSlug(serverProgress?.chapterSlug, serverProgress?.locator, null)
-      : null
+    // What Continue resumes — a catalog row with a progress row, or a ready upload in progress.
+    // A null chapter is not "nothing to resume" (a PDF page, a text position): the shared opener
+    // looks the chapter up, exactly as the hero does.
+    const resumePick: ResumePick | null = e.kind === 'saved'
+      ? (serverProgress
+          ? { type: 'edition', slug: e.item.slug, chapterSlug: resumeChapterSlug(serverProgress.chapterSlug, serverProgress.locator, null) }
+          : null)
+      : (isReady && pct > 0 && !isFinished
+          ? { type: 'userbook', id: e.book.id, chapterSlug: resumeChapterSlug(e.book.progressChapterSlug, e.book.progressLocator, null) }
+          : null)
     const lastRead = e.kind === 'saved' ? serverProgress?.updatedAt : e.book.progressUpdatedAt
 
     return (
@@ -318,12 +330,15 @@ export function BookList({
               )
             })()}
 
-            {continueSlug ? (
+            {resumePick ? (
               <TouchableOpacity
                 style={[styles.continueBtn, { backgroundColor: colors.primary }]}
-                onPress={() => router.push(`/reader/${(e as { item: UserLibraryItem }).item.slug}/${continueSlug}`)}
+                onPress={() => { void openResume(resumePick) }}
+                accessibilityState={{ busy: resumePending === resumePickKey(resumePick) }}
               >
-                <Ionicons name="play" size={12} color="#fff" />
+                {resumePending === resumePickKey(resumePick)
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Ionicons name="play" size={12} color="#fff" />}
                 {/* "Continue" promises to put the reader back where they stopped.
                     A book at 0% has a chapterSlug the moment the reader opens it
                     and scrolls nothing, so the promise was made with nowhere to

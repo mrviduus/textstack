@@ -4,7 +4,7 @@ import { Image } from 'expo-image'
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import NetInfo from '@react-native-community/netinfo'
-import { userBooksApi, currentReviewChapter, getStorageUrl, storedBookPercent, formatBookPercent, resumeChapterSlug, isOfflineError, plural } from '@textstack/shared'
+import { userBooksApi, currentReviewChapter, getStorageUrl, storedBookPercent, formatBookPercent, isOfflineError, plural } from '@textstack/shared'
 import type { UserBookDetailResponse } from '@textstack/shared'
 import { enrichUserBook } from '../../src/lib/api'
 import { useTheme } from '../../src/context/ThemeContext'
@@ -32,6 +32,7 @@ import { ChapterReviewAction } from '../../src/components/library/ReviewChapterB
 import { useBookReviews } from '../../src/hooks/useBookReviews'
 import { useRefocusEffect } from '../../src/hooks/useRefocusEffect'
 import { useSheetMount } from '../../src/hooks/useSheetMount'
+import { resumeSlugFor } from '../../src/lib/resumeTarget'
 
 /**
  * Everything this screen needs, read off the device: the book payload rebuilt
@@ -329,7 +330,7 @@ export default function UserBookDetailScreen() {
   // half-read PDF reported "never opened". This rule now lives in
   // `resumeChapterSlug` because the catalog screen needed it too and did not
   // have it — the same defect, one screen over.
-  const continueSlug = resumeChapterSlug(savedProgress?.chapterSlug, savedProgress?.locator, book?.chapters)
+  const continueSlug = resumeSlugFor(savedProgress, book?.chapters ?? [])
 
   const handleDelete = () => {
     if (!id) return

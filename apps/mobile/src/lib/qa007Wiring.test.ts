@@ -16,9 +16,31 @@ const body = (src: string, from: string, to: string) => {
 describe('a downloaded catalog book is in the Library online too', () => {
   // Online, Library lists GET /me/library; offline it lists the device's downloads. A download
   // that never reached /me/library showed up offline only.
-  it('startDownload adds the edition to the library', () => {
-    const start = body(read('src/context/DownloadContext.tsx'), 'const startDownload = useCallback(', '}, [')
-    expect(start).toMatch(/libraryApi\.addToLibrary\(editionId\)/)
+  const screen = read('app/book/[slug].tsx')
+
+  it('a first download adds the book from the screen, awaited, rolled back on failure (review #3)', () => {
+    const add = body(screen, 'const addOnDownload = useCallback(', '}, [')
+    expect(add).toContain('wasLibraryRemoved(')
+    expect(add).toContain('setInLibrary(true)')
+    expect(add).toMatch(/await libraryApi\.addToLibrary\(/)
+    expect(add).toMatch(/catch[\s\S]*setInLibrary\(false\)/)
+    expect(screen).toMatch(/onStart=\{\(\) => \{[^}]*addOnDownload\(\)/)
+  })
+
+  it('Restart does not add, and the download loop itself never touches the library (review #4)', () => {
+    expect(screen).toMatch(/onRestart=\{\(\) => startDownload\(book, language\)\}/)
+    expect(body(read('src/context/DownloadContext.tsx'), 'const startDownload = useCallback(', '}, [')).not.toContain('addToLibrary')
+  })
+
+  it('removals are remembered, explicit adds forget them', () => {
+    expect(screen).toContain('markLibraryRemoved(book.id)')
+    expect(screen).toContain('clearLibraryRemoved(book.id)')
+    expect(read('src/hooks/useBookActions.ts')).toContain('markLibraryRemoved(item.editionId)')
+  })
+
+  it('the screen re-reads "In Library" on focus (an auto-add happened in the reader)', () => {
+    const focus = body(screen, 'useFocusEffect(', '}, [book?.id, isAuthenticated, offlineMode])')
+    expect(focus).toContain('libraryApi.getLibrary()')
   })
 })
 
@@ -32,10 +54,15 @@ describe('the WebView selection ends with the toolbar', () => {
     expect(actions).toMatch(/const CLEAR_SELECTION_JS = .*removeAllRanges.*__tsClearWordMark/)
   })
 
-  it('a reflow highlight clears the mark BEFORE painting, so its range is built on clean DOM', () => {
+  it('a highlight touches neither the native selection nor the mark until the save succeeds (review #5)', () => {
     const highlight = body(actions, 'const handleHighlight = useCallback(', '}, [')
-    const clear = highlight.indexOf('injectJs(CLEAR_SELECTION_JS)')
-    expect(clear).toBeGreaterThan(-1)
-    expect(clear).toBeLessThan(highlight.indexOf('await createHighlight('))
+    expect(highlight).not.toContain('CLEAR_SELECTION_JS')
+    // The selection is closed (→ effect clears range + mark) only on success; on failure it stays.
+    expect(highlight).toMatch(/const ok = await createHighlight\([\s\S]*if \(ok\) setSelection\(null\)/)
+    // The mark is unwrapped in the same script that paints, so the new range is built on clean DOM.
+    const create = body(read('src/hooks/useReaderHighlights.ts'), 'const create = useCallback(', 'const createPdf')
+    expect(create).toMatch(/__tsClearWordMark[\s\S]*renderHighlight\(/)
+    expect(create).toContain('return true')
+    expect(create).toContain('return false')
   })
 })

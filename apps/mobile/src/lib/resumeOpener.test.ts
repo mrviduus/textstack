@@ -1,0 +1,53 @@
+import { describe, it, expect, vi } from 'vitest'
+import { createResumeOpener } from './resumeOpener'
+
+const unplaced = { type: 'edition' as const, slug: 'dracula', chapterSlug: null }
+
+function setup(active = true) {
+  let release!: (route: string) => void
+  const resolve = vi.fn(() => new Promise<string>(r => { release = r }))
+  const push = vi.fn()
+  const onPending = vi.fn()
+  const state = { active }
+  const open = createResumeOpener({ resolve, push, isActive: () => state.active, onPending })
+  return { open, resolve, push, onPending, state, release: (r: string) => release(r) }
+}
+
+describe('createResumeOpener — Continue tapped while the place is being looked up', () => {
+  it('ignores repeat taps while one lookup is in flight, and pushes once', async () => {
+    const s = setup()
+    const first = s.open(unplaced)
+    void s.open(unplaced)
+    void s.open(unplaced)
+    expect(s.resolve).toHaveBeenCalledTimes(1)
+    s.release('/reader/dracula/ch-5')
+    await first
+    expect(s.push).toHaveBeenCalledTimes(1)
+    expect(s.push).toHaveBeenCalledWith('/reader/dracula/ch-5')
+  })
+
+  it('does not navigate if the screen left (blur/unmount) before the answer came', async () => {
+    const s = setup()
+    const p = s.open(unplaced)
+    s.state.active = false
+    s.release('/reader/dracula/ch-5')
+    await p
+    expect(s.push).not.toHaveBeenCalled()
+  })
+
+  it('reports which pick is pending, then clears it', async () => {
+    const s = setup()
+    const p = s.open(unplaced)
+    expect(s.onPending).toHaveBeenLastCalledWith('edition:dracula')
+    s.release('/book/dracula')
+    await p
+    expect(s.onPending).toHaveBeenLastCalledWith(null)
+  })
+
+  it('a pick that names its chapter navigates at once, no lookup', async () => {
+    const s = setup()
+    await s.open({ type: 'userbook', id: 'ub-1', chapterSlug: 'ch-2' })
+    expect(s.resolve).not.toHaveBeenCalled()
+    expect(s.push).toHaveBeenCalledWith('/my-books/read/ub-1/ch-2')
+  })
+})

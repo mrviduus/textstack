@@ -1,15 +1,15 @@
-import { View, Text, StyleSheet } from 'react-native'
+import { View, Text, StyleSheet, ActivityIndicator } from 'react-native'
 import { Image } from 'expo-image'
-import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
-import { createBooksApi, getStorageUrl, userBooksApi } from '@textstack/shared'
+import { getStorageUrl } from '@textstack/shared'
 import type { ContinueReadingPick } from '@textstack/shared'
 import { useTheme } from '../../context/ThemeContext'
 import { useLanguage } from '../../context/LanguageContext'
 import { fonts } from '../../theme/typography'
 import { PressableScale } from '../ui/PressableScale'
 import { GeneratedCover } from './GeneratedCover'
-import { editionStartRoute, resumeRoute, userBookReadRoute } from '../../lib/bookRoutes'
+import { resumePickKey } from '../../lib/resumeOpener'
+import { useResumeOpener } from '../../hooks/useResumeOpener'
 
 /**
  * The single largest, topmost thing a returning reader sees.
@@ -24,33 +24,15 @@ import { editionStartRoute, resumeRoute, userBookReadRoute } from '../../lib/boo
  */
 export function ResumeHero({ pick }: { pick: ContinueReadingPick }) {
   const { colors } = useTheme()
-  const { t, language } = useLanguage()
-  const router = useRouter()
+  const { t } = useLanguage()
 
   const percent = Math.round(pick.percent * 100)
 
-  // A pick with no chapter — for an upload, a PDF read in Original layout (`page:<N>`, no
-  // chapter). `resumeRoute` can only send that to the detail screen — QA-007's "Continue opens the
-  // book, not the reader" — so ask for the chapter list and resolve the page here. Offline or on
-  // any failure, the detail screen is still a correct answer.
-  const resume = async () => {
-    if (pick.chapterSlug) { router.push(resumeRoute(pick) as never); return }
-    try {
-      if (pick.type === 'edition') {
-        // A catalog book with no chapter and no position: start it rather than show its screen.
-        const book = await createBooksApi(language).getBook(pick.slug)
-        router.push(editionStartRoute(pick.slug, book.chapters) as never)
-        return
-      }
-      const [book, progress] = await Promise.all([
-        userBooksApi.getUserBook(pick.id),
-        userBooksApi.getUserBookProgress(pick.id).catch(() => null),
-      ])
-      router.push(userBookReadRoute(pick.id, progress, book.chapters) as never)
-    } catch {
-      router.push(resumeRoute(pick) as never)
-    }
-  }
+  // Shared with the Library list: one resume path (code review #781). Resolves picks with no
+  // chapter (PDF pages, text positions) before navigating; ignores repeat taps meanwhile.
+  const { open, pendingKey } = useResumeOpener()
+  const pending = pendingKey === resumePickKey(pick)
+
   const cover = pick.coverPath ? getStorageUrl(pick.coverPath) : null
 
   return (
@@ -59,7 +41,8 @@ export function ResumeHero({ pick }: { pick: ContinueReadingPick }) {
       accessibilityLabel={t('library.resume.a11yResume')
         .replace('{title}', pick.title)
         .replace('{percent}', String(percent))}
-      onPress={() => { void resume() }}
+      onPress={() => { void open(pick) }}
+      accessibilityState={{ busy: pending }}
       style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}
     >
       {cover ? (
@@ -81,7 +64,9 @@ export function ResumeHero({ pick }: { pick: ContinueReadingPick }) {
         </View>
 
         <View style={[styles.cta, { backgroundColor: colors.primary }]}>
-          <Ionicons name="play" size={15} color="#fff" />
+          {pending
+            ? <ActivityIndicator size="small" color="#fff" />
+            : <Ionicons name="play" size={15} color="#fff" />}
           {/* Same promise, same condition — see BookList. */}
           <Text style={styles.ctaText}>
             {percent > 0 ? t('library.resume.continue') : t('library.resume.start')}

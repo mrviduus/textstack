@@ -7,6 +7,7 @@ import {
 } from '@textstack/shared'
 import { useLanguage } from '../context/LanguageContext'
 import { useToast } from '../context/ToastContext'
+import { markLibraryRemoved } from '../lib/libraryRemovals'
 
 interface SavedCtx {
   progressMap: Record<string, ReadingProgressDto>
@@ -84,6 +85,8 @@ export function useBookActions() {
         // keep showing the removed book on the next focus (TTL is 60s).
         try {
           await libraryApi.removeFromLibrary(item.editionId)
+          // Neither a download nor reading 1% may put it back (libraryRemovals.ts).
+          void markLibraryRemoved(item.editionId)
         } catch (e) {
           console.warn('Remove from library failed:', e)
           ctx.setLibrary(snapshot)

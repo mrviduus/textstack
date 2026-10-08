@@ -225,11 +225,12 @@ export function useReaderWordActions({
       setSelection(null)
       return
     }
-    // Before painting: clearing the mark unwraps its span and normalizes the text nodes, which
-    // would collapse the live Range the new highlight is drawn from.
-    injectJs(CLEAR_SELECTION_JS)
-    await createHighlight({ color, selection, chapter: { id: chapter.id } })
-    setSelection(null)
+    // Nothing in the WebView is touched until the save lands: clearing the native range mid-request
+    // closed the toolbar under the reader. On success the paint unwraps the word mark
+    // (useReaderHighlights) and closing the selection clears the range (the effect above); on
+    // failure the selection stays so the reader can retry.
+    const ok = await createHighlight({ color, selection, chapter: { id: chapter.id } })
+    if (ok) setSelection(null)
   }, [selection, chapter.id, createHighlight, updateSettings, original, injectJs])
 
   return {
