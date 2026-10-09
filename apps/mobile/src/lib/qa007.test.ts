@@ -434,7 +434,7 @@ describe('QA-007', () => {
     expect(src).toMatch(/libraryLink\.start\(fresh \? 'out' : inLibraryRef\.current \? 'in' : libraryKnownRef\.current \? 'out' : 'unknown', addToLibrary\)/)
   })
 
-  it('one deadline helper: rejects after ms, settles with the promise otherwise; both waits use it', async () => {
+  it('one deadline helper for the library/resume waits; SessionGate keeps its mount timer', async () => {
     vi.useFakeTimers()
     const late = withDeadline(new Promise(() => {}), 3000)
     const caught = late.catch(e => e.message)
@@ -445,9 +445,9 @@ describe('QA-007', () => {
     await expect(withDeadline(Promise.reject(new Error('x')), 10)).rejects.toThrow('x')
     expect(read('src/lib/bookRoutes.ts')).not.toMatch(/function withDeadline|Promise\.race/)
     expect(read('src/lib/downloadLibraryLink.ts')).not.toMatch(/Promise\.race|setTimeout/)
-    // SessionGate's deadline is the same helper, not a timer of its own.
-    expect(read('src/components/SessionGate.tsx')).toMatch(/withDeadline\(/)
-    expect(read('src/components/SessionGate.tsx')).not.toMatch(/setTimeout/)
+    // SessionGate keeps its own mount-time timer on purpose: it must also open the gate while the
+    // SecureStore bootstrap is wedged, when ensureSession has already answered 'skipped'.
+    expect(read('src/components/SessionGate.tsx')).toMatch(/setTimeout\(/)
   })
 
   it('RES-1: a device cache with any chapter lacking a start page asks the server', async () => {
