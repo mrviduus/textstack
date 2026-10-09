@@ -125,6 +125,10 @@ export async function cacheUserChapter(): Promise<void> {
   /* no-op on web */
 }
 
+export async function storeCachedUserChapterStartPages(): Promise<void> {
+  // no-op
+}
+
 export async function listCachedUserChapters(): Promise<CachedUserChapter[]> {
   return []
 }

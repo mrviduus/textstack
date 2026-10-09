@@ -63,6 +63,9 @@ export default function BookDetailScreen() {
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [cached, setCached] = useState(false)
   const [inLibrary, setInLibrary] = useState(false)
+  // Read after an await (the Download's session mint): the render's value may be stale by then (LIB-1).
+  const inLibraryRef = useRef(inLibrary)
+  inLibraryRef.current = inLibrary
   // Bumped by every local library change: the initial getLibrary answer is dropped if one landed while it was in flight (LIB-1).
   const libraryGenRef = useRef(0)
   // getLibrary's answer was applied: only then is "not in library" a fact rather than a default (LIB-1).
@@ -383,7 +386,7 @@ export default function BookDetailScreen() {
   // No session: a guest is minted first (LIB-1a).
   const onDownload = (run: () => unknown) => () => {
     void downloadAndSave({ run, hasSession: isAuthenticated, ensureSession,
-      save: fresh => libraryLink.start(fresh ? 'out' : inLibrary ? 'in' : libraryKnownRef.current ? 'out' : 'unknown', addToLibrary) })
+      save: fresh => libraryLink.start(fresh ? 'out' : inLibraryRef.current ? 'in' : libraryKnownRef.current ? 'out' : 'unknown', addToLibrary) })
   }
   // A finished download ends the link: a later re-download + Cancel never removes the book (LIB-1).
   useEffect(() => { if (dl?.status === 'complete') libraryLink.forget() }, [dl?.status, libraryLink])
@@ -534,8 +537,10 @@ export default function BookDetailScreen() {
             <TouchableOpacity
               style={[styles.secondaryButton, { borderColor: inLibrary ? colors.success : colors.primary }]}
               onPress={async () => {
-                libraryLink.forget()
+                // A remove waits for a Download's add still in flight, as Cancel does (LIB-1).
+                const pending = libraryLink.forget()
                 if (!inLibrary) return addToLibrary()
+                await pending
                 return removeWithConfirm()
               }}
               activeOpacity={0.85}

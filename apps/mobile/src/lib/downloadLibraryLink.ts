@@ -1,5 +1,6 @@
 import type { EnsureSessionResult } from './guestSession'
 import { READER_SESSION_GATE_TIMEOUT_MS } from './readerSessionGate'
+import { withDeadline } from './deadline'
 
 /**
  * LIB-1: Download adds the book to the Library; cancelling a download that added it takes it back
@@ -8,10 +9,13 @@ import { READER_SESSION_GATE_TIMEOUT_MS } from './readerSessionGate'
  */
 export function downloadLibraryLink() {
   let added: Promise<boolean> | null = null
+  // Any add the Download started, known state or not — a later DELETE must not overtake its POST.
+  let inFlight: Promise<unknown> = Promise.resolve()
   return {
     start(state: 'in' | 'out' | 'unknown', add: () => Promise<boolean>) {
       if (state === 'in') return
       const p = add()
+      inFlight = p.catch(() => {})
       if (state === 'out') added = p
     },
     /** Waits for the in-flight add first, so the DELETE never overtakes its POST. */
@@ -20,8 +24,8 @@ export function downloadLibraryLink() {
       added = null
       if (p && await p) await remove()
     },
-    /** A hand Save/remove, or that download finishing or being removed, ends the link. */
-    forget() { added = null },
+    /** A hand Save/remove, or that download finishing or being removed, ends the link. Resolves once the in-flight add settles. */
+    forget(): Promise<void> { added = null; return inFlight.then(() => {}) },
   }
 }
 
@@ -39,9 +43,7 @@ export async function downloadAndSave(o: {
 }): Promise<void> {
   void o.run()
   if (o.hasSession) return o.save(false)
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const deadline = new Promise<null>(r => { timer = setTimeout(() => r(null), READER_SESSION_GATE_TIMEOUT_MS) })
-  const r = await Promise.race([o.ensureSession().catch(() => null), deadline]).finally(() => clearTimeout(timer))
+  const r = await withDeadline(o.ensureSession(), READER_SESSION_GATE_TIMEOUT_MS).catch(() => null)
   if (r?.status === 'minted') o.save(true)
   else if (r?.status === 'existing') o.save(false)
 }

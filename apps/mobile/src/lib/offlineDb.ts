@@ -477,6 +477,21 @@ export async function refreshCachedUserChapter(
   )
 }
 
+/** Fills the start pages of cached rows (RES-1): a download made before they were stored gains them. Never clears one. */
+export async function storeCachedUserChapterStartPages(
+  bookId: string,
+  chapters: readonly { slug: string; sourceStartPage?: number | null }[],
+): Promise<void> {
+  const d = await getDb()
+  if (!d) return
+  for (const c of chapters) {
+    await d.runAsync(
+      'UPDATE user_chapters SET source_start_page = COALESCE(?, source_start_page) WHERE book_id = ? AND chapter_slug = ?',
+      [c.sourceStartPage ?? null, bookId, c.slug],
+    )
+  }
+}
+
 /**
  * The cached table of contents, in reading order.
  *

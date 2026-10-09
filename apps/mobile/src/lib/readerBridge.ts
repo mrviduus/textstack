@@ -230,15 +230,16 @@ export const READER_SELECTION_BRIDGE = `
     var WORD_MARK_KEY = 'ts-word-mark';
     var _wordMarkOv = null;
     function wordMarkLayer() {
-      // Reflow: the highlight overlayer (readerHtml), which already follows scroll and reflow.
-      if (typeof hlEnsureOverlayer === 'function') return hlEnsureOverlayer();
-      // PDF viewer: one of its own.
+      // A layer of its own in both readers, never the highlight one: reflow's tap hit-tests that layer
+      // and takes the topmost entry, so a mark there hid the highlight under it (SEL-1).
       if (_wordMarkOv || !window.__TSOverlayer) return _wordMarkOv;
       _wordMarkOv = window.__TSOverlayer.create();
       _wordMarkOv.element.style.position = 'fixed';
       _wordMarkOv.element.style.zIndex = '3';
       document.body.appendChild(_wordMarkOv.element);
       window.addEventListener('scroll', function() { try { _wordMarkOv.syncScroll(); } catch(e) {} }, { passive: true });
+      // Rotate/resize reflows the text under the mark.
+      window.addEventListener('resize', function() { try { _wordMarkOv.redraw(); } catch(e) {} });
       return _wordMarkOv;
     }
 
@@ -599,6 +600,8 @@ export const READER_SELECTION_BRIDGE = `
         if (_lastDispatchedText && !_lastDispatchWasTap) {
           console.log('[diag] selectionchange: posting empty (prior drag-select collapsed)');
           _selToken++;
+          // That bump makes RN's clear (the drag's token) stale, so the collapse ends its own mark.
+          clearWordMark();
           window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'selection', text: '' }));
         }
         _lastDispatchedText = '';

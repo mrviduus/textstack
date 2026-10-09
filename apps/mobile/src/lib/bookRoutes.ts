@@ -1,5 +1,6 @@
 import { parsePdfPageLocator, resumeChapterSlug, type ChapterPageAnchor, type ContinueReadingPick } from '@textstack/shared'
 import { userBookChapterSlug } from './userBookChapters'
+import { withDeadline } from './deadline'
 
 /**
  * Deep link that resumes a book at the chapter the reader last had open.
@@ -35,6 +36,8 @@ export async function heroResumeRoute(
     /** The cached chapters and the book meta's chapter count — a partial download can't place a page. */
     device: (bookId: string) => Promise<{ chapters: readonly ChapterPageAnchor[]; totalChapters: number }>
     server: (bookId: string) => Promise<readonly ChapterRow[]>
+    /** Store the server's start pages on the device: a download made before they were cached gains them. */
+    remember?: (bookId: string, chapters: { slug: string; sourceStartPage?: number | null }[]) => Promise<void>
   },
 ): Promise<string> {
   // A page beats chapterSlug, which may be stale from an earlier reflow read.
@@ -42,10 +45,16 @@ export async function heroResumeRoute(
   try {
     const cached = await loaders.device(pick.id).catch(() => null)
     // Complete AND every row paged: one row cached without a start page can misplace the page.
-    const chapters = cached && cached.totalChapters > 0 && cached.chapters.length >= cached.totalChapters
-      && cached.chapters.every(c => typeof c.sourceStartPage === 'number' && c.sourceStartPage >= 1)
-      ? cached.chapters
-      : (await withDeadline(loaders.server(pick.id), SERVER_DEADLINE_MS)).map(c => ({ ...c, slug: userBookChapterSlug(c) }))
+    let chapters: readonly ChapterPageAnchor[]
+    if (cached && cached.totalChapters > 0 && cached.chapters.length >= cached.totalChapters
+      && cached.chapters.every(c => typeof c.sourceStartPage === 'number' && c.sourceStartPage >= 1)) {
+      chapters = cached.chapters
+    } else {
+      const rows = (await withDeadline(loaders.server(pick.id), SERVER_DEADLINE_MS)).map(c => ({ ...c, slug: userBookChapterSlug(c) }))
+      // Fire-and-forget: the write never holds or fails the Continue.
+      loaders.remember?.(pick.id, rows.map(c => ({ slug: c.slug, sourceStartPage: c.sourceStartPage }))).catch(() => {})
+      chapters = rows
+    }
     const slug = resumeChapterSlug(null, pick.locator, chapters)
     return slug ? `/my-books/read/${pick.id}/${slug}` : `/my-books/${pick.id}`
   } catch {
@@ -54,11 +63,5 @@ export async function heroResumeRoute(
   }
 }
 
-/** Every wait has a deadline: a captive portal must not hold the Continue tap. */
+/** A captive portal must not hold the Continue tap. */
 const SERVER_DEADLINE_MS = 3000
-
-function withDeadline<T>(p: Promise<T>, ms: number): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const deadline = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('deadline')), ms) })
-  return Promise.race([p, deadline]).finally(() => clearTimeout(timer))
-}

@@ -11,7 +11,7 @@ import { fonts } from '../../theme/typography'
 import { PressableScale } from '../ui/PressableScale'
 import { GeneratedCover } from './GeneratedCover'
 import { heroResumeRoute } from '../../lib/bookRoutes'
-import { getCachedUserBookMeta, listCachedUserChapters } from '../../lib/offlineDb'
+import { getCachedUserBookMeta, listCachedUserChapters, storeCachedUserChapterStartPages } from '../../lib/offlineDb'
 
 /**
  * The single largest, topmost thing a returning reader sees.
@@ -48,6 +48,7 @@ export function ResumeHero({ pick }: { pick: ContinueReadingPick }) {
           return { chapters: cs.map(c => ({ slug: c.chapterSlug, sourceStartPage: c.sourceStartPage })), totalChapters: meta?.totalChapters ?? 0 }
         },
         server: id => userBooksApi.getUserBook(id).then(b => b.chapters),
+        remember: storeCachedUserChapterStartPages,
       })
       if (focusedRef.current) router.push(route as never)
     } finally {

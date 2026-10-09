@@ -6,6 +6,9 @@ import { heroResumeRoute } from './bookRoutes'
 import { downloadAndSave, downloadLibraryLink } from './downloadLibraryLink'
 import { READER_SELECTION_BRIDGE } from './readerBridge'
 import { clearSelectionJs } from './readerSelectionJs'
+import { buildReaderHtml } from './readerHtml'
+import { createRequire } from 'node:module'
+import { withDeadline } from './deadline'
 
 /** QA-007 owner rules. Screens and the WebView aren't drivable here: behaviour where a pure piece exists, source guards for the wiring. */
 const read = (p: string) => readFileSync(resolve(__dirname, '../..', p), 'utf8')
@@ -51,10 +54,8 @@ describe('QA-007', () => {
     expect(src).toMatch(/onStart=\{onDownload\(\(\) => startDownload\(book, language\)\)\}/)
     expect(src).toMatch(/onRetry=\{onDownload\(\(\) => retryFailed\(book\.id\)\)\}/)
     expect(src).toMatch(/onRestart=\{onDownload\(\(\) => startDownload\(book, language\)\)\}/)
-    expect(src).toMatch(/libraryLink\.start\(fresh \? 'out' : inLibrary \? 'in' : libraryKnownRef\.current \? 'out' : 'unknown', addToLibrary\)/)
-    // Cancel: the same confirm-then-remove the Save toggle uses, after the add settles.
+        // Cancel: the same confirm-then-remove the Save toggle uses, after the add settles.
     expect(src).toMatch(/onCancel=\{\(\) => \{\s*cancelDownload\(book\.id\)\s*void libraryLink\.cancel\(removeWithConfirm\)\s*\}\}/)
-    expect(src).toMatch(/libraryLink\.forget\(\)\s*if \(!inLibrary\) return addToLibrary\(\)\s*return removeWithConfirm\(\)/)
     expect(src).toMatch(/const removeWithConfirm = async \(\) => \{[\s\S]*?collectionsApi\.listCollections\(\)[\s\S]*?decideLibraryRemoval/)
     // Known only once getLibrary's answer was applied (gen-guarded against local changes in flight).
     expect(src).toMatch(/const gen = libraryGenRef\.current\s*const lib = await libraryApi\.getLibrary\(\)\s*if \(!isCancelled\(\) && gen === libraryGenRef\.current\) \{\s*libraryKnownRef\.current = true/)
@@ -238,10 +239,10 @@ describe('QA-007', () => {
     const d = w.document
     const posted: { token?: number }[] = []
     w.ReactNativeWebView = { postMessage: (m: string) => { const x = JSON.parse(m); if (x.type === 'selection' && x.text) posted.push(x) } }
-    w.eval(READER_SELECTION_BRIDGE)
     const marks = new Map<string, Range>()
-    w.__ov = { add: (k: string, r: Range) => marks.set(k, r), remove: (k: string) => marks.delete(k) }
-    w.eval('function hlEnsureOverlayer() { return window.__ov }')
+    const layer = { redraws: 0, element: d.createElement('div'), add: (k: string, r: Range) => marks.set(k, r), remove: (k: string) => marks.delete(k), syncScroll() {}, redraw() { layer.redraws++ } }
+    w.__TSOverlayer = { create: () => layer, highlight: null }
+    w.eval(READER_SELECTION_BRIDGE)
     const p = d.getElementById('p')
     const q = d.getElementById('q')
     const hold = async (el: HTMLElement, offset: number) => {
@@ -251,15 +252,15 @@ describe('QA-007', () => {
       el.dispatchEvent(touch)
       await new Promise(res => setTimeout(res, 500))
     }
-    return { w, d, p, q, posted, hold, marks }
+    return { w, d, p, q, posted, hold, marks, layer }
   }
 
   it('SEL-1: the word mark is drawn on the overlayer — the chapter text gains no element', async () => {
-    const { d, p, hold, marks } = await bridgeDoc()
-    const before = { text: d.body.textContent, nodes: d.body.getElementsByTagName('*').length, children: p.childNodes.length }
+    const { p, hold, marks } = await bridgeDoc()
+    const before = { html: p.innerHTML, children: p.childNodes.length }
     await hold(p, 7) // "beta"
     expect(marks.get('ts-word-mark')?.toString()).toBe('beta')
-    expect({ text: d.body.textContent, nodes: d.body.getElementsByTagName('*').length, children: p.childNodes.length }).toEqual(before)
+    expect({ html: p.innerHTML, children: p.childNodes.length }).toEqual(before)
   })
 
   it('SEL-1: closing the mark leaves a highlight Range in the same paragraph intact', async () => {
@@ -288,6 +289,53 @@ describe('QA-007', () => {
     w.eval(clearSelectionJs(older))
     expect(marks.get('ts-word-mark')?.toString()).toBe('gamma')
     expect(clearSelectionJs(undefined, true)).toBe('')
+  })
+
+  it('SEL-1: a word marked inside a highlight — a tap on it still opens the highlight (the mark is never hit-tested)', async () => {
+    const { JSDOM, VirtualConsole } = createRequire(__filename)('jsdom')
+    const posted: { type: string; highlightId?: string }[] = []
+    const rect = { x: 20, y: 300, left: 20, top: 300, right: 80, bottom: 320, width: 60, height: 20 }
+    const dom = new JSDOM(buildReaderHtml('<p>She sat in the garden and watched the moon.</p>', undefined, 'ch-1'), {
+      runScripts: 'dangerously', pretendToBeVisual: true, virtualConsole: new VirtualConsole(),
+      beforeParse(win: any) {
+        win.ReactNativeWebView = { postMessage: (m: string) => posted.push(JSON.parse(m)) }
+        // No layout in jsdom: every range sits on the same rect, as a word inside its highlight does.
+        win.Range.prototype.getClientRects = function () { return [rect] }
+        win.Range.prototype.getBoundingClientRect = function () { return rect }
+      },
+    })
+    const w = dom.window as any
+    const d = w.document
+    w.eval(`renderHighlight("h1", ${JSON.stringify(JSON.stringify({ prefix: 'She sat in the ', exact: 'garden', suffix: ' and' }))}, "yellow", "garden")`)
+    const text = d.querySelector('p').firstChild
+    d.caretRangeFromPoint = () => { const c = d.createRange(); c.setStart(text, 17); return c }
+    const touch = new w.Event('touchstart', { bubbles: true })
+    Object.defineProperty(touch, 'changedTouches', { value: [{ clientX: 30, clientY: 310 }] })
+    d.querySelector('p').dispatchEvent(touch)
+    await new Promise(res => setTimeout(res, 1000)) // hold fires, then the justAnchored window passes
+    expect(posted.some(m => m.type === 'selection' && (m as any).text === 'garden')).toBe(true)
+    d.body.dispatchEvent(new w.MouseEvent('click', { bubbles: true, clientX: 30, clientY: 310 }))
+    expect(posted.filter(m => m.type === 'highlightTap')).toEqual([{ type: 'highlightTap', highlightId: 'h1' }])
+  })
+
+  it('SEL-1: a drag selection collapsing clears the word mark itself (RN\'s clear carries a token the collapse made stale)', async () => {
+    const { w, d, p, q, hold, marks } = await bridgeDoc()
+    await hold(p, 7) // "beta" marked
+    await new Promise(res => setTimeout(res, 1600)) // past the tap's suppression window
+    d.dispatchEvent(new w.Event('selectionchange')); await new Promise(res => setTimeout(res, 300)) // ActionMode gone: tap state reset
+    const r = d.createRange(); r.setStart(q.firstChild, 0); r.setEnd(q.firstChild, 11)
+    w.getSelection().addRange(r)
+    d.dispatchEvent(new w.Event('selectionchange')); await new Promise(res => setTimeout(res, 300))
+    w.getSelection().removeAllRanges()
+    d.dispatchEvent(new w.Event('selectionchange')); await new Promise(res => setTimeout(res, 300))
+    expect(marks.has('ts-word-mark')).toBe(false)
+  })
+
+  it('SEL-1: the word mark redraws on resize/rotate, as on scroll', async () => {
+    const { w, p, hold, layer } = await bridgeDoc()
+    await hold(p, 7)
+    w.dispatchEvent(new w.Event('resize'))
+    expect(layer.redraws).toBe(1)
   })
 
   it('LIB-1: a finished or removed download forgets it added the book — a later download + Cancel never removes it', async () => {
@@ -338,6 +386,65 @@ describe('QA-007', () => {
     const src = read('app/book/[slug].tsx')
     expect(src).toMatch(/setInLibrary\(false\)\s*void loadLibrary\(\)\s*return false/)
     expect(src).toMatch(/const loadLibrary = async \(isCancelled = \(\) => false\) => \{[\s\S]*?libraryApi\.getLibrary\(\)[\s\S]*?libraryKnownRef\.current = true/)
+  })
+
+  it('RES-1: a server lookup writes the start pages into the device cache, so the next offline Continue works', async () => {
+    const pick = { type: 'userbook' as const, id: 'ub1', title: 'PDF', coverPath: null, percent: 0.3, chapterSlug: null, locator: 'page:12', updatedAtMs: 1 }
+    // A download made before start pages were stored: complete, no pages.
+    const device = async () => ({ chapters: [{ slug: 'ch0', sourceStartPage: null }, { slug: 'chapter-1', sourceStartPage: null }], totalChapters: 2 })
+    const server = async () => [{ slug: 'ch0', chapterNumber: 0, sourceStartPage: 1 }, { slug: null, chapterNumber: 1, sourceStartPage: 10 }]
+    const remember = vi.fn(async () => {})
+    expect(await heroResumeRoute(pick, { device, server, remember })).toBe('/my-books/read/ub1/chapter-1')
+    expect(remember).toHaveBeenCalledWith('ub1', [{ slug: 'ch0', sourceStartPage: 1 }, { slug: 'chapter-1', sourceStartPage: 10 }])
+    // A failing write never blocks the Continue.
+    expect(await heroResumeRoute(pick, { device, server, remember: async () => { throw new Error('db') } })).toBe('/my-books/read/ub1/chapter-1')
+    // The device answering alone writes nothing.
+    remember.mockClear()
+    await heroResumeRoute(pick, { device: async () => ({ chapters: [{ slug: 'ch0', sourceStartPage: 1 }], totalChapters: 1 }), server, remember })
+    expect(remember).not.toHaveBeenCalled()
+    // Wiring: the hero hands them to SQLite, which only fills, never clears.
+    expect(read('src/components/library/ResumeHero.tsx')).toMatch(/remember: storeCachedUserChapterStartPages/)
+    expect(read('src/lib/offlineDb.ts')).toMatch(/UPDATE user_chapters SET source_start_page = COALESCE\(\?, source_start_page\) WHERE book_id = \? AND chapter_slug = \?/)
+    expect(read('src/lib/offlineDb.web.ts')).toContain('export async function storeCachedUserChapterStartPages')
+  })
+
+  it('LIB-1: a hand Save/remove ends the link and waits for an in-flight Download add before its DELETE', async () => {
+    for (const state of ['out', 'unknown'] as const) {
+      const order: string[] = []
+      let settle!: (ok: boolean) => void
+      const link = downloadLibraryLink()
+      link.start(state, () => new Promise<boolean>(r => { settle = ok => { order.push('add'); r(ok) } }))
+      const removed = link.forget().then(() => { order.push('remove') })
+      await Promise.resolve()
+      expect(order).toEqual([])
+      settle(true); await removed
+      expect(order).toEqual(['add', 'remove'])
+    }
+    // A failed add still releases the wait.
+    const link = downloadLibraryLink()
+    link.start('out', async () => { throw new Error('offline') })
+    await expect(link.forget()).resolves.toBeUndefined()
+    // Wiring: the Save button's remove path awaits it.
+    expect(read('app/book/[slug].tsx')).toMatch(/const pending = libraryLink\.forget\(\)\s*if \(!inLibrary\) return addToLibrary\(\)\s*await pending\s*return removeWithConfirm\(\)/)
+  })
+
+  it('LIB-1: the Download save, run after the session mint, reads the current inLibrary, not the tap-time render', () => {
+    const src = read('app/book/[slug].tsx')
+    expect(src).toMatch(/const inLibraryRef = useRef\(inLibrary\)\s*inLibraryRef\.current = inLibrary/)
+    expect(src).toMatch(/libraryLink\.start\(fresh \? 'out' : inLibraryRef\.current \? 'in' : libraryKnownRef\.current \? 'out' : 'unknown', addToLibrary\)/)
+  })
+
+  it('one deadline helper: rejects after ms, settles with the promise otherwise; both waits use it', async () => {
+    vi.useFakeTimers()
+    const late = withDeadline(new Promise(() => {}), 3000)
+    const caught = late.catch(e => e.message)
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(await caught).toBe('deadline')
+    vi.useRealTimers()
+    expect(await withDeadline(Promise.resolve(7), 10)).toBe(7)
+    await expect(withDeadline(Promise.reject(new Error('x')), 10)).rejects.toThrow('x')
+    expect(read('src/lib/bookRoutes.ts')).not.toMatch(/function withDeadline|Promise\.race/)
+    expect(read('src/lib/downloadLibraryLink.ts')).not.toMatch(/Promise\.race|setTimeout/)
   })
 
   it('RES-1: a device cache with any chapter lacking a start page asks the server', async () => {
