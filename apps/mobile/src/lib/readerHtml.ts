@@ -158,13 +158,6 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
     .ts-end__error { font-size: 14px; margin-top: 12px; opacity: 0.8; }
     .ts-end button:disabled { opacity: 0.5; }
 
-    /* The tapped word, marked for as long as its toolbar is open. This was a
-       0.6s fade-out, so the word went dark while the toolbar stayed up and
-       nothing said which word it belonged to. */
-    .ts-word-mark {
-      background-color: rgba(196,112,75,0.35);
-      border-radius: 2px;
-    }
     /* Reflow had no ::selection rule at all — only the PDF viewer did — so a
        native drag-selection was invisible against the warm page. */
     ::selection { background: rgba(196,112,75,0.35); }
@@ -1552,13 +1545,10 @@ export function buildPdfViewerHtml(fileUrl: string, token: string | null, option
       border-radius: 2px;
       mix-blend-mode: multiply;
     }
-
-    /* Tap pulse animation — reused by the shared bridge's word-tap feedback. */
-    /* Same persistent mark as the reflow reader — the PDF text layer shares the
-       selection bridge, so it shared the vanishing-highlight problem too. */
-    .ts-word-mark { background-color: rgba(196,112,75,0.35); border-radius: 2px; }
   </style>
   <script>window.__TS_PDF = ${bootstrap};</script>
+  <!-- The bridge draws the tapped-word mark on an overlay layer (SEL-1). -->
+  <script>${READER_OVERLAY_SCRIPT}</script>
   <script>${READER_SELECTION_BRIDGE}</script>
   <script>${PDF_VIEWER_SCRIPT}</script>
 </head>

@@ -1,4 +1,4 @@
-import { useRef, useCallback } from 'react'
+import { useRef, useCallback, useEffect } from 'react'
 import type { MutableRefObject } from 'react'
 import { t, type Language } from '@textstack/shared'
 import type { Chapter } from '@textstack/shared'
@@ -15,6 +15,7 @@ import { useReaderSelection } from '../../hooks/useReaderSelection'
 import { saveWordIntent } from '../../lib/saveWordIntent'
 import { capabilitiesFor } from '../../lib/capabilities'
 import { claimGuestNudge } from '../../lib/guestNudge'
+import { clearSelectionJs } from '../../lib/readerSelectionJs'
 import type { ReaderShellProps } from './readerShellTypes'
 
 /** Lightweight {key} interpolation — shared `t()` returns raw keys, we fill them in here. */
@@ -128,6 +129,13 @@ export function useReaderWordActions({
     })
   }, [haptics, showToast, language, router, isGuest, vocabMapRef])
 
+  // A network-bound action closes the selection it started with — never one the reader opened
+  // while it waited (SEL-1).
+  const closeOwnSelection = useCallback(
+    (s: { selectionId: number }) => setSelection(cur => (cur && cur.selectionId === s.selectionId ? null : cur)),
+    [setSelection],
+  )
+
   const vocabActions = useReaderVocabActions({
     vocabMapRef,
     bookTitleRef,
@@ -142,16 +150,25 @@ export function useReaderWordActions({
     notifyWordSaved,
     setSessionWordCount,
     setWordSaved,
-    setSelection,
+    closeSelection: closeOwnSelection,
     setLookupState,
     showToast,
   })
 
   // The word toolbar's close — its X button and Android back (M3).
-  const closeSelection = useCallback(() => {
-    injectJs('try{window.getSelection&&window.getSelection().removeAllRanges()}catch(e){};try{window.__tsClearWordMark&&window.__tsClearWordMark()}catch(e){}')
-    setSelection(null)
-  }, [injectJs, setSelection])
+  const closeSelection = useCallback(() => setSelection(null), [setSelection])
+
+  // However the selection closes (X, highlight, known, remove, add-anyway, save outcomes), the
+  // WebView's native range and word mark go with it. The closed selection's token makes a late
+  // clear a no-op once the WebView has a newer selection (SEL-1).
+  const closedTokenRef = useRef<number | undefined | null>(null) // null = nothing open
+  useEffect(() => {
+    if (selection) { closedTokenRef.current = selection.token; return }
+    // No token (closed record unknown to the WebView): close the toolbar only, never a blind clear.
+    if (typeof closedTokenRef.current !== 'number') { closedTokenRef.current = null; return }
+    injectJs(clearSelectionJs(closedTokenRef.current))
+    closedTokenRef.current = null
+  }, [selection, injectJs])
 
   // Save is now on screen for guests too (SelectionActionBar), so this handler owns
   // the answer for them — and the answer stays in the book. No action, no router:
@@ -213,9 +230,9 @@ export function useReaderWordActions({
       setSelection(null)
       return
     }
-    await createHighlight({ color, selection, chapter: { id: chapter.id } })
-    setSelection(null)
-  }, [selection, chapter.id, createHighlight, updateSettings, original, injectJs])
+    // Failure keeps the selection for a retry.
+    if (await createHighlight({ color, selection, chapter: { id: chapter.id } })) closeOwnSelection(selection)
+  }, [selection, chapter.id, createHighlight, updateSettings, original, injectJs, closeOwnSelection])
 
   return {
     vocabMapRef, vocabActions,

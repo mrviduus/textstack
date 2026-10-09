@@ -208,7 +208,8 @@ export const READER_SELECTION_BRIDGE = `
         mode: 'tap',
         text: text,
         sentence: sentence,
-        anchor: anchor
+        anchor: anchor,
+        token: ++_selToken
       }));
       return true;
     }
@@ -223,35 +224,56 @@ export const READER_SELECTION_BRIDGE = `
     //
     // Deliberately NOT window.getSelection(): touching the Selection API here
     // raises Android's ActionMode over our own toolbar. See selectWordAtPoint.
-    var _wordMarkSpan = null;
+    //
+    // Drawn on the overlay layer, never into the chapter: wrapping the word in a span moved its text
+    // node, which collapsed every live Range on it — highlights, vocab underlines (SEL-1).
+    var WORD_MARK_KEY = 'ts-word-mark';
+    var _wordMarkOv = null;
+    function wordMarkLayer() {
+      // A layer of its own in both readers, never the highlight one: reflow's tap hit-tests that layer
+      // and takes the topmost entry, so a mark there hid the highlight under it (SEL-1).
+      if (_wordMarkOv || !window.__TSOverlayer) return _wordMarkOv;
+      _wordMarkOv = window.__TSOverlayer.create();
+      _wordMarkOv.element.style.position = 'fixed';
+      _wordMarkOv.element.style.zIndex = '3';
+      document.body.appendChild(_wordMarkOv.element);
+      window.addEventListener('scroll', function() { try { _wordMarkOv.syncScroll(); } catch(e) {} }, { passive: true });
+      // Rotate/resize reflows the text under the mark.
+      window.addEventListener('resize', function() { try { _wordMarkOv.redraw(); } catch(e) {} });
+      // Same triggers as the highlight overlayer (readerHtml hlEnsureOverlayer): a late image or font
+      // shifts the text too. Image load does not bubble, so it is caught on capture — appended chapters included.
+      document.addEventListener('load', function(e) { if (e.target && e.target.tagName === 'IMG') { try { _wordMarkOv.redraw(); } catch(e2) {} } }, true);
+      if (document.fonts && document.fonts.ready && typeof document.fonts.ready.then === 'function') {
+        document.fonts.ready.then(function() { try { _wordMarkOv.redraw(); } catch(e) {} });
+      }
+      return _wordMarkOv;
+    }
 
     function clearWordMark() {
-      try {
-        var span = _wordMarkSpan;
-        _wordMarkSpan = null;
-        if (!span || !span.parentNode) return;
-        var parent = span.parentNode;
-        while (span.firstChild) parent.insertBefore(span.firstChild, span);
-        parent.removeChild(span);
-        parent.normalize();
-      } catch(e) {}
+      try { var ov = wordMarkLayer(); if (ov) ov.remove(WORD_MARK_KEY); } catch(e) {}
     }
 
     function markRange(range) {
       try {
-        clearWordMark();
-        var span = document.createElement('span');
-        span.className = 'ts-word-mark';
-        range.surroundContents(span);
-        _wordMarkSpan = span;
+        var ov = wordMarkLayer();
+        if (ov) ov.add(WORD_MARK_KEY, range.cloneRange(), window.__TSOverlayer && window.__TSOverlayer.highlight,
+          { color: 'rgba(196,112,75,0.35)', opacity: 1, blendMode: 'multiply' });
       } catch(e) {}
     }
 
     function applyTapPulseRange(range) { markRange(range); }
 
     // RN clears the mark when the selection toolbar closes — the toolbar owns
-    // the lifecycle, so it also owns the ending.
-    window.__tsClearWordMark = clearWordMark;
+    // the lifecycle, so it also owns the ending. Every selection posted to RN carries a token. RN hands the closed selection's token back
+    // here; once a newer selection (or a collapse) has been posted, that clear is stale and does
+    // nothing — it must not wipe the newer one (SEL-1). markOnly keeps the native range.
+    // Random base: a clear for the previous chapter's document never matches this one's (SEL-1).
+    var _selToken = Math.floor(Math.random() * 1e12);
+    window.__tsClearSelection = function(token, markOnly) {
+      if (typeof token === 'number' && token !== _selToken) return;
+      if (!markOnly) { try { window.getSelection && window.getSelection().removeAllRanges(); } catch(e) {} }
+      clearWordMark();
+    };
 
     // The chapter's own element, or the body where there is none (the PDF
     // viewer). Context cut from the body picked up the template's whitespace,
@@ -329,7 +351,8 @@ export const READER_SELECTION_BRIDGE = `
         type: 'selection',
         text: text,
         sentence: sentence,
-        anchor: anchor
+        anchor: anchor,
+        token: ++_selToken
       }));
     }
 
@@ -529,7 +552,7 @@ export const READER_SELECTION_BRIDGE = `
       return getRangeAnchor(sel.getRangeAt(0));
     }
 
-    // Tap pulse: wrap selection in temporary span with animation
+    // Tap pulse: the word mark over the selection
     function applyTapPulse(sel) {
       // Native drag selections already paint themselves via ::selection, so this
       // only adds the mark for the single-word case the tap path shares.
@@ -582,6 +605,9 @@ export const READER_SELECTION_BRIDGE = `
         // so reporting "empty" would incorrectly tear down the WordCard.
         if (_lastDispatchedText && !_lastDispatchWasTap) {
           console.log('[diag] selectionchange: posting empty (prior drag-select collapsed)');
+          _selToken++;
+          // That bump makes RN's clear (the drag's token) stale, so the collapse ends its own mark.
+          clearWordMark();
           window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'selection', text: '' }));
         }
         _lastDispatchedText = '';
@@ -613,7 +639,8 @@ export const READER_SELECTION_BRIDGE = `
         text: text,
         sentence: sentence,
         anchor: anchor,
-        tooLong: text.length > SELECTION_MAX_CHARS
+        tooLong: text.length > SELECTION_MAX_CHARS,
+        token: ++_selToken
       }));
     }
     document.addEventListener('selectionchange', function() {
