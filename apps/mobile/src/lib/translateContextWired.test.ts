@@ -25,7 +25,7 @@ describe('TR-1: mobile reader translate calls carry the tapped sentence', () => 
 
   it('TR-3: the toolbar offers "Use this translation" when the saved one differs, wired to replaceTranslation', () => {
     const bar = element(shell, 'SelectionActionBar')
-    expect(bar).toContain('savedTranslation={vocabMapRef.current[selection.text.toLowerCase()]?.translation}')
+    expect(bar).toContain('savedTranslation={vocabMapRef.current[vocabMapKey(selection.text)]?.translation}')
     expect(bar).toContain('vocabActions.replaceTranslation(selection.text, tr)')
     const src = read('src/components/SelectionActionBar.tsx')
     // TR-3: only a translation fetched in the current native language is offered.

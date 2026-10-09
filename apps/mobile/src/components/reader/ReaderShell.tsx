@@ -48,6 +48,7 @@ import { readerBackAction } from '../../lib/firstRun'
 import { claimVisit } from '../../lib/readerVisit'
 import { discussAfterSave } from '../../lib/chapterEnd'
 import { vocabPaintJs } from '../../lib/vocabPaintJs'
+import { vocabMapKey } from '../../lib/vocabMapKey'
 
 /**
  * The shared reader body for BOTH the public-library reader and the user-uploaded
@@ -445,13 +446,13 @@ export function ReaderShell(props: ReaderShellProps) {
             isSpeaking={isSpeaking}
             isTtsLoading={isTtsLoading}
             wordSaved={wordSaved}
-            vocabStage={vocabMapRef.current[selection.text.toLowerCase()]?.stage ?? null}
+            vocabStage={vocabMapRef.current[vocabMapKey(selection.text)]?.stage ?? null}
             isAuthenticated={isAuthenticated}
             bottomOffset={footerHeight}
             onClose={closeSelection}
             lookup={lookupState}
             onAddAnyway={lookupState ? () => { void vocabActions.addAnyway(lookupState) } : undefined}
-            savedTranslation={vocabMapRef.current[selection.text.toLowerCase()]?.translation}
+            savedTranslation={vocabMapRef.current[vocabMapKey(selection.text)]?.translation}
             onUseTranslation={(tr) => { void vocabActions.replaceTranslation(selection.text, tr) }}
           />
         )}

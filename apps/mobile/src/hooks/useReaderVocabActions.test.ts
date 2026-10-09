@@ -112,6 +112,50 @@ describe('useReaderVocabActions', () => {
     expect(painted.some((js) => js.includes('embolsou'))).toBe(true)
   })
 
+  it('TR-3: replaceTranslation finds the saved entry through the map key normalizer ("word," and a curly apostrophe)', async () => {
+    api.updateWord.mockReset()
+    api.updateWord.mockResolvedValue({})
+    const vocabMapRef = { current: {
+      pocketed: { stage: 1, id: 'w3', translation: 'enterrado' },
+      "don't": { stage: 1, id: 'w5', translation: 'não' },
+    } as VocabMap }
+    const { result } = setup(vocabMapRef)
+
+    await act(async () => { await result.current.replaceTranslation('Pocketed,', 'embolsou') })
+    await act(async () => { await result.current.replaceTranslation('Don’t', 'nao faça') })
+
+    expect(api.updateWord).toHaveBeenCalledWith('w3', { translation: 'embolsou' })
+    expect(api.updateWord).toHaveBeenCalledWith('w5', { translation: 'nao faça' })
+    expect(vocabMapRef.current.pocketed.translation).toBe('embolsou')
+    expect(vocabMapRef.current["don't"].translation).toBe('nao faça')
+  })
+
+  it('TR-3: replaceTranslation with no saved entry shows the failed-save error toast', async () => {
+    api.updateWord.mockReset()
+    const showToast = vi.fn()
+    const noop = () => {}
+    const { result } = renderHook(useReaderVocabActions, {
+      vocabMapRef: { current: {} as VocabMap }, bookTitleRef: { current: null }, chapter: null, language: 'en',
+      editionIdRef: { current: 'book-1' },
+      textLanguage: 'en', nativeLanguage: 'pt', isAuthenticated: true, injectJs: noop, bumpVocab: noop,
+      notifyWordSaved: noop, setSessionWordCount: noop, setWordSaved: noop, setSelection: noop,
+      setLookupState: noop, showToast,
+    } as unknown as Parameters<typeof useReaderVocabActions>[0])
+
+    await act(async () => { await result.current.replaceTranslation('ghost', 'fantasma') })
+
+    expect(api.updateWord).not.toHaveBeenCalled()
+    expect(showToast).toHaveBeenCalledWith({ message: 'reader.vocab.useTranslationFailed', variant: 'error' })
+  })
+
+  it('TR-3: the reader looks up and builds the vocab map with the same key normalizer', () => {
+    const shell = readFileSync(resolve(__dirname, '../components/reader/ReaderShell.tsx'), 'utf8')
+    const map = readFileSync(resolve(__dirname, 'useReaderVocabMap.ts'), 'utf8')
+    expect(shell).not.toContain('selection.text.toLowerCase()')
+    expect(shell).toContain('vocabMapRef.current[vocabMapKey(selection.text)]')
+    expect(map).toContain('map[vocabMapKey(w.word)]')
+  })
+
   it('TR-2: the chapter-open backfill (useReaderVocabMap) is an automatic fill and sends onlyIfEmpty', () => {
     const src = readFileSync(resolve(__dirname, 'useReaderVocabMap.ts'), 'utf8')
     expect(src).toContain('vocabularyApi.updateWord(id, { translation, onlyIfEmpty: true })')

@@ -128,7 +128,7 @@ describe('useReaderVocabulary', () => {
     await waitFor(() => expect(getReaderVocabMock).toHaveBeenCalled())
     await act(async () => { await result.current.addWord({ word: 'wound', language: 'en' }) })
 
-    act(() => result.current.updateTranslation('wound', 'enrolou'))
+    await act(async () => { await result.current.updateTranslation('wound', 'enrolou') })
 
     expect(updateWord).not.toHaveBeenCalled()
     expect(result.current.vocabMap.get('wound')?.translation).toBe('ferida')
@@ -187,7 +187,7 @@ describe('useReaderVocabulary', () => {
 
   it('TR-2: updateTranslation PATCHes a saved word that has no translation yet', async () => {
     const { updateWord } = await import('../../api/vocabulary')
-    vi.mocked(updateWord).mockResolvedValue(undefined as never)
+    vi.mocked(updateWord).mockResolvedValue({ id: 'w1', word: 'wound', translation: 'ferida' } as never)
     saveWordMock.mockResolvedValue({
       outcome: 'saved',
       word: { id: 'w1', word: 'wound', stage: 0, translation: null },
@@ -198,10 +198,36 @@ describe('useReaderVocabulary', () => {
     await waitFor(() => expect(getReaderVocabMock).toHaveBeenCalled())
     await act(async () => { await result.current.addWord({ word: 'wound', language: 'en' }) })
 
-    act(() => result.current.updateTranslation('wound', 'ferida'))
+    await act(async () => { await result.current.updateTranslation('wound', 'ferida') })
 
     expect(updateWord).toHaveBeenCalledWith('w1', { translation: 'ferida', onlyIfEmpty: true })
     expect(result.current.vocabMap.get('wound')?.translation).toBe('ferida')
+  })
+
+  it('TR-2: updateTranslation takes the map from the PATCH response — the server kept its stored translation', async () => {
+    const { updateWord } = await import('../../api/vocabulary')
+    // Another device filled it first: onlyIfEmpty is ignored server-side, the stored value comes back.
+    vi.mocked(updateWord).mockResolvedValue({ id: 'w1', word: 'wound', translation: 'ferimento' } as never)
+    getReaderVocabMock.mockResolvedValue([{ id: 'w1', word: 'wound', stage: 0, translation: null }])
+    const { result } = renderHook(() => useReaderVocabulary('en', null))
+    await waitFor(() => expect(result.current.vocabMap.has('wound')).toBe(true))
+
+    await act(async () => { await result.current.updateTranslation('wound', 'ferida') })
+
+    expect(result.current.vocabMap.get('wound')?.translation).toBe('ferimento')
+  })
+
+  it('TR-2: updateTranslation does not mark the word filled when the PATCH fails', async () => {
+    const { updateWord } = await import('../../api/vocabulary')
+    vi.mocked(updateWord).mockRejectedValue(new Error('offline'))
+    getReaderVocabMock.mockResolvedValue([{ id: 'w1', word: 'wound', stage: 0, translation: null }])
+    const { result } = renderHook(() => useReaderVocabulary('en', null))
+    await waitFor(() => expect(result.current.vocabMap.has('wound')).toBe(true))
+
+    await act(async () => { await result.current.updateTranslation('wound', 'ferida') })
+
+    expect(updateWord).toHaveBeenCalledTimes(1)
+    expect(result.current.vocabMap.get('wound')?.translation).toBeFalsy()
   })
 
   it('TR-2: the mount backfill is an automatic fill and sends onlyIfEmpty', async () => {

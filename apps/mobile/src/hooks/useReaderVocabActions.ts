@@ -4,6 +4,7 @@ import { cachedTranslate } from '../lib/translateCache'
 import type { Chapter, VocabularyWordDto, Language } from '@textstack/shared'
 import type { VocabMap } from './useReaderVocabMap'
 import { vocabPaintJs } from '../lib/vocabPaintJs'
+import { vocabMapKey } from '../lib/vocabMapKey'
 
 type ToastFn = (t: { message: string; variant: 'error' | 'success' | 'info' }) => void
 type Selection = { text: string; sentence: string; anchor?: any; selectionId: number }
@@ -100,7 +101,7 @@ export function useReaderVocabActions({
   /** Shared post-save sequence: mark + count + notify + persist translation. */
   /** `sentence`: the one the word was tapped in (TR-1) — the toolbar's cache key too. */
   const onWordSaved = useCallback((saved: VocabularyWordDto, sourceText: string, sentence: string | null | undefined) => {
-    const key = saved.word.toLowerCase()
+    const key = vocabMapKey(saved.word)
     vocabMapRef.current[key] = { stage: saved.stage, id: saved.id, translation: saved.translation || undefined }
     injectJs(`addVocabWord(${JSON.stringify(key)}, ${saved.stage})`)
     bumpVocab()
@@ -154,7 +155,7 @@ export function useReaderVocabActions({
 
   const saveWord = useCallback(async (selection: Selection) => {
     if (!isAuthenticated) return
-    const keyLc = selection.text.toLowerCase()
+    const keyLc = vocabMapKey(selection.text)
     // Race guard — wordSaved flag flips only after the response lands, so
     // taps during the round-trip would otherwise re-POST.
     if (savingRef.current.has(keyLc)) return
@@ -228,7 +229,7 @@ export function useReaderVocabActions({
 
   const markKnown = useCallback(async (selection: Selection) => {
     if (!isAuthenticated) return
-    const key = selection.text.toLowerCase()
+    const key = vocabMapKey(selection.text)
     const entry = vocabMapRef.current[key]
     if (!entry) return
     try {
@@ -250,7 +251,7 @@ export function useReaderVocabActions({
    */
   const removeWord = useCallback(async (selection: Selection) => {
     if (!isAuthenticated) return
-    const key = selection.text.toLowerCase()
+    const key = vocabMapKey(selection.text)
     const entry = vocabMapRef.current[key]
     if (!entry) return
     const snapshot = { ...entry }
@@ -273,10 +274,10 @@ export function useReaderVocabActions({
 
   /** TR-3: the reader tapped "Use this translation" — an explicit PATCH, then the gloss follows. */
   const replaceTranslation = useCallback(async (word: string, translation: string) => {
-    const key = word.toLowerCase()
+    const key = vocabMapKey(word)
     const entry = vocabMapRef.current[key]
-    if (!entry?.id) return
     try {
+      if (!entry?.id) throw new Error('no saved entry')
       await vocabularyApi.updateWord(entry.id, { translation })
       vocabMapRef.current[key] = { ...vocabMapRef.current[key], translation }
       injectJs(vocabPaintJs(vocabMapRef.current))

@@ -26,8 +26,6 @@ interface Options<B extends BubbleLike> {
   updateTranslation: (word: string, translation: string) => void
   targetLang: string | null
   bookLanguage: string
-  /** TR-2: the first confirm of the native language is not a language switch. Omitted = confirmed. */
-  hasConfirmedLanguage?: boolean
   abortRef: MutableRefObject<AbortController | null>
 }
 
@@ -55,7 +53,6 @@ export function useBubbleTranslationSync<B extends BubbleLike>({
   updateTranslation,
   targetLang,
   bookLanguage,
-  hasConfirmedLanguage = true,
   abortRef,
 }: Options<B>) {
   const autoSavedRef = useRef<Set<string>>(new Set())
@@ -80,12 +77,9 @@ export function useBubbleTranslationSync<B extends BubbleLike>({
   // the same word. Stored as a tuple ref instead of a `word::lang` string so
   // words containing `::` don't break the parse.
   const lastPairRef = useRef<{ word: string; lang: string | null } | null>(null)
-  const prevConfirmedRef = useRef(hasConfirmedLanguage)
 
   useEffect(() => {
     const word = bubble?.word
-    const firstConfirm = !prevConfirmedRef.current && hasConfirmedLanguage
-    prevConfirmedRef.current = hasConfirmedLanguage
     if (!word) {
       lastPairRef.current = null
       langSwitchedRef.current = null
@@ -102,8 +96,7 @@ export function useBubbleTranslationSync<B extends BubbleLike>({
 
     lastPairRef.current = { word, lang: targetLang }
     // Word changed → openBubble owns the fetch.
-    // A first confirm is the reader's language, not a switch away from it: its translation may fill.
-    const switched = prev.word === word && !firstConfirm
+    const switched = prev.word === word
     langSwitchedRef.current = switched ? { word, sentence: bubble?.sentence } : null
     if (prev.word !== word) return
 
@@ -137,7 +130,7 @@ export function useBubbleTranslationSync<B extends BubbleLike>({
         if ((err as { name?: string })?.name === 'AbortError') return
         setBubble((b) => (b && b.word === word ? { ...b, translationLoading: false } : b))
       })
-  }, [bubble?.word, bubble?.sentence, bubble?.bookId, targetLang, bookLanguage, hasConfirmedLanguage, updateTranslation, setBubble, abortRef])
+  }, [bubble?.word, bubble?.sentence, bubble?.bookId, targetLang, bookLanguage, updateTranslation, setBubble, abortRef])
 
   const triggerAutoSave = useCallback(
     (word: string, save: () => Promise<unknown>) => {
