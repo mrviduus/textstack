@@ -1,3 +1,5 @@
+import { READER_GLOSS_SELECTOR } from '@textstack/shared'
+
 // Single source of truth for "what counts as a vocabulary word key".
 // Covers: Unicode letters/marks/numbers + straight & curly apostrophes + hyphens.
 // Always NFC-normalized + lowercased.
@@ -36,12 +38,16 @@ export function tokenizeVocabWords(text: string): { word: string; start: number;
  *
  * Returns the first word-token of the filtered text, or null if nothing usable.
  */
+/** Text of a detached node / fragment without the reader's own gloss nodes (removes them in place). */
+export function textWithoutGloss(n: Node): string {
+  if (n instanceof Element || n instanceof DocumentFragment) n.querySelectorAll(READER_GLOSS_SELECTOR).forEach((g) => g.remove())
+  return n.textContent ?? ''
+}
+
 export function extractWordFromRange(range: Range | null): string | null {
   if (!range) return null
   const frag = range.cloneContents()
-  // Strip inline-translation nodes
-  frag.querySelectorAll('.vocab-inline-translation').forEach((el) => el.remove())
-  const text = frag.textContent ?? ''
+  const text = textWithoutGloss(frag)
   if (!text.trim()) return null
   const tokens = tokenizeVocabWords(text)
   return tokens.length > 0 ? tokens[0].word : text.trim()

@@ -295,8 +295,9 @@ export function ReaderHighlights({
       {bubble && !translationPopup.show && (() => {
         const entry = vocabMap.get(normalizeVocabKey(bubble.word))
         const isSaved = !!entry
-        // TR-3: a saved word whose translation differs from the bubble's — offer to replace it.
-        const savedAs = entry?.id && !entry.isPending ? savedTranslationOffer(entry.translation, bubble.translation) : null
+        // TR-3: a saved word whose translation differs from the bubble's — offer to replace it, but only
+        // with a translation in the reader's native language that is not a mid-popup switch (display-only).
+        const savedAs = entry?.id && !entry.isPending ? savedTranslationOffer(entry.translation, bubble.langSwitched ? null : bubble.translation, bubble.translationLang, nativeLanguage) : null
         return (
           <WordPopup
             word={bubble.word}

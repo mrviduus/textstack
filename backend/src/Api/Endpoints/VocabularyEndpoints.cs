@@ -547,13 +547,20 @@ public static partial class VocabularyEndpoints
         if (TooLong(request.Translation, request.Definition) is { } tooLong)
             return Results.BadRequest(tooLong);
 
-        if (request.Translation != null) word.Translation = request.Translation.Trim();
-        if (request.Definition != null) word.Definition = request.Definition.Trim();
+        ApplyUpdate(word, request);
         word.UpdatedAt = DateTimeOffset.UtcNow;
 
         await db.SaveChangesAsync(ct);
 
         return Results.Ok(ToDto(word));
+    }
+
+    // TR-2: an automatic fill (OnlyIfEmpty) never changes a saved translation; only a plain PATCH replaces it.
+    internal static void ApplyUpdate(VocabularyWord word, UpdateWordRequest request)
+    {
+        if (request.Translation != null && !(request.OnlyIfEmpty && !string.IsNullOrWhiteSpace(word.Translation)))
+            word.Translation = request.Translation.Trim();
+        if (request.Definition != null) word.Definition = request.Definition.Trim();
     }
 
     // --- Review Queue ---
@@ -805,7 +812,8 @@ public record SaveWordRequest(
     string? Sentence, string? BookTitle,
     string? NativeLanguage = null);
 
-public record UpdateWordRequest(string? Translation, string? Definition);
+// OnlyIfEmpty (TR-2): an automatic fill writes the translation only when none is stored.
+public record UpdateWordRequest(string? Translation, string? Definition, bool OnlyIfEmpty = false);
 
 public record VocabWordDto(
     Guid Id, string Word, string Language, string? Translation, string? Definition,

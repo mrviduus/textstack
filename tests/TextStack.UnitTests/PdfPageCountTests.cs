@@ -17,7 +17,8 @@ public class PdfPageCountTests
         new ExtractionDiagnostics(TextSource.None, null, []));
 
     [Fact]
-    public void PDF2_RecordExtractionFacts_StoresCountOnlyWhenKnown()
+    [Trait("Rule", "PDF-2")]
+    public void RecordExtractionFacts_StoresCountOnlyWhenKnown()
     {
         var job = new UserIngestionJob { UserBook = new UserBook { Title = "t", Slug = "t", Language = "en" } };
 
@@ -29,7 +30,8 @@ public class PdfPageCountTests
     }
 
     [Fact]
-    public void PDF2_NeedsPageCount_OnlyPdfWithoutCount()
+    [Trait("Rule", "PDF-2")]
+    public void NeedsPageCount_OnlyPdfWithoutCount()
     {
         var needs = PdfPageCountBackfill.NeedsPageCount.Compile();
         UserBook Book(BookFormat format, int? pages) => new()
@@ -47,7 +49,8 @@ public class PdfPageCountTests
     }
 
     [Fact]
-    public async Task PDF2_BackfillRunAsync_OneBookFails_OthersStillWritten()
+    [Trait("Rule", "PDF-2")]
+    public async Task BackfillRunAsync_OneBookFails_OthersStillWritten()
     {
         var (ok1, boom, unreadable, ok2) = (Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
         var written = new Dictionary<Guid, int>();

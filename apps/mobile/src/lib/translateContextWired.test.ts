@@ -28,7 +28,8 @@ describe('TR-1: mobile reader translate calls carry the tapped sentence', () => 
     expect(bar).toContain('savedTranslation={vocabMapRef.current[selection.text.toLowerCase()]?.translation}')
     expect(bar).toContain('vocabActions.replaceTranslation(selection.text, tr)')
     const src = read('src/components/SelectionActionBar.tsx')
-    expect(src).toContain('savedTranslationOffer(savedTranslation, translating ? null : translation)')
+    // TR-3: only a translation fetched in the current native language is offered.
+    expect(src).toContain('savedTranslationOffer(savedTranslation, translating ? null : translation, translationLang, translationTarget)')
     expect(src).toMatch(/onPress=\{\(\) => onUseTranslation\(translation\)\}/)
   })
 

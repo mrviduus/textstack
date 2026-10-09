@@ -94,7 +94,8 @@ public class UserBookDetailMappingTests
 
     // PDF-2: the detail DTO carries the stored PDF page count.
     [Fact]
-    public async Task PDF2_GetBookAsync_PageCountStored_ReturnedInDto()
+    [Trait("Rule", "PDF-2")]
+    public async Task GetBookAsync_PageCountStored_ReturnedInDto()
     {
         var h = new Harness();
         var userId = Guid.NewGuid();

@@ -1,10 +1,4 @@
-const GLOSS_SELECTOR = '.vocab-inline-translation, [data-vocab-overlay]'
-
-/** Text of a detached copy without the reader's own gloss nodes. */
-function textWithoutGloss(n: Node): string {
-  if (n instanceof Element || n instanceof DocumentFragment) n.querySelectorAll(GLOSS_SELECTOR).forEach((g) => g.remove())
-  return n.textContent ?? ''
-}
+import { textWithoutGloss } from './vocabKey'
 
 /**
  * Extract the sentence containing the selected text from the surrounding DOM.
@@ -21,7 +15,8 @@ export function extractSentence(range: Range, container: HTMLElement): string {
 
   // TR-1: locate the TAPPED occurrence by its offset in the block, not by indexOf
   // (which finds the first one). Falls back to indexOf if the offset does not line up.
-  const raw = range.toString()
+  // The selection may include a saved word's gloss too (TR-1): strip it like the block's.
+  const raw = textWithoutGloss(range.cloneContents())
   const selectedText = raw.trim()
   const before = document.createRange()
   before.setStart(block, 0)

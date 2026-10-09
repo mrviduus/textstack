@@ -131,8 +131,9 @@ export function useReaderVocabActions({
         // Push full map so the inline-translation span renders above the underline.
         // addVocabWord alone only carries {stage}, wiping any prior translation.
         injectJs(vocabPaintJs(vocabMapRef.current))
-        // Painted first: the gloss never depends on the PATCH (which fills an empty translation only).
-        vocabularyApi.updateWord(saved.id, { translation }).catch(() => {})
+        // Painted first: the gloss never depends on the PATCH. onlyIfEmpty: the server writes it only
+        // while the word still has no translation (TR-2), so a race with another device cannot replace one.
+        vocabularyApi.updateWord(saved.id, { translation, onlyIfEmpty: true }).catch(() => {})
       })
       .catch(() => {})
   }, [vocabMapRef, injectJs, bumpVocab, setWordSaved, setSessionWordCount, notifyWordSaved, textLanguage, nativeLanguage, editionIdRef, userBookIdRef])

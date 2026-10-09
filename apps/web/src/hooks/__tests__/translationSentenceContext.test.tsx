@@ -109,6 +109,11 @@ describe('TR-2: the word bubble never overwrites a saved translation', () => {
     expect(updateTranslation).toHaveBeenLastCalledWith('pocketed', 'поклав')
   })
 
+  it('TR-3: the word popup offers "Use this translation" only for a non-switched translation in the native language', () => {
+    const shell = readFileSync(resolve(__dirname, '../../components/reader/ReaderHighlights.tsx'), 'utf8')
+    expect(shell).toContain('savedTranslationOffer(entry.translation, bubble.langSwitched ? null : bubble.translation, bubble.translationLang, nativeLanguage)')
+  })
+
   it('TR-2: no bubble path PATCHes on its own — all go through updateTranslation', () => {
     for (const f of ['../useWordBubble.ts', '../useBubbleTranslationSync.ts', '../../lib/wordBubbleFetch.ts']) {
       expect(readFileSync(resolve(__dirname, f), 'utf8')).not.toMatch(/updateWord\(/)

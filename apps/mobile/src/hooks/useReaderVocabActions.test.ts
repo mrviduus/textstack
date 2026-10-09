@@ -2,6 +2,8 @@
 import { act } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { renderHook } from '../test/renderHook'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 const api = vi.hoisted(() => ({ saveWord: vi.fn(), updateWord: vi.fn(), promoteLookup: vi.fn() }))
 vi.mock('@textstack/shared', () => ({ vocabularyApi: api, t: (_l: string, k: string) => k }))
@@ -90,7 +92,7 @@ describe('useReaderVocabActions', () => {
 
     await act(async () => { await result.current.saveWord({ text: 'wound', sentence: 'The wound bled.', selectionId: 4 }) })
 
-    expect(api.updateWord).toHaveBeenCalledWith('w4', { translation: 'ferida' })
+    expect(api.updateWord).toHaveBeenCalledWith('w4', { translation: 'ferida', onlyIfEmpty: true })
     expect(vocabMapRef.current.wound.translation).toBe('ferida')
     expect(painted.some((js) => js.includes('ferida'))).toBe(true)
   })
@@ -108,5 +110,10 @@ describe('useReaderVocabActions', () => {
     expect(api.updateWord).toHaveBeenCalledWith('w3', { translation: 'embolsou' })
     expect(vocabMapRef.current.pocketed.translation).toBe('embolsou')
     expect(painted.some((js) => js.includes('embolsou'))).toBe(true)
+  })
+
+  it('TR-2: the chapter-open backfill (useReaderVocabMap) is an automatic fill and sends onlyIfEmpty', () => {
+    const src = readFileSync(resolve(__dirname, 'useReaderVocabMap.ts'), 'utf8')
+    expect(src).toContain('vocabularyApi.updateWord(id, { translation, onlyIfEmpty: true })')
   })
 })

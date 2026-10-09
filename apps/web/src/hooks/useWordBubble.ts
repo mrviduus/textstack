@@ -85,6 +85,8 @@ export function useWordBubble({
     range: Range | null
     sentence?: string
     bookId?: string
+    translationLang?: string | null
+    langSwitched?: boolean
   } | null>(null)
   const bubbleAbortRef = useRef<AbortController | null>(null)
   // Stabilization delay before opening popup. Filters out transient single-word
@@ -100,6 +102,7 @@ export function useWordBubble({
     updateTranslation,
     targetLang,
     bookLanguage,
+    hasConfirmedLanguage,
     abortRef: bubbleAbortRef,
   })
 
@@ -129,7 +132,6 @@ export function useWordBubble({
     }
     const container = containerRef.current
     const sentence = range && container ? extractSentence(range, container) : undefined
-    const currentTranslation = bubble?.word === word ? bubble?.translation : null
     setSavingWord(word)
     let resp: Awaited<ReturnType<typeof addWord>> | null = null
     try {
@@ -145,7 +147,10 @@ export function useWordBubble({
         // null in same-lang definition mode — but the user's explicit choice is
         // still a valid native we want the backend to record for SRS enrichment).
         nativeLanguage: nativeLanguage,
-        translation: currentTranslation || null,
+        // TR-2: saved without one; the bubble's translation in the CONFIRMED language fills it
+        // (useBubbleTranslationSync → updateTranslation, onlyIfEmpty). The catch-up save after a
+        // first confirm would otherwise store the guessed language's translation.
+        translation: null,
       }).catch(() => null)
     } finally {
       // Clear no matter what — keeps the popup's auto-dismiss from stalling
@@ -171,7 +176,7 @@ export function useWordBubble({
   }, [
     addWord, bookLanguage, bookTitle, chapterId, containerRef,
     editionId, nativeLanguage, hasConfirmedLanguage, userBookId,
-    bubble?.word, bubble?.translation, t,
+    t,
   ])
 
   // Popup creation, extracted so the scheduling effect has tight deps and doesn't
@@ -195,6 +200,7 @@ export function useWordBubble({
       word,
       translation: null,
       translationLoading: !!targetLang,
+      translationLang: targetLang,
       definition: null,
       definitionLoading: explainInContext,
       rect,

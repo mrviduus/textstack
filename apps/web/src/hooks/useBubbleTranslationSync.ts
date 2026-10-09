@@ -13,6 +13,10 @@ export interface BubbleLike {
   /** TR-1: the tapped sentence + book, resent on a language-switch refetch. */
   sentence?: string
   bookId?: string
+  /** TR-3: the language `translation` was fetched in, and whether it came from a mid-popup switch
+   *  (display-only) — "Use this translation" is offered for neither a foreign nor a switched one. */
+  translationLang?: string | null
+  langSwitched?: boolean
 }
 
 interface Options<B extends BubbleLike> {
@@ -22,6 +26,8 @@ interface Options<B extends BubbleLike> {
   updateTranslation: (word: string, translation: string) => void
   targetLang: string | null
   bookLanguage: string
+  /** TR-2: the first confirm of the native language is not a language switch. Omitted = confirmed. */
+  hasConfirmedLanguage?: boolean
   abortRef: MutableRefObject<AbortController | null>
 }
 
@@ -49,6 +55,7 @@ export function useBubbleTranslationSync<B extends BubbleLike>({
   updateTranslation,
   targetLang,
   bookLanguage,
+  hasConfirmedLanguage = true,
   abortRef,
 }: Options<B>) {
   const autoSavedRef = useRef<Set<string>>(new Set())
@@ -73,9 +80,12 @@ export function useBubbleTranslationSync<B extends BubbleLike>({
   // the same word. Stored as a tuple ref instead of a `word::lang` string so
   // words containing `::` don't break the parse.
   const lastPairRef = useRef<{ word: string; lang: string | null } | null>(null)
+  const prevConfirmedRef = useRef(hasConfirmedLanguage)
 
   useEffect(() => {
     const word = bubble?.word
+    const firstConfirm = !prevConfirmedRef.current && hasConfirmedLanguage
+    prevConfirmedRef.current = hasConfirmedLanguage
     if (!word) {
       lastPairRef.current = null
       langSwitchedRef.current = null
@@ -92,7 +102,9 @@ export function useBubbleTranslationSync<B extends BubbleLike>({
 
     lastPairRef.current = { word, lang: targetLang }
     // Word changed → openBubble owns the fetch.
-    langSwitchedRef.current = prev.word === word ? { word, sentence: bubble?.sentence } : null
+    // A first confirm is the reader's language, not a switch away from it: its translation may fill.
+    const switched = prev.word === word && !firstConfirm
+    langSwitchedRef.current = switched ? { word, sentence: bubble?.sentence } : null
     if (prev.word !== word) return
 
     // Same word, lang flipped. Definition-mode switch (no targetLang) → clear translation.
@@ -107,7 +119,7 @@ export function useBubbleTranslationSync<B extends BubbleLike>({
     const ctrl = new AbortController()
     abortRef.current = ctrl
     setBubble((b) =>
-      b && b.word === word ? { ...b, translation: null, translationLoading: true } : b,
+      b && b.word === word ? { ...b, translation: null, translationLoading: true, translationLang: targetLang, langSwitched: switched } : b,
     )
 
     translateApi(word, bookLanguage, targetLang, ctrl.signal, { sentence: bubble?.sentence, bookId: bubble?.bookId })
@@ -125,7 +137,7 @@ export function useBubbleTranslationSync<B extends BubbleLike>({
         if ((err as { name?: string })?.name === 'AbortError') return
         setBubble((b) => (b && b.word === word ? { ...b, translationLoading: false } : b))
       })
-  }, [bubble?.word, bubble?.sentence, bubble?.bookId, targetLang, bookLanguage, updateTranslation, setBubble, abortRef])
+  }, [bubble?.word, bubble?.sentence, bubble?.bookId, targetLang, bookLanguage, hasConfirmedLanguage, updateTranslation, setBubble, abortRef])
 
   const triggerAutoSave = useCallback(
     (word: string, save: () => Promise<unknown>) => {

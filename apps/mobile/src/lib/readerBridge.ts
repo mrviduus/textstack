@@ -1,3 +1,5 @@
+import { READER_GLOSS_SELECTOR } from '@textstack/shared'
+
 // Shared selection/interaction bridge for the reader WebView.
 //
 // This is the SINGLE source for the DOM→native bridge that both the reflow
@@ -519,17 +521,18 @@ export const READER_SELECTION_BRIDGE = `
       if (!range) return '';
       var node = range.startContainer;
       var el = node.nodeType === 3 ? node.parentElement : node;
-      while (el && !['P','DIV','LI','BLOCKQUOTE','TD','FIGCAPTION'].includes(el.tagName)) {
+      while (el && !['P','DIV','LI','BLOCKQUOTE','TD','FIGCAPTION','H1','H2','H3','H4','H5','H6'].includes(el.tagName)) {
         el = el.parentElement;
       }
-      // The reader's own gloss nodes are not part of the sentence (same selector as readerHtml's walkers).
+      // The reader's own gloss nodes are not part of the sentence — nor of the selection, which may
+      // include a saved word's gloss (TR-1). One selector with the web (READER_GLOSS_SELECTOR).
       var root = el || node;
       function textWithoutGloss(n) {
-        if (n.querySelectorAll) n.querySelectorAll('.vocab-inline-translation, [data-vocab-overlay]').forEach(function(g) { g.remove(); });
+        if (n.querySelectorAll) n.querySelectorAll(${JSON.stringify(READER_GLOSS_SELECTOR)}).forEach(function(g) { g.remove(); });
         return n.textContent || '';
       }
       var full = textWithoutGloss(root.cloneNode(true));
-      var raw = range.toString();
+      var raw = textWithoutGloss(range.cloneContents());
       var word = raw.trim();
       var before = document.createRange();
       before.setStart(root, 0);

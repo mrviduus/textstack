@@ -99,7 +99,7 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
             const entry = m.get(word)
             if (entry) m.set(word, { ...entry, translation })
           })
-          if (id) updateWord(id, { translation }).catch(() => {})
+          if (id) updateWord(id, { translation, onlyIfEmpty: true }).catch(() => {})
         } catch { /* skip */ }
       }
     })()
@@ -292,7 +292,7 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
     const entry = mapRef.current.get(key)
     if (!entry || entry.translation) return
     updateMap(m => m.set(key, { ...entry, translation }))
-    if (entry.id && !entry.isPending) updateWord(entry.id, { translation }).catch(() => {})
+    if (entry.id && !entry.isPending) updateWord(entry.id, { translation, onlyIfEmpty: true }).catch(() => {})
   }, [updateMap])
 
   /** TR-3: the reader tapped "Use this translation" — an explicit PATCH, then the map follows. */

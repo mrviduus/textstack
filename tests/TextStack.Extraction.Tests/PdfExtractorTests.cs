@@ -380,7 +380,8 @@ public class PdfExtractorTests
 
     // PDF-2: the detail page shows the document's real page count, which only the extractor knows.
     [Fact]
-    public async Task PDF2_ExtractAsync_TextPdf_ReturnsDocumentPageCount()
+    [Trait("Rule", "PDF-2")]
+    public async Task ExtractAsync_TextPdf_ReturnsDocumentPageCount()
     {
         using var stream = new MemoryStream(PdfFixtureGenerator.GenerateMultiPagePdf(17));
 
@@ -390,7 +391,8 @@ public class PdfExtractorTests
     }
 
     [Fact]
-    public async Task PDF2_ExtractAsync_NoTextLayer_StillReturnsPageCount()
+    [Trait("Rule", "PDF-2")]
+    public async Task ExtractAsync_NoTextLayer_StillReturnsPageCount()
     {
         using var stream = new MemoryStream(PdfFixtureGenerator.GenerateImageOnlyPdf(5));
 
@@ -401,7 +403,8 @@ public class PdfExtractorTests
     }
 
     [Fact]
-    public async Task PDF2_ExtractAsync_OpenedThenExtractionThrows_StillReturnsPageCount()
+    [Trait("Rule", "PDF-2")]
+    public async Task ExtractAsync_OpenedThenExtractionThrows_StillReturnsPageCount()
     {
         await using var stream = new CopyThrowsStream(PdfFixtureGenerator.GenerateSimplePdf(pageCount: 5));
 
@@ -412,7 +415,8 @@ public class PdfExtractorTests
     }
 
     [Fact]
-    public void PDF2_CountPages_ValidAndInvalid_CountOrNull()
+    [Trait("Rule", "PDF-2")]
+    public void CountPages_ValidAndInvalid_CountOrNull()
     {
         using var pdf = new MemoryStream(PdfFixtureGenerator.GenerateMultiPagePdf(17));
         using var junk = new MemoryStream(Encoding.UTF8.GetBytes("not a valid pdf"));

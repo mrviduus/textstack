@@ -136,6 +136,9 @@ export function SelectionActionBar({
   // user re-taps mid-fetch.
   const [translation, setTranslation] = useState('')
   const [translating, setTranslating] = useState(false)
+  // TR-3: the language `translation` was fetched in — for one render after a native-language
+  // change it is still the old one, and must not be offered as "Use this translation".
+  const [translationLang, setTranslationLang] = useState<string | null>(null)
   // Backend frequency hint for the tapped word — drives Save-button emphasis.
   const [category, setCategory] = useState<SaveCategory | undefined>(undefined)
   useEffect(() => {
@@ -150,6 +153,7 @@ export function SelectionActionBar({
     const cached = peekTranslation(selectedText, fromLang, translationTarget!, ctx)
     if (cached !== undefined) {
       setTranslation(cached.translation)
+      setTranslationLang(translationTarget)
       setCategory(cached.category)
       setTranslating(false)
       return
@@ -159,7 +163,7 @@ export function SelectionActionBar({
     setCategory(undefined)
     setTranslating(true)
     cachedTranslate(selectedText, fromLang, translationTarget!, ctx)
-      .then((r) => { if (!cancelled) { setTranslation(r.translation); setCategory(r.category) } })
+      .then((r) => { if (!cancelled) { setTranslation(r.translation); setTranslationLang(translationTarget); setCategory(r.category) } })
       .catch(() => { if (!cancelled) setTranslation('') })
       .finally(() => { if (!cancelled) setTranslating(false) })
     return () => { cancelled = true }
@@ -170,7 +174,7 @@ export function SelectionActionBar({
   }
 
   const stage = !isMultiWord && vocabStage != null ? STAGE_LABELS[vocabStage] : null
-  const savedAs = !isMultiWord && !isSameLang ? savedTranslationOffer(savedTranslation, translating ? null : translation) : null
+  const savedAs = !isMultiWord && !isSameLang ? savedTranslationOffer(savedTranslation, translating ? null : translation, translationLang, translationTarget) : null
   const highlightFill = HIGHLIGHT_FILLS[highlightColor] || HIGHLIGHT_FILLS.yellow
 
   return (

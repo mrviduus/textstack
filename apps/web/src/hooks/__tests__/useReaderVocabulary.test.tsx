@@ -167,6 +167,8 @@ describe('useReaderVocabulary', () => {
     expect(result.current.bubble?.translation).toBe('eingesteckt')
     expect(updateWord).not.toHaveBeenCalled()
     expect(result.current.vocab.vocabMap.get('pocketed')?.translation).toBeFalsy()
+    // TR-3: tagged so the popup offers no "Use this translation" for a switched translation.
+    expect(result.current.bubble).toMatchObject({ translationLang: 'de', langSwitched: true })
   })
 
   it('TR-3: replaceTranslation PATCHes the bubble translation explicitly, once, and updates the map', async () => {
@@ -198,8 +200,19 @@ describe('useReaderVocabulary', () => {
 
     act(() => result.current.updateTranslation('wound', 'ferida'))
 
-    expect(updateWord).toHaveBeenCalledWith('w1', { translation: 'ferida' })
+    expect(updateWord).toHaveBeenCalledWith('w1', { translation: 'ferida', onlyIfEmpty: true })
     expect(result.current.vocabMap.get('wound')?.translation).toBe('ferida')
+  })
+
+  it('TR-2: the mount backfill is an automatic fill and sends onlyIfEmpty', async () => {
+    const { updateWord } = await import('../../api/vocabulary')
+    vi.mocked(updateWord).mockResolvedValue(undefined as never)
+    getReaderVocabMock.mockResolvedValue([{ id: 'w9', word: 'garden', stage: 0, translation: null }])
+    translateMock.mockResolvedValue({ translatedText: 'jardim' })
+
+    renderHook(() => useReaderVocabulary('en', 'pt'))
+
+    await waitFor(() => expect(updateWord).toHaveBeenCalledWith('w9', { translation: 'jardim', onlyIfEmpty: true }))
   })
 
   it('calls getReaderVocab on mount when isAuthenticated=true', async () => {

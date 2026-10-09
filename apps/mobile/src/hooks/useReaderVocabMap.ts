@@ -120,7 +120,7 @@ export function useReaderVocabMap({
           if (!translation) continue
           vocabMapRef.current[key] = { ...vocabMapRef.current[key], translation }
           // Persist server-side so re-opens skip the round-trip.
-          vocabularyApi.updateWord(id, { translation }).catch(() => {})
+          vocabularyApi.updateWord(id, { translation, onlyIfEmpty: true }).catch(() => {})
           // Progressive paint: each gloss appears the moment its word
           // resolves, instead of all-at-once after the whole loop (which on
           // a page of N missing words felt like "glosses never show"). The
