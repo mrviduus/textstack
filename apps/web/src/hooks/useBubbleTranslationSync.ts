@@ -19,7 +19,7 @@ interface Options<B extends BubbleLike> {
   bubble: B | null
   setBubble: Dispatch<SetStateAction<B | null>>
   vocabMap: VocabMap
-  updateTranslation: (word: string, translation: string, sentence?: string) => void
+  updateTranslation: (word: string, translation: string) => void
   targetLang: string | null
   bookLanguage: string
   abortRef: MutableRefObject<AbortController | null>
@@ -30,8 +30,8 @@ interface Options<B extends BubbleLike> {
  *
  * 1. **Backend translation patch** — the ONE caller for the bubble's translation
  *    (fetch, language switch, auto-save landing). Watches `bubble.translation` +
- *    current `vocabMap` and hands the translation to `updateTranslation`, which PATCHes
- *    a saved translation only from the sentence it was saved with (TR-2).
+ *    current `vocabMap` and hands the translation to `updateTranslation`, which fills an
+ *    untranslated saved word and never changes an existing translation (TR-2).
  *
  * 2. **Mid-popup lang switch**: when the user opens the popup's language picker
  *    and chooses a different native language, `targetLang` changes while the
@@ -62,11 +62,10 @@ export function useBubbleTranslationSync<B extends BubbleLike>({
     const word = bubble?.word
     const translation = bubble?.translation
     if (!word || !translation) return
-    // TR-2: updateTranslation owns the PATCH and the overwrite guard; the sentence lets a
-    // same-sentence tap correct the saved translation.
+    // TR-2: a language-switched translation is display-only, even for an untranslated word.
     const sw = langSwitchedRef.current
-    const switched = sw?.word === word && sw.sentence === bubble?.sentence
-    updateTranslation(word, translation, switched ? undefined : bubble?.sentence)
+    if (sw?.word === word && sw.sentence === bubble?.sentence) return
+    updateTranslation(word, translation)
   }, [bubble?.word, bubble?.translation, bubble?.sentence, vocabMap, updateTranslation])
 
   // (2) Lang-picker mid-popup refetch. Track (word, lang) pair — word changes

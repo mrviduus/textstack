@@ -76,21 +76,21 @@ import { fetchWordBubble } from '../../lib/wordBubbleFetch'
 import { useRef, useState } from 'react'
 
 /** The real reader wiring: vocabulary + the bubble's sync effect + the bubble fetch. */
-function useBubbleHarness(initial: BubbleLike) {
-  const vocab = useReaderVocabulary('en', 'pt')
+function useBubbleHarness(initial: BubbleLike, targetLang: string | null = 'pt', vocabTarget = targetLang) {
+  const vocab = useReaderVocabulary('en', vocabTarget)
   const [bubble, setBubble] = useState<BubbleLike | null>(initial)
   const abortRef = useRef<AbortController | null>(null)
   useBubbleTranslationSync<BubbleLike>({
     bubble, setBubble, vocabMap: vocab.vocabMap, updateTranslation: vocab.updateTranslation,
-    targetLang: 'pt', bookLanguage: 'en', abortRef,
+    targetLang, bookLanguage: 'en', abortRef,
   })
   const open = () => fetchWordBubble({
-    word: initial.word, bookLanguage: 'en', targetLang: 'pt', explainInContext: false,
+    word: initial.word, bookLanguage: 'en', targetLang, explainInContext: false,
     signal: new AbortController().signal,
     patch: (f) => setBubble((b) => (b ? { ...b, ...f } as BubbleLike : b)),
     sentence: initial.sentence,
   })
-  return { vocab, open }
+  return { vocab, open, bubble }
 }
 
 describe('useReaderVocabulary', () => {
@@ -134,55 +134,53 @@ describe('useReaderVocabulary', () => {
     expect(result.current.vocabMap.get('wound')?.translation).toBe('ferida')
   })
 
-  it('TR-2: a translated word (even one loaded from the server) is PATCHed only with ifSentence; the server decides', async () => {
-    const { updateWord } = await import('../../api/vocabulary')
-    const S = 'He pocketed the coins and walked out.'
-    getReaderVocabMock.mockResolvedValue([{ id: 'w1', word: 'pocketed', stage: 1, translation: 'enterrado' }])
-    vi.mocked(updateWord).mockResolvedValue({ id: 'w1', word: 'pocketed', translation: 'embolsou' } as never)
-    const { result } = renderHook(() => useReaderVocabulary('en', 'pt'))
-    await waitFor(() => expect(result.current.vocabMap.get('pocketed')?.translation).toBe('enterrado'))
-
-    act(() => result.current.updateTranslation('pocketed', 'guardou')) // language switch: no sentence
-    expect(updateWord).not.toHaveBeenCalled()
-
-    await act(async () => { result.current.updateTranslation('pocketed', 'embolsou', S) })
-    expect(updateWord).toHaveBeenCalledWith('w1', { translation: 'embolsou', ifSentence: S })
-    expect(result.current.vocabMap.get('pocketed')?.translation).toBe('embolsou')
-  })
-
-  it('TR-2: a rejected correction PATCHes exactly once and does not loop', async () => {
-    const { updateWord } = await import('../../api/vocabulary')
-    getReaderVocabMock.mockResolvedValue([{ id: 'w1', word: 'pocketed', stage: 1, translation: 'enterrado' }])
-    // Server keeps the saved translation (another sentence): returns it unchanged.
-    vi.mocked(updateWord).mockResolvedValue({ id: 'w1', word: 'pocketed', translation: 'enterrado' } as never)
-    const { result } = renderHook(() => useBubbleHarness({
-      word: 'pocketed', translation: 'embolsou', translationLoading: false, sentence: 'Another sentence.',
-    }))
-    await waitFor(() => expect(result.current.vocab.vocabMap.get('pocketed')?.translation).toBe('enterrado'))
-    for (let i = 0; i < 5; i++) await act(async () => { await new Promise((r) => setTimeout(r, 0)) })
-
-    expect(updateWord).toHaveBeenCalledTimes(1)
-    expect(result.current.vocab.vocabMap.get('pocketed')?.translation).toBe('enterrado')
-  })
-
-  it('TR-2: a same-sentence correction from the bubble fetch PATCHes exactly once', async () => {
+  it('TR-2: the bubble never replaces a saved translation, not even from the sentence it was saved with', async () => {
     const { updateWord } = await import('../../api/vocabulary')
     const S = 'He pocketed the coins and walked out.'
     getReaderVocabMock.mockResolvedValue([{ id: 'w1', word: 'pocketed', stage: 1, translation: 'enterrado' }])
     translateMock.mockResolvedValue({ translatedText: 'embolsou' })
-    // A real network PATCH resolves after React has re-rendered.
-    vi.mocked(updateWord).mockImplementation(() => new Promise((r) => setTimeout(() => r({ id: 'w1', word: 'pocketed', translation: 'embolsou' } as never), 20)))
     const { result } = renderHook(() => useBubbleHarness({
       word: 'pocketed', translation: null, translationLoading: true, sentence: S,
     }))
     await waitFor(() => expect(result.current.vocab.vocabMap.get('pocketed')?.translation).toBe('enterrado'))
 
     await act(async () => { result.current.open() })
-    for (let i = 0; i < 5; i++) await act(async () => { await new Promise((r) => setTimeout(r, 10)) })
+    for (let i = 0; i < 5; i++) await act(async () => { await new Promise((r) => setTimeout(r, 0)) })
+
+    expect(result.current.bubble?.translation).toBe('embolsou')
+    expect(updateWord).not.toHaveBeenCalled()
+    expect(result.current.vocab.vocabMap.get('pocketed')?.translation).toBe('enterrado')
+  })
+
+  it('TR-2: a mid-popup language switch does not fill an empty saved translation (display-only)', async () => {
+    const { updateWord } = await import('../../api/vocabulary')
+    getReaderVocabMock.mockResolvedValue([{ id: 'w1', word: 'pocketed', stage: 1, translation: null }])
+    translateMock.mockResolvedValue({ translatedText: 'eingesteckt' })
+    const { result, rerender } = renderHook(({ lang }) => useBubbleHarness({
+      word: 'pocketed', translation: null, translationLoading: false, sentence: 'S.',
+    }, lang, null), { initialProps: { lang: 'pt' as string | null } }) // vocab backfill off: the popup path only
+    await waitFor(() => expect(result.current.vocab.vocabMap.has('pocketed')).toBe(true))
+
+    rerender({ lang: 'de' })
+    for (let i = 0; i < 5; i++) await act(async () => { await new Promise((r) => setTimeout(r, 0)) })
+
+    expect(result.current.bubble?.translation).toBe('eingesteckt')
+    expect(updateWord).not.toHaveBeenCalled()
+    expect(result.current.vocab.vocabMap.get('pocketed')?.translation).toBeFalsy()
+  })
+
+  it('TR-3: replaceTranslation PATCHes the bubble translation explicitly, once, and updates the map', async () => {
+    const { updateWord } = await import('../../api/vocabulary')
+    getReaderVocabMock.mockResolvedValue([{ id: 'w1', word: 'pocketed', stage: 1, translation: 'enterrado' }])
+    vi.mocked(updateWord).mockResolvedValue({ id: 'w1', word: 'pocketed', translation: 'embolsou' } as never)
+    const { result } = renderHook(() => useReaderVocabulary('en', 'pt'))
+    await waitFor(() => expect(result.current.vocabMap.get('pocketed')?.translation).toBe('enterrado'))
+
+    await act(async () => { await result.current.replaceTranslation('pocketed', 'embolsou') })
 
     expect(updateWord).toHaveBeenCalledTimes(1)
-    expect(updateWord).toHaveBeenCalledWith('w1', { translation: 'embolsou', ifSentence: S })
-    expect(result.current.vocab.vocabMap.get('pocketed')?.translation).toBe('embolsou')
+    expect(updateWord).toHaveBeenCalledWith('w1', { translation: 'embolsou' })
+    expect(result.current.vocabMap.get('pocketed')?.translation).toBe('embolsou')
   })
 
   it('TR-2: updateTranslation PATCHes a saved word that has no translation yet', async () => {

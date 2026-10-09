@@ -9,6 +9,7 @@ import { useTargetLanguage } from '../hooks/useTargetLanguage'
 import { useNeedsNativeLanguage } from '../hooks/useNeedsNativeLanguage'
 import { fonts } from '../theme/typography'
 import { RareWordNotice } from './reader/RareWordNotice'
+import { savedTranslationOffer } from '@textstack/shared'
 
 const STAGE_LABELS: Record<number, { label: string; color: string }> = {
   0: { label: 'New', color: '#3b82f6' },
@@ -71,6 +72,9 @@ interface SelectionActionBarProps {
    *  bar shows RareWordNotice with "Add to SRS anyway". Web: WordPopup lookupInfo. */
   lookup?: { kind: 'lookup' | 'lookup_pending'; tapsRemaining: number | null; busy: boolean } | null
   onAddAnyway?: () => void
+  /** TR-3: the tapped word's saved translation — offered for replacement when the gloss differs. */
+  savedTranslation?: string
+  onUseTranslation?: (translation: string) => void
 }
 
 /**
@@ -110,6 +114,8 @@ export function SelectionActionBar({
   onClose,
   lookup,
   onAddAnyway,
+  savedTranslation,
+  onUseTranslation,
 }: SelectionActionBarProps) {
   const { colors } = useTheme()
   const { t } = useLanguage()
@@ -164,6 +170,7 @@ export function SelectionActionBar({
   }
 
   const stage = !isMultiWord && vocabStage != null ? STAGE_LABELS[vocabStage] : null
+  const savedAs = !isMultiWord && !isSameLang ? savedTranslationOffer(savedTranslation, translating ? null : translation) : null
   const highlightFill = HIGHLIGHT_FILLS[highlightColor] || HIGHLIGHT_FILLS.yellow
 
   return (
@@ -219,6 +226,19 @@ export function SelectionActionBar({
               {translation || '—'}
             </Text>
           )}
+        </View>
+      )}
+
+      {savedAs && onUseTranslation && (
+        <View style={styles.translationRow}>
+          <Text style={[styles.word, { color: colors.textSecondary }]} numberOfLines={1}>
+            {t('reader.vocab.savedAs')} {savedAs}
+          </Text>
+          <TouchableOpacity onPress={() => onUseTranslation(translation)} accessibilityRole="button">
+            <Text style={[styles.translation, { color: colors.primary }]} numberOfLines={1}>
+              {t('reader.vocab.useThisTranslation')}
+            </Text>
+          </TouchableOpacity>
         </View>
       )}
 

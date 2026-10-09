@@ -185,6 +185,21 @@ describe('cachedTranslate', () => {
     expect(translate).toHaveBeenCalledTimes(3)
   })
 
+  it('TR-1: the cache is a bounded LRU — the oldest unused entry goes past 500, a recently read one stays', async () => {
+    const { cachedTranslate, peekTranslation } = await freshModule()
+    translate.mockImplementation(async (text: string) => ({ translatedText: `${text}!` }))
+
+    await cachedTranslate('w0', 'de', 'en')
+    await cachedTranslate('w1', 'de', 'en')
+    for (let i = 2; i < 500; i++) await cachedTranslate(`w${i}`, 'de', 'en')
+    await cachedTranslate('w0', 'de', 'en') // a hit refreshes w0
+    await cachedTranslate('w500', 'de', 'en') // 501st entry evicts the least recent: w1
+
+    expect(peekTranslation('w0', 'de', 'en')).toBeDefined()
+    expect(peekTranslation('w1', 'de', 'en')).toBeUndefined()
+    expect(peekTranslation('w500', 'de', 'en')).toBeDefined()
+  })
+
   it('TR-1: cachedTranslate sends the sentence and keys the cache on it', async () => {
     const { cachedTranslate } = await freshModule()
     translate.mockImplementation(async (_t: string, _f: string, _to: string, _s: unknown, ctx?: { sentence?: string }) =>

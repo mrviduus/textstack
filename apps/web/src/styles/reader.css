@@ -1237,6 +1237,16 @@ html[data-theme="dark"] .reader-search-drawer__context mark {
   min-height: 22px;
 }
 
+.word-popup__saved-as {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--reader-secondary);
+  margin-bottom: 12px;
+}
+
 .word-popup__definition {
   font-size: 13px;
   color: var(--reader-secondary);

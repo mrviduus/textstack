@@ -451,6 +451,8 @@ export function ReaderShell(props: ReaderShellProps) {
             onClose={closeSelection}
             lookup={lookupState}
             onAddAnyway={lookupState ? () => { void vocabActions.addAnyway(lookupState) } : undefined}
+            savedTranslation={vocabMapRef.current[selection.text.toLowerCase()]?.translation}
+            onUseTranslation={(tr) => { void vocabActions.replaceTranslation(selection.text, tr) }}
           />
         )}
 

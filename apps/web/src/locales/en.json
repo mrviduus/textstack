@@ -168,6 +168,9 @@
     "wordPopup": {
       "ignore": "Ignore",
       "savedStatus": "Saved to vocabulary",
+      "savedAs": "Saved as: {{saved}}",
+      "useThisTranslation": "Use this translation",
+      "useTranslationFailed": "Couldn't update the translation — please try again",
       "loading": "...",
       "translatingTo": "Translating to",
       "change": "Change",

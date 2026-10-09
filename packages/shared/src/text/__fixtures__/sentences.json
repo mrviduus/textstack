@@ -26,5 +26,13 @@
     "offset": 254,
     "word": "zephyr",
     "expected": "... words very long filler words very long filler words very long filler words the zephyr came, and more filler words and more filler words and more filler words and more filler words and more filler wor..."
+  },
+  {
+    "name": "inline-translation gloss is not part of the sentence",
+    "text": "She watched the moon over the garden",
+    "html": "She watched the moon over the garden<span class=\"vocab-inline-translation\">сад</span> all night.",
+    "offset": 16,
+    "word": "moon",
+    "expected": "She watched the moon over the garden all night."
   }
 ]

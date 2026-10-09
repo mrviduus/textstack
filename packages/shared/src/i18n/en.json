@@ -582,6 +582,9 @@
       "tapAgainToStudy": "Tap again to study ({n} left)",
       "addedToSrs": "Added to your vocabulary",
       "addAnywayFailed": "Couldn't add word — please try again",
+      "savedAs": "Saved as:",
+      "useThisTranslation": "Use this translation",
+      "useTranslationFailed": "Couldn't update the translation — please try again",
       "saveNeedsAccount": "Saving words needs an account — this one wasn't kept. Sign in from Profile."
     },
     "rareWordNotice": {

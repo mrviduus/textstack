@@ -52,8 +52,7 @@ export function dismissLookup(id: string) {
   return authFetch<void>(`/me/vocabulary/lookups/${id}`, { method: 'DELETE' })
 }
 
-/** `ifSentence` (TR-2): replace an existing translation only if the word's saved sentence equals it. */
-export function updateWord(id: string, data: { translation?: string; definition?: string; ifSentence?: string }) {
+export function updateWord(id: string, data: { translation?: string; definition?: string }) {
   return authFetch<VocabularyWordDto>(`/me/vocabulary/words/${id}`, jsonBody('PATCH', data))
 }
 

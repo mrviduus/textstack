@@ -41,8 +41,6 @@ export interface SaveWordRequest {
 export interface UpdateWordRequest {
   translation?: string | null
   definition?: string | null
-  /** TR-2: replace an existing translation only if the word's saved sentence equals this. */
-  ifSentence?: string
 }
 
 export interface ReviewCardDto {

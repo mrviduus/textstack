@@ -70,6 +70,14 @@ public class TranslateSenseEvalTests
         Assert.Equal(expected, TranslateSenseEvalRunner.IsCorrectVerdict(reply));
     }
 
+    [Theory]
+    [InlineData("\n\nCORRECT\nthe sense matches", true)]
+    [InlineData("  \r\n  INCORRECT\nCORRECT would be ...", false)]
+    public void EVAL1_IsCorrectVerdict_LeadingBlankLines_UsesFirstNonEmptyLine(string reply, bool expected)
+    {
+        Assert.Equal(expected, TranslateSenseEvalRunner.IsCorrectVerdict(reply));
+    }
+
     [Fact]
     public void LoadGoldens_Dataset_ThirtyCasesEachSentenceContainsItsWord()
     {

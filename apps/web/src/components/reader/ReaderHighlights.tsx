@@ -11,7 +11,7 @@ import { useTranslation } from '../../hooks/useTranslation'
 import { useWordBubble } from '../../hooks/useWordBubble'
 import { normalizeVocabKey } from '../../lib/vocabKey'
 import type { HighlightAnchor, HighlightColor, StoredHighlight } from '../../lib/offlineDb'
-import type { PdfAnchor } from '@textstack/shared'
+import { savedTranslationOffer, type PdfAnchor } from '@textstack/shared'
 import { computePdfAnchorFromRange } from '../../lib/pdfHighlightAnchor'
 import { SelectionToolbar } from './SelectionToolbar'
 import { HighlightOverlayLayer } from './HighlightOverlayLayer'
@@ -116,7 +116,7 @@ export function ReaderHighlights({
   const isSingleWord = hasSelection && selectionWordCount === 1
 
   // --- Vocab map + save/update (guest = real User via cookie session, same API path) ---
-  const { vocabMap, addWord, removeWord, updateTranslation, recordSavedWord, idbUnavailable, dismissIdbUnavailable, guestNudge, dismissGuestNudge } = useReaderVocabulary(bookLanguage, targetLang)
+  const { vocabMap, addWord, removeWord, updateTranslation, replaceTranslation, recordSavedWord, idbUnavailable, dismissIdbUnavailable, guestNudge, dismissGuestNudge } = useReaderVocabulary(bookLanguage, targetLang)
   const { openAuthModal } = useAuth()
 
   const {
@@ -295,6 +295,8 @@ export function ReaderHighlights({
       {bubble && !translationPopup.show && (() => {
         const entry = vocabMap.get(normalizeVocabKey(bubble.word))
         const isSaved = !!entry
+        // TR-3: a saved word whose translation differs from the bubble's — offer to replace it.
+        const savedAs = entry?.id && !entry.isPending ? savedTranslationOffer(entry.translation, bubble.translation) : null
         return (
           <WordPopup
             word={bubble.word}
@@ -324,6 +326,10 @@ export function ReaderHighlights({
             onAddAnyway={lookupState && lookupState.word === bubble.word ? handleAddAnyway : undefined}
             addAnywayBusy={addAnywayBusy}
             saveInFlight={savingWord === bubble.word}
+            savedTranslation={savedAs}
+            onUseTranslation={savedAs && bubble.translation
+              ? () => { replaceTranslation(bubble.word, bubble.translation!).catch(() => setPendingToast(t('reader.wordPopup.useTranslationFailed'))) }
+              : undefined}
           />
         )
       })()}

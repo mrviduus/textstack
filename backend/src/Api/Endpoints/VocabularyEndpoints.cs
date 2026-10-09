@@ -531,7 +531,7 @@ public static partial class VocabularyEndpoints
 
     // --- Update Word ---
 
-    internal static async Task<IResult> UpdateWord(
+    private static async Task<IResult> UpdateWord(
         Guid id,
         [FromBody] UpdateWordRequest request,
         HttpContext httpContext,
@@ -547,16 +547,8 @@ public static partial class VocabularyEndpoints
         if (TooLong(request.Translation, request.Definition) is { } tooLong)
             return Results.BadRequest(tooLong);
 
-        // TR-2: with IfSentence, an existing translation is replaced only from the saved sentence.
-        var keepTranslation = request.IfSentence != null && !string.IsNullOrWhiteSpace(word.Translation)
-            && !string.Equals(request.IfSentence.Trim(), word.Sentence?.Trim(), StringComparison.Ordinal);
-        var translation = request.Translation != null && !keepTranslation ? request.Translation.Trim() : word.Translation;
-        var definition = request.Definition?.Trim() ?? word.Definition;
-        if (translation == word.Translation && definition == word.Definition)
-            return Results.Ok(ToDto(word)); // nothing changed: no write, UpdatedAt untouched
-
-        word.Translation = translation;
-        word.Definition = definition;
+        if (request.Translation != null) word.Translation = request.Translation.Trim();
+        if (request.Definition != null) word.Definition = request.Definition.Trim();
         word.UpdatedAt = DateTimeOffset.UtcNow;
 
         await db.SaveChangesAsync(ct);
@@ -813,9 +805,7 @@ public record SaveWordRequest(
     string? Sentence, string? BookTitle,
     string? NativeLanguage = null);
 
-/// <param name="IfSentence">TR-2: replace an existing translation only if the word's stored sentence
-/// equals this (trimmed, ordinal); otherwise the translation is left as it is. An empty one is written.</param>
-public record UpdateWordRequest(string? Translation, string? Definition, string? IfSentence = null);
+public record UpdateWordRequest(string? Translation, string? Definition);
 
 public record VocabWordDto(
     Guid Id, string Word, string Language, string? Translation, string? Definition,

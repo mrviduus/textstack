@@ -11,7 +11,19 @@ export type CachedTranslation = { translation: string; category?: SaveCategory }
 //   3. Carries the backend's single-word frequency "category" so the toolbar
 //      can recommend (not gate) saving.
 // Session-scoped; the backend file cache covers cross-session reuse.
+// TR-1: keyed per sentence now, so it is a bounded LRU (Map keeps insertion order).
+const CACHE_MAX = 500
 const cache = new Map<string, CachedTranslation>()
+function cacheGet(k: string): CachedTranslation | undefined {
+  const hit = cache.get(k)
+  if (hit !== undefined) { cache.delete(k); cache.set(k, hit) }
+  return hit
+}
+function cacheSet(k: string, v: CachedTranslation) {
+  cache.delete(k)
+  cache.set(k, v)
+  if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value!)
+}
 
 /**
  * In-flight calls, keyed exactly like `cache`.
@@ -41,13 +53,13 @@ const keyOf = translationApi.translateCacheKey
 
 /** Synchronous peek — lets the toolbar render instantly on a cache hit. */
 export function peekTranslation(text: string, from: string, to: string, ctx?: TranslateContext): CachedTranslation | undefined {
-  return cache.get(keyOf(text, from, to, ctx))
+  return cacheGet(keyOf(text, from, to, ctx))
 }
 
 /** Cached translate. On miss, hits the API once and memoizes a non-empty result. */
 export async function cachedTranslate(text: string, from: string, to: string, ctx?: TranslateContext): Promise<CachedTranslation> {
   const k = keyOf(text, from, to, ctx)
-  const hit = cache.get(k)
+  const hit = cacheGet(k)
   if (hit !== undefined) return hit
 
   let slot = inFlight.get(k)
@@ -59,7 +71,7 @@ export async function cachedTranslate(text: string, from: string, to: string, ct
   const call = claimed.run(async () => {
     const res = await translationApi.translate(text, from, to, undefined, ctx) as { translatedText?: string; translation?: string; category?: SaveCategory }
     const out: CachedTranslation = { translation: res.translatedText || res.translation || '', category: res.category }
-    if (out.translation) cache.set(k, out)
+    if (out.translation) cacheSet(k, out)
     return out
   })
 

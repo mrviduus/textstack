@@ -51,29 +51,62 @@ describe('useReaderVocabActions', () => {
     expect(cachedTranslate).toHaveBeenCalledWith('Quiver', 'en', 'pt', { sentence, bookId: 'book-1' })
   })
 
-  it('TR-2: an already-translated saved word is PATCHed only with ifSentence (the selection sentence), never blind', async () => {
+  const setup = (vocabMapRef: { current: VocabMap }, injectJs: (js: string) => void = () => {}) => {
+    const noop = () => {}
+    return renderHook(useReaderVocabActions, {
+      vocabMapRef, bookTitleRef: { current: null }, chapter: null, language: 'en',
+      editionIdRef: { current: 'book-1' },
+      textLanguage: 'en', nativeLanguage: 'pt', isAuthenticated: true, injectJs, bumpVocab: noop,
+      notifyWordSaved: noop, setSessionWordCount: noop, setWordSaved: noop, setSelection: noop,
+      setLookupState: noop, showToast: noop,
+    } as unknown as Parameters<typeof useReaderVocabActions>[0])
+  }
+
+  it('TR-2: saving (or "Add anyway" on) an already-translated word never PATCHes it — the saved translation is painted', async () => {
     const sentence = 'He pocketed the coins and walked out.'
     api.updateWord.mockReset()
-    api.updateWord.mockResolvedValue({ id: 'w3', word: 'pocketed', stage: 1, translation: 'enterrado' })
+    api.updateWord.mockRejectedValue(new Error('offline'))
     cachedTranslate.mockImplementation(() => Promise.resolve({ translation: 'embolsou' }) as never)
     api.promoteLookup.mockResolvedValue({ id: 'w3', word: 'pocketed', stage: 1, sentence, translation: 'enterrado' })
     api.saveWord.mockResolvedValue({ outcome: 'saved', word: { id: 'w3', word: 'pocketed', stage: 1, sentence, translation: 'enterrado' } })
     const vocabMapRef = { current: {} as VocabMap }
-    const noop = () => {}
-    const { result } = renderHook(useReaderVocabActions, {
-      vocabMapRef, bookTitleRef: { current: null }, chapter: null, language: 'en',
-      editionIdRef: { current: 'book-1' },
-      textLanguage: 'en', nativeLanguage: 'pt', isAuthenticated: true, injectJs: noop, bumpVocab: noop,
-      notifyWordSaved: noop, setSessionWordCount: noop, setWordSaved: noop, setSelection: noop,
-      setLookupState: noop, showToast: noop,
-    } as unknown as Parameters<typeof useReaderVocabActions>[0])
+    const { result } = setup(vocabMapRef)
 
     await act(async () => { await result.current.saveWord({ text: 'pocketed', sentence, selectionId: 3 }) })
     await act(async () => { await result.current.addAnyway({ kind: 'lookup', id: 'l3', tapsRemaining: 1, busy: false }) })
 
-    expect(api.updateWord).toHaveBeenCalledTimes(2)
-    for (const call of api.updateWord.mock.calls) expect(call).toEqual(['w3', { translation: 'embolsou', ifSentence: sentence }])
-    // The server kept its translation: the reader shows that one.
+    expect(api.updateWord).not.toHaveBeenCalled()
     expect(vocabMapRef.current.pocketed.translation).toBe('enterrado')
+  })
+
+  it('TR-2: an untranslated saved word gets the gloss painted even when its PATCH fails', async () => {
+    api.updateWord.mockReset()
+    api.updateWord.mockRejectedValue(new Error('offline'))
+    cachedTranslate.mockImplementation(() => Promise.resolve({ translation: 'ferida' }) as never)
+    api.saveWord.mockResolvedValue({ outcome: 'saved', word: { id: 'w4', word: 'wound', stage: 0, sentence: null, translation: null } })
+    const vocabMapRef = { current: {} as VocabMap }
+    const painted: string[] = []
+    const { result } = setup(vocabMapRef, (js) => painted.push(js))
+
+    await act(async () => { await result.current.saveWord({ text: 'wound', sentence: 'The wound bled.', selectionId: 4 }) })
+
+    expect(api.updateWord).toHaveBeenCalledWith('w4', { translation: 'ferida' })
+    expect(vocabMapRef.current.wound.translation).toBe('ferida')
+    expect(painted.some((js) => js.includes('ferida'))).toBe(true)
+  })
+
+  it('TR-3: replaceTranslation PATCHes the shown translation explicitly, once, and repaints', async () => {
+    api.updateWord.mockReset()
+    api.updateWord.mockResolvedValue({ id: 'w3', word: 'pocketed', stage: 1, translation: 'embolsou' })
+    const vocabMapRef = { current: { pocketed: { stage: 1, id: 'w3', translation: 'enterrado' } } as VocabMap }
+    const painted: string[] = []
+    const { result } = setup(vocabMapRef, (js) => painted.push(js))
+
+    await act(async () => { await result.current.replaceTranslation('Pocketed', 'embolsou') })
+
+    expect(api.updateWord).toHaveBeenCalledTimes(1)
+    expect(api.updateWord).toHaveBeenCalledWith('w3', { translation: 'embolsou' })
+    expect(vocabMapRef.current.pocketed.translation).toBe('embolsou')
+    expect(painted.some((js) => js.includes('embolsou'))).toBe(true)
   })
 })

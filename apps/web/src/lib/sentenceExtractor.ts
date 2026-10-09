@@ -1,3 +1,11 @@
+const GLOSS_SELECTOR = '.vocab-inline-translation, [data-vocab-overlay]'
+
+/** Text of a detached copy without the reader's own gloss nodes. */
+function textWithoutGloss(n: Node): string {
+  if (n instanceof Element || n instanceof DocumentFragment) n.querySelectorAll(GLOSS_SELECTOR).forEach((g) => g.remove())
+  return n.textContent ?? ''
+}
+
 /**
  * Extract the sentence containing the selected text from the surrounding DOM.
  * Walks backward/forward from the selection range to find sentence boundaries.
@@ -6,18 +14,19 @@ export function extractSentence(range: Range, container: HTMLElement): string {
   const node = range.startContainer
   if (!node.textContent) return ''
 
-  // Get the full text of the paragraph/block containing the selection
-  const block = findBlockParent(node, container)
-  const fullText = block?.textContent || node.textContent || ''
+  // Get the full text of the paragraph/block containing the selection, without the
+  // reader's own gloss nodes (TR-1: an inline translation is not part of the sentence).
+  const block = findBlockParent(node, container) ?? node
+  const fullText = textWithoutGloss(block.cloneNode(true))
 
   // TR-1: locate the TAPPED occurrence by its offset in the block, not by indexOf
   // (which finds the first one). Falls back to indexOf if the offset does not line up.
   const raw = range.toString()
   const selectedText = raw.trim()
   const before = document.createRange()
-  before.setStart(block ?? node, 0)
+  before.setStart(block, 0)
   before.setEnd(range.startContainer, range.startOffset)
-  let idx = before.toString().length + raw.length - raw.trimStart().length
+  let idx = textWithoutGloss(before.cloneContents()).length + raw.length - raw.trimStart().length
   if (fullText.slice(idx, idx + selectedText.length) !== selectedText) idx = fullText.indexOf(selectedText)
   if (idx < 0) return fullText.trim().slice(0, 200)
 

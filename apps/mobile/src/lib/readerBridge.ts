@@ -522,13 +522,19 @@ export const READER_SELECTION_BRIDGE = `
       while (el && !['P','DIV','LI','BLOCKQUOTE','TD','FIGCAPTION'].includes(el.tagName)) {
         el = el.parentElement;
       }
-      var full = (el || node).textContent || '';
+      // The reader's own gloss nodes are not part of the sentence (same selector as readerHtml's walkers).
+      var root = el || node;
+      function textWithoutGloss(n) {
+        if (n.querySelectorAll) n.querySelectorAll('.vocab-inline-translation, [data-vocab-overlay]').forEach(function(g) { g.remove(); });
+        return n.textContent || '';
+      }
+      var full = textWithoutGloss(root.cloneNode(true));
       var raw = range.toString();
       var word = raw.trim();
       var before = document.createRange();
-      before.setStart(el || node, 0);
+      before.setStart(root, 0);
       before.setEnd(range.startContainer, range.startOffset);
-      var idx = before.toString().length + raw.length - raw.replace(/^\\s+/, '').length;
+      var idx = textWithoutGloss(before.cloneContents()).length + raw.length - raw.replace(/^\\s+/, '').length;
       if (full.slice(idx, idx + word.length) !== word) idx = full.indexOf(word);
       if (idx < 0) return full.trim().slice(0, 200);
       var enders = /[.!?\\n]/;

@@ -5,7 +5,7 @@ import { resolve } from 'node:path'
 import { READER_SELECTION_BRIDGE } from './readerBridge'
 
 // TR-1: shared with the web extractor test (sentenceExtractor.test.ts) so the two can't drift.
-const cases: Array<{ name: string; text: string; offset: number; word: string; expected: string }> = JSON.parse(
+const cases: Array<{ name: string; text: string; html?: string; offset: number; word: string; expected: string }> = JSON.parse(
   readFileSync(resolve(__dirname, '../../../../packages/shared/src/text/__fixtures__/sentences.json'), 'utf8'),
 )
 
@@ -42,8 +42,8 @@ function para(content: string) {
 }
 
 describe('TR-1: mobile bridge extractSentence', () => {
-  it.each(cases)('TR-1 shared fixture: $name', ({ text, offset, word, expected }) => {
-    const msg = holdOn(para(text), offset + 1)
+  it.each(cases)('TR-1 shared fixture: $name', ({ text, html, offset, word, expected }) => {
+    const msg = holdOn(para(html ?? text), offset + 1)
     expect(msg?.text).toBe(word)
     expect(msg?.sentence).toBe(expected)
   })

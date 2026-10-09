@@ -85,14 +85,16 @@ describe('TR-2: the word bubble never overwrites a saved translation', () => {
     expect(updateWord).not.toHaveBeenCalled()
   })
 
-  it('TR-2: the bubble passes its sentence (a same-sentence correction), but never after a language switch', async () => {
-    const { rerender, updateTranslation } = mountSync(saved(), { word: 'pocketed', translation: 'embolsou', translationLoading: false, ...ctx })
+  it('TR-2: a tapped translation reaches updateTranslation (fill-if-empty), a language-switched one never does', async () => {
+    const b = { word: 'pocketed', translation: 'embolsou', translationLoading: false, ...ctx }
+    const { rerender, updateTranslation } = mountSync(saved(), b)
     await act(async () => {})
-    expect(updateTranslation).toHaveBeenLastCalledWith('pocketed', 'embolsou', SENTENCE)
+    expect(updateTranslation).toHaveBeenLastCalledWith('pocketed', 'embolsou')
 
     updateTranslation.mockClear()
     await act(async () => { rerender({ lang: 'uk' }) })
-    for (const call of updateTranslation.mock.calls) expect(call[2]).toBeUndefined()
+    await act(async () => { rerender({ lang: 'uk', bubble: { ...b, translation: 'поклав' } }) })
+    expect(updateTranslation).not.toHaveBeenCalled()
   })
 
   it('TR-2: a language switch stops covering the bubble once it shows a new sentence', async () => {
@@ -104,7 +106,7 @@ describe('TR-2: the word bubble never overwrites a saved translation', () => {
     updateTranslation.mockClear()
     const NEW = 'She pocketed the key.'
     await act(async () => { rerender({ lang: 'uk', bubble: { ...b, translation: 'поклав', sentence: NEW } }) })
-    expect(updateTranslation).toHaveBeenLastCalledWith('pocketed', 'поклав', NEW)
+    expect(updateTranslation).toHaveBeenLastCalledWith('pocketed', 'поклав')
   })
 
   it('TR-2: no bubble path PATCHes on its own — all go through updateTranslation', () => {

@@ -23,6 +23,15 @@ describe('TR-1: mobile reader translate calls carry the tapped sentence', () => 
     expect(bar).toContain('cachedTranslate(selectedText, fromLang, translationTarget!, ctx)')
   })
 
+  it('TR-3: the toolbar offers "Use this translation" when the saved one differs, wired to replaceTranslation', () => {
+    const bar = element(shell, 'SelectionActionBar')
+    expect(bar).toContain('savedTranslation={vocabMapRef.current[selection.text.toLowerCase()]?.translation}')
+    expect(bar).toContain('vocabActions.replaceTranslation(selection.text, tr)')
+    const src = read('src/components/SelectionActionBar.tsx')
+    expect(src).toContain('savedTranslationOffer(savedTranslation, translating ? null : translation)')
+    expect(src).toMatch(/onPress=\{\(\) => onUseTranslation\(translation\)\}/)
+  })
+
   it('TR-1: TranslationSheet translates with the selection sentence', () => {
     expect(element(shell, 'TranslationSheet')).toContain('sentence={selection?.sentence}')
     expect(read('src/components/TranslationSheet.tsx'))

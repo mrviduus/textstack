@@ -29,12 +29,12 @@ public static class TranslateSenseEvalRunner
     private static readonly Regex NegativeVerdict = new(@"\b(INCORRECT|WRONG|NOT\s+CORRECT)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     private static readonly Regex CorrectVerdict = new(@"\bCORRECT\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
-    /// <summary>EVAL-1: the verdict is the FIRST line only (the reason below it may name either word).
+    /// <summary>EVAL-1: the verdict is the first NON-EMPTY line only (the reason below it may name either word).
     /// On that line a negative (INCORRECT, WRONG, NOT CORRECT) wins, so "Not correct" is not read as
     /// CORRECT; otherwise CORRECT, decorated or not ("**CORRECT**"). No verdict word is wrong.</summary>
     public static bool IsCorrectVerdict(string text)
     {
-        var first = text.Split('\n')[0];
+        var first = text.TrimStart().Split('\n')[0];
         return !NegativeVerdict.IsMatch(first) && CorrectVerdict.IsMatch(first);
     }
 
