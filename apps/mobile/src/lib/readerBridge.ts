@@ -316,7 +316,7 @@ export const READER_SELECTION_BRIDGE = `
     function dispatchSelection() {
       var sel = window.getSelection();
       if (!sel || sel.isCollapsed) { console.log('[diag] dispatchSelection: no selection'); return; }
-      var text = sel.toString().trim();
+      var text = selectionText(sel);
       if (!text) { console.log('[diag] dispatchSelection: empty text'); return; }
       if (text.length > SELECTION_MAX_CHARS) { console.log('[diag] dispatchSelection: text too long', text.length); return; }
       if (!text.includes(' ') && text.length <= 50) applyTapPulse(sel);
@@ -517,6 +517,16 @@ export const READER_SELECTION_BRIDGE = `
 
     // TR-1: the sentence around the TAPPED occurrence (web twin: apps/web/src/lib/sentenceExtractor.ts).
     // Locates the range by its offset in the block, cuts at sentence enders, caps ~200 chars on the word.
+    // The selection's own text without the reader's gloss nodes (TR-1): a selection over a saved
+    // word can include its inline translation, which is not what the reader selected.
+    function selectionText(sel) {
+      try {
+        var c = sel.getRangeAt(0).cloneContents();
+        c.querySelectorAll(${JSON.stringify(READER_GLOSS_SELECTOR)}).forEach(function(g) { g.remove(); });
+        return (c.textContent || '').trim();
+      } catch (e) { return sel.toString().trim(); }
+    }
+
     function extractSentence(range) {
       if (!range) return '';
       var node = range.startContainer;
@@ -619,7 +629,7 @@ export const READER_SELECTION_BRIDGE = `
         _lastDispatchWasTap = false;
         return;
       }
-      var text = sel.toString().trim();
+      var text = selectionText(sel);
       // Drop duplicates — if the user re-selected the exact same text (e.g.
       // iOS magnifier re-firing), don't re-render the popup. This is also what
       // absorbs the echo of a selection we made ourselves, which is why the

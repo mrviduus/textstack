@@ -44,6 +44,13 @@ function holdOn(text: Text, offset: number) {
 /** A native (drag) selection from `offset` to just after the gloss — the selectionchange path. */
 function selectThroughGloss(text: Text, offset: number) {
   install()
+  // The bridge is installed once per file and keeps state; each test restarts the fake clock near the
+  // real now, so jump past the selection-suppression timestamp a previous test's tap left on the bridge.
+  vi.setSystemTime(Date.now() + 3_600_000)
+  // A real drag starts from an empty selection; that also resets the bridge's de-dupe of the last text.
+  window.getSelection()!.removeAllRanges()
+  document.dispatchEvent(new Event('selectionchange'))
+  vi.advanceTimersByTime(300)
   const r = document.createRange()
   r.setStart(text, offset)
   r.setEndAfter(document.querySelector('.vocab-inline-translation')!)
@@ -66,5 +73,15 @@ describe('TR-1: mobile bridge extractSentence', () => {
     const msg = viaGloss ? selectThroughGloss(node, offset) : holdOn(node, offset + 1)
     if (!viaGloss) expect(msg?.text).toBe(word)
     expect(msg?.sentence).toBe(expected)
+  })
+})
+
+describe('TR-1: the selected text itself is gloss-free', () => {
+  it('TR-1: a drag selection over a saved word posts the word, not its inline gloss', () => {
+    document.body.innerHTML =
+      '<div><p>He was <mark data-vocab-mark="true">amiable<span class="vocab-inline-translation">приветливый</span></mark> and kind.</p></div>'
+    const text = document.querySelector('p')!.firstChild as Text
+    const msg = selectThroughGloss(text, 'He was '.length)
+    expect(msg?.text).toBe('amiable')
   })
 })
