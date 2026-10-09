@@ -4,6 +4,7 @@ import { cachedTranslate } from '../lib/translateCache'
 import type { Chapter, VocabularyWordDto, Language } from '@textstack/shared'
 import type { VocabMap } from './useReaderVocabMap'
 import { vocabPaintJs } from '../lib/vocabPaintJs'
+import { vocabMapKey } from '../lib/vocabMapKey'
 
 type ToastFn = (t: { message: string; variant: 'error' | 'success' | 'info' }) => void
 type Selection = { text: string; sentence: string; anchor?: any; selectionId: number }
@@ -98,14 +99,18 @@ export function useReaderVocabActions({
     } as const
   }
   /** Shared post-save sequence: mark + count + notify + persist translation. */
-  const onWordSaved = useCallback((saved: VocabularyWordDto, sourceText: string) => {
-    const key = saved.word.toLowerCase()
-    vocabMapRef.current[key] = { stage: saved.stage, id: saved.id }
+  /** `sentence`: the one the word was tapped in (TR-1) — the toolbar's cache key too. */
+  const onWordSaved = useCallback((saved: VocabularyWordDto, sourceText: string, sentence: string | null | undefined) => {
+    const key = vocabMapKey(saved.word)
+    vocabMapRef.current[key] = { stage: saved.stage, id: saved.id, translation: saved.translation || undefined }
     injectJs(`addVocabWord(${JSON.stringify(key)}, ${saved.stage})`)
     bumpVocab()
     setWordSaved(true)
     setSessionWordCount(c => c + 1)
     notifyWordSaved()
+    // TR-2: an existing translation is never changed here — bumpVocab paints it; replacing it is
+    // only ever the reader's "Use this translation" (replaceTranslation, TR-3).
+    if (saved.translation) return
 
     // A word saved with nothing to translate into is saved as it is. The old
     // line here was `nativeLanguage !== language ? nativeLanguage : 'en'` — the
@@ -119,18 +124,20 @@ export function useReaderVocabActions({
 
     // cachedTranslate (not translationApi) so this reuses the gloss the
     // selection toolbar just fetched for the same word — no 2nd round-trip.
-    cachedTranslate(sourceText, textLanguage, targetLang)
+    const bookId = (editionIdRef ?? userBookIdRef)?.current || undefined
+    cachedTranslate(sourceText, textLanguage, targetLang, { sentence, bookId })
       .then(({ translation }) => {
-        if (translation && saved.id) {
-          vocabularyApi.updateWord(saved.id, { translation }).catch(() => {})
-          vocabMapRef.current[key] = { ...vocabMapRef.current[key], translation }
-          // Push full map so the inline-translation span renders above the underline.
-          // addVocabWord alone only carries {stage}, wiping any prior translation.
-          injectJs(vocabPaintJs(vocabMapRef.current))
-        }
+        if (!translation || !saved.id) return
+        vocabMapRef.current[key] = { ...vocabMapRef.current[key], translation }
+        // Push full map so the inline-translation span renders above the underline.
+        // addVocabWord alone only carries {stage}, wiping any prior translation.
+        injectJs(vocabPaintJs(vocabMapRef.current))
+        // Painted first: the gloss never depends on the PATCH. onlyIfEmpty: the server writes it only
+        // while the word still has no translation (TR-2), so a race with another device cannot replace one.
+        vocabularyApi.updateWord(saved.id, { translation, onlyIfEmpty: true }).catch(() => {})
       })
       .catch(() => {})
-  }, [vocabMapRef, injectJs, bumpVocab, setWordSaved, setSessionWordCount, notifyWordSaved, textLanguage, nativeLanguage])
+  }, [vocabMapRef, injectJs, bumpVocab, setWordSaved, setSessionWordCount, notifyWordSaved, textLanguage, nativeLanguage, editionIdRef, userBookIdRef])
 
   // In-flight guard for manual saves. Mirrors autoSavedRef but persists
   // across calls within the hook so a rapid double-tap on the toolbar's
@@ -139,13 +146,16 @@ export function useReaderVocabActions({
   // net so a stuck entry (e.g. abandoned tab on cellular drop) can't
   // permanently block re-saving that word in a later chapter.
   const savingRef = useRef<Set<string>>(new Set())
+  // TR-1: the selection behind the open lookup notice — "Add anyway" glosses with ITS text
+  // and sentence, so it hits the toolbar's translate cache entry instead of a 2nd call.
+  const lookupSelectionRef = useRef<Selection | null>(null)
   useEffect(() => {
     savingRef.current.clear()
   }, [chapter?.id])
 
   const saveWord = useCallback(async (selection: Selection) => {
     if (!isAuthenticated) return
-    const keyLc = selection.text.toLowerCase()
+    const keyLc = vocabMapKey(selection.text)
     // Race guard — wordSaved flag flips only after the response lands, so
     // taps during the round-trip would otherwise re-POST.
     if (savingRef.current.has(keyLc)) return
@@ -168,6 +178,7 @@ export function useReaderVocabActions({
       }
       if (resp.outcome === 'lookup' || resp.outcome === 'lookup_pending') {
         if (resp.lookupId) {
+          lookupSelectionRef.current = selection
           setLookupState({ kind: resp.outcome, id: resp.lookupId, tapsRemaining: resp.tapsRemaining, busy: false })
         }
         return
@@ -180,7 +191,7 @@ export function useReaderVocabActions({
       }
       const saved = resp.word
       if (!saved) return
-      onWordSaved(saved, selection.text)
+      onWordSaved(saved, selection.text, selection.sentence)
       // Keep the toolbar OPEN after a manual save: in the peek-on-tap model the
       // save is explicit, so the user should see the saved state (stage badge)
       // and be able to immediately undo an accidental save via Remove. The ✕
@@ -205,7 +216,8 @@ export function useReaderVocabActions({
     try {
       const saved = await vocabularyApi.promoteLookup(lookup.id)
       setLookupState(null)
-      onWordSaved(saved, saved.word)
+      const sel = lookupSelectionRef.current
+      onWordSaved(saved, sel?.text ?? saved.word, sel ? sel.sentence : saved.sentence)
       setSelection(null)
       showToast({ message: t(language, 'reader.vocab.addedToSrs'), variant: 'success' })
     } catch (e) {
@@ -217,7 +229,7 @@ export function useReaderVocabActions({
 
   const markKnown = useCallback(async (selection: Selection) => {
     if (!isAuthenticated) return
-    const key = selection.text.toLowerCase()
+    const key = vocabMapKey(selection.text)
     const entry = vocabMapRef.current[key]
     if (!entry) return
     try {
@@ -239,7 +251,7 @@ export function useReaderVocabActions({
    */
   const removeWord = useCallback(async (selection: Selection) => {
     if (!isAuthenticated) return
-    const key = selection.text.toLowerCase()
+    const key = vocabMapKey(selection.text)
     const entry = vocabMapRef.current[key]
     if (!entry) return
     const snapshot = { ...entry }
@@ -260,5 +272,20 @@ export function useReaderVocabActions({
     }
   }, [isAuthenticated, vocabMapRef, injectJs, bumpVocab, setWordSaved, setSelection, showToast])
 
-  return { saveWord, addAnyway, markKnown, removeWord }
+  /** TR-3: the reader tapped "Use this translation" — an explicit PATCH, then the gloss follows. */
+  const replaceTranslation = useCallback(async (word: string, translation: string) => {
+    const key = vocabMapKey(word)
+    const entry = vocabMapRef.current[key]
+    try {
+      if (!entry?.id) throw new Error('no saved entry')
+      await vocabularyApi.updateWord(entry.id, { translation })
+      vocabMapRef.current[key] = { ...vocabMapRef.current[key], translation }
+      injectJs(vocabPaintJs(vocabMapRef.current))
+      bumpVocab()
+    } catch {
+      showToast({ message: t(language, 'reader.vocab.useTranslationFailed'), variant: 'error' })
+    }
+  }, [vocabMapRef, injectJs, bumpVocab, showToast, language])
+
+  return { saveWord, addAnyway, markKnown, removeWord, replaceTranslation }
 }

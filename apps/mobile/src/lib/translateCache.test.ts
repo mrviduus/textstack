@@ -9,7 +9,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
  */
 
 const translate = vi.hoisted(() => vi.fn())
-vi.mock('@textstack/shared', () => ({ translationApi: { translate } }))
+// The real key rule (translateCacheKey), a fake network.
+vi.mock('@textstack/shared', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@textstack/shared')>()
+  return { translationApi: { ...real.translationApi, translate } }
+})
 
 /** A promise plus its resolvers, so a test can hold a call open. */
 function deferred<T>() {
@@ -82,14 +86,14 @@ describe('cachedTranslate', () => {
     expect(translate).toHaveBeenCalledTimes(3)
   })
 
-  it('normalises case and surrounding whitespace, so those join instead of paying', async () => {
+  it('normalises surrounding whitespace, so those join instead of paying', async () => {
     const { cachedTranslate } = await freshModule()
     const gate = deferred<{ translatedText: string }>()
     translate.mockReturnValue(gate.promise)
 
     const callers = [
       cachedTranslate('Wort', 'de', 'en'),
-      cachedTranslate('  wort ', 'de', 'en'),
+      cachedTranslate('  Wort ', 'de', 'en'),
     ]
     gate.resolve({ translatedText: 'word' })
     await Promise.all(callers)
@@ -179,5 +183,31 @@ describe('cachedTranslate', () => {
     }
 
     expect(translate).toHaveBeenCalledTimes(3)
+  })
+
+  it('TR-1: the cache is a bounded LRU — the oldest unused entry goes past 500, a recently read one stays', async () => {
+    const { cachedTranslate, peekTranslation } = await freshModule()
+    translate.mockImplementation(async (text: string) => ({ translatedText: `${text}!` }))
+
+    await cachedTranslate('w0', 'de', 'en')
+    await cachedTranslate('w1', 'de', 'en')
+    for (let i = 2; i < 500; i++) await cachedTranslate(`w${i}`, 'de', 'en')
+    await cachedTranslate('w0', 'de', 'en') // a hit refreshes w0
+    await cachedTranslate('w500', 'de', 'en') // 501st entry evicts the least recent: w1
+
+    expect(peekTranslation('w0', 'de', 'en')).toBeDefined()
+    expect(peekTranslation('w1', 'de', 'en')).toBeUndefined()
+    expect(peekTranslation('w500', 'de', 'en')).toBeDefined()
+  })
+
+  it('TR-1: cachedTranslate sends the sentence and keys the cache on it', async () => {
+    const { cachedTranslate } = await freshModule()
+    translate.mockImplementation(async (_t: string, _f: string, _to: string, _s: unknown, ctx?: { sentence?: string }) =>
+      ({ translatedText: ctx?.sentence?.includes('clock') ? 'enrolou' : 'ferida' }))
+
+    expect((await cachedTranslate('wound', 'en', 'pt', { sentence: 'The wound bled.', bookId: 'b1' })).translation).toBe('ferida')
+    expect((await cachedTranslate('wound', 'en', 'pt', { sentence: 'Later she wound the clock.', bookId: 'b1' })).translation).toBe('enrolou')
+    expect(translate).toHaveBeenCalledWith('wound', 'en', 'pt', undefined, { sentence: 'The wound bled.', bookId: 'b1' })
+    expect(translate).toHaveBeenCalledTimes(2)
   })
 })

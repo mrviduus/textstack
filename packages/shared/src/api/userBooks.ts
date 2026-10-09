@@ -38,6 +38,8 @@ export interface UserBookDetailResponse {
    *  shows it, and the ask-before-mobile-data rule reads it. Null when the book
    *  has no stored original; absent on older payloads. */
   originalFileBytes?: number | null
+  /** PDF-2: the PDF's real page count (`UserBook.PageCount`). Null/absent → estimate from words. */
+  pageCount?: number | null
   /** LLM metadata enrichment lifecycle (genre/year/description generation).
    *  "NotStarted" | "Pending" | "Running" | "Completed" | "Failed".
    *  Absent on older payloads → treat as no enrichment in flight. */

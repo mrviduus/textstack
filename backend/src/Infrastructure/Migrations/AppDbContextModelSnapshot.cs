@@ -3381,6 +3381,10 @@ namespace Infrastructure.Migrations
                         .HasColumnType("jsonb")
                         .HasColumnName("metadata_provenance_json");
 
+                    b.Property<int?>("PageCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("page_count");
+
                     b.Property<string>("ProgressChapterSlug")
                         .HasColumnType("text")
                         .HasColumnName("progress_chapter_slug");

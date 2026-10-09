@@ -157,7 +157,7 @@ public class UserIngestionService
             // from having it read as a broken file.
             ct.ThrowIfCancellationRequested();
 
-            job.SourceFormat = result.SourceFormat.ToString();
+            RecordExtractionFacts(job, result);
 
             if (result.Diagnostics.TextSource == TextSource.None)
             {
@@ -444,4 +444,14 @@ public class UserIngestionService
         _ =>
             "This file format is not supported."
     };
+
+    /// <summary>
+    /// PDF-2: recorded before any early failure return — a scanned PDF still opens in the
+    /// Original layout with its page count. A run that learnt no count keeps the stored one.
+    /// </summary>
+    public static void RecordExtractionFacts(UserIngestionJob job, ExtractionResult result)
+    {
+        job.SourceFormat = result.SourceFormat.ToString();
+        if (result.Metadata.PageCount is { } pages) job.UserBook.PageCount = pages;
+    }
 }

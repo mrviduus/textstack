@@ -15,6 +15,8 @@ public class UserBook
     public string? Genre { get; set; }
     public int? PublishedYear { get; set; }
     public int? TotalWordCount { get; set; }
+    /// <summary>PDF-2: a PDF upload's page count, read at ingestion. Null for non-PDFs / unknown.</summary>
+    public int? PageCount { get; set; }
     public string? TocJson { get; set; }
     public UserBookStatus Status { get; set; }
     public string? ErrorMessage { get; set; }

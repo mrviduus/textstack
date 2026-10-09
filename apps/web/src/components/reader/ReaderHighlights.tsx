@@ -2,6 +2,7 @@ import { useRef, useCallback, useState, useEffect } from 'react'
 import { useTextSelection } from '../../hooks/useTextSelection'
 import { useHighlightEdit, type ScrollToHighlight } from '../../hooks/useHighlightEdit'
 import { useTranslationPopup } from '../../hooks/useTranslationPopup'
+import { extractSentence } from '../../lib/sentenceExtractor'
 import { useExplainPopup } from '../../hooks/useExplainPopup'
 import { useNativeLanguage } from '../../context/NativeLanguageContext'
 import { useTts } from '../../hooks/useTts'
@@ -10,7 +11,7 @@ import { useTranslation } from '../../hooks/useTranslation'
 import { useWordBubble } from '../../hooks/useWordBubble'
 import { normalizeVocabKey } from '../../lib/vocabKey'
 import type { HighlightAnchor, HighlightColor, StoredHighlight } from '../../lib/offlineDb'
-import type { PdfAnchor } from '@textstack/shared'
+import { savedTranslationOffer, type PdfAnchor } from '@textstack/shared'
 import { computePdfAnchorFromRange } from '../../lib/pdfHighlightAnchor'
 import { SelectionToolbar } from './SelectionToolbar'
 import { HighlightOverlayLayer } from './HighlightOverlayLayer'
@@ -115,7 +116,7 @@ export function ReaderHighlights({
   const isSingleWord = hasSelection && selectionWordCount === 1
 
   // --- Vocab map + save/update (guest = real User via cookie session, same API path) ---
-  const { vocabMap, addWord, removeWord, updateTranslation, recordSavedWord, idbUnavailable, dismissIdbUnavailable, guestNudge, dismissGuestNudge } = useReaderVocabulary(bookLanguage, targetLang)
+  const { vocabMap, addWord, removeWord, updateTranslation, replaceTranslation, recordSavedWord, idbUnavailable, dismissIdbUnavailable, guestNudge, dismissGuestNudge } = useReaderVocabulary(bookLanguage, targetLang)
   const { openAuthModal } = useAuth()
 
   const {
@@ -181,8 +182,10 @@ export function ReaderHighlights({
 
   const handleTranslate = useCallback(() => {
     if (!selection.text || !selection.rect) return
-    translationPopup.open(selection.text, selection.rect)
-  }, [selection.text, selection.rect, translationPopup])
+    const container = containerRef.current
+    const sentence = selection.range && container ? extractSentence(selection.range, container) : undefined
+    translationPopup.open(selection.text, selection.rect, { sentence, bookId: userBookId || editionId })
+  }, [selection.text, selection.rect, selection.range, containerRef, userBookId, editionId, translationPopup])
 
   // --- Explain popup ---
   const explainPopup = useExplainPopup({
@@ -292,6 +295,9 @@ export function ReaderHighlights({
       {bubble && !translationPopup.show && (() => {
         const entry = vocabMap.get(normalizeVocabKey(bubble.word))
         const isSaved = !!entry
+        // TR-3: a saved word whose translation differs from the bubble's — offer to replace it, but only
+        // with a translation in the reader's native language that is not a mid-popup switch (display-only).
+        const savedAs = entry?.id && !entry.isPending ? savedTranslationOffer(entry.translation, bubble.langSwitched ? null : bubble.translation, bubble.translationLang, nativeLanguage) : null
         return (
           <WordPopup
             word={bubble.word}
@@ -321,6 +327,10 @@ export function ReaderHighlights({
             onAddAnyway={lookupState && lookupState.word === bubble.word ? handleAddAnyway : undefined}
             addAnywayBusy={addAnywayBusy}
             saveInFlight={savingWord === bubble.word}
+            savedTranslation={savedAs}
+            onUseTranslation={savedAs && bubble.translation
+              ? () => { replaceTranslation(bubble.word, bubble.translation!).catch(() => setPendingToast(t('reader.wordPopup.useTranslationFailed'))) }
+              : undefined}
           />
         )
       })()}

@@ -1,3 +1,5 @@
+import { READER_GLOSS_SELECTOR } from '@textstack/shared'
+
 // Shared selection/interaction bridge for the reader WebView.
 //
 // This is the SINGLE source for the DOM→native bridge that both the reflow
@@ -186,7 +188,7 @@ export const READER_SELECTION_BRIDGE = `
       // Selection API flow via selectionchange.
       try { applyTapPulseRange(range); } catch(e) {}
       var sentence = '';
-      try { sentence = extractSentence(range.startContainer); } catch(e) {}
+      try { sentence = extractSentence(range); } catch(e) {}
       var anchor = null;
       try { anchor = getRangeAnchor(range); } catch(e) {}
       // Long suppression window: we never touch Selection API here, so any
@@ -314,12 +316,12 @@ export const READER_SELECTION_BRIDGE = `
     function dispatchSelection() {
       var sel = window.getSelection();
       if (!sel || sel.isCollapsed) { console.log('[diag] dispatchSelection: no selection'); return; }
-      var text = sel.toString().trim();
+      var text = selectionText(sel);
       if (!text) { console.log('[diag] dispatchSelection: empty text'); return; }
       if (text.length > SELECTION_MAX_CHARS) { console.log('[diag] dispatchSelection: text too long', text.length); return; }
       if (!text.includes(' ') && text.length <= 50) applyTapPulse(sel);
       var sentence = '';
-      try { sentence = extractSentence(sel.anchorNode); } catch(e) {}
+      try { sentence = extractSentence(sel.getRangeAt(0)); } catch(e) {}
       var anchor = null;
       try { anchor = getSelectionAnchor(); } catch(e) {}
       _suppressSelectionChangeUntil = Date.now() + 200;
@@ -513,14 +515,53 @@ export const READER_SELECTION_BRIDGE = `
       }, 300);
     }, { passive: true });
 
-    // Text selection — sentence extraction (walks up to a block ancestor).
-    function extractSentence(node) {
-      if (!node) return '';
+    // TR-1: the sentence around the TAPPED occurrence (web twin: apps/web/src/lib/sentenceExtractor.ts).
+    // Locates the range by its offset in the block, cuts at sentence enders, caps ~200 chars on the word.
+    // The selection's own text without the reader's gloss nodes (TR-1): a selection over a saved
+    // word can include its inline translation, which is not what the reader selected.
+    function selectionText(sel) {
+      try {
+        var c = sel.getRangeAt(0).cloneContents();
+        c.querySelectorAll(${JSON.stringify(READER_GLOSS_SELECTOR)}).forEach(function(g) { g.remove(); });
+        return (c.textContent || '').trim();
+      } catch (e) { return sel.toString().trim(); }
+    }
+
+    function extractSentence(range) {
+      if (!range) return '';
+      var node = range.startContainer;
       var el = node.nodeType === 3 ? node.parentElement : node;
-      while (el && !['P','DIV','LI','BLOCKQUOTE','TD','FIGCAPTION'].includes(el.tagName)) {
+      while (el && !['P','DIV','LI','BLOCKQUOTE','TD','FIGCAPTION','H1','H2','H3','H4','H5','H6'].includes(el.tagName)) {
         el = el.parentElement;
       }
-      return el ? el.textContent.trim().substring(0, 500) : '';
+      // The reader's own gloss nodes are not part of the sentence — nor of the selection, which may
+      // include a saved word's gloss (TR-1). One selector with the web (READER_GLOSS_SELECTOR).
+      var root = el || node;
+      function textWithoutGloss(n) {
+        if (n.querySelectorAll) n.querySelectorAll(${JSON.stringify(READER_GLOSS_SELECTOR)}).forEach(function(g) { g.remove(); });
+        return n.textContent || '';
+      }
+      var full = textWithoutGloss(root.cloneNode(true));
+      var raw = textWithoutGloss(range.cloneContents());
+      var word = raw.trim();
+      var before = document.createRange();
+      before.setStart(root, 0);
+      before.setEnd(range.startContainer, range.startOffset);
+      var idx = textWithoutGloss(before.cloneContents()).length + raw.length - raw.replace(/^\\s+/, '').length;
+      if (full.slice(idx, idx + word.length) !== word) idx = full.indexOf(word);
+      if (idx < 0) return full.trim().slice(0, 200);
+      var enders = /[.!?\\n]/;
+      var start = idx;
+      while (start > 0 && !enders.test(full[start - 1])) start--;
+      var end = idx + word.length;
+      while (end < full.length) { if (enders.test(full[end++])) break; }
+      var lead = full.slice(start, end);
+      var sentence = lead.trim();
+      if (sentence.length <= 200) return sentence;
+      var wordStart = idx - start - (lead.length - lead.replace(/^\\s+/, '').length);
+      var cropStart = Math.max(0, wordStart - 80);
+      var cropEnd = Math.min(sentence.length, cropStart + 200);
+      return (cropStart > 0 ? '...' : '') + sentence.slice(cropStart, cropEnd) + (cropEnd < sentence.length ? '...' : '');
     }
 
     function getSelectionAnchor() {
@@ -588,7 +629,7 @@ export const READER_SELECTION_BRIDGE = `
         _lastDispatchWasTap = false;
         return;
       }
-      var text = sel.toString().trim();
+      var text = selectionText(sel);
       // Drop duplicates — if the user re-selected the exact same text (e.g.
       // iOS magnifier re-firing), don't re-render the popup. This is also what
       // absorbs the echo of a selection we made ourselves, which is why the
@@ -601,7 +642,7 @@ export const READER_SELECTION_BRIDGE = `
       // applyTapPulseRange (which doesn't touch Selection); long-press
       // already has the native handles for visual feedback.
       var sentence = '';
-      try { sentence = extractSentence(sel.anchorNode); } catch(e) {}
+      try { sentence = extractSentence(sel.getRangeAt(0)); } catch(e) {}
       var anchor = null;
       try { anchor = getSelectionAnchor(); } catch(e) {}
       _lastDispatchedText = text;

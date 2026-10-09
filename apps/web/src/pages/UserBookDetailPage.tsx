@@ -9,7 +9,7 @@ import { stringToColor } from '../utils/colors'
 import { BookStatsSection } from '../components/library/BookStatsSection'
 import { BookInsightsSection } from '../components/library/BookInsightsSection'
 import { AssistantMenu } from '../components/library/AssistantMenu'
-import { currentReviewChapter } from '@textstack/shared'
+import { currentReviewChapter, bookPages, plural } from '@textstack/shared'
 import { ChapterReviewAction } from '../components/library/ChapterReviewAction'
 import { useBookReviews } from '../hooks/useBookReviews'
 import { emitDataChanges } from '../lib/dataEvents'
@@ -229,6 +229,7 @@ export function UserBookDetailPage() {
   // Readability is DERIVED (ADR-012): a PDF opens in Original layout regardless
   // of extraction status, so Processing/Failed must not block or scare.
   const hasOriginalPdf = !!book.hasOriginalPdf
+  const pages = bookPages(book)
   const canRead = hasOriginalPdf || (isReady && book.chapters.length > 0)
   const readerBase = `/${language}/library/my/${book.id}`
   const readHref = continueReadingSlug
@@ -349,8 +350,8 @@ export function UserBookDetailPage() {
             {book.genre && <span>{book.genre}</span>}
             {book.publishedYear && <span>{book.publishedYear}</span>}
             {isReady && <span>{book.chapters.length} chapters</span>}
-            {book.totalWordCount != null && book.totalWordCount > 0 && (
-              <span>{Math.round(book.totalWordCount / 250).toLocaleString()} pages</span>
+            {pages && (
+              <span>{plural(pages.pages, 'page', 'pages', `${pages.exact ? '' : '~'}${pages.pages.toLocaleString()} {noun}`)}</span>
             )}
           </div>
 

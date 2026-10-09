@@ -73,7 +73,9 @@ public record UserBookDetailDto(
     /// </summary>
     long? OriginalFileBytes = null,
     /// <summary>Page a clipped article came from; null for uploaded files.</summary>
-    string? SourceUrl = null
+    string? SourceUrl = null,
+    /// <summary>PDF-2: a PDF upload's real page count; null → clients estimate from words.</summary>
+    int? PageCount = null
 );
 
 public record UserChapterSummaryDto(

@@ -41,6 +41,8 @@ export interface SaveWordRequest {
 export interface UpdateWordRequest {
   translation?: string | null
   definition?: string | null
+  /** TR-2: an automatic fill — the server writes only when no translation is stored. */
+  onlyIfEmpty?: boolean
 }
 
 export interface ReviewCardDto {
