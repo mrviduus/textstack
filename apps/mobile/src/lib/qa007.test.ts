@@ -326,6 +326,10 @@ describe('QA-007', () => {
     save = vi.fn(); ensureSession = vi.fn()
     await downloadAndSave({ run: vi.fn(), hasSession: true, ensureSession, save })
     expect(ensureSession).not.toHaveBeenCalled(); expect(save).toHaveBeenCalledWith(false)
+    // Device run: the minted session refetches the Library while the add's POST is in flight, and that
+    // GET answered "not in library" before the POST finished. The write's success is the last word.
+    expect(read('app/book/[slug].tsx')).toMatch(/await libraryApi\.addToLibrary\(book!\.id\)\s*libraryGenRef\.current\+\+\s*setInLibrary\(true\)/)
+    expect(read('app/book/[slug].tsx')).toMatch(/await libraryApi\.removeFromLibrary\(book!\.id\)\s*libraryGenRef\.current\+\+\s*setInLibrary\(false\)/)
     // Wiring: the screen's Download handler goes through it with the auth context's ensureSession.
     expect(read('app/book/[slug].tsx')).toMatch(/downloadAndSave\(\{ run, hasSession: isAuthenticated, ensureSession,/)
   })

@@ -323,7 +323,10 @@ export default function BookDetailScreen() {
     libraryGenRef.current++
     setInLibrary(true)
     try {
+      // A getLibrary sent while the POST was in flight may predate it: the write's success is the last word.
       await libraryApi.addToLibrary(book!.id)
+      libraryGenRef.current++
+      setInLibrary(true)
       return true
     } catch (err) {
       console.warn('library add failed:', err)
@@ -338,6 +341,8 @@ export default function BookDetailScreen() {
     setInLibrary(false)
     try {
       await libraryApi.removeFromLibrary(book!.id)
+      libraryGenRef.current++
+      setInLibrary(false)
       // The server took it out of its collections too (#706).
       invalidateCollectionsCache()
       // No shelf cache to drop: the Library tab refetches on focus.
