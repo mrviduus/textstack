@@ -33,7 +33,7 @@ import { SkeletonLoader } from '../../src/components/ui/SkeletonLoader'
 export default function BookDetailScreen() {
   const { slug } = useLocalSearchParams<{ slug: string }>()
   const router = useRouter()
-  const { isAuthenticated, ensureSession } = useAuth()
+  const { isAuthenticated, ensureSession, getAccessToken } = useAuth()
   const { colors } = useTheme()
   const { language, t } = useLanguage()
   const toast = useToast()
@@ -385,7 +385,7 @@ export default function BookDetailScreen() {
   // Download, Retry and Restart (LIB-1): the download, then the Library add.
   // No session: a guest is minted first (LIB-1a).
   const onDownload = (run: () => unknown) => () => {
-    void downloadAndSave({ run, hasSession: isAuthenticated, ensureSession,
+    void downloadAndSave({ run, hasSession: isAuthenticated, ensureSession, getAccessToken,
       save: fresh => libraryLink.start(fresh ? 'out' : inLibraryRef.current ? 'in' : libraryKnownRef.current ? 'out' : 'unknown', addToLibrary) })
   }
   // A finished download ends the link: a later re-download + Cancel never removes the book (LIB-1).

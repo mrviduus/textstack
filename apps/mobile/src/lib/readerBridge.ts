@@ -240,6 +240,12 @@ export const READER_SELECTION_BRIDGE = `
       window.addEventListener('scroll', function() { try { _wordMarkOv.syncScroll(); } catch(e) {} }, { passive: true });
       // Rotate/resize reflows the text under the mark.
       window.addEventListener('resize', function() { try { _wordMarkOv.redraw(); } catch(e) {} });
+      // Same triggers as the highlight overlayer (readerHtml hlEnsureOverlayer): a late image or font
+      // shifts the text too. Image load does not bubble, so it is caught on capture — appended chapters included.
+      document.addEventListener('load', function(e) { if (e.target && e.target.tagName === 'IMG') { try { _wordMarkOv.redraw(); } catch(e2) {} } }, true);
+      if (document.fonts && document.fonts.ready && typeof document.fonts.ready.then === 'function') {
+        document.fonts.ready.then(function() { try { _wordMarkOv.redraw(); } catch(e) {} });
+      }
       return _wordMarkOv;
     }
 

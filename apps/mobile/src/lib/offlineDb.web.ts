@@ -129,6 +129,10 @@ export async function storeCachedUserChapterStartPages(): Promise<void> {
   // no-op
 }
 
+export async function listCachedUserChapterPages(): Promise<{ slug: string; sourceStartPage: number | null }[]> {
+  return []
+}
+
 export async function listCachedUserChapters(): Promise<CachedUserChapter[]> {
   return []
 }

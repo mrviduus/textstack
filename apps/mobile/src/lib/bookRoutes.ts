@@ -28,7 +28,7 @@ type ChapterRow = ChapterPageAnchor & { chapterNumber: number }
  * The Library hero's Continue (RES-1). An upload read as PDF pages saves `page:<N>` and no chapter,
  * so `resumeRoute` sent it to the detail screen. Here the chapter list names the chapter holding
  * that page, and the PDF reader then restores the page itself. The device's chapters first (the
- * reading path waits for no network), but only a complete download with a page number on every chapter; else the server, 3 s deadline. Lookup fails → detail.
+ * reading path waits for no network), but only a complete download whose rows place the page; else the server, 3 s deadline. Lookup fails → detail.
  */
 export async function heroResumeRoute(
   pick: ContinueReadingPick,
@@ -44,24 +44,29 @@ export async function heroResumeRoute(
   if (pick.type !== 'userbook' || parsePdfPageLocator(pick.locator) == null) return resumeRoute(pick)
   try {
     const cached = await loaders.device(pick.id).catch(() => null)
-    // Complete AND every row paged: one row cached without a start page can misplace the page.
-    let chapters: readonly ChapterPageAnchor[]
-    if (cached && cached.totalChapters > 0 && cached.chapters.length >= cached.totalChapters
-      && cached.chapters.every(c => typeof c.sourceStartPage === 'number' && c.sourceStartPage >= 1)) {
-      chapters = cached.chapters
-    } else {
-      const rows = (await withDeadline(loaders.server(pick.id), SERVER_DEADLINE_MS)).map(c => ({ ...c, slug: userBookChapterSlug(c) }))
+    // The device answers when the download is complete and its rows place the page. Unpaged rows
+    // are allowed only BEFORE the first paged one (unmeasured front matter); one in the middle may be
+    // a row cached before start pages were stored, and could misplace the page.
+    const rows = cached?.chapters ?? []
+    const first = rows.findIndex(isPaged)
+    const paged = first >= 0 && rows.slice(first).every(isPaged) ? rows.slice(first) : []
+    let slug = cached && cached.totalChapters > 0 && rows.length >= cached.totalChapters && paged.length > 0
+      ? resumeChapterSlug(null, pick.locator, paged)
+      : null
+    if (!slug) {
+      const server = (await withDeadline(loaders.server(pick.id), SERVER_DEADLINE_MS)).map(c => ({ ...c, slug: userBookChapterSlug(c) }))
       // Fire-and-forget: the write never holds or fails the Continue.
-      loaders.remember?.(pick.id, rows.map(c => ({ slug: c.slug, sourceStartPage: c.sourceStartPage }))).catch(() => {})
-      chapters = rows
+      loaders.remember?.(pick.id, server.map(c => ({ slug: c.slug, sourceStartPage: c.sourceStartPage }))).catch(() => {})
+      slug = resumeChapterSlug(null, pick.locator, server)
     }
-    const slug = resumeChapterSlug(null, pick.locator, chapters)
     return slug ? `/my-books/read/${pick.id}/${slug}` : `/my-books/${pick.id}`
   } catch {
     // Not the stored chapterSlug: it may be stale, and opening it would save over the real page.
     return `/my-books/${pick.id}`
   }
 }
+
+const isPaged = (c: ChapterPageAnchor) => typeof c.sourceStartPage === 'number' && c.sourceStartPage >= 1
 
 /** A captive portal must not hold the Continue tap. */
 const SERVER_DEADLINE_MS = 3000

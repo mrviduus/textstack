@@ -113,7 +113,7 @@ describe('QA-007', () => {
     expect(server).not.toHaveBeenCalled()
     // ResumeHero wires the device loader to SQLite: chapters + the cached book meta's count.
     const hero = read('src/components/library/ResumeHero.tsx')
-    expect(hero).toMatch(/listCachedUserChapters\(id\)/)
+    expect(hero).toMatch(/listCachedUserChapterPages\(id\)/)
     expect(hero).toMatch(/getCachedUserBookMeta\(id\)/)
   })
 
@@ -353,33 +353,33 @@ describe('QA-007', () => {
     expect(src).toMatch(/onRemove=\{\(\) => \{\s*libraryLink\.forget\(\)/)
   })
 
-  it('LIB-1a: Download with no session mints a guest first, then saves; a failed or slow mint still downloads, without the save', async () => {
+  it('LIB-1a: Download with no session mints a guest first, then saves; a failed or never-answering mint still downloads, without the save', async () => {
     // No session → mint → save as a fresh (empty-Library) guest.
     let run = vi.fn(); let save = vi.fn(); let ensureSession = vi.fn(async () => ({ status: 'minted' as const }))
-    await downloadAndSave({ run, hasSession: false, ensureSession, save })
+    await downloadAndSave({ run, getAccessToken: async () => null, hasSession: false, ensureSession, save })
     expect(run).toHaveBeenCalledTimes(1); expect(ensureSession).toHaveBeenCalledTimes(1); expect(save).toHaveBeenCalledWith(true)
     // Mint fails → download only.
     run = vi.fn(); save = vi.fn()
-    await downloadAndSave({ run, hasSession: false, ensureSession: async () => ({ status: 'failed' as const, error: new Error('offline') }), save })
+    await downloadAndSave({ run, getAccessToken: async () => null, hasSession: false, ensureSession: async () => ({ status: 'failed' as const, error: new Error('offline') }), save })
     expect(run).toHaveBeenCalledTimes(1); expect(save).not.toHaveBeenCalled()
-    // Mint hangs → 3 s deadline → download only.
+    // Mint never answers → download only (nothing waits on it).
     vi.useFakeTimers()
     run = vi.fn(); save = vi.fn()
-    const p = downloadAndSave({ run, hasSession: false, ensureSession: () => new Promise(() => {}), save })
+    void downloadAndSave({ run, getAccessToken: async () => null, hasSession: false, ensureSession: () => new Promise(() => {}), save })
     expect(run).toHaveBeenCalledTimes(1)
-    await vi.advanceTimersByTimeAsync(3000); await p
+    await vi.advanceTimersByTimeAsync(10_000)
     expect(save).not.toHaveBeenCalled()
     vi.useRealTimers()
     // A session already there → no mint.
     save = vi.fn(); ensureSession = vi.fn()
-    await downloadAndSave({ run: vi.fn(), hasSession: true, ensureSession, save })
+    await downloadAndSave({ run: vi.fn(), getAccessToken: async () => null, hasSession: true, ensureSession, save })
     expect(ensureSession).not.toHaveBeenCalled(); expect(save).toHaveBeenCalledWith(false)
     // Device run: the minted session refetches the Library while the add's POST is in flight, and that
     // GET answered "not in library" before the POST finished. The write's success is the last word.
     expect(read('app/book/[slug].tsx')).toMatch(/await libraryApi\.addToLibrary\(book!\.id\)\s*libraryGenRef\.current\+\+\s*setInLibrary\(true\)/)
     expect(read('app/book/[slug].tsx')).toMatch(/await libraryApi\.removeFromLibrary\(book!\.id\)\s*libraryGenRef\.current\+\+\s*setInLibrary\(false\)/)
     // Wiring: the screen's Download handler goes through it with the auth context's ensureSession.
-    expect(read('app/book/[slug].tsx')).toMatch(/downloadAndSave\(\{ run, hasSession: isAuthenticated, ensureSession,/)
+    expect(read('app/book/[slug].tsx')).toMatch(/downloadAndSave\(\{ run, hasSession: isAuthenticated, ensureSession, getAccessToken,/)
   })
 
   it('LIB-1: a failed optimistic add re-reads the Library, so the button shows the server and the state becomes known', () => {
@@ -404,7 +404,7 @@ describe('QA-007', () => {
     expect(remember).not.toHaveBeenCalled()
     // Wiring: the hero hands them to SQLite, which only fills, never clears.
     expect(read('src/components/library/ResumeHero.tsx')).toMatch(/remember: storeCachedUserChapterStartPages/)
-    expect(read('src/lib/offlineDb.ts')).toMatch(/UPDATE user_chapters SET source_start_page = COALESCE\(\?, source_start_page\) WHERE book_id = \? AND chapter_slug = \?/)
+    expect(read('src/lib/offlineDb.ts')).toMatch(/UPDATE user_chapters SET source_start_page = \? WHERE book_id = \? AND chapter_slug = \? AND source_start_page IS NULL/)
     expect(read('src/lib/offlineDb.web.ts')).toContain('export async function storeCachedUserChapterStartPages')
   })
 
@@ -445,6 +445,9 @@ describe('QA-007', () => {
     await expect(withDeadline(Promise.reject(new Error('x')), 10)).rejects.toThrow('x')
     expect(read('src/lib/bookRoutes.ts')).not.toMatch(/function withDeadline|Promise\.race/)
     expect(read('src/lib/downloadLibraryLink.ts')).not.toMatch(/Promise\.race|setTimeout/)
+    // SessionGate's deadline is the same helper, not a timer of its own.
+    expect(read('src/components/SessionGate.tsx')).toMatch(/withDeadline\(/)
+    expect(read('src/components/SessionGate.tsx')).not.toMatch(/setTimeout/)
   })
 
   it('RES-1: a device cache with any chapter lacking a start page asks the server', async () => {
@@ -459,4 +462,70 @@ describe('QA-007', () => {
     expect(await heroResumeRoute(pick, { device, server })).toBe('/my-books/read/ub1/ch1')
     expect(server).toHaveBeenCalledWith('ub1')
   })
+
+  it('LIB-1a: a mint that answers after 3 s still saves, in the background; a discarded mint saves under the winning session', async () => {
+    vi.useFakeTimers()
+    let save = vi.fn()
+    const p = downloadAndSave({ run: vi.fn(), hasSession: false, getAccessToken: async () => null, save,
+      ensureSession: () => new Promise(r => setTimeout(() => r({ status: 'minted' as const }), 4000)) })
+    await vi.advanceTimersByTimeAsync(4000); await p
+    expect(save).toHaveBeenCalledWith(true)
+    vi.useRealTimers()
+    // Another session won the race → save under it.
+    save = vi.fn()
+    await downloadAndSave({ run: vi.fn(), hasSession: false, getAccessToken: async () => 'tok', save,
+      ensureSession: async () => ({ status: 'discarded' as const, reason: 'account-arrived' as const }) })
+    expect(save).toHaveBeenCalledWith(false)
+    // Discarded and nobody holds a session (signed out meanwhile) → no save.
+    save = vi.fn()
+    await downloadAndSave({ run: vi.fn(), hasSession: false, getAccessToken: async () => null, save,
+      ensureSession: async () => ({ status: 'discarded' as const, reason: 'epoch-moved' as const }) })
+    expect(save).not.toHaveBeenCalled()
+    expect(read('app/book/[slug].tsx')).toMatch(/downloadAndSave\(\{ run, hasSession: isAuthenticated, ensureSession, getAccessToken,/)
+  })
+
+  it('RES-1: unmeasured front matter on a complete download does not force the network — the device places page N', async () => {
+    const pick = { type: 'userbook' as const, id: 'ub1', title: 'PDF', coverPath: null, percent: 0.3, chapterSlug: null, locator: 'page:50', updatedAtMs: 1 }
+    const server = vi.fn(async () => [])
+    const device = async () => ({ chapters: [{ slug: 'cover', sourceStartPage: null }, { slug: 'ch0', sourceStartPage: 3 }, { slug: 'ch1', sourceStartPage: 40 }], totalChapters: 3 })
+    expect(await heroResumeRoute(pick, { device, server })).toBe('/my-books/read/ub1/ch1')
+    expect(server).not.toHaveBeenCalled()
+    // A complete download with no measured row at all still asks the server.
+    const none = async () => ({ chapters: [{ slug: 'a', sourceStartPage: null }], totalChapters: 1 })
+    await heroResumeRoute(pick, { device: none, server })
+    expect(server).toHaveBeenCalledWith('ub1')
+  })
+
+  it('RES-1: the hero reads only slug + start page from SQLite, with a web no-op twin', () => {
+    const db = read('src/lib/offlineDb.ts')
+    expect(db).toMatch(/export async function listCachedUserChapterPages\(bookId: string\)/)
+    expect(db).toMatch(/SELECT chapter_slug, source_start_page FROM user_chapters WHERE book_id = \? ORDER BY COALESCE\(chapter_number, 999999\) ASC, cached_at ASC/)
+    expect(read('src/lib/offlineDb.web.ts')).toContain('export async function listCachedUserChapterPages')
+    expect(read('src/components/library/ResumeHero.tsx')).not.toMatch(/listCachedUserChapters\b/)
+  })
+
+  it('RES-1: storing start pages is one transaction and skips rows that already have one', () => {
+    const db = read('src/lib/offlineDb.ts')
+    const fn = db.slice(db.indexOf('export async function storeCachedUserChapterStartPages'), db.indexOf('export async function listCachedUserChapters'))
+    expect(fn).toMatch(/withTransactionAsync/)
+    expect(fn).toMatch(/AND source_start_page IS NULL/)
+    expect(fn).toMatch(/if \(c\.sourceStartPage == null\) continue/)
+  })
+
+  it('SEL-1: the word mark redraws on image load and fonts.ready, like the highlight overlayer', async () => {
+    const { w, d, p, hold, layer } = await bridgeDocWithFonts()
+    await hold(p, 7)
+    await Promise.resolve(); await Promise.resolve()
+    expect(layer.redraws).toBe(1)
+    const img = d.createElement('img'); d.body.appendChild(img)
+    img.dispatchEvent(new w.Event('load'))
+    expect(layer.redraws).toBe(2)
+  })
+
+  async function bridgeDocWithFonts() {
+    // fonts.ready must exist before the bridge creates its layer; jsdom ships none.
+    const r = await bridgeDoc()
+    r.d.fonts = { ready: Promise.resolve() }
+    return r
+  }
 })

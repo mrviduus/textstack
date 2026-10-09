@@ -1,6 +1,4 @@
 import type { EnsureSessionResult } from './guestSession'
-import { READER_SESSION_GATE_TIMEOUT_MS } from './readerSessionGate'
-import { withDeadline } from './deadline'
 
 /**
  * LIB-1: Download adds the book to the Library; cancelling a download that added it takes it back
@@ -32,18 +30,22 @@ export function downloadLibraryLink() {
 /**
  * The Download tap (LIB-1): the download at once, then the Library save. With no session a guest is
  * minted first, as SessionGate does — a download is intent, and the book must land in the Library
- * (LIB-1a, ADR-014). A failed or slow mint (same 3 s deadline) still downloads, unsaved.
+ * (LIB-1a, ADR-014). Nothing waits on the mint (the download already runs), so a slow mint still
+ * saves when it answers; a failed one leaves the book downloaded, unsaved. A mint discarded because
+ * another session won saves under that session, if one holds a token.
  * `save(true)` = a guest minted just now, whose Library is known to be empty.
  */
 export async function downloadAndSave(o: {
   run: () => unknown
   hasSession: boolean
   ensureSession: () => Promise<EnsureSessionResult>
+  getAccessToken: () => Promise<string | null>
   save: (freshGuest: boolean) => void
 }): Promise<void> {
   void o.run()
   if (o.hasSession) return o.save(false)
-  const r = await withDeadline(o.ensureSession(), READER_SESSION_GATE_TIMEOUT_MS).catch(() => null)
+  const r = await o.ensureSession().catch(() => null)
   if (r?.status === 'minted') o.save(true)
   else if (r?.status === 'existing') o.save(false)
+  else if (r?.status === 'discarded' && await o.getAccessToken().catch(() => null)) o.save(false)
 }

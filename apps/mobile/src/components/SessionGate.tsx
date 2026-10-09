@@ -3,6 +3,7 @@ import { View } from 'react-native'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import type { EnsureSessionResult } from '../lib/guestSession'
+import { withDeadline } from '../lib/deadline'
 import { readerGateState, READER_SESSION_GATE_TIMEOUT_MS, gateMemory, gateGaveUp } from '../lib/readerSessionGate'
 
 /**
@@ -42,25 +43,13 @@ export function SessionGate({ children }: { children: ReactNode }) {
   // Read by the deadline timer, which outlives the answer (the gate stays mounted).
   const outcomeRef = useRef<EnsureSessionResult | null>(null)
 
-  // The deadline runs from mount, independently of the request, so a socket
-  // that hangs open with no answer cannot keep the book — or the upload —
-  // closed.
-  useEffect(() => {
-    if (skipped) return
-    const timer = setTimeout(() => {
-      setTimedOut(true)
-      gateMemory.deadlinePassed(outcomeRef.current)
-    }, READER_SESSION_GATE_TIMEOUT_MS)
-    return () => clearTimeout(timer)
-  }, [skipped])
-
   useEffect(() => {
     // Runs once per gate mount. `ensureSession` is itself single-flighted, but
     // re-entering here would also reset nothing and cost a render.
     if (startedRef.current) return
     startedRef.current = true
     let cancelled = false
-    ensureSession()
+    const answer = ensureSession()
       .then((result) => {
         // Recorded even after this gate is gone: it is the network's answer, not the screen's.
         outcomeRef.current = result
@@ -70,6 +59,14 @@ export function SessionGate({ children }: { children: ReactNode }) {
       // `ensureSession` is documented never to reject; this is the belt for
       // the day that stops being true. A rejection must still open the book.
       .catch((error: unknown) => { if (!cancelled) setOutcome({ status: 'failed', error }) })
+    // The deadline runs from mount, independently of the request, so a socket
+    // that hangs open with no answer cannot keep the book — or the upload —
+    // closed. Not cancelled with the effect: like the answer, a wedged network is
+    // the network's fact, and the gate must open even if this effect re-ran.
+    withDeadline(answer, READER_SESSION_GATE_TIMEOUT_MS).catch(() => {
+      setTimedOut(true)
+      gateMemory.deadlinePassed(outcomeRef.current)
+    })
     return () => { cancelled = true }
   }, [ensureSession])
 
