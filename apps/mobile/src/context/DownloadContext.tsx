@@ -48,6 +48,8 @@ export type DownloadKind = 'edition' | 'userbook'
 export interface ChapterTask {
   slug: string
   number: number | null
+  /** An upload's PDF start page, from the chapter list — the chapter endpoint doesn't send it. */
+  sourceStartPage?: number | null
 }
 
 export interface DownloadInfo {
@@ -311,7 +313,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
           // refresh, Remove the download first: that clears the rows.)
           if (await getCachedUserChapter(info.editionId, task.slug)) return
           const chapter = await userBooksApi.getUserBookChapter(info.editionId, task.slug)
-          await cacheUserChapter(info.editionId, chapter, task.number)
+          await cacheUserChapter(info.editionId, { ...chapter, sourceStartPage: chapter.sourceStartPage ?? task.sourceStartPage ?? null }, task.number)
         },
         saveCount: (n: number) => updateCachedUserChapterCount(info.editionId, n),
       }
@@ -397,6 +399,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     const tasks: ChapterTask[] = book.chapters.map(ch => ({
       slug: userBookChapterSlug(ch),
       number: ch.chapterNumber,
+      sourceStartPage: ch.sourceStartPage ?? null,
     }))
 
     const info: DownloadInfo = {

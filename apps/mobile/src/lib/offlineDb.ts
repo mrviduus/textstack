@@ -461,7 +461,7 @@ export async function refreshCachedUserChapter(
   if (!d) return
   await d.runAsync(
     `UPDATE user_chapters
-        SET chapter_id = ?, html = ?, title = ?, word_count = ?, source_start_page = ?, prev_json = ?, next_json = ?
+        SET chapter_id = ?, html = ?, title = ?, word_count = ?, source_start_page = COALESCE(?, source_start_page), prev_json = ?, next_json = ?
       WHERE book_id = ? AND chapter_slug = ?`,
     [
       chapter.id,
@@ -475,6 +475,24 @@ export async function refreshCachedUserChapter(
       chapter.slug,
     ],
   )
+}
+
+/** Fills the start pages of cached rows (RES-1): a download made before they were stored gains them. One transaction; never clears or rewrites one. */
+export async function storeCachedUserChapterStartPages(
+  bookId: string,
+  chapters: readonly { slug: string; sourceStartPage?: number | null }[],
+): Promise<void> {
+  const d = await getDb()
+  if (!d) return
+  await d.withTransactionAsync(async () => {
+    for (const c of chapters) {
+      if (c.sourceStartPage == null) continue
+      await d.runAsync(
+        'UPDATE user_chapters SET source_start_page = ? WHERE book_id = ? AND chapter_slug = ? AND source_start_page IS NULL',
+        [c.sourceStartPage, bookId, c.slug],
+      )
+    }
+  })
 }
 
 /**
@@ -494,6 +512,17 @@ export async function listCachedUserChapters(bookId: string): Promise<CachedUser
     [bookId],
   ) as UserChapterRow[]
   return rows.map(toUserChapter)
+}
+
+/** Just the slugs and start pages, in reading order — the Library hero's Continue (RES-1) needs no HTML. */
+export async function listCachedUserChapterPages(bookId: string): Promise<{ slug: string; sourceStartPage: number | null }[]> {
+  const d = await getDb()
+  if (!d) return []
+  const rows = await d.getAllAsync(
+    'SELECT chapter_slug, source_start_page FROM user_chapters WHERE book_id = ? ORDER BY COALESCE(chapter_number, 999999) ASC, cached_at ASC',
+    [bookId],
+  ) as { chapter_slug: string; source_start_page: number | null }[]
+  return rows.map(r => ({ slug: r.chapter_slug, sourceStartPage: r.source_start_page }))
 }
 
 export async function getCachedUserBookMeta(bookId: string): Promise<CachedUserBookMeta | null> {

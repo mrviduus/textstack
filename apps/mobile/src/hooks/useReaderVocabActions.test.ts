@@ -47,7 +47,7 @@ describe('useReaderVocabActions', () => {
 
     await act(async () => { await result.current.saveWord({ text: 'Quiver', sentence, selectionId: 2 }) })
     await act(async () => {
-      await result.current.addAnyway({ kind: 'lookup', id: 'l1', tapsRemaining: 2, busy: false })
+      await result.current.addAnyway({ kind: 'lookup', id: 'l1', tapsRemaining: 2, busy: false, selectionId: 2 })
     })
 
     expect(cachedTranslate).toHaveBeenCalledWith('Quiver', 'en', 'pt', { sentence, bookId: 'book-1' })
@@ -75,7 +75,7 @@ describe('useReaderVocabActions', () => {
     const { result } = setup(vocabMapRef)
 
     await act(async () => { await result.current.saveWord({ text: 'pocketed', sentence, selectionId: 3 }) })
-    await act(async () => { await result.current.addAnyway({ kind: 'lookup', id: 'l3', tapsRemaining: 1, busy: false }) })
+    await act(async () => { await result.current.addAnyway({ kind: 'lookup', id: 'l3', tapsRemaining: 1, busy: false, selectionId: 3 }) })
 
     expect(api.updateWord).not.toHaveBeenCalled()
     expect(vocabMapRef.current.pocketed.translation).toBe('enterrado')

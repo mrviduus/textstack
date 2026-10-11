@@ -43,11 +43,15 @@ export interface UserBookProgressLite {
   updatedAt: number
   /** The server acknowledged this exact write. See `localProgressWins`. */
   synced?: boolean
+  /** 1-based page, when last read as an Original-layout PDF. */
+  page?: number
+  /** Chapter last read as text. Null/absent for a PDF read in Original layout (page mode). */
+  chapterSlug?: string | null
 }
 
 export type ContinueReadingPick =
   | { type: 'edition'; slug: string; title: string; coverPath: string | null; percent: number; chapterSlug: string | null; updatedAtMs: number }
-  | { type: 'userbook'; id: string; title: string; coverPath: string | null; percent: number; chapterSlug: string | null; updatedAtMs: number }
+  | { type: 'userbook'; id: string; title: string; coverPath: string | null; percent: number; chapterSlug: string | null; /** Server locator — `page:<N>` for a PDF read as pages. */ locator?: string | null; updatedAtMs: number }
 
 export interface ContinueReadingInputs {
   library: UserLibraryItem[]
@@ -191,9 +195,14 @@ function pickUserBook(ub: UserBookDto, local: UserBookProgressLite | undefined):
 
   // Local record vs the server's CLIENT stamp — not a grace window around the
   // server-clock progressUpdatedAt, which was a cross-clock comparison.
-  const displayPercent = (local && localProgressWins(local, { clientUpdatedAt: ub.progressClientUpdatedAt, updatedAt: ub.progressUpdatedAt }))
-    ? local.bookPercent
-    : ub.progressPercent
+  const localWins = !!local && localProgressWins(local, { clientUpdatedAt: ub.progressClientUpdatedAt, updatedAt: ub.progressUpdatedAt })
+  const displayPercent = localWins ? local!.bookPercent : ub.progressPercent
+  // The winning record's position, not just its percent (RES-1): a text-mode local record names its
+  // chapter (a page beside it is the Original viewer's, kept for that viewer); a page-mode one its page.
+  const localPos = !localWins ? null
+    : local!.chapterSlug ? { chapterSlug: local!.chapterSlug, locator: null }
+    : local!.page ? { chapterSlug: null, locator: `page:${local!.page}` }
+    : null
 
   return {
     type: 'userbook',
@@ -206,7 +215,8 @@ function pickUserBook(ub: UserBookDto, local: UserBookProgressLite | undefined):
     // It happens to be client-written here rather than server-derived, so this
     // has not yet cost anything — but one branch of one function obeying a rule
     // the other does not is how #496 turned into #500 turned into #501.
-    chapterSlug: resumeChapterSlug(ub.progressChapterSlug, ub.progressLocator, null),
+    chapterSlug: localPos ? localPos.chapterSlug : resumeChapterSlug(ub.progressChapterSlug, ub.progressLocator, null),
+    locator: localPos ? localPos.locator : ub.progressLocator ?? null,
     updatedAtMs: ubMs,
   }
 }

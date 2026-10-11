@@ -11,6 +11,8 @@ export type Selection = {
   /** Longer than the 500 characters the speech and translation endpoints accept.
    * The toolbar still opens — Copy and Highlight have no such limit. */
   tooLong?: boolean
+  /** The WebView's id for this selection, handed back when it closes (SEL-1). */
+  token?: number
 }
 
 export type LookupState = {
@@ -18,6 +20,8 @@ export type LookupState = {
   id: string
   tapsRemaining: number | null
   busy: boolean
+  /** The selection that asked — add-anyway closes only that one (SEL-1). */
+  selectionId: number
 }
 
 type Options = {
@@ -70,7 +74,7 @@ export function useReaderSelection({ flushVocabMap }: Options) {
    * itself — WordCard's auto-dismiss timer keys off it.
    */
   const openSelection = useCallback(
-    (payload: { text: string; sentence?: string; anchor?: any; mode?: 'tap' | 'drag'; tooLong?: boolean } | null): void => {
+    (payload: { text: string; sentence?: string; anchor?: any; mode?: 'tap' | 'drag'; tooLong?: boolean; token?: number } | null): void => {
       if (!payload || !payload.text) {
         if (__DEV__) console.log('[diag] setSelection NULL (empty-data branch)')
         setSelection(null)
@@ -84,6 +88,7 @@ export function useReaderSelection({ flushVocabMap }: Options) {
         selectionId: ++selectionIdRef.current,
         mode: payload.mode || 'drag',
         tooLong: !!payload.tooLong,
+        token: payload.token,
       })
       setWordSaved(false)
       setLookupState(null)

@@ -8,7 +8,7 @@ import { vocabMapKey } from '../lib/vocabMapKey'
 
 type ToastFn = (t: { message: string; variant: 'error' | 'success' | 'info' }) => void
 type Selection = { text: string; sentence: string; anchor?: any; selectionId: number }
-type LookupState = { kind: 'lookup' | 'lookup_pending'; id: string; tapsRemaining: number | null; busy: boolean }
+type LookupState = { kind: 'lookup' | 'lookup_pending'; id: string; tapsRemaining: number | null; busy: boolean; selectionId: number }
 
 type Options = {
   vocabMapRef: MutableRefObject<VocabMap>
@@ -34,7 +34,8 @@ type Options = {
   notifyWordSaved: () => void
   setSessionWordCount: React.Dispatch<React.SetStateAction<number>>
   setWordSaved: (saved: boolean) => void
-  setSelection: (s: null) => void
+  /** Closes that selection only if it is still the open one (SEL-1). */
+  closeSelection: (s: { selectionId: number }) => void
   setLookupState: (s: LookupState | null) => void
   showToast: ToastFn
 }
@@ -80,7 +81,7 @@ export function useReaderVocabActions({
   notifyWordSaved,
   setSessionWordCount,
   setWordSaved,
-  setSelection,
+  closeSelection,
   setLookupState,
   showToast,
 }: Options) {
@@ -173,20 +174,20 @@ export function useReaderVocabActions({
         showToast({ message: t(language, 'reader.vocab.queuedForTomorrow'), variant: 'info' })
         // Close the toolbar so the user knows the action landed even
         // though nothing visible changed in the text.
-        setSelection(null)
+        closeSelection(selection)
         return
       }
       if (resp.outcome === 'lookup' || resp.outcome === 'lookup_pending') {
         if (resp.lookupId) {
           lookupSelectionRef.current = selection
-          setLookupState({ kind: resp.outcome, id: resp.lookupId, tapsRemaining: resp.tapsRemaining, busy: false })
+          setLookupState({ kind: resp.outcome, id: resp.lookupId, tapsRemaining: resp.tapsRemaining, busy: false, selectionId: selection.selectionId })
         }
         return
       }
       if (resp.outcome === 'already_saved') {
         // Toolbar would otherwise stay open forever after a re-tap on an
         // already-saved word — user perceives this as "save broken".
-        setSelection(null)
+        closeSelection(selection)
         return
       }
       const saved = resp.word
@@ -202,7 +203,7 @@ export function useReaderVocabActions({
     } finally {
       savingRef.current.delete(keyLc)
     }
-  }, [isAuthenticated, language, textLanguage, bookTitleRef, editionIdRef, userBookIdRef, chapter, showToast, setLookupState, setSelection, onWordSaved])
+  }, [isAuthenticated, language, textLanguage, bookTitleRef, editionIdRef, userBookIdRef, chapter, showToast, setLookupState, closeSelection, onWordSaved])
 
   /**
    * "Add to SRS anyway" on the rare-word notice: promotes the WordLookup row
@@ -218,14 +219,14 @@ export function useReaderVocabActions({
       setLookupState(null)
       const sel = lookupSelectionRef.current
       onWordSaved(saved, sel?.text ?? saved.word, sel ? sel.sentence : saved.sentence)
-      setSelection(null)
+      closeSelection(lookup)
       showToast({ message: t(language, 'reader.vocab.addedToSrs'), variant: 'success' })
     } catch (e) {
       console.warn('Promote lookup failed:', e)
       setLookupState({ ...lookup, busy: false })
       showToast({ message: t(language, 'reader.vocab.addAnywayFailed'), variant: 'error' })
     }
-  }, [setLookupState, setSelection, onWordSaved, showToast, language])
+  }, [setLookupState, closeSelection, onWordSaved, showToast, language])
 
   const markKnown = useCallback(async (selection: Selection) => {
     if (!isAuthenticated) return
@@ -237,12 +238,12 @@ export function useReaderVocabActions({
       vocabMapRef.current[key] = { ...entry, stage: 4 }
       injectJs(`addVocabWord(${JSON.stringify(key)}, 4)`)
       bumpVocab()
-      setSelection(null)
+      closeSelection(selection)
     } catch (e) {
       console.warn('Mark as known failed:', e)
       showToast({ message: 'Could not mark as known. Try again.', variant: 'error' })
     }
-  }, [isAuthenticated, vocabMapRef, injectJs, bumpVocab, setSelection, showToast])
+  }, [isAuthenticated, vocabMapRef, injectJs, bumpVocab, closeSelection, showToast])
 
   /**
    * B-79 web-parity: optimistic remove. We drop the word locally and re-mark
@@ -261,7 +262,7 @@ export function useReaderVocabActions({
     setWordSaved(false)
     try {
       await vocabularyApi.deleteWord(entry.id)
-      setSelection(null)
+      closeSelection(selection)
     } catch (e) {
       console.warn('Remove word failed:', e)
       vocabMapRef.current[key] = snapshot
@@ -270,7 +271,7 @@ export function useReaderVocabActions({
       setWordSaved(true)
       showToast({ message: 'Could not remove word. Try again.', variant: 'error' })
     }
-  }, [isAuthenticated, vocabMapRef, injectJs, bumpVocab, setWordSaved, setSelection, showToast])
+  }, [isAuthenticated, vocabMapRef, injectJs, bumpVocab, setWordSaved, closeSelection, showToast])
 
   /** TR-3: the reader tapped "Use this translation" — an explicit PATCH, then the gloss follows. */
   const replaceTranslation = useCallback(async (word: string, translation: string) => {

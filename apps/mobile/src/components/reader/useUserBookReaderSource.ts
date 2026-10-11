@@ -465,7 +465,8 @@ export function useUserBookReaderSource({ bookId, chapterSlug, showToast, chapte
   const ensureChapter = useCallback(async (slug: string) => {
     if (await getCachedUserChapter(bookId, slug)) return
     const ch = await userBooksApi.getUserBookChapter(bookId, slug)
-    await cacheUserChapter(bookId, ch, chapters.find(c => c.slug === slug)?.chapterNumber ?? null)
+    const row = chapters.find(c => c.slug === slug)
+    await cacheUserChapter(bookId, { ...ch, sourceStartPage: ch.sourceStartPage ?? row?.sourceStartPage ?? null }, row?.chapterNumber ?? null)
   }, [bookId, chapters])
 
   const isChapterOnDevice = useCallback(async (slug: string) => !!(await getCachedUserChapter(bookId, slug)), [bookId])

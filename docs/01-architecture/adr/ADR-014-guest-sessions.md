@@ -46,8 +46,10 @@ accounts get `RefreshTokenExpiryDays`). Everything downstream of it — `/me/pro
 about the request is unusual.
 
 **On demand, never at launch.** Web mints from two triggers: upload, and the third pending
-vocabulary word. Mobile mints from exactly one: opening a book, through `ReaderSessionGate`. Minting
-at launch would create a row for every install that browses the catalog and leaves.
+vocabulary word. Mobile mints from three: opening a book and the upload screen (both through
+`SessionGate`), and tapping Download on a catalog book (2026-10-09, QA-007 LIB-1 — a download is
+intent, and the book must land in the Library). Minting at launch would create a row for every
+install that browses the catalog and leaves.
 
 **Reader mount was a third web trigger until 2026-09-28, and it was the mistake this paragraph was
 written to prevent — one level down.** Minting on render creates a row for every *client that
