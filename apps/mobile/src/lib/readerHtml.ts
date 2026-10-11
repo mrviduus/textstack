@@ -620,6 +620,8 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
           // style change fires no resize event — the overlayer's own listeners
           // never hear about this one.
           try { if (_hlOverlayer) _hlOverlayer.redraw(); } catch (e) {}
+          // The selected word's mark (readerBridge) is its own overlayer.
+          try { if (typeof _wordMarkOv !== 'undefined' && _wordMarkOv) _wordMarkOv.redraw(); } catch (e) {}
           try { if (typeof vhlScheduleReposition === 'function') vhlScheduleReposition(); } catch (e) {}
           ackRestore(restoreId);
         });

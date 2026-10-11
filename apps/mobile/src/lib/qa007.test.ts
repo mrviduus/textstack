@@ -471,6 +471,11 @@ describe('QA-007', () => {
     expect(layer.redraws).toBe(2)
   })
 
+  it('SEL-1: a typography change (font size, line height) redraws the word mark too — a style change fires no resize', () => {
+    // Review r8: only _hlOverlayer was redrawn, so the mark sat over a different word after the reflow.
+    expect(read('src/lib/readerHtml.ts')).toMatch(/style\.textContent = css;[\s\S]*?_hlOverlayer\.redraw\(\)[\s\S]*?_wordMarkOv\.redraw\(\)[\s\S]*?ackRestore\(restoreId\)/)
+  })
+
   async function bridgeDocWithFonts() {
     // fonts.ready must exist before the bridge creates its layer; jsdom ships none.
     const r = await bridgeDoc()
