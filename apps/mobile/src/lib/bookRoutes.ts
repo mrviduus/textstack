@@ -45,11 +45,14 @@ export async function heroResumeRoute(
   try {
     const cached = await loaders.device(pick.id).catch(() => null)
     // The device answers when the download is complete and its rows place the page. Unpaged rows
-    // are allowed only BEFORE the first paged one (unmeasured front matter); one in the middle may be
-    // a row cached before start pages were stored, and could misplace the page.
+    // are allowed before the first paged one and after the last (unmeasured front and back matter —
+    // the server has null for them too); one between paged rows may be a row cached before start
+    // pages were stored, and could misplace the page.
     const rows = cached?.chapters ?? []
     const first = rows.findIndex(isPaged)
-    const paged = first >= 0 && rows.slice(first).every(isPaged) ? rows.slice(first) : []
+    const last = rows.length - 1 - [...rows].reverse().findIndex(isPaged)
+    const span = first >= 0 ? rows.slice(first, last + 1) : []
+    const paged = span.every(isPaged) ? span : []
     let slug = cached && cached.totalChapters > 0 && rows.length >= cached.totalChapters && paged.length > 0
       ? resumeChapterSlug(null, pick.locator, paged)
       : null

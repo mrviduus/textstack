@@ -390,7 +390,16 @@ describe('QA-007', () => {
     expect(read('src/components/SessionGate.tsx')).toMatch(/setTimeout\(/)
   })
 
-  it('RES-1: a device cache with any chapter lacking a start page asks the server', async () => {
+  it('RES-1: unmeasured back matter on a complete download does not force the network — the device places page N', async () => {
+    // Review r8: the server has null for these rows too, so asking it cannot do better, and offline it fails.
+    const pick = { type: 'userbook' as const, id: 'ub1', title: 'PDF', coverPath: null, percent: 0.3, chapterSlug: null, locator: 'page:50', updatedAtMs: 1 }
+    const device = async () => ({ chapters: [{ slug: 'ch0', sourceStartPage: 1 }, { slug: 'ch1', sourceStartPage: 40 }, { slug: 'index', sourceStartPage: null }], totalChapters: 3 })
+    const server = vi.fn(async () => { throw new Error('offline') })
+    expect(await heroResumeRoute(pick, { device, server })).toBe('/my-books/read/ub1/ch1')
+    expect(server).not.toHaveBeenCalled()
+  })
+
+  it('RES-1: a device cache with a chapter lacking a start page between paged ones asks the server', async () => {
     const pick = { type: 'userbook' as const, id: 'ub1', title: 'PDF', coverPath: null, percent: 0.3, chapterSlug: null, locator: 'page:50', updatedAtMs: 1 }
     // Mixed old/new rows: ch1 cached before start pages were stored; page 50 lives in ch1 (starts 40).
     const device = async () => ({ chapters: [{ slug: 'ch0', sourceStartPage: 1 }, { slug: 'ch1', sourceStartPage: null }, { slug: 'ch2', sourceStartPage: 80 }], totalChapters: 3 })
