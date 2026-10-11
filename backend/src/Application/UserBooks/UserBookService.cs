@@ -323,6 +323,7 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage, IEnt
                     .OrderByDescending(f => f.UploadedAt)
                     .Select(f => (long?)f.FileSize)
                     .FirstOrDefault(),
+                b.PageCount,
                 Chapters = b.Chapters
                     .OrderBy(c => c.ChapterNumber)
                     .Select(c => new UserChapterSummaryDto(
@@ -368,7 +369,8 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage, IEnt
             book.HasOriginalPdf,
             book.MetadataEnrichmentStatus.ToString(),
             book.OriginalFileBytes,
-            book.SourceUrl
+            book.SourceUrl,
+            book.PageCount
         );
     }
 

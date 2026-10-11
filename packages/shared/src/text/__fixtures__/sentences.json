@@ -1,0 +1,55 @@
+[
+  {
+    "name": "second occurrence gets its own sentence",
+    "text": "The wound bled. Later she wound the clock.",
+    "offset": 26,
+    "word": "wound",
+    "expected": "Later she wound the clock."
+  },
+  {
+    "name": "word past char 500 of a long paragraph",
+    "text": "Filler sentence number here. Filler sentence number here. Filler sentence number here. Filler sentence number here. Filler sentence number here. Filler sentence number here. Filler sentence number here. Filler sentence number here. Filler sentence number here. Filler sentence number here. Filler sentence number here. Filler sentence number here. Filler sentence number here. Filler sentence number here. Filler sentence number here. Filler sentence number here. Filler sentence number here. Filler sentence number here. Filler sentence number here. Filler sentence number here. Filler sentence number here. Filler sentence number here. Filler sentence number here. Filler sentence number here. Filler sentence number here. At last the zephyr arrived.",
+    "offset": 737,
+    "word": "zephyr",
+    "expected": "At last the zephyr arrived."
+  },
+  {
+    "name": "question and exclamation end sentences",
+    "text": "Who knows? She pocketed it! Then left.",
+    "offset": 15,
+    "word": "pocketed",
+    "expected": "She pocketed it!"
+  },
+  {
+    "name": "long sentence after another is cropped around the word",
+    "text": "He waited. And then very long filler words very long filler words very long filler words very long filler words very long filler words very long filler words very long filler words very long filler words very long filler words very long filler words the zephyr came, and more filler words and more filler words and more filler words and more filler words and more filler words and more filler words until dusk.",
+    "offset": 254,
+    "word": "zephyr",
+    "expected": "... words very long filler words very long filler words very long filler words the zephyr came, and more filler words and more filler words and more filler words and more filler words and more filler wor..."
+  },
+  {
+    "name": "inline-translation gloss is not part of the sentence",
+    "text": "She watched the moon over the garden",
+    "html": "She watched the moon over the garden<span class=\"vocab-inline-translation\">сад</span> all night.",
+    "offset": 16,
+    "word": "moon",
+    "expected": "She watched the moon over the garden all night."
+  },
+  {
+    "name": "saved word selected together with its gloss finds its own sentence",
+    "text": "It was late. She watched the moon",
+    "html": "It was late. She watched the moon<span class=\"vocab-inline-translation\">місяць</span> rise.",
+    "offset": 29,
+    "word": "moon",
+    "selectThroughGloss": true,
+    "expected": "She watched the moon rise."
+  },
+  {
+    "name": "a heading is its own block",
+    "text": "The Silent Garden",
+    "tag": "h2",
+    "offset": 4,
+    "word": "Silent",
+    "expected": "The Silent Garden"
+  }
+]

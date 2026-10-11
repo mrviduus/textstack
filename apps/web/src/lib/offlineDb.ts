@@ -1,5 +1,5 @@
 import type { Chapter, ChapterNav } from '../types/api'
-import type { PdfAnchor } from '@textstack/shared'
+import { translationApi, type PdfAnchor, type TranslateContext } from '@textstack/shared'
 
 export interface CachedChapter {
   key: string // `${editionId}:${chapterSlug}`
@@ -65,7 +65,9 @@ export interface StoredHighlight {
 }
 
 export interface CachedTranslation {
-  key: string // `${sourceLang}:${targetLang}:${textHash}`
+  key: string // compact hash of fullKey
+  /** TR-1: translateCacheKey(...) — checked on read, so a hash collision is a miss. */
+  fullKey?: string
   sourceText: string
   translatedText: string
   sourceLang: string
@@ -436,17 +438,21 @@ function hashText(text: string): string {
   return hash.toString(36)
 }
 
-function makeTranslationKey(sourceLang: string, targetLang: string, text: string): string {
-  return `${sourceLang}:${targetLang}:${hashText(text)}`
-}
+// TR-1: the shared key rule — includes the sentence exactly as sent, keeps the text's case.
+const fullTranslationKey = (sourceLang: string, targetLang: string, text: string, ctx?: TranslateContext) =>
+  translationApi.translateCacheKey(text, sourceLang, targetLang, ctx)
+// Stored key: compact (a sentence can make the full key ~1 KB); the row carries the full one.
+const makeTranslationKey = (full: string) => `t:${hashText(full)}:${full.length.toString(36)}`
 
 export async function getCachedTranslation(
   sourceLang: string,
   targetLang: string,
-  text: string
+  text: string,
+  ctx?: TranslateContext
 ): Promise<CachedTranslation | null> {
   const db = await openOfflineDb()
-  const key = makeTranslationKey(sourceLang, targetLang, text)
+  const fullKey = fullTranslationKey(sourceLang, targetLang, text, ctx)
+  const key = makeTranslationKey(fullKey)
 
   return new Promise((resolve, reject) => {
     const tx = db.transaction(TRANSLATIONS_STORE, 'readonly')
@@ -456,7 +462,7 @@ export async function getCachedTranslation(
     request.onsuccess = () => {
       const result = request.result as CachedTranslation | undefined
       // Check cache validity (7 days)
-      if (result && Date.now() - result.cachedAt < 7 * 24 * 60 * 60 * 1000) {
+      if (result && result.fullKey === fullKey && Date.now() - result.cachedAt < 7 * 24 * 60 * 60 * 1000) {
         resolve(result)
       } else {
         resolve(null)
@@ -470,11 +476,14 @@ export async function cacheTranslation(
   sourceLang: string,
   targetLang: string,
   sourceText: string,
-  translatedText: string
+  translatedText: string,
+  ctx?: TranslateContext
 ): Promise<void> {
   const db = await openOfflineDb()
+  const fullKey = fullTranslationKey(sourceLang, targetLang, sourceText, ctx)
   const cached: CachedTranslation = {
-    key: makeTranslationKey(sourceLang, targetLang, sourceText),
+    key: makeTranslationKey(fullKey),
+    fullKey,
     sourceText,
     translatedText,
     sourceLang,

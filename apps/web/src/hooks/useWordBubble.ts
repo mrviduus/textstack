@@ -2,7 +2,7 @@ import { useRef, useCallback, useState, useEffect } from 'react'
 import type { TextSelectionState } from './useTextSelection'
 import type { useReaderVocabulary } from './useReaderVocabulary'
 import { useBubbleTranslationSync } from './useBubbleTranslationSync'
-import { updateWord, promoteLookup } from '../api/vocabulary'
+import { promoteLookup } from '../api/vocabulary'
 import { extractSentence } from '../lib/sentenceExtractor'
 import { tokenizeVocabWords, extractWordFromRange } from '../lib/vocabKey'
 import { fetchWordBubble } from '../lib/wordBubbleFetch'
@@ -83,6 +83,10 @@ export function useWordBubble({
     definitionLoading: boolean
     rect: DOMRect | null
     range: Range | null
+    sentence?: string
+    bookId?: string
+    translationLang?: string | null
+    langSwitched?: boolean
   } | null>(null)
   const bubbleAbortRef = useRef<AbortController | null>(null)
   // Stabilization delay before opening popup. Filters out transient single-word
@@ -166,14 +170,9 @@ export function useWordBubble({
         })
       }
     }
-    const saved = resp?.word
-    if (saved?.id && currentTranslation) {
-      updateWord(saved.id, { translation: currentTranslation }).catch(() => {})
-      updateTranslation(word, currentTranslation)
-    }
   }, [
     addWord, bookLanguage, bookTitle, chapterId, containerRef,
-    editionId, nativeLanguage, hasConfirmedLanguage, userBookId, updateTranslation,
+    editionId, nativeLanguage, hasConfirmedLanguage, userBookId,
     bubble?.word, bubble?.translation, t,
   ])
 
@@ -188,24 +187,27 @@ export function useWordBubble({
     setLookupState(null)
     // Definition mode (confirmed native == book language): Explain fills `definition`.
     const explainInContext = !targetLang && hasConfirmedLanguage
+    // Pass book context so translation can pick the domain-aware reading
+    // ("warehouse" in a CS book → data-warehouse, in a logistics book →
+    // storage facility). Kept on the bubble for a language-switch refetch (TR-1).
+    const container = containerRef.current
+    const sentence = range && container ? extractSentence(range, container) || undefined : undefined
+    const bookId = userBookId || editionId || undefined
     setBubble({
       word,
       translation: null,
       translationLoading: !!targetLang,
+      translationLang: targetLang,
       definition: null,
       definitionLoading: explainInContext,
       rect,
       range,
+      sentence,
+      bookId,
     })
-    // Pass book context so translation can pick the domain-aware reading
-    // ("warehouse" in a CS book → data-warehouse, in a logistics book →
-    // storage facility). Same sentence-extraction logic the save flow uses.
-    const container = containerRef.current
-    const sentence = range && container ? extractSentence(range, container) ?? undefined : undefined
-    const bookId = userBookId || editionId || undefined
     fetchWordBubble({
       word, bookLanguage, targetLang,
-      explainInContext, vocabMap, updateTranslation,
+      explainInContext,
       signal: ctrl.signal,
       patch: (fields) => setBubble((prev) => (prev && prev.word === word ? { ...prev, ...fields } : prev)),
       bookId,
@@ -219,7 +221,7 @@ export function useWordBubble({
     if (hasConfirmedLanguage) {
       triggerAutoSave(word, () => handleSave(word, range))
     }
-  }, [bookLanguage, targetLang, vocabMap, updateTranslation, handleSave, triggerAutoSave, hasConfirmedLanguage, containerRef, userBookId, editionId])
+  }, [bookLanguage, targetLang, handleSave, triggerAutoSave, hasConfirmedLanguage, containerRef, userBookId, editionId])
 
   // Catch-up auto-save: if the user taps a word BEFORE confirming native
   // language, openBubble opens the popup but skips the save. When they then

@@ -7,6 +7,7 @@ using Application;
 using Application.AdminAuth;
 using Application.Common.Interfaces;
 using Application.TextStack;
+using Application.UserBooks;
 using Domain.Enums;
 using Infrastructure.Persistence;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -464,6 +465,41 @@ if (args.Length > 0 && args[0] == "import-textstack")
     else
         Console.WriteLine($"Success! Edition: {result.EditionId}, Chapters: {result.ChapterCount}");
 
+    return;
+}
+
+// CLI: backfill-pdf-page-counts [--dry-run] — PDF-2: fill UserBook.PageCount for PDF uploads
+// ingested before it was stored, from the stored file's page tree. Per-book update; a failure
+// is logged and skipped. Idempotent.
+if (args.Length > 0 && args[0] == "backfill-pdf-page-counts")
+{
+    var dryRun = args.Contains("--dry-run");
+    using var cliScope = app.Services.CreateScope();
+    var db = cliScope.ServiceProvider.GetRequiredService<IAppDbContext>();
+    var storage = cliScope.ServiceProvider.GetRequiredService<IFileStorageService>();
+
+    var books = await db.UserBooks
+        .Where(PdfPageCountBackfill.NeedsPageCount)
+        .Select(b => new
+        {
+            b.Id,
+            Path = b.BookFiles.Where(f => f.Format == BookFormat.Pdf)
+                .OrderByDescending(f => f.UploadedAt).Select(f => f.StoragePath).FirstOrDefault(),
+        })
+        .Where(x => x.Path != null)
+        .ToListAsync();
+
+    var (updated, failed) = await PdfPageCountBackfill.RunAsync(
+        books.Select(x => (x.Id, x.Path!)),
+        path =>
+        {
+            using var stream = File.OpenRead(storage.GetFullPath(path));
+            return TextStack.Extraction.Extractors.PdfTextExtractor.CountPages(stream);
+        },
+        (id, pages) => dryRun ? Task.CompletedTask : db.UserBooks.Where(b => b.Id == id)
+            .ExecuteUpdateAsync(s => s.SetProperty(b => b.PageCount, pages)),
+        Console.WriteLine);
+    Console.WriteLine($"{(dryRun ? "DRY RUN — " : "")}{updated} updated, {failed} failed, of {books.Count}");
     return;
 }
 

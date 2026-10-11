@@ -92,6 +92,21 @@ public class UserBookDetailMappingTests
         return book;
     }
 
+    // PDF-2: the detail DTO carries the stored PDF page count.
+    [Fact]
+    [Trait("Rule", "PDF-2")]
+    public async Task GetBookAsync_PageCountStored_ReturnedInDto()
+    {
+        var h = new Harness();
+        var userId = Guid.NewGuid();
+        var bookId = Guid.NewGuid();
+        SeedBook(h, userId, bookId, BookFormat.Pdf, (1, 1)).PageCount = 15;
+
+        var dto = await h.Service.GetBookAsync(userId, bookId, CancellationToken.None);
+
+        Assert.Equal(15, dto!.PageCount);
+    }
+
     [Fact]
     public async Task GetBookAsync_PdfOriginal_HasOriginalPdfTrue()
     {

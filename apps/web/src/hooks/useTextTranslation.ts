@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from 'react'
-import { translate as translateApi, type LanguageInfo } from '../api/translation'
+import { translate as translateApi, type LanguageInfo, type TranslateContext } from '../api/translation'
 import { LANGUAGES } from '@textstack/shared'
 import { getCachedTranslation, cacheTranslation, clearOldTranslations } from '../lib/offlineDb'
 
@@ -43,7 +43,7 @@ export function useTextTranslation(options?: UseTextTranslationOptions) {
   }, [])
 
   const translate = useCallback(
-    async (text: string, source?: string, target?: string) => {
+    async (text: string, source?: string, target?: string, ctx?: TranslateContext) => {
       const srcLang = source || sourceLang
       const tgtLang = target || targetLang
 
@@ -51,7 +51,7 @@ export function useTextTranslation(options?: UseTextTranslationOptions) {
 
       // Check cache first
       try {
-        const cached = await getCachedTranslation(srcLang, tgtLang, text)
+        const cached = await getCachedTranslation(srcLang, tgtLang, text, ctx)
         if (cached) {
           setState({
             translatedText: cached.translatedText,
@@ -75,11 +75,11 @@ export function useTextTranslation(options?: UseTextTranslationOptions) {
       }
 
       try {
-        const result = await translateApi(text, srcLang, tgtLang)
+        const result = await translateApi(text, srcLang, tgtLang, undefined, ctx)
 
         // Cache the result
         try {
-          await cacheTranslation(srcLang, tgtLang, text, result.translatedText)
+          await cacheTranslation(srcLang, tgtLang, text, result.translatedText, ctx)
         } catch {
           // Cache write failed, continue
         }

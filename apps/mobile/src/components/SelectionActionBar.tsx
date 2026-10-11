@@ -9,6 +9,7 @@ import { useTargetLanguage } from '../hooks/useTargetLanguage'
 import { useNeedsNativeLanguage } from '../hooks/useNeedsNativeLanguage'
 import { fonts } from '../theme/typography'
 import { RareWordNotice } from './reader/RareWordNotice'
+import { savedTranslationOffer } from '@textstack/shared'
 
 const STAGE_LABELS: Record<number, { label: string; color: string }> = {
   0: { label: 'New', color: '#3b82f6' },
@@ -29,6 +30,10 @@ export type HighlightColorKey = 'yellow' | 'green' | 'pink' | 'blue'
 
 interface SelectionActionBarProps {
   selectedText: string
+  /** TR-1: the sentence the word was tapped in, sent with the translate call. */
+  sentence?: string
+  /** editionId / userBookId — the server biases the sense by the book's genre. */
+  bookId?: string
   isMultiWord: boolean
   /** Source language code — used for fetching the inline translation
    *  when a single word is tapped. Same value the reader passes to TTS. */
@@ -67,6 +72,9 @@ interface SelectionActionBarProps {
    *  bar shows RareWordNotice with "Add to SRS anyway". Web: WordPopup lookupInfo. */
   lookup?: { kind: 'lookup' | 'lookup_pending'; tapsRemaining: number | null; busy: boolean } | null
   onAddAnyway?: () => void
+  /** TR-3: the tapped word's saved translation — offered for replacement when the gloss differs. */
+  savedTranslation?: string
+  onUseTranslation?: (translation: string) => void
 }
 
 /**
@@ -84,6 +92,8 @@ interface SelectionActionBarProps {
  */
 export function SelectionActionBar({
   selectedText,
+  sentence,
+  bookId,
   isMultiWord,
   language,
   onTranslate,
@@ -104,6 +114,8 @@ export function SelectionActionBar({
   onClose,
   lookup,
   onAddAnyway,
+  savedTranslation,
+  onUseTranslation,
 }: SelectionActionBarProps) {
   const { colors } = useTheme()
   const { t } = useLanguage()
@@ -124,6 +136,9 @@ export function SelectionActionBar({
   // user re-taps mid-fetch.
   const [translation, setTranslation] = useState('')
   const [translating, setTranslating] = useState(false)
+  // TR-3: the language `translation` was fetched in — for one render after a native-language
+  // change it is still the old one, and must not be offered as "Use this translation".
+  const [translationLang, setTranslationLang] = useState<string | null>(null)
   // Backend frequency hint for the tapped word — drives Save-button emphasis.
   const [category, setCategory] = useState<SaveCategory | undefined>(undefined)
   useEffect(() => {
@@ -134,9 +149,11 @@ export function SelectionActionBar({
       return
     }
     // Instant render on a cache hit (re-tap of a seen word) — no spinner.
-    const cached = peekTranslation(selectedText, fromLang, translationTarget!)
+    const ctx = { sentence, bookId }
+    const cached = peekTranslation(selectedText, fromLang, translationTarget!, ctx)
     if (cached !== undefined) {
       setTranslation(cached.translation)
+      setTranslationLang(translationTarget)
       setCategory(cached.category)
       setTranslating(false)
       return
@@ -145,18 +162,19 @@ export function SelectionActionBar({
     setTranslation('')
     setCategory(undefined)
     setTranslating(true)
-    cachedTranslate(selectedText, fromLang, translationTarget!)
-      .then((r) => { if (!cancelled) { setTranslation(r.translation); setCategory(r.category) } })
+    cachedTranslate(selectedText, fromLang, translationTarget!, ctx)
+      .then((r) => { if (!cancelled) { setTranslation(r.translation); setTranslationLang(translationTarget); setCategory(r.category) } })
       .catch(() => { if (!cancelled) setTranslation('') })
       .finally(() => { if (!cancelled) setTranslating(false) })
     return () => { cancelled = true }
-  }, [selectedText, isMultiWord, fromLang, translationTarget, isSameLang])
+  }, [selectedText, sentence, bookId, isMultiWord, fromLang, translationTarget, isSameLang])
 
   const handleCopy = () => {
     if (selectedText) Clipboard.setStringAsync(selectedText)
   }
 
   const stage = !isMultiWord && vocabStage != null ? STAGE_LABELS[vocabStage] : null
+  const savedAs = !isMultiWord && !isSameLang ? savedTranslationOffer(savedTranslation, translating ? null : translation, translationLang, translationTarget) : null
   const highlightFill = HIGHLIGHT_FILLS[highlightColor] || HIGHLIGHT_FILLS.yellow
 
   return (
@@ -212,6 +230,19 @@ export function SelectionActionBar({
               {translation || '—'}
             </Text>
           )}
+        </View>
+      )}
+
+      {savedAs && onUseTranslation && (
+        <View style={styles.translationRow}>
+          <Text style={[styles.word, { color: colors.textSecondary }]} numberOfLines={1}>
+            {t('reader.vocab.savedAs')} {savedAs}
+          </Text>
+          <TouchableOpacity onPress={() => onUseTranslation(translation)} accessibilityRole="button">
+            <Text style={[styles.translation, { color: colors.primary }]} numberOfLines={1}>
+              {t('reader.vocab.useThisTranslation')}
+            </Text>
+          </TouchableOpacity>
         </View>
       )}
 

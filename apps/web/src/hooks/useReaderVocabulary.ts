@@ -99,7 +99,7 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
             const entry = m.get(word)
             if (entry) m.set(word, { ...entry, translation })
           })
-          if (id) updateWord(id, { translation }).catch(() => {})
+          if (id) updateWord(id, { translation, onlyIfEmpty: true }).catch(() => {})
         } catch { /* skip */ }
       }
     })()
@@ -285,16 +285,42 @@ export function useReaderVocabulary(bookLanguage?: string, targetLang?: string |
     }))
   }, [updateMap])
 
-  const updateTranslation = useCallback((word: string, translation: string) => {
+  /** TR-2: the bubble's automatic path — fills an UNTRANSLATED saved word (map + PATCH), and never
+   *  changes an existing translation. Replacing one is only ever `replaceTranslation` (TR-3). */
+  const fillingRef = useRef<Set<string>>(new Set())
+  const updateTranslation = useCallback(async (word: string, translation: string) => {
     const key = normalizeVocabKey(word)
     const entry = mapRef.current.get(key)
-    if (!entry) return
-    updateMap(m => m.set(key, { ...entry, translation }))
+    if (!entry || entry.translation) return
+    // No backend row yet (pending / unsaved): local only — the flush sends it with the save.
+    if (!entry.id || entry.isPending) {
+      updateMap(m => m.set(key, { ...entry, translation }))
+      return
+    }
+    if (fillingRef.current.has(entry.id)) return
+    fillingRef.current.add(entry.id)
+    try {
+      // The map follows the server: a translation stored elsewhere wins over ours; a failed PATCH
+      // leaves the word unfilled.
+      const stored = (await updateWord(entry.id, { translation, onlyIfEmpty: true }))?.translation
+      if (stored) updateMap(m => { const e = m.get(key); if (e) m.set(key, { ...e, translation: stored }) })
+    } catch { /* stays unfilled */ } finally {
+      fillingRef.current.delete(entry.id)
+    }
+  }, [updateMap])
+
+  /** TR-3: the reader tapped "Use this translation" — an explicit PATCH, then the map follows. */
+  const replaceTranslation = useCallback(async (word: string, translation: string) => {
+    const key = normalizeVocabKey(word)
+    const entry = mapRef.current.get(key)
+    if (!entry?.id || entry.isPending) return
+    await updateWord(entry.id, { translation })
+    updateMap(m => { const e = m.get(key); if (e) m.set(key, { ...e, translation }) })
   }, [updateMap])
 
   const refreshMarks = useCallback(() => {
     setVocabMap(new Map(mapRef.current))
   }, [])
 
-  return { vocabMap, loading, addWord, markAsKnown, removeWord, updateTranslation, recordSavedWord, refreshMarks, idbUnavailable, dismissIdbUnavailable, guestNudge, dismissGuestNudge }
+  return { vocabMap, loading, addWord, markAsKnown, removeWord, updateTranslation, replaceTranslation, recordSavedWord, refreshMarks, idbUnavailable, dismissIdbUnavailable, guestNudge, dismissGuestNudge }
 }

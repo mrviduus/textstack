@@ -3,6 +3,7 @@ import { vocabularyApi } from '@textstack/shared'
 import { vocabMapCache } from '../lib/readerOfflineCache'
 import { cachedTranslate } from '../lib/translateCache'
 import { vocabPaintJs } from '../lib/vocabPaintJs'
+import { rekeyVocabMap, vocabMapKey } from '../lib/vocabMapKey'
 
 export type VocabMapEntry = { stage: number; id: string; translation?: string }
 export type VocabMap = Record<string, VocabMapEntry>
@@ -66,8 +67,9 @@ export function useReaderVocabMap({
     if (uid) {
       vocabMapCache.get(uid).then(cached => {
         if (!cancelled && cached && Object.keys(cached).length > 0) {
-          vocabMapRef.current = cached
-          injectJs(vocabPaintJs(cached))
+          const map = rekeyVocabMap(cached)
+          vocabMapRef.current = map
+          injectJs(vocabPaintJs(map))
           // Bump so the backfill effect sees the populated map.
           bumpVocab()
         }
@@ -78,7 +80,7 @@ export function useReaderVocabMap({
       .then(words => {
         if (cancelled || words.length === 0) return
         const map: VocabMap = {}
-        for (const w of words) map[w.word.toLowerCase()] = { stage: w.stage, id: w.id, translation: w.translation }
+        for (const w of words) map[vocabMapKey(w.word)] = { stage: w.stage, id: w.id, translation: w.translation }
         vocabMapRef.current = map
         injectJs(vocabPaintJs(map))
         if (uid) vocabMapCache.set(uid, map)
@@ -120,7 +122,7 @@ export function useReaderVocabMap({
           if (!translation) continue
           vocabMapRef.current[key] = { ...vocabMapRef.current[key], translation }
           // Persist server-side so re-opens skip the round-trip.
-          vocabularyApi.updateWord(id, { translation }).catch(() => {})
+          vocabularyApi.updateWord(id, { translation, onlyIfEmpty: true }).catch(() => {})
           // Progressive paint: each gloss appears the moment its word
           // resolves, instead of all-at-once after the whole loop (which on
           // a page of N missing words felt like "glosses never show"). The
