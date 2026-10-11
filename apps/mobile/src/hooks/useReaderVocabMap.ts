@@ -3,7 +3,7 @@ import { vocabularyApi } from '@textstack/shared'
 import { vocabMapCache } from '../lib/readerOfflineCache'
 import { cachedTranslate } from '../lib/translateCache'
 import { vocabPaintJs } from '../lib/vocabPaintJs'
-import { vocabMapKey } from '../lib/vocabMapKey'
+import { rekeyVocabMap, vocabMapKey } from '../lib/vocabMapKey'
 
 export type VocabMapEntry = { stage: number; id: string; translation?: string }
 export type VocabMap = Record<string, VocabMapEntry>
@@ -67,8 +67,9 @@ export function useReaderVocabMap({
     if (uid) {
       vocabMapCache.get(uid).then(cached => {
         if (!cancelled && cached && Object.keys(cached).length > 0) {
-          vocabMapRef.current = cached
-          injectJs(vocabPaintJs(cached))
+          const map = rekeyVocabMap(cached)
+          vocabMapRef.current = map
+          injectJs(vocabPaintJs(map))
           // Bump so the backfill effect sees the populated map.
           bumpVocab()
         }

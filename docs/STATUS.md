@@ -187,7 +187,8 @@ answers "what happened" and nothing answered "what is half-finished right now".
   - *Coverage:* still open — see the list below.
 
 - **Reader — open after R3/R4** (2026-10-06):
-  - **Web: a brand-new reader who confirms a native language different from the browser's guess while a word popup is open can save that word with the guessed-language translation** (TR-2 then keeps it; fix with TR-3's button). Not started.
+  - **Web: a brand-new reader who confirms a native language different from the browser's guess while a word popup is open can save that word with the guessed-language translation** (TR-2 then keeps it; TR-3's button is hidden in that popup because it counts as a language switch, so the fix is a re-tap later or an edit on the Vocabulary page). Not started.
+  - **#783 review r7 leftovers (cleanup, not bugs):** mobile automatic fills paint their own translation before the `onlyIfEmpty` PATCH and ignore its answer (web follows the response since r6), so a stale cached map can show a gloss the server does not have until the next refresh; web `langSwitchedRef` duplicates `bubble.langSwitched`; `handleSave` re-runs `extractSentence` that `openBubble` already ran; `readerBridge.ts` `selectionText` copies the nested `textWithoutGloss`; three new test names miss the `{Method}_{Scenario}_{Expected}` shape. Not started.
   - **Mobile highlight anchors over a saved word include its inline gloss** (`getSelectionAnchor` uses `range.toString()`, e.g. `exact: "amiableприветливый"`), so they resolve only fuzzily against the gloss-free chapter text. Pre-existing; seen while fixing TR-1 (#783). Not started.
   - **QA-007 findings 2026-10-08** ([report](qa/reports/2026-10-08-reader-android.md)), not started:
     ~~PDF reopens one page back~~ (fixed #778, web had it too); guest Library empty online after a

@@ -6,3 +6,8 @@ const EDGE = /^[\s"'“”‘’«»()[\]{}.,;:!?…—–-]+|[\s"'“”‘’�
 export function vocabMapKey(text: string): string {
   return text.normalize('NFC').replace(/’/g, "'").toLowerCase().replace(EDGE, '')
 }
+
+/** A map cached before vocabMapKey existed is keyed by `toLowerCase()`; re-key it on load. */
+export function rekeyVocabMap<T>(map: Record<string, T>): Record<string, T> {
+  return Object.fromEntries(Object.entries(map).map(([k, v]) => [vocabMapKey(k), v]))
+}
