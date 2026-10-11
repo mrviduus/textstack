@@ -79,6 +79,7 @@ dotnet format textstack.sln                  # Backend
 # create-admin <email> <password> [role]
 # optimize-images [--dry-run]
 # import-textstack <book-path>
+# backfill-pdf-page-counts [--dry-run]   (fills null UserBook.PageCount for PDF uploads)
 
 # Local dev (no Docker)
 dotnet run --project backend/src/Api

@@ -52,7 +52,8 @@ export function dismissLookup(id: string) {
   return authFetch<void>(`/me/vocabulary/lookups/${id}`, { method: 'DELETE' })
 }
 
-export function updateWord(id: string, data: { translation?: string; definition?: string }) {
+/** onlyIfEmpty (TR-2): an automatic fill — the server writes only when no translation is stored. */
+export function updateWord(id: string, data: { translation?: string; definition?: string; onlyIfEmpty?: boolean }) {
   return authFetch<VocabularyWordDto>(`/me/vocabulary/words/${id}`, jsonBody('PATCH', data))
 }
 

@@ -80,6 +80,9 @@ interface WordPopupProps {
   // until this clears so a slow save can't race the 3-8s timer and close the
   // popup before a lookup outcome arrives.
   saveInFlight?: boolean
+  /** TR-3: the saved translation when it differs from `translation` — shows "Saved as" + a button. */
+  savedTranslation?: string | null
+  onUseTranslation?: () => void
 }
 
 export function WordPopup({
@@ -103,6 +106,8 @@ export function WordPopup({
   onAddAnyway,
   addAnywayBusy,
   saveInFlight,
+  savedTranslation,
+  onUseTranslation,
 }: WordPopupProps) {
   const popupRef = useRef<HTMLDivElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
@@ -401,6 +406,19 @@ export function WordPopup({
           ) : (
             translation
           )}
+        </div>
+      )}
+
+      {savedTranslation && onUseTranslation && (
+        <div className="word-popup__saved-as">
+          <span>{t('reader.wordPopup.savedAs', { saved: savedTranslation })}</span>
+          <button
+            className="word-popup__btn"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={onUseTranslation}
+          >
+            {t('reader.wordPopup.useThisTranslation')}
+          </button>
         </div>
       )}
 

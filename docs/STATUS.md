@@ -187,15 +187,23 @@ answers "what happened" and nothing answered "what is half-finished right now".
   - *Coverage:* still open — see the list below.
 
 - **Reader — open after R3/R4** (2026-10-06):
+  - **Web: a brand-new reader who confirms a native language different from the browser's guess while a word popup is open can save that word with the guessed-language translation** (TR-2 then keeps it; TR-3's button is hidden in that popup because it counts as a language switch, so the fix is a re-tap later or an edit on the Vocabulary page). Not started.
+  - **#783 review r7 leftovers (cleanup, not bugs):** mobile automatic fills paint their own translation before the `onlyIfEmpty` PATCH and ignore its answer (web follows the response since r6), so a stale cached map can show a gloss the server does not have until the next refresh; web `langSwitchedRef` duplicates `bubble.langSwitched`; `handleSave` re-runs `extractSentence` that `openBubble` already ran; `readerBridge.ts` `selectionText` copies the nested `textWithoutGloss`; three new test names miss the `{Method}_{Scenario}_{Expected}` shape. Not started.
+  - **Mobile highlight anchors over a saved word include its inline gloss** (`getSelectionAnchor` uses `range.toString()`, e.g. `exact: "amiableприветливый"`), so they resolve only fuzzily against the gloss-free chapter text. Pre-existing; seen while fixing TR-1 (#783). Not started.
   - **QA-007 findings 2026-10-08** ([report](qa/reports/2026-10-08-reader-android.md)), not started:
     ~~PDF reopens one page back~~ (fixed #778, web had it too); guest Library empty online after a
     download without "Save to Library"; ~~Books genre chips stretch tall and search "1984" → "No books
     found"~~ (fixed #779: the Books screen's default genre was `'popular'`, a sort, so the list was
     always empty — not a search bug); Library "Continue" opens book detail, not the reader; native selection handles stay after
-    highlighting; a wrong pt-BR translation ("pocketed → enterrado"); PDF detail "~33 pages" for 15;
+    highlighting; ~~a wrong pt-BR translation ("pocketed → enterrado")~~ (TR-1); ~~PDF detail "~33 pages" for 15~~ (PDF-2);
     dev build toasts "injectJs failed: markVocabWords is …" in both PDF and text readers (RN injects
     vocab into a document that has no such function yet, or none at all for PDF) — check whether vocab
     marks can miss on first paint.
+  - **Gloss backfill translates saved words without their sentence** (pre-existing, not started): the
+    reader's gloss backfill (mobile `useReaderVocabMap`, web `useReaderVocabulary`) calls translate
+    with the word alone, so TR-1 does not cover it.
+  - **Gloss backfill uses the open book's language for words saved from other books** (pre-existing,
+    not started).
   - **PDF current page (review of #778), minor:** the mobile viewer measures against `innerHeight`,
     which includes any strip RN chrome overlays; and the saved page (`readingPage`) and the zoom/re-fit
     anchor (`pageAtViewportTop`) are two different notions on purpose — anything new needing "the

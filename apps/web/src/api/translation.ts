@@ -1,3 +1,5 @@
+import { translationApi, type TranslateContext } from '@textstack/shared'
+
 const API_BASE = import.meta.env.VITE_API_URL ?? ''
 
 export interface TranslateResponse {
@@ -11,16 +13,7 @@ export interface LanguageInfo {
   name: string
 }
 
-export interface TranslateContext {
-  /** Book id (editionId for catalog books, userBookId for uploads). Backend
-   *  uses it to look up the book's genre and bias the prompt toward the
-   *  domain-specific meaning when the word is ambiguous. */
-  bookId?: string | null
-  /** The sentence the word was tapped in. Lets the model disambiguate
-   *  ("warehouse" → storage facility vs data warehouse) without us having to
-   *  enumerate domains client-side. */
-  sentence?: string | null
-}
+export type { TranslateContext }
 
 export async function translate(
   text: string,
@@ -32,15 +25,8 @@ export async function translate(
   const res = await fetch(`${API_BASE}/translate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      text,
-      sourceLang,
-      targetLang,
-      // Optional fields — backend ignores when absent and falls back to
-      // the legacy context-free prompt.
-      bookId: ctx?.bookId ?? undefined,
-      sentence: ctx?.sentence ?? undefined,
-    }),
+    // TR-1: the shared body rule — the sentence goes along for a word / short selection only.
+    body: JSON.stringify(translationApi.translateBody(text, sourceLang, targetLang, ctx)),
     signal,
   })
 
