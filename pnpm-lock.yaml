@@ -307,6 +307,9 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 25.9.8
+      jsdom:
+        specifier: 'catalog:'
+        version: 28.1.0
       typescript:
         specifier: 'catalog:'
         version: 5.9.3

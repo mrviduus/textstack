@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Reader** — engine Phase 2 slices 1+2: `goTo` resolution ladder (tie-break fixed) + the chapter as text (offset ↔ Range, selection/caret → Locator), test-first, no app imports it — shared · [details](docs/changelog-archive/2026-H2.md#2026-10-12-reader-engine-phase-2-slices-1-2)
 - **Docs** — `CLAUDE.md` 55 KB → 16 KB: feature, API, key-file, mobile and ops sections moved verbatim to `docs/claude/*.md` with a pointer table; cross-cutting rules kept inline — docs
 
 - **Refactor** — mobile book detail: Library membership moved into `useBookLibrary` (no behaviour change); 6 source-regex tests replaced by 4 `renderHook` behaviour tests — mobile

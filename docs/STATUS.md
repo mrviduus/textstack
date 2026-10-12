@@ -104,6 +104,11 @@ answers "what happened" and nothing answered "what is half-finished right now".
 
 ## Known-broken / open follow-ups
 
+- **Shared `nearestOccurrence` tie-break overrides a context-unique match** (2026-10-12, ADR-025 spike
+  finding). Web and mobile resolve the `repeated-second` / `edge-repeat-end` anchor fixtures to the wrong
+  occurrence. The engine's `resolve.ts` `breakTie` fixes it (hint only between identical-context
+  occurrences); the apps get it when they switch to the engine (Phase 3/4). Not started — focus freeze.
+
 - **First-run sells a language app; two-audience onboarding is planned, not started** (2026-10-08).
   The mobile card says "Learn a language by reading real books" and opens Alice. The owner decided on two
   first-run audiences ("I work in tech" / "I'm learning English"), each with its own starter text and
