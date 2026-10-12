@@ -11,6 +11,9 @@ Phase 1: the contract (`src/api.ts`) and the stored-shape mappers (`src/mappers.
 ([slice plan](../../docs/01-architecture/reader-engine-phase2-plan.md)), slice 1: the `goTo`
 resolution ladder (`src/resolve.ts`); slice 2: the chapter as text (`src/text.ts`); slice 3: the engine core, reflow (`src/engine.ts`: `open` / `goTo` / `setStyle` / `current` / `on` / `destroy`). No app imports this package yet. Apps keep the old reader until each platform's flag flips.
 
+Engine rules in plain words (IDs `E1`… used in test names): [docs/05-features/reader-engine.md](../../docs/05-features/reader-engine.md).
+Tests read as rules: plumbing (fake layout, driver) lives in `src/engine.testkit.ts`.
+
 ## Boundary (enforced by `src/boundary.test.ts`)
 
 - No imports from `apps/`, no `@/` aliases, no React / React Native / Expo.

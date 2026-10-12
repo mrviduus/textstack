@@ -4,6 +4,8 @@ Phase 2 of [ADR-025](adr/ADR-025-reader-engine-package.md): engine core, reflow,
 `reader-overlay`, the DOM anchor half and the ADR-019 modules move in. **Ships nothing to users** — no
 app imports the engine until Phase 3 (mobile) and Phase 4 (web).
 
+Rules the engine promises, in plain words: [reader-engine.md](../05-features/reader-engine.md).
+
 How every slice works: a red vitest against the engine API first, then the minimum code, then green.
 Old tests are sorted keep / rewrite / drop in the slice's commit. Each slice ends with
 `pnpm -C packages/reader-engine test` and `typecheck` green. No slice changes `apps/` behaviour: old
@@ -34,6 +36,9 @@ code stays where it is until the platform's flag flips, and is deleted in Phase 
 6. **Events + mobile bundle.** `selection` (with `rect`), `hold`, `tap`, `scrollDir`, `linkClick`,
    `imageTap`, `chapterEnd`, `setFooter`; the esbuild IIFE in `apps/web/scripts/mobile-bundles.mjs`
    with the 60 KB unminified budget asserted in CI (drift-checked, not yet loaded by the app).
+7. **Playground + Playwright geometry.** A page that runs the engine on real chapters in a real
+   browser. Checks what jsdom cannot: the engine's reading line against the apps' caret probe (same
+   text within one line), and scroll cost on a long chapter. Gate for Phase 3.
 
 ## Decisions (owner, 2026-10-12)
 

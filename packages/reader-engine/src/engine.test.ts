@@ -1,349 +1,246 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach } from 'vitest'
-import type { EngineEvents, Locator } from './api'
-import { createEngine } from './engine'
-import { chapterText, positionAt, rangeAt } from './text'
+import { LAST_SENTENCE, PARAGRAPHS, REAL_CHAPTER, deferred, destroyAll, makeReader } from './engine.testkit'
+import { chapterText } from './text'
 
 /**
- * Engine core, reflow (ADR-025 Phase 2, slice 3). jsdom has no layout, so the tests pass the seams:
- * a fake scroller and a fake line layout that depends on the font size. Rule ids (E1…) are in the
- * test names; ADR-019 rules 3, 7 and 8 are pinned here at the engine level.
+ * Engine core, reflow. Each test name starts with its rule ID; the rules, in plain words, are in
+ * docs/05-features/reader-engine.md. The fake layout and the reader driver are in engine.testkit.ts.
  */
 
-const WORDS = 'river stone lantern harbor meadow copper whisper orchard thunder velvet compass ember glacier willow'.split(' ')
-const PARAGRAPHS = Array.from({ length: 40 }, (_, i) =>
-  `Part ${i}: ` + Array.from({ length: 45 }, (_, j) => WORDS[(i * 7 + j * 3) % WORDS.length] + (j % 6 === 5 ? ` ${i}-${j}.` : '')).join(' '))
-const HTML = PARAGRAPHS.map((p) => `<p>${p}</p>`).join('')
-const VIEWPORT = 400
-const WIDTH = 640
+afterEach(destroyAll)
 
-const tick = () => new Promise<void>((r) => setTimeout(r, 0))
-const flush = async () => { for (let i = 0; i < 6; i++) await tick() }
-
-function deferred() {
-  let resolve!: () => void
-  const promise = new Promise<void>((r) => { resolve = r })
-  return { promise, resolve }
-}
-
-let destroyers: (() => void)[] = []
-afterEach(() => { destroyers.forEach((d) => d()); destroyers = [] })
-
-/** A reader on a fake layout: lines of `fontSize * 1.5` px, `WIDTH / (fontSize / 2)` characters each. */
-function setup(opts: { fontsReady?: () => Promise<void>; html?: string } = {}) {
-  const root = document.createElement('div')
-  document.body.append(root)
-  const scroller = document.createElement('div')
-  const layout = () => {
-    const fs = parseFloat(root.style.fontSize) || 16
-    const perLine = Math.floor(WIDTH / (fs / 2))
-    const boxes = new Map<Element, { top: number; height: number }>()
-    let y = 0
-    for (const p of Array.from(root.querySelectorAll('p'))) {
-      const height = Math.ceil((p.textContent ?? '').length / perLine) * fs * 1.5 + Number(p.getAttribute('data-extra') ?? 0)
-      boxes.set(p, { top: y, height })
-      y += height + fs
-    }
-    return { boxes, total: y }
-  }
-  let top = 0
-  Object.defineProperty(scroller, 'scrollHeight', { get: () => layout().total })
-  Object.defineProperty(scroller, 'scrollTop', {
-    get: () => top,
-    set: (v: number) => {
-      const next = Math.max(0, Math.min(v, layout().total - VIEWPORT))
-      if (next === top) return
-      top = next
-      setTimeout(() => scroller.dispatchEvent(new Event('scroll')), 0)   // like a browser: async echo
-    },
-  })
-  let resize = () => {}
-  const engine = createEngine(root, {
-    scroller,
-    measure: (el) => layout().boxes.get(el) ?? { top: 0, height: layout().total },
-    viewport: () => ({ height: VIEWPORT }),
-    schedule: (cb) => { setTimeout(cb, 0) },
-    observeResize: (_el, cb) => { resize = cb; return () => { resize = () => {} } },
-    fontsReady: opts.fontsReady ?? (() => Promise.resolve()),
-  })
-  destroyers.push(() => engine.destroy())
-  const events: { e: keyof EngineEvents; p: unknown }[] = []
-  for (const e of ['ready', 'relocated', 'error'] as const) engine.on(e, (p) => events.push({ e, p }))
-  const relocated = () => events.filter((x) => x.e === 'relocated').map((x) => x.p as EngineEvents['relocated'])
-  const content = () => root.firstElementChild!
-  /** A stored reading position at `offset`, quoted the way the apps quote it. */
-  const at = (offset: number, href = 'c1'): Locator => {
-    const chapter = document.createElement('div')
-    chapter.innerHTML = opts.html ?? HTML
-    const r = rangeAt(chapter, offset, 1)!
-    return { ...positionAt(chapter, r.startContainer, r.startOffset, 'c1', 0.5)!, href }
-  }
-  return { root, scroller, engine, events, relocated, content, at, resize: () => resize(), userScroll: (y: number) => { scroller.scrollTop = y } }
-}
-
-/** The chapter offset of the text at the reading line now. */
-const lineOffset = (engine: { current(): Locator | null }) => engine.current()!.locations.charOffset
-
-// Below the first quarter screen: offset 0 cannot sit on the reading line (scrollTop stops at 0).
-const TARGETS = [517, 1900, 4321, 7777, 9100]
+const MIDDLE = 'Malin log 3'
+const FURTHER = 'Valentia log 2'
 
 describe('open', () => {
-  it('E1 emits ready, then exactly one relocated with its opId, before the promise resolves', async () => {
-    const { engine, events } = setup()
-    const result = await engine.open({ href: 'c1', layout: 'reflow', html: HTML }, undefined, 'op1')
-    expect(result).toBe('start')
-    expect(events.map((x) => x.e)).toEqual(['ready', 'relocated'])
-    expect(events[0].p).toEqual({ opId: 'op1', href: 'c1' })
-    expect(events[1].p).toMatchObject({ reason: 'open', opId: 'op1', locator: { href: 'c1', type: 'text/html' } })
-    expect(engine.current()!.locations.progression).toBe(0)
+  it('E1 says ready, then acks the open once, before the promise resolves', async () => {
+    const reader = makeReader()
+    expect(await reader.open(undefined, 'open-1')).toBe('start')
+    expect(reader.events()).toEqual(['ready', 'relocated'])
+    expect(reader.payloads('ready')).toEqual([{ opId: 'open-1', href: 'c1' }])
+    expect(reader.ack('open-1').reason).toBe('open')
   })
 
-  it('E1 renders the chapter; its text is what the anchors count', async () => {
-    const { engine, content } = setup()
-    await engine.open({ href: 'c1', layout: 'reflow', html: HTML })
-    expect(chapterText(content())).toBe(PARAGRAPHS.join(''))
+  it('E1 shows the chapter: its text is the text anchors count', async () => {
+    const reader = makeReader()
+    await reader.open()
+    expect(chapterText(reader.root)).toBe(PARAGRAPHS.join(''))
   })
 
-  it('E2 a stored position lands exact, on the reading line', async () => {
-    for (const offset of TARGETS) {
-      const { engine, at, relocated } = setup()
-      await engine.open({ href: 'c1', layout: 'reflow', html: HTML })
-      const result = await engine.open({ href: 'c1', layout: 'reflow', html: HTML }, at(offset), 'op2')
-      expect(result).toBe('exact')
-      expect(lineOffset(engine)).toBe(offset)
-      expect(relocated().at(-1)).toMatchObject({ reason: 'open', opId: 'op2', locator: { locations: { charOffset: offset } } })
-    }
+  it('E2 a saved position opens with that sentence on the reading line', async () => {
+    const reader = makeReader()
+    expect(await reader.open(MIDDLE)).toBe('exact')
+    expect(reader.line()).toMatch(/^Malin log 3:/)
   })
 
-  it("E3 (D1) another chapter's locator: an anchor-miss error naming it, and the chapter opens at the top", async () => {
-    const { engine, events, at, scroller } = setup()
-    await engine.open({ href: 'c1', layout: 'reflow', html: HTML })
-    const result = await engine.open({ href: 'c1', layout: 'reflow', html: HTML }, at(1900, 'c9'), 'op')
-    expect(result).toBe('start')
-    expect(scroller.scrollTop).toBe(0)
-    expect(events.find((x) => x.e === 'error')?.p).toMatchObject({ code: 'anchor-miss', detail: expect.stringContaining('c9') })
-  })
-})
-
-describe('real chapter HTML', () => {
-  // Server HTML has newlines between blocks and blocks inside blocks. Whitespace under a container,
-  // or text beside a child block, must not claim the container's whole box.
-  const REAL = PARAGRAPHS.map((p, i) => i % 5 === 2 ? `<blockquote>Quoted: <p>${p}</p></blockquote>` : `<p>${p}</p>`).join('\n')
-
-  it('E10 newlines between blocks and nested blocks: every target lands exact on the reading line', async () => {
-    const { engine, at } = setup({ html: REAL })
-    await engine.open({ href: 'c1', layout: 'reflow', html: REAL })
-    for (const offset of TARGETS) {
-      expect(await engine.goTo(at(offset))).toBe('exact')
-      expect(lineOffset(engine)).toBe(offset)
-    }
+  it("E3 another chapter's position: opens at the top, and says why", async () => {
+    const reader = makeReader()
+    expect(await reader.open(reader.place(MIDDLE, 'chapter-9'))).toBe('start')
+    expect(reader.scrollTop).toBe(0)
+    expect(reader.payloads('error')).toEqual([{ code: 'anchor-miss', detail: expect.stringContaining('chapter-9') }])
   })
 
-  it('E10 a font change on real HTML keeps the reading line', async () => {
-    const { engine, at } = setup({ html: REAL })
-    await engine.open({ href: 'c1', layout: 'reflow', html: REAL }, at(4321))
-    engine.setStyle({ fontSize: 24 })
-    await flush()
-    expect(lineOffset(engine)).toBe(4321)
+  it('E4 a second open replaces the first: the first is superseded', async () => {
+    const fonts = deferred()
+    const reader = makeReader({ fonts: () => fonts.promise })
+    const first = reader.open(undefined, 'first')
+    const second = reader.open(undefined, 'second')
+    fonts.resolve()
+    expect(await first).toBe('superseded')
+    expect(await second).toBe('start')
+  })
+
+  it('E12 a goTo that overtakes the open still gets the chapter its ready', async () => {
+    const fonts = deferred()
+    const reader = makeReader({ fonts: () => fonts.promise })
+    const opening = reader.open(undefined, 'open-1')
+    const going = reader.goTo(MIDDLE)
+    fonts.resolve()
+    expect(await opening).toBe('superseded')
+    expect(await going).toBe('exact')
+    expect(reader.payloads('ready')).toEqual([{ opId: 'open-1', href: 'c1' }])
   })
 })
 
 describe('goTo', () => {
-  it('E2 lands each target on the reading line, one relocated per op with its opId', async () => {
-    const { engine, at, relocated } = setup()
-    await engine.open({ href: 'c1', layout: 'reflow', html: HTML })
-    for (const offset of TARGETS) {
-      const result = await engine.goTo(at(offset), { opId: `g${offset}` })
-      expect(result).toBe('exact')
-      expect(lineOffset(engine)).toBe(offset)
-      expect(relocated().filter((r) => r.opId === `g${offset}`)).toHaveLength(1)
+  it('E2 puts the sentence on the reading line and acks once', async () => {
+    const reader = makeReader()
+    await reader.open()
+    for (const sentence of ['Corran log 2', MIDDLE, FURTHER, 'Bantry log 1']) {
+      expect(await reader.goTo(sentence, sentence)).toBe('exact')
+      expect(reader.line().startsWith(sentence)).toBe(true)
+      expect(reader.ack(sentence).reason).toBe('goTo')
     }
   })
 
-  it('E2 a fraction-only locator lands on that fraction of the chapter', async () => {
-    const { engine, scroller } = setup()
-    await engine.open({ href: 'c1', layout: 'reflow', html: HTML })
-    expect(await engine.goTo({ href: 'c1', type: 'text/html', locations: { progression: 0.5 } })).toBe('fraction')
-    expect(scroller.scrollTop).toBeCloseTo((scroller.scrollHeight - VIEWPORT) / 2)
+  it('E2 a position with only a fraction lands on that fraction of the chapter', async () => {
+    const reader = makeReader()
+    await reader.open()
+    expect(await reader.engine.goTo({ href: 'c1', type: 'text/html', locations: { progression: 0.5 } })).toBe('fraction')
+    expect(reader.scrollTop).toBeCloseTo(reader.maxScroll / 2)
   })
 
-  it("E3 (D1) another chapter's locator: no move, an anchor-miss error naming it, its relocated, not landed", async () => {
-    const { engine, at, events, scroller, relocated } = setup()
-    await engine.open({ href: 'c1', layout: 'reflow', html: HTML })
-    await engine.goTo(at(4321))
-    const before = scroller.scrollTop
-    const result = await engine.goTo(at(1900, 'c9'), { opId: 'wrong' })
-    expect(result).toBe('superseded')
-    expect(scroller.scrollTop).toBe(before)
-    expect(events.find((x) => x.e === 'error')?.p).toMatchObject({ code: 'anchor-miss', detail: expect.stringContaining('c9') })
-    expect(relocated().filter((r) => r.opId === 'wrong')).toHaveLength(1)
+  it("E3 another chapter's position: no move, an error naming it, not landed", async () => {
+    const reader = makeReader()
+    await reader.open(MIDDLE)
+    const before = reader.scrollTop
+    expect(await reader.goTo(reader.place(FURTHER, 'chapter-9'), 'wrong')).toBe('superseded')
+    expect(reader.scrollTop).toBe(before)
+    expect(reader.payloads('error')).toEqual([{ code: 'anchor-miss', detail: expect.stringContaining('chapter-9') }])
+    reader.ack('wrong')
   })
 
-  it('E4 a newer op supersedes an older one: the older resolves superseded, each emits one relocated', async () => {
-    const { engine, at, relocated } = setup()
-    await engine.open({ href: 'c1', layout: 'reflow', html: HTML })
-    const first = engine.goTo(at(1900), { opId: 'a' })
-    const second = engine.goTo(at(7777), { opId: 'b' })
-    expect(await first).toBe('superseded')
-    expect(await second).toBe('exact')
-    expect(relocated().filter((r) => r.opId === 'a')).toHaveLength(1)
-    expect(relocated().filter((r) => r.opId === 'b')).toHaveLength(1)
-    expect(lineOffset(engine)).toBe(7777)
+  it('E4 a newer goTo supersedes an older one; each is acked once', async () => {
+    const reader = makeReader()
+    await reader.open()
+    const older = reader.goTo(MIDDLE, 'older')
+    const newer = reader.goTo(FURTHER, 'newer')
+    expect(await older).toBe('superseded')
+    expect(await newer).toBe('exact')
+    reader.ack('older')
+    reader.ack('newer')
+    expect(reader.line().startsWith(FURTHER)).toBe(true)
   })
 
-  it('E4 a second open supersedes the first', async () => {
-    const fonts = deferred()
-    const { engine, at } = setup({ fontsReady: () => fonts.promise })
-    const first = engine.open({ href: 'c1', layout: 'reflow', html: HTML }, undefined, 'o1')
-    const second = engine.open({ href: 'c1', layout: 'reflow', html: HTML }, undefined, 'o2')
-    fonts.resolve()
-    expect(await first).toBe('superseded')
-    expect(await second).toBe('start')
-    expect(await engine.goTo(at(517))).toBe('exact')
+  it('E11 near the chapter end the scroll stops short; the ack still names the sentence asked for', async () => {
+    const reader = makeReader()
+    await reader.open(LAST_SENTENCE, 'to-the-end')
+    expect(reader.scrollTop).toBe(reader.maxScroll)
+    expect(reader.ack('to-the-end').locator.text?.highlight).toBe(LAST_SENTENCE)
   })
 })
 
-describe('a landing reports the place it was sent to', () => {
-  it('E11 near the chapter end the scroll stops short: relocated still carries the target, not the line above it', async () => {
-    const end = PARAGRAPHS.join('').length - 80
-    const { engine, at, relocated } = setup()
-    expect(await engine.open({ href: 'c1', layout: 'reflow', html: HTML }, at(end), 'o')).toBe('exact')
-    expect(relocated().at(-1)!.locator.locations.charOffset).toBe(end)
+describe('scrolling: only the reader scrolling is reading (ADR-019 rule 7)', () => {
+  it("E5 the engine's own scrolls are never 'scroll'", async () => {
+    const reader = makeReader()
+    await reader.open(MIDDLE)
+    await reader.goTo(FURTHER)
+    reader.setStyle({ fontSize: 24 })
+    await reader.settle()
+    expect(reader.reasons()).toEqual(['open', 'goTo', 'style'])
   })
-})
 
-describe('ready', () => {
-  it('E12 a goTo that overtakes an open still gets the chapter its ready', async () => {
+  it("E5 the reader scrolling after the ops is one 'scroll', with no opId, further on", async () => {
+    const reader = makeReader()
+    await reader.open(MIDDLE, 'open')
+    await reader.settle()
+    reader.scrollBy(600)
+    await reader.settle()
+    expect(reader.reasons()).toEqual(['open', 'scroll'])
+    const scroll = reader.relocations()[1]
+    expect(scroll.opId).toBeUndefined()
+    expect(scroll.locator.locations.charOffset!).toBeGreaterThan(reader.ack('open').locator.locations.charOffset!)
+  })
+
+  it('E5 scrolling while an open is still running is not reading', async () => {
     const fonts = deferred()
-    const { engine, at, events } = setup({ fontsReady: () => fonts.promise })
-    const opening = engine.open({ href: 'c1', layout: 'reflow', html: HTML }, undefined, 'o')
-    const going = engine.goTo(at(1900), { opId: 'g' })
-    fonts.resolve()
-    expect(await opening).toBe('superseded')
-    expect(await going).toBe('exact')
-    expect(events.filter((x) => x.e === 'ready')).toEqual([{ e: 'ready', p: { opId: 'o', href: 'c1' } }])
-  })
-})
-
-describe("'scroll' is reading; programmatic moves are not (ADR-019 rule 7)", () => {
-  it('E5 the scroll echo of open / goTo / setStyle emits no scroll relocated', async () => {
-    const { engine, at, relocated } = setup()
-    await engine.open({ href: 'c1', layout: 'reflow', html: HTML }, at(1900))
-    await engine.goTo(at(7777))
-    engine.setStyle({ fontSize: 24 })
-    await flush()
-    expect(relocated().map((r) => r.reason)).toEqual(['open', 'goTo', 'style'])
-  })
-
-  it('E5 a user scroll after the ops settled is one scroll relocated, no opId, at the new reading line', async () => {
-    const { engine, at, relocated, scroller, userScroll } = setup()
-    await engine.open({ href: 'c1', layout: 'reflow', html: HTML }, at(1900))
-    await flush()
-    userScroll(scroller.scrollTop + 600)
-    await flush()
-    const last = relocated().at(-1)!
-    expect(last.reason).toBe('scroll')
-    expect(last.opId).toBeUndefined()
-    expect(last.locator.locations.charOffset).toBeGreaterThan(1900)
-    expect(relocated().filter((r) => r.reason === 'scroll')).toHaveLength(1)
-  })
-
-  it('E5 a user scroll while an op is in flight is not reading (rule 3: the op lands, then scroll counts)', async () => {
-    const fonts = deferred()
-    const { engine, at, relocated, userScroll } = setup({ fontsReady: () => fonts.promise })
-    const opening = engine.open({ href: 'c1', layout: 'reflow', html: HTML }, undefined, 'o')
-    userScroll(900)
-    await flush()
-    expect(relocated()).toEqual([])
+    const reader = makeReader({ fonts: () => fonts.promise })
+    const opening = reader.open()
+    reader.scrollBy(900)
+    await reader.settle()
+    expect(reader.relocations()).toEqual([])
     fonts.resolve()
     await opening
-    await flush()
-    expect(relocated().map((r) => r.reason)).toEqual(['open'])
-    expect(await engine.goTo(at(517))).toBe('exact')
+    await reader.settle()
+    expect(reader.reasons()).toEqual(['open'])
   })
 })
 
-describe('setStyle re-anchors on the text (ADR-019 rule 8)', () => {
-  it('E6 a font change keeps the same text on the reading line, never rebuilds the document', async () => {
-    const { engine, at, root, relocated, content, scroller } = setup()
-    await engine.open({ href: 'c1', layout: 'reflow', html: HTML }, at(4321))
-    const node = content().firstChild
-    const before = scroller.scrollTop
-    engine.setStyle({ fontSize: 24 }, 's1')
-    await flush()
-    expect(root.style.fontSize).toBe('24px')
-    expect(scroller.scrollTop).not.toBe(before)
-    expect(lineOffset(engine)).toBe(4321)
-    expect(content().firstChild, 'same nodes').toBe(node)
-    expect(relocated().filter((r) => r.opId === 's1')).toMatchObject([{ reason: 'style', locator: { locations: { charOffset: 4321 } } }])
+describe('style changes keep the place (ADR-019 rule 8)', () => {
+  it('E6 a bigger font keeps the same sentence on the reading line, without rebuilding the chapter', async () => {
+    const reader = makeReader()
+    await reader.open(FURTHER)
+    const firstParagraph = reader.root.querySelector('p')
+    reader.setStyle({ fontSize: 24 }, 'bigger')
+    await reader.settle()
+    expect(reader.root.style.fontSize).toBe('24px')
+    expect(reader.line().startsWith(FURTHER)).toBe(true)
+    expect(reader.ack('bigger').reason).toBe('style')
+    expect(reader.root.querySelector('p'), 'same nodes').toBe(firstParagraph)
   })
 
-  it('E6 two quick font changes re-anchor on the first place, not on a half-reflowed view', async () => {
-    const { engine, at, relocated } = setup()
-    await engine.open({ href: 'c1', layout: 'reflow', html: HTML }, at(4321))
-    engine.setStyle({ fontSize: 20 }, 's1')
-    engine.setStyle({ fontSize: 28 }, 's2')
-    await flush()
-    expect(lineOffset(engine)).toBe(4321)
-    expect(relocated().filter((r) => r.opId === 's1' || r.opId === 's2')).toHaveLength(2)
+  it('E6 two quick font changes still keep the first place', async () => {
+    const reader = makeReader()
+    await reader.open(FURTHER)
+    reader.setStyle({ fontSize: 20 }, 'a')
+    reader.setStyle({ fontSize: 28 }, 'b')
+    await reader.settle()
+    expect(reader.line().startsWith(FURTHER)).toBe(true)
+    reader.ack('a')
+    reader.ack('b')
   })
 
-  it('E7 a style change during an open keeps the pending target; the open still lands', async () => {
-    let held: ReturnType<typeof deferred> | null = null
-    const { engine, at, relocated } = setup({ fontsReady: () => held?.promise ?? Promise.resolve() })
-    await engine.open({ href: 'c1', layout: 'reflow', html: HTML })
-    const target = at(7777)
-    // Hold the restore on fonts, change the style mid-restore.
-    held = deferred()
-    const opening = engine.open({ href: 'c1', layout: 'reflow', html: HTML }, target, 'restore')
-    engine.setStyle({ fontSize: 24 }, 'style')
-    await flush()
-    expect(engine.current()!.locations.charOffset, 'mid-restore current() is the target, not the half-restored view').toBe(7777)
-    held.resolve()
-    expect(await opening).toBe('exact')
-    await flush()
-    expect(lineOffset(engine)).toBe(7777)
-    expect(relocated().find((r) => r.opId === 'style')!.locator.locations.charOffset).toBe(7777)
-    expect(relocated().find((r) => r.opId === 'restore')!.locator.locations.charOffset).toBe(7777)
+  it('E7 a font change in the middle of a restore keeps the restore target', async () => {
+    let fonts: Promise<void> = Promise.resolve()
+    const reader = makeReader({ fonts: () => fonts })
+    await reader.open()
+    const slowFont = deferred()
+    fonts = slowFont.promise
+    const restoring = reader.open(FURTHER, 'restore')
+    reader.setStyle({ fontSize: 24 }, 'bigger')
+    await reader.settle()
+    expect(reader.line(), 'mid-restore, the place is the target').toMatch(/^Valentia log 2:/)
+    slowFont.resolve()
+    expect(await restoring).toBe('exact')
+    expect(reader.line().startsWith(FURTHER)).toBe(true)
+    expect(reader.ack('bigger').locator.text?.highlight).toMatch(/^Valentia log 2:/)
+    expect(reader.ack('restore').locator.text?.highlight).toMatch(/^Valentia log 2:/)
   })
 })
 
-describe('late layout (images, webfonts) re-anchors', () => {
-  it('E8 content above grows: one reflow relocated, no opId, same text on the reading line', async () => {
-    const { engine, at, root, relocated, resize } = setup()
-    await engine.open({ href: 'c1', layout: 'reflow', html: HTML }, at(4321))
-    await flush()
-    root.querySelector('p')!.setAttribute('data-extra', '500')   // an image above the reader loaded
-    resize()
-    await flush()
-    expect(lineOffset(engine)).toBe(4321)
-    expect(relocated().at(-1)).toMatchObject({ reason: 'reflow' })
-    expect(relocated().at(-1)!.opId).toBeUndefined()
-    expect(relocated().filter((r) => r.reason === 'scroll')).toEqual([])
+describe('late layout keeps the place', () => {
+  it('E8 an image above the reader loads: the same sentence stays on the line, one reflow, no opId', async () => {
+    const reader = makeReader()
+    await reader.open(FURTHER)
+    await reader.settle()
+    reader.grow('Arden log 1', 500)
+    await reader.settle()
+    expect(reader.line().startsWith(FURTHER)).toBe(true)
+    expect(reader.reasons()).toEqual(['open', 'reflow'])
+    expect(reader.relocations()[1].opId).toBeUndefined()
   })
 
-  it('E8 a resize that changes nothing emits nothing', async () => {
-    const { engine, at, relocated, resize } = setup()
-    await engine.open({ href: 'c1', layout: 'reflow', html: HTML }, at(4321))
-    const n = relocated().length
-    resize()
-    await flush()
-    expect(relocated()).toHaveLength(n)
+  it('E8 a resize that changes nothing says nothing', async () => {
+    const reader = makeReader()
+    await reader.open(FURTHER)
+    reader.resizeNothing()
+    await reader.settle()
+    expect(reader.reasons()).toEqual(['open'])
+  })
+})
+
+describe('real server HTML', () => {
+  it('E10 newlines between blocks and nested blocks: every sentence lands on the reading line', async () => {
+    const reader = makeReader({ html: REAL_CHAPTER })
+    await reader.open()
+    for (const sentence of ['Corran log 2', MIDDLE, 'Hollin log 4', FURTHER]) {   // Corran and Hollin are quoted
+      expect(await reader.goTo(sentence)).toBe('exact')
+      expect(reader.line().startsWith(sentence)).toBe(true)
+    }
+  })
+
+  it('E10 a font change on real HTML keeps the place', async () => {
+    const reader = makeReader({ html: REAL_CHAPTER })
+    await reader.open(FURTHER)
+    reader.setStyle({ fontSize: 24 })
+    await reader.settle()
+    expect(reader.line().startsWith(FURTHER)).toBe(true)
   })
 })
 
 describe('destroy', () => {
-  it('E9 stops events and empties the root; an op in flight resolves superseded', async () => {
+  it('E9 stops all events, empties the container, and a running open resolves superseded', async () => {
     const fonts = deferred()
-    const { engine, root, events, userScroll } = setup({ fontsReady: () => fonts.promise })
-    const opening = engine.open({ href: 'c1', layout: 'reflow', html: HTML })
-    engine.destroy()
+    const reader = makeReader({ fonts: () => fonts.promise })
+    const opening = reader.open()
+    reader.engine.destroy()
     fonts.resolve()
     expect(await opening).toBe('superseded')
-    userScroll(500)
-    await flush()
-    expect(events).toEqual([])
-    expect(root.childNodes).toHaveLength(0)
-    expect(engine.current()).toBeNull()
+    reader.scrollBy(500)
+    await reader.settle()
+    expect(reader.events()).toEqual([])
+    expect(reader.root.childNodes).toHaveLength(0)
+    expect(reader.engine.current()).toBeNull()
   })
 })
