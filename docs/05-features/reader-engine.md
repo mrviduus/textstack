@@ -8,6 +8,12 @@ What `packages/reader-engine` promises its hosts (web, mobile), in plain words. 
 Each rule has one ID. The test that pins it starts its name with that ID
 (`packages/reader-engine/src/engine.test.ts`; decorations, E13–E19, in `decorations.test.ts`). Change a rule here first, then its test, then the code.
 
+ADR-019's eight position rules are pinned once each in `src/positionRules.test.ts` (`rule 1` … `rule 8`),
+through the engine and the pure rules it re-exports from shared (`newerPosition`, `progressPrecedence`,
+`pdfPersistGate`; the code moves in Phase 6). With the engine, "the reader moved" = a `'scroll'` arrived:
+no pixel tolerance, so `readerMovedSince` is not re-exported. Rule 6 in the engine: a webfont that never
+loads holds an `open` 4 s at most.
+
 **Words used below.** The *reading line* is a quarter down the screen: the text there is "where the
 reader is". An *op* is `open`, `goTo` or `setStyle`. An op's *ack* is the one `relocated` event that
 carries its `opId`.
