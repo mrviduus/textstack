@@ -14,7 +14,7 @@ import type { ChapterDoc, EngineEvents, EngineOptions, GoToResult, Locator, Reas
 import { Overlayer, type DrawFn } from './overlay'
 import { resolveLocator, type Resolved } from './resolve'
 import { findTextOffsets } from './textWalker'
-import { chapterText, locatorAt, matchWords, quoteAt, rangeAt, textNodes } from './text'
+import { chapterText, locatorAt, matchWords, quoteAt, rangesIn, textNodes } from './text'
 
 /** A quarter down the viewport: where both apps capture, so a position means the same place on each. */
 const READING_LINE = 0.25
@@ -230,10 +230,10 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
   /** Draws every mark where its text is now. */
   function paint() {
     layer.replaceChildren()
-    const nodes = textNodes(content)
-    // ponytail: each range scans `nodes` from the start; one sorted pass if thousands of marks stutter.
+    const rangeAt = rangesIn(content)
+    const scratch = doc.createRange()   // marks keep rects, not ranges
     for (const m of marks) {
-      const range = rangeAt(content, m.start, m.end - m.start, nodes)
+      const range = rangeAt(m.start, m.end - m.start, scratch)
       m.rects = range ? rectsOf(range) : []
       const boxes = m.rects.map((r) => ({ ...r, left: r.x, top: r.y, right: r.x + r.width, bottom: r.y + r.height })) as unknown as DOMRect[]
       const g = DRAW[m.group](boxes, { color: m.color ?? COLORS[m.group] })

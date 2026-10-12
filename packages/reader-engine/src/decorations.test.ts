@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import { CHAPTER, destroyAll, makeReader } from './engine.testkit'
 import { chapterText, textNodes } from './text'
 
@@ -198,6 +198,23 @@ describe('markWords', () => {
     reader.engine.markWords([{ word: 'here' }, { word: 'next' }, { word: 'word' }], false)
 
     expect(reader.drawn('word').map((d) => d.id)).toEqual(['here', 'next', 'word'])
+  })
+
+  it('E18 thousands of marks draw with one chapter walk and one Range, not one of each per mark', async () => {
+    const reader = makeReader()
+    await reader.open()
+    const walks = vi.spyOn(document, 'createTreeWalker')
+    const ranges = vi.spyOn(document, 'createRange')
+
+    reader.engine.markWords([{ word: 'keeper' }, { word: 'ships' }], false)
+
+    expect(reader.drawn('word')).toHaveLength(240)
+    // 1 walk to match the words, 1 to place them; 1 Range reused. Before: 2 walks + 1 Range per mark —
+    // seconds on a long chapter (every live Range is updated on each DOM change).
+    expect(walks.mock.calls.filter(([root]) => root === reader.chapter)).toHaveLength(2)   // the fake layout walks paragraphs
+    expect(ranges.mock.calls.length).toBeLessThanOrEqual(1)
+    walks.mockRestore()
+    ranges.mockRestore()
   })
 
   it('E18 a saved phrase is marked whole, not also as its words; a new call replaces the set', async () => {

@@ -41,21 +41,37 @@ function offsetOf(root: Node, node: Node, offset: number): number | null {
   return total
 }
 
+/** A Range over [start, start + length) of the chapter's text; null when that is not all in it. */
+export function rangeAt(root: Node, start: number, length: number): Range | null {
+  return rangesIn(root)(start, length)
+}
+
 /**
- * A Range over [start, start + length) of the chapter's text; null when that is not all in it.
- * `nodes`: the chapter's text nodes, when the caller already has them (one walk for many ranges).
+ * `rangeAt` for many ranges: walks the chapter once, then each range is two binary searches. Pass
+ * `into` to reuse one Range: every live Range is updated on each DOM change, so thousands cost seconds.
  */
-export function rangeAt(root: Node, start: number, length: number, nodes = textNodes(root)): Range | null {
-  if (start < 0 || length < 0) return null
-  const range = (root.ownerDocument ?? (root as Document)).createRange()
-  let consumed = 0
-  let started = false
-  for (const t of nodes) {
-    if (!started && consumed + t.length > start) { range.setStart(t, start - consumed); started = true }
-    if (started && consumed + t.length >= start + length) { range.setEnd(t, start + length - consumed); return range }
-    consumed += t.length
+export function rangesIn(root: Node): (start: number, length: number, into?: Range) => Range | null {
+  const nodes = textNodes(root)
+  const ends: number[] = []
+  let total = 0
+  for (const t of nodes) ends.push((total += t.length))
+  /** The first node whose end passes the test (ends only grow). */
+  const first = (ok: (end: number) => boolean) => {
+    let lo = 0
+    let hi = ends.length
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (ok(ends[mid])) hi = mid; else lo = mid + 1 }
+    return lo
   }
-  return null
+  return (start, length, into) => {
+    if (start < 0 || length < 0) return null
+    const i = first((end) => end > start)
+    const j = Math.max(i, first((end) => end >= start + length))
+    if (j >= nodes.length) return null
+    const range = into ?? (root.ownerDocument ?? (root as Document)).createRange()
+    range.setStart(nodes[i], start - (ends[i] - nodes[i].length))
+    range.setEnd(nodes[j], start + length - (ends[j] - nodes[j].length))
+    return range
+  }
 }
 
 /** A selection as a TextQuoteSelector, with the same 30 characters of context as every stored anchor. */
