@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act } from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { renderHook } from '../test/renderHook'
 
 const api = vi.hoisted(() => ({ getLibrary: vi.fn(), addToLibrary: vi.fn(), removeFromLibrary: vi.fn() }))
@@ -12,13 +12,13 @@ vi.mock('./useCollections', () => ({ invalidateCollectionsCache: vi.fn() }))
 
 import { useBookLibrary } from './useBookLibrary'
 
-const render = (id: string | undefined = 'b1') => renderHook(({ id }: { id: string | undefined }) => useBookLibrary(id, k => k), { id })
-const renderNoBook = () => renderHook(({ id }: { id: string | undefined }) => useBookLibrary(id, k => k), { id: undefined })
+const render = (props: { id: string | undefined } = { id: 'b1' }) => renderHook(({ id }: { id: string | undefined }) => useBookLibrary(id, k => k), props)
 const flush = () => act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve() })
 const deferred = () => { let resolve!: () => void, reject!: (e: Error) => void; const promise = new Promise<void>((s, j) => { resolve = s; reject = j }); return { promise, resolve, reject } }
 
 describe('useBookLibrary', () => {
   beforeEach(() => { vi.clearAllMocks(); api.getLibrary.mockResolvedValue([]); collections.listCollections.mockResolvedValue([]) })
+  afterEach(() => { if (vi.isMockFunction(Date.now)) vi.mocked(Date.now).mockRestore() })
 
   it('toggle_AddFails_RollsBackAndRereadsServer', async () => {
     api.addToLibrary.mockRejectedValue(new Error('500'))
@@ -123,14 +123,16 @@ describe('useBookLibrary', () => {
 
   it('toggle_TapAfterAddSettles_Removes', async () => {
     api.addToLibrary.mockResolvedValue(undefined)
+    const now = vi.spyOn(Date, 'now').mockReturnValue(10_000)
     const { result } = render()
     await act(async () => { await result.current.toggle() })
+    now.mockReturnValue(11_000)
     await act(async () => { await result.current.toggle() })
     await flush()
     expect(api.removeFromLibrary).toHaveBeenCalledTimes(1)
   })
 
-  it('removeThenAdd_DeleteInFlight_PostWaitsForDelete', async () => {
+  it('saveIfNotSaved_DeleteInFlight_PostWaitsForDelete', async () => {
     // Review r9: Download tapped during a confirmed Remove raced the DELETE.
     api.getLibrary.mockResolvedValue([{ editionId: 'b1' }])
     const del = deferred(); api.removeFromLibrary.mockReturnValue(del.promise)
@@ -171,7 +173,7 @@ describe('useBookLibrary', () => {
     expect(api.getLibrary).toHaveBeenCalledTimes(1)
   })
 
-  it('addThenRemove_PostAnswers_NeverFlipsBackToSaved', async () => {
+  it('toggle_RemoveAfterAddPostAnswers_NeverFlipsBackToSaved', async () => {
     const add = deferred(); api.addToLibrary.mockReturnValue(add.promise)
     const del = deferred(); api.removeFromLibrary.mockReturnValue(del.promise)
     const { result } = render()
@@ -205,10 +207,10 @@ describe('useBookLibrary', () => {
     expect(result.current.inLibrary).toBe(true)
   })
 
-  it('bookIdChanges_OldAnswerArrivesLate_IsDropped', async () => {
+  it('loadLibrary_BookIdChangesBeforeAnswer_DropsAnswer', async () => {
     let answer!: (v: { editionId: string }[]) => void
     api.getLibrary.mockReturnValue(new Promise(r => { answer = r }))
-    const { result, rerender } = render('b1')
+    const { result, rerender } = render()
     act(() => { void result.current.loadLibrary() })
     await flush()
     rerender({ id: 'b2' })
@@ -217,19 +219,106 @@ describe('useBookLibrary', () => {
     expect(result.current.inLibrary).toBe(false)
   })
 
-  it('bookIdChanges_SavedBook_ResetsToNotSaved', async () => {
+  it('useBookLibrary_BookIdChanges_ShowsNotSaved', async () => {
     api.getLibrary.mockResolvedValue([{ editionId: 'b1' }])
-    const { result, rerender } = render('b1')
+    const { result, rerender } = render()
     await act(async () => { await result.current.loadLibrary() })
     expect(result.current.inLibrary).toBe(true)
     rerender({ id: 'b2' })
     expect(result.current.inLibrary).toBe(false)
   })
 
-  it('noBookId_AnyCall_SendsNothing', async () => {
-    const { result } = renderNoBook()
+  it('loadLibraryToggleSave_NoBookId_SendNothing', async () => {
+    const { result } = render({ id: undefined })
     await act(async () => { await result.current.loadLibrary(); await result.current.toggle(); result.current.saveIfNotSaved() })
     expect(api.getLibrary).not.toHaveBeenCalled()
     expect(api.addToLibrary).not.toHaveBeenCalled()
+  })
+
+  it('toggle_GetHangs_PostStillSent', async () => {
+    // Review #787: a page-open getLibrary that never answers must not hold the Save.
+    api.getLibrary.mockReturnValue(new Promise(() => {}))
+    api.addToLibrary.mockResolvedValue(undefined)
+    const { result } = render()
+    act(() => { void result.current.loadLibrary() })
+    await flush()
+    act(() => { void result.current.toggle() })
+    await flush()
+    expect(api.addToLibrary).toHaveBeenCalledWith('b1')
+  })
+
+  it('loadLibrary_AnswerArrivesAfterWriteSettles_IsDropped', async () => {
+    const get = deferred(); api.getLibrary.mockReturnValue(get.promise.then(() => []))
+    api.addToLibrary.mockResolvedValue(undefined)
+    const { result } = render()
+    act(() => { void result.current.loadLibrary() })
+    await flush()
+    act(() => result.current.saveIfNotSaved())
+    await flush()
+    await act(async () => { get.resolve() })
+    await flush()
+    expect(result.current.inLibrary).toBe(true)
+  })
+
+  it('toggle_SlowAddSecondTapLater_Removes', async () => {
+    // Review #787: only a double tap is absorbed, not every tap until the POST answers.
+    const add = deferred(); api.addToLibrary.mockReturnValue(add.promise)
+    api.removeFromLibrary.mockResolvedValue(undefined)
+    const now = vi.spyOn(Date, 'now').mockReturnValue(10_000)
+    const { result } = render()
+    act(() => { void result.current.toggle() })
+    now.mockReturnValue(12_000)
+    act(() => { void result.current.toggle() })
+    await act(async () => { add.resolve() })
+    await flush()
+    expect(api.removeFromLibrary).toHaveBeenCalledTimes(1)
+    expect(result.current.inLibrary).toBe(false)
+  })
+
+  it('saveIfNotSaved_DuringRemoveLookup_KeepsBook', async () => {
+    // Review #787: a Download is intent — one tapped while the Remove looks up collections cancels it.
+    api.getLibrary.mockResolvedValue([{ editionId: 'b1' }])
+    const lookup = deferred(); collections.listCollections.mockReturnValue(lookup.promise.then(() => []) as never)
+    const { result } = render()
+    await act(async () => { await result.current.loadLibrary() })
+    act(() => { void result.current.toggle() })
+    await flush()
+    act(() => result.current.saveIfNotSaved())
+    await act(async () => { lookup.resolve() })
+    await flush()
+    expect(api.removeFromLibrary).not.toHaveBeenCalled()
+    expect(result.current.inLibrary).toBe(true)
+  })
+
+  it('useBookLibrary_BookIdChanges_FirstFrameIsNotSaved', async () => {
+    api.getLibrary.mockResolvedValue([{ editionId: 'b1' }])
+    const seen: boolean[] = []
+    const { result, rerender } = renderHook(({ id }: { id: string }) => {
+      const r = useBookLibrary(id, k => k); seen.push(r.inLibrary); return r
+    }, { id: 'b1' })
+    await act(async () => { await result.current.loadLibrary() })
+    seen.length = 0
+    rerender({ id: 'b2' })
+    expect(seen[0]).toBe(false)
+  })
+
+  it('loadLibrary_WriteQueuedWhileWaiting_SkipsFetch', async () => {
+    // Review #787: an answer certain to be dropped is not fetched.
+    api.getLibrary.mockResolvedValue([{ editionId: 'b1' }])
+    const del = deferred(); api.removeFromLibrary.mockReturnValue(del.promise)
+    const add = deferred(); api.addToLibrary.mockReturnValue(add.promise)
+    const { result } = render()
+    await act(async () => { await result.current.loadLibrary() })
+    act(() => { void result.current.toggle() })
+    await flush()
+    api.getLibrary.mockClear()
+    act(() => { void result.current.loadLibrary() })
+    act(() => result.current.saveIfNotSaved())
+    await act(async () => { del.resolve() })
+    await flush()
+    await act(async () => { add.resolve() })
+    await flush()
+    expect(api.getLibrary).not.toHaveBeenCalled()
+    expect(result.current.inLibrary).toBe(true)
   })
 })
