@@ -39,6 +39,7 @@ export function resolveLocator(loc: Locator | null | undefined, href: string | u
  * `nearestOccurrence` did, which is the ADR-025 spike finding.
  */
 function breakTie(text: string, exact: string, at: number, hint: number): number {
+  if (at === hint) return at   // nothing is closer (every `find` hit): skip the scan
   const n = ANCHOR_CONTEXT_LENGTH
   const context = (i: number) => `${text.slice(Math.max(0, i - n), i)}\u0000${text.slice(i + exact.length, i + exact.length + n)}`
   const mine = context(at)

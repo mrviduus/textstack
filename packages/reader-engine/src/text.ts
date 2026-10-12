@@ -41,13 +41,16 @@ function offsetOf(root: Node, node: Node, offset: number): number | null {
   return total
 }
 
-/** A Range over [start, start + length) of the chapter's text; null when that is not all in it. */
-export function rangeAt(root: Node, start: number, length: number): Range | null {
+/**
+ * A Range over [start, start + length) of the chapter's text; null when that is not all in it.
+ * `nodes`: the chapter's text nodes, when the caller already has them (one walk for many ranges).
+ */
+export function rangeAt(root: Node, start: number, length: number, nodes = textNodes(root)): Range | null {
   if (start < 0 || length < 0) return null
   const range = (root.ownerDocument ?? (root as Document)).createRange()
   let consumed = 0
   let started = false
-  for (const t of textNodes(root)) {
+  for (const t of nodes) {
     if (!started && consumed + t.length > start) { range.setStart(t, start - consumed); started = true }
     if (started && consumed + t.length >= start + length) { range.setEnd(t, start + length - consumed); return range }
     consumed += t.length
@@ -77,27 +80,34 @@ export function quoteAt(text: string, start: number, end: number, href?: string)
 const WORD_CHAR = /[\p{L}\p{M}\p{N}]/u
 
 /**
- * Where saved words stand in the chapter's text, by the apps' vocabulary key (whole words, any case).
- * Phrases first, longest first, so "make sense" is never also "make" + "sense".
- * ponytail: offsets assume NFC normalisation keeps lengths, like the web matcher; true for server HTML.
+ * Where saved words stand in the chapter (chapter offsets), by the apps' vocabulary key: whole words,
+ * any case, one text node at a time like the web matcher — a block or a `<sup>` ends a word, since the
+ * chapter text joins nodes with nothing between them. Phrases first, longest first, so "make sense" is
+ * never also "make" + "sense".
+ * ponytail: offsets assume NFC and lowercasing keep lengths (not so for Turkish İ), like the web
+ * matcher; map offsets through the normalisation if such a book shows up.
  */
-export function matchWords<T extends { word: string }>(text: string, items: T[]): { item: T; start: number; end: number }[] {
+export function matchWords<T extends { word: string }>(root: Node, items: T[]): { item: T; start: number; end: number }[] {
   const byKey = new Map(items.map((i) => [normalizeVocabKey(i.word), i]))
-  const out: { item: T; start: number; end: number }[] = []
-  const taken = new Uint8Array(text.length)
-  const lower = text.normalize('NFC').toLowerCase()
   const phrases = [...byKey.keys()].filter((k) => k.includes(' ')).sort((a, b) => b.length - a.length)
-  for (const key of phrases) {
-    for (let at = lower.indexOf(key); at !== -1; at = lower.indexOf(key, at + 1)) {
-      const end = at + key.length
-      if (WORD_CHAR.test(text.charAt(at - 1)) || WORD_CHAR.test(text.charAt(end)) || taken.subarray(at, end).includes(1)) continue
-      taken.fill(1, at, end)
-      out.push({ item: byKey.get(key)!, start: at, end })
+  const out: { item: T; start: number; end: number }[] = []
+  let base = 0
+  for (const { data: text } of byKey.size ? textNodes(root) : []) {
+    const taken = new Uint8Array(text.length)
+    const lower = text.normalize('NFC').toLowerCase()
+    for (const key of phrases) {
+      for (let at = lower.indexOf(key); at !== -1; at = lower.indexOf(key, at + 1)) {
+        const end = at + key.length
+        if (WORD_CHAR.test(text.charAt(at - 1)) || WORD_CHAR.test(text.charAt(end)) || taken.subarray(at, end).includes(1)) continue
+        taken.fill(1, at, end)
+        out.push({ item: byKey.get(key)!, start: base + at, end: base + end })
+      }
     }
-  }
-  for (const t of tokenizeVocabWords(text)) {
-    const item = byKey.get(normalizeVocabKey(t.word))
-    if (item && !taken[t.start]) out.push({ item, start: t.start, end: t.end })
+    for (const t of tokenizeVocabWords(text)) {
+      const item = byKey.get(normalizeVocabKey(t.word))
+      if (item && !taken[t.start]) out.push({ item, start: base + t.start, end: base + t.end })
+    }
+    base += text.length
   }
   return out.sort((a, b) => a.start - b.start)
 }

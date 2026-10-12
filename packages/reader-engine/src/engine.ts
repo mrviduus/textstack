@@ -77,7 +77,8 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
   layer.setAttribute('data-vocab-overlay', 'true')   // in READER_GLOSS_SELECTOR: text.ts skips it
   layer.setAttribute('aria-hidden', 'true')
   Object.assign(layer.style, { position: 'absolute', top: '0', left: '0', width: '100%', height: '100%', overflow: 'visible', pointerEvents: 'none' })
-  if (win.getComputedStyle(root).position === 'static') root.style.position = 'relative'
+  const rootPosition = root.style.position
+  if (['static', ''].includes(win.getComputedStyle(root).position)) root.style.position = 'relative'
   root.replaceChildren(content, layer)
   const fontFaces = doc.createElement('style')
 
@@ -221,7 +222,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
         }
       }
     }
-    for (const m of matchWords(text, words)) {
+    for (const m of matchWords(content, words)) {
       marks.push({ group: 'word', id: m.item.word, start: m.start, end: m.end, color: m.item.style, translation: m.item.translation, rects: [] })
     }
   }
@@ -229,8 +230,10 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
   /** Draws every mark where its text is now. */
   function paint() {
     layer.replaceChildren()
+    const nodes = textNodes(content)
+    // ponytail: each range scans `nodes` from the start; one sorted pass if thousands of marks stutter.
     for (const m of marks) {
-      const range = rangeAt(content, m.start, m.end - m.start)
+      const range = rangeAt(content, m.start, m.end - m.start, nodes)
       m.rects = range ? rectsOf(range) : []
       const boxes = m.rects.map((r) => ({ ...r, left: r.x, top: r.y, right: r.x + r.width, bottom: r.y + r.height })) as unknown as DOMRect[]
       const g = DRAW[m.group](boxes, { color: m.color ?? COLORS[m.group] })
@@ -244,6 +247,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
         label.setAttribute('x', String(first.x + first.width / 2))
         label.setAttribute('y', String(first.y))
         label.setAttribute('text-anchor', 'middle')
+        label.setAttribute('fill', 'currentColor')   // the theme's text colour (root's `color`)
         label.textContent = m.translation
         layer.append(label)
       }
@@ -254,6 +258,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
 
   /** A tap on a highlight or search hit (highlights on top); the last drawn wins inside a group. */
   function onClick(e: MouseEvent) {
+    if (doc.getSelection()?.isCollapsed === false) return   // the end of a drag selection, not a tap
     const o = root.getBoundingClientRect()
     const x = e.clientX - o.left
     const y = e.clientY - o.top
@@ -305,11 +310,12 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
   }
 
   function onResize() {
-    if (opened) paint()
-    if (!opened || target || styleAnchor) return
+    if (!opened) return
     const h = measure(content).height
     if (h === height) return
     height = h
+    paint()
+    if (target || styleAnchor) return
     emit('relocated', { locator: last && land(last) ? last : capture(), reason: 'reflow' })
   }
 
@@ -422,6 +428,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
       unobserve()
       fontFaces.remove()
       root.replaceChildren()
+      root.style.position = rootPosition
     },
   }
 }

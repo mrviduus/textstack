@@ -121,6 +121,21 @@ describe('decorationTap', () => {
     expect(reader.payloads('decorationTap')).toMatchObject([{ group: 'highlight', id: 'h1' }])
   })
 
+  it('E16 the click that ends a text selection is not a tap', async () => {
+    const reader = makeReader()
+    await reader.open()
+    reader.engine.decorate('highlight', [{ id: 'h1', locator: reader.quote(MIDDLE) }])
+    const [box] = reader.boxesOf(MIDDLE)
+    const selection = document.getSelection()!
+    selection.removeAllRanges()
+    selection.selectAllChildren(reader.chapter.querySelector('p')!)
+
+    reader.tap(box.x + 5, box.y + 5)
+    selection.removeAllRanges()
+
+    expect(reader.payloads('decorationTap')).toEqual([])
+  })
+
   it('E16 a tap on plain text says nothing', async () => {
     const reader = makeReader()
     await reader.open()
@@ -176,6 +191,15 @@ describe('markWords', () => {
     expect(marks[0].rects[0].y).toBeGreaterThan(box.y)   // under the word, not over it
   })
 
+  it('E18 a block or a footnote ends a word: words on either side of one are still found', async () => {
+    const reader = makeReader({ html: '<p>The keeper stood here</p><p>Next came word<sup>1</sup> again</p>' })
+    await reader.open()
+
+    reader.engine.markWords([{ word: 'here' }, { word: 'next' }, { word: 'word' }], false)
+
+    expect(reader.drawn('word').map((d) => d.id)).toEqual(['here', 'next', 'word'])
+  })
+
   it('E18 a saved phrase is marked whole, not also as its words; a new call replaces the set', async () => {
     const reader = makeReader()
     await reader.open()
@@ -201,6 +225,7 @@ describe('markWords', () => {
     const [box] = reader.boxesOf('keeper')
     expect(labels[0]).toMatchObject({ text: 'хранитель', x: box.x + box.width / 2 })
     expect(labels[0].y).toBeLessThanOrEqual(box.y)
+    expect(reader.root.querySelector('text')!.getAttribute('fill')).toBe('currentColor')   // the theme's text colour
     expect(textNodes(reader.chapter)).toEqual(nodes)
     expect(chapterText(reader.root)).toBe(text)
     expect(reader.engine.current()).toEqual(here)
