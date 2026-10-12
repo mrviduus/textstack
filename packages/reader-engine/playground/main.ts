@@ -3,7 +3,7 @@
 import type { Locator } from '../src/api'
 import { createEngine } from '../src/engine'
 import { resolveLocator } from '../src/resolve'
-import { chapterText, rangeAt } from '../src/text'
+import { chapterText, locatorAt, rangeAt } from '../src/text'
 // The web reader's own caret probe, the yardstick for the engine's reading line (#789).
 import { articleText, readReadingLine } from '../../../apps/web/src/lib/textAnchor'
 
@@ -25,14 +25,17 @@ const pg = {
     const r = resolveLocator(loc, href, chapterText(content))
     return r && (r.result === 'exact' || r.result === 'fuzzy') ? r.offset : null
   },
-  /** Page y of the middle of the first visible character from a chapter offset (whitespace has no box). */
+  /** Page y of the middle of the first visible character from a chapter offset (whitespace and soft hyphens have no box). */
   yOf(offset: number) {
     const text = chapterText(content)
-    while (/\s/.test(text[offset])) offset++
+    while (/[\s\u00AD]/.test(text[offset])) offset++
     const r = rangeAt(content, offset, 1)!.getBoundingClientRect()
     return r.top + r.height / 2 + scrollY
   },
   lineHeight: () => parseFloat(getComputedStyle(content).lineHeight),
+  text: () => chapterText(content),
+  /** A stored reading position at a chapter offset, as the apps build one. */
+  placeAt: (offset: number) => locatorAt(chapterText(content), offset, href, 0.5)!,
 }
 
 Object.assign(window, { engine, pg })

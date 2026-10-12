@@ -17,7 +17,7 @@ import { Overlayer, type DrawFn } from './overlay'
 import { resolveLocator, type Resolved } from './resolve'
 import { findTextOffsets } from './textWalker'
 import { tokenizeVocabWords } from '../../shared/src/text/vocabKey'
-import { locatorAt, matchWords, offsetOf, quoteAt, rangesIn, textNodes } from './text'
+import { locatorAt, matchWords, quoteAt, rangesIn, textNodes } from './text'
 
 /** A quarter down the viewport: where both apps capture, so a position means the same place on each. */
 const READING_LINE = 0.25
@@ -41,6 +41,8 @@ const SELECTION_MAX_CHARS = 500
 /** Hide the bars late, show them early. */
 const SCROLL_DOWN_PX = 48
 const SCROLL_UP_PX = 6
+/** A second tap this soon is a double tap: the bars toggle once, not twice (the old bridge's 300 ms). */
+const DOUBLE_TAP_MS = 300
 const SENTENCE_END = /[.!?\n]/
 /** A longer sentence is cut to this many characters around the selection. */
 const SENTENCE_MAX = 200
@@ -96,6 +98,9 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
   const frame = () => new Promise<void>((r) => schedule(r))
 
   const content = doc.createElement('div')
+  // The engine alone keeps the place when the chapter changes size (E29): no browser scroll anchoring,
+  // whose own scroll would race the re-anchor and read as the reader moving (#794).
+  content.style.overflowAnchor = 'none'
   // Beside the chapter, in its coordinates: scrolls with the text, never read as text (gloss marker).
   const layer = doc.createElementNS(SVG, 'svg')
   layer.setAttribute('data-vocab-overlay', 'true')   // in READER_GLOSS_SELECTOR: text.ts skips it
@@ -112,6 +117,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
   let text = ''
   let segments: Segment[] = []
   // The open chapter's text nodes, walked once per open: the engine never changes them.
+  let nodes: Text[] = []
   let rangeOf: ReturnType<typeof rangesIn> = () => null
   let starts = new Map<Node, number>()
   let docSeq = 0                         // open: a newer one replaces the document
@@ -134,6 +140,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
   let holdTimer = 0
   let down: { x: number; y: number } | null = null         // a finger that may become a hold
   let swallowClick = false                                 // the click that ends a hold is not a tap
+  let lastTap = -Infinity                                  // performance.now() of the last tap
   let dir: 'up' | 'down' | null = null
   let dirBase = 0                                          // scrollTop where the last direction was decided
   let footer: HTMLElement | null = null
@@ -144,14 +151,14 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
     for (const cb of [...(listeners.get(e) ?? [])]) (cb as (p: EngineEvents[K]) => void)(p)
   }
 
-  function segmentsOf(el: Element): Segment[] {
+  function segmentsOf(): Segment[] {
     const out: Segment[] = []
     let at = 0
-    for (const t of textNodes(el)) {
+    for (const t of nodes) {
       // Whitespace between blocks has no line of its own; a segment for it would claim the container's box.
       if (t.data.trim()) {
         let block = t.parentElement!
-        while (block !== el && INLINE.has(block.tagName)) block = block.parentElement!
+        while (block !== content && INLINE.has(block.tagName)) block = block.parentElement!
         const prev = out[out.length - 1]
         if (prev?.el === block && prev.start + prev.length === at) prev.length += t.length
         else out.push({ el: block, start: at, length: t.length })
@@ -185,7 +192,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
 
   /**
    * The chapter offset under the reading line, by the browser's caret, the way both apps read it (web
-   * `readReadingLine`): clamped into the chapter, a few x's in case one is a margin or an image. Null:
+   * `readReadingLine`): clamped into the chapter, a few x's in case one is a margin, an image or an empty cell. Null:
    * no caret API or no text there.
    */
   function probe(): number | null {
@@ -194,21 +201,37 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
     const y = Math.max(box.top + 4, Math.min(line, box.bottom - 4))
     for (const x of [box.left + 24, box.left + box.width / 2, box.right - 24]) {
       const c = caretAt(x, y)
-      if (!c) continue
-      const start = starts.get(c.node)
-      const at = start !== undefined ? start + c.offset : content.contains(c.node) ? offsetOf(content, c.node, c.offset) : null
+      // Text only, like the apps (#802): a caret on an element (an empty table cell, an image) is no
+      // place on this line; the next x is.
+      const at = c && c.node.nodeType === Node.TEXT_NODE ? offsetIn(c.node, c.offset) : null
       if (at !== null) return at
     }
     return null
   }
 
   /**
-   * Content y of a chapter offset: the middle of the line of its first visible character (whitespace
-   * between blocks has no box), or the estimate where there is none.
+   * Chapter offset of a DOM point (a caret, a range boundary); null outside the chapter. A point on an
+   * element (a caret in an empty table cell) is the start of the next text node: a binary search, not a walk.
+   */
+  function offsetIn(node: Node, offset: number): number | null {
+    const start = starts.get(node)
+    if (start !== undefined) return start + offset
+    if (!content.contains(node)) return null
+    const point = doc.createRange()
+    point.setStart(node, offset)
+    let lo = 0
+    let hi = nodes.length
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (point.comparePoint(nodes[mid], 0) < 0) lo = mid + 1; else hi = mid }
+    return lo < nodes.length ? starts.get(nodes[lo])! : text.length
+  }
+
+  /**
+   * Content y of a chapter offset: the middle of the line of its first visible character (whitespace,
+   * soft hyphens and zero-width spaces have no width), or the estimate where there is none.
    */
   function yAtOffset(offset: number): number {
     let at = offset
-    while (at < text.length - 1 && /\s/.test(text[at])) at++
+    while (at < text.length - 1 && /[\s\u00AD\u200B]/.test(text[at])) at++
     const range = rangeOf(at, 1)
     const r = range && rectsOf(range)[0]
     if (r) return measure(root).top + r.y + r.height / 2
@@ -295,7 +318,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
         }
       }
     }
-    for (const m of matchWords(content, words)) {
+    for (const m of matchWords(content, words, nodes)) {
       marks.push({ group: 'word', id: m.item.word, start: m.start, end: m.end, color: m.item.style, translation: m.item.translation, rects: [] })
     }
     if (held) marks.push({ group: 'selection', id: 'selection', ...held, rects: [] })
@@ -396,8 +419,8 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
       inner.selectNodeContents(content)
       if (r && r.compareBoundaryPoints(Range.START_TO_START, inner) > 0) inner.setStart(r.startContainer, r.startOffset)
       if (r && r.compareBoundaryPoints(Range.END_TO_END, inner) < 0) inner.setEnd(r.endContainer, r.endOffset)
-      const start = r && !inner.collapsed ? offsetOf(content, inner.startContainer, inner.startOffset) : null
-      const end = r && !inner.collapsed ? offsetOf(content, inner.endContainer, inner.endOffset) : null
+      const start = r && !inner.collapsed ? offsetIn(inner.startContainer, inner.startOffset) : null
+      const end = r && !inner.collapsed ? offsetIn(inner.endContainer, inner.endOffset) : null
       if (start !== null && end !== null) return select(start, end, 'drag')
       // A hold never makes a page selection: a collapse after one is the platform's noise (Android's menu).
       if (sent?.source === 'drag') unselect()
@@ -413,7 +436,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
     if (!c || c.node.nodeType !== Node.TEXT_NODE) return null
     const data = (c.node as Text).data
     const w = tokenizeVocabWords(data.replace(/\u00AD/g, 'a')).find((t) => t.start <= c.offset && c.offset <= t.end)
-    const at = w && /\p{L}/u.test(w.word) ? offsetOf(content, c.node, w.start) : null
+    const at = w && /\p{L}/u.test(w.word) ? offsetIn(c.node, w.start) : null
     return at != null ? { start: at, end: at + w!.end - w!.start } : null
   }
 
@@ -451,8 +474,13 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
     if (footer?.contains(t)) return                             // the host's buttons own their taps
     if (doc.getSelection()?.isCollapsed === false) return       // the end of a drag selection, not a tap
     const link = t.closest('a[href]')
+    if (link && content.contains(link)) e.preventDefault()          // never navigates, a double tap's second included
+    // A tap of any kind this soon after the last is a double (or triple) tap. Monotonic: a clock change can't swallow taps.
+    const now = win.performance.now()
+    const quick = now - lastTap < DOUBLE_TAP_MS
+    lastTap = now
+    if (quick) return
     if (link && content.contains(link)) {
-      e.preventDefault()
       const h = link.getAttribute('href')!
       return emit('linkClick', { href: h, internal: !/^([a-z][a-z\d+.-]*:|\/\/)/i.test(h) })
     }
@@ -558,9 +586,10 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
       content.dir = d.dir ?? ''
       starts = new Map()
       text = ''
-      for (const t of textNodes(content)) { starts.set(t, text.length); text += t.data }
-      rangeOf = rangesIn(content)
-      segments = segmentsOf(content)
+      nodes = textNodes(content)   // the one walk per open
+      for (const t of nodes) { starts.set(t, text.length); text += t.data }
+      rangeOf = rangesIn(content, nodes)
+      segments = segmentsOf()
       cancelHold()
       unselect()
       endSeen = false

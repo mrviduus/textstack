@@ -95,7 +95,8 @@ export function destroyAll() { engines.splice(0).forEach((e) => e.destroy()) }
  * A reader on the fake layout. `fonts` holds every open on a promise (a slow webfont), to catch the
  * engine mid-op.
  */
-export function makeReader(opts: { html?: string; fonts?: () => Promise<void> } = {}) {
+/** `noCaret`: a browser without `caretPositionFromPoint` or line boxes, so the engine estimates. */
+export function makeReader(opts: { html?: string; fonts?: () => Promise<void>; noCaret?: boolean } = {}) {
   const html = opts.html ?? CHAPTER
   const root = document.createElement('div')
   document.body.append(root)
@@ -140,8 +141,8 @@ export function makeReader(opts: { html?: string; fonts?: () => Promise<void> } 
     schedule: (cb) => { setTimeout(cb, 0) },
     observeResize: (_el, cb) => { resize = cb; return () => { resize = () => {} } },
     fontsReady: opts.fonts ?? (() => Promise.resolve()),
-    rects: (range) => lineBoxes(root, range),
-    caret,
+    rects: (range) => (opts.noCaret ? [] : lineBoxes(root, range)),
+    caret: opts.noCaret ? () => null : caret,
   })
   engines.push(engine)
   // The chapter fills the root: the engine probes the reading line inside its box.

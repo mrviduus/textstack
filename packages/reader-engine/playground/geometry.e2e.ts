@@ -12,14 +12,13 @@ declare global {
       offsetOf(loc: Locator): number | null
       yOf(offset: number): number
       lineHeight(): number
+      placeAt(offset: number): Locator
+      text(): string
     }
   }
 }
 
 const CHAPTERS = ['moby-dick-5', 'speckled-band', 'ulysses-15']
-// Not ulysses-15: the web probe skips the empty speaker cell (#802) and reads the next column, up to
-// two lines from the engine, which counts the cell itself. E26 covers it.
-const WEB_PROBE_READS = ['moby-dick-5', 'speckled-band']
 const STOPS = [0.05, 0.2, 0.35, 0.5, 0.65, 0.8, 0.95]
 
 async function openChapter(page: Page, chapter: string) {
@@ -37,7 +36,7 @@ async function readerScrolls(page: Page, f: number) {
   }, f)
 }
 
-for (const chapter of WEB_PROBE_READS) {
+for (const chapter of CHAPTERS) {
   test(`E25 the reading line is the web probe's line: ${chapter}`, async ({ page }) => {
     await openChapter(page, chapter)
     for (const f of STOPS) {
@@ -89,4 +88,40 @@ test('E27 reading the place on a scroll costs under 4 ms a frame on a long chapt
   })
   console.log(`E27 median engine frame on ulysses-15, CPU 4x: ${ms.toFixed(2)} ms`)
   expect(ms).toBeLessThan(4)   // a quarter of a 60 fps frame; shared CI runners are slow
+})
+
+test('E29 the chapter growing above the reading line is a reflow, never the reader scrolling; the engine alone re-anchors', async ({ page }) => {
+  await openChapter(page, 'moby-dick-5')
+  await readerScrolls(page, 0.5)
+  const r = await page.evaluate(async () => {
+    const before = window.engine.current()!.text
+    const reasons: string[] = []
+    window.engine.on('relocated', (e) => reasons.push(e.reason))
+    // Like an image loading above the reader: the browser's scroll anchoring moves scrollTop by itself.
+    const above = Array.from(document.querySelectorAll<HTMLElement>('#reader p')).filter((p) => p.getBoundingClientRect().bottom < 0)
+    const top = scrollY
+    above[above.length - 1].style.paddingTop = '300px'
+    void document.body.offsetHeight   // the host reads layout at once: a browser anchor would move now
+    const anchored = scrollY !== top
+    await new Promise((r) => setTimeout(r, 300))
+    return { anchored, reasons, same: JSON.stringify(window.engine.current()!.text) === JSON.stringify(before) }
+  })
+  expect(r.anchored, 'scroll anchoring is off: no race with the engine').toBe(false)
+  expect(r.reasons).toEqual(['reflow'])
+  expect(r.same).toBe(true)
+})
+
+test('E26 a place that starts on a soft hyphen lands on the reading line too', async ({ page }) => {
+  await openChapter(page, 'moby-dick-5-shy')   // U+00AD in words of 8+ letters, as extraction adds them
+  const r = await page.evaluate(async () => {
+    const text = window.pg.text()
+    const dys: number[] = []
+    for (let i = 1; i <= 10; i++) {
+      const at = text.indexOf('\u00AD', (i / 11) * text.length)
+      await window.engine.goTo(window.pg.placeAt(at))
+      dys.push(Math.abs(window.pg.yOf(at) - (scrollY + innerHeight * 0.25)))
+    }
+    return { worst: Math.max(...dys), line: window.pg.lineHeight() }
+  })
+  expect(r.worst).toBeLessThan(r.line / 2)
 })

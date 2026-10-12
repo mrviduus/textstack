@@ -116,15 +116,21 @@ describe('taps', () => {
     const extra = '<p>See <a href="#fn1">note 1</a> and <a href="https://example.com/x">the site</a>. <img src="fig.png" alt="Figure 1"></p>'
     const reader = makeReader({ html: CHAPTER + extra })
     await reader.open()
+    vi.useFakeTimers()
     reader.engine.decorate('highlight', [{ id: 'h1', locator: reader.quote('Oban log 2') }])
     const [note, site] = Array.from(reader.chapter.querySelectorAll('a'))
     const taps = () => only(reader, 'tap', 'linkClick', 'imageTap', 'decorationTap')
 
+    const apart = () => vi.advanceTimersByTimeAsync(400)   // separate taps, not a double tap (E28)
     expect(reader.tap(1, 1, note), 'the page does not navigate').toBe(false)
+    await apart()
     reader.tap(1, 1, site)
+    await apart()
     reader.tap(1, 1, reader.chapter.querySelector('img')!)
+    await apart()
     const hl = reader.pointAt('Oban log 2')
     reader.tap(hl.x, hl.y)
+    await apart()
     const plain = reader.pointAt('Arden log 2')
     reader.tap(plain.x, plain.y)
     expect(taps()).toEqual(['linkClick', 'linkClick', 'imageTap', 'decorationTap', 'tap'])
@@ -136,7 +142,6 @@ describe('taps', () => {
     reader.tap(plain.x, plain.y)
     reader.select(null)
 
-    vi.useFakeTimers()
     reader.pointer('pointerdown', plain.x, plain.y)
     await vi.advanceTimersByTimeAsync(500)
     reader.pointer('pointerup', plain.x, plain.y)
@@ -151,6 +156,30 @@ describe('taps', () => {
     reader.pointer('pointerdown', 1, 1, reader.root)             // then a tap on the page's margin
     reader.tap(1, 1)
     expect(taps()).toEqual(['linkClick', 'linkClick', 'imageTap', 'decorationTap', 'tap', 'tap'])
+  })
+})
+
+describe('double tap', () => {
+  it('E28 a tap within 300 ms of the last one is a double (or triple) tap: it emits nothing, on text or a link; a clock change does not matter', async () => {
+    const reader = makeReader({ html: `${CHAPTER}<p>See <a href="https://example.com/x">the site</a>.</p>` })
+    await reader.open()
+    vi.useFakeTimers()
+    const p = reader.pointAt('Arden log 2')
+    for (let i = 0; i < 3; i++) { reader.tap(p.x, p.y); await vi.advanceTimersByTimeAsync(150) }
+    expect(only(reader, 'tap'), 'the bars toggle once').toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(300)
+    reader.tap(p.x, p.y)
+    vi.setSystemTime(Date.now() - 3_600_000)   // the phone's clock goes back an hour (NTP, a time zone)
+    await vi.advanceTimersByTimeAsync(400)
+    reader.tap(p.x, p.y)
+    expect(only(reader, 'tap')).toHaveLength(3)
+
+    await vi.advanceTimersByTimeAsync(400)
+    const link = reader.chapter.querySelector('a')!
+    reader.tap(1, 1, link)
+    await vi.advanceTimersByTimeAsync(150)
+    reader.tap(1, 1, link)
+    expect(only(reader, 'linkClick'), 'the browser opens once').toHaveLength(1)
   })
 })
 

@@ -6,7 +6,7 @@ What `packages/reader-engine` promises its hosts (web, mobile), in plain words. 
 [phase 2 plan](../01-architecture/reader-engine-phase2-plan.md).
 
 Each rule has one ID. The test that pins it starts its name with that ID
-(`packages/reader-engine/src/engine.test.ts`; decorations, E13–E19, in `decorations.test.ts`; events, E20–E24, in `events.test.ts`; geometry on real chapters in Chromium, E25–E27, in `playground/geometry.e2e.ts`). Change a rule here first, then its test, then the code.
+(`packages/reader-engine/src/engine.test.ts`; decorations, E13–E19, in `decorations.test.ts`; events, E20–E24 and E28, in `events.test.ts`; geometry on real chapters in Chromium, E25–E27 and E29, in `playground/geometry.e2e.ts`). Change a rule here first, then its test, then the code.
 
 ADR-019's eight position rules are pinned once each in `src/positionRules.test.ts` (`rule 1` … `rule 8`),
 through the engine and the pure rules it re-exports from shared (`newerPosition`, `progressPrecedence`,
@@ -46,13 +46,13 @@ carries its `opId`.
 | E22 | A tap emits one event: a link `linkClick` (relative = `internal`; the page never navigates), an image `imageTap`, a highlight or search hit `decorationTap` (E16), else `tap`. The click that ends a selection or a hold, and a tap on the footer, emit nothing. | ADR-025 events; mobile lightbox skips images inside links | 2026-10-12 |
 | E23 | Reader scrolling emits `scrollDir` when the direction changes: `'down'` after 48 px, `'up'` after 6 px (hide the bars late, show them early). The engine's own scrolls never do. | Mobile scroll-direction detector | 2026-10-12 |
 | E24 | `setFooter` puts the host's block after the chapter, in the scroll flow but outside its text (positions, `find`, decorations unchanged). `chapterEnd` fires once per open, when the footer comes into view: by scrolling, an op, a style change or a reflow. | ADR-025: chapter-end block contents stay the host's | 2026-10-12 |
-| E25 | In a browser the engine reads the reading line with the caret, like the apps: its place is on the line web's caret probe reads. | [#789](https://github.com/mrviduus/textstack/issues/789): the old estimate was off by up to 226 px | 2026-10-12 |
-| E26 | `goTo` puts the place's line on the reading line. Until the reader scrolls, `current()` is that place exactly: open and save without a scroll never drifts. | #789; ADR-015 | 2026-10-12 |
-| E27 | Reading the place on a reader scroll costs under 4 ms a frame (a quarter of one at 60 fps) on a long chapter (Ulysses XV, 2760 table cells), CPU 4× slower. | [#790](https://github.com/mrviduus/textstack/issues/790): 6.3 ms before, 0.4 ms with the caret | 2026-10-12 |
+| E25 | In a browser the engine reads the reading line with the caret, like the apps: its place is on the line web's caret probe reads. Like the apps it takes a caret on text only (an empty table cell is skipped, #802). With no caret API it estimates per block. | [#789](https://github.com/mrviduus/textstack/issues/789): the old estimate was off by up to 226 px | 2026-10-12 |
+| E26 | `goTo` puts the place's line on the reading line, also when the place starts on a soft hyphen or whitespace (no width). Until the reader scrolls, `current()` is that place exactly: open and save without a scroll never drifts. | #789; ADR-015 | 2026-10-12 |
+| E27 | Reading the place on a reader scroll costs under 4 ms a frame (a quarter of one at 60 fps) on a long chapter (Ulysses XV, 2760 table cells), CPU 4× slower. | [#790](https://github.com/mrviduus/textstack/issues/790): 6.3 ms before, 0.4 ms with the caret, 0.1 ms with element carets skipped ([#804](https://github.com/mrviduus/textstack/issues/804)) | 2026-10-12 |
+| E28 | A tap of any kind (text, link, image, highlight) within 300 ms of the last one is a double (or triple) tap and emits nothing (a link still never navigates): the bars toggle once. The first tap is sent at once, never held. A clock change does not matter. | [#799](https://github.com/mrviduus/textstack/issues/799), owner choice; the old bridge held every tap 300 ms | 2026-10-12 |
+| E29 | The chapter growing above the reading line (an image loads) is one `'reflow'`, never `'scroll'`: the engine alone re-anchors (browser scroll anchoring is off in the chapter). | [#794](https://github.com/mrviduus/textstack/issues/794): Chromium anchors at once (+300 px) and only frame order kept its scroll from reading as the reader | 2026-10-12 |
 
 ## Before users get the engine (Phase 3)
 
 Open items are GitHub issues labelled [`phase-3-gate`](https://github.com/mrviduus/textstack/issues?q=label%3Aphase-3-gate):
-[#794](https://github.com/mrviduus/textstack/issues/794) browser scroll anchoring read as the reader moving;
-[#798](https://github.com/mrviduus/textstack/issues/798) taps ride on `click`, and no Android menu after a hold: check in the WebView;
-[#799](https://github.com/mrviduus/textstack/issues/799) no double-tap guard before `tap`.
+[#798](https://github.com/mrviduus/textstack/issues/798) taps ride on `click`, and no Android menu after a hold: check in the WebView (needs the engine loaded there: the first step of Phase 3).
