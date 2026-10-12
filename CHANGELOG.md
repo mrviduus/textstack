@@ -24,6 +24,8 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 ## [Unreleased]
 
 - **Reader** — engine Phase 2 slices 1+2: `goTo` resolution ladder (tie-break fixed) + the chapter as text (offset ↔ Range, selection/caret → Locator), test-first, no app imports it — shared · [details](docs/changelog-archive/2026-H2.md#2026-10-12-reader-engine-phase-2-slices-1-2)
+- **Docs** — `CLAUDE.md` 55 KB → 16 KB: feature, API, key-file, mobile and ops sections moved verbatim to `docs/claude/*.md` with a pointer table; cross-cutting rules kept inline — docs
+
 - **Refactor** — mobile book detail: Library membership moved into `useBookLibrary` (no behaviour change); 6 source-regex tests replaced by 4 `renderHook` behaviour tests — mobile
 - **Fix** — mobile (QA-007 #1–#3): Download adds the book to the Library through the Save path (LIB-1); the Library card's Continue on a PDF upload opens the reader at its saved page (RES-1); closing a selection clears the WebView selection and word mark without wiping a newer one (SEL-1) — mobile, shared · [details](docs/changelog-archive/2026-H2.md#2026-10-09-qa007-mobile-minimal)
 - **Fix** — TR-1: every translate of a tapped word or short selection sends the sentence of the tapped occurrence (QA-007 "pocketed → enterrado"; mobile bridge, toolbar, Translate sheet, save gloss, Add anyway; web toolbar + language switch), one shared body + cache-key rule — shared, web, mobile · [details](docs/changelog-archive/2026-H2.md#2026-10-08-translate-context)
