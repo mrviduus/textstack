@@ -1,56 +1,92 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Alert } from 'react-native'
-import { collectionsApi, libraryApi } from '@textstack/shared'
+import { ApiError, collectionsApi, libraryApi } from '@textstack/shared'
 import { countCollectionsHolding, decideLibraryRemoval } from '../lib/libraryRemoval'
 import { invalidateCollectionsCache } from './useCollections'
 
-/** Book detail's Library membership (LIB-1): is the book saved, and the Save toggle / Download save. */
+/**
+ * Book detail's Library membership (LIB-1): is the book saved, and the Save toggle / Download save.
+ *
+ * One queue: every getLibrary / POST / DELETE starts after the one before it settles, in tap order, so
+ * no request overtakes an earlier one (add → remove and remove → add). Writes are optimistic; a
+ * getLibrary answering while a write is queued predates that write and is dropped.
+ */
 export function useBookLibrary(bookId: string | undefined, t: (key: string) => string) {
   const [inLibrary, setInLibrary] = useState(false)
-  // Read after an await (the Download's session mint, an add in flight): the render's value may be stale by then (LIB-1).
-  const inLibraryRef = useRef(inLibrary)
-  const setSaved = (saved: boolean) => { inLibraryRef.current = saved; setInLibrary(saved) }
-  // The Download's add still in flight: a hand remove waits for it, so its DELETE never overtakes the POST (LIB-1).
-  const addInFlightRef = useRef<Promise<unknown>>(Promise.resolve())
+  // Read after an await (the Download's session mint, a queued op): the render's value may be stale by then (LIB-1).
+  const inLibraryRef = useRef(false)
+  // The book on screen; undefined once unmounted. An answer for any other book is dropped.
+  const currentRef = useRef(bookId)
+  const queueRef = useRef<Promise<unknown>>(Promise.resolve())
+  const writesRef = useRef(0)
 
-  // getLibrary, sent only after an add in flight settles, so its answer never predates that POST (LIB-1).
+  useEffect(() => {
+    currentRef.current = bookId
+    inLibraryRef.current = false
+    setInLibrary(false)
+    return () => { currentRef.current = undefined }
+  }, [bookId])
+
+  const setSaved = (id: string, saved: boolean) => {
+    if (currentRef.current !== id) return
+    inLibraryRef.current = saved
+    setInLibrary(saved)
+  }
+  const enqueue = (op: () => Promise<void>) => {
+    const p = queueRef.current.then(op)
+    queueRef.current = p.catch(() => {})
+    return p
+  }
+
   const loadLibrary = async (isCancelled = () => false) => {
-    const editionId = bookId!
-    try {
-      await addInFlightRef.current
-      const lib = await libraryApi.getLibrary()
-      if (!isCancelled()) setSaved(lib.some(item => item.editionId === editionId))
-    } catch (err) {
-      console.warn('getLibrary failed on book detail:', err)
-    }
+    const id = bookId
+    if (!id) return
+    return enqueue(async () => {
+      try {
+        const lib = await libraryApi.getLibrary()
+        if (!isCancelled() && writesRef.current === 0) setSaved(id, lib.some(item => item.editionId === id))
+      } catch (err) {
+        console.warn('getLibrary failed on book detail:', err)
+      }
+    })
   }
-  // Save to Library and Download (LIB-1) share this: optimistic "In Library"; a failed add re-reads the server.
-  const addToLibrary = () => {
-    setSaved(true)
-    const add = libraryApi.addToLibrary(bookId!).then(
-      // A getLibrary sent before the POST may answer after it: the write's success is the last word.
-      () => setSaved(true),
-      err => {
-        console.warn('library add failed:', err)
-        setSaved(false)
-        void loadLibrary()
-      },
-    )
-    addInFlightRef.current = add
-    return add
+
+  const write = (id: string, saved: boolean, request: (id: string) => Promise<void>, onFail: (err: unknown) => void) => {
+    setSaved(id, saved)
+    writesRef.current++
+    return enqueue(async () => {
+      // A later tap is already queued: its optimistic value is the newer truth.
+      const last = () => writesRef.current === 1
+      try {
+        await request(id)
+        if (last()) setSaved(id, saved)
+      } catch (err) {
+        if (last()) onFail(err)
+      } finally {
+        writesRef.current--
+      }
+    })
   }
-  // Optimistic removal, rolled back if it fails.
+  // Save to Library and Download (LIB-1) share this; a failed add re-reads the server.
+  const addToLibrary = async () => {
+    const id = bookId
+    if (!id) return
+    return write(id, true, libraryApi.addToLibrary, err => {
+      console.warn('library add failed:', err)
+      setSaved(id, false)
+      void loadLibrary()
+    })
+  }
+  // The server takes it out of its collections too (#706). No shelf cache: the Library tab refetches on focus.
   const removeFromLibrary = async () => {
-    setSaved(false)
-    try {
-      await libraryApi.removeFromLibrary(bookId!)
-      // The server took it out of its collections too (#706).
-      invalidateCollectionsCache()
-      // No shelf cache to drop: the Library tab refetches on focus.
-    } catch (err) {
-      console.warn('library toggle failed:', err)
-      setSaved(true)
-    }
+    const id = bookId
+    if (!id) return
+    return write(id, false, x => libraryApi.removeFromLibrary(x).then(invalidateCollectionsCache), err => {
+      // 404: it is not in the Library, which is what the remove wanted.
+      if (err instanceof ApiError && err.status === 404) return invalidateCollectionsCache()
+      console.warn('library remove failed:', err)
+      setSaved(id, true)
+    })
   }
   const removeWithConfirm = async () => {
     // Removing also empties the book out of every collection it is in,
@@ -79,11 +115,12 @@ export function useBookLibrary(bookId: string | undefined, t: (key: string) => s
       ],
     )
   }
-  // The Save button.
+  // The Save button. The ref, not the render: a double tap must not send two POSTs.
   const toggle = async () => {
-    if (!inLibrary) return addToLibrary()
-    // A remove waits for a Download's add still in flight; if that add failed there is nothing to remove (LIB-1).
-    await addInFlightRef.current
+    if (!bookId) return
+    if (!inLibraryRef.current) return addToLibrary()
+    // The confirm waits for queued ops; if a Download's add failed there is nothing to remove (LIB-1).
+    await queueRef.current
     if (inLibraryRef.current) return removeWithConfirm()
   }
   // Download, Retry and Restart (LIB-1): a download is intent; Cancel never takes it back.
