@@ -8,7 +8,7 @@ import { chapterText, textNodes } from './text'
  * with its rule ID (docs/05-features/reader-engine.md). The fake layout is in engine.testkit.ts.
  */
 
-afterEach(destroyAll)
+afterEach(() => { destroyAll(); vi.restoreAllMocks() })
 
 const MIDDLE = 'Malin log 3'
 
@@ -211,10 +211,21 @@ describe('markWords', () => {
     expect(reader.drawn('word')).toHaveLength(240)
     // 1 walk to match the words, 1 to place them; 1 Range reused. Before: 2 walks + 1 Range per mark —
     // seconds on a long chapter (every live Range is updated on each DOM change).
-    expect(walks.mock.calls.filter(([root]) => root === reader.chapter)).toHaveLength(2)   // the fake layout walks paragraphs
-    expect(ranges.mock.calls.length).toBeLessThanOrEqual(1)
-    walks.mockRestore()
-    ranges.mockRestore()
+    // At most 2 over the whole chapter, however many marks (the fake layout walks single paragraphs).
+    expect(walks.mock.calls.filter(([root]) => root === reader.chapter).length).toBeLessThanOrEqual(2)
+    expect(ranges).toHaveBeenCalledTimes(1)
+  })
+
+  it('E18 with nothing to draw, a style change or a reflow does not walk the chapter', async () => {
+    const reader = makeReader()
+    await reader.open()
+    const walks = vi.spyOn(document, 'createTreeWalker')
+
+    reader.setStyle({ fontSize: 20 })
+    reader.grow('Arden log 1', 100)
+    await reader.settle()
+
+    expect(walks.mock.calls.filter(([root]) => root === reader.chapter)).toEqual([])
   })
 
   it('E18 a saved phrase is marked whole, not also as its words; a new call replaces the set', async () => {

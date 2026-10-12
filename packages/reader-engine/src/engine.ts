@@ -230,6 +230,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
   /** Draws every mark where its text is now. */
   function paint() {
     layer.replaceChildren()
+    if (!marks.length) return
     const rangeAt = rangesIn(content)
     const scratch = doc.createRange()   // marks keep rects, not ranges
     for (const m of marks) {
