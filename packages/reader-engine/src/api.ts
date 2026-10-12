@@ -52,8 +52,8 @@ export interface ChapterDoc {
 }
 
 /**
- * 'superseded': the op did not land — a newer open / goTo replaced it, or (D1) the locator is another
- * chapter's, which also emits an `anchor-miss` error.
+ * 'superseded': the op did not land — a newer open / goTo replaced it, or (D1) a `goTo` got another
+ * chapter's locator. `open` with one opens at the top ('start'); both emit an `anchor-miss` error.
  */
 export type GoToResult = 'exact' | 'fuzzy' | 'fraction' | 'legacyOffset' | 'start' | 'superseded'
 

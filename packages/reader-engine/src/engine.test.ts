@@ -12,7 +12,7 @@ import { chapterText, positionAt, rangeAt } from './text'
 
 const WORDS = 'river stone lantern harbor meadow copper whisper orchard thunder velvet compass ember glacier willow'.split(' ')
 const PARAGRAPHS = Array.from({ length: 40 }, (_, i) =>
-  `Part ${i}: ` + Array.from({ length: 45 }, (_, j) => WORDS[(i * 7 + j * 3) % WORDS.length] + (j % 9 === 8 ? '.' : '')).join(' '))
+  `Part ${i}: ` + Array.from({ length: 45 }, (_, j) => WORDS[(i * 7 + j * 3) % WORDS.length] + (j % 6 === 5 ? ` ${i}-${j}.` : '')).join(' '))
 const HTML = PARAGRAPHS.map((p) => `<p>${p}</p>`).join('')
 const VIEWPORT = 400
 const WIDTH = 640
@@ -30,7 +30,7 @@ let destroyers: (() => void)[] = []
 afterEach(() => { destroyers.forEach((d) => d()); destroyers = [] })
 
 /** A reader on a fake layout: lines of `fontSize * 1.5` px, `WIDTH / (fontSize / 2)` characters each. */
-function setup(opts: { fontsReady?: () => Promise<void> } = {}) {
+function setup(opts: { fontsReady?: () => Promise<void>; html?: string } = {}) {
   const root = document.createElement('div')
   document.body.append(root)
   const scroller = document.createElement('div')
@@ -74,7 +74,7 @@ function setup(opts: { fontsReady?: () => Promise<void> } = {}) {
   /** A stored reading position at `offset`, quoted the way the apps quote it. */
   const at = (offset: number, href = 'c1'): Locator => {
     const chapter = document.createElement('div')
-    chapter.innerHTML = HTML
+    chapter.innerHTML = opts.html ?? HTML
     const r = rangeAt(chapter, offset, 1)!
     return { ...positionAt(chapter, r.startContainer, r.startOffset, 'c1', 0.5)!, href }
   }
@@ -122,6 +122,29 @@ describe('open', () => {
     expect(result).toBe('start')
     expect(scroller.scrollTop).toBe(0)
     expect(events.find((x) => x.e === 'error')?.p).toMatchObject({ code: 'anchor-miss', detail: expect.stringContaining('c9') })
+  })
+})
+
+describe('real chapter HTML', () => {
+  // Server HTML has newlines between blocks and blocks inside blocks. Whitespace under a container,
+  // or text beside a child block, must not claim the container's whole box.
+  const REAL = PARAGRAPHS.map((p, i) => i % 5 === 2 ? `<blockquote>Quoted: <p>${p}</p></blockquote>` : `<p>${p}</p>`).join('\n')
+
+  it('E10 newlines between blocks and nested blocks: every target lands exact on the reading line', async () => {
+    const { engine, at } = setup({ html: REAL })
+    await engine.open({ href: 'c1', layout: 'reflow', html: REAL })
+    for (const offset of TARGETS) {
+      expect(await engine.goTo(at(offset))).toBe('exact')
+      expect(lineOffset(engine)).toBe(offset)
+    }
+  })
+
+  it('E10 a font change on real HTML keeps the reading line', async () => {
+    const { engine, at } = setup({ html: REAL })
+    await engine.open({ href: 'c1', layout: 'reflow', html: REAL }, at(4321))
+    engine.setStyle({ fontSize: 24 })
+    await flush()
+    expect(lineOffset(engine)).toBe(4321)
   })
 })
 
@@ -177,6 +200,28 @@ describe('goTo', () => {
     expect(await first).toBe('superseded')
     expect(await second).toBe('start')
     expect(await engine.goTo(at(517))).toBe('exact')
+  })
+})
+
+describe('a landing reports the place it was sent to', () => {
+  it('E11 near the chapter end the scroll stops short: relocated still carries the target, not the line above it', async () => {
+    const end = PARAGRAPHS.join('').length - 80
+    const { engine, at, relocated } = setup()
+    expect(await engine.open({ href: 'c1', layout: 'reflow', html: HTML }, at(end), 'o')).toBe('exact')
+    expect(relocated().at(-1)!.locator.locations.charOffset).toBe(end)
+  })
+})
+
+describe('ready', () => {
+  it('E12 a goTo that overtakes an open still gets the chapter its ready', async () => {
+    const fonts = deferred()
+    const { engine, at, events } = setup({ fontsReady: () => fonts.promise })
+    const opening = engine.open({ href: 'c1', layout: 'reflow', html: HTML }, undefined, 'o')
+    const going = engine.goTo(at(1900), { opId: 'g' })
+    fonts.resolve()
+    expect(await opening).toBe('superseded')
+    expect(await going).toBe('exact')
+    expect(events.filter((x) => x.e === 'ready')).toEqual([{ e: 'ready', p: { opId: 'o', href: 'c1' } }])
   })
 })
 

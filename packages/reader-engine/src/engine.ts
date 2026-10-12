@@ -52,6 +52,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
   let href: string | undefined
   let text = ''
   let segments: Segment[] = []
+  let docSeq = 0                         // open: a newer one replaces the document
   let moveSeq = 0                        // open / goTo: a newer one supersedes an older
   let styleSeq = 0
   let target: Locator | null = null      // where the open / goTo in flight will land
@@ -70,15 +71,18 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
     const out: Segment[] = []
     let at = 0
     for (const t of textNodes(el)) {
-      let block = t.parentElement!
-      while (block !== el && INLINE.has(block.tagName)) block = block.parentElement!
-      const prev = out[out.length - 1]
-      if (prev?.el === block) prev.length += t.length
-      else out.push({ el: block, start: at, length: t.length })
+      // Whitespace between blocks has no line of its own; a segment for it would claim the container's box.
+      if (t.data.trim()) {
+        let block = t.parentElement!
+        while (block !== el && INLINE.has(block.tagName)) block = block.parentElement!
+        const prev = out[out.length - 1]
+        if (prev?.el === block && prev.start + prev.length === at) prev.length += t.length
+        else out.push({ el: block, start: at, length: t.length })
+      }
       at += t.length
     }
-    // ponytail: a block with text both before and after a child block is two segments measured with
-    // the parent's whole box, so the reading line there is approximate; per-line rects if it matters.
+    // ponytail: text beside a child block (`<li>Intro <p>…</p></li>`) is placed across the parent's
+    // whole box, so the reading line there is approximate; per-line rects if it matters.
     return out
   }
 
@@ -86,33 +90,37 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
   function offsetAtY(y: number): number {
     const box = measure(content)
     y = Math.max(box.top, Math.min(y, box.top + box.height - 1))
+    let hit: { s: Segment; m: { top: number; height: number } } | undefined
     let above: Segment | undefined
     for (const s of segments) {
       const m = measure(s.el)
-      if (m.top <= y && y < m.top + m.height) {
-        return s.start + Math.min(s.length - 1, Math.floor(((y - m.top) / m.height) * s.length + 1e-6))
-      }
-      if (m.top + m.height <= y) above = s
+      // Innermost wins: a parent block's box holds its children's (ties: the later, deeper one).
+      if (m.top <= y && y < m.top + m.height) { if (!hit || m.height <= hit.m.height) hit = { s, m } }
+      else if (m.top + m.height <= y) above = s
     }
     // ponytail: linear scan of every block per capture; binary search on block tops if long chapters stutter.
-    return above ? above.start + above.length : 0
+    if (!hit) return above ? above.start + above.length : 0
+    const { s, m } = hit
+    return s.start + Math.min(s.length - 1, Math.floor(((y - m.top) / m.height) * s.length + 1e-6))
   }
 
+  /** Content y of a chapter offset; an offset between blocks is the top of the next one. */
   function yAtOffset(offset: number): number {
-    let seg = segments[segments.length - 1]
-    for (const s of segments) if (s.start <= offset && offset < s.start + s.length) seg = s
+    const seg = segments.find((s) => offset < s.start + s.length) ?? segments[segments.length - 1]
     if (!seg) return 0
     const m = measure(seg.el)
-    return m.top + (Math.min(offset - seg.start, seg.length) / seg.length) * m.height
+    return m.top + (Math.max(0, Math.min(offset - seg.start, seg.length)) / seg.length) * m.height
+  }
+
+  function progression(): number {
+    const max = scroller.scrollHeight - viewport().height
+    return max > 0 ? Math.min(1, Math.max(0, scroller.scrollTop / max)) : 0
   }
 
   /** The reader's place right now, read off the reading line. */
   function capture(): Locator {
-    const vh = viewport().height
-    const max = scroller.scrollHeight - vh
-    const progression = max > 0 ? Math.min(1, Math.max(0, scroller.scrollTop / max)) : 0
-    const at = offsetAtY(scroller.scrollTop + READING_LINE * vh)
-    return (href && locatorAt(text, at, href, progression)) || { href, type: 'text/html', locations: { progression } }
+    const at = offsetAtY(scroller.scrollTop + READING_LINE * viewport().height)
+    return (href && locatorAt(text, at, href, progression())) || { href, type: 'text/html', locations: { progression: progression() } }
   }
 
   /** Rule 8: the target in flight, or the reading line when nothing is. */
@@ -133,12 +141,24 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
     }
   }
 
-  /** The op landed: one relocated, and this is now the place a reflow keeps. */
+  /**
+   * Scrolls to a locator and makes it the place a reflow keeps. Text that was found is reported as
+   * itself, even when the scroll stops short of the line (chapter top or end); null: another chapter.
+   */
+  function land(loc: Locator | null, line = READING_LINE): GoToResult | null {
+    const r = resolveLocator(loc, href, text)
+    if (!r) return null
+    scrollTo(topFor(r, line))
+    const found = (r.result === 'exact' || r.result === 'fuzzy') && href ? locatorAt(text, r.offset, href, progression()) : null
+    last = found ?? capture()
+    height = measure(content).height
+    return r.result
+  }
+
+  /** The op landed: one relocated with the landed place. */
   function settle(reason: Reason, opId: string | undefined, result: GoToResult): GoToResult {
     target = null
-    last = capture()
-    height = measure(content).height
-    emit('relocated', { locator: last, reason, opId })
+    emit('relocated', { locator: last!, reason, opId })
     return result
   }
 
@@ -190,9 +210,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
     const h = measure(content).height
     if (h === height) return
     height = h
-    const r = last && resolveLocator(last, href, text)
-    if (r) scrollTo(topFor(r, READING_LINE))
-    emit('relocated', { locator: capture(), reason: 'reflow' })
+    emit('relocated', { locator: last && land(last) ? last : capture(), reason: 'reflow' })
   }
 
   const scrollSource: EventTarget = scroller === page ? doc : scroller
@@ -203,6 +221,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
     async open(d: ChapterDoc, at?: Locator, opId?: string) {
       if (d.layout !== 'reflow') throw new Error('reader-engine: the fixed layout arrives in Phase 5')
       const seq = ++moveSeq
+      const mine = ++docSeq
       opened = true
       href = d.href
       content.innerHTML = d.html ?? ''
@@ -217,13 +236,11 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
       scrollTo(0)
       await fontsReady()
       await frame()
+      if (mine !== docSeq) return superseded('open', opId)
+      emit('ready', { opId: opId ?? '', href })   // even when a goTo overtook the open: same document
       if (seq !== moveSeq) return superseded('open', opId)
-      emit('ready', { opId: opId ?? '', href })
-      if (seq !== moveSeq) return superseded('open', opId)   // a ready listener moved on
       if (at && !ours) miss(at)
-      const r = resolveLocator(ours, href, text)!
-      scrollTo(topFor(r, READING_LINE))
-      return settle('open', opId, r.result)
+      return settle('open', opId, land(ours)!)
     },
 
     async goTo(at: Locator, o?: { align?: 'reading-line' | 'center'; opId?: string }) {
@@ -239,9 +256,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
       styleAnchor = null
       await frame()
       if (seq !== moveSeq) return superseded('goTo', opId)
-      const r = resolveLocator(at, href, text)!
-      scrollTo(topFor(r, o?.align === 'center' ? 0.5 : READING_LINE))
-      return settle('goTo', opId, r.result)
+      return settle('goTo', opId, land(at, o?.align === 'center' ? 0.5 : READING_LINE)!)
     },
 
     setStyle(s: Style, opId?: string) {
@@ -252,11 +267,9 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
       schedule(() => {
         if (!alive) return
         if (mine === styleSeq && styleAnchor && !target) {
-          const r = resolveLocator(styleAnchor, href, text)
+          const anchor = styleAnchor
           styleAnchor = null
-          if (r) scrollTo(topFor(r, READING_LINE))
-          last = capture()
-          height = measure(content).height
+          if (land(anchor)) return emit('relocated', { locator: last!, reason: 'style', opId })
         }
         emit('relocated', { locator: here(), reason: 'style', opId })
       })
@@ -274,6 +287,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
     destroy() {
       alive = false
       moveSeq++
+      docSeq++
       opened = false
       target = styleAnchor = null
       listeners.clear()
