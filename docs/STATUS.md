@@ -39,8 +39,7 @@ answers "what happened" and nothing answered "what is half-finished right now".
 >    migration behind flags, no iframe, scroll only, reflow then PDF. Phase 0 #774 merged; Phase 1: [ADR-025](01-architecture/adr/ADR-025-reader-engine-package.md)
 >    accepted, `packages/reader-engine` = API types + stored-shape mappers (test-first). Android spike
 >    done: 8/8 pass ([results](01-architecture/adr/ADR-025-reader-engine-package.md#android-spike-results-phase-1b-2026-10-08)). Phase 2 slices 1–3 done (ladder, chapter as text, engine core reflow); next slice 4 (decorations).
->    **Must do before Phase 3** (slice 3 review): reading-line accuracy vs the apps' caret probe and
->    scroll cost on a long chapter — both need a real browser/phone ([rules page](05-features/reader-engine.md#before-users-get-the-engine-phase-3)). Production engine
+>    **Must do before Phase 3:** [open `phase-3-gate` issues](https://github.com/mrviduus/textstack/issues?q=is%3Aopen+label%3Aphase-3-gate) (#789 caret probe, #790 scroll cost). Production engine
 >    code only after Play launch. Owner runs [QA-007](qa/scenarios/QA-007-reader-android-r1-r4.md).
 > 3. Later, in 2–3 bundled PRs while reader work waits on something: the rest of
 >    [review 2026-10](01-architecture/review-2026-10/00-summary.md) (#19 admin roles/audit, #20 book models,
@@ -105,6 +104,8 @@ answers "what happened" and nothing answered "what is half-finished right now".
 - **Article** — Sentry write-up, draft on vasyl.blog; needs edits, image, publish, then a DEV cross-post.
 
 ## Known-broken / open follow-ups
+
+> New open items go to [GitHub issues](https://github.com/mrviduus/textstack/issues) (from 2026-10-12). The items below move to an issue when someone touches them.
 
 - **Shared `nearestOccurrence` tie-break overrides a context-unique match** (2026-10-12, ADR-025 spike
   finding). Web and mobile resolve the `repeated-second` / `edge-repeat-end` anchor fixtures to the wrong

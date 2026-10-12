@@ -31,9 +31,6 @@ carries its `opId`.
 
 ## Before users get the engine (Phase 3)
 
-Open items found in the slice 3 review; tracked in [STATUS](../STATUS.md):
-
-- **Reading-line accuracy.** The engine finds the text at the reading line by a straight-line estimate
-  inside each paragraph; the apps ask the browser (caret probe). Inside a long paragraph the two can
-  differ by a few lines. Needs a real browser to measure: Playwright on the playground.
-- **Scroll cost.** Each scroll measures every paragraph once. Measure on a phone with a long chapter.
+Open items are GitHub issues labelled [`phase-3-gate`](https://github.com/mrviduus/textstack/issues?q=label%3Aphase-3-gate):
+[#789](https://github.com/mrviduus/textstack/issues/789) reading line via the caret probe, like the apps;
+[#790](https://github.com/mrviduus/textstack/issues/790) scroll cost on a long chapter.
