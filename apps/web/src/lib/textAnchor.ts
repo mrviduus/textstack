@@ -304,7 +304,9 @@ export function readReadingLine(
   const xs = [rect.left + 24, rect.left + rect.width / 2, rect.right - 24]
   for (const x of xs) {
     const caret = caretAt(x, y)
-    if (!caret || !article.contains(caret.node)) continue
+    // A caret on an element (an empty table cell) is not a place in the text: the counter below
+    // would read the whole chapter (#802).
+    if (!caret || caret.node.nodeType !== Node.TEXT_NODE || !article.contains(caret.node)) continue
     const before = extractText(article, article, 0, caret.node, caret.offset)
     const after = extractText(article, caret.node, caret.offset, null, null)
     if (before.length + after.length === 0) continue
