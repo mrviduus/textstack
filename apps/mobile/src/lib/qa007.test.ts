@@ -20,21 +20,11 @@ describe('QA-007', () => {
     expect(src).toMatch(/onRemove=\{\(\) => removeDownload\(book\.id\)\.then\(\(\) => setCached\(false\)\)\}/)
   })
 
-  it('LIB-1 wiring: Download/Retry/Restart share one handler, which adds only a book not already saved', () => {
+  it('LIB-1 wiring: Download/Retry/Restart share one handler (its save: useBookLibrary.test.ts)', () => {
     const src = read('app/book/[slug].tsx')
     expect(src).toMatch(/onStart=\{onDownload\(\(\) => startDownload\(book, language\)\)\}/)
     expect(src).toMatch(/onRetry=\{onDownload\(\(\) => retryFailed\(book\.id\)\)\}/)
     expect(src).toMatch(/onRestart=\{onDownload\(\(\) => startDownload\(book, language\)\)\}/)
-    expect(src).toMatch(/save: \(\) => \{ if \(!inLibraryRef\.current\) void addToLibrary\(\) \}/)
-    // The Save toggle's remove keeps its collections confirm.
-    expect(src).toMatch(/const removeWithConfirm = async \(\) => \{[\s\S]*?collectionsApi\.listCollections\(\)[\s\S]*?decideLibraryRemoval/)
-    expect(src).toMatch(/await loadLibrary\(\(\) => cancelled\)/)
-  })
-
-  it('LIB-1: getLibrary is sent only after an add in flight settles, so its answer never predates the POST', () => {
-    const src = read('app/book/[slug].tsx')
-    expect(src).toMatch(/await addInFlightRef\.current\s*const lib = await libraryApi\.getLibrary\(\)/)
-    expect(src).toMatch(/addInFlightRef\.current = add\s*return add/)
   })
 
   it('RES-1: hero Continue on a page:N upload opens the reader at the chapter holding the page; lookup failure → detail', async () => {
@@ -332,15 +322,8 @@ describe('QA-007', () => {
     save = vi.fn(); ensureSession = vi.fn()
     await downloadAndSave({ run: vi.fn(), getAccessToken: async () => null, hasSession: true, ensureSession, save })
     expect(ensureSession).not.toHaveBeenCalled(); expect(save).toHaveBeenCalledTimes(1)
-    // Device run: the minted session refetches the Library while the add's POST is in flight, and that
-    // GET answered "not in library" before the POST finished. The write's success is the last word.
-    expect(read('app/book/[slug].tsx')).toMatch(/libraryApi\.addToLibrary\(book!\.id\)\.then\(\s*\/\/[^\n]*\n\s*\(\) => setSaved\(true\)/)
     // Wiring: the screen's Download handler goes through it with the auth context's ensureSession.
     expect(read('app/book/[slug].tsx')).toMatch(/downloadAndSave\(\{ run, hasSession: isAuthenticated, ensureSession, getAccessToken,/)
-  })
-
-  it('LIB-1: a failed optimistic add re-reads the Library, so the button shows the server', () => {
-    expect(read('app/book/[slug].tsx')).toMatch(/setSaved\(false\)\s*void loadLibrary\(\)/)
   })
 
   it('RES-1: a server lookup writes the start pages into the device cache, so the next offline Continue works', async () => {
@@ -361,17 +344,6 @@ describe('QA-007', () => {
     expect(read('src/components/library/ResumeHero.tsx')).toMatch(/remember: storeCachedUserChapterStartPages/)
     expect(read('src/lib/offlineDb.ts')).toMatch(/UPDATE user_chapters SET source_start_page = \? WHERE book_id = \? AND chapter_slug = \? AND source_start_page IS NULL/)
     expect(read('src/lib/offlineDb.web.ts')).toContain('export async function storeCachedUserChapterStartPages')
-  })
-
-  it('LIB-1: a hand remove waits for an in-flight Download add, and skips the DELETE when that add failed', () => {
-    // Review r8: a failed add then a DELETE answered 404 and rolled the button back to "In Library".
-    expect(read('app/book/[slug].tsx')).toMatch(/if \(!inLibrary\) return addToLibrary\(\)[\s\S]*?await addInFlightRef\.current\s*if \(inLibraryRef\.current\) return removeWithConfirm\(\)/)
-  })
-
-  it('LIB-1: every library state change goes through setSaved, so a read after an await sees it at once, not after a render', () => {
-    const src = read('app/book/[slug].tsx')
-    expect(src).toMatch(/const setSaved = \(saved: boolean\) => \{ inLibraryRef\.current = saved; setInLibrary\(saved\) \}/)
-    expect(src.match(/setInLibrary\(/g)).toHaveLength(1)
   })
 
   it('one deadline helper for the library/resume waits; SessionGate keeps its mount timer', async () => {
