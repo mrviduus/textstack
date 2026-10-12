@@ -2,12 +2,13 @@
 // document order — what web `createTextAnchor` and the phone's `getSelectionAnchor` count — so stored
 // anchors land on the same characters. Reads the DOM only; never changes a text node.
 //
-// Skips the apps' gloss nodes like both apps do: until slice 4 the legacy vocab path still writes
-// them into the chapter the engine reads.
+// Skips the apps' gloss nodes like both apps do: the legacy vocab path still writes them into the
+// chapter until Phase 6, and the engine's own overlay carries the same marker.
 import type { Locator } from './api'
 import { ANCHOR_CONTEXT_LENGTH } from '../../shared/src/reader/textAnchor'
 import { buildTextPosition } from '../../shared/src/reader/textPosition'
 import { READER_GLOSS_SELECTOR } from '../../shared/src/text/gloss'
+import { normalizeVocabKey, tokenizeVocabWords } from '../../shared/src/text/vocabKey'
 
 const NOT_TEXT = `script, style, noscript, ${READER_GLOSS_SELECTOR}`
 
@@ -59,7 +60,11 @@ export function rangeToLocator(root: Node, range: Range, href: string): Locator 
   const start = offsetOf(root, range.startContainer, range.startOffset)
   const end = offsetOf(root, range.endContainer, range.endOffset)
   if (start === null || end === null || end <= start) return null
-  const text = chapterText(root)
+  return quoteAt(chapterText(root), start, end, href)
+}
+
+/** [start, end) of the chapter's text as a TextQuoteSelector locator. */
+export function quoteAt(text: string, start: number, end: number, href?: string): Locator {
   const n = ANCHOR_CONTEXT_LENGTH
   return {
     href,
@@ -67,6 +72,34 @@ export function rangeToLocator(root: Node, range: Range, href: string): Locator 
     locations: { charOffset: start },
     text: { before: text.slice(Math.max(0, start - n), start), highlight: text.slice(start, end), after: text.slice(end, end + n) },
   }
+}
+
+const WORD_CHAR = /[\p{L}\p{M}\p{N}]/u
+
+/**
+ * Where saved words stand in the chapter's text, by the apps' vocabulary key (whole words, any case).
+ * Phrases first, longest first, so "make sense" is never also "make" + "sense".
+ * ponytail: offsets assume NFC normalisation keeps lengths, like the web matcher; true for server HTML.
+ */
+export function matchWords<T extends { word: string }>(text: string, items: T[]): { item: T; start: number; end: number }[] {
+  const byKey = new Map(items.map((i) => [normalizeVocabKey(i.word), i]))
+  const out: { item: T; start: number; end: number }[] = []
+  const taken = new Uint8Array(text.length)
+  const lower = text.normalize('NFC').toLowerCase()
+  const phrases = [...byKey.keys()].filter((k) => k.includes(' ')).sort((a, b) => b.length - a.length)
+  for (const key of phrases) {
+    for (let at = lower.indexOf(key); at !== -1; at = lower.indexOf(key, at + 1)) {
+      const end = at + key.length
+      if (WORD_CHAR.test(text.charAt(at - 1)) || WORD_CHAR.test(text.charAt(end)) || taken.subarray(at, end).includes(1)) continue
+      taken.fill(1, at, end)
+      out.push({ item: byKey.get(key)!, start: at, end })
+    }
+  }
+  for (const t of tokenizeVocabWords(text)) {
+    const item = byKey.get(normalizeVocabKey(t.word))
+    if (item && !taken[t.start]) out.push({ item, start: t.start, end: t.end })
+  }
+  return out.sort((a, b) => a.start - b.start)
 }
 
 /**

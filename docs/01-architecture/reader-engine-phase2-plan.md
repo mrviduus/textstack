@@ -24,11 +24,13 @@ code stays where it is until the platform's flag flips, and is deleted in Phase 
 3. **Engine core, reflow.** `createEngine` with `open` / `goTo` / `setStyle` / `current` / `on` /
    `destroy`: one `relocated` per op with its `opId` before the promise resolves, `superseded`,
    `reason:'scroll'` only after the last op settled, re-anchor on style change and late image loads.
-   Test seams (`scroller`, `measure`, `viewport`, `schedule`, `observeResize`, `fontsReady`). Pins
+   Test seams (`scroller`, `measure`, `viewport`, `schedule`, `observeResize`, `fontsReady`; slice 4 adds `rects`). Pins
    ADR-019 rules 3, 7 and 8 at the engine level.
 4. **Decorations.** `Overlayer` moves in from `reader-overlay`; `decorate('highlight' | 'search')`,
    `find`, `markWords` with inline translations drawn over the text (no `<mark>`, no text-node
    change — the root fix for the STATUS "legacy `<mark>` vocab path" item); `decorationTap`.
+   *Done 2026-10-12:* rules E13–E19; `reader-overlay` is now a re-export (D3); the vocab key rules
+   (`tokenizeVocabWords`, `normalizeVocabKey`) moved to shared so web and the engine match the same words.
 5. **ADR-019 pure rules join the engine API.** `newerPosition`, `progressPrecedence`, `pdfPersistGate`:
    the engine re-exports them from shared and owns one pinning test each (rules 1–8 table). The code
    stays in shared until Phase 6 — shared re-exporting from the engine would be an import cycle (D2).

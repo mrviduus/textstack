@@ -38,7 +38,7 @@ answers "what happened" and nothing answered "what is half-finished right now".
 > 2. **Reader engine** — decided 2026-10-08: separate package `packages/reader-engine`, strangler
 >    migration behind flags, no iframe, scroll only, reflow then PDF. Phase 0 #774 merged; Phase 1: [ADR-025](01-architecture/adr/ADR-025-reader-engine-package.md)
 >    accepted, `packages/reader-engine` = API types + stored-shape mappers (test-first). Android spike
->    done: 8/8 pass ([results](01-architecture/adr/ADR-025-reader-engine-package.md#android-spike-results-phase-1b-2026-10-08)). Phase 2 slices 1–3 done (ladder, chapter as text, engine core reflow); next slice 4 (decorations).
+>    done: 8/8 pass ([results](01-architecture/adr/ADR-025-reader-engine-package.md#android-spike-results-phase-1b-2026-10-08)). Phase 2 slices 1–4 done (ladder, chapter as text, engine core reflow, decorations); next slice 5 (ADR-019 rules join the API).
 >    **Must do before Phase 3:** [open `phase-3-gate` issues](https://github.com/mrviduus/textstack/issues?q=is%3Aopen+label%3Aphase-3-gate) (#789 caret probe, #790 scroll cost). Production engine
 >    code only after Play launch. Owner runs [QA-007](qa/scenarios/QA-007-reader-android-r1-r4.md).
 > 3. Later, in 2–3 bundled PRs while reader work waits on something: the rest of

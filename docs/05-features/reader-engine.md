@@ -6,7 +6,7 @@ What `packages/reader-engine` promises its hosts (web, mobile), in plain words. 
 [phase 2 plan](../01-architecture/reader-engine-phase2-plan.md).
 
 Each rule has one ID. The test that pins it starts its name with that ID
-(`packages/reader-engine/src/engine.test.ts`). Change a rule here first, then its test, then the code.
+(`packages/reader-engine/src/engine.test.ts`; decorations, E13–E19, in `decorations.test.ts`). Change a rule here first, then its test, then the code.
 
 **Words used below.** The *reading line* is a quarter down the screen: the text there is "where the
 reader is". An *op* is `open`, `goTo` or `setStyle`. An op's *ack* is the one `relocated` event that
@@ -28,6 +28,13 @@ carries its `opId`.
 | E10 | Real server HTML (newlines between blocks, blocks inside blocks) behaves the same as clean HTML. | Code review of slice 3 (bug: all positions below paragraph 1 read as one) | 2026-10-12 |
 | E11 | An op's ack names the place it was sent to, even when the scroll stops short (chapter top or end). | Code review of slice 3 (bug: position moved backwards on save) | 2026-10-12 |
 | E12 | `ready` fires for every chapter shown, even when a `goTo` overtakes the `open`. | Code review of slice 3 (bug: host waits forever) | 2026-10-12 |
+| E13 | `decorate` draws each highlight or search hit over its text; the chapter's text nodes never change. A call replaces its own group only. | ADR-025: decorations draw over the text | 2026-10-12 |
+| E14 | An item from another chapter, or whose text is gone, is not drawn. Never on a look-alike place. | ADR-015; same ladder as `goTo` (quote, exact or fuzzy) | 2026-10-12 |
+| E15 | Decorations follow their text: redrawn after a style change and a late reflow. They belong to their chapter: open another and its own are drawn; come back and these are again. | Web R2 "ghost highlights" / new chapter never painted | 2026-10-12 |
+| E16 | A tap on a highlight or search hit emits `decorationTap` with its id and box on screen. A highlight under a search hit wins. A tap on plain text emits nothing. | ADR-025 API | 2026-10-12 |
+| E17 | `find` returns every match in reading order (any case, a no-break space = a space), each with 40 characters of context and a locator `goTo` and `decorate` land on. | Web in-book search (drawer list = painted hits) | 2026-10-12 |
+| E18 | `markWords` underlines each saved word where it stands as a whole word, in any case; a saved phrase is marked whole, never also as its words. A call replaces the set. | Web vocab matcher, now over the chapter text | 2026-10-12 |
+| E19 | With translations on, each marked word with a translation shows it above the word, drawn over the text: the chapter text, and so every anchor and position, stays the same. | STATUS "legacy `<mark>` vocab path": the root fix | 2026-10-12 |
 
 ## Before users get the engine (Phase 3)
 

@@ -140,6 +140,7 @@ export function createEngine(root: HTMLElement, opts?: {
   schedule?: (cb: () => void) => void
   observeResize?: (el: Element, cb: () => void) => () => void
   fontsReady?: () => Promise<void>
+  rects?: (range: Range) => Rect[]              // a range's line boxes, root-relative (slice 4)
 }): ReaderEngine
 ```
 

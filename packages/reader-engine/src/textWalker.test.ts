@@ -1,5 +1,6 @@
+// @vitest-environment jsdom
 import { describe, it, expect, beforeEach } from 'vitest'
-import { textWalker, findTextMatches } from '@textstack/reader-overlay'
+import { textWalker, findTextMatches } from './textWalker'
 
 describe('textWalker', () => {
   let root: HTMLElement

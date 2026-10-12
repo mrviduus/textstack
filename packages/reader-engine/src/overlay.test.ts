@@ -1,5 +1,6 @@
+// @vitest-environment jsdom
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { Overlayer } from '@textstack/reader-overlay'
+import { Overlayer } from './overlay'
 
 // JSDOM doesn't implement Range.getClientRects — assign a stub per range.
 function stubRects(range: Range, rects: Partial<DOMRect>[]): void {

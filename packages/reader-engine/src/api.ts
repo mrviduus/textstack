@@ -115,4 +115,6 @@ export interface EngineOptions {
   schedule?: (cb: () => void) => void
   observeResize?: (el: Element, cb: () => void) => () => void
   fontsReady?: () => Promise<void>
+  /** A range's line boxes, relative to the root's top-left (jsdom has no `getClientRects`). */
+  rects?: (range: Range) => Rect[]
 }

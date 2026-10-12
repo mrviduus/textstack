@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Drift guard for the mobile WebView bundles. Re-renders each one and fails
 // non-zero if the committed file differs, so a PR that edits
-// packages/reader-overlay/src/* without regenerating cannot merge.
+// packages/reader-overlay/src/* or the engine's overlay without regenerating cannot merge.
 
 import { readFile } from 'node:fs/promises'
 import { BUNDLES, renderBundle } from './mobile-bundles.mjs'
