@@ -52,4 +52,6 @@ carries its `opId`.
 Open items are GitHub issues labelled [`phase-3-gate`](https://github.com/mrviduus/textstack/issues?q=label%3Aphase-3-gate):
 [#789](https://github.com/mrviduus/textstack/issues/789) reading line via the caret probe, like the apps;
 [#790](https://github.com/mrviduus/textstack/issues/790) scroll cost on a long chapter;
-[#794](https://github.com/mrviduus/textstack/issues/794) browser scroll anchoring read as the reader moving.
+[#794](https://github.com/mrviduus/textstack/issues/794) browser scroll anchoring read as the reader moving;
+[#798](https://github.com/mrviduus/textstack/issues/798) taps ride on `click`: check on a device;
+[#799](https://github.com/mrviduus/textstack/issues/799) no double-tap guard before `tap`.
