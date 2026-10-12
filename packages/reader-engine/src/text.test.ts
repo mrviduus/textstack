@@ -26,6 +26,13 @@ describe('chapterText', () => {
     const el = root('<p>One <em>two</em></p><style>p{}</style><script>x()</script><noscript><p>no</p></noscript><p>three</p>')
     expect(chapterText(el)).toBe('One twothree')
   })
+
+  it("T1 skips the apps' gloss nodes, as web createTextAnchor and the phone's chapterText do", () => {
+    const el = root('<p>the <mark>garden<span class="vocab-inline-translation">сад</span></mark> wall</p><div data-vocab-overlay="true">gloss</div>')
+    expect(chapterText(el)).toBe('the garden wall')
+    const loc = rangeToLocator(el, rangeAt(el, 4, 6)!, 's')!
+    expect(loc.text).toEqual({ before: 'the ', highlight: 'garden', after: ' wall' })
+  })
 })
 
 describe('rangeToLocator: a selection becomes a TextQuoteSelector', () => {
@@ -71,6 +78,11 @@ describe('rangeAt: an offset back to a Range', () => {
     const other = root('<p>elsewhere</p>')
     expect(rangeToLocator(root('<p>short</p>'), rangeAt(other, 0, 4)!, 's')).toBeNull()
   })
+
+  it('T2 a collapsed range (a tap) is no locator: an empty quote never resolves', () => {
+    const el = root('<p>short</p>')
+    expect(rangeToLocator(el, rangeAt(el, 2, 0)!, 's')).toBeNull()
+  })
 })
 
 describe('positionAt: the reading line as a position locator', () => {
@@ -98,5 +110,12 @@ describe('positionAt: the reading line as a position locator', () => {
     const el = root(html)
     expect(positionAt(el, el, el.childNodes.length, 'c1', 1)).toBeNull()
     expect(positionAt(el, document.createTextNode('elsewhere'), 0, 'c1', 0)).toBeNull()
+  })
+
+  it('T4 a stale caret past the node end: null, never a throw', () => {
+    const el = root(html)
+    const first = el.querySelector('p')!.firstChild as Text
+    expect(positionAt(el, first, first.length + 5, 'c1', 0)).toBeNull()
+    expect(positionAt(el, el, el.childNodes.length + 1, 'c1', 0)).toBeNull()
   })
 })

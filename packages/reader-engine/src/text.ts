@@ -2,13 +2,14 @@
 // document order — what web `createTextAnchor` and the phone's `getSelectionAnchor` count — so stored
 // anchors land on the same characters. Reads the DOM only; never changes a text node.
 //
-// No decoration exclusions (the apps skip `.vocab-inline-translation` / `[data-vocab-overlay]`): the
-// engine draws nothing into the text, so there is nothing of its own to skip.
+// Skips the apps' gloss nodes like both apps do: until slice 4 the legacy vocab path still writes
+// them into the chapter the engine reads.
 import type { Locator } from './api'
 import { ANCHOR_CONTEXT_LENGTH } from '../../shared/src/reader/textAnchor'
 import { buildTextPosition } from '../../shared/src/reader/textPosition'
+import { READER_GLOSS_SELECTOR } from '../../shared/src/text/gloss'
 
-const NOT_TEXT = 'script, style, noscript'
+const NOT_TEXT = `script, style, noscript, ${READER_GLOSS_SELECTOR}`
 
 function textNodes(root: Node): Text[] {
   const doc = root.ownerDocument ?? (root as Document)
@@ -26,7 +27,8 @@ export function chapterText(root: Node): string {
 
 /** Character offset of a DOM point (a caret, a range boundary) in the chapter's text; null outside it. */
 function offsetOf(root: Node, node: Node, offset: number): number | null {
-  if (!root.contains(node)) return null
+  const max = node.nodeType === Node.TEXT_NODE ? (node as Text).length : node.childNodes.length
+  if (!root.contains(node) || offset < 0 || offset > max) return null
   const point = (root.ownerDocument ?? (root as Document)).createRange()
   point.setStart(node, offset)
   let total = 0
@@ -56,7 +58,7 @@ export function rangeAt(root: Node, start: number, length: number): Range | null
 export function rangeToLocator(root: Node, range: Range, href: string): Locator | null {
   const start = offsetOf(root, range.startContainer, range.startOffset)
   const end = offsetOf(root, range.endContainer, range.endOffset)
-  if (start === null || end === null) return null
+  if (start === null || end === null || end <= start) return null
   const text = chapterText(root)
   const n = ANCHOR_CONTEXT_LENGTH
   return {
