@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Share, Alert } from 'react-native'
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Share } from 'react-native'
 import { Image } from 'expo-image'
 import { useFocusEffect, useLocalSearchParams, useRouter, Stack } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
-import { collectionsApi, createBooksApi, currentReviewChapter, formatBookPercent, getStorageUrl, libraryApi, plural, readingProgressApi, resumeChapterSlug, storedBookPercent } from '@textstack/shared'
+import { createBooksApi, currentReviewChapter, formatBookPercent, getStorageUrl, plural, readingProgressApi, resumeChapterSlug, storedBookPercent } from '@textstack/shared'
 import type { BookDetail } from '@textstack/shared'
 import { useDownload } from '../../src/context/DownloadContext'
 import { useAuth } from '../../src/context/AuthContext'
@@ -23,9 +23,8 @@ import {
   listCachedChapters,
 } from '../../src/lib/offlineDb'
 import { getLocalProgress } from '../../src/lib/progressStorage'
-import { countCollectionsHolding, decideLibraryRemoval } from '../../src/lib/libraryRemoval'
 import { downloadAndSave } from '../../src/lib/downloadAndSave'
-import { invalidateCollectionsCache } from '../../src/hooks/useCollections'
+import { useBookLibrary } from '../../src/hooks/useBookLibrary'
 import { fonts } from '../../src/theme/typography'
 import { OfflineBanner } from '../../src/components/ui/OfflineBanner'
 import { SkeletonLoader } from '../../src/components/ui/SkeletonLoader'
@@ -62,12 +61,7 @@ export default function BookDetailScreen() {
   const loading = bookLoading || (sessionLoading && book != null)
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [cached, setCached] = useState(false)
-  const [inLibrary, setInLibrary] = useState(false)
-  // Read after an await (the Download's session mint, an add in flight): the render's value may be stale by then (LIB-1).
-  const inLibraryRef = useRef(inLibrary)
-  const setSaved = (saved: boolean) => { inLibraryRef.current = saved; setInLibrary(saved) }
-  // The Download's add still in flight: a hand remove waits for it, so its DELETE never overtakes the POST (LIB-1).
-  const addInFlightRef = useRef<Promise<unknown>>(Promise.resolve())
+  const { inLibrary, loadLibrary, toggle: toggleLibrary, saveIfNotSaved } = useBookLibrary(book?.id, t)
   const [collectionSheetOpen, setCollectionSheetOpen] = useState(false)
   // Not mounted until first opened — see useSheetMount. This screen is public,
   // so the sheet's `useCollections` was 401ing on every open for a signed-out
@@ -303,77 +297,10 @@ export default function BookDetailScreen() {
 
   const dl = book ? downloads.get(book.id) : undefined
 
-  // getLibrary, sent only after an add in flight settles, so its answer never predates that POST (LIB-1).
-  const loadLibrary = async (isCancelled = () => false) => {
-    const editionId = book!.id
-    try {
-      await addInFlightRef.current
-      const lib = await libraryApi.getLibrary()
-      if (!isCancelled()) setSaved(lib.some(item => item.editionId === editionId))
-    } catch (err) {
-      console.warn('getLibrary failed on book detail:', err)
-    }
-  }
-  // Save to Library and Download (LIB-1) share this: optimistic "In Library"; a failed add re-reads the server.
-  const addToLibrary = () => {
-    setSaved(true)
-    const add = libraryApi.addToLibrary(book!.id).then(
-      // A getLibrary sent before the POST may answer after it: the write's success is the last word.
-      () => setSaved(true),
-      err => {
-        console.warn('library add failed:', err)
-        setSaved(false)
-        void loadLibrary()
-      },
-    )
-    addInFlightRef.current = add
-    return add
-  }
-  // Optimistic removal, rolled back if it fails.
-  const removeFromLibrary = async () => {
-    setSaved(false)
-    try {
-      await libraryApi.removeFromLibrary(book!.id)
-      // The server took it out of its collections too (#706).
-      invalidateCollectionsCache()
-      // No shelf cache to drop: the Library tab refetches on focus.
-    } catch (err) {
-      console.warn('library toggle failed:', err)
-      setSaved(true)
-    }
-  }
-  const removeWithConfirm = async () => {
-    // Removing also empties the book out of every collection it is in,
-    // so ask first — but only when there is something to lose. No
-    // membership-by-book endpoint: one list per non-empty collection.
-    // If the lookup fails the removal goes ahead unasked, as it always
-    // did (offline, the removal itself fails and rolls back).
-    let count = 0
-    try {
-      const collections = await collectionsApi.listCollections()
-      const lists = await Promise.all(collections
-        .filter(c => c.count > 0)
-        .map(c => collectionsApi.getCollectionBookIds(c.id, 'savedbook')))
-      count = countCollectionsHolding(book!.id, lists)
-    } catch (err) {
-      console.warn('collection membership lookup failed:', err)
-    }
-    const decision = decideLibraryRemoval(count)
-    if (!decision.confirm) return removeFromLibrary()
-    Alert.alert(
-      t('library.actions.removeFromLibraryConfirmTitle'),
-      t(decision.bodyKey).replace('{{count}}', String(decision.count)),
-      [
-        { text: t('library.actions.cancel'), style: 'cancel' },
-        { text: t('library.actions.removeFromLibraryConfirm'), style: 'destructive', onPress: () => { void removeFromLibrary() } },
-      ],
-    )
-  }
   // Download, Retry and Restart (LIB-1): the download, then the Library add. Cancel never takes it back:
   // a download is intent. No session: a guest is minted first (LIB-1a).
   const onDownload = (run: () => unknown) => () => {
-    void downloadAndSave({ run, hasSession: isAuthenticated, ensureSession, getAccessToken,
-      save: () => { if (!inLibraryRef.current) void addToLibrary() } })
+    void downloadAndSave({ run, hasSession: isAuthenticated, ensureSession, getAccessToken, save: saveIfNotSaved })
   }
 
   if (loading) {
@@ -521,12 +448,7 @@ export default function BookDetailScreen() {
           {isAuthenticated && !offlineMode && (
             <TouchableOpacity
               style={[styles.secondaryButton, { borderColor: inLibrary ? colors.success : colors.primary }]}
-              onPress={async () => {
-                if (!inLibrary) return addToLibrary()
-                // A remove waits for a Download's add still in flight; if that add failed there is nothing to remove (LIB-1).
-                await addInFlightRef.current
-                if (inLibraryRef.current) return removeWithConfirm()
-              }}
+              onPress={toggleLibrary}
               activeOpacity={0.85}
             >
               <Ionicons name={inLibrary ? 'checkmark-circle' : 'add-circle-outline'} size={18} color={inLibrary ? colors.success : colors.primary} />
