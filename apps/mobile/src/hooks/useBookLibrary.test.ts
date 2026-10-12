@@ -56,6 +56,46 @@ describe('useBookLibrary', () => {
     expect(api.removeFromLibrary).not.toHaveBeenCalled()
   })
 
+  it('addToLibrary_StaleGetAnswersBeforePostSucceeds_EndsSaved', async () => {
+    // Device run: a GET sent before the POST answered "not in library"; the write's success is the last word.
+    const get = deferred(); api.getLibrary.mockReturnValue(get.promise.then(() => []))
+    const add = deferred(); api.addToLibrary.mockReturnValue(add.promise)
+    const { result } = render()
+    let loaded!: Promise<void>
+    act(() => { loaded = result.current.loadLibrary() })
+    await act(async () => { await Promise.resolve() })
+    act(() => result.current.saveIfNotSaved())
+
+    await act(async () => { get.resolve(); await loaded })
+    expect(result.current.inLibrary).toBe(false)
+    await act(async () => { add.resolve(); await add.promise })
+
+    expect(result.current.inLibrary).toBe(true)
+  })
+
+  it('toggle_SavedBookInCollections_AsksBeforeRemoving', async () => {
+    api.getLibrary.mockResolvedValue([{ editionId: 'b1' }])
+    collections.listCollections.mockResolvedValue([{ id: 'c1', count: 1 }] as never)
+    collections.getCollectionBookIds.mockResolvedValue(['b1'] as never)
+    const { Alert } = await import('react-native')
+    const { result } = render()
+    await act(async () => { await result.current.loadLibrary() })
+
+    await act(async () => { await result.current.toggle() })
+
+    expect(Alert.alert).toHaveBeenCalledTimes(1)
+    expect(api.removeFromLibrary).not.toHaveBeenCalled()
+  })
+
+  it('loadLibrary_CancelledBeforeAnswer_KeepsState', async () => {
+    api.getLibrary.mockResolvedValue([{ editionId: 'b1' }])
+    const { result } = render()
+
+    await act(async () => { await result.current.loadLibrary(() => true) })
+
+    expect(result.current.inLibrary).toBe(false)
+  })
+
   it('saveIfNotSaved_AlreadySaved_DoesNotAdd', async () => {
     api.getLibrary.mockResolvedValue([{ editionId: 'b1' }])
     const { result } = render()
