@@ -138,6 +138,13 @@ describe('computeVocabMatches', () => {
     expect(new Set(matches.map((m) => m.key))).toEqual(new Set(['fox']))
   })
 
+  it('matches a saved word through the soft hyphens extraction puts in long words (#796)', () => {
+    root.innerHTML = '<p>An extra­or­dinary keeper.</p>'
+    const matches = computeVocabMatches(root, { vocabMap: mkMap([['extraordinary', { stage: 0 }]]) })
+
+    expect(matches.map((m) => [m.key, m.range.toString()])).toEqual([['extraordinary', 'extra­or­dinary']])
+  })
+
   it('leaves non-vocabulary words untouched', () => {
     root.textContent = 'the quick brown fox'
     const matches = computeVocabMatches(root, {
