@@ -16,8 +16,8 @@
 //      we target es2017, but the public surface stays plain functions on
 //      a plain object.
 
-import { Overlayer } from './readerOverlay'
-import type { DrawFn, DrawOptions } from './readerOverlay'
+import { Overlayer } from '../../reader-engine/src/overlay'
+import type { DrawFn, DrawOptions } from '../../reader-engine/src/overlay'
 // Relative, not '@textstack/shared': esbuild bundles this entry and the package
 // alias is not configured for it. textAnchor has no imports of its own, so the
 // WebView bundle grows by exactly that one leaf module rather than by the whole

@@ -7,9 +7,14 @@
 //   is recognised by its scrollTop, not by a pixel tolerance.
 // - While an op or a re-anchor is in flight, the place is its target, never the half-moved view
 //   (rule 8): `current()`, a style change and a reflow all use it.
-import type { ChapterDoc, EngineEvents, EngineOptions, GoToResult, Locator, Reason, ReaderEngine, Style } from './api'
+// - Decorations (highlights, search hits, saved words and their translations) are drawn on an SVG
+//   beside the chapter, never in it: the chapter's text nodes are never changed. Redrawn whenever the
+//   text may have moved (open, style, reflow).
+import type { ChapterDoc, EngineEvents, EngineOptions, GoToResult, Locator, Reason, ReaderEngine, Rect, Style } from './api'
+import { Overlayer, type DrawFn } from './overlay'
 import { resolveLocator, type Resolved } from './resolve'
-import { chapterText, locatorAt, textNodes } from './text'
+import { findTextOffsets } from './textWalker'
+import { chapterText, locatorAt, matchWords, quoteAt, rangesIn, textNodes } from './text'
 
 /** A quarter down the viewport: where both apps capture, so a position means the same place on each. */
 const READING_LINE = 0.25
@@ -17,11 +22,28 @@ const READING_LINE = 0.25
 /** Inline elements share their block's box; a text node is placed by its nearest non-inline ancestor. */
 const INLINE = new Set('A ABBR B BDI BDO BR CITE CODE DATA DEL DFN EM FONT I IMG INS KBD MARK Q S SAMP SMALL SPAN STRONG SUB SUP TIME TT U VAR'.split(' '))
 
+/** Characters of text either side of a `find` match, like the web drawer's list. */
+const FIND_CONTEXT = 40
+
 /** A run of the chapter's text inside one block, with the chapter offset it starts at. */
 interface Segment { el: Element; start: number; length: number }
 
-/** Decorations, selection, footer and find arrive in slices 4 and 6. */
-export type EngineCore = Pick<ReaderEngine, 'open' | 'goTo' | 'setStyle' | 'current' | 'on' | 'destroy'>
+/** A decoration resolved in the open chapter. Words are drawn but not tapped (ADR-025: hold selects them). */
+interface Mark { group: 'highlight' | 'search' | 'word'; id: string; start: number; end: number; color?: string; translation?: string; rects: Rect[] }
+type Group = 'highlight' | 'search'
+type DecorationItem = Parameters<ReaderEngine['decorate']>[1][number]
+type WordItem = Parameters<ReaderEngine['markWords']>[0][number]
+
+const COLORS = {
+  highlight: 'var(--reader-highlight, rgba(254, 240, 138, 0.5))',
+  search: 'var(--reader-search, rgba(250, 204, 21, 0.35))',
+  word: 'var(--reader-word, rgba(59, 130, 246, 0.5))',
+}
+const DRAW: Record<Mark['group'], DrawFn> = { highlight: Overlayer.highlight, search: Overlayer.highlight, word: Overlayer.underline }
+const SVG = 'http://www.w3.org/2000/svg'
+
+/** Selection, footer and the remaining events arrive in slice 6. */
+export type EngineCore = Pick<ReaderEngine, 'open' | 'goTo' | 'setStyle' | 'current' | 'on' | 'destroy' | 'decorate' | 'markWords' | 'find'>
 
 export function createEngine(root: HTMLElement, opts: EngineOptions = {}): EngineCore {
   const doc = root.ownerDocument
@@ -41,10 +63,23 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
     return () => ro.disconnect()
   })
   const fontsReady = opts.fontsReady ?? (() => doc.fonts ? doc.fonts.ready.then(() => {}) : Promise.resolve())
+  const rectsOf = opts.rects ?? ((range: Range): Rect[] => {
+    const o = root.getBoundingClientRect()
+    return Array.from(range.getClientRects())
+      .filter((r) => r.width > 0 && r.height > 0)
+      .map((r) => ({ x: r.left - o.left, y: r.top - o.top, width: r.width, height: r.height }))
+  })
   const frame = () => new Promise<void>((r) => schedule(r))
 
   const content = doc.createElement('div')
-  root.replaceChildren(content)
+  // Beside the chapter, in its coordinates: scrolls with the text, never read as text (gloss marker).
+  const layer = doc.createElementNS(SVG, 'svg')
+  layer.setAttribute('data-vocab-overlay', 'true')   // in READER_GLOSS_SELECTOR: text.ts skips it
+  layer.setAttribute('aria-hidden', 'true')
+  Object.assign(layer.style, { position: 'absolute', top: '0', left: '0', width: '100%', height: '100%', overflow: 'visible', pointerEvents: 'none' })
+  const rootPosition = root.style.position
+  if (['static', ''].includes(win.getComputedStyle(root).position)) root.style.position = 'relative'
+  root.replaceChildren(content, layer)
   const fontFaces = doc.createElement('style')
 
   let alive = true
@@ -61,6 +96,10 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
   let ownTop: number | null = null       // the scrollTop we set; its scroll event is not reading
   let height = -1
   let scrollQueued = false
+  const decorations: Record<Group, DecorationItem[]> = { highlight: [], search: [] }
+  let words: WordItem[] = []
+  let showTranslations = false
+  let marks: Mark[] = []
   const listeners = new Map<keyof EngineEvents, Set<(p: never) => void>>()
 
   function emit<K extends keyof EngineEvents>(e: K, p: EngineEvents[K]) {
@@ -171,6 +210,72 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
     emit('error', { code: 'anchor-miss', detail: `locator is for chapter ${loc.href ?? '(none)'}, open is ${href ?? '(none)'}` })
   }
 
+  /** Where every decoration stands in the open chapter's text; another chapter's, or a lost quote, has no place. */
+  function resolveMarks() {
+    marks = []
+    for (const group of ['search', 'highlight'] as const) {
+      for (const d of decorations[group]) {
+        const r = resolveLocator(d.locator, href, text)
+        const length = d.locator.text?.highlight?.length ?? 0
+        if (r && (r.result === 'exact' || r.result === 'fuzzy') && length) {
+          marks.push({ group, id: d.id, start: r.offset, end: r.offset + length, color: d.style, rects: [] })
+        }
+      }
+    }
+    for (const m of matchWords(content, words)) {
+      marks.push({ group: 'word', id: m.item.word, start: m.start, end: m.end, color: m.item.style, translation: m.item.translation, rects: [] })
+    }
+  }
+
+  /** Draws every mark where its text is now. */
+  function paint() {
+    layer.replaceChildren()
+    if (!marks.length) return
+    const rangeAt = rangesIn(content)
+    const scratch = doc.createRange()   // marks keep rects, not ranges
+    for (const m of marks) {
+      const range = rangeAt(m.start, m.end - m.start, scratch)
+      m.rects = range ? rectsOf(range) : []
+      const boxes = m.rects.map((r) => ({ ...r, left: r.x, top: r.y, right: r.x + r.width, bottom: r.y + r.height })) as unknown as DOMRect[]
+      const g = DRAW[m.group](boxes, { color: m.color ?? COLORS[m.group] })
+      g.setAttribute('data-group', m.group)
+      g.setAttribute('data-id', m.id)
+      layer.append(g)
+      const first = m.rects[0]
+      if (m.translation && showTranslations && first) {
+        const label = doc.createElementNS(SVG, 'text')
+        label.setAttribute('class', 'reader-translation')
+        label.setAttribute('x', String(first.x + first.width / 2))
+        label.setAttribute('y', String(first.y))
+        label.setAttribute('text-anchor', 'middle')
+        label.setAttribute('fill', 'currentColor')   // the theme's text colour (root's `color`)
+        label.textContent = m.translation
+        layer.append(label)
+      }
+    }
+  }
+
+  const redraw = () => { resolveMarks(); paint() }
+
+  /** A tap on a highlight or search hit (highlights on top); the last drawn wins inside a group. */
+  function onClick(e: MouseEvent) {
+    if (doc.getSelection()?.isCollapsed === false) return   // the end of a drag selection, not a tap
+    const o = root.getBoundingClientRect()
+    const x = e.clientX - o.left
+    const y = e.clientY - o.top
+    for (const group of ['highlight', 'search'] as const) {
+      for (let i = marks.length - 1; i >= 0; i--) {
+        const m = marks[i]
+        if (m.group !== group || !m.rects.some((r) => x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height)) continue
+        const left = Math.min(...m.rects.map((r) => r.x))
+        const top = Math.min(...m.rects.map((r) => r.y))
+        const width = Math.max(...m.rects.map((r) => r.x + r.width)) - left
+        const height = Math.max(...m.rects.map((r) => r.y + r.height)) - top
+        return emit('decorationTap', { group, id: m.id, rect: { x: left + o.left, y: top + o.top, width, height } })
+      }
+    }
+  }
+
   function applyStyle(s: Style) {
     const st = root.style
     if (s.fontSize !== undefined) st.fontSize = `${s.fontSize}px`
@@ -206,15 +311,18 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
   }
 
   function onResize() {
-    if (!opened || target || styleAnchor) return
+    if (!opened) return
     const h = measure(content).height
     if (h === height) return
     height = h
+    paint()
+    if (target || styleAnchor) return
     emit('relocated', { locator: last && land(last) ? last : capture(), reason: 'reflow' })
   }
 
   const scrollSource: EventTarget = scroller === page ? doc : scroller
   scrollSource.addEventListener('scroll', onScroll)
+  root.addEventListener('click', onClick)
   const unobserve = observeResize(content, onResize)
 
   return {
@@ -229,6 +337,8 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
       content.dir = d.dir ?? ''
       text = chapterText(content)
       segments = segmentsOf(content)
+      resolveMarks()
+      layer.replaceChildren()
       const ours = at && at.href === href ? at : null
       target = ours ?? { href, type: 'text/html', locations: { progression: 0 } }
       styleAnchor = null
@@ -237,6 +347,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
       await fontsReady()
       await frame()
       if (mine !== docSeq) return superseded('open', opId)
+      paint()
       emit('ready', { opId: opId ?? '', href })   // even when a goTo overtook the open: same document
       if (seq !== moveSeq) return superseded('open', opId)
       if (at && !ours) miss(at)
@@ -266,6 +377,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
       const mine = ++styleSeq
       schedule(() => {
         if (!alive) return
+        paint()
         if (mine === styleSeq && styleAnchor && !target) {
           const anchor = styleAnchor
           styleAnchor = null
@@ -276,6 +388,27 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
     },
 
     current: () => (opened ? here() : null),
+
+    decorate(group, items) {
+      decorations[group] = items
+      if (opened) redraw()
+    },
+
+    markWords(items, show) {
+      words = items
+      showTranslations = show
+      if (opened) redraw()
+    },
+
+    find(query) {
+      return findTextOffsets(text, query).map((at) => {
+        const end = at + query.length
+        const from = Math.max(0, at - FIND_CONTEXT)
+        const to = Math.min(text.length, end + FIND_CONTEXT)
+        const context = `${from > 0 ? '...' : ''}${text.slice(from, to)}${to < text.length ? '...' : ''}`
+        return { locator: quoteAt(text, at, end, href), context }
+      })
+    },
 
     on(e, cb) {
       if (!listeners.has(e)) listeners.set(e, new Set())
@@ -292,9 +425,11 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
       target = styleAnchor = null
       listeners.clear()
       scrollSource.removeEventListener('scroll', onScroll)
+      root.removeEventListener('click', onClick)
       unobserve()
       fontFaces.remove()
       root.replaceChildren()
+      root.style.position = rootPosition
     },
   }
 }

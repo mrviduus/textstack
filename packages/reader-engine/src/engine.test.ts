@@ -243,4 +243,12 @@ describe('destroy', () => {
     expect(reader.root.childNodes).toHaveLength(0)
     expect(reader.engine.current()).toBeNull()
   })
+
+  it('E9 gives the container back as it was (the engine positions it to draw decorations)', async () => {
+    const reader = makeReader()
+    await reader.open()
+    expect(reader.root.style.position).toBe('relative')
+    reader.engine.destroy()
+    expect(reader.root.style.position).toBe('')
+  })
 })
