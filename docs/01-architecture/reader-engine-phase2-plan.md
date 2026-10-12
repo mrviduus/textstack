@@ -15,8 +15,9 @@ code stays where it is until the platform's flag flips, and is deleted in Phase 
    `fuzzy` / `fraction` / `legacyOffset` / `start`, or null for another chapter. Fixes the spike's
    `charOffset` tie-break test-first (it may only break a real tie). No DOM, no new dependency.
 2. **The chapter as text (DOM anchor half).** One text walker (from `reader-overlay`), chapter text
-   with the decoration exclusions, offset ↔ `Range`, `Range` → `Locator` (TextQuoteSelector), the
-   reading-line probe. jsdom tests; the cross-app anchor fixtures must resolve to the same offsets as
+   with the decoration exclusions, offset ↔ `Range`, `Range` → `Locator` (TextQuoteSelector), a
+   caret → position `Locator`. Finding the caret at the reading line is geometry: slice 3, with the
+   `measure` seam. jsdom tests; the cross-app anchor fixtures must resolve to the same offsets as
    web's `createTextAnchor` and the phone's `getSelectionAnchor`.
 3. **Engine core, reflow.** `createEngine` with `open` / `goTo` / `setStyle` / `current` / `on` /
    `destroy`: one `relocated` per op with its `opId` before the promise resolves, `superseded`,
