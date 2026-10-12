@@ -27,19 +27,20 @@ code stays where it is until the platform's flag flips, and is deleted in Phase 
 4. **Decorations.** `Overlayer` moves in from `reader-overlay`; `decorate('highlight' | 'search')`,
    `find`, `markWords` with inline translations drawn over the text (no `<mark>`, no text-node
    change — the root fix for the STATUS "legacy `<mark>` vocab path" item); `decorationTap`.
-5. **ADR-019 pure rules move in.** `newerPosition`, `progressPrecedence`, `pdfPersistGate` get their
-   home in the engine, one pinning test each (rules 1–8 table). `readerMovedSince`'s pixel tolerance
-   goes ("moved" = a `'scroll'` arrived). Shared keeps a re-export until the apps re-point.
+5. **ADR-019 pure rules join the engine API.** `newerPosition`, `progressPrecedence`, `pdfPersistGate`:
+   the engine re-exports them from shared and owns one pinning test each (rules 1–8 table). The code
+   stays in shared until Phase 6 — shared re-exporting from the engine would be an import cycle (D2).
+   `readerMovedSince`'s pixel tolerance goes ("moved" = a `'scroll'` arrived).
 6. **Events + mobile bundle.** `selection` (with `rect`), `hold`, `tap`, `scrollDir`, `linkClick`,
    `imageTap`, `chapterEnd`, `setFooter`; the esbuild IIFE in `apps/web/scripts/mobile-bundles.mjs`
    with the 60 KB unminified budget asserted in CI (drift-checked, not yet loaded by the app).
 
-## Unresolved questions (owner)
+## Decisions (owner, 2026-10-12)
 
-1. `goTo` with another chapter's locator: no move + `'start'`, or an `error` event? (Slice 1 returns
-   null and leaves it to the core.)
-2. Slice 5: may shared keep thin re-exports of the moved ADR-019 modules until Phase 3/4, or should
-   the apps re-point their imports in Phase 2?
-3. `reader-overlay`: keep the package as a re-export until Phase 6, or delete it when the engine
-   owns its code (web and the mobile bundle still import it)?
-4. jsdom as a dev dependency of the engine package (slice 2), same version as `apps/web` — OK?
+- **D1** `goTo` with another chapter's locator: **no move, and an `error` event** naming the locator's
+  chapter. Always a host bug; a silent jump to the start would hide it (ADR-015).
+- **D2** ADR-019 rules: **code stays in shared, the engine re-exports it**; moves in Phase 6 when the
+  apps switch. No `apps/` change in Phase 2, no shared ↔ engine import cycle.
+- **D3** `reader-overlay`: **kept as a thin re-export of the engine until Phase 6** (web and the mobile
+  bundle keep their imports; no OTA).
+- **D4** jsdom as an engine dev dependency (catalog version): **OK** (merged in #786).
