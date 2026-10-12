@@ -17,8 +17,8 @@ declare global {
 }
 
 const CHAPTERS = ['moby-dick-5', 'speckled-band', 'ulysses-15']
-// Not ulysses-15: there the web probe's caret lands in an empty table cell and reads the chapter's end
-// (#802). The engine reads it right; it is only the yardstick that is wrong.
+// Not ulysses-15: the web probe skips the empty speaker cell (#802) and reads the next column, up to
+// two lines from the engine, which counts the cell itself. E26 covers it.
 const WEB_PROBE_READS = ['moby-dick-5', 'speckled-band']
 const STOPS = [0.05, 0.2, 0.35, 0.5, 0.65, 0.8, 0.95]
 
