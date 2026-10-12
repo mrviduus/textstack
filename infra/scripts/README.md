@@ -92,4 +92,4 @@ being processed.
 
 - [`../systemd/README.md`](../systemd/README.md) — unit files
 - [`docs/03-ops/incident-runbook.md`](../../docs/03-ops/incident-runbook.md) — first-response steps
-- [CLAUDE.md](../../CLAUDE.md#auto-publish) — Auto Publish feature overview
+- [docs/claude/features.md](../../docs/claude/features.md) — Auto Publish feature overview

@@ -7,8 +7,9 @@ text) and [ADR-019](../../docs/01-architecture/adr/ADR-019-reader-position-rules
 
 ## Status
 
-Phase 1: the contract (`src/api.ts`) and the stored-shape mappers (`src/mappers.ts`). Nothing renders
-yet and no app imports this package. Apps keep the old reader until each platform's flag flips.
+Phase 1: the contract (`src/api.ts`) and the stored-shape mappers (`src/mappers.ts`). Phase 2
+([slice plan](../../docs/01-architecture/reader-engine-phase2-plan.md)), slice 1: the `goTo`
+resolution ladder (`src/resolve.ts`); slice 2: the chapter as text (`src/text.ts`). Nothing renders yet and no app imports this package. Apps keep the old reader until each platform's flag flips.
 
 ## Boundary (enforced by `src/boundary.test.ts`)
 
