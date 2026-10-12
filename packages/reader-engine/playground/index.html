@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>reader-engine playground</title>
+  <style>
+    body { margin: 0; font: 18px/1.6 Georgia, serif; }
+    #reader { max-width: 40rem; margin: 0 auto; padding: 0 16px; }
+    nav { position: fixed; top: 0; right: 0; padding: 4px 8px; font: 12px sans-serif; background: #eee; }
+  </style>
+</head>
+<body>
+  <nav>
+    <a href="?chapter=moby-dick-5">Moby-Dick III</a> ·
+    <a href="?chapter=speckled-band">Speckled Band</a> ·
+    <a href="?chapter=ulysses-15">Ulysses XV</a>
+  </nav>
+  <div id="reader"></div>
+  <script type="module" src="./main.ts"></script>
+</body>
+</html>

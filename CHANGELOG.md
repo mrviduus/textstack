@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Reader** — engine Phase 2 slice 7: playground (Vite, 3 real chapters) + Playwright geometry gating CI (rules E25–E27); the engine reads the reading line with the caret like the apps and places by line rects (#789), scroll frame 6.3 → 0.4 ms on Ulysses XV (#790); found #802 — shared, infra · [details](docs/changelog-archive/2026-H2.md#2026-10-12-reader-engine-phase-2-slice-7-playground-and-playwrig)
 - **Reader** — the reading-position probe skips a caret on an element (an empty table cell), which saved drama chapters (Ulysses XV) at the chapter end — web, mobile (#802)
 - **Reader** — engine Phase 2 slice 6: events (`selection` with rect, `hold`, `tap`, `linkClick`, `imageTap`, `scrollDir`, `chapterEnd`), `setFooter`, `clearSelection` (rules E20–E24) + mobile IIFE (`window.__TSEngine`, 49 KB, 60 KB budget in CI, not loaded), test-first, no app change — shared, infra · [details](docs/changelog-archive/2026-H2.md#2026-10-12-reader-engine-phase-2-slice-6-events-and-the-mobile-b)
 - **Vocabulary** — saved words now match their soft-hyphenated form in the chapter (`extra\u00ADordinary`; extraction adds U+00AD to English words of 8+ letters), so they get their underline and translation; the key never keeps a soft hyphen — web, shared (#796)

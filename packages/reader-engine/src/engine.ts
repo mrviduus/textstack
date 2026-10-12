@@ -17,7 +17,7 @@ import { Overlayer, type DrawFn } from './overlay'
 import { resolveLocator, type Resolved } from './resolve'
 import { findTextOffsets } from './textWalker'
 import { tokenizeVocabWords } from '../../shared/src/text/vocabKey'
-import { chapterText, locatorAt, matchWords, offsetOf, quoteAt, rangeAt, rangesIn, textNodes } from './text'
+import { locatorAt, matchWords, offsetOf, quoteAt, rangesIn, textNodes } from './text'
 
 /** A quarter down the viewport: where both apps capture, so a position means the same place on each. */
 const READING_LINE = 0.25
@@ -111,12 +111,16 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
   let href: string | undefined
   let text = ''
   let segments: Segment[] = []
+  // The open chapter's text nodes, walked once per open: the engine never changes them.
+  let rangeOf: ReturnType<typeof rangesIn> = () => null
+  let starts = new Map<Node, number>()
   let docSeq = 0                         // open: a newer one replaces the document
   let moveSeq = 0                        // open / goTo: a newer one supersedes an older
   let styleSeq = 0
   let target: Locator | null = null      // where the open / goTo in flight will land
   let styleAnchor: Locator | null = null // where the setStyle in flight will re-anchor
   let last: Locator | null = null        // the place a reflow keeps
+  let lastTop = 0                        // the scrollTop `last` was read at
   let ownTop: number | null = null       // the scrollTop we set; its scroll event is not reading
   let height = -1
   let scrollQueued = false
@@ -159,7 +163,10 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
     return out
   }
 
-  /** The chapter offset at content y. Linear in the block's height: the same map both ways. */
+  /**
+   * The chapter offset at content y, estimated: linear in the block's height, the same map both ways.
+   * Only where the browser has no caret or no box (jsdom); a real browser uses `probe` and line rects.
+   */
   function offsetAtY(y: number): number {
     const box = measure(content)
     y = Math.max(box.top, Math.min(y, box.top + box.height - 1))
@@ -171,14 +178,40 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
       if (m.top <= y && y < m.top + m.height) { if (!hit || m.height <= hit.m.height) hit = { s, m } }
       else if (m.top + m.height <= y) above = s
     }
-    // ponytail: linear scan of every block per capture; binary search on block tops if long chapters stutter.
     if (!hit) return above ? above.start + above.length : 0
     const { s, m } = hit
     return s.start + Math.min(s.length - 1, Math.floor(((y - m.top) / m.height) * s.length + 1e-6))
   }
 
-  /** Content y of a chapter offset; an offset between blocks is the top of the next one. */
+  /**
+   * The chapter offset under the reading line, by the browser's caret, the way both apps read it (web
+   * `readReadingLine`): clamped into the chapter, a few x's in case one is a margin or an image. Null:
+   * no caret API or no text there.
+   */
+  function probe(): number | null {
+    const box = content.getBoundingClientRect()
+    const line = (scroller === page ? 0 : scroller.getBoundingClientRect().top) + READING_LINE * viewport().height
+    const y = Math.max(box.top + 4, Math.min(line, box.bottom - 4))
+    for (const x of [box.left + 24, box.left + box.width / 2, box.right - 24]) {
+      const c = caretAt(x, y)
+      if (!c) continue
+      const start = starts.get(c.node)
+      const at = start !== undefined ? start + c.offset : content.contains(c.node) ? offsetOf(content, c.node, c.offset) : null
+      if (at !== null) return at
+    }
+    return null
+  }
+
+  /**
+   * Content y of a chapter offset: the middle of the line of its first visible character (whitespace
+   * between blocks has no box), or the estimate where there is none.
+   */
   function yAtOffset(offset: number): number {
+    let at = offset
+    while (at < text.length - 1 && /\s/.test(text[at])) at++
+    const range = rangeOf(at, 1)
+    const r = range && rectsOf(range)[0]
+    if (r) return measure(root).top + r.y + r.height / 2
     const seg = segments.find((s) => offset < s.start + s.length) ?? segments[segments.length - 1]
     if (!seg) return 0
     const m = measure(seg.el)
@@ -192,12 +225,16 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
 
   /** The reader's place right now, read off the reading line. */
   function capture(): Locator {
-    const at = offsetAtY(scroller.scrollTop + READING_LINE * viewport().height)
+    const at = probe() ?? offsetAtY(scroller.scrollTop + READING_LINE * viewport().height)
     return (href && locatorAt(text, at, href, progression())) || { href, type: 'text/html', locations: { progression: progression() } }
   }
 
-  /** Rule 8: the target in flight, or the reading line when nothing is. */
-  const here = () => target ?? styleAnchor ?? capture()
+  /**
+   * Rule 8: the target in flight, else the last place reported (a landed op keeps its exact place until
+   * the reader scrolls: the line holds many characters), else the reading line. A scroll not read yet
+   * (a hidden page runs no frames) is read now.
+   */
+  const here = () => target ?? styleAnchor ?? (last && scroller.scrollTop === lastTop ? last : capture())
 
   function scrollTo(y: number) {
     scroller.scrollTop = Math.max(0, y)
@@ -224,6 +261,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
     scrollTo(topFor(r, line))
     const found = (r.result === 'exact' || r.result === 'fuzzy') && href ? locatorAt(text, r.offset, href, progression()) : null
     last = found ?? capture()
+    lastTop = scroller.scrollTop
     height = measure(content).height
     return r.result
   }
@@ -267,10 +305,9 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
   function paint() {
     layer.replaceChildren()
     if (!marks.length) return
-    const rangeAt = rangesIn(content)
     const scratch = doc.createRange()   // marks keep rects, not ranges
     for (const m of marks) {
-      const range = rangeAt(m.start, m.end - m.start, scratch)
+      const range = rangeOf(m.start, m.end - m.start, scratch)
       m.rects = range ? rectsOf(range) : []
       const boxes = m.rects.map((r) => ({ ...r, left: r.x, top: r.y, right: r.x + r.width, bottom: r.y + r.height })) as unknown as DOMRect[]
       const g = DRAW[m.group](boxes, { color: m.color ?? COLORS[m.group] })
@@ -329,7 +366,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
     sent = { start, end, source }
     held = source === 'hold' ? { start, end } : null
     redraw()
-    const range = rangeAt(content, start, end - start)
+    const range = rangeOf(start, end - start)
     emit('selection', {
       locator: quoteAt(text, start, end, href),
       text: text.slice(start, end),
@@ -482,6 +519,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
       scrollQueued = false
       if (!opened || target || styleAnchor) return
       last = capture()
+      lastTop = scroller.scrollTop
       emit('relocated', { locator: last, reason: 'scroll' })
       checkEnd()
     })
@@ -518,7 +556,10 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
       content.innerHTML = d.html ?? ''
       content.lang = d.lang ?? ''
       content.dir = d.dir ?? ''
-      text = chapterText(content)
+      starts = new Map()
+      text = ''
+      for (const t of textNodes(content)) { starts.set(t, text.length); text += t.data }
+      rangeOf = rangesIn(content)
       segments = segmentsOf(content)
       cancelHold()
       unselect()

@@ -47,6 +47,11 @@ code stays where it is until the platform's flag flips, and is deleted in Phase 
 7. **Playground + Playwright geometry.** A page that runs the engine on real chapters in a real
    browser. Checks what jsdom cannot: the engine's reading line against the apps' caret probe (same
    text within one line), and scroll cost on a long chapter. Gate for Phase 3.
+   *Done 2026-10-12:* rules E25–E27 (`playground/geometry.e2e.ts`, `pnpm -C packages/reader-engine
+   test:geometry`, gating in CI's `e2e` job) on three real chapters (Moby-Dick III, The Speckled Band,
+   Ulysses XV). The engine now reads the reading line with the caret and places by line rects (#789);
+   a scroll frame went from 6.3 to 0.4 ms (#790). Found: the apps' probe saves the chapter end when
+   it lands in an empty table cell (#802).
 
 ## Decisions (owner, 2026-10-12)
 
