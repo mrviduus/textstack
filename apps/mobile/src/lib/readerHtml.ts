@@ -411,16 +411,20 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
       return consumed;
     }
 
-    /** (node, offset) at a point, across the two spellings of the same API. */
+    /**
+     * (text node, offset) at a point, across the two spellings of the same API. A caret on an
+     * element (an empty table cell) is no place in the text: charOffsetOf would count the whole
+     * chapter (#802), so it is null and the next probe point is tried.
+     */
     function caretAt(x, y) {
       try {
         if (document.caretPositionFromPoint) {
           var pos = document.caretPositionFromPoint(x, y);
-          if (pos && pos.offsetNode) return { node: pos.offsetNode, offset: pos.offset };
+          if (pos && pos.offsetNode && pos.offsetNode.nodeType === 3) return { node: pos.offsetNode, offset: pos.offset };
         }
         if (document.caretRangeFromPoint) {
           var r = document.caretRangeFromPoint(x, y);
-          if (r) return { node: r.startContainer, offset: r.startOffset };
+          if (r && r.startContainer.nodeType === 3) return { node: r.startContainer, offset: r.startOffset };
         }
       } catch (e) {}
       return null;
