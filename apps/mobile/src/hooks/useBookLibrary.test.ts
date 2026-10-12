@@ -115,6 +115,19 @@ describe('useBookLibrary', () => {
     act(() => { void result.current.toggle(); void result.current.toggle() })
     await flush()
     expect(api.addToLibrary).toHaveBeenCalledTimes(1)
+    add.resolve()
+    await flush()
+    expect(api.removeFromLibrary, 'the second tap is the same tap, not a remove').not.toHaveBeenCalled()
+    expect(result.current.inLibrary).toBe(true)
+  })
+
+  it('toggle_TapAfterAddSettles_Removes', async () => {
+    api.addToLibrary.mockResolvedValue(undefined)
+    const { result } = render()
+    await act(async () => { await result.current.toggle() })
+    await act(async () => { await result.current.toggle() })
+    await flush()
+    expect(api.removeFromLibrary).toHaveBeenCalledTimes(1)
   })
 
   it('removeThenAdd_DeleteInFlight_PostWaitsForDelete', async () => {

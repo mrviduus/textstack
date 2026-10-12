@@ -19,6 +19,7 @@ export function useBookLibrary(bookId: string | undefined, t: (key: string) => s
   const currentRef = useRef(bookId)
   const queueRef = useRef<Promise<unknown>>(Promise.resolve())
   const writesRef = useRef(0)
+  const togglingRef = useRef(false)
 
   useEffect(() => {
     currentRef.current = bookId
@@ -115,13 +116,18 @@ export function useBookLibrary(bookId: string | undefined, t: (key: string) => s
       ],
     )
   }
-  // The Save button. The ref, not the render: a double tap must not send two POSTs.
+  // The Save button. A tap while the last one is still running is the same tap (a double tap adds once).
   const toggle = async () => {
-    if (!bookId) return
-    if (!inLibraryRef.current) return addToLibrary()
-    // The confirm waits for queued ops; if a Download's add failed there is nothing to remove (LIB-1).
-    await queueRef.current
-    if (inLibraryRef.current) return removeWithConfirm()
+    if (!bookId || togglingRef.current) return
+    togglingRef.current = true
+    try {
+      if (!inLibraryRef.current) return await addToLibrary()
+      // The confirm waits for queued ops; if a Download's add failed there is nothing to remove (LIB-1).
+      await queueRef.current
+      if (inLibraryRef.current) return await removeWithConfirm()
+    } finally {
+      togglingRef.current = false
+    }
   }
   // Download, Retry and Restart (LIB-1): a download is intent; Cancel never takes it back.
   const saveIfNotSaved = () => { if (!inLibraryRef.current) void addToLibrary() }
