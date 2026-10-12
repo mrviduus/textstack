@@ -90,3 +90,20 @@ test('E27 reading the place on a scroll costs under 4 ms a frame on a long chapt
   console.log(`E27 median engine frame on ulysses-15, CPU 4x: ${ms.toFixed(2)} ms`)
   expect(ms).toBeLessThan(4)   // a quarter of a 60 fps frame; shared CI runners are slow
 })
+
+test('E29 the chapter growing above the reading line is a reflow, never the reader scrolling', async ({ page }) => {
+  await openChapter(page, 'moby-dick-5')
+  await readerScrolls(page, 0.5)
+  const r = await page.evaluate(async () => {
+    const before = window.engine.current()!.text
+    const reasons: string[] = []
+    window.engine.on('relocated', (e) => reasons.push(e.reason))
+    // Like an image loading above the reader: the browser's scroll anchoring moves scrollTop by itself.
+    const above = Array.from(document.querySelectorAll<HTMLElement>('#reader p')).filter((p) => p.getBoundingClientRect().bottom < 0)
+    above[above.length - 1].style.paddingTop = '300px'
+    await new Promise((r) => setTimeout(r, 300))
+    return { reasons, same: JSON.stringify(window.engine.current()!.text) === JSON.stringify(before) }
+  })
+  expect(r.reasons).toEqual(['reflow'])
+  expect(r.same).toBe(true)
+})

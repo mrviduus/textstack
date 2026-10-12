@@ -154,6 +154,21 @@ describe('taps', () => {
   })
 })
 
+describe('double tap', () => {
+  it('E28 a second tap within 300 ms is part of a double tap: it emits nothing', async () => {
+    const reader = makeReader()
+    await reader.open()
+    vi.useFakeTimers()
+    const p = reader.pointAt('Arden log 2')
+    reader.tap(p.x, p.y)
+    await vi.advanceTimersByTimeAsync(150)
+    reader.tap(p.x, p.y)                     // the bars toggle once, not twice
+    await vi.advanceTimersByTimeAsync(300)
+    reader.tap(p.x, p.y)
+    expect(only(reader, 'tap')).toHaveLength(2)
+  })
+})
+
 describe('scrolling', () => {
   it("E23 scrollDir on a change of direction: down after 48 px, up after 6; the engine's own scrolls never", async () => {
     const reader = makeReader()

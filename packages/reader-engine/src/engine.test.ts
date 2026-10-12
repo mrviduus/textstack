@@ -133,6 +133,19 @@ describe('scrolling: only the reader scrolling is reading (ADR-019 rule 7)', () 
     expect(scroll.locator.locations.charOffset!).toBeGreaterThan(reader.ack('open').locator.locations.charOffset!)
   })
 
+  it('E25 with no caret API, the estimate still reads a scroll and lands it back', async () => {
+    const reader = makeReader({ noCaret: true })
+    await reader.open(MIDDLE, 'open')
+    reader.scrollBy(600)
+    await reader.settle()
+    const read = reader.engine.current()!
+    expect(read.locations.charOffset!).toBeGreaterThan(reader.ack('open').locator.locations.charOffset!)
+    const top = reader.scrollTop
+    await reader.goTo(FURTHER)
+    await reader.goTo(read)
+    expect(Math.abs(reader.scrollTop - top)).toBeLessThan(1)   // the estimate is per character
+  })
+
   it('E26 current() follows a scroll the engine has not read yet (the app went to the background)', async () => {
     const reader = makeReader()
     await reader.open(MIDDLE)

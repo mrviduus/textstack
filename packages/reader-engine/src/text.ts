@@ -50,8 +50,7 @@ export function rangeAt(root: Node, start: number, length: number): Range | null
  * `rangeAt` for many ranges: walks the chapter once, then each range is two binary searches. Pass
  * `into` to reuse one Range: every live Range is updated on each DOM change, so thousands cost seconds.
  */
-export function rangesIn(root: Node): (start: number, length: number, into?: Range) => Range | null {
-  const nodes = textNodes(root)
+export function rangesIn(root: Node, nodes = textNodes(root)): (start: number, length: number, into?: Range) => Range | null {
   const ends: number[] = []
   let total = 0
   for (const t of nodes) ends.push((total += t.length))
