@@ -221,11 +221,12 @@ export function makeReader(opts: { html?: string; fonts?: () => Promise<void> } 
     pointer(type: 'pointerdown' | 'pointermove' | 'pointerup', x: number, y: number, target: Element = root.firstElementChild!) {
       target.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX: x, clientY: y, pointerType: 'touch' }))
     },
-    /** The reader drags a selection over the `nth` occurrence of `quote` (null: taps it away). */
-    select(quote: string | null, nth = 0) {
+    /** The reader drags a selection over the `nth` occurrence of `quote`, or over a range (null: taps it away). */
+    select(quote: string | Range | null, nth = 0) {
       const sel = document.getSelection()!
       sel.removeAllRanges()
-      if (quote !== null) {
+      if (quote instanceof Range) sel.addRange(quote)
+      else if (quote !== null) {
         let at = -1
         for (let i = 0; i <= nth; i++) at = text.indexOf(quote, at + 1)
         sel.addRange(rangeAt(this.chapter, at, quote.length)!)

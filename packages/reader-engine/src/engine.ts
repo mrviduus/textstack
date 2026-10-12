@@ -16,6 +16,7 @@ import type { ChapterDoc, EngineEvents, EngineOptions, GoToResult, Locator, Reas
 import { Overlayer, type DrawFn } from './overlay'
 import { resolveLocator, type Resolved } from './resolve'
 import { findTextOffsets } from './textWalker'
+import { tokenizeVocabWords } from '../../shared/src/text/vocabKey'
 import { chapterText, locatorAt, matchWords, offsetOf, quoteAt, rangeAt, rangesIn, textNodes } from './text'
 
 /** A quarter down the viewport: where both apps capture, so a position means the same place on each. */
@@ -43,7 +44,6 @@ const SCROLL_UP_PX = 6
 const SENTENCE_END = /[.!?\n]/
 /** A longer sentence is cut to this many characters around the selection. */
 const SENTENCE_MAX = 200
-const WORD_CHAR = /[\p{L}\p{N}'-]/u
 
 /** A run of the chapter's text inside one block, with the chapter offset it starts at. */
 interface Segment { el: Element; start: number; length: number }
@@ -125,7 +125,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
   let showTranslations = false
   let marks: Mark[] = []
   let held: { start: number; end: number } | null = null   // the held word, marked until clearSelection
-  let shown: 'hold' | 'drag' | null = null                 // the selection the host was last sent
+  let sent: { start: number; end: number; source: 'hold' | 'drag' } | null = null   // the selection the host has
   let selTimer = 0
   let holdTimer = 0
   let down: { x: number; y: number } | null = null         // a finger that may become a hold
@@ -315,25 +315,37 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
     while (b < to && !SENTENCE_END.test(text[b - 1])) b++
     const sentence = text.slice(a, b).trim()
     if (sentence.length <= SENTENCE_MAX) return sentence
-    const c = Math.max(a, start - 80)
+    const c = Math.max(a, start - 80, end - SENTENCE_MAX)
     const d = Math.min(b, c + SENTENCE_MAX)
     return `${c > a ? '...' : ''}${text.slice(c, d).trim()}${d < b ? '...' : ''}`
   }
 
-  /** [start, end) of the chapter text as a `selection`, without its edge whitespace; null when only whitespace. */
-  function selected(start: number, end: number, source: 'hold' | 'drag'): EngineEvents['selection'] {
+  /** Sends [start, end) of the chapter text as a `selection`, without its edge whitespace, unless the host has it. */
+  function select(start: number, end: number, source: 'hold' | 'drag') {
     while (start < end && /\s/.test(text[start])) start++
     while (end > start && /\s/.test(text[end - 1])) end--
-    if (start === end) return null
+    // The same text again (iOS re-fires; the platform's own long-press of a held word): the host has it.
+    if (start === end || (sent && sent.start === start && sent.end === end)) return
+    sent = { start, end, source }
+    held = source === 'hold' ? { start, end } : null
+    redraw()
     const range = rangeAt(content, start, end - start)
-    return {
+    emit('selection', {
       locator: quoteAt(text, start, end, href),
       text: text.slice(start, end),
       sentence: sentenceAt(start, end),
       source,
       tooLong: end - start > SELECTION_MAX_CHARS,
       rect: onScreen(range ? rectsOf(range) : []),
-    }
+    })
+  }
+
+  /** The host's selection is gone: tell it. */
+  function unselect() {
+    if (!sent) return
+    sent = held = null
+    redraw()
+    emit('selection', null)
   }
 
   function onSelectionChange() {
@@ -342,30 +354,30 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
       if (!opened) return
       const sel = doc.getSelection()
       const r = sel && !sel.isCollapsed && sel.rangeCount ? sel.getRangeAt(0) : null
-      const start = r && offsetOf(content, r.startContainer, r.startOffset)
-      const end = r && offsetOf(content, r.endContainer, r.endOffset)
-      const s = start != null && end != null ? selected(start, end, 'drag') : null
-      if (s) {
-        if (held) { held = null; redraw() }
-        shown = 'drag'
-        return emit('selection', s)
-      }
+      // The part in the chapter: a drag may run on into the footer.
+      const inner = doc.createRange()
+      inner.selectNodeContents(content)
+      if (r && r.compareBoundaryPoints(Range.START_TO_START, inner) > 0) inner.setStart(r.startContainer, r.startOffset)
+      if (r && r.compareBoundaryPoints(Range.END_TO_END, inner) < 0) inner.setEnd(r.endContainer, r.endOffset)
+      const start = r && !inner.collapsed ? offsetOf(content, inner.startContainer, inner.startOffset) : null
+      const end = r && !inner.collapsed ? offsetOf(content, inner.endContainer, inner.endOffset) : null
+      if (start !== null && end !== null) return select(start, end, 'drag')
       // A hold never makes a page selection: a collapse after one is the platform's noise (Android's menu).
-      if (shown === 'drag') { shown = null; emit('selection', null) }
+      if (sent?.source === 'drag') unselect()
     }, SELECTION_SETTLE_MS)
   }
 
-  /** The word under a point on screen, as chapter offsets; null off the text or on no letter. */
+  /**
+   * The word under a point on screen, as chapter offsets; null off the text or on no letter. Words are
+   * the vocabulary's, plus the soft hyphens extraction puts inside long English words.
+   */
   function wordAt(x: number, y: number): { start: number; end: number } | null {
     const c = caretAt(x, y)
     if (!c || c.node.nodeType !== Node.TEXT_NODE) return null
     const data = (c.node as Text).data
-    let a = c.offset
-    let b = c.offset
-    while (a > 0 && WORD_CHAR.test(data[a - 1])) a--
-    while (b < data.length && WORD_CHAR.test(data[b])) b++
-    const at = offsetOf(content, c.node, a)
-    return at !== null && /\p{L}/u.test(data.slice(a, b)) ? { start: at, end: at + b - a } : null
+    const w = tokenizeVocabWords(data.replace(/\u00AD/g, 'a')).find((t) => t.start <= c.offset && c.offset <= t.end)
+    const at = w && /\p{L}/u.test(w.word) ? offsetOf(content, c.node, w.start) : null
+    return at != null ? { start: at, end: at + w!.end - w!.start } : null
   }
 
   function cancelHold() {
@@ -377,7 +389,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
     cancelHold()
     swallowClick = false
     // A mouse drags to select; a link owns its press.
-    if (e.pointerType === 'mouse' || (e.target as Element).closest('a')) return
+    if (e.pointerType === 'mouse' || !content.contains(e.target as Node) || (e.target as Element).closest('a')) return
     const at = { x: e.clientX, y: e.clientY }
     down = at
     holdTimer = win.setTimeout(() => {
@@ -387,10 +399,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
       swallowClick = true
       emit('hold', at)   // first: the host's haptic
       // Drawn, never put in the page's selection: Android would open its own menu over the host's.
-      held = word
-      shown = 'hold'
-      redraw()
-      emit('selection', selected(word.start, word.end, 'hold'))
+      select(word.start, word.end, 'hold')
     }, HOLD_MS)
   }
 
@@ -486,13 +495,14 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
     paint()
     if (target || styleAnchor) return
     emit('relocated', { locator: last && land(last) ? last : capture(), reason: 'reflow' })
+    checkEnd()
   }
 
   const scrollSource: EventTarget = scroller === page ? doc : scroller
   scrollSource.addEventListener('scroll', onScroll)
   root.addEventListener('click', onClick)
   doc.addEventListener('selectionchange', onSelectionChange)
-  content.addEventListener('pointerdown', onPointerDown)
+  root.addEventListener('pointerdown', onPointerDown)
   content.addEventListener('pointermove', onPointerMove)
   content.addEventListener('pointerup', cancelHold)
   content.addEventListener('pointercancel', cancelHold)
@@ -511,7 +521,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
       text = chapterText(content)
       segments = segmentsOf(content)
       cancelHold()
-      held = shown = null
+      unselect()
       endSeen = false
       resolveMarks()
       layer.replaceChildren()
@@ -560,7 +570,10 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
         if (mine === styleSeq && styleAnchor && !target) {
           const anchor = styleAnchor
           styleAnchor = null
-          if (land(anchor)) return emit('relocated', { locator: last!, reason: 'style', opId })
+          if (land(anchor)) {
+            emit('relocated', { locator: last!, reason: 'style', opId })
+            return checkEnd()
+          }
         }
         emit('relocated', { locator: here(), reason: 'style', opId })
       })
@@ -576,8 +589,8 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
     },
 
     clearSelection() {
-      shown = null
-      if (held) { held = null; redraw() }
+      sent = held = null
+      redraw()
       const sel = doc.getSelection()
       if (sel?.anchorNode && content.contains(sel.anchorNode)) sel.removeAllRanges()
     },
@@ -619,6 +632,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
       listeners.clear()
       scrollSource.removeEventListener('scroll', onScroll)
       root.removeEventListener('click', onClick)
+      root.removeEventListener('pointerdown', onPointerDown)
       doc.removeEventListener('selectionchange', onSelectionChange)
       win.clearTimeout(selTimer)
       cancelHold()

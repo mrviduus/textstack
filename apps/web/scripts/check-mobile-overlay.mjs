@@ -8,11 +8,13 @@ import { readFile } from 'node:fs/promises'
 import { BUNDLES, renderBundle } from './mobile-bundles.mjs'
 
 let stale = false
+let over = false
 for (const bundle of BUNDLES) {
   const { content, length } = await renderBundle(bundle)
   if (bundle.budget && length > bundle.budget) {
-    console.error(`\n[check:mobile-overlay] ${bundle.out} is ${length} chars, over its ${bundle.budget} budget.\n`)
-    stale = true
+    console.error(`\n[check:mobile-overlay] ${bundle.out} is ${length} chars, over its ${bundle.budget} budget.`)
+    console.error('Cut code, or raise the budget in mobile-bundles.mjs in its own PR (ADR-025).\n')
+    over = true
   }
   const actual = await readFile(bundle.out, 'utf8').catch(() => null)
   if (actual !== content) {
@@ -23,7 +25,5 @@ for (const bundle of BUNDLES) {
   }
 }
 
-if (stale) {
-  console.error('Run: pnpm -C apps/web build:mobile-overlay\n')
-  process.exit(1)
-}
+if (stale) console.error('Run: pnpm -C apps/web build:mobile-overlay\n')
+if (stale || over) process.exit(1)

@@ -2,13 +2,14 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import type { EngineEvents, Rect } from './api'
 import { CHAPTER, LAST_SENTENCE, PARAGRAPHS, destroyAll, makeReader } from './engine.testkit'
+import { rangeAt } from './text'
 
 /**
  * What the reader does with the page: select, hold, tap, scroll, reach the end. Each test name starts
  * with its rule ID (docs/05-features/reader-engine.md). The fake layout is in engine.testkit.ts.
  */
 
-afterEach(() => { vi.useRealTimers(); destroyAll() })
+afterEach(() => { vi.useRealTimers(); destroyAll(); document.getSelection()?.removeAllRanges() })
 
 /** One line's box on screen, the chapter scrolled by `scrollTop`. */
 const onScreen = ([b]: Rect[], scrollTop: number): Rect => ({ ...b, y: b.y - scrollTop })
@@ -19,21 +20,32 @@ const only = (reader: ReturnType<typeof makeReader>, ...events: (keyof EngineEve
 
 describe('selection', () => {
   it('E20 a drag selection is sent once it settles, with its sentence, locator and box; a long one with tooLong; gone is null', async () => {
-    const reader = makeReader()
+    const longSentence = `Ships ${'and more ships '.repeat(20)}sailed past the light at the far end of the long pier.`
+    const tail = longSentence.slice(-150)
+    const reader = makeReader({ html: `${CHAPTER}<p>${longSentence}</p>` })
+    const footer = reader.footer()
     await reader.open()
     vi.useFakeTimers()
+    const drag = async (sel: Parameters<typeof reader.select>[0]) => { reader.select(sel); await vi.advanceTimersByTimeAsync(300) }
 
     reader.select('Malin log 3: the keeper')
     await vi.advanceTimersByTimeAsync(100)
     expect(reader.payloads('selection'), 'still changing').toEqual([])
     await vi.advanceTimersByTimeAsync(200)
+    await drag('Malin log 3: the keeper')                      // the same again: not sent twice
 
-    reader.select(PARAGRAPHS.slice(12, 15).join(''))
+    await drag(PARAGRAPHS.slice(12, 15).join(''))
+    await drag(tail)
+    const intoFooter = rangeAt(reader.chapter, reader.chapter.textContent!.indexOf(LAST_SENTENCE), 1)!
+    intoFooter.setEnd(footer.firstChild!, 4)
+    await drag(intoFooter)
+    await drag(null)
+    await drag('Oban log 2')
+    const opening = reader.open()
     await vi.advanceTimersByTimeAsync(300)
-    reader.select(null)
-    await vi.advanceTimersByTimeAsync(300)
+    await opening
 
-    const [short, long, gone] = reader.payloads('selection') as EngineEvents['selection'][]
+    const [short, long, inLong, toEnd, gone, again, opened, ...rest] = reader.payloads('selection') as EngineEvents['selection'][]
     expect(short).toEqual({
       text: 'Malin log 3: the keeper',
       sentence: 'Malin log 3: the keeper counted 15 ships before dawn.',
@@ -43,11 +55,16 @@ describe('selection', () => {
       rect: onScreen(reader.boxesOf('Malin log 3: the keeper'), reader.scrollTop),
     })
     expect(long).toMatchObject({ source: 'drag', tooLong: true })
+    expect(inLong!.sentence, 'a long sentence is cut around the selection, never through it').toContain(tail)
+    expect(toEnd!.text, 'a drag past the chapter is the part in it').toBe(LAST_SENTENCE + longSentence)
     expect(gone).toBeNull()
+    expect(again).toMatchObject({ text: 'Oban log 2' })
+    expect(opened, 'opening a chapter ends the selection').toBeNull()
+    expect(rest).toEqual([])
   })
 
   it('E21 a held word is selected (hold first), marked over the text, without the page selection; moving cancels; clearSelection unmarks', async () => {
-    const reader = makeReader()
+    const reader = makeReader({ html: `${CHAPTER}<p>An extra\u00ADordinary keeper’s log.</p>` })
     await reader.open()
     vi.useFakeTimers()
     const at = reader.pointAt('Malin log 3')
@@ -75,8 +92,22 @@ describe('selection', () => {
     expect(reader.drawn('selection')).toEqual([{ id: 'selection', rects: reader.boxesOf('Malin', 2) }])
     expect(document.getSelection()!.rangeCount).toBe(0)
 
+    reader.select('Malin', 2)                                   // the platform's own long-press of the same word
+    await vi.advanceTimersByTimeAsync(300)
+    expect(reader.payloads('selection'), 'not sent again').toHaveLength(1)
+
     reader.engine.clearSelection()
     expect(reader.drawn('selection')).toEqual([])
+    expect(document.getSelection()!.rangeCount).toBe(0)
+
+    for (const word of ['extra', 'keeper’s']) {
+      const p = reader.pointAt(word)
+      reader.pointer('pointerdown', p.x, p.y)
+      await vi.advanceTimersByTimeAsync(500)
+      reader.pointer('pointerup', p.x, p.y)
+    }
+    expect(reader.payloads('selection').slice(1).map((s) => (s as EngineEvents['selection'])!.text), 'a whole word: soft hyphen, curly apostrophe')
+      .toEqual(['extra\u00ADordinary', 'keeper’s'])
   })
 })
 
@@ -113,6 +144,13 @@ describe('taps', () => {
 
     reader.tap(1, 1, reader.footer())
     expect(taps()).toHaveLength(5)
+
+    reader.pointer('pointerdown', plain.x, plain.y)              // a hold the platform ends with no click
+    await vi.advanceTimersByTimeAsync(500)
+    reader.pointer('pointerup', plain.x, plain.y)
+    reader.pointer('pointerdown', 1, 1, reader.root)             // then a tap on the page's margin
+    reader.tap(1, 1)
+    expect(taps()).toEqual(['linkClick', 'linkClick', 'imageTap', 'decorationTap', 'tap', 'tap'])
   })
 })
 
@@ -158,5 +196,12 @@ describe('scrolling', () => {
 
     reader.engine.setFooter(null)
     expect(footer.isConnected).toBe(false)
+
+    const short = makeReader()
+    short.footer()
+    await short.open()
+    short.setStyle({ fontSize: 4 })                             // the chapter shrinks: the footer shows, no scroll
+    await short.settle()
+    expect(short.payloads('chapterEnd')).toEqual([{ visible: true }])
   })
 })
