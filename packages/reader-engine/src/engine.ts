@@ -10,11 +10,14 @@
 // - Decorations (highlights, search hits, saved words and their translations) are drawn on an SVG
 //   beside the chapter, never in it: the chapter's text nodes are never changed. Redrawn whenever the
 //   text may have moved (open, style, reflow).
+// - What the reader does with the page becomes one event each (selection, hold, tap, link, image,
+//   scroll direction, chapter end); the host draws every popup. Timings are the mobile bridge's.
 import type { ChapterDoc, EngineEvents, EngineOptions, GoToResult, Locator, Reason, ReaderEngine, Rect, Style } from './api'
 import { Overlayer, type DrawFn } from './overlay'
 import { resolveLocator, type Resolved } from './resolve'
 import { findTextOffsets } from './textWalker'
-import { chapterText, locatorAt, matchWords, quoteAt, rangesIn, textNodes } from './text'
+import { tokenizeVocabWords } from '../../shared/src/text/vocabKey'
+import { chapterText, locatorAt, matchWords, offsetOf, quoteAt, rangeAt, rangesIn, textNodes } from './text'
 
 /** A quarter down the viewport: where both apps capture, so a position means the same place on each. */
 const READING_LINE = 0.25
@@ -28,11 +31,25 @@ const FONTS_DEADLINE_MS = 4000
 /** Characters of text either side of a `find` match, like the web drawer's list. */
 const FIND_CONTEXT = 40
 
+/** iOS fires `selectionchange` all through a drag: a selection is sent once it stops changing. */
+const SELECTION_SETTLE_MS = 220
+/** A deliberate hold, not a brush; moving this far makes it a scroll. */
+const HOLD_MS = 450
+const HOLD_SLOP_PX = 8
+/** The server's translate and TTS cap: a longer selection is still sent, flagged. */
+const SELECTION_MAX_CHARS = 500
+/** Hide the bars late, show them early. */
+const SCROLL_DOWN_PX = 48
+const SCROLL_UP_PX = 6
+const SENTENCE_END = /[.!?\n]/
+/** A longer sentence is cut to this many characters around the selection. */
+const SENTENCE_MAX = 200
+
 /** A run of the chapter's text inside one block, with the chapter offset it starts at. */
 interface Segment { el: Element; start: number; length: number }
 
 /** A decoration resolved in the open chapter. Words are drawn but not tapped (ADR-025: hold selects them). */
-interface Mark { group: 'highlight' | 'search' | 'word'; id: string; start: number; end: number; color?: string; translation?: string; rects: Rect[] }
+interface Mark { group: 'highlight' | 'search' | 'word' | 'selection'; id: string; start: number; end: number; color?: string; translation?: string; rects: Rect[] }
 type Group = 'highlight' | 'search'
 type DecorationItem = Parameters<ReaderEngine['decorate']>[1][number]
 type WordItem = Parameters<ReaderEngine['markWords']>[0][number]
@@ -41,14 +58,12 @@ const COLORS = {
   highlight: 'var(--reader-highlight, rgba(254, 240, 138, 0.5))',
   search: 'var(--reader-search, rgba(250, 204, 21, 0.35))',
   word: 'var(--reader-word, rgba(59, 130, 246, 0.5))',
+  selection: 'var(--reader-selection, rgba(196, 112, 75, 0.35))',
 }
-const DRAW: Record<Mark['group'], DrawFn> = { highlight: Overlayer.highlight, search: Overlayer.highlight, word: Overlayer.underline }
+const DRAW: Record<Mark['group'], DrawFn> = { highlight: Overlayer.highlight, search: Overlayer.highlight, word: Overlayer.underline, selection: Overlayer.highlight }
 const SVG = 'http://www.w3.org/2000/svg'
 
-/** Selection, footer and the remaining events arrive in slice 6. */
-export type EngineCore = Pick<ReaderEngine, 'open' | 'goTo' | 'setStyle' | 'current' | 'on' | 'destroy' | 'decorate' | 'markWords' | 'find'>
-
-export function createEngine(root: HTMLElement, opts: EngineOptions = {}): EngineCore {
+export function createEngine(root: HTMLElement, opts: EngineOptions = {}): ReaderEngine {
   const doc = root.ownerDocument
   const win = doc.defaultView!
   const page = doc.scrollingElement as HTMLElement
@@ -71,6 +86,12 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
     return Array.from(range.getClientRects())
       .filter((r) => r.width > 0 && r.height > 0)
       .map((r) => ({ x: r.left - o.left, y: r.top - o.top, width: r.width, height: r.height }))
+  })
+  const caretAt = opts.caret ?? ((x: number, y: number) => {
+    const p = doc.caretPositionFromPoint?.(x, y)
+    if (p) return { node: p.offsetNode, offset: p.offset }
+    const r = doc.caretRangeFromPoint?.(x, y)
+    return r ? { node: r.startContainer, offset: r.startOffset } : null
   })
   const frame = () => new Promise<void>((r) => schedule(r))
 
@@ -103,6 +124,16 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
   let words: WordItem[] = []
   let showTranslations = false
   let marks: Mark[] = []
+  let held: { start: number; end: number } | null = null   // the held word, marked until clearSelection
+  let sent: { start: number; end: number; source: 'hold' | 'drag' } | null = null   // the selection the host has
+  let selTimer = 0
+  let holdTimer = 0
+  let down: { x: number; y: number } | null = null         // a finger that may become a hold
+  let swallowClick = false                                 // the click that ends a hold is not a tap
+  let dir: 'up' | 'down' | null = null
+  let dirBase = 0                                          // scrollTop where the last direction was decided
+  let footer: HTMLElement | null = null
+  let endSeen = false
   const listeners = new Map<keyof EngineEvents, Set<(p: never) => void>>()
 
   function emit<K extends keyof EngineEvents>(e: K, p: EngineEvents[K]) {
@@ -170,7 +201,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
 
   function scrollTo(y: number) {
     scroller.scrollTop = Math.max(0, y)
-    ownTop = scroller.scrollTop
+    dirBase = ownTop = scroller.scrollTop
   }
 
   function topFor(r: Resolved, line: number): number {
@@ -201,6 +232,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
   function settle(reason: Reason, opId: string | undefined, result: GoToResult): GoToResult {
     target = null
     emit('relocated', { locator: last!, reason, opId })
+    checkEnd()
     return result
   }
 
@@ -228,6 +260,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
     for (const m of matchWords(content, words)) {
       marks.push({ group: 'word', id: m.item.word, start: m.start, end: m.end, color: m.item.style, translation: m.item.translation, rects: [] })
     }
+    if (held) marks.push({ group: 'selection', id: 'selection', ...held, rects: [] })
   }
 
   /** Draws every mark where its text is now. */
@@ -260,9 +293,137 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
 
   const redraw = () => { resolveMarks(); paint() }
 
-  /** A tap on a highlight or search hit (highlights on top); the last drawn wins inside a group. */
+  /** Root-relative line boxes as one box on screen. */
+  function onScreen(rects: Rect[]): Rect {
+    const o = root.getBoundingClientRect()
+    if (!rects.length) return { x: o.left, y: o.top, width: 0, height: 0 }
+    const left = Math.min(...rects.map((r) => r.x))
+    const top = Math.min(...rects.map((r) => r.y))
+    const width = Math.max(...rects.map((r) => r.x + r.width)) - left
+    const height = Math.max(...rects.map((r) => r.y + r.height)) - top
+    return { x: left + o.left, y: top + o.top, width, height }
+  }
+
+  /** The sentence around [start, end) inside its block, cut to SENTENCE_MAX around the selection. */
+  function sentenceAt(start: number, end: number): string {
+    const seg = segments.find((s) => start < s.start + s.length)
+    const from = seg?.start ?? 0
+    const to = seg ? seg.start + seg.length : text.length
+    let a = start
+    while (a > from && !SENTENCE_END.test(text[a - 1])) a--
+    let b = end
+    while (b < to && !SENTENCE_END.test(text[b - 1])) b++
+    const sentence = text.slice(a, b).trim()
+    if (sentence.length <= SENTENCE_MAX) return sentence
+    const c = Math.max(a, start - 80, end - SENTENCE_MAX)
+    const d = Math.min(b, c + SENTENCE_MAX)
+    return `${c > a ? '...' : ''}${text.slice(c, d).trim()}${d < b ? '...' : ''}`
+  }
+
+  /** Sends [start, end) of the chapter text as a `selection`, without its edge whitespace, unless the host has it. */
+  function select(start: number, end: number, source: 'hold' | 'drag') {
+    while (start < end && /\s/.test(text[start])) start++
+    while (end > start && /\s/.test(text[end - 1])) end--
+    // The same text again (iOS re-fires; the platform's own long-press of a held word): the host has it.
+    if (start === end || (sent && sent.start === start && sent.end === end)) return
+    sent = { start, end, source }
+    held = source === 'hold' ? { start, end } : null
+    redraw()
+    const range = rangeAt(content, start, end - start)
+    emit('selection', {
+      locator: quoteAt(text, start, end, href),
+      text: text.slice(start, end),
+      sentence: sentenceAt(start, end),
+      source,
+      tooLong: end - start > SELECTION_MAX_CHARS,
+      rect: onScreen(range ? rectsOf(range) : []),
+    })
+  }
+
+  /** The host's selection is gone: tell it. */
+  function unselect() {
+    if (!sent) return
+    sent = held = null
+    redraw()
+    emit('selection', null)
+  }
+
+  function onSelectionChange() {
+    win.clearTimeout(selTimer)
+    selTimer = win.setTimeout(() => {
+      if (!opened) return
+      const sel = doc.getSelection()
+      const r = sel && !sel.isCollapsed && sel.rangeCount ? sel.getRangeAt(0) : null
+      // The part in the chapter: a drag may run on into the footer.
+      const inner = doc.createRange()
+      inner.selectNodeContents(content)
+      if (r && r.compareBoundaryPoints(Range.START_TO_START, inner) > 0) inner.setStart(r.startContainer, r.startOffset)
+      if (r && r.compareBoundaryPoints(Range.END_TO_END, inner) < 0) inner.setEnd(r.endContainer, r.endOffset)
+      const start = r && !inner.collapsed ? offsetOf(content, inner.startContainer, inner.startOffset) : null
+      const end = r && !inner.collapsed ? offsetOf(content, inner.endContainer, inner.endOffset) : null
+      if (start !== null && end !== null) return select(start, end, 'drag')
+      // A hold never makes a page selection: a collapse after one is the platform's noise (Android's menu).
+      if (sent?.source === 'drag') unselect()
+    }, SELECTION_SETTLE_MS)
+  }
+
+  /**
+   * The word under a point on screen, as chapter offsets; null off the text or on no letter. Words are
+   * the vocabulary's, plus the soft hyphens extraction puts inside long English words.
+   */
+  function wordAt(x: number, y: number): { start: number; end: number } | null {
+    const c = caretAt(x, y)
+    if (!c || c.node.nodeType !== Node.TEXT_NODE) return null
+    const data = (c.node as Text).data
+    const w = tokenizeVocabWords(data.replace(/\u00AD/g, 'a')).find((t) => t.start <= c.offset && c.offset <= t.end)
+    const at = w && /\p{L}/u.test(w.word) ? offsetOf(content, c.node, w.start) : null
+    return at != null ? { start: at, end: at + w!.end - w!.start } : null
+  }
+
+  function cancelHold() {
+    win.clearTimeout(holdTimer)
+    down = null
+  }
+
+  function onPointerDown(e: PointerEvent) {
+    cancelHold()
+    swallowClick = false
+    // A mouse drags to select; a link owns its press.
+    if (e.pointerType === 'mouse' || !content.contains(e.target as Node) || (e.target as Element).closest('a')) return
+    const at = { x: e.clientX, y: e.clientY }
+    down = at
+    holdTimer = win.setTimeout(() => {
+      down = null
+      const word = wordAt(at.x, at.y)
+      if (!word) return
+      swallowClick = true
+      emit('hold', at)   // first: the host's haptic
+      // Drawn, never put in the page's selection: Android would open its own menu over the host's.
+      select(word.start, word.end, 'hold')
+    }, HOLD_MS)
+  }
+
+  function onPointerMove(e: PointerEvent) {
+    if (down && (Math.abs(e.clientX - down.x) > HOLD_SLOP_PX || Math.abs(e.clientY - down.y) > HOLD_SLOP_PX)) cancelHold()
+  }
+
+  /** One event per tap: a link, an image, a highlight or search hit (highlights on top), else a plain tap. */
   function onClick(e: MouseEvent) {
-    if (doc.getSelection()?.isCollapsed === false) return   // the end of a drag selection, not a tap
+    const t = e.target as Element
+    if (swallowClick) { swallowClick = false; return }
+    if (footer?.contains(t)) return                             // the host's buttons own their taps
+    if (doc.getSelection()?.isCollapsed === false) return       // the end of a drag selection, not a tap
+    const link = t.closest('a[href]')
+    if (link && content.contains(link)) {
+      e.preventDefault()
+      const h = link.getAttribute('href')!
+      return emit('linkClick', { href: h, internal: !/^([a-z][a-z\d+.-]*:|\/\/)/i.test(h) })
+    }
+    const img = t.closest('img')
+    if (img && content.contains(img)) {
+      const r = img.getBoundingClientRect()
+      return emit('imageTap', { src: img.src, alt: img.alt || undefined, rect: { x: r.left, y: r.top, width: r.width, height: r.height } })
+    }
     const o = root.getBoundingClientRect()
     const x = e.clientX - o.left
     const y = e.clientY - o.top
@@ -270,12 +431,18 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
       for (let i = marks.length - 1; i >= 0; i--) {
         const m = marks[i]
         if (m.group !== group || !m.rects.some((r) => x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height)) continue
-        const left = Math.min(...m.rects.map((r) => r.x))
-        const top = Math.min(...m.rects.map((r) => r.y))
-        const width = Math.max(...m.rects.map((r) => r.x + r.width)) - left
-        const height = Math.max(...m.rects.map((r) => r.y + r.height)) - top
-        return emit('decorationTap', { group, id: m.id, rect: { x: left + o.left, y: top + o.top, width, height } })
+        return emit('decorationTap', { group, id: m.id, rect: onScreen(m.rects) })
       }
+    }
+    emit('tap', { x: e.clientX, y: e.clientY })
+  }
+
+  /** Once per open: the footer came into view. */
+  function checkEnd() {
+    if (endSeen || !footer || !opened || target) return
+    if (measure(footer).top < scroller.scrollTop + viewport().height) {
+      endSeen = true
+      emit('chapterEnd', { visible: true })
     }
   }
 
@@ -303,6 +470,12 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
   function onScroll() {
     if (scroller.scrollTop === ownTop) return
     ownTop = null
+    const d = scroller.scrollTop - dirBase
+    const next = d >= SCROLL_DOWN_PX ? 'down' : d <= -SCROLL_UP_PX ? 'up' : null
+    if (next) {
+      dirBase = scroller.scrollTop
+      if (next !== dir) emit('scrollDir', (dir = next))
+    }
     if (scrollQueued) return
     scrollQueued = true
     schedule(() => {
@@ -310,6 +483,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
       if (!opened || target || styleAnchor) return
       last = capture()
       emit('relocated', { locator: last, reason: 'scroll' })
+      checkEnd()
     })
   }
 
@@ -321,11 +495,17 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
     paint()
     if (target || styleAnchor) return
     emit('relocated', { locator: last && land(last) ? last : capture(), reason: 'reflow' })
+    checkEnd()
   }
 
   const scrollSource: EventTarget = scroller === page ? doc : scroller
   scrollSource.addEventListener('scroll', onScroll)
   root.addEventListener('click', onClick)
+  doc.addEventListener('selectionchange', onSelectionChange)
+  root.addEventListener('pointerdown', onPointerDown)
+  content.addEventListener('pointermove', onPointerMove)
+  content.addEventListener('pointerup', cancelHold)
+  content.addEventListener('pointercancel', cancelHold)
   const unobserve = observeResize(content, onResize)
 
   return {
@@ -340,6 +520,9 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
       content.dir = d.dir ?? ''
       text = chapterText(content)
       segments = segmentsOf(content)
+      cancelHold()
+      unselect()
+      endSeen = false
       resolveMarks()
       layer.replaceChildren()
       const ours = at && at.href === href ? at : null
@@ -387,13 +570,30 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
         if (mine === styleSeq && styleAnchor && !target) {
           const anchor = styleAnchor
           styleAnchor = null
-          if (land(anchor)) return emit('relocated', { locator: last!, reason: 'style', opId })
+          if (land(anchor)) {
+            emit('relocated', { locator: last!, reason: 'style', opId })
+            return checkEnd()
+          }
         }
         emit('relocated', { locator: here(), reason: 'style', opId })
       })
     },
 
     current: () => (opened ? here() : null),
+
+    setFooter(el) {
+      footer?.remove()
+      footer = el
+      if (el) content.after(el)
+      checkEnd()
+    },
+
+    clearSelection() {
+      sent = held = null
+      redraw()
+      const sel = doc.getSelection()
+      if (sel?.anchorNode && content.contains(sel.anchorNode)) sel.removeAllRanges()
+    },
 
     decorate(group, items) {
       decorations[group] = items
@@ -432,6 +632,11 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
       listeners.clear()
       scrollSource.removeEventListener('scroll', onScroll)
       root.removeEventListener('click', onClick)
+      root.removeEventListener('pointerdown', onPointerDown)
+      doc.removeEventListener('selectionchange', onSelectionChange)
+      win.clearTimeout(selTimer)
+      cancelHold()
+      footer = null
       unobserve()
       fontFaces.remove()
       root.replaceChildren()

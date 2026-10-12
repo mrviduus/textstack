@@ -39,6 +39,8 @@ function layout(root: HTMLElement) {
     boxes.set(p, { top: y, height })
     y += height + fs
   }
+  const footer = root.querySelector('footer')   // the host's chapter-end block (setFooter)
+  if (footer) { boxes.set(footer, { top: y, height: 100 }); y += 100 }
   return { boxes, total: y }
 }
 
@@ -114,6 +116,22 @@ export function makeReader(opts: { html?: string; fonts?: () => Promise<void> } 
   // The chapter's top-left on screen: it moves up as the reader scrolls.
   root.getBoundingClientRect = () => new DOMRect(0, -top, WIDTH, layout(root).total)
 
+  /** The caret at a point on screen: the character under it on the fake layout. */
+  function caret(x: number, y: number): { node: Node; offset: number } | null {
+    const fs = parseFloat(root.style.fontSize) || 16
+    const perLine = Math.floor(WIDTH / (fs / 2))
+    const at = y + top
+    for (const [p, box] of layout(root).boxes) {
+      if (p.tagName !== 'P' || at < box.top || at >= box.top + box.height) continue
+      let char = Math.floor((at - box.top) / (fs * 1.5)) * perLine + Math.floor(x / (fs / 2))
+      for (const t of textNodes(p)) {
+        if (char < t.length) return { node: t, offset: char }
+        char -= t.length
+      }
+    }
+    return null
+  }
+
   let resize = () => {}
   const engine = createEngine(root, {
     scroller,
@@ -123,11 +141,12 @@ export function makeReader(opts: { html?: string; fonts?: () => Promise<void> } 
     observeResize: (_el, cb) => { resize = cb; return () => { resize = () => {} } },
     fontsReady: opts.fonts ?? (() => Promise.resolve()),
     rects: (range) => lineBoxes(root, range),
+    caret,
   })
   engines.push(engine)
 
   const log: { event: keyof EngineEvents; payload: unknown }[] = []
-  for (const event of ['ready', 'relocated', 'error', 'decorationTap'] as const) engine.on(event, (payload) => log.push({ event, payload }))
+  for (const event of ['ready', 'relocated', 'error', 'decorationTap', 'selection', 'hold', 'tap', 'imageTap', 'linkClick', 'scrollDir', 'chapterEnd'] as const) engine.on(event, (payload) => log.push({ event, payload }))
   const relocations = () => log.filter((x) => x.event === 'relocated').map((x) => x.payload as EngineEvents['relocated'])
 
   const text = (() => { const el = document.createElement('div'); el.innerHTML = html; return chapterText(el) })()
@@ -176,7 +195,7 @@ export function makeReader(opts: { html?: string; fonts?: () => Promise<void> } 
       return lineBoxes(root, rangeAt(this.chapter, at, quote.length)!)
     },
     /** What is drawn for a group: each item's id and its boxes, read off the overlay. */
-    drawn(group: 'highlight' | 'search' | 'word'): { id: string; rects: Rect[] }[] {
+    drawn(group: 'highlight' | 'search' | 'word' | 'selection'): { id: string; rects: Rect[] }[] {
       return Array.from(root.querySelectorAll(`[data-group="${group}"]`)).map((g) => ({
         id: g.getAttribute('data-id') ?? '',
         rects: Array.from(g.querySelectorAll('rect')).map((r) => ({
@@ -189,8 +208,38 @@ export function makeReader(opts: { html?: string; fonts?: () => Promise<void> } 
     translations(): { text: string; x: number; y: number }[] {
       return Array.from(root.querySelectorAll('text')).map((t) => ({ text: t.textContent ?? '', x: Number(t.getAttribute('x')), y: Number(t.getAttribute('y')) }))
     },
-    /** The reader taps at a point on screen. */
-    tap(x: number, y: number) { root.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: x, clientY: y })) },
+    /** The reader taps at a point on screen (on `target`, the element under it, when it matters). False: the page's default was stopped. */
+    tap(x: number, y: number, target: Element = root) {
+      return target.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y }))
+    },
+    /** A point on screen over the first character of the `nth` occurrence of `quote`. */
+    pointAt(quote: string, nth = 0): { x: number; y: number } {
+      const b = this.boxesOf(quote, nth)[0]
+      return { x: b.x + 1, y: b.y - top + 1 }
+    },
+    /** A finger goes down / moves / lifts at a point on screen. */
+    pointer(type: 'pointerdown' | 'pointermove' | 'pointerup', x: number, y: number, target: Element = root.firstElementChild!) {
+      target.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX: x, clientY: y, pointerType: 'touch' }))
+    },
+    /** The reader drags a selection over the `nth` occurrence of `quote`, or over a range (null: taps it away). */
+    select(quote: string | Range | null, nth = 0) {
+      const sel = document.getSelection()!
+      sel.removeAllRanges()
+      if (quote instanceof Range) sel.addRange(quote)
+      else if (quote !== null) {
+        let at = -1
+        for (let i = 0; i <= nth; i++) at = text.indexOf(quote, at + 1)
+        sel.addRange(rangeAt(this.chapter, at, quote.length)!)
+      }
+      document.dispatchEvent(new Event('selectionchange'))
+    },
+    /** The host's chapter-end block. */
+    footer(): HTMLElement {
+      const el = document.createElement('footer')
+      el.textContent = 'Next chapter'
+      engine.setFooter(el)
+      return el
+    },
     /** A resize callback with nothing changed. */
     resizeNothing() { resize() },
     /** Let every pending frame, timer and scroll event run. */

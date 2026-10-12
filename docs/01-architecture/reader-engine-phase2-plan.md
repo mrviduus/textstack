@@ -40,6 +40,10 @@ code stays where it is until the platform's flag flips, and is deleted in Phase 
 6. **Events + mobile bundle.** `selection` (with `rect`), `hold`, `tap`, `scrollDir`, `linkClick`,
    `imageTap`, `chapterEnd`, `setFooter`; the esbuild IIFE in `apps/web/scripts/mobile-bundles.mjs`
    with the 60 KB unminified budget asserted in CI (drift-checked, not yet loaded by the app).
+   *Done 2026-10-12:* rules E20–E24 (`src/events.test.ts`); a `caret` test seam (jsdom has no
+   `caretPositionFromPoint`). The bundle is `createEngine` alone, `window.__TSEngine`, 49 KB: the
+   mappers and ADR-019 rules run in the host, not the WebView. Taps ride on `click` like
+   `decorationTap`; the old bridge used `touchend` (click unreliable in the RN WebView): Phase 3 checks it on a device.
 7. **Playground + Playwright geometry.** A page that runs the engine on real chapters in a real
    browser. Checks what jsdom cannot: the engine's reading line against the apps' caret probe (same
    text within one line), and scroll cost on a long chapter. Gate for Phase 3.

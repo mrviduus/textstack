@@ -120,4 +120,6 @@ export interface EngineOptions {
    * is reused for the next mark: read it during the call, never keep it.
    */
   rects?: (range: Range) => Rect[]
+  /** The caret at a point on screen (jsdom has no `caretPositionFromPoint`). */
+  caret?: (x: number, y: number) => { node: Node; offset: number } | null
 }

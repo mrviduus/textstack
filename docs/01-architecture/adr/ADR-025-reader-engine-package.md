@@ -141,6 +141,7 @@ export function createEngine(root: HTMLElement, opts?: {
   observeResize?: (el: Element, cb: () => void) => () => void
   fontsReady?: () => Promise<void>
   rects?: (range: Range) => Rect[]              // a range's line boxes, root-relative (slice 4)
+  caret?: (x: number, y: number) => { node: Node; offset: number } | null   // caret at a screen point (slice 6)
 }): ReaderEngine
 ```
 
@@ -192,7 +193,7 @@ the chapter's text nodes (decorations draw over the text; `WordHint`'s `surround
 - `src/boundary.test.ts` fails the build on a forbidden import — no ESLint needed.
 - `packages/reader-engine/CLAUDE.md` holds the rules; `.claude/agents/reader-engine.md` is the agent.
 - Mobile gets the engine as one esbuild IIFE (`apps/web/scripts/mobile-bundles.mjs`), drift-checked,
-  with a size budget (60 KB unminified; overlay + anchor are 28 KB today).
+  with a size budget (60 KB unminified; overlay + anchor are 28 KB today; the engine alone 49 KB at slice 6).
 - A change to `api.ts` amends this ADR.
 
 ## Android spike results (Phase 1b, 2026-10-08)

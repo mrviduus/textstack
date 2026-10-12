@@ -9,7 +9,7 @@ text) and [ADR-019](../../docs/01-architecture/adr/ADR-019-reader-position-rules
 
 Phase 1: the contract (`src/api.ts`) and the stored-shape mappers (`src/mappers.ts`). Phase 2
 ([slice plan](../../docs/01-architecture/reader-engine-phase2-plan.md)), slice 1: the `goTo`
-resolution ladder (`src/resolve.ts`); slice 2: the chapter as text (`src/text.ts`); slice 3: the engine core, reflow (`src/engine.ts`: `open` / `goTo` / `setStyle` / `current` / `on` / `destroy`); slice 4: decorations (`decorate` / `find` / `markWords` / `decorationTap`, drawn on an SVG beside the chapter; `Overlayer` and `textWalker` moved in from `reader-overlay`, which re-exports them until Phase 6); slice 5: ADR-019 pure rules re-exported from shared, one pinning test per rule (`src/positionRules.test.ts`). No app imports this package yet. Apps keep the old reader until each platform's flag flips.
+resolution ladder (`src/resolve.ts`); slice 2: the chapter as text (`src/text.ts`); slice 3: the engine core, reflow (`src/engine.ts`: `open` / `goTo` / `setStyle` / `current` / `on` / `destroy`); slice 4: decorations (`decorate` / `find` / `markWords` / `decorationTap`, drawn on an SVG beside the chapter; `Overlayer` and `textWalker` moved in from `reader-overlay`, which re-exports them until Phase 6); slice 5: ADR-019 pure rules re-exported from shared, one pinning test per rule (`src/positionRules.test.ts`). Slice 6: events (`selection`, `hold`, `tap`, `linkClick`, `imageTap`, `scrollDir`, `chapterEnd`), `setFooter`, `clearSelection` (`src/events.test.ts`); the mobile IIFE (`window.__TSEngine`, 60 KB budget checked by `pnpm -C apps/web check:mobile-overlay`), built but not loaded. No app imports this package yet. Apps keep the old reader until each platform's flag flips.
 
 Engine rules in plain words (IDs `E1`… used in test names): [docs/05-features/reader-engine.md](../../docs/05-features/reader-engine.md).
 Tests read as rules: plumbing (fake layout, driver) lives in `src/engine.testkit.ts`.
@@ -40,7 +40,7 @@ Tests read as rules: plumbing (fake layout, driver) lives in `src/engine.testkit
   wrong level — e.g. a source-text wiring guard), drop (implementation detail, duplicate). Put the list
   in the PR description. Every R1–R4 bug keeps one test.
 - Every bug fix adds a fixture row or a test that failed before it.
-- Test seams (`EngineOptions`: `scroller`, `measure`, `schedule`, `rects`, …) are for tests; hosts pass nothing.
+- Test seams (`EngineOptions`: `scroller`, `measure`, `schedule`, `rects`, `caret`, …) are for tests; hosts pass nothing.
 
 ```bash
 pnpm -C packages/reader-engine test        # includes the boundary test
