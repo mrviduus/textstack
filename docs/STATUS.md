@@ -38,7 +38,7 @@ answers "what happened" and nothing answered "what is half-finished right now".
 > 2. **Reader engine** — decided 2026-10-08: separate package `packages/reader-engine`, strangler
 >    migration behind flags, no iframe, scroll only, reflow then PDF. Phase 0 #774 merged; Phase 1: [ADR-025](01-architecture/adr/ADR-025-reader-engine-package.md)
 >    accepted, `packages/reader-engine` = API types + stored-shape mappers (test-first). Android spike
->    done: 8/8 pass ([results](01-architecture/adr/ADR-025-reader-engine-package.md#android-spike-results-phase-1b-2026-10-08)). Next: Phase 2 after launch. Production engine
+>    done: 8/8 pass ([results](01-architecture/adr/ADR-025-reader-engine-package.md#android-spike-results-phase-1b-2026-10-08)). Phase 2 slices 1–3 done (ladder, chapter as text, engine core reflow); next slice 4 (decorations). Production engine
 >    code only after Play launch. Owner runs [QA-007](qa/scenarios/QA-007-reader-android-r1-r4.md).
 > 3. Later, in 2–3 bundled PRs while reader work waits on something: the rest of
 >    [review 2026-10](01-architecture/review-2026-10/00-summary.md) (#19 admin roles/audit, #20 book models,
