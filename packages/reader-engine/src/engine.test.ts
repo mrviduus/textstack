@@ -133,6 +133,14 @@ describe('scrolling: only the reader scrolling is reading (ADR-019 rule 7)', () 
     expect(scroll.locator.locations.charOffset!).toBeGreaterThan(reader.ack('open').locator.locations.charOffset!)
   })
 
+  it('E26 current() follows a scroll the engine has not read yet (the app went to the background)', async () => {
+    const reader = makeReader()
+    await reader.open(MIDDLE)
+    await reader.settle()
+    reader.scrollBy(600)   // no scroll event, no frame yet: both stop in a hidden page
+    expect(reader.line().startsWith(MIDDLE)).toBe(false)
+  })
+
   it('E5 scrolling while an open is still running is not reading', async () => {
     const fonts = deferred()
     const reader = makeReader({ fonts: () => fonts.promise })

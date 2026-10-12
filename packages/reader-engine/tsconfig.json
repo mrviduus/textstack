@@ -3,26 +3,12 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "lib": [
-      "ES2022",
-      "DOM",
-      "DOM.Iterable"
-    ],
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "strict": true,
     "resolveJsonModule": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "types": [
-      "node"
-    ],
-    "paths": {
-      "@textstack/shared": [
-        "../shared/src/index.ts"
-      ]
-    }
+    "types": ["node"]
   },
-  "include": [
-    "src",
-    "playground"
-  ]
+  "include": ["src"]
 }

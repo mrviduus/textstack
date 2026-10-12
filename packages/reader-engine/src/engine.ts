@@ -120,6 +120,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
   let target: Locator | null = null      // where the open / goTo in flight will land
   let styleAnchor: Locator | null = null // where the setStyle in flight will re-anchor
   let last: Locator | null = null        // the place a reflow keeps
+  let lastTop = 0                        // the scrollTop `last` was read at
   let ownTop: number | null = null       // the scrollTop we set; its scroll event is not reading
   let height = -1
   let scrollQueued = false
@@ -185,7 +186,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
   /**
    * The chapter offset under the reading line, by the browser's caret, the way both apps read it (web
    * `readReadingLine`): clamped into the chapter, a few x's in case one is a margin or an image. Null:
-   * no caret API (jsdom) or no text there.
+   * no caret API or no text there.
    */
   function probe(): number | null {
     const box = content.getBoundingClientRect()
@@ -201,9 +202,14 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
     return null
   }
 
-  /** Content y of a chapter offset: the middle of its line, or the estimate where it has no box. */
+  /**
+   * Content y of a chapter offset: the middle of the line of its first visible character (whitespace
+   * between blocks has no box), or the estimate where there is none.
+   */
   function yAtOffset(offset: number): number {
-    const range = rangeOf(offset, 1)
+    let at = offset
+    while (at < text.length - 1 && /\s/.test(text[at])) at++
+    const range = rangeOf(at, 1)
     const r = range && rectsOf(range)[0]
     if (r) return measure(root).top + r.y + r.height / 2
     const seg = segments.find((s) => offset < s.start + s.length) ?? segments[segments.length - 1]
@@ -225,9 +231,10 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
 
   /**
    * Rule 8: the target in flight, else the last place reported (a landed op keeps its exact place until
-   * the reader scrolls: the line holds many characters), else the reading line.
+   * the reader scrolls: the line holds many characters), else the reading line. A scroll not read yet
+   * (a hidden page runs no frames) is read now.
    */
-  const here = () => target ?? styleAnchor ?? last ?? capture()
+  const here = () => target ?? styleAnchor ?? (last && scroller.scrollTop === lastTop ? last : capture())
 
   function scrollTo(y: number) {
     scroller.scrollTop = Math.max(0, y)
@@ -254,6 +261,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
     scrollTo(topFor(r, line))
     const found = (r.result === 'exact' || r.result === 'fuzzy') && href ? locatorAt(text, r.offset, href, progression()) : null
     last = found ?? capture()
+    lastTop = scroller.scrollTop
     height = measure(content).height
     return r.result
   }
@@ -511,6 +519,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
       scrollQueued = false
       if (!opened || target || styleAnchor) return
       last = capture()
+      lastTop = scroller.scrollTop
       emit('relocated', { locator: last, reason: 'scroll' })
       checkEnd()
     })

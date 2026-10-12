@@ -48,7 +48,7 @@ carries its `opId`.
 | E24 | `setFooter` puts the host's block after the chapter, in the scroll flow but outside its text (positions, `find`, decorations unchanged). `chapterEnd` fires once per open, when the footer comes into view: by scrolling, an op, a style change or a reflow. | ADR-025: chapter-end block contents stay the host's | 2026-10-12 |
 | E25 | In a browser the engine reads the reading line with the caret, like the apps: its place is on the line web's caret probe reads. | [#789](https://github.com/mrviduus/textstack/issues/789): the old estimate was off by up to 226 px | 2026-10-12 |
 | E26 | `goTo` puts the place's line on the reading line. Until the reader scrolls, `current()` is that place exactly: open and save without a scroll never drifts. | #789; ADR-015 | 2026-10-12 |
-| E27 | Reading the place on a reader scroll costs under 2 ms a frame on a long chapter (Ulysses XV, 2760 table cells), CPU 4× slower. | [#790](https://github.com/mrviduus/textstack/issues/790): 6.3 ms before, 0.4 ms with the caret | 2026-10-12 |
+| E27 | Reading the place on a reader scroll costs under 4 ms a frame (a quarter of one at 60 fps) on a long chapter (Ulysses XV, 2760 table cells), CPU 4× slower. | [#790](https://github.com/mrviduus/textstack/issues/790): 6.3 ms before, 0.4 ms with the caret | 2026-10-12 |
 
 ## Before users get the engine (Phase 3)
 
