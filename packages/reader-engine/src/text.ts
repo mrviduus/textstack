@@ -11,7 +11,7 @@ import { READER_GLOSS_SELECTOR } from '../../shared/src/text/gloss'
 
 const NOT_TEXT = `script, style, noscript, ${READER_GLOSS_SELECTOR}`
 
-function textNodes(root: Node): Text[] {
+export function textNodes(root: Node): Text[] {
   const doc = root.ownerDocument ?? (root as Document)
   const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode: (n) => (n.parentElement?.closest(NOT_TEXT) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
@@ -75,8 +75,12 @@ export function rangeToLocator(root: Node, range: Range, href: string): Locator 
  */
 export function positionAt(root: Node, node: Node, offset: number, href: string, progression: number): Locator | null {
   const at = offsetOf(root, node, offset)
-  if (at === null) return null
-  const p = buildTextPosition({ chapterSlug: href, chapterText: chapterText(root), charOffset: at, chapterFraction: progression })
+  return at === null ? null : locatorAt(chapterText(root), at, href, progression)
+}
+
+/** The reading position at a chapter offset, quoted by the shared `buildTextPosition`. */
+export function locatorAt(text: string, at: number, href: string, progression: number): Locator | null {
+  const p = buildTextPosition({ chapterSlug: href, chapterText: text, charOffset: at, chapterFraction: progression })
   if (!p) return null
   return {
     href,

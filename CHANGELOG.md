@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Reader** — engine Phase 2 slice 3: engine core, reflow (`createEngine`: open/goTo/setStyle/current/on/destroy; one `relocated` per op, `superseded`, `'scroll'` only after settle, ADR-019 rules 3/7/8 pinned), test-first, no app imports it — shared · [details](docs/changelog-archive/2026-H2.md#2026-10-12-reader-engine-phase-2-slice-3-engine-core-reflow)
 - **Fix** — mobile book detail Library: one op queue for load/add/remove (remove→add no longer races the DELETE, a double tap on Save is one tap), DELETE 404 = removed, stale answers for another book dropped — mobile
 - **Reader** — engine Phase 2 slices 1+2: `goTo` resolution ladder (tie-break fixed) + the chapter as text (offset ↔ Range, selection/caret → Locator), test-first, no app imports it — shared · [details](docs/changelog-archive/2026-H2.md#2026-10-12-reader-engine-phase-2-slices-1-2)
 - **Docs** — `CLAUDE.md` 55 KB → 16 KB: feature, API, key-file, mobile and ops sections moved verbatim to `docs/claude/*.md` with a pointer table; cross-cutting rules kept inline — docs

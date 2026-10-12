@@ -1,5 +1,5 @@
 // The engine's contract — ADR-025 (docs/01-architecture/adr/ADR-025-reader-engine-package.md).
-// A change here amends that ADR. Types only; nothing implements ReaderEngine yet (Phase 2).
+// A change here amends that ADR. Types only; `createEngine` (src/engine.ts) implements the core.
 //
 // Relative imports, not '@textstack/shared': the mobile WebView gets this package as an esbuild
 // IIFE, the same reason packages/reader-overlay imports relatively.
@@ -51,6 +51,10 @@ export interface ChapterDoc {
   dir?: 'ltr' | 'rtl'
 }
 
+/**
+ * 'superseded': the op did not land — a newer open / goTo replaced it, or (D1) a `goTo` got another
+ * chapter's locator. `open` with one opens at the top ('start'); both emit an `anchor-miss` error.
+ */
 export type GoToResult = 'exact' | 'fuzzy' | 'fraction' | 'legacyOffset' | 'start' | 'superseded'
 
 /** Why the reader's place changed. Only 'scroll' (user input after the last op settled) is reading. */

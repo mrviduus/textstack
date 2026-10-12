@@ -148,7 +148,8 @@ Rules the types cannot say:
 - **Every `open`, `goTo` and `setStyle` emits exactly one `relocated` with its `opId`, even when nothing
   moved, and before its promise resolves.** This replaces the restore ack and `restoreId`
   (ADR-019 rule 3) and `jumpId` on PDF; a newer command makes an older one resolve `'superseded'`, and
-  a superseded op never counts as landed.
+  a superseded op never counts as landed. A `goTo` with another chapter's locator does not move, emits an
+  `anchor-miss` error naming that chapter and resolves `'superseded'` (Phase 2 decision D1).
 - **`'scroll'` means user input after the last op settled.** "The reader moved since the restore" is
   then "a `'scroll'` arrived", so `readerMovedSince`'s pixel tolerance goes.
 - **Mappers are one pair per stored shape** (`TextPosition`, `TextAnchor`, `PdfAnchor`, `page:<N>`,
