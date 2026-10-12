@@ -137,7 +137,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
   let holdTimer = 0
   let down: { x: number; y: number } | null = null         // a finger that may become a hold
   let swallowClick = false                                 // the click that ends a hold is not a tap
-  let lastTap = -Infinity                                  // Date.now() of the last `tap` sent
+  let lastTap = -Infinity                                  // performance.now() of the last plain tap
   let dir: 'up' | 'down' | null = null
   let dirBase = 0                                          // scrollTop where the last direction was decided
   let footer: HTMLElement | null = null
@@ -189,7 +189,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
 
   /**
    * The chapter offset under the reading line, by the browser's caret, the way both apps read it (web
-   * `readReadingLine`): clamped into the chapter, a few x's in case one is a margin or an image. Null:
+   * `readReadingLine`): clamped into the chapter, a few x's in case one is a margin, an image or an empty cell. Null:
    * no caret API or no text there.
    */
   function probe(): number | null {
@@ -198,7 +198,9 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
     const y = Math.max(box.top + 4, Math.min(line, box.bottom - 4))
     for (const x of [box.left + 24, box.left + box.width / 2, box.right - 24]) {
       const c = caretAt(x, y)
-      const at = c && offsetIn(c.node, c.offset)
+      // Text only, like the apps (#802): a caret on an element (an empty table cell, an image) is no
+      // place on this line; the next x is.
+      const at = c && c.node.nodeType === Node.TEXT_NODE ? offsetIn(c.node, c.offset) : null
       if (at !== null) return at
     }
     return null
@@ -221,12 +223,12 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
   }
 
   /**
-   * Content y of a chapter offset: the middle of the line of its first visible character (whitespace
-   * between blocks has no box), or the estimate where there is none.
+   * Content y of a chapter offset: the middle of the line of its first visible character (whitespace,
+   * soft hyphens and zero-width spaces have no width), or the estimate where there is none.
    */
   function yAtOffset(offset: number): number {
     let at = offset
-    while (at < text.length - 1 && /\s/.test(text[at])) at++
+    while (at < text.length - 1 && /[\s\u00AD\u200B]/.test(text[at])) at++
     const range = rangeOf(at, 1)
     const r = range && rectsOf(range)[0]
     if (r) return measure(root).top + r.y + r.height / 2
@@ -313,7 +315,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
         }
       }
     }
-    for (const m of matchWords(content, words)) {
+    for (const m of matchWords(content, words, nodes)) {
       marks.push({ group: 'word', id: m.item.word, start: m.start, end: m.end, color: m.item.style, translation: m.item.translation, rects: [] })
     }
     if (held) marks.push({ group: 'selection', id: 'selection', ...held, rects: [] })
@@ -489,8 +491,10 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
         return emit('decorationTap', { group, id: m.id, rect: onScreen(m.rects) })
       }
     }
-    if (Date.now() - lastTap < DOUBLE_TAP_MS) return
-    lastTap = Date.now()
+    // Monotonic, and from the last tap of any kind: a triple tap is still one toggle.
+    const quick = performance.now() - lastTap < DOUBLE_TAP_MS
+    lastTap = performance.now()
+    if (quick) return
     emit('tap', { x: e.clientX, y: e.clientY })
   }
 

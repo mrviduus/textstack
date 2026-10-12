@@ -21,6 +21,8 @@ Tests read as rules: plumbing (fake layout, driver) lives in `src/engine.testkit
 - Import `packages/shared` by **relative path**, not `@textstack/shared`: the mobile WebView gets this
   package as an esbuild IIFE (same reason as `packages/reader-overlay`).
 - Never change the chapter's text nodes. Decorations draw over the text.
+- `playground/` is not the engine: it imports web's `readReadingLine` on purpose, as the yardstick E25
+  measures against (its own tsconfig carries the `@textstack/shared` alias).
 
 ## Contract
 

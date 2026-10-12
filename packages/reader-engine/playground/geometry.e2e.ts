@@ -12,14 +12,13 @@ declare global {
       offsetOf(loc: Locator): number | null
       yOf(offset: number): number
       lineHeight(): number
+      placeAt(offset: number): Locator
+      text(): string
     }
   }
 }
 
 const CHAPTERS = ['moby-dick-5', 'speckled-band', 'ulysses-15']
-// Not ulysses-15: the web probe skips the empty speaker cell (#802) and reads the next column, up to
-// two lines from the engine, which counts the cell itself. E26 covers it.
-const WEB_PROBE_READS = ['moby-dick-5', 'speckled-band']
 const STOPS = [0.05, 0.2, 0.35, 0.5, 0.65, 0.8, 0.95]
 
 async function openChapter(page: Page, chapter: string) {
@@ -37,7 +36,7 @@ async function readerScrolls(page: Page, f: number) {
   }, f)
 }
 
-for (const chapter of WEB_PROBE_READS) {
+for (const chapter of CHAPTERS) {
   test(`E25 the reading line is the web probe's line: ${chapter}`, async ({ page }) => {
     await openChapter(page, chapter)
     for (const f of STOPS) {
@@ -106,4 +105,19 @@ test('E29 the chapter growing above the reading line is a reflow, never the read
   })
   expect(r.reasons).toEqual(['reflow'])
   expect(r.same).toBe(true)
+})
+
+test('E26 a place that starts on a soft hyphen lands on the reading line too', async ({ page }) => {
+  await openChapter(page, 'moby-dick-5-shy')   // U+00AD in words of 8+ letters, as extraction adds them
+  const r = await page.evaluate(async () => {
+    const text = window.pg.text()
+    const dys: number[] = []
+    for (let i = 1; i <= 10; i++) {
+      const at = text.indexOf('\u00AD', (i / 11) * text.length)
+      await window.engine.goTo(window.pg.placeAt(at))
+      dys.push(Math.abs(window.pg.yOf(at) - (scrollY + innerHeight * 0.25)))
+    }
+    return { worst: Math.max(...dys), line: window.pg.lineHeight() }
+  })
+  expect(r.worst).toBeLessThan(r.line / 2)
 })

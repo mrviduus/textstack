@@ -102,12 +102,12 @@ const WORD_CHAR = /[\p{L}\p{M}\p{N}]/u
  * ponytail: offsets assume NFC and lowercasing keep lengths (not so for Turkish İ), like the web
  * matcher; map offsets through the normalisation if such a book shows up.
  */
-export function matchWords<T extends { word: string }>(root: Node, items: T[]): { item: T; start: number; end: number }[] {
+export function matchWords<T extends { word: string }>(root: Node, items: T[], nodes?: Text[]): { item: T; start: number; end: number }[] {
   const byKey = new Map(items.map((i) => [normalizeVocabKey(i.word), i]))
   const phrases = [...byKey.keys()].filter((k) => k.includes(' ')).sort((a, b) => b.length - a.length)
   const out: { item: T; start: number; end: number }[] = []
   let base = 0
-  for (const { data: text } of byKey.size ? textNodes(root) : []) {
+  for (const { data: text } of byKey.size ? (nodes ?? textNodes(root)) : []) {
     const taken = new Uint8Array(text.length)
     const lower = text.normalize('NFC').toLowerCase()
     for (const key of phrases) {

@@ -116,6 +116,7 @@ describe('taps', () => {
     const extra = '<p>See <a href="#fn1">note 1</a> and <a href="https://example.com/x">the site</a>. <img src="fig.png" alt="Figure 1"></p>'
     const reader = makeReader({ html: CHAPTER + extra })
     await reader.open()
+    vi.useFakeTimers()
     reader.engine.decorate('highlight', [{ id: 'h1', locator: reader.quote('Oban log 2') }])
     const [note, site] = Array.from(reader.chapter.querySelectorAll('a'))
     const taps = () => only(reader, 'tap', 'linkClick', 'imageTap', 'decorationTap')
@@ -136,7 +137,6 @@ describe('taps', () => {
     reader.tap(plain.x, plain.y)
     reader.select(null)
 
-    vi.useFakeTimers()
     reader.pointer('pointerdown', plain.x, plain.y)
     await vi.advanceTimersByTimeAsync(500)
     reader.pointer('pointerup', plain.x, plain.y)
@@ -155,17 +155,19 @@ describe('taps', () => {
 })
 
 describe('double tap', () => {
-  it('E28 a second tap within 300 ms is part of a double tap: it emits nothing', async () => {
+  it('E28 a tap within 300 ms of the last one is a double (or triple) tap: it emits nothing; a clock change does not matter', async () => {
     const reader = makeReader()
     await reader.open()
     vi.useFakeTimers()
     const p = reader.pointAt('Arden log 2')
-    reader.tap(p.x, p.y)
-    await vi.advanceTimersByTimeAsync(150)
-    reader.tap(p.x, p.y)                     // the bars toggle once, not twice
+    for (let i = 0; i < 3; i++) { reader.tap(p.x, p.y); await vi.advanceTimersByTimeAsync(150) }
+    expect(only(reader, 'tap'), 'the bars toggle once').toHaveLength(1)
     await vi.advanceTimersByTimeAsync(300)
     reader.tap(p.x, p.y)
-    expect(only(reader, 'tap')).toHaveLength(2)
+    vi.setSystemTime(Date.now() - 3_600_000)   // the phone's clock goes back an hour (NTP, a time zone)
+    await vi.advanceTimersByTimeAsync(400)
+    reader.tap(p.x, p.y)
+    expect(only(reader, 'tap')).toHaveLength(3)
   })
 })
 
