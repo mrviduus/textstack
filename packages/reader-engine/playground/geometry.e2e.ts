@@ -1,0 +1,92 @@
+import { expect, test, type Page } from '@playwright/test'
+import type { Locator, ReaderEngine } from '../src/api'
+
+// Rules E25–E27 (docs/05-features/reader-engine.md): what jsdom cannot check, on real chapters.
+
+declare global {
+  interface Window {
+    engine: ReaderEngine
+    pg: {
+      sameText(): boolean
+      probe(): number | null
+      offsetOf(loc: Locator): number | null
+      yOf(offset: number): number
+      lineHeight(): number
+    }
+  }
+}
+
+const CHAPTERS = ['moby-dick-5', 'speckled-band', 'ulysses-15']
+// Not ulysses-15: there the web probe's caret lands in an empty table cell and reads the chapter's end
+// (#802). The engine reads it right; it is only the yardstick that is wrong.
+const WEB_PROBE_READS = ['moby-dick-5', 'speckled-band']
+const STOPS = [0.05, 0.2, 0.35, 0.5, 0.65, 0.8, 0.95]
+
+async function openChapter(page: Page, chapter: string) {
+  await page.goto(`/?chapter=${chapter}`)
+  await page.waitForSelector('body[data-ready]')
+  expect(await page.evaluate(() => window.pg.sameText())).toBe(true)
+}
+
+/** The reader scrolls to a fraction of the chapter; resolves once the engine has read it. */
+async function readerScrolls(page: Page, f: number) {
+  await page.evaluate(async (f) => {
+    const seen = new Promise<void>((r) => { const off = window.engine.on('relocated', (e) => { if (e.reason === 'scroll') { off(); r() } }) })
+    window.scrollTo(0, Math.round(f * (document.documentElement.scrollHeight - innerHeight)))
+    await seen
+  }, f)
+}
+
+for (const chapter of WEB_PROBE_READS) {
+  test(`E25 the reading line is the web probe's line: ${chapter}`, async ({ page }) => {
+    await openChapter(page, chapter)
+    for (const f of STOPS) {
+      await readerScrolls(page, f)
+      const r = await page.evaluate(() => {
+        const engine = window.pg.offsetOf(window.engine.current()!)!
+        const probe = window.pg.probe()!
+        return { dy: Math.abs(window.pg.yOf(engine) - window.pg.yOf(probe)), line: window.pg.lineHeight() }
+      })
+      expect(r.dy, `at ${f}`).toBeLessThan(r.line)
+    }
+  })
+}
+
+for (const chapter of CHAPTERS) {
+  test(`E26 goTo puts the place on the reading line, and current() stays it: ${chapter}`, async ({ page }) => {
+    await openChapter(page, chapter)
+    for (const f of STOPS) {
+      await readerScrolls(page, f)
+      const saved = await page.evaluate(() => window.engine.current()!)
+      await readerScrolls(page, f > 0.5 ? 0.05 : 0.95)   // away, then back
+      const r = await page.evaluate(async (saved) => {
+        await window.engine.goTo(saved)
+        const dy = Math.abs(window.pg.yOf(window.pg.offsetOf(saved)!) - (scrollY + innerHeight * 0.25))
+        return { dy, line: window.pg.lineHeight(), now: window.engine.current()!.text }
+      }, saved)
+      expect(r.dy, `at ${f}`).toBeLessThan(r.line)
+      expect(r.now, `at ${f}`).toEqual(saved.text)
+    }
+  })
+}
+
+test('E27 reading the place on a scroll costs under 2 ms a frame on a long chapter, CPU 4x slower', async ({ page }) => {
+  await openChapter(page, 'ulysses-15')   // 2760 table cells
+  const cdp = await page.context().newCDPSession(page)
+  await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 })
+  const ms = await page.evaluate(async () => {
+    // A frame callback queued before the engine's: from it to the engine's 'scroll' is the engine's frame.
+    let t0 = 0
+    addEventListener('scroll', () => requestAnimationFrame(() => { t0 = performance.now() }), { capture: true })
+    const times: number[] = []
+    for (let i = 1; i <= 40; i++) {
+      await new Promise<void>((r) => {
+        const off = window.engine.on('relocated', (e) => { if (e.reason === 'scroll') { times.push(performance.now() - t0); off(); r() } })
+        window.scrollTo(0, (i / 41) * (document.documentElement.scrollHeight - innerHeight))
+      })
+    }
+    return times.sort((a, b) => a - b)[Math.floor(times.length / 2)]
+  })
+  console.log(`E27 median engine frame on ulysses-15, CPU 4x: ${ms.toFixed(2)} ms`)
+  expect(ms).toBeLessThan(2)
+})

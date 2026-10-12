@@ -781,6 +781,14 @@ jobs:
           BASE_URL: http://localhost:5173
           ADMIN_URL: http://localhost:81
 
+      # ADR-025 phase 2 slice 7, the Phase 3 gate: the engine's reading line and scroll cost on real
+      # chapters in Chromium (jsdom has no layout). Its own Vite page, no API; ~5s.
+      - name: Reader engine geometry — gates the PR
+        working-directory: packages/reader-engine
+        run: pnpm test:geometry
+        env:
+          CI: true
+
       # Reported, not blocking. Read the summary and the uploaded report; a failure
       # here is a real signal worth acting on, it just does not stop a release.
       - name: E2E full — reported, does not gate

@@ -144,6 +144,8 @@ export function makeReader(opts: { html?: string; fonts?: () => Promise<void> } 
     caret,
   })
   engines.push(engine)
+  // The chapter fills the root: the engine probes the reading line inside its box.
+  ;(root.firstElementChild as HTMLElement).getBoundingClientRect = () => root.getBoundingClientRect()
 
   const log: { event: keyof EngineEvents; payload: unknown }[] = []
   for (const event of ['ready', 'relocated', 'error', 'decorationTap', 'selection', 'hold', 'tap', 'imageTap', 'linkClick', 'scrollDir', 'chapterEnd'] as const) engine.on(event, (payload) => log.push({ event, payload }))
