@@ -1,6 +1,6 @@
 export type * from './api'
 export * from './mappers'
-export { createEngine, type EngineCore } from './engine'
+export { createEngine } from './engine'
 
 // ADR-019 pure rules (pinned in positionRules.test.ts). The code stays in shared until Phase 6 (D2).
 // Not `readerMovedSince` / `REFLOW_MOVE_TOLERANCE_PX`: with the engine, "moved" = a 'scroll' arrived.

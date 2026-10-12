@@ -41,10 +41,24 @@ export const BUNDLES = [
       '// Android WebView (es2017). Always inlined by readerHtml.ts — the reading\n' +
       '// position is resolved from an anchor and the overlay flag does not gate it.',
   },
+  {
+    // ADR-025: built and drift-checked from Phase 2, loaded by the app from Phase 3. createEngine only:
+    // the mappers and ADR-019 rules run in the host (RN), not in the WebView.
+    entry: resolve(repoRoot, 'packages/reader-engine/src/engine.ts'),
+    out: resolve(repoRoot, 'apps/mobile/src/lib/readerEngineScript.generated.ts'),
+    constName: 'READER_ENGINE_SCRIPT',
+    source: 'packages/reader-engine/src/engine.ts',
+    globalName: '__TSEngine',
+    // Owner decision (ADR-025): raising it is a deliberate PR. Unminified characters.
+    budget: 60 * 1024,
+    blurb:
+      'IIFE bundle of @textstack/reader-engine as window.__TSEngine, transpiled\n' +
+      '// for Android WebView (es2017). Not loaded by the app yet (Phase 3).',
+  },
 ]
 
 /** The exact contents the generated file should have. */
-export async function renderBundle({ entry, constName, source, blurb }) {
+export async function renderBundle({ entry, constName, source, blurb, globalName }) {
   const result = await build({
     entryPoints: [entry],
     // Fixed, because esbuild writes source paths in the bundle RELATIVE TO CWD.
@@ -57,6 +71,7 @@ export async function renderBundle({ entry, constName, source, blurb }) {
     // fields (#x) so the bundle runs on Android 7-9 stock WebView.
     target: ['es2017'],
     format: 'iife',
+    globalName,
     platform: 'browser',
     write: false,
     minify: false,

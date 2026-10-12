@@ -27,7 +27,7 @@ export function chapterText(root: Node): string {
 }
 
 /** Character offset of a DOM point (a caret, a range boundary) in the chapter's text; null outside it. */
-function offsetOf(root: Node, node: Node, offset: number): number | null {
+export function offsetOf(root: Node, node: Node, offset: number): number | null {
   const max = node.nodeType === Node.TEXT_NODE ? (node as Text).length : node.childNodes.length
   if (!root.contains(node) || offset < 0 || offset > max) return null
   const point = (root.ownerDocument ?? (root as Document)).createRange()
