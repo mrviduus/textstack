@@ -98,6 +98,9 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
   const frame = () => new Promise<void>((r) => schedule(r))
 
   const content = doc.createElement('div')
+  // The engine alone keeps the place when the chapter changes size (E29): no browser scroll anchoring,
+  // whose own scroll would race the re-anchor and read as the reader moving (#794).
+  content.style.overflowAnchor = 'none'
   // Beside the chapter, in its coordinates: scrolls with the text, never read as text (gloss marker).
   const layer = doc.createElementNS(SVG, 'svg')
   layer.setAttribute('data-vocab-overlay', 'true')   // in READER_GLOSS_SELECTOR: text.ts skips it
@@ -137,7 +140,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
   let holdTimer = 0
   let down: { x: number; y: number } | null = null         // a finger that may become a hold
   let swallowClick = false                                 // the click that ends a hold is not a tap
-  let lastTap = -Infinity                                  // performance.now() of the last plain tap
+  let lastTap = -Infinity                                  // performance.now() of the last tap
   let dir: 'up' | 'down' | null = null
   let dirBase = 0                                          // scrollTop where the last direction was decided
   let footer: HTMLElement | null = null
@@ -148,14 +151,14 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
     for (const cb of [...(listeners.get(e) ?? [])]) (cb as (p: EngineEvents[K]) => void)(p)
   }
 
-  function segmentsOf(el: Element, nodes: Text[]): Segment[] {
+  function segmentsOf(): Segment[] {
     const out: Segment[] = []
     let at = 0
     for (const t of nodes) {
       // Whitespace between blocks has no line of its own; a segment for it would claim the container's box.
       if (t.data.trim()) {
         let block = t.parentElement!
-        while (block !== el && INLINE.has(block.tagName)) block = block.parentElement!
+        while (block !== content && INLINE.has(block.tagName)) block = block.parentElement!
         const prev = out[out.length - 1]
         if (prev?.el === block && prev.start + prev.length === at) prev.length += t.length
         else out.push({ el: block, start: at, length: t.length })
@@ -471,8 +474,13 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
     if (footer?.contains(t)) return                             // the host's buttons own their taps
     if (doc.getSelection()?.isCollapsed === false) return       // the end of a drag selection, not a tap
     const link = t.closest('a[href]')
+    if (link && content.contains(link)) e.preventDefault()          // never navigates, a double tap's second included
+    // A tap of any kind this soon after the last is a double (or triple) tap. Monotonic: a clock change can't swallow taps.
+    const now = win.performance.now()
+    const quick = now - lastTap < DOUBLE_TAP_MS
+    lastTap = now
+    if (quick) return
     if (link && content.contains(link)) {
-      e.preventDefault()
       const h = link.getAttribute('href')!
       return emit('linkClick', { href: h, internal: !/^([a-z][a-z\d+.-]*:|\/\/)/i.test(h) })
     }
@@ -491,10 +499,6 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
         return emit('decorationTap', { group, id: m.id, rect: onScreen(m.rects) })
       }
     }
-    // Monotonic, and from the last tap of any kind: a triple tap is still one toggle.
-    const quick = performance.now() - lastTap < DOUBLE_TAP_MS
-    lastTap = performance.now()
-    if (quick) return
     emit('tap', { x: e.clientX, y: e.clientY })
   }
 
@@ -585,7 +589,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
       nodes = textNodes(content)   // the one walk per open
       for (const t of nodes) { starts.set(t, text.length); text += t.data }
       rangeOf = rangesIn(content, nodes)
-      segments = segmentsOf(content, nodes)
+      segments = segmentsOf()
       cancelHold()
       unselect()
       endSeen = false

@@ -121,11 +121,16 @@ describe('taps', () => {
     const [note, site] = Array.from(reader.chapter.querySelectorAll('a'))
     const taps = () => only(reader, 'tap', 'linkClick', 'imageTap', 'decorationTap')
 
+    const apart = () => vi.advanceTimersByTimeAsync(400)   // separate taps, not a double tap (E28)
     expect(reader.tap(1, 1, note), 'the page does not navigate').toBe(false)
+    await apart()
     reader.tap(1, 1, site)
+    await apart()
     reader.tap(1, 1, reader.chapter.querySelector('img')!)
+    await apart()
     const hl = reader.pointAt('Oban log 2')
     reader.tap(hl.x, hl.y)
+    await apart()
     const plain = reader.pointAt('Arden log 2')
     reader.tap(plain.x, plain.y)
     expect(taps()).toEqual(['linkClick', 'linkClick', 'imageTap', 'decorationTap', 'tap'])
@@ -155,8 +160,8 @@ describe('taps', () => {
 })
 
 describe('double tap', () => {
-  it('E28 a tap within 300 ms of the last one is a double (or triple) tap: it emits nothing; a clock change does not matter', async () => {
-    const reader = makeReader()
+  it('E28 a tap within 300 ms of the last one is a double (or triple) tap: it emits nothing, on text or a link; a clock change does not matter', async () => {
+    const reader = makeReader({ html: `${CHAPTER}<p>See <a href="https://example.com/x">the site</a>.</p>` })
     await reader.open()
     vi.useFakeTimers()
     const p = reader.pointAt('Arden log 2')
@@ -168,6 +173,13 @@ describe('double tap', () => {
     await vi.advanceTimersByTimeAsync(400)
     reader.tap(p.x, p.y)
     expect(only(reader, 'tap')).toHaveLength(3)
+
+    await vi.advanceTimersByTimeAsync(400)
+    const link = reader.chapter.querySelector('a')!
+    reader.tap(1, 1, link)
+    await vi.advanceTimersByTimeAsync(150)
+    reader.tap(1, 1, link)
+    expect(only(reader, 'linkClick'), 'the browser opens once').toHaveLength(1)
   })
 })
 
