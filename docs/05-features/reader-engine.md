@@ -53,6 +53,5 @@ Open items are GitHub issues labelled [`phase-3-gate`](https://github.com/mrvidu
 [#789](https://github.com/mrviduus/textstack/issues/789) reading line via the caret probe, like the apps;
 [#790](https://github.com/mrviduus/textstack/issues/790) scroll cost on a long chapter;
 [#794](https://github.com/mrviduus/textstack/issues/794) browser scroll anchoring read as the reader moving;
-[#798](https://github.com/mrviduus/textstack/issues/798) taps ride on `click`: check on a device;
-[#799](https://github.com/mrviduus/textstack/issues/799) no double-tap guard before `tap`;
-[#801](https://github.com/mrviduus/textstack/issues/801) Android's own menu opens over the host's after a hold.
+[#798](https://github.com/mrviduus/textstack/issues/798) taps ride on `click`, and no Android menu after a hold: check in the WebView;
+[#799](https://github.com/mrviduus/textstack/issues/799) no double-tap guard before `tap`.
