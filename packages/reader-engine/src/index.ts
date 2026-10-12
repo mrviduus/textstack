@@ -6,4 +6,6 @@ export { createEngine, type EngineCore } from './engine'
 // Not `readerMovedSince` / `REFLOW_MOVE_TOLERANCE_PX`: with the engine, "moved" = a 'scroll' arrived.
 export { serverProvablyNewer, decideNewerPosition, trustedLocalStamp, type NewerPositionAction } from '../../shared/src/reader/newerPosition'
 export { localProgressWins, MAX_CLIENT_SKEW_MS } from '../../shared/src/reader/progressPrecedence'
-export * from '../../shared/src/reader/pdfPersistGate'
+export {
+  pdfGateReduce, PDF_GATE_INITIAL, type PdfGateState, type PdfGateEvent, type PdfGatePhase,
+} from '../../shared/src/reader/pdfPersistGate'

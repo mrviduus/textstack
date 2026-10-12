@@ -88,8 +88,8 @@ describe('ADR-019 position rules', () => {
 
   it("rule 5: server data is a newer-check on client stamps; it moves the reader only if no 'scroll' arrived", async () => {
     const now = Date.parse('2026-10-12T12:00:00Z')
-    // Which record the chapter opens from: client stamps only, never the server's clock.
-    expect(localProgressWins({ updatedAt: now, synced: true }, { clientUpdatedAt: iso(now + 1000), updatedAt: iso(now - 3_600_000) })).toBe(false)
+    // Which record the chapter opens from: client stamps only, never the server's clock (an hour ahead here).
+    expect(localProgressWins({ updatedAt: now, synced: true }, { clientUpdatedAt: iso(now - 1000), updatedAt: iso(now + 3_600_000) })).toBe(true)
     // A local stamp from a fast clock counts as now + 5 min at most: a later write from another device is newer.
     expect(serverProvablyNewer({ updatedAt: now + 3_600_000 }, { clientUpdatedAt: iso(now + 600_000) }, now)).toBe(true)
     expect(serverProvablyNewer({ updatedAt: now }, { clientUpdatedAt: null }, now)).toBe(false)
@@ -121,6 +121,12 @@ describe('ADR-019 position rules', () => {
     await vi.advanceTimersByTimeAsync(200)
     expect(result).toBe('exact')
     expect(reader.events()).toEqual(['ready', 'relocated'])
+
+    // A font that fails is a font wait that ended: the open still lands.
+    const failing = makeReader({ fonts: () => Promise.reject(new Error('font failed')) })
+    const landing = failing.open(MIDDLE)
+    await vi.advanceTimersByTimeAsync(10)
+    expect(await landing).toBe('exact')
   })
 
   it("rule 7: a programmatic move is not reading — only the reader's own scroll is 'scroll'", async () => {

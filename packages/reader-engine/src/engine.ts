@@ -348,7 +348,8 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Engin
       last = null
       scrollTo(0)
       let timer = 0
-      await Promise.race([fontsReady(), new Promise<void>((r) => { timer = win.setTimeout(r, FONTS_DEADLINE_MS) })])
+      // A font that fails ends the wait like one that loads.
+      await Promise.race([fontsReady().catch(() => {}), new Promise<void>((r) => { timer = win.setTimeout(r, FONTS_DEADLINE_MS) })])
       win.clearTimeout(timer)
       await frame()
       if (mine !== docSeq) return superseded('open', opId)
