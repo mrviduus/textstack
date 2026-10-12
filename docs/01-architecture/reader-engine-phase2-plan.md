@@ -35,6 +35,8 @@ code stays where it is until the platform's flag flips, and is deleted in Phase 
    the engine re-exports them from shared and owns one pinning test each (rules 1–8 table). The code
    stays in shared until Phase 6 — shared re-exporting from the engine would be an import cycle (D2).
    `readerMovedSince`'s pixel tolerance goes ("moved" = a `'scroll'` arrived).
+   *Done 2026-10-12:* `src/positionRules.test.ts` pins rules 1–8; found and fixed rule 6 in the engine
+   (`open` waited on `fonts.ready` with no deadline: now 4 s).
 6. **Events + mobile bundle.** `selection` (with `rect`), `hold`, `tap`, `scrollDir`, `linkClick`,
    `imageTap`, `chapterEnd`, `setFooter`; the esbuild IIFE in `apps/web/scripts/mobile-bundles.mjs`
    with the 60 KB unminified budget asserted in CI (drift-checked, not yet loaded by the app).

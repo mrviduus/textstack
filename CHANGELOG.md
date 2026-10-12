@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Reader** — engine Phase 2 slice 5: ADR-019 rules join the engine API (`newerPosition`, `progressPrecedence`, `pdfPersistGate` re-exported from shared, D2; one pinning test per rule 1–8; "moved" = a `'scroll'` arrived), `open`'s font wait gets a 4 s deadline (rule 6), test-first, no app imports it — shared · [details](docs/changelog-archive/2026-H2.md#2026-10-12-reader-engine-phase-2-slice-5-adr-019-rules-join-th)
 - **Reader** — engine Phase 2 slice 4: decorations (`decorate` highlight/search, `find`, `markWords` with translations drawn over the text, `decorationTap`; rules E13–E19), `Overlayer`/`textWalker` moved into the engine (`reader-overlay` re-exports, D3), vocab key rules → shared, test-first, no app imports it — shared · [details](docs/changelog-archive/2026-H2.md#2026-10-12-reader-engine-phase-2-slice-4-decorations)
 - **Reader** — engine Phase 2 slice 3: engine core, reflow (`createEngine`: open/goTo/setStyle/current/on/destroy; one `relocated` per op, `superseded`, `'scroll'` only after settle, ADR-019 rules 3/7/8 pinned), test-first, no app imports it — shared · [details](docs/changelog-archive/2026-H2.md#2026-10-12-reader-engine-phase-2-slice-3-engine-core-reflow)
 - **Fix** — mobile book detail Library: one op queue for load/add/remove (remove→add no longer races the DELETE, a double tap on Save is one tap), DELETE 404 = removed, stale answers for another book dropped — mobile

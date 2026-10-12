@@ -8,6 +8,12 @@ What `packages/reader-engine` promises its hosts (web, mobile), in plain words. 
 Each rule has one ID. The test that pins it starts its name with that ID
 (`packages/reader-engine/src/engine.test.ts`; decorations, E13–E19, in `decorations.test.ts`). Change a rule here first, then its test, then the code.
 
+ADR-019's eight position rules are pinned once each in `src/positionRules.test.ts` (`rule 1` … `rule 8`),
+through the engine and the pure rules it re-exports from shared (`newerPosition`, `progressPrecedence`,
+`pdfPersistGate`; the code moves in Phase 6). With the engine, "the reader moved" = a `'scroll'` arrived:
+no pixel tolerance, so `readerMovedSince` is not re-exported. Rule 6 in the engine: a webfont that never
+loads holds an `open` 4 s at most.
+
 **Words used below.** The *reading line* is a quarter down the screen: the text there is "where the
 reader is". An *op* is `open`, `goTo` or `setStyle`. An op's *ack* is the one `relocated` event that
 carries its `opId`.
@@ -40,4 +46,5 @@ carries its `opId`.
 
 Open items are GitHub issues labelled [`phase-3-gate`](https://github.com/mrviduus/textstack/issues?q=label%3Aphase-3-gate):
 [#789](https://github.com/mrviduus/textstack/issues/789) reading line via the caret probe, like the apps;
-[#790](https://github.com/mrviduus/textstack/issues/790) scroll cost on a long chapter.
+[#790](https://github.com/mrviduus/textstack/issues/790) scroll cost on a long chapter;
+[#794](https://github.com/mrviduus/textstack/issues/794) browser scroll anchoring read as the reader moving.
