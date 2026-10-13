@@ -16,7 +16,7 @@ import { computePdfAnchorFromRange } from '../../lib/pdfHighlightAnchor'
 import { SelectionToolbar } from './SelectionToolbar'
 import { HighlightOverlayLayer, COLOR_MAP as HIGHLIGHT_COLORS } from './HighlightOverlayLayer'
 import { VocabOverlayLayer, COLOR_PER_STAGE as VOCAB_STAGE_COLORS, ACTIVE_COLOR as VOCAB_ACTIVE_COLOR } from './VocabOverlayLayer'
-import { INACTIVE_COLOR as SEARCH_COLOR, ACTIVE_COLOR as SEARCH_ACTIVE_OUTLINE } from './SearchOverlayLayer'
+import { INACTIVE_COLOR as SEARCH_COLOR } from './SearchOverlayLayer'
 import { isReviewed, useReviewedMarks } from './ReviewedMarks'
 import { anchorToLocator } from '@textstack/reader-engine'
 import { highlightChapterKey, isChapterKey } from '../../lib/textAnchor'
@@ -85,8 +85,8 @@ function resolveTargetLang(nativeLang: string, bookLang: string): string | null 
   return nativeLang !== bookLang ? nativeLang : null
 }
 
-/** The current search hit: the old outline's colour as a fill the text shows through. */
-const SEARCH_ACTIVE = `color-mix(in srgb, ${SEARCH_ACTIVE_OUTLINE} 45%, transparent)`
+/** The current search hit: the old outline's orange at 45%, a fill the text shows through (dark theme sets its own). No color-mix(): unsupported = a black box. */
+const SEARCH_ACTIVE = 'var(--reader-search-current, rgba(249, 115, 22, 0.45))'
 
 /** Count words in a trimmed selection string. */
 function countWords(text: string): number {
@@ -324,7 +324,7 @@ export function ReaderHighlights({
     const engine = mountedEngineFor(engineHref ?? undefined)?.engine
     if (!engine) return
     const q = searchQuery.trim()
-    const hits = q.length < 2 ? [] : engine.find(q)   // the drawer's rules (useInBookSearch)
+    const hits = q.length < 2 ? [] : engine.find(q)   // the drawer lists the same find (useInBookSearch)
     engine.decorate('search', hits.map((hit, i) => ({ id: String(i), locator: hit.locator, style: i === searchActiveIndex ? SEARCH_ACTIVE : SEARCH_COLOR })))
     const current = hits[searchActiveIndex]
     if (current) void engine.goTo(current.locator, { align: 'center' })
@@ -375,6 +375,7 @@ export function ReaderHighlights({
           onExplain={handleExplain}
           onSpeak={() => handleSpeak(selection.text)}
           onCopy={handleCopy}
+          tooLong={selection.tooLong}
         />
       )}
 

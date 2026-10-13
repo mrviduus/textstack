@@ -172,6 +172,19 @@ describe('ReaderHighlights with the engine', () => {
     expect(eng.engine.clearSelection).toHaveBeenCalled()
   })
 
+  it('engine_TooLongSelection_TranslateAndExplainOff_WithANotice_HighlightStays', async () => {
+    // As mobile's SelectionActionBar: dimmed buttons alone read as broken, so the notice says why.
+    renderReader()
+    await eng.emit('selection', { ...selected('pocketed the coins')!, tooLong: true })
+    fireEvent.click(screen.getByLabelText('reader.selectionToolbar.translate'))
+    fireEvent.click(screen.getByLabelText('reader.selectionToolbar.explain'))
+    expect(translate).not.toHaveBeenCalled()
+    expect(explain).not.toHaveBeenCalled()
+    expect(screen.getByText('reader.selectionToolbar.tooLong')).toBeTruthy()
+    await act(async () => { fireEvent.click(screen.getByLabelText('reader.selectionToolbar.highlightYellow')) })
+    expect(addHighlight).toHaveBeenCalled()
+  })
+
   it('engine_SelectionGone_HidesTheToolbar', async () => {
     renderReader()
     await eng.emit('selection', selected('pocketed the coins'))
@@ -308,6 +321,35 @@ describe('ReaderHighlights with the engine', () => {
     expect(done).toHaveBeenCalledWith(false)
   })
 
+  it('engine_HighlightLink_AnchorTheOldDomResolverMisses_StillGoesThere', async () => {
+    // An anchor from an engine selection is the engine's text; the old DOM resolver must not gate the jump.
+    const done = vi.fn()
+    const engineOnly = hl('h1', { anchor: { ...anchor, exact: 'not in the old DOM walk' } })
+    renderReader({ highlights: [engineOnly], scrollToHighlightId: 'h1', highlightLinkReady: true, onHighlightLinkDone: done })
+    expect(eng.engine.goTo).toHaveBeenCalledWith(expect.objectContaining({ text: expect.objectContaining({ highlight: 'not in the old DOM walk' }) }), { align: 'center' })
+    await act(async () => {})
+    expect(done).toHaveBeenCalledWith(true)
+  })
+
+  const drawerJump = async (h: StoredHighlight, onNavigateToHighlight = vi.fn()) => {
+    renderReader({ highlights: [h], scrollToHl: { id: h.id, nonce: 1 }, onNavigateToHighlight })
+    await act(async () => { await new Promise((r) => requestAnimationFrame(r)) })
+    return onNavigateToHighlight
+  }
+
+  it('engine_DrawerJump_HighlightInAnotherChapter_RoutesThere_NoGoTo', async () => {
+    const nav = await drawerJump(hl('h2', { chapterId: 'c9', anchor: { ...anchor, chapterId: 'c9' } }))
+    expect(eng.engine.goTo).not.toHaveBeenCalled()
+    expect(nav).toHaveBeenCalledWith(expect.objectContaining({ id: 'h2' }))
+  })
+
+  it('engine_DrawerJump_ThisChapter_GoToMisses_DoesNotRouteAway', async () => {
+    eng.engine.goTo.mockResolvedValue('start')
+    const nav = await drawerJump(hl('h1', { anchor: { ...anchor, exact: 'not in the text' } }))
+    expect(eng.engine.goTo).toHaveBeenCalledWith(expect.objectContaining({ href: 'ch-1' }), { align: 'center' })
+    expect(nav).not.toHaveBeenCalled()
+  })
+
   it('engine_Vocab_MarkedByTheEngine_WithTranslationsWhenOn', () => {
     vocabMap = new Map([['coins', { stage: 1, translation: 'монети' }]])
     renderReader({ showInlineTranslations: true })
@@ -326,6 +368,7 @@ describe('ReaderHighlights with the engine', () => {
     expect(items.map((i: { id: string }) => i.id)).toEqual(['0', '1', '2'])
     expect(items[0].style).toBe(items[2].style)
     expect(items[1].style).not.toBe(items[0].style)
+    expect(items[1].style).not.toContain('color-mix')   // a browser without it paints a black box
     expect(eng.engine.goTo).toHaveBeenLastCalledWith(at(10), { align: 'center' })
 
     rerender(renderReaderElement({ searchQuery: '' }))

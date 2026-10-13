@@ -11,6 +11,8 @@ export interface TextSelectionState {
   /** Engine selection only (ADR-025): the sentence around it and where it is. */
   sentence?: string
   locator?: Locator
+  /** Over the engine's 500 characters: no translate / explain (mobile's SelectionActionBar does the same). */
+  tooLong?: boolean
 }
 
 const EMPTY_STATE: TextSelectionState = {
@@ -86,7 +88,7 @@ export function useTextSelection(
     const engine = mountedEngineFor(engineHref ?? undefined)?.engine
     if (!engine) return
     return engine.on('selection', (s) => setSelection(s
-      ? { text: s.text, range: null, rect: new DOMRect(s.rect.x, s.rect.y, s.rect.width, s.rect.height), isCollapsed: false, sentence: s.sentence, locator: s.locator }
+      ? { text: s.text, range: null, rect: new DOMRect(s.rect.x, s.rect.y, s.rect.width, s.rect.height), isCollapsed: false, sentence: s.sentence, locator: s.locator, tooLong: s.tooLong }
       : EMPTY_STATE))
   }, [engineHref])
 

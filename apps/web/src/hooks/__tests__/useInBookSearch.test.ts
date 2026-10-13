@@ -1,7 +1,9 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import { findTextMatches } from '@textstack/reader-overlay'
 import { useInBookSearch } from '../useInBookSearch'
+import { setMountedEngine, unmountEngine } from '../../lib/readerEngine'
+import type { ReaderEngine } from '@textstack/reader-engine'
 
 // The drawer's list (text) and the painted overlay (DOM) must agree index for
 // index: "3 of 5" in the drawer is the 3rd orange outline on the page.
@@ -35,5 +37,20 @@ describe('useInBookSearch', () => {
     rerender({ html: '<p>one cat</p>' })
     expect(result.current.activeMatchIndex).toBe(0)
     expect(result.current.activeMatch?.index).toBe(0)
+  })
+
+  it('engine_TheListIsTheEnginesFind_SoHitIInTheDrawerIsHitIPainted', () => {
+    // READER_ENGINE: the engine paints `find(q)[i]`; the drawer must list the same hits, not its own walk.
+    const hit = { locator: { href: 'ch-1', type: 'text/html' as const, locations: { charOffset: 7 }, text: { highlight: 'Cat' } }, context: '...a Cat...' }
+    const engine = { find: vi.fn(() => [hit]) } as unknown as ReaderEngine
+    setMountedEngine({ engine, href: 'ch-1' })
+    try {
+      const { result } = renderHook(() => useInBookSearch('<p>cat cat cat</p>', 'ch-1'))
+      act(() => result.current.search(' cat '))
+      expect(engine.find).toHaveBeenCalledWith('cat')
+      expect(result.current.matches).toEqual([{ index: 0, text: 'Cat', context: '...a Cat...', position: 7 }])
+    } finally {
+      unmountEngine(engine)
+    }
   })
 })

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, type RefObject } from 'react'
 import { isPdfAnchor } from '@textstack/shared'
 import { anchorToLocator, locatorToAnchor, type GoToResult, type Locator } from '@textstack/reader-engine'
 import { mountedEngineFor } from '../lib/readerEngine'
-import { findTextByAnchor, createTextAnchor, highlightChapterKey, isCacheChapterKey } from '../lib/textAnchor'
+import { findTextByAnchor, createTextAnchor, highlightChapterKey, isCacheChapterKey, isChapterKey } from '../lib/textAnchor'
 import type { HighlightAnchor, HighlightColor, StoredHighlight, TextAnchor } from '../lib/offlineDb'
 
 /** Repeatable drawer jump: same id re-fires when the nonce changes. */
@@ -93,11 +93,15 @@ export function useHighlightEdit({
   const tryScrollToTarget = useCallback(
     (target: StoredHighlight, behavior: ScrollBehavior = 'smooth'): boolean | Promise<GoToResult> => {
       if (!containerRef.current) return false
+      // The engine resolves the anchor in its own text; the old DOM walk could miss an engine-made anchor.
+      const engine = mountedEngineFor(engineHref ?? undefined)?.engine
+      if (engine) {
+        if (!isChapterKey(highlightChapterKey(target), chapterId, engineHref!)) return false
+        const at = anchorToLocator(JSON.stringify(target.anchor), engineHref!)
+        return at ? engine.goTo(at, { align: 'center' }) : false
+      }
       const range = findTextByAnchor(target.anchor, containerRef.current, highlightChapterKey(target))
       if (!range) return false
-      const engine = mountedEngineFor(engineHref ?? undefined)?.engine
-      const at = engine && anchorToLocator(JSON.stringify(target.anchor), engineHref!)
-      if (engine && at) return engine.goTo(at, { align: 'center' })
       const rect = range.getBoundingClientRect()
       if (rect.width !== 0 || rect.height !== 0) {
         const targetY = window.scrollY + rect.top - window.innerHeight / 2 + rect.height / 2
@@ -105,7 +109,7 @@ export function useHighlightEdit({
       }
       return true
     },
-    [containerRef, engineHref],
+    [containerRef, engineHref, chapterId],
   )
 
   // Drawer jump: center a highlight in the mounted chapter. On a miss (its

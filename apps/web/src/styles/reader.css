@@ -33,7 +33,13 @@ html[data-theme="light"] {
   --reader-overlay-vocab-active: rgba(59, 130, 246, 0.7);
   --reader-overlay-search-inactive: rgba(250, 204, 21, 0.35);
   --reader-overlay-search-active: rgb(249, 115, 22);
-  /* The engine's fills (READER_ENGINE) sit over the text: multiply keeps it dark, full opacity matches the old layers' colour. Dark overrides both. */
+}
+
+/* The engine's highlight and search fills (READER_ENGINE) sit over the text: multiply keeps it dark, full
+ * opacity matches the old layers' colour. Only those groups: its selection keeps the engine's own 0.3.
+ * Dark keeps its 0.55 for all. */
+html:not([data-theme="dark"]):not(.dark) [data-group="highlight"],
+html:not([data-theme="dark"]):not(.dark) [data-group="search"] {
   --overlay-highlight-opacity: 1;
 }
 
@@ -72,6 +78,7 @@ html.dark {
   --reader-overlay-vocab-active: rgba(96, 165, 250, 0.9);
   --reader-overlay-search-inactive: rgba(250, 204, 21, 0.45);
   --reader-overlay-search-active: rgb(251, 146, 60);
+  --reader-search-current: rgba(251, 146, 60, 0.45);
 }
 
 html[data-theme="dark"] {
@@ -1036,6 +1043,23 @@ html[data-theme="dark"] .reader-search-drawer__context mark {
 
 .selection-toolbar__action:hover {
   background: var(--reader-border);
+}
+
+.selection-toolbar__action:disabled {
+  opacity: 0.4;
+  cursor: default;
+  background: none;
+}
+
+/* A too-long engine selection: why Translate / Explain are off (mobile's notice). */
+.selection-toolbar--too-long {
+  flex-wrap: wrap;
+}
+
+.selection-toolbar__notice {
+  flex-basis: 100%;
+  font-size: 12px;
+  color: var(--reader-secondary);
 }
 
 /* Highlight layer */

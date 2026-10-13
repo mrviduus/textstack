@@ -514,7 +514,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
     const img = t.closest('img')
     if (img && content.contains(img)) {
       const r = img.getBoundingClientRect()
-      return emit('imageTap', { src: img.src, alt: img.alt || undefined, rect: { x: r.left, y: r.top, width: r.width, height: r.height } })
+      return emit('imageTap', { src: img.currentSrc || img.src, alt: img.alt || undefined, rect: { x: r.left, y: r.top, width: r.width, height: r.height } })
     }
     if (link && content.contains(link)) {
       const h = link.getAttribute('href')!

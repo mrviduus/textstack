@@ -751,6 +751,7 @@
   "reader.selectionToolbar.highlightPink": "Highlight pink",
   "reader.selectionToolbar.highlightYellow": "Highlight yellow",
   "reader.selectionToolbar.listen": "Listen to pronunciation",
+  "reader.selectionToolbar.tooLong": "Too long to listen, translate or explain",
   "reader.selectionToolbar.translate": "Translate selected text",
   "reader.timeLeft.hours": "{hours} hr left",
   "reader.timeLeft.hoursMinutes": "{hours} hr {minutes} min left",

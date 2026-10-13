@@ -164,6 +164,15 @@ describe('taps', () => {
     expect(reader.tap(1, 1, reader.chapter.querySelector('img')!)).toBe(false)
     expect(only(reader, 'linkClick', 'imageTap')).toEqual(['imageTap'])
   })
+
+  it('E22 a srcset image taps with the source the browser chose, so the lightbox shows the larger one', async () => {
+    const reader = makeReader({ html: `${CHAPTER}<p><img src="fig.png" srcset="fig.png 1x, fig@2x.png 2x" alt="Figure 1"></p>` })
+    await reader.open()
+    const img = reader.chapter.querySelector('img')!
+    Object.defineProperty(img, 'currentSrc', { value: 'https://x/fig@2x.png' })   // jsdom picks no source
+    reader.tap(1, 1, img)
+    expect(reader.payloads('imageTap')).toEqual([expect.objectContaining({ src: 'https://x/fig@2x.png' })])
+  })
 })
 
 describe('double tap', () => {

@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo } from 'react'
 import { textWalker, findTextOffsets } from '@textstack/reader-overlay'
 import { sanitizeHtml } from '../utils/sanitize'
+import { mountedEngineFor } from '../lib/readerEngine'
 
 export interface SearchMatch {
   index: number
@@ -30,7 +31,8 @@ function getContextAround(text: string, position: number, matchLength: number, c
   return context
 }
 
-export function useInBookSearch(html: string) {
+/** `engineHref`: READER_ENGINE's chapter — its `find` is the list, so hit i here is the hit i it paints. */
+export function useInBookSearch(html: string, engineHref?: string | null) {
   const [query, setQuery] = useState('')
   const [activeMatchIndex, setActiveMatchIndex] = useState(0)
   // A new chapter starts at its first match: the old index could point past
@@ -47,13 +49,19 @@ export function useInBookSearch(html: string) {
     // Same rules as SearchOverlayLayer (trimmed, findTextOffsets).
     const q = query.trim()
     if (q.length < 2) return []
+    const engine = mountedEngineFor(engineHref ?? undefined)?.engine
+    if (engine) {
+      return engine.find(q).map(({ locator, context }, index): SearchMatch => ({
+        index, text: locator.text?.highlight ?? q, context, position: locator.locations.charOffset ?? 0,
+      }))
+    }
     return findTextOffsets(plainText, q).map((pos, index): SearchMatch => ({
       index,
       text: plainText.slice(pos, pos + q.length),
       context: getContextAround(plainText, pos, q.length),
       position: pos,
     }))
-  }, [plainText, query])
+  }, [plainText, query, engineHref])
 
   const search = useCallback((q: string) => {
     setQuery(q)
