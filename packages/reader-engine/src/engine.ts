@@ -68,7 +68,7 @@ const SVG = 'http://www.w3.org/2000/svg'
 const DOT = 'dot'
 const drawDot: DrawFn = (rects) => {
   const g = document.createElementNS(SVG, 'g')
-  g.style.fill = 'var(--reader-dot, #16a34a)'
+  g.style.fill = 'var(--reader-reviewed-dot, #16a34a)'
   const last = rects[rects.length - 1]
   if (!last) return g
   const r = Math.max(2.5, Math.min(4, last.height * 0.15))

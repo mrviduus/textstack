@@ -268,8 +268,11 @@ export function ReaderHighlights({
     const offLink = engine.on('linkClick', ({ href }) => {
       if (/^https?:\/\//i.test(href)) {
         window.open(href, '_blank', 'noopener')
-      } else if (href.startsWith('#')) {
-        const note = document.getElementById(decodeURIComponent(href.slice(1)))
+      } else if (href.includes('#') && !/^[a-z][a-z\d+.-]*:/i.test(href)) {
+        // `#fn3` or `chap1.xhtml#fn3` (EPUBs name their own file): jump when the note is in this chapter.
+        let id = href.slice(href.indexOf('#') + 1)
+        try { id = decodeURIComponent(id) } catch { /* a malformed % stays as written */ }
+        const note = document.getElementById(id)
         if (note && containerRef.current?.contains(note)) note.scrollIntoView({ block: 'center' })
       }
     })

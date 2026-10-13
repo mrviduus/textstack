@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, type RefObject } from 'react'
 import { isPdfAnchor } from '@textstack/shared'
-import { anchorToLocator, locatorToAnchor, type Locator } from '@textstack/reader-engine'
+import { anchorToLocator, locatorToAnchor, type GoToResult, type Locator } from '@textstack/reader-engine'
 import { mountedEngineFor } from '../lib/readerEngine'
 import { findTextByAnchor, createTextAnchor, highlightChapterKey, isCacheChapterKey } from '../lib/textAnchor'
 import type { HighlightAnchor, HighlightColor, StoredHighlight, TextAnchor } from '../lib/offlineDb'
@@ -91,7 +91,7 @@ export function useHighlightEdit({
   // caller can navigate + retry. A located-but-zero-size range counts as done.
   // With the engine: its `goTo`, settled when the promise is (a window scroll would read as the reader's).
   const tryScrollToTarget = useCallback(
-    (target: StoredHighlight, behavior: ScrollBehavior = 'smooth'): boolean | Promise<unknown> => {
+    (target: StoredHighlight, behavior: ScrollBehavior = 'smooth'): boolean | Promise<GoToResult> => {
       if (!containerRef.current) return false
       const range = findTextByAnchor(target.anchor, containerRef.current, highlightChapterKey(target))
       if (!range) return false
@@ -152,7 +152,8 @@ export function useHighlightEdit({
     let cancelled = false
     const attempt = () => {
       const landed = tryScrollToTarget(target, 'instant')
-      if (landed instanceof Promise) void landed.then(() => { if (!cancelled) onLinkDoneRef.current?.(true) })
+      // 'superseded' (a reopen overtook it) or 'start' (anchor missed) did not land: the restore must not be skipped.
+      if (landed instanceof Promise) void landed.then((r) => { if (!cancelled) onLinkDoneRef.current?.(r !== 'superseded' && r !== 'start') })
       else if (landed) onLinkDoneRef.current?.(true)
       else if (++tries >= JUMP_MAX_RETRIES) onLinkDoneRef.current?.(false)
       else timer = setTimeout(attempt, JUMP_RETRY_MS)

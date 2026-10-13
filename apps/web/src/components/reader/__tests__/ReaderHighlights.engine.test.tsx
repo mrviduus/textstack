@@ -214,6 +214,19 @@ describe('ReaderHighlights with the engine', () => {
     expect(open).not.toHaveBeenCalled()
   })
 
+  it('engine_FootnoteLinkNamingItsOwnFile_JumpsToTheNote', async () => {
+    const scrollIntoView = vi.fn()
+    Element.prototype.scrollIntoView = scrollIntoView
+    const { container } = renderReader()
+    await eng.emit('linkClick', { href: 'text00012.html#fn1', internal: true })
+    expect(scrollIntoView.mock.contexts[0]).toBe(container.querySelector('#fn1'))
+  })
+
+  it('engine_LinkWithAMalformedEscape_DoesNotThrow', async () => {
+    renderReader()
+    await eng.emit('linkClick', { href: '#100%', internal: true })   // a URIError here fails the test
+  })
+
   it('engine_ExternalLink_OpensANewTab', async () => {
     const open = vi.spyOn(window, 'open').mockReturnValue(null)
     renderReader()
@@ -285,6 +298,14 @@ describe('ReaderHighlights with the engine', () => {
     expect(done).not.toHaveBeenCalled()   // the restore stays held until the reader is there (ADR-019)
     await act(async () => { land('exact') })
     expect(done).toHaveBeenCalledWith(true)
+  })
+
+  it.each(['superseded', 'start'])('engine_HighlightLink_GoToResolves_%s_ReportsNotLanded', async (result) => {
+    const done = vi.fn()
+    eng.engine.goTo.mockResolvedValue(result)
+    renderReader({ highlights: [hl('h1')], scrollToHighlightId: 'h1', highlightLinkReady: true, onHighlightLinkDone: done })
+    await act(async () => {})
+    expect(done).toHaveBeenCalledWith(false)
   })
 
   it('engine_Vocab_MarkedByTheEngine_WithTranslationsWhenOn', () => {
