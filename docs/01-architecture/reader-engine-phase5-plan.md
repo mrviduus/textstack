@@ -4,7 +4,7 @@ Phase 5 of [ADR-025](adr/ADR-025-reader-engine-package.md): an Original-layout P
 opens through `packages/reader-engine` as `layout: 'fixed'`, on web and mobile, behind a flag.
 Reflow stays as it is. Old PDF code is deleted in Phase 6.
 
-Status: **draft 2026-10-13**, questions for the owner at the bottom. Written from a read-only survey at the
+Status: **owner-approved 2026-10-13** — all 8 recommendations taken (see "Owner answers" at the bottom). Written from a read-only survey at the
 end of Phase 4. Phase 3 ([plan](reader-engine-phase3-plan.md)) and Phase 4 ([plan](reader-engine-phase4-plan.md)) are done; both flags are on for everyone.
 
 ## What the engine and the apps have today (survey)
@@ -115,5 +115,13 @@ an issue.
 8. **Fixture.** (a) generate a ~40-page text PDF from a playground chapter (Chromium print, < 300 KB,
    committed), (b) a real public-domain PDF (e.g. the Raft dissertation, CC BY, a few MB). *Recommend (a)*
    for CI + (b) for the manual memory pass only, not committed.
+
+## Owner answers (2026-10-13)
+
+All recommendations taken: 1a web first · 2b new `VITE_READER_ENGINE_PDF` / `EXPO_PUBLIC_READER_ENGINE_PDF`,
+web keeps an owner-only `?engine=pdf` override like Phase 4 · 3a host option `createEngine(root, { fixed })`
+(ADR-025 amended in PR A) · 4a `read()` + length probe, host retries after a refresh · 5a window scroll on web
+PDF · 6a native pinch on mobile, engine zoom → an issue · 7a page only · 8a generated ~40-page fixture in CI,
+a real PDF for the manual memory pass only.
 
 Open items that touch this phase: #813 (one redraw per highlight), #824 (e2e blind spots).
