@@ -82,6 +82,10 @@ Bundle per PR: slices 1–2 and 3–4 can each be one PR if they stay small (one
 - Emulator (dev build, flag on, Moby-Dick as a guest): the chapter shows; the chapter-end block and
   its Next button work; kill and reopen land on the same line (y 9095 → 9091); a font change keeps the
   line (26 px and back); a real tap posts one `tap` and toggles the bars; a quick double tap posts one.
+  After the review fixes, again: kill/reopen y 10551 → 10543. A place saved by the engine page reopens
+  on the same line in the old page (flag off), so the two can share one book during the switch.
+  Found [#811](https://github.com/mrviduus/textstack/issues/811) (old page too): a kill within
+  milliseconds of Home loses the last scroll.
 - Found for PR B ([#798](https://github.com/mrviduus/textstack/issues/798)): a long press makes the
   WebView's own native selection (with handles) beside the engine's hold. No Android menu shows (the
   host passes no menu items), but slice 3 must stop the native one, as the old bridge does.
