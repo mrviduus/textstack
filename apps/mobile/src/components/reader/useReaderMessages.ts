@@ -1,4 +1,5 @@
 import { useCallback } from 'react'
+import { Linking } from 'react-native'
 import type { MutableRefObject } from 'react'
 import type { useHaptics } from '../../hooks/useHaptics'
 import type { useReaderWordActions } from './useReaderWordActions'
@@ -50,6 +51,9 @@ export function useReaderMessages({
         if (original) recordSessionActivity()
         if (data.dir === 'up') showBars()
         else if (data.dir === 'down') hideBars()
+      } else if (data.type === 'openLink') {
+        // The engine page's web link (its taps never navigate the WebView).
+        if (/^https?:/i.test(data.href)) Linking.openURL(data.href).catch(() => {})
       } else if (data.type === 'chapterEnd') {
         onChapterEndActionRef.current(data.action)
       } else if (data.type === 'highlightTap') {

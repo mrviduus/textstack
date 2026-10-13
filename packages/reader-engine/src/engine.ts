@@ -485,14 +485,15 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
     const quick = now - lastTap < DOUBLE_TAP_MS
     lastTap = now
     if (quick) return
-    if (link && content.contains(link)) {
-      const h = link.getAttribute('href')!
-      return emit('linkClick', { href: h, internal: !/^([a-z][a-z\d+.-]*:|\/\/)/i.test(h) })
-    }
+    // The image first: a link around a figure points at its full size, which the lightbox shows.
     const img = t.closest('img')
     if (img && content.contains(img)) {
       const r = img.getBoundingClientRect()
       return emit('imageTap', { src: img.src, alt: img.alt || undefined, rect: { x: r.left, y: r.top, width: r.width, height: r.height } })
+    }
+    if (link && content.contains(link)) {
+      const h = link.getAttribute('href')!
+      return emit('linkClick', { href: h, internal: !/^([a-z][a-z\d+.-]*:|\/\/)/i.test(h) })
     }
     const o = root.getBoundingClientRect()
     const x = e.clientX - o.left

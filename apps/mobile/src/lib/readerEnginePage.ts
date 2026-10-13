@@ -3,11 +3,11 @@
 // messages out (`progress`, `restored`, `tap`, `chapterEnd`) — so the RN side, `useReaderPersistence`
 // and its ADR-019 write gate, does not change. The engine renders and keeps the place; this file only
 // translates. Bundled as an IIFE into readerEngineScript.generated.ts (apps/web/scripts/mobile-bundles.mjs).
-//
-// Not here yet (Phase 3 slices 3–4): selection, word hold, highlights, vocab, the image lightbox.
+// Slices 3–4 (PR B): selection, word hold, highlights, vocab, images and links, on the same protocol.
 import type { EngineEvents, Locator } from '../../../../packages/reader-engine/src/api'
 import { createEngine } from '../../../../packages/reader-engine/src/engine'
 import { locatorToPosition, positionToLocator } from '../../../../packages/reader-engine/src/mappers'
+import { HIGHLIGHT_BG as HL, VOCAB_STAGE_COLORS as STAGE } from './readerColors'
 
 type Page = Window & {
   ReactNativeWebView: { postMessage(s: string): void }
@@ -16,7 +16,18 @@ type Page = Window & {
   __textstackRestorePercent(fraction: number, restoreId: number): void
   __textstackApplyTypography(css: string, restoreId: number): void
   __tsSetChapterEnd(model: ChapterEndModel | null): void
+  __tsClearSelection(token: number | null): void
+  __textstackScrollToHighlight(anchorJson: string): void
+  /** The lightbox, a plain script beside this bundle (readerHtml IMAGE_LIGHTBOX). */
+  __tsOpenImage(src: string, alt: string): void
+  renderHighlight(id: string, anchorJson: string, color: string, text: string): void
+  removeHighlight(id: string): void
+  markVocabWords(map: Record<string, Vocab> | null): void
+  addVocabWord(word: string, stage: number): void
+  setShowInlineTranslations(show: boolean): void
 }
+
+interface Vocab { stage: number; translation?: string | null }
 
 /** RN builds it (labels localized, which buttons apply); taps go back as `chapterEnd` actions. */
 interface ChapterEndModel {
@@ -149,6 +160,58 @@ page.__tsSetChapterEnd = (m) => {
   if (m.library) footer.append(button('ts-end__alt', m.library, 'library'))
   if (m.prev) footer.append(button('ts-end__prev', m.prev.label, 'prev'))
 }
+
+// Selection (slice 3). RN hands a selection's token back to clear it; a newer selection makes that
+// clear stale (SEL-1). Random base: a clear meant for the previous chapter's page never matches.
+let token = Math.floor(Math.random() * 1e12)
+engine.on('hold', () => post({ type: 'wordEngage' }))   // the haptic, before the word
+engine.on('selection', (s) => {
+  token++
+  if (!s) return post({ type: 'selection', text: '' })
+  const q = s.locator.text!
+  // mode 'tap' = a held word: RN always opens the WordCard for it. The anchor is the old bridge's shape.
+  post({ type: 'selection', mode: s.source === 'hold' ? 'tap' : 'drag', text: s.text, sentence: s.sentence, anchor: { prefix: q.before, exact: q.highlight, suffix: q.after }, tooLong: s.tooLong, token })
+})
+page.__tsClearSelection = (t) => { if (typeof t !== 'number' || t === token) engine.clearSelection() }
+
+engine.on('imageTap', (e) => page.__tsOpenImage(e.src, e.alt || ''))
+// A footnote stays a link (ADR-025 answer 3): it jumps to its note; a web link opens outside.
+engine.on('linkClick', ({ href: h }) => {
+  if (h[0] === '#') document.getElementById(decodeURIComponent(h.slice(1)))?.scrollIntoView()
+  else if (/^https?:/i.test(h)) post({ type: 'openLink', href: h })
+})
+
+// Highlights (slice 4), drawn by the engine: RN still adds and removes them one at a time.
+const highlights = new Map<string, { id: string; locator: Locator; style: string }>()
+const drawHighlights = () => engine.decorate('highlight', [...highlights.values()])
+/** A stored TextAnchor as a locator in this chapter (mappers' anchorToLocator, without its bytes). */
+function quote(json: string, text = ''): Locator | null {
+  let a
+  try { a = JSON.parse(json) } catch { a = {} }   // not JSON: the highlight's text alone, as the old page did
+  const exact = a && a.kind !== 'pdf' && (a.exact || text)
+  return exact ? { href, type: 'text/html', locations: { charOffset: a.startOffset }, text: { before: a.prefix, highlight: exact, after: a.suffix } } : null
+}
+page.renderHighlight = (id, json, color, text) => {
+  const locator = quote(json, text)
+  if (locator) highlights.set(id, { id, locator, style: HL[color] || HL.yellow })
+  drawHighlights()
+}
+page.removeHighlight = (id) => { highlights.delete(id); drawHighlights() }
+engine.on('decorationTap', (e) => { if (e.group === 'highlight') post({ type: 'highlightTap', highlightId: e.id }) })
+page.__textstackScrollToHighlight = (json) => {
+  const at = quote(json)
+  // Only to text that is here: a quote the engine can't find would land at the chapter's top.
+  if (at && engine.find(at.text!.highlight!).length) void engine.goTo(at, { align: 'center' })
+}
+
+// Saved words: underlined by SRS stage, their translations above them (on by default, as before).
+let vocab: Record<string, Vocab> = {}
+let glosses = true
+const paintWords = () => engine.markWords(
+  Object.entries(vocab).map(([word, v]) => ({ word, style: STAGE[v.stage] || STAGE[0], translation: v.translation || undefined })), glosses)
+page.markVocabWords = (m) => { vocab = m || {}; paintWords() }
+page.addVocabWord = (w, stage) => { const k = w.toLowerCase(); vocab[k] = { stage, translation: vocab[k] && vocab[k].translation }; paintWords() }
+page.setShowInlineTranslations = (show) => { glosses = !!show; paintWords() }
 
 const chapter = document.getElementById('ts-chapter') as HTMLTemplateElement
 void engine.open({ href, layout: 'reflow', html: chapter.innerHTML })

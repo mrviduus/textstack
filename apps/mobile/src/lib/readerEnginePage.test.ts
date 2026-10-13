@@ -31,6 +31,11 @@ async function openPage() {
       // jsdom lacks these; every Android WebView has them.
       Object.defineProperty(win.Document.prototype, 'scrollingElement', { get() { return this.documentElement } })
       win.Range.prototype.getClientRects = function () { return [] as unknown as DOMRectList }
+      // A test that holds a word sets __caret; the reading-line probe sees no caret otherwise.
+      win.Document.prototype.caretRangeFromPoint = function () {
+        const c = (win as unknown as { __caret?: () => Range | null }).__caret
+        return c ? c() : null
+      }
     },
   })
   const settle = () => new Promise((r) => setTimeout(r, 60))
@@ -93,5 +98,149 @@ describe('the engine page', () => {
     ;(doc.querySelector('.ts-end__next') as HTMLButtonElement).click()
     doc.querySelector('#ts-root p')!.dispatchEvent(new page.w.MouseEvent('click', { bubbles: true }))
     expect(page.messages.map((m) => m.type === 'chapterEnd' ? `chapterEnd:${m.action}` : m.type)).toEqual(['chapterEnd:next', 'tap'])
+  })
+})
+
+/** The text node holding SENTENCE, and a Range over `word` in it. */
+function sentenceRange(page: Awaited<ReturnType<typeof openPage>>, word: string, to = word) {
+  const node = [...page.w.document.querySelectorAll('#ts-root p')].find((p) => p.textContent === SENTENCE)!.firstChild!
+  const r = page.w.document.createRange()
+  r.setStart(node, SENTENCE.indexOf(word))
+  r.setEnd(node, SENTENCE.indexOf(to) + to.length)
+  return r
+}
+
+describe('the engine page: selection and words (Phase 3 slice 3)', () => {
+  it('a held word posts wordEngage, then a tap-mode selection with its sentence, anchor and token', async () => {
+    const page = await openPage()
+    const w = page.w as unknown as Window & { __caret: () => Range }
+    w.__caret = () => { const r = sentenceRange(page, 'counted'); r.setEnd(r.startContainer, r.startOffset + 2); r.collapse(false); return r }
+    page.messages.length = 0
+    const p = page.w.document.querySelector('#ts-root p:nth-child(2)')!
+    p.dispatchEvent(new page.w.PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch', clientX: 50, clientY: 50 }))
+    await new Promise((r) => setTimeout(r, 500))   // the hold
+    const [engage, sel] = page.messages
+    expect(engage).toMatchObject({ type: 'wordEngage' })
+    expect(sel).toMatchObject({ type: 'selection', mode: 'tap', text: 'counted', sentence: SENTENCE, tooLong: false })
+    expect(sel.anchor).toMatchObject({ exact: 'counted', prefix: expect.stringMatching(/The keeper $/), suffix: expect.stringMatching(/^ the ships/) })
+    expect(typeof sel.token).toBe('number')
+  })
+
+  it('a drag selection posts drag mode; its collapse posts an empty selection', async () => {
+    const page = await openPage()
+    page.messages.length = 0
+    const sel = page.w.getSelection()!
+    sel.addRange(sentenceRange(page, 'keeper', 'ships'))
+    page.w.document.dispatchEvent(new page.w.Event('selectionchange'))
+    await new Promise((r) => setTimeout(r, 260))
+    expect(page.messages.find((m) => m.type === 'selection')).toMatchObject({ mode: 'drag', text: 'keeper counted the ships' })
+
+    page.messages.length = 0
+    sel.removeAllRanges()
+    page.w.document.dispatchEvent(new page.w.Event('selectionchange'))
+    await new Promise((r) => setTimeout(r, 260))
+    expect(page.messages.filter((m) => m.type === 'selection')).toEqual([{ type: 'selection', text: '' }])
+  })
+
+  it("__tsClearSelection ends the page's selection, unless a newer one was posted since (SEL-1)", async () => {
+    const page = await openPage()
+    const sel = page.w.getSelection()!
+    const drag = async (from: string, to: string) => {
+      sel.removeAllRanges()
+      sel.addRange(sentenceRange(page, from, to))
+      page.w.document.dispatchEvent(new page.w.Event('selectionchange'))
+      await new Promise((r) => setTimeout(r, 260))
+      return page.messages.filter((m) => m.type === 'selection').at(-1)!.token as number
+    }
+    const old = await drag('keeper', 'ships')
+    await drag('ships', 'dawn')
+    page.call(`__tsClearSelection(${old}, false)`)
+    expect(sel.isCollapsed).toBe(false)              // stale token: the newer selection stays
+    const now = page.messages.filter((m) => m.type === 'selection').at(-1)!.token
+    page.call(`__tsClearSelection(${now}, false)`)
+    expect(sel.isCollapsed).toBe(true)
+  })
+
+  it('an image tap opens the lightbox; an internal link scrolls to its target; an outside one goes to RN', async () => {
+    const page = await openPage()
+    const doc = page.w.document
+    const root = doc.getElementById('ts-root')!.firstElementChild!
+    root.insertAdjacentHTML('beforeend', '<p><img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" alt="Map"><a href="#fn1">1</a><a href="https://example.com/x">site</a></p><p id="fn1">Note.</p>')
+    let scrolled = false
+    ;(doc.getElementById('fn1') as HTMLElement).scrollIntoView = () => { scrolled = true }
+    page.messages.length = 0
+    const click = (el: Element) => { el.dispatchEvent(new page.w.MouseEvent('click', { bubbles: true, cancelable: true })) }
+    click(root.querySelector('img')!)
+    expect(doc.querySelector('.ts-img-lightbox img')!.getAttribute('alt')).toBe('Map')
+    page.call('__closeImageLightbox()')
+    await new Promise((r) => setTimeout(r, 320))   // past the double-tap window
+    click(root.querySelector('a[href="#fn1"]')!)
+    expect(scrolled).toBe(true)
+    await new Promise((r) => setTimeout(r, 320))
+    click(root.querySelector('a[href^="https"]')!)
+    expect(page.messages.filter((m) => m.type !== 'log')).toEqual([{ type: 'openLink', href: 'https://example.com/x' }])
+  })
+})
+
+describe('the engine page: highlights and vocab (Phase 3 slice 4)', () => {
+  const layer = (page: Awaited<ReturnType<typeof openPage>>) => page.w.document.querySelector('#ts-root svg')!
+  const anchor = JSON.stringify({ prefix: 'The ', exact: 'keeper counted', suffix: ' the ships' })
+
+  it('renderHighlight draws a highlight, removeHighlight takes it away; an unresolvable one draws nothing', async () => {
+    const page = await openPage()
+    page.call(`renderHighlight('h1', ${JSON.stringify(anchor)}, 'green', 'keeper counted')`)
+    page.call(`renderHighlight('h2', ${JSON.stringify(JSON.stringify({ exact: 'not in this chapter' }))}, 'yellow', '')`)
+    expect([...layer(page).querySelectorAll('[data-group="highlight"]')].map((g) => g.getAttribute('data-id'))).toEqual(['h1'])
+    page.call(`removeHighlight('h1')`)
+    expect(layer(page).querySelector('[data-group="highlight"]')).toBeNull()
+  })
+
+  it('markVocabWords underlines saved words; addVocabWord adds one; translations follow setShowInlineTranslations', async () => {
+    const page = await openPage()
+    page.w.Range.prototype.getClientRects = function () { return [{ left: 0, top: 30, right: 50, bottom: 50, width: 50, height: 20 }] as unknown as DOMRectList }
+    const words = () => [...layer(page).querySelectorAll('[data-group="word"]')].map((g) => g.getAttribute('data-id'))
+    const gloss = () => layer(page).querySelector('.reader-translation')?.textContent ?? null
+    page.call(`markVocabWords(${JSON.stringify({ keeper: { stage: 0, translation: 'охоронець' } })})`)
+    expect(words()).toEqual(['keeper'])
+    expect(gloss()).toBe('охоронець')   // on by default, like the old page
+    page.call(`addVocabWord('Dawn', 2)`)
+    expect(words()).toEqual(['keeper', 'dawn'])
+    page.call('setShowInlineTranslations(false)')
+    expect(gloss()).toBeNull()
+  })
+
+  it('a tap on a highlight posts highlightTap with its id, not tap', async () => {
+    const page = await openPage()
+    // jsdom has no layout: give the highlight's text one line box at the tap.
+    page.w.Range.prototype.getClientRects = function () {
+      return (this.toString() === 'keeper counted' ? [{ left: 0, top: 0, right: 100, bottom: 20, width: 100, height: 20 }] : []) as unknown as DOMRectList
+    }
+    page.call(`renderHighlight('h1', ${JSON.stringify(anchor)}, 'blue', 'keeper counted')`)
+    page.messages.length = 0
+    page.w.document.querySelector('#ts-root p')!.dispatchEvent(new page.w.MouseEvent('click', { bubbles: true, clientX: 10, clientY: 10 }))
+    expect(page.messages.filter((m) => m.type !== 'log')).toEqual([{ type: 'highlightTap', highlightId: 'h1' }])
+  })
+
+  it('__textstackScrollToHighlight moves to the highlight and reports the place', async () => {
+    const page = await openPage()
+    page.messages.length = 0
+    page.call(`__textstackScrollToHighlight(${JSON.stringify(anchor)})`)
+    await page.settle()
+    const progress = page.messages.find((m) => m.type === 'progress')!
+    expect((progress.position as { anchor: { exact: string } }).anchor.exact).toContain('keeper counted')
+  })
+
+  it("__textstackScrollToHighlight to text that is not in the chapter does not move (it would land at the top and save it)", async () => {
+    const page = await openPage()
+    page.messages.length = 0
+    page.call(`__textstackScrollToHighlight(${JSON.stringify(JSON.stringify({ exact: 'not in this chapter' }))})`)
+    await page.settle()
+    expect(page.messages.filter((m) => m.type !== 'log')).toEqual([])
+  })
+
+  it('renderHighlight with an anchor that is not JSON draws the highlight from its text', async () => {
+    const page = await openPage()
+    page.call(`renderHighlight('h3', 'keeper counted', 'pink', 'keeper counted')`)
+    expect(layer(page).querySelector('[data-group="highlight"]')!.getAttribute('data-id')).toBe('h3')
   })
 })

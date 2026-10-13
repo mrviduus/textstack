@@ -4,7 +4,7 @@
 **Priority**: High — the reader is the main component; every R1–R4 mobile fix (#713–#731) is
 unit-tested only, and the reader engine (ADR-025, planned) will be measured against this list
 **Platform**: Android phone, the build carrying #723/#728/#730/#731 (check the OTA in About)
-**Last Tested**: 2026-10-08 (emulator, guest) — [report](../reports/2026-10-08-reader-android.md)
+**Last Tested**: 2026-10-12 (emulator, reader engine on) — [report](../reports/2026-10-12-reader-android-engine.md); 2026-10-08 old page — [report](../reports/2026-10-08-reader-android.md)
 **Status**: 14/14 pass after #778 (#3 fixed); #9 and #12 run with the QA account
 
 ---

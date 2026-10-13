@@ -7,6 +7,7 @@ import { TEXT_POSITION_VERSION, POSITION_QUOTE_LENGTH, ANCHOR_CONTEXT_LENGTH } f
 import { READER_SELECTION_BRIDGE, SCROLL_DIR_DETECTOR } from './readerBridge'
 import { READER_ENGINE_SCRIPT } from './readerEngineScript.generated'
 import { PDF_VIEWER_SCRIPT } from './pdfViewerScript'
+import { HIGHLIGHT_BG, VOCAB_STAGE_COLORS } from './readerColors'
 
 export interface ReaderTheme {
   fontSize: number
@@ -162,6 +163,103 @@ export function readerStyle(theme: ReaderTheme, chrome: ReaderChrome, fontFace: 
 }
 
 /**
+ * The image lightbox (fullscreen, pinch / double-tap zoom, swipe down to close): `window.__tsOpenImage(src, alt)`.
+ * Plain JS beside the engine bundle, not in it (the bundle's 60 KB budget); shared by both reflow pages.
+ */
+export const IMAGE_LIGHTBOX = `
+    // --- Image lightbox: tap chapter <img> → fullscreen viewer ---
+    // Self-contained vanilla JS; no postMessage / native bridge needed.
+    // Pinch via touch-action:pinch-zoom on the overlay (overrides global
+    // user-scalable=no). Double-tap toggles 1×↔2.5× as fallback for
+    // engines that gate pinch-zoom regardless.
+    (function(){
+      var _lb = null;
+      var _lastTap = 0;
+      var _swipe = null;
+
+      function close() {
+        if (!_lb) return;
+        var node = _lb;
+        _lb = null;
+        node.classList.remove('open');
+        setTimeout(function(){ if (node && node.parentNode) node.parentNode.removeChild(node); }, 220);
+      }
+      // Expose for chapter switches / hard close from RN side if ever needed.
+      window.__closeImageLightbox = close;
+
+      function open(src, alt) {
+        if (_lb) close();
+        var box = document.createElement('div');
+        box.className = 'ts-img-lightbox';
+        box.setAttribute('role', 'dialog');
+        box.setAttribute('aria-modal', 'true');
+
+        var img = document.createElement('img');
+        img.src = src;
+        if (alt) img.alt = alt;
+        img.draggable = false;
+        box.appendChild(img);
+
+        var btn = document.createElement('button');
+        btn.className = 'ts-img-lightbox__close';
+        btn.setAttribute('aria-label', 'Close image');
+        btn.textContent = '×';
+        box.appendChild(btn);
+
+        var scale = 1;
+        function setScale(s) {
+          scale = Math.max(1, Math.min(4, s));
+          img.style.transform = 'scale(' + scale + ')';
+        }
+
+        // Tap dismiss + double-tap toggle zoom.
+        img.addEventListener('click', function(e) {
+          e.stopPropagation();
+          var now = Date.now();
+          if (now - _lastTap < 280) {
+            setScale(scale > 1 ? 1 : 2.5);
+            _lastTap = 0;
+          } else {
+            _lastTap = now;
+          }
+        });
+        box.addEventListener('click', function(e) {
+          if (e.target === box) close();
+        });
+        btn.addEventListener('click', function(e) { e.stopPropagation(); close(); });
+
+        // Swipe-down to close (only when not zoomed and gesture starts on overlay).
+        box.addEventListener('touchstart', function(e) {
+          if (scale > 1) { _swipe = null; return; }
+          var t = e.touches && e.touches[0];
+          if (!t) return;
+          _swipe = { x: t.clientX, y: t.clientY };
+        }, { passive: true });
+        box.addEventListener('touchmove', function(e) {
+          if (!_swipe || scale > 1) return;
+          var t = e.touches && e.touches[0];
+          if (!t) return;
+          var dy = t.clientY - _swipe.y;
+          if (dy > 80 && Math.abs(t.clientX - _swipe.x) < 60) {
+            _swipe = null;
+            close();
+          }
+        }, { passive: true });
+        box.addEventListener('touchend', function(){ _swipe = null; }, { passive: true });
+
+        document.body.appendChild(box);
+        // Force reflow before adding .open so transition fires.
+        // eslint-disable-next-line no-unused-expressions
+        box.offsetHeight;
+        box.classList.add('open');
+        _lb = box;
+      }
+      // The engine page opens it from the engine's imageTap; the old page from its own click listener.
+      window.__tsOpenImage = open;
+    })();
+`
+
+/**
  * The reflow document with the reader engine (ADR-025 Phase 3, EXPO_PUBLIC_READER_ENGINE on): the same
  * look, and the same protocol to RN (`readerEnginePage.ts`), the engine underneath. The chapter waits in
  * an inert <template> (no image loads, no layout) until the engine opens it.
@@ -178,12 +276,15 @@ export function buildEngineReaderHtml(chapterHtml: string, theme: ReaderTheme = 
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
   <style>
-${readerStyle(theme, chrome, buildFontFace(theme.fontFamily))}  </style>
+${readerStyle(theme, chrome, buildFontFace(theme.fontFamily))}
+    /* A saved word's translation, drawn by the engine above the word (SVG text, the theme's ink). */
+    .reader-translation { font: italic 0.42em -apple-system, system-ui, sans-serif; opacity: 0.55; }
+  </style>
 </head>
 <body>
   <template id="ts-chapter">${chapterHtml}</template>
   <div id="ts-root" data-slug="${escapeAttr(chapterSlug)}"></div>
-  <script>${SCROLL_DIR_DETECTOR}</script>
+  <script>${SCROLL_DIR_DETECTOR}${IMAGE_LIGHTBOX}</script>
   <script>${READER_ENGINE_SCRIPT}</script>
 </body>
 </html>`
@@ -777,7 +878,7 @@ ${readerStyle(theme, chrome, fontFace)}  </style>
     };
 
     // Highlight rendering
-    var HIGHLIGHT_BG = { yellow: 'rgba(254,240,138,0.5)', green: 'rgba(187,247,208,0.5)', pink: 'rgba(251,207,232,0.5)', blue: 'rgba(191,219,254,0.5)' };
+    var HIGHLIGHT_BG = ${JSON.stringify(HIGHLIGHT_BG)};
 
     // Locate a Range inside the chapter using a stored text-anchor. Mirrors
     // web's findTextByAnchor: try prefix+exact+suffix, then exact-with-context,
@@ -984,13 +1085,7 @@ ${readerStyle(theme, chrome, fontFace)}  </style>
     // setShowInlineTranslations) so mobile reader pages need no edits.
     // =========================================================
 
-    var VOCAB_STAGE_COLORS = {
-      0: 'rgba(59,130,246,0.5)',   // new — blue
-      1: 'rgba(234,179,8,0.5)',    // recognition — yellow
-      2: 'rgba(234,179,8,0.4)',    // recall
-      3: 'rgba(34,197,94,0.4)',    // context — green
-      4: 'rgba(34,197,94,0.25)'    // mastered — faint green
-    };
+    var VOCAB_STAGE_COLORS = ${JSON.stringify(VOCAB_STAGE_COLORS)};
     var VOCAB_ATTR = 'data-vocab-mark';
     var VHL_STAGE_NAMES = { 0: 'vocab-new', 1: 'vocab-recognition', 2: 'vocab-recall', 3: 'vocab-context', 4: 'vocab-mastered' };
     var VHL_MANAGED_NAMES = ['vocab-new','vocab-recognition','vocab-recall','vocab-context','vocab-mastered','vocab-active'];
@@ -1349,94 +1444,9 @@ ${readerStyle(theme, chrome, fontFace)}  </style>
       }
     }
 
-    // --- Image lightbox: tap chapter <img> → fullscreen viewer ---
-    // Self-contained vanilla JS; no postMessage / native bridge needed.
-    // Pinch via touch-action:pinch-zoom on the overlay (overrides global
-    // user-scalable=no). Double-tap toggles 1×↔2.5× as fallback for
-    // engines that gate pinch-zoom regardless.
+    ${IMAGE_LIGHTBOX}
+    // The old page's own image taps (the engine page has the engine's imageTap).
     (function(){
-      var _lb = null;
-      var _lastTap = 0;
-      var _swipe = null;
-
-      function close() {
-        if (!_lb) return;
-        var node = _lb;
-        _lb = null;
-        node.classList.remove('open');
-        setTimeout(function(){ if (node && node.parentNode) node.parentNode.removeChild(node); }, 220);
-      }
-      // Expose for chapter switches / hard close from RN side if ever needed.
-      window.__closeImageLightbox = close;
-
-      function open(src, alt) {
-        if (_lb) close();
-        var box = document.createElement('div');
-        box.className = 'ts-img-lightbox';
-        box.setAttribute('role', 'dialog');
-        box.setAttribute('aria-modal', 'true');
-
-        var img = document.createElement('img');
-        img.src = src;
-        if (alt) img.alt = alt;
-        img.draggable = false;
-        box.appendChild(img);
-
-        var btn = document.createElement('button');
-        btn.className = 'ts-img-lightbox__close';
-        btn.setAttribute('aria-label', 'Close image');
-        btn.textContent = '×';
-        box.appendChild(btn);
-
-        var scale = 1;
-        function setScale(s) {
-          scale = Math.max(1, Math.min(4, s));
-          img.style.transform = 'scale(' + scale + ')';
-        }
-
-        // Tap dismiss + double-tap toggle zoom.
-        img.addEventListener('click', function(e) {
-          e.stopPropagation();
-          var now = Date.now();
-          if (now - _lastTap < 280) {
-            setScale(scale > 1 ? 1 : 2.5);
-            _lastTap = 0;
-          } else {
-            _lastTap = now;
-          }
-        });
-        box.addEventListener('click', function(e) {
-          if (e.target === box) close();
-        });
-        btn.addEventListener('click', function(e) { e.stopPropagation(); close(); });
-
-        // Swipe-down to close (only when not zoomed and gesture starts on overlay).
-        box.addEventListener('touchstart', function(e) {
-          if (scale > 1) { _swipe = null; return; }
-          var t = e.touches && e.touches[0];
-          if (!t) return;
-          _swipe = { x: t.clientX, y: t.clientY };
-        }, { passive: true });
-        box.addEventListener('touchmove', function(e) {
-          if (!_swipe || scale > 1) return;
-          var t = e.touches && e.touches[0];
-          if (!t) return;
-          var dy = t.clientY - _swipe.y;
-          if (dy > 80 && Math.abs(t.clientX - _swipe.x) < 60) {
-            _swipe = null;
-            close();
-          }
-        }, { passive: true });
-        box.addEventListener('touchend', function(){ _swipe = null; }, { passive: true });
-
-        document.body.appendChild(box);
-        // Force reflow before adding .open so transition fires.
-        // eslint-disable-next-line no-unused-expressions
-        box.offsetHeight;
-        box.classList.add('open');
-        _lb = box;
-      }
-
       function isLightboxImg(t) {
         return t && t.tagName === 'IMG' && !t.closest('.ts-img-lightbox');
       }
@@ -1462,7 +1472,7 @@ ${readerStyle(theme, chrome, fontFace)}  </style>
         // If wrapped in <a>, prevent navigation in favor of lightbox.
         var a = t.closest('a');
         if (a) e.preventDefault();
-        open(t.currentSrc || t.src, t.alt || '');
+        window.__tsOpenImage(t.currentSrc || t.src, t.alt || '');
       });
     })();
   </script>
