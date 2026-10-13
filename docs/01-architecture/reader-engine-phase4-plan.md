@@ -5,7 +5,7 @@ chapters through `packages/reader-engine`, behind `VITE_READER_ENGINE`. PDF stay
 (Phase 5). Old code is deleted in Phase 6.
 
 Status: **decided 2026-10-12** (owner answers at the bottom). Written from a read-only survey of
-`apps/web` at the end of Phase 3. Slice 1 done 2026-10-12 (own PR, owner's call); slice 2 skipped 2026-10-13; slices 3–4 done 2026-10-13 (PR B, review follow-ups #823); slice 5 step 1 (reader e2e with the engine on, gating, #825) 2026-10-13; **flag on for everyone 2026-10-13** (`production.env`; owner's call to switch before the manual pass, which follows on prod). Phase 4 done; next: Phase 5 (PDF).
+`apps/web` at the end of Phase 3. Slice 1 done 2026-10-12 (own PR, owner's call); slice 2 skipped 2026-10-13; slices 3–4 done 2026-10-13 (PR B, review follow-ups #823); slice 5 step 1 (reader e2e with the engine on, gating, #825) 2026-10-13; **flag on for everyone 2026-10-13** (`production.env`; owner's call to switch before the manual pass, which follows on prod). Phase 4 done; next: Phase 5 (PDF), [plan](reader-engine-phase5-plan.md).
 Phase 3 (mobile) is done: [plan](reader-engine-phase3-plan.md), flag on for everyone since 2026-10-12.
 
 ## What web has today (survey)

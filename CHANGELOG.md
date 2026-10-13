@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Docs** — reader engine Phase 5 (PDF as the `fixed` layout) slice plan, draft with 8 owner questions: [`reader-engine-phase5-plan.md`](docs/01-architecture/reader-engine-phase5-plan.md) — docs
 - **Reader** — engine Phase 4 done: `VITE_READER_ENGINE=true` in `apps/web/production.env` — every web reader reads reflow chapters through the engine (PDF unchanged); owner's manual pass follows on prod; rollback = delete the line and merge — web
 - **Reader** — engine Phase 4 slice 5 step 1: CI runs `reader-smoke` + `reader-progress` again on a `VITE_READER_ENGINE=true` build, gating; reader-smoke reads highlights from either renderer and checks the build has the engine; blind spots → #824 — web, infra
 - **Reader** — engine Phase 4 #822 follow-ups (flag still off): drawer search list = engine hits, too-long selection notice, highlight jump without the old resolver and back in place on a miss, `currentSrc` image taps (E22), dark search hit, dead overlay events deleted — web, shared · [details](docs/changelog-archive/2026-H2.md#2026-10-13-reader-engine-phase-4-pr-822-review-follow-ups)
