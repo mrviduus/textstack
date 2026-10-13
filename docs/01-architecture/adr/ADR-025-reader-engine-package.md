@@ -269,7 +269,7 @@ What it changes in this ADR:
 1. **Build-time flags only.** Rollback is a deploy (web) or an OTA (mobile), ~15 min. A remote switch
    would need a cached default (reading never waits on the network) — add it only after an incident
    shows 15 minutes is too slow.
-2. **60 KB unminified for the mobile engine bundle, asserted in CI.** Raising it is a deliberate PR.
+2. **60 KB unminified for the mobile engine bundle, asserted in CI.** Raising it is a deliberate PR. *Amended 2026-10-12: 64 KB (owner). Phase 3 PR B filled 60 KB to 44 characters, and a fix after the switch must not be blocked by the budget.*
    The pdf.js bundle is separate and not counted.
 3. **Footnote popups after the migration** (after Phase 6), as their own PR. A migration moves
    behaviour; it does not add features. `linkClick` already makes them possible.

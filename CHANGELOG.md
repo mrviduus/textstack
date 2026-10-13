@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Mobile** — reader engine Phase 3 slice 5: `EXPO_PUBLIC_READER_ENGINE=true` in EAS production, OTA `1edda9ad` — every Android reader reads reflow chapters through the engine (PDF unchanged); engine bundle budget 60 → 64 KB (ADR-025 amended); rollback = unset + OTA — mobile
 - **Mobile** — reader engine Phase 3 PR B: the engine page does selection, word hold, highlights, vocab with inline translations, the image lightbox and links on the old protocol (flag still off), checked on the emulator; the lightbox is one script shared by both pages — mobile · [details](docs/changelog-archive/2026-H2.md#2026-10-12-reader-engine-phase-3-pr-b-selection-highlights-vocab)
 - **Mobile** — reader engine Phase 3 PR A: the engine page in the reader WebView (position, typography, chrome, taps, chapter end) speaking the old page's protocol, behind `EXPO_PUBLIC_READER_ENGINE` (off), checked on the emulator — mobile, shared · [details](docs/changelog-archive/2026-H2.md#2026-10-12-reader-engine-phase-3-pr-a-the-engine-page-in-the-mob)
 - **Reader** — engine Phase 3 gate prep: a double tap toggles once (E28, #799), scroll anchoring checked in Chromium (E29, #794, no fix needed), element carets skipped like the apps (#804, frame 0.1 ms), soft-hyphen places land, one text walk per open (#805), fallback estimate tested (#806), no app change — shared · [details](docs/changelog-archive/2026-H2.md#2026-10-12-reader-engine-phase-3-gate-prep-double-tap-scroll-anc)

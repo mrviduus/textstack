@@ -6,7 +6,9 @@ users.** PDF stays on today's viewer (Phase 5). Web is Phase 4. Old code is dele
 
 Status: decided 2026-10-12 (owner answers below). Phase 2 is done ([plan](reader-engine-phase2-plan.md)).
 **PR A (slices 1–2) done:** the engine page, flag off; checked on the emulator. **PR B (slices 3–4)
-done**, flag off; checked on the emulator. Next: slice 5, the flag on for everyone.
+done**; checked on the emulator. **Slice 5 done 2026-10-12:** QA-007 run with the engine
+([report](../qa/reports/2026-10-12-reader-android-engine.md)), the flag on for everyone (EAS production
++ OTA `1edda9ad`). Rollback: `eas env:delete` the variable (or set it `false`) and publish an OTA. Next: Phase 4 (web).
 
 ## What changes, what stays
 

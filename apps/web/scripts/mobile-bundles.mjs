@@ -49,7 +49,7 @@ export const BUNDLES = [
     constName: 'READER_ENGINE_SCRIPT',
     source: 'apps/mobile/src/lib/readerEnginePage.ts',
     // Owner decision (ADR-025): raising it is a deliberate PR. Unminified characters.
-    budget: 60 * 1024,
+    budget: 64 * 1024,   // 60 KB until 2026-10-12: PR B left 44 characters, no room for a hotfix
     blurb:
       'IIFE bundle of the engine page (@textstack/reader-engine + its RN protocol),\n' +
       '// transpiled for Android WebView (es2017). Loaded by buildEngineReaderHtml when\n' +
