@@ -1,7 +1,8 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import type { MutableRefObject } from 'react'
 import type { EdgeInsets } from 'react-native-safe-area-context'
-import { buildReaderHtml, buildPdfViewerHtml } from '../../lib/readerHtml'
+import { buildReaderHtml, buildEngineReaderHtml, buildPdfViewerHtml } from '../../lib/readerHtml'
+import { READER_ENGINE } from '../../lib/readerEngineFlag'
 import { pdfDocumentKey, pdfChromeInjectionJs } from '../../lib/pdfViewerChrome'
 import {
   readerDocumentKey, readerChromeInjectionJs, latchReaderChrome, readerChromeChanged, type ReaderChrome,
@@ -102,7 +103,7 @@ export function useReaderDocument({
       readerAppliedTypographyRef.current = typography
       builtTypographyRef.current = typography
       docLoadedRef.current = false  // a new document; onLoadEnd says when it can take injections
-      return buildReaderHtml(chapter.html, {
+      return (READER_ENGINE ? buildEngineReaderHtml : buildReaderHtml)(chapter.html, {
         fontSize: typography.fontSize,
         lineHeight: typography.lineHeight,
         fontFamily: typography.fontFamily,

@@ -42,18 +42,18 @@ export const BUNDLES = [
       '// position is resolved from an anchor and the overlay flag does not gate it.',
   },
   {
-    // ADR-025: built and drift-checked from Phase 2, loaded by the app from Phase 3. createEngine only:
-    // the mappers and ADR-019 rules run in the host (RN), not in the WebView.
-    entry: resolve(repoRoot, 'packages/reader-engine/src/engine.ts'),
+    // ADR-025 Phase 3: the engine page — createEngine, the position mappers and the old page's protocol
+    // to RN (readerEnginePage.ts). Loaded by buildEngineReaderHtml when EXPO_PUBLIC_READER_ENGINE is on.
+    entry: resolve(repoRoot, 'apps/mobile/src/lib/readerEnginePage.ts'),
     out: resolve(repoRoot, 'apps/mobile/src/lib/readerEngineScript.generated.ts'),
     constName: 'READER_ENGINE_SCRIPT',
-    source: 'packages/reader-engine/src/engine.ts',
-    globalName: '__TSEngine',
+    source: 'apps/mobile/src/lib/readerEnginePage.ts',
     // Owner decision (ADR-025): raising it is a deliberate PR. Unminified characters.
     budget: 60 * 1024,
     blurb:
-      'IIFE bundle of @textstack/reader-engine as window.__TSEngine, transpiled\n' +
-      '// for Android WebView (es2017). Not loaded by the app yet (Phase 3).',
+      'IIFE bundle of the engine page (@textstack/reader-engine + its RN protocol),\n' +
+      '// transpiled for Android WebView (es2017). Loaded by buildEngineReaderHtml when\n' +
+      '// EXPO_PUBLIC_READER_ENGINE is on.',
   },
 ]
 

@@ -269,7 +269,8 @@ export class Overlayer {
     g.style.fill = color
     g.style.opacity = `var(--overlay-highlight-opacity, ${opacity})`
     g.style.mixBlendMode = `var(--overlay-highlight-blend-mode, ${blendMode})`
-    for (const { left, top, height, width } of rects) {
+    // Array.from: a DOMRectList iterates only with lib DOM.Iterable, which the mobile app's tsc lacks.
+    for (const { left, top, height, width } of Array.from(rects)) {
       const el = createSVGElement('rect')
       el.setAttribute('x', String(left))
       el.setAttribute('y', String(top))
@@ -285,7 +286,7 @@ export class Overlayer {
     const g = createSVGElement('g')
     g.style.fill = color
     if (writingMode === 'vertical-rl' || writingMode === 'vertical-lr') {
-      for (const { right, top, height } of rects) {
+      for (const { right, top, height } of Array.from(rects)) {
         const el = createSVGElement('rect')
         el.setAttribute('x', String(right - strokeWidth))
         el.setAttribute('y', String(top))
@@ -294,7 +295,7 @@ export class Overlayer {
         g.append(el)
       }
     } else {
-      for (const { left, bottom, width } of rects) {
+      for (const { left, bottom, width } of Array.from(rects)) {
         const el = createSVGElement('rect')
         el.setAttribute('x', String(left))
         el.setAttribute('y', String(bottom - strokeWidth))
@@ -311,7 +312,7 @@ export class Overlayer {
     const g = createSVGElement('g')
     g.style.fill = color
     if (writingMode === 'vertical-rl' || writingMode === 'vertical-lr') {
-      for (const { right, left, top, height } of rects) {
+      for (const { right, left, top, height } of Array.from(rects)) {
         const el = createSVGElement('rect')
         el.setAttribute('x', String((right + left) / 2))
         el.setAttribute('y', String(top))
@@ -320,7 +321,7 @@ export class Overlayer {
         g.append(el)
       }
     } else {
-      for (const { left, top, bottom, width } of rects) {
+      for (const { left, top, bottom, width } of Array.from(rects)) {
         const el = createSVGElement('rect')
         el.setAttribute('x', String(left))
         el.setAttribute('y', String((top + bottom) / 2))
@@ -340,7 +341,7 @@ export class Overlayer {
     g.style.strokeWidth = String(strokeWidth)
     const block = strokeWidth * 1.5
     if (writingMode === 'vertical-rl' || writingMode === 'vertical-lr') {
-      for (const { right, top, height } of rects) {
+      for (const { right, top, height } of Array.from(rects)) {
         const el = createSVGElement('path')
         const n = Math.max(1, Math.round(height / block / 1.5))
         const inline = height / n
@@ -349,7 +350,7 @@ export class Overlayer {
         g.append(el)
       }
     } else {
-      for (const { left, bottom, width } of rects) {
+      for (const { left, bottom, width } of Array.from(rects)) {
         const el = createSVGElement('path')
         const n = Math.max(1, Math.round(width / block / 1.5))
         const inline = width / n
@@ -367,7 +368,7 @@ export class Overlayer {
     g.style.fill = 'none'
     g.style.stroke = color
     g.style.strokeWidth = String(strokeWidth)
-    for (const { left, top, height, width } of rects) {
+    for (const { left, top, height, width } of Array.from(rects)) {
       const el = createSVGElement('rect')
       el.setAttribute('x', String(left))
       el.setAttribute('y', String(top))
@@ -387,7 +388,7 @@ export class Overlayer {
     g.style.fill = color
     g.setAttribute('class', 'reader-overlay-pulse')
     g.style.opacity = `var(--overlay-pulse-opacity, ${opacity})`
-    for (const { left, top, height, width } of rects) {
+    for (const { left, top, height, width } of Array.from(rects)) {
       const el = createSVGElement('rect')
       el.setAttribute('x', String(left))
       el.setAttribute('y', String(top))
