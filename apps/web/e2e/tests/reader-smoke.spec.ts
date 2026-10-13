@@ -103,12 +103,19 @@ const atChapter = (slug: string) => new RegExp(`/${slug.replace(/[.*+?^${}()|[\]
 const article = (page: Page) => page.locator('.reader-section__article')
 const firstParagraph = (chapter: 1 | 2) => `Chapter ${chapter}, paragraph 1.`
 
+// ADR-025 Phase 4: CI runs this spec twice, with the reader engine off and on (VITE_READER_ENGINE).
+// The engine draws its own <svg> as a child of the article; the old overlay never does.
+const ENGINE_ON = process.env.VITE_READER_ENGINE === 'true'
+const ENGINE_LAYER = '.reader-section__article > svg[data-vocab-overlay]'
+
 /** Navigate and wait until the fixture text of that chapter is on screen. */
 async function openChapter(page: Page, book: Book, chapter: 1 | 2) {
   const slug = chapter === 1 ? book.ch1.slug : book.ch2.slug
   await page.goto(`/en/books/${book.slug}/${slug}`)
   await waitForReaderLoad(page)
   await expect(article(page)).toContainText(firstParagraph(chapter), { timeout: 15_000 })
+  // The build really is the one this run claims: a flag that never reached vite would pass as "engine on".
+  await expect(page.locator(ENGINE_LAYER)).toHaveCount(ENGINE_ON ? 1 : 0)
 }
 
 const localProgress = (page: Page, editionId: string) =>
@@ -141,15 +148,25 @@ async function scrollToMiddleAndSave(page: Page, book: Book, slug: string, timeo
   return target
 }
 
-/** Count painted highlight groups of one colour. The overlay draws one <g> per highlight. */
-const paintedCount = (page: Page, color: 'pink' | 'blue') =>
+/**
+ * The painted rects of each highlight of one colour, one entry per highlight. Either renderer:
+ * the old overlay draws one <g> per highlight; the engine draws `g[data-group="highlight"]`, plus a
+ * second <g> with the same data-id for a reviewed dot (no rects, other fill) — so de-duplicated by id.
+ */
+const paintedRects = (page: Page, color: 'pink' | 'blue') =>
   page.evaluate((c) => {
-    const groups = document.querySelectorAll<SVGGElement>('[data-highlight-overlay] g')
-    return Array.from(groups).filter((g) =>
-      g.style.fill.includes(`hl-${c}`)
-      && Array.from(g.querySelectorAll('rect')).some((r) => Number(r.getAttribute('width')) > 0),
-    ).length
+    const groups = document.querySelectorAll<SVGGElement>('[data-highlight-overlay] g, g[data-group="highlight"]')
+    const byId = new Map<string, { top: number; bottom: number }>()
+    Array.from(groups).forEach((g, i) => {
+      const rects = Array.from(g.querySelectorAll('rect')).filter((r) => Number(r.getAttribute('width')) > 0)
+      if (!g.style.fill.includes(`hl-${c}`) || !rects.length) return
+      const first = rects[0].getBoundingClientRect()
+      byId.set(g.getAttribute('data-id') ?? `#${i}`, { top: first.top, bottom: first.bottom })
+    })
+    return [...byId.values()]
   }, color)
+
+const paintedCount = async (page: Page, color: 'pink' | 'blue') => (await paintedRects(page, color)).length
 
 /**
  * Paragraph number at the reading line (25% down), where the reader anchors its position.
@@ -307,10 +324,11 @@ test.describe('Reader smoke @reader-smoke', () => {
     await waitForReaderLoad(jumped)
     await expect.poll(() => paintedCount(jumped, 'blue'), { timeout: 15_000 }).toBe(1)
     // The painted highlight is on screen, and the page is well past the saved place.
-    await expect.poll(() => jumped.evaluate((min) => {
-      const r = document.querySelector('[data-highlight-overlay] g rect')?.getBoundingClientRect()
-      return !!r && r.top >= 0 && r.bottom <= window.innerHeight && window.scrollY > min
-    }, saved + TOLERANCE_PX), { timeout: 10_000 }).toBe(true)
+    await expect.poll(async () => {
+      const [r] = await paintedRects(jumped, 'blue')
+      return jumped.evaluate(({ r, min }) =>
+        !!r && r.top >= 0 && r.bottom <= window.innerHeight && window.scrollY > min, { r, min: saved + TOLERANCE_PX })
+    }, { timeout: 10_000 }).toBe(true)
   })
 
   // `blocked`: the progress GET fails fast (offline, refused). `hung`: it never

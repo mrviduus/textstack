@@ -5,7 +5,7 @@ chapters through `packages/reader-engine`, behind `VITE_READER_ENGINE`. PDF stay
 (Phase 5). Old code is deleted in Phase 6.
 
 Status: **decided 2026-10-12** (owner answers at the bottom). Written from a read-only survey of
-`apps/web` at the end of Phase 3. Slice 1 done 2026-10-12 (own PR, owner's call); slice 2 skipped 2026-10-13; slices 3–4 done 2026-10-13 (PR B); next: slice 5 (flag-on Playwright, owner pass, then the flag).
+`apps/web` at the end of Phase 3. Slice 1 done 2026-10-12 (own PR, owner's call); slice 2 skipped 2026-10-13; slices 3–4 done 2026-10-13 (PR B, review follow-ups #823); slice 5 step 1 (reader e2e with the engine on, gating) 2026-10-13; next: the owner's pass, then the flag.
 Phase 3 (mobile) is done: [plan](reader-engine-phase3-plan.md), flag on for everyone since 2026-10-12.
 
 ## What web has today (survey)
@@ -67,9 +67,10 @@ test`, `build`, Playwright green; the flag off changes nothing.
    old listeners off when the flag is on; `imageTap` → `ImageLightbox`; `linkClick`.
 4. **Decorations.** Highlights (+ the reviewed dot, gap 1), `?highlight=` jump, vocab + inline
    translations via `markWords`, search via `find` + `decorate('search')` + `goTo`.
-5. **Smoke on and off, then the flag.** Playwright `reader-smoke`, `reader-progress`, `vocabulary`,
-   `search`, `bookmarks` with the flag on (a second build in CI); manual pass on desktop + a phone
-   browser; then `VITE_READER_ENGINE=true` in `production.env`.
+5. **Smoke on and off, then the flag.** Playwright `reader-smoke` + `reader-progress` with the flag on (a
+   second build in CI, gating; `vocabulary` / `search` never open the reader and `bookmarks` asserts
+   little, so they stay flag-off only); manual pass on desktop + a phone browser; then
+   `VITE_READER_ENGINE=true` in `production.env`.
 
 Two PRs, like Phase 3: A = slice 1 (#821), B = slices 3–4, then slice 5.
 
