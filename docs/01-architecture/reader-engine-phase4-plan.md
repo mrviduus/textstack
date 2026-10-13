@@ -5,7 +5,7 @@ chapters through `packages/reader-engine`, behind `VITE_READER_ENGINE`. PDF stay
 (Phase 5). Old code is deleted in Phase 6.
 
 Status: **decided 2026-10-12** (owner answers at the bottom). Written from a read-only survey of
-`apps/web` at the end of Phase 3. Slice 1 done 2026-10-12 (own PR, owner's call); slice 2 skipped 2026-10-13; slices 3–4 done 2026-10-13 (PR B, review follow-ups #823); slice 5 step 1 (reader e2e with the engine on, gating) 2026-10-13; next: the owner's pass, then the flag.
+`apps/web` at the end of Phase 3. Slice 1 done 2026-10-12 (own PR, owner's call); slice 2 skipped 2026-10-13; slices 3–4 done 2026-10-13 (PR B, review follow-ups #823); slice 5 step 1 (reader e2e with the engine on, gating, #825) 2026-10-13; **flag on for everyone 2026-10-13** (`production.env`; owner's call to switch before the manual pass, which follows on prod). Phase 4 done; next: Phase 5 (PDF).
 Phase 3 (mobile) is done: [plan](reader-engine-phase3-plan.md), flag on for everyone since 2026-10-12.
 
 ## What web has today (survey)
@@ -78,7 +78,8 @@ Two PRs, like Phase 3: A = slice 1 (#821), B = slices 3–4, then slice 5.
 
 1. **Flag: owner-only first.** On prod, an override (`?engine=1`, kept in localStorage) turns the engine
    on for the owner only; after the owner's pass, `VITE_READER_ENGINE=true` in `production.env` for
-   everyone. The override is removed in Phase 6.
+   everyone. The override is removed in Phase 6. *Amended 2026-10-13 (owner): flag on for everyone right
+   after the CI gate went green; the manual pass happens on prod afterwards. Rollback = delete the line.*
 2. **Reviewed dot: add it to the engine.** A decoration style that names a draw (`'dot'`), test-first;
    amends ADR-025 in the same PR (`api.ts` is the contract).
 3. **Search: colour fill is fine.** The current hit in a stronger colour, centred with `goTo`. No engine change.
