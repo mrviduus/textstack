@@ -54,6 +54,21 @@ carries its `opId`.
 | E30 | A style change is one `'style'` relocation: the browser never scrolls the page before the engine re-anchors (scroll anchoring is off on the scroller, not only in the chapter). | Phase 4 slice 1: with only the text excluded, Chromium anchored on the decoration layer (~3 px), and web saved that scroll as the reader's | 2026-10-12 |
 | E31 | A decoration with the style `'dot'` draws a small dot just after its last line, no fill; a tap on its text still names it (E16). | Web reviewed highlight (`reviewed-mark`), Phase 4 decision 2 | 2026-10-13 |
 
+### Fixed layout (PDF, Phase 5)
+
+Pinned in `src/fixed.test.ts` (jsdom, a fake pdf.js) and `playground/fixed.e2e.ts` (Chromium, the committed fixture).
+The generic op rules hold for a PDF too and are pinned there under their own IDs (E4 supersede, E6 style ack, E7 `current()` mid-op, E9 destroy, E12 ready).
+A PDF's place is its page: `locations.position`, 1-based (stored as `page:<N>`, frozen).
+
+| ID | Rule | Why / source | Since |
+|---|---|---|---|
+| E32 | The host brings pdf.js: `createEngine(root, { fixed: fixedLayout(pdfjs) })`; the engine never imports it. Such an engine opens PDFs (`layout:'fixed'`); one without it throws on a PDF. `open` shows one box per page, each its own shape, fit to the width, says `ready` with `pageCount`, then acks once with the page. | Phase 5 answer 3a: 64 KB budget, pdf.js ~1.8 MB | 2026-10-13 |
+| E33 | A page (open or `goTo`) puts that page's top at the top of the screen, once the sizes of every page above it are known (they stream in), and acks with that page. Out of range: the nearest page (never page 0). No page: page 1, `'start'`. Sizes that never come: it lands on the estimate after 8 s. | Mobile viewer: a jump landed on estimated heights, every reopen drifted | 2026-10-13 |
+| E34 | Bytes come from the host only: `pdf.data`, or `pdf.read(begin, end)` by ranges (pdf.js range transport: first paint before the whole file). A `read` rejected with `{ code: 'pdf-auth' }` is one `'pdf-auth'` error; any other failure to load is `'pdf-load'`. A failed open still acks, with the page it was sent to, and resolves `'superseded'`. | Phase 5 answer 4a; ADR-025 "PDF bytes come through `read()`" | 2026-10-13 |
+| E35 | Only pages near the screen have a canvas: drawn within one page of the visible ones (300 px margin), freed past two (shared `computePageRings`); the count stays bounded however far the reader goes. | A 100-page PDF without the window ran the tab out of memory | 2026-10-13 |
+| E36 | The reader scrolling to another page emits one `'scroll'` with it (the page filling most of the screen, shared `readingPage`); the engine's own scrolls never do. The reader's gesture (touch, wheel, key) during a jump ends it where they are: it resolves `'superseded'`, acked with that page, and never snaps back. | QA-007 #3 (save the page being read); mobile "TOC jump cancelled by a drag" | 2026-10-13 |
+| E37 | Sizes arriving and a re-fit (the width changes) keep the reader on the same spot of the same page. While the reader scrolls (a fling), the change waits until scrolling has stopped 150 ms: a scroll from code stops a fling. | Mobile viewer: +3 pages per reopen after a late re-fit | 2026-10-13 |
+
 ## Before users get the engine (Phase 3)
 
 Open items are GitHub issues labelled [`phase-3-gate`](https://github.com/mrviduus/textstack/issues?q=label%3Aphase-3-gate):
