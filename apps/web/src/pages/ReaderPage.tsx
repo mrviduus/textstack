@@ -184,7 +184,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
   })
 
   // Search hook needs chapter html, use empty string until loaded
-  const drawers = useReaderDrawers(chapter?.html || '')
+  const drawers = useReaderDrawers(chapter?.html || '', READER_ENGINE && !originalActive ? engineOpenedFor : undefined)
   const { setTocOpen, setSettingsOpen, searchOpen, setSearchOpen } = drawers
 
   // Drawer jump to a reflow highlight in a chapter the reader hasn't mounted
@@ -317,7 +317,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
           liveActionsOnly={originalActive}
           onPdfHighlight={originalActive ? handlePdfHighlight : undefined}
           engineOpenedFor={engineOpenedFor}
-          searchQuery={searchOpen && !originalActive ? drawers.search.query : ''}
+          searchMatches={searchOpen && !originalActive ? drawers.search.matches : undefined}
           searchActiveIndex={drawers.search.activeMatchIndex}
         >
           <div ref={scrollContainerRef}>

@@ -192,7 +192,8 @@
       "translate": "Translate selected text",
       "explain": "Explain in context",
       "listen": "Listen to pronunciation",
-      "copy": "Copy selected text"
+      "copy": "Copy selected text",
+      "tooLong": "Too long to listen, translate or explain"
     },
     "originalLayout": {
       "loading": "Loading original pages…",

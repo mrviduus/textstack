@@ -6,12 +6,12 @@ import { useReaderKeyboard } from './useReaderKeyboard'
  * ReaderPage's drawers (TOC, settings, in-chapter search): open state, the
  * search over the chapter's html, the `?find=` seed and the keyboard shortcuts.
  */
-export function useReaderDrawers(chapterHtml: string) {
+export function useReaderDrawers(chapterHtml: string, engineHref?: string | null) {
   const [tocOpen, setTocOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
 
-  const searchApi = useInBookSearch(chapterHtml)
+  const searchApi = useInBookSearch(chapterHtml, engineHref)
   const { search, clear: clearSearch } = searchApi
 
   // Seed search from `?find=` (slice 16 deep-link from library content search).

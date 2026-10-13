@@ -20,6 +20,8 @@ interface SelectionToolbarProps {
   onExplain?: () => void
   onSpeak?: () => void
   onCopy?: () => void
+  /** The engine's selection is over its limit: Translate and Explain are off, a notice says why (as mobile). */
+  tooLong?: boolean
 }
 
 export function SelectionToolbar({
@@ -32,6 +34,7 @@ export function SelectionToolbar({
   onExplain,
   onSpeak,
   onCopy,
+  tooLong = false,
 }: SelectionToolbarProps) {
   const { t } = useTranslation()
   const toolbarRef = useRef<HTMLDivElement>(null)
@@ -83,7 +86,7 @@ export function SelectionToolbar({
   return (
     <div
       ref={toolbarRef}
-      className="selection-toolbar"
+      className={tooLong ? 'selection-toolbar selection-toolbar--too-long' : 'selection-toolbar'}
       style={{
         position: 'fixed',
         top: position?.top ?? -9999,
@@ -119,6 +122,7 @@ export function SelectionToolbar({
           onMouseDown={(e) => e.preventDefault()}
           onTouchStart={(e) => e.preventDefault()}
           onClick={onTranslate}
+          disabled={tooLong}
           title={t('reader.selectionToolbar.translate')}
           aria-label={t('reader.selectionToolbar.translate')}
         >
@@ -131,6 +135,7 @@ export function SelectionToolbar({
           onMouseDown={(e) => e.preventDefault()}
           onTouchStart={(e) => e.preventDefault()}
           onClick={onExplain}
+          disabled={tooLong}
           title={t('reader.selectionToolbar.explain')}
           aria-label={t('reader.selectionToolbar.explain')}
         >
@@ -159,6 +164,7 @@ export function SelectionToolbar({
       >
         <CopyIcon />
       </button>
+      {tooLong && <div className="selection-toolbar__notice">{t('reader.selectionToolbar.tooLong')}</div>}
     </div>
   )
 }

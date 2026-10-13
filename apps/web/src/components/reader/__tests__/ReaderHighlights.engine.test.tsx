@@ -51,6 +51,13 @@ vi.mock('../VocabOverlayLayer', async (importOriginal) => ({
   VocabOverlayLayer: () => <i data-testid="old-vocab-layer" />,
 }))
 
+// An anchor the engine cannot read (no locator) — the jump keeps the old DOM path.
+let noLocator = false
+vi.mock('@textstack/reader-engine', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('@textstack/reader-engine')>()
+  return { ...orig, anchorToLocator: (...a: Parameters<typeof orig.anchorToLocator>) => (noLocator ? null : orig.anchorToLocator(...a)) }
+})
+
 import { ReaderHighlights } from '../ReaderHighlights'
 import { setMountedEngine, unmountEngine } from '../../../lib/readerEngine'
 import { ReviewedMarksContext } from '../ReviewedMarks'
@@ -58,6 +65,8 @@ import type { StoredHighlight } from '../../../lib/offlineDb'
 import type { ReviewedMark } from '@textstack/shared'
 
 type Handler = (p: unknown) => void
+/** Where the reader is when a jump starts. */
+const HERE: Locator = { href: 'ch-1', type: 'text/html', locations: { progression: 0.4 } }
 
 /** The engine as the host sees it: events in, clearSelection out. */
 function fakeEngine() {
@@ -72,7 +81,8 @@ function fakeEngine() {
     markWords: vi.fn(),
     find: vi.fn(() => []),
     goTo: vi.fn(async () => 'exact'),
-  } as unknown as ReaderEngine & Record<'clearSelection' | 'decorate' | 'markWords' | 'find' | 'goTo', ReturnType<typeof vi.fn>>
+    current: vi.fn((): Locator => HERE),
+  } as unknown as ReaderEngine & Record<'clearSelection' | 'decorate' | 'markWords' | 'find' | 'goTo' | 'current', ReturnType<typeof vi.fn>>
   const emit = <K extends keyof EngineEvents>(e: K, p: EngineEvents[K]) => act(() => { handlers[e]?.forEach((h) => h(p)) })
   return { engine, emit }
 }
@@ -118,6 +128,7 @@ describe('ReaderHighlights with the engine', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vocabMap = new Map()
+    noLocator = false
     eng = fakeEngine()
     setMountedEngine({ engine: eng.engine, href: 'ch-1' })
   })
@@ -170,6 +181,19 @@ describe('ReaderHighlights with the engine', () => {
       'yellow', 'pocketed the coins',
     )
     expect(eng.engine.clearSelection).toHaveBeenCalled()
+  })
+
+  it('engine_TooLongSelection_TranslateAndExplainOff_WithANotice_HighlightStays', async () => {
+    // As mobile's SelectionActionBar: dimmed buttons alone read as broken, so the notice says why.
+    renderReader()
+    await eng.emit('selection', { ...selected('pocketed the coins')!, tooLong: true })
+    fireEvent.click(screen.getByLabelText('reader.selectionToolbar.translate'))
+    fireEvent.click(screen.getByLabelText('reader.selectionToolbar.explain'))
+    expect(translate).not.toHaveBeenCalled()
+    expect(explain).not.toHaveBeenCalled()
+    expect(screen.getByText('reader.selectionToolbar.tooLong')).toBeTruthy()
+    await act(async () => { fireEvent.click(screen.getByLabelText('reader.selectionToolbar.highlightYellow')) })
+    expect(addHighlight).toHaveBeenCalled()
   })
 
   it('engine_SelectionGone_HidesTheToolbar', async () => {
@@ -302,10 +326,61 @@ describe('ReaderHighlights with the engine', () => {
 
   it.each(['superseded', 'start'])('engine_HighlightLink_GoToResolves_%s_ReportsNotLanded', async (result) => {
     const done = vi.fn()
-    eng.engine.goTo.mockResolvedValue(result)
+    eng.engine.goTo.mockResolvedValueOnce(result)
     renderReader({ highlights: [hl('h1')], scrollToHighlightId: 'h1', highlightLinkReady: true, onHighlightLinkDone: done })
     await act(async () => {})
     expect(done).toHaveBeenCalledWith(false)
+  })
+
+  it('engine_HighlightLink_AnchorMissed_PutsTheReaderBack_NotAtTheTop', async () => {
+    eng.engine.goTo.mockResolvedValueOnce('start')   // the ladder fell to the chapter top
+    renderReader({ highlights: [hl('h1')], scrollToHighlightId: 'h1', highlightLinkReady: true, onHighlightLinkDone: vi.fn() })
+    await act(async () => {})
+    expect(eng.engine.goTo).toHaveBeenLastCalledWith(HERE)
+  })
+
+  it('engine_HighlightLink_AnchorTheOldDomResolverMisses_StillGoesThere', async () => {
+    // An anchor from an engine selection is the engine's text; the old DOM resolver must not gate the jump.
+    const done = vi.fn()
+    const engineOnly = hl('h1', { anchor: { ...anchor, exact: 'not in the old DOM walk' } })
+    renderReader({ highlights: [engineOnly], scrollToHighlightId: 'h1', highlightLinkReady: true, onHighlightLinkDone: done })
+    expect(eng.engine.goTo).toHaveBeenCalledWith(expect.objectContaining({ text: expect.objectContaining({ highlight: 'not in the old DOM walk' }) }), { align: 'center' })
+    await act(async () => {})
+    expect(done).toHaveBeenCalledWith(true)
+  })
+
+  const drawerJump = async (h: StoredHighlight, onNavigateToHighlight = vi.fn()) => {
+    renderReader({ highlights: [h], scrollToHl: { id: h.id, nonce: 1 }, onNavigateToHighlight })
+    await act(async () => { await new Promise((r) => requestAnimationFrame(r)) })
+    return onNavigateToHighlight
+  }
+
+  it('engine_DrawerJump_HighlightInAnotherChapter_RoutesThere_NoGoTo', async () => {
+    const nav = await drawerJump(hl('h2', { chapterId: 'c9', anchor: { ...anchor, chapterId: 'c9' } }))
+    expect(eng.engine.goTo).not.toHaveBeenCalled()
+    expect(nav).toHaveBeenCalledWith(expect.objectContaining({ id: 'h2' }))
+  })
+
+  it('engine_DrawerJump_ThisChapter_GoToMisses_StaysWhereTheReaderWas_DoesNotRouteAway', async () => {
+    eng.engine.goTo.mockResolvedValueOnce('start')   // the ladder fell to the chapter top
+    const nav = await drawerJump(hl('h1', { anchor: { ...anchor, exact: 'not in the text' } }))
+    expect(eng.engine.goTo).toHaveBeenNthCalledWith(1, expect.objectContaining({ href: 'ch-1' }), { align: 'center' })
+    expect(eng.engine.goTo).toHaveBeenNthCalledWith(2, HERE)
+    expect(nav).not.toHaveBeenCalled()
+  })
+
+  it('engine_DrawerJump_AnchorWithoutALocator_KeepsTheOldDomJump_NotARoute', async () => {
+    noLocator = true
+    const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
+    Range.prototype.getBoundingClientRect = () => new DOMRect(0, 500, 100, 20)   // jsdom has none
+    try {
+      const nav = await drawerJump(hl('h1'))
+      expect(eng.engine.goTo).not.toHaveBeenCalled()
+      expect(scrollTo).toHaveBeenCalled()
+      expect(nav).not.toHaveBeenCalled()
+    } finally {
+      delete (Range.prototype as Partial<Range>).getBoundingClientRect
+    }
   })
 
   it('engine_Vocab_MarkedByTheEngine_WithTranslationsWhenOn', () => {
@@ -316,19 +391,21 @@ describe('ReaderHighlights with the engine', () => {
     )
   })
 
-  it('engine_Search_PaintsEveryHit_TheCurrentOneStronger_AndCentresIt', () => {
+  it('engine_Search_PaintsTheDrawersHits_TheCurrentOneStronger_AndCentresIt_NoSecondFind', () => {
+    // One find (useInBookSearch): hit i in the drawer is hit i painted.
     const at = (n: number): Locator => ({ href: 'ch-1', type: 'text/html', locations: { charOffset: n }, text: { highlight: 'co' } })
-    eng.engine.find.mockReturnValue([0, 10, 20].map((n) => ({ locator: at(n), context: '' })))
-    const { rerender } = renderReader({ searchQuery: ' co ', searchActiveIndex: 1 })
-    expect(eng.engine.find).toHaveBeenCalledWith('co')
+    const searchMatches = [0, 10, 20].map((n, index) => ({ index, text: 'co', context: '', position: n, locator: at(n) }))
+    const { rerender } = renderReader({ searchMatches, searchActiveIndex: 1 })
+    expect(eng.engine.find).not.toHaveBeenCalled()
     const [group, items] = eng.engine.decorate.mock.calls.find(([g]) => g === 'search')!
     expect(group).toBe('search')
     expect(items.map((i: { id: string }) => i.id)).toEqual(['0', '1', '2'])
     expect(items[0].style).toBe(items[2].style)
     expect(items[1].style).not.toBe(items[0].style)
+    expect(items[1].style).not.toContain('color-mix')   // a browser without it paints a black box
     expect(eng.engine.goTo).toHaveBeenLastCalledWith(at(10), { align: 'center' })
 
-    rerender(renderReaderElement({ searchQuery: '' }))
+    rerender(renderReaderElement({ searchMatches: [] }))
     expect(eng.engine.decorate).toHaveBeenLastCalledWith('search', [])
   })
 })

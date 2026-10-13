@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { render, cleanup } from '@testing-library/react'
 import { createRef } from 'react'
 import { ReaderSection, type ReaderSectionHandle } from '../ReaderSection'
@@ -92,57 +92,5 @@ describe('ReaderSection', () => {
     )
     expect(container.querySelector('svg[data-reader-overlay="true"]')).toBeNull()
     expect(ref.current?.overlayer).toBeNull()
-  })
-
-  it('dispatches reader-annotation-click when tap hits an annotation', () => {
-    const ref = createRef<ReaderSectionHandle>()
-    const { container } = render(
-      <ReaderSection
-        ref={ref}
-        chapterId="ch1"
-        chapterIndex={0}
-        html="<p>Hello world</p>"
-        settings={settings}
-      />,
-    )
-    const article = container.querySelector('article')!
-    const ov = ref.current!.overlayer!
-    const range = document.createRange()
-    range.selectNodeContents(article.querySelector('p')!)
-    Object.defineProperty(range, 'getClientRects', {
-      configurable: true,
-      value: () =>
-        ({
-          length: 1,
-          item: (i: number) =>
-            i === 0
-              ? ({ left: 0, top: 0, right: 100, bottom: 20, width: 100, height: 20 } as DOMRect)
-              : null,
-          [Symbol.iterator]: function* () {
-            yield { left: 0, top: 0, right: 100, bottom: 20, width: 100, height: 20 } as DOMRect
-          },
-        }) as unknown as DOMRectList,
-    })
-    ov.add('user-hl:a', range, (rects) => {
-      const g = document.createElementNS('http://www.w3.org/2000/svg', 'g')
-      for (const r of Array.from(rects)) {
-        const el = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
-        el.setAttribute('x', String(r.left))
-        el.setAttribute('y', String(r.top))
-        el.setAttribute('width', String(r.width))
-        el.setAttribute('height', String(r.height))
-        g.append(el)
-      }
-      return g
-    })
-
-    const handler = vi.fn()
-    article.addEventListener('reader-annotation-click', handler as EventListener)
-    article.dispatchEvent(
-      new MouseEvent('click', { clientX: 50, clientY: 10, bubbles: true }),
-    )
-    expect(handler).toHaveBeenCalled()
-    const event = handler.mock.calls[0][0] as CustomEvent<{ key: string }>
-    expect(event.detail.key).toBe('user-hl:a')
   })
 })

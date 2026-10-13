@@ -72,6 +72,7 @@ html.dark {
   --reader-overlay-vocab-active: rgba(96, 165, 250, 0.9);
   --reader-overlay-search-inactive: rgba(250, 204, 21, 0.45);
   --reader-overlay-search-active: rgb(251, 146, 60);
+  --reader-search-current: rgba(251, 146, 60, 0.45);
 }
 
 html[data-theme="dark"] {
@@ -1036,6 +1037,23 @@ html[data-theme="dark"] .reader-search-drawer__context mark {
 
 .selection-toolbar__action:hover {
   background: var(--reader-border);
+}
+
+.selection-toolbar__action:disabled {
+  opacity: 0.4;
+  cursor: default;
+  background: none;
+}
+
+/* A too-long engine selection: why Translate / Explain are off (mobile's notice). */
+.selection-toolbar--too-long {
+  flex-wrap: wrap;
+}
+
+.selection-toolbar__notice {
+  flex-basis: 100%;
+  font-size: 12px;
+  color: var(--reader-secondary);
 }
 
 /* Highlight layer */
