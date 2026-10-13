@@ -132,8 +132,9 @@ export interface ReaderEngine {
   destroy(): void
 }
 
-/** Options exist for tests; hosts pass nothing. */
+/** Options exist for tests; hosts pass nothing, except `fixed` for a PDF (Phase 5, amended 2026-10-13). */
 export function createEngine(root: HTMLElement, opts?: {
+  fixed?: (root: HTMLElement, opts: EngineOptions) => ReaderEngine   // fixedLayout(pdfjs) from src/fixed.ts
   scroller?: HTMLElement
   measure?: (el: Element) => { top: number; height: number }
   viewport?: () => { height: number }
@@ -165,6 +166,14 @@ Rules the types cannot say:
 - **PDF bytes come through `read()`, not a URL.** The host implements it (on mobile, in the bridge
   inside the WebView, with the bearer token); a 401 never reaches the engine as anything but
   `'pdf-auth'`. pdf.js keeps its range streaming (ADR-012's instant first paint).
+  *Amended 2026-10-13 (Phase 5):* the host probes the length first and retries inside `read()` after a
+  token refresh; `read()` rejects with `{ code: 'pdf-auth' }` only when auth is gone for good. A failed
+  `open` emits the error, acks with the page it was sent to and resolves `'superseded'`.
+- **The host brings pdf.js** *(amended 2026-10-13, Phase 5 answer 3a)*. `createEngine(root, { fixed:
+  fixedLayout(pdfjs) })`: `src/fixed.ts` takes the host's pdf.js module (web: a lazy `import()`; mobile:
+  the PDF bundle), and the engine never imports `pdfjs-dist` — it stays out of the 64 KB budget and the
+  boundary. An engine made with `fixed` opens PDFs only (one engine per layout: the hosts mount a PDF and
+  a chapter in different places); one without it throws on a PDF. "Hosts pass nothing" holds for reflow.
 - **Mobile does not inject chapter HTML through the bridge.** The document embeds the chapter as
   `<script type="application/json">` (like `window.__TS_PDF` today) and the bridge calls `open` inside
   it; `ready` replaces `onLoadEnd` as the restore trigger.

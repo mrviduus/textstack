@@ -14,6 +14,7 @@ const FORBIDDEN_MODULES: { rule: string; re: RegExp }[] = [
   { rule: 'imports from apps/', re: /(^|\/)apps\/|^@\// },
   { rule: 'imports React / React Native / Expo', re: /^(@?(react|react-dom|react-native|expo)(\/|-|$)|@(expo|react-native|react-navigation)\/)/ },
   { rule: "imports '@textstack/shared' (use a relative path: the mobile IIFE)", re: /^@textstack\/shared/ },
+  { rule: 'imports pdf.js (the host brings it: createEngine(root, { fixed }))', re: /^pdfjs-dist(\/|$)/ },
 ]
 const NETWORK = /\bfetch\s*\(|XMLHttpRequest|WebSocket|sendBeacon|EventSource/
 
@@ -83,6 +84,7 @@ describe('engine boundary', () => {
       ["import {\n  a,\n} from 'react/jsx-runtime'", 'React'],
       ["import { I } from '@expo/vector-icons'", 'React'],
       ["import { N } from '@react-navigation/native'", 'React'],
+      ["import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.min.mjs'", 'pdf.js'],
     ]
     for (const [text, rule] of planted) {
       const v = violations([{ path: 'x.ts', text }])

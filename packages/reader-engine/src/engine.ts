@@ -84,6 +84,7 @@ const drawDot: DrawFn = (rects) => {
 const anchorHolds = new WeakMap<HTMLElement, { count: number; was: string }>()
 
 export function createEngine(root: HTMLElement, opts: EngineOptions = {}): ReaderEngine {
+  if (opts.fixed) return opts.fixed(root, opts)   // a PDF engine: the host brought pdf.js (src/fixed.ts)
   const doc = root.ownerDocument
   const win = doc.defaultView!
   const page = doc.scrollingElement as HTMLElement
@@ -607,7 +608,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
 
   return {
     async open(d: ChapterDoc, at?: Locator, opId?: string) {
-      if (d.layout !== 'reflow') throw new Error('reader-engine: the fixed layout arrives in Phase 5')
+      if (d.layout !== 'reflow') throw new Error('reader-engine: a PDF needs createEngine(root, { fixed })')
       const seq = ++moveSeq
       const mine = ++docSeq
       opened = true

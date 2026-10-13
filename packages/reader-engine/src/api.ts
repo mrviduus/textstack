@@ -45,7 +45,10 @@ export interface ChapterDoc {
   layout: 'reflow' | 'fixed'
   /** Reflow: sanitised server HTML. */
   html?: string
-  /** Fixed: bytes, or ranges read by the host (which owns auth). */
+  /**
+   * Fixed: bytes, or ranges read by the host (which owns auth). `read` rejects with `{ code: 'pdf-auth' }`
+   * when auth is gone for good (the host has already refreshed and retried): the `'pdf-auth'` error.
+   */
   pdf?: { data: ArrayBuffer } | { length: number; read(begin: number, end: number): Promise<Uint8Array> }
   lang?: string
   dir?: 'ltr' | 'rtl'
@@ -107,8 +110,13 @@ export interface ReaderEngine {
   destroy(): void
 }
 
-/** Options exist for tests (jsdom has no layout); hosts pass nothing. */
+/**
+ * Options exist for tests (jsdom has no layout); hosts pass nothing, except `fixed` for a PDF.
+ * `fixed`: the fixed layout with the host's pdf.js — `fixedLayout(pdfjs)` from `src/fixed.ts`. The engine
+ * never imports pdf.js (the mobile bundle's 64 KB budget); an engine made with it opens PDFs only.
+ */
 export interface EngineOptions {
+  fixed?: (root: HTMLElement, opts: EngineOptions) => ReaderEngine
   scroller?: HTMLElement
   measure?: (el: Element) => { top: number; height: number }
   viewport?: () => { height: number }
