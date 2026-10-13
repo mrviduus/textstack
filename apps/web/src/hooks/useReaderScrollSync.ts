@@ -5,7 +5,7 @@ import {
   type ResolvedPosition,
 } from '@textstack/shared'
 import { locatorToPosition, positionToLocator, type Locator } from '@textstack/reader-engine'
-import { mountedEngineFor, openedEngineFor } from '../lib/readerEngine'
+import { mountedEngineFor } from '../lib/readerEngine'
 import type { NewerPositionResult } from './useReaderProgress'
 import { useNewerPositionCheck } from './useNewerPositionCheck'
 import { readReadingLine, rangeAtCharOffset, articleText } from '../lib/textAnchor'
@@ -243,9 +243,13 @@ export function useReaderScrollSync({
   explicitOpenRef.current = explicitOpen
   const onReaderScrollRef = useRef(onReaderScroll)
   onReaderScrollRef.current = onReaderScroll
-  // With the engine on: its own moves (open, goTo, style, reflow) reset the baseline, so the scroll
-  // event each one causes reads as our echo, never the reader's.
-  const offEngineRef = useRef<(() => void) | null>(null)
+  // The reader moved past the tolerance since the baseline was set. With the engine, a re-anchor
+  // (style, reflow) moves the baseline along only when they had not: it must not erase their move.
+  const readerMovedRef = useRef(false)
+  const setBaseline = useCallback((top: number) => {
+    baselineRef.current = top
+    readerMovedRef.current = false
+  }, [])
 
   /**
    * The one place a reading position is written.
@@ -263,7 +267,7 @@ export function useReaderScrollSync({
       ? captureReadingPosition(identifier)
       : null) ?? undefined
     sessionPositionsRef.current.set(identifier, { offset, positionJson })
-    if (identifier === identifierRef.current) baselineRef.current = offset
+    if (identifier === identifierRef.current) setBaseline(offset)
 
     if (mode === 'public') {
       const bookChapter = publicBookChapters?.find(c => c.slug === identifier)
@@ -312,11 +316,16 @@ export function useReaderScrollSync({
     scrollRestoredRef.current = false
     heldOpenRef.current = false
     setRestoredFor(null)
-    return () => {
-      offEngineRef.current?.()
-      offEngineRef.current = null
-    }
   }, [chapterIdentifier])
+
+  // With the engine: its own moves reset the baseline before the scroll event each one causes, so that
+  // event reads as our echo, never the reader's — whatever positioned the chapter (restore, a highlight
+  // link, a newer position). ReaderPage marks the chapter loaded only once the engine's open has landed.
+  const engine = chapterLoaded && !originalActive ? mountedEngineFor(chapterIdentifier)?.engine : undefined
+  useEffect(() => engine?.on('relocated', (e) => {
+    if (e.reason === 'scroll') return
+    if (e.reason === 'open' || e.reason === 'goTo' || !readerMovedRef.current) setBaseline(currentScrollTop())
+  }), [engine, setBaseline])
 
   // Restore scroll: locator must match current chapter. Otherwise scroll to
   // top — React Router preserves scrollY across route changes, so without
@@ -354,25 +363,20 @@ export function useReaderScrollSync({
     const forId = chapterIdentifier
     const landed = () => {
       // Where the browser actually put us (clamped to the page), not where we asked.
-      baselineRef.current = currentScrollTop()
+      setBaseline(currentScrollTop())
       explicitRef.current = explicitOpenRef.current
       scrollRestoredRef.current = true
       setRestoredFor(forId ?? null)
       if (forId) lastLineRef.current = captureReadingPosition(forId)
     }
 
-    if (forId && mountedEngineFor(forId)) {
+    const mounted = mountedEngineFor(forId)
+    if (mounted && forId) {
       const at = engineTarget(forId, positionJson, savedOffset)
         ?? { href: forId, type: 'text/html', locations: { progression: 0 } }
-      // After the open has landed, or its landing would race this one.
-      void openedEngineFor(forId).then(async (mounted) => {
-        if (!mounted || identifierRef.current !== forId) return
-        offEngineRef.current?.()
-        offEngineRef.current = mounted.engine.on('relocated', (e) => {
-          if (e.reason !== 'scroll') baselineRef.current = currentScrollTop()
-        })
-        await mounted.engine.goTo(at)
-        if (identifierRef.current === forId) landed()
+      // Superseded = a newer restore (this effect re-ran) took over: that one lands.
+      void mounted.engine.goTo(at).then((r) => {
+        if (r !== 'superseded' && identifierRef.current === forId) landed()
       })
       return
     }
@@ -393,7 +397,7 @@ export function useReaderScrollSync({
     if (!id) return
     scrollRestoredRef.current = true
     setRestoredFor(id)
-    baselineRef.current = currentScrollTop()
+    setBaseline(currentScrollTop())
     explicitRef.current = true
     lastLineRef.current = captureReadingPosition(id)
   }, [])
@@ -422,13 +426,16 @@ export function useReaderScrollSync({
     const parsed = parseScrollLocator(newer.locator)
     const mounted = mountedEngineFor(id)
     if (mounted) {
-      const at = engineTarget(id, newer.positionJson, parsed && parsed.slug === id ? parsed.offset : 0)
+      const sameSlug = parsed && parsed.slug === id
+      // `scroll:<id>:0` with no text position is the chapter's top, a place like any other.
+      const at = engineTarget(id, newer.positionJson, sameSlug ? parsed.offset : 0)
+        ?? (sameSlug ? { href: id, type: 'text/html', locations: { progression: 0 } } : null)
       if (!at) return true
       if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null }
       pendingSaveRef.current = null
       await mounted.engine.goTo(at)
       if (identifierRef.current !== id) return true
-      baselineRef.current = currentScrollTop()
+      setBaseline(currentScrollTop())
       heldOpenRef.current = false
       sessionPositionsRef.current.set(id, { offset: currentScrollTop(), positionJson: newer.positionJson ?? undefined })
       lastLineRef.current = captureReadingPosition(id)
@@ -444,7 +451,7 @@ export function useReaderScrollSync({
     if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null }
     pendingSaveRef.current = null
     window.scrollTo({ top, behavior: 'instant' })
-    baselineRef.current = currentScrollTop()
+    setBaseline(currentScrollTop())
     heldOpenRef.current = false
     sessionPositionsRef.current.set(id, { offset: top, positionJson: newer.positionJson ?? undefined })
     lastLineRef.current = captureReadingPosition(id)
@@ -471,7 +478,8 @@ export function useReaderScrollSync({
   const reflowAnchorRef = useRef<string | null>(null)
   const captureBeforeReflow = useCallback(() => {
     const id = identifierRef.current
-    reflowAnchorRef.current = id && !latest.current.originalActive && scrollRestoredRef.current
+    // With the engine, setStyle reads the place itself: nothing to capture, nothing to re-anchor.
+    reflowAnchorRef.current = id && !latest.current.originalActive && scrollRestoredRef.current && !mountedEngineFor(id)
       ? captureReadingPosition(id) ?? lastLineRef.current
       : null
   }, [])
@@ -481,8 +489,6 @@ export function useReaderScrollSync({
     reflowAnchorRef.current = null
     if (!before || originalActive || !chapterLoaded || !chapterIdentifier) return
     if (restoredFor !== chapterIdentifier) return
-    // The engine re-anchors a style change itself (ReaderSection's setStyle).
-    if (mountedEngineFor(chapterIdentifier)) return
     const article = readerArticle()
     if (!article) return
 
@@ -491,7 +497,7 @@ export function useReaderScrollSync({
       const top = anchoredScrollTop(article, resolved)
       if (top == null) return
       window.scrollTo({ top, behavior: 'instant' })
-      baselineRef.current = currentScrollTop() // our scroll, not the reader's: no save, not "moved"
+      setBaseline(currentScrollTop()) // our scroll, not the reader's: no save, not "moved"
     }
     reanchor()
     if (typeof ResizeObserver === 'undefined') return
@@ -550,7 +556,10 @@ export function useReaderScrollSync({
         if (!moved) return
         heldOpenRef.current = false
       }
-      if (moved) explicitRef.current = false
+      if (moved) {
+        explicitRef.current = false
+        readerMovedRef.current = true
+      }
       onReaderScrollRef.current?.()
       clearTimeout(lineTimer)
       lineTimer = window.setTimeout(rememberLine, LINE_IDLE_MS)

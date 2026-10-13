@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { readerEngineEnabled, openedEngineFor, setMountedEngine, unmountEngine } from './readerEngine'
+import { readerEngineEnabled, mountedEngineFor, setMountedEngine, unmountEngine } from './readerEngine'
 import type { ReaderEngine } from '@textstack/reader-engine'
 
 describe('readerEngineEnabled (Phase 4 flag, owner decision 1)', () => {
@@ -29,24 +29,16 @@ describe('readerEngineEnabled (Phase 4 flag, owner decision 1)', () => {
   })
 })
 
-describe('openedEngineFor', () => {
-  const fake = () => ({}) as ReaderEngine
-
-  it('openedEngineFor_EngineReplacedDuringOpen_ReturnsTheNewOne', async () => {
-    // React StrictMode (dev) mounts ReaderSection twice: the first engine is gone before its open lands.
-    const first = fake()
-    const second = fake()
-    let land!: () => void
-    setMountedEngine({ engine: first, href: 'ch', opened: new Promise<void>((r) => { land = r }) })
-    const result = openedEngineFor('ch')
+describe('unmountEngine', () => {
+  it('unmountEngine_AnotherEngineHoldsTheSlot_LeavesIt', () => {
+    // Web remounts the chapter: the next chapter's engine can register before the last one goes.
+    const first = {} as ReaderEngine
+    const second = {} as ReaderEngine
+    setMountedEngine({ engine: first, href: 'a' })
+    setMountedEngine({ engine: second, href: 'b' })
     unmountEngine(first)
-    setMountedEngine({ engine: second, href: 'ch', opened: Promise.resolve() })
-    land()
-    expect((await result)?.engine).toBe(second)
+    expect(mountedEngineFor('b')?.engine).toBe(second)
     unmountEngine(second)
-  })
-
-  it('openedEngineFor_NothingMounted_Null', async () => {
-    expect(await openedEngineFor('ch')).toBeNull()
+    expect(mountedEngineFor('b')).toBeNull()
   })
 })

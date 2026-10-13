@@ -1,4 +1,5 @@
 import './api/client' // initApi (cookie mode) before anything can call the shared api clients
+import './lib/readerEngine' // reads `?engine=1` on the first URL; the reader chunk loads later (lazy)
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'

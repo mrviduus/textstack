@@ -5,6 +5,7 @@ import type { UseReaderProgressResult } from './useReaderProgress'
 import type { useReaderSettings } from './useReaderSettings'
 import type { BookDetail } from '../types/api'
 import type { ReaderMode, NormalizedChapter } from './useReaderChapter'
+import { READER_ENGINE } from '../lib/readerEngine'
 
 interface Params {
   mode: ReaderMode
@@ -17,6 +18,8 @@ interface Params {
   overallProgress: number
   progress: UseReaderProgressResult
   settings: ReturnType<typeof useReaderSettings>['settings']
+  /** The chapter whose engine open has landed (ReaderSection's onEngineOpened); unused without the engine. */
+  engineOpenedFor: string | null
   /** Live `?highlight=` param. */
   scrollToHighlightId: string | null
   highlightsLoaded: boolean
@@ -40,6 +43,7 @@ export function useReaderPositionSync({
   overallProgress,
   progress,
   settings,
+  engineOpenedFor,
   scrollToHighlightId,
   highlightsLoaded,
   authLoading,
@@ -47,6 +51,10 @@ export function useReaderPositionSync({
   location,
   navigate,
 }: Params) {
+  // With the engine, the chapter is ready once its open has landed: restore, a `?highlight=` jump and
+  // save-on-open never race the open's own landing at the top.
+  const chapterReady = isChapterReady(chapter, chapterIdentifier, loading)
+    && (!READER_ENGINE || engineOpenedFor === chapterIdentifier)
   const { publicProgress, userProgress, effectiveProgress, effectiveLoading, serverUnanswered, fetchNewerPosition } = progress
 
   // Scroll-position restore + debounced save + flush on visibility/unload.
@@ -55,7 +63,7 @@ export function useReaderPositionSync({
   const { flushSave: flushProgress, captureBeforeReflow, markPositioned } = useReaderScrollSync({
     mode,
     chapterIdentifier,
-    chapterLoaded: isChapterReady(chapter, chapterIdentifier, loading),
+    chapterLoaded: chapterReady,
     // An uploaded PDF usually HAS reflow chapters, so the chapter fetch succeeds
     // in Original layout too and the save-on-open would fire while the reader is
     // looking at pages. Same defect the mobile reader had.
@@ -83,7 +91,7 @@ export function useReaderPositionSync({
   // the held restore runs. Either way the param goes (replace), so Back and
   // reload restore normally instead of jumping again.
   const highlightLinkReady = highlightsLoaded && !authLoading
-    && (originalActive || isChapterReady(chapter, chapterIdentifier, loading))
+    && (originalActive || chapterReady)
   const handleHighlightLinkDone = useCallback((found: boolean) => {
     if (found) markPositioned()
     const sp = new URLSearchParams(location.search)

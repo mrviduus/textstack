@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { StrictMode } from 'react'
 import { render, cleanup, act, fireEvent } from '@testing-library/react'
 import type { ReaderSettings } from '../../../hooks/useReaderSettings'
 
@@ -20,7 +21,8 @@ class NoopResizeObserver {
   unobserve(): void {}
 }
 
-const opened = () => act(async () => { await mountedEngineFor('ch-1')?.opened })
+/** The open has landed: settles the fonts wait and the frame (jsdom has rAF on a timer). */
+const opened = () => act(async () => { await new Promise((r) => setTimeout(r, 50)) })
 
 describe('ReaderSection with the engine', () => {
   const originalRO = globalThis.ResizeObserver
@@ -61,6 +63,25 @@ describe('ReaderSection with the engine', () => {
     render(<ReaderSection chapterId="c2" chapterSlug="ch-2" chapterIndex={1} html="<p>Two</p>" settings={settings} />)
     old.unmount()
     expect(mountedEngineFor('ch-2')).not.toBeNull()
+  })
+
+  it('engine_StrictModeDoubleMount_OnlyTheLiveEngineReportsOpened', async () => {
+    const onEngineOpened = vi.fn()
+    render(<StrictMode><ReaderSection chapterId="c1" chapterSlug="ch-1" chapterIndex={0} html="<p>One</p>" settings={settings} onEngineOpened={onEngineOpened} /></StrictMode>)
+    await opened()
+    expect(onEngineOpened).toHaveBeenCalledTimes(1)
+    expect(onEngineOpened).toHaveBeenCalledWith('ch-1')
+    expect(mountedEngineFor('ch-1')?.engine.current()?.href).toBe('ch-1')
+  })
+
+  it('engine_NewHtmlForTheSameChapter_ReopensWhereTheReaderIs', async () => {
+    const { rerender } = render(<ReaderSection chapterId="c1" chapterSlug="ch-1" chapterIndex={0} html="<p>One</p>" settings={settings} />)
+    await opened()
+    const { engine } = mountedEngineFor('ch-1')!
+    const here = engine.current()
+    const open = vi.spyOn(engine, 'open')
+    rerender(<ReaderSection chapterId="c1" chapterSlug="ch-1" chapterIndex={0} html="<p>One, refreshed</p>" settings={settings} />)
+    expect(open.mock.calls[0][1]).toEqual(here)
   })
 
   it('engine_Typography_GoesToTheChapter', async () => {

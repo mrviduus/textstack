@@ -65,6 +65,9 @@ const COLORS = {
 const DRAW: Record<Mark['group'], DrawFn> = { highlight: Overlayer.highlight, search: Overlayer.highlight, word: Overlayer.underline, selection: Overlayer.highlight }
 const SVG = 'http://www.w3.org/2000/svg'
 
+/** Engines alive per scroller, and its overflow-anchor before the first of them (E30). */
+const anchorHolds = new WeakMap<HTMLElement, { count: number; was: string }>()
+
 export function createEngine(root: HTMLElement, opts: EngineOptions = {}): ReaderEngine {
   const doc = root.ownerDocument
   const win = doc.defaultView!
@@ -102,7 +105,11 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
   // anchoring, whose own scroll would race the re-anchor and read as the reader moving (#794). Off on
   // the scroller, not just the text: with the text excluded, Chromium anchors on the decoration layer.
   content.style.overflowAnchor = 'none'
-  const scrollerAnchor = scroller.style.overflowAnchor
+  // Shared by every engine on this scroller (web's next chapter mounts before the last one goes):
+  // given back only when the last of them is destroyed.
+  const anchorHold = anchorHolds.get(scroller) ?? { count: 0, was: scroller.style.overflowAnchor }
+  anchorHold.count++
+  anchorHolds.set(scroller, anchorHold)
   scroller.style.overflowAnchor = 'none'
   // Beside the chapter, in its coordinates: scrolls with the text, never read as text (gloss marker).
   const layer = doc.createElementNS(SVG, 'svg')
@@ -720,7 +727,10 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
       fontFaces.remove()
       root.replaceChildren()
       root.style.position = rootPosition
-      scroller.style.overflowAnchor = scrollerAnchor
+      if (--anchorHold.count === 0) {
+        anchorHolds.delete(scroller)
+        scroller.style.overflowAnchor = anchorHold.was
+      }
     },
   }
 }

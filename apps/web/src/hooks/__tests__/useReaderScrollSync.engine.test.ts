@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import { buildTextPosition, serializeTextPosition } from '@textstack/shared'
-import { locatorToPosition, type EngineEvents, type Locator, type ReaderEngine } from '@textstack/reader-engine'
+import { locatorToPosition, type EngineEvents, type GoToResult, type Locator, type ReaderEngine } from '@textstack/reader-engine'
 import { useReaderScrollSync } from '../useReaderScrollSync'
 import { setMountedEngine, unmountEngine } from '../../lib/readerEngine'
+import type { NewerPositionResult } from '../useReaderProgress'
 
 // Phase 4 slice 1 (owner decision 4): with the engine on, useReaderScrollSync keeps its rules (ADR-019)
 // but the engine positions the reader — restore and the newer-position move are `goTo`, the saved
@@ -36,7 +37,7 @@ function fakeEngine(href: string) {
       setScroll(state.landAt)
       state.here = at
       emit('relocated', { locator: at, reason: 'goTo' })
-      return 'exact' as const
+      return 'exact' as GoToResult
     }),
     current: () => state.here,
     on: (e: string, cb: (p: unknown) => void) => {
@@ -48,7 +49,7 @@ function fakeEngine(href: string) {
   function emit<K extends keyof EngineEvents>(e: K, p: EngineEvents[K]) {
     listeners.get(e)?.forEach((cb) => cb(p))
   }
-  setMountedEngine({ engine: engine as unknown as ReaderEngine, href, opened: Promise.resolve() })
+  setMountedEngine({ engine: engine as unknown as ReaderEngine, href })
   mountedFakes.push(engine as unknown as ReaderEngine)
   return { engine, state, emit }
 }
@@ -162,5 +163,59 @@ describe('useReaderScrollSync with the engine — save', () => {
     rerender({ ...baseProps(), settingsKey: '24 1.8 serif left' })
     await settle()
     expect(window.scrollTo).not.toHaveBeenCalled()
+  })
+})
+
+describe('useReaderScrollSync with the engine — review fixes', () => {
+  it('restore_SupersededByANewerRestore_OnlyTheNewerOneLands', async () => {
+    const { engine } = fakeEngine('ch1')
+    engine.goTo.mockImplementationOnce(async () => 'superseded' as GoToResult)
+    renderHook(() => useReaderScrollSync(baseProps()))
+    await settle()
+    // The superseded goTo did not mark the chapter restored: no save-on-open from a mid-move place.
+    expect(updateProgress).not.toHaveBeenCalled()
+  })
+
+  it('engineMove_AfterAHighlightLinkPositioned_IsNotTheReaders', async () => {
+    const { emit, state } = fakeEngine('ch1')
+    state.here = { href: 'ch1', type: 'text/html', locations: { progression: 0.5, charOffset: 50 }, text: { highlight: TEXT.slice(50, 60) } }
+    const onReaderScroll = vi.fn()
+    const { result } = renderHook(() => useReaderScrollSync({ ...baseProps(), holdRestore: true, onReaderScroll }))
+    act(() => result.current.markPositioned())
+    await settle()
+    updateProgress.mockClear()
+    setScroll(1200)
+    emit('relocated', { locator: state.here!, reason: 'style' })
+    window.dispatchEvent(new Event('scroll'))
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+    expect(updateProgress).not.toHaveBeenCalled()
+    expect(onReaderScroll).not.toHaveBeenCalled()
+  })
+
+  it('reflow_AfterTheReaderMoved_TheirMoveStillCounts', async () => {
+    const { engine, emit, state } = fakeEngine('ch1')
+    let answer!: (r: NewerPositionResult) => void
+    const fetchNewerPosition = vi.fn(() => new Promise<NewerPositionResult>((r) => { answer = r }))
+    renderHook(() => useReaderScrollSync({ ...baseProps(), serverUnanswered: true, fetchNewerPosition }))
+    await settle()
+    await settle()
+    expect(fetchNewerPosition).toHaveBeenCalledTimes(1)
+    userScroll(800)                                          // the reader reads on…
+    setScroll(830)                                           // …an image loads above, the engine re-anchors
+    emit('relocated', { locator: state.here!, reason: 'reflow' })
+    await act(async () => { answer({ chapterSlug: 'ch1', locator: null, positionJson: positionAt('ch1', 60) }) })
+    await settle()
+    // Another device's place does not replace where the reader moved to.
+    expect(engine.goTo).toHaveBeenCalledTimes(1)
+  })
+
+  it('newerPosition_TopOfTheChapter_EngineGoesThere', async () => {
+    const { engine } = fakeEngine('ch1')
+    const fetchNewerPosition = vi.fn(async (): Promise<NewerPositionResult> => ({ chapterSlug: 'ch1', locator: 'scroll:ch1:0', positionJson: null }))
+    renderHook(() => useReaderScrollSync({ ...baseProps(), effectiveProgress: { locator: 'scroll:ch1:500' }, serverUnanswered: true, fetchNewerPosition }))
+    await settle()
+    await settle()
+    expect(engine.goTo).toHaveBeenCalledTimes(2)
+    expect(engine.goTo.mock.calls[1][0]).toEqual({ href: 'ch1', type: 'text/html', locations: { progression: 0 } })
   })
 })

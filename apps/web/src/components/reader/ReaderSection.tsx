@@ -27,6 +27,8 @@ interface Props {
   /** When false, disables the overlay entirely (kills annotations). */
   overlayEnabled?: boolean
   onTap?: () => void
+  /** The engine's open of this chapter has landed (READER_ENGINE): the chapter is ready to position. */
+  onEngineOpened?: (chapterSlug: string) => void
   onDoubleTap?: () => void
 }
 
@@ -42,7 +44,7 @@ function fontFamily(f: ReaderSettings['fontFamily']): string {
 }
 
 export const ReaderSection = forwardRef<ReaderSectionHandle, Props>(function ReaderSection(
-  { chapterId, chapterSlug, chapterIndex, html, settings, overlayEnabled = true, onTap },
+  { chapterId, chapterSlug, chapterIndex, html, settings, overlayEnabled = true, onTap, onEngineOpened },
   ref,
 ) {
   const articleRef = useRef<HTMLElement | null>(null)
@@ -59,6 +61,8 @@ export const ReaderSection = forwardRef<ReaderSectionHandle, Props>(function Rea
   const engineRef = useRef<ReaderEngine | null>(null)
   const onTapRef = useRef(onTap)
   onTapRef.current = onTap
+  const onEngineOpenedRef = useRef(onEngineOpened)
+  onEngineOpenedRef.current = onEngineOpened
   useEffect(() => {
     if (!READER_ENGINE || !articleRef.current) return
     const engine = createEngine(articleRef.current)
@@ -73,8 +77,12 @@ export const ReaderSection = forwardRef<ReaderSectionHandle, Props>(function Rea
   useEffect(() => {
     const engine = engineRef.current
     if (!engine || !chapterSlug) return
-    const opened = engine.open({ href: chapterSlug, layout: 'reflow', html: innerHtml.__html })
-    setMountedEngine({ engine, href: chapterSlug, opened })
+    // New html for the chapter on screen (a cache → network refresh) reopens where the reader is.
+    const here = engine.current()
+    setMountedEngine({ engine, href: chapterSlug })
+    void engine.open({ href: chapterSlug, layout: 'reflow', html: innerHtml.__html }, here?.href === chapterSlug ? here : undefined)
+      // Only the engine still mounted: React StrictMode (dev) destroys the first one mid-open.
+      .then(() => { if (engineRef.current === engine) onEngineOpenedRef.current?.(chapterSlug) })
   }, [innerHtml, chapterSlug])
   const { fontSize, lineHeight, fontFamily: family, textAlign } = settings
   useEffect(() => {
