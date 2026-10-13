@@ -4,7 +4,8 @@ import { readerChromeCss, type ReaderChrome } from './readerChrome'
 import { READER_OVERLAY_SCRIPT } from './readerOverlayScript'
 import { READER_ANCHOR_SCRIPT } from './readerAnchorScript.generated'
 import { TEXT_POSITION_VERSION, POSITION_QUOTE_LENGTH, ANCHOR_CONTEXT_LENGTH } from '@textstack/shared'
-import { READER_SELECTION_BRIDGE } from './readerBridge'
+import { READER_SELECTION_BRIDGE, SCROLL_DIR_DETECTOR } from './readerBridge'
+import { READER_ENGINE_SCRIPT } from './readerEngineScript.generated'
 import { PDF_VIEWER_SCRIPT } from './pdfViewerScript'
 
 export interface ReaderTheme {
@@ -41,29 +42,12 @@ function buildFontFace(fontFamily: string): string {
   }`
 }
 
-export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaultTheme, initialChapterSlug?: string, safeArea?: { top: number; bottom: number }): string {
-  const fontFace = buildFontFace(theme.fontFamily)
-  // Chrome comes from the same values `readerChromeInjectionJs` later applies to
-  // the LIVE document, so hiding the bars or switching theme no longer has to
-  // rebuild this string — a rebuild reloads the WebView and re-runs the
-  // position restore. See readerChrome.ts.
-  const chrome: ReaderChrome = {
-    safeArea: { top: safeArea?.top ?? 0, bottom: safeArea?.bottom ?? 0 },
-    backgroundColor: theme.backgroundColor,
-    textColor: theme.textColor,
-  }
-  // The reading position is resolved from a text anchor on every chapter open
-  // and has no legacy path behind it; without the resolver `hlFindAnchor`
-  // degrades to a bare indexOf. 3.6KB.
-  const anchorScript = READER_ANCHOR_SCRIPT
-
-  return `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-  <style>
-    ${fontFace}
+/**
+ * The reader page's stylesheet: typography, chrome, images, lists, the chapter-end block, selection and
+ * vocab colours. Shared by the old page and the engine page (`buildEngineReaderHtml`), which must look the same.
+ */
+export function readerStyle(theme: ReaderTheme, chrome: ReaderChrome, fontFace: string): string {
+  return `    ${fontFace}
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: ${theme.fontFamily};
@@ -174,7 +158,60 @@ export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaul
     .vocab-translation-overlay__item { position: absolute; top: 0; left: 0; transform: translate3d(0,0,0); white-space: nowrap; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; font-size: 0.42em; font-style: italic; font-weight: 400; letter-spacing: 0.015em; color: #6b6b6b; opacity: 0.85; line-height: 1; pointer-events: none; user-select: none; max-width: 160px; overflow: hidden; text-overflow: ellipsis; will-change: transform; }
 
     /* Progress tracking via scroll */
-  </style>
+`
+}
+
+/**
+ * The reflow document with the reader engine (ADR-025 Phase 3, EXPO_PUBLIC_READER_ENGINE on): the same
+ * look, and the same protocol to RN (`readerEnginePage.ts`), the engine underneath. The chapter waits in
+ * an inert <template> (no image loads, no layout) until the engine opens it.
+ */
+export function buildEngineReaderHtml(chapterHtml: string, theme: ReaderTheme = defaultTheme, chapterSlug = '', safeArea?: { top: number; bottom: number }): string {
+  const chrome: ReaderChrome = {
+    safeArea: { top: safeArea?.top ?? 0, bottom: safeArea?.bottom ?? 0 },
+    backgroundColor: theme.backgroundColor,
+    textColor: theme.textColor,
+  }
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <style>
+${readerStyle(theme, chrome, buildFontFace(theme.fontFamily))}  </style>
+</head>
+<body>
+  <template id="ts-chapter">${chapterHtml}</template>
+  <div id="ts-root" data-slug="${escapeAttr(chapterSlug)}"></div>
+  <script>${SCROLL_DIR_DETECTOR}</script>
+  <script>${READER_ENGINE_SCRIPT}</script>
+</body>
+</html>`
+}
+
+export function buildReaderHtml(chapterHtml: string, theme: ReaderTheme = defaultTheme, initialChapterSlug?: string, safeArea?: { top: number; bottom: number }): string {
+  const fontFace = buildFontFace(theme.fontFamily)
+  // Chrome comes from the same values `readerChromeInjectionJs` later applies to
+  // the LIVE document, so hiding the bars or switching theme no longer has to
+  // rebuild this string — a rebuild reloads the WebView and re-runs the
+  // position restore. See readerChrome.ts.
+  const chrome: ReaderChrome = {
+    safeArea: { top: safeArea?.top ?? 0, bottom: safeArea?.bottom ?? 0 },
+    backgroundColor: theme.backgroundColor,
+    textColor: theme.textColor,
+  }
+  // The reading position is resolved from a text anchor on every chapter open
+  // and has no legacy path behind it; without the resolver `hlFindAnchor`
+  // degrades to a bare indexOf. 3.6KB.
+  const anchorScript = READER_ANCHOR_SCRIPT
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <style>
+${readerStyle(theme, chrome, fontFace)}  </style>
   <script>${anchorScript}</script>
   <script>${READER_OVERLAY_SCRIPT}</script>
   <script>${READER_SELECTION_BRIDGE}</script>

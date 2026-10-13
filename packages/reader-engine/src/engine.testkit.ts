@@ -39,6 +39,7 @@ function layout(root: HTMLElement) {
     boxes.set(p, { top: y, height })
     y += height + fs
   }
+  if (root.firstElementChild) boxes.set(root.firstElementChild, { top: 0, height: y })   // the chapter, without the footer
   const footer = root.querySelector('footer')   // the host's chapter-end block (setFooter)
   if (footer) { boxes.set(footer, { top: y, height: 100 }); y += 100 }
   return { boxes, total: y }

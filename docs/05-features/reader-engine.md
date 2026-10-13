@@ -23,7 +23,7 @@ carries its `opId`.
 | ID | Rule | Why / source | Since |
 |---|---|---|---|
 | E1 | `open` shows the chapter, says `ready`, then acks once — before its promise resolves. | ADR-025 API rule; replaces the mobile restore ack (ADR-019 rule 3) | 2026-10-12 |
-| E2 | A saved position (open or goTo) puts its sentence on the reading line. A position with only a fraction lands on that fraction. | ADR-015: position = place in the text | 2026-10-12 |
+| E2 | A saved position (open or goTo) puts its sentence on the reading line. A position with only a fraction lands on that fraction of the chapter itself (not the host's footer or padding), the `chapterFraction` the apps store. | ADR-015: position = place in the text | 2026-10-12 |
 | E3 | A position from another chapter never moves to a look-alike place. `goTo`: no move, `anchor-miss` error naming the chapter, resolves `'superseded'` (not landed). `open`: opens at the top, `'start'`, same error. | Owner decision D1; ADR-015 | 2026-10-12 |
 | E4 | A newer `open` / `goTo` supersedes an older one: the older resolves `'superseded'`. Every op is still acked exactly once. | ADR-019 rule 3: a stale restore lands nothing | 2026-10-12 |
 | E5 | Only the reader scrolling, after the last op finished, is `'scroll'` (reading). The engine's own scrolls never are; a scroll during an op is ignored. | ADR-019 rule 7; web `wordsRead` ≈ 0, mobile M8 | 2026-10-12 |
