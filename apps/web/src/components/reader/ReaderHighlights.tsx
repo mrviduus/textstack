@@ -8,6 +8,7 @@ import { useNativeLanguage } from '../../context/NativeLanguageContext'
 import { useTts } from '../../hooks/useTts'
 import { useReaderVocabulary } from '../../hooks/useReaderVocabulary'
 import { useTranslation } from '../../hooks/useTranslation'
+import type { SearchMatch } from '../../hooks/useInBookSearch'
 import { useWordBubble } from '../../hooks/useWordBubble'
 import { normalizeVocabKey } from '../../lib/vocabKey'
 import type { HighlightAnchor, HighlightColor, StoredHighlight } from '../../lib/offlineDb'
@@ -70,8 +71,8 @@ interface ReaderHighlightsProps {
   onPdfHighlight?: (anchor: PdfAnchor, text: string, color: HighlightColor) => void | Promise<unknown>
   /** READER_ENGINE: the chapter whose engine open has landed; its events drive the popups. */
   engineOpenedFor?: string | null
-  /** READER_ENGINE: in-book search, painted by the engine (the old SearchOverlayLayer is off). '' = closed. */
-  searchQuery?: string
+  /** READER_ENGINE: the drawer's hits (useInBookSearch, the engine's find), painted by the engine. Undefined = closed. */
+  searchMatches?: SearchMatch[]
   searchActiveIndex?: number
   children: React.ReactNode
 }
@@ -87,6 +88,8 @@ function resolveTargetLang(nativeLang: string, bookLang: string): string | null 
 
 /** The current search hit: the old outline's orange at 45%, a fill the text shows through (dark theme sets its own). No color-mix(): unsupported = a black box. */
 const SEARCH_ACTIVE = 'var(--reader-search-current, rgba(249, 115, 22, 0.45))'
+
+const NO_MATCHES: SearchMatch[] = []
 
 /** Count words in a trimmed selection string. */
 function countWords(text: string): number {
@@ -116,7 +119,7 @@ export function ReaderHighlights({
   liveActionsOnly = false,
   onPdfHighlight,
   engineOpenedFor = null,
-  searchQuery = '',
+  searchMatches = NO_MATCHES,
   searchActiveIndex = 0,
   children,
 }: ReaderHighlightsProps) {
@@ -323,12 +326,11 @@ export function ReaderHighlights({
   useEffect(() => {
     const engine = mountedEngineFor(engineHref ?? undefined)?.engine
     if (!engine) return
-    const q = searchQuery.trim()
-    const hits = q.length < 2 ? [] : engine.find(q)   // the drawer lists the same find (useInBookSearch)
-    engine.decorate('search', hits.map((hit, i) => ({ id: String(i), locator: hit.locator, style: i === searchActiveIndex ? SEARCH_ACTIVE : SEARCH_COLOR })))
+    const hits = searchMatches.flatMap((m) => (m.locator ? [m.locator] : []))
+    engine.decorate('search', hits.map((locator, i) => ({ id: String(i), locator, style: i === searchActiveIndex ? SEARCH_ACTIVE : SEARCH_COLOR })))
     const current = hits[searchActiveIndex]
-    if (current) void engine.goTo(current.locator, { align: 'center' })
-  }, [engineHref, searchQuery, searchActiveIndex])
+    if (current) void engine.goTo(current, { align: 'center' })
+  }, [engineHref, searchMatches, searchActiveIndex])
 
   // --- Render ---
   return (

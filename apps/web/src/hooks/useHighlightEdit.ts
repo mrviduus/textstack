@@ -95,10 +95,15 @@ export function useHighlightEdit({
       if (!containerRef.current) return false
       // The engine resolves the anchor in its own text; the old DOM walk could miss an engine-made anchor.
       const engine = mountedEngineFor(engineHref ?? undefined)?.engine
-      if (engine) {
-        if (!isChapterKey(highlightChapterKey(target), chapterId, engineHref!)) return false
-        const at = anchorToLocator(JSON.stringify(target.anchor), engineHref!)
-        return at ? engine.goTo(at, { align: 'center' }) : false
+      if (engine && !isChapterKey(highlightChapterKey(target), chapterId, engineHref!)) return false
+      const at = engine && anchorToLocator(JSON.stringify(target.anchor), engineHref!)
+      if (engine && at) {
+        const here = engine.current()
+        // 'start': the anchor missed and the ladder fell to the chapter top — put the reader back.
+        return engine.goTo(at, { align: 'center' }).then((r) => {
+          if (r === 'start' && here) void engine.goTo(here)
+          return r
+        })
       }
       const range = findTextByAnchor(target.anchor, containerRef.current, highlightChapterKey(target))
       if (!range) return false

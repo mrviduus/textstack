@@ -33,13 +33,7 @@ html[data-theme="light"] {
   --reader-overlay-vocab-active: rgba(59, 130, 246, 0.7);
   --reader-overlay-search-inactive: rgba(250, 204, 21, 0.35);
   --reader-overlay-search-active: rgb(249, 115, 22);
-}
-
-/* The engine's highlight and search fills (READER_ENGINE) sit over the text: multiply keeps it dark, full
- * opacity matches the old layers' colour. Only those groups: its selection keeps the engine's own 0.3.
- * Dark keeps its 0.55 for all. */
-html:not([data-theme="dark"]):not(.dark) [data-group="highlight"],
-html:not([data-theme="dark"]):not(.dark) [data-group="search"] {
+  /* The engine's fills (READER_ENGINE) sit over the text: multiply keeps it dark, full opacity matches the old layers' colour. Dark overrides both. */
   --overlay-highlight-opacity: 1;
 }
 

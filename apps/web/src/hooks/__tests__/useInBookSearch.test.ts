@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from 'vitest'
-import { renderHook, act } from '@testing-library/react'
+import { renderHook, render, act } from '@testing-library/react'
+import { createElement, useEffect } from 'react'
 import { findTextMatches } from '@textstack/reader-overlay'
-import { useInBookSearch } from '../useInBookSearch'
+import { useInBookSearch, type SearchMatch } from '../useInBookSearch'
 import { setMountedEngine, unmountEngine } from '../../lib/readerEngine'
 import type { ReaderEngine } from '@textstack/reader-engine'
 
@@ -48,7 +49,38 @@ describe('useInBookSearch', () => {
       const { result } = renderHook(() => useInBookSearch('<p>cat cat cat</p>', 'ch-1'))
       act(() => result.current.search(' cat '))
       expect(engine.find).toHaveBeenCalledWith('cat')
-      expect(result.current.matches).toEqual([{ index: 0, text: 'Cat', context: '...a Cat...', position: 7 }])
+      expect(result.current.matches).toEqual([{ index: 0, text: 'Cat', context: '...a Cat...', position: 7, locator: hit.locator }])
+    } finally {
+      unmountEngine(engine)
+    }
+  })
+
+  it('engine_SameChapterNewHtml_TheListIsTheReopenedText', () => {
+    // A cache → network refresh reopens the same slug: ReaderSection (a child) opens the new html in its
+    // effect, which runs before the page's. The list must be the engine's text after that open.
+    let engineText = ''
+    const engine = {
+      find: vi.fn(() => [{ locator: { href: 'ch-1', type: 'text/html' as const, locations: {}, text: { highlight: 'cat' } }, context: engineText }]),
+    } as unknown as ReaderEngine
+    setMountedEngine({ engine, href: 'ch-1' })
+    function Section({ html }: { html: string }) {
+      useEffect(() => { engineText = html }, [html])   // engine.open swaps its text synchronously
+      return null
+    }
+    let matches: SearchMatch[] = []
+    let search: (q: string) => void = () => {}
+    function Page({ html }: { html: string }) {
+      const s = useInBookSearch(html, 'ch-1')
+      matches = s.matches
+      search = s.search
+      return createElement(Section, { html })
+    }
+    try {
+      const { rerender } = render(createElement(Page, { html: 'cached cat' }))
+      act(() => search('cat'))
+      expect(matches[0].context).toBe('cached cat')
+      rerender(createElement(Page, { html: 'network cat' }))
+      expect(matches[0].context).toBe('network cat')
     } finally {
       unmountEngine(engine)
     }
