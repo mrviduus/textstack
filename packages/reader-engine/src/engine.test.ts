@@ -2,6 +2,7 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { LAST_SENTENCE, PARAGRAPHS, REAL_CHAPTER, deferred, destroyAll, makeReader } from './engine.testkit'
 import { chapterText } from './text'
+import { createEngine } from './engine'
 
 /**
  * Engine core, reflow. Each test name starts with its rule ID; the rules, in plain words, are in
@@ -272,6 +273,18 @@ describe('destroy', () => {
     expect(reader.events()).toEqual([])
     expect(reader.root.childNodes).toHaveLength(0)
     expect(reader.engine.current()).toBeNull()
+  })
+
+  it('E30 scroll anchoring stays off on a shared scroller while any engine on it lives', () => {
+    // Web remounts the chapter: the next engine can be created before the last one is destroyed.
+    const scroller = document.createElement('div')
+    const observeResize = () => () => {}
+    const a = createEngine(document.body.appendChild(document.createElement('div')), { scroller, observeResize })
+    const b = createEngine(document.body.appendChild(document.createElement('div')), { scroller, observeResize })
+    a.destroy()
+    expect(scroller.style.overflowAnchor).toBe('none')
+    b.destroy()
+    expect(scroller.style.overflowAnchor).toBe('')
   })
 
   it('E9 gives the container back as it was (the engine positions it to draw decorations)', async () => {

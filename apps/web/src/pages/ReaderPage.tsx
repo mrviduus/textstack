@@ -172,8 +172,9 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
     mode, id, publicBook, book, overallProgress, isAuthenticated, language,
   })
 
+  const [engineOpenedFor, setEngineOpenedFor] = useState<string | null>(null)
   const { flushProgress, captureBeforeReflow, highlightLinkReady, handleHighlightLinkDone } = useReaderPositionSync({
-    mode, publicBook, chapter, chapterIdentifier, loading, originalActive, overallProgress, progress, settings,
+    mode, publicBook, chapter, chapterIdentifier, loading, originalActive, overallProgress, progress, settings, engineOpenedFor,
     scrollToHighlightId, highlightsLoaded: highlightsApi.loaded, authLoading, onReaderScroll, location, navigate,
   })
 
@@ -334,6 +335,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
                 chapter={chapter}
                 settings={settings}
                 onTap={() => { readingSession.recordActivity(); showImmersiveBars() }}
+                onEngineOpened={setEngineOpenedFor}
                 discuss={reviewTarget && {
                   reviewed: chapterReviews.has(chapter.identifier),
                   reviewPath: reviewedMarks.reviewPath(chapter.identifier),

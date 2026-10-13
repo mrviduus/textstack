@@ -111,6 +111,23 @@ test('E29 the chapter growing above the reading line is a reflow, never the read
   expect(r.same).toBe(true)
 })
 
+test('E30 a style change is one \'style\' relocation: the browser never scrolls the page before the engine re-anchors', async ({ page }) => {
+  await openChapter(page, 'moby-dick-5')
+  await readerScrolls(page, 0.5)
+  const r = await page.evaluate(async () => {
+    const reasons: string[] = []
+    window.engine.on('relocated', (e) => reasons.push(e.reason))
+    const top = scrollY
+    window.engine.setStyle({ fontSize: 26 })
+    void document.body.offsetHeight   // the host reads layout at once: a browser anchor would move now
+    const anchored = scrollY !== top
+    await new Promise((r) => setTimeout(r, 300))
+    return { anchored, reasons }
+  })
+  expect(r.anchored, 'no page-level scroll anchoring: its scroll reads as the reader (web saved it)').toBe(false)
+  expect(r.reasons).toEqual(['style'])
+})
+
 test('E26 a place that starts on a soft hyphen lands on the reading line too', async ({ page }) => {
   await openChapter(page, 'moby-dick-5-shy')   // U+00AD in words of 8+ letters, as extraction adds them
   const r = await page.evaluate(async () => {

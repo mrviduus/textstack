@@ -1,8 +1,10 @@
-import { forwardRef, useImperativeHandle, useMemo, useRef } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef } from 'react'
+import { createEngine, type ReaderEngine } from '@textstack/reader-engine'
 import type { ReaderSettings } from '../../hooks/useReaderSettings'
 import { sanitizeHtml } from '../../utils/sanitize'
 import type { Overlayer } from '@textstack/reader-overlay'
 import { ReaderOverlay } from './ReaderOverlay'
+import { READER_ENGINE, setMountedEngine, unmountEngine } from '../../lib/readerEngine'
 
 // One chapter, native scroll within, overlay on top. Unwired in slice 3 —
 // slice 7 swaps ReaderPage over to this. Annotation layers attach via
@@ -25,6 +27,8 @@ interface Props {
   /** When false, disables the overlay entirely (kills annotations). */
   overlayEnabled?: boolean
   onTap?: () => void
+  /** The engine's open of this chapter has landed (READER_ENGINE): the chapter is ready to position. */
+  onEngineOpened?: (chapterSlug: string) => void
   onDoubleTap?: () => void
 }
 
@@ -40,7 +44,7 @@ function fontFamily(f: ReaderSettings['fontFamily']): string {
 }
 
 export const ReaderSection = forwardRef<ReaderSectionHandle, Props>(function ReaderSection(
-  { chapterId, chapterSlug, chapterIndex, html, settings, overlayEnabled = true },
+  { chapterId, chapterSlug, chapterIndex, html, settings, overlayEnabled = true, onTap, onEngineOpened },
   ref,
 ) {
   const articleRef = useRef<HTMLElement | null>(null)
@@ -50,6 +54,44 @@ export const ReaderSection = forwardRef<ReaderSectionHandle, Props>(function Rea
   // scroll-progress tick) — killing every live Range: highlights, vocab marks,
   // the selection, a drawer jump's freshly painted highlight.
   const innerHtml = useMemo(() => ({ __html: sanitizeHtml(html) }), [html])
+
+  // ADR-025 Phase 4 (READER_ENGINE): the engine renders the chapter into the article and keeps the
+  // place; useReaderScrollSync drives it through `mountedEngineFor`. Old overlay layers still find
+  // the text by [data-chapter-id] until slices 3–4 move them onto the engine.
+  const engineRef = useRef<ReaderEngine | null>(null)
+  const onTapRef = useRef(onTap)
+  onTapRef.current = onTap
+  const onEngineOpenedRef = useRef(onEngineOpened)
+  onEngineOpenedRef.current = onEngineOpened
+  useEffect(() => {
+    if (!READER_ENGINE || !articleRef.current) return
+    const engine = createEngine(articleRef.current)
+    engineRef.current = engine
+    engine.on('tap', () => onTapRef.current?.())   // #818: a tap on the chapter shows the bars
+    return () => {
+      unmountEngine(engine)
+      engineRef.current = null
+      engine.destroy()
+    }
+  }, [])
+  useEffect(() => {
+    const engine = engineRef.current
+    if (!engine || !chapterSlug) return
+    // New html for the chapter on screen (a cache → network refresh) reopens where the reader is.
+    const here = engine.current()
+    setMountedEngine({ engine, href: chapterSlug })
+    void engine.open({ href: chapterSlug, layout: 'reflow', html: innerHtml.__html }, here?.href === chapterSlug ? here : undefined)
+      // Only the engine still mounted: React StrictMode (dev) destroys the first one mid-open.
+      .then(() => { if (engineRef.current === engine) onEngineOpenedRef.current?.(chapterSlug) })
+  }, [innerHtml, chapterSlug])
+  const { fontSize, lineHeight, fontFamily: family, textAlign } = settings
+  useEffect(() => {
+    const engine = engineRef.current
+    if (!engine) return
+    engine.setStyle({ fontSize, lineHeight, family: fontFamily(family) })   // reads the place first…
+    // …then centre (no engine align for it) reflows in the same frame; the engine re-anchors after both.
+    articleRef.current!.style.textAlign = textAlign
+  }, [fontSize, lineHeight, family, textAlign])
 
   useImperativeHandle(
     ref,
@@ -66,20 +108,30 @@ export const ReaderSection = forwardRef<ReaderSectionHandle, Props>(function Rea
 
   return (
     <div className="reader-section" style={{ position: 'relative' }}>
-      <article
-        ref={articleRef}
-        className="reader-section__article"
-        data-chapter-id={chapterId}
-        data-chapter-slug={chapterSlug}
-        data-chapter-index={chapterIndex}
-        style={{
-          fontSize: `${settings.fontSize}px`,
-          lineHeight: settings.lineHeight,
-          fontFamily: fontFamily(settings.fontFamily),
-          textAlign: settings.textAlign,
-        }}
-        dangerouslySetInnerHTML={innerHtml}
-      />
+      {READER_ENGINE ? (
+        <article
+          ref={articleRef}
+          className="reader-section__article"
+          data-chapter-id={chapterId}
+          data-chapter-slug={chapterSlug}
+          data-chapter-index={chapterIndex}
+        />
+      ) : (
+        <article
+          ref={articleRef}
+          className="reader-section__article"
+          data-chapter-id={chapterId}
+          data-chapter-slug={chapterSlug}
+          data-chapter-index={chapterIndex}
+          style={{
+            fontSize: `${settings.fontSize}px`,
+            lineHeight: settings.lineHeight,
+            fontFamily: fontFamily(settings.fontFamily),
+            textAlign: settings.textAlign,
+          }}
+          dangerouslySetInnerHTML={innerHtml}
+        />
+      )}
       <ReaderOverlay
         containerRef={articleRef}
         overlayerRef={overlayerRef}

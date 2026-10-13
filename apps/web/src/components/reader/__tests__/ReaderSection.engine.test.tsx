@@ -1,0 +1,103 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { StrictMode } from 'react'
+import { render, cleanup, act, fireEvent } from '@testing-library/react'
+import type { ReaderSettings } from '../../../hooks/useReaderSettings'
+
+// Phase 4 slice 1: with the engine on, ReaderSection hands the chapter to the engine, which renders it,
+// registers for useReaderScrollSync, takes typography through setStyle, and turns a tap into onTap (#818).
+vi.mock('../../../lib/readerEngine', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../lib/readerEngine')>()),
+  READER_ENGINE: true,
+}))
+
+import { ReaderSection } from '../ReaderSection'
+import { mountedEngineFor } from '../../../lib/readerEngine'
+
+const settings = { fontSize: 18, lineHeight: 1.6, fontFamily: 'serif', textAlign: 'left' } as unknown as ReaderSettings
+
+class NoopResizeObserver {
+  observe(): void {}
+  disconnect(): void {}
+  unobserve(): void {}
+}
+
+/** The open has landed: settles the fonts wait and the frame (jsdom has rAF on a timer). */
+const opened = () => act(async () => { await new Promise((r) => setTimeout(r, 50)) })
+
+describe('ReaderSection with the engine', () => {
+  const originalRO = globalThis.ResizeObserver
+  beforeEach(() => {
+    globalThis.ResizeObserver = NoopResizeObserver as unknown as typeof ResizeObserver
+    // jsdom has none; the engine's default scroller is the page.
+    Object.defineProperty(document, 'scrollingElement', { value: document.documentElement, configurable: true })
+  })
+  afterEach(() => {
+    cleanup()
+    globalThis.ResizeObserver = originalRO
+  })
+
+  it('engine_Open_RendersTheSanitisedChapter', async () => {
+    const { container } = render(
+      <ReaderSection chapterId="c1" chapterSlug="ch-1" chapterIndex={0} html={'<p>Hello world</p><script>bad()</script>'} settings={settings} />,
+    )
+    await opened()
+    const article = container.querySelector('article')!
+    expect(article.getAttribute('data-chapter-id')).toBe('c1')
+    expect(article.textContent).toBe('Hello world')
+    expect(article.querySelector('script')).toBeNull()
+  })
+
+  it('engine_Mounted_IsTheChaptersEngine', async () => {
+    const { rerender } = render(<ReaderSection chapterId="c1" chapterSlug="ch-1" chapterIndex={0} html="<p>One</p>" settings={settings} />)
+    await opened()
+    expect(mountedEngineFor('ch-1')?.engine.current()?.href).toBe('ch-1')
+    rerender(<ReaderSection chapterId="c2" chapterSlug="ch-2" chapterIndex={1} html="<p>Two</p>" settings={settings} />)
+    expect(mountedEngineFor('ch-1')).toBeNull()
+    expect(mountedEngineFor('ch-2')).not.toBeNull()
+    cleanup()
+    expect(mountedEngineFor('ch-2')).toBeNull()
+  })
+
+  it('engine_OldChapterUnmountsAfterTheNew_NewStaysMounted', async () => {
+    const old = render(<ReaderSection chapterId="c1" chapterSlug="ch-1" chapterIndex={0} html="<p>One</p>" settings={settings} />)
+    render(<ReaderSection chapterId="c2" chapterSlug="ch-2" chapterIndex={1} html="<p>Two</p>" settings={settings} />)
+    old.unmount()
+    expect(mountedEngineFor('ch-2')).not.toBeNull()
+  })
+
+  it('engine_StrictModeDoubleMount_OnlyTheLiveEngineReportsOpened', async () => {
+    const onEngineOpened = vi.fn()
+    render(<StrictMode><ReaderSection chapterId="c1" chapterSlug="ch-1" chapterIndex={0} html="<p>One</p>" settings={settings} onEngineOpened={onEngineOpened} /></StrictMode>)
+    await opened()
+    expect(onEngineOpened).toHaveBeenCalledTimes(1)
+    expect(onEngineOpened).toHaveBeenCalledWith('ch-1')
+    expect(mountedEngineFor('ch-1')?.engine.current()?.href).toBe('ch-1')
+  })
+
+  it('engine_NewHtmlForTheSameChapter_ReopensWhereTheReaderIs', async () => {
+    const { rerender } = render(<ReaderSection chapterId="c1" chapterSlug="ch-1" chapterIndex={0} html="<p>One</p>" settings={settings} />)
+    await opened()
+    const { engine } = mountedEngineFor('ch-1')!
+    const here = engine.current()
+    const open = vi.spyOn(engine, 'open')
+    rerender(<ReaderSection chapterId="c1" chapterSlug="ch-1" chapterIndex={0} html="<p>One, refreshed</p>" settings={settings} />)
+    expect(open.mock.calls[0][1]).toEqual(here)
+  })
+
+  it('engine_Typography_GoesToTheChapter', async () => {
+    const { container, rerender } = render(<ReaderSection chapterId="c1" chapterSlug="ch-1" chapterIndex={0} html="<p>One</p>" settings={settings} />)
+    await opened()
+    rerender(<ReaderSection chapterId="c1" chapterSlug="ch-1" chapterIndex={0} html="<p>One</p>" settings={{ ...settings, fontSize: 24, textAlign: 'center' }} />)
+    const article = container.querySelector('article')!
+    expect(article.style.fontSize).toBe('24px')
+    expect(article.style.textAlign).toBe('center')
+  })
+
+  it('engine_TapOnText_ShowsTheBars_818', async () => {
+    const onTap = vi.fn()
+    const { container } = render(<ReaderSection chapterId="c1" chapterSlug="ch-1" chapterIndex={0} html="<p>Hello world</p>" settings={settings} onTap={onTap} />)
+    await opened()
+    fireEvent.click(container.querySelector('p')!)
+    expect(onTap).toHaveBeenCalledTimes(1)
+  })
+})
