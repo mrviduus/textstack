@@ -32,7 +32,7 @@ function escapeAttr(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
-export function buildFontFace(fontFamily: string): string {
+function buildFontFace(fontFamily: string): string {
   if (!fontFamily.includes('OpenDyslexic')) return ''
   return `@font-face {
     font-family: 'OpenDyslexic';
@@ -44,7 +44,7 @@ export function buildFontFace(fontFamily: string): string {
 
 /**
  * The reader page's stylesheet: typography, chrome, images, lists, the chapter-end block, selection and
- * vocab colours. Shared by the old page and the engine page (`readerEngineHtml.ts`), which must look the same.
+ * vocab colours. Shared by the old page and the engine page (`buildEngineReaderHtml`), which must look the same.
  */
 export function readerStyle(theme: ReaderTheme, chrome: ReaderChrome, fontFace: string): string {
   return `    ${fontFace}
@@ -182,7 +182,7 @@ ${readerStyle(theme, chrome, buildFontFace(theme.fontFamily))}  </style>
 </head>
 <body>
   <template id="ts-chapter">${chapterHtml}</template>
-  <div id="ts-root" data-slug="${chapterSlug.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')}"></div>
+  <div id="ts-root" data-slug="${escapeAttr(chapterSlug)}"></div>
   <script>${SCROLL_DIR_DETECTOR}</script>
   <script>${READER_ENGINE_SCRIPT}</script>
 </body>

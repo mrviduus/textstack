@@ -4,9 +4,20 @@
     "strict": true,
     "noUnusedLocals": true,
     "paths": {
-      "@textstack/shared": ["../../packages/shared/src/index"],
-      "@textstack/shared/*": ["../../packages/shared/src/*"]
-    }
+      "@textstack/shared": [
+        "../../packages/shared/src/index"
+      ],
+      "@textstack/shared/*": [
+        "../../packages/shared/src/*"
+      ]
+    },
+    "lib": [
+      "ESNext",
+      "DOM",
+      "DOM.Iterable"
+    ]
   },
-  "exclude": ["e2e"]
+  "exclude": [
+    "e2e"
+  ]
 }

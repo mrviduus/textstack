@@ -81,6 +81,15 @@ describe('goTo', () => {
     expect(reader.scrollTop).toBeCloseTo(reader.maxScroll / 2)
   })
 
+  it("E2 a fraction is of the chapter itself, as the apps store it: the host's footer is not part of it", async () => {
+    const reader = makeReader()
+    reader.footer()   // 100 px on the fake layout
+    await reader.open()
+    await reader.engine.goTo({ href: 'c1', type: 'text/html', locations: { progression: 0.5 } })
+    expect(reader.scrollTop).toBeCloseTo((reader.maxScroll - 100) / 2)
+    expect(reader.engine.current()!.locations.progression).toBeCloseTo(0.5)
+  })
+
   it("E3 another chapter's position: no move, an error naming it, not landed", async () => {
     const reader = makeReader()
     await reader.open(MIDDLE)

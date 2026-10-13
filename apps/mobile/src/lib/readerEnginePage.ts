@@ -90,26 +90,33 @@ engine.on('tap', () => post({ type: 'tap' }))
 // on any upward move and RN resyncs it with __tsSetBars. The engine's `scrollDir` has neither yet.
 engine.on('chapterEnd', () => post({ type: 'chapterEnd', action: 'visible' }))
 engine.on('error', (e) => post({ type: 'log', level: 'warn', msg: `[engine] ${e.code}: ${e.detail ?? ''}` }))
+// A page that breaks is a blank reader: say why in RN's log (the old page's bridge did the same).
+addEventListener('error', (e) => post({ type: 'log', level: 'error', msg: `[engine page] ${e.message}` }))
+addEventListener('unhandledrejection', (e) => post({ type: 'log', level: 'error', msg: `[engine page] ${String(e.reason)}` }))
 
-/** A move to a content y, as the restore's op: chapter-relative offsets and fractions are the old page's. */
-function goToY(y: number, restoreId: number) {
-  void engine.goTo({ href, type: 'text/html', locations: { legacyScrollY: Math.max(1, Math.round(y)) } }, { opId: OP + restoreId })
-}
 
 page.__textstackRestoreAnchor = (json, restoreId) => {
   const loc = positionToLocator(json)
   // Unreadable: ack where the reader is. Another chapter's: the engine stays put and acks (D1); RN
   // routes to that chapter, which this document cannot do.
-  if (!loc) { ack(restoreId); return }
+  if (!loc) {
+    ack(restoreId)
+    const here = engine.current()
+    if (here) report(here, true)   // R4: a landing is always reported, even one that did not move
+    return
+  }
   void engine.goTo(loc, { opId: OP + restoreId })
 }
 
-page.__textstackRestoreScroll = (offsetY, restoreId) => goToY(bounds().top + Math.max(0, Math.floor(offsetY) || 0), restoreId)
+// The old page's offsets are chapter-relative: the chapter's top (the page padding) goes back on.
+page.__textstackRestoreScroll = (offsetY, restoreId) => {
+  const y = Math.round(bounds().top + Math.max(0, Math.floor(offsetY) || 0))
+  void engine.goTo({ href, type: 'text/html', locations: { legacyScrollY: Math.max(1, y) } }, { opId: OP + restoreId })
+}
 
+// The engine's fraction is the chapter's own, like the old page's: resolved when the move lands.
 page.__textstackRestorePercent = (fraction, restoreId) => {
-  const b = bounds()
-  const f = Math.min(1, Math.max(0, Number(fraction) || 0))
-  goToY(b.top + Math.max(0, b.bottom - b.top - innerHeight) * f, restoreId)
+  void engine.goTo({ href, type: 'text/html', locations: { progression: Math.min(1, Math.max(0, Number(fraction) || 0)) } }, { opId: OP + restoreId })
 }
 
 page.__textstackApplyTypography = (css, restoreId) => {

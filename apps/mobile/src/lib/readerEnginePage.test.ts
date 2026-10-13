@@ -62,12 +62,16 @@ describe('the engine page', () => {
     expect((progress.position as { anchor: { exact: string } }).anchor.exact.startsWith('The keeper counted')).toBe(true)
   })
 
-  it("acks another chapter's position without moving: RN routes to that chapter", async () => {
+  it("acks another chapter's position, or an unreadable one, without moving, and still reports the place (R4)", async () => {
     const page = await openPage()
-    page.messages.length = 0
-    page.call(`__textstackRestoreAnchor(${JSON.stringify(JSON.stringify(position('ch-9')))}, 8)`)
-    await page.settle()
-    expect(page.messages.find((m) => m.type === 'restored')).toMatchObject({ restoreId: 8 })
+    for (const [json, id] of [[JSON.stringify(position('ch-9')), 8], ['{not json', 10]] as const) {
+      page.messages.length = 0
+      page.call(`__textstackRestoreAnchor(${JSON.stringify(json)}, ${id})`)
+      await page.settle()
+      const sent = page.messages.filter((m) => m.type !== 'log')   // another chapter's also logs the engine's anchor-miss
+      expect(sent.map((m) => m.type)).toEqual(['restored', 'progress'])
+      expect(sent[0]).toMatchObject({ restoreId: id })
+    }
   })
 
   it('applies a typography change to the open chapter and acks its id', async () => {

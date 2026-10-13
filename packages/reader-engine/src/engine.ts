@@ -241,9 +241,11 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
     return m.top + (Math.max(0, Math.min(offset - seg.start, seg.length)) / seg.length) * m.height
   }
 
+  /** The chapter's own fraction (not the page's: no footer, no padding), as the apps store `chapterFraction`. */
   function progression(): number {
-    const max = scroller.scrollHeight - viewport().height
-    return max > 0 ? Math.min(1, Math.max(0, scroller.scrollTop / max)) : 0
+    const box = measure(content)
+    const span = box.height - viewport().height
+    return span > 0 ? Math.min(1, Math.max(0, (scroller.scrollTop - box.top) / span)) : 0
   }
 
   /** The reader's place right now, read off the reading line. */
@@ -268,7 +270,10 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
     switch (r.result) {
       case 'exact':
       case 'fuzzy': return yAtOffset(r.offset) - line * viewport().height
-      case 'fraction': return r.fraction * (scroller.scrollHeight - viewport().height)
+      case 'fraction': {
+        const box = measure(content)
+        return box.top + r.fraction * Math.max(0, box.height - viewport().height)
+      }
       case 'legacyOffset': return r.scrollY
       case 'start': return 0
     }
