@@ -6,7 +6,7 @@ What `packages/reader-engine` promises its hosts (web, mobile), in plain words. 
 [phase 2 plan](../01-architecture/reader-engine-phase2-plan.md).
 
 Each rule has one ID. The test that pins it starts its name with that ID
-(`packages/reader-engine/src/engine.test.ts`; decorations, E13–E19, in `decorations.test.ts`; events, E20–E24 and E28, in `events.test.ts`; geometry on real chapters in Chromium, E25–E27 and E29, in `playground/geometry.e2e.ts`). Change a rule here first, then its test, then the code.
+(`packages/reader-engine/src/engine.test.ts`; decorations, E13–E19, in `decorations.test.ts`; events, E20–E24 and E28, in `events.test.ts`; geometry on real chapters in Chromium, E25–E27, E29 and E30, in `playground/geometry.e2e.ts`). Change a rule here first, then its test, then the code.
 
 ADR-019's eight position rules are pinned once each in `src/positionRules.test.ts` (`rule 1` … `rule 8`),
 through the engine and the pure rules it re-exports from shared (`newerPosition`, `progressPrecedence`,
@@ -51,6 +51,7 @@ carries its `opId`.
 | E27 | Reading the place on a reader scroll costs under 4 ms a frame (a quarter of one at 60 fps) on a long chapter (Ulysses XV, 2760 table cells), CPU 4× slower. | [#790](https://github.com/mrviduus/textstack/issues/790): 6.3 ms before, 0.4 ms with the caret, 0.1 ms with element carets skipped ([#804](https://github.com/mrviduus/textstack/issues/804)) | 2026-10-12 |
 | E28 | A tap of any kind (text, link, image, highlight) within 300 ms of the last one is a double (or triple) tap and emits nothing (a link still never navigates): the bars toggle once. The first tap is sent at once, never held. A clock change does not matter. | [#799](https://github.com/mrviduus/textstack/issues/799), owner choice; the old bridge held every tap 300 ms | 2026-10-12 |
 | E29 | The chapter growing above the reading line (an image loads) is one `'reflow'`, never `'scroll'`: the engine alone re-anchors (browser scroll anchoring is off in the chapter). | [#794](https://github.com/mrviduus/textstack/issues/794): Chromium anchors at once (+300 px) and only frame order kept its scroll from reading as the reader | 2026-10-12 |
+| E30 | A style change is one `'style'` relocation: the browser never scrolls the page before the engine re-anchors (scroll anchoring is off on the scroller, not only in the chapter). | Phase 4 slice 1: with only the text excluded, Chromium anchored on the decoration layer (~3 px), and web saved that scroll as the reader's | 2026-10-12 |
 
 ## Before users get the engine (Phase 3)
 

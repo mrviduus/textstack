@@ -98,9 +98,12 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
   const frame = () => new Promise<void>((r) => schedule(r))
 
   const content = doc.createElement('div')
-  // The engine alone keeps the place when the chapter changes size (E29): no browser scroll anchoring,
-  // whose own scroll would race the re-anchor and read as the reader moving (#794).
+  // The engine alone keeps the place when the chapter changes size (E29, E30): no browser scroll
+  // anchoring, whose own scroll would race the re-anchor and read as the reader moving (#794). Off on
+  // the scroller, not just the text: with the text excluded, Chromium anchors on the decoration layer.
   content.style.overflowAnchor = 'none'
+  const scrollerAnchor = scroller.style.overflowAnchor
+  scroller.style.overflowAnchor = 'none'
   // Beside the chapter, in its coordinates: scrolls with the text, never read as text (gloss marker).
   const layer = doc.createElementNS(SVG, 'svg')
   layer.setAttribute('data-vocab-overlay', 'true')   // in READER_GLOSS_SELECTOR: text.ts skips it
@@ -717,6 +720,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
       fontFaces.remove()
       root.replaceChildren()
       root.style.position = rootPosition
+      scroller.style.overflowAnchor = scrollerAnchor
     },
   }
 }

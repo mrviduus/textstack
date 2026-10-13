@@ -4,6 +4,8 @@ import {
   serializeTextPosition, decideNewerPosition, readerMovedSince, REFLOW_MOVE_TOLERANCE_PX,
   type ResolvedPosition,
 } from '@textstack/shared'
+import { locatorToPosition, positionToLocator, type Locator } from '@textstack/reader-engine'
+import { mountedEngineFor, openedEngineFor } from '../lib/readerEngine'
 import type { NewerPositionResult } from './useReaderProgress'
 import { useNewerPositionCheck } from './useNewerPositionCheck'
 import { readReadingLine, rangeAtCharOffset, articleText } from '../lib/textAnchor'
@@ -117,6 +119,11 @@ function anchoredScrollTop(article: HTMLElement | null, resolved: ResolvedPositi
 
 /** The position at the reading line right now, serialised, or null. */
 function captureReadingPosition(chapterSlug: string): string | null {
+  const mounted = mountedEngineFor(chapterSlug)
+  if (mounted) {
+    const here = mounted.engine.current()
+    return here?.href === chapterSlug ? locatorToPosition(here) : null
+  }
   const article = readerArticle()
   if (!article) return null
   const line = readReadingLine(article, window.innerHeight * READING_LINE_FRACTION)
@@ -129,6 +136,17 @@ function captureReadingPosition(chapterSlug: string): string | null {
     charOffset: line.charOffset,
     chapterFraction: height > 0 ? Math.min(1, Math.max(0, scrollTop / height)) : 0,
   }))
+}
+
+/**
+ * Where the engine goes for a saved place (Phase 4): the text position, with the old pixel offset as
+ * the resolution ladder's fallback. Null when neither belongs to this chapter.
+ */
+function engineTarget(chapterSlug: string, positionJson: string | null | undefined, offset: number): Locator | null {
+  const parsed = positionJson ? positionToLocator(positionJson) : null
+  const legacy = offset > 0 ? { legacyScrollY: offset } : {}
+  if (parsed?.href === chapterSlug) return { ...parsed, locations: { ...parsed.locations, ...legacy } }
+  return offset > 0 ? { href: chapterSlug, type: 'text/html', locations: legacy } : null
 }
 
 /**
@@ -225,6 +243,9 @@ export function useReaderScrollSync({
   explicitOpenRef.current = explicitOpen
   const onReaderScrollRef = useRef(onReaderScroll)
   onReaderScrollRef.current = onReaderScroll
+  // With the engine on: its own moves (open, goTo, style, reflow) reset the baseline, so the scroll
+  // event each one causes reads as our echo, never the reader's.
+  const offEngineRef = useRef<(() => void) | null>(null)
 
   /**
    * The one place a reading position is written.
@@ -291,6 +312,10 @@ export function useReaderScrollSync({
     scrollRestoredRef.current = false
     heldOpenRef.current = false
     setRestoredFor(null)
+    return () => {
+      offEngineRef.current?.()
+      offEngineRef.current = null
+    }
   }, [chapterIdentifier])
 
   // Restore scroll: locator must match current chapter. Otherwise scroll to
@@ -327,18 +352,38 @@ export function useReaderScrollSync({
       : parsed && parsed.slug === chapterIdentifier ? parsed.offset : 0
 
     const forId = chapterIdentifier
-    requestAnimationFrame(() => {
-      // The chapter changed before this frame: this restore is for a page that
-      // is no longer the one on screen.
-      if (identifierRef.current !== forId) return
-      const top = anchoredScrollTop(article, anchored) ?? savedOffset
-      window.scrollTo({ top, behavior: 'instant' })
+    const landed = () => {
       // Where the browser actually put us (clamped to the page), not where we asked.
       baselineRef.current = currentScrollTop()
       explicitRef.current = explicitOpenRef.current
       scrollRestoredRef.current = true
       setRestoredFor(forId ?? null)
       if (forId) lastLineRef.current = captureReadingPosition(forId)
+    }
+
+    if (forId && mountedEngineFor(forId)) {
+      const at = engineTarget(forId, positionJson, savedOffset)
+        ?? { href: forId, type: 'text/html', locations: { progression: 0 } }
+      // After the open has landed, or its landing would race this one.
+      void openedEngineFor(forId).then(async (mounted) => {
+        if (!mounted || identifierRef.current !== forId) return
+        offEngineRef.current?.()
+        offEngineRef.current = mounted.engine.on('relocated', (e) => {
+          if (e.reason !== 'scroll') baselineRef.current = currentScrollTop()
+        })
+        await mounted.engine.goTo(at)
+        if (identifierRef.current === forId) landed()
+      })
+      return
+    }
+
+    requestAnimationFrame(() => {
+      // The chapter changed before this frame: this restore is for a page that
+      // is no longer the one on screen.
+      if (identifierRef.current !== forId) return
+      const top = anchoredScrollTop(article, anchored) ?? savedOffset
+      window.scrollTo({ top, behavior: 'instant' })
+      landed()
     })
   }, [originalActive, chapterLoaded, effectiveLoading, effectiveProgress, chapterIdentifier, held])
 
@@ -374,11 +419,25 @@ export function useReaderScrollSync({
       readerMoved: readerMovedSince(baselineRef.current, currentScrollTop(), REFLOW_MOVE_TOLERANCE_PX),
     })
     if (action !== 'move') return true
+    const parsed = parseScrollLocator(newer.locator)
+    const mounted = mountedEngineFor(id)
+    if (mounted) {
+      const at = engineTarget(id, newer.positionJson, parsed && parsed.slug === id ? parsed.offset : 0)
+      if (!at) return true
+      if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null }
+      pendingSaveRef.current = null
+      await mounted.engine.goTo(at)
+      if (identifierRef.current !== id) return true
+      baselineRef.current = currentScrollTop()
+      heldOpenRef.current = false
+      sessionPositionsRef.current.set(id, { offset: currentScrollTop(), positionJson: newer.positionJson ?? undefined })
+      lastLineRef.current = captureReadingPosition(id)
+      return true
+    }
     const article = readerArticle()
     const anchored = article
       ? resolveTextPosition(parseTextPosition(newer.positionJson), id, articleText(article))
       : null
-    const parsed = parseScrollLocator(newer.locator)
     const top = anchoredScrollTop(article, anchored) ?? (parsed && parsed.slug === id ? parsed.offset : null)
     if (top == null) return true
     // A pending save is this tab's stale place; the newer one is already on the server.
@@ -422,6 +481,8 @@ export function useReaderScrollSync({
     reflowAnchorRef.current = null
     if (!before || originalActive || !chapterLoaded || !chapterIdentifier) return
     if (restoredFor !== chapterIdentifier) return
+    // The engine re-anchors a style change itself (ReaderSection's setStyle).
+    if (mountedEngineFor(chapterIdentifier)) return
     const article = readerArticle()
     if (!article) return
 
