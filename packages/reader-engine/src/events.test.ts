@@ -157,6 +157,13 @@ describe('taps', () => {
     reader.tap(1, 1)
     expect(taps()).toEqual(['linkClick', 'linkClick', 'imageTap', 'decorationTap', 'tap', 'tap'])
   })
+
+  it('E22 an image inside a link is an image tap (EPUBs link a figure to its full size), and the page does not navigate', async () => {
+    const reader = makeReader({ html: `${CHAPTER}<p><a href="images/fig-full.png"><img src="fig.png" alt="Figure 1"></a></p>` })
+    await reader.open()
+    expect(reader.tap(1, 1, reader.chapter.querySelector('img')!)).toBe(false)
+    expect(only(reader, 'linkClick', 'imageTap')).toEqual(['imageTap'])
+  })
 })
 
 describe('double tap', () => {

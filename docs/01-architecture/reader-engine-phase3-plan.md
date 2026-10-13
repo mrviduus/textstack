@@ -5,7 +5,8 @@ through `packages/reader-engine`, behind `EXPO_PUBLIC_READER_ENGINE`. **First ph
 users.** PDF stays on today's viewer (Phase 5). Web is Phase 4. Old code is deleted in Phase 6.
 
 Status: decided 2026-10-12 (owner answers below). Phase 2 is done ([plan](reader-engine-phase2-plan.md)).
-**PR A (slices 1–2) done:** the engine page, flag off; checked on the emulator. Next: PR B (slices 3–4).
+**PR A (slices 1–2) done:** the engine page, flag off; checked on the emulator. **PR B (slices 3–4)
+done**, flag off; checked on the emulator. Next: slice 5, the flag on for everyone.
 
 ## What changes, what stays
 
@@ -89,3 +90,17 @@ Bundle per PR: slices 1–2 and 3–4 can each be one PR if they stay small (one
 - Found for PR B ([#798](https://github.com/mrviduus/textstack/issues/798)): a long press makes the
   WebView's own native selection (with handles) beside the engine's hold. No Android menu shows (the
   host passes no menu items), but slice 3 must stop the native one, as the old bridge does.
+
+## PR B — what was built and checked (2026-10-12)
+
+- `readerEnginePage.ts` answers `__tsClearSelection`, `renderHighlight` / `removeHighlight`,
+  `__textstackScrollToHighlight`, `markVocabWords` / `addVocabWord` / `setShowInlineTranslations`, and
+  posts `wordEngage`, `selection`, `highlightTap`, `openLink` (new: RN opens web links). Images open the
+  old lightbox, now one plain script (`IMAGE_LIGHTBOX`) beside the bundle, shared with the old page.
+  Bundle: 61,251 of 61,440 characters — slice 5 fixes may need the budget raised.
+- #798: the native selection handles after a hold stay. They are how a held word grows into a phrase
+  on touch; no Android menu shows.
+- Emulator (dev build, flag on, The Aeneid, signed in): hold, drag, highlight create / tap / recolour,
+  Back, chapter switch, scroll-to-highlight, highlight over a glossed word, vocab + glosses, lightbox:
+  all as the old page. Kill/reopen: the next line (y 10148 → 10111), PR A measured 4–8 px — watch it in
+  the QA-007 run.
