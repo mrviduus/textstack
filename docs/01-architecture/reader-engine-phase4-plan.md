@@ -1,11 +1,11 @@
-# Reader engine — Phase 4 slice plan (web adopts) — DRAFT
+# Reader engine — Phase 4 slice plan (web adopts)
 
 Phase 4 of [ADR-025](adr/ADR-025-reader-engine-package.md): the web reader (`apps/web`) reads reflow
 chapters through `packages/reader-engine`, behind `VITE_READER_ENGINE`. PDF stays on today's viewer
 (Phase 5). Old code is deleted in Phase 6.
 
-Status: **draft, 2026-10-12, not decided.** Written from a read-only survey of `apps/web` at the end of
-Phase 3. The next session starts with the owner's answers to the questions at the bottom.
+Status: **decided 2026-10-12** (owner answers at the bottom). Written from a read-only survey of
+`apps/web` at the end of Phase 3. Next: slice 1.
 Phase 3 (mobile) is done: [plan](reader-engine-phase3-plan.md), flag on for everyone since 2026-10-12.
 
 ## What web has today (survey)
@@ -72,16 +72,16 @@ test`, `build`, Playwright green; the flag off changes nothing.
 
 Two PRs, like Phase 3: A = slices 1–2, B = slices 3–4, then slice 5.
 
-## Questions for the owner (answer before slice 1)
+## Decisions (owner, 2026-10-12)
 
-1. **Flag rollout:** on for everyone after slice 5 (as mobile), or first only for you (e.g. a
-   `?engine=1` / localStorage override on prod)?
-2. **Reviewed-highlight dot (gap 1):** extend the engine API (a `style` that names a draw: `'dot'`),
-   or drop the dot on web?
-3. **Search active hit (gap 2):** accept a colour fill instead of the outline?
-4. **ADR-019 gate (gap 9):** keep `useReaderScrollSync` and feed it engine events (smaller, like mobile),
-   or replace it with the engine's model (deletes ~500 lines now, riskier)?
-5. **Links (gap 4):** in Phase 4, footnote `#id` + external links only (other-chapter links later, #814)?
-6. **Theme (gap 6):** keep `data-theme` CSS?
+1. **Flag: owner-only first.** On prod, an override (`?engine=1`, kept in localStorage) turns the engine
+   on for the owner only; after the owner's pass, `VITE_READER_ENGINE=true` in `production.env` for
+   everyone. The override is removed in Phase 6.
+2. **Reviewed dot: add it to the engine.** A decoration style that names a draw (`'dot'`), test-first;
+   amends ADR-025 in the same PR (`api.ts` is the contract).
+3. **Search: colour fill is fine.** The current hit in a stronger colour, centred with `goTo`. No engine change.
+4. **Position: keep `useReaderScrollSync`, feed it engine events** (like mobile). It is deleted in Phase 6.
+5. **Links: footnote `#id` + http(s) now.** Other-file links later, with #814.
+6. **Theme: keep `data-theme` CSS** on `<html>`. The engine gets font, size, spacing and align via `setStyle`.
 
 Open items that touch this phase: #814 (links to another file), #818 (web tap), #813 (one redraw per highlight).
