@@ -14,14 +14,14 @@ import { VocabTranslationOverlay } from './VocabTranslationOverlay'
 // Vocab underlines via the shared SVG Overlayer.
 
 // CSS-var-driven so reader.css can override per theme without touching JS.
-const COLOR_PER_STAGE: Record<number, string> = {
+export const COLOR_PER_STAGE: Record<number, string> = {
   0: 'var(--reader-overlay-vocab-stage0, rgba(59, 130, 246, 0.5))',
   1: 'var(--reader-overlay-vocab-stage1, rgba(234, 179, 8, 0.5))',
   2: 'var(--reader-overlay-vocab-stage2, rgba(234, 179, 8, 0.4))',
   3: 'var(--reader-overlay-vocab-stage3, rgba(34, 197, 94, 0.4))',
   4: 'var(--reader-overlay-vocab-stage4, rgba(34, 197, 94, 0.25))',
 }
-const ACTIVE_COLOR = 'var(--reader-overlay-vocab-active, rgba(59, 130, 246, 0.7))'
+export const ACTIVE_COLOR = 'var(--reader-overlay-vocab-active, rgba(59, 130, 246, 0.7))'
 
 interface Props {
   containerRef: React.RefObject<HTMLElement | null>

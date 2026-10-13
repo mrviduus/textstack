@@ -64,6 +64,21 @@ const COLORS = {
 }
 const DRAW: Record<Mark['group'], DrawFn> = { highlight: Overlayer.highlight, search: Overlayer.highlight, word: Overlayer.underline, selection: Overlayer.highlight }
 const SVG = 'http://www.w3.org/2000/svg'
+/** Style `'dot'` (E31): a small dot just after the item's last line, no fill (web's reviewed highlight). */
+const DOT = 'dot'
+const drawDot: DrawFn = (rects) => {
+  const g = document.createElementNS(SVG, 'g')
+  g.style.fill = 'var(--reader-reviewed-dot, #16a34a)'
+  const last = rects[rects.length - 1]
+  if (!last) return g
+  const r = Math.max(2.5, Math.min(4, last.height * 0.15))
+  const dot = document.createElementNS(SVG, 'circle')
+  dot.setAttribute('cx', String(last.right + r + 1))
+  dot.setAttribute('cy', String(last.top + r + 1))
+  dot.setAttribute('r', String(r))
+  g.append(dot)
+  return g
+}
 
 /** Engines alive per scroller, and its overflow-anchor before the first of them (E30). */
 const anchorHolds = new WeakMap<HTMLElement, { count: number; was: string }>()
@@ -348,7 +363,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
       const range = rangeOf(m.start, m.end - m.start, scratch)
       m.rects = range ? rectsOf(range) : []
       const boxes = m.rects.map((r) => ({ ...r, left: r.x, top: r.y, right: r.x + r.width, bottom: r.y + r.height })) as unknown as DOMRect[]
-      const g = DRAW[m.group](boxes, { color: m.color ?? COLORS[m.group] })
+      const g = m.color === DOT ? drawDot(boxes) : DRAW[m.group](boxes, { color: m.color ?? COLORS[m.group] })
       g.setAttribute('data-group', m.group)
       g.setAttribute('data-id', m.id)
       layer.append(g)

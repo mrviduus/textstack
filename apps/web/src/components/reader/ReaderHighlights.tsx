@@ -14,8 +14,12 @@ import type { HighlightAnchor, HighlightColor, StoredHighlight } from '../../lib
 import { savedTranslationOffer, type PdfAnchor } from '@textstack/shared'
 import { computePdfAnchorFromRange } from '../../lib/pdfHighlightAnchor'
 import { SelectionToolbar } from './SelectionToolbar'
-import { HighlightOverlayLayer } from './HighlightOverlayLayer'
-import { VocabOverlayLayer } from './VocabOverlayLayer'
+import { HighlightOverlayLayer, COLOR_MAP as HIGHLIGHT_COLORS } from './HighlightOverlayLayer'
+import { VocabOverlayLayer, COLOR_PER_STAGE as VOCAB_STAGE_COLORS, ACTIVE_COLOR as VOCAB_ACTIVE_COLOR } from './VocabOverlayLayer'
+import { INACTIVE_COLOR as SEARCH_COLOR, ACTIVE_COLOR as SEARCH_ACTIVE_OUTLINE } from './SearchOverlayLayer'
+import { isReviewed, useReviewedMarks } from './ReviewedMarks'
+import { anchorToLocator } from '@textstack/reader-engine'
+import { highlightChapterKey, isChapterKey } from '../../lib/textAnchor'
 import { TranslationPopup } from './TranslationPopup'
 import { ExplanationPopup } from './ExplanationPopup'
 import { WordPopup } from './WordPopup'
@@ -24,6 +28,7 @@ import { TtsHighlightOverlay } from './TtsHighlightOverlay'
 import { ImageLightbox } from './ImageLightbox'
 import { Toast } from '../Toast'
 import { useAuth } from '../../context/AuthContext'
+import { READER_ENGINE, mountedEngineFor } from '../../lib/readerEngine'
 
 interface ReaderHighlightsProps {
   editionId: string
@@ -63,6 +68,11 @@ interface ReaderHighlightsProps {
    * PDF subtree, not the reflow overlay. Absent → the reflow highlight path.
    */
   onPdfHighlight?: (anchor: PdfAnchor, text: string, color: HighlightColor) => void | Promise<unknown>
+  /** READER_ENGINE: the chapter whose engine open has landed; its events drive the popups. */
+  engineOpenedFor?: string | null
+  /** READER_ENGINE: in-book search, painted by the engine (the old SearchOverlayLayer is off). '' = closed. */
+  searchQuery?: string
+  searchActiveIndex?: number
   children: React.ReactNode
 }
 
@@ -74,6 +84,9 @@ interface ReaderHighlightsProps {
 function resolveTargetLang(nativeLang: string, bookLang: string): string | null {
   return nativeLang !== bookLang ? nativeLang : null
 }
+
+/** The current search hit: the old outline's colour as a fill the text shows through. */
+const SEARCH_ACTIVE = `color-mix(in srgb, ${SEARCH_ACTIVE_OUTLINE} 45%, transparent)`
 
 /** Count words in a trimmed selection string. */
 function countWords(text: string): number {
@@ -102,6 +115,9 @@ export function ReaderHighlights({
   removeHighlight,
   liveActionsOnly = false,
   onPdfHighlight,
+  engineOpenedFor = null,
+  searchQuery = '',
+  searchActiveIndex = 0,
   children,
 }: ReaderHighlightsProps) {
   const { nativeLanguage, setNativeLanguage, hasConfirmedLanguage } = useNativeLanguage()
@@ -110,7 +126,10 @@ export function ReaderHighlights({
   const targetLang = resolveTargetLang(nativeLanguage, bookLanguage)
 
   // --- Text selection ---
-  const { selection, clearSelection, hasSelection } = useTextSelection(containerRef)
+  // ADR-025 Phase 4: the engine shows reflow chapters; the Original-layout PDF keeps the DOM path until Phase 5.
+  // Undefined = the old DOM listeners (selection, image click); else the engine's events, never both (gap 8).
+  const engineHref = READER_ENGINE && !liveActionsOnly ? engineOpenedFor : undefined
+  const { selection, clearSelection, hasSelection } = useTextSelection(containerRef, { engineHref })
 
   const selectionWordCount = countWords(selection.text)
   const isSingleWord = hasSelection && selectionWordCount === 1
@@ -150,6 +169,7 @@ export function ReaderHighlights({
     pdfLinkJumps: liveActionsOnly,
     scrollToHl,
     onNavigateToHighlight,
+    engineHref,
   })
 
   // --- TTS ---
@@ -183,9 +203,9 @@ export function ReaderHighlights({
   const handleTranslate = useCallback(() => {
     if (!selection.text || !selection.rect) return
     const container = containerRef.current
-    const sentence = selection.range && container ? extractSentence(selection.range, container) : undefined
+    const sentence = selection.sentence ?? (selection.range && container ? extractSentence(selection.range, container) : undefined)
     translationPopup.open(selection.text, selection.rect, { sentence, bookId: userBookId || editionId })
-  }, [selection.text, selection.rect, selection.range, containerRef, userBookId, editionId, translationPopup])
+  }, [selection.text, selection.rect, selection.range, selection.sentence, containerRef, userBookId, editionId, translationPopup])
 
   // --- Explain popup ---
   const explainPopup = useExplainPopup({
@@ -196,8 +216,8 @@ export function ReaderHighlights({
   })
 
   const handleExplain = useCallback(() => {
-    explainPopup.openFromSelection(selection.text, selection.range, selection.rect)
-  }, [explainPopup, selection.text, selection.range, selection.rect])
+    explainPopup.openFromSelection(selection.text, selection.range, selection.rect, selection.sentence)
+  }, [explainPopup, selection.text, selection.range, selection.rect, selection.sentence])
 
   // --- Selection toolbar ---
   const handleHighlight = useCallback(
@@ -213,11 +233,11 @@ export function ReaderHighlights({
         translationPopup.close()
         return
       }
-      await createHighlightFromSelection(selection.range, selection.text, color)
+      await createHighlightFromSelection(selection.range, selection.text, color, selection.locator)
       clearSelection()
       translationPopup.close()
     },
-    [selection.range, selection.text, createHighlightFromSelection, clearSelection, translationPopup, onPdfHighlight, containerRef],
+    [selection.range, selection.text, selection.locator, createHighlightFromSelection, clearSelection, translationPopup, onPdfHighlight, containerRef],
   )
 
   const handleCopy = useCallback(() => {
@@ -239,19 +259,90 @@ export function ReaderHighlights({
     setLightbox({ src: img.currentSrc || img.src, alt: img.alt || '' })
   }, [])
 
+  // The engine's taps (it never lets a chapter link navigate): image → lightbox; a footnote `#id` jumps to
+  // its note, http(s) opens a new tab. A link to another file of the book does nothing yet (#814).
+  useEffect(() => {
+    const engine = mountedEngineFor(engineHref ?? undefined)?.engine
+    if (!engine) return
+    const offImage = engine.on('imageTap', ({ src, alt }) => setLightbox({ src, alt: alt ?? '' }))
+    const offLink = engine.on('linkClick', ({ href }) => {
+      if (/^https?:\/\//i.test(href)) {
+        window.open(href, '_blank', 'noopener')
+      } else if (href.includes('#') && !/^[a-z][a-z\d+.-]*:/i.test(href)) {
+        // `#fn3` or `chap1.xhtml#fn3` (EPUBs name their own file): jump when the note is in this chapter.
+        let id = href.slice(href.indexOf('#') + 1)
+        try { id = decodeURIComponent(id) } catch { /* a malformed % stays as written */ }
+        const note = document.getElementById(id)
+        if (note && containerRef.current?.contains(note)) note.scrollIntoView({ block: 'center' })
+      }
+    })
+    return () => { offImage(); offLink() }
+  }, [engineHref, containerRef])
+
+  // --- Decorations drawn by the engine (slice 4): never also by the old overlay layers ---
+  const engineOn = READER_ENGINE && !liveActionsOnly
+  const reviewed = useReviewedMarks()
+  useEffect(() => {
+    const engine = mountedEngineFor(engineHref ?? undefined)?.engine
+    if (!engine || !engineHref) return
+    engine.decorate('highlight', highlights.flatMap((h) => {
+      if (!isChapterKey(highlightChapterKey(h), chapterId, engineHref)) return []
+      const locator = anchorToLocator(JSON.stringify(h.anchor), engineHref)   // null for a PDF anchor
+      if (!locator) return []
+      const fill = { id: h.id, locator, style: HIGHLIGHT_COLORS[h.color] }
+      return isReviewed(reviewed, h.id) ? [fill, { id: h.id, locator, style: 'dot' }] : [fill]
+    }))
+  }, [engineHref, highlights, reviewed, chapterId])
+
+  useEffect(() => {
+    const engine = mountedEngineFor(engineHref ?? undefined)?.engine
+    if (!engine) return
+    return engine.on('decorationTap', ({ group, id, rect }) => {
+      const h = group === 'highlight' && highlights.find((x) => x.id === id)
+      if (h) handleHighlightClick(h, new DOMRect(rect.x, rect.y, rect.width, rect.height))
+    })
+  }, [engineHref, highlights, handleHighlightClick])
+
+  // Saved words by SRS stage; the word in the open popup (saved or not yet) stronger, with its translation.
+  const bubbleWord = bubble?.word
+  const bubbleTranslation = bubble?.translation
+  useEffect(() => {
+    const engine = mountedEngineFor(engineHref ?? undefined)?.engine
+    if (!engine) return
+    const active = bubbleWord ? normalizeVocabKey(bubbleWord) : null
+    const items = [...vocabMap].map(([word, v]) => ({
+      word,
+      style: word === active ? VOCAB_ACTIVE_COLOR : VOCAB_STAGE_COLORS[v.stage] ?? VOCAB_STAGE_COLORS[0],
+      translation: v.translation || undefined,
+    }))
+    if (active && !vocabMap.has(active)) items.push({ word: active, style: VOCAB_ACTIVE_COLOR, translation: bubbleTranslation || undefined })
+    engine.markWords(items, showInlineTranslations)
+  }, [engineHref, vocabMap, showInlineTranslations, bubbleWord, bubbleTranslation])
+
+  // Search (owner decision 3): every hit filled, the current one stronger and centred.
+  useEffect(() => {
+    const engine = mountedEngineFor(engineHref ?? undefined)?.engine
+    if (!engine) return
+    const q = searchQuery.trim()
+    const hits = q.length < 2 ? [] : engine.find(q)   // the drawer's rules (useInBookSearch)
+    engine.decorate('search', hits.map((hit, i) => ({ id: String(i), locator: hit.locator, style: i === searchActiveIndex ? SEARCH_ACTIVE : SEARCH_COLOR })))
+    const current = hits[searchActiveIndex]
+    if (current) void engine.goTo(current.locator, { align: 'center' })
+  }, [engineHref, searchQuery, searchActiveIndex])
+
   // --- Render ---
   return (
     <div
       ref={wrapperRef}
       className="reader-highlights-wrapper"
       onContextMenu={(e) => e.preventDefault()}
-      onClick={handleContentClick}
+      onClick={engineHref === undefined ? handleContentClick : undefined}
     >
       {children}
 
       {/* Persistent visual layers are reflow-only — they can't project ranges
           onto a pdf.js text layer, so skip them in Original-layout mode. */}
-      {!liveActionsOnly && (
+      {!liveActionsOnly && !engineOn && (
         <>
           <HighlightOverlayLayer
             highlights={highlights}

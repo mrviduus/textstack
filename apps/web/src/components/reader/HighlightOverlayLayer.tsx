@@ -14,7 +14,7 @@ import { isReviewed, useReviewedMarks } from './ReviewedMarks'
 // pass (`style.fill` follows custom-property changes natively). Light-theme
 // fallbacks match the legacy hardcoded palette; dark/sepia overrides live in
 // reader.css.
-const COLOR_MAP: Record<HighlightColor, string> = {
+export const COLOR_MAP: Record<HighlightColor, string> = {
   yellow: 'var(--reader-overlay-hl-yellow, rgba(254, 240, 138, 0.5))',
   green: 'var(--reader-overlay-hl-green, rgba(187, 247, 208, 0.5))',
   pink: 'var(--reader-overlay-hl-pink, rgba(251, 207, 232, 0.5))',

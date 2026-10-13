@@ -8,8 +8,8 @@ import { findTextMatches } from '@textstack/reader-overlay'
 // Visual in-article highlights for in-book search. Non-active matches get a
 // soft fill, the active match gets a bolder outline + scrolls into view.
 
-const INACTIVE_COLOR = 'var(--reader-overlay-search-inactive, rgba(250, 204, 21, 0.35))'
-const ACTIVE_COLOR = 'var(--reader-overlay-search-active, rgb(249, 115, 22))'
+export const INACTIVE_COLOR = 'var(--reader-overlay-search-inactive, rgba(250, 204, 21, 0.35))'
+export const ACTIVE_COLOR = 'var(--reader-overlay-search-active, rgb(249, 115, 22))'
 
 interface Props {
   containerRef: React.RefObject<HTMLElement | null>

@@ -39,6 +39,22 @@ describe('decorate', () => {
     expect(reader.drawn('search').map((d) => d.id)).toEqual(['s1'])
   })
 
+  it('E31 the style "dot" draws a dot just after the last line, not a fill; a tap on its text names it', async () => {
+    const reader = makeReader()
+    await reader.open()
+    reader.engine.decorate('highlight', [{ id: 'h1', locator: reader.quote(MIDDLE), style: 'dot' }])
+
+    expect(reader.drawn('highlight')).toEqual([{ id: 'h1', rects: [] }])
+    const dot = reader.root.querySelector('[data-group="highlight"] circle')!
+    const last = reader.boxesOf(MIDDLE).at(-1)!
+    expect(Number(dot.getAttribute('cx'))).toBeGreaterThan(last.x + last.width)
+    expect(Number(dot.getAttribute('cy'))).toBeGreaterThan(last.y)
+    expect(Number(dot.getAttribute('cy'))).toBeLessThan(last.y + last.height)
+
+    reader.tap(last.x + 1, last.y + 1)
+    expect(reader.payloads('decorationTap')).toMatchObject([{ group: 'highlight', id: 'h1' }])
+  })
+
   it("E14 another chapter's item, or text that is gone, is not drawn", async () => {
     const reader = makeReader()
     await reader.open()
