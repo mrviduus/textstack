@@ -17,7 +17,8 @@ export interface UseExplainPopupResult {
   explanation: string | null
   isExplaining: boolean
   error: string | null
-  openFromSelection: (selectionText: string, range: Range | null, rect: DOMRect | null) => void
+  /** `sentence`: the engine's (READER_ENGINE), which hands out no Range; else read from `range`. */
+  openFromSelection: (selectionText: string, range: Range | null, rect: DOMRect | null, sentence?: string) => void
   close: () => void
 }
 
@@ -39,8 +40,8 @@ export function useExplainPopup({
   const [rect, setRect] = useState<DOMRect | null>(null)
 
   const openFromSelection = useCallback(
-    (selectionText: string, range: Range | null, sourceRect: DOMRect | null) => {
-      if (!selectionText || !range || !sourceRect) return
+    (selectionText: string, range: Range | null, sourceRect: DOMRect | null, engineSentence?: string) => {
+      if (!selectionText || (!range && !engineSentence) || !sourceRect) return
       const trimmed = selectionText.trim()
       const isPhrase = /\s/.test(trimmed) && trimmed.length <= 100
       const target = isPhrase
@@ -50,9 +51,8 @@ export function useExplainPopup({
           ?? trimmed.split(/\s+/)[0]
           ?? trimmed
       if (!target) return
-      const sentence = containerRef.current
-        ? extractSentence(range, containerRef.current) ?? selectionText
-        : selectionText
+      const sentence = engineSentence
+        ?? (range && containerRef.current ? extractSentence(range, containerRef.current) ?? selectionText : selectionText)
       setWord(target)
       setRect(sourceRect)
       setShow(true)

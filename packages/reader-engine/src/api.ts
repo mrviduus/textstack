@@ -96,7 +96,7 @@ export interface ReaderEngine {
   setStyle(s: Style, opId?: string): void
   /** Chapter-end block: in the scroll flow, outside the measured text. */
   setFooter(el: HTMLElement | null): void
-  /** Replaces the whole group. */
+  /** Replaces the whole group. `style`: a CSS colour, or `'dot'` — a dot after the last line, no fill (E31). */
   decorate(group: 'highlight' | 'search', items: { id: string; locator: Locator; style?: string }[]): void
   markWords(items: { word: string; style?: string; translation?: string }[], showTranslations: boolean): void
   find(query: string): { locator: Locator; context: string }[]

@@ -52,6 +52,7 @@ carries its `opId`.
 | E28 | A tap of any kind (text, link, image, highlight) within 300 ms of the last one is a double (or triple) tap and emits nothing (a link still never navigates): the bars toggle once. The first tap is sent at once, never held. A clock change does not matter. | [#799](https://github.com/mrviduus/textstack/issues/799), owner choice; the old bridge held every tap 300 ms | 2026-10-12 |
 | E29 | The chapter growing above the reading line (an image loads) is one `'reflow'`, never `'scroll'`: the engine alone re-anchors (browser scroll anchoring is off in the chapter). | [#794](https://github.com/mrviduus/textstack/issues/794): Chromium anchors at once (+300 px) and only frame order kept its scroll from reading as the reader | 2026-10-12 |
 | E30 | A style change is one `'style'` relocation: the browser never scrolls the page before the engine re-anchors (scroll anchoring is off on the scroller, not only in the chapter). | Phase 4 slice 1: with only the text excluded, Chromium anchored on the decoration layer (~3 px), and web saved that scroll as the reader's | 2026-10-12 |
+| E31 | A decoration with the style `'dot'` draws a small dot just after its last line, no fill; a tap on its text still names it (E16). | Web reviewed highlight (`reviewed-mark`), Phase 4 decision 2 | 2026-10-13 |
 
 ## Before users get the engine (Phase 3)
 

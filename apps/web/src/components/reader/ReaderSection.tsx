@@ -132,10 +132,11 @@ export const ReaderSection = forwardRef<ReaderSectionHandle, Props>(function Rea
           dangerouslySetInnerHTML={innerHtml}
         />
       )}
+      {/* READER_ENGINE: the engine draws every decoration and takes every tap (ADR-025). */}
       <ReaderOverlay
         containerRef={articleRef}
         overlayerRef={overlayerRef}
-        enabled={overlayEnabled}
+        enabled={overlayEnabled && !READER_ENGINE}
       />
     </div>
   )

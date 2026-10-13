@@ -171,6 +171,9 @@ Rules the types cannot say:
 - **No legacy-global shims.** The WebView document and the RN code ship in the same JS bundle, so no
   runtime ever pairs old globals with a new document; the globals go in the release that makes the
   engine the default.
+- **A decoration `style` is a CSS colour, or `'dot'`:** a small dot just after the item's last line,
+  no fill (E31; web's reviewed highlight, Phase 4 decision 2, amended 2026-10-13). A reviewed highlight
+  is two items with the same id, its colour and `'dot'`; a tap on its text names that id.
 - Cut after review: a `tts` decoration group (TTS marks are drawn over the selection by the host),
   `wordTap` (a hold is a selection with `source:'hold'`).
 

@@ -147,9 +147,13 @@ export function isCacheChapterKey(id: string | null | undefined): boolean {
 }
 
 function scopeIsChapter(scope: HTMLElement, key: string | null): boolean {
+  return isChapterKey(key, scope.dataset.chapterId, scope.dataset.chapterSlug)
+}
+
+/** A highlight's chapter key (`highlightChapterKey`) names this chapter: its id, or a cache key ending in its slug. */
+export function isChapterKey(key: string | null, chapterId: string | undefined, slug: string | undefined): boolean {
   if (!key) return false
-  if (scope.dataset.chapterId === key) return true
-  const slug = scope.dataset.chapterSlug
+  if (chapterId === key) return true
   return !!slug && isCacheChapterKey(key) && key.endsWith(`:${slug}`)
 }
 

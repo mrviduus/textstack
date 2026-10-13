@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback, useRef, type RefObject } from 'react'
 import { isPdfAnchor } from '@textstack/shared'
+import { anchorToLocator, locatorToAnchor, type Locator } from '@textstack/reader-engine'
+import { mountedEngineFor } from '../lib/readerEngine'
 import { findTextByAnchor, createTextAnchor, highlightChapterKey, isCacheChapterKey } from '../lib/textAnchor'
-import type { HighlightAnchor, HighlightColor, StoredHighlight } from '../lib/offlineDb'
+import type { HighlightAnchor, HighlightColor, StoredHighlight, TextAnchor } from '../lib/offlineDb'
 
 /** Repeatable drawer jump: same id re-fires when the nonce changes. */
 export interface ScrollToHighlight {
@@ -46,6 +48,8 @@ interface UseHighlightEditOptions {
    */
   onNavigateToHighlight?: (highlight: StoredHighlight) => void
   onAfterCreate?: () => void
+  /** READER_ENGINE: the chapter slug whose engine open has landed; jumps go through `goTo`. */
+  engineHref?: string | null
 }
 
 export interface UseHighlightEditResult {
@@ -56,10 +60,12 @@ export interface UseHighlightEditResult {
   closeNoteEditor: () => void
   handleNoteSave: (noteText: string | null) => Promise<void>
   handleHighlightDelete: () => Promise<void>
+  /** `locator`: the engine's selection (READER_ENGINE), which has no Range. */
   createHighlightFromSelection: (
     range: Range | null,
     text: string,
     color: HighlightColor,
+    locator?: Locator,
   ) => Promise<void>
 }
 
@@ -77,16 +83,21 @@ export function useHighlightEdit({
   scrollToHl,
   onNavigateToHighlight,
   onAfterCreate,
+  engineHref,
 }: UseHighlightEditOptions): UseHighlightEditResult {
 
   // Locate a highlight's text anchor and center it. Returns false when the text
   // isn't in the mounted DOM yet (chapter not rendered / still loading) so the
   // caller can navigate + retry. A located-but-zero-size range counts as done.
+  // With the engine: its `goTo`, settled when the promise is (a window scroll would read as the reader's).
   const tryScrollToTarget = useCallback(
-    (target: StoredHighlight, behavior: ScrollBehavior = 'smooth'): boolean => {
+    (target: StoredHighlight, behavior: ScrollBehavior = 'smooth'): boolean | Promise<unknown> => {
       if (!containerRef.current) return false
       const range = findTextByAnchor(target.anchor, containerRef.current, highlightChapterKey(target))
       if (!range) return false
+      const engine = mountedEngineFor(engineHref ?? undefined)?.engine
+      const at = engine && anchorToLocator(JSON.stringify(target.anchor), engineHref!)
+      if (engine && at) return engine.goTo(at, { align: 'center' })
       const rect = range.getBoundingClientRect()
       if (rect.width !== 0 || rect.height !== 0) {
         const targetY = window.scrollY + rect.top - window.innerHeight / 2 + rect.height / 2
@@ -94,7 +105,7 @@ export function useHighlightEdit({
       }
       return true
     },
-    [containerRef],
+    [containerRef, engineHref],
   )
 
   // Drawer jump: center a highlight in the mounted chapter. On a miss (its
@@ -138,13 +149,16 @@ export function useHighlightEdit({
     }
     let tries = 0
     let timer: ReturnType<typeof setTimeout> | undefined
+    let cancelled = false
     const attempt = () => {
-      if (tryScrollToTarget(target, 'instant')) onLinkDoneRef.current?.(true)
+      const landed = tryScrollToTarget(target, 'instant')
+      if (landed instanceof Promise) void landed.then(() => { if (!cancelled) onLinkDoneRef.current?.(true) })
+      else if (landed) onLinkDoneRef.current?.(true)
       else if (++tries >= JUMP_MAX_RETRIES) onLinkDoneRef.current?.(false)
       else timer = setTimeout(attempt, JUMP_RETRY_MS)
     }
     attempt()
-    return () => clearTimeout(timer)
+    return () => { cancelled = true; clearTimeout(timer) }
   }, [scrollToHighlightId, highlightLinkReady, pdfLinkJumps, tryScrollToTarget])
 
   // Drawer jump: nonce-driven so re-selecting the same highlight re-fires.
@@ -186,9 +200,12 @@ export function useHighlightEdit({
   }, [editingHighlight, removeHighlight, closeNoteEditor])
 
   const createHighlightFromSelection = useCallback(
-    async (range: Range | null, text: string, color: HighlightColor) => {
-      if (!range || !containerRef.current) return
-      const anchor = createTextAnchor(range, chapterId, containerRef.current)
+    async (range: Range | null, text: string, color: HighlightColor, locator?: Locator) => {
+      const json = locator ? locatorToAnchor(locator) : null
+      const anchor: TextAnchor | null = json
+        ? { ...(JSON.parse(json) as TextAnchor), chapterId }
+        : range && containerRef.current ? createTextAnchor(range, chapterId, containerRef.current) : null
+      if (!anchor) return
       // An old offline-cache chapter whose real id is unknown: the server would
       // reject the cache key, and the row could never sync. Not saved.
       // ponytail: blocked, not queued — only an offline read of a pre-fix cache row hits it.

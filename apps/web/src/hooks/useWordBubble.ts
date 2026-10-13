@@ -82,7 +82,6 @@ export function useWordBubble({
     definition: string | null
     definitionLoading: boolean
     rect: DOMRect | null
-    range: Range | null
     sentence?: string
     bookId?: string
     translationLang?: string | null
@@ -116,10 +115,10 @@ export function useWordBubble({
   }, [clearSelection])
 
   // Auto-save: invoked from openBubble on every word tap (unless the word is
-  // already saved or a save is in-flight). Captures sentence from the live range
-  // at tap time. Translation may be null at this point — `fetchWordBubble` resolves
+  // already saved or a save is in-flight). Takes the sentence openBubble read at
+  // tap time. Translation may be null at this point — `fetchWordBubble` resolves
   // it async, and the translation-patch effect below forwards it to the backend.
-  const handleSave = useCallback(async (word: string, range: Range | null) => {
+  const handleSave = useCallback(async (word: string, sentence: string | undefined) => {
     // Gate: never save vocab with an unconfirmed native. A guessed
     // `navigator.language` isn't a real user choice — persisting it poisons the
     // SRS enrichment pipeline (explanations generated in wrong language) and
@@ -129,8 +128,6 @@ export function useWordBubble({
     if (!hasConfirmedLanguage) {
       throw new Error('native_language_not_confirmed')
     }
-    const container = containerRef.current
-    const sentence = range && container ? extractSentence(range, container) : undefined
     const currentTranslation = bubble?.word === word ? bubble?.translation : null
     setSavingWord(word)
     let resp: Awaited<ReturnType<typeof addWord>> | null = null
@@ -171,7 +168,7 @@ export function useWordBubble({
       }
     }
   }, [
-    addWord, bookLanguage, bookTitle, chapterId, containerRef,
+    addWord, bookLanguage, bookTitle, chapterId,
     editionId, nativeLanguage, hasConfirmedLanguage, userBookId,
     bubble?.word, bubble?.translation, t,
   ])
@@ -179,7 +176,7 @@ export function useWordBubble({
   // Popup creation, extracted so the scheduling effect has tight deps and doesn't
   // re-fire on translation/definition arrival. Also fires auto-save for the tapped
   // word (fire-and-forget) so the user doesn't need an explicit Save click.
-  const openBubble = useCallback((word: string, rect: DOMRect, range: Range | null) => {
+  const openBubble = useCallback((word: string, rect: DOMRect, range: Range | null, engineSentence?: string) => {
     bubbleAbortRef.current?.abort()
     const ctrl = new AbortController()
     bubbleAbortRef.current = ctrl
@@ -191,7 +188,7 @@ export function useWordBubble({
     // ("warehouse" in a CS book → data-warehouse, in a logistics book →
     // storage facility). Kept on the bubble for a language-switch refetch (TR-1).
     const container = containerRef.current
-    const sentence = range && container ? extractSentence(range, container) || undefined : undefined
+    const sentence = engineSentence || (range && container ? extractSentence(range, container) || undefined : undefined)
     const bookId = userBookId || editionId || undefined
     setBubble({
       word,
@@ -201,7 +198,6 @@ export function useWordBubble({
       definition: null,
       definitionLoading: explainInContext,
       rect,
-      range,
       sentence,
       bookId,
     })
@@ -219,7 +215,7 @@ export function useWordBubble({
     // Skip when native isn't confirmed: save is deferred until the user picks
     // a native language in WordPopup's picker (see catch-up effect below).
     if (hasConfirmedLanguage) {
-      triggerAutoSave(word, () => handleSave(word, range))
+      triggerAutoSave(word, () => handleSave(word, sentence))
     }
   }, [bookLanguage, targetLang, handleSave, triggerAutoSave, hasConfirmedLanguage, containerRef, userBookId, editionId])
 
@@ -232,7 +228,7 @@ export function useWordBubble({
   const prevConfirmedRef = useRef(hasConfirmedLanguage)
   useEffect(() => {
     if (!prevConfirmedRef.current && hasConfirmedLanguage && bubble) {
-      triggerAutoSave(bubble.word, () => handleSave(bubble.word, bubble.range))
+      triggerAutoSave(bubble.word, () => handleSave(bubble.word, bubble.sentence))
     }
     prevConfirmedRef.current = hasConfirmedLanguage
   }, [hasConfirmedLanguage, bubble, triggerAutoSave, handleSave])
@@ -269,14 +265,15 @@ export function useWordBubble({
     if (openTimerRef.current) clearTimeout(openTimerRef.current)
     const rect = selection.rect
     const range = selection.range
+    const sentence = selection.sentence
     openTimerRef.current = setTimeout(() => {
       openTimerRef.current = null
-      openBubble(word, rect, range)
+      openBubble(word, rect, range, sentence)
     }, STABILIZE_MS)
     return () => {
       if (openTimerRef.current) { clearTimeout(openTimerRef.current); openTimerRef.current = null }
     }
-  }, [isSingleWord, hasSelection, selection.text, selection.rect, selection.range, bubble?.word, openBubble])
+  }, [isSingleWord, hasSelection, selection.text, selection.rect, selection.range, selection.sentence, bubble?.word, openBubble])
 
   // Clean abort + pending open timer on unmount
   useEffect(() => () => {

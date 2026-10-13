@@ -33,6 +33,7 @@ import { useHighlights } from '../hooks/useHighlights'
 import { ReviewedMarksContext } from '../components/reader/ReviewedMarks'
 import type { StoredHighlight } from '../lib/offlineDb'
 import { sourceDomain } from '../components/library/ReadLaterShelf'
+import { READER_ENGINE } from '../lib/readerEngine'
 import '../styles/micro-practice.css'
 
 export type { ReaderMode } from '../hooks/useReaderChapter'
@@ -315,6 +316,9 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
           removeHighlight={highlightsApi.removeHighlight}
           liveActionsOnly={originalActive}
           onPdfHighlight={originalActive ? handlePdfHighlight : undefined}
+          engineOpenedFor={engineOpenedFor}
+          searchQuery={searchOpen && !originalActive ? drawers.search.query : ''}
+          searchActiveIndex={drawers.search.activeMatchIndex}
         >
           <div ref={scrollContainerRef}>
             {originalActive ? (
@@ -355,7 +359,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
               />
             )}
           </div>
-          {searchOpen && !originalActive && (
+          {searchOpen && !originalActive && !READER_ENGINE && (
             <SearchOverlayLayer
               containerRef={scrollContainerRef}
               query={drawers.search.query}
@@ -423,7 +427,8 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
         />
       )}
 
-      <WordHint containerRef={scrollContainerRef} />
+      {/* It wraps a word in a <mark>; the engine's text nodes are never touched (ADR-025). */}
+      {(!READER_ENGINE || originalActive) && <WordHint containerRef={scrollContainerRef} />}
 
     </div>
     </ReviewedMarksContext.Provider>

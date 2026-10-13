@@ -5,7 +5,7 @@ chapters through `packages/reader-engine`, behind `VITE_READER_ENGINE`. PDF stay
 (Phase 5). Old code is deleted in Phase 6.
 
 Status: **decided 2026-10-12** (owner answers at the bottom). Written from a read-only survey of
-`apps/web` at the end of Phase 3. Slice 1 done 2026-10-12 (own PR, owner's call); next: slice 2.
+`apps/web` at the end of Phase 3. Slice 1 done 2026-10-12 (own PR, owner's call); slice 2 skipped 2026-10-13; slices 3–4 done 2026-10-13 (PR B); next: slice 5 (flag-on Playwright, owner pass, then the flag).
 Phase 3 (mobile) is done: [plan](reader-engine-phase3-plan.md), flag on for everyone since 2026-10-12.
 
 ## What web has today (survey)
@@ -60,8 +60,9 @@ test`, `build`, Playwright green; the flag off changes nothing.
 1. **Engine in the page, position only.** Alias + `VITE_READER_ENGINE`; with it on, `ReaderSection`
    mounts the engine (`open` with the saved locator), `relocated` feeds the save path, restore /
    reload / Next→Prev keep the place, typography via `setStyle`, `tap` → bars (#818).
-2. **Chapter end and chrome.** `setFooter` carries `ReaderNav` + `ReaderChapterDiscuss` (React portal into
-   the footer element); `chapterEnd`; `scrollDir` or keep `useImmersiveMode`.
+2. ~~**Chapter end and chrome.**~~ **Skipped (owner, 2026-10-13).** `ReaderNav` + Discuss already render
+   below the engine's article in the same window scroll, and the engine measures only its text; nothing on
+   web (or mobile) consumes `chapterEnd`; `useImmersiveMode` keeps the engine's thresholds.
 3. **Selection and words.** `selection` / `hold` → `WordPopup`, `SelectionToolbar`, Translate / Explain;
    old listeners off when the flag is on; `imageTap` → `ImageLightbox`; `linkClick`.
 4. **Decorations.** Highlights (+ the reviewed dot, gap 1), `?highlight=` jump, vocab + inline
@@ -70,7 +71,7 @@ test`, `build`, Playwright green; the flag off changes nothing.
    `search`, `bookmarks` with the flag on (a second build in CI); manual pass on desktop + a phone
    browser; then `VITE_READER_ENGINE=true` in `production.env`.
 
-Two PRs, like Phase 3: A = slices 1–2, B = slices 3–4, then slice 5.
+Two PRs, like Phase 3: A = slice 1 (#821), B = slices 3–4, then slice 5.
 
 ## Decisions (owner, 2026-10-12)
 
