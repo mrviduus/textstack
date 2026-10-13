@@ -40,7 +40,8 @@ export function fakePdfjs(pages: Dim[], opts: { broken?: boolean } = {}) {
 
   const pdfjs: PdfJs = {
     PDFDataRangeTransport,
-    getDocument(src) {
+    getDocument(arg) {
+      const src = arg as { data: Uint8Array } | { range: PdfRangeTransport }
       sources.push(src)
       const range = 'range' in src ? (src.range as PDFDataRangeTransport) : null
       const read = (begin: number, end: number) => new Promise<void>((done) => {

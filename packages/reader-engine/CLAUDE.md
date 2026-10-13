@@ -47,6 +47,6 @@ Tests read as rules: plumbing (fake layout, driver) lives in `src/engine.testkit
 ```bash
 pnpm -C packages/reader-engine test        # includes the boundary test
 pnpm -C packages/reader-engine typecheck
-pnpm -C packages/reader-engine test:geometry   # Playwright, real Chromium (E25–E27, E29)
+pnpm -C packages/reader-engine test:geometry   # Playwright, real Chromium (E25–E30; PDF E33–E36)
 pnpm -C packages/reader-engine playground      # http://localhost:5180/?chapter=ulysses-15
 ```

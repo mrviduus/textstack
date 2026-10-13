@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>reader-engine playground: PDF</title>
+  <style>
+    body { margin: 0; background: #e5e5e5; }
+    .pdf-page { box-shadow: 0 1px 5px rgba(0, 0, 0, 0.25); }
+    nav { position: fixed; top: 0; right: 0; z-index: 1; padding: 4px 8px; font: 12px sans-serif; background: #eee; }
+  </style>
+</head>
+<body>
+  <nav><a href="?page=1">p1</a> · <a href="?page=20">p20</a> · <a href="?page=40">p40</a> · <span id="where"></span></nav>
+  <div id="reader"></div>
+  <script type="module" src="./pdf.ts"></script>
+</body>
+</html>

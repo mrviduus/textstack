@@ -14,7 +14,8 @@ import { clampPage, computePageRings, dimsReadyUpTo, pageAtViewportTop, readingP
 
 /** The part of pdf.js the fixed layout uses. The host passes the real module; tests a fake. */
 export interface PdfJs {
-  getDocument(src: { data: Uint8Array } | { range: PdfRangeTransport }): { promise: Promise<PdfDoc>; destroy(): Promise<void> }
+  /** Called with `{ data: Uint8Array }` or `{ range: PdfRangeTransport }`; typed `never` so the real module fits. */
+  getDocument(src: never): { promise: Promise<PdfDoc>; destroy(): Promise<void> }
   PDFDataRangeTransport: new (length: number, initialData: Uint8Array | null) => PdfRangeTransport
 }
 export interface PdfRangeTransport {
@@ -324,7 +325,7 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
   async function load(d: ChapterDoc, opId: string | undefined, mine: number) {
     const src = d.pdf!
     // A copy: pdf.js hands `data` to its worker, and the host's buffer would be emptied.
-    const loading = pdfjs.getDocument('data' in src ? { data: new Uint8Array(src.data.slice(0)) } : { range: transport(src, mine) })
+    const loading = pdfjs.getDocument(('data' in src ? { data: new Uint8Array(src.data.slice(0)) } : { range: transport(src, mine) }) as never)
     task = loading
     let loaded: PdfDoc
     try {
