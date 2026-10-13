@@ -164,7 +164,7 @@ export function readerStyle(theme: ReaderTheme, chrome: ReaderChrome, fontFace: 
 
 /**
  * The image lightbox (fullscreen, pinch / double-tap zoom, swipe down to close): `window.__tsOpenImage(src, alt)`.
- * Plain JS beside the engine bundle, not in it (the bundle's 60 KB budget); shared by both reflow pages.
+ * Plain JS beside the engine bundle, not in it (the bundle's size budget); shared by both reflow pages.
  */
 export const IMAGE_LIGHTBOX = `
     // --- Image lightbox: tap chapter <img> → fullscreen viewer ---
