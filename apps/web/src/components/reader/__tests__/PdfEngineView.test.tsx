@@ -19,8 +19,8 @@ function fakeEngine() {
       (handlers[e] ??= []).push(cb)
       return () => { handlers[e] = handlers[e].filter((h) => h !== cb) }
     },
-    open: vi.fn(async (_d: unknown, at?: Locator) => { here = at?.locations.position ?? 1; return 'exact' }),
-    goTo: vi.fn(async (at: Locator) => { here = at.locations.position ?? here; return 'exact' }),
+    open: vi.fn(async (_d: unknown, at?: Locator, _opId?: string) => { here = at?.locations.position ?? 1; return 'exact' }),
+    goTo: vi.fn(async (at: Locator, _o?: { opId?: string }) => { here = at.locations.position ?? here; return 'exact' }),
     setStyle: vi.fn(),
     decorate: vi.fn(),
     clearSelection: vi.fn(),
@@ -54,14 +54,15 @@ vi.mock('../../../lib/originalLayoutPref', () => ({
 import PdfEngineView from '../PdfEngineView'
 import { mountedEngineFor } from '../../../lib/readerEngine'
 
+const last = <T,>(xs: T[]): T => xs[xs.length - 1]
 const wait = (ms: number) => act(async () => { await new Promise((r) => setTimeout(r, ms)) })
 const page = (n: number): Locator => ({ type: 'application/pdf', locations: { position: n } })
-const lastOpenPage = () => (eng.engine.open.mock.calls.at(-1)![1] as Locator).locations.position
+const lastOpenPage = () => (last(eng.engine.open.mock.calls)[1] as Locator).locations.position
 /** The engine acks the latest open / goTo with its page (the jump landed); an open says `ready` first. */
 function ack(n?: number) {
   const opens = eng.engine.open.mock.calls.map((c) => ({ at: c[1] as Locator, opId: c[2] as string, reason: 'open' as const }))
-  const gotos = eng.engine.goTo.mock.calls.map((c) => ({ at: c[0] as Locator, opId: (c[1] as { opId: string }).opId, reason: 'goTo' as const }))
-  const op = [...opens, ...gotos].sort((a, b) => Number(a.opId) - Number(b.opId)).at(-1)!
+  const gotos = eng.engine.goTo.mock.calls.map((c) => ({ at: c[0] as Locator, opId: c[1]!.opId as string, reason: 'goTo' as const }))
+  const op = last([...opens, ...gotos].sort((a, b) => Number(a.opId) - Number(b.opId)))
   if (op.reason === 'open') eng.emit('ready', { opId: op.opId, pageCount: 40 })   // E32: ready, then the ack
   eng.emit('relocated', { locator: page(n ?? op.at.locations.position!), reason: op.reason, opId: op.opId })
 }
@@ -171,7 +172,7 @@ describe('PdfEngineView — the engine and its bytes', () => {
     const input = screen.getByLabelText('reader.originalLayout.goToPage')
     fireEvent.change(input, { target: { value: '12' } })
     fireEvent.submit(input.closest('form')!)
-    expect((eng.engine.goTo.mock.calls.at(-1)![0] as Locator).locations.position).toBe(12)
+    expect((last(eng.engine.goTo.mock.calls)[0] as Locator).locations.position).toBe(12)
   })
 })
 
@@ -186,7 +187,7 @@ describe('PdfEngineView — where it opens and what it saves (ADR-012 gate)', ()
     ack()
     await wait(2300)
     expect(savedPages()).not.toContain(1)
-    expect(writePdfPage.mock.calls.at(-1)!.slice(0, 2)).toEqual(['b1', 7])
+    expect(last(writePdfPage.mock.calls).slice(0, 2)).toEqual(['b1', 7])
     expect(saveUserBookProgress).toHaveBeenCalledTimes(1)
   })
 
@@ -228,7 +229,7 @@ describe('PdfEngineView — where it opens and what it saves (ADR-012 gate)', ()
     ack()
     await wait(50)
     expect(fetchNewerPage).toHaveBeenCalled()
-    expect((eng.engine.goTo.mock.calls.at(-1)![0] as Locator).locations.position).toBe(12)
+    expect((last(eng.engine.goTo.mock.calls)[0] as Locator).locations.position).toBe(12)
     ack()
     await wait(2500)
     expect(saveUserBookProgress).not.toHaveBeenCalled()
@@ -274,7 +275,7 @@ describe('PdfEngineView — where it opens and what it saves (ADR-012 gate)', ()
     fetchNewerPage.mockImplementation(async () => 15)
     await setVisibility('visible')
     await wait(50)
-    expect((eng.engine.goTo.mock.calls.at(-1)![0] as Locator).locations.position).toBe(15)
+    expect((last(eng.engine.goTo.mock.calls)[0] as Locator).locations.position).toBe(15)
   })
 
   it('an explicitly opened page (chapter start) is never replaced by a newer page', async () => {
@@ -331,7 +332,7 @@ describe('PdfEngineView — highlights', () => {
   it('paints the PDF highlights from their stored anchors; reflow ones are not on the page', async () => {
     render(<PdfEngineView {...base} resumeReady highlights={[hl, reflowHl]} />)
     await wait(0)
-    const [group, items] = eng.engine.decorate.mock.calls.at(-1)! as [string, { id: string; locator: Locator; style: string }[]]
+    const [group, items] = last(eng.engine.decorate.mock.calls) as [string, { id: string; locator: Locator; style: string }[]]
     expect(group).toBe('highlight')
     expect(items.map((i) => i.id)).toEqual(['h1'])
     expect(items[0].locator.locations.position).toBe(3)

@@ -250,3 +250,40 @@
   background: var(--reader-reviewed-dot, #16a34a);
   pointer-events: none;
 }
+
+/* --- READER_ENGINE_PDF (ADR-025 Phase 5): the engine's page column, on window scroll ---
+ * The bars hide and come back on scroll as in reflow (answer 5a); the toolbar sits under the top bar
+ * and hides with it. Dim/invert stays host CSS on the engine's canvas, the marks drop their blend. */
+.pdf-engine {
+  padding-top: 56px;
+  min-height: 100dvh;
+  background: var(--reader-bg, #f4f4f5);
+}
+
+.pdf-engine__toolbar {
+  position: sticky;
+  top: 56px;
+  z-index: 5;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.immersive-mode .pdf-engine__toolbar {
+  transform: translateY(calc(-100% - 56px));
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* A zoomed page wider than the screen scrolls sideways in the column, not the whole page
+ * (a wider document makes phone browsers zoom out). */
+.pdf-engine__pages {
+  overflow-x: auto;
+  padding: 10px 0 64px;
+}
+
+.pdf-engine--invert .pdf-page__canvas {
+  filter: invert(1) hue-rotate(180deg);
+}
+
+.pdf-engine--invert .pdf-marks > div {
+  mix-blend-mode: normal;
+}
