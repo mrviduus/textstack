@@ -176,7 +176,7 @@ Rules the types cannot say:
   a chapter in different places); one without it throws on a PDF. "Hosts pass nothing" holds for reflow.
 - **On a PDF, `Style.insets.top` is where a page lands** *(amended 2026-10-14, Phase 5 slice 3 review)*:
   an open or `goTo` puts the page's top that far below the top of the screen, clear of the host's fixed
-  bars (E42). It moves nothing by itself.
+  bars, and sizes / zoom keep the reader's spot on that line (E42). It moves nothing by itself.
 - **Mobile does not inject chapter HTML through the bridge.** The document embeds the chapter as
   `<script type="application/json">` (like `window.__TS_PDF` today) and the bridge calls `open` inside
   it; `ready` replaces `onLoadEnd` as the restore trigger.

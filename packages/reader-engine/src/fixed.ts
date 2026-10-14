@@ -202,7 +202,8 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
       return
     }
     deferred = null
-    const keep = op || scroller.scrollTop < 1 ? null : capturePageAnchor(rects(), 0)
+    // The spot under the insets line (E42), where a landing puts a page: not the line under the bars.
+    const keep = op || scroller.scrollTop < 1 ? null : capturePageAnchor(rects(), insetTop)
     const rescaled = next !== scale
     if (rescaled) slots.forEach(free)   // drawn at the old scale
     scale = next
@@ -213,7 +214,7 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
     })
     if (op) scrollToPage(op.page)
     else if (keep) {
-      const d = scrollDeltaForAnchor(keep, rects(), 0)
+      const d = scrollDeltaForAnchor(keep, rects(), insetTop)
       // Only when something above moved: a no-op scroll would still stop a fling.
       if (d !== null && Math.abs(d) >= 1) scrollTo(scroller.scrollTop + d)
     }

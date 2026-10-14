@@ -100,6 +100,15 @@ describe('a page position', () => {
     expect(reader.scrollTop).toBe(Math.max(0, reader.pageTop(1) - 100))   // never above the top
   })
 
+  it('E42 with insets.top, a zoom / size change keeps the spot under the insets line, not under the bars', async () => {
+    const reader = makePdfReader({ pages: 40 })
+    reader.setStyle({ insets: { top: 100, bottom: 0 } })
+    await reader.open(17, 'open-1')
+    reader.setStyle({ zoom: 2 })
+    await reader.settle()
+    expect(reader.scrollTop).toBe(reader.pageTop(17) - 100)
+  })
+
   it('E33 a page past the end lands on the last page; page 0 on page 1', async () => {
     const reader = makePdfReader({ pages: 40 })
     await reader.open()
