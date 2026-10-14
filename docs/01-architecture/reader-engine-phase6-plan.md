@@ -140,6 +140,9 @@ the mobile `restoreId` / `readerMovedSince` protocol, the mount slot (question 6
   #835 (no Discuss on PDF), #811 (scroll lost on kill), #824 (e2e blind spots): engine / host bugs or
   features, **not** blocked by and not blocking the deletion. #824 matters more after slice 0, when
   e2e is the only guard left.
+- #839 CI e2e builds web with the flags off = **slice 0**. #840 the `scroll:` locator, out of Phase 6.
+- #841 Dim button contrast (`pdfOriginal.css`, shared, stays), #842 Android native handles on a PDF
+  long press: not blocking.
 
 ## Questions for the owner
 
