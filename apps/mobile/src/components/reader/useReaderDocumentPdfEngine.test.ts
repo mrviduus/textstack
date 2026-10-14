@@ -19,18 +19,18 @@ vi.mock('../../lib/readerHtml', () => ({
   buildPdfEngineHtml: (url: string, token: string | null, o: { local: boolean }) => { built.push({ url, token, local: o.local }); return '<pdf engine>' },
 }))
 
-function mount(fileUrl: string, token: string | null) {
+function mount(fileUrl: string, token: string | null, ready = true) {
   const ref = <T,>(v: T) => ({ current: v })
-  return renderHook((p: { token: string | null }) => useReaderDocument({
+  return renderHook((p: { token: string | null; ready: boolean }) => useReaderDocument({
     original: true, originalFileUrl: fileUrl, originalInitialPage: 3, htmlChapterSlug: 'one',
     injectJs: () => {}, reflow: (() => {}) as never, onDocumentRebuild: () => {},
     chapter: { html: '' },
     settings: { fontSize: 18, lineHeight: 1.6, textAlign: 'left' } as never,
     resolvedFontFamily: 'serif', resolvedTheme: { backgroundColor: '#fff', textColor: '#000' } as never,
     insets: { top: 24, bottom: 0, left: 0, right: 0 },
-    pdfToken: p.token, pdfTokenReady: true, pdfReloadNonce: 0, isLocalOriginal: fileUrl.startsWith('file://'),
+    pdfToken: p.token, pdfTokenReady: p.ready, pdfReloadNonce: 0, isLocalOriginal: fileUrl.startsWith('file://'),
     pdfInitialPageRef: ref(null), currentPdfPageRef: ref(null), pdfIsReloadRef: ref(false), pdfReadyRef: ref(false),
-  }), { token })
+  }), { token, ready })
 }
 
 describe('useReaderDocument — engine PDF page', () => {
@@ -55,5 +55,12 @@ describe('useReaderDocument — engine PDF page', () => {
     expect(built.length).toBe(builds)
     act(() => h.result.current.onRendererGone())
     expect(built.at(-1)!.token).toBe('fresh')
+  })
+
+  it('the first open waits for the token: built once it is ready, with it (a streamed open never probes without a Bearer)', () => {
+    const h = mount('https://api.test/me/books/b1/file', null, false)
+    h.rerender({ token: 'tok', ready: true })
+    expect(h.result.current.webViewSource).toEqual({ html: '<pdf engine>', baseUrl: 'https://api.test' })
+    expect(built.at(-1)).toEqual({ url: 'https://api.test/me/books/b1/file', token: 'tok', local: false })
   })
 })

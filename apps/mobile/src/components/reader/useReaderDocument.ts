@@ -154,7 +154,8 @@ export function useReaderDocument({
   // ADR-012 S4b — the Original-layout PDF document. Rebuilt when the token
   // refreshes (nonce) so a silent 401 recovery reloads at the tracked page.
   const pdfHtml = useMemo(() => {
-    if (!original || !originalFileUrl) return ''
+    // Not before the token: the document carries it, and (engine) the key does not — built early, it kept null.
+    if (!original || !originalFileUrl || !pdfTokenReady) return ''
     // Chrome is read from the ref, deliberately outside the dependency list.
     const chrome = chromeRef.current ?? {
       safeArea: { top: insets.top, bottom: insets.bottom },
@@ -190,7 +191,7 @@ export function useReaderDocument({
     // Keyed on document identity ONLY. Insets and theme are absent on purpose —
     // that absence is the fix, and pdfViewerChrome.test.ts asserts it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [original, pdfDocumentKey({
+  }, [original, pdfTokenReady, pdfDocumentKey({
     fileUrl: originalFileUrl ?? '',
     // Engine page: not the token — a refresh reaches the live page; a remount (webViewKey) reads the latest.
     token: READER_ENGINE_PDF ? null : pdfToken,
