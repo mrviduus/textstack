@@ -309,31 +309,32 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
   /**
    * E45: the text on the line at content y by the text's own boxes, no hit test: what is under a popup or
    * a drawer. A binary search for the first character whose line ends below y (line tops rise with the
-   * text): on the line, or the next text after a gap. Not on the line: a float (a figure caption) may
-   * be, out of text order, so the text nodes near it are checked. Null with no boxes (jsdom).
+   * text); not on the line, the text nodes near it are checked (a float puts a figure's caption out of
+   * text order): one on the line, else the line ending nearest above it (beside a picture, in a gap: the
+   * text just read stays on the line, the picture below it). Null with no boxes (jsdom).
    */
   function offsetAtLine(y: number): number | null {
     const line = y - measure(root).top
     const on = (r: Rect | null) => !!r && r.y <= line && line < r.y + r.height
-    const first = (a: number, b: number) => {
-      while (a < b) { const m = (a + b) >> 1; const r = boxAt(m); if (!r || r.y + r.height > line) b = m; else a = m + 1 }
+    /** The first offset in [a, b) whose line ends below `below`. */
+    const first = (a: number, b: number, below: number) => {
+      while (a < b) { const m = (a + b) >> 1; const r = boxAt(m); if (!r || r.y + r.height > below) b = m; else a = m + 1 }
       return a
     }
-    const at = first(0, text.length)
-    const r = boxAt(at)
-    if (!r || on(r)) return r && at
-    // Nearby nodes: one on the line, else the text starting nearest below it (a float's paragraph, not its caption).
-    let next = at
-    let top = r.y
+    const at = first(0, text.length, line)
+    if (on(boxAt(at))) return at
+    let above: Text | null = null
+    let top = 0
+    let bottom = -Infinity
     for (const t of nodes) {
       const s = starts.get(t)!
-      const range = s < at + 500 && s + t.length > at - 500 && rangeOf(s, t.length)
-      const rs = range ? rectsOf(range) : []
-      if (rs.some(on)) return first(s, s + t.length)
-      const below = rs.find((b) => b.y > line)
-      if (below && below.y < top) [next, top] = [first(s, s + t.length), below.y]
+      const range = s < at + 400 && s + t.length > at - 400 && rangeOf(s, t.length)
+      for (const b of range ? rectsOf(range) : []) {
+        if (on(b)) return first(s, s + t.length, line)
+        if (b.y + b.height <= line && b.y + b.height > bottom) [above, top, bottom] = [t, b.y, b.y + b.height]
+      }
     }
-    return next
+    return above && first(starts.get(above)!, starts.get(above)! + above.length, top)
   }
 
   /**

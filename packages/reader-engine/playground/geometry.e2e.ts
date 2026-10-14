@@ -216,23 +216,23 @@ for (const [font, width] of ['Georgia, serif', 'serif', 'sans-serif', 'monospace
       for (let i = 1; i <= 24; i++) {
         await readerScrolls(page, i / 25)
         // The rule, checked by brute force over every line box of the chapter: text on the reading line is
-        // found on it (0 away); with none (a gap, or beside a figure), the text found is the nearest below.
+        // found on it (0 away); with none (a gap, or beside a figure), the text found is the nearest above.
         const r = await page.evaluate(() => {
           const at = window.pg.offsetOf(window.engine.current()!)!
           const y = scrollY + innerHeight * 0.25
           const walker = document.createTreeWalker(document.querySelector('#reader')!.firstElementChild!, NodeFilter.SHOW_TEXT)
           const range = document.createRange()
-          let below = Infinity
+          let above = Infinity
           let onLine = false
           for (let n = walker.nextNode(); n; n = walker.nextNode()) {
             range.selectNodeContents(n)
             for (const b of Array.from(range.getClientRects()).filter((b) => b.width > 0 && b.height > 0)) {
               const top = b.top + scrollY
               if (top <= y && y < b.bottom + scrollY) onLine = true
-              else if (top > y) below = Math.min(below, top - y)
+              else if (b.bottom + scrollY <= y) above = Math.min(above, y - (b.bottom + scrollY))
             }
           }
-          return { off: window.pg.offLine(at, y), want: onLine ? 0 : below, y, found: window.pg.text().slice(at, at + 40) }
+          return { off: window.pg.offLine(at, y), want: onLine ? 0 : above, y, found: window.pg.text().slice(at, at + 40) }
         })
         expect(Math.abs(r.off - r.want), `at ${i}/25: reading line y=${r.y}, found ${JSON.stringify(r.found)} ${r.off} away, the nearest text ${r.want}`).toBeLessThan(1)
       }
@@ -242,7 +242,7 @@ for (const [font, width] of ['Georgia, serif', 'serif', 'sans-serif', 'monospace
   })
 }
 
-test('E45 a covered reading line in a gap between blocks reads the next text with a bounded search, not a scan of the chapter', async ({ page }) => {
+test('E45 a covered reading line in a gap between blocks reads the text just above with a bounded search, not a scan of the chapter', async ({ page }) => {
   await openChapter(page, 'ulysses-15')   // 2760 table cells: a scan of every text node is thousands of box reads
   await cover(page, { top: '20%', height: '10%' })
   try {
@@ -270,8 +270,8 @@ test('E45 a covered reading line in a gap between blocks reads the next text wit
       }))() }
     })
     expect(r.reads).toBeLessThan(100)
-    expect(r.dy, 'the next text, just below the line').toBeGreaterThan(0)
-    expect(r.dy).toBeLessThan(3 * r.line)
+    expect(r.dy, 'the text just above the line').toBeLessThan(0)
+    expect(-r.dy).toBeLessThan(3 * r.line)
   } finally {
     await uncover(page)
   }
