@@ -173,6 +173,27 @@ public class UserBookOriginalFileEndpointTests
     }
 
     [Fact]
+    public async Task GetOriginalFile_Pdf_InlineWithTheBookTitleAsFileName()
+    {
+        Assert.SkipUnless(_auth.IsAuthenticated, "test auth unavailable");
+
+        var bookId = await UploadPdfAsync();
+        Assert.SkipWhen(bookId is null, "pdf upload unavailable");
+
+        var request = _auth.CreateRequest(HttpMethod.Get, $"/me/books/{bookId}/file");
+        var response = await _auth.Client.SendAsync(request, TestContext.Current.CancellationToken);
+
+        // Inline, so the reader still displays it; the name is what a download saves (was "file.pdf").
+        var disposition = response.Content.Headers.ContentDisposition;
+        Assert.NotNull(disposition);
+        Assert.Equal("inline", disposition.DispositionType);
+        var name = disposition.FileNameStar ?? disposition.FileName?.Trim('"');
+        Assert.NotNull(name);
+        Assert.EndsWith(".pdf", name);
+        Assert.NotEqual("file.pdf", name);
+    }
+
+    [Fact]
     public async Task GetOriginalFile_WithRange_Returns206PartialContent()
     {
         Assert.SkipUnless(_auth.IsAuthenticated, "test auth unavailable");
