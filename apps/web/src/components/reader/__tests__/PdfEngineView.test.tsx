@@ -124,7 +124,19 @@ describe('PdfEngineView — the engine and its bytes', () => {
     fireEvent.click(screen.getByText('reader.openError.retry'))
     await wait(0)
     expect(eng.engine.open).toHaveBeenCalledTimes(2)
+    expect(eng.engine.open.mock.calls[1][0]).toEqual({ layout: 'fixed', pdf: source })
+    expect(openPdfSource).toHaveBeenCalledTimes(1)   // the same bytes: they were not the problem
     expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('#853 a Try again that throws again says it is still failing', async () => {
+    eng.engine.open.mockRejectedValueOnce(new Error('engine broke')).mockRejectedValueOnce(new Error('again'))
+    render(<PdfEngineView {...base} resumeReady />)
+    await wait(0)
+    fireEvent.click(screen.getByText('reader.openError.retry'))
+    await wait(0)
+    expect(screen.getByText('reader.openError.stillFailing')).toBeTruthy()
+    expect(reportError).toHaveBeenCalledTimes(2)
   })
 
   it('#853 an open that rejects after Reload replaced it reports nothing and shows no error', async () => {

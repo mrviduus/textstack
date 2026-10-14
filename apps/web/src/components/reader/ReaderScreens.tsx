@@ -56,8 +56,14 @@ export function ReaderOpenError({ onRetry }: { onRetry: () => Promise<boolean | 
   const retry = async () => {
     setBusy(true)
     setStillFailing(false)
-    const landed = await onRetry()
-    setBusy(false)
+    let landed: boolean | void = false
+    try {
+      landed = await onRetry()
+    } catch {
+      // a retry that throws is still failing
+    } finally {
+      setBusy(false)
+    }
     setStillFailing(landed === false)
   }
   return (

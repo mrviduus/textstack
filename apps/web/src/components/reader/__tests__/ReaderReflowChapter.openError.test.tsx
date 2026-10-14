@@ -12,7 +12,7 @@ vi.mock('../ReaderSection', () => ({
       opens.push(`${chapterSlug} ${html}`)
       if (failNext) onEngineError(chapterSlug)
       else onEngineOpened(chapterSlug)
-    }, [chapterSlug])
+    }, [chapterSlug, html])
     return <article data-testid="chapter" />
   },
 }))
@@ -27,8 +27,9 @@ const chapter = (id: string, html = '<p>x</p>') => ({
 const props = {
   settings: {} as ReaderSettings, onTap: () => {}, onEngineOpened: () => {}, discuss: null,
   chapterNumber: 2, totalChapters: 3, chapterProgress: 0, onGoTo: () => {}, onFinish: () => {}, finishLabel: 'Finish',
-  onReload: async () => true, loadId: 1,
+  onRetry: async () => true,
 }
+const tryAgain = () => within(screen.getByRole('alert')).getByRole('button') as HTMLButtonElement
 
 describe('ReaderReflowChapter: the engine cannot open the chapter', () => {
   afterEach(() => { cleanup(); opens.length = 0; failNext = true })
@@ -41,41 +42,46 @@ describe('ReaderReflowChapter: the engine cannot open the chapter', () => {
     expect(screen.getByLabelText('Next chapter')).toBeTruthy()
   })
 
-  it('tryAgain_RefetchesTheChapter_ThenOpensTheNewHtml_AndClearsTheError', () => {
-    const onReload = vi.fn(async () => true)
-    const { rerender } = render(<ReaderReflowChapter chapter={chapter('a')} {...props} onReload={onReload} />)
-    failNext = false
-    fireEvent.click(screen.getByText('reader.openError.retry'))
-    expect(onReload).toHaveBeenCalledTimes(1)
-    rerender(<ReaderReflowChapter chapter={chapter('a')} {...props} onReload={onReload} />)   // a re-render: no new load
-    expect(screen.getByRole('alert')).toBeTruthy()   // until the network's chapter lands
-    rerender(<ReaderReflowChapter chapter={chapter('a', '<p>fresh</p>')} {...props} onReload={onReload} loadId={2} />)
-    expect(opens).toEqual(['a <p>x</p>', 'a <p>fresh</p>'])
-    expect(screen.queryByRole('alert')).toBeNull()
-    expect(screen.getByTestId('chapter')).toBeTruthy()
-  })
-
-  it('tryAgain_DisabledWhileTheReloadRuns_AFailedReloadSaysSo', async () => {
-    let done!: (landed: boolean) => void
-    const onReload = vi.fn(() => new Promise<boolean>((r) => { done = r }))
-    render(<ReaderReflowChapter chapter={chapter('a')} {...props} onReload={onReload} />)
-    fireEvent.click(screen.getByText('reader.openError.retry'))
-    const busy = within(screen.getByRole('alert')).getByRole('button')
-    expect(busy.textContent).toBe('reader.openError.opening')
-    expect((busy as HTMLButtonElement).disabled).toBe(true)
-    await act(async () => { done(false) })
-    const again = within(screen.getByRole('alert')).getByRole('button')
-    expect(again.textContent).toBe('reader.openError.retry')
-    expect((again as HTMLButtonElement).disabled).toBe(false)
-    expect(screen.getByText('reader.openError.stillFailing')).toBeTruthy()
-  })
-
-  it('tryAgain_SameHtmlFromTheNetwork_StillOpensAgain', () => {
+  it('tryAgain_TheRefetchedChapterOpens_AndTheErrorGoes', async () => {
     const { rerender } = render(<ReaderReflowChapter chapter={chapter('a')} {...props} />)
     failNext = false
-    rerender(<ReaderReflowChapter chapter={chapter('a')} {...props} loadId={2} />)
+    // The loader swaps in the network's chapter, then resolves.
+    const onRetry = vi.fn(async () => { rerender(<ReaderReflowChapter chapter={chapter('a', '<p>fresh</p>')} {...props} onRetry={onRetry} />); return true })
+    rerender(<ReaderReflowChapter chapter={chapter('a')} {...props} onRetry={onRetry} />)
+    await act(async () => { fireEvent.click(tryAgain()) })
+    expect(onRetry).toHaveBeenCalledTimes(1)
+    expect(opens).toEqual(['a <p>x</p>', 'a <p>fresh</p>'])
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('tryAgain_TheSameHtmlFromTheNetwork_StillOpensAgain', async () => {
+    render(<ReaderReflowChapter chapter={chapter('a')} {...props} />)
+    failNext = false
+    await act(async () => { fireEvent.click(tryAgain()) })
     expect(opens).toEqual(['a <p>x</p>', 'a <p>x</p>'])
     expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('tryAgain_DisabledWhileTheRetryRuns_AFailedRetrySaysSo', async () => {
+    let done!: (landed: boolean) => void
+    const onRetry = vi.fn(() => new Promise<boolean>((r) => { done = r }))
+    render(<ReaderReflowChapter chapter={chapter('a')} {...props} onRetry={onRetry} />)
+    fireEvent.click(tryAgain())
+    expect(tryAgain().textContent).toBe('reader.openError.opening')
+    expect(tryAgain().disabled).toBe(true)
+    await act(async () => { done(false) })
+    expect(tryAgain().textContent).toBe('reader.openError.retry')
+    expect(tryAgain().disabled).toBe(false)
+    expect(screen.getByText('reader.openError.stillFailing')).toBeTruthy()
+    expect(opens).toEqual(['a <p>x</p>'])   // nothing re-opened
+  })
+
+  it('tryAgain_ARetryThatThrows_StillEnablesTheButton', async () => {
+    const onRetry = vi.fn(async (): Promise<boolean> => { throw new Error('boom') })
+    render(<ReaderReflowChapter chapter={chapter('a')} {...props} onRetry={onRetry} />)
+    await act(async () => { fireEvent.click(tryAgain()) })
+    expect(tryAgain().disabled).toBe(false)
+    expect(screen.getByText('reader.openError.stillFailing')).toBeTruthy()
   })
 
   it('failOnA_GoToB_ReturnToA_AOpensAgain', () => {

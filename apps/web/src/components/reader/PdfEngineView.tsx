@@ -144,17 +144,40 @@ export default function PdfEngineView({
   const openPage = useMemo(() => resolveOpenPage(initialPage, resumePage, readPdfPage(bookId)), [bookId, initialPage, resumePage])
 
   /** Every open / goTo is a jump: the gate waits for its ack before a page is saved. */
-  const jump = useCallback((page: number, run: (opId: string) => unknown) => {
+  const jump = useCallback(<T,>(page: number, run: (opId: string) => T): T => {
     const id = ++jumpSeqRef.current
     gateRef.current = pdfGateReduce(gateRef.current, { type: 'jumpIssued', page, jumpId: id, at: Date.now() }).state
     movedRef.current = false
-    void run(String(id))
+    return run(String(id))
   }, [])
 
   const goToPage = useCallback((page: number) => {
     const engine = engineRef.current
-    if (engine) jump(page, (opId) => engine.goTo(at(page), { opId }))
+    if (engine) void jump(page, (opId) => engine.goTo(at(page), { opId }))
   }, [jump])
+
+  /**
+   * Opens the document at a page; resolves whether it landed. #853: an open that throws is reported and
+   * said in the reader (Try again opens the same bytes again), unless an unmount or a Reload replaced it.
+   */
+  const openDoc = useCallback((engine: ReaderEngine, source: PdfSource, target: number): Promise<boolean> => {
+    openedForRef.current = { engine, source }
+    docReadyRef.current = false
+    gateRef.current = pdfGateReduce(gateRef.current, { type: 'documentLoaded' }).state
+    const mine = ++openSeqRef.current
+    return jump(target, (opId) => engine.open({ layout: 'fixed', pdf: source }, at(target), opId)).then(
+      () => {
+        if (openSeqRef.current === mine) setOpenFailed(false)
+        return true
+      },
+      (e: unknown) => {
+        if (engineRef.current !== engine || openSeqRef.current !== mine) return false
+        reportError(e, { area: 'reader-engine', book: bookId })
+        setOpenFailed(true)
+        return false
+      },
+    )
+  }, [jump, bookId])
 
   const flushServerProgress = useCallback(() => {
     if (serverTimerRef.current) {
@@ -283,18 +306,15 @@ export default function PdfEngineView({
       explicitRef.current = initialPage != null
       holdRef.current = resumeUnanswered && initialPage == null
     }
-    openedForRef.current = { engine, source }
-    docReadyRef.current = false
-    gateRef.current = pdfGateReduce(gateRef.current, { type: 'documentLoaded' }).state
-    const mine = ++openSeqRef.current
-    jump(target, (opId) => engine.open({ layout: 'fixed', pdf: source }, at(target), opId).catch((e: unknown) => {
-      // Only the open still current: an unmount or a Reload replaced it.
-      if (engineRef.current !== engine || openSeqRef.current !== mine) return
-      reportError(e, { area: 'reader-engine', book: bookId })
-      setOpenFailed(true)
-    }))
+    void openDoc(engine, source, target)
     setOpened(true)
-  }, [source, pendingJump, initialPage, resumeReady, resumeUnanswered, openPage, jump, bookId])
+  }, [source, pendingJump, initialPage, resumeReady, resumeUnanswered, openPage, openDoc])
+
+  /** Try again (#853): the same bytes, opened again where the reader was. */
+  const retryOpen = useCallback(() => {
+    const o = openedForRef.current
+    return o && o.engine === engineRef.current ? openDoc(o.engine, o.source, currentPageRef.current ?? openPage) : Promise.resolve(false)
+  }, [openDoc, openPage])
 
   // --- TOC / bookmark / highlight jump: once per nonce. Before the open, the open goes there. ---
   const appliedJumpRef = useRef<number | null>(null)
@@ -445,7 +465,7 @@ export default function PdfEngineView({
         </div>
       )}
       {failed && <div className="pdf-original__error">{t('reader.originalLayout.error')}</div>}
-      {openFailed && <ReaderOpenError onRetry={handleReload} />}
+      {openFailed && <ReaderOpenError onRetry={retryOpen} />}
       {!numPages && !failed && !openFailed && !sessionExpired && <div className="pdf-original__loading">{t('reader.originalLayout.loading')}</div>}
 
       {/* The engine owns this element's children (pages, canvases, text layers, marks). */}

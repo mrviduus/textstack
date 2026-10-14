@@ -48,12 +48,35 @@ export interface UseReaderChapterResult {
   publicBook: BookDetail | null
   loading: boolean
   error: string | null
-  /** Load the chapter again from the network, skipping the cache, with the reader left on screen (Try again).
-   *  Resolves whether it landed. */
-  reload: () => Promise<boolean>
-  /** +1 for every load that lands (a chapter change, a refresh, a reload, even with the same html). */
-  loadId: number
+  /**
+   * Try again after the engine could not open the chapter (#849): the chapter from the network first; on
+   * success it replaces the one on screen and the cache, on failure nothing changes (no loading screen, no
+   * page error). Dropped (false) once the reader is on another chapter.
+   */
+  retryChapter: () => Promise<boolean>
 }
+
+const fromPublic = (ch: Chapter): NormalizedChapter => ({
+  id: ch.id,
+  chapterNumber: ch.chapterNumber,
+  identifier: ch.slug,
+  title: ch.title,
+  html: ch.html,
+  wordCount: ch.wordCount,
+  prev: ch.prev ? { identifier: ch.prev.slug, title: ch.prev.title } : null,
+  next: ch.next ? { identifier: ch.next.slug, title: ch.next.title } : null,
+})
+
+const fromUser = (ch: Awaited<ReturnType<typeof getUserBookChapter>>, slug: string): NormalizedChapter => ({
+  id: ch.id,
+  chapterNumber: ch.chapterNumber,
+  identifier: ch.slug || slug,
+  title: ch.title,
+  html: ch.html,
+  wordCount: ch.wordCount,
+  prev: ch.previous ? { identifier: ch.previous.slug || String(ch.previous.chapterNumber), title: ch.previous.title } : null,
+  next: ch.next ? { identifier: ch.next.slug || String(ch.next.chapterNumber), title: ch.next.title } : null,
+})
 
 export function useReaderChapter({
   mode,
@@ -75,17 +98,7 @@ export function useReaderChapter({
 
   const editionIdRef = useRef<string | null>(null)
   const fetchedKeyRef = useRef<string | null>(null)
-  // reload(): a new seq; the load that ends (landed or failed) records it, so a cancelled one (StrictMode)
-  // still reloads and only one load skips the cache.
-  const [reloadSeq, setReloadSeq] = useState(0)
-  const loadedSeqRef = useRef(0)
-  const [loadId, setLoadId] = useState(0)
-  const reloadDoneRef = useRef<((landed: boolean) => void) | null>(null)
-  const reload = useCallback(() => new Promise<boolean>((resolve) => {
-    reloadDoneRef.current?.(false)   // an earlier reload still running: this one replaces it
-    reloadDoneRef.current = resolve
-    setReloadSeq((n) => n + 1)
-  }), [])
+  const keyRef = useRef<string | null>(null)   // the chapter the reader is on: a retry for another is dropped
 
   useEffect(() => {
     if (mode === 'public' && (!bookSlug || !chapterSlug)) return
@@ -96,22 +109,21 @@ export function useReaderChapter({
     const fetchKey = mode === 'public'
       ? `public:${bookSlug}:${chapterSlug}`
       : `userbook:${userBookId}:${userChapterSlug ?? ''}`
+    keyRef.current = fetchKey
     // Already loaded — skip so an isAuthenticated flip (guest creation) doesn't
     // reset state and drop popups mid-interaction.
-    const fresh = reloadSeq !== loadedSeqRef.current   // reload(): the network, no loading screen
-    if (fetchedKeyRef.current === fetchKey && !fresh) return
+    if (fetchedKeyRef.current === fetchKey) return
 
     let cancelled = false
     if (mode === 'public') markFetchStart()
 
     const fetchData = async () => {
-      if (!fresh) setLoading(true)
+      setLoading(true)
       setError(null)
-      let landed = false
 
       try {
         if (mode === 'public') {
-          const cachedEditionId = fresh ? null : editionIdRef.current
+          const cachedEditionId = editionIdRef.current
           if (cachedEditionId) {
             const cached = await getCachedChapter(cachedEditionId, chapterSlug!)
             if (cached && !cancelled) {
@@ -144,16 +156,7 @@ export function useReaderChapter({
               // offline read has the real id too.
               if (!cached.chapterId && bookChapter) cacheChapter(cachedEditionId, rawChapter).catch(() => {})
               setPublicChapter(rawChapter)
-              setChapter({
-                id: rawChapter.id,
-                chapterNumber: rawChapter.chapterNumber,
-                identifier: rawChapter.slug,
-                title: rawChapter.title,
-                html: rawChapter.html,
-                wordCount: rawChapter.wordCount,
-                prev: rawChapter.prev ? { identifier: rawChapter.prev.slug, title: rawChapter.prev.title } : null,
-                next: rawChapter.next ? { identifier: rawChapter.next.slug, title: rawChapter.next.title } : null,
-              })
+              setChapter(fromPublic(rawChapter))
               if (bk) {
                 setPublicBook(bk)
                 setBook({
@@ -168,7 +171,6 @@ export function useReaderChapter({
                 })
               }
               fetchedKeyRef.current = fetchKey
-              landed = true
               setLoading(false)
               return
             }
@@ -185,16 +187,7 @@ export function useReaderChapter({
           setPublicBook(bk)
           editionIdRef.current = bk.id
 
-          setChapter({
-            id: ch.id,
-            chapterNumber: ch.chapterNumber,
-            identifier: ch.slug,
-            title: ch.title,
-            html: ch.html,
-            wordCount: ch.wordCount,
-            prev: ch.prev ? { identifier: ch.prev.slug, title: ch.prev.title } : null,
-            next: ch.next ? { identifier: ch.next.slug, title: ch.next.title } : null,
-          })
+          setChapter(fromPublic(ch))
           setBook({
             id: bk.id,
             title: bk.title,
@@ -208,7 +201,6 @@ export function useReaderChapter({
 
           cacheChapter(bk.id, ch).catch(() => {})
           fetchedKeyRef.current = fetchKey
-          landed = true
         } else {
           // Fetch the book first — its hasOriginalPdf decides whether a missing
           // chapter is fatal. A chapterless/indexing PDF opens in Original with
@@ -235,16 +227,7 @@ export function useReaderChapter({
 
           if (cancelled) return
 
-          setChapter(ch ? {
-            id: ch.id,
-            chapterNumber: ch.chapterNumber,
-            identifier: ch.slug || userChapterSlug!,
-            title: ch.title,
-            html: ch.html,
-            wordCount: ch.wordCount,
-            prev: ch.previous ? { identifier: ch.previous.slug || String(ch.previous.chapterNumber), title: ch.previous.title } : null,
-            next: ch.next ? { identifier: ch.next.slug || String(ch.next.chapterNumber), title: ch.next.title } : null,
-          } : null)
+          setChapter(ch ? fromUser(ch, userChapterSlug!) : null)
           setBook({
             id: bk.id,
             title: bk.title,
@@ -261,7 +244,6 @@ export function useReaderChapter({
             })),
           })
           fetchedKeyRef.current = fetchKey
-          landed = true
         }
       } catch (err) {
         if (cancelled) return
@@ -269,30 +251,43 @@ export function useReaderChapter({
           fetchData()
           return
         }
-        // A failed reload (offline) never replaces the reader: the chapter on screen stays, with its
-        // in-reader error and Try again.
-        if (fresh) return console.warn('[reader] chapter reload failed', err)
         if (err instanceof InvalidContentTypeError) {
           setError('Chapter not found. The book may have been removed.')
         } else {
           setError((err as Error).message)
         }
       } finally {
-        if (!cancelled) {
-          setLoading(false)
-          loadedSeqRef.current = reloadSeq   // a reload is one load, landed or failed
-          if (landed) setLoadId((n) => n + 1)
-          if (fresh) {
-            reloadDoneRef.current?.(landed)
-            reloadDoneRef.current = null
-          }
-        }
+        if (!cancelled) setLoading(false)
       }
     }
 
     fetchData()
     return () => { cancelled = true }
-  }, [mode, bookSlug, chapterSlug, userBookId, userChapterSlug, isAuthenticated, api, markFetchStart, wasAbortedDueToWake, reloadSeq])
+  }, [mode, bookSlug, chapterSlug, userBookId, userChapterSlug, isAuthenticated, api, markFetchStart, wasAbortedDueToWake])
 
-  return { chapter, book, publicChapter, publicBook, loading, error, reload, loadId }
+  const retryChapter = useCallback(async (): Promise<boolean> => {
+    const key = keyRef.current
+    for (;;) {
+      if (mode === 'public') markFetchStart()
+      try {
+        if (mode === 'public') {
+          const ch = await api.getChapter(bookSlug!, chapterSlug!)
+          if (keyRef.current !== key) return false
+          setPublicChapter(ch)
+          setChapter(fromPublic(ch))
+          if (editionIdRef.current) cacheChapter(editionIdRef.current, ch).catch(() => {})
+        } else {
+          const ch = await getUserBookChapter(userBookId!, userChapterSlug!)
+          if (keyRef.current !== key) return false
+          setChapter(fromUser(ch, userChapterSlug!))
+        }
+        return true
+      } catch {
+        // A wake from sleep aborted the fetch: no answer yet, so ask again, as the normal load does.
+        if (keyRef.current !== key || !(mode === 'public' && wasAbortedDueToWake())) return false
+      }
+    }
+  }, [mode, bookSlug, chapterSlug, userBookId, userChapterSlug, api, markFetchStart, wasAbortedDueToWake])
+
+  return { chapter, book, publicChapter, publicBook, loading, error, retryChapter }
 }

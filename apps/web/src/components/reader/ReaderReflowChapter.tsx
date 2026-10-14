@@ -12,10 +12,8 @@ interface Props {
   settings: ReaderSettings
   onTap: () => void
   onEngineOpened: (chapterSlug: string) => void
-  /** Load the chapter again from the network (useReaderChapter's reload): Try again after a failed open. */
-  onReload: () => Promise<boolean>
-  /** useReaderChapter's `loadId`: a new load of the chapter clears a failed open. */
-  loadId: number
+  /** Try again after a failed open: useReaderChapter's `retryChapter` (the chapter from the network). */
+  onRetry: () => Promise<boolean>
   /** End-of-chapter Discuss; null for an anonymous reader. */
   discuss: Omit<ComponentProps<typeof ReaderChapterDiscuss>, 'chapter'> | null
   /** 1-based positional index of the chapter, null when unknown. */
@@ -30,16 +28,21 @@ interface Props {
 
 /** The reflow reader's one mounted chapter: its text, the Discuss row and the chapter nav. */
 export function ReaderReflowChapter({
-  chapter, settings, onTap, onEngineOpened, onReload, loadId, discuss, chapterNumber, totalChapters, chapterProgress, onGoTo, onFinish, finishLabel,
+  chapter, settings, onTap, onEngineOpened, onRetry, discuss, chapterNumber, totalChapters, chapterProgress, onGoTo, onFinish, finishLabel,
 }: Props) {
-  // #849: a chapter the engine cannot open says so here. Try again refetches it; the fresh chapter clears the
-  // failure, and a fresh engine opens it.
-  const failure = useChapterEngineFailure(chapter.identifier, loadId)
+  // #849: a chapter the engine cannot open says so here. Try again refetches it; when that lands, a fresh
+  // engine opens it.
+  const failure = useChapterEngineFailure(chapter.identifier)
   const { clear } = failure
+  const retry = async () => {
+    const landed = await onRetry()
+    if (landed) clear(chapter.identifier)
+    return landed
+  }
   const opened = useCallback((slug: string) => { clear(slug); onEngineOpened(slug) }, [clear, onEngineOpened])
   return (
     <>
-      {failure.failed ? <ReaderOpenError onRetry={onReload} /> : <ReaderSection
+      {failure.failed ? <ReaderOpenError onRetry={retry} /> : <ReaderSection
         chapterId={chapter.id}
         chapterSlug={chapter.identifier}
         chapterIndex={chapter.chapterNumber}

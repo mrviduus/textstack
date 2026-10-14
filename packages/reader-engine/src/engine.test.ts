@@ -178,6 +178,33 @@ describe('scrolling: only the reader scrolling is reading (ADR-019 rule 7)', () 
     expect(Math.abs(reader.scrollTop - top)).toBeLessThan(1)   // the estimate is per character
   })
 
+  /** A text node inside `host`, as the caret would hit it. */
+  const textIn = (host: HTMLElement) => {
+    host.textContent = 'Translate Explain'
+    document.body.append(host)
+    return () => ({ node: host.firstChild!, offset: 0 })
+  }
+
+  it('E45 a popup over the reading line is a cover: the scroll is read from the line boxes', async () => {
+    const reader = makeReader({ caret: textIn(document.createElement('div')) })
+    await reader.open(MIDDLE)
+    const before = reader.boxReads()
+    reader.scrollBy(600)
+    await reader.settle()
+    expect(reader.boxReads()).toBeGreaterThan(before)
+  })
+
+  it("E45 another engine's chapter under the caret (web's next chapter) is no cover: no line-box search", async () => {
+    const other = makeReader()   // its root carries the engine's mark
+    const reader = makeReader({ caret: () => ({ node: other.chapter.querySelector('p')!.firstChild!, offset: 0 }) })
+    await other.open()
+    await reader.open(MIDDLE)
+    const before = reader.boxReads()
+    reader.scrollBy(600)
+    await reader.settle()
+    expect(reader.boxReads()).toBe(before)
+  })
+
   it('E26 current() follows a scroll the engine has not read yet (the app went to the background)', async () => {
     const reader = makeReader()
     await reader.open(MIDDLE)

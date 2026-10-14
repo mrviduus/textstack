@@ -12,6 +12,7 @@ declare global {
       offsetOf(loc: Locator): number | null
       yOf(offset: number): number
       lineHeight(): number
+      offLine(offset: number, y: number): number
       placeAt(offset: number): Locator
       text(): string
     }
@@ -204,15 +205,73 @@ test('E45 a popup over the reading line while the reader scrolls: every scroll r
   }
 })
 
-test('E45 under a popup, floated figures with captions beside the reading line still read the text on the line', async ({ page }) => {
-  await openChapter(page, 'moby-dick-5-float')   // a float every third paragraph: caption text sits below the lines after it
+// Font metrics move where floats and gaps fall (CI's Linux fonts failed where the Mac passed): several fonts.
+for (const [font, width] of ['Georgia, serif', 'serif', 'sans-serif', 'monospace', 'Verdana'].flatMap((f) => [[f, 412], [f, 600]] as const)) {
+  test(`E45 under a popup, floated figures with captions beside the reading line still read the text on the line: ${font} @${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 839 })
+    await openChapter(page, 'moby-dick-5-float')   // a float every third paragraph: caption text sits below the lines after it
+    await page.addStyleTag({ content: `#reader { font-family: ${font} !important }` })
+    await cover(page, { top: '20%', height: '10%' })
+    try {
+      for (let i = 1; i <= 24; i++) {
+        await readerScrolls(page, i / 25)
+        // The rule, checked by brute force over every line box of the chapter: text on the reading line is
+        // found on it (0 away); with none (a gap, or beside a figure), the text found is the nearest below.
+        const r = await page.evaluate(() => {
+          const at = window.pg.offsetOf(window.engine.current()!)!
+          const y = scrollY + innerHeight * 0.25
+          const walker = document.createTreeWalker(document.querySelector('#reader')!.firstElementChild!, NodeFilter.SHOW_TEXT)
+          const range = document.createRange()
+          let below = Infinity
+          let onLine = false
+          for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+            range.selectNodeContents(n)
+            for (const b of Array.from(range.getClientRects()).filter((b) => b.width > 0 && b.height > 0)) {
+              const top = b.top + scrollY
+              if (top <= y && y < b.bottom + scrollY) onLine = true
+              else if (top > y) below = Math.min(below, top - y)
+            }
+          }
+          return { off: window.pg.offLine(at, y), want: onLine ? 0 : below, y, found: window.pg.text().slice(at, at + 40) }
+        })
+        expect(Math.abs(r.off - r.want), `at ${i}/25: reading line y=${r.y}, found ${JSON.stringify(r.found)} ${r.off} away, the nearest text ${r.want}`).toBeLessThan(1)
+      }
+    } finally {
+      await uncover(page)
+    }
+  })
+}
+
+test('E45 a covered reading line in a gap between blocks reads the next text with a bounded search, not a scan of the chapter', async ({ page }) => {
+  await openChapter(page, 'ulysses-15')   // 2760 table cells: a scan of every text node is thousands of box reads
   await cover(page, { top: '20%', height: '10%' })
   try {
-    for (let i = 1; i <= 24; i++) {
-      await readerScrolls(page, i / 25)
-      const r = await placeOffLine(page)
-      expect(r.dy, `at ${i}/25`).toBeLessThan(r.line)
-    }
+    const r = await page.evaluate(async () => {
+      // A gap between two blocks, put on the reading line.
+      const blocks = Array.from(document.querySelectorAll<HTMLElement>('#reader p, #reader tr'))
+        .map((el) => el.getBoundingClientRect()).map((b) => ({ top: b.top + scrollY, bottom: b.bottom + scrollY }))
+        .sort((a, b) => a.top - b.top)
+      const i = blocks.findIndex((b, k) => k > 50 && blocks[k + 1] && blocks[k + 1].top - b.bottom > 6)
+      const gap = (blocks[i].bottom + blocks[i + 1].top) / 2
+      let reads = 0
+      const own = Range.prototype.getClientRects
+      Range.prototype.getClientRects = function () { reads++; return own.call(this) }
+      try {
+        await new Promise<void>((done) => {
+          const off = window.engine.on('relocated', (e) => { if (e.reason === 'scroll') { off(); done() } })
+          window.scrollTo(0, gap - innerHeight * 0.25)
+        })
+      } finally {
+        Range.prototype.getClientRects = own
+      }
+      return { reads, ...((): { dy: number; line: number } => ({
+        dy: window.pg.yOf(window.pg.offsetOf(window.engine.current()!)!) - (scrollY + innerHeight * 0.25),
+        line: window.pg.lineHeight(),
+      }))() }
+    })
+    expect(r.reads).toBeLessThan(100)
+    expect(r.dy, 'the next text, just below the line').toBeGreaterThan(0)
+    expect(r.dy).toBeLessThan(3 * r.line)
   } finally {
     await uncover(page)
   }

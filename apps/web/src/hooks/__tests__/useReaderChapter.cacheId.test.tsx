@@ -20,7 +20,7 @@ const getChapter = vi.fn(async (_b: string, slug: string) => ({
 }))
 
 vi.mock('../useApi', () => ({ useApi: () => api }))
-const recovery = { markFetchStart: () => {}, wasAbortedDueToWake: () => false }
+const recovery = { markFetchStart: () => {}, wasAbortedDueToWake: vi.fn(() => false) }
 const api = { getBook, getChapter }
 vi.mock('../useNetworkRecovery', () => ({ useNetworkRecovery: () => recovery }))
 vi.mock('../../lib/offlineDb', () => ({
@@ -63,65 +63,68 @@ describe('useReaderChapter — cache path chapter id', () => {
   })
 })
 
-describe('useReaderChapter — reload (Try again, #849)', () => {
-  it('reload skips the cache once: the chapter comes from the network, without a loading screen', async () => {
-    const { result, rerender } = renderHook(
+describe('useReaderChapter — retryChapter (Try again, #849)', () => {
+  const fresh = (slug: string) => ({ id: ids[slug], chapterNumber: 0, slug, title: slug, html: '<p>fresh</p>', wordCount: 10, prev: null, next: null })
+  /** 'two' from the network, then 'one' from the cache: the reader is on a cached chapter. */
+  async function onCachedChapter() {
+    const hook = renderHook(
       (slug: string) => useReaderChapter({ mode: 'public', bookSlug: 'b', chapterSlug: slug, isAuthenticated: true }),
       { initialProps: 'two' },
     )
-    await waitFor(() => expect(result.current.chapter?.identifier).toBe('two'))
-    rerender('one')
-    await waitFor(() => expect(result.current.chapter?.identifier).toBe('one'))   // from the cache
+    await waitFor(() => expect(hook.result.current.chapter?.identifier).toBe('two'))
+    hook.rerender('one')
+    await waitFor(() => expect(hook.result.current.chapter?.identifier).toBe('one'))
     getChapter.mockClear()
-    getChapter.mockImplementationOnce(async (_b: string, slug: string) => ({
-      id: ids[slug], chapterNumber: 0, slug, title: slug, html: '<p>fresh</p>', wordCount: 10, prev: null, next: null,
-    }))
-    const loadId = result.current.loadId
-    let landed: Promise<boolean> | undefined
-    act(() => { landed = result.current.reload() })
-    expect(result.current.loading).toBe(false)   // the reader stays on screen
-    await waitFor(() => expect(result.current.chapter?.html).toBe('<p>fresh</p>'))
-    expect(await landed).toBe(true)
-    expect(getChapter).toHaveBeenCalledWith('b', 'one')
-    expect(result.current.loadId).toBe(loadId + 1)   // a landed load, even with the same html
-  })
+    vi.mocked(cacheChapter).mockClear()
+    return hook
+  }
 
-  it('a reload that fails (offline) keeps the reader: no page error, the chapter on screen stays', async () => {
-    const { result, rerender } = renderHook(
-      (slug: string) => useReaderChapter({ mode: 'public', bookSlug: 'b', chapterSlug: slug, isAuthenticated: true }),
-      { initialProps: 'two' },
-    )
-    await waitFor(() => expect(result.current.chapter?.identifier).toBe('two'))
-    rerender('one')
-    await waitFor(() => expect(result.current.chapter?.identifier).toBe('one'))
-    const before = result.current.chapter
-    const loadId = result.current.loadId
-    getChapter.mockClear()
-    getChapter.mockRejectedValueOnce(new Error('offline'))
-    let landed: Promise<boolean> | undefined
-    act(() => { landed = result.current.reload() })
-    await waitFor(() => expect(getChapter).toHaveBeenCalled())
-    await act(async () => { await new Promise((r) => setTimeout(r, 0)) })
-    expect(await landed).toBe(false)   // Try again says it is still failing
-    expect(result.current.error).toBeNull()
-    expect(result.current.chapter).toBe(before)
-    expect(result.current.loadId).toBe(loadId)   // nothing landed: the in-reader error stays
+  it('fetches the chapter from the network first, then shows it and caches it; no loading screen', async () => {
+    const { result } = await onCachedChapter()
+    getChapter.mockResolvedValueOnce(fresh('one'))
+    let landed!: Promise<boolean>
+    act(() => { landed = result.current.retryChapter() })
     expect(result.current.loading).toBe(false)
+    expect(await act(() => landed)).toBe(true)
+    expect(getChapter).toHaveBeenCalledWith('b', 'one')
+    expect(result.current.chapter?.html).toBe('<p>fresh</p>')
+    expect(cacheChapter).toHaveBeenCalledWith(ED_ID, expect.objectContaining({ html: '<p>fresh</p>' }))
   })
 
-  it('a failed reload is one load: the next chapter reads the cache again, with its loading screen', async () => {
-    const { result, rerender } = renderHook(
-      (slug: string) => useReaderChapter({ mode: 'public', bookSlug: 'b', chapterSlug: slug, isAuthenticated: true }),
-      { initialProps: 'two' },
-    )
-    await waitFor(() => expect(result.current.chapter?.identifier).toBe('two'))
+  it('offline: nothing changes, no page error, the cache stays; resolves false', async () => {
+    const { result } = await onCachedChapter()
+    const before = result.current.chapter
     getChapter.mockRejectedValueOnce(new Error('offline'))
-    act(() => { void result.current.reload() })
-    await act(async () => { await new Promise((r) => setTimeout(r, 0)) })
-    getChapter.mockClear()
-    rerender('one')
-    expect(result.current.loading).toBe(true)
-    await waitFor(() => expect(result.current.chapter?.identifier).toBe('one'))
-    expect(getChapter).not.toHaveBeenCalled()   // from the cache
+    let landed!: Promise<boolean>
+    act(() => { landed = result.current.retryChapter() })
+    expect(await act(() => landed)).toBe(false)
+    expect(result.current.error).toBeNull()
+    expect(result.current.loading).toBe(false)
+    expect(result.current.chapter).toBe(before)
+    expect(cacheChapter).not.toHaveBeenCalled()
+  })
+
+  it('the reader goes to another chapter during the retry: the retry is dropped, nothing leaks into it', async () => {
+    const { result, rerender } = await onCachedChapter()
+    let answer!: (c: unknown) => void
+    getChapter.mockImplementationOnce(() => new Promise((r) => { answer = r }) as never)
+    let landed!: Promise<boolean>
+    act(() => { landed = result.current.retryChapter() })
+    rerender('two')
+    await waitFor(() => expect(result.current.chapter?.identifier).toBe('two'))
+    answer(fresh('one'))
+    expect(await act(() => landed)).toBe(false)
+    expect(result.current.chapter?.identifier).toBe('two')
+    expect(cacheChapter).not.toHaveBeenCalledWith(ED_ID, expect.objectContaining({ html: '<p>fresh</p>' }))
+  })
+
+  it('a wake from sleep aborts the fetch: that is no answer, the retry asks again', async () => {
+    const { result } = await onCachedChapter()
+    getChapter.mockRejectedValueOnce(new DOMException('aborted', 'AbortError')).mockResolvedValueOnce(fresh('one'))
+    recovery.wasAbortedDueToWake.mockReturnValueOnce(true)
+    let landed!: Promise<boolean>
+    act(() => { landed = result.current.retryChapter() })
+    expect(await act(() => landed)).toBe(true)
+    expect(result.current.chapter?.html).toBe('<p>fresh</p>')
   })
 })

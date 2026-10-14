@@ -77,6 +77,8 @@ const COLORS = {
 }
 const DRAW: Record<Mark['group'], DrawFn> = { highlight: Overlayer.highlight, search: Overlayer.highlight, word: Overlayer.underline, selection: Overlayer.highlight }
 const SVG = 'http://www.w3.org/2000/svg'
+/** On every engine's root: its text is reader text, never a cover over another engine's line (E45). */
+const MARK = 'data-reader-engine'
 /** A translation label's look (E44), as both hosts styled `.reader-translation` before. */
 const LABEL_LOOK = 'font: italic 400 0.42em -apple-system, system-ui, sans-serif; opacity: .55'
 /** Style `'dot'` (E31): a small dot just after the item's last line, no fill (web's reviewed highlight). */
@@ -175,6 +177,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
   const rootPosition = root.style.position
   if (['static', ''].includes(win.getComputedStyle(root).position)) root.style.position = 'relative'
   root.replaceChildren(content, layer)
+  root.setAttribute(MARK, '')
   const fontFaces = doc.createElement('style')
 
   let alive = true
@@ -268,7 +271,8 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
       // place on this line; the next x is.
       const at = c && c.node.nodeType === Node.TEXT_NODE ? offsetIn(c.node, c.offset) : null
       if (at !== null) return at
-      if (c && !root.contains(c.node)) covered = true
+      // Another engine's chapter (web's next one) is reader text, not a cover.
+      if (c && !root.contains(c.node) && !c.node.parentElement?.closest(`[${MARK}]`)) covered = true
     }
     return covered ? 'covered' : null
   }
@@ -289,37 +293,47 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
     return lo < nodes.length ? starts.get(nodes[lo])! : text.length
   }
 
-  /** The line box (root-relative) of an offset's first visible character; null where there is none (jsdom). */
+  /**
+   * The line box (root-relative) of the first visible character from an offset, within 64 (whitespace,
+   * soft hyphens, zero-width spaces and hidden text have none); null: none there (jsdom).
+   */
   function boxAt(offset: number): Rect | null {
-    let at = offset
-    while (at < text.length - 1 && /[\s­​]/.test(text[at])) at++
-    const range = rangeOf(at, 1)
-    return (range && rectsOf(range)[0]) || null
+    for (let at = offset; at < Math.min(text.length, offset + 64); at++) {
+      const range = /[\s\u00AD\u200B]/.test(text[at]) ? null : rangeOf(at, 1)
+      const r = range && rectsOf(range)[0]
+      if (r) return r
+    }
+    return null
   }
 
   /**
-   * E45: the first character of the line at content y, by the text's own boxes, no hit test: the text
-   * under a popup or a drawer. Two binary searches (the line, then its start); null with no boxes.
+   * E45: the text on the line at content y by the text's own boxes, no hit test: what is under a popup or
+   * a drawer. A binary search for the first character whose line ends below y (line tops rise with the
+   * text): on the line, or the next text after a gap. Not on the line: a float (a figure caption) may
+   * be, out of text order, so the text nodes near it are checked. Null with no boxes (jsdom).
    */
   function offsetAtLine(y: number): number | null {
-    const top = (at: number) => boxAt(at)?.y
     const line = y - measure(root).top
-    if (top(0) === undefined) return null
-    let lo = 0
-    let hi = text.length - 1
-    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if ((top(mid) ?? Infinity) <= line) lo = mid; else hi = mid - 1 }
-    const lineTop = top(lo)! - 1
-    let a = 0
-    while (a < lo) { const mid = (a + lo) >> 1; if ((top(mid) ?? -Infinity) >= lineTop) lo = mid; else a = mid + 1 }
-    const on = (r?: Rect | null) => !!r && r.y <= line && line < r.y + r.height
-    if (on(boxAt(a))) return a
-    // A float (a figure caption) puts line tops out of text order: the text node with a box on the line.
+    const on = (r: Rect | null) => !!r && r.y <= line && line < r.y + r.height
+    const first = (a: number, b: number) => {
+      while (a < b) { const m = (a + b) >> 1; const r = boxAt(m); if (!r || r.y + r.height > line) b = m; else a = m + 1 }
+      return a
+    }
+    const at = first(0, text.length)
+    const r = boxAt(at)
+    if (!r || on(r)) return r && at
+    // Nearby nodes: one on the line, else the text starting nearest below it (a float's paragraph, not its caption).
+    let next = at
+    let top = r.y
     for (const t of nodes) {
       const s = starts.get(t)!
-      const r = rangeOf(s, t.length)
-      if (r && rectsOf(r).some(on)) for (let i = s; i < s + t.length; i++) if (on(boxAt(i))) return i
+      const range = s < at + 500 && s + t.length > at - 500 && rangeOf(s, t.length)
+      const rs = range ? rectsOf(range) : []
+      if (rs.some(on)) return first(s, s + t.length)
+      const below = rs.find((b) => b.y > line)
+      if (below && below.y < top) [next, top] = [first(s, s + t.length), below.y]
     }
-    return a
+    return next
   }
 
   /**
@@ -800,6 +814,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
       unobserve()
       fontFaces.remove()
       root.replaceChildren()
+      root.removeAttribute(MARK)
       root.style.position = rootPosition
       if (--anchorHold.count === 0) {
         anchorHolds.delete(scroller)
