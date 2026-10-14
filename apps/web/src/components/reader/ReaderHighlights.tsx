@@ -19,7 +19,7 @@ import { HighlightOverlayLayer, COLOR_MAP as HIGHLIGHT_COLORS } from './Highligh
 import { VocabOverlayLayer, COLOR_PER_STAGE as VOCAB_STAGE_COLORS, ACTIVE_COLOR as VOCAB_ACTIVE_COLOR } from './VocabOverlayLayer'
 import { INACTIVE_COLOR as SEARCH_COLOR } from './SearchOverlayLayer'
 import { isReviewed, useReviewedMarks } from './ReviewedMarks'
-import { anchorToLocator } from '@textstack/reader-engine'
+import { anchorToLocator, locatorToPdfAnchor } from '@textstack/reader-engine'
 import { highlightChapterKey, isChapterKey } from '../../lib/textAnchor'
 import { TranslationPopup } from './TranslationPopup'
 import { ExplanationPopup } from './ExplanationPopup'
@@ -29,7 +29,7 @@ import { TtsHighlightOverlay } from './TtsHighlightOverlay'
 import { ImageLightbox } from './ImageLightbox'
 import { Toast } from '../Toast'
 import { useAuth } from '../../context/AuthContext'
-import { READER_ENGINE, mountedEngineFor } from '../../lib/readerEngine'
+import { READER_ENGINE, READER_ENGINE_PDF, mountedEngineFor } from '../../lib/readerEngine'
 
 interface ReaderHighlightsProps {
   editionId: string
@@ -69,7 +69,10 @@ interface ReaderHighlightsProps {
    * PDF subtree, not the reflow overlay. Absent → the reflow highlight path.
    */
   onPdfHighlight?: (anchor: PdfAnchor, text: string, color: HighlightColor) => void | Promise<unknown>
-  /** READER_ENGINE: the chapter whose engine open has landed; its events drive the popups. */
+  /**
+   * READER_ENGINE: the chapter whose engine open has landed; its events drive the popups. Original-layout PDF
+   * with READER_ENGINE_PDF: the PDF engine's slot (`pdf:<bookId>`) — its selection drives the toolbar.
+   */
   engineOpenedFor?: string | null
   /** READER_ENGINE: the drawer's hits (useInBookSearch, the engine's find), painted by the engine. Undefined = closed. */
   searchMatches?: SearchMatch[]
@@ -129,9 +132,11 @@ export function ReaderHighlights({
   const targetLang = resolveTargetLang(nativeLanguage, bookLanguage)
 
   // --- Text selection ---
-  // ADR-025 Phase 4: the engine shows reflow chapters; the Original-layout PDF keeps the DOM path until Phase 5.
+  // ADR-025 Phase 4: the engine shows reflow chapters; Phase 5: the Original-layout PDF too, behind its own flag.
   // Undefined = the old DOM listeners (selection, image click); else the engine's events, never both (gap 8).
-  const engineHref = READER_ENGINE && !liveActionsOnly ? engineOpenedFor : undefined
+  const engineHref = (liveActionsOnly ? READER_ENGINE_PDF : READER_ENGINE) ? engineOpenedFor : undefined
+  // Highlight paint, taps and jumps on a PDF stay with the PDF view (stored rects, its own edit popup).
+  const reflowEngineHref = liveActionsOnly ? undefined : engineHref
   const { selection, clearSelection, hasSelection } = useTextSelection(containerRef, { engineHref })
 
   const selectionWordCount = countWords(selection.text)
@@ -172,7 +177,7 @@ export function ReaderHighlights({
     pdfLinkJumps: liveActionsOnly,
     scrollToHl,
     onNavigateToHighlight,
-    engineHref,
+    engineHref: reflowEngineHref,
   })
 
   // --- TTS ---
@@ -228,10 +233,11 @@ export function ReaderHighlights({
       // Original-layout PDF: build a quad-rect anchor from the selection over the
       // pdf.js text layer and hand it up; the PDF subtree paints + persists it.
       if (onPdfHighlight) {
-        if (selection.range) {
-          const anchor = computePdfAnchorFromRange(selection.range, containerRef.current)
-          if (anchor) await onPdfHighlight(anchor, selection.text, color)
-        }
+        // The engine's selection carries page + rects (E40): today's PdfAnchor, byte for byte.
+        const fromEngine = selection.locator && locatorToPdfAnchor(selection.locator)
+        const anchor = fromEngine ? JSON.parse(fromEngine) as PdfAnchor
+          : selection.range ? computePdfAnchorFromRange(selection.range, containerRef.current) : null
+        if (anchor) await onPdfHighlight(anchor, selection.text, color)
         clearSelection()
         translationPopup.close()
         return
@@ -286,6 +292,7 @@ export function ReaderHighlights({
   const engineOn = READER_ENGINE && !liveActionsOnly
   const reviewed = useReviewedMarks()
   useEffect(() => {
+    const engineHref = reflowEngineHref
     const engine = mountedEngineFor(engineHref ?? undefined)?.engine
     if (!engine || !engineHref) return
     engine.decorate('highlight', highlights.flatMap((h) => {
@@ -295,16 +302,16 @@ export function ReaderHighlights({
       const fill = { id: h.id, locator, style: HIGHLIGHT_COLORS[h.color] }
       return isReviewed(reviewed, h.id) ? [fill, { id: h.id, locator, style: 'dot' }] : [fill]
     }))
-  }, [engineHref, highlights, reviewed, chapterId])
+  }, [reflowEngineHref, highlights, reviewed, chapterId])
 
   useEffect(() => {
-    const engine = mountedEngineFor(engineHref ?? undefined)?.engine
+    const engine = mountedEngineFor(reflowEngineHref ?? undefined)?.engine
     if (!engine) return
     return engine.on('decorationTap', ({ group, id, rect }) => {
       const h = group === 'highlight' && highlights.find((x) => x.id === id)
       if (h) handleHighlightClick(h, new DOMRect(rect.x, rect.y, rect.width, rect.height))
     })
-  }, [engineHref, highlights, handleHighlightClick])
+  }, [reflowEngineHref, highlights, handleHighlightClick])
 
   // Saved words by SRS stage; the word in the open popup (saved or not yet) stronger, with its translation.
   const bubbleWord = bubble?.word

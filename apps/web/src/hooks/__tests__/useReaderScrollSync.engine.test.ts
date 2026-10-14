@@ -108,6 +108,18 @@ describe('useReaderScrollSync with the engine — restore', () => {
     expect(engine.goTo.mock.calls[0][0]).toEqual({ href: 'ch1', type: 'text/html', locations: { progression: 0 } })
   })
 
+  it('restore_LayoutSwitchesBackToReflow_RestoresAgain', async () => {
+    // READER_ENGINE_PDF: the Original PDF scrolls the window; coming back to reflow must not keep its scrollTop.
+    const { engine } = fakeEngine('ch1')
+    const { rerender } = renderHook((p: Props) => useReaderScrollSync(p), { initialProps: baseProps() })
+    await settle()
+    rerender({ ...baseProps(), originalActive: true })
+    await settle()
+    rerender(baseProps())
+    await settle()
+    expect(engine.goTo).toHaveBeenCalledTimes(2)
+  })
+
   it('restore_AnotherChaptersPosition_NotUsed', async () => {
     const { engine } = fakeEngine('ch2')
     renderHook(() => useReaderScrollSync({ ...baseProps(), chapterIdentifier: 'ch2', publicBookChapters: [{ id: 'ch2-id', slug: 'ch2' }] as Props['publicBookChapters'], effectiveProgress: { positionJson: positionAt('ch1', 35) } }))

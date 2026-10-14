@@ -311,12 +311,13 @@ export function useReaderScrollSync({
     return () => clearTimeout(timer)
   }, [held, chapterLoaded, originalActive, chapterIdentifier])
 
-  // Reset restore guard on chapter change.
+  // Reset restore guard on chapter change, and on a layout switch (READER_ENGINE_PDF's Original PDF
+  // scrolls the window: back in reflow, its scrollTop is not the chapter's place).
   useEffect(() => {
     scrollRestoredRef.current = false
     heldOpenRef.current = false
     setRestoredFor(null)
-  }, [chapterIdentifier])
+  }, [chapterIdentifier, originalActive])
 
   // With the engine: its own moves reset the baseline before the scroll event each one causes, so that
   // event reads as our echo, never the reader's — whatever positioned the chapter (restore, a highlight

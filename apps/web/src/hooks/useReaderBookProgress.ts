@@ -13,13 +13,15 @@ interface Params {
   chapterId: string | undefined
   /** "Finish book" pressed: the bar shows 100%. */
   bookCompleted: boolean
+  /** The window scrolls something that is not the chapter (READER_ENGINE_PDF's PDF): no intra-chapter progress. */
+  ignoreScroll?: boolean
 }
 
 /**
  * Where the reader is in the book: intra-chapter scroll (window scroll) and the
  * book-wide percent, clamped monotonically within a session.
  */
-export function useReaderBookProgress({ mode, publicBook, book, chapterIdentifier, chapterId, bookCompleted }: Params) {
+export function useReaderBookProgress({ mode, publicBook, book, chapterIdentifier, chapterId, bookCompleted, ignoreScroll = false }: Params) {
   // Chapter list for progress + TOC. URL chapter is authoritative — single
   // chapter mounted per view.
   const chapterList = useMemo(() => {
@@ -45,6 +47,10 @@ export function useReaderBookProgress({ mode, publicBook, book, chapterIdentifie
   // Single chapter mounted; native window scroll drives intra-chapter progress.
   const [overlayScrollProgress, setOverlayScrollProgress] = useState(0)
   useEffect(() => {
+    if (ignoreScroll) {
+      setOverlayScrollProgress(0)
+      return
+    }
     const read = () => {
       const doc = document.scrollingElement || document.documentElement
       const max = doc.scrollHeight - doc.clientHeight
@@ -58,7 +64,7 @@ export function useReaderBookProgress({ mode, publicBook, book, chapterIdentifie
       window.removeEventListener('scroll', read)
       window.removeEventListener('resize', read)
     }
-  }, [chapterId])
+  }, [chapterId, ignoreScroll])
 
   // Overall book progress = words-read / total-words across chapters,
   // driven by URL chapter + intra-chapter scroll.

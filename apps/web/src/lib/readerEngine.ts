@@ -1,20 +1,24 @@
 import type { ReaderEngine } from '@textstack/reader-engine'
 
-const OVERRIDE_KEY = 'textstack:reader-engine'
+/** An owner override: `?engine=<on>` keeps it on in this browser, `?engine=<off>` clears it. */
+interface Override { key: string; on: string; off: string }
+const REFLOW_OVERRIDE: Override = { key: 'textstack:reader-engine', on: '1', off: '0' }
+/** Phase 5 (answer 2b): the PDF engine has its own flag, so a PDF rollback never rolls reflow back. */
+export const PDF_OVERRIDE: Override = { key: 'textstack:reader-engine-pdf', on: 'pdf', off: 'pdf0' }
 
 /**
  * ADR-025 Phase 4: reflow chapters are read through the reader engine. `VITE_READER_ENGINE=true`
  * (apps/web/production.env) turns it on for everyone; before that, `?engine=1` turns it on for this
- * browser (kept in localStorage, `?engine=0` clears it) so the owner can try it on prod. The override
- * goes in Phase 6.
+ * browser (kept in localStorage, `?engine=0` clears it) so the owner can try it on prod. Phase 5: the
+ * same for PDFs with `VITE_READER_ENGINE_PDF` and `?engine=pdf` / `?engine=pdf0`. The overrides go in Phase 6.
  */
-export function readerEngineEnabled(env: string | undefined, search: string, storage: Storage | null): boolean {
+export function readerEngineEnabled(env: string | undefined, search: string, storage: Storage | null, o: Override = REFLOW_OVERRIDE): boolean {
   if (env === 'true') return true
   if (!storage) return false
   const q = new URLSearchParams(search).get('engine')
-  if (q === '1') storage.setItem(OVERRIDE_KEY, '1')
-  if (q === '0') storage.removeItem(OVERRIDE_KEY)
-  return storage.getItem(OVERRIDE_KEY) === '1'
+  if (q === o.on) storage.setItem(o.key, '1')
+  if (q === o.off) storage.removeItem(o.key)
+  return storage.getItem(o.key) === '1'
 }
 
 function localStorageOrNull(): Storage | null {
@@ -24,6 +28,10 @@ function localStorageOrNull(): Storage | null {
 /** Read once per page load, at app start (main.tsx imports this): the reader never switches engines mid-chapter. */
 export const READER_ENGINE = typeof window !== 'undefined'
   && readerEngineEnabled(import.meta.env.VITE_READER_ENGINE, window.location.search, localStorageOrNull())
+
+/** The Original-layout PDF through the engine's fixed layout (Phase 5 slice 3); read once, like READER_ENGINE. */
+export const READER_ENGINE_PDF = typeof window !== 'undefined'
+  && readerEngineEnabled(import.meta.env.VITE_READER_ENGINE_PDF, window.location.search, localStorageOrNull(), PDF_OVERRIDE)
 
 /** The engine showing the chapter, as ReaderSection opened it. */
 export interface MountedEngine {

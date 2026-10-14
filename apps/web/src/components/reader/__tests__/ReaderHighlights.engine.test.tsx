@@ -7,9 +7,12 @@ import type { EngineEvents, Locator, ReaderEngine } from '@textstack/reader-engi
 // (hold, drag, a desktop double-click) → WordPopup / SelectionToolbar, imageTap → lightbox,
 // linkClick → footnote jump / new tab — and the old DOM listeners stay off (gap 8). Slice 4: the engine
 // draws highlights (+ the reviewed dot), saved words and search hits; the old overlay layers stay off.
+// Phase 5 slice 3: the PDF engine flag, per test (off unless a test turns it on).
+let pdfEngineFlag = false
 vi.mock('../../../lib/readerEngine', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../lib/readerEngine')>()),
   READER_ENGINE: true,
+  get READER_ENGINE_PDF() { return pdfEngineFlag },
 }))
 vi.mock('../../../hooks/useTranslation', () => ({ useTranslation: () => ({ t: (k: string) => k }) }))
 vi.mock('../../../context/NativeLanguageContext', () => ({
@@ -407,6 +410,68 @@ describe('ReaderHighlights with the engine', () => {
 
     rerender(renderReaderElement({ searchMatches: [] }))
     expect(eng.engine.decorate).toHaveBeenLastCalledWith('search', [])
+  })
+})
+
+describe('ReaderHighlights with the PDF engine (Phase 5 slice 3)', () => {
+  let eng: ReturnType<typeof fakeEngine>
+  const onPdfHighlight = vi.fn(async (..._a: unknown[]) => {})
+  const containerRef = createRef<HTMLDivElement>()
+  const rects = [{ x: 10, y: 20, w: 30, h: 8 }]
+  const pdfSelection: EngineEvents['selection'] = {
+    locator: { type: 'application/pdf', locations: { position: 3 }, text: { highlight: 'the coins' }, ext: { rects } },
+    text: 'the coins', sentence: SENTENCE, source: 'drag', tooLong: false, rect: { x: 10, y: 20, width: 30, height: 8 },
+  }
+  const pdfReader = (props: Partial<Parameters<typeof ReaderHighlights>[0]> = {}) => render(
+    <ReaderHighlights
+      editionId="e1" chapterId="" containerRef={containerRef} engineOpenedFor="pdf:b1" liveActionsOnly onPdfHighlight={onPdfHighlight}
+      highlights={[]} addHighlight={vi.fn()} updateHighlight={vi.fn()} removeHighlight={vi.fn()}
+      {...props}
+    >
+      <div ref={containerRef}><div className="pdf-engine__pages" /></div>
+    </ReaderHighlights>,
+  )
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    pdfEngineFlag = true
+    eng = fakeEngine()
+    setMountedEngine({ engine: eng.engine, href: 'pdf:b1' })
+  })
+  afterEach(() => {
+    cleanup()
+    pdfEngineFlag = false
+    unmountEngine(eng.engine)
+  })
+
+  it('pdfEngine_Highlight_SavesTodaysPdfAnchorFromTheSelectionsLocator', async () => {
+    pdfReader()
+    await eng.emit('selection', pdfSelection)
+    await act(async () => { fireEvent.click(screen.getByLabelText('reader.selectionToolbar.highlightGreen')) })
+    expect(onPdfHighlight).toHaveBeenCalledWith({ v: 1, kind: 'pdf', page: 3, rects, exact: 'the coins' }, 'the coins', 'green')
+    expect(eng.engine.clearSelection).toHaveBeenCalled()
+  })
+
+  it('pdfEngine_SeveralWords_TranslateCarriesTheSentence', async () => {
+    pdfReader()
+    await eng.emit('selection', pdfSelection)
+    fireEvent.click(screen.getByLabelText('reader.selectionToolbar.translate'))
+    expect(translate).toHaveBeenCalledWith('the coins', undefined, undefined, expect.objectContaining({ sentence: SENTENCE }))
+  })
+
+  it('pdfEngine_HighlightPaintAndTaps_StayWithThePdfView', async () => {
+    const hl = { id: 'h1', anchor: { v: 1, kind: 'pdf', page: 3, rects, exact: 'the coins' }, color: 'yellow' } as unknown as StoredHighlight
+    pdfReader({ highlights: [hl] })
+    expect(eng.engine.decorate.mock.calls.filter(([g]) => g === 'highlight')).toEqual([])
+    await eng.emit('decorationTap', { group: 'highlight', id: 'h1', rect: { x: 1, y: 2, width: 3, height: 4 } })
+    expect(screen.queryByLabelText('reader.noteEditor.close')).toBeNull()
+  })
+
+  it('pdfEngineFlagOff_OriginalPdf_KeepsTheDomSelection', async () => {
+    pdfEngineFlag = false
+    pdfReader()
+    await eng.emit('selection', pdfSelection)
+    expect(screen.queryByLabelText('reader.selectionToolbar.translate')).toBeNull()
   })
 })
 

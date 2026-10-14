@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { readerEngineEnabled, mountedEngineFor, setMountedEngine, unmountEngine } from './readerEngine'
+import { readerEngineEnabled, PDF_OVERRIDE, mountedEngineFor, setMountedEngine, unmountEngine } from './readerEngine'
 import type { ReaderEngine } from '@textstack/reader-engine'
 
 describe('readerEngineEnabled (Phase 4 flag, owner decision 1)', () => {
@@ -26,6 +26,32 @@ describe('readerEngineEnabled (Phase 4 flag, owner decision 1)', () => {
 
   it('readerEngineEnabled_NoStorage_OffWithoutEnv', () => {
     expect(readerEngineEnabled(undefined, '?engine=1', null)).toBe(false)
+  })
+})
+
+describe('readerEngineEnabled for PDF (Phase 5 answer 2b: its own flag and override)', () => {
+  beforeEach(() => localStorage.clear())
+
+  it('readerEngineEnabled_PdfOverride_OnlyThePdfFlag', () => {
+    expect(readerEngineEnabled(undefined, '?engine=pdf', localStorage, PDF_OVERRIDE)).toBe(true)
+    expect(readerEngineEnabled(undefined, '', localStorage)).toBe(false)
+    expect(readerEngineEnabled(undefined, '', localStorage, PDF_OVERRIDE)).toBe(true)
+  })
+
+  it('readerEngineEnabled_ReflowOverride_LeavesPdfOff', () => {
+    readerEngineEnabled(undefined, '?engine=1', localStorage)
+    expect(readerEngineEnabled(undefined, '?engine=1', localStorage, PDF_OVERRIDE)).toBe(false)
+  })
+
+  it('readerEngineEnabled_PdfZero_ClearsOnlyThePdfOverride', () => {
+    readerEngineEnabled(undefined, '?engine=1', localStorage)
+    readerEngineEnabled(undefined, '?engine=pdf', localStorage, PDF_OVERRIDE)
+    expect(readerEngineEnabled(undefined, '?engine=pdf0', localStorage, PDF_OVERRIDE)).toBe(false)
+    expect(readerEngineEnabled(undefined, '', localStorage)).toBe(true)
+  })
+
+  it('readerEngineEnabled_PdfEnvTrue_OnForEveryone', () => {
+    expect(readerEngineEnabled('true', '', localStorage, PDF_OVERRIDE)).toBe(true)
   })
 })
 

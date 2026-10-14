@@ -11,6 +11,8 @@ export default defineConfig({
     alias: {
       '@textstack/shared': path.resolve(__dirname, '../../packages/shared/src/index.ts'),
       '@textstack/reader-overlay': path.resolve(__dirname, '../../packages/reader-overlay/src/index.ts'),
+      // Before the bare name: an alias matches by prefix. The PDF layout, loaded lazily with pdf.js (Phase 5).
+      '@textstack/reader-engine/fixed': path.resolve(__dirname, '../../packages/reader-engine/src/fixed.ts'),
       '@textstack/reader-engine': path.resolve(__dirname, '../../packages/reader-engine/src/index.ts'),
     },
   },

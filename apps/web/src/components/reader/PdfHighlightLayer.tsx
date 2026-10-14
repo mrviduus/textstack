@@ -16,7 +16,7 @@ import { isReviewed, useReviewedMarks } from './ReviewedMarks'
 
 // Same palette as the reflow overlay (HighlightOverlayLayer COLOR_MAP), as rgba
 // so `multiply` reads the alpha. CSS-var-driven so themes can override.
-const COLOR_MAP: Record<HighlightColor, string> = {
+export const COLOR_MAP: Record<HighlightColor, string> = {
   yellow: 'var(--reader-overlay-hl-yellow, rgba(254, 240, 138, 0.5))',
   green: 'var(--reader-overlay-hl-green, rgba(187, 247, 208, 0.5))',
   pink: 'var(--reader-overlay-hl-pink, rgba(251, 207, 232, 0.5))',

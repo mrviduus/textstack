@@ -67,6 +67,12 @@ const SCROLL_IDLE_MS = 150
 const RENDER_MARGIN_PX = 300
 /** Keys that scroll the page: only they end a travelling jump (not Escape, not a modifier). */
 const SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', ' ', 'Spacebar', 'Home', 'End'])
+
+/** A key the reader scrolls the page with (E36): a scroll key, not typed into a field. Hosts use it too. */
+export function isReaderScrollKey(e: KeyboardEvent): boolean {
+  const typing = (e.target as Element | null)?.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])')
+  return SCROLL_KEYS.has(e.key) && !typing
+}
 const MIN_SCALE = 0.2
 const MAX_SCALE = 5
 const COLORS = {
@@ -116,6 +122,7 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
   let numPages = 0
   let scale = 1
   let zoom = 1
+  let insetTop = 0                        // the host's bars over the top of the screen (E42)
   const decorations: Record<Group, Item[]> = { highlight: [], search: [] }
   let held: { page: number; rects: PdfRect[] } | null = null   // the held word, marked until clearSelection
   let sent: Sent | null = null                                 // the selection the host has
@@ -170,7 +177,7 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
 
   function scrollToPage(n: number) {
     const s = slots[n - 1]
-    if (s) scrollTo(measure(s.el).top)
+    if (s) scrollTo(measure(s.el).top - insetTop)   // E42: below the host's bars
   }
 
   /** The page being read: the one filling most of the screen (QA-007 #3), the last one at the very end. */
@@ -195,7 +202,8 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
       return
     }
     deferred = null
-    const keep = op || scroller.scrollTop < 1 ? null : capturePageAnchor(rects(), 0)
+    // The spot under the insets line (E42), where a landing puts a page: not the line under the bars.
+    const keep = op || scroller.scrollTop < 1 ? null : capturePageAnchor(rects(), insetTop)
     const rescaled = next !== scale
     if (rescaled) slots.forEach(free)   // drawn at the old scale
     scale = next
@@ -206,7 +214,7 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
     })
     if (op) scrollToPage(op.page)
     else if (keep) {
-      const d = scrollDeltaForAnchor(keep, rects(), 0)
+      const d = scrollDeltaForAnchor(keep, rects(), insetTop)
       // Only when something above moved: a no-op scroll would still stop a fling.
       if (d !== null && Math.abs(d) >= 1) scrollTo(scroller.scrollTop + d)
     }
@@ -644,8 +652,7 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
   // The reader's own gesture ends a travelling jump where they are; a late landing must not snap them
   // back. Input events, not `scroll`: sizes streaming in move the scroll with no reader.
   const onGesture = (e: Event) => {
-    const typing = (e.target as Element | null)?.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])')
-    if (op && numPages && (!(e instanceof KeyboardEvent) || (SCROLL_KEYS.has(e.key) && !typing))) land(false)
+    if (op && numPages && (!(e instanceof KeyboardEvent) || isReaderScrollKey(e))) land(false)
   }
   const onTouchStart = () => { touchDown = true }
   const onTouchEnd = () => { touchDown = false; lastScrollAt = Date.now() }
@@ -696,6 +703,7 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
 
     // E38: zoom is the only style a PDF has (its colours are the scan's).
     setStyle(s, opId) {
+      if (s.insets) insetTop = Math.max(0, s.insets.top)   // for the next landing; the reader is not moved
       if (s.zoom !== undefined) {
         zoom = s.zoom === 'fit' ? 1 : s.zoom
         if (numPages) applySizes(fit(), true)

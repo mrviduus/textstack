@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { createEngine } from './engine'
+import { isReaderScrollKey } from './fixed'
 import { FILE_LENGTH, LANDSCAPE, LETTER, TALL, destroyAll, lineText, makePdfReader, quoteRect } from './fixed.testkit'
 import { locatorToPdfAnchor, pdfAnchorToLocator } from './mappers'
 import type { EngineEvents, Locator } from './api'
@@ -85,6 +86,27 @@ describe('a page position', () => {
       expect(reader.ack(`go-${page}`)).toEqual({ page, reason: 'goTo' })
       expect(reader.scrollTop).toBe(reader.pageTop(page))
     }
+  })
+
+  it("E42 with insets.top (the host's bars), open / goTo land the page's top that far below the top of the screen", async () => {
+    const reader = makePdfReader({ pages: 40 })
+    reader.setStyle({ insets: { top: 100, bottom: 0 } })
+    await reader.open(17, 'open-1')
+    expect(reader.scrollTop).toBe(reader.pageTop(17) - 100)
+    await reader.goTo(5, 'go-5')
+    expect(reader.ack('go-5').page).toBe(5)
+    expect(reader.scrollTop).toBe(reader.pageTop(5) - 100)
+    await reader.goTo(1, 'go-1')
+    expect(reader.scrollTop).toBe(Math.max(0, reader.pageTop(1) - 100))   // never above the top
+  })
+
+  it('E42 with insets.top, a zoom / size change keeps the spot under the insets line, not under the bars', async () => {
+    const reader = makePdfReader({ pages: 40 })
+    reader.setStyle({ insets: { top: 100, bottom: 0 } })
+    await reader.open(17, 'open-1')
+    reader.setStyle({ zoom: 2 })
+    await reader.settle()
+    expect(reader.scrollTop).toBe(reader.pageTop(17) - 100)
   })
 
   it('E33 a page past the end lands on the last page; page 0 on page 1', async () => {
@@ -311,6 +333,17 @@ describe('reading', () => {
       expect(reader.spot()!.page, gesture).toBe(where)
       destroyAll()
     }
+  })
+
+  it('E36 the scroll keys, shared with the host: arrows / PageDown / Space scroll; Escape does not; nor a key typed in a field', () => {
+    const key = (k: string, target: EventTarget = document.body) => {
+      const e = new KeyboardEvent('keydown', { key: k })
+      Object.defineProperty(e, 'target', { value: target })
+      return isReaderScrollKey(e)
+    }
+    expect(['ArrowDown', 'PageDown', ' ', 'End'].map((k) => key(k))).toEqual([true, true, true, true])
+    expect(key('Escape')).toBe(false)
+    expect(key('ArrowDown', document.createElement('input'))).toBe(false)
   })
 
   it('E36 a key that does not scroll (Escape, a modifier) leaves the jump travelling', async () => {
