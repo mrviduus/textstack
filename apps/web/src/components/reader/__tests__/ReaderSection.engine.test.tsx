@@ -115,6 +115,17 @@ describe('ReaderSection with the engine', () => {
     logged.mockRestore()
   })
 
+  it('engine_SupersededOpen_IsNotOpened_849', async () => {
+    const onEngineOpened = vi.fn()
+    const { rerender } = render(<ReaderSection chapterId="c1" chapterSlug="ch-1" chapterIndex={0} html="<p>One</p>" settings={settings} onEngineOpened={onEngineOpened} />)
+    await opened()
+    expect(onEngineOpened).toHaveBeenCalledTimes(1)
+    vi.spyOn(mountedEngineFor('ch-1')!.engine, 'open').mockResolvedValue('superseded')
+    rerender(<ReaderSection chapterId="c1" chapterSlug="ch-1" chapterIndex={0} html="<p>One, refreshed</p>" settings={settings} onEngineOpened={onEngineOpened} />)
+    await opened()
+    expect(onEngineOpened).toHaveBeenCalledTimes(1)
+  })
+
   it('engine_OpenRejectsAfterAnUnmount_ReportsNothing_849', async () => {
     const onEngineError = vi.fn()
     const logged = vi.spyOn(console, 'error').mockImplementation(() => {})

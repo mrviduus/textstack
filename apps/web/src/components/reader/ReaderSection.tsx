@@ -72,13 +72,16 @@ export const ReaderSection = forwardRef<ReaderSectionHandle, Props>(function Rea
     const here = engine.current()
     setMountedEngine({ engine, href: chapterSlug })
     void engine.open({ href: chapterSlug, layout: 'reflow', html: cleanHtml }, here?.href === chapterSlug ? here : undefined)
-      // Only the engine still mounted: React StrictMode (dev) destroys the first one mid-open.
-      .then(() => { if (engineRef.current === engine) onEngineOpenedRef.current?.(chapterSlug) })
-      .catch((e: unknown) => {
-        if (!live) return   // a destroy mid-open is not a failure
-        console.error('[reader] engine.open failed', e)   // web has no browser Sentry yet
-        onEngineErrorRef.current?.(chapterSlug)
-      })
+      .then(
+        // Only the open still current: a newer open, an unmount or StrictMode's (dev) destroy supersedes it.
+        (result) => { if (live && result !== 'superseded') onEngineOpenedRef.current?.(chapterSlug) },
+        // Only open's own rejection: an error thrown by onEngineOpened is not the engine failing.
+        (e: unknown) => {
+          if (!live) return   // a destroy mid-open is not a failure
+          console.error('[reader] engine.open failed', e)   // web has no browser Sentry yet
+          onEngineErrorRef.current?.(chapterSlug)
+        },
+      )
     return () => { live = false }
   }, [cleanHtml, chapterSlug])
   const { fontSize, lineHeight, fontFamily: family, textAlign } = settings

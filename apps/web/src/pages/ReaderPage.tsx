@@ -19,6 +19,7 @@ import { SeoHead } from '../components/SeoHead'
 import { Toast } from '../components/Toast'
 import { ReaderTopBar } from '../components/reader/ReaderTopBar'
 import { ReaderReflowChapter } from '../components/reader/ReaderReflowChapter'
+import { useChapterEngineFailure } from '../hooks/useChapterEngineFailure'
 import { ReaderOriginalPdf } from '../components/reader/ReaderOriginalPdf'
 import { ReaderFooterNav } from '../components/reader/ReaderFooterNav'
 import { ReaderDrawers } from '../components/reader/ReaderDrawers'
@@ -171,9 +172,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
   })
 
   const [engineOpenedFor, setEngineOpenedFor] = useState<string | null>(null)
-  // #849: the chapter the engine failed to open; another chapter clears it.
-  const [engineFailedFor, setEngineFailedFor] = useState<string | null>(null)
-  const engineFailed = !!chapter && engineFailedFor === chapter.identifier
+  const { failed: engineFailed, onEngineError, onEngineOpened: clearEngineFailure } = useChapterEngineFailure(chapter?.identifier)
   // The PDF engine's slot while mounted; ReaderHighlights takes its selection.
   const [pdfEngineFor, setPdfEngineFor] = useState<string | null>(null)
   const { flushProgress, highlightLinkReady, handleHighlightLinkDone } = useReaderPositionSync({
@@ -338,8 +337,8 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
                 chapter={chapter}
                 settings={settings}
                 onTap={() => { readingSession.recordActivity(); showImmersiveBars() }}
-                onEngineOpened={setEngineOpenedFor}
-                onEngineError={setEngineFailedFor}
+                onEngineOpened={(slug) => { setEngineOpenedFor(slug); clearEngineFailure(slug) }}
+                onEngineError={onEngineError}
                 discuss={reviewTarget && {
                   reviewed: chapterReviews.has(chapter.identifier),
                   reviewPath: reviewedMarks.reviewPath(chapter.identifier),

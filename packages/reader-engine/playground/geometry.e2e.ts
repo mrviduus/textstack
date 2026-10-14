@@ -153,15 +153,20 @@ test('E43 a font change while a drawer covers the reading line keeps the place (
     drawer.textContent = 'Font size Line height Font family '.repeat(40)
     Object.assign(drawer.style, { position: 'fixed', inset: '0', background: 'white', zIndex: '10' })
     document.body.append(drawer)
-    await new Promise((r) => {
-      const off = window.engine.on('relocated', (e) => { if (e.reason === 'style') { off(); r(null) } })
-      window.engine.setStyle({ fontSize: 26 })
-    })
-    const now = window.engine.current()!
-    const dy = Math.abs(window.pg.yOf(window.pg.offsetOf(before)!) - (scrollY + innerHeight * 0.25))
-    drawer.remove()
-    return { same: JSON.stringify(now.text) === JSON.stringify(before.text), dy, line: window.pg.lineHeight() }
+    try {
+      const acked = await new Promise<boolean>((r) => {
+        const off = window.engine.on('relocated', (e) => { if (e.reason === 'style') { off(); r(true) } })
+        setTimeout(() => { off(); r(false) }, 2000)
+        window.engine.setStyle({ fontSize: 26 })
+      })
+      const now = window.engine.current()!
+      const dy = Math.abs(window.pg.yOf(window.pg.offsetOf(before)!) - (scrollY + innerHeight * 0.25))
+      return { acked, same: JSON.stringify(now.text) === JSON.stringify(before.text), dy, line: window.pg.lineHeight() }
+    } finally {
+      drawer.remove()
+    }
   })
+  expect(r.acked, "the style change's 'style' relocation").toBe(true)
   expect(r.same).toBe(true)
   expect(r.dy).toBeLessThan(r.line)   // still on the reading line after the reflow
 })

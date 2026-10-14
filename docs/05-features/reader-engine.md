@@ -54,7 +54,7 @@ carries its `opId`.
 | E30 | A style change is one `'style'` relocation: the browser never scrolls the page before the engine re-anchors (scroll anchoring is off on the scroller, not only in the chapter). | Phase 4 slice 1: with only the text excluded, Chromium anchored on the decoration layer (~3 px), and web saved that scroll as the reader's | 2026-10-12 |
 | E31 | A decoration with the style `'dot'` draws a small dot just after its last line, no fill; a tap on its text still names it (E16). | Web reviewed highlight (`reviewed-mark`), Phase 4 decision 2 | 2026-10-13 |
 | E43 | A style change while something covers the reading line (web's settings drawer) keeps the same place: the engine keeps the last place it reported, so the caret probe never reads the drawer. Pinned in `playground/geometry.e2e.ts`. | H2b (old web reader: font change under the drawer) | 2026-10-14 |
-| E44 | A translation label carries its own look (0.42em, italic, system sans-serif, opacity 0.55) as SVG attributes: no host CSS needed. | Web lacked the host rule for a while: labels drew at body size in prod | 2026-10-14 |
+| E44 | A translation label carries its own look (0.42em, italic, weight 400, system sans-serif, opacity 0.55) as one inline `style`: no host CSS needed, and a bold chapter never leaks in. | Web lacked the host rule for a while: labels drew at body size in prod | 2026-10-14 |
 
 ### Fixed layout (PDF, Phase 5)
 
