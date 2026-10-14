@@ -49,6 +49,8 @@ type PdfSource = NonNullable<ChapterDoc['pdf']>
 const ACTIVITY_THROTTLE_MS = 1500
 const SERVER_PROGRESS_DEBOUNCE_MS = 2000
 const LOCAL_DEBOUNCE_MS = 500
+/** Keys that scroll the page: only they are the reader moving (the engine's E36 list). */
+const SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', ' ', 'Spacebar', 'Home', 'End'])
 const at = (page: number): Locator => ({ type: 'application/pdf', locations: { position: page } })
 
 /**
@@ -119,6 +121,17 @@ export default function PdfEngineView({
   const lastActivityRef = useRef(0)
   const loadErrorFiredRef = useRef(false)
 
+  /** The reader moved by themselves: a hold may end, a newer page no longer moves them; the session is alive. */
+  const readerMoved = useCallback(() => {
+    movedRef.current = true
+    explicitRef.current = false
+    const now = Date.now()
+    if (now - lastActivityRef.current > ACTIVITY_THROTTLE_MS) {
+      lastActivityRef.current = now
+      cb.current.onActivity?.()
+    }
+  }, [])
+
   const openPage = useMemo(() => resolveOpenPage(initialPage, resumePage, readPdfPage(bookId)), [bookId, initialPage, resumePage])
 
   /** Every open / goTo is a jump: the gate waits for its ack before a page is saved. */
@@ -170,10 +183,7 @@ export default function PdfEngineView({
       engine.on('relocated', ({ locator, reason, opId }) => {
         const n = locator.locations.position
         if (!n) return
-        if (reason === 'scroll') {
-          movedRef.current = true
-          explicitRef.current = false
-        }
+        if (reason === 'scroll') readerMoved()   // a scrollbar drag too
         currentPageRef.current = n
         setPage(n)
         const gate = pdfGateReduce(gateRef.current, { type: 'pageReported', page: n, ackJumpId: opId ? Number(opId) : undefined, at: Date.now() })
@@ -213,7 +223,7 @@ export default function PdfEngineView({
       engineRef.current = null
       engine.destroy()
     }
-  }, [bookId])
+  }, [bookId, readerMoved])
 
   // --- The bytes: a length probe, then ranges (the engine reads them). Again after a reload. ---
   useEffect(() => {
@@ -289,23 +299,16 @@ export default function PdfEngineView({
     }))
   }, [highlights, reviewed, bookId])
 
-  // --- The reader's own input: they moved (a hold ends, a newer page no longer moves them), and the
-  // session is alive. Input, not `scroll`: the engine's own scrolls are not the reader. ---
+  // --- The reader's own input, within a page too. Input, not `scroll`: the engine's own scrolls are not the reader. ---
   useEffect(() => {
     const onInput = (e: Event) => {
-      if (e instanceof KeyboardEvent && (e.target as Element | null)?.closest?.('input, textarea, select')) return
-      movedRef.current = true
-      explicitRef.current = false
-      const now = Date.now()
-      if (now - lastActivityRef.current > ACTIVITY_THROTTLE_MS) {
-        lastActivityRef.current = now
-        cb.current.onActivity?.()
-      }
+      if (e instanceof KeyboardEvent && (!SCROLL_KEYS.has(e.key) || (e.target as Element | null)?.closest?.('input, textarea, select'))) return
+      readerMoved()
     }
     const events = ['wheel', 'touchmove', 'keydown']
     events.forEach((e) => window.addEventListener(e, onInput, { passive: true }))
     return () => events.forEach((e) => window.removeEventListener(e, onInput))
-  }, [])
+  }, [readerMoved])
 
   // --- Another device's newer page (R4): after an unanswered open, and on every tab return. ---
   const checkNewerPage = useCallback(async (signal: AbortSignal): Promise<boolean> => {

@@ -278,6 +278,20 @@ describe('PdfEngineView — where it opens and what it saves (ADR-012 gate)', ()
     expect((last(eng.engine.goTo.mock.calls)[0] as Locator).locations.position).toBe(15)
   })
 
+  it('a key that does not scroll (Escape) is not the reader moving: a newer page still moves them', async () => {
+    localPage.current = 3
+    const fetchNewerPage = vi.fn(async (): Promise<number | false | null> => false)
+    render(<PdfEngineView {...base} resumeReady fetchNewerPage={fetchNewerPage} />)
+    await wait(0)
+    ack()
+    await setVisibility('hidden')
+    act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })) })
+    fetchNewerPage.mockImplementation(async () => 15)
+    await setVisibility('visible')
+    await wait(50)
+    expect((last(eng.engine.goTo.mock.calls)[0] as Locator).locations.position).toBe(15)
+  })
+
   it('an explicitly opened page (chapter start) is never replaced by a newer page', async () => {
     const fetchNewerPage = vi.fn(async () => 15)
     render(<PdfEngineView {...base} initialPage={6} resumeReady fetchNewerPage={fetchNewerPage} />)
