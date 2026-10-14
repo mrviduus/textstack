@@ -15,6 +15,9 @@ const url = './pdf/fixture.pdf'
 // The length first (`read` needs it): one byte, and the total from Content-Range.
 const probe = await fetch(url, { headers: { Range: 'bytes=0-0' } })
 const length = Number(probe.headers.get('Content-Range')?.split('/')[1])
+if (probe.status !== 206 || !Number.isFinite(length) || length <= 0) {
+  throw new Error(`length probe for ${url}: HTTP ${probe.status}, Content-Range ${probe.headers.get('Content-Range') ?? 'missing'} (the server must answer ranges with 206)`)
+}
 const reads: [number, number][] = []
 async function read(begin: number, end: number): Promise<Uint8Array> {
   reads.push([begin, end])
