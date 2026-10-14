@@ -103,7 +103,7 @@ const atChapter = (slug: string) => new RegExp(`/${slug.replace(/[.*+?^${}()|[\]
 const article = (page: Page) => page.locator('.reader-section__article')
 const firstParagraph = (chapter: 1 | 2) => `Chapter ${chapter}, paragraph 1.`
 
-// ADR-025 Phase 4: CI runs this spec twice, with the reader engine off and on (VITE_READER_ENGINE).
+// ADR-025: CI runs this spec with the reader engine on (VITE_READER_ENGINE), as prod ships (Phase 6 slice 0).
 // The engine draws its own <svg> as a child of the article; the old overlay never does.
 const ENGINE_ON = process.env.VITE_READER_ENGINE === 'true'
 const ENGINE_LAYER = '.reader-section__article > svg[data-vocab-overlay]'

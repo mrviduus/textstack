@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Infra** — engine Phase 6 slice 0 (#839): every e2e run builds web with both reader engines on, as prod ships; the separate engine-on step goes (`reader-progress` now reports only: fixed sleeps, shared user); owner answered the [Phase 6 plan](docs/01-architecture/reader-engine-phase6-plan.md) (delete now, web first) — CI, docs
 - **Mobile** — engine Phase 5 done: `EXPO_PUBLIC_READER_ENGINE_PDF=true` in EAS production + OTA `6b3e3e8f` — every app reader opens Original-layout PDFs through the engine; owner checked on the phone; rollback = `eas env:delete` + OTA — mobile
 - **Reader** — engine Phase 5 web: `VITE_READER_ENGINE_PDF=true` in `apps/web/production.env` — every web reader reads Original-layout PDFs through the engine; owner checked PDFs with `?engine=pdf`; rollback = delete the line and merge — web
 - **Library** — downloading an uploaded book saves it under the book's title, not `file.pdf` (`Content-Disposition: inline; filename*=`) — backend

@@ -4,7 +4,7 @@ Phase 6 of [ADR-025](adr/ADR-025-reader-engine-package.md): every platform reads
 `packages/reader-engine`, so the old reader, the four flags and the shims go. Deletion only: no new
 behaviour, no API change.
 
-Status: **draft 2026-10-14**, from a read-only survey right after Phase 5. All four flags are on for
+Status: **answered 2026-10-14** (see Owner answers), from a read-only survey right after Phase 5. All four flags are on for
 everyone: mobile reflow since 2026-10-12, web reflow 2026-10-13, web + mobile PDF 2026-10-14
 (`apps/web/production.env`, EAS production + OTA). The owner's prod pass of Phase 4 is still pending (STATUS).
 
@@ -89,20 +89,20 @@ Size: ~6,500 lines of code + ~4,500 of tests, plus 40 KB of generated mobile scr
 Today a rollback is a one-line flag change (~15 min, ADR-025 answer 1). After deletion it is a
 `git revert` + deploy / OTA, the same ~15 min, if each PR stays revertable on its own. So:
 
-1. **Bake first.** No deletion PR until its flag has been on for everyone ≥ 7 days, the owner's prod pass
+1. ~~**Bake first.** No deletion PR until its flag has been on for everyone ≥ 7 days, the owner's prod pass
    for that platform is done, and nothing in Sentry or the issues is an engine regression that needs the
-   old path.
+   old path.~~ Owner answer 1b: no bake, delete now. Mobile still waits for the Play launch (answer 2a).
 2. **Pure deletions.** A deletion PR changes no behaviour and mixes in no refactor; then a revert is safe.
 3. **A tag** `reader-legacy-final` on `main` before the first deletion: the old code stays one checkout away.
 4. **EAS variables last.** Delete `EXPO_PUBLIC_READER_ENGINE*` from EAS only after the mobile PR has baked:
    a revert of that PR with the variables gone would silently switch the old reader back on.
 
-## Slices (draft)
+## Slices
 
 Same rules as Phases 3–5: tests sorted in the PR description; package, web and mobile tests, `build`,
 Playwright, bundle checks green. A mobile merge is an OTA to testers (and the public after launch).
 
-0. **CI tests what prod ships** (now, during the bake). The main e2e gate and the full suite build with
+0. **CI tests what prod ships** (#843). The main e2e gate and the full suite build with
    both `VITE_READER_ENGINE*=true`; the second engine-on build goes. No user change. Old-path regressions
    are then invisible — fine, the old path has no users.
 1. **Web reflow.** Remove `VITE_READER_ENGINE` + `?engine=1/0`; the old `ReaderSection` article, the overlay
@@ -143,6 +143,12 @@ the mobile `restoreId` / `readerMovedSince` protocol, the mount slot (question 6
 - #839 CI e2e builds web with the flags off = **slice 0**. #840 the `scroll:` locator, out of Phase 6.
 - #841 Dim button contrast (`pdfOriginal.css`, shared, stays), #842 Android native handles on a PDF
   long press: not blocking.
+
+## Owner answers (2026-10-14)
+
+1b **delete now**, no bake (tag `reader-legacy-final` and EAS-variables-last still hold) · 2a web first,
+mobile PR B ≥ 7 days after the Play launch · 3a three PRs + slice 0 · 4a `scroll:` later (#840) ·
+5a delete `packages/reader-overlay` in slice 5 · 6a deletion only, shims → issues · 7a slice 0 now.
 
 ## Questions for the owner
 

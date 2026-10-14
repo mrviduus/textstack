@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 
-// @smoke — this file and reader-smoke.spec.ts (@reader-smoke) are the only parts of
-// the E2E suite that gate a pull request. Everything here must be cheap, deterministic, and about *wiring*: did the
+// @smoke — this file, reader-smoke.spec.ts (@reader-smoke) and reader-pdf.spec.ts (@reader-pdf) are
+// the only parts of the E2E suite that gate a pull request. Everything here must be cheap, deterministic, and about *wiring*: did the
 // page render at all, does the route resolve, is the API answering. Nothing that
 // needs a fixture, a login, or a timing assumption belongs in this file — the
 // reader's logic gate lives in reader-smoke.spec.ts for that reason.

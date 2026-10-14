@@ -639,6 +639,12 @@ jobs:
     runs-on: ubuntu-latest
     # 11m typical uncached; same layer cache as `docker` (unmeasured).
     timeout-minutes: 30
+    # ADR-025 Phase 6 slice 0: every e2e run builds web with prod's reader-engine flags
+    # (apps/web/production.env), both on. The env reaches the `pnpm build` that playwright's webServer runs.
+    # Phase 6 PR A deletes the flags; then this goes too.
+    env:
+      VITE_READER_ENGINE: 'true'
+      VITE_READER_ENGINE_PDF: 'true'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -775,6 +781,7 @@ jobs:
       #
       # @reader-pdf (reader-pdf.spec.ts) joins it: the Original-layout PDF opens, jumps, highlights
       # and resumes. Its user uploads the engine's 40-page fixture; Original needs no worker.
+      # reader-progress.spec.ts does not gate (fixed sleeps, shared user): it runs in the full suite below.
       - name: E2E smoke + reader smoke — gates the PR
         working-directory: apps/web
         run: pnpm test:e2e --grep "@smoke|@reader-smoke|@reader-pdf"
@@ -804,26 +811,6 @@ jobs:
           echo "### ⚠️ Full E2E suite failed (non-blocking)" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "Smoke passed, so the deploy proceeded. Download the \`playwright-report\` artifact for details." >> "$GITHUB_STEP_SUMMARY"
-
-      # ADR-025 Phase 4 slice 5: the reader specs again, on a build with the engine on, before the
-      # flag goes on for everyone. The env reaches the `pnpm build` that playwright's webServer runs;
-      # dist is wiped so preview can never serve the flag-off build of the steps above.
-      # reader-smoke checks the build really has the engine. Only the two reader specs: vocabulary and
-      # search never open the reader, bookmarks asserts little on fixed sleeps. After the full run.
-      # Phase 5 slice 5: the same build has the PDF engine on too (reflow specs never open a PDF), and
-      # reader-pdf checks the build really has it. One build, not two.
-      - name: E2E reader with the engines on (ADR-025 Phases 4 + 5) — gates the PR
-        working-directory: apps/web
-        run: |
-          rm -rf dist
-          pnpm test:e2e tests/reader-smoke.spec.ts tests/reader-progress.spec.ts tests/reader-pdf.spec.ts
-        env:
-          CI: true
-          VITE_READER_ENGINE: 'true'
-          VITE_READER_ENGINE_PDF: 'true'
-          API_URL: http://localhost:8080
-          BASE_URL: http://localhost:5173
-          ADMIN_URL: http://localhost:81
 
       # ADR-025 phase 2 slice 7, the Phase 3 gate: the engine's reading line and scroll cost on real
       # chapters in Chromium (jsdom has no layout). Its own Vite page, no API; ~5s.
