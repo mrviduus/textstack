@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, type RefObject } from 'react'
 import { isPdfAnchor } from '@textstack/shared'
 import { anchorToLocator, locatorToAnchor, type GoToResult, type Locator } from '@textstack/reader-engine'
 import { mountedEngineFor } from '../lib/readerEngine'
-import { findTextByAnchor, createTextAnchor, highlightChapterKey, isCacheChapterKey, isChapterKey } from '../lib/textAnchor'
+import { highlightChapterKey, isCacheChapterKey, isChapterKey } from '../lib/textAnchor'
 import type { HighlightAnchor, HighlightColor, StoredHighlight, TextAnchor } from '../lib/offlineDb'
 
 /** Repeatable drawer jump: same id re-fires when the nonce changes. */
@@ -60,13 +60,8 @@ export interface UseHighlightEditResult {
   closeNoteEditor: () => void
   handleNoteSave: (noteText: string | null) => Promise<void>
   handleHighlightDelete: () => Promise<void>
-  /** `locator`: the engine's selection, which has no Range. */
-  createHighlightFromSelection: (
-    range: Range | null,
-    text: string,
-    color: HighlightColor,
-    locator?: Locator,
-  ) => Promise<void>
+  /** `locator`: the engine's selection. */
+  createHighlightFromSelection: (text: string, color: HighlightColor, locator?: Locator) => Promise<void>
 }
 
 export function useHighlightEdit({
@@ -86,33 +81,22 @@ export function useHighlightEdit({
   engineHref,
 }: UseHighlightEditOptions): UseHighlightEditResult {
 
-  // Locate a highlight's text anchor and center it. Returns false when the text
-  // isn't in the mounted DOM yet (chapter not rendered / still loading) so the
-  // caller can navigate + retry. A located-but-zero-size range counts as done.
-  // With the engine: its `goTo`, settled when the promise is (a window scroll would read as the reader's).
+  // Center a highlight through the engine's `goTo`, settled when the promise is. False when the
+  // engine is not showing its chapter (not mounted / still loading / another chapter) or cannot read
+  // its anchor, so the caller can navigate + retry. Never a window scroll: it would read as the reader's.
   const tryScrollToTarget = useCallback(
-    (target: StoredHighlight, behavior: ScrollBehavior = 'smooth'): boolean | Promise<GoToResult> => {
+    (target: StoredHighlight): false | Promise<GoToResult> => {
       if (!containerRef.current) return false
-      // The engine resolves the anchor in its own text; the old DOM walk could miss an engine-made anchor.
       const engine = mountedEngineFor(engineHref ?? undefined)?.engine
-      if (engine && !isChapterKey(highlightChapterKey(target), chapterId, engineHref!)) return false
-      const at = engine && anchorToLocator(JSON.stringify(target.anchor), engineHref!)
-      if (engine && at) {
-        const here = engine.current()
-        // 'start': the anchor missed and the ladder fell to the chapter top — put the reader back.
-        return engine.goTo(at, { align: 'center' }).then((r) => {
-          if (r === 'start' && here) void engine.goTo(here)
-          return r
-        })
-      }
-      const range = findTextByAnchor(target.anchor, containerRef.current, highlightChapterKey(target))
-      if (!range) return false
-      const rect = range.getBoundingClientRect()
-      if (rect.width !== 0 || rect.height !== 0) {
-        const targetY = window.scrollY + rect.top - window.innerHeight / 2 + rect.height / 2
-        window.scrollTo({ top: targetY, behavior })
-      }
-      return true
+      if (!engine || !isChapterKey(highlightChapterKey(target), chapterId, engineHref!)) return false
+      const at = anchorToLocator(JSON.stringify(target.anchor), engineHref!)
+      if (!at) return false
+      const here = engine.current()
+      // 'start': the anchor missed and the ladder fell to the chapter top — put the reader back.
+      return engine.goTo(at, { align: 'center' }).then((r) => {
+        if (r === 'start' && here) void engine.goTo(here)
+        return r
+      })
     },
     [containerRef, engineHref, chapterId],
   )
@@ -160,10 +144,9 @@ export function useHighlightEdit({
     let timer: ReturnType<typeof setTimeout> | undefined
     let cancelled = false
     const attempt = () => {
-      const landed = tryScrollToTarget(target, 'instant')
+      const landed = tryScrollToTarget(target)
       // 'superseded' (a reopen overtook it) or 'start' (anchor missed) did not land: the restore must not be skipped.
-      if (landed instanceof Promise) void landed.then((r) => { if (!cancelled) onLinkDoneRef.current?.(r !== 'superseded' && r !== 'start') })
-      else if (landed) onLinkDoneRef.current?.(true)
+      if (landed) void landed.then((r) => { if (!cancelled) onLinkDoneRef.current?.(r !== 'superseded' && r !== 'start') })
       else if (++tries >= JUMP_MAX_RETRIES) onLinkDoneRef.current?.(false)
       else timer = setTimeout(attempt, JUMP_RETRY_MS)
     }
@@ -210,12 +193,10 @@ export function useHighlightEdit({
   }, [editingHighlight, removeHighlight, closeNoteEditor])
 
   const createHighlightFromSelection = useCallback(
-    async (range: Range | null, text: string, color: HighlightColor, locator?: Locator) => {
+    async (text: string, color: HighlightColor, locator?: Locator) => {
       const json = locator ? locatorToAnchor(locator) : null
-      const anchor: TextAnchor | null = json
-        ? { ...(JSON.parse(json) as TextAnchor), chapterId }
-        : range && containerRef.current ? createTextAnchor(range, chapterId, containerRef.current) : null
-      if (!anchor) return
+      if (!json) return
+      const anchor: TextAnchor = { ...(JSON.parse(json) as TextAnchor), chapterId }
       // An old offline-cache chapter whose real id is unknown: the server would
       // reject the cache key, and the row could never sync. Not saved.
       // ponytail: blocked, not queued — only an offline read of a pre-fix cache row hits it.
@@ -223,7 +204,7 @@ export function useHighlightEdit({
       await addHighlight(anchor, color, text)
       onAfterCreate?.()
     },
-    [containerRef, chapterId, addHighlight, onAfterCreate],
+    [chapterId, addHighlight, onAfterCreate],
   )
 
   return {

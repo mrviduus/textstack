@@ -3,19 +3,12 @@ import { Link } from 'react-router-dom'
 import { isPdfAnchor } from '@textstack/shared'
 import { LocalizedLink } from '../LocalizedLink'
 import type { Bookmark } from '../../hooks/useBookmarks'
-import type { HighlightColor, StoredHighlight } from '../../lib/offlineDb'
+import type { StoredHighlight } from '../../lib/offlineDb'
 import { useFocusTrap } from '../../hooks/useFocusTrap'
 import { useTranslation } from '../../hooks/useTranslation'
 import { HighlightQuote } from '../HighlightQuote'
+import { COLOR_MAP } from './decorationColors'
 
-// Swatch fill per highlight color — mirrors the engine's palette (decorationColors) via
-// the same CSS vars so light/dark/sepia themes stay in sync.
-const SWATCH_COLOR: Record<HighlightColor, string> = {
-  yellow: 'var(--reader-overlay-hl-yellow, rgba(254, 240, 138, 0.5))',
-  green: 'var(--reader-overlay-hl-green, rgba(187, 247, 208, 0.5))',
-  pink: 'var(--reader-overlay-hl-pink, rgba(251, 207, 232, 0.5))',
-  blue: 'var(--reader-overlay-hl-blue, rgba(191, 219, 254, 0.5))',
-}
 
 /** Sort by reading position: reflow → text offset; PDF → page then rect y;
  *  mixed/unknown → newest first. A book is normally all-reflow or all-PDF. */
@@ -231,7 +224,7 @@ export function ReaderTocDrawer({
                 >
                   <span
                     className="reader-toc-drawer__hl-swatch"
-                    style={{ backgroundColor: SWATCH_COLOR[h.color] }}
+                    style={{ backgroundColor: COLOR_MAP[h.color] }}
                     aria-hidden="true"
                   />
                   <span className="reader-toc-drawer__hl-body">

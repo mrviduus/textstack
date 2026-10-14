@@ -38,7 +38,7 @@ vi.mock('../../../hooks/useExplain', () => ({
 const fetchWordBubble = vi.fn()
 vi.mock('../../../lib/wordBubbleFetch', () => ({ fetchWordBubble: (...a: unknown[]) => fetchWordBubble(...a) }))
 
-// An anchor the engine cannot read (no locator) — the jump keeps the old DOM path.
+// An anchor the engine cannot read (no locator): the jump does nothing.
 let noLocator = false
 vi.mock('@textstack/reader-engine', async (importOriginal) => {
   const orig = await importOriginal<typeof import('@textstack/reader-engine')>()
@@ -342,18 +342,13 @@ describe('ReaderHighlights with the engine', () => {
     expect(nav).not.toHaveBeenCalled()
   })
 
-  it('engine_DrawerJump_AnchorWithoutALocator_KeepsTheOldDomJump_NotARoute', async () => {
+  it('engine_DrawerJump_AnchorWithoutALocator_NoWindowScroll', async () => {
+    // A window scroll would read as the reader's move and save a pixel offset the engine never made.
     noLocator = true
     const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
-    Range.prototype.getBoundingClientRect = () => new DOMRect(0, 500, 100, 20)   // jsdom has none
-    try {
-      const nav = await drawerJump(hl('h1'))
-      expect(eng.engine.goTo).not.toHaveBeenCalled()
-      expect(scrollTo).toHaveBeenCalled()
-      expect(nav).not.toHaveBeenCalled()
-    } finally {
-      delete (Range.prototype as Partial<Range>).getBoundingClientRect
-    }
+    await drawerJump(hl('h1'))
+    expect(eng.engine.goTo).not.toHaveBeenCalled()
+    expect(scrollTo).not.toHaveBeenCalled()
   })
 
   it('engine_Vocab_MarkedByTheEngine_WithTranslationsWhenOn', () => {

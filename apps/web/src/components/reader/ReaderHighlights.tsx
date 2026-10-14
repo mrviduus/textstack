@@ -2,7 +2,6 @@ import { useRef, useCallback, useState, useEffect } from 'react'
 import { useTextSelection } from '../../hooks/useTextSelection'
 import { useHighlightEdit, type ScrollToHighlight } from '../../hooks/useHighlightEdit'
 import { useTranslationPopup } from '../../hooks/useTranslationPopup'
-import { extractSentence } from '../../lib/sentenceExtractor'
 import { useExplainPopup } from '../../hooks/useExplainPopup'
 import { useNativeLanguage } from '../../context/NativeLanguageContext'
 import { useTts } from '../../hooks/useTts'
@@ -146,7 +145,7 @@ export function ReaderHighlights({
   const {
     bubble, closeBubble, clearAutoSave, lookupState, addAnywayBusy, savingWord, handleAddAnyway, pendingToast, setPendingToast,
   } = useWordBubble({
-    selection, clearSelection, hasSelection, isSingleWord, containerRef, bookLanguage, targetLang,
+    selection, clearSelection, hasSelection, isSingleWord, bookLanguage, targetLang,
     editionId, chapterId, userBookId, bookTitle, nativeLanguage, hasConfirmedLanguage,
     vocab: { vocabMap, addWord, updateTranslation, recordSavedWord }, t,
   })
@@ -207,22 +206,19 @@ export function ReaderHighlights({
 
   const handleTranslate = useCallback(() => {
     if (!selection.text || !selection.rect) return
-    const container = containerRef.current
-    const sentence = selection.sentence ?? (selection.range && container ? extractSentence(selection.range, container) : undefined)
-    translationPopup.open(selection.text, selection.rect, { sentence, bookId: userBookId || editionId })
-  }, [selection.text, selection.rect, selection.range, selection.sentence, containerRef, userBookId, editionId, translationPopup])
+    translationPopup.open(selection.text, selection.rect, { sentence: selection.sentence, bookId: userBookId || editionId })
+  }, [selection.text, selection.rect, selection.sentence, userBookId, editionId, translationPopup])
 
   // --- Explain popup ---
   const explainPopup = useExplainPopup({
-    containerRef,
     editionId,
     nativeLanguage,
     onClose: clearSelection,
   })
 
   const handleExplain = useCallback(() => {
-    explainPopup.openFromSelection(selection.text, selection.range, selection.rect, selection.sentence)
-  }, [explainPopup, selection.text, selection.range, selection.rect, selection.sentence])
+    explainPopup.openFromSelection(selection.text, selection.rect, selection.sentence)
+  }, [explainPopup, selection.text, selection.rect, selection.sentence])
 
   // --- Selection toolbar ---
   const handleHighlight = useCallback(
@@ -237,11 +233,11 @@ export function ReaderHighlights({
         translationPopup.close()
         return
       }
-      await createHighlightFromSelection(selection.range, selection.text, color, selection.locator)
+      await createHighlightFromSelection(selection.text, color, selection.locator)
       clearSelection()
       translationPopup.close()
     },
-    [selection.range, selection.text, selection.locator, createHighlightFromSelection, clearSelection, translationPopup, onPdfHighlight],
+    [selection.text, selection.locator, createHighlightFromSelection, clearSelection, translationPopup, onPdfHighlight],
   )
 
   const handleCopy = useCallback(() => {

@@ -1,10 +1,8 @@
-import { useState, useCallback, type RefObject } from 'react'
+import { useState, useCallback } from 'react'
 import { useExplain } from './useExplain'
-import { extractSentence } from '../lib/sentenceExtractor'
-import { tokenizeVocabWords, extractWordFromRange } from '../lib/vocabKey'
+import { tokenizeVocabWords } from '../lib/vocabKey'
 
 interface UseExplainPopupOptions {
-  containerRef: RefObject<HTMLElement | null>
   editionId: string
   nativeLanguage: string
   onClose?: () => void
@@ -17,13 +15,12 @@ export interface UseExplainPopupResult {
   explanation: string | null
   isExplaining: boolean
   error: string | null
-  /** `sentence`: the engine's, which hands out no Range; else read from `range`. */
-  openFromSelection: (selectionText: string, range: Range | null, rect: DOMRect | null, sentence?: string) => void
+  /** `sentence`: the engine's, around the selection. */
+  openFromSelection: (selectionText: string, rect: DOMRect | null, sentence?: string) => void
   close: () => void
 }
 
 export function useExplainPopup({
-  containerRef,
   editionId,
   nativeLanguage,
   onClose,
@@ -40,19 +37,16 @@ export function useExplainPopup({
   const [rect, setRect] = useState<DOMRect | null>(null)
 
   const openFromSelection = useCallback(
-    (selectionText: string, range: Range | null, sourceRect: DOMRect | null, engineSentence?: string) => {
-      if (!selectionText || (!range && !engineSentence) || !sourceRect) return
+    (selectionText: string, sourceRect: DOMRect | null, sentence?: string) => {
+      if (!selectionText || !sentence || !sourceRect) return
       const trimmed = selectionText.trim()
       const isPhrase = /\s/.test(trimmed) && trimmed.length <= 100
       const target = isPhrase
         ? trimmed
-        : extractWordFromRange(range)
-          ?? tokenizeVocabWords(selectionText)[0]?.word
+        : tokenizeVocabWords(selectionText)[0]?.word
           ?? trimmed.split(/\s+/)[0]
           ?? trimmed
       if (!target) return
-      const sentence = engineSentence
-        ?? (range && containerRef.current ? extractSentence(range, containerRef.current) ?? selectionText : selectionText)
       setWord(target)
       setRect(sourceRect)
       setShow(true)
@@ -63,7 +57,7 @@ export function useExplainPopup({
         targetLang: nativeLanguage,
       })
     },
-    [containerRef, editionId, nativeLanguage, explainApi],
+    [editionId, nativeLanguage, explainApi],
   )
 
   const close = useCallback(() => {

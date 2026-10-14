@@ -21,7 +21,6 @@ interface Props {
   onTap?: () => void
   /** The engine's open of this chapter has landed: the chapter is ready to position. */
   onEngineOpened?: (chapterSlug: string) => void
-  onDoubleTap?: () => void
 }
 
 function fontFamily(f: ReaderSettings['fontFamily']): string {
@@ -40,9 +39,8 @@ export const ReaderSection = forwardRef<ReaderSectionHandle, Props>(function Rea
   ref,
 ) {
   const articleRef = useRef<HTMLElement | null>(null)
-  // Stable object: a new identity reopens the chapter in the engine, so a literal here reopened it on
-  // EVERY render (each scroll-progress tick).
-  const innerHtml = useMemo(() => ({ __html: sanitizeHtml(html) }), [html])
+  // Sanitised once per html: the open effect below reopens the chapter whenever this changes.
+  const cleanHtml = useMemo(() => sanitizeHtml(html), [html])
 
   // ADR-025 Phase 4: the engine renders the chapter into the article and keeps the
   // place; useReaderScrollSync drives it through `mountedEngineFor`.
@@ -68,10 +66,10 @@ export const ReaderSection = forwardRef<ReaderSectionHandle, Props>(function Rea
     // New html for the chapter on screen (a cache → network refresh) reopens where the reader is.
     const here = engine.current()
     setMountedEngine({ engine, href: chapterSlug })
-    void engine.open({ href: chapterSlug, layout: 'reflow', html: innerHtml.__html }, here?.href === chapterSlug ? here : undefined)
+    void engine.open({ href: chapterSlug, layout: 'reflow', html: cleanHtml }, here?.href === chapterSlug ? here : undefined)
       // Only the engine still mounted: React StrictMode (dev) destroys the first one mid-open.
       .then(() => { if (engineRef.current === engine) onEngineOpenedRef.current?.(chapterSlug) })
-  }, [innerHtml, chapterSlug])
+  }, [cleanHtml, chapterSlug])
   const { fontSize, lineHeight, fontFamily: family, textAlign } = settings
   useEffect(() => {
     const engine = engineRef.current

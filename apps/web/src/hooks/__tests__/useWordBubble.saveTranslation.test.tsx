@@ -33,9 +33,9 @@ function useReader({ lang, confirmed }: { lang: string; confirmed: boolean }) {
   // Backfill off (targetLang null): only the bubble path writes.
   const vocab = useReaderVocabulary('en', null)
   return useWordBubble({
-    selection: { text: 'pocketed', rect: new DOMRect(), range: null } as never,
+    selection: { text: 'pocketed', rect: new DOMRect() } as never,
     clearSelection: () => {}, hasSelection: true, isSingleWord: true,
-    containerRef: { current: null }, bookLanguage: 'en', targetLang: lang,
+    bookLanguage: 'en', targetLang: lang,
     editionId: 'e1', chapterId: 'c1', nativeLanguage: lang, hasConfirmedLanguage: confirmed,
     vocab, t: (k) => k,
   })
