@@ -31,8 +31,8 @@ export interface PdfPageWindow {
   __setPdfHighlights?(list: { id: string; color: string; anchor: unknown }[]): void
   __pdfCreateHighlight?(): void
   __tsClearSelection?(token: number | null): void
-  /** RN's answer to `pdfTokenRequest`: a fresh token, or null (the session is gone). */
-  __tsPdfToken?(token: string | null): void
+  /** RN's answer to `pdfTokenRequest {id}`: a fresh token, or null (the session is gone), and the request's id. */
+  __tsPdfToken?(token: string | null, id: number): void
   /** After `pdfAuthExpired` and a successful refresh: open again, at the page the reader is on. */
   __tsPdfReopen?(token: string): void
   /** The status bar's height changed (ReaderShell's chrome injection). */
@@ -112,18 +112,26 @@ export function startPdfPage(engine: ReaderEngine, w: PdfPageWindow): void {
 
   // --- The bytes ---
   let asking: Promise<void> | null = null
+  /** The request in flight: an answer for any other id (one that came after its timeout) is dropped. */
+  let waiting: { id: number; answer(t: string | null): void } | null = null
+  let requestId = 0
   /** One token request in flight; every read that got a 401 waits for it. An answer lost on the way
    *  (an injection into a busy WebView) counts as no token after TOKEN_WAIT_MS, so nothing waits forever. */
   const refresh = () => asking ??= new Promise<void>((ok, no) => {
-    const timer = setTimeout(() => w.__tsPdfToken?.(null), TOKEN_WAIT_MS)
-    w.__tsPdfToken = (t) => {
-      clearTimeout(timer)
-      w.__tsPdfToken = undefined
-      asking = null
-      if (t) { token = t; ok() } else no(new Error('no token'))
+    const id = ++requestId
+    const timer = setTimeout(() => waiting?.answer(null), TOKEN_WAIT_MS)
+    waiting = {
+      id,
+      answer(t) {
+        clearTimeout(timer)
+        waiting = null
+        asking = null
+        if (t) { token = t; ok() } else no(new Error('no token'))
+      },
     }
-    post({ type: 'pdfTokenRequest' })
+    post({ type: 'pdfTokenRequest', id })
   })
+  w.__tsPdfToken = (t, id) => { if (waiting && waiting.id === id) waiting.answer(t) }
 
   function source(): Promise<PdfSource> {
     if (cfg.local) return readFile(w, cfg.url).then((data) => ({ data }))

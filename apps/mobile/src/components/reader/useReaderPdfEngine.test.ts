@@ -46,11 +46,35 @@ async function mount() {
 describe('useReaderPdf — engine PDF page, token over the bridge', () => {
   it('pdfTokenRequest: RN refreshes and hands the page the token, or null when the session is gone', async () => {
     const r = await mount()
-    await r.send({ type: 'pdfTokenRequest' })
-    expect(r.injected.at(-1)).toBe('window.__tsPdfToken && window.__tsPdfToken("fresh")')
+    await r.send({ type: 'pdfTokenRequest', id: 7 })
+    expect(r.injected.at(-1)).toBe('window.__tsPdfToken && window.__tsPdfToken("fresh", 7)')
     refresh.mockResolvedValueOnce(null)
-    await r.send({ type: 'pdfTokenRequest' })
-    expect(r.injected.at(-1)).toBe('window.__tsPdfToken && window.__tsPdfToken(null)')
+    await r.send({ type: 'pdfTokenRequest', id: 8 })
+    expect(r.injected.at(-1)).toBe('window.__tsPdfToken && window.__tsPdfToken(null, 8)')
+  })
+
+  it('a refresh that throws answers the page null (its read fails as pdf-auth), and counts as refused', async () => {
+    const r = await mount()
+    refresh.mockClear()
+    show.mockClear()
+    refresh.mockRejectedValueOnce(new Error('network'))
+    await r.send({ type: 'pdfTokenRequest', id: 3 })
+    expect(r.injected.at(-1)).toBe('window.__tsPdfToken && window.__tsPdfToken(null, 3)')
+    await r.send({ type: 'pdfAuthExpired' })
+    expect(refresh).toHaveBeenCalledTimes(1)   // refused: the toast, no second refresh
+    expect(show).toHaveBeenCalledTimes(1)
+  })
+
+  it('the refused state ends with the next document: a later expiry refreshes again', async () => {
+    const r = await mount()
+    refresh.mockClear()
+    show.mockClear()
+    refresh.mockResolvedValueOnce(null)
+    await r.send({ type: 'pdfTokenRequest', id: 1 })
+    await r.send({ type: 'pdfReady', numPages: 100 })
+    await r.send({ type: 'pdfAuthExpired' })
+    expect(refresh).toHaveBeenCalledTimes(2)
+    expect(show).not.toHaveBeenCalled()
   })
 
   it('pdfAuthExpired: the page reopens itself at its page; the document is not rebuilt and the resume does not run again', async () => {

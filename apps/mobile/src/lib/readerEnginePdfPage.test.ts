@@ -68,6 +68,9 @@ function boot(cfg: Partial<PdfPageWindow['__TS_PDF']> = {}, opts: { hold?: Promi
   return { w, messages, sent, s, ...fake }
 }
 
+/** RN's answer to the page's latest token request, echoing its id. */
+const answer = (p: ReturnType<typeof boot>, token: string | null) => p.w.__tsPdfToken!(token, p.sent('pdfTokenRequest').at(-1)!.id as number)
+
 const source = (doc: ChapterDoc) => doc.pdf as { length: number; read(b: number, e: number): Promise<Uint8Array> }
 
 describe('the PDF engine page', () => {
@@ -126,7 +129,7 @@ describe('the PDF engine page', () => {
     const chunk = source(p.opens[0].doc).read(0, 10)
     await settle()
     expect(p.sent('pdfTokenRequest')).toHaveLength(1)
-    p.w.__tsPdfToken!('t2')
+    answer(p, 't2')
     expect((await chunk).length).toBe(10)
     expect(p.s.calls.at(-1)).toEqual({ range: 'bytes=0-9', auth: 'Bearer t2' })
     expect(p.opens).toHaveLength(1)
@@ -139,7 +142,7 @@ describe('the PDF engine page', () => {
     const reads = [source(p.opens[0].doc).read(0, 10), source(p.opens[0].doc).read(10, 20)]
     await settle()
     expect(p.sent('pdfTokenRequest')).toHaveLength(1)
-    p.w.__tsPdfToken!('t2')
+    answer(p, 't2')
     expect((await Promise.all(reads)).map((c) => c.length)).toEqual([10, 10])
   })
 
@@ -151,7 +154,7 @@ describe('the PDF engine page', () => {
     p.s.deny = 1
     const chunk = source(p.opens[0].doc).read(0, 10)
     await settle()
-    p.w.__tsPdfToken!(null)
+    answer(p, null)
     await expect(chunk).rejects.toEqual({ code: 'pdf-auth' })
     p.emit('error', { code: 'pdf-auth' })
     expect(p.sent('pdfAuthExpired')).toHaveLength(1)
@@ -166,7 +169,7 @@ describe('the PDF engine page', () => {
   it("the file can't be had before the open: pdfAuthExpired for auth, else pdfLoadError; a failed read after ready only logs", async () => {
     const denied = boot({}, { deny: 2 })
     await settle()
-    denied.w.__tsPdfToken!(null)
+    answer(denied, null)
     await settle()
     expect(denied.sent('pdfAuthExpired')).toHaveLength(1)
     expect(denied.opens).toHaveLength(0)
@@ -276,7 +279,7 @@ describe('the PDF engine page', () => {
     p.s.deny = 2
     p.w.__tsPdfReopen!('t2')   // the fresh token is refused too
     await settle()
-    p.w.__tsPdfToken!(null)
+    answer(p, null)
     await settle()
     expect(p.sent('pdfAuthExpired')).toHaveLength(1)
     expect(p.sent('pdfLoadError')).toHaveLength(1)
@@ -305,7 +308,7 @@ describe('the PDF engine page', () => {
       // The next 401 asks again: the request did not stay stuck.
       const second = boot({}, { deny: 1 })
       await vi.advanceTimersByTimeAsync(0)
-      second.w.__tsPdfToken!('t2')
+      answer(second, 't2')
       await vi.advanceTimersByTimeAsync(0)
       expect(second.opens).toHaveLength(1)
     } finally { vi.useRealTimers() }
@@ -322,5 +325,25 @@ describe('the PDF engine page', () => {
     await settle()
     expect(p.opens[1].at).toEqual(at(30))
     expect(p.opens[1].opId).toBe('5')
+  })
+
+  it('a late answer, after its request timed out, does not answer a newer request', async () => {
+    vi.useFakeTimers()
+    try {
+      const p = boot()
+      await vi.advanceTimersByTimeAsync(0)
+      p.s.deny = 2
+      const first = source(p.opens[0].doc).read(0, 10).catch((e: unknown) => e)
+      await vi.advanceTimersByTimeAsync(15_000)
+      expect(await first).toEqual({ code: 'pdf-auth' })
+      const second = source(p.opens[0].doc).read(10, 20)
+      await vi.advanceTimersByTimeAsync(0)
+      const [old, now] = p.sent('pdfTokenRequest').map((m) => m.id as number)
+      expect(now).not.toBe(old)
+      p.w.__tsPdfToken!('late', old)     // the first request's answer, finally
+      p.w.__tsPdfToken!('t2', now)
+      expect((await second).length).toBe(10)
+      expect(p.s.calls.at(-1)!.auth).toBe('Bearer t2')
+    } finally { vi.useRealTimers() }
   })
 })

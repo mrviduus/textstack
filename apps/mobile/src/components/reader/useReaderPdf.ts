@@ -247,6 +247,7 @@ export function useReaderPdf({
       // the deferred server-resume initial jump if the fetch already resolved.
       if (typeof data.numPages === 'number') { setPdfNumPages(data.numPages); pdfNumPagesRef.current = data.numPages }
       pdfReadyRef.current = true
+      pdfTokenDeniedRef.current = false   // a document opened: the refused token is history
       setPdfError(false)
       // Close the persist gate for this document. Without it, a reload (bar
       // toggle, token refresh) left the gate from the PREVIOUS document open,
@@ -278,11 +279,13 @@ export function useReaderPdf({
     } else if (data.type === 'pdfTokenRequest') {
       // The engine page's read() got a 401 (plan gap 3): refresh (shared single-flight) and answer it;
       // null = the session is gone, its read then fails as 'pdf-auth' → pdfAuthExpired below.
-      onUnauthorized().then(tok => {
+      // The answer echoes the request's id: a late one (after the page's timeout) answers nothing newer.
+      const answer = (tok: string | null) => {
         pdfTokenDeniedRef.current = !tok
         if (tok) setPdfToken(tok)
-        injectJs(`window.__tsPdfToken && window.__tsPdfToken(${JSON.stringify(tok ?? null)})`)
-      })
+        injectJs(`window.__tsPdfToken && window.__tsPdfToken(${JSON.stringify(tok)}, ${Number(data.id) || 0})`)
+      }
+      onUnauthorized().then(tok => answer(tok ?? null), () => answer(null))
     } else if (data.type === 'pdfAuthExpired') {
       // Silent recovery (old: rebuild at the tracked page; engine: reopen in place, see recover).
       if (!READER_ENGINE_PDF) pdfInitialPageRef.current = currentPdfPageRef.current ?? pdfInitialPageRef.current
