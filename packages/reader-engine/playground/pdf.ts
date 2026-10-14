@@ -7,6 +7,7 @@ import workerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import type { Locator } from '../src/api'
 import { createEngine } from '../src/engine'
 import { fixedLayout } from '../src/fixed'
+import { locatorToPdfAnchor, pdfAnchorToLocator } from '../src/mappers'
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerSrc
 
@@ -37,6 +38,8 @@ const at: Locator | undefined = n ? { type: 'application/pdf', locations: { posi
 const opened = await engine.open({ layout: 'fixed', pdf: { length, read } }, at)
 
 const pg = {
+  locatorToPdfAnchor,
+  pdfAnchorToLocator,
   length,
   reads,
   errors,
