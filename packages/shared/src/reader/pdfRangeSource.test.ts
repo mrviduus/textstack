@@ -101,6 +101,20 @@ describe('openPdfSource', () => {
     await expect(src.read(10, 14)).rejects.toBeInstanceOf(Error)
   })
 
+  it('openPdfSource_403_RejectsAnErrorNotPdfAuthAndDoesNotRefresh', async () => {
+    const fetch = vi.fn(async (..._a: unknown[]) => new Response(null, { status: 403 }))
+    const refresh = vi.fn()
+    const err = await openPdfSource('/f', { fetch: asFetch(fetch), init: () => ({}), refresh }).catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(Error)
+    expect(refresh).not.toHaveBeenCalled()
+  })
+
+  it('openPdfSource_InitHeadersAsAHeadersObject_KeptBesideTheRange', async () => {
+    const s = server()
+    await openPdfSource('/f', { fetch: asFetch(s.fetch), init: () => ({ headers: new Headers({ Authorization: 'Bearer h' }) }), refresh: vi.fn() })
+    expect(s.calls[0]).toMatchObject({ range: 'bytes=0-0', auth: 'Bearer h' })
+  })
+
   it('openPdfSource_ServerError_RejectsAnErrorNotPdfAuth', async () => {
     const fetch = vi.fn(async () => new Response(null, { status: 500 }))
     await expect(openPdfSource('/f', { fetch: asFetch(fetch), init: () => ({}), refresh: vi.fn() })).rejects.toBeInstanceOf(Error)

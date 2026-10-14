@@ -35,13 +35,14 @@ const FILE_LENGTH = 1000
 function server() {
   const s = {
     deny: 0,
+    denyStatus: 401,
     calls: [] as { range: string | null; auth: string | null }[],
     hold: null as Promise<void> | null,
     fetch: vi.fn(async (_url: string, init?: RequestInit) => {
       const h = new Headers(init?.headers)
       s.calls.push({ range: h.get('Range'), auth: h.get('Authorization') })
       if (s.hold) await s.hold
-      if (s.deny > 0) { s.deny--; return new Response(null, { status: 401 }) }
+      if (s.deny > 0) { s.deny--; return new Response(null, { status: s.denyStatus }) }
       const [a, b] = h.get('Range')!.replace('bytes=', '').split('-').map(Number)
       return new Response(new Uint8Array(b - a + 1), { status: 206, headers: { 'Content-Range': `bytes ${a}-${b}/${FILE_LENGTH}` } })
     }),
@@ -49,11 +50,12 @@ function server() {
   return s
 }
 
-function boot(cfg: Partial<PdfPageWindow['__TS_PDF']> = {}, opts: { hold?: Promise<void>; xhr?: unknown; deny?: number } = {}) {
+function boot(cfg: Partial<PdfPageWindow['__TS_PDF']> = {}, opts: { hold?: Promise<void>; xhr?: unknown; deny?: number; denyStatus?: number } = {}) {
   const messages: Msg[] = []
   const s = server()
   s.hold = opts.hold ?? null
   s.deny = opts.deny ?? 0
+  s.denyStatus = opts.denyStatus ?? 401
   const fake = fakeEngine()
   const w = {
     __TS_PDF: { url: 'https://api.test/me/books/b1/file', token: 't1', initialPage: 7, local: false, safeTop: 24, ...cfg },
@@ -241,9 +243,84 @@ describe('the PDF engine page', () => {
     expect(p.messages).toEqual([{ type: 'highlightTap', highlightId: 'h1' }, { type: 'tap' }])
   })
 
-  it('a new status-bar height moves where pages land (E42), nothing else', () => {
+  it('a new status-bar height moves where pages land (E42); the same one again does nothing', () => {
     const p = boot()
+    p.w.__tsPdfInsets!(24)   // a bar toggle that did not change the status bar
+    expect(p.engine.setStyle).toHaveBeenCalledTimes(1)
     p.w.__tsPdfInsets!(0)
     expect(p.engine.setStyle).toHaveBeenLastCalledWith({ insets: { top: 56, bottom: 0 } })
+  })
+
+  it("an insets change's 'style' ack is not a page report", async () => {
+    const p = boot()
+    await settle()
+    p.emit('ready', { opId: '0', pageCount: 40 })
+    p.emit('relocated', { locator: at(7), reason: 'open', opId: '0' })
+    p.emit('relocated', { locator: at(7), reason: 'style' })
+    expect(p.sent('pdfPage')).toHaveLength(1)
+  })
+
+  it('a 403 is no session to refresh: pdfLoadError, no token request', async () => {
+    const p = boot({}, { deny: 1, denyStatus: 403 })
+    await settle()
+    expect(p.sent('pdfTokenRequest')).toEqual([])
+    expect(p.sent('pdfAuthExpired')).toEqual([])
+    expect(p.sent('pdfLoadError')).toHaveLength(1)
+  })
+
+  it('one reopen per session expiry: denied again after the reopen is pdfLoadError, not another pdfAuthExpired', async () => {
+    const p = boot()
+    await settle()
+    p.emit('ready', { opId: '0', pageCount: 40 })
+    p.emit('error', { code: 'pdf-auth' })
+    p.s.deny = 2
+    p.w.__tsPdfReopen!('t2')   // the fresh token is refused too
+    await settle()
+    p.w.__tsPdfToken!(null)
+    await settle()
+    expect(p.sent('pdfAuthExpired')).toHaveLength(1)
+    expect(p.sent('pdfLoadError')).toHaveLength(1)
+  })
+
+  it('a reopen that opened resets the bound: a later expiry reopens again', async () => {
+    const p = boot()
+    await settle()
+    p.emit('ready', { opId: '0', pageCount: 40 })
+    p.emit('error', { code: 'pdf-auth' })
+    p.w.__tsPdfReopen!('t2')
+    await settle()
+    p.emit('ready', { opId: '0', pageCount: 40 })
+    p.emit('error', { code: 'pdf-auth' })
+    expect(p.sent('pdfAuthExpired')).toHaveLength(2)
+  })
+
+  it('a token request RN never answers gives up after 15 s as no token', async () => {
+    vi.useFakeTimers()
+    try {
+      const p = boot({}, { deny: 2 })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(p.sent('pdfTokenRequest')).toHaveLength(1)
+      await vi.advanceTimersByTimeAsync(15_000)
+      expect(p.sent('pdfAuthExpired')).toHaveLength(1)
+      // The next 401 asks again: the request did not stay stuck.
+      const second = boot({}, { deny: 1 })
+      await vi.advanceTimersByTimeAsync(0)
+      second.w.__tsPdfToken!('t2')
+      await vi.advanceTimersByTimeAsync(0)
+      expect(second.opens).toHaveLength(1)
+    } finally { vi.useRealTimers() }
+  })
+
+  it('a reopen keeps a jump that had not landed: the reopen goes there, with its id', async () => {
+    const p = boot()
+    await settle()
+    p.emit('ready', { opId: '0', pageCount: 40 })
+    p.emit('relocated', { locator: at(7), reason: 'open', opId: '0' })
+    p.w.scrollToPage!(30, 5)   // a TOC jump; its pages never come: the session expired
+    p.emit('error', { code: 'pdf-auth' })
+    p.w.__tsPdfReopen!('t2')
+    await settle()
+    expect(p.opens[1].at).toEqual(at(30))
+    expect(p.opens[1].opId).toBe('5')
   })
 })

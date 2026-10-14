@@ -17,21 +17,24 @@ const PDF_AUTH = { code: 'pdf-auth' } as const
  * The bytes of a PDF for the engine (ADR-025, Phase 5 answer 4a): a length probe (`Range: bytes=0-0` →
  * `Content-Range`), then `read(begin, end)` by ranges, each with the host's auth (`init`). A 401
  * refreshes and retries once inside the request, so the reader keeps their page; still denied →
- * `{ code: 'pdf-auth' }`. A server that ignores ranges (200) hands the whole file as `data`.
+ * `{ code: 'pdf-auth' }`. A 403 is an error, not auth. A server that ignores ranges (200) hands the whole file as `data`.
  * Web and mobile (inside the WebView) both use it.
  */
 export async function openPdfSource(url: string, { fetch = globalThis.fetch, init, refresh }: Deps): Promise<PdfSource> {
   async function get(range: string): Promise<Response> {
     const once = () => {
       const i = init()
-      return fetch(url, { ...i, headers: { ...(i.headers as Record<string, string> | undefined), Range: `bytes=${range}` } })
+      const headers = new Headers(i.headers)
+      headers.set('Range', `bytes=${range}`)
+      return fetch(url, { ...i, headers })
     }
     let r = await once()
     if (r.status === 401) {
       try { await refresh() } catch { throw PDF_AUTH }
       r = await once()
     }
-    if (r.status === 401 || r.status === 403) throw PDF_AUTH
+    if (r.status === 401) throw PDF_AUTH
+    // A 403 is no access to this file, not an expired session: a refresh can't help ('pdf-load').
     if (!r.ok) throw new Error(`PDF ${url}: HTTP ${r.status}`)
     return r
   }

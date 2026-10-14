@@ -41,6 +41,8 @@ export interface PdfPageWindow {
 
 /** ReaderShell's top bar over the WebView: `topBarHeight = 56 + insets.top`. */
 const TOP_BAR_PX = 56
+/** How long a read waits for RN's token answer before it counts as none. */
+const TOKEN_WAIT_MS = 15_000
 
 const at = (n: number): Locator => ({ type: 'application/pdf', locations: { position: n } })
 
@@ -55,25 +57,39 @@ export function startPdfPage(engine: ReaderEngine, w: PdfPageWindow): void {
   let page = cfg.initialPage ?? 1
   /** A jump RN asked for before the file was open: the open goes there. */
   let pending: { page: number; id: string } | null = null
+  /** A jump not landed yet: a reopen goes there instead of the last reported page. */
+  let travelling: { page: number; id: string } | null = null
+  /** A reopen for this session expiry already ran: denied again is the end (no loop). Reset by `ready`. */
+  let reopened = false
+  let insetTop = -1
   let selected: Locator | null = null
   let selToken = Math.floor(Math.random() * 1e12)   // as the reflow page: a stale clear never matches
 
-  w.__tsPdfInsets = (safeTop) => engine.setStyle({ insets: { top: TOP_BAR_PX + safeTop, bottom: 0 } })
+  // Every bar toggle re-injects the chrome: only a new height reaches the engine.
+  w.__tsPdfInsets = (safeTop) => {
+    const top = TOP_BAR_PX + safeTop
+    if (top === insetTop) return
+    insetTop = top
+    engine.setStyle({ insets: { top, bottom: 0 } })
+  }
   w.__tsPdfInsets(cfg.safeTop)
 
   engine.on('ready', ({ pageCount }) => {
     numPages = pageCount ?? 0
+    reopened = false
     post({ type: 'pdfReady', numPages })
   })
-  engine.on('relocated', ({ locator, opId }) => {
+  engine.on('relocated', ({ locator, reason, opId }) => {
     const n = locator.locations.position
-    // Before a page (the insets' ack), a superseded op's ack (at the newer target), or no document.
-    if (!opened || !n || !numPages || (opId !== undefined && opId !== latest)) return
+    // An insets change's ack (not a place the reader chose), before a page, a superseded op's ack (at the
+    // newer target), or no document.
+    if (reason === 'style' || !opened || !n || !numPages || (opId !== undefined && opId !== latest)) return
+    if (opId !== undefined) travelling = null
     page = n
     post({ type: 'pdfPage', page: n, numPages, jumpId: Number(opId ?? 0) || 0 })
   })
   engine.on('error', ({ code, detail }) => {
-    if (code === 'pdf-auth') post({ type: 'pdfAuthExpired' })
+    if (code === 'pdf-auth') authLost()
     else if (code === 'pdf-load' && !numPages) post({ type: 'pdfLoadError', message: detail ?? code })
     else post({ type: 'log', level: 'warn', msg: `[engine] ${code}: ${detail ?? ''}` })
   })
@@ -89,13 +105,20 @@ export function startPdfPage(engine: ReaderEngine, w: PdfPageWindow): void {
     post({ type: 'selection', mode: s.source === 'hold' ? 'tap' : 'drag', text: s.text, sentence: s.sentence, anchor: null, tooLong: s.tooLong, token: selToken })
   })
 
+  /** RN refreshes once per expiry (pdfAuthExpired → __tsPdfReopen); denied again after that, the PDF can't load. */
+  function authLost() {
+    post(reopened ? { type: 'pdfLoadError', message: 'pdf-auth after a reopen' } : { type: 'pdfAuthExpired' })
+  }
+
   // --- The bytes ---
   let asking: Promise<void> | null = null
-  /** One token request in flight; every read that got a 401 waits for it. */
-  // ponytail: no timeout — RN always answers (onUnauthorized resolves, null on failure); add one if a
-  // lost injection ever leaves a page blank on device.
+  /** One token request in flight; every read that got a 401 waits for it. An answer lost on the way
+   *  (an injection into a busy WebView) counts as no token after TOKEN_WAIT_MS, so nothing waits forever. */
   const refresh = () => asking ??= new Promise<void>((ok, no) => {
+    const timer = setTimeout(() => w.__tsPdfToken?.(null), TOKEN_WAIT_MS)
     w.__tsPdfToken = (t) => {
+      clearTimeout(timer)
+      w.__tsPdfToken = undefined
       asking = null
       if (t) { token = t; ok() } else no(new Error('no token'))
     }
@@ -124,7 +147,7 @@ export function startPdfPage(engine: ReaderEngine, w: PdfPageWindow): void {
         void engine.open({ layout: 'fixed', pdf } as ChapterDoc, at(target.page), target.id)
       },
       (e: unknown) => {
-        if ((e as { code?: string })?.code === 'pdf-auth') post({ type: 'pdfAuthExpired' })
+        if ((e as { code?: string })?.code === 'pdf-auth') authLost()
         else post({ type: 'pdfLoadError', message: (e as Error)?.message ?? 'pdf-load' })
       },
     )
@@ -135,10 +158,15 @@ export function startPdfPage(engine: ReaderEngine, w: PdfPageWindow): void {
     const id = String(jumpId)
     if (!opened) { pending = { page: n, id }; return }
     latest = id
+    travelling = { page: n, id }
     void engine.goTo(at(n), { opId: id })
   }
   w.__tsPdfReopen = (t) => {
     token = t
+    reopened = true
+    // A jump that had not landed (a TOC jump whose pages never came) is where the reader was going.
+    pending = pending ?? travelling
+    travelling = null
     open(page, '0')
   }
   w.__setPdfHighlights = (list) => {
