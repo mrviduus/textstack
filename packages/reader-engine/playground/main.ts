@@ -32,6 +32,13 @@ const pg = {
     const r = rangeAt(content, offset, 1)!.getBoundingClientRect()
     return r.top + r.height / 2 + scrollY
   },
+  /** How far page y is from the line box of the first visible character from an offset: 0 on it. */
+  offLine(offset: number, y: number) {
+    const text = chapterText(content)
+    while (/[\s\u00AD\u200B\u2060\uFEFF]/.test(text[offset])) offset++
+    const r = rangeAt(content, offset, 1)!.getBoundingClientRect()
+    return Math.max(0, r.top + scrollY - y, y - (r.bottom + scrollY))
+  },
   lineHeight: () => parseFloat(getComputedStyle(content).lineHeight),
   text: () => chapterText(content),
   /** A stored reading position at a chapter offset, as the apps build one. */

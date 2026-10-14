@@ -1,6 +1,8 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { SeoHead } from '../SeoHead'
 import { LocalizedLink } from '../LocalizedLink'
+import { useTranslation } from '../../hooks/useTranslation'
 
 /** Skeleton while the chapter loads. */
 export function ReaderLoadingScreen() {
@@ -39,6 +41,36 @@ export function ReaderErrorScreen({ seoTitle, heading, body, linkTo, linkText, l
           {linkText}
         </ErrorLink>
       </div>
+    </div>
+  )
+}
+
+/**
+ * The engine could not open the chapter or book (#849, #853): said inside the reader, whose bars and nav
+ * stay. Try again is disabled while `onRetry` runs. The caller keeps the tries: `stillFailing` after one.
+ */
+export function ReaderOpenError({ onRetry, stillFailing, message = 'reader.openError.message' }: {
+  onRetry: () => Promise<unknown> | void
+  stillFailing: boolean
+  message?: string
+}) {
+  const { t } = useTranslation()
+  const [busy, setBusy] = useState(false)
+  const retry = async () => {
+    setBusy(true)
+    try {
+      await onRetry()
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="reader-open-error" role="alert">
+      <p>{t(message)}</p>
+      {stillFailing && <p>{t('reader.openError.stillFailing')}</p>}
+      <button type="button" className="reader-open-error__retry" onClick={retry} disabled={busy}>
+        {t(busy ? 'reader.openError.opening' : 'reader.openError.retry')}
+      </button>
     </div>
   )
 }

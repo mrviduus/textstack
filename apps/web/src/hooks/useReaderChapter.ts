@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useApi } from './useApi'
 import { useNetworkRecovery } from './useNetworkRecovery'
 import { getUserBook, getUserBookChapter } from '../api/userBooks'
@@ -48,7 +48,35 @@ export interface UseReaderChapterResult {
   publicBook: BookDetail | null
   loading: boolean
   error: string | null
+  /**
+   * Try again after the engine could not open the chapter (#849): the chapter from the network first; on
+   * success it replaces the one on screen and the cache, on failure nothing changes (no loading screen, no
+   * page error). Dropped (false) once the reader is on another chapter.
+   */
+  retryChapter: () => Promise<boolean>
 }
+
+const fromPublic = (ch: Chapter): NormalizedChapter => ({
+  id: ch.id,
+  chapterNumber: ch.chapterNumber,
+  identifier: ch.slug,
+  title: ch.title,
+  html: ch.html,
+  wordCount: ch.wordCount,
+  prev: ch.prev ? { identifier: ch.prev.slug, title: ch.prev.title } : null,
+  next: ch.next ? { identifier: ch.next.slug, title: ch.next.title } : null,
+})
+
+const fromUser = (ch: Awaited<ReturnType<typeof getUserBookChapter>>, slug: string): NormalizedChapter => ({
+  id: ch.id,
+  chapterNumber: ch.chapterNumber,
+  identifier: ch.slug || slug,
+  title: ch.title,
+  html: ch.html,
+  wordCount: ch.wordCount,
+  prev: ch.previous ? { identifier: ch.previous.slug || String(ch.previous.chapterNumber), title: ch.previous.title } : null,
+  next: ch.next ? { identifier: ch.next.slug || String(ch.next.chapterNumber), title: ch.next.title } : null,
+})
 
 export function useReaderChapter({
   mode,
@@ -70,6 +98,7 @@ export function useReaderChapter({
 
   const editionIdRef = useRef<string | null>(null)
   const fetchedKeyRef = useRef<string | null>(null)
+  const keyRef = useRef<string | null>(null)   // the chapter the reader is on: a retry for another is dropped
 
   useEffect(() => {
     if (mode === 'public' && (!bookSlug || !chapterSlug)) return
@@ -80,6 +109,7 @@ export function useReaderChapter({
     const fetchKey = mode === 'public'
       ? `public:${bookSlug}:${chapterSlug}`
       : `userbook:${userBookId}:${userChapterSlug ?? ''}`
+    keyRef.current = fetchKey
     // Already loaded — skip so an isAuthenticated flip (guest creation) doesn't
     // reset state and drop popups mid-interaction.
     if (fetchedKeyRef.current === fetchKey) return
@@ -126,16 +156,7 @@ export function useReaderChapter({
               // offline read has the real id too.
               if (!cached.chapterId && bookChapter) cacheChapter(cachedEditionId, rawChapter).catch(() => {})
               setPublicChapter(rawChapter)
-              setChapter({
-                id: rawChapter.id,
-                chapterNumber: rawChapter.chapterNumber,
-                identifier: rawChapter.slug,
-                title: rawChapter.title,
-                html: rawChapter.html,
-                wordCount: rawChapter.wordCount,
-                prev: rawChapter.prev ? { identifier: rawChapter.prev.slug, title: rawChapter.prev.title } : null,
-                next: rawChapter.next ? { identifier: rawChapter.next.slug, title: rawChapter.next.title } : null,
-              })
+              setChapter(fromPublic(rawChapter))
               if (bk) {
                 setPublicBook(bk)
                 setBook({
@@ -166,16 +187,7 @@ export function useReaderChapter({
           setPublicBook(bk)
           editionIdRef.current = bk.id
 
-          setChapter({
-            id: ch.id,
-            chapterNumber: ch.chapterNumber,
-            identifier: ch.slug,
-            title: ch.title,
-            html: ch.html,
-            wordCount: ch.wordCount,
-            prev: ch.prev ? { identifier: ch.prev.slug, title: ch.prev.title } : null,
-            next: ch.next ? { identifier: ch.next.slug, title: ch.next.title } : null,
-          })
+          setChapter(fromPublic(ch))
           setBook({
             id: bk.id,
             title: bk.title,
@@ -215,16 +227,7 @@ export function useReaderChapter({
 
           if (cancelled) return
 
-          setChapter(ch ? {
-            id: ch.id,
-            chapterNumber: ch.chapterNumber,
-            identifier: ch.slug || userChapterSlug!,
-            title: ch.title,
-            html: ch.html,
-            wordCount: ch.wordCount,
-            prev: ch.previous ? { identifier: ch.previous.slug || String(ch.previous.chapterNumber), title: ch.previous.title } : null,
-            next: ch.next ? { identifier: ch.next.slug || String(ch.next.chapterNumber), title: ch.next.title } : null,
-          } : null)
+          setChapter(ch ? fromUser(ch, userChapterSlug!) : null)
           setBook({
             id: bk.id,
             title: bk.title,
@@ -262,5 +265,29 @@ export function useReaderChapter({
     return () => { cancelled = true }
   }, [mode, bookSlug, chapterSlug, userBookId, userChapterSlug, isAuthenticated, api, markFetchStart, wasAbortedDueToWake])
 
-  return { chapter, book, publicChapter, publicBook, loading, error }
+  const retryChapter = useCallback(async (): Promise<boolean> => {
+    const key = keyRef.current
+    for (;;) {
+      if (mode === 'public') markFetchStart()
+      try {
+        if (mode === 'public') {
+          const ch = await api.getChapter(bookSlug!, chapterSlug!)
+          if (keyRef.current !== key) return false
+          setPublicChapter(ch)
+          setChapter(fromPublic(ch))
+          if (editionIdRef.current) cacheChapter(editionIdRef.current, ch).catch(() => {})
+        } else {
+          const ch = await getUserBookChapter(userBookId!, userChapterSlug!)
+          if (keyRef.current !== key) return false
+          setChapter(fromUser(ch, userChapterSlug!))
+        }
+        return true
+      } catch {
+        // A wake from sleep aborted the fetch: no answer yet, so ask again, as the normal load does.
+        if (keyRef.current !== key || !(mode === 'public' && wasAbortedDueToWake())) return false
+      }
+    }
+  }, [mode, bookSlug, chapterSlug, userBookId, userChapterSlug, api, markFetchStart, wasAbortedDueToWake])
+
+  return { chapter, book, publicChapter, publicBook, loading, error, retryChapter }
 }

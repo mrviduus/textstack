@@ -3,6 +3,7 @@ import { createEngine, type ReaderEngine } from '@textstack/reader-engine'
 import type { ReaderSettings } from '../../hooks/useReaderSettings'
 import { sanitizeHtml } from '../../utils/sanitize'
 import { setMountedEngine, unmountEngine } from '../../lib/readerEngine'
+import { reportError } from '../../lib/sentry'
 
 // One chapter, shown by the reader engine (ADR-025), which draws every decoration and takes every tap.
 
@@ -21,6 +22,8 @@ interface Props {
   onTap?: () => void
   /** The engine's open of this chapter has landed: the chapter is ready to position. */
   onEngineOpened?: (chapterSlug: string) => void
+  /** The engine could not open this chapter (#849): the host shows the chapter error. */
+  onEngineError?: (chapterSlug: string) => void
 }
 
 function fontFamily(f: ReaderSettings['fontFamily']): string {
@@ -35,7 +38,7 @@ function fontFamily(f: ReaderSettings['fontFamily']): string {
 }
 
 export const ReaderSection = forwardRef<ReaderSectionHandle, Props>(function ReaderSection(
-  { chapterId, chapterSlug, chapterIndex, html, settings, onTap, onEngineOpened },
+  { chapterId, chapterSlug, chapterIndex, html, settings, onTap, onEngineOpened, onEngineError },
   ref,
 ) {
   const articleRef = useRef<HTMLElement | null>(null)
@@ -49,6 +52,8 @@ export const ReaderSection = forwardRef<ReaderSectionHandle, Props>(function Rea
   onTapRef.current = onTap
   const onEngineOpenedRef = useRef(onEngineOpened)
   onEngineOpenedRef.current = onEngineOpened
+  const onEngineErrorRef = useRef(onEngineError)
+  onEngineErrorRef.current = onEngineError
   useEffect(() => {
     if (!articleRef.current) return
     const engine = createEngine(articleRef.current)
@@ -63,12 +68,25 @@ export const ReaderSection = forwardRef<ReaderSectionHandle, Props>(function Rea
   useEffect(() => {
     const engine = engineRef.current
     if (!engine || !chapterSlug) return
+    let live = true   // false once this open is replaced (chapter / html change) or the engine is unmounted
     // New html for the chapter on screen (a cache → network refresh) reopens where the reader is.
     const here = engine.current()
     setMountedEngine({ engine, href: chapterSlug })
     void engine.open({ href: chapterSlug, layout: 'reflow', html: cleanHtml }, here?.href === chapterSlug ? here : undefined)
-      // Only the engine still mounted: React StrictMode (dev) destroys the first one mid-open.
-      .then(() => { if (engineRef.current === engine) onEngineOpenedRef.current?.(chapterSlug) })
+      .then(
+        // Only the open still current: a newer open, an unmount or StrictMode's (dev) destroy supersedes it.
+        // A goTo that overtook it also resolves 'superseded', but its document landed (engine rule E46).
+        (result) => {
+          if (live && (result !== 'superseded' || engine.current()?.href === chapterSlug)) onEngineOpenedRef.current?.(chapterSlug)
+        },
+        // Only open's own rejection: an error thrown by onEngineOpened is not the engine failing.
+        (e: unknown) => {
+          if (!live) return   // a destroy mid-open is not a failure
+          reportError(e, { area: 'reader-engine', chapter: chapterSlug })
+          onEngineErrorRef.current?.(chapterSlug)
+        },
+      )
+    return () => { live = false }
   }, [cleanHtml, chapterSlug])
   const { fontSize, lineHeight, fontFamily: family, textAlign } = settings
   useEffect(() => {

@@ -96,8 +96,11 @@ export function destroyAll() { engines.splice(0).forEach((e) => e.destroy()) }
  * A reader on the fake layout. `fonts` holds every open on a promise (a slow webfont), to catch the
  * engine mid-op.
  */
-/** `noCaret`: a browser without `caretPositionFromPoint` or line boxes, so the engine estimates. */
-export function makeReader(opts: { html?: string; fonts?: () => Promise<void>; noCaret?: boolean } = {}) {
+/**
+ * `noCaret`: a browser without `caretPositionFromPoint` or line boxes, so the engine estimates. `caret`:
+ * what the browser's caret hits instead of the chapter (a popup over it). `boxReads()` counts line-box reads.
+ */
+export function makeReader(opts: { html?: string; fonts?: () => Promise<void>; noCaret?: boolean; caret?: () => { node: Node; offset: number } } = {}) {
   const html = opts.html ?? CHAPTER
   const root = document.createElement('div')
   document.body.append(root)
@@ -135,6 +138,7 @@ export function makeReader(opts: { html?: string; fonts?: () => Promise<void>; n
   }
 
   let resize = () => {}
+  let boxReads = 0
   const engine = createEngine(root, {
     scroller,
     measure: (el) => layout(root).boxes.get(el) ?? { top: 0, height: layout(root).total },
@@ -142,8 +146,8 @@ export function makeReader(opts: { html?: string; fonts?: () => Promise<void>; n
     schedule: (cb) => { setTimeout(cb, 0) },
     observeResize: (_el, cb) => { resize = cb; return () => { resize = () => {} } },
     fontsReady: opts.fonts ?? (() => Promise.resolve()),
-    rects: (range) => (opts.noCaret ? [] : lineBoxes(root, range)),
-    caret: opts.noCaret ? () => null : caret,
+    rects: (range) => { boxReads++; return opts.noCaret ? [] : lineBoxes(root, range) },
+    caret: opts.noCaret ? () => null : opts.caret ?? caret,
   })
   engines.push(engine)
   // The chapter fills the root: the engine probes the reading line inside its box.
@@ -244,6 +248,7 @@ export function makeReader(opts: { html?: string; fonts?: () => Promise<void>; n
       engine.setFooter(el)
       return el
     },
+    boxReads: () => boxReads,
     /** A resize callback with nothing changed. */
     resizeNothing() { resize() },
     /** Let every pending frame, timer and scroll event run. */

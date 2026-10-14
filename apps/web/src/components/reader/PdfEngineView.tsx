@@ -9,7 +9,9 @@ import { openPdfSource } from '../../lib/pdfRangeSource'
 import { setMountedEngine, unmountEngine } from '../../lib/readerEngine'
 import { useNewerPositionCheck } from '../../hooks/useNewerPositionCheck'
 import type { HighlightColor, StoredHighlight } from '../../lib/offlineDb'
+import { reportError } from '../../lib/sentry'
 import { PdfHighlightPopup } from './PdfHighlightPopup'
+import { ReaderOpenError } from './ReaderScreens'
 import { COLOR_MAP } from './decorationColors'
 import { isReviewed, useReviewedMarks } from './ReviewedMarks'
 import { isReaderScrollKey, pdfFixedLayout } from './pdfEngineLayout'
@@ -97,6 +99,8 @@ export default function PdfEngineView({
   const [pageInput, setPageInput] = useState('')
   const [sessionExpired, setSessionExpired] = useState(false)
   const [failed, setFailed] = useState(false)
+  /** #853: the engine's open threw (not a file that will not load: that is `failed`). */
+  const [openFails, setOpenFails] = useState(0)   // in a row; more than one: still could not open it
   const [pendingJump, setPendingJump] = useState<number | null>(null)
   const [editHl, setEditHl] = useState<{ highlight: StoredHighlight; rect: DOMRect } | null>(null)
   const [opened, setOpened] = useState(false)
@@ -106,6 +110,8 @@ export default function PdfEngineView({
   const jumpSeqRef = useRef(0)
   /** The engine and bytes the current document was opened with (StrictMode makes a second engine, Reload new bytes). */
   const openedForRef = useRef<{ engine: ReaderEngine; source: PdfSource } | null>(null)
+  /** The current open (#853): Reload moves it on at once, so the old open's rejection is stale. */
+  const openSeqRef = useRef(0)
   /** The open's document is in (`ready`): a later 'pdf-load' is one failed read, not a reason to fall back. */
   const docReadyRef = useRef(false)
   /** Reopen here after a session-expired reload. */
@@ -138,17 +144,40 @@ export default function PdfEngineView({
   const openPage = useMemo(() => resolveOpenPage(initialPage, resumePage, readPdfPage(bookId)), [bookId, initialPage, resumePage])
 
   /** Every open / goTo is a jump: the gate waits for its ack before a page is saved. */
-  const jump = useCallback((page: number, run: (opId: string) => unknown) => {
+  const jump = useCallback(<T,>(page: number, run: (opId: string) => T): T => {
     const id = ++jumpSeqRef.current
     gateRef.current = pdfGateReduce(gateRef.current, { type: 'jumpIssued', page, jumpId: id, at: Date.now() }).state
     movedRef.current = false
-    void run(String(id))
+    return run(String(id))
   }, [])
 
   const goToPage = useCallback((page: number) => {
     const engine = engineRef.current
-    if (engine) jump(page, (opId) => engine.goTo(at(page), { opId }))
+    if (engine) void jump(page, (opId) => engine.goTo(at(page), { opId }))
   }, [jump])
+
+  /**
+   * Opens the document at a page; resolves whether it landed. #853: an open that throws is reported and
+   * said in the reader (Try again opens the same bytes again), unless an unmount or a Reload replaced it.
+   */
+  const openDoc = useCallback((engine: ReaderEngine, source: PdfSource, target: number): Promise<boolean> => {
+    openedForRef.current = { engine, source }
+    docReadyRef.current = false
+    gateRef.current = pdfGateReduce(gateRef.current, { type: 'documentLoaded' }).state
+    const mine = ++openSeqRef.current
+    return jump(target, (opId) => engine.open({ layout: 'fixed', pdf: source }, at(target), opId)).then(
+      () => {
+        if (openSeqRef.current === mine) setOpenFails(0)
+        return true
+      },
+      (e: unknown) => {
+        if (engineRef.current !== engine || openSeqRef.current !== mine) return false
+        reportError(e, { area: 'reader-engine', book: bookId })
+        setOpenFails((n) => n + 1)
+        return false
+      },
+    )
+  }, [jump, bookId])
 
   const flushServerProgress = useCallback(() => {
     if (serverTimerRef.current) {
@@ -277,12 +306,17 @@ export default function PdfEngineView({
       explicitRef.current = initialPage != null
       holdRef.current = resumeUnanswered && initialPage == null
     }
-    openedForRef.current = { engine, source }
-    docReadyRef.current = false
-    gateRef.current = pdfGateReduce(gateRef.current, { type: 'documentLoaded' }).state
-    jump(target, (opId) => engine.open({ layout: 'fixed', pdf: source }, at(target), opId))
+    void openDoc(engine, source, target)
     setOpened(true)
-  }, [source, pendingJump, initialPage, resumeReady, resumeUnanswered, openPage, jump])
+  }, [source, pendingJump, initialPage, resumeReady, resumeUnanswered, openPage, openDoc])
+
+  /** Try again (#853): the same bytes, opened again where the reader was. */
+  const retryOpen = useCallback(() => {
+    // On the engine mounted now (StrictMode or a new book id may have replaced the one that failed).
+    const engine = engineRef.current
+    const source = openedForRef.current?.source
+    return engine && source ? openDoc(engine, source, currentPageRef.current ?? openPage) : Promise.resolve(false)
+  }, [openDoc, openPage])
 
   // --- TOC / bookmark / highlight jump: once per nonce. Before the open, the open goes there. ---
   const appliedJumpRef = useRef<number | null>(null)
@@ -359,8 +393,10 @@ export default function PdfEngineView({
 
   const handleReload = useCallback(async () => {
     reloadPageRef.current = currentPageRef.current
+    openSeqRef.current++   // the open in flight is replaced now, not when the new bytes come
     setSessionExpired(false)
     setFailed(false)
+    setOpenFails(0)
     loadErrorFiredRef.current = false
     try {
       await refreshToken()
@@ -431,7 +467,8 @@ export default function PdfEngineView({
         </div>
       )}
       {failed && <div className="pdf-original__error">{t('reader.originalLayout.error')}</div>}
-      {!numPages && !failed && !sessionExpired && <div className="pdf-original__loading">{t('reader.originalLayout.loading')}</div>}
+      {openFails > 0 && <ReaderOpenError onRetry={retryOpen} stillFailing={openFails > 1} message="reader.openError.book" />}
+      {!numPages && !failed && !openFails && !sessionExpired && <div className="pdf-original__loading">{t('reader.originalLayout.loading')}</div>}
 
       {/* The engine owns this element's children (pages, canvases, text layers, marks). */}
       <div ref={rootRef} className="pdf-engine__pages" />

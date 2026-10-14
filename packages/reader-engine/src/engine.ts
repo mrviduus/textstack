@@ -77,6 +77,10 @@ const COLORS = {
 }
 const DRAW: Record<Mark['group'], DrawFn> = { highlight: Overlayer.highlight, search: Overlayer.highlight, word: Overlayer.underline, selection: Overlayer.highlight }
 const SVG = 'http://www.w3.org/2000/svg'
+/** On every engine's root: its text is reader text, never a cover over another engine's line (E45). */
+const MARK = 'data-reader-engine'
+/** A translation label's look (E44), as both hosts styled `.reader-translation` before. */
+const LABEL_LOOK = 'font: italic 400 0.42em -apple-system, system-ui, sans-serif; opacity: .55'
 /** Style `'dot'` (E31): a small dot just after the item's last line, no fill (web's reviewed highlight). */
 const DOT = 'dot'
 const drawDot: DrawFn = (rects) => {
@@ -173,6 +177,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
   const rootPosition = root.style.position
   if (['static', ''].includes(win.getComputedStyle(root).position)) root.style.position = 'relative'
   root.replaceChildren(content, layer)
+  root.setAttribute(MARK, '')
   const fontFaces = doc.createElement('style')
 
   let alive = true
@@ -253,20 +258,23 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
   /**
    * The chapter offset under the reading line, by the browser's caret, the way both apps read it (web
    * `readReadingLine`): clamped into the chapter, a few x's in case one is a margin, an image or an empty cell. Null:
-   * no caret API or no text there.
+   * no caret API or no text there; `'covered'`: something over the line (a drawer, a popup) took the caret (E45).
    */
-  function probe(): number | null {
+  function probe(): number | null | 'covered' {
     const box = content.getBoundingClientRect()
     const line = (scroller === page ? 0 : scroller.getBoundingClientRect().top) + READING_LINE * viewport().height
     const y = Math.max(box.top + 4, Math.min(line, box.bottom - 4))
+    let covered = false
     for (const x of [box.left + 24, box.left + box.width / 2, box.right - 24]) {
       const c = caretAt(x, y)
       // Text only, like the apps (#802): a caret on an element (an empty table cell, an image) is no
       // place on this line; the next x is.
       const at = c && c.node.nodeType === Node.TEXT_NODE ? offsetIn(c.node, c.offset) : null
       if (at !== null) return at
+      // Another engine's chapter (web's next one) is reader text, not a cover.
+      if (c && !root.contains(c.node) && !c.node.parentElement?.closest(`[${MARK}]`)) covered = true
     }
-    return null
+    return covered ? 'covered' : null
   }
 
   /**
@@ -286,14 +294,66 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
   }
 
   /**
+   * The line box (root-relative) of an offset's first visible character (whitespace, soft hyphens, zero-width
+   * spaces and word joiners have no width, however long the run); null: it has none (hidden text, jsdom).
+   */
+  function boxAt(offset: number): Rect | null {
+    let at = offset
+    while (at < text.length - 1 && /[\s\u00AD\u200B\u2060\uFEFF]/.test(text[at])) at++
+    const range = rangeOf(at, 1)
+    return (range && rectsOf(range)[0]) || null
+  }
+
+  /**
+   * From an offset whose run leads into hidden text, the first offset with a box, node by node (a visible
+   * node may end in such a run: then the next one); the chapter's length: none.
+   */
+  function boxFrom(offset: number): number {
+    for (const t of nodes) {
+      const s = starts.get(t)!
+      if (s + t.length > offset && rectsOf(rangeOf(s, t.length)!).length && boxAt(Math.max(offset, s))) return Math.max(offset, s)
+    }
+    return text.length
+  }
+
+  /**
+   * E45: the text on the line at content y by the text's own boxes, no hit test: what is under a popup or
+   * a drawer. A binary search for the first character whose line ends below y (line tops rise with the
+   * text); not on the line, the text nodes near it are checked (a float puts a figure's caption out of
+   * text order): one on the line, else the line ending nearest above it (beside a picture, in a gap: the
+   * text just read stays on the line, the picture below it). Null with no boxes (jsdom).
+   */
+  function offsetAtLine(y: number): number | null {
+    const line = y - measure(root).top
+    const on = (r: Rect | null) => !!r && r.y <= line && line < r.y + r.height
+    /** The first offset in [a, b) whose line ends below `below`. */
+    const first = (a: number, b: number, below: number) => {
+      while (a < b) { const m = (a + b) >> 1; const r = boxAt(m) ?? boxAt(boxFrom(m)); if (!r || r.y + r.height > below) b = m; else a = m + 1 }
+      return a
+    }
+    const from = first(0, text.length, line)
+    const at = boxAt(from) ? from : boxFrom(from)   // past a run into hidden text: the text after it
+    if (on(boxAt(at))) return at
+    let above: Text | null = null
+    let top = 0
+    let bottom = -Infinity
+    for (const t of nodes) {
+      const s = starts.get(t)!
+      const range = s < at + 400 && s + t.length > from - 400 && rangeOf(s, t.length)
+      for (const b of range ? rectsOf(range) : []) {
+        if (on(b)) return first(s, s + t.length, line)
+        if (b.y + b.height <= line && b.y + b.height > bottom) [above, top, bottom] = [t, b.y, b.y + b.height]
+      }
+    }
+    return above && first(starts.get(above)!, starts.get(above)! + above.length, top)
+  }
+
+  /**
    * Content y of a chapter offset: the middle of the line of its first visible character (whitespace,
    * soft hyphens and zero-width spaces have no width), or the estimate where there is none.
    */
   function yAtOffset(offset: number): number {
-    let at = offset
-    while (at < text.length - 1 && /[\s\u00AD\u200B]/.test(text[at])) at++
-    const range = rangeOf(at, 1)
-    const r = range && rectsOf(range)[0]
+    const r = boxAt(offset)
     if (r) return measure(root).top + r.y + r.height / 2
     const seg = segments.find((s) => offset < s.start + s.length) ?? segments[segments.length - 1]
     if (!seg) return 0
@@ -310,7 +370,10 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
 
   /** The reader's place right now, read off the reading line. */
   function capture(): Locator {
-    const at = probe() ?? offsetAtY(scroller.scrollTop + READING_LINE * viewport().height)
+    const p = probe()
+    const line = scroller.scrollTop + READING_LINE * viewport().height
+    // E45: something covers the line (a popup, a drawer): the text under it, by geometry.
+    const at = typeof p === 'number' ? p : (p === 'covered' ? offsetAtLine(line) : null) ?? offsetAtY(line)
     return (href && locatorAt(text, at, href, progression())) || { href, type: 'text/html', locations: { progression: progression() } }
   }
 
@@ -410,6 +473,8 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
         label.setAttribute('y', String(first.y))
         label.setAttribute('text-anchor', 'middle')
         label.setAttribute('fill', 'currentColor')   // the theme's text colour (root's `color`)
+        // E44: its own look, so no host can forget it (web once drew labels at body size).
+        label.setAttribute('style', LABEL_LOOK)
         label.textContent = m.translation
         layer.append(label)
       }
@@ -761,6 +826,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
       unobserve()
       fontFaces.remove()
       root.replaceChildren()
+      root.removeAttribute(MARK)
       root.style.position = rootPosition
       if (--anchorHold.count === 0) {
         anchorHolds.delete(scroller)

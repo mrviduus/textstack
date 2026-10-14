@@ -277,8 +277,6 @@ export function buildEngineReaderHtml(chapterHtml: string, theme: ReaderTheme = 
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
   <style>
 ${readerStyle(theme, chrome, buildFontFace(theme.fontFamily))}
-    /* A saved word's translation, drawn by the engine above the word (SVG text, the theme's ink). */
-    .reader-translation { font: italic 0.42em -apple-system, system-ui, sans-serif; opacity: 0.55; }
   </style>
 </head>
 <body>

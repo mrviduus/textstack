@@ -165,6 +165,13 @@
     "badgeNote": "In closed testing — open to anyone with an Android phone."
   },
   "reader": {
+    "openError": {
+      "message": "This chapter could not be opened",
+      "book": "This book could not be opened",
+      "retry": "Try again",
+      "opening": "Opening…",
+      "stillFailing": "Still could not open it. Check your connection."
+    },
     "wordPopup": {
       "ignore": "Ignore",
       "savedStatus": "Saved to vocabulary",

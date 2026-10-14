@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@sentry/node": "catalog:",
+    "@sentry/react": "catalog:",
     "cmdk": "^1.1.1",
     "dompurify": "^3.4.3",
     "pdfjs-dist": "catalog:",
