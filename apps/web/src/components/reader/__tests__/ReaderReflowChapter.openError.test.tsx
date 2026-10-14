@@ -7,9 +7,9 @@ import type { ReaderSettings } from '../../../hooks/useReaderSettings'
 const opens: string[] = []
 let failNext = true
 vi.mock('../ReaderSection', () => ({
-  ReaderSection: ({ chapterSlug, onEngineError, onEngineOpened }: { chapterSlug: string; onEngineError: (s: string) => void; onEngineOpened: (s: string) => void }) => {
+  ReaderSection: ({ chapterSlug, html, onEngineError, onEngineOpened }: { chapterSlug: string; html: string; onEngineError: (s: string) => void; onEngineOpened: (s: string) => void }) => {
     useEffect(() => {
-      opens.push(chapterSlug)
+      opens.push(`${chapterSlug} ${html}`)
       if (failNext) onEngineError(chapterSlug)
       else onEngineOpened(chapterSlug)
     }, [chapterSlug])
@@ -20,13 +20,14 @@ vi.mock('../../../hooks/useTranslation', () => ({ useTranslation: () => ({ t: (k
 
 import { ReaderReflowChapter } from '../ReaderReflowChapter'
 
-const chapter = (id: string) => ({
-  id, chapterNumber: 1, identifier: id, title: `Chapter ${id}`, html: '<p>x</p>', wordCount: null,
+const chapter = (id: string, html = '<p>x</p>') => ({
+  id, chapterNumber: 1, identifier: id, title: `Chapter ${id}`, html, wordCount: null,
   prev: { identifier: 'prev', title: 'Prev' }, next: { identifier: 'next', title: 'Next' },
 })
 const props = {
   settings: {} as ReaderSettings, onTap: () => {}, onEngineOpened: () => {}, discuss: null,
   chapterNumber: 2, totalChapters: 3, chapterProgress: 0, onGoTo: () => {}, onFinish: () => {}, finishLabel: 'Finish',
+  onReload: () => {},
 }
 
 describe('ReaderReflowChapter: the engine cannot open the chapter', () => {
@@ -40,11 +41,15 @@ describe('ReaderReflowChapter: the engine cannot open the chapter', () => {
     expect(screen.getByLabelText('Next chapter')).toBeTruthy()
   })
 
-  it('tryAgain_OpensTheChapterAgain_AndClearsTheError', () => {
-    render(<ReaderReflowChapter chapter={chapter('a')} {...props} />)
+  it('tryAgain_RefetchesTheChapter_ThenOpensTheNewHtml_AndClearsTheError', () => {
+    const onReload = vi.fn()
+    const { rerender } = render(<ReaderReflowChapter chapter={chapter('a')} {...props} onReload={onReload} />)
     failNext = false
     fireEvent.click(screen.getByText('reader.openError.retry'))
-    expect(opens).toEqual(['a', 'a'])
+    expect(onReload).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('alert')).toBeTruthy()   // until the network's chapter lands
+    rerender(<ReaderReflowChapter chapter={chapter('a', '<p>fresh</p>')} {...props} onReload={onReload} />)
+    expect(opens).toEqual(['a <p>x</p>', 'a <p>fresh</p>'])
     expect(screen.queryByRole('alert')).toBeNull()
     expect(screen.getByTestId('chapter')).toBeTruthy()
   })
@@ -54,7 +59,7 @@ describe('ReaderReflowChapter: the engine cannot open the chapter', () => {
     failNext = false
     rerender(<ReaderReflowChapter chapter={chapter('b')} {...props} />)
     rerender(<ReaderReflowChapter chapter={chapter('a')} {...props} />)
-    expect(opens).toEqual(['a', 'b', 'a'])
+    expect(opens).toEqual(['a <p>x</p>', 'b <p>x</p>', 'a <p>x</p>'])
     expect(screen.queryByRole('alert')).toBeNull()
   })
 })

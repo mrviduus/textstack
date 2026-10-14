@@ -1,10 +1,11 @@
 import { useCallback, useState } from 'react'
 
 /**
- * #849: the chapter the engine failed to open, for the in-reader error. Another chapter clears it, so
- * coming back retries the open; so does `clear` (Try again, or an open that lands on it).
+ * #849: the chapter the engine failed to open, for the in-reader error. A new chapter object clears it:
+ * another chapter (coming back retries the open) or a fresh load of this one (Try again's refetch). An
+ * open that lands on it clears it too.
  */
-export function useChapterEngineFailure(chapter: string | undefined) {
+export function useChapterEngineFailure(chapter: { identifier: string }) {
   const [failedFor, setFailedFor] = useState<string | null>(null)
   // Reset while rendering, not in an effect: the chapter's own open (a child effect) runs first.
   const [seen, setSeen] = useState(chapter)
@@ -13,5 +14,5 @@ export function useChapterEngineFailure(chapter: string | undefined) {
     setFailedFor(null)
   }
   const clear = useCallback((slug: string) => setFailedFor((f) => (f === slug ? null : f)), [])
-  return { failed: !!chapter && failedFor === chapter, onEngineError: setFailedFor, clear }
+  return { failed: failedFor === chapter.identifier, onEngineError: setFailedFor, clear }
 }

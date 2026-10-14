@@ -12,6 +12,8 @@ interface Props {
   settings: ReaderSettings
   onTap: () => void
   onEngineOpened: (chapterSlug: string) => void
+  /** Load the chapter again from the network (useReaderChapter's reload): Try again after a failed open. */
+  onReload: () => void
   /** End-of-chapter Discuss; null for an anonymous reader. */
   discuss: Omit<ComponentProps<typeof ReaderChapterDiscuss>, 'chapter'> | null
   /** 1-based positional index of the chapter, null when unknown. */
@@ -26,13 +28,14 @@ interface Props {
 
 /** The reflow reader's one mounted chapter: its text, the Discuss row and the chapter nav. */
 export function ReaderReflowChapter({
-  chapter, settings, onTap, onEngineOpened, discuss, chapterNumber, totalChapters, chapterProgress, onGoTo, onFinish, finishLabel,
+  chapter, settings, onTap, onEngineOpened, onReload, discuss, chapterNumber, totalChapters, chapterProgress, onGoTo, onFinish, finishLabel,
 }: Props) {
-  // #849: a chapter the engine cannot open says so here; Try again mounts a fresh engine and opens it again.
-  const failure = useChapterEngineFailure(chapter.identifier)
+  // #849: a chapter the engine cannot open says so here. Try again refetches it; the fresh chapter clears the
+  // failure, and a fresh engine opens it.
+  const failure = useChapterEngineFailure(chapter)
   return (
     <>
-      {failure.failed ? <ReaderOpenError onRetry={() => failure.clear(chapter.identifier)} /> : <ReaderSection
+      {failure.failed ? <ReaderOpenError onRetry={onReload} /> : <ReaderSection
         chapterId={chapter.id}
         chapterSlug={chapter.identifier}
         chapterIndex={chapter.chapterNumber}

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { renderHook, waitFor } from '@testing-library/react'
+import { renderHook, waitFor, act } from '@testing-library/react'
 
 // H3: a chapter served from the IndexedDB cache must carry the REAL chapter id.
 // It used to carry the cache key "editionId:slug", which a bookmark then POSTed
@@ -60,5 +60,25 @@ describe('useReaderChapter — cache path chapter id', () => {
     rerender('one')
     await waitFor(() => expect(result.current.chapter?.identifier).toBe('one'))
     await waitFor(() => expect(cacheChapter).toHaveBeenCalledWith(ED_ID, expect.objectContaining({ id: ids.one, slug: 'one' })))
+  })
+})
+
+describe('useReaderChapter — reload (Try again, #849)', () => {
+  it('reload skips the cache once: the chapter comes from the network, without a loading screen', async () => {
+    const { result, rerender } = renderHook(
+      (slug: string) => useReaderChapter({ mode: 'public', bookSlug: 'b', chapterSlug: slug, isAuthenticated: true }),
+      { initialProps: 'two' },
+    )
+    await waitFor(() => expect(result.current.chapter?.identifier).toBe('two'))
+    rerender('one')
+    await waitFor(() => expect(result.current.chapter?.identifier).toBe('one'))   // from the cache
+    getChapter.mockClear()
+    getChapter.mockImplementationOnce(async (_b: string, slug: string) => ({
+      id: ids[slug], chapterNumber: 0, slug, title: slug, html: '<p>fresh</p>', wordCount: 10, prev: null, next: null,
+    }))
+    act(() => result.current.reload())
+    expect(result.current.loading).toBe(false)   // the reader stays on screen
+    await waitFor(() => expect(result.current.chapter?.html).toBe('<p>fresh</p>'))
+    expect(getChapter).toHaveBeenCalledWith('b', 'one')
   })
 })

@@ -260,7 +260,8 @@ jobs:
             export "$n=CANARY_SECRET_$n"
           done
           set -a; . apps/web/production.env; set +a
-          pnpm --filter textstack-web build
+          # Sentry's release: the commit this bundle is built from (apps/web/src/lib/sentry.ts).
+          VITE_SENTRY_RELEASE="$IMAGE_TAG" pnpm --filter textstack-web build
           du -sh apps/web/dist
 
       # The whole dist (fresh: no SSG here): token shapes, private keys, secret-named

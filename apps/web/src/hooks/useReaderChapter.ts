@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useApi } from './useApi'
 import { useNetworkRecovery } from './useNetworkRecovery'
 import { getUserBook, getUserBookChapter } from '../api/userBooks'
@@ -48,6 +48,8 @@ export interface UseReaderChapterResult {
   publicBook: BookDetail | null
   loading: boolean
   error: string | null
+  /** Load the chapter again from the network, skipping the cache, with the reader left on screen (Try again). */
+  reload: () => void
 }
 
 export function useReaderChapter({
@@ -70,6 +72,10 @@ export function useReaderChapter({
 
   const editionIdRef = useRef<string | null>(null)
   const fetchedKeyRef = useRef<string | null>(null)
+  // reload(): a new seq; a load that lands records it, so a cancelled one (StrictMode) still reloads.
+  const [reloadSeq, setReloadSeq] = useState(0)
+  const loadedSeqRef = useRef(0)
+  const reload = useCallback(() => setReloadSeq((n) => n + 1), [])
 
   useEffect(() => {
     if (mode === 'public' && (!bookSlug || !chapterSlug)) return
@@ -82,18 +88,19 @@ export function useReaderChapter({
       : `userbook:${userBookId}:${userChapterSlug ?? ''}`
     // Already loaded — skip so an isAuthenticated flip (guest creation) doesn't
     // reset state and drop popups mid-interaction.
-    if (fetchedKeyRef.current === fetchKey) return
+    const fresh = reloadSeq !== loadedSeqRef.current   // reload(): the network, no loading screen
+    if (fetchedKeyRef.current === fetchKey && !fresh) return
 
     let cancelled = false
     if (mode === 'public') markFetchStart()
 
     const fetchData = async () => {
-      setLoading(true)
+      if (!fresh) setLoading(true)
       setError(null)
 
       try {
         if (mode === 'public') {
-          const cachedEditionId = editionIdRef.current
+          const cachedEditionId = fresh ? null : editionIdRef.current
           if (cachedEditionId) {
             const cached = await getCachedChapter(cachedEditionId, chapterSlug!)
             if (cached && !cancelled) {
@@ -150,6 +157,7 @@ export function useReaderChapter({
                 })
               }
               fetchedKeyRef.current = fetchKey
+              loadedSeqRef.current = reloadSeq
               setLoading(false)
               return
             }
@@ -189,6 +197,7 @@ export function useReaderChapter({
 
           cacheChapter(bk.id, ch).catch(() => {})
           fetchedKeyRef.current = fetchKey
+          loadedSeqRef.current = reloadSeq
         } else {
           // Fetch the book first — its hasOriginalPdf decides whether a missing
           // chapter is fatal. A chapterless/indexing PDF opens in Original with
@@ -241,6 +250,7 @@ export function useReaderChapter({
             })),
           })
           fetchedKeyRef.current = fetchKey
+          loadedSeqRef.current = reloadSeq
         }
       } catch (err) {
         if (cancelled) return
@@ -260,7 +270,7 @@ export function useReaderChapter({
 
     fetchData()
     return () => { cancelled = true }
-  }, [mode, bookSlug, chapterSlug, userBookId, userChapterSlug, isAuthenticated, api, markFetchStart, wasAbortedDueToWake])
+  }, [mode, bookSlug, chapterSlug, userBookId, userChapterSlug, isAuthenticated, api, markFetchStart, wasAbortedDueToWake, reloadSeq])
 
-  return { chapter, book, publicChapter, publicBook, loading, error }
+  return { chapter, book, publicChapter, publicBook, loading, error, reload }
 }

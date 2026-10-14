@@ -20,6 +20,8 @@ export function initSentry(): void {
     Sentry.init({
       dsn,
       environment: import.meta.env.MODE,
+      // The commit, from images.yml; unset in any other build.
+      release: (import.meta.env.VITE_SENTRY_RELEASE as string | undefined) || undefined,
       sendDefaultPii: false,
       tracesSampleRate: 0,
       initialScope: { tags: { service: 'web' } },
