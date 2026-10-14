@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Mobile** — engine Phase 5 done: `EXPO_PUBLIC_READER_ENGINE_PDF=true` in EAS production + OTA `6b3e3e8f` — every app reader opens Original-layout PDFs through the engine; owner checked on the phone; rollback = `eas env:delete` + OTA — mobile
 - **Reader** — engine Phase 5 web: `VITE_READER_ENGINE_PDF=true` in `apps/web/production.env` — every web reader reads Original-layout PDFs through the engine; owner checked PDFs with `?engine=pdf`; rollback = delete the line and merge — web
 - **Infra** — API CORS exposes `Content-Range`, so the PDF engine's length probe works cross-origin (dev, CI); found by the `@reader-pdf` smoke — backend
 - **Tests** — engine Phase 5 slice 5 step 1: web `@reader-pdf` Playwright smoke (open + canvas, page jump, resume after reload, selection → `kind:"pdf"` highlight that repaints), gating with the PDF engine off and on — web, CI · [details](docs/changelog-archive/2026-H2.md#2026-10-14-reader-engine-phase-5-slice-5-web-pdf-smoke)
