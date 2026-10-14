@@ -8,6 +8,9 @@ import type { ReaderSettings } from '../../../hooks/useReaderSettings'
 import { ReaderSection } from '../ReaderSection'
 import { mountedEngineFor } from '../../../lib/readerEngine'
 
+const reportError = vi.fn()
+vi.mock('../../../lib/sentry', () => ({ reportError: (...a: unknown[]) => reportError(...a) }))
+
 const settings = { fontSize: 18, lineHeight: 1.6, fontFamily: 'serif', textAlign: 'left' } as unknown as ReaderSettings
 
 class NoopResizeObserver {
@@ -103,7 +106,7 @@ describe('ReaderSection with the engine', () => {
 
   it('engine_OpenFails_ReportsTheErrorAndTheChapter_849', async () => {
     const onEngineError = vi.fn()
-    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    reportError.mockClear()
     const { rerender } = render(<ReaderSection chapterId="c1" chapterSlug="ch-1" chapterIndex={0} html="<p>One</p>" settings={settings} onEngineError={onEngineError} />)
     await opened()
     const boom = new Error('engine broke')
@@ -111,24 +114,29 @@ describe('ReaderSection with the engine', () => {
     rerender(<ReaderSection chapterId="c1" chapterSlug="ch-1" chapterIndex={0} html="<p>One, refreshed</p>" settings={settings} onEngineError={onEngineError} />)
     await opened()
     expect(onEngineError).toHaveBeenCalledWith('ch-1')
-    expect(logged).toHaveBeenCalledWith(expect.any(String), boom)
-    logged.mockRestore()
+    expect(reportError).toHaveBeenCalledWith(boom, { area: 'reader-engine', chapter: 'ch-1' })
   })
 
-  it('engine_SupersededOpen_IsNotOpened_849', async () => {
+  it('engine_OpenReplacedByANewerOne_OnlyTheNewerReportsOpened_849', async () => {
     const onEngineOpened = vi.fn()
     const { rerender } = render(<ReaderSection chapterId="c1" chapterSlug="ch-1" chapterIndex={0} html="<p>One</p>" settings={settings} onEngineOpened={onEngineOpened} />)
-    await opened()
-    expect(onEngineOpened).toHaveBeenCalledTimes(1)
-    vi.spyOn(mountedEngineFor('ch-1')!.engine, 'open').mockResolvedValue('superseded')
     rerender(<ReaderSection chapterId="c1" chapterSlug="ch-1" chapterIndex={0} html="<p>One, refreshed</p>" settings={settings} onEngineOpened={onEngineOpened} />)
     await opened()
     expect(onEngineOpened).toHaveBeenCalledTimes(1)
   })
 
+  it('engine_GoToOvertakesTheOpen_ChapterStillReportsOpened_E46', async () => {
+    const onEngineOpened = vi.fn()
+    render(<ReaderSection chapterId="c1" chapterSlug="ch-1" chapterIndex={0} html="<p>One</p>" settings={settings} onEngineOpened={onEngineOpened} />)
+    // Before the open lands: the open resolves 'superseded', but its document is on screen.
+    void mountedEngineFor('ch-1')!.engine.goTo({ href: 'ch-1', type: 'text/html', locations: { progression: 0 } })
+    await opened()
+    expect(onEngineOpened).toHaveBeenCalledWith('ch-1')
+  })
+
   it('engine_OpenRejectsAfterAnUnmount_ReportsNothing_849', async () => {
     const onEngineError = vi.fn()
-    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    reportError.mockClear()
     const { rerender, unmount } = render(<ReaderSection chapterId="c1" chapterSlug="ch-1" chapterIndex={0} html="<p>One</p>" settings={settings} onEngineError={onEngineError} />)
     await opened()
     vi.spyOn(mountedEngineFor('ch-1')!.engine, 'open').mockImplementation(() => new Promise((_, reject) => setTimeout(() => reject(new Error('destroyed')), 10)))
@@ -136,8 +144,7 @@ describe('ReaderSection with the engine', () => {
     unmount()
     await opened()
     expect(onEngineError).not.toHaveBeenCalled()
-    expect(logged).not.toHaveBeenCalled()
-    logged.mockRestore()
+    expect(reportError).not.toHaveBeenCalled()
   })
 
   it('engine_TapOnText_ShowsTheBars_818', async () => {

@@ -255,20 +255,22 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
   /**
    * The chapter offset under the reading line, by the browser's caret, the way both apps read it (web
    * `readReadingLine`): clamped into the chapter, a few x's in case one is a margin, an image or an empty cell. Null:
-   * no caret API or no text there.
+   * no caret API or no text there; `'covered'`: something over the line (a drawer, a popup) took the caret (E45).
    */
-  function probe(): number | null {
+  function probe(): number | null | 'covered' {
     const box = content.getBoundingClientRect()
     const line = (scroller === page ? 0 : scroller.getBoundingClientRect().top) + READING_LINE * viewport().height
     const y = Math.max(box.top + 4, Math.min(line, box.bottom - 4))
+    let covered = false
     for (const x of [box.left + 24, box.left + box.width / 2, box.right - 24]) {
       const c = caretAt(x, y)
       // Text only, like the apps (#802): a caret on an element (an empty table cell, an image) is no
       // place on this line; the next x is.
       const at = c && c.node.nodeType === Node.TEXT_NODE ? offsetIn(c.node, c.offset) : null
       if (at !== null) return at
+      if (c && !root.contains(c.node)) covered = true
     }
-    return null
+    return covered ? 'covered' : null
   }
 
   /**
@@ -312,7 +314,9 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
 
   /** The reader's place right now, read off the reading line. */
   function capture(): Locator {
-    const at = probe() ?? offsetAtY(scroller.scrollTop + READING_LINE * viewport().height)
+    const p = probe()
+    if (p === 'covered' && last) return last   // E45: the reader cannot see the line; the place they saw holds
+    const at = typeof p === 'number' ? p : offsetAtY(scroller.scrollTop + READING_LINE * viewport().height)
     return (href && locatorAt(text, at, href, progression())) || { href, type: 'text/html', locations: { progression: progression() } }
   }
 

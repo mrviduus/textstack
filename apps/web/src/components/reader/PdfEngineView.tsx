@@ -9,7 +9,9 @@ import { openPdfSource } from '../../lib/pdfRangeSource'
 import { setMountedEngine, unmountEngine } from '../../lib/readerEngine'
 import { useNewerPositionCheck } from '../../hooks/useNewerPositionCheck'
 import type { HighlightColor, StoredHighlight } from '../../lib/offlineDb'
+import { reportError } from '../../lib/sentry'
 import { PdfHighlightPopup } from './PdfHighlightPopup'
+import { ReaderOpenError } from './ReaderScreens'
 import { COLOR_MAP } from './decorationColors'
 import { isReviewed, useReviewedMarks } from './ReviewedMarks'
 import { isReaderScrollKey, pdfFixedLayout } from './pdfEngineLayout'
@@ -97,6 +99,8 @@ export default function PdfEngineView({
   const [pageInput, setPageInput] = useState('')
   const [sessionExpired, setSessionExpired] = useState(false)
   const [failed, setFailed] = useState(false)
+  /** #853: the engine's open threw (not a file that will not load: that is `failed`). */
+  const [openFailed, setOpenFailed] = useState(false)
   const [pendingJump, setPendingJump] = useState<number | null>(null)
   const [editHl, setEditHl] = useState<{ highlight: StoredHighlight; rect: DOMRect } | null>(null)
   const [opened, setOpened] = useState(false)
@@ -280,9 +284,14 @@ export default function PdfEngineView({
     openedForRef.current = { engine, source }
     docReadyRef.current = false
     gateRef.current = pdfGateReduce(gateRef.current, { type: 'documentLoaded' }).state
-    jump(target, (opId) => engine.open({ layout: 'fixed', pdf: source }, at(target), opId))
+    jump(target, (opId) => engine.open({ layout: 'fixed', pdf: source }, at(target), opId).catch((e: unknown) => {
+      // Only the open still current: an unmount, or Reload's new bytes, replaced it.
+      if (engineRef.current !== engine || openedForRef.current?.source !== source) return
+      reportError(e, { area: 'reader-engine', book: bookId })
+      setOpenFailed(true)
+    }))
     setOpened(true)
-  }, [source, pendingJump, initialPage, resumeReady, resumeUnanswered, openPage, jump])
+  }, [source, pendingJump, initialPage, resumeReady, resumeUnanswered, openPage, jump, bookId])
 
   // --- TOC / bookmark / highlight jump: once per nonce. Before the open, the open goes there. ---
   const appliedJumpRef = useRef<number | null>(null)
@@ -361,6 +370,7 @@ export default function PdfEngineView({
     reloadPageRef.current = currentPageRef.current
     setSessionExpired(false)
     setFailed(false)
+    setOpenFailed(false)
     loadErrorFiredRef.current = false
     try {
       await refreshToken()
@@ -431,7 +441,8 @@ export default function PdfEngineView({
         </div>
       )}
       {failed && <div className="pdf-original__error">{t('reader.originalLayout.error')}</div>}
-      {!numPages && !failed && !sessionExpired && <div className="pdf-original__loading">{t('reader.originalLayout.loading')}</div>}
+      {openFailed && <ReaderOpenError onRetry={handleReload} />}
+      {!numPages && !failed && !openFailed && !sessionExpired && <div className="pdf-original__loading">{t('reader.originalLayout.loading')}</div>}
 
       {/* The engine owns this element's children (pages, canvases, text layers, marks). */}
       <div ref={rootRef} className="pdf-engine__pages" />

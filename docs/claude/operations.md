@@ -49,7 +49,7 @@ The write-back exists because the reasoning happens in Claude/ChatGPT — where 
 
 ## Telemetry
 
-**Errors:** Sentry on api, worker, mcp-server (http mode only) and ssg-worker, one project, `service` tag; one shared scrubber (`backend/src/Observability/TextStack.Observability/SentryScrubber.cs`, Node twin `apps/web/scripts/ssgSentry.mjs`) strips tokens (`ts[kocr]_`, Bearer, JWT), `/mcp/k/<key>`, query strings and SQL. No DSN = off.
+**Errors:** Sentry on api, worker, mcp-server (http mode only) and ssg-worker, one project, `service` tag; the web SPA reports to its own browser project when `VITE_SENTRY_DSN` is in `apps/web/production.env` (`apps/web/src/lib/sentry.ts`, lazy, `service: web`); one shared scrubber (`backend/src/Observability/TextStack.Observability/SentryScrubber.cs`, Node twin `apps/web/scripts/ssgSentry.mjs`) strips tokens (`ts[kocr]_`, Bearer, JWT), `/mcp/k/<key>`, query strings and SQL. No DSN = off.
 
 **Traces/metrics:** OpenTelemetry is registered only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set — locally Aspire Dashboard (`--profile observability`, UI `localhost:18888`, OTLP `:18889`); unset in production (nothing receives it). Details: `docs/01-architecture/delivery.md` § Observability.
 

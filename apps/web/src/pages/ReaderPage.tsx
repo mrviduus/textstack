@@ -19,7 +19,6 @@ import { SeoHead } from '../components/SeoHead'
 import { Toast } from '../components/Toast'
 import { ReaderTopBar } from '../components/reader/ReaderTopBar'
 import { ReaderReflowChapter } from '../components/reader/ReaderReflowChapter'
-import { useChapterEngineFailure } from '../hooks/useChapterEngineFailure'
 import { ReaderOriginalPdf } from '../components/reader/ReaderOriginalPdf'
 import { ReaderFooterNav } from '../components/reader/ReaderFooterNav'
 import { ReaderDrawers } from '../components/reader/ReaderDrawers'
@@ -172,7 +171,6 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
   })
 
   const [engineOpenedFor, setEngineOpenedFor] = useState<string | null>(null)
-  const { failed: engineFailed, onEngineError, onEngineOpened: clearEngineFailure } = useChapterEngineFailure(chapter?.identifier)
   // The PDF engine's slot while mounted; ReaderHighlights takes its selection.
   const [pdfEngineFor, setPdfEngineFor] = useState<string | null>(null)
   const { flushProgress, highlightLinkReady, handleHighlightLinkDone } = useReaderPositionSync({
@@ -231,10 +229,9 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
 
   // Error only when the book itself is missing, OR reflow genuinely needs a
   // chapter it doesn't have. A chapterless Original-layout PDF renders fine.
-  if (error || engineFailed || !book || (!chapter && !originalActive)) {
+  if (error || !book || (!chapter && !originalActive)) {
     return (
-      <ReaderErrorScreen seoTitle="Error" heading="Error loading chapter"
-        body={error || (engineFailed ? 'This chapter could not be shown.' : 'Chapter not found')}
+      <ReaderErrorScreen seoTitle="Error" heading="Error loading chapter" body={error || 'Chapter not found'}
         linkTo={mode === 'public' ? '/' : `/${language}/library/my/${id}`}
         linkText={mode === 'public' ? 'Back to Home' : 'Back to Book'}
         localizedLink={mode === 'public'} />
@@ -337,8 +334,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
                 chapter={chapter}
                 settings={settings}
                 onTap={() => { readingSession.recordActivity(); showImmersiveBars() }}
-                onEngineOpened={(slug) => { setEngineOpenedFor(slug); clearEngineFailure(slug) }}
-                onEngineError={onEngineError}
+                onEngineOpened={setEngineOpenedFor}
                 discuss={reviewTarget && {
                   reviewed: chapterReviews.has(chapter.identifier),
                   reviewPath: reviewedMarks.reviewPath(chapter.identifier),

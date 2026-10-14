@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { SeoHead } from '../SeoHead'
 import { LocalizedLink } from '../LocalizedLink'
+import { useTranslation } from '../../hooks/useTranslation'
 
 /** Skeleton while the chapter loads. */
 export function ReaderLoadingScreen() {
@@ -39,6 +40,17 @@ export function ReaderErrorScreen({ seoTitle, heading, body, linkTo, linkText, l
           {linkText}
         </ErrorLink>
       </div>
+    </div>
+  )
+}
+
+/** The engine could not open the chapter (#849, #853): said inside the reader, whose bars and nav stay. */
+export function ReaderOpenError({ onRetry }: { onRetry: () => void }) {
+  const { t } = useTranslation()
+  return (
+    <div className="reader-open-error" role="alert">
+      <p>{t('reader.openError.message')}</p>
+      <button type="button" className="reader-open-error__retry" onClick={onRetry}>{t('reader.openError.retry')}</button>
     </div>
   )
 }

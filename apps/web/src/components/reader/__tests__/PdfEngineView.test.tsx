@@ -46,6 +46,8 @@ vi.mock('../../../lib/pdfRangeSource', () => ({ openPdfSource: (...a: unknown[])
 const refreshToken = vi.fn(async (): Promise<unknown> => ({}))
 vi.mock('../../../api/auth', () => ({ refreshToken: () => refreshToken() }))
 vi.mock('../../../hooks/useTranslation', () => ({ useTranslation: () => ({ t: (k: string) => k }) }))
+const reportError = vi.fn()
+vi.mock('../../../lib/sentry', () => ({ reportError: (...a: unknown[]) => reportError(...a) }))
 const saveUserBookProgress = vi.fn(async (..._a: unknown[]) => {})
 vi.mock('../../../api/userBooks', () => ({ saveUserBookProgress: (...a: unknown[]) => saveUserBookProgress(...a) }))
 const localPage: { current: number | null } = { current: null }
@@ -110,6 +112,30 @@ describe('PdfEngineView — the engine and its bytes', () => {
     expect(eng.engine.destroy).toHaveBeenCalled()
     expect(mountedEngineFor('pdf:b1')).toBeNull()
     expect(onEngine).toHaveBeenLastCalledWith(null)
+  })
+
+  it('#853 an open that throws: reported, said in the reader; Try again opens it again', async () => {
+    const boom = new Error('engine broke')
+    eng.engine.open.mockRejectedValueOnce(boom)
+    render(<PdfEngineView {...base} resumeReady />)
+    await wait(0)
+    expect(screen.getByRole('alert').textContent).toContain('reader.openError.message')
+    expect(reportError).toHaveBeenCalledWith(boom, { area: 'reader-engine', book: 'b1' })
+    fireEvent.click(screen.getByText('reader.openError.retry'))
+    await wait(0)
+    expect(eng.engine.open).toHaveBeenCalledTimes(2)
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('#853 an open that rejects after the view is gone reports nothing', async () => {
+    let reject!: (e: Error) => void
+    eng.engine.open.mockImplementationOnce(() => new Promise((_, r) => { reject = r }))
+    const view = render(<PdfEngineView {...base} resumeReady />)
+    await wait(0)
+    view.unmount()
+    reject(new Error('destroyed'))
+    await wait(0)
+    expect(reportError).not.toHaveBeenCalled()
   })
 
   it('a failed read after the document is open (pdf-load) is not a fallback: the reader stays', async () => {

@@ -3,6 +3,7 @@ import { createEngine, type ReaderEngine } from '@textstack/reader-engine'
 import type { ReaderSettings } from '../../hooks/useReaderSettings'
 import { sanitizeHtml } from '../../utils/sanitize'
 import { setMountedEngine, unmountEngine } from '../../lib/readerEngine'
+import { reportError } from '../../lib/sentry'
 
 // One chapter, shown by the reader engine (ADR-025), which draws every decoration and takes every tap.
 
@@ -74,11 +75,14 @@ export const ReaderSection = forwardRef<ReaderSectionHandle, Props>(function Rea
     void engine.open({ href: chapterSlug, layout: 'reflow', html: cleanHtml }, here?.href === chapterSlug ? here : undefined)
       .then(
         // Only the open still current: a newer open, an unmount or StrictMode's (dev) destroy supersedes it.
-        (result) => { if (live && result !== 'superseded') onEngineOpenedRef.current?.(chapterSlug) },
+        // A goTo that overtook it also resolves 'superseded', but its document landed (engine rule E46).
+        (result) => {
+          if (live && (result !== 'superseded' || engine.current()?.href === chapterSlug)) onEngineOpenedRef.current?.(chapterSlug)
+        },
         // Only open's own rejection: an error thrown by onEngineOpened is not the engine failing.
         (e: unknown) => {
           if (!live) return   // a destroy mid-open is not a failure
-          console.error('[reader] engine.open failed', e)   // web has no browser Sentry yet
+          reportError(e, { area: 'reader-engine', chapter: chapterSlug })
           onEngineErrorRef.current?.(chapterSlug)
         },
       )

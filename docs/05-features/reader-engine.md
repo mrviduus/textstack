@@ -6,7 +6,7 @@ What `packages/reader-engine` promises its hosts (web, mobile), in plain words. 
 [phase 2 plan](../01-architecture/reader-engine-phase2-plan.md).
 
 Each rule has one ID. The test that pins it starts its name with that ID
-(`packages/reader-engine/src/engine.test.ts`; decorations, E13–E19 and E44, in `decorations.test.ts`; events, E20–E24 and E28, in `events.test.ts`; geometry on real chapters in Chromium, E25–E27, E29, E30 and E43, in `playground/geometry.e2e.ts`). Change a rule here first, then its test, then the code.
+(`packages/reader-engine/src/engine.test.ts`; decorations, E13–E19 and E44, in `decorations.test.ts`; events, E20–E24 and E28, in `events.test.ts`; geometry on real chapters in Chromium, E25–E27, E29, E30, E43 and E45, in `playground/geometry.e2e.ts`). Change a rule here first, then its test, then the code.
 
 ADR-019's eight position rules are pinned once each in `src/positionRules.test.ts` (`rule 1` … `rule 8`),
 through the engine and the pure rules it re-exports from shared (`newerPosition`, `progressPrecedence`,
@@ -55,6 +55,8 @@ carries its `opId`.
 | E31 | A decoration with the style `'dot'` draws a small dot just after its last line, no fill; a tap on its text still names it (E16). | Web reviewed highlight (`reviewed-mark`), Phase 4 decision 2 | 2026-10-13 |
 | E43 | A style change while something covers the reading line (web's settings drawer) keeps the same place: the engine keeps the last place it reported, so the caret probe never reads the drawer. Pinned in `playground/geometry.e2e.ts`. | H2b (old web reader: font change under the drawer) | 2026-10-14 |
 | E44 | A translation label carries its own look (0.42em, italic, weight 400, system sans-serif, opacity 0.55) as one inline `style`: no host CSS needed, and a bold chapter never leaks in. | Web lacked the host rule for a while: labels drew at body size in prod | 2026-10-14 |
+| E45 | Something over the reading line (a drawer, a popup) is not the reader's place: when the caret there lands outside the chapter, the engine keeps the last place it reported, through a scroll and a style change under it, and reads the line again once it is uncovered. | H2b follow-up (owner: no known gaps): a scroll behind the drawer read the estimate | 2026-10-14 |
+| E46 | `open` resolves `'superseded'` in two cases a host can tell apart: its document was replaced (a newer `open`, `destroy`: `current()` is another chapter or null), or a `goTo` overtook it after its document landed (`ready` was said and `current().href` is this chapter). In the second case the chapter is open and positioned by the `goTo`: a host may treat it as opened. | #852 review: web left a chapter un-ready when a `goTo` overtook its open | 2026-10-14 |
 
 ### Fixed layout (PDF, Phase 5)
 

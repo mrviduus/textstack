@@ -817,6 +817,23 @@ html[data-theme="dark"] .reader-search-drawer__context mark {
   color: var(--reader-bg);
 }
 
+/* The engine could not open the chapter: said in the chapter's place, the reader around it stays. */
+.reader-open-error {
+  padding: 80px 24px;
+  text-align: center;
+  color: var(--reader-secondary);
+}
+
+.reader-open-error__retry {
+  margin-top: 16px;
+  padding: 8px 16px;
+  color: var(--reader-text);
+  background: none;
+  border: 1px solid var(--reader-secondary);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
 /* Book completion overlay */
 .reader-complete-overlay {
   position: fixed;

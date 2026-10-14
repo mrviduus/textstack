@@ -4,6 +4,9 @@ import ReactDOM from 'react-dom/client'
 import App from './App'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { clearExpiredCaches } from './lib/offlineDb'
+import { initSentry } from './lib/sentry'
+
+initSentry()   // no VITE_SENTRY_DSN: a no-op; else @sentry/react loads in its own chunk
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

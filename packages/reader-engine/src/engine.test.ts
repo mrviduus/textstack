@@ -62,6 +62,28 @@ describe('open', () => {
     expect(await going).toBe('exact')
     expect(reader.payloads('ready')).toEqual([{ opId: 'open-1', href: 'c1' }])
   })
+
+  it('E46 an open overtaken by a goTo resolves superseded, yet its document landed: current() is that chapter', async () => {
+    const fonts = deferred()
+    const reader = makeReader({ fonts: () => fonts.promise })
+    const opening = reader.open()
+    const going = reader.goTo(MIDDLE)
+    fonts.resolve()
+    expect(await opening).toBe('superseded')
+    expect(reader.engine.current()?.href).toBe('c1')
+    await going
+    expect(reader.line()).toMatch(/^Malin log 3:/)
+  })
+
+  it('E46 an open replaced by destroy resolves superseded with nothing current', async () => {
+    const fonts = deferred()
+    const reader = makeReader({ fonts: () => fonts.promise })
+    const opening = reader.open()
+    reader.engine.destroy()
+    fonts.resolve()
+    expect(await opening).toBe('superseded')
+    expect(reader.engine.current()).toBeNull()
+  })
 })
 
 describe('goTo', () => {
