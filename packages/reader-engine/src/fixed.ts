@@ -43,6 +43,8 @@ const JUMP_DEADLINE_MS = 8000
 const SCROLL_IDLE_MS = 150
 /** Pages this close to the screen count as visible: drawn before they arrive. */
 const RENDER_MARGIN_PX = 300
+/** Keys that scroll the page: only they end a travelling jump (not Escape, not a modifier). */
+const SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', ' ', 'Spacebar', 'Home', 'End'])
 
 /** The fixed layout with the host's pdf.js, for `createEngine(root, { fixed })`. */
 export function fixedLayout(pdfjs: PdfJs): (root: HTMLElement, opts: EngineOptions) => ReaderEngine {
@@ -398,7 +400,9 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
 
   // The reader's own gesture ends a travelling jump where they are; a late landing must not snap them
   // back. Input events, not `scroll`: sizes streaming in move the scroll with no reader.
-  const onGesture = () => { if (op && numPages) land(false) }
+  const onGesture = (e: Event) => {
+    if (op && numPages && (!(e instanceof KeyboardEvent) || SCROLL_KEYS.has(e.key))) land(false)
+  }
   const onTouchStart = () => { touchDown = true }
   const onTouchEnd = () => { touchDown = false; lastScrollAt = Date.now() }
 

@@ -294,7 +294,7 @@ describe('reading', () => {
   })
 
   it('E36 a reader gesture during a jump ends it where the reader is, and it never snaps back', async () => {
-    for (const gesture of ['touchmove', 'wheel', 'keydown'] as const) {
+    for (const gesture of ['touchmove', 'wheel', 'key:ArrowDown', 'key:PageUp', 'key: ', 'key:End']) {
       const reader = makePdfReader({ pages: MIXED })
       await reader.open()
       reader.fake.holdFrom(10)
@@ -309,6 +309,18 @@ describe('reading', () => {
       expect(reader.spot()!.page, gesture).toBe(where)
       destroyAll()
     }
+  })
+
+  it('E36 a key that does not scroll (Escape, a modifier) leaves the jump travelling', async () => {
+    const reader = makePdfReader({ pages: MIXED })
+    await reader.open()
+    reader.fake.holdFrom(10)
+    const going = reader.goTo(30, 'go')
+    await reader.settle()
+    for (const key of ['Escape', 'Shift', 'Control', 'Meta', 'a']) reader.gesture(`key:${key}`)
+    reader.fake.release()
+    expect(await going).toBe('exact')
+    expect(reader.scrollTop).toBe(reader.pageTop(30))
   })
 })
 

@@ -188,8 +188,10 @@ export function makePdfReader(opts: { pages?: number | Dim[]; width?: number; br
     get scrollTop() { return top },
     /** The reader scrolls by hand to y. */
     scrollTo(y: number) { scroller.scrollTop = y },
-    /** A reader gesture (finger, wheel, key) on the page. */
-    gesture(type: 'touchmove' | 'wheel' | 'keydown' = 'touchmove') { window.dispatchEvent(new Event(type)) },
+    /** A reader gesture on the page: a finger, the wheel, or a key (`'key:ArrowDown'`). */
+    gesture(type: string = 'touchmove') {
+      window.dispatchEvent(type.startsWith('key:') ? new KeyboardEvent('keydown', { key: type.slice(4) }) : new Event(type))
+    },
     /** The reader's screen gets wider or narrower (rotation). */
     setWidth(w: number) { width = w; resize() },
     /** Let every pending frame, timer, read and page run. */
