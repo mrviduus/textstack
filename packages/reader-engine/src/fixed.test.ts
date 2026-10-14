@@ -88,6 +88,18 @@ describe('a page position', () => {
     }
   })
 
+  it("E42 with insets.top (the host's bars), open / goTo land the page's top that far below the top of the screen", async () => {
+    const reader = makePdfReader({ pages: 40 })
+    reader.setStyle({ insets: { top: 100, bottom: 0 } })
+    await reader.open(17, 'open-1')
+    expect(reader.scrollTop).toBe(reader.pageTop(17) - 100)
+    await reader.goTo(5, 'go-5')
+    expect(reader.ack('go-5').page).toBe(5)
+    expect(reader.scrollTop).toBe(reader.pageTop(5) - 100)
+    await reader.goTo(1, 'go-1')
+    expect(reader.scrollTop).toBe(Math.max(0, reader.pageTop(1) - 100))   // never above the top
+  })
+
   it('E33 a page past the end lands on the last page; page 0 on page 1', async () => {
     const reader = makePdfReader({ pages: 40 })
     await reader.open()

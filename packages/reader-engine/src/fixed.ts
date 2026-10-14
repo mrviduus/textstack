@@ -122,6 +122,7 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
   let numPages = 0
   let scale = 1
   let zoom = 1
+  let insetTop = 0                        // the host's bars over the top of the screen (E42)
   const decorations: Record<Group, Item[]> = { highlight: [], search: [] }
   let held: { page: number; rects: PdfRect[] } | null = null   // the held word, marked until clearSelection
   let sent: Sent | null = null                                 // the selection the host has
@@ -176,7 +177,7 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
 
   function scrollToPage(n: number) {
     const s = slots[n - 1]
-    if (s) scrollTo(measure(s.el).top)
+    if (s) scrollTo(measure(s.el).top - insetTop)   // E42: below the host's bars
   }
 
   /** The page being read: the one filling most of the screen (QA-007 #3), the last one at the very end. */
@@ -701,6 +702,7 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
 
     // E38: zoom is the only style a PDF has (its colours are the scan's).
     setStyle(s, opId) {
+      if (s.insets) insetTop = Math.max(0, s.insets.top)   // for the next landing; the reader is not moved
       if (s.zoom !== undefined) {
         zoom = s.zoom === 'fit' ? 1 : s.zoom
         if (numPages) applySizes(fit(), true)

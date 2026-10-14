@@ -86,6 +86,7 @@ export interface Style {
   fontFaceCss?: string
   align?: 'start' | 'justify'
   theme?: { bg: string; fg: string; link?: string }
+  /** Fixed layout: an open / goTo lands the page's top `insets.top` below the top of the screen (E42). */
   insets?: { top: number; bottom: number }
   /** Fixed layout only. */
   zoom?: number | 'fit'
