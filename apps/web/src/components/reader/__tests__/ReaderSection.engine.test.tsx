@@ -101,6 +101,34 @@ describe('ReaderSection with the engine', () => {
     expect(article.style.textAlign).toBe('center')
   })
 
+  it('engine_OpenFails_ReportsTheErrorAndTheChapter_849', async () => {
+    const onEngineError = vi.fn()
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { rerender } = render(<ReaderSection chapterId="c1" chapterSlug="ch-1" chapterIndex={0} html="<p>One</p>" settings={settings} onEngineError={onEngineError} />)
+    await opened()
+    const boom = new Error('engine broke')
+    vi.spyOn(mountedEngineFor('ch-1')!.engine, 'open').mockRejectedValue(boom)
+    rerender(<ReaderSection chapterId="c1" chapterSlug="ch-1" chapterIndex={0} html="<p>One, refreshed</p>" settings={settings} onEngineError={onEngineError} />)
+    await opened()
+    expect(onEngineError).toHaveBeenCalledWith('ch-1')
+    expect(logged).toHaveBeenCalledWith(expect.any(String), boom)
+    logged.mockRestore()
+  })
+
+  it('engine_OpenRejectsAfterAnUnmount_ReportsNothing_849', async () => {
+    const onEngineError = vi.fn()
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { rerender, unmount } = render(<ReaderSection chapterId="c1" chapterSlug="ch-1" chapterIndex={0} html="<p>One</p>" settings={settings} onEngineError={onEngineError} />)
+    await opened()
+    vi.spyOn(mountedEngineFor('ch-1')!.engine, 'open').mockImplementation(() => new Promise((_, reject) => setTimeout(() => reject(new Error('destroyed')), 10)))
+    rerender(<ReaderSection chapterId="c1" chapterSlug="ch-1" chapterIndex={0} html="<p>One, refreshed</p>" settings={settings} onEngineError={onEngineError} />)
+    unmount()
+    await opened()
+    expect(onEngineError).not.toHaveBeenCalled()
+    expect(logged).not.toHaveBeenCalled()
+    logged.mockRestore()
+  })
+
   it('engine_TapOnText_ShowsTheBars_818', async () => {
     const onTap = vi.fn()
     const { container } = render(<ReaderSection chapterId="c1" chapterSlug="ch-1" chapterIndex={0} html="<p>Hello world</p>" settings={settings} onTap={onTap} />)

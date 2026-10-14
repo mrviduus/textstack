@@ -275,6 +275,19 @@ describe('markWords', () => {
     expect(reader.engine.current()).toEqual(here)
   })
 
+  it('E44 a translation carries its own look: small, italic, sans-serif, faint; no host CSS needed', async () => {
+    const reader = makeReader()
+    await reader.open()
+    reader.engine.markWords([{ word: 'keeper', translation: 'хранитель' }], true)
+    const label = reader.root.querySelector('text')!
+    expect({
+      size: label.getAttribute('font-size'),
+      style: label.getAttribute('font-style'),
+      family: label.getAttribute('font-family'),
+      opacity: label.getAttribute('opacity'),
+    }).toEqual({ size: '0.42em', style: 'italic', family: '-apple-system, system-ui, sans-serif', opacity: '0.55' })
+  })
+
   it('E19 with translations off, words are underlined and no translation is drawn', async () => {
     const reader = makeReader()
     await reader.open()

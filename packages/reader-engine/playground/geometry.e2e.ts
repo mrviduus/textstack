@@ -142,3 +142,26 @@ test('E26 a place that starts on a soft hyphen lands on the reading line too', a
   })
   expect(r.worst).toBeLessThan(r.line / 2)
 })
+
+test('E43 a font change while a drawer covers the reading line keeps the place (H2b)', async ({ page }) => {
+  await openChapter(page, 'moby-dick-5')
+  await readerScrolls(page, 0.5)
+  const r = await page.evaluate(async () => {
+    const before = window.engine.current()!
+    // Like web's settings drawer: over the whole reading line, with text of its own under the caret.
+    const drawer = document.createElement('div')
+    drawer.textContent = 'Font size Line height Font family '.repeat(40)
+    Object.assign(drawer.style, { position: 'fixed', inset: '0', background: 'white', zIndex: '10' })
+    document.body.append(drawer)
+    await new Promise((r) => {
+      const off = window.engine.on('relocated', (e) => { if (e.reason === 'style') { off(); r(null) } })
+      window.engine.setStyle({ fontSize: 26 })
+    })
+    const now = window.engine.current()!
+    const dy = Math.abs(window.pg.yOf(window.pg.offsetOf(before)!) - (scrollY + innerHeight * 0.25))
+    drawer.remove()
+    return { same: JSON.stringify(now.text) === JSON.stringify(before.text), dy, line: window.pg.lineHeight() }
+  })
+  expect(r.same).toBe(true)
+  expect(r.dy).toBeLessThan(r.line)   // still on the reading line after the reflow
+})

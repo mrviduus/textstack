@@ -1967,7 +1967,3 @@ html[data-theme="dark"] .reader-search-drawer__context mark {
 .reviewed-row__title { font-weight: 600; color: var(--reader-reviewed-dot, #16a34a); }
 .reviewed-row__rule { margin-top: 2px; }
 .reviewed-row__link { display: inline-block; margin-top: 4px; font-weight: 500; }
-
-/* Reader engine (ADR-025): a saved word's translation is SVG <text class="reader-translation"> above the
-   word. The host styles it; without this it inherits the body size. Same rule as mobile (readerHtml.ts). */
-.reader-translation { font: italic 0.42em -apple-system, system-ui, sans-serif; opacity: 0.55; }

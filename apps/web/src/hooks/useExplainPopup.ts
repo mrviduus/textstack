@@ -15,7 +15,7 @@ export interface UseExplainPopupResult {
   explanation: string | null
   isExplaining: boolean
   error: string | null
-  /** `sentence`: the engine's, around the selection. */
+  /** `sentence`: the engine's, around the selection; the selection itself when missing. */
   openFromSelection: (selectionText: string, rect: DOMRect | null, sentence?: string) => void
   close: () => void
 }
@@ -38,7 +38,7 @@ export function useExplainPopup({
 
   const openFromSelection = useCallback(
     (selectionText: string, sourceRect: DOMRect | null, sentence?: string) => {
-      if (!selectionText || !sentence || !sourceRect) return
+      if (!selectionText || !sourceRect) return
       const trimmed = selectionText.trim()
       const isPhrase = /\s/.test(trimmed) && trimmed.length <= 100
       const target = isPhrase
@@ -52,7 +52,7 @@ export function useExplainPopup({
       setShow(true)
       explainApi({
         word: target,
-        sentence,
+        sentence: sentence || selectionText,   // no sentence from the engine: never fail silently
         bookId: editionId,
         targetLang: nativeLanguage,
       })

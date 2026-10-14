@@ -6,7 +6,7 @@ What `packages/reader-engine` promises its hosts (web, mobile), in plain words. 
 [phase 2 plan](../01-architecture/reader-engine-phase2-plan.md).
 
 Each rule has one ID. The test that pins it starts its name with that ID
-(`packages/reader-engine/src/engine.test.ts`; decorations, E13–E19, in `decorations.test.ts`; events, E20–E24 and E28, in `events.test.ts`; geometry on real chapters in Chromium, E25–E27, E29 and E30, in `playground/geometry.e2e.ts`). Change a rule here first, then its test, then the code.
+(`packages/reader-engine/src/engine.test.ts`; decorations, E13–E19 and E44, in `decorations.test.ts`; events, E20–E24 and E28, in `events.test.ts`; geometry on real chapters in Chromium, E25–E27, E29, E30 and E43, in `playground/geometry.e2e.ts`). Change a rule here first, then its test, then the code.
 
 ADR-019's eight position rules are pinned once each in `src/positionRules.test.ts` (`rule 1` … `rule 8`),
 through the engine and the pure rules it re-exports from shared (`newerPosition`, `progressPrecedence`,
@@ -53,6 +53,8 @@ carries its `opId`.
 | E29 | The chapter growing above the reading line (an image loads) is one `'reflow'`, never `'scroll'`: the engine alone re-anchors (browser scroll anchoring is off in the chapter). | [#794](https://github.com/mrviduus/textstack/issues/794): Chromium anchors at once (+300 px) and only frame order kept its scroll from reading as the reader | 2026-10-12 |
 | E30 | A style change is one `'style'` relocation: the browser never scrolls the page before the engine re-anchors (scroll anchoring is off on the scroller, not only in the chapter). | Phase 4 slice 1: with only the text excluded, Chromium anchored on the decoration layer (~3 px), and web saved that scroll as the reader's | 2026-10-12 |
 | E31 | A decoration with the style `'dot'` draws a small dot just after its last line, no fill; a tap on its text still names it (E16). | Web reviewed highlight (`reviewed-mark`), Phase 4 decision 2 | 2026-10-13 |
+| E43 | A style change while something covers the reading line (web's settings drawer) keeps the same place: the engine keeps the last place it reported, so the caret probe never reads the drawer. Pinned in `playground/geometry.e2e.ts`. | H2b (old web reader: font change under the drawer) | 2026-10-14 |
+| E44 | A translation label carries its own look (0.42em, italic, system sans-serif, opacity 0.55) as SVG attributes: no host CSS needed. | Web lacked the host rule for a while: labels drew at body size in prod | 2026-10-14 |
 
 ### Fixed layout (PDF, Phase 5)
 

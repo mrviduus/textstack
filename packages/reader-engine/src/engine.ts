@@ -77,6 +77,8 @@ const COLORS = {
 }
 const DRAW: Record<Mark['group'], DrawFn> = { highlight: Overlayer.highlight, search: Overlayer.highlight, word: Overlayer.underline, selection: Overlayer.highlight }
 const SVG = 'http://www.w3.org/2000/svg'
+/** A translation label's look (E44), as both hosts styled `.reader-translation` before. */
+const LABEL_LOOK = [['font-size', '0.42em'], ['font-style', 'italic'], ['font-family', '-apple-system, system-ui, sans-serif'], ['opacity', '0.55']]
 /** Style `'dot'` (E31): a small dot just after the item's last line, no fill (web's reviewed highlight). */
 const DOT = 'dot'
 const drawDot: DrawFn = (rects) => {
@@ -410,6 +412,8 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
         label.setAttribute('y', String(first.y))
         label.setAttribute('text-anchor', 'middle')
         label.setAttribute('fill', 'currentColor')   // the theme's text colour (root's `color`)
+        // E44: its own look, so no host can forget it (web once drew labels at body size).
+        for (const [k, v] of LABEL_LOOK) label.setAttribute(k, v)
         label.textContent = m.translation
         layer.append(label)
       }

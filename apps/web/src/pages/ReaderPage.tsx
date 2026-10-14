@@ -171,6 +171,9 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
   })
 
   const [engineOpenedFor, setEngineOpenedFor] = useState<string | null>(null)
+  // #849: the chapter the engine failed to open; another chapter clears it.
+  const [engineFailedFor, setEngineFailedFor] = useState<string | null>(null)
+  const engineFailed = !!chapter && engineFailedFor === chapter.identifier
   // The PDF engine's slot while mounted; ReaderHighlights takes its selection.
   const [pdfEngineFor, setPdfEngineFor] = useState<string | null>(null)
   const { flushProgress, highlightLinkReady, handleHighlightLinkDone } = useReaderPositionSync({
@@ -229,9 +232,10 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
 
   // Error only when the book itself is missing, OR reflow genuinely needs a
   // chapter it doesn't have. A chapterless Original-layout PDF renders fine.
-  if (error || !book || (!chapter && !originalActive)) {
+  if (error || engineFailed || !book || (!chapter && !originalActive)) {
     return (
-      <ReaderErrorScreen seoTitle="Error" heading="Error loading chapter" body={error || 'Chapter not found'}
+      <ReaderErrorScreen seoTitle="Error" heading="Error loading chapter"
+        body={error || (engineFailed ? 'This chapter could not be shown.' : 'Chapter not found')}
         linkTo={mode === 'public' ? '/' : `/${language}/library/my/${id}`}
         linkText={mode === 'public' ? 'Back to Home' : 'Back to Book'}
         localizedLink={mode === 'public'} />
@@ -335,6 +339,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
                 settings={settings}
                 onTap={() => { readingSession.recordActivity(); showImmersiveBars() }}
                 onEngineOpened={setEngineOpenedFor}
+                onEngineError={setEngineFailedFor}
                 discuss={reviewTarget && {
                   reviewed: chapterReviews.has(chapter.identifier),
                   reviewPath: reviewedMarks.reviewPath(chapter.identifier),

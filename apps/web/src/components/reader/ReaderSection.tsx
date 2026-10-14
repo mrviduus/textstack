@@ -21,6 +21,8 @@ interface Props {
   onTap?: () => void
   /** The engine's open of this chapter has landed: the chapter is ready to position. */
   onEngineOpened?: (chapterSlug: string) => void
+  /** The engine could not open this chapter (#849): the host shows the chapter error. */
+  onEngineError?: (chapterSlug: string) => void
 }
 
 function fontFamily(f: ReaderSettings['fontFamily']): string {
@@ -35,7 +37,7 @@ function fontFamily(f: ReaderSettings['fontFamily']): string {
 }
 
 export const ReaderSection = forwardRef<ReaderSectionHandle, Props>(function ReaderSection(
-  { chapterId, chapterSlug, chapterIndex, html, settings, onTap, onEngineOpened },
+  { chapterId, chapterSlug, chapterIndex, html, settings, onTap, onEngineOpened, onEngineError },
   ref,
 ) {
   const articleRef = useRef<HTMLElement | null>(null)
@@ -49,6 +51,8 @@ export const ReaderSection = forwardRef<ReaderSectionHandle, Props>(function Rea
   onTapRef.current = onTap
   const onEngineOpenedRef = useRef(onEngineOpened)
   onEngineOpenedRef.current = onEngineOpened
+  const onEngineErrorRef = useRef(onEngineError)
+  onEngineErrorRef.current = onEngineError
   useEffect(() => {
     if (!articleRef.current) return
     const engine = createEngine(articleRef.current)
@@ -63,12 +67,19 @@ export const ReaderSection = forwardRef<ReaderSectionHandle, Props>(function Rea
   useEffect(() => {
     const engine = engineRef.current
     if (!engine || !chapterSlug) return
+    let live = true   // false once this open is replaced (chapter / html change) or the engine is unmounted
     // New html for the chapter on screen (a cache → network refresh) reopens where the reader is.
     const here = engine.current()
     setMountedEngine({ engine, href: chapterSlug })
     void engine.open({ href: chapterSlug, layout: 'reflow', html: cleanHtml }, here?.href === chapterSlug ? here : undefined)
       // Only the engine still mounted: React StrictMode (dev) destroys the first one mid-open.
       .then(() => { if (engineRef.current === engine) onEngineOpenedRef.current?.(chapterSlug) })
+      .catch((e: unknown) => {
+        if (!live) return   // a destroy mid-open is not a failure
+        console.error('[reader] engine.open failed', e)   // web has no browser Sentry yet
+        onEngineErrorRef.current?.(chapterSlug)
+      })
+    return () => { live = false }
   }, [cleanHtml, chapterSlug])
   const { fontSize, lineHeight, fontFamily: family, textAlign } = settings
   useEffect(() => {

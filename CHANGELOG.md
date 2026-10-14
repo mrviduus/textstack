@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Reader** — post-PR-A fixes: Explain works without a sentence (uses the selection); a failed engine open shows the chapter error (Fixes #849); translation labels styled by the engine itself (E44, host rules deleted; mobile bundle → OTA on merge); E43 pins H2b (font change under the drawer keeps the place, no bug) — web, mobile, engine · [details](docs/changelog-archive/2026-H2.md#2026-10-14-reader-post-pr-a-fixes)
 - **Reader** — engine Phase 6 PR A (slices 1 + 2): the old web reader is deleted — both `VITE_READER_ENGINE*` flags and `?engine=` overrides, the overlay layers, `WordHint`, the DOM branches of selection / search / scroll sync, the old PDF viewer; R1–R4 scroll-sync pins rewritten on the engine; closes #818 — web, CI · [details](docs/changelog-archive/2026-H2.md#2026-10-14-reader-engine-phase-6-pr-a-web-old-reader-deleted)
 - **Reader** — fix: web saved-word translations above words drew at full body size (engine SVG `.reader-translation` had no web style); same rule as mobile — web
 
