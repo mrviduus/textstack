@@ -6,7 +6,7 @@ import { READER_ANCHOR_SCRIPT } from './readerAnchorScript.generated'
 import { TEXT_POSITION_VERSION, POSITION_QUOTE_LENGTH, ANCHOR_CONTEXT_LENGTH } from '@textstack/shared'
 import { READER_SELECTION_BRIDGE, SCROLL_DIR_DETECTOR } from './readerBridge'
 import { READER_ENGINE_SCRIPT } from './readerEngineScript.generated'
-import { PDF_VIEWER_SCRIPT } from './pdfViewerScript'
+import { PDF_WORKER_SCRIPT, PDF_VIEWER_SCRIPT, PDF_ENGINE_SCRIPT } from './pdfViewerScript'
 import { HIGHLIGHT_BG, VOCAB_STAGE_COLORS } from './readerColors'
 
 export interface ReaderTheme {
@@ -1603,10 +1603,53 @@ export function buildPdfViewerHtml(fileUrl: string, token: string | null, option
   <!-- The bridge draws the tapped-word mark on an overlay layer (SEL-1). -->
   <script>${READER_OVERLAY_SCRIPT}</script>
   <script>${READER_SELECTION_BRIDGE}</script>
+  <script>${PDF_WORKER_SCRIPT}</script>
   <script>${PDF_VIEWER_SCRIPT}</script>
 </head>
 <body>
   <div id="pdf-root"></div>
+</body>
+</html>`
+}
+
+/**
+ * The Original-layout PDF through the reader engine (ADR-025 Phase 5 slice 4, EXPO_PUBLIC_READER_ENGINE_PDF):
+ * the engine page (`readerEnginePdfPage.ts`, bundled with legacy pdf.js as PDF_ENGINE_SCRIPT) in place of
+ * the old viewer. No selection bridge or overlay: the engine selects, holds, taps and paints; only the
+ * old scroll-direction detector stays, as on the reflow engine page (RN resyncs it with __tsSetBars).
+ * Same chrome (`#pdf-root` padding, theme) and same pinch zoom as `buildPdfViewerHtml`. The token is the
+ * one the document opens with; a refresh reaches the page over the bridge, never by a rebuild.
+ */
+export function buildPdfEngineHtml(fileUrl: string, token: string | null, options: PdfViewerHtmlOptions & { local: boolean }): string {
+  const theme = options.theme ?? defaultTheme
+  const chrome: ReaderChrome = {
+    safeArea: { top: options.safeArea?.top ?? 0, bottom: options.safeArea?.bottom ?? 0 },
+    backgroundColor: theme.backgroundColor,
+    textColor: theme.textColor,
+  }
+  const bootstrap = JSON.stringify({
+    url: fileUrl, token, initialPage: options.initialPage ?? null, local: options.local, safeTop: chrome.safeArea.top,
+  }).replace(/</g, '\\u003c')
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <!-- Pinch-zoom on, as in buildPdfViewerHtml (Phase 5 answer 6a: native pinch, no engine zoom). -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { -webkit-text-size-adjust: none; }
+    body { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
+    ${pdfChromeCss(chrome)}
+    .pdf-page { box-shadow: 0 1px 5px rgba(0,0,0,0.25); }
+  </style>
+</head>
+<body>
+  <div id="pdf-root"></div>
+  <script>window.__TS_PDF = ${bootstrap};</script>
+  <script>${SCROLL_DIR_DETECTOR}</script>
+  <script>${PDF_WORKER_SCRIPT}</script>
+  <script>${PDF_ENGINE_SCRIPT}</script>
 </body>
 </html>`
 }

@@ -5,11 +5,15 @@
 // duplicates its build config and then disagrees about it — which is exactly the
 // failure the guard exists to catch, so having it in the guard would be absurd.
 //
-// Two esbuild passes (ADR-012 S4b):
+// Three esbuild passes (ADR-012 S4b, ADR-025 Phase 5 slice 4):
 //   1. WORKER  — pdfjs-dist legacy worker → classic IIFE, inlined as a string so
-//      the controller can spin it up from a Blob URL (a real off-thread worker,
-//      NOT the fake main-thread fallback) inside the RN WebView.
-//   2. CONTROLLER — entry.ts (pdf.js main API + shared virtualization math).
+//      the page can spin it up from a Blob URL (a real off-thread worker,
+//      NOT the fake main-thread fallback) inside the RN WebView. One copy, loaded
+//      by either document before its page script.
+//   2. CONTROLLER — entry.ts (pdf.js main API + shared virtualization math): the
+//      old viewer, EXPO_PUBLIC_READER_ENGINE_PDF off.
+//   3. ENGINE — engineEntry.ts (pdf.js main API + the engine's fixed layout + the
+//      RN protocol): EXPO_PUBLIC_READER_ENGINE_PDF on. Phase 6 deletes pass 2.
 
 import { build } from 'esbuild'
 import { fileURLToPath } from 'node:url'
@@ -23,6 +27,7 @@ const require = createRequire(import.meta.url)
 export const OUT_FILE = resolve(repoRoot, 'apps/mobile/src/lib/pdfViewerScript.generated.ts')
 
 const controllerEntry = resolve(__dirname, 'entry.ts')
+const engineEntry = resolve(__dirname, 'engineEntry.ts')
 // Resolve through node (pnpm) rather than a hard path — pdfjs lives under
 // apps/web/node_modules/.pnpm, not the repo-root node_modules.
 const workerEntry = require.resolve('pdfjs-dist/legacy/build/pdf.worker.min.mjs')
@@ -45,18 +50,19 @@ const common = {
 }
 
 const BANNER = `// AUTO-GENERATED — do not edit.
-// Source: apps/web/scripts/pdfViewer/entry.ts + pdfjs-dist legacy worker
+// Source: apps/web/scripts/pdfViewer/{entry,engineEntry}.ts + pdfjs-dist legacy worker
 // Regenerate: pnpm -C apps/web build:mobile-pdf
 //
-// IIFE bundle of the Original-layout PDF viewer controller + inlined pdf.js
-// legacy worker, transpiled for Android WebView (es2017). Injected into the
-// reader WebView by buildPdfViewerHtml() in readerHtml.ts.
+// IIFE bundles for the Original-layout PDF document, transpiled for Android WebView
+// (es2017): the inlined pdf.js legacy worker (PDF_WORKER_SCRIPT), the old viewer
+// (PDF_VIEWER_SCRIPT, buildPdfViewerHtml) and the engine page (PDF_ENGINE_SCRIPT,
+// buildPdfEngineHtml, EXPO_PUBLIC_READER_ENGINE_PDF). readerHtml.ts injects them.
 
 /* eslint-disable */
 /* prettier-ignore */
 `
 
-/** @returns {Promise<{ fileContent: string, workerKb: number, controllerKb: number, totalKb: number }>} */
+/** @returns {Promise<{ fileContent: string, workerKb: number, controllerKb: number, engineKb: number, totalKb: number }>} */
 export async function buildPdfViewerFile() {
   const workerResult = await build({ ...common, entryPoints: [workerEntry] })
   const workerSource = workerResult.outputFiles[0].text
@@ -64,15 +70,21 @@ export async function buildPdfViewerFile() {
   const controllerResult = await build({ ...common, entryPoints: [controllerEntry] })
   const controllerSource = controllerResult.outputFiles[0].text
 
-  // The generated script sets the worker source as a global (read by the
-  // controller to build the Blob URL), then runs the controller IIFE.
-  const scriptText = `window.__TS_PDF_WORKER_SRC=${JSON.stringify(workerSource)};\n${controllerSource}`
-  const fileContent = `${BANNER}export const PDF_VIEWER_SCRIPT = ${JSON.stringify(scriptText)}\n`
+  const engineResult = await build({ ...common, entryPoints: [engineEntry] })
+  const engineSource = engineResult.outputFiles[0].text
+
+  // The worker source as a global, read by either page script to build the Blob URL.
+  const workerScript = `window.__TS_PDF_WORKER_SRC=${JSON.stringify(workerSource)};`
+  const fileContent = `${BANNER}export const PDF_WORKER_SCRIPT = ${JSON.stringify(workerScript)}
+export const PDF_VIEWER_SCRIPT = ${JSON.stringify(controllerSource)}
+export const PDF_ENGINE_SCRIPT = ${JSON.stringify(engineSource)}
+`
 
   return {
     fileContent,
     workerKb: Math.round(workerSource.length / 1024),
     controllerKb: Math.round(controllerSource.length / 1024),
-    totalKb: Math.round(scriptText.length / 1024),
+    engineKb: Math.round(engineSource.length / 1024),
+    totalKb: Math.round((workerScript.length + controllerSource.length + engineSource.length) / 1024),
   }
 }

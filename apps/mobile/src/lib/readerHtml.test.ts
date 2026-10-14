@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { buildReaderHtml } from './readerHtml'
+import { buildReaderHtml, buildPdfEngineHtml, buildPdfViewerHtml } from './readerHtml'
+import { PDF_ENGINE_SCRIPT, PDF_VIEWER_SCRIPT, PDF_WORKER_SCRIPT } from './pdfViewerScript'
+import { READER_SELECTION_BRIDGE } from './readerBridge'
 
 // Second argument is the theme, and its default is load-bearing — passing {}
 // strips fontFamily and throws inside buildFontFace.
@@ -34,5 +36,31 @@ describe('reader document', () => {
     const lightbox = head.slice(start)
     expect(lightbox).toContain("document.addEventListener('click'")
     expect(lightbox).not.toContain('document.body.addEventListener')
+  })
+})
+
+describe('PDF documents (ADR-025 Phase 5 slice 4)', () => {
+  const engine = buildPdfEngineHtml('https://api.test/me/books/b1/file', 'tok', { initialPage: 12, safeArea: { top: 24, bottom: 0 }, local: false })
+  const old = buildPdfViewerHtml('https://api.test/me/books/b1/file', 'tok', { initialPage: 12 })
+
+  it('the engine document: the engine page with the worker before it, no old selection bridge or viewer', () => {
+    expect(engine).toContain(PDF_ENGINE_SCRIPT)
+    expect(engine.indexOf(PDF_WORKER_SCRIPT)).toBeLessThan(engine.indexOf(PDF_ENGINE_SCRIPT))
+    expect(engine).not.toContain(PDF_VIEWER_SCRIPT)
+    expect(engine).not.toContain(READER_SELECTION_BRIDGE)
+    // The engine finds its root when it runs: the scripts come after it.
+    expect(engine.indexOf('<div id="pdf-root">')).toBeLessThan(engine.indexOf(PDF_ENGINE_SCRIPT))
+    expect(engine).toContain('user-scalable=yes')   // native pinch (answer 6a)
+  })
+
+  it("the engine document's bootstrap: file, token, page, local, status bar", () => {
+    const json = /window\.__TS_PDF = (.*?);<\/script>/.exec(engine)![1]
+    expect(JSON.parse(json)).toEqual({ url: 'https://api.test/me/books/b1/file', token: 'tok', initialPage: 12, local: false, safeTop: 24 })
+  })
+
+  it('the old viewer (flag off) still loads its worker before it, and its bridge', () => {
+    expect(old.indexOf(PDF_WORKER_SCRIPT)).toBeLessThan(old.indexOf(PDF_VIEWER_SCRIPT))
+    expect(old).toContain(READER_SELECTION_BRIDGE)
+    expect(old).not.toContain(PDF_ENGINE_SCRIPT)
   })
 })
