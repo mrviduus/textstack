@@ -12,8 +12,8 @@
 // - Zoom = fit × `Style.zoom`. Each drawn page has pdf.js's text layer; a selection on it is a page and
 //   rects (today's `PdfAnchor`). Decorations are painted from those rects, over the text; taps on them
 //   are found by geometry, so a selection can start through them.
-import type { ChapterDoc, EngineEvents, EngineOptions, GoToResult, Locator, Reason, ReaderEngine, Rect } from './api'
-import { DOUBLE_TAP_MS, HOLD_MS, HOLD_SLOP_PX, SCROLL_DOWN_PX, SCROLL_UP_PX, SELECTION_MAX_CHARS, SELECTION_SETTLE_MS, sentenceAround } from './engine'
+import type { ChapterDoc, EngineOptions, GoToResult, Locator, Reason, ReaderEngine, Rect } from './api'
+import { emitter, seams, DOUBLE_TAP_MS, HOLD_MS, HOLD_SLOP_PX, SCROLL_DOWN_PX, SCROLL_UP_PX, SELECTION_MAX_CHARS, SELECTION_SETTLE_MS, sentenceAround } from './engine'
 import { capturePageAnchor, clampPage, computePageRings, dimsReadyUpTo, readingPage, scrollDeltaForAnchor, type PageRect } from '../../shared/src/reader/pdfPageWindow'
 import { buildPdfAnchor, paintRect, type PdfRect } from '../../shared/src/reader/pdfHighlightAnchor'
 import { tokenizeVocabWords } from '../../shared/src/text/vocabKey'
@@ -89,29 +89,8 @@ export function fixedLayout(pdfjs: PdfJs): (root: HTMLElement, opts: EngineOptio
 }
 
 function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): ReaderEngine {
-  const doc = root.ownerDocument
-  const win = doc.defaultView!
-  const page = doc.scrollingElement as HTMLElement
-  const scroller = opts.scroller ?? page
-  const measure = opts.measure ?? ((el: Element) => {
-    const r = el.getBoundingClientRect()
-    const origin = scroller === page ? 0 : scroller.getBoundingClientRect().top
-    return { top: r.top - origin + scroller.scrollTop, height: r.height }
-  })
-  const viewport = opts.viewport ?? (() => ({ height: scroller === page ? win.innerHeight : scroller.clientHeight }))
-  const schedule = opts.schedule ?? ((cb: () => void) => { win.requestAnimationFrame(() => cb()) })
-  const observeResize = opts.observeResize ?? ((el: Element, cb: () => void) => {
-    const ro = new win.ResizeObserver(() => cb())
-    ro.observe(el)
-    return () => ro.disconnect()
-  })
+  const { doc, win, page, scroller, measure, viewport, schedule, observeResize, caretAt } = seams(root, opts)
 
-  const caretAt = opts.caret ?? ((x: number, y: number) => {
-    const p = doc.caretPositionFromPoint?.(x, y)
-    if (p) return { node: p.offsetNode, offset: p.offset }
-    const r = doc.caretRangeFromPoint?.(x, y)
-    return r ? { node: r.startContainer, offset: r.startOffset } : null
-  })
   if (!doc.getElementById('ts-pdf-css')) {
     const css = doc.createElement('style')
     css.id = 'ts-pdf-css'
@@ -161,11 +140,7 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
   let deadline = 0
   let failed = new Set<string>()          // error codes sent for this document
   let failLoad: ((e: unknown) => void) | null = null
-  const listeners = new Map<keyof EngineEvents, Set<(p: never) => void>>()
-
-  function emit<K extends keyof EngineEvents>(e: K, p: EngineEvents[K]) {
-    for (const cb of [...(listeners.get(e) ?? [])]) (cb as (p: EngineEvents[K]) => void)(p)
-  }
+  const { emit, on, clear } = emitter()
 
   const at = (n: number): Locator => ({ type: 'application/pdf', locations: { position: n } })
   const here = () => op?.page ?? last
@@ -751,16 +726,11 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
     markWords() {},
     find: () => [],
 
-    on(e, cb) {
-      if (!listeners.has(e)) listeners.set(e, new Set())
-      const set = listeners.get(e)!
-      set.add(cb as (p: never) => void)
-      return () => { set.delete(cb as (p: never) => void) }
-    },
+    on,
 
     destroy() {
       alive = false
-      listeners.clear()
+      clear()
       const o = op
       op = null
       o?.done('superseded')

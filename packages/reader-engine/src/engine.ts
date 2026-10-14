@@ -93,39 +93,64 @@ const drawDot: DrawFn = (rects) => {
   return g
 }
 
+/** The default seams over the host's document (both layouts): its scroller, layout reads, frames, resizes, the caret. */
+export function seams(root: HTMLElement, opts: EngineOptions) {
+  const doc = root.ownerDocument
+  const win = doc.defaultView!
+  const page = doc.scrollingElement as HTMLElement
+  const scroller = opts.scroller ?? page
+  return {
+    doc, win, page, scroller,
+    measure: opts.measure ?? ((el: Element) => {
+      const r = el.getBoundingClientRect()
+      const origin = scroller === page ? 0 : scroller.getBoundingClientRect().top
+      return { top: r.top - origin + scroller.scrollTop, height: r.height }
+    }),
+    viewport: opts.viewport ?? (() => ({ height: scroller === page ? win.innerHeight : scroller.clientHeight })),
+    schedule: opts.schedule ?? ((cb: () => void) => { win.requestAnimationFrame(() => cb()) }),
+    observeResize: opts.observeResize ?? ((el: Element, cb: () => void) => {
+      const ro = new win.ResizeObserver(() => cb())
+      ro.observe(el)
+      return () => ro.disconnect()
+    }),
+    caretAt: opts.caret ?? ((x: number, y: number) => {
+      const p = doc.caretPositionFromPoint?.(x, y)
+      if (p) return { node: p.offsetNode, offset: p.offset }
+      const r = doc.caretRangeFromPoint?.(x, y)
+      return r ? { node: r.startContainer, offset: r.startOffset } : null
+    }),
+  }
+}
+
+/** The engine's events: `emit`, the API's `on`, and `clear` on destroy. */
+export function emitter() {
+  const listeners = new Map<keyof EngineEvents, Set<(p: never) => void>>()
+  return {
+    emit<K extends keyof EngineEvents>(e: K, p: EngineEvents[K]) {
+      for (const cb of [...(listeners.get(e) ?? [])]) (cb as (p: EngineEvents[K]) => void)(p)
+    },
+    on: ((e, cb) => {
+      if (!listeners.has(e)) listeners.set(e, new Set())
+      const set = listeners.get(e)!
+      set.add(cb as (p: never) => void)
+      return () => { set.delete(cb as (p: never) => void) }
+    }) as ReaderEngine['on'],
+    clear: () => listeners.clear(),
+  }
+}
+
 /** Engines alive per scroller, and its overflow-anchor before the first of them (E30). */
 const anchorHolds = new WeakMap<HTMLElement, { count: number; was: string }>()
 
 export function createEngine(root: HTMLElement, opts: EngineOptions = {}): ReaderEngine {
   if (opts.fixed) return opts.fixed(root, opts)   // a PDF engine: the host brought pdf.js (src/fixed.ts)
-  const doc = root.ownerDocument
-  const win = doc.defaultView!
-  const page = doc.scrollingElement as HTMLElement
-  const scroller = opts.scroller ?? page
-  const measure = opts.measure ?? ((el: Element) => {
-    const r = el.getBoundingClientRect()
-    const origin = scroller === page ? 0 : scroller.getBoundingClientRect().top
-    return { top: r.top - origin + scroller.scrollTop, height: r.height }
-  })
-  const viewport = opts.viewport ?? (() => ({ height: scroller === page ? win.innerHeight : scroller.clientHeight }))
-  const schedule = opts.schedule ?? ((cb: () => void) => { win.requestAnimationFrame(() => cb()) })
-  const observeResize = opts.observeResize ?? ((el: Element, cb: () => void) => {
-    const ro = new win.ResizeObserver(() => cb())
-    ro.observe(el)
-    return () => ro.disconnect()
-  })
+  const { doc, win, page, scroller, measure, viewport, schedule, observeResize, caretAt } = seams(root, opts)
   const fontsReady = opts.fontsReady ?? (() => doc.fonts ? doc.fonts.ready.then(() => {}) : Promise.resolve())
   const rectsOf = opts.rects ?? ((range: Range): Rect[] => {
     const o = root.getBoundingClientRect()
     return Array.from(range.getClientRects())
       .filter((r) => r.width > 0 && r.height > 0)
       .map((r) => ({ x: r.left - o.left, y: r.top - o.top, width: r.width, height: r.height }))
-  })
-  const caretAt = opts.caret ?? ((x: number, y: number) => {
-    const p = doc.caretPositionFromPoint?.(x, y)
-    if (p) return { node: p.offsetNode, offset: p.offset }
-    const r = doc.caretRangeFromPoint?.(x, y)
-    return r ? { node: r.startContainer, offset: r.startOffset } : null
   })
   const frame = () => new Promise<void>((r) => schedule(r))
 
@@ -184,11 +209,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
   let dirBase = 0                                          // scrollTop where the last direction was decided
   let footer: HTMLElement | null = null
   let endSeen = false
-  const listeners = new Map<keyof EngineEvents, Set<(p: never) => void>>()
-
-  function emit<K extends keyof EngineEvents>(e: K, p: EngineEvents[K]) {
-    for (const cb of [...(listeners.get(e) ?? [])]) (cb as (p: EngineEvents[K]) => void)(p)
-  }
+  const { emit, on, clear } = emitter()
 
   function segmentsOf(): Segment[] {
     const out: Segment[] = []
@@ -721,12 +742,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
       })
     },
 
-    on(e, cb) {
-      if (!listeners.has(e)) listeners.set(e, new Set())
-      const set = listeners.get(e)!
-      set.add(cb as (p: never) => void)
-      return () => { set.delete(cb as (p: never) => void) }
-    },
+    on,
 
     destroy() {
       alive = false
@@ -734,7 +750,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
       docSeq++
       opened = false
       target = styleAnchor = null
-      listeners.clear()
+      clear()
       scrollSource.removeEventListener('scroll', onScroll)
       root.removeEventListener('click', onClick)
       root.removeEventListener('pointerdown', onPointerDown)
