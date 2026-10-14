@@ -4,7 +4,7 @@ Phase 5 of [ADR-025](adr/ADR-025-reader-engine-package.md): an Original-layout P
 opens through `packages/reader-engine` as `layout: 'fixed'`, on web and mobile, behind a flag.
 Reflow stays as it is. Old PDF code is deleted in Phase 6.
 
-Status: **owner-approved 2026-10-13** — all 8 recommendations taken (see "Owner answers" at the bottom). Written from a read-only survey at the
+Status: **done 2026-10-14.** Owner took all 8 recommendations (see "Owner answers"). PR A #830 (slices 1–2, engine), #832 (web), #833 (mobile), #834 (`@reader-pdf` smoke + CORS `Content-Range`); owner checked web + phone; flags on for everyone: web #836, mobile EAS `EXPO_PUBLIC_READER_ENGINE_PDF=true` + OTA `6b3e3e8f`. Rollback: delete the web line and merge / `eas env:delete` + OTA. Next: Phase 6 (delete the old code), [plan](reader-engine-phase6-plan.md). Written from a read-only survey at the
 end of Phase 4. Phase 3 ([plan](reader-engine-phase3-plan.md)) and Phase 4 ([plan](reader-engine-phase4-plan.md)) are done; both flags are on for everyone.
 
 ## What the engine and the apps have today (survey)
