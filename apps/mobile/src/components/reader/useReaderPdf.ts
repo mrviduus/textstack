@@ -204,10 +204,14 @@ export function useReaderPdf({
   const pdfAuthToastRef = useRef<number | null>(null)
   useEffect(() => () => hideToast(pdfAuthToastRef.current), [hideToast])
   const recoverPdfAuthRef = useRef<() => void>(() => {})
+  // Engine page: RN's last token answer was null — the session is already known gone (finding 4).
+  const pdfTokenDeniedRef = useRef(false)
   recoverPdfAuthRef.current = () => {
     onUnauthorized().then(tok => {
       if (tok && READER_ENGINE_PDF) {
-        // The engine page reopens itself at its page with the new token: the document stays.
+        // The engine page reopens itself at its page with the new token: the document stays. The state
+        // follows (not in the document key in this mode), so a remount after a dead renderer opens with it.
+        setPdfToken(tok)
         injectJs(`window.__tsPdfReopen && window.__tsPdfReopen(${JSON.stringify(tok)})`)
         return
       }
@@ -216,6 +220,11 @@ export function useReaderPdf({
         setPdfReloadNonce(n => n + 1)
         return
       }
+      showPdfReconnectRef.current()
+    })
+  }
+  const showPdfReconnectRef = useRef<() => void>(() => {})
+  showPdfReconnectRef.current = () => {
       if (!aliveRef.current) return
       pdfAuthToastRef.current = showToast({
         variant: 'info',
@@ -225,7 +234,6 @@ export function useReaderPdf({
         onPress: () => recoverPdfAuthRef.current(),
         duration: 8000,
       })
-    })
   }
 
   // Run the deferred initial jump once the async server resume page arrives
@@ -270,13 +278,17 @@ export function useReaderPdf({
     } else if (data.type === 'pdfTokenRequest') {
       // The engine page's read() got a 401 (plan gap 3): refresh (shared single-flight) and answer it;
       // null = the session is gone, its read then fails as 'pdf-auth' → pdfAuthExpired below.
-      onUnauthorized().then(tok => injectJs(`window.__tsPdfToken && window.__tsPdfToken(${JSON.stringify(tok ?? null)})`))
+      onUnauthorized().then(tok => {
+        pdfTokenDeniedRef.current = !tok
+        if (tok) setPdfToken(tok)
+        injectJs(`window.__tsPdfToken && window.__tsPdfToken(${JSON.stringify(tok ?? null)})`)
+      })
     } else if (data.type === 'pdfAuthExpired') {
-      // Silent recovery: refresh the token, then rebuild the old viewer at the tracked page. The engine
-      // page reopens itself instead — a reload only if a document was open (else the resume still runs).
+      // Silent recovery (old: rebuild at the tracked page; engine: reopen in place, see recover).
       if (!READER_ENGINE_PDF) pdfInitialPageRef.current = currentPdfPageRef.current ?? pdfInitialPageRef.current
       pdfIsReloadRef.current = READER_ENGINE_PDF ? pdfReadyRef.current : true
-      recoverPdfAuthRef.current()
+      if (!(READER_ENGINE_PDF && pdfTokenDeniedRef.current)) recoverPdfAuthRef.current()
+      else { pdfTokenDeniedRef.current = false; showPdfReconnectRef.current() }   // just refused: no 2nd refresh
     } else if (data.type === 'pdfLoadError') {
       // Corrupt / unreadable PDF (NOT the 401 reload path). Surface the reader
       // error state → "open as text" (if reflow chapters exist) or hard error.

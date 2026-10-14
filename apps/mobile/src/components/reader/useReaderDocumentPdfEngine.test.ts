@@ -4,6 +4,7 @@
  * way the old viewer was: streamed from the API origin, or a downloaded file beside a file:// base (the
  * reading path needs no network and no token for it).
  */
+import { act } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { renderHook } from '../../test/renderHook'
 import { useReaderDocument } from './useReaderDocument'
@@ -20,16 +21,16 @@ vi.mock('../../lib/readerHtml', () => ({
 
 function mount(fileUrl: string, token: string | null) {
   const ref = <T,>(v: T) => ({ current: v })
-  return renderHook(() => useReaderDocument({
+  return renderHook((p: { token: string | null }) => useReaderDocument({
     original: true, originalFileUrl: fileUrl, originalInitialPage: 3, htmlChapterSlug: 'one',
     injectJs: () => {}, reflow: (() => {}) as never, onDocumentRebuild: () => {},
     chapter: { html: '' },
     settings: { fontSize: 18, lineHeight: 1.6, textAlign: 'left' } as never,
     resolvedFontFamily: 'serif', resolvedTheme: { backgroundColor: '#fff', textColor: '#000' } as never,
     insets: { top: 24, bottom: 0, left: 0, right: 0 },
-    pdfToken: token, pdfTokenReady: true, pdfReloadNonce: 0, isLocalOriginal: fileUrl.startsWith('file://'),
+    pdfToken: p.token, pdfTokenReady: true, pdfReloadNonce: 0, isLocalOriginal: fileUrl.startsWith('file://'),
     pdfInitialPageRef: ref(null), currentPdfPageRef: ref(null), pdfIsReloadRef: ref(false), pdfReadyRef: ref(false),
-  }), {})
+  }), { token })
 }
 
 describe('useReaderDocument — engine PDF page', () => {
@@ -43,5 +44,16 @@ describe('useReaderDocument — engine PDF page', () => {
     const h = mount('file:///data/originals/b1.pdf', null)
     expect(h.result.current.webViewSource).toEqual({ html: '<pdf engine>', baseUrl: 'file:///data/originals/' })
     expect(built.at(-1)).toEqual({ url: 'b1.pdf', token: null, local: true })
+  })
+
+  it('a refreshed token does not rebuild the document (it reaches the page over the bridge); a remount after a dead renderer opens with it', () => {
+    const h = mount('https://api.test/me/books/b1/file', 'tok')
+    const source = h.result.current.webViewSource
+    const builds = built.length
+    h.rerender({ token: 'fresh' })
+    expect(h.result.current.webViewSource).toBe(source)
+    expect(built.length).toBe(builds)
+    act(() => h.result.current.onRendererGone())
+    expect(built.at(-1)!.token).toBe('fresh')
   })
 })

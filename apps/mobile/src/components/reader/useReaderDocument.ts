@@ -171,12 +171,7 @@ export function useReaderDocument({
     const documentUrl = isLocalOriginal
       ? originalFileUrl.slice(originalFileUrl.lastIndexOf('/') + 1)
       : originalFileUrl
-    // The engine page (EXPO_PUBLIC_READER_ENGINE_PDF) takes the same inputs; a token refresh reaches it
-    // over the bridge (useReaderPdf), so the key's token never changes under it.
-    const build = READER_ENGINE_PDF
-      ? (url: string, token: string | null, o: Parameters<typeof buildPdfViewerHtml>[2]) => buildPdfEngineHtml(url, token, { ...o, local: isLocalOriginal })
-      : buildPdfViewerHtml
-    return build(documentUrl, pdfToken, {
+    const options = {
       theme: {
         fontSize: settings.fontSize,
         lineHeight: settings.lineHeight,
@@ -187,13 +182,18 @@ export function useReaderDocument({
       },
       initialPage: pdfInitialPageRef.current ?? originalInitialPage ?? null,
       safeArea: chrome.safeArea,
-    })
+    }
+    // The engine page (EXPO_PUBLIC_READER_ENGINE_PDF): same inputs; a token refresh reaches it over the bridge.
+    return READER_ENGINE_PDF
+      ? buildPdfEngineHtml(documentUrl, pdfToken, { ...options, local: isLocalOriginal })
+      : buildPdfViewerHtml(documentUrl, pdfToken, options)
     // Keyed on document identity ONLY. Insets and theme are absent on purpose —
     // that absence is the fix, and pdfViewerChrome.test.ts asserts it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [original, pdfDocumentKey({
     fileUrl: originalFileUrl ?? '',
-    token: pdfToken,
+    // Engine page: not the token — a refresh reaches the live page; a remount (webViewKey) reads the latest.
+    token: READER_ENGINE_PDF ? null : pdfToken,
     nonce: pdfReloadNonce + webViewKey,
     initialPage: pdfInitialPageRef.current ?? originalInitialPage ?? null,
   })])
