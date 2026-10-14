@@ -4,8 +4,8 @@ import { fileURLToPath } from 'url'
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
 
 // @reader-pdf — the Original-layout PDF reader (ADR-012), flag off and on (ADR-025 Phase 5 slice 5).
-// CI runs it twice: the default build (PdfOriginalView) and a VITE_READER_ENGINE_PDF=true build
-// (PdfEngineView). Every wait is a poll on a real signal, never a sleep.
+// CI runs it on the VITE_READER_ENGINE_PDF=true build (PdfEngineView), as prod ships (Phase 6 slice 0).
+// Every wait is a poll on a real signal, never a sleep.
 //
 // Content: each test's own user uploads the engine's 40-page fixture (page numbers in the footer).
 // Original layout needs only the stored file (hasOriginalPdf = the upload's format), never the

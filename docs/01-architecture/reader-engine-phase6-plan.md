@@ -4,7 +4,7 @@ Phase 6 of [ADR-025](adr/ADR-025-reader-engine-package.md): every platform reads
 `packages/reader-engine`, so the old reader, the four flags and the shims go. Deletion only: no new
 behaviour, no API change.
 
-Status: **draft 2026-10-14**, from a read-only survey right after Phase 5. All four flags are on for
+Status: **answered 2026-10-14** (see Owner answers), from a read-only survey right after Phase 5. All four flags are on for
 everyone: mobile reflow since 2026-10-12, web reflow 2026-10-13, web + mobile PDF 2026-10-14
 (`apps/web/production.env`, EAS production + OTA). The owner's prod pass of Phase 4 is still pending (STATUS).
 
@@ -143,6 +143,12 @@ the mobile `restoreId` / `readerMovedSince` protocol, the mount slot (question 6
 - #839 CI e2e builds web with the flags off = **slice 0**. #840 the `scroll:` locator, out of Phase 6.
 - #841 Dim button contrast (`pdfOriginal.css`, shared, stays), #842 Android native handles on a PDF
   long press: not blocking.
+
+## Owner answers (2026-10-14)
+
+1b **delete now**, no bake (tag `reader-legacy-final` and EAS-variables-last still hold) · 2a web first,
+mobile PR B ≥ 7 days after the Play launch · 3a three PRs + slice 0 · 4a `scroll:` later (#840) ·
+5a delete `packages/reader-overlay` in slice 5 · 6a deletion only, shims → issues · 7a slice 0 now.
 
 ## Questions for the owner
 
