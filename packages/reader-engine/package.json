@@ -19,6 +19,7 @@
     "@playwright/test": "catalog:",
     "@types/node": "catalog:",
     "jsdom": "catalog:",
+    "pdfjs-dist": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"
