@@ -32,20 +32,33 @@ const FONTS_DEADLINE_MS = 4000
 const FIND_CONTEXT = 40
 
 /** iOS fires `selectionchange` all through a drag: a selection is sent once it stops changing. */
-const SELECTION_SETTLE_MS = 220
+export const SELECTION_SETTLE_MS = 220
 /** A deliberate hold, not a brush; moving this far makes it a scroll. */
-const HOLD_MS = 450
-const HOLD_SLOP_PX = 8
+export const HOLD_MS = 450
+export const HOLD_SLOP_PX = 8
 /** The server's translate and TTS cap: a longer selection is still sent, flagged. */
-const SELECTION_MAX_CHARS = 500
+export const SELECTION_MAX_CHARS = 500
 /** Hide the bars late, show them early. */
-const SCROLL_DOWN_PX = 48
-const SCROLL_UP_PX = 6
+export const SCROLL_DOWN_PX = 48
+export const SCROLL_UP_PX = 6
 /** A second tap this soon is a double tap: the bars toggle once, not twice (the old bridge's 300 ms). */
-const DOUBLE_TAP_MS = 300
+export const DOUBLE_TAP_MS = 300
 const SENTENCE_END = /[.!?\n]/
 /** A longer sentence is cut to this many characters around the selection. */
 const SENTENCE_MAX = 200
+
+/** The sentence around [start, end) of `text`, inside [from, to), cut to SENTENCE_MAX around the selection. */
+export function sentenceAround(text: string, from: number, to: number, start: number, end: number): string {
+  let a = start
+  while (a > from && !SENTENCE_END.test(text[a - 1])) a--
+  let b = end
+  while (b < to && !SENTENCE_END.test(text[b - 1])) b++
+  const sentence = text.slice(a, b).trim()
+  if (sentence.length <= SENTENCE_MAX) return sentence
+  const c = Math.max(a, start - 80, end - SENTENCE_MAX)
+  const d = Math.min(b, c + SENTENCE_MAX)
+  return `${c > a ? '...' : ''}${text.slice(c, d).trim()}${d < b ? '...' : ''}`
+}
 
 /** A run of the chapter's text inside one block, with the chapter offset it starts at. */
 interface Segment { el: Element; start: number; length: number }
@@ -80,38 +93,64 @@ const drawDot: DrawFn = (rects) => {
   return g
 }
 
-/** Engines alive per scroller, and its overflow-anchor before the first of them (E30). */
-const anchorHolds = new WeakMap<HTMLElement, { count: number; was: string }>()
-
-export function createEngine(root: HTMLElement, opts: EngineOptions = {}): ReaderEngine {
+/** The default seams over the host's document (both layouts): its scroller, layout reads, frames, resizes, the caret. */
+export function seams(root: HTMLElement, opts: EngineOptions) {
   const doc = root.ownerDocument
   const win = doc.defaultView!
   const page = doc.scrollingElement as HTMLElement
   const scroller = opts.scroller ?? page
-  const measure = opts.measure ?? ((el: Element) => {
-    const r = el.getBoundingClientRect()
-    const origin = scroller === page ? 0 : scroller.getBoundingClientRect().top
-    return { top: r.top - origin + scroller.scrollTop, height: r.height }
-  })
-  const viewport = opts.viewport ?? (() => ({ height: scroller === page ? win.innerHeight : scroller.clientHeight }))
-  const schedule = opts.schedule ?? ((cb: () => void) => { win.requestAnimationFrame(() => cb()) })
-  const observeResize = opts.observeResize ?? ((el: Element, cb: () => void) => {
-    const ro = new win.ResizeObserver(() => cb())
-    ro.observe(el)
-    return () => ro.disconnect()
-  })
+  return {
+    doc, win, page, scroller,
+    measure: opts.measure ?? ((el: Element) => {
+      const r = el.getBoundingClientRect()
+      const origin = scroller === page ? 0 : scroller.getBoundingClientRect().top
+      return { top: r.top - origin + scroller.scrollTop, height: r.height }
+    }),
+    viewport: opts.viewport ?? (() => ({ height: scroller === page ? win.innerHeight : scroller.clientHeight })),
+    schedule: opts.schedule ?? ((cb: () => void) => { win.requestAnimationFrame(() => cb()) }),
+    observeResize: opts.observeResize ?? ((el: Element, cb: () => void) => {
+      const ro = new win.ResizeObserver(() => cb())
+      ro.observe(el)
+      return () => ro.disconnect()
+    }),
+    caretAt: opts.caret ?? ((x: number, y: number) => {
+      const p = doc.caretPositionFromPoint?.(x, y)
+      if (p) return { node: p.offsetNode, offset: p.offset }
+      const r = doc.caretRangeFromPoint?.(x, y)
+      return r ? { node: r.startContainer, offset: r.startOffset } : null
+    }),
+  }
+}
+
+/** The engine's events: `emit`, the API's `on`, and `clear` on destroy. */
+export function emitter() {
+  const listeners = new Map<keyof EngineEvents, Set<(p: never) => void>>()
+  return {
+    emit<K extends keyof EngineEvents>(e: K, p: EngineEvents[K]) {
+      for (const cb of [...(listeners.get(e) ?? [])]) (cb as (p: EngineEvents[K]) => void)(p)
+    },
+    on: ((e, cb) => {
+      if (!listeners.has(e)) listeners.set(e, new Set())
+      const set = listeners.get(e)!
+      set.add(cb as (p: never) => void)
+      return () => { set.delete(cb as (p: never) => void) }
+    }) as ReaderEngine['on'],
+    clear: () => listeners.clear(),
+  }
+}
+
+/** Engines alive per scroller, and its overflow-anchor before the first of them (E30). */
+const anchorHolds = new WeakMap<HTMLElement, { count: number; was: string }>()
+
+export function createEngine(root: HTMLElement, opts: EngineOptions = {}): ReaderEngine {
+  if (opts.fixed) return opts.fixed(root, opts)   // a PDF engine: the host brought pdf.js (src/fixed.ts)
+  const { doc, win, page, scroller, measure, viewport, schedule, observeResize, caretAt } = seams(root, opts)
   const fontsReady = opts.fontsReady ?? (() => doc.fonts ? doc.fonts.ready.then(() => {}) : Promise.resolve())
   const rectsOf = opts.rects ?? ((range: Range): Rect[] => {
     const o = root.getBoundingClientRect()
     return Array.from(range.getClientRects())
       .filter((r) => r.width > 0 && r.height > 0)
       .map((r) => ({ x: r.left - o.left, y: r.top - o.top, width: r.width, height: r.height }))
-  })
-  const caretAt = opts.caret ?? ((x: number, y: number) => {
-    const p = doc.caretPositionFromPoint?.(x, y)
-    if (p) return { node: p.offsetNode, offset: p.offset }
-    const r = doc.caretRangeFromPoint?.(x, y)
-    return r ? { node: r.startContainer, offset: r.startOffset } : null
   })
   const frame = () => new Promise<void>((r) => schedule(r))
 
@@ -170,11 +209,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
   let dirBase = 0                                          // scrollTop where the last direction was decided
   let footer: HTMLElement | null = null
   let endSeen = false
-  const listeners = new Map<keyof EngineEvents, Set<(p: never) => void>>()
-
-  function emit<K extends keyof EngineEvents>(e: K, p: EngineEvents[K]) {
-    for (const cb of [...(listeners.get(e) ?? [])]) (cb as (p: EngineEvents[K]) => void)(p)
-  }
+  const { emit, on, clear } = emitter()
 
   function segmentsOf(): Segment[] {
     const out: Segment[] = []
@@ -394,20 +429,10 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
     return { x: left + o.left, y: top + o.top, width, height }
   }
 
-  /** The sentence around [start, end) inside its block, cut to SENTENCE_MAX around the selection. */
+  /** The sentence around [start, end) inside its block. */
   function sentenceAt(start: number, end: number): string {
     const seg = segments.find((s) => start < s.start + s.length)
-    const from = seg?.start ?? 0
-    const to = seg ? seg.start + seg.length : text.length
-    let a = start
-    while (a > from && !SENTENCE_END.test(text[a - 1])) a--
-    let b = end
-    while (b < to && !SENTENCE_END.test(text[b - 1])) b++
-    const sentence = text.slice(a, b).trim()
-    if (sentence.length <= SENTENCE_MAX) return sentence
-    const c = Math.max(a, start - 80, end - SENTENCE_MAX)
-    const d = Math.min(b, c + SENTENCE_MAX)
-    return `${c > a ? '...' : ''}${text.slice(c, d).trim()}${d < b ? '...' : ''}`
+    return sentenceAround(text, seg?.start ?? 0, seg ? seg.start + seg.length : text.length, start, end)
   }
 
   /** Sends [start, end) of the chapter text as a `selection`, without its edge whitespace, unless the host has it. */
@@ -607,7 +632,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
 
   return {
     async open(d: ChapterDoc, at?: Locator, opId?: string) {
-      if (d.layout !== 'reflow') throw new Error('reader-engine: the fixed layout arrives in Phase 5')
+      if (d.layout !== 'reflow') throw new Error('reader-engine: a PDF needs createEngine(root, { fixed })')
       const seq = ++moveSeq
       const mine = ++docSeq
       opened = true
@@ -717,12 +742,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
       })
     },
 
-    on(e, cb) {
-      if (!listeners.has(e)) listeners.set(e, new Set())
-      const set = listeners.get(e)!
-      set.add(cb as (p: never) => void)
-      return () => { set.delete(cb as (p: never) => void) }
-    },
+    on,
 
     destroy() {
       alive = false
@@ -730,7 +750,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
       docSeq++
       opened = false
       target = styleAnchor = null
-      listeners.clear()
+      clear()
       scrollSource.removeEventListener('scroll', onScroll)
       root.removeEventListener('click', onClick)
       root.removeEventListener('pointerdown', onPointerDown)

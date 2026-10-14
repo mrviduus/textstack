@@ -132,8 +132,9 @@ export interface ReaderEngine {
   destroy(): void
 }
 
-/** Options exist for tests; hosts pass nothing. */
+/** Options exist for tests; hosts pass nothing, except `fixed` for a PDF (Phase 5, amended 2026-10-13). */
 export function createEngine(root: HTMLElement, opts?: {
+  fixed?: (root: HTMLElement, opts: EngineOptions) => ReaderEngine   // fixedLayout(pdfjs) from src/fixed.ts
   scroller?: HTMLElement
   measure?: (el: Element) => { top: number; height: number }
   viewport?: () => { height: number }
@@ -165,6 +166,14 @@ Rules the types cannot say:
 - **PDF bytes come through `read()`, not a URL.** The host implements it (on mobile, in the bridge
   inside the WebView, with the bearer token); a 401 never reaches the engine as anything but
   `'pdf-auth'`. pdf.js keeps its range streaming (ADR-012's instant first paint).
+  *Amended 2026-10-13 (Phase 5):* the host probes the length first and retries inside `read()` after a
+  token refresh; `read()` rejects with `{ code: 'pdf-auth' }` only when auth is gone for good. A failed
+  `open` emits the error, acks with the page it was sent to and resolves `'superseded'`.
+- **The host brings pdf.js** *(amended 2026-10-13, Phase 5 answer 3a)*. `createEngine(root, { fixed:
+  fixedLayout(pdfjs) })`: `src/fixed.ts` takes the host's pdf.js module (web: a lazy `import()`; mobile:
+  the PDF bundle), and the engine never imports `pdfjs-dist` — it stays out of the 64 KB budget and the
+  boundary. An engine made with `fixed` opens PDFs only (one engine per layout: the hosts mount a PDF and
+  a chapter in different places); one without it throws on a PDF. "Hosts pass nothing" holds for reflow.
 - **Mobile does not inject chapter HTML through the bridge.** The document embeds the chapter as
   `<script type="application/json">` (like `window.__TS_PDF` today) and the bridge calls `open` inside
   it; `ready` replaces `onLoadEnd` as the restore trigger.
@@ -196,7 +205,7 @@ the chapter's text nodes (decorations draw over the text; `WordHint`'s `surround
 - `src/boundary.test.ts` fails the build on a forbidden import — no ESLint needed.
 - `packages/reader-engine/CLAUDE.md` holds the rules; `.claude/agents/reader-engine.md` is the agent.
 - Mobile gets the engine as one esbuild IIFE (`apps/web/scripts/mobile-bundles.mjs`), drift-checked,
-  with a size budget (60 KB unminified; overlay + anchor are 28 KB today; the engine alone 49 KB at slice 6).
+  with a size budget (64 KB unminified since 2026-10-12, decision 2 below; overlay + anchor are 28 KB today; the engine alone 49 KB at slice 6).
 - A change to `api.ts` amends this ADR.
 
 ## Android spike results (Phase 1b, 2026-10-08)
@@ -214,7 +223,7 @@ debug build, production API as a guest, *1984* Part One (35 k chars, 26.8 k px).
 | 5 | Highlights paint | PASS |
 | 6 | Font change keeps the reading line | PASS — same sentence before/after, 3–5 ms |
 | 7 | Renderer crash → same place | PASS — CDP `Page.crash`; reopened about one line back (save debounce) |
-| 8 | Text anchors on the PDF text layer | PASS off-device (37/37 over 40 pages of a real PDF); not run on device (needs a production upload) |
+| 8 | Text anchors on the PDF text layer | PASS off-device (37/37 over 40 pages of a real PDF); not run on device (needs a production upload). *Rerun 2026-10-14 on the engine (Phase 5 slice 2, `playground/fixed.e2e.ts`): 40/40 pages of the committed fixture — selection text on the page's text layer, `PdfAnchor` round-trip byte-identical, paint within 1 px of the text. Device run: Phase 5 slice 4.* |
 
 What it changes in this ADR:
 

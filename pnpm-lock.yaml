@@ -313,6 +313,9 @@ importers:
       jsdom:
         specifier: 'catalog:'
         version: 28.1.0
+      pdfjs-dist:
+        specifier: 'catalog:'
+        version: 4.10.38
       typescript:
         specifier: 'catalog:'
         version: 5.9.3
