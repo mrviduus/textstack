@@ -347,7 +347,7 @@ services:
 
   aspire-dashboard:
     logging: *default-logging
-    image: mcr.microsoft.com/dotnet/aspire-dashboard:13.6.0@sha256:064b50d557fcaffd10f06bf79ba4069bd50994a84034f1a0fc35c165500482d7
+    image: mcr.microsoft.com/dotnet/aspire-dashboard:13.6.1@sha256:03099004e132a7ca2feb66c5fa24715ffeaaf2fffab6f8b2cda23de3abd3ea45
     container_name: textstack_aspire_prod
     profiles: ["observability"]
     ports:
@@ -376,7 +376,7 @@ services:
     logging: *default-logging
     # gemma4 needs Ollama >= 0.30.9 (`ollama show`); 0.23.1 ran it from May to 2026-10. Pinned, not
     # :latest — an image bump is a deliberate change. 0.35.1 is what the local evals ran on.
-    image: ollama/ollama:0.35.1@sha256:292ee7945dfc3d5840a181f3ab86fedb1e66703e02c8af98b50f4da56b7e278c
+    image: ollama/ollama:0.40.3@sha256:adca95a12c2b386a8f9a995e7fa0600e187e3323b5e5522f5a6c3b1ec73eff99
     container_name: textstack_ollama
     # GPU access (NVIDIA runtime + device reservation) lives in
     # docker-compose.gpu.yml and is layered on top of this file only by the
