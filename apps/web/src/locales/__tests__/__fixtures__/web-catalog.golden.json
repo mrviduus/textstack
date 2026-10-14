@@ -727,6 +727,7 @@
   "reader.originalLayout.dim": "Dim",
   "reader.originalLayout.dimToggle": "Invert / dim page",
   "reader.openError.message": "This chapter could not be opened",
+  "reader.openError.book": "This book could not be opened",
   "reader.openError.retry": "Try again",
   "reader.openError.opening": "Opening…",
   "reader.openError.stillFailing": "Still could not open it. Check your connection.",

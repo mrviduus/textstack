@@ -119,7 +119,7 @@ describe('PdfEngineView — the engine and its bytes', () => {
     eng.engine.open.mockRejectedValueOnce(boom)
     render(<PdfEngineView {...base} resumeReady />)
     await wait(0)
-    expect(screen.getByRole('alert').textContent).toContain('reader.openError.message')
+    expect(screen.getByRole('alert').textContent).toContain('reader.openError.book')
     expect(reportError).toHaveBeenCalledWith(boom, { area: 'reader-engine', book: 'b1' })
     fireEvent.click(screen.getByText('reader.openError.retry'))
     await wait(0)
@@ -153,7 +153,7 @@ describe('PdfEngineView — the engine and its bytes', () => {
     refreshed()
     await wait(0)
     expect(reportError).not.toHaveBeenCalled()
-    expect(screen.queryByText('reader.openError.message')).toBeNull()
+    expect(screen.queryByText('reader.openError.book')).toBeNull()
   })
 
   it('#853 an open that rejects after the view is gone reports nothing', async () => {

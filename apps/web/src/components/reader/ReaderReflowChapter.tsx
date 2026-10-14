@@ -30,19 +30,18 @@ interface Props {
 export function ReaderReflowChapter({
   chapter, settings, onTap, onEngineOpened, onRetry, discuss, chapterNumber, totalChapters, chapterProgress, onGoTo, onFinish, finishLabel,
 }: Props) {
-  // #849: a chapter the engine cannot open says so here. Try again refetches it; when that lands, a fresh
-  // engine opens it.
+  // #849: a chapter the engine cannot open says so here. Try again first opens the same html with a fresh
+  // engine (works offline); after that, the chapter from the network, opened when it lands.
   const failure = useChapterEngineFailure(chapter.identifier)
-  const { clear } = failure
+  const { opened: clear, tried } = failure
   const retry = async () => {
-    const landed = await onRetry()
-    if (landed) clear(chapter.identifier)
-    return landed
+    if (failure.tries === 0) return tried(true)
+    tried(await onRetry().catch(() => false))
   }
   const opened = useCallback((slug: string) => { clear(slug); onEngineOpened(slug) }, [clear, onEngineOpened])
   return (
     <>
-      {failure.failed ? <ReaderOpenError onRetry={retry} /> : <ReaderSection
+      {failure.failed ? <ReaderOpenError onRetry={retry} stillFailing={failure.tries > 0} /> : <ReaderSection
         chapterId={chapter.id}
         chapterSlug={chapter.identifier}
         chapterIndex={chapter.chapterNumber}

@@ -294,14 +294,21 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
   }
 
   /**
-   * The line box (root-relative) of the first visible character from an offset, within 64 (whitespace,
-   * soft hyphens, zero-width spaces and hidden text have none); null: none there (jsdom).
+   * The line box (root-relative) of an offset's first visible character (whitespace, soft hyphens, zero-width
+   * spaces and word joiners have no width, however long the run); null: it has none (hidden text, jsdom).
    */
   function boxAt(offset: number): Rect | null {
-    for (let at = offset; at < Math.min(text.length, offset + 64); at++) {
-      const range = /[\s\u00AD\u200B]/.test(text[at]) ? null : rangeOf(at, 1)
-      const r = range && rectsOf(range)[0]
-      if (r) return r
+    let at = offset
+    while (at < text.length - 1 && /[\s\u00AD\u200B\u2060\uFEFF]/.test(text[at])) at++
+    const range = rangeOf(at, 1)
+    return (range && rectsOf(range)[0]) || null
+  }
+
+  /** From an offset, the box of the first character that has one, past hidden text node by node; null: none. */
+  function boxFrom(offset: number): Rect | null {
+    for (const t of nodes) {
+      const s = starts.get(t)!
+      if (s + t.length > offset && rectsOf(rangeOf(s, t.length)!).length) return boxAt(Math.max(offset, s))
     }
     return null
   }
@@ -318,7 +325,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
     const on = (r: Rect | null) => !!r && r.y <= line && line < r.y + r.height
     /** The first offset in [a, b) whose line ends below `below`. */
     const first = (a: number, b: number, below: number) => {
-      while (a < b) { const m = (a + b) >> 1; const r = boxAt(m); if (!r || r.y + r.height > below) b = m; else a = m + 1 }
+      while (a < b) { const m = (a + b) >> 1; const r = boxAt(m) ?? boxFrom(m); if (!r || r.y + r.height > below) b = m; else a = m + 1 }
       return a
     }
     const at = first(0, text.length, line)

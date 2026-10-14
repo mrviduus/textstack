@@ -87,6 +87,17 @@ describe('open', () => {
 })
 
 describe('goTo', () => {
+  it('E2 a place inside a long run of whitespace (poetry, pre) lands on the line of the text after it', async () => {
+    const run = ' '.repeat(100)   // longer than a line, and than any small skip limit
+    const html = PARAGRAPHS.map((p, i) => `<p>${i === 9 ? run + p : p}</p>`).join('')
+    const reader = makeReader({ html })
+    await reader.open()
+    await reader.goTo('Jura log 1')
+    const onText = reader.scrollTop
+    await reader.goTo(reader.place(run + 'Jura log 1'))   // the place starts at the first space
+    expect(reader.scrollTop).toBe(onText)
+  })
+
   it('E2 puts the sentence on the reading line and acks once', async () => {
     const reader = makeReader()
     await reader.open()

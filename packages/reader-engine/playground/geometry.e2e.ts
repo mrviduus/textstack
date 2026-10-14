@@ -205,19 +205,17 @@ test('E45 a popup over the reading line while the reader scrolls: every scroll r
   }
 })
 
-// Font metrics move where floats and gaps fall (CI's Linux fonts failed where the Mac passed): several fonts.
-for (const [font, width] of ['Georgia, serif', 'serif', 'sans-serif', 'monospace', 'Verdana'].flatMap((f) => [[f, 412], [f, 600]] as const)) {
-  test(`E45 under a popup, floated figures with captions beside the reading line still read the text on the line: ${font} @${width}`, async ({ page }) => {
-    await page.setViewportSize({ width, height: 839 })
-    await openChapter(page, 'moby-dick-5-float')   // a float every third paragraph: caption text sits below the lines after it
-    await page.addStyleTag({ content: `#reader { font-family: ${font} !important }` })
-    await cover(page, { top: '20%', height: '10%' })
-    try {
-      for (let i = 1; i <= 24; i++) {
-        await readerScrolls(page, i / 25)
-        // The rule, checked by brute force over every line box of the chapter: text on the reading line is
-        // found on it (0 away); with none (a gap, or beside a figure), the text found is the nearest above.
-        const r = await page.evaluate(() => {
+/**
+ * E45 under a popup band, at 24 stops: the rule, checked by brute force over every line box of the chapter.
+ * Text on the reading line is found on it (0 away); with none (a gap, beside a figure), the text found is the
+ * nearest above.
+ */
+async function expectCoveredLineRule(page: Page) {
+  await cover(page, { top: '20%', height: '10%' })
+  try {
+    for (let i = 1; i <= 24; i++) {
+      await readerScrolls(page, i / 25)
+      const r = await page.evaluate(() => {
           const at = window.pg.offsetOf(window.engine.current()!)!
           const y = scrollY + innerHeight * 0.25
           const walker = document.createTreeWalker(document.querySelector('#reader')!.firstElementChild!, NodeFilter.SHOW_TEXT)
@@ -235,12 +233,26 @@ for (const [font, width] of ['Georgia, serif', 'serif', 'sans-serif', 'monospace
           return { off: window.pg.offLine(at, y), want: onLine ? 0 : above, y, found: window.pg.text().slice(at, at + 40) }
         })
         expect(Math.abs(r.off - r.want), `at ${i}/25: reading line y=${r.y}, found ${JSON.stringify(r.found)} ${r.off} away, the nearest text ${r.want}`).toBeLessThan(1)
-      }
-    } finally {
-      await uncover(page)
     }
+  } finally {
+    await uncover(page)
+  }
+}
+
+// Font metrics move where floats and gaps fall (CI's Linux fonts failed where the Mac passed): several fonts.
+for (const [font, width] of ['Georgia, serif', 'serif', 'sans-serif', 'monospace', 'Verdana'].flatMap((f) => [[f, 412], [f, 600]] as const)) {
+  test(`E45 under a popup, floated figures with captions beside the reading line still read the text on the line: ${font} @${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 839 })
+    await openChapter(page, 'moby-dick-5-float')   // a float every third paragraph: caption text sits below the lines after it
+    await page.addStyleTag({ content: `#reader { font-family: ${font} !important }` })
+    await expectCoveredLineRule(page)
   })
 }
+
+test('E45 under a popup, hidden blocks and long collapsed whitespace before the line do not break the search', async ({ page }) => {
+  await openChapter(page, 'moby-dick-5-hidden')   // display:none notes and 300-space runs: characters with no box
+  await expectCoveredLineRule(page)
+})
 
 test('E45 a covered reading line in a gap between blocks reads the text just above with a bounded search, not a scan of the chapter', async ({ page }) => {
   await openChapter(page, 'ulysses-15')   // 2760 table cells: a scan of every text node is thousands of box reads

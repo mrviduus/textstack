@@ -46,29 +46,27 @@ export function ReaderErrorScreen({ seoTitle, heading, body, linkTo, linkText, l
 }
 
 /**
- * The engine could not open the chapter (#849, #853): said inside the reader, whose bars and nav stay.
- * Try again is disabled while `onRetry` runs; `false` from it (nothing loaded) says so.
+ * The engine could not open the chapter or book (#849, #853): said inside the reader, whose bars and nav
+ * stay. Try again is disabled while `onRetry` runs. The caller keeps the tries: `stillFailing` after one.
  */
-export function ReaderOpenError({ onRetry }: { onRetry: () => Promise<boolean | void> }) {
+export function ReaderOpenError({ onRetry, stillFailing, message = 'reader.openError.message' }: {
+  onRetry: () => Promise<unknown> | void
+  stillFailing: boolean
+  message?: string
+}) {
   const { t } = useTranslation()
   const [busy, setBusy] = useState(false)
-  const [stillFailing, setStillFailing] = useState(false)
   const retry = async () => {
     setBusy(true)
-    setStillFailing(false)
-    let landed: boolean | void = false
     try {
-      landed = await onRetry()
-    } catch {
-      // a retry that throws is still failing
+      await onRetry()
     } finally {
       setBusy(false)
     }
-    setStillFailing(landed === false)
   }
   return (
     <div className="reader-open-error" role="alert">
-      <p>{t('reader.openError.message')}</p>
+      <p>{t(message)}</p>
       {stillFailing && <p>{t('reader.openError.stillFailing')}</p>}
       <button type="button" className="reader-open-error__retry" onClick={retry} disabled={busy}>
         {t(busy ? 'reader.openError.opening' : 'reader.openError.retry')}

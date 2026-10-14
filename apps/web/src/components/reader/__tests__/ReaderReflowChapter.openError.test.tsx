@@ -42,30 +42,44 @@ describe('ReaderReflowChapter: the engine cannot open the chapter', () => {
     expect(screen.getByLabelText('Next chapter')).toBeTruthy()
   })
 
-  it('tryAgain_TheRefetchedChapterOpens_AndTheErrorGoes', async () => {
-    const { rerender } = render(<ReaderReflowChapter chapter={chapter('a')} {...props} />)
-    failNext = false
-    // The loader swaps in the network's chapter, then resolves.
-    const onRetry = vi.fn(async () => { rerender(<ReaderReflowChapter chapter={chapter('a', '<p>fresh</p>')} {...props} onRetry={onRetry} />); return true })
-    rerender(<ReaderReflowChapter chapter={chapter('a')} {...props} onRetry={onRetry} />)
-    await act(async () => { fireEvent.click(tryAgain()) })
-    expect(onRetry).toHaveBeenCalledTimes(1)
-    expect(opens).toEqual(['a <p>x</p>', 'a <p>fresh</p>'])
-    expect(screen.queryByRole('alert')).toBeNull()
-  })
+  const click = () => act(async () => { fireEvent.click(tryAgain()) })
 
-  it('tryAgain_TheSameHtmlFromTheNetwork_StillOpensAgain', async () => {
-    render(<ReaderReflowChapter chapter={chapter('a')} {...props} />)
-    failNext = false
-    await act(async () => { fireEvent.click(tryAgain()) })
+  it('tryAgain_FirstReopensTheSameHtml_WithAFreshEngine_NoNetwork', async () => {
+    const onRetry = vi.fn(async () => true)
+    render(<ReaderReflowChapter chapter={chapter('a')} {...props} onRetry={onRetry} />)
+    failNext = false   // offline is fine: the html is already here
+    await click()
+    expect(onRetry).not.toHaveBeenCalled()
     expect(opens).toEqual(['a <p>x</p>', 'a <p>x</p>'])
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
-  it('tryAgain_DisabledWhileTheRetryRuns_AFailedRetrySaysSo', async () => {
+  it('tryAgain_TheReopenFailsAgain_SaysStillFailing', async () => {
+    render(<ReaderReflowChapter chapter={chapter('a')} {...props} />)
+    expect(screen.queryByText('reader.openError.stillFailing')).toBeNull()
+    await click()   // the fresh engine fails too
+    expect(opens).toEqual(['a <p>x</p>', 'a <p>x</p>'])
+    expect(screen.getByText('reader.openError.stillFailing')).toBeTruthy()
+  })
+
+  it('tryAgain_AfterThat_TheNetworksChapterOpens', async () => {
+    const { rerender } = render(<ReaderReflowChapter chapter={chapter('a')} {...props} />)
+    await click()   // the same html fails again
+    failNext = false
+    // The loader swaps in the network's chapter, then resolves.
+    const onRetry = vi.fn(async () => { rerender(<ReaderReflowChapter chapter={chapter('a', '<p>fresh</p>')} {...props} onRetry={onRetry} />); return true })
+    rerender(<ReaderReflowChapter chapter={chapter('a')} {...props} onRetry={onRetry} />)
+    await click()
+    expect(onRetry).toHaveBeenCalledTimes(1)
+    expect(opens).toEqual(['a <p>x</p>', 'a <p>x</p>', 'a <p>fresh</p>'])
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('tryAgain_DisabledWhileTheNetworkRuns_AFailedFetchStillSaysSo', async () => {
     let done!: (landed: boolean) => void
     const onRetry = vi.fn(() => new Promise<boolean>((r) => { done = r }))
     render(<ReaderReflowChapter chapter={chapter('a')} {...props} onRetry={onRetry} />)
+    await click()   // the same html fails again
     fireEvent.click(tryAgain())
     expect(tryAgain().textContent).toBe('reader.openError.opening')
     expect(tryAgain().disabled).toBe(true)
@@ -73,13 +87,14 @@ describe('ReaderReflowChapter: the engine cannot open the chapter', () => {
     expect(tryAgain().textContent).toBe('reader.openError.retry')
     expect(tryAgain().disabled).toBe(false)
     expect(screen.getByText('reader.openError.stillFailing')).toBeTruthy()
-    expect(opens).toEqual(['a <p>x</p>'])   // nothing re-opened
+    expect(opens).toEqual(['a <p>x</p>', 'a <p>x</p>'])   // nothing re-opened
   })
 
-  it('tryAgain_ARetryThatThrows_StillEnablesTheButton', async () => {
+  it('tryAgain_ANetworkRetryThatThrows_StillEnablesTheButton', async () => {
     const onRetry = vi.fn(async (): Promise<boolean> => { throw new Error('boom') })
     render(<ReaderReflowChapter chapter={chapter('a')} {...props} onRetry={onRetry} />)
-    await act(async () => { fireEvent.click(tryAgain()) })
+    await click()
+    await click()
     expect(tryAgain().disabled).toBe(false)
     expect(screen.getByText('reader.openError.stillFailing')).toBeTruthy()
   })

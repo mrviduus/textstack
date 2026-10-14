@@ -22,7 +22,8 @@ const SECRETS: [RegExp, string][] = [
   [/\/mcp\/k\/[^\s/?#"']+/g, '/mcp/k/[redacted]'],
   [/\bts[kocr]_[A-Za-z0-9_-]+/g, '[redacted]'],
   [/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*/g, '[redacted]'],
-  [/\?[\w.%[\]-]+=\S*/g, ''],
+  // A query or fragment (`#:~:text=` too) to the end of the line or the next quote: a decoded query has spaces.
+  [/[?#][^\n"']*/g, ''],
 ]
 const clean = (text?: string) => text && SECRETS.reduce((t, [re, to]) => t.replace(re, to), text)
 

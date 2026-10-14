@@ -100,7 +100,7 @@ export default function PdfEngineView({
   const [sessionExpired, setSessionExpired] = useState(false)
   const [failed, setFailed] = useState(false)
   /** #853: the engine's open threw (not a file that will not load: that is `failed`). */
-  const [openFailed, setOpenFailed] = useState(false)
+  const [openFails, setOpenFails] = useState(0)   // in a row; more than one: still could not open it
   const [pendingJump, setPendingJump] = useState<number | null>(null)
   const [editHl, setEditHl] = useState<{ highlight: StoredHighlight; rect: DOMRect } | null>(null)
   const [opened, setOpened] = useState(false)
@@ -167,13 +167,13 @@ export default function PdfEngineView({
     const mine = ++openSeqRef.current
     return jump(target, (opId) => engine.open({ layout: 'fixed', pdf: source }, at(target), opId)).then(
       () => {
-        if (openSeqRef.current === mine) setOpenFailed(false)
+        if (openSeqRef.current === mine) setOpenFails(0)
         return true
       },
       (e: unknown) => {
         if (engineRef.current !== engine || openSeqRef.current !== mine) return false
         reportError(e, { area: 'reader-engine', book: bookId })
-        setOpenFailed(true)
+        setOpenFails((n) => n + 1)
         return false
       },
     )
@@ -312,8 +312,10 @@ export default function PdfEngineView({
 
   /** Try again (#853): the same bytes, opened again where the reader was. */
   const retryOpen = useCallback(() => {
-    const o = openedForRef.current
-    return o && o.engine === engineRef.current ? openDoc(o.engine, o.source, currentPageRef.current ?? openPage) : Promise.resolve(false)
+    // On the engine mounted now (StrictMode or a new book id may have replaced the one that failed).
+    const engine = engineRef.current
+    const source = openedForRef.current?.source
+    return engine && source ? openDoc(engine, source, currentPageRef.current ?? openPage) : Promise.resolve(false)
   }, [openDoc, openPage])
 
   // --- TOC / bookmark / highlight jump: once per nonce. Before the open, the open goes there. ---
@@ -394,7 +396,7 @@ export default function PdfEngineView({
     openSeqRef.current++   // the open in flight is replaced now, not when the new bytes come
     setSessionExpired(false)
     setFailed(false)
-    setOpenFailed(false)
+    setOpenFails(0)
     loadErrorFiredRef.current = false
     try {
       await refreshToken()
@@ -465,8 +467,8 @@ export default function PdfEngineView({
         </div>
       )}
       {failed && <div className="pdf-original__error">{t('reader.originalLayout.error')}</div>}
-      {openFailed && <ReaderOpenError onRetry={retryOpen} />}
-      {!numPages && !failed && !openFailed && !sessionExpired && <div className="pdf-original__loading">{t('reader.originalLayout.loading')}</div>}
+      {openFails > 0 && <ReaderOpenError onRetry={retryOpen} stillFailing={openFails > 1} message="reader.openError.book" />}
+      {!numPages && !failed && !openFails && !sessionExpired && <div className="pdf-original__loading">{t('reader.originalLayout.loading')}</div>}
 
       {/* The engine owns this element's children (pages, canvases, text layers, marks). */}
       <div ref={rootRef} className="pdf-engine__pages" />
