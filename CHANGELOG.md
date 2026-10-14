@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Reader** — engine Phase 6 PR A (slices 1 + 2): the old web reader is deleted — both `VITE_READER_ENGINE*` flags and `?engine=` overrides, the overlay layers, `WordHint`, the DOM branches of selection / search / scroll sync, the old PDF viewer; R1–R4 scroll-sync pins rewritten on the engine; closes #818 — web, CI · [details](docs/changelog-archive/2026-H2.md#2026-10-14-reader-engine-phase-6-pr-a-web-old-reader-deleted)
 - **Infra** — engine Phase 6 slice 0 (#839): every e2e run builds web with both reader engines on, as prod ships; the separate engine-on step goes (`reader-progress` now reports only: fixed sleeps, shared user); owner answered the [Phase 6 plan](docs/01-architecture/reader-engine-phase6-plan.md) (delete now, web first) — CI, docs
 - **Mobile** — engine Phase 5 done: `EXPO_PUBLIC_READER_ENGINE_PDF=true` in EAS production + OTA `6b3e3e8f` — every app reader opens Original-layout PDFs through the engine; owner checked on the phone; rollback = `eas env:delete` + OTA — mobile
 - **Reader** — engine Phase 5 web: `VITE_READER_ENGINE_PDF=true` in `apps/web/production.env` — every web reader reads Original-layout PDFs through the engine; owner checked PDFs with `?engine=pdf`; rollback = delete the line and merge — web

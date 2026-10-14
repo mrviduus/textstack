@@ -3,8 +3,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
 
-// @reader-pdf — the Original-layout PDF reader (ADR-012), flag off and on (ADR-025 Phase 5 slice 5).
-// CI runs it on the VITE_READER_ENGINE_PDF=true build (PdfEngineView), as prod ships (Phase 6 slice 0).
+// @reader-pdf — the Original-layout PDF reader (ADR-012) on the engine's fixed layout (PdfEngineView, ADR-025).
 // Every wait is a poll on a real signal, never a sleep.
 //
 // Content: each test's own user uploads the engine's 40-page fixture (page numbers in the footer).
@@ -17,8 +16,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const FIXTURE = path.resolve(__dirname, '../../../../packages/reader-engine/playground/pdf/fixture.pdf')
 const TITLE = 'E2E reader PDF fixture'
 const PAGES = 40
-
-const ENGINE_ON = process.env.VITE_READER_ENGINE_PDF === 'true'
 
 const openContexts: BrowserContext[] = []
 
@@ -75,8 +72,7 @@ const pageInput = (page: Page) => page.getByRole('textbox', { name: 'Go to page'
 /** Open the chapterless Original route and wait until page `n` has a drawn canvas. */
 async function openPdf(page: Page, bookId: string, n = 1) {
   await page.goto(`/en/library/my/${bookId}/read`)
-  // The build really is the one this run claims: a flag that never reached vite would pass as "engine on".
-  await expect(page.locator(ENGINE_ON ? '.pdf-engine' : '.pdf-original')).toBeVisible({ timeout: 30_000 })
+  await expect(page.locator('.pdf-engine')).toBeVisible({ timeout: 30_000 })
   await expect(page.locator('.pdf-original__page-count')).toHaveText(`/ ${PAGES}`, { timeout: 30_000 })
   await expect(pageInput(page)).toHaveAttribute('placeholder', String(n), { timeout: 15_000 })
   await expect.poll(() => pageEl(page, n).locator('canvas').evaluate((c: HTMLCanvasElement) => c.width).catch(() => 0), { timeout: 15_000 })
@@ -98,11 +94,11 @@ async function jumpTo(page: Page, n: number) {
   await expect.poll(() => pageCoversMiddle(page, n), { timeout: 10_000 }).toBe(true)
 }
 
-/** Either viewer's painted rects of one highlight: the old layer's, or the engine's fill (not its dot). */
+/** The engine's painted rects of one highlight: its fill, not its dot. */
 const painted = (page: Page, id: string) =>
-  page.locator(`[data-highlight-id="${id}"], [data-group="highlight"][data-id="${id}"]:not([data-dot])`)
+  page.locator(`[data-group="highlight"][data-id="${id}"]:not([data-dot])`)
 
-test.describe(`Reader PDF (${ENGINE_ON ? 'engine' : 'old viewer'}) @reader-pdf`, () => {
+test.describe('Reader PDF @reader-pdf', () => {
   test.describe.configure({ timeout: 60_000 })
   test.afterEach(async () => {
     await Promise.all(openContexts.splice(0).map((c) => c.close()))

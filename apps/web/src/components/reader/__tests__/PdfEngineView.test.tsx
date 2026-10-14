@@ -6,7 +6,7 @@ import type { StoredHighlight } from '../../../lib/offlineDb'
 // ADR-025 Phase 5 slice 3: web's Original-layout PDF through the engine's fixed layout. The view is the
 // host: bytes (`openPdfSource`), where to open, what to save (the ADR-012 gate fed by the engine's acks),
 // zoom, highlights (paint + tap → edit popup). The engine itself is faked: its events in, its calls out.
-// Rewrites of PdfOriginalView.{persistGate,jump,loadError}.test.tsx at the host level.
+// Rewrites of the old viewer's persistGate / jump / loadError tests at the host level (Phase 5).
 
 vi.setConfig({ testTimeout: 15_000 })
 

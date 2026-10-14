@@ -17,7 +17,7 @@ export interface UseExplainPopupResult {
   explanation: string | null
   isExplaining: boolean
   error: string | null
-  /** `sentence`: the engine's (READER_ENGINE), which hands out no Range; else read from `range`. */
+  /** `sentence`: the engine's, which hands out no Range; else read from `range`. */
   openFromSelection: (selectionText: string, range: Range | null, rect: DOMRect | null, sentence?: string) => void
   close: () => void
 }

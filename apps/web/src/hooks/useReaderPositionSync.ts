@@ -2,10 +2,8 @@ import { useRef, useCallback } from 'react'
 import type { Location, NavigateFunction } from 'react-router-dom'
 import { useReaderScrollSync, isChapterReady } from './useReaderScrollSync'
 import type { UseReaderProgressResult } from './useReaderProgress'
-import type { useReaderSettings } from './useReaderSettings'
 import type { BookDetail } from '../types/api'
 import type { ReaderMode, NormalizedChapter } from './useReaderChapter'
-import { READER_ENGINE } from '../lib/readerEngine'
 
 interface Params {
   mode: ReaderMode
@@ -17,8 +15,7 @@ interface Params {
   originalActive: boolean
   overallProgress: number
   progress: UseReaderProgressResult
-  settings: ReturnType<typeof useReaderSettings>['settings']
-  /** The chapter whose engine open has landed (ReaderSection's onEngineOpened); unused without the engine. */
+  /** The chapter whose engine open has landed (ReaderSection's onEngineOpened). */
   engineOpenedFor: string | null
   /** Live `?highlight=` param. */
   scrollToHighlightId: string | null
@@ -42,7 +39,6 @@ export function useReaderPositionSync({
   originalActive,
   overallProgress,
   progress,
-  settings,
   engineOpenedFor,
   scrollToHighlightId,
   highlightsLoaded,
@@ -51,16 +47,16 @@ export function useReaderPositionSync({
   location,
   navigate,
 }: Params) {
-  // With the engine, the chapter is ready once its open has landed: restore, a `?highlight=` jump and
+  // The chapter is ready once the engine's open has landed: restore, a `?highlight=` jump and
   // save-on-open never race the open's own landing at the top.
   const chapterReady = isChapterReady(chapter, chapterIdentifier, loading)
-    && (!READER_ENGINE || engineOpenedFor === chapterIdentifier)
+    && engineOpenedFor === chapterIdentifier
   const { publicProgress, userProgress, effectiveProgress, effectiveLoading, serverUnanswered, fetchNewerPosition } = progress
 
   // Scroll-position restore + debounced save + flush on visibility/unload.
   // flushProgress ships the LEAVING chapter's latest scroll before a
   // same-component route change (ReaderPage stays mounted, so no unmount flush).
-  const { flushSave: flushProgress, captureBeforeReflow, markPositioned } = useReaderScrollSync({
+  const { flushSave: flushProgress, markPositioned } = useReaderScrollSync({
     mode,
     chapterIdentifier,
     chapterLoaded: chapterReady,
@@ -74,9 +70,6 @@ export function useReaderPositionSync({
     publicBookChapters: publicBook?.chapters,
     publicProgress,
     userProgress,
-    // Typography only. Theme is a data-attribute swap and does not re-wrap text,
-    // so re-anchoring for it would cost a layout read for nothing.
-    settingsKey: `${settings.fontSize} ${settings.lineHeight} ${settings.fontFamily} ${settings.textAlign}`,
     // A ?highlight= link positions the reader; restore and save-on-open wait for it.
     holdRestore: !!scrollToHighlightId && !originalActive,
     onHoldExpired: () => handleHighlightLinkDoneRef.current(false),
@@ -102,5 +95,5 @@ export function useReaderPositionSync({
   const handleHighlightLinkDoneRef = useRef(handleHighlightLinkDone)
   handleHighlightLinkDoneRef.current = handleHighlightLinkDone
 
-  return { flushProgress, captureBeforeReflow, highlightLinkReady, handleHighlightLinkDone }
+  return { flushProgress, highlightLinkReady, handleHighlightLinkDone }
 }

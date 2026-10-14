@@ -1,7 +1,7 @@
 /**
  * A newer position from the server: is it provably newer, and what may the reader do with it?
  * Pure decisions shared by mobile (`apps/mobile/src/lib/progressRestore.ts` re-exports these) and
- * web (`useReaderScrollSync`, `PdfOriginalView`). Moved from mobile in web R4.
+ * web (`useReaderScrollSync`, `PdfEngineView`). Moved from mobile in web R4.
  */
 import { MAX_CLIENT_SKEW_MS } from './progressPrecedence'
 

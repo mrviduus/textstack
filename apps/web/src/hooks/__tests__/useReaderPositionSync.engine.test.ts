@@ -1,13 +1,9 @@
 import { describe, it, expect, vi } from 'vitest'
 import { renderHook } from '@testing-library/react'
 
-// Phase 4 review fix: with the engine on, the chapter is ready only once the engine's open has landed,
+// Phase 4 review fix: the chapter is ready only once the engine's open has landed,
 // so restore, a `?highlight=` jump and save-on-open never race the open's landing at the top.
-vi.mock('../../lib/readerEngine', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../lib/readerEngine')>()),
-  READER_ENGINE: true,
-}))
-const scrollSync = vi.fn((_p: { chapterLoaded: boolean }) => ({ flushSave: vi.fn(), captureBeforeReflow: vi.fn(), markPositioned: vi.fn() }))
+const scrollSync = vi.fn((_p: { chapterLoaded: boolean }) => ({ flushSave: vi.fn(), markPositioned: vi.fn() }))
 vi.mock('../useReaderScrollSync', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../useReaderScrollSync')>()),
   useReaderScrollSync: (p: { chapterLoaded: boolean }) => scrollSync(p),
@@ -26,7 +22,6 @@ const params = (engineOpenedFor: string | null) => ({
   originalActive: false,
   overallProgress: 0,
   progress: { serverUnanswered: false },
-  settings: { fontSize: 18, lineHeight: 1.8, fontFamily: 'serif', textAlign: 'left' },
   engineOpenedFor,
   scrollToHighlightId: 'h1',
   highlightsLoaded: true,

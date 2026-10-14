@@ -103,9 +103,7 @@ const atChapter = (slug: string) => new RegExp(`/${slug.replace(/[.*+?^${}()|[\]
 const article = (page: Page) => page.locator('.reader-section__article')
 const firstParagraph = (chapter: 1 | 2) => `Chapter ${chapter}, paragraph 1.`
 
-// ADR-025: CI runs this spec with the reader engine on (VITE_READER_ENGINE), as prod ships (Phase 6 slice 0).
-// The engine draws its own <svg> as a child of the article; the old overlay never does.
-const ENGINE_ON = process.env.VITE_READER_ENGINE === 'true'
+// ADR-025: the reader engine shows the chapter and draws its own <svg> as a child of the article.
 const ENGINE_LAYER = '.reader-section__article > svg[data-vocab-overlay]'
 
 /** Navigate and wait until the fixture text of that chapter is on screen. */
@@ -114,8 +112,7 @@ async function openChapter(page: Page, book: Book, chapter: 1 | 2) {
   await page.goto(`/en/books/${book.slug}/${slug}`)
   await waitForReaderLoad(page)
   await expect(article(page)).toContainText(firstParagraph(chapter), { timeout: 15_000 })
-  // The build really is the one this run claims: a flag that never reached vite would pass as "engine on".
-  await expect(page.locator(ENGINE_LAYER)).toHaveCount(ENGINE_ON ? 1 : 0)
+  await expect(page.locator(ENGINE_LAYER)).toHaveCount(1)
 }
 
 const localProgress = (page: Page, editionId: string) =>
@@ -149,13 +146,13 @@ async function scrollToMiddleAndSave(page: Page, book: Book, slug: string, timeo
 }
 
 /**
- * The painted rects of each highlight of one colour, one entry per highlight. Either renderer:
- * the old overlay draws one <g> per highlight; the engine draws `g[data-group="highlight"]`, plus a
- * second <g> with the same data-id for a reviewed dot (no rects, other fill) — so de-duplicated by id.
+ * The painted rects of each highlight of one colour, one entry per highlight. The engine draws
+ * `g[data-group="highlight"]`, plus a second <g> with the same data-id for a reviewed dot (no rects,
+ * other fill) — so de-duplicated by id.
  */
 const paintedRects = (page: Page, color: 'pink' | 'blue') =>
   page.evaluate((c) => {
-    const groups = document.querySelectorAll<SVGGElement>('[data-highlight-overlay] g, g[data-group="highlight"]')
+    const groups = document.querySelectorAll<SVGGElement>('g[data-group="highlight"]')
     const byId = new Map<string, { top: number; bottom: number }>()
     Array.from(groups).forEach((g, i) => {
       const rects = Array.from(g.querySelectorAll('rect')).filter((r) => Number(r.getAttribute('width')) > 0)

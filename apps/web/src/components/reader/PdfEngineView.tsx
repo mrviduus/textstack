@@ -10,7 +10,7 @@ import { setMountedEngine, unmountEngine } from '../../lib/readerEngine'
 import { useNewerPositionCheck } from '../../hooks/useNewerPositionCheck'
 import type { HighlightColor, StoredHighlight } from '../../lib/offlineDb'
 import { PdfHighlightPopup } from './PdfHighlightPopup'
-import { COLOR_MAP } from './PdfHighlightLayer'
+import { COLOR_MAP } from './decorationColors'
 import { isReviewed, useReviewedMarks } from './ReviewedMarks'
 import { isReaderScrollKey, pdfFixedLayout } from './pdfEngineLayout'
 import '../../styles/pdfOriginal.css'
@@ -54,10 +54,10 @@ const TOP_BAR_PX = 56
 const at = (page: number): Locator => ({ type: 'application/pdf', locations: { position: page } })
 
 /**
- * The Original-layout PDF through the reader engine's fixed layout (ADR-025 Phase 5 slice 3,
- * READER_ENGINE_PDF). The engine draws the pages, keeps the place, zooms, selects and paints; this host
+ * The Original-layout PDF through the reader engine's fixed layout (ADR-025 Phase 5 slice 3).
+ * The engine draws the pages, keeps the place, zooms, selects and paints; this host
  * brings the bytes (cookie, ranges, 401 retry), decides where to open, and saves the page the reader is
- * on — through the same ADR-012 gate as PdfOriginalView, fed by the engine's acks. Window scroll (answer 5a).
+ * on — through the ADR-012 gate (pdfGateReduce), fed by the engine's acks. Window scroll (answer 5a).
  *
  * Default export — behind React.lazy, so pdf.js stays a lazy chunk.
  */

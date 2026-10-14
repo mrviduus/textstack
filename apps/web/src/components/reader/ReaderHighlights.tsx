@@ -13,11 +13,10 @@ import { useWordBubble } from '../../hooks/useWordBubble'
 import { normalizeVocabKey } from '../../lib/vocabKey'
 import type { HighlightAnchor, HighlightColor, StoredHighlight } from '../../lib/offlineDb'
 import { savedTranslationOffer, type PdfAnchor } from '@textstack/shared'
-import { computePdfAnchorFromRange } from '../../lib/pdfHighlightAnchor'
 import { SelectionToolbar } from './SelectionToolbar'
-import { HighlightOverlayLayer, COLOR_MAP as HIGHLIGHT_COLORS } from './HighlightOverlayLayer'
-import { VocabOverlayLayer, COLOR_PER_STAGE as VOCAB_STAGE_COLORS, ACTIVE_COLOR as VOCAB_ACTIVE_COLOR } from './VocabOverlayLayer'
-import { INACTIVE_COLOR as SEARCH_COLOR } from './SearchOverlayLayer'
+import {
+  COLOR_MAP as HIGHLIGHT_COLORS, COLOR_PER_STAGE as VOCAB_STAGE_COLORS, ACTIVE_COLOR as VOCAB_ACTIVE_COLOR, INACTIVE_COLOR as SEARCH_COLOR,
+} from './decorationColors'
 import { isReviewed, useReviewedMarks } from './ReviewedMarks'
 import { anchorToLocator, locatorToPdfAnchor } from '@textstack/reader-engine'
 import { highlightChapterKey, isChapterKey } from '../../lib/textAnchor'
@@ -29,7 +28,7 @@ import { TtsHighlightOverlay } from './TtsHighlightOverlay'
 import { ImageLightbox } from './ImageLightbox'
 import { Toast } from '../Toast'
 import { useAuth } from '../../context/AuthContext'
-import { READER_ENGINE, READER_ENGINE_PDF, mountedEngineFor } from '../../lib/readerEngine'
+import { mountedEngineFor } from '../../lib/readerEngine'
 
 interface ReaderHighlightsProps {
   editionId: string
@@ -57,24 +56,23 @@ interface ReaderHighlightsProps {
   removeHighlight: (id: string) => Promise<void>
   /**
    * Original-layout PDF mode: keep the live selection actions (translate /
-   * explain / TTS / copy / vocab-save) but drop persistent visual layers —
-   * highlight-overlay + vocab-underline can't map ranges onto a pdf.js text
-   * layer, so they're reflow-only. Also hides the Highlight button.
+   * explain / TTS / copy / vocab-save); highlight paint, taps and jumps stay with
+   * the PDF view (stored rects, its own edit popup). Also hides the Highlight button.
    */
   liveActionsOnly?: boolean
   /**
    * Original-layout PDF create seam. When set, the Highlight button is shown and
-   * "Highlight" builds a quad-rect PdfAnchor from the live selection (over the
-   * pdf.js text layer) and hands it up — the persistent paint/edit lives in the
-   * PDF subtree, not the reflow overlay. Absent → the reflow highlight path.
+   * "Highlight" turns the engine's selection (page + rects) into a PdfAnchor
+   * and hands it up — the persistent paint/edit lives in the PDF view.
+   * Absent → the reflow highlight path.
    */
   onPdfHighlight?: (anchor: PdfAnchor, text: string, color: HighlightColor) => void | Promise<unknown>
   /**
-   * READER_ENGINE: the chapter whose engine open has landed; its events drive the popups. Original-layout PDF
-   * with READER_ENGINE_PDF: the PDF engine's slot (`pdf:<bookId>`) — its selection drives the toolbar.
+   * The chapter whose engine open has landed; its events drive the popups. Original-layout PDF:
+   * the PDF engine's slot (`pdf:<bookId>`) — its selection drives the toolbar.
    */
   engineOpenedFor?: string | null
-  /** READER_ENGINE: the drawer's hits (useInBookSearch, the engine's find), painted by the engine. Undefined = closed. */
+  /** The drawer's hits (useInBookSearch, the engine's find), painted by the engine. Undefined = closed. */
   searchMatches?: SearchMatch[]
   searchActiveIndex?: number
   children: React.ReactNode
@@ -132,12 +130,11 @@ export function ReaderHighlights({
   const targetLang = resolveTargetLang(nativeLanguage, bookLanguage)
 
   // --- Text selection ---
-  // ADR-025 Phase 4: the engine shows reflow chapters; Phase 5: the Original-layout PDF too, behind its own flag.
-  // Undefined = the old DOM listeners (selection, image click); else the engine's events, never both (gap 8).
-  const engineHref = (liveActionsOnly ? READER_ENGINE_PDF : READER_ENGINE) ? engineOpenedFor : undefined
+  // ADR-025: the engine shows reflow chapters (Phase 4) and the Original-layout PDF (Phase 5); its events drive the popups.
+  const engineHref = engineOpenedFor
   // Highlight paint, taps and jumps on a PDF stay with the PDF view (stored rects, its own edit popup).
   const reflowEngineHref = liveActionsOnly ? undefined : engineHref
-  const { selection, clearSelection, hasSelection } = useTextSelection(containerRef, { engineHref })
+  const { selection, clearSelection, hasSelection } = useTextSelection(engineHref)
 
   const selectionWordCount = countWords(selection.text)
   const isSingleWord = hasSelection && selectionWordCount === 1
@@ -235,9 +232,7 @@ export function ReaderHighlights({
       if (onPdfHighlight) {
         // The engine's selection carries page + rects (E40): today's PdfAnchor, byte for byte.
         const fromEngine = selection.locator && locatorToPdfAnchor(selection.locator)
-        const anchor = fromEngine ? JSON.parse(fromEngine) as PdfAnchor
-          : selection.range ? computePdfAnchorFromRange(selection.range, containerRef.current) : null
-        if (anchor) await onPdfHighlight(anchor, selection.text, color)
+        if (fromEngine) await onPdfHighlight(JSON.parse(fromEngine) as PdfAnchor, selection.text, color)
         clearSelection()
         translationPopup.close()
         return
@@ -246,7 +241,7 @@ export function ReaderHighlights({
       clearSelection()
       translationPopup.close()
     },
-    [selection.range, selection.text, selection.locator, createHighlightFromSelection, clearSelection, translationPopup, onPdfHighlight, containerRef],
+    [selection.range, selection.text, selection.locator, createHighlightFromSelection, clearSelection, translationPopup, onPdfHighlight],
   )
 
   const handleCopy = useCallback(() => {
@@ -256,17 +251,6 @@ export function ReaderHighlights({
 
   // --- Image lightbox (tap chapter <img> → fullscreen viewer w/ zoom+pan) ---
   const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null)
-  const handleContentClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    const t = e.target as HTMLElement
-    if (t.tagName !== 'IMG') return
-    // Skip overlay images (translation tags, vocab underlines etc render no <img>,
-    // but be defensive against future overlay layers).
-    if (t.closest('[data-vocab-overlay]') || t.closest('[data-reader-overlay]')) return
-    // If wrapped in <a>, prevent navigation in favor of the lightbox.
-    if (t.closest('a')) e.preventDefault()
-    const img = t as HTMLImageElement
-    setLightbox({ src: img.currentSrc || img.src, alt: img.alt || '' })
-  }, [])
 
   // The engine's taps (it never lets a chapter link navigate): image → lightbox; a footnote `#id` jumps to
   // its note, http(s) opens a new tab. A link to another file of the book does nothing yet (#814).
@@ -288,8 +272,7 @@ export function ReaderHighlights({
     return () => { offImage(); offLink() }
   }, [engineHref, containerRef])
 
-  // --- Decorations drawn by the engine (slice 4): never also by the old overlay layers ---
-  const engineOn = READER_ENGINE && !liveActionsOnly
+  // --- Decorations drawn by the engine (slice 4) ---
   const reviewed = useReviewedMarks()
   useEffect(() => {
     const engineHref = reflowEngineHref
@@ -345,29 +328,8 @@ export function ReaderHighlights({
       ref={wrapperRef}
       className="reader-highlights-wrapper"
       onContextMenu={(e) => e.preventDefault()}
-      onClick={engineHref === undefined ? handleContentClick : undefined}
     >
       {children}
-
-      {/* Persistent visual layers are reflow-only — they can't project ranges
-          onto a pdf.js text layer, so skip them in Original-layout mode. */}
-      {!liveActionsOnly && !engineOn && (
-        <>
-          <HighlightOverlayLayer
-            highlights={highlights}
-            containerRef={containerRef}
-            chapterId={chapterId}
-            onHighlightClick={handleHighlightClick}
-          />
-
-          <VocabOverlayLayer
-            containerRef={containerRef}
-            vocabMap={vocabMap}
-            showInlineTranslations={showInlineTranslations}
-            activeBubble={bubble ? { word: bubble.word, translation: bubble.translation } : null}
-          />
-        </>
-      )}
 
       {/* Multi-word selection → full highlights toolbar */}
       {hasSelection && !isSingleWord && !translationPopup.show && !explainPopup.show && (

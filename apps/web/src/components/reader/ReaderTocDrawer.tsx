@@ -8,7 +8,7 @@ import { useFocusTrap } from '../../hooks/useFocusTrap'
 import { useTranslation } from '../../hooks/useTranslation'
 import { HighlightQuote } from '../HighlightQuote'
 
-// Swatch fill per highlight color — mirrors HighlightOverlayLayer's palette via
+// Swatch fill per highlight color — mirrors the engine's palette (decorationColors) via
 // the same CSS vars so light/dark/sepia themes stay in sync.
 const SWATCH_COLOR: Record<HighlightColor, string> = {
   yellow: 'var(--reader-overlay-hl-yellow, rgba(254, 240, 138, 0.5))',

@@ -241,24 +241,10 @@ function createRangeAtOffset(
   return null
 }
 
-/**
- * Simple string similarity (Dice coefficient)
- */
-
-/**
- * Get the bounding rectangles for a highlight anchor
- */
-export function getHighlightRects(
-  anchor: HighlightAnchor,
-  container: HTMLElement
-): DOMRect[] {
-  const range = findTextByAnchor(anchor, container)
-  if (!range) return []
-
-  return Array.from(range.getClientRects())
-}
-
 // --- The reading position (ADR-015) ------------------------------------------
+//
+// The reader reads it through the engine now; `readReadingLine` / `articleText` stay as the
+// yardstick the engine's playground measures against (E25, packages/reader-engine/playground).
 //
 // Not a highlight: nothing is selected, and the passage is whatever happens to
 // sit under the reading line. But it is anchored the same way, with the same
@@ -322,26 +308,6 @@ export function readReadingLine(
 /** The article's text, as the anchor offsets measure it — same exclusions. */
 export function articleText(article: HTMLElement): string {
   return extractText(article, article, 0, null, null)
-}
-
-/** A Range at a character offset within the article, for scrolling to. */
-export function rangeAtCharOffset(article: HTMLElement, target: number): Range | null {
-  const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT)
-  let consumed = 0
-  let node: Node | null
-  while ((node = walker.nextNode())) {
-    const tn = node as Text
-    if (isExcluded(tn)) continue
-    if (consumed + tn.length > target) {
-      const range = document.createRange()
-      const offset = target - consumed
-      range.setStart(tn, offset)
-      range.setEnd(tn, Math.min(tn.length, offset + 1))
-      return range
-    }
-    consumed += tn.length
-  }
-  return null
 }
 
 

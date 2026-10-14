@@ -66,7 +66,7 @@ export function useReaderPdfOriginal({
   const originalActive = hasOriginalPdf && !forceReflow
   // Open at the current chapter's PDF page — this WINS over the localStorage
   // resume page (the user navigated to this chapter). Null when the chapter has
-  // no known page, in which case PdfOriginalView falls back to the resume page.
+  // no known page, in which case PdfEngineView falls back to the resume page.
   const initialPdfPage = activeChapter?.sourceStartPage ?? null
   const pdfFileUrl = id ? getUserBookFileUrl(id) : ''
 
@@ -118,7 +118,7 @@ export function useReaderPdfOriginal({
   )
 
   // PDF.js hard-failed to open the original (NOT the internal 401 reload, which
-  // PdfOriginalView handles itself). Fall back to reflow when chapters exist;
+  // PdfEngineView handles itself). Fall back to reflow when chapters exist;
   // otherwise show the dedicated "Couldn't open this PDF" screen.
   const handlePdfLoadError = useCallback(() => {
     const chapters = book?.chapters ?? []

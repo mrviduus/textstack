@@ -639,12 +639,6 @@ jobs:
     runs-on: ubuntu-latest
     # 11m typical uncached; same layer cache as `docker` (unmeasured).
     timeout-minutes: 30
-    # ADR-025 Phase 6 slice 0: every e2e run builds web with prod's reader-engine flags
-    # (apps/web/production.env), both on. The env reaches the `pnpm build` that playwright's webServer runs.
-    # Phase 6 PR A deletes the flags; then this goes too.
-    env:
-      VITE_READER_ENGINE: 'true'
-      VITE_READER_ENGINE_PDF: 'true'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

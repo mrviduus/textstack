@@ -2,19 +2,13 @@ import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef } from 'rea
 import { createEngine, type ReaderEngine } from '@textstack/reader-engine'
 import type { ReaderSettings } from '../../hooks/useReaderSettings'
 import { sanitizeHtml } from '../../utils/sanitize'
-import type { Overlayer } from '@textstack/reader-overlay'
-import { ReaderOverlay } from './ReaderOverlay'
-import { READER_ENGINE, setMountedEngine, unmountEngine } from '../../lib/readerEngine'
+import { setMountedEngine, unmountEngine } from '../../lib/readerEngine'
 
-// One chapter, native scroll within, overlay on top. Unwired in slice 3 —
-// slice 7 swaps ReaderPage over to this. Annotation layers attach via
-// overlayerRef.
+// One chapter, shown by the reader engine (ADR-025), which draws every decoration and takes every tap.
 
 export interface ReaderSectionHandle {
   /** DOM article element — used by selection logic + scroll-into-range. */
   article: HTMLElement | null
-  /** Overlayer instance — annotation layers feed ranges here. */
-  overlayer: Overlayer | null
 }
 
 interface Props {
@@ -24,10 +18,8 @@ interface Props {
   chapterIndex: number
   html: string
   settings: ReaderSettings
-  /** When false, disables the overlay entirely (kills annotations). */
-  overlayEnabled?: boolean
   onTap?: () => void
-  /** The engine's open of this chapter has landed (READER_ENGINE): the chapter is ready to position. */
+  /** The engine's open of this chapter has landed: the chapter is ready to position. */
   onEngineOpened?: (chapterSlug: string) => void
   onDoubleTap?: () => void
 }
@@ -44,27 +36,23 @@ function fontFamily(f: ReaderSettings['fontFamily']): string {
 }
 
 export const ReaderSection = forwardRef<ReaderSectionHandle, Props>(function ReaderSection(
-  { chapterId, chapterSlug, chapterIndex, html, settings, overlayEnabled = true, onTap, onEngineOpened },
+  { chapterId, chapterSlug, chapterIndex, html, settings, onTap, onEngineOpened },
   ref,
 ) {
   const articleRef = useRef<HTMLElement | null>(null)
-  const overlayerRef = useRef<Overlayer | null>(null)
-  // Stable object: React 19 re-sets innerHTML whenever this prop's identity
-  // changes, so a literal here rebuilt the chapter DOM on EVERY render (each
-  // scroll-progress tick) — killing every live Range: highlights, vocab marks,
-  // the selection, a drawer jump's freshly painted highlight.
+  // Stable object: a new identity reopens the chapter in the engine, so a literal here reopened it on
+  // EVERY render (each scroll-progress tick).
   const innerHtml = useMemo(() => ({ __html: sanitizeHtml(html) }), [html])
 
-  // ADR-025 Phase 4 (READER_ENGINE): the engine renders the chapter into the article and keeps the
-  // place; useReaderScrollSync drives it through `mountedEngineFor`. Old overlay layers still find
-  // the text by [data-chapter-id] until slices 3–4 move them onto the engine.
+  // ADR-025 Phase 4: the engine renders the chapter into the article and keeps the
+  // place; useReaderScrollSync drives it through `mountedEngineFor`.
   const engineRef = useRef<ReaderEngine | null>(null)
   const onTapRef = useRef(onTap)
   onTapRef.current = onTap
   const onEngineOpenedRef = useRef(onEngineOpened)
   onEngineOpenedRef.current = onEngineOpened
   useEffect(() => {
-    if (!READER_ENGINE || !articleRef.current) return
+    if (!articleRef.current) return
     const engine = createEngine(articleRef.current)
     engineRef.current = engine
     engine.on('tap', () => onTapRef.current?.())   // #818: a tap on the chapter shows the bars
@@ -99,44 +87,18 @@ export const ReaderSection = forwardRef<ReaderSectionHandle, Props>(function Rea
       get article() {
         return articleRef.current
       },
-      get overlayer() {
-        return overlayerRef.current
-      },
     }),
     [],
   )
 
   return (
     <div className="reader-section" style={{ position: 'relative' }}>
-      {READER_ENGINE ? (
-        <article
-          ref={articleRef}
-          className="reader-section__article"
-          data-chapter-id={chapterId}
-          data-chapter-slug={chapterSlug}
-          data-chapter-index={chapterIndex}
-        />
-      ) : (
-        <article
-          ref={articleRef}
-          className="reader-section__article"
-          data-chapter-id={chapterId}
-          data-chapter-slug={chapterSlug}
-          data-chapter-index={chapterIndex}
-          style={{
-            fontSize: `${settings.fontSize}px`,
-            lineHeight: settings.lineHeight,
-            fontFamily: fontFamily(settings.fontFamily),
-            textAlign: settings.textAlign,
-          }}
-          dangerouslySetInnerHTML={innerHtml}
-        />
-      )}
-      {/* READER_ENGINE: the engine draws every decoration and takes every tap (ADR-025). */}
-      <ReaderOverlay
-        containerRef={articleRef}
-        overlayerRef={overlayerRef}
-        enabled={overlayEnabled && !READER_ENGINE}
+      <article
+        ref={articleRef}
+        className="reader-section__article"
+        data-chapter-id={chapterId}
+        data-chapter-slug={chapterSlug}
+        data-chapter-index={chapterIndex}
       />
     </div>
   )

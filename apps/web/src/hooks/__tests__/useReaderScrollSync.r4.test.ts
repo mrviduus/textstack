@@ -5,8 +5,8 @@ import { useEffect, useState } from 'react'
 // Web reader R4: a hanging or failed progress GET, a late or newer answer from the server, saves
 // scoped to the document they were made in, and the restore's own scroll never being a save.
 //
-// `window.scrollTo` here behaves like the browser's: it moves the page at once and fires a
-// `scroll` event a frame later — the echo that the first R4 version saved as if the reader made it.
+// The engine's goTo here behaves like the real one on the page: it moves it at once and the browser fires
+// a `scroll` event a frame later — the echo that the first R4 version saved as if the reader made it.
 
 const readProgress = vi.fn()
 vi.mock('../../api/auth', () => ({ readProgress: (...a: unknown[]) => readProgress(...a) }))
@@ -14,43 +14,28 @@ const auth = { isAuthenticated: true, isLoading: false }
 vi.mock('../../context/AuthContext', () => ({ useAuth: () => auth }))
 vi.mock('../../api/readingTracking', () => ({ submitSession: vi.fn(async () => ({})) }))
 vi.mock('../../lib/analytics', () => ({ trackReadingSessionEnd: vi.fn() }))
-// jsdom has no layout, so hit-testing the reading line finds nothing; a test can supply it.
-const readingLine: { current: ((article: HTMLElement) => { chapterText: string; charOffset: number } | null) | null } = { current: null }
-vi.mock('../../lib/textAnchor', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../lib/textAnchor')>()
-  return {
-    ...actual,
-    readReadingLine: (article: HTMLElement, y: number) =>
-      readingLine.current ? readingLine.current(article) : actual.readReadingLine(article, y),
-  }
-})
 
 import { useReaderScrollSync } from '../useReaderScrollSync'
 import { useRestoreProgress } from '../useRestoreProgress'
 import { useReadingSession } from '../useReadingSession'
 import type { NewerPositionResult } from '../useReaderProgress'
+import { fakeEngine, getScroll, setScroll, userScroll, unmountFakeEngines } from './scrollSync.testkit'
 
 type Props = Parameters<typeof useReaderScrollSync>[0]
 
 const PAGE_MAX = 20_000
-function setScroll(top: number) {
-  const el = (document.scrollingElement || document.documentElement) as HTMLElement
-  Object.defineProperty(el, 'scrollTop', { value: top, writable: true, configurable: true })
-}
-function getScroll() {
-  return ((document.scrollingElement || document.documentElement) as HTMLElement).scrollTop
-}
-/** The page scrolls without our scrollTo: the reader (wheel, scrollbar, Ctrl+F) or the browser. */
-function userScroll(top: number) {
-  setScroll(top)
-  window.dispatchEvent(new Event('scroll'))
-}
 function setVisibility(v: 'hidden' | 'visible') {
   Object.defineProperty(document, 'visibilityState', { value: v, configurable: true })
   document.dispatchEvent(new Event('visibilitychange'))
 }
-/** Let pending promises and the scroll echo (a 16 ms "frame") run. */
-const frame = () => act(async () => { await vi.advanceTimersByTimeAsync(16) })
+/**
+ * Let pending promises and the scroll echo (a 16 ms "frame") run. Twice: the engine's goTo resolves a
+ * render before the restore counts as landed, and the newer-position check starts the render after.
+ */
+const frame = async () => {
+  await act(async () => { await vi.advanceTimersByTimeAsync(16) })
+  await act(async () => { await vi.advanceTimersByTimeAsync(16) })
+}
 
 const updateProgress = vi.fn()
 const baseProps = (): Props => ({
@@ -64,31 +49,25 @@ const baseProps = (): Props => ({
   publicBookChapters: [{ id: 'ch1-id', slug: 'ch1' }, { id: 'ch2-id', slug: 'ch2' }] as never,
   publicProgress: { updateProgress, flushSave: vi.fn() },
   userProgress: { saveProgress: vi.fn(), flushSave: vi.fn() },
-  settingsKey: 'k',
 })
 const locators = () => updateProgress.mock.calls.map((c) => c[2] as string)
 const newer = (locator: string, chapterSlug = 'ch1'): NewerPositionResult => ({ chapterSlug, locator, positionJson: null })
 
+let eng: ReturnType<typeof fakeEngine>
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
-  vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { cb(0); return 0 })
-  window.scrollTo = vi.fn((arg: unknown) => {
-    const before = getScroll()
-    const top = Math.max(0, Math.min(PAGE_MAX, (arg as { top: number }).top))
-    setScroll(top)
-    if (top !== before) setTimeout(() => window.dispatchEvent(new Event('scroll')), 16)
-  }) as never
   updateProgress.mockReset()
   readProgress.mockReset()
   auth.isAuthenticated = true
   auth.isLoading = false
   localStorage.clear()
   setScroll(0)
-  readingLine.current = null
+  eng = fakeEngine('ch1')
+  eng.state.pageMax = PAGE_MAX
 })
 afterEach(() => {
+  unmountFakeEngines()
   vi.useRealTimers()
-  vi.unstubAllGlobals()
   vi.restoreAllMocks()
   Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
 })
@@ -118,10 +97,10 @@ describe('R4-2 + review #1: an unanswered GET restores locally and never stamps 
     seedLocal(2000)
     readProgress.mockImplementation(hangUntilAborted)
     mountRestoreAndSync()
-    expect(window.scrollTo).not.toHaveBeenCalled()
+    expect(eng.engine.goTo).not.toHaveBeenCalled()
 
     await act(async () => { await vi.advanceTimersByTimeAsync(3000) })
-    expect(window.scrollTo).toHaveBeenCalledWith({ top: 2000, behavior: 'instant' })
+    expect(getScroll()).toBe(2000)
     // The echo of that scrollTo, then well past the 1.5 s save debounce.
     await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
     expect(locators()).toEqual([])
@@ -145,7 +124,7 @@ describe('R4-2 + review #1: an unanswered GET restores locally and never stamps 
     seedLocal(900)
     mountRestoreAndSync()
     await act(async () => { await vi.advanceTimersByTimeAsync(3000) })
-    expect(window.scrollTo).toHaveBeenCalledWith({ top: 900, behavior: 'instant' })
+    expect(getScroll()).toBe(900)
     await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
     expect(locators()).toEqual([])
     act(() => { userScroll(1300) })
@@ -169,7 +148,7 @@ describe('the background re-ask after an unanswered open', () => {
     renderHook(() => useReaderScrollSync({ ...baseProps(), effectiveProgress: { locator: 'scroll:ch1:2000' }, serverUnanswered: true, fetchNewerPosition }))
     await frame()
     expect(fetchNewerPosition).toHaveBeenCalledTimes(1)
-    expect(window.scrollTo).toHaveBeenLastCalledWith({ top: 7000, behavior: 'instant' })
+    expect(getScroll()).toBe(7000)
     await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
     expect(locators()).toEqual([])
   })
@@ -181,7 +160,7 @@ describe('the background re-ask after an unanswered open', () => {
     await frame()
     act(() => { userScroll(4000) })
     await act(async () => { answer(newer('scroll:ch1:7000')) })
-    expect(window.scrollTo).not.toHaveBeenCalledWith({ top: 7000, behavior: 'instant' })
+    expect(getScroll()).toBe(4000)
   })
 
   it('review #3: a failed re-ask is retried on a backoff and when the browser comes online', async () => {
@@ -196,7 +175,7 @@ describe('the background re-ask after an unanswered open', () => {
     await act(async () => { window.dispatchEvent(new Event('online')) })
     await frame()
     expect(fetchNewerPosition).toHaveBeenCalledTimes(3)
-    expect(window.scrollTo).toHaveBeenLastCalledWith({ top: 7000, behavior: 'instant' })
+    expect(getScroll()).toBe(7000)
 
     // Answered: the remaining backoff does not ask again.
     await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
@@ -218,7 +197,7 @@ describe('R4-4: a tab coming back re-checks the server', () => {
     await act(async () => { setVisibility('visible') })
     await frame()
     await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
-    expect(window.scrollTo).toHaveBeenLastCalledWith({ top: 9000, behavior: 'instant' })
+    expect(getScroll()).toBe(9000)
     expect(locators().slice(writesBefore)).toEqual([])
   })
 
@@ -230,18 +209,18 @@ describe('R4-4: a tab coming back re-checks the server', () => {
     await act(async () => { setVisibility('visible') })
     act(() => { userScroll(4000) })
     await act(async () => { answer(newer('scroll:ch1:9000')) })
-    expect(window.scrollTo).not.toHaveBeenCalledWith({ top: 9000, behavior: 'instant' })
+    expect(getScroll()).toBe(4000)
   })
 
   it('newer in another chapter → web neither navigates nor scrolls', async () => {
     const fetchNewerPosition = vi.fn(async () => newer('scroll:ch2:9000', 'ch2'))
     renderHook(() => useReaderScrollSync({ ...baseProps(), effectiveProgress: { locator: 'scroll:ch1:2000' }, fetchNewerPosition }))
     await frame()
-    ;(window.scrollTo as ReturnType<typeof vi.fn>).mockClear()
+    eng.engine.goTo.mockClear()
     await act(async () => { setVisibility('visible') })
     await frame()
     expect(fetchNewerPosition).toHaveBeenCalled()
-    expect(window.scrollTo).not.toHaveBeenCalled()
+    expect(eng.engine.goTo).not.toHaveBeenCalled()
   })
 })
 
@@ -249,7 +228,7 @@ describe('review #5: an explicit position beats a newer one', () => {
   it('a ?highlight= jump (markPositioned) is not pulled away', async () => {
     const fetchNewerPosition = vi.fn(async () => newer('scroll:ch1:9000'))
     const { result } = renderHook(() => useReaderScrollSync({ ...baseProps(), holdRestore: true, fetchNewerPosition }))
-    act(() => { window.scrollTo({ top: 3300, behavior: 'instant' }) }) // the highlight link lands
+    act(() => { setScroll(3300) }) // the highlight link lands
     act(() => { result.current.markPositioned() })
     await frame()
     await act(async () => { setVisibility('visible') })
@@ -291,12 +270,13 @@ describe('review #6: a check in flight dies with its chapter', () => {
     const { rerender } = renderHook((p: Props) => useReaderScrollSync(p), { initialProps: props })
     await frame()
     await act(async () => { setVisibility('visible') })
+    eng.show('ch2')
     rerender({ ...props, chapterIdentifier: 'ch2' })
     await frame()
     expect(seen?.aborted).toBe(true)
-    ;(window.scrollTo as ReturnType<typeof vi.fn>).mockClear()
+    eng.engine.goTo.mockClear()
     await act(async () => { answer(newer('scroll:ch1:9000')) })
-    expect(window.scrollTo).not.toHaveBeenCalled()
+    expect(eng.engine.goTo).not.toHaveBeenCalled()
   })
 
   it('unmount: the fetch is aborted', async () => {
@@ -379,43 +359,23 @@ describe("round 3: mobile's rule — every scroll but our own is the reader's", 
     expect(onReaderScroll).toHaveBeenCalled()
   })
 
-  it('the re-anchor after a font change (and its resize re-runs) is not saved and is not "moved"', async () => {
-    let resized: (() => void) | undefined
-    vi.stubGlobal('ResizeObserver', class {
-      constructor(cb: () => void) { resized = cb }
-      observe() {}
-      disconnect() {}
-    })
-    Object.defineProperty(window, 'innerHeight', { value: 900, configurable: true })
-    const article = document.createElement('div')
-    article.className = 'reader-section__article'
-    article.textContent = 'Call me Ishmael. Some years ago — never mind how long precisely — having little money in my purse.'
-    document.body.appendChild(article)
-    // Where the reader's text sits in the document; a bigger font pushes it down.
-    let textTop = 2000 + 225
-    Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
-      configurable: true,
-      value: () => ({ top: textTop - getScroll(), bottom: textTop - getScroll() + 20, left: 0, right: 0, width: 0, height: 20, x: 0, y: 0, toJSON() {} }),
-    })
-    readingLine.current = (a) => ({ chapterText: a.textContent ?? '', charOffset: 17 })
+  it('the re-anchor after a font change (and the webfont reflow after it) is not saved and is not "moved"', async () => {
+    // H2: the engine keeps the reading line through a style change (E6); its move is ours, not the reader's.
     let answer!: (r: NewerPositionResult) => void
     const fetchNewerPosition = vi.fn(() => new Promise<NewerPositionResult>((r) => { answer = r }))
-    const props = { ...baseProps(), effectiveProgress: { locator: 'scroll:ch1:2000' }, fetchNewerPosition }
-    const { result, rerender } = renderHook((p: Props) => useReaderScrollSync(p), { initialProps: props })
+    renderHook(() => useReaderScrollSync({ ...baseProps(), effectiveProgress: { locator: 'scroll:ch1:2000' }, fetchNewerPosition }))
     await frame()
     await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
     expect(getScroll()).toBe(2000)
     const before = locators().length
 
-    act(() => { result.current.captureBeforeReflow() })
-    textTop += 400
-    rerender({ ...props, settingsKey: 'bigger' })
-    await frame()
-    expect(getScroll()).toBe(2400)
-    textTop += 300 // the webfont lands: the article resizes, the re-anchor runs again
-    act(() => { resized?.() })
-    await frame()
-    expect(getScroll()).toBe(2700)
+    const reanchor = (top: number, reason: 'style' | 'reflow') => act(() => {
+      setScroll(top)
+      eng.emit('relocated', { locator: eng.state.here!, reason })
+      window.dispatchEvent(new Event('scroll'))
+    })
+    reanchor(2400, 'style')    // a bigger font pushes the text down; the engine keeps it on the line
+    reanchor(2700, 'reflow')   // the webfont lands: the chapter reflows again
     await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
     expect(locators().slice(before)).toEqual([])
 
@@ -423,8 +383,6 @@ describe("round 3: mobile's rule — every scroll but our own is the reader's", 
     await act(async () => { setVisibility('visible') })
     await act(async () => { answer(newer('scroll:ch1:9000')) })
     expect(getScroll()).toBe(9000)
-    article.remove()
-    delete (Range.prototype as { getBoundingClientRect?: unknown }).getBoundingClientRect
   })
 
   it('after an unanswered open, a small shift (scroll anchoring) is not saved; a real move is', async () => {
@@ -447,6 +405,7 @@ describe('round 2 #5: only THE open is held back', () => {
     await frame()
     expect(locators()).toEqual([])
     rerender({ ...props, chapterIdentifier: 'ch2', chapterLoaded: false })
+    eng.show('ch2')
     rerender({ ...props, chapterIdentifier: 'ch2' })
     await frame()
     expect(locators()).toEqual(['scroll:ch2:0'])

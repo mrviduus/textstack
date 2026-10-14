@@ -48,7 +48,7 @@ interface UseHighlightEditOptions {
    */
   onNavigateToHighlight?: (highlight: StoredHighlight) => void
   onAfterCreate?: () => void
-  /** READER_ENGINE: the chapter slug whose engine open has landed; jumps go through `goTo`. */
+  /** The chapter slug whose engine open has landed; jumps go through `goTo`. */
   engineHref?: string | null
 }
 
@@ -60,7 +60,7 @@ export interface UseHighlightEditResult {
   closeNoteEditor: () => void
   handleNoteSave: (noteText: string | null) => Promise<void>
   handleHighlightDelete: () => Promise<void>
-  /** `locator`: the engine's selection (READER_ENGINE), which has no Range. */
+  /** `locator`: the engine's selection, which has no Range. */
   createHighlightFromSelection: (
     range: Range | null,
     text: string,

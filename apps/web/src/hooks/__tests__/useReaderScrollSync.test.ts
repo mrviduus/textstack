@@ -1,41 +1,18 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import { useReaderScrollSync, isChapterReady } from '../useReaderScrollSync'
+import { fakeEngine, setScroll, userScroll, unmountFakeEngines } from './scrollSync.testkit'
 
-// rAF runs sync in tests so window.scrollTo fires within renderHook.
-beforeEach(() => {
-  vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
-    cb(0)
-    return 0
-  })
-  window.scrollTo = vi.fn() as unknown as typeof window.scrollTo
-})
-
-afterEach(() => {
-  vi.unstubAllGlobals()
-  vi.restoreAllMocks()
-  // Tests that simulate a real scrollTo mutate the shared scrollingElement.scrollTop — reset it so
-  // it can't leak a non-zero offset into the next test.
-  const el = (document.scrollingElement || document.documentElement) as HTMLElement
-  try {
-    Object.defineProperty(el, 'scrollTop', { value: 0, writable: true, configurable: true })
-  } catch {
-    // ignore if not redefinable
-  }
-})
-
-const noopProgress = {
-  updateProgress: vi.fn(),
-  flushSave: vi.fn(),
-}
-const noopUserProgress = {
-  saveProgress: vi.fn(),
-  flushSave: vi.fn(),
-}
+// R1 / R2 pins (restore, save-on-open, C1 / M4 / C2, the highlight hold), on the engine path (Phase 6):
+// the engine positions the reader (`goTo`), this hook decides where and when, and what is saved.
 
 type Props = Parameters<typeof useReaderScrollSync>[0]
 
-const baseProps: Props = {
+const TOP = { href: 'ch1', type: 'text/html', locations: { progression: 0 } }
+const atPx = (px: number, href = 'ch1') => ({ href, type: 'text/html', locations: { legacyScrollY: px } })
+
+const updateProgress = vi.fn()
+const baseProps = (): Props => ({
   mode: 'public',
   chapterIdentifier: 'ch1',
   chapterLoaded: true,
@@ -43,366 +20,205 @@ const baseProps: Props = {
   overallProgress: 0,
   effectiveProgress: null,
   effectiveLoading: false,
-  publicBookChapters: [{ id: 'ch1-id', slug: 'ch1' }] as any,
-  publicProgress: noopProgress,
-  userProgress: noopUserProgress,
-  settingsKey: '18 1.6 serif left',
-}
+  publicBookChapters: [{ id: 'ch1-id', slug: 'ch1' }, { id: 'ch2-id', slug: 'ch2' }] as Props['publicBookChapters'],
+  publicProgress: { updateProgress, flushSave: vi.fn() },
+  userProgress: { saveProgress: vi.fn(), flushSave: vi.fn() },
+})
+const locators = () => updateProgress.mock.calls.map((c) => c[2] as string)
+/** Let the engine's goTo land and the save-on-open that follows it run. */
+const settle = () => act(async () => { await vi.advanceTimersByTimeAsync(16) })
+
+let eng: ReturnType<typeof fakeEngine>
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+  updateProgress.mockReset()
+  setScroll(0)
+  eng = fakeEngine('ch1')
+})
+afterEach(() => {
+  unmountFakeEngines()
+  vi.useRealTimers()
+  vi.restoreAllMocks()
+})
 
 describe('useReaderScrollSync — scroll restore', () => {
-  it('scrolls to top when no saved progress', () => {
-    renderHook(() => useReaderScrollSync(baseProps))
-    expect(window.scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'instant' })
+  it('goes to the top when nothing is saved', async () => {
+    renderHook(() => useReaderScrollSync(baseProps()))
+    await settle()
+    expect(eng.engine.goTo).toHaveBeenCalledWith(TOP)
   })
 
-  it('scrolls to top when locator does not start with scroll:', () => {
-    renderHook(() =>
-      useReaderScrollSync({ ...baseProps, effectiveProgress: { locator: 'percent:0.5' } }),
-    )
-    expect(window.scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'instant' })
+  it.each([
+    ['not a scroll: locator', 'percent:0.5'],
+    ['another chapter', 'scroll:ch9:5000'],
+    ['malformed (parts < 3)', 'scroll:ch1'],
+    ['offset is NaN', 'scroll:ch1:abc'],
+  ])('goes to the top when the locator is %s', async (_name, locator) => {
+    renderHook(() => useReaderScrollSync({ ...baseProps(), effectiveProgress: { locator } }))
+    await settle()
+    expect(eng.engine.goTo).toHaveBeenCalledWith(TOP)
   })
 
-  it('scrolls to top when locator chapter slug does not match current chapter', () => {
-    renderHook(() =>
-      useReaderScrollSync({
-        ...baseProps,
-        chapterIdentifier: 'ch2',
-        effectiveProgress: { locator: 'scroll:ch1:5000' },
-      }),
-    )
-    expect(window.scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'instant' })
+  it('goes to the saved offset when the locator names this chapter', async () => {
+    renderHook(() => useReaderScrollSync({ ...baseProps(), effectiveProgress: { locator: 'scroll:ch1:5000' } }))
+    await settle()
+    expect(eng.engine.goTo).toHaveBeenCalledWith(atPx(5000))
   })
 
-  it('scrolls to top when locator is malformed (parts < 3)', () => {
-    renderHook(() =>
-      useReaderScrollSync({ ...baseProps, effectiveProgress: { locator: 'scroll:ch1' } }),
-    )
-    expect(window.scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'instant' })
+  it.each([
+    ['effectiveLoading', { effectiveLoading: true }],
+    ['the chapter is not loaded', { chapterLoaded: false }],
+  ])('does not restore while %s', async (_name, over) => {
+    renderHook(() => useReaderScrollSync({ ...baseProps(), effectiveProgress: { locator: 'scroll:ch1:5000' }, ...over }))
+    await settle()
+    expect(eng.engine.goTo).not.toHaveBeenCalled()
   })
 
-  it('scrolls to top when offset is NaN', () => {
-    renderHook(() =>
-      useReaderScrollSync({ ...baseProps, effectiveProgress: { locator: 'scroll:ch1:abc' } }),
-    )
-    expect(window.scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'instant' })
-  })
-
-  it('restores to saved offset when locator chapter matches', () => {
-    renderHook(() =>
-      useReaderScrollSync({
-        ...baseProps,
-        effectiveProgress: { locator: 'scroll:ch1:5000' },
-      }),
-    )
-    expect(window.scrollTo).toHaveBeenCalledWith({ top: 5000, behavior: 'instant' })
-  })
-
-  it('does not restore while effectiveLoading', () => {
-    renderHook(() =>
-      useReaderScrollSync({
-        ...baseProps,
-        effectiveLoading: true,
-        effectiveProgress: { locator: 'scroll:ch1:5000' },
-      }),
-    )
-    expect(window.scrollTo).not.toHaveBeenCalled()
-  })
-
-  it('does not restore while chapter not loaded', () => {
-    renderHook(() =>
-      useReaderScrollSync({
-        ...baseProps,
-        chapterLoaded: false,
-        effectiveProgress: { locator: 'scroll:ch1:5000' },
-      }),
-    )
-    expect(window.scrollTo).not.toHaveBeenCalled()
-  })
-
-  it('on chapter change with stale locator (savedSlug=ch1, new=ch2) → scrolls to top', () => {
-    // Simulates the bug PR #193 fixed: user clicks Next at the bottom of ch1,
-    // chapterIdentifier flips to ch2, locator still points at ch1.
-    const { rerender } = renderHook((props: Props) => useReaderScrollSync(props), {
-      initialProps: { ...baseProps, effectiveProgress: { locator: 'scroll:ch1:8000' } },
-    })
-    // First render restored to saved offset.
-    expect(window.scrollTo).toHaveBeenLastCalledWith({ top: 8000, behavior: 'instant' })
-    ;(window.scrollTo as any).mockClear()
-
-    rerender({
-      ...baseProps,
-      chapterIdentifier: 'ch2',
-      effectiveProgress: { locator: 'scroll:ch1:8000' },
-    })
-    expect(window.scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'instant' })
+  it('on chapter change with a stale locator (savedSlug=ch1, new=ch2) → the top of ch2 (#193)', async () => {
+    // The user clicks Next at the bottom of ch1; chapterIdentifier flips to ch2, the locator still points at ch1.
+    const props = { ...baseProps(), effectiveProgress: { locator: 'scroll:ch1:8000' } }
+    const { rerender } = renderHook((p: Props) => useReaderScrollSync(p), { initialProps: props })
+    await settle()
+    expect(eng.engine.goTo).toHaveBeenLastCalledWith(atPx(8000))
+    eng.show('ch2')
+    rerender({ ...props, chapterIdentifier: 'ch2' })
+    await settle()
+    expect(eng.engine.goTo).toHaveBeenLastCalledWith({ ...TOP, href: 'ch2' })
   })
 })
 
 describe('useReaderScrollSync — save on chapter open', () => {
-  it('fires exactly one public save when a chapter opens (after restore)', () => {
-    const updateProgress = vi.fn()
-    const props: Props = {
-      ...baseProps,
-      publicProgress: { updateProgress, flushSave: vi.fn() },
-    }
-    renderHook(() => useReaderScrollSync(props))
-
-    expect(updateProgress).toHaveBeenCalledTimes(1)
-    // (progress, page, scrollLocator, chapterId, chapterSlug)
-    expect(updateProgress).toHaveBeenCalledWith(0, undefined, 'scroll:ch1:0', 'ch1-id', 'ch1', undefined)
+  it('fires exactly one public save when a chapter opens (after restore)', async () => {
+    renderHook(() => useReaderScrollSync(baseProps()))
+    await settle()
+    // (progress, page, scrollLocator, chapterId, chapterSlug, positionJson)
+    expect(updateProgress.mock.calls).toEqual([[0, undefined, 'scroll:ch1:0', 'ch1-id', 'ch1', undefined]])
   })
 
-  it('fires one userbook save when a chapter opens', () => {
+  it('fires one userbook save when a chapter opens', async () => {
     const saveProgress = vi.fn()
-    const props: Props = {
-      ...baseProps,
-      mode: 'userbook',
-      publicBookChapters: undefined,
-      userProgress: { saveProgress, flushSave: vi.fn() },
-    }
-    renderHook(() => useReaderScrollSync(props))
-
-    expect(saveProgress).toHaveBeenCalledTimes(1)
-    expect(saveProgress).toHaveBeenCalledWith('ch1', 0, 0, 'scroll:ch1:0', undefined)
+    renderHook(() => useReaderScrollSync({ ...baseProps(), mode: 'userbook', publicBookChapters: undefined, userProgress: { saveProgress, flushSave: vi.fn() } }))
+    await settle()
+    expect(saveProgress.mock.calls).toEqual([['ch1', 0, 0, 'scroll:ch1:0', undefined]])
   })
 
-  it('saves once per chapter on navigation (ch1 → ch2)', () => {
-    const updateProgress = vi.fn()
-    const props: Props = {
-      ...baseProps,
-      publicBookChapters: [
-        { id: 'ch1-id', slug: 'ch1' },
-        { id: 'ch2-id', slug: 'ch2' },
-      ] as any,
-      publicProgress: { updateProgress, flushSave: vi.fn() },
-    }
-    const { rerender } = renderHook((p: Props) => useReaderScrollSync(p), {
-      initialProps: props,
-    })
-    expect(updateProgress).toHaveBeenCalledTimes(1)
-    expect(updateProgress).toHaveBeenLastCalledWith(0, undefined, 'scroll:ch1:0', 'ch1-id', 'ch1', undefined)
-
-    rerender({ ...props, chapterIdentifier: 'ch2' })
-    expect(updateProgress).toHaveBeenCalledTimes(2)
-    expect(updateProgress).toHaveBeenLastCalledWith(0, undefined, 'scroll:ch2:0', 'ch2-id', 'ch2', undefined)
+  it('saves once per chapter on navigation (ch1 → ch2)', async () => {
+    const { rerender } = renderHook((p: Props) => useReaderScrollSync(p), { initialProps: baseProps() })
+    await settle()
+    eng.show('ch2')
+    rerender({ ...baseProps(), chapterIdentifier: 'ch2' })
+    await settle()
+    expect(updateProgress.mock.calls).toEqual([
+      [0, undefined, 'scroll:ch1:0', 'ch1-id', 'ch1', undefined],
+      [0, undefined, 'scroll:ch2:0', 'ch2-id', 'ch2', undefined],
+    ])
   })
 
-  it('does not save before chapter is loaded', () => {
-    const updateProgress = vi.fn()
-    renderHook(() =>
-      useReaderScrollSync({
-        ...baseProps,
-        chapterLoaded: false,
-        publicProgress: { updateProgress, flushSave: vi.fn() },
-      }),
-    )
+  it('does not save before the chapter is loaded', async () => {
+    renderHook(() => useReaderScrollSync({ ...baseProps(), chapterLoaded: false }))
+    await settle()
     expect(updateProgress).not.toHaveBeenCalled()
   })
 
-  // CLOBBER GUARD: the save-on-open must read scrollTop AFTER window.scrollTo restored it,
-  // never a transient 0. If it captured 0 here, the next load would restore to the top and the
-  // reader would silently lose their place. We make scrollTo actually move scrollingElement.scrollTop
-  // (jsdom's default scrollTo is a no-op) so the save reflects the RESTORED offset.
-  it('save-on-open captures the RESTORED offset, not a transient 0', () => {
-    const scrollEl = (document.scrollingElement || document.documentElement) as HTMLElement
-    Object.defineProperty(scrollEl, 'scrollTop', { value: 0, writable: true, configurable: true })
-    window.scrollTo = vi.fn((arg: any) => {
-      // Mirror real browser behaviour: scrollTo updates scrollTop synchronously.
-      ;(scrollEl as any).scrollTop = typeof arg === 'object' ? arg.top : arg
-    }) as unknown as typeof window.scrollTo
-
-    const updateProgress = vi.fn()
-    renderHook(() =>
-      useReaderScrollSync({
-        ...baseProps,
-        effectiveProgress: { locator: 'scroll:ch1:5000' },
-        publicProgress: { updateProgress, flushSave: vi.fn() },
-      }),
-    )
-
-    expect(window.scrollTo).toHaveBeenCalledWith({ top: 5000, behavior: 'instant' })
-    // The leak/clobber assertion: the open-save must record the RESTORED offset 5000, and must NEVER
-    // record a transient 0 for ch1 (a 0 here would persist top-of-chapter and lose the reader's place).
-    const locators = updateProgress.mock.calls.map(c => c[2] as string)
-    expect(locators).toContain('scroll:ch1:5000')
-    expect(locators).not.toContain('scroll:ch1:0')
+  // CLOBBER GUARD: the save-on-open reads scrollTop AFTER the engine landed the restore, never a
+  // transient 0 — a 0 here would persist top-of-chapter and the reader would silently lose their place.
+  it('save-on-open captures the RESTORED offset, not a transient 0', async () => {
+    renderHook(() => useReaderScrollSync({ ...baseProps(), effectiveProgress: { locator: 'scroll:ch1:5000' } }))
+    await settle()
+    expect(locators()).toContain('scroll:ch1:5000')
+    expect(locators()).not.toContain('scroll:ch1:0')
   })
 
-  // Re-render that does NOT change the chapter (e.g. overallProgress ticks) must not re-fire the
-  // open-save: exactly-once per opened chapter, else every render double-writes.
-  it('does not re-fire save-on-open on a same-chapter re-render', () => {
-    const updateProgress = vi.fn()
-    const props: Props = {
-      ...baseProps,
-      publicProgress: { updateProgress, flushSave: vi.fn() },
-    }
-    const { rerender } = renderHook((p: Props) => useReaderScrollSync(p), { initialProps: props })
-    expect(updateProgress).toHaveBeenCalledTimes(1)
-
-    // Same chapter, only overallProgress moved — open-save must stay armed-off.
-    rerender({ ...props, overallProgress: 0.42 })
+  it('does not re-fire save-on-open on a same-chapter re-render', async () => {
+    const { rerender } = renderHook((p: Props) => useReaderScrollSync(p), { initialProps: baseProps() })
+    await settle()
+    rerender({ ...baseProps(), overallProgress: 0.42 })
+    await settle()
     expect(updateProgress).toHaveBeenCalledTimes(1)
   })
 
-  // Re-arm guard: navigating away and BACK to the same chapter must save again (the once-guard is
-  // reset on chapter change), not stay permanently suppressed.
-  it('re-arms save-on-open when returning to a previously-opened chapter', () => {
-    const updateProgress = vi.fn()
-    const props: Props = {
-      ...baseProps,
-      publicBookChapters: [
-        { id: 'ch1-id', slug: 'ch1' },
-        { id: 'ch2-id', slug: 'ch2' },
-      ] as any,
-      publicProgress: { updateProgress, flushSave: vi.fn() },
-    }
-    const { rerender } = renderHook((p: Props) => useReaderScrollSync(p), { initialProps: props })
-    expect(updateProgress).toHaveBeenCalledTimes(1)
-
-    rerender({ ...props, chapterIdentifier: 'ch2' })
-    expect(updateProgress).toHaveBeenCalledTimes(2)
-
-    rerender({ ...props, chapterIdentifier: 'ch1' })
-    // Re-armed: a third write for ch1 (id + slug correct). Offset value isn't asserted here — it's
-    // exercised by the dedicated clobber test above; this case only proves the once-guard re-arms.
+  it('re-arms save-on-open when returning to a previously-opened chapter', async () => {
+    const { rerender } = renderHook((p: Props) => useReaderScrollSync(p), { initialProps: baseProps() })
+    await settle()
+    eng.show('ch2')
+    rerender({ ...baseProps(), chapterIdentifier: 'ch2' })
+    await settle()
+    eng.show('ch1')
+    rerender(baseProps())
+    await settle()
     expect(updateProgress).toHaveBeenCalledTimes(3)
-    const last = updateProgress.mock.calls[updateProgress.mock.calls.length - 1]
-    expect(last[3]).toBe('ch1-id')
-    expect(last[4]).toBe('ch1')
+    expect(updateProgress.mock.lastCall!.slice(3, 5)).toEqual(['ch1-id', 'ch1'])
   })
 })
 
 describe('useReaderScrollSync — Original-layout PDF', () => {
-  it('neither restores nor saves while the PDF viewer owns the position', () => {
-    // This hook writes scroll:<identifier>:<offset>. A PDF read in Original
-    // layout stores page:<n>, and they are different coordinate spaces — one
-    // written over the other loses the reader's place.
-    //
-    // It hides better here than on mobile: an uploaded PDF usually HAS reflow
-    // chapters, so the chapter fetch succeeds in Original layout, chapterLoaded
-    // is true, and the save-on-open fires while the reader is looking at pages.
-    const userProgress = { saveProgress: vi.fn(), flushSave: vi.fn() }
-    const publicProgress = { updateProgress: vi.fn(), flushSave: vi.fn() }
-
-    renderHook(() =>
-      useReaderScrollSync({
-        ...baseProps,
-        mode: 'userbook',
-        originalActive: true,
-        effectiveProgress: { locator: 'scroll:ch1:4200' },
-        userProgress,
-        publicProgress,
-      }),
-    )
-
-    expect(userProgress.saveProgress).not.toHaveBeenCalled()
-    expect(publicProgress.updateProgress).not.toHaveBeenCalled()
-    // And it must not drag the page to a scroll offset the PDF viewer did not ask for.
-    expect(window.scrollTo).not.toHaveBeenCalled()
+  it('neither restores nor saves while the PDF view owns the position', async () => {
+    // This hook writes scroll:<identifier>:<offset>; a PDF in Original layout stores page:<n> — one written
+    // over the other loses the reader's place. An uploaded PDF usually HAS reflow chapters, so
+    // chapterLoaded is true and the save-on-open would fire while the reader is looking at pages.
+    const saveProgress = vi.fn()
+    renderHook(() => useReaderScrollSync({
+      ...baseProps(), mode: 'userbook', originalActive: true, effectiveProgress: { locator: 'scroll:ch1:4200' },
+      userProgress: { saveProgress, flushSave: vi.fn() },
+    }))
+    await settle()
+    expect(saveProgress).not.toHaveBeenCalled()
+    expect(updateProgress).not.toHaveBeenCalled()
+    expect(eng.engine.goTo).not.toHaveBeenCalled()
   })
 })
 
 describe('useReaderScrollSync — the shared locator parser', () => {
-  it('restores from a slug containing a colon', () => {
-    // This hook used to split(':') inline, so `scroll:act-i:scene-ii:900` gave a
-    // slug of "act-i" and an offset of NaN -> 0. The shared parseScrollLocator
-    // reads from the RIGHT precisely because a chapter slug is derived from a
-    // user-supplied title and can contain anything a title can.
-    renderHook(() =>
-      useReaderScrollSync({
-        ...baseProps,
-        chapterIdentifier: 'act-i:scene-ii',
-        effectiveProgress: { locator: 'scroll:act-i:scene-ii:900' },
-      }),
-    )
-    expect(window.scrollTo).toHaveBeenCalledWith({ top: 900, behavior: 'instant' })
+  it('restores from a slug containing a colon', async () => {
+    // This hook used to split(':') inline, so `scroll:act-i:scene-ii:900` gave a slug of "act-i" and an
+    // offset of NaN -> 0. The shared parseScrollLocator reads from the RIGHT: a chapter slug is derived
+    // from a user-supplied title and can contain anything a title can.
+    eng.show('act-i:scene-ii')
+    renderHook(() => useReaderScrollSync({ ...baseProps(), chapterIdentifier: 'act-i:scene-ii', effectiveProgress: { locator: 'scroll:act-i:scene-ii:900' } }))
+    await settle()
+    expect(eng.engine.goTo).toHaveBeenCalledWith(atPx(900, 'act-i:scene-ii'))
   })
 
-  it('still ignores a locator naming a different chapter', () => {
-    renderHook(() =>
-      useReaderScrollSync({
-        ...baseProps,
-        chapterIdentifier: 'ch2',
-        effectiveProgress: { locator: 'scroll:ch1:900' },
-      }),
-    )
-    expect(window.scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'instant' })
-  })
-
-  it('ignores a position belonging to another chapter, and falls back to the locator', () => {
-    // The substitution the whole position model exists to prevent: a position
-    // for chapter two must never be applied to chapter one.
+  it('ignores a position belonging to another chapter, and falls back to the locator', async () => {
+    // The substitution the whole position model exists to prevent: a position for chapter two must
+    // never be applied to chapter one.
     const foreign = JSON.stringify({
       v: 1, chapterSlug: 'ch2', charOffset: 10, chapterFraction: 0.5,
       anchor: { prefix: '', exact: 'anything', suffix: '', startOffset: 10, endOffset: 18 },
     })
-    renderHook(() =>
-      useReaderScrollSync({
-        ...baseProps,
-        chapterIdentifier: 'ch1',
-        effectiveProgress: { locator: 'scroll:ch1:640', positionJson: foreign },
-      }),
-    )
-    expect(window.scrollTo).toHaveBeenCalledWith({ top: 640, behavior: 'instant' })
+    renderHook(() => useReaderScrollSync({ ...baseProps(), effectiveProgress: { locator: 'scroll:ch1:640', positionJson: foreign } }))
+    await settle()
+    expect(eng.engine.goTo).toHaveBeenCalledWith(atPx(640))
   })
 })
 
-// ── R1: C1 / M4 / C2 ────────────────────────────────────────────────────────
-function setScroll(top: number) {
-  const el = (document.scrollingElement || document.documentElement) as HTMLElement
-  Object.defineProperty(el, 'scrollTop', { value: top, writable: true, configurable: true })
-}
-function realScrollTo() {
-  window.scrollTo = vi.fn((arg: any) => setScroll(typeof arg === 'object' ? arg.top : arg)) as unknown as typeof window.scrollTo
-}
-function scrollBy(top: number) {
-  setScroll(top)
-  window.dispatchEvent(new Event('scroll'))
-}
-
 describe('useReaderScrollSync — trailing save (C1)', () => {
-  afterEach(() => vi.useRealTimers())
-
-  it('saves the LAST scroll position, even inside the first 2s after open', () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
-    realScrollTo()
-    const updateProgress = vi.fn()
-    const props: Props = { ...baseProps, publicProgress: { updateProgress, flushSave: vi.fn() } }
-    const { rerender } = renderHook((p: Props) => useReaderScrollSync(p), { initialProps: props })
-    expect(updateProgress).toHaveBeenCalledTimes(1) // open-save
-
+  it('saves the LAST scroll position, even inside the first 2s after open', async () => {
+    const { rerender } = renderHook((p: Props) => useReaderScrollSync(p), { initialProps: baseProps() })
+    await settle()
     // ReaderPage re-renders with a new overallProgress on every scroll.
-    act(() => { scrollBy(1000) }); rerender({ ...props, overallProgress: 0.1 })
+    act(() => { userScroll(1000) }); rerender({ ...baseProps(), overallProgress: 0.1 })
     act(() => { vi.advanceTimersByTime(300) })
-    act(() => { scrollBy(3000) }); rerender({ ...props, overallProgress: 0.3 })
+    act(() => { userScroll(3000) }); rerender({ ...baseProps(), overallProgress: 0.3 })
     act(() => { vi.advanceTimersByTime(3000) })
-
-    const locators = updateProgress.mock.calls.map(c => c[2])
-    expect(locators[locators.length - 1]).toBe('scroll:ch1:3000')
+    expect(locators().pop()).toBe('scroll:ch1:3000')
   })
 
-  it('saves a scroll UP (overallProgress is monotonic and does not move)', () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
-    realScrollTo()
-    const updateProgress = vi.fn()
-    const props: Props = { ...baseProps, overallProgress: 0.5, publicProgress: { updateProgress, flushSave: vi.fn() } }
-    renderHook((p: Props) => useReaderScrollSync(p), { initialProps: props })
-    act(() => { vi.advanceTimersByTime(5000) })
-    act(() => { scrollBy(5000) })
+  it('saves a scroll UP (overallProgress is monotonic and does not move)', async () => {
+    renderHook(() => useReaderScrollSync({ ...baseProps(), overallProgress: 0.5 }))
+    await settle()
+    act(() => { userScroll(5000) })
     act(() => { vi.advanceTimersByTime(3000) })
-    act(() => { scrollBy(1200) })
+    act(() => { userScroll(1200) })
     act(() => { vi.advanceTimersByTime(3000) })
-    const locators = updateProgress.mock.calls.map(c => c[2])
-    expect(locators[locators.length - 1]).toBe('scroll:ch1:1200')
+    expect(locators().pop()).toBe('scroll:ch1:1200')
   })
 
-  it('flushes the pending position with keepalive when the tab is hidden', () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
-    realScrollTo()
-    const updateProgress = vi.fn()
+  it('flushes the pending position with keepalive when the tab is hidden', async () => {
     const flushSave = vi.fn()
-    renderHook(() => useReaderScrollSync({ ...baseProps, publicProgress: { updateProgress, flushSave } }))
-    act(() => { scrollBy(4000) })
+    renderHook(() => useReaderScrollSync({ ...baseProps(), publicProgress: { updateProgress, flushSave } }))
+    await settle()
+    act(() => { userScroll(4000) })
     Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
     act(() => { document.dispatchEvent(new Event('visibilitychange')) })
     Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
@@ -412,81 +228,57 @@ describe('useReaderScrollSync — trailing save (C1)', () => {
 })
 
 describe('useReaderScrollSync — no write storm on re-render (M4)', () => {
-  it('N re-renders with fresh progress objects → 0 extra writes, 0 keepalive flushes', () => {
+  it('N re-renders with fresh progress objects → 0 extra writes, 0 keepalive flushes', async () => {
     const saveProgress = vi.fn()
     const flushSave = vi.fn()
-    const props: Props = { ...baseProps, mode: 'userbook', publicBookChapters: undefined }
-    const { rerender } = renderHook((p: Props) => useReaderScrollSync(p), {
-      initialProps: { ...props, userProgress: { saveProgress, flushSave } },
-    })
+    const props = (): Props => ({ ...baseProps(), mode: 'userbook', publicBookChapters: undefined, userProgress: { saveProgress, flushSave } })
+    const { rerender } = renderHook((p: Props) => useReaderScrollSync(p), { initialProps: props() })
+    await settle()
     expect(saveProgress).toHaveBeenCalledTimes(1)
-    for (let i = 0; i < 10; i++) {
-      rerender({ ...props, userProgress: { saveProgress, flushSave } })
-    }
+    for (let i = 0; i < 10; i++) rerender(props())
     expect(saveProgress).toHaveBeenCalledTimes(1)
     expect(flushSave).not.toHaveBeenCalled()
   })
 })
 
 describe('useReaderScrollSync — Next → Prev (C2)', () => {
-  afterEach(() => vi.useRealTimers())
-
-  it('returns to where the reader left the chapter, not the stale position fetched at open', () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
-    realScrollTo()
-    const updateProgress = vi.fn()
-    const props: Props = {
-      ...baseProps,
-      publicBookChapters: [{ id: 'ch1-id', slug: 'ch1' }, { id: 'ch2-id', slug: 'ch2' }] as any,
-      effectiveProgress: { locator: 'scroll:ch1:3000' }, // fetched once per book
-      publicProgress: { updateProgress, flushSave: vi.fn() },
-    }
-    const { rerender } = renderHook((p: Props) => useReaderScrollSync(p), { initialProps: props })
-    act(() => { scrollBy(6000) })
+  /** Read ch1 to 6000, go Next to ch2 (which loads after the URL flips). */
+  async function readCh1ThenNext(props: Props) {
+    const view = renderHook((p: Props) => useReaderScrollSync(p), { initialProps: props })
+    await settle()
+    act(() => { userScroll(6000) })
     act(() => { vi.advanceTimersByTime(3000) })
+    view.rerender({ ...props, chapterIdentifier: 'ch2', chapterLoaded: false })
+    eng.show('ch2')
+    view.rerender({ ...props, chapterIdentifier: 'ch2' })
+    await settle()
+    return view
+  }
 
-    // Next: identifier flips, the new chapter is still loading.
-    rerender({ ...props, chapterIdentifier: 'ch2', chapterLoaded: false })
-    setScroll(0)
-    rerender({ ...props, chapterIdentifier: 'ch2', chapterLoaded: true })
-    // Prev
+  it('returns to where the reader left the chapter, not the stale position fetched at open', async () => {
+    const props = { ...baseProps(), effectiveProgress: { locator: 'scroll:ch1:3000' } } // fetched once per book
+    const { rerender } = await readCh1ThenNext(props)
     rerender({ ...props, chapterIdentifier: 'ch1', chapterLoaded: false })
-    ;(window.scrollTo as any).mockClear()
-    rerender({ ...props, chapterIdentifier: 'ch1', chapterLoaded: true })
-
-    expect(window.scrollTo).toHaveBeenLastCalledWith({ top: 6000, behavior: 'instant' })
-    const ch1Writes = updateProgress.mock.calls.map(c => c[2] as string).filter(l => l.startsWith('scroll:ch1:'))
-    expect(ch1Writes[ch1Writes.length - 1]).toBe('scroll:ch1:6000')
+    eng.show('ch1')
+    rerender(props)
+    await settle()
+    expect(eng.engine.goTo).toHaveBeenLastCalledWith(atPx(6000))
+    expect(locators().filter((l) => l.startsWith('scroll:ch1:')).pop()).toBe('scroll:ch1:6000')
   })
 
-  it('a save in chapter II (the book record now names II) does not cost chapter I its place', () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
-    realScrollTo()
-    const updateProgress = vi.fn()
-    const props: Props = {
-      ...baseProps,
-      publicBookChapters: [{ id: 'ch1-id', slug: 'ch1' }, { id: 'ch2-id', slug: 'ch2' }] as any,
-      effectiveProgress: { locator: 'scroll:ch1:3000' },
-      publicProgress: { updateProgress, flushSave: vi.fn() },
-    }
-    const { rerender } = renderHook((p: Props) => useReaderScrollSync(p), { initialProps: props })
-    act(() => { scrollBy(6000) })
-    act(() => { vi.advanceTimersByTime(3000) })
-
-    rerender({ ...props, chapterIdentifier: 'ch2', chapterLoaded: false })
-    setScroll(0)
-    rerender({ ...props, chapterIdentifier: 'ch2', chapterLoaded: true })
+  it('a save in chapter II (the book record now names II) does not cost chapter I its place', async () => {
+    const props = { ...baseProps(), effectiveProgress: { locator: 'scroll:ch1:3000' } }
+    const { rerender } = await readCh1ThenNext(props)
     // Read on in II and let the save land; the one per-book record now points at II.
-    act(() => { scrollBy(2500) })
+    act(() => { userScroll(2500) })
     act(() => { vi.advanceTimersByTime(3000) })
     const ch2Record = { locator: 'scroll:ch2:2500' }
-    rerender({ ...props, effectiveProgress: ch2Record, chapterIdentifier: 'ch2', chapterLoaded: true })
-
+    rerender({ ...props, effectiveProgress: ch2Record, chapterIdentifier: 'ch2' })
     rerender({ ...props, effectiveProgress: ch2Record, chapterIdentifier: 'ch1', chapterLoaded: false })
-    ;(window.scrollTo as any).mockClear()
-    rerender({ ...props, effectiveProgress: ch2Record, chapterIdentifier: 'ch1', chapterLoaded: true })
-
-    expect(window.scrollTo).toHaveBeenLastCalledWith({ top: 6000, behavior: 'instant' })
+    eng.show('ch1')
+    rerender({ ...props, effectiveProgress: ch2Record, chapterIdentifier: 'ch1' })
+    await settle()
+    expect(eng.engine.goTo).toHaveBeenLastCalledWith(atPx(6000))
   })
 })
 
@@ -502,50 +294,40 @@ describe('isChapterReady (C2)', () => {
 
 // ── R2 review #4: ?highlight= holds restore and save-on-open ───────────────
 describe('useReaderScrollSync — highlight link holds restore', () => {
-  it('held: no restore, no save; released (highlight not found) → normal restore, saved position kept', () => {
-    realScrollTo()
-    const updateProgress = vi.fn()
-    const props = { ...baseProps, effectiveProgress: { locator: 'scroll:ch1:5000' }, publicProgress: { updateProgress, flushSave: vi.fn() } }
-    const { rerender } = renderHook((p: Props) => useReaderScrollSync(p), { initialProps: { ...props, holdRestore: true } as Props })
-    expect(window.scrollTo).not.toHaveBeenCalled()
+  const props = () => ({ ...baseProps(), effectiveProgress: { locator: 'scroll:ch1:5000' } })
+
+  it('held: no restore, no save; released (highlight not found) → normal restore, saved position kept', async () => {
+    const { rerender } = renderHook((p: Props) => useReaderScrollSync(p), { initialProps: { ...props(), holdRestore: true } })
+    await settle()
+    expect(eng.engine.goTo).not.toHaveBeenCalled()
     expect(updateProgress).not.toHaveBeenCalled()
-    rerender({ ...props, holdRestore: false } as Props)
-    expect(window.scrollTo).toHaveBeenCalledWith({ top: 5000, behavior: 'instant' })
-    expect(updateProgress).toHaveBeenCalledTimes(1)
-    expect(updateProgress.mock.calls[0][2]).toBe('scroll:ch1:5000')
+    rerender({ ...props(), holdRestore: false })
+    await settle()
+    expect(eng.engine.goTo).toHaveBeenCalledWith(atPx(5000))
+    expect(locators()).toEqual(['scroll:ch1:5000'])
   })
 
-  it('jump landed (markPositioned): no restore over it; save-on-open records the jump position', () => {
-    realScrollTo()
-    const updateProgress = vi.fn()
-    const props = { ...baseProps, effectiveProgress: { locator: 'scroll:ch1:5000' }, publicProgress: { updateProgress, flushSave: vi.fn() } }
-    const { result, rerender } = renderHook((p: Props) => useReaderScrollSync(p), { initialProps: { ...props, holdRestore: true } as Props })
+  it('jump landed (markPositioned): no restore over it; save-on-open records the jump position', async () => {
+    const { result, rerender } = renderHook((p: Props) => useReaderScrollSync(p), { initialProps: { ...props(), holdRestore: true } })
     setScroll(1234) // the jump
-    act(() => (result.current as unknown as { markPositioned: () => void }).markPositioned())
-    rerender({ ...props, holdRestore: false } as Props)
-    expect(window.scrollTo).not.toHaveBeenCalled()
-    expect(updateProgress).toHaveBeenCalledTimes(1)
-    expect(updateProgress.mock.calls[0][2]).toBe('scroll:ch1:1234')
+    act(() => result.current.markPositioned())
+    rerender({ ...props(), holdRestore: false })
+    await settle()
+    expect(eng.engine.goTo).not.toHaveBeenCalled()
+    expect(locators()).toEqual(['scroll:ch1:1234'])
   })
 })
 
 // R2 third review #3: every hold has a deadline.
 describe('useReaderScrollSync — the highlight hold has a deadline', () => {
-  afterEach(() => vi.useRealTimers())
-  it('a link that never resolves releases after 5s: normal restore runs and the reader is told', () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
-    realScrollTo()
+  it('a link that never resolves releases after 5s: normal restore runs and the reader is told', async () => {
     const onHoldExpired = vi.fn()
-    const updateProgress = vi.fn()
-    renderHook(() => useReaderScrollSync({
-      ...baseProps, effectiveProgress: { locator: 'scroll:ch1:5000' }, publicProgress: { updateProgress, flushSave: vi.fn() },
-      holdRestore: true, onHoldExpired,
-    } as Props))
-    act(() => { vi.advanceTimersByTime(4900) })
-    expect(window.scrollTo).not.toHaveBeenCalled()
-    act(() => { vi.advanceTimersByTime(200) })
+    renderHook(() => useReaderScrollSync({ ...baseProps(), effectiveProgress: { locator: 'scroll:ch1:5000' }, holdRestore: true, onHoldExpired }))
+    await act(async () => { await vi.advanceTimersByTimeAsync(4900) })
+    expect(eng.engine.goTo).not.toHaveBeenCalled()
+    await act(async () => { await vi.advanceTimersByTimeAsync(200) })
     expect(onHoldExpired).toHaveBeenCalledTimes(1)
-    expect(window.scrollTo).toHaveBeenCalledWith({ top: 5000, behavior: 'instant' })
-    expect(updateProgress.mock.calls[0][2]).toBe('scroll:ch1:5000')
+    expect(eng.engine.goTo).toHaveBeenCalledWith(atPx(5000))
+    expect(locators()[0]).toBe('scroll:ch1:5000')
   })
 })
