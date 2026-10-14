@@ -2,7 +2,7 @@
 # Build stage on the build machine's arch, cross-publishing for the target: see
 # Worker.Dockerfile. RID-specific output drops ~500 MB of PDFium/Skia binaries for
 # Windows, macOS, Android and other Linux flavours that a portable publish carried.
-FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0-alpine@sha256:3cc3bbbbf93d82104892f42aa9106b6be4d120346dea0649643a97c801525256 AS build
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0-alpine@sha256:230c3fbae0ceedc70bca04eed2bfb5694e8b248cadbb81010f41b7a993601f55 AS build
 ARG TARGETARCH
 WORKDIR /src
 
@@ -23,7 +23,7 @@ COPY backend/src/ backend/src/
 RUN RID=linux-musl-$([ "$TARGETARCH" = amd64 ] && echo x64 || echo "$TARGETARCH") \
     && dotnet publish backend/src/Api/Api.csproj -c Release -r "$RID" --self-contained false -o /app/publish
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine@sha256:f62a272ac1b46e83f56b8ed0416572f31cd1128e2c4a5e63eb34d348e4a36095 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine@sha256:819bd3649d8bf53f35527c68d62e17b348ef6f24ae73073f497f00a878348062 AS runtime
 RUN apk add --no-cache git krb5-libs \
     && deluser app 2>/dev/null; delgroup app 2>/dev/null; \
        addgroup -g 1000 app && adduser -D -u 1000 -G app app
