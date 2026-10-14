@@ -32,20 +32,33 @@ const FONTS_DEADLINE_MS = 4000
 const FIND_CONTEXT = 40
 
 /** iOS fires `selectionchange` all through a drag: a selection is sent once it stops changing. */
-const SELECTION_SETTLE_MS = 220
+export const SELECTION_SETTLE_MS = 220
 /** A deliberate hold, not a brush; moving this far makes it a scroll. */
-const HOLD_MS = 450
-const HOLD_SLOP_PX = 8
+export const HOLD_MS = 450
+export const HOLD_SLOP_PX = 8
 /** The server's translate and TTS cap: a longer selection is still sent, flagged. */
-const SELECTION_MAX_CHARS = 500
+export const SELECTION_MAX_CHARS = 500
 /** Hide the bars late, show them early. */
-const SCROLL_DOWN_PX = 48
-const SCROLL_UP_PX = 6
+export const SCROLL_DOWN_PX = 48
+export const SCROLL_UP_PX = 6
 /** A second tap this soon is a double tap: the bars toggle once, not twice (the old bridge's 300 ms). */
-const DOUBLE_TAP_MS = 300
+export const DOUBLE_TAP_MS = 300
 const SENTENCE_END = /[.!?\n]/
 /** A longer sentence is cut to this many characters around the selection. */
 const SENTENCE_MAX = 200
+
+/** The sentence around [start, end) of `text`, inside [from, to), cut to SENTENCE_MAX around the selection. */
+export function sentenceAround(text: string, from: number, to: number, start: number, end: number): string {
+  let a = start
+  while (a > from && !SENTENCE_END.test(text[a - 1])) a--
+  let b = end
+  while (b < to && !SENTENCE_END.test(text[b - 1])) b++
+  const sentence = text.slice(a, b).trim()
+  if (sentence.length <= SENTENCE_MAX) return sentence
+  const c = Math.max(a, start - 80, end - SENTENCE_MAX)
+  const d = Math.min(b, c + SENTENCE_MAX)
+  return `${c > a ? '...' : ''}${text.slice(c, d).trim()}${d < b ? '...' : ''}`
+}
 
 /** A run of the chapter's text inside one block, with the chapter offset it starts at. */
 interface Segment { el: Element; start: number; length: number }
@@ -395,20 +408,10 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
     return { x: left + o.left, y: top + o.top, width, height }
   }
 
-  /** The sentence around [start, end) inside its block, cut to SENTENCE_MAX around the selection. */
+  /** The sentence around [start, end) inside its block. */
   function sentenceAt(start: number, end: number): string {
     const seg = segments.find((s) => start < s.start + s.length)
-    const from = seg?.start ?? 0
-    const to = seg ? seg.start + seg.length : text.length
-    let a = start
-    while (a > from && !SENTENCE_END.test(text[a - 1])) a--
-    let b = end
-    while (b < to && !SENTENCE_END.test(text[b - 1])) b++
-    const sentence = text.slice(a, b).trim()
-    if (sentence.length <= SENTENCE_MAX) return sentence
-    const c = Math.max(a, start - 80, end - SENTENCE_MAX)
-    const d = Math.min(b, c + SENTENCE_MAX)
-    return `${c > a ? '...' : ''}${text.slice(c, d).trim()}${d < b ? '...' : ''}`
+    return sentenceAround(text, seg?.start ?? 0, seg ? seg.start + seg.length : text.length, start, end)
   }
 
   /** Sends [start, end) of the chapter text as a `selection`, without its edge whitespace, unless the host has it. */

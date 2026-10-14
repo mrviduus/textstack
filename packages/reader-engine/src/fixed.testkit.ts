@@ -19,6 +19,39 @@ export const FILE_LENGTH = 8192
 /** jsdom has no canvas: a context the fake renderer never draws on. */
 HTMLCanvasElement.prototype.getContext = (() => ({})) as unknown as HTMLCanvasElement['getContext']
 
+// --- The fake page text: three lines a page, every sentence unique -----------------------------------
+
+/** Line `i` (0..2) of page `n`. */
+export const lineText = (n: number, i: number) => `Page ${n} line ${i}: the keeper counted ${n * 10 + i} ships before dawn.`
+/** Where the text sits on a page at scale 1: line i starts at (72, 72 + 24 i), 6 px a character, 12 px high. */
+export const TEXT = { x: 72, y: 72, lineGap: 24, char: 6, height: 12 }
+/** A quote's box on its page at scale 1, as `ext.rects` stores it. */
+export function quoteRect(n: number, i: number, quote: string) {
+  const at = lineText(n, i).indexOf(quote)
+  if (at < 0) throw new Error(`not on page ${n} line ${i}: ${quote}`)
+  return { x: TEXT.x + at * TEXT.char, y: TEXT.y + i * TEXT.lineGap, w: quote.length * TEXT.char, h: TEXT.height }
+}
+
+/** pdf.js's text layer, faked: one span per line, placed in px at the viewport's scale. */
+class FakeTextLayer {
+  cancelled = false
+  constructor(private o: { textContentSource: { page: number }; container: HTMLElement; viewport: { scale: number } }) {}
+  async render() {
+    const { page } = this.o.textContentSource
+    const s = this.o.viewport.scale
+    for (let i = 0; i < 3; i++) {
+      const span = document.createElement('span')
+      span.textContent = lineText(page, i)
+      Object.assign(span.style, {
+        left: `${TEXT.x * s}px`, top: `${(TEXT.y + i * TEXT.lineGap) * s}px`,
+        width: `${lineText(page, i).length * TEXT.char * s}px`, height: `${TEXT.height * s}px`,
+      })
+      this.o.container.append(span)
+    }
+  }
+  cancel() { this.cancelled = true }
+}
+
 /**
  * pdf.js, faked: `getDocument` gets the file from `data` or by ranges through the host's transport
  * (the header first, then a range per page), `getPage(n)` waits for its range like the real one, so a
@@ -40,6 +73,7 @@ export function fakePdfjs(pages: Dim[], opts: { broken?: boolean } = {}) {
 
   const pdfjs: PdfJs = {
     PDFDataRangeTransport,
+    TextLayer: FakeTextLayer as unknown as PdfJs['TextLayer'],
     getDocument(arg) {
       const src = arg as { data: Uint8Array } | { range: PdfRangeTransport }
       sources.push(src)
@@ -56,8 +90,9 @@ export function fakePdfjs(pages: Dim[], opts: { broken?: boolean } = {}) {
           if (n >= hold.from) await hold.gate.promise
           const d = pages[n - 1]
           return {
-            getViewport: ({ scale }: { scale: number }) => ({ width: d.w * scale, height: d.h * scale }),
+            getViewport: ({ scale }: { scale: number }) => ({ width: d.w * scale, height: d.h * scale, scale }),
             render: () => { renders++; return { promise: Promise.resolve(), cancel() {} } },
+            streamTextContent: () => ({ page: n }),
           }
         },
       }
@@ -86,6 +121,49 @@ const MARGIN = 6
 export const VIEWPORT = 800
 
 const tick = () => new Promise<void>((r) => setTimeout(r, 0))
+
+// --- Screen geometry (jsdom has none): boxes, line rects and the caret, read off the fake layout --------
+
+/** The live reader's geometry; one reader at a time. */
+let geometry: ((el: Element) => DOMRect | null) | null = null
+HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) { return geometry?.(this) ?? new DOMRect() }
+
+/** The text spans a range covers, each with the characters it covers. */
+function spansIn(range: Range): { span: HTMLElement; from: number; to: number }[] {
+  const out: { span: HTMLElement; from: number; to: number }[] = []
+  for (const span of Array.from(document.querySelectorAll<HTMLElement>('.textLayer span'))) {
+    const t = span.firstChild as Text | null
+    if (!t || !range.intersectsNode(t)) continue
+    const from = t === range.startContainer ? range.startOffset : 0
+    const to = t === range.endContainer ? range.endOffset : t.length
+    if (to > from) out.push({ span, from, to })
+  }
+  return out
+}
+Range.prototype.getClientRects = function (this: Range) {
+  const rects = spansIn(this).map(({ span, from, to }) => {
+    const b = span.getBoundingClientRect()
+    const cw = b.width / (span.textContent ?? '').length
+    return new DOMRect(b.left + from * cw, b.top, (to - from) * cw, b.height)
+  })
+  return Object.assign(rects, { item: (i: number) => rects[i] }) as unknown as DOMRectList
+}
+Range.prototype.getBoundingClientRect = function (this: Range) {
+  const r = Array.from(this.getClientRects())
+  if (!r.length) return new DOMRect()
+  const left = Math.min(...r.map((x) => x.left)), top = Math.min(...r.map((x) => x.top))
+  return new DOMRect(left, top, Math.max(...r.map((x) => x.right)) - left, Math.max(...r.map((x) => x.bottom)) - top)
+}
+/** The caret at a point on screen: the character of the span under it. */
+;(document as unknown as { caretPositionFromPoint: unknown }).caretPositionFromPoint = (x: number, y: number) => {
+  for (const span of Array.from(document.querySelectorAll<HTMLElement>('.textLayer span'))) {
+    const b = span.getBoundingClientRect()
+    if (x < b.left || x >= b.right || y < b.top || y >= b.bottom) continue
+    const t = span.firstChild as Text
+    return { offsetNode: t, offset: Math.floor((x - b.left) / (b.width / t.length)) }
+  }
+  return null
+}
 
 const engines: { destroy(): void }[] = []
 /** Call from afterEach. */
@@ -127,6 +205,19 @@ export function makePdfReader(opts: { pages?: number | Dim[]; width?: number; br
     },
   })
 
+  /** On screen: the column scrolled by `top`, pages centred, spans and marks where their styles put them. */
+  geometry = (el) => {
+    if (el === root) return new DOMRect(0, -top, width, boxes().total)
+    const pageEl = el.closest<HTMLElement>('[data-page]')
+    if (!pageEl || !root.contains(pageEl)) return null
+    const b = boxes().out.get(pageEl)!
+    const w = parseFloat(pageEl.style.width)
+    const page = new DOMRect(Math.max(0, (width - w) / 2), b.top - top, w, b.height)
+    if (el === pageEl) return page
+    const st = (el as HTMLElement).style
+    return new DOMRect(page.left + parseFloat(st.left || '0'), page.top + parseFloat(st.top || '0'), parseFloat(st.width || '0'), parseFloat(st.height || '0'))
+  }
+
   let resize = () => {}
   const engine = createEngine(root, {
     fixed: fixedLayout(fake.pdfjs),
@@ -139,7 +230,7 @@ export function makePdfReader(opts: { pages?: number | Dim[]; width?: number; br
   engines.push(engine)
 
   const log: { event: keyof EngineEvents; payload: unknown }[] = []
-  for (const event of ['ready', 'relocated', 'error'] as const) engine.on(event, (payload) => log.push({ event, payload }))
+  for (const event of ['ready', 'relocated', 'error', 'selection', 'hold', 'tap', 'decorationTap', 'scrollDir'] as const) engine.on(event, (payload) => log.push({ event, payload }))
   const relocations = () => log.filter((x) => x.event === 'relocated').map((x) => x.payload as EngineEvents['relocated'])
 
   /** Ranges the engine asked the host for. */
@@ -191,6 +282,48 @@ export function makePdfReader(opts: { pages?: number | Dim[]; width?: number; br
     /** A reader gesture on the page: a finger, the wheel, or a key (`'key:ArrowDown'`). */
     gesture(type: string = 'touchmove') {
       window.dispatchEvent(type.startsWith('key:') ? new KeyboardEvent('keydown', { key: type.slice(4) }) : new Event(type))
+    },
+    /** The text span of line i on page n (drawn pages only). */
+    span(n: number, i: number): HTMLElement {
+      const span = root.querySelectorAll<HTMLElement>(`[data-page="${n}"] .textLayer span`)[i]
+      if (!span) throw new Error(`page ${n} has no text layer`)
+      return span
+    },
+    /** A range over `quote` on page n line i. */
+    range(n: number, i: number, quote: string): Range {
+      const t = reader.span(n, i).firstChild as Text
+      const at = t.data.indexOf(quote)
+      const r = document.createRange()
+      r.setStart(t, at)
+      r.setEnd(t, at + quote.length)
+      return r
+    },
+    /** The reader drags a selection (a range, or null: taps it away). */
+    select(range: Range | null) {
+      const sel = document.getSelection()!
+      sel.removeAllRanges()
+      if (range) sel.addRange(range)
+      document.dispatchEvent(new Event('selectionchange'))
+    },
+    /** A point on screen over the first character of `quote` on page n line i. */
+    pointAt(n: number, i: number, quote: string) {
+      const r = reader.range(n, i, quote).getClientRects()[0]
+      return { x: r.left + 1, y: r.top + 1 }
+    },
+    /** A finger goes down / moves / lifts at a point on screen. */
+    pointer(type: 'pointerdown' | 'pointermove' | 'pointerup', x: number, y: number, target: Element = root) {
+      target.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX: x, clientY: y, pointerType: 'touch' }))
+    },
+    /** A tap at a point on screen. */
+    tap(x: number, y: number, target: Element = root) {
+      target.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y }))
+    },
+    /** What is painted for a group on page n: each item's id and its boxes, page-relative. */
+    drawn(n: number, group: string) {
+      return Array.from(root.querySelectorAll<HTMLElement>(`[data-page="${n}"] [data-group="${group}"]`)).map((el) => ({
+        id: el.dataset.id, dot: el.dataset.dot === 'true',
+        box: { left: parseFloat(el.style.left), top: parseFloat(el.style.top), width: parseFloat(el.style.width), height: parseFloat(el.style.height) },
+      }))
     },
     /** The reader's screen gets wider or narrower (rotation). */
     setWidth(w: number) { width = w; resize() },

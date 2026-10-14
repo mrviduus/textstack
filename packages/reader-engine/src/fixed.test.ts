@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { createEngine } from './engine'
-import { FILE_LENGTH, LANDSCAPE, LETTER, TALL, destroyAll, makePdfReader } from './fixed.testkit'
+import { FILE_LENGTH, LANDSCAPE, LETTER, TALL, destroyAll, lineText, makePdfReader, quoteRect } from './fixed.testkit'
+import { locatorToPdfAnchor, pdfAnchorToLocator } from './mappers'
+import type { EngineEvents, Locator } from './api'
 
 /**
  * Fixed layout (PDF). Each test name starts with its rule ID; the rules, in plain words, are in
@@ -9,7 +11,7 @@ import { FILE_LENGTH, LANDSCAPE, LETTER, TALL, destroyAll, makePdfReader } from 
  * fake page column and the reader driver are in fixed.testkit.ts. Pixels: playground/fixed.e2e.ts.
  */
 
-afterEach(() => { destroyAll(); vi.useRealTimers() })
+afterEach(() => { destroyAll(); vi.useRealTimers(); document.getSelection()?.removeAllRanges() })
 
 /** Phone width 412: fit = (412 - 24) / 612. */
 const FIT = (412 - 24) / 612
@@ -380,5 +382,283 @@ describe('sizes', () => {
     await reader.settle()
     expect(reader.pages()[0].w).toBe(800 - 24)
     expect(reader.spot()!.page).toBe(10)
+  })
+})
+
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+describe('zoom', () => {
+  it("E38 zoom 2 doubles every page and keeps the page under the top line at the same fraction; one 'style' ack", async () => {
+    const reader = makePdfReader({ pages: 40 })
+    await reader.open(10)
+    reader.scrollTo(reader.pageTop(10) + 150)
+    await reader.settle()
+    const before = reader.spot()!
+    reader.setStyle({ zoom: 2 }, 'z')
+    await reader.settle()
+    expect(reader.pages()[0]).toEqual({ w: Math.round(612 * FIT * 2), h: Math.round(792 * FIT * 2) })
+    const after = reader.spot()!
+    expect(after.page).toBe(10)
+    expect(Math.abs(after.into - before.into) * reader.pages()[9].h).toBeLessThan(2)
+    expect(reader.ack('z')).toEqual({ page: 10, reason: 'style' })
+  })
+
+  it("E38 'fit' goes back to the width; zoom is clamped to 0.2–5×", async () => {
+    const reader = makePdfReader({ pages: 40 })
+    await reader.open()
+    reader.setStyle({ zoom: 100 })
+    expect(reader.pages()[0].w).toBe(Math.round(612 * 5))
+    reader.setStyle({ zoom: 0.01 })
+    expect(reader.pages()[0].w).toBe(Math.round(612 * 0.2))
+    reader.setStyle({ zoom: 'fit' })
+    expect(reader.pages()[0].w).toBe(388)
+  })
+
+  it('E38 the drawn pages are redrawn sharp at the new scale', async () => {
+    const reader = makePdfReader({ pages: 40 })
+    await reader.open()
+    await reader.settle()
+    reader.setStyle({ zoom: 2 })
+    await reader.settle()
+    const canvas = reader.root.querySelector<HTMLCanvasElement>('[data-page="1"] canvas')!
+    expect(parseFloat(canvas.style.width)).toBe(Math.floor(612 * FIT * 2))
+  })
+
+  it('E38 a zoom is the reader’s command: it applies at once, even mid-fling', async () => {
+    const reader = makePdfReader({ pages: 40 })
+    await reader.open(10)
+    reader.scrollTo(reader.pageTop(10) + 150)
+    await wait(5)   // a fling's scroll event just arrived
+    reader.setStyle({ zoom: 1.5 })
+    expect(reader.pages()[0].w).toBe(Math.round(612 * FIT * 1.5))
+    expect(reader.spot()!.page).toBe(10)
+  })
+})
+
+describe('text layer', () => {
+  it("E39 each drawn page has pdf.js's text layer at its scale; it goes with the canvas", async () => {
+    const reader = makePdfReader({ pages: 40 })
+    await reader.open()
+    await reader.settle()
+    const withText = () => Array.from(reader.root.querySelectorAll<HTMLElement>('[data-page]')).filter((el) => el.querySelector('.textLayer span')).map((el) => Number(el.dataset.page))
+    expect(withText()).toEqual(reader.canvases())
+    expect(reader.span(2, 1).textContent).toBe(lineText(2, 1))
+    expect(reader.root.querySelector<HTMLElement>('[data-page="1"] .textLayer')!.style.getPropertyValue('--scale-factor')).toBe(String(FIT))
+    await reader.goTo(30)
+    await reader.settle()
+    expect(withText()).toEqual(reader.canvases())
+    expect(withText()).not.toContain(1)
+  })
+})
+
+describe('selection on a PDF', () => {
+  async function opened() {
+    const reader = makePdfReader({ pages: 40 })
+    await reader.open()
+    await reader.settle()
+    return reader
+  }
+  const selections = (reader: ReturnType<typeof makePdfReader>) => reader.payloads('selection') as EngineEvents['selection'][]
+
+  it('E20 a drag on a page, once it settles, is one selection: text, sentence, page and rects', async () => {
+    const reader = await opened()
+    reader.select(reader.range(2, 1, 'keeper counted'))
+    reader.select(reader.range(2, 1, 'keeper counted'))   // iOS fires again: sent once
+    await wait(250)
+    expect(selections(reader)).toEqual([{
+      locator: { type: 'application/pdf', locations: { position: 2 }, text: { highlight: 'keeper counted' }, ext: { rects: [quoteRect(2, 1, 'keeper counted')] } },
+      text: 'keeper counted',
+      sentence: lineText(2, 1),
+      source: 'drag',
+      tooLong: false,
+      rect: expect.objectContaining({ width: expect.any(Number) }),
+    }])
+  })
+
+  it("E40 the locator writes today's PdfAnchor bytes, and they paint back on the same text", async () => {
+    const reader = await opened()
+    reader.select(reader.range(2, 1, 'keeper counted'))
+    await wait(250)
+    const json = locatorToPdfAnchor(selections(reader)[0]!.locator)
+    expect(json).toBe(JSON.stringify({ v: 1, kind: 'pdf', page: 2, rects: [quoteRect(2, 1, 'keeper counted')], exact: 'keeper counted' }))
+    reader.engine.decorate('highlight', [{ id: 'h', locator: pdfAnchorToLocator(json!)! }])
+    const painted = reader.drawn(2, 'highlight')[0].box
+    const text = reader.range(2, 1, 'keeper counted').getClientRects()[0]
+    const page = reader.root.querySelector('[data-page="2"]')!.getBoundingClientRect()
+    expect(Math.abs(painted.left - (text.left - page.left))).toBeLessThan(0.5)
+    expect(Math.abs(painted.top - (text.top - page.top))).toBeLessThan(0.5)
+    expect(Math.abs(painted.width - text.width)).toBeLessThan(0.5)
+  })
+
+  it('E40 the same text selected at zoom 2 gives the same rects', async () => {
+    const reader = await opened()
+    reader.setStyle({ zoom: 2 })
+    await reader.settle()
+    reader.select(reader.range(1, 2, 'counted 12 ships'))
+    await wait(250)
+    expect(selections(reader)[0]!.locator.ext!.rects).toEqual([quoteRect(1, 2, 'counted 12 ships')])
+  })
+
+  it("E40 a selection running onto the next page keeps the start page's part", async () => {
+    const reader = await opened()
+    const r = document.createRange()
+    r.setStart(reader.span(2, 2).firstChild!, 0)
+    r.setEnd(reader.span(3, 0).firstChild!, 6)
+    reader.select(r)
+    await wait(250)
+    const loc = selections(reader)[0]!.locator
+    expect(loc.locations.position).toBe(2)
+    expect(loc.ext!.rects).toEqual([quoteRect(2, 2, lineText(2, 2))])
+  })
+
+  it('E20 the selection going away is null', async () => {
+    const reader = await opened()
+    reader.select(reader.range(2, 1, 'keeper'))
+    await wait(250)
+    reader.select(null)
+    await wait(250)
+    expect(selections(reader)).toHaveLength(2)
+    expect(selections(reader)[1]).toBeNull()
+  })
+
+  it("E20 a selection moving off the pages (the host's own text) is null", async () => {
+    const reader = await opened()
+    reader.select(reader.range(2, 1, 'keeper'))
+    await wait(250)
+    const outside = document.createElement('p')
+    outside.textContent = 'Translate'
+    document.body.append(outside)
+    const r = document.createRange()
+    r.selectNodeContents(outside)
+    reader.select(r)
+    await wait(250)
+    expect(selections(reader)[1]).toBeNull()
+    outside.remove()
+  })
+
+  it('E21 a finger held still 450 ms on a word: hold, then the word as a selection, marked; the page selection untouched', async () => {
+    const reader = await opened()
+    const p = reader.pointAt(2, 1, 'keeper')
+    reader.pointer('pointerdown', p.x + 10, p.y, reader.span(2, 1))
+    await wait(500)
+    expect(reader.events().filter((e) => e === 'hold' || e === 'selection')).toEqual(['hold', 'selection'])
+    const sel = selections(reader)[0]!
+    expect(sel.text).toBe('keeper')
+    expect(sel.source).toBe('hold')
+    expect(sel.locator.ext!.rects).toEqual([quoteRect(2, 1, 'keeper')])
+    expect(reader.drawn(2, 'selection')).toHaveLength(1)
+    expect(document.getSelection()!.rangeCount).toBe(0)
+    reader.tap(p.x + 10, p.y, reader.span(2, 1))   // the click that ends the hold
+    expect(reader.events()).not.toContain('tap')
+    reader.engine.clearSelection()
+    expect(reader.drawn(2, 'selection')).toEqual([])
+  })
+
+  it('E21 moving 8 px cancels the hold', async () => {
+    const reader = await opened()
+    const p = reader.pointAt(2, 1, 'keeper')
+    reader.pointer('pointerdown', p.x, p.y, reader.span(2, 1))
+    reader.pointer('pointermove', p.x, p.y + 9, reader.span(2, 1))
+    await wait(500)
+    expect(reader.events()).not.toContain('hold')
+  })
+})
+
+describe('highlights on a PDF', () => {
+  const hl = (id: string, page: number, rects: { x: number; y: number; w: number; h: number }[], style?: string): { id: string; locator: Locator; style?: string } =>
+    ({ id, locator: { type: 'application/pdf', locations: { position: page }, text: { highlight: 'x' }, ext: { rects } }, style })
+
+  it('E41 each item is painted on its page from its rects at the live scale, in its colour', async () => {
+    const reader = makePdfReader({ pages: 40 })
+    await reader.open()
+    reader.engine.decorate('highlight', [hl('h1', 3, [{ x: 100, y: 96, w: 84, h: 12 }], 'rgba(1, 2, 3, 0.5)')])
+    expect(reader.drawn(3, 'highlight')).toEqual([{ id: 'h1', dot: false, box: { left: 100 * FIT, top: 96 * FIT, width: 84 * FIT, height: 12 * FIT } }])
+    expect(reader.root.querySelector<HTMLElement>('[data-page="3"] [data-id="h1"]')!.style.background).toBe('rgba(1, 2, 3, 0.5)')
+    reader.setStyle({ zoom: 2 })
+    expect(reader.drawn(3, 'highlight')[0].box.left).toBeCloseTo(100 * FIT * 2)
+  })
+
+  it("E41 'dot' is a dot just after the last rect, no fill", async () => {
+    const reader = makePdfReader({ pages: 40 })
+    await reader.open()
+    reader.engine.decorate('highlight', [hl('h1', 2, [{ x: 100, y: 96, w: 84, h: 12 }, { x: 72, y: 120, w: 30, h: 12 }], 'dot')])
+    const drawn = reader.drawn(2, 'highlight')
+    expect(drawn.filter((d) => !d.dot)).toEqual([])
+    expect(drawn.filter((d) => d.dot).map((d) => d.box.left)).toEqual([(72 + 30) * FIT + 1])
+  })
+
+  it('E41 a call replaces its own group only; no page or no rects is not drawn', async () => {
+    const reader = makePdfReader({ pages: 40 })
+    await reader.open()
+    reader.engine.decorate('search', [hl('s1', 2, [{ x: 72, y: 72, w: 30, h: 12 }])])
+    reader.engine.decorate('highlight', [hl('h1', 2, [{ x: 100, y: 96, w: 84, h: 12 }]), { id: 'bad', locator: { type: 'application/pdf', locations: {} } }, hl('none', 2, [])])
+    reader.engine.decorate('highlight', [hl('h2', 4, [{ x: 100, y: 96, w: 84, h: 12 }])])
+    expect(reader.drawn(2, 'search').map((d) => d.id)).toEqual(['s1'])
+    expect(reader.drawn(2, 'highlight')).toEqual([])
+    expect(reader.drawn(4, 'highlight').map((d) => d.id)).toEqual(['h2'])
+  })
+
+  it('E41 the marks let a selection start through them', async () => {
+    const reader = makePdfReader({ pages: 40 })
+    await reader.open()
+    reader.engine.decorate('highlight', [hl('h1', 2, [{ x: 100, y: 96, w: 84, h: 12 }])])
+    expect(reader.root.querySelector<HTMLElement>('[data-page="2"] .pdf-marks')!.style.pointerEvents).toBe('none')
+  })
+
+  it('E41 a tap on a painted rect is a decorationTap with its id and box; a highlight wins over a search hit', async () => {
+    const reader = makePdfReader({ pages: 40 })
+    await reader.open()
+    await reader.settle()
+    reader.engine.decorate('search', [hl('s1', 2, [quoteRect(2, 1, 'keeper counted')])])
+    reader.engine.decorate('highlight', [hl('h1', 2, [quoteRect(2, 1, 'keeper')])])
+    const p = reader.pointAt(2, 1, 'keeper')
+    reader.tap(p.x, p.y, reader.span(2, 1))
+    await wait(350)
+    const q = reader.pointAt(2, 1, 'counted')
+    reader.tap(q.x, q.y, reader.span(2, 1))
+    const taps = reader.payloads('decorationTap') as EngineEvents['decorationTap'][]
+    expect(taps.map((t) => [t.group, t.id])).toEqual([['highlight', 'h1'], ['search', 's1']])
+    const page = reader.root.querySelector('[data-page="2"]')!.getBoundingClientRect()
+    expect(taps[0].rect.x).toBeCloseTo(page.left + quoteRect(2, 1, 'keeper').x * FIT)
+    expect(reader.events()).not.toContain('tap')
+  })
+})
+
+describe('taps and scrolling on a PDF', () => {
+  it('E22 a tap on the page is a tap; the click ending a drag selection is not', async () => {
+    const reader = makePdfReader({ pages: 40 })
+    await reader.open()
+    await reader.settle()
+    reader.tap(200, 300)
+    expect(reader.payloads('tap')).toEqual([{ x: 200, y: 300 }])
+    await wait(350)
+    reader.select(reader.range(1, 0, 'keeper'))
+    reader.tap(200, 300)
+    expect(reader.payloads('tap')).toHaveLength(1)
+  })
+
+  it('E28 a second tap within 300 ms emits nothing', async () => {
+    const reader = makePdfReader({ pages: 40 })
+    await reader.open()
+    reader.tap(200, 300)
+    reader.tap(200, 300)
+    expect(reader.payloads('tap')).toHaveLength(1)
+  })
+
+  it("E23 reader scrolling says its direction: 'down' after 48 px, 'up' after 6; the engine's own scrolls never", async () => {
+    const reader = makePdfReader({ pages: 40 })
+    await reader.open()
+    await reader.goTo(10)
+    await reader.settle()
+    expect(reader.payloads('scrollDir')).toEqual([])
+    const y = reader.scrollTop
+    reader.scrollTo(y + 40)
+    await reader.settle()
+    expect(reader.payloads('scrollDir')).toEqual([])
+    reader.scrollTo(y + 60)
+    await reader.settle()
+    reader.scrollTo(y + 53)
+    await reader.settle()
+    expect(reader.payloads('scrollDir')).toEqual(['down', 'up'])
   })
 })

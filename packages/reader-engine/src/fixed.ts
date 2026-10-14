@@ -9,14 +9,22 @@
 // - Every open / goTo / setStyle emits exactly one `relocated` with its opId; 'scroll' is the reader
 //   reaching another page, never the engine's own scroll.
 // - Bytes come from the host: `data`, or `read(begin, end)` behind pdf.js's range transport.
-import type { ChapterDoc, EngineEvents, EngineOptions, GoToResult, Locator, Reason, ReaderEngine } from './api'
-import { clampPage, computePageRings, dimsReadyUpTo, pageAtViewportTop, readingPage, type PageRect } from '../../shared/src/reader/pdfPageWindow'
+// - Zoom = fit × `Style.zoom`. Each drawn page has pdf.js's text layer; a selection on it is a page and
+//   rects (today's `PdfAnchor`). Decorations are painted from those rects, over the text; taps on them
+//   are found by geometry, so a selection can start through them.
+import type { ChapterDoc, EngineEvents, EngineOptions, GoToResult, Locator, Reason, ReaderEngine, Rect } from './api'
+import { DOUBLE_TAP_MS, HOLD_MS, HOLD_SLOP_PX, SCROLL_DOWN_PX, SCROLL_UP_PX, SELECTION_MAX_CHARS, SELECTION_SETTLE_MS, sentenceAround } from './engine'
+import { capturePageAnchor, clampPage, computePageRings, dimsReadyUpTo, readingPage, scrollDeltaForAnchor, type PageRect } from '../../shared/src/reader/pdfPageWindow'
+import { buildPdfAnchor, paintRect, type PdfRect } from '../../shared/src/reader/pdfHighlightAnchor'
+import { tokenizeVocabWords } from '../../shared/src/text/vocabKey'
 
 /** The part of pdf.js the fixed layout uses. The host passes the real module; tests a fake. */
 export interface PdfJs {
   /** Called with `{ data: Uint8Array }` or `{ range: PdfRangeTransport }`; typed `never` so the real module fits. */
   getDocument(src: never): { promise: Promise<PdfDoc>; destroy(): Promise<void> }
   PDFDataRangeTransport: new (length: number, initialData: Uint8Array | null) => PdfRangeTransport
+  /** Called with `{ textContentSource, container, viewport }`; typed `never` so the real module fits. */
+  TextLayer: new (o: never) => { render(): Promise<void>; cancel(): void }
 }
 export interface PdfRangeTransport {
   requestDataRange(begin: number, end: number): void
@@ -28,11 +36,24 @@ export interface PdfDoc {
 }
 export interface PdfPage {
   getViewport(o: { scale: number }): { width: number; height: number }
+  streamTextContent(): unknown
   render(o: { canvasContext: CanvasRenderingContext2D; viewport: { width: number; height: number }; transform?: number[] }): { promise: Promise<void>; cancel(): void }
 }
 
 interface Dim { w: number; h: number }
-interface Slot { el: HTMLElement; canvas: HTMLCanvasElement | null; drawn: number | null; drawing: number | null; task: { cancel(): void } | null }
+interface Slot {
+  el: HTMLElement
+  canvas: HTMLCanvasElement | null
+  text: HTMLElement | null                  // pdf.js's text layer, drawn with the canvas
+  marks: HTMLElement | null                 // decorations, painted from rects
+  drawn: number | null
+  drawing: number | null
+  task: { cancel(): void } | null
+}
+type Group = 'highlight' | 'search'
+type Item = Parameters<ReaderEngine['decorate']>[1][number]
+/** A selection the host has: its page and rects, and how it was made. */
+interface Sent { page: number; rects: PdfRect[]; text: string; source: 'hold' | 'drag' }
 interface Op { page: number; reason: Reason; opId?: string; result: GoToResult; done: (r: GoToResult) => void }
 
 const FALLBACK: Dim = { w: 612, h: 792 }   // US Letter at 72 dpi, until page 1's size is known
@@ -45,6 +66,21 @@ const SCROLL_IDLE_MS = 150
 const RENDER_MARGIN_PX = 300
 /** Keys that scroll the page: only they end a travelling jump (not Escape, not a modifier). */
 const SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', ' ', 'Spacebar', 'Home', 'End'])
+const MIN_SCALE = 0.2
+const MAX_SCALE = 5
+const COLORS = {
+  highlight: 'var(--reader-highlight, rgba(254, 240, 138, 0.5))',
+  search: 'var(--reader-search, rgba(250, 204, 21, 0.35))',
+  selection: 'var(--reader-selection, rgba(196, 112, 75, 0.35))',
+}
+/** pdf.js's text layer needs these (its own `pdf_viewer.css`, cut to what a page uses); the marks sit above it. */
+const CSS = `.pdf-page .textLayer{position:absolute;inset:0;overflow:clip;opacity:1;line-height:1;text-align:initial;-webkit-text-size-adjust:none;text-size-adjust:none;forced-color-adjust:none;transform-origin:0 0;z-index:1}
+.pdf-page .textLayer :is(span,br){color:transparent;position:absolute;white-space:pre;cursor:text;transform-origin:0% 0%}
+.pdf-page .textLayer span.markedContent{top:0;height:0}
+.pdf-page .textLayer ::selection{background:var(--reader-pdf-selection,rgba(37,99,235,.3))}
+.pdf-page .textLayer br::selection{background:transparent}
+.pdf-marks{position:absolute;inset:0;z-index:2;pointer-events:none}
+.pdf-marks>div{position:absolute;pointer-events:none;border-radius:2px;mix-blend-mode:multiply}`
 
 /** The fixed layout with the host's pdf.js, for `createEngine(root, { fixed })`. */
 export function fixedLayout(pdfjs: PdfJs): (root: HTMLElement, opts: EngineOptions) => ReaderEngine {
@@ -69,9 +105,24 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
     return () => ro.disconnect()
   })
 
+  const caretAt = opts.caret ?? ((x: number, y: number) => {
+    const p = doc.caretPositionFromPoint?.(x, y)
+    if (p) return { node: p.offsetNode, offset: p.offset }
+    const r = doc.caretRangeFromPoint?.(x, y)
+    return r ? { node: r.startContainer, offset: r.startOffset } : null
+  })
+  if (!doc.getElementById('ts-pdf-css')) {
+    const css = doc.createElement('style')
+    css.id = 'ts-pdf-css'
+    css.textContent = CSS
+    doc.head.append(css)
+  }
+
   const column = doc.createElement('div')
   column.className = 'pdf-pages'
-  Object.assign(column.style, { display: 'flex', flexDirection: 'column', alignItems: 'center' })
+  // Pages centre by their auto margins, not `align-items`: a page wider than the screen (zoom) then
+  // overflows to the right and scrolls sideways, instead of being cut off on the left (E38).
+  Object.assign(column.style, { display: 'flex', flexDirection: 'column' })
   root.replaceChildren(column)
   // The engine alone keeps the place when page sizes change (E37): the browser's scroll anchoring
   // would be a second hand on the scroll.
@@ -84,6 +135,17 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
   let pdf: PdfDoc | null = null
   let numPages = 0
   let scale = 1
+  let zoom = 1
+  const decorations: Record<Group, Item[]> = { highlight: [], search: [] }
+  let held: { page: number; rects: PdfRect[] } | null = null   // the held word, marked until clearSelection
+  let sent: Sent | null = null                                 // the selection the host has
+  let selTimer = 0
+  let holdTimer = 0
+  let down: { x: number; y: number } | null = null
+  let swallowClick = false
+  let lastTap = -Infinity
+  let dir: 'up' | 'down' | null = null
+  let dirBase = 0
   let dims: (Dim | undefined)[] = []
   let slots: Slot[] = []
   let op: Op | null = null
@@ -107,7 +169,8 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
   const at = (n: number): Locator => ({ type: 'application/pdf', locations: { position: n } })
   const here = () => op?.page ?? last
 
-  const fit = () => Math.min(5, Math.max(0.2, ((root.clientWidth || 360) - PAD) / (dims[0] ?? FALLBACK).w))
+  /** Fit to the width, times the reader's zoom. */
+  const fit = () => Math.min(MAX_SCALE, Math.max(MIN_SCALE, (((root.clientWidth || 360) - PAD) / (dims[0] ?? FALLBACK).w) * zoom))
 
   function box(n: number): Dim {
     const d = dims[n - 1] ?? dims[0] ?? FALLBACK
@@ -126,7 +189,7 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
 
   function scrollTo(y: number) {
     scroller.scrollTop = Math.max(0, y)
-    ownTop = scroller.scrollTop
+    dirBase = ownTop = scroller.scrollTop
   }
 
   function scrollToPage(n: number) {
@@ -143,33 +206,22 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
   const readerScrolling = () => touchDown || Date.now() - lastScrollAt < SCROLL_IDLE_MS
 
   /**
-   * Where the top line sits on the page under it: inside the page a fraction (a re-fit keeps the line),
-   * above it (margin, gap) px. Null at the very top: the reader there stays there.
+   * Every change to the column's sizes — a measured page, a re-fit, a zoom — goes through here and keeps
+   * the reader where they are: a travelling jump stays aimed at its target, else the page under the top
+   * line at the same fraction (the shared zoom anchor; at the very top the reader stays at the top).
+   * Not while the reader scrolls: a scroll from code stops a fling. The change waits (newest wins);
+   * `now`: a zoom, the reader's own command.
    */
-  function spot(): { page: number; offset: number; fraction: number | null } | null {
-    if (scroller.scrollTop < 1) return null
-    const rs = rects()
-    const n = pageAtViewportTop(rs, 0)
-    const r = rs.find((x) => x.page === n)
-    if (!r) return null
-    const h = r.bottom - r.top
-    return { page: r.page, offset: -r.top, fraction: -r.top >= 0 && h > 0 ? -r.top / h : null }
-  }
-
-  /**
-   * Every change to the column's sizes — a measured page, a re-fit — goes through here and keeps the
-   * reader where they are: a travelling jump stays aimed at its target, else the spot under the top line.
-   * Not while the reader scrolls: a scroll from code stops a fling. The change waits (newest wins).
-   */
-  function applySizes(next = deferred ?? scale) {
-    if (!op && readerScrolling()) {
+  function applySizes(next = deferred ?? scale, now = false) {
+    if (!now && !op && readerScrolling()) {
       deferred = next
       if (!deferTimer) deferTimer = win.setTimeout(applyDeferred, SCROLL_IDLE_MS)
       return
     }
     deferred = null
-    const keep = op ? null : spot()
-    if (next !== scale) slots.forEach(free)   // drawn at the old scale
+    const keep = op || scroller.scrollTop < 1 ? null : capturePageAnchor(rects(), 0)
+    const rescaled = next !== scale
+    if (rescaled) slots.forEach(free)   // drawn at the old scale
     scale = next
     slots.forEach((s, i) => {
       const b = box(i + 1)
@@ -178,11 +230,11 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
     })
     if (op) scrollToPage(op.page)
     else if (keep) {
-      const m = measure(slots[keep.page - 1].el)
-      const d = m.top - scroller.scrollTop + (keep.fraction === null ? keep.offset : keep.fraction * m.height)
+      const d = scrollDeltaForAnchor(keep, rects(), 0)
       // Only when something above moved: a no-op scroll would still stop a fling.
-      if (Math.abs(d) >= 1) scrollTo(scroller.scrollTop + d)
+      if (d !== null && Math.abs(d) >= 1) scrollTo(scroller.scrollTop + d)
     }
+    if (rescaled) paint()
     sync()
   }
 
@@ -194,6 +246,8 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
   function free(s: Slot) {
     s.task?.cancel()
     s.task = null
+    s.text?.remove()
+    s.text = null
     if (s.canvas) {
       s.canvas.width = s.canvas.height = 0   // gives the bitmap back now, not at the next GC
       s.canvas.remove()
@@ -225,6 +279,15 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
       s.task = t
       await t.promise
       if (s.drawing !== sc) return
+      const text = doc.createElement('div')
+      text.className = 'textLayer'
+      text.style.setProperty('--scale-factor', String(sc))
+      s.el.append(text)
+      s.text = text
+      const layer = new pdfjs.TextLayer({ textContentSource: p.streamTextContent(), container: text, viewport: vp } as never)
+      s.task = layer
+      await layer.render()
+      if (s.drawing !== sc) return
       s.task = null
       s.drawing = null
       s.drawn = sc
@@ -232,6 +295,180 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
       // A cancelled render is scroll churn, not an error.
       if (!/Cancel|Abort/i.test((e as { name?: string })?.name ?? '')) emit('error', { code: 'render', detail: `page ${n}: ${(e as Error)?.message}` })
     }
+  }
+
+  /** Root-relative boxes as one box on screen, from page-relative rects at the live scale. */
+  function onScreen(page: number, rs: PdfRect[]): Rect {
+    const p = slots[page - 1]?.el.getBoundingClientRect()
+    const boxes = rs.map((r) => paintRect(r, scale))
+    if (!p || !boxes.length) return { x: 0, y: 0, width: 0, height: 0 }
+    const left = Math.min(...boxes.map((b) => b.left))
+    const top = Math.min(...boxes.map((b) => b.top))
+    return { x: p.left + left, y: p.top + top, width: Math.max(...boxes.map((b) => b.left + b.width)) - left, height: Math.max(...boxes.map((b) => b.top + b.height)) - top }
+  }
+
+  /** Every decoration on its page from its rects, at the live scale: search, then highlights, then the held word. */
+  function paint() {
+    for (const s of slots) { s.marks?.remove(); s.marks = null }
+    const add = (group: Group | 'selection', id: string, page: number | undefined, rs: PdfRect[] | undefined, style?: string) => {
+      const s = page ? slots[page - 1] : undefined
+      if (!s || !rs?.length) return
+      if (!s.marks) {
+        s.marks = doc.createElement('div')
+        s.marks.className = 'pdf-marks'
+        s.marks.style.pointerEvents = 'none'   // a selection starts through a highlight; taps are found by geometry
+        s.el.append(s.marks)
+      }
+      const mark = (box: { left: number; top: number; width: number; height: number }) => {
+        const el = doc.createElement('div')
+        el.dataset.group = group
+        el.dataset.id = id
+        Object.assign(el.style, { left: `${box.left}px`, top: `${box.top}px`, width: `${box.width}px`, height: `${box.height}px` })
+        s.marks!.append(el)
+        return el
+      }
+      if (style === 'dot') {
+        // E31 on a page: a dot just after the last rect, no fill.
+        const last = paintRect(rs[rs.length - 1], scale)
+        const d = Math.max(5, Math.min(8, last.height * 0.3))
+        const el = mark({ left: last.left + last.width + 1, top: last.top, width: d, height: d })
+        el.dataset.dot = 'true'
+        Object.assign(el.style, { borderRadius: '50%', background: 'var(--reader-reviewed-dot, #16a34a)', mixBlendMode: 'normal' })
+        return
+      }
+      for (const r of rs) mark(paintRect(r, scale)).style.background = style ?? COLORS[group]
+    }
+    for (const group of ['search', 'highlight'] as const) {
+      for (const d of decorations[group]) add(group, d.id, d.locator.locations.position, d.locator.ext?.rects, d.style)
+    }
+    if (held) add('selection', 'selection', held.page, held.rects)
+  }
+
+  /** The page a DOM node is on, if it is in this column. */
+  function pageOf(node: Node | null): HTMLElement | null {
+    const el = node && (node.nodeType === 1 ? (node as Element) : node.parentElement)
+    const p = el?.closest<HTMLElement>('[data-page]')
+    return p && column.contains(p) ? p : null
+  }
+
+  /**
+   * A range on a page's text as a `selection` (E40): its page and its rects, page-relative at scale 1
+   * (`buildPdfAnchor`: a selection onto the next page keeps the start page's part). Null: not on a page.
+   */
+  function select(range: Range, source: 'hold' | 'drag') {
+    const pageEl = pageOf(range.startContainer)
+    const textEl = pageEl && slots[Number(pageEl.dataset.page) - 1]?.text
+    if (!pageEl || !textEl) return
+    const n = Number(pageEl.dataset.page)
+    const raw = range.toString()
+    const exact = raw.trim()
+    const anchor = buildPdfAnchor(n, pageEl.getBoundingClientRect(), Array.from(range.getClientRects()), scale, exact)
+    if (!exact || !anchor.rects.length) return
+    // The same text again (iOS re-fires): the host has it.
+    if (sent && sent.page === n && sent.text === exact && JSON.stringify(sent.rects) === JSON.stringify(anchor.rects)) return
+    sent = { page: n, rects: anchor.rects, text: exact, source }
+    held = source === 'hold' ? { page: n, rects: anchor.rects } : null
+    paint()
+    // Where it starts in the page's text: the same words may stand on another line.
+    const before = doc.createRange()
+    before.setStart(textEl, 0)
+    before.setEnd(range.startContainer, range.startOffset)
+    const all = textEl.textContent ?? ''
+    const at = before.toString().length + raw.length - raw.trimStart().length
+    emit('selection', {
+      locator: { type: 'application/pdf', locations: { position: n }, text: { highlight: exact }, ext: { rects: anchor.rects } },
+      text: exact,
+      sentence: sentenceAround(all, 0, all.length, at, at + exact.length),
+      source,
+      tooLong: exact.length > SELECTION_MAX_CHARS,
+      rect: onScreen(n, anchor.rects),
+    })
+  }
+
+  function unselect() {
+    if (!sent) return
+    sent = held = null
+    paint()
+    emit('selection', null)
+  }
+
+  function onSelectionChange() {
+    win.clearTimeout(selTimer)
+    selTimer = win.setTimeout(() => {
+      if (!numPages) return
+      const sel = doc.getSelection()
+      const r = sel && !sel.isCollapsed && sel.rangeCount ? sel.getRangeAt(0) : null
+      if (r && pageOf(r.startContainer)) return select(r, 'drag')
+      // A hold never makes a page selection: a collapse after one is the platform's noise.
+      if (sent?.source === 'drag') unselect()
+    }, SELECTION_SETTLE_MS)
+  }
+
+  /** The word under a point on screen as a range in its text node; null off the text or on no letter. */
+  function wordAt(x: number, y: number): Range | null {
+    const c = caretAt(x, y)
+    if (!c || c.node.nodeType !== Node.TEXT_NODE || !pageOf(c.node)) return null
+    const data = (c.node as Text).data
+    const w = tokenizeVocabWords(data.replace(/\u00AD/g, 'a')).find((t) => t.start <= c.offset && c.offset <= t.end)
+    if (!w || !/\p{L}/u.test(w.word)) return null
+    const r = doc.createRange()
+    r.setStart(c.node, w.start)
+    r.setEnd(c.node, w.end)
+    return r
+  }
+
+  function cancelHold() {
+    win.clearTimeout(holdTimer)
+    down = null
+  }
+
+  function onPointerDown(e: PointerEvent) {
+    cancelHold()
+    swallowClick = false
+    if (e.pointerType === 'mouse' || !(e.target as Element).closest?.('.textLayer')) return   // a mouse drags to select
+    const at = { x: e.clientX, y: e.clientY }
+    down = at
+    holdTimer = win.setTimeout(() => {
+      down = null
+      const word = wordAt(at.x, at.y)
+      if (!word) return
+      swallowClick = true
+      emit('hold', at)   // first: the host's haptic
+      // Drawn, never put in the page's selection: Android would open its own menu over the host's.
+      select(word, 'hold')
+    }, HOLD_MS)
+  }
+
+  function onPointerMove(e: PointerEvent) {
+    if (down && (Math.abs(e.clientX - down.x) > HOLD_SLOP_PX || Math.abs(e.clientY - down.y) > HOLD_SLOP_PX)) cancelHold()
+  }
+
+  /** One event per tap: a painted highlight or search hit (highlights on top, found by geometry), else a tap. */
+  function onClick(e: MouseEvent) {
+    if (swallowClick) { swallowClick = false; return }
+    if (doc.getSelection()?.isCollapsed === false) return   // the end of a drag selection
+    const now = win.performance.now()
+    const quick = now - lastTap < DOUBLE_TAP_MS
+    lastTap = now
+    if (quick) return
+    for (const group of ['highlight', 'search'] as const) {
+      const items = decorations[group]
+      for (let i = items.length - 1; i >= 0; i--) {
+        const { id, locator } = items[i]
+        const n = locator.locations.position
+        const p = n ? slots[n - 1]?.el.getBoundingClientRect() : undefined
+        const rs = locator.ext?.rects ?? []
+        if (!p || !n) continue
+        const hit = rs.some((r) => {
+          const b = paintRect(r, scale)
+          const x = e.clientX - p.left
+          const y = e.clientY - p.top
+          return x >= b.left && x <= b.left + b.width && y >= b.top && y <= b.top + b.height
+        })
+        if (hit) return emit('decorationTap', { group, id, rect: onScreen(n, rs) })
+      }
+    }
+    emit('tap', { x: e.clientX, y: e.clientY })
   }
 
   /** Canvases for the pages near the screen, none past the keep ring. */
@@ -320,6 +557,8 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
     pdf = null
     failed = new Set()
     failLoad = null
+    cancelHold()
+    sent = held = null
     void task?.destroy()
     task = null
   }
@@ -349,10 +588,11 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
       el.className = 'pdf-page'
       el.dataset.page = String(n)
       Object.assign(el.style, { position: 'relative', margin: '6px auto', overflow: 'hidden', background: '#fff' })
-      slots.push({ el, canvas: null, drawn: null, drawing: null, task: null })
+      slots.push({ el, canvas: null, text: null, marks: null, drawn: null, drawing: null, task: null })
     }
     column.append(...slots.map((s) => s.el))
     applySizes(scale)
+    paint()
     emit('ready', { opId: opId ?? '', href: d.href, pageCount: numPages })   // even when a goTo overtook the open
     if (op) {
       op.page = clampPage(op.page, numPages)
@@ -381,6 +621,12 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
       ownTop = null
       lastScrollAt = Date.now()
       readerMoved = true
+      const d = scroller.scrollTop - dirBase
+      const next = d >= SCROLL_DOWN_PX ? 'down' : d <= -SCROLL_UP_PX ? 'up' : null
+      if (next) {
+        dirBase = scroller.scrollTop
+        if (next !== dir) emit('scrollDir', (dir = next))
+      }
     }
     if (scrollQueued) return
     scrollQueued = true
@@ -419,6 +665,12 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
   win.addEventListener('touchstart', onTouchStart, { passive: true })
   for (const t of ['touchend', 'touchcancel']) win.addEventListener(t, onTouchEnd, { passive: true })
   const unobserve = observeResize(root, onResize)
+  root.addEventListener('click', onClick)
+  root.addEventListener('pointerdown', onPointerDown)
+  root.addEventListener('pointermove', onPointerMove)
+  root.addEventListener('pointerup', cancelHold)
+  root.addEventListener('pointercancel', cancelHold)
+  doc.addEventListener('selectionchange', onSelectionChange)
 
   return {
     async open(d, loc, opId) {
@@ -439,19 +691,37 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
       return begin(loc.locations.position, 'goTo', o?.opId)
     },
 
-    // Slice 1: nothing in a Style changes a PDF yet (zoom is slice 2); still one ack.
-    setStyle(_s, opId) {
-      schedule(() => { if (alive) emit('relocated', { locator: at(here()), reason: 'style', opId }) })
+    // E38: zoom is the only style a PDF has (its colours are the scan's).
+    setStyle(s, opId) {
+      if (s.zoom !== undefined) {
+        zoom = s.zoom === 'fit' ? 1 : s.zoom
+        if (numPages) applySizes(fit(), true)
+      }
+      schedule(() => {
+        if (!alive) return
+        if (!op && numPages) last = reading()   // the page read after the zoom
+        emit('relocated', { locator: at(here()), reason: 'style', opId })
+      })
     },
 
     current: () => (numPages || op ? at(here()) : null),
 
-    // No PDF use yet (slice 2: highlights, selection); the API stays whole.
+    decorate(group, items) {
+      decorations[group] = items
+      paint()
+    },
+
+    clearSelection() {
+      sent = held = null
+      paint()
+      const sel = doc.getSelection()
+      if (sel?.anchorNode && column.contains(sel.anchorNode)) sel.removeAllRanges()
+    },
+
+    // No PDF use (Phase 5: no chapter-end block, no in-PDF find, no vocab on a PDF); the API stays whole.
     setFooter() {},
-    decorate() {},
     markWords() {},
     find: () => [],
-    clearSelection() {},
 
     on(e, cb) {
       if (!listeners.has(e)) listeners.set(e, new Set())
@@ -473,6 +743,13 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
       win.removeEventListener('touchstart', onTouchStart)
       for (const t of ['touchend', 'touchcancel']) win.removeEventListener(t, onTouchEnd)
       unobserve()
+      root.removeEventListener('click', onClick)
+      root.removeEventListener('pointerdown', onPointerDown)
+      root.removeEventListener('pointermove', onPointerMove)
+      root.removeEventListener('pointerup', cancelHold)
+      root.removeEventListener('pointercancel', cancelHold)
+      doc.removeEventListener('selectionchange', onSelectionChange)
+      win.clearTimeout(selTimer)
       root.replaceChildren()
       scroller.style.overflowAnchor = anchorWas
     },
