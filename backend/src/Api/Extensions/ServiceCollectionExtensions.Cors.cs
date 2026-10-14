@@ -21,7 +21,9 @@ public static partial class ServiceCollectionExtensions
                 policy.WithOrigins(corsOrigins)
                     .AllowAnyHeader()
                     .AllowAnyMethod()
-                    .AllowCredentials();
+                    .AllowCredentials()
+                    // The PDF engine's length probe reads it (pdfRangeSource); dev/CI call the API cross-origin.
+                    .WithExposedHeaders("Content-Range");
             });
         });
         return services;

@@ -62,13 +62,6 @@ async function pdfReaderPage(browser: Browser, name: string): Promise<{ page: Pa
     }
   }
 
-  // Prod serves the API on the page's origin (/api); dev and CI call localhost:8080 cross-origin, where
-  // the API's CORS does not expose Content-Range, so the engine's length probe fails and the reader
-  // falls back to reflow. Expose it here, as same-origin would. ponytail: drop once the API exposes it.
-  await context.route(`**/me/books/${bookId}/file`, async (route) => {
-    const response = await route.fetch()
-    await route.fulfill({ response, headers: { ...response.headers(), 'access-control-expose-headers': 'Content-Range' } })
-  })
   await context.addInitScript(() => {
     localStorage.setItem('textstack_native_language', 'en')
     localStorage.setItem('reader.onboarding.seen', '1')
