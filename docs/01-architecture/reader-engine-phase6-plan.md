@@ -89,20 +89,20 @@ Size: ~6,500 lines of code + ~4,500 of tests, plus 40 KB of generated mobile scr
 Today a rollback is a one-line flag change (~15 min, ADR-025 answer 1). After deletion it is a
 `git revert` + deploy / OTA, the same ~15 min, if each PR stays revertable on its own. So:
 
-1. **Bake first.** No deletion PR until its flag has been on for everyone ≥ 7 days, the owner's prod pass
+1. ~~**Bake first.** No deletion PR until its flag has been on for everyone ≥ 7 days, the owner's prod pass
    for that platform is done, and nothing in Sentry or the issues is an engine regression that needs the
-   old path.
+   old path.~~ Owner answer 1b: no bake, delete now. Mobile still waits for the Play launch (answer 2a).
 2. **Pure deletions.** A deletion PR changes no behaviour and mixes in no refactor; then a revert is safe.
 3. **A tag** `reader-legacy-final` on `main` before the first deletion: the old code stays one checkout away.
 4. **EAS variables last.** Delete `EXPO_PUBLIC_READER_ENGINE*` from EAS only after the mobile PR has baked:
    a revert of that PR with the variables gone would silently switch the old reader back on.
 
-## Slices (draft)
+## Slices
 
 Same rules as Phases 3–5: tests sorted in the PR description; package, web and mobile tests, `build`,
 Playwright, bundle checks green. A mobile merge is an OTA to testers (and the public after launch).
 
-0. **CI tests what prod ships** (now, during the bake). The main e2e gate and the full suite build with
+0. **CI tests what prod ships** (#843). The main e2e gate and the full suite build with
    both `VITE_READER_ENGINE*=true`; the second engine-on build goes. No user change. Old-path regressions
    are then invisible — fine, the old path has no users.
 1. **Web reflow.** Remove `VITE_READER_ENGINE` + `?engine=1/0`; the old `ReaderSection` article, the overlay

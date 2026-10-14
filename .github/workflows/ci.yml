@@ -639,8 +639,9 @@ jobs:
     runs-on: ubuntu-latest
     # 11m typical uncached; same layer cache as `docker` (unmeasured).
     timeout-minutes: 30
-    # ADR-025 Phase 6 slice 0: every e2e run builds web the way prod ships it (apps/web/production.env),
-    # both reader engines on. The env reaches the `pnpm build` that playwright's webServer runs.
+    # ADR-025 Phase 6 slice 0: every e2e run builds web with prod's reader-engine flags
+    # (apps/web/production.env), both on. The env reaches the `pnpm build` that playwright's webServer runs.
+    # Phase 6 PR A deletes the flags; then this goes too.
     env:
       VITE_READER_ENGINE: 'true'
       VITE_READER_ENGINE_PDF: 'true'
@@ -780,11 +781,10 @@ jobs:
       #
       # @reader-pdf (reader-pdf.spec.ts) joins it: the Original-layout PDF opens, jumps, highlights
       # and resumes. Its user uploads the engine's 40-page fixture; Original needs no worker.
-      # @reader-progress (reader-progress.spec.ts) joins too: it gated in the engine-on step that slice 0
-      # folded into this one.
+      # reader-progress.spec.ts does not gate (fixed sleeps, shared user): it runs in the full suite below.
       - name: E2E smoke + reader smoke — gates the PR
         working-directory: apps/web
-        run: pnpm test:e2e --grep "@smoke|@reader-smoke|@reader-pdf|@reader-progress"
+        run: pnpm test:e2e --grep "@smoke|@reader-smoke|@reader-pdf"
         env:
           CI: true
           API_URL: http://localhost:8080
@@ -797,7 +797,7 @@ jobs:
         id: e2e-full
         continue-on-error: true
         working-directory: apps/web
-        run: pnpm test:e2e --grep-invert "@smoke|@reader-smoke|@reader-pdf|@reader-progress"
+        run: pnpm test:e2e --grep-invert "@smoke|@reader-smoke|@reader-pdf"
         env:
           CI: true
           API_URL: http://localhost:8080
