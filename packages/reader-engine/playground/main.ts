@@ -4,8 +4,8 @@ import type { Locator } from '../src/api'
 import { createEngine } from '../src/engine'
 import { resolveLocator } from '../src/resolve'
 import { chapterText, locatorAt, rangeAt } from '../src/text'
-// The web reader's own caret probe, the yardstick for the engine's reading line (#789).
-import { articleText, readReadingLine } from '../../../apps/web/src/lib/textAnchor'
+// The old web reader's caret probe, the yardstick for the engine's reading line (#789).
+import { articleText, readReadingLine } from './readingLine'
 
 const href = new URLSearchParams(location.search).get('chapter') ?? 'moby-dick-5'
 const root = document.getElementById('reader')!

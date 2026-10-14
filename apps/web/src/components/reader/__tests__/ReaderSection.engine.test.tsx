@@ -3,13 +3,8 @@ import { StrictMode } from 'react'
 import { render, cleanup, act, fireEvent } from '@testing-library/react'
 import type { ReaderSettings } from '../../../hooks/useReaderSettings'
 
-// Phase 4 slice 1: with the engine on, ReaderSection hands the chapter to the engine, which renders it,
+// Phase 4 slice 1: ReaderSection hands the chapter to the engine, which renders it,
 // registers for useReaderScrollSync, takes typography through setStyle, and turns a tap into onTap (#818).
-vi.mock('../../../lib/readerEngine', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../../lib/readerEngine')>()),
-  READER_ENGINE: true,
-}))
-
 import { ReaderSection } from '../ReaderSection'
 import { mountedEngineFor } from '../../../lib/readerEngine'
 
@@ -82,6 +77,19 @@ describe('ReaderSection with the engine', () => {
     const open = vi.spyOn(engine, 'open')
     rerender(<ReaderSection chapterId="c1" chapterSlug="ch-1" chapterIndex={0} html="<p>One, refreshed</p>" settings={settings} />)
     expect(open.mock.calls[0][1]).toEqual(here)
+  })
+
+  // Rewrite of ReaderSection.test "keeps the chapter DOM across re-renders": a literal `{ __html }` rebuilt
+  // the chapter on every render, killing every live Range. Now a new identity would reopen it in the engine.
+  it('engine_ReRenderWithTheSameHtml_KeepsTheChapter', async () => {
+    const { container, rerender } = render(<ReaderSection chapterId="c1" chapterSlug="ch-1" chapterIndex={0} html="<p>Hello world</p>" settings={settings} />)
+    await opened()
+    const open = vi.spyOn(mountedEngineFor('ch-1')!.engine, 'open')
+    const text = container.querySelector('p')!.firstChild
+    rerender(<ReaderSection chapterId="c1" chapterSlug="ch-1" chapterIndex={0} html="<p>Hello world</p>" settings={{ ...settings, fontSize: 22 }} />)
+    await opened()
+    expect(open).not.toHaveBeenCalled()
+    expect(container.querySelector('p')!.firstChild).toBe(text)
   })
 
   it('engine_Typography_GoesToTheChapter', async () => {

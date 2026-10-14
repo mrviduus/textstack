@@ -13,7 +13,7 @@ interface Params {
   chapterId: string | undefined
   /** "Finish book" pressed: the bar shows 100%. */
   bookCompleted: boolean
-  /** The window scrolls something that is not the chapter (READER_ENGINE_PDF's PDF): no intra-chapter progress. */
+  /** The window scrolls something that is not the chapter (the Original-layout PDF): no intra-chapter progress. */
   ignoreScroll?: boolean
 }
 

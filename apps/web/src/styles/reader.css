@@ -32,8 +32,7 @@ html[data-theme="light"] {
   --reader-overlay-vocab-stage4: rgba(34, 197, 94, 0.25);
   --reader-overlay-vocab-active: rgba(59, 130, 246, 0.7);
   --reader-overlay-search-inactive: rgba(250, 204, 21, 0.35);
-  --reader-overlay-search-active: rgb(249, 115, 22);
-  /* The engine's fills (READER_ENGINE) sit over the text: multiply keeps it dark, full opacity matches the old layers' colour. Dark overrides both. */
+  /* The engine's fills sit over the text: multiply keeps it dark, full opacity matches the old layers' colour. Dark overrides both. */
   --overlay-highlight-opacity: 1;
 }
 
@@ -71,7 +70,6 @@ html.dark {
   --reader-overlay-vocab-stage4: rgba(74, 222, 128, 0.4);
   --reader-overlay-vocab-active: rgba(96, 165, 250, 0.9);
   --reader-overlay-search-inactive: rgba(250, 204, 21, 0.45);
-  --reader-overlay-search-active: rgb(251, 146, 60);
   --reader-search-current: rgba(251, 146, 60, 0.45);
 }
 
@@ -901,23 +899,6 @@ html[data-theme="dark"] .reader-search-drawer__context mark {
   pointer-events: none;
 }
 
-/* Original-layout PDF: the reveal-on-scroll immersive path can never fire (the
-   PDF scrolls in its own container, window scroll never moves), so keep the top
-   bar pinned even if the auto-hide timer flipped immersive on. Higher specificity
-   than the rule above so it wins the !important battle. */
-.reader-page--original.immersive-mode .reader-top-bar {
-  transform: translateY(0) !important;
-  opacity: 1 !important;
-  pointer-events: auto;
-}
-
-/* Offset the internally-scrolling PDF view below the fixed 56px top bar so the
-   PDF toolbar (Fit/zoom/page/Dim) sits under the reader bar, not behind it. */
-.reader-page--original .pdf-original {
-  height: calc(100dvh - 56px);
-  margin-top: 56px;
-}
-
 .immersive-mode .reader-footer {
   transform: translateY(100%) !important;
   opacity: 0 !important;
@@ -1514,29 +1495,6 @@ html[data-theme="dark"] .reader-search-drawer__context mark {
   outline: none;
 }
 
-/* Ghost hint label */
-.word-hint-label {
-  position: absolute;
-  bottom: calc(100% + 4px);
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 12px;
-  color: var(--reader-secondary, #666);
-  background: var(--reader-bg, #fff);
-  padding: 2px 8px;
-  border-radius: 4px;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.1);
-  white-space: nowrap;
-  pointer-events: none;
-  opacity: 0.7;
-  animation: word-hint-label-in 0.3s ease;
-  z-index: 5;
-}
-@keyframes word-hint-label-in {
-  from { opacity: 0; transform: translateX(-50%) translateY(4px); }
-  to { opacity: 0.7; transform: translateX(-50%) translateY(0); }
-}
-
 /* Word highlight in text when popup is open */
 .word-popup-highlight {
   background: none;
@@ -1721,54 +1679,6 @@ html[data-theme="dark"] .reader-search-drawer__context mark {
 .translation-popup__speak {
   flex-shrink: 0;
   margin-right: 2px;
-}
-
-/* Inline translation tags positioned above each visible vocab word.
-   Host wrapper is position:fixed; each item updates per-frame transforms. */
-.vocab-translation-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 0;
-  height: 0;
-  pointer-events: none;
-  z-index: 1;
-}
-
-.vocab-translation-overlay__item {
-  position: absolute;
-  top: 0;
-  left: 0;
-  white-space: nowrap;
-  font-size: 10px;
-  font-style: italic;
-  font-weight: 400;
-  letter-spacing: 0.015em;
-  line-height: 1;
-  pointer-events: none;
-  user-select: none;
-  max-width: 160px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: #6b6b6b;
-  transform: translate(var(--x, 0), var(--y, 0)) translate(-50%, -100%);
-  will-change: transform;
-  animation: vocab-translation-fade 0.25s ease-out;
-}
-
-html[data-theme="dark"] .vocab-translation-overlay__item {
-  color: #9a9a9a;
-}
-
-@media (max-width: 768px) {
-  .vocab-translation-overlay__item {
-    font-size: 11px;
-  }
-}
-
-@keyframes vocab-translation-fade {
-  from { opacity: 0; }
-  to { opacity: 1; }
 }
 
 /* --- TTS word-highlight overlay (Phase 2.1) --- */
@@ -2046,7 +1956,7 @@ html[data-theme="dark"] .vocab-translation-overlay__item {
 }
 
 /* Chapter review: Reviewed row at the top of the highlight popup (HTML + PDF). The dot itself is
-   SVG (HighlightOverlayLayer.reviewedDot) / .pdf-hl-dot (pdfOriginal.css). */
+   the engine's `dot` decoration (E31). */
 .reviewed-row {
   padding: 10px 12px;
   font-size: 13px;

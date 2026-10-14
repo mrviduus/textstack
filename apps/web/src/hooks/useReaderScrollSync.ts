@@ -1,14 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import {
-  buildTextPosition, parseScrollLocator, parseTextPosition, resolveTextPosition,
-  serializeTextPosition, decideNewerPosition, readerMovedSince, REFLOW_MOVE_TOLERANCE_PX,
-  type ResolvedPosition,
-} from '@textstack/shared'
+import { parseScrollLocator, decideNewerPosition, readerMovedSince, REFLOW_MOVE_TOLERANCE_PX } from '@textstack/shared'
 import { locatorToPosition, positionToLocator, type Locator } from '@textstack/reader-engine'
 import { mountedEngineFor } from '../lib/readerEngine'
 import type { NewerPositionResult } from './useReaderProgress'
 import { useNewerPositionCheck } from './useNewerPositionCheck'
-import { readReadingLine, rangeAtCharOffset, articleText } from '../lib/textAnchor'
 import type { BookDetail } from '../types/api'
 import type { ReaderMode } from './useReaderChapter'
 
@@ -59,12 +54,6 @@ interface Params {
   publicProgress: PublicProgressApi
   userProgress: UserProgressApi
   /**
-   * Identity of the typography currently applied. Changing it reflows the text,
-   * which is the one thing that silently invalidates a pixel scroll position —
-   * and this hook had no idea it ever happened.
-   */
-  settingsKey: string
-  /**
    * A `?highlight=` link is positioning the reader. Restore and save-on-open
    * wait: the link either lands (markPositioned) or gives up, and only then
    * does the normal restore run.
@@ -90,52 +79,10 @@ interface Params {
   onReaderScroll?: () => void
 }
 
-
-/**
- * A quarter down the viewport — the same probe the mobile reader measures
- * against, so a position captured on one client describes the same place on the
- * other.
- */
-const READING_LINE_FRACTION = 0.25
-
-/** The rendered chapter. Web mounts exactly one per route (see ReaderPage). */
-function readerArticle(): HTMLElement | null {
-  return document.querySelector<HTMLElement>('.reader-section__article')
-}
-
-/** Where to scroll so a resolved position sits on the reading line. */
-function anchoredScrollTop(article: HTMLElement | null, resolved: ResolvedPosition | null): number | null {
-  if (!article || !resolved) return null
-  if (resolved.kind === 'fraction') {
-    const height = document.documentElement.scrollHeight - window.innerHeight
-    return height > 0 ? Math.round(height * resolved.fraction) : 0
-  }
-  const range = rangeAtCharOffset(article, resolved.offset)
-  if (!range) return null
-  const rect = range.getBoundingClientRect()
-  const scrollTop = (document.scrollingElement || document.documentElement).scrollTop
-  return Math.max(0, Math.round(scrollTop + rect.top - window.innerHeight * READING_LINE_FRACTION))
-}
-
-/** The position at the reading line right now, serialised, or null. */
+/** The engine's place in this chapter right now, serialised, or null. */
 function captureReadingPosition(chapterSlug: string): string | null {
-  const mounted = mountedEngineFor(chapterSlug)
-  if (mounted) {
-    const here = mounted.engine.current()
-    return here?.href === chapterSlug ? locatorToPosition(here) : null
-  }
-  const article = readerArticle()
-  if (!article) return null
-  const line = readReadingLine(article, window.innerHeight * READING_LINE_FRACTION)
-  if (!line) return null
-  const height = document.documentElement.scrollHeight - window.innerHeight
-  const scrollTop = (document.scrollingElement || document.documentElement).scrollTop
-  return serializeTextPosition(buildTextPosition({
-    chapterSlug,
-    chapterText: line.chapterText,
-    charOffset: line.charOffset,
-    chapterFraction: height > 0 ? Math.min(1, Math.max(0, scrollTop / height)) : 0,
-  }))
+  const here = mountedEngineFor(chapterSlug)?.engine.current()
+  return here?.href === chapterSlug ? locatorToPosition(here) : null
 }
 
 /**
@@ -156,14 +103,8 @@ function engineTarget(chapterSlug: string, positionJson: string | null | undefin
  */
 const SAVE_DEBOUNCE_MS = 1500
 
-/** How long a typography change keeps re-anchoring on article resizes (webfont swap). */
-const REFLOW_SETTLE_MS = 1000
-
 /** A ?highlight= link may hold restore this long after the chapter is ready, no longer. */
 const HOLD_DEADLINE_MS = 5000
-
-/** Scroll pause after which the reading line is remembered for a later reflow. */
-const LINE_IDLE_MS = 150
 
 /**
  * True only when the chapter in state IS the one the URL asks for and its fetch
@@ -194,7 +135,6 @@ export function useReaderScrollSync({
   publicBookChapters,
   publicProgress,
   userProgress,
-  settingsKey,
   holdRestore = false,
   onHoldExpired,
   serverUnanswered = false,
@@ -203,10 +143,6 @@ export function useReaderScrollSync({
   onReaderScroll,
 }: Params) {
   const scrollRestoredRef = useRef(false)
-  // The reading line as of the last scroll pause. The live capture reads the
-  // line by hit-testing, and the settings drawer — where every typography
-  // change is made — covers it, so the live read finds nothing there.
-  const lastLineRef = useRef<string | null>(null)
   const saveTimerRef = useRef<number | null>(null)
   const pendingSaveRef = useRef<{ identifier: string; offset: number } | null>(null)
   // State-backed mirror of scrollRestoredRef so the save-on-open effect can
@@ -311,7 +247,7 @@ export function useReaderScrollSync({
     return () => clearTimeout(timer)
   }, [held, chapterLoaded, originalActive, chapterIdentifier])
 
-  // Reset restore guard on chapter change, and on a layout switch (READER_ENGINE_PDF's Original PDF
+  // Reset restore guard on chapter change, and on a layout switch (the Original PDF
   // scrolls the window: back in reflow, its scrollTop is not the chapter's place).
   useEffect(() => {
     scrollRestoredRef.current = false
@@ -319,7 +255,7 @@ export function useReaderScrollSync({
     setRestoredFor(null)
   }, [chapterIdentifier, originalActive])
 
-  // With the engine: its own moves reset the baseline before the scroll event each one causes, so that
+  // The engine's own moves reset the baseline before the scroll event each one causes, so that
   // event reads as our echo, never the reader's — whatever positioned the chapter (restore, a highlight
   // link, a newer position). ReaderPage marks the chapter loaded only once the engine's open has landed.
   const engine = chapterLoaded && !originalActive ? mountedEngineFor(chapterIdentifier)?.engine : undefined
@@ -340,22 +276,11 @@ export function useReaderScrollSync({
     const session = chapterIdentifier ? sessionPositionsRef.current.get(chapterIdentifier) : undefined
     const positionJson = session ? session.positionJson : effectiveProgress?.positionJson
 
-    // The text anchor first: it is the only one of the two that is still true
-    // after the text has reflowed — a font size change here, a different screen
-    // width, a re-parsed book, or simply the phone this was last read on. The
-    // pixel offset below is what a row written by an older build has to offer,
-    // and is parsed with the SHARED parser rather than the split(':') this used
-    // to do inline: a chapter slug containing a colon made that return the wrong
-    // slug and an offset of 0.
-    const article = readerArticle()
-    const anchored = article
-      ? resolveTextPosition(
-          parseTextPosition(positionJson),
-          chapterIdentifier ?? null,
-          articleText(article),
-        )
-      : null
-
+    // The text position first (the engine's goTo ladder): it is the only one of the two that is still
+    // true after the text has reflowed — a font size change, a different screen width, a re-parsed
+    // book, or simply the phone this was last read on. The pixel offset is what a row written by an
+    // older build has to offer, parsed with the SHARED parser rather than the split(':') this used to
+    // do inline: a chapter slug containing a colon made that return the wrong slug and an offset of 0.
     const parsed = parseScrollLocator(effectiveProgress?.locator)
     const savedOffset = session
       ? session.offset
@@ -368,27 +293,15 @@ export function useReaderScrollSync({
       explicitRef.current = explicitOpenRef.current
       scrollRestoredRef.current = true
       setRestoredFor(forId ?? null)
-      if (forId) lastLineRef.current = captureReadingPosition(forId)
     }
 
     const mounted = mountedEngineFor(forId)
-    if (mounted && forId) {
-      const at = engineTarget(forId, positionJson, savedOffset)
-        ?? { href: forId, type: 'text/html', locations: { progression: 0 } }
-      // Superseded = a newer restore (this effect re-ran) took over: that one lands.
-      void mounted.engine.goTo(at).then((r) => {
-        if (r !== 'superseded' && identifierRef.current === forId) landed()
-      })
-      return
-    }
-
-    requestAnimationFrame(() => {
-      // The chapter changed before this frame: this restore is for a page that
-      // is no longer the one on screen.
-      if (identifierRef.current !== forId) return
-      const top = anchoredScrollTop(article, anchored) ?? savedOffset
-      window.scrollTo({ top, behavior: 'instant' })
-      landed()
+    if (!mounted || !forId) return
+    const at = engineTarget(forId, positionJson, savedOffset)
+      ?? { href: forId, type: 'text/html', locations: { progression: 0 } }
+    // Superseded = a newer restore (this effect re-ran) took over: that one lands.
+    void mounted.engine.goTo(at).then((r) => {
+      if (r !== 'superseded' && identifierRef.current === forId) landed()
     })
   }, [originalActive, chapterLoaded, effectiveLoading, effectiveProgress, chapterIdentifier, held])
 
@@ -400,7 +313,6 @@ export function useReaderScrollSync({
     setRestoredFor(id)
     setBaseline(currentScrollTop())
     explicitRef.current = true
-    lastLineRef.current = captureReadingPosition(id)
   }, [])
 
   /**
@@ -426,36 +338,20 @@ export function useReaderScrollSync({
     if (action !== 'move') return true
     const parsed = parseScrollLocator(newer.locator)
     const mounted = mountedEngineFor(id)
-    if (mounted) {
-      const sameSlug = parsed && parsed.slug === id
-      // `scroll:<id>:0` with no text position is the chapter's top, a place like any other.
-      const at = engineTarget(id, newer.positionJson, sameSlug ? parsed.offset : 0)
-        ?? (sameSlug ? { href: id, type: 'text/html', locations: { progression: 0 } } : null)
-      if (!at) return true
-      if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null }
-      pendingSaveRef.current = null
-      await mounted.engine.goTo(at)
-      if (identifierRef.current !== id) return true
-      setBaseline(currentScrollTop())
-      heldOpenRef.current = false
-      sessionPositionsRef.current.set(id, { offset: currentScrollTop(), positionJson: newer.positionJson ?? undefined })
-      lastLineRef.current = captureReadingPosition(id)
-      return true
-    }
-    const article = readerArticle()
-    const anchored = article
-      ? resolveTextPosition(parseTextPosition(newer.positionJson), id, articleText(article))
-      : null
-    const top = anchoredScrollTop(article, anchored) ?? (parsed && parsed.slug === id ? parsed.offset : null)
-    if (top == null) return true
+    if (!mounted) return true
+    const sameSlug = parsed && parsed.slug === id
+    // `scroll:<id>:0` with no text position is the chapter's top, a place like any other.
+    const at = engineTarget(id, newer.positionJson, sameSlug ? parsed.offset : 0)
+      ?? (sameSlug ? { href: id, type: 'text/html', locations: { progression: 0 } } : null)
+    if (!at) return true
     // A pending save is this tab's stale place; the newer one is already on the server.
     if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null }
     pendingSaveRef.current = null
-    window.scrollTo({ top, behavior: 'instant' })
+    await mounted.engine.goTo(at)
+    if (identifierRef.current !== id) return true
     setBaseline(currentScrollTop())
     heldOpenRef.current = false
-    sessionPositionsRef.current.set(id, { offset: top, positionJson: newer.positionJson ?? undefined })
-    lastLineRef.current = captureReadingPosition(id)
+    sessionPositionsRef.current.set(id, { offset: currentScrollTop(), positionJson: newer.positionJson ?? undefined })
     return true
   }, [])
 
@@ -465,48 +361,8 @@ export function useReaderScrollSync({
     resetKey: chapterIdentifier,
   })
 
-  /**
-   * Keep the reader in place when the text reflows under them.
-   *
-   * The anchor must be read from the OLD layout. An effect runs after the new
-   * inline styles are committed, so any measurement there already sees the
-   * reflowed text and records whatever now sits on the reading line (H2) — so
-   * the settings update path calls `captureBeforeReflow()` first, and this
-   * effect only restores. It restores at once (the measurement forces the new
-   * layout) and again on every article resize for a short window, because a
-   * font-family change keeps reflowing until the webfont lands.
-   */
-  const reflowAnchorRef = useRef<string | null>(null)
-  const captureBeforeReflow = useCallback(() => {
-    const id = identifierRef.current
-    // With the engine, setStyle reads the place itself: nothing to capture, nothing to re-anchor.
-    reflowAnchorRef.current = id && !latest.current.originalActive && scrollRestoredRef.current && !mountedEngineFor(id)
-      ? captureReadingPosition(id) ?? lastLineRef.current
-      : null
-  }, [])
-
-  useEffect(() => {
-    const before = reflowAnchorRef.current
-    reflowAnchorRef.current = null
-    if (!before || originalActive || !chapterLoaded || !chapterIdentifier) return
-    if (restoredFor !== chapterIdentifier) return
-    const article = readerArticle()
-    if (!article) return
-
-    const reanchor = () => {
-      const resolved = resolveTextPosition(parseTextPosition(before), chapterIdentifier, articleText(article))
-      const top = anchoredScrollTop(article, resolved)
-      if (top == null) return
-      window.scrollTo({ top, behavior: 'instant' })
-      setBaseline(currentScrollTop()) // our scroll, not the reader's: no save, not "moved"
-    }
-    reanchor()
-    if (typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(reanchor)
-    observer.observe(article)
-    const stop = window.setTimeout(() => observer.disconnect(), REFLOW_SETTLE_MS)
-    return () => { observer.disconnect(); clearTimeout(stop) }
-  }, [settingsKey, originalActive, chapterLoaded, chapterIdentifier, restoredFor])
+  // A typography change: the engine's setStyle keeps the place itself (E6); its 'style' relocate is
+  // our move, never the reader's (the `relocated` listener above).
 
   // Save-on-chapter-open: chapter→chapter navigation (route param change;
   // ReaderPage stays mounted) would otherwise record NOTHING for the new chapter
@@ -536,12 +392,6 @@ export function useReaderScrollSync({
   useEffect(() => {
     if (!chapterIdentifier) return
     const id = chapterIdentifier
-    lastLineRef.current = null
-    let lineTimer: number | undefined
-    const rememberLine = () => {
-      const line = captureReadingPosition(id)
-      if (line) lastLineRef.current = line
-    }
     const onScroll = () => {
       if (!scrollRestoredRef.current || latest.current.originalActive) return
       const top = currentScrollTop()
@@ -562,15 +412,12 @@ export function useReaderScrollSync({
         readerMovedRef.current = true
       }
       onReaderScrollRef.current?.()
-      clearTimeout(lineTimer)
-      lineTimer = window.setTimeout(rememberLine, LINE_IDLE_MS)
       pendingSaveRef.current = { identifier: id, offset: top }
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
       saveTimerRef.current = window.setTimeout(writePending, SAVE_DEBOUNCE_MS)
     }
     window.addEventListener('scroll', onScroll, { passive: true })
     return () => {
-      clearTimeout(lineTimer)
       window.removeEventListener('scroll', onScroll)
       // Leaving the chapter by any route (TOC, back button): the position the
       // reader left it at is written now, not dropped with the timer.
@@ -601,5 +448,5 @@ export function useReaderScrollSync({
     }
   }, [flushSave])
 
-  return { flushSave, captureBeforeReflow, markPositioned }
+  return { flushSave, markPositioned }
 }

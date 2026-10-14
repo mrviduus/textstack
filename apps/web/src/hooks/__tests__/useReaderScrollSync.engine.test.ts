@@ -1,58 +1,22 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import { buildTextPosition, serializeTextPosition } from '@textstack/shared'
-import { locatorToPosition, type EngineEvents, type GoToResult, type Locator, type ReaderEngine } from '@textstack/reader-engine'
+import { locatorToPosition, type GoToResult } from '@textstack/reader-engine'
 import { useReaderScrollSync } from '../useReaderScrollSync'
-import { setMountedEngine, unmountEngine } from '../../lib/readerEngine'
 import type { NewerPositionResult } from '../useReaderProgress'
+import { fakeEngine, setScroll, userScroll, unmountFakeEngines } from './scrollSync.testkit'
 
-// Phase 4 slice 1 (owner decision 4): with the engine on, useReaderScrollSync keeps its rules (ADR-019)
+// Phase 4 slice 1 (owner decision 4): useReaderScrollSync keeps its rules (ADR-019)
 // but the engine positions the reader — restore and the newer-position move are `goTo`, the saved
 // place is `current()`, and the engine's own moves (open, goTo, style, reflow) are never a save.
 
 type Props = Parameters<typeof useReaderScrollSync>[0]
 
-function setScroll(top: number) {
-  const el = (document.scrollingElement || document.documentElement) as HTMLElement
-  Object.defineProperty(el, 'scrollTop', { value: top, writable: true, configurable: true })
-}
-function userScroll(top: number) {
-  setScroll(top)
-  window.dispatchEvent(new Event('scroll'))
-}
 const settle = () => act(async () => { await vi.advanceTimersByTimeAsync(16) })
 
 const TEXT = 'It was a bright cold day in April, and the clocks were striking thirteen. Winston Smith hurried.'
 const positionAt = (slug: string, offset: number) =>
   serializeTextPosition(buildTextPosition({ chapterSlug: slug, chapterText: TEXT, charOffset: offset, chapterFraction: 0.3 })!)
-
-const mountedFakes: ReaderEngine[] = []
-
-/** An engine that lands every move at `landAt` and says it is at `here`. */
-function fakeEngine(href: string) {
-  const listeners = new Map<string, Set<(p: unknown) => void>>()
-  const state = { here: null as Locator | null, landAt: 0 }
-  const engine = {
-    goTo: vi.fn(async (at: Locator) => {
-      setScroll(state.landAt)
-      state.here = at
-      emit('relocated', { locator: at, reason: 'goTo' })
-      return 'exact' as GoToResult
-    }),
-    current: () => state.here,
-    on: (e: string, cb: (p: unknown) => void) => {
-      if (!listeners.has(e)) listeners.set(e, new Set())
-      listeners.get(e)!.add(cb)
-      return () => { listeners.get(e)!.delete(cb) }
-    },
-  }
-  function emit<K extends keyof EngineEvents>(e: K, p: EngineEvents[K]) {
-    listeners.get(e)?.forEach((cb) => cb(p))
-  }
-  setMountedEngine({ engine: engine as unknown as ReaderEngine, href })
-  mountedFakes.push(engine as unknown as ReaderEngine)
-  return { engine, state, emit }
-}
 
 const updateProgress = vi.fn()
 const baseProps = (): Props => ({
@@ -66,7 +30,6 @@ const baseProps = (): Props => ({
   publicBookChapters: [{ id: 'ch1-id', slug: 'ch1' }] as Props['publicBookChapters'],
   publicProgress: { updateProgress, flushSave: vi.fn() },
   userProgress: { saveProgress: vi.fn(), flushSave: vi.fn() },
-  settingsKey: '18 1.8 serif left',
 })
 
 beforeEach(() => {
@@ -76,7 +39,7 @@ beforeEach(() => {
   window.scrollTo = vi.fn() as unknown as typeof window.scrollTo
 })
 afterEach(() => {
-  mountedFakes.splice(0).forEach(unmountEngine)
+  unmountFakeEngines()
   vi.useRealTimers()
   vi.restoreAllMocks()
 })
@@ -109,7 +72,7 @@ describe('useReaderScrollSync with the engine — restore', () => {
   })
 
   it('restore_LayoutSwitchesBackToReflow_RestoresAgain', async () => {
-    // READER_ENGINE_PDF: the Original PDF scrolls the window; coming back to reflow must not keep its scrollTop.
+    // The Original PDF scrolls the window; coming back to reflow must not keep its scrollTop.
     const { engine } = fakeEngine('ch1')
     const { rerender } = renderHook((p: Props) => useReaderScrollSync(p), { initialProps: baseProps() })
     await settle()
@@ -165,16 +128,6 @@ describe('useReaderScrollSync with the engine — save', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
     expect(updateProgress).not.toHaveBeenCalled()
     expect(onReaderScroll).not.toHaveBeenCalled()
-  })
-
-  it('settingsChange_EngineOn_HookDoesNotScroll', async () => {
-    fakeEngine('ch1')
-    const { rerender, result } = renderHook((p: Props) => useReaderScrollSync(p), { initialProps: baseProps() })
-    await settle()
-    result.current.captureBeforeReflow()
-    rerender({ ...baseProps(), settingsKey: '24 1.8 serif left' })
-    await settle()
-    expect(window.scrollTo).not.toHaveBeenCalled()
   })
 })
 

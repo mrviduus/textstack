@@ -3,8 +3,7 @@ import type { TextSelectionState } from './useTextSelection'
 import type { useReaderVocabulary } from './useReaderVocabulary'
 import { useBubbleTranslationSync } from './useBubbleTranslationSync'
 import { promoteLookup } from '../api/vocabulary'
-import { extractSentence } from '../lib/sentenceExtractor'
-import { tokenizeVocabWords, extractWordFromRange } from '../lib/vocabKey'
+import { tokenizeVocabWords } from '../lib/vocabKey'
 import { fetchWordBubble } from '../lib/wordBubbleFetch'
 import { vocabChapterId } from '../lib/textAnchor'
 
@@ -16,7 +15,6 @@ interface Params {
   hasSelection: boolean
   /** The selection is exactly one word: the popup's trigger. */
   isSingleWord: boolean
-  containerRef: React.RefObject<HTMLElement | null>
   bookLanguage: string
   /** Null = definition mode (native equals the book's language). */
   targetLang: string | null
@@ -40,7 +38,6 @@ export function useWordBubble({
   clearSelection,
   hasSelection,
   isSingleWord,
-  containerRef,
   bookLanguage,
   targetLang,
   editionId,
@@ -176,7 +173,7 @@ export function useWordBubble({
   // Popup creation, extracted so the scheduling effect has tight deps and doesn't
   // re-fire on translation/definition arrival. Also fires auto-save for the tapped
   // word (fire-and-forget) so the user doesn't need an explicit Save click.
-  const openBubble = useCallback((word: string, rect: DOMRect, range: Range | null, engineSentence?: string) => {
+  const openBubble = useCallback((word: string, rect: DOMRect, engineSentence?: string) => {
     bubbleAbortRef.current?.abort()
     const ctrl = new AbortController()
     bubbleAbortRef.current = ctrl
@@ -187,8 +184,7 @@ export function useWordBubble({
     // Pass book context so translation can pick the domain-aware reading
     // ("warehouse" in a CS book → data-warehouse, in a logistics book →
     // storage facility). Kept on the bubble for a language-switch refetch (TR-1).
-    const container = containerRef.current
-    const sentence = engineSentence || (range && container ? extractSentence(range, container) || undefined : undefined)
+    const sentence = engineSentence || undefined
     const bookId = userBookId || editionId || undefined
     setBubble({
       word,
@@ -217,7 +213,7 @@ export function useWordBubble({
     if (hasConfirmedLanguage) {
       triggerAutoSave(word, () => handleSave(word, sentence))
     }
-  }, [bookLanguage, targetLang, handleSave, triggerAutoSave, hasConfirmedLanguage, containerRef, userBookId, editionId])
+  }, [bookLanguage, targetLang, handleSave, triggerAutoSave, hasConfirmedLanguage, userBookId, editionId])
 
   // Catch-up auto-save: if the user taps a word BEFORE confirming native
   // language, openBubble opens the popup but skips the save. When they then
@@ -249,12 +245,8 @@ export function useWordBubble({
       }
       return
     }
-    // Extract word from selection. Prefer DOM-aware extraction (strips
-    // .vocab-inline-translation text that Selection API concatenates with the word
-    // when both are in the same <mark> — e.g. "amiableприветливый"). Fallback to
-    // tokenizer on raw text to strip NBSP / zero-width chars. Preserves case.
-    const word = extractWordFromRange(selection.range)
-      ?? tokenizeVocabWords(selection.text)[0]?.word
+    // The tokenizer strips NBSP / zero-width chars from the selection's text. Preserves case.
+    const word = tokenizeVocabWords(selection.text)[0]?.word
       ?? selection.text.trim()
     if (!word) return
     // If same word already shown, don't re-fetch.
@@ -264,16 +256,15 @@ export function useWordBubble({
     // Net effect: brief accidental word-selections never create a bubble.
     if (openTimerRef.current) clearTimeout(openTimerRef.current)
     const rect = selection.rect
-    const range = selection.range
     const sentence = selection.sentence
     openTimerRef.current = setTimeout(() => {
       openTimerRef.current = null
-      openBubble(word, rect, range, sentence)
+      openBubble(word, rect, sentence)
     }, STABILIZE_MS)
     return () => {
       if (openTimerRef.current) { clearTimeout(openTimerRef.current); openTimerRef.current = null }
     }
-  }, [isSingleWord, hasSelection, selection.text, selection.rect, selection.range, selection.sentence, bubble?.word, openBubble])
+  }, [isSingleWord, hasSelection, selection.text, selection.rect, selection.sentence, bubble?.word, openBubble])
 
   // Clean abort + pending open timer on unmount
   useEffect(() => () => {

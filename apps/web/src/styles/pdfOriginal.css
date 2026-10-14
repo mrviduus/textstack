@@ -1,13 +1,5 @@
-/* Original-layout PDF view (opt-in for user-uploaded books).
- * Scrolls INTERNALLY (its own overflow container) so it never feeds the
- * reader's window-scroll progress pipeline — PDF page position is resume-only. */
-
-.pdf-original {
-  display: flex;
-  flex-direction: column;
-  height: 100dvh;
-  background: var(--reader-bg, #f4f4f5);
-}
+/* Original-layout PDF view (opt-in for user-uploaded books): PdfEngineView, the reader engine's
+ * fixed layout (ADR-025 Phase 5). The `pdf-original__*` names are its toolbar and messages. */
 
 .pdf-original__toolbar {
   display: flex;
@@ -82,21 +74,6 @@
   font-size: 14px;
 }
 
-.pdf-original__scroll {
-  flex: 1 1 auto;
-  overflow: auto;
-  overscroll-behavior: contain;
-  -webkit-overflow-scrolling: touch;
-  padding: 16px 0 64px;
-}
-
-.pdf-original__pages {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 16px;
-}
-
 .pdf-original__error,
 .pdf-original__loading {
   flex: 1 1 auto;
@@ -108,7 +85,7 @@
   text-align: center;
 }
 
-/* One page: canvas + transparent text layer, exact same box. */
+/* One page (the engine's): canvas + transparent text layer, exact same box. */
 .pdf-page {
   position: relative;
   background: #fff; /* paper-white, always — the whole point is fidelity */
@@ -118,20 +95,6 @@
 
 .pdf-page__canvas {
   display: block;
-}
-
-/* Optional in-view dim/invert — canvas only, so the selectable text layer
- * (and its selection highlight color) stays untouched. Default OFF. */
-.pdf-page--invert .pdf-page__canvas {
-  filter: invert(1) hue-rotate(180deg);
-}
-
-.pdf-page__placeholder {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #a1a1aa;
-  font-size: 13px;
 }
 
 /* --- Standard pdf.js text-layer styles (mirrored from web/pdf_viewer.css) ---
@@ -189,38 +152,6 @@
   top: 0;
 }
 
-/* --- Persistent PDF highlights (ADR "PDF highlights" S-b) ---
- * One layer per rendered page, filling the page box (same coord space as the
- * text layer). The layer AND its rects are fully click-through
- * (`pointer-events: none`) so a text selection can start/drag anywhere —
- * including directly over an existing highlight. Click-to-edit is restored via
- * point-in-rect hit-testing on the pages container (see PdfOriginalView), which
- * runs only when there is no active text selection. z-index 2 keeps the tint
- * painted above the text layer (z1). */
-.pdf-hl-layer {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  pointer-events: none;
-}
-
-.pdf-hl-rect {
-  position: absolute;
-  /* none → clicks/selection pass through to the text layer beneath; edit is
-     restored by hit-testing in PdfOriginalView, not by the rect itself. */
-  pointer-events: none;
-  border-radius: 2px;
-  /* Marker feel on the paper-white scan; keeps glyphs legible underneath. */
-  mix-blend-mode: multiply;
-}
-
-/* Dim/invert mode: the canvas is CSS-inverted (dark scan). Multiply would crush
- * the tint to near-black — drop the blend so the translucent pastel stays
- * visible on the darkened page. */
-.pdf-hl-layer--invert .pdf-hl-rect {
-  mix-blend-mode: normal;
-}
-
 /* Color swatch row in the PDF highlight edit popup. */
 .pdf-hl-popup__swatches {
   display: flex;
@@ -241,17 +172,7 @@
   border-color: var(--reader-fg, #18181b);
 }
 
-/* Chapter review: Reviewed dot after a PDF highlight's last rect (PdfHighlightLayer). */
-.pdf-hl-dot {
-  position: absolute;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--reader-reviewed-dot, #16a34a);
-  pointer-events: none;
-}
-
-/* --- READER_ENGINE_PDF (ADR-025 Phase 5): the engine's page column, on window scroll ---
+/* --- The engine's page column (ADR-025 Phase 5), on window scroll ---
  * The bars hide and come back on scroll as in reflow (answer 5a); the toolbar sits under the top bar
  * and hides with it. Dim/invert stays host CSS on the engine's canvas, the marks drop their blend. */
 .pdf-engine {

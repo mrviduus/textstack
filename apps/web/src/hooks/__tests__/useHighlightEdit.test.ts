@@ -1,93 +1,85 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
-
-// Mock text anchoring: findTextByAnchor returns a fake range; createTextAnchor a stub.
-const fakeRange = { getBoundingClientRect: () => ({ top: 100, height: 20, width: 50 }) }
-// Rest-param signatures so the passthrough spread below type-checks; the closure
-// keeps access lazy (vi.mock factories are hoisted above these declarations).
-const findTextByAnchor = vi.fn((..._a: unknown[]) => fakeRange)
-const createTextAnchor = vi.fn((..._a: unknown[]) => ({
-  prefix: '', exact: 'x', suffix: '', startOffset: 0, endOffset: 1, chapterId: 'c1',
-}))
-vi.mock('../../lib/textAnchor', () => ({
-  findTextByAnchor: (...a: unknown[]) => findTextByAnchor(...a),
-  createTextAnchor: (...a: unknown[]) => createTextAnchor(...a),
-  highlightChapterKey: (h: { anchor: { chapterId?: string } }) => h.anchor.chapterId ?? null,
-  isCacheChapterKey: (id: string) => id.includes(':'),
-}))
-
+import type { Locator, ReaderEngine } from '@textstack/reader-engine'
 import { useHighlightEdit } from '../useHighlightEdit'
+import { setMountedEngine, unmountEngine } from '../../lib/readerEngine'
 import type { StoredHighlight, TextAnchor } from '../../lib/offlineDb'
 
-function hl(id: string): StoredHighlight {
+// Jumps go through the engine's goTo (ADR-025); a highlight it cannot show is a miss, never a window scroll.
+const HREF = 'ch-1'
+
+function hl(id: string, chapterId = 'c1'): StoredHighlight {
   const anchor: TextAnchor = {
-    prefix: '', exact: id, suffix: '', startOffset: 0, endOffset: 1, chapterId: 'c1',
+    prefix: 'He ', exact: id, suffix: ' walked.', startOffset: 3, endOffset: 3 + id.length, chapterId,
   }
   return {
-    id, editionId: 'e1', chapterId: 'c1', anchor, color: 'yellow',
+    id, editionId: 'e1', chapterId, anchor, color: 'yellow',
     selectedText: id, syncStatus: 'synced', version: 1, createdAt: 1, updatedAt: 1,
   }
+}
+const selected: Locator = {
+  href: HREF, type: 'text/html', locations: { charOffset: 3 },
+  text: { before: 'He ', highlight: 'hello', after: ' walked.' },
 }
 
 const addHighlight = vi.fn(async () => hl('new'))
 const updateHighlight = vi.fn(async () => null)
 const removeHighlight = vi.fn(async () => {})
+const goTo = vi.fn(async () => 'exact')
+const engine = { goTo, current: () => null } as unknown as ReaderEngine
 
 function makeContainer() {
   return { current: document.createElement('div') } as React.RefObject<HTMLElement | null>
 }
 
 beforeEach(() => {
-  findTextByAnchor.mockClear()
-  addHighlight.mockClear(); updateHighlight.mockClear(); removeHighlight.mockClear()
+  addHighlight.mockClear(); updateHighlight.mockClear(); removeHighlight.mockClear(); goTo.mockClear()
   // rAF → run synchronously so the scroll effect completes within act().
   vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { cb(0); return 0 })
-  vi.stubGlobal('scrollTo', vi.fn())
   window.scrollTo = vi.fn() as unknown as typeof window.scrollTo
+  setMountedEngine({ engine, href: HREF })
+})
+afterEach(() => {
+  unmountEngine(engine)
+  vi.unstubAllGlobals()
 })
 
 describe('useHighlightEdit — hoisted highlights (no internal load)', () => {
   it('operates on the passed-in highlights + mutators', async () => {
-    const containerRef = makeContainer()
     const { result } = renderHook(() =>
       useHighlightEdit({
         highlights: [hl('a')],
         addHighlight, updateHighlight, removeHighlight,
-        chapterId: 'c1', containerRef,
+        chapterId: 'c1', containerRef: makeContainer(), engineHref: HREF,
       }),
     )
     // createHighlightFromSelection routes to the injected addHighlight (not an
     // internal useHighlights instance — proves the load was hoisted out).
-    const range = document.createRange()
     await act(async () => {
-      await result.current.createHighlightFromSelection(range, 'hello', 'green')
+      await result.current.createHighlightFromSelection('hello', 'green', selected)
     })
     expect(addHighlight).toHaveBeenCalledTimes(1)
   })
 
   it('does not save a highlight under an offline cache key (editionId:slug)', async () => {
-    createTextAnchor.mockReturnValueOnce({
-      prefix: '', exact: 'x', suffix: '', startOffset: 0, endOffset: 1, chapterId: 'ed-1:2-ii',
-    })
     const { result } = renderHook(() =>
       useHighlightEdit({
         highlights: [], addHighlight, updateHighlight, removeHighlight,
-        chapterId: 'ed-1:2-ii', containerRef: makeContainer(),
+        chapterId: 'ed-1:2-ii', containerRef: makeContainer(), engineHref: HREF,
       }),
     )
     await act(async () => {
-      await result.current.createHighlightFromSelection(document.createRange(), 'x', 'green')
+      await result.current.createHighlightFromSelection('hello', 'green', selected)
     })
     expect(addHighlight).not.toHaveBeenCalled()
   })
 
   it('delete routes to the injected removeHighlight', async () => {
-    const containerRef = makeContainer()
     const { result } = renderHook(() =>
       useHighlightEdit({
         highlights: [hl('a')],
         addHighlight, updateHighlight, removeHighlight,
-        chapterId: 'c1', containerRef,
+        chapterId: 'c1', containerRef: makeContainer(),
       }),
     )
     act(() => {
@@ -101,73 +93,82 @@ describe('useHighlightEdit — hoisted highlights (no internal load)', () => {
 })
 
 describe('useHighlightEdit — nonce-driven drawer jump', () => {
-  it('re-fires the scroll when the nonce changes (same id)', () => {
-    const containerRef = makeContainer()
+  it('re-fires the jump when the nonce changes (same id)', () => {
     const { rerender } = renderHook(
       ({ scrollToHl }) =>
         useHighlightEdit({
           highlights: [hl('a')],
           addHighlight, updateHighlight, removeHighlight,
-          chapterId: 'c1', containerRef, scrollToHl,
+          chapterId: 'c1', containerRef: makeContainer(), scrollToHl, engineHref: HREF,
         }),
       { initialProps: { scrollToHl: { id: 'a', nonce: 1 } } },
     )
-    expect(findTextByAnchor).toHaveBeenCalledTimes(1)
+    expect(goTo).toHaveBeenCalledTimes(1)
 
     // Same nonce → no re-fire.
     rerender({ scrollToHl: { id: 'a', nonce: 1 } })
-    expect(findTextByAnchor).toHaveBeenCalledTimes(1)
+    expect(goTo).toHaveBeenCalledTimes(1)
 
     // New nonce, same id → re-fires.
     rerender({ scrollToHl: { id: 'a', nonce: 2 } })
-    expect(findTextByAnchor).toHaveBeenCalledTimes(2)
+    expect(goTo).toHaveBeenCalledTimes(2)
   })
 
   it('does nothing when scrollToHl is null', () => {
-    const containerRef = makeContainer()
     renderHook(() =>
       useHighlightEdit({
         highlights: [hl('a')],
         addHighlight, updateHighlight, removeHighlight,
-        chapterId: 'c1', containerRef, scrollToHl: null,
+        chapterId: 'c1', containerRef: makeContainer(), scrollToHl: null, engineHref: HREF,
       }),
     )
-    expect(findTextByAnchor).not.toHaveBeenCalled()
+    expect(goTo).not.toHaveBeenCalled()
   })
 
-  it('navigates to the highlight chapter when the anchor is not mounted (miss)', () => {
-    // findTextByAnchor misses → highlight lives in an unmounted chapter.
-    findTextByAnchor.mockReturnValueOnce(null as unknown as typeof fakeRange)
+  it('navigates to the highlight chapter when it is not the one shown (miss)', () => {
     const onNavigateToHighlight = vi.fn()
-    const containerRef = makeContainer()
     const { unmount } = renderHook(() =>
       useHighlightEdit({
-        highlights: [hl('a')],
+        highlights: [hl('a', 'c9')],
         addHighlight, updateHighlight, removeHighlight,
-        chapterId: 'c1', containerRef,
+        chapterId: 'c1', containerRef: makeContainer(), engineHref: HREF,
         scrollToHl: { id: 'a', nonce: 1 },
         onNavigateToHighlight,
       }),
     )
+    expect(goTo).not.toHaveBeenCalled()
     expect(onNavigateToHighlight).toHaveBeenCalledTimes(1)
     expect(onNavigateToHighlight.mock.calls[0][0].id).toBe('a')
-    unmount() // clears the pending retry poll
+    unmount()
+  })
+
+  it('no engine showing the chapter: the jump does nothing — never a window scroll', () => {
+    renderHook(() =>
+      useHighlightEdit({
+        highlights: [hl('a')],
+        addHighlight, updateHighlight, removeHighlight,
+        chapterId: 'c1', containerRef: makeContainer(), engineHref: null,
+        scrollToHl: { id: 'a', nonce: 1 },
+      }),
+    )
+    expect(goTo).not.toHaveBeenCalled()
+    expect(window.scrollTo).not.toHaveBeenCalled()
   })
 })
 
 describe('useHighlightEdit — ?highlight= link reports its outcome', () => {
   type Opts = Parameters<typeof useHighlightEdit>[0]
-  it('found → scrolls instantly and reports true', async () => {
+  it('found → the engine goes there centred and it reports true', async () => {
     const done = vi.fn()
     renderHook(() =>
       useHighlightEdit({
         highlights: [hl('a')], addHighlight, updateHighlight, removeHighlight,
-        chapterId: 'c1', containerRef: makeContainer(),
+        chapterId: 'c1', containerRef: makeContainer(), engineHref: HREF,
         scrollToHighlightId: 'a', highlightLinkReady: true, onHighlightLinkDone: done,
       } as Opts),
     )
     await vi.waitFor(() => expect(done).toHaveBeenCalledWith(true))
-    expect(window.scrollTo).toHaveBeenCalledWith(expect.objectContaining({ behavior: 'instant' }))
+    expect(goTo).toHaveBeenCalledWith(expect.objectContaining({ href: HREF }), { align: 'center' })
   })
 
   it('not in the list → reports false (the reader falls back to restore)', async () => {
@@ -175,7 +176,7 @@ describe('useHighlightEdit — ?highlight= link reports its outcome', () => {
     renderHook(() =>
       useHighlightEdit({
         highlights: [hl('a')], addHighlight, updateHighlight, removeHighlight,
-        chapterId: 'c1', containerRef: makeContainer(),
+        chapterId: 'c1', containerRef: makeContainer(), engineHref: HREF,
         scrollToHighlightId: 'gone', highlightLinkReady: true, onHighlightLinkDone: done,
       } as Opts),
     )
@@ -187,7 +188,7 @@ describe('useHighlightEdit — ?highlight= link reports its outcome', () => {
     renderHook(() =>
       useHighlightEdit({
         highlights: [], addHighlight, updateHighlight, removeHighlight,
-        chapterId: 'c1', containerRef: makeContainer(),
+        chapterId: 'c1', containerRef: makeContainer(), engineHref: HREF,
         scrollToHighlightId: 'a', highlightLinkReady: false, onHighlightLinkDone: done,
       } as Opts),
     )

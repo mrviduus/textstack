@@ -26,15 +26,11 @@ import { ReaderLoadingScreen, ReaderErrorScreen } from '../components/reader/Rea
 import { ReaderHighlights } from '../components/reader/ReaderHighlights'
 import { ReaderCompleteOverlay } from '../components/reader/ReaderCompleteOverlay'
 import { chapterForHighlight } from '../lib/textAnchor'
-import { SearchOverlayLayer } from '../components/reader/SearchOverlayLayer'
 import { ReaderStatsWidget } from '../components/reader/ReaderStatsWidget'
-import { WordHint } from '../components/reader/WordHint'
 import { useHighlights } from '../hooks/useHighlights'
 import { ReviewedMarksContext } from '../components/reader/ReviewedMarks'
 import type { StoredHighlight } from '../lib/offlineDb'
 import { sourceDomain } from '../components/library/ReadLaterShelf'
-import { READER_ENGINE, READER_ENGINE_PDF } from '../lib/readerEngine'
-import '../styles/micro-practice.css'
 
 export type { ReaderMode } from '../hooks/useReaderChapter'
 
@@ -165,10 +161,9 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
     }
   }, [mode, userProgress.legacyProgress, book?.chapters, navigate, language, id])
 
-  // READER_ENGINE_PDF: the PDF scrolls the window, which is a page position, never a word-based percent.
-  const pdfOnWindow = originalActive && READER_ENGINE_PDF
+  // The Original-layout PDF scrolls the window, which is a page position, never a word-based percent.
   const { overlayScrollProgress, overallProgress, totalChapters, currentChapterIndex } = useReaderBookProgress({
-    mode, publicBook, book, chapterIdentifier, chapterId: chapter?.id, bookCompleted, ignoreScroll: pdfOnWindow,
+    mode, publicBook, book, chapterIdentifier, chapterId: chapter?.id, bookCompleted, ignoreScroll: originalActive,
   })
 
   const { readingSession, quickStats, bookEtf, onReaderScroll } = useReaderSessionTracking({
@@ -176,10 +171,10 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
   })
 
   const [engineOpenedFor, setEngineOpenedFor] = useState<string | null>(null)
-  // READER_ENGINE_PDF: the PDF engine's slot while mounted; ReaderHighlights takes its selection.
+  // The PDF engine's slot while mounted; ReaderHighlights takes its selection.
   const [pdfEngineFor, setPdfEngineFor] = useState<string | null>(null)
-  const { flushProgress, captureBeforeReflow, highlightLinkReady, handleHighlightLinkDone } = useReaderPositionSync({
-    mode, publicBook, chapter, chapterIdentifier, loading, originalActive, overallProgress, progress, settings, engineOpenedFor,
+  const { flushProgress, highlightLinkReady, handleHighlightLinkDone } = useReaderPositionSync({
+    mode, publicBook, chapter, chapterIdentifier, loading, originalActive, overallProgress, progress, engineOpenedFor,
     scrollToHighlightId, highlightsLoaded: highlightsApi.loaded, authLoading, onReaderScroll, location, navigate,
   })
 
@@ -188,7 +183,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
   })
 
   // Search hook needs chapter html, use empty string until loaded
-  const drawers = useReaderDrawers(chapter?.html || '', READER_ENGINE && !originalActive ? engineOpenedFor : undefined)
+  const drawers = useReaderDrawers(chapter?.html || '', originalActive ? null : engineOpenedFor)
   const { setTocOpen, setSettingsOpen, searchOpen, setSearchOpen } = drawers
 
   // Drawer jump to a reflow highlight in a chapter the reader hasn't mounted
@@ -246,24 +241,16 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
   const seoTitle = `${chapter?.title ?? book.title} — ${book.title}`
   const seoDescription = `Read ${chapter?.title ?? book.title} from ${book.title} online | TextStack Reader`
 
+  // The Original-layout PDF scrolls the window too: the bars hide and come back as in reflow.
   const immersiveClass = immersiveMode ? 'immersive-mode' : ''
-  // Original-layout PDF: the reveal-on-scroll immersive path can never fire (the
-  // PDF scrolls internally), so pin the reader chrome. The class offsets the PDF
-  // view below the fixed top bar and overrides the immersive hide (reader.css).
-  // READER_ENGINE_PDF scrolls the window: the bars hide and come back as in reflow.
-  const pinnedOriginal = originalActive && !READER_ENGINE_PDF
-  const originalClass = pinnedOriginal ? 'reader-page--original' : ''
 
   return (
     <ReviewedMarksContext.Provider value={reviewedMarks}>
-    <div className={`reader-page ${immersiveClass} ${originalClass}`}>
+    <div className={`reader-page ${immersiveClass}`}>
       <SeoHead title={seoTitle} description={seoDescription} noindex />
       <a href="#reader-content" className="skip-link">Skip to content</a>
       <ReaderTopBar
-        // Original mode pins the bar visible — the immersive reveal can't fire
-        // (PDF scrolls internally, window scroll never moves). reader.css also
-        // overrides the immersive !important hide for .reader-page--original.
-        visible={!immersiveMode || pinnedOriginal}
+        visible={!immersiveMode}
         title={book.title}
         chapterTitle={activeChapter?.title || chapter?.title || book.title}
         progress={overallProgress}
@@ -367,13 +354,6 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
               />
             )}
           </div>
-          {searchOpen && !originalActive && !READER_ENGINE && (
-            <SearchOverlayLayer
-              containerRef={scrollContainerRef}
-              query={drawers.search.query}
-              activeMatchIndex={drawers.search.activeMatchIndex}
-            />
-          )}
         </ReaderHighlights>
       </main>
 
@@ -418,7 +398,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
           },
         }}
         settings={settings}
-        onSettingsUpdate={(patch) => { captureBeforeReflow(); update(patch) }}
+        onSettingsUpdate={update}
         originalMode={originalActive}
       />
 
@@ -434,10 +414,6 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
           onClose={() => setBookCompleted(false)}
         />
       )}
-
-      {/* It wraps a word in a <mark>; the engine's text nodes are never touched (ADR-025). */}
-      {(originalActive ? !READER_ENGINE_PDF : !READER_ENGINE) && <WordHint containerRef={scrollContainerRef} />}
-
     </div>
     </ReviewedMarksContext.Provider>
   )

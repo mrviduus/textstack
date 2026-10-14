@@ -3,17 +3,10 @@ import { render, cleanup, act, fireEvent, screen } from '@testing-library/react'
 import { createRef } from 'react'
 import type { EngineEvents, Locator, ReaderEngine } from '@textstack/reader-engine'
 
-// Phase 4 slice 3: with the engine on, the reader's popups take the engine's events — selection
+// Phase 4 slice 3: the reader's popups take the engine's events — selection
 // (hold, drag, a desktop double-click) → WordPopup / SelectionToolbar, imageTap → lightbox,
-// linkClick → footnote jump / new tab — and the old DOM listeners stay off (gap 8). Slice 4: the engine
-// draws highlights (+ the reviewed dot), saved words and search hits; the old overlay layers stay off.
-// Phase 5 slice 3: the PDF engine flag, per test (off unless a test turns it on).
-let pdfEngineFlag = false
-vi.mock('../../../lib/readerEngine', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../../lib/readerEngine')>()),
-  READER_ENGINE: true,
-  get READER_ENGINE_PDF() { return pdfEngineFlag },
-}))
+// linkClick → footnote jump / new tab — and no DOM listeners (gap 8). Slice 4: the engine
+// draws highlights (+ the reviewed dot), saved words and search hits. Phase 5 slice 3: the PDF engine.
 vi.mock('../../../hooks/useTranslation', () => ({ useTranslation: () => ({ t: (k: string) => k }) }))
 vi.mock('../../../context/NativeLanguageContext', () => ({
   useNativeLanguage: () => ({ nativeLanguage: 'uk', setNativeLanguage: vi.fn(), hasConfirmedLanguage: true }),
@@ -44,17 +37,8 @@ vi.mock('../../../hooks/useExplain', () => ({
 }))
 const fetchWordBubble = vi.fn()
 vi.mock('../../../lib/wordBubbleFetch', () => ({ fetchWordBubble: (...a: unknown[]) => fetchWordBubble(...a) }))
-// The old layers' palettes stay; their drawing must not run with the engine on.
-vi.mock('../HighlightOverlayLayer', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../HighlightOverlayLayer')>()),
-  HighlightOverlayLayer: () => <i data-testid="old-highlight-layer" />,
-}))
-vi.mock('../VocabOverlayLayer', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../VocabOverlayLayer')>()),
-  VocabOverlayLayer: () => <i data-testid="old-vocab-layer" />,
-}))
 
-// An anchor the engine cannot read (no locator) — the jump keeps the old DOM path.
+// An anchor the engine cannot read (no locator): the jump does nothing.
 let noLocator = false
 vi.mock('@textstack/reader-engine', async (importOriginal) => {
   const orig = await importOriginal<typeof import('@textstack/reader-engine')>()
@@ -213,14 +197,6 @@ describe('ReaderHighlights with the engine', () => {
     expect(screen.queryByLabelText('reader.selectionToolbar.translate')).toBeNull()
   })
 
-  it('engine_OriginalPdf_KeepsTheNativeSelection', async () => {
-    // Phase 5 moves the PDF onto the engine; until then its text layer selects natively.
-    const { container } = renderReader({ liveActionsOnly: true, engineOpenedFor: null })
-    nativeSelect(container.querySelector('p')!)
-    await settle()
-    expect(screen.getByLabelText('reader.selectionToolbar.translate')).toBeTruthy()
-  })
-
   it('engine_ImageTap_OpensTheLightbox_TheOldClickDoesNot', async () => {
     const { container } = renderReader()
     fireEvent.click(container.querySelector('img')!)
@@ -281,12 +257,6 @@ describe('ReaderHighlights with the engine', () => {
     ({ id, editionId: 'e1', chapterId: 'c1', anchor, color: 'yellow', selectedText: anchor.exact, ...over }) as StoredHighlight
   const quoted = expect.objectContaining({ href: 'ch-1', text: { before: 'He ', highlight: 'pocketed the coins', after: ' and walked out.' } })
   const reviewedMarks = (id: string) => ({ marks: new Map([[id, {} as ReviewedMark]]), reviewPath: () => '' })
-
-  it('engine_OldOverlayLayersOff', () => {
-    renderReader({ highlights: [hl('h1')] })
-    expect(screen.queryByTestId('old-highlight-layer')).toBeNull()
-    expect(screen.queryByTestId('old-vocab-layer')).toBeNull()
-  })
 
   it('engine_OriginalPdf_LeavesTheEngineAlone', () => {
     renderReader({ liveActionsOnly: true, engineOpenedFor: null, highlights: [hl('h1')] })
@@ -372,18 +342,13 @@ describe('ReaderHighlights with the engine', () => {
     expect(nav).not.toHaveBeenCalled()
   })
 
-  it('engine_DrawerJump_AnchorWithoutALocator_KeepsTheOldDomJump_NotARoute', async () => {
+  it('engine_DrawerJump_AnchorWithoutALocator_NoWindowScroll', async () => {
+    // A window scroll would read as the reader's move and save a pixel offset the engine never made.
     noLocator = true
     const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
-    Range.prototype.getBoundingClientRect = () => new DOMRect(0, 500, 100, 20)   // jsdom has none
-    try {
-      const nav = await drawerJump(hl('h1'))
-      expect(eng.engine.goTo).not.toHaveBeenCalled()
-      expect(scrollTo).toHaveBeenCalled()
-      expect(nav).not.toHaveBeenCalled()
-    } finally {
-      delete (Range.prototype as Partial<Range>).getBoundingClientRect
-    }
+    await drawerJump(hl('h1'))
+    expect(eng.engine.goTo).not.toHaveBeenCalled()
+    expect(scrollTo).not.toHaveBeenCalled()
   })
 
   it('engine_Vocab_MarkedByTheEngine_WithTranslationsWhenOn', () => {
@@ -434,13 +399,11 @@ describe('ReaderHighlights with the PDF engine (Phase 5 slice 3)', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    pdfEngineFlag = true
     eng = fakeEngine()
     setMountedEngine({ engine: eng.engine, href: 'pdf:b1' })
   })
   afterEach(() => {
     cleanup()
-    pdfEngineFlag = false
     unmountEngine(eng.engine)
   })
 
@@ -465,13 +428,6 @@ describe('ReaderHighlights with the PDF engine (Phase 5 slice 3)', () => {
     expect(eng.engine.decorate.mock.calls.filter(([g]) => g === 'highlight')).toEqual([])
     await eng.emit('decorationTap', { group: 'highlight', id: 'h1', rect: { x: 1, y: 2, width: 3, height: 4 } })
     expect(screen.queryByLabelText('reader.noteEditor.close')).toBeNull()
-  })
-
-  it('pdfEngineFlagOff_OriginalPdf_KeepsTheDomSelection', async () => {
-    pdfEngineFlag = false
-    pdfReader()
-    await eng.emit('selection', pdfSelection)
-    expect(screen.queryByLabelText('reader.selectionToolbar.translate')).toBeNull()
   })
 })
 
