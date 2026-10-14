@@ -512,7 +512,7 @@ public static class UserBooksEndpoints
                         && f.UserBook.UserId == userId.Value
                         && f.UserBook.TakedownAt == null)
             .OrderByDescending(f => f.UploadedAt)
-            .Select(f => new { f.StoragePath, f.UploadedAt, f.Sha256, f.Format })
+            .Select(f => new { f.StoragePath, f.UploadedAt, f.Sha256, f.Format, f.UserBook.Title })
             .FirstOrDefaultAsync(ct);
 
         if (file is null) return Results.NotFound();
@@ -533,6 +533,15 @@ public static class UserBooksEndpoints
             BookFormat.Epub => "application/epub+zip",
             _ => "application/octet-stream"
         };
+
+        // Inline (the reader displays it) but named after the book: a download saved "file.pdf".
+        var extension = file.Format switch { BookFormat.Pdf => ".pdf", BookFormat.Epub => ".epub", _ => "" };
+        var baseName = string.Join(" ", file.Title.Split(Path.GetInvalidFileNameChars().Concat(['"', '\\', '/']).ToArray(),
+            StringSplitOptions.RemoveEmptyEntries)).Trim().TrimStart('.');
+        httpContext.Response.Headers.ContentDisposition = new ContentDispositionHeaderValue("inline")
+        {
+            FileNameStar = (baseName.Length > 0 ? baseName : "book") + extension
+        }.ToString();
 
         return Results.File(
             fullPath,
