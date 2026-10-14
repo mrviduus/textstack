@@ -143,10 +143,14 @@ export function startPdfPage(engine: ReaderEngine, w: PdfPageWindow): void {
   }
 
   /** Opens the file at page n: once the bytes are there. A jump RN asks for meanwhile is newer, and wins. */
+  let generation = 0
   function open(n: number, opId: string) {
     opened = false
+    const mine = ++generation
     source().then(
       (pdf) => {
+        // A newer open is on its way: this one's bytes are stale, and `pending` is the newer one's.
+        if (mine !== generation) return
         const target = pending ?? { page: n, id: opId }
         pending = null
         opened = true
@@ -155,6 +159,7 @@ export function startPdfPage(engine: ReaderEngine, w: PdfPageWindow): void {
         void engine.open({ layout: 'fixed', pdf } as ChapterDoc, at(target.page), target.id)
       },
       (e: unknown) => {
+        if (mine !== generation) return
         if ((e as { code?: string })?.code === 'pdf-auth') authLost()
         else post({ type: 'pdfLoadError', message: (e as Error)?.message ?? 'pdf-load' })
       },

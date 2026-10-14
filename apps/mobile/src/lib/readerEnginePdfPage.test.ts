@@ -346,4 +346,16 @@ describe('the PDF engine page', () => {
       expect(p.s.calls.at(-1)!.auth).toBe('Bearer t2')
     } finally { vi.useRealTimers() }
   })
+
+  it('only the newest open opens: an older one whose bytes come late is dropped, and the jump RN asked for meanwhile goes to the newest', async () => {
+    let release = () => {}
+    const p = boot({}, { hold: new Promise<void>((r) => { release = r }) })
+    p.w.scrollToPage!(30, 2)
+    p.w.__tsPdfReopen!('t2')   // a second open while the first one's bytes are still coming
+    release()
+    await settle()
+    expect(p.opens).toHaveLength(1)
+    expect(p.opens[0].at).toEqual(at(30))
+    expect(p.opens[0].opId).toBe('2')
+  })
 })
