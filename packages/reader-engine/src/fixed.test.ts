@@ -372,14 +372,14 @@ describe('sizes', () => {
   it('E37 while the reader scrolls, a size change waits until scrolling has stopped', async () => {
     const reader = makePdfReader({ pages: 40 })
     await reader.open(10)
+    vi.useFakeTimers()                          // real timers raced the 150 ms idle window on a loaded CI runner
     reader.scrollTo(reader.pageTop(10) + 200)
-    await new Promise((r) => setTimeout(r, 5))  // a fling: its scroll event just arrived
+    await vi.advanceTimersByTimeAsync(5)        // a fling: its scroll event just arrived
     const top = reader.scrollTop
     reader.setWidth(800)
     expect(reader.scrollTop).toBe(top)          // nothing moved under the finger
     expect(reader.pages()[0].h).toBe(PAGE_H)
-    await new Promise((r) => setTimeout(r, 200))
-    await reader.settle()
+    await vi.advanceTimersByTimeAsync(200)
     expect(reader.pages()[0].w).toBe(800 - 24)
     expect(reader.spot()!.page).toBe(10)
   })
