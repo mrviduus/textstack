@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { createEngine } from './engine'
+import { isReaderScrollKey } from './fixed'
 import { FILE_LENGTH, LANDSCAPE, LETTER, TALL, destroyAll, lineText, makePdfReader, quoteRect } from './fixed.testkit'
 import { locatorToPdfAnchor, pdfAnchorToLocator } from './mappers'
 import type { EngineEvents, Locator } from './api'
@@ -311,6 +312,17 @@ describe('reading', () => {
       expect(reader.spot()!.page, gesture).toBe(where)
       destroyAll()
     }
+  })
+
+  it('E36 the scroll keys, shared with the host: arrows / PageDown / Space scroll; Escape does not; nor a key typed in a field', () => {
+    const key = (k: string, target: EventTarget = document.body) => {
+      const e = new KeyboardEvent('keydown', { key: k })
+      Object.defineProperty(e, 'target', { value: target })
+      return isReaderScrollKey(e)
+    }
+    expect(['ArrowDown', 'PageDown', ' ', 'End'].map((k) => key(k))).toEqual([true, true, true, true])
+    expect(key('Escape')).toBe(false)
+    expect(key('ArrowDown', document.createElement('input'))).toBe(false)
   })
 
   it('E36 a key that does not scroll (Escape, a modifier) leaves the jump travelling', async () => {

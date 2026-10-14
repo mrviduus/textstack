@@ -36,7 +36,10 @@ vi.mock('@textstack/reader-engine', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@textstack/reader-engine')>()),
   createEngine: (root: HTMLElement, o?: unknown) => createEngine(root, o),
 }))
-vi.mock('../pdfEngineLayout', () => ({ pdfFixedLayout: 'the host pdf.js layout' }))
+vi.mock('../pdfEngineLayout', async () => ({
+  pdfFixedLayout: 'the host pdf.js layout',
+  isReaderScrollKey: (await import('@textstack/reader-engine/fixed')).isReaderScrollKey,
+}))
 const source = { length: 1000, read: vi.fn() }
 const openPdfSource = vi.fn(async (..._a: unknown[]): Promise<unknown> => source)
 vi.mock('../../../lib/pdfRangeSource', () => ({ openPdfSource: (...a: unknown[]) => openPdfSource(...a) }))

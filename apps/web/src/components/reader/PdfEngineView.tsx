@@ -12,7 +12,7 @@ import type { HighlightColor, StoredHighlight } from '../../lib/offlineDb'
 import { PdfHighlightPopup } from './PdfHighlightPopup'
 import { COLOR_MAP } from './PdfHighlightLayer'
 import { isReviewed, useReviewedMarks } from './ReviewedMarks'
-import { pdfFixedLayout } from './pdfEngineLayout'
+import { isReaderScrollKey, pdfFixedLayout } from './pdfEngineLayout'
 import '../../styles/pdfOriginal.css'
 
 interface Props {
@@ -49,8 +49,6 @@ type PdfSource = NonNullable<ChapterDoc['pdf']>
 const ACTIVITY_THROTTLE_MS = 1500
 const SERVER_PROGRESS_DEBOUNCE_MS = 2000
 const LOCAL_DEBOUNCE_MS = 500
-/** Keys that scroll the page: only they are the reader moving (the engine's E36 list). */
-const SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', ' ', 'Spacebar', 'Home', 'End'])
 const at = (page: number): Locator => ({ type: 'application/pdf', locations: { position: page } })
 
 /**
@@ -309,7 +307,7 @@ export default function PdfEngineView({
   // --- The reader's own input, within a page too. Input, not `scroll`: the engine's own scrolls are not the reader. ---
   useEffect(() => {
     const onInput = (e: Event) => {
-      if (e instanceof KeyboardEvent && (!SCROLL_KEYS.has(e.key) || (e.target as Element | null)?.closest?.('input, textarea, select'))) return
+      if (e instanceof KeyboardEvent && !isReaderScrollKey(e)) return
       readerMoved()
     }
     const events = ['wheel', 'touchmove', 'keydown']

@@ -4,6 +4,8 @@ import * as pdfjs from 'pdfjs-dist'
 import workerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { fixedLayout } from '@textstack/reader-engine/fixed'
 
+export { isReaderScrollKey } from '@textstack/reader-engine/fixed'
+
 // pdf.js starts one worker per document from this URL and ends it with the document.
 pdfjs.GlobalWorkerOptions.workerSrc = workerSrc
 

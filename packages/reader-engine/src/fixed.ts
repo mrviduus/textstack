@@ -67,6 +67,12 @@ const SCROLL_IDLE_MS = 150
 const RENDER_MARGIN_PX = 300
 /** Keys that scroll the page: only they end a travelling jump (not Escape, not a modifier). */
 const SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', ' ', 'Spacebar', 'Home', 'End'])
+
+/** A key the reader scrolls the page with (E36): a scroll key, not typed into a field. Hosts use it too. */
+export function isReaderScrollKey(e: KeyboardEvent): boolean {
+  const typing = (e.target as Element | null)?.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])')
+  return SCROLL_KEYS.has(e.key) && !typing
+}
 const MIN_SCALE = 0.2
 const MAX_SCALE = 5
 const COLORS = {
@@ -644,8 +650,7 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
   // The reader's own gesture ends a travelling jump where they are; a late landing must not snap them
   // back. Input events, not `scroll`: sizes streaming in move the scroll with no reader.
   const onGesture = (e: Event) => {
-    const typing = (e.target as Element | null)?.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])')
-    if (op && numPages && (!(e instanceof KeyboardEvent) || (SCROLL_KEYS.has(e.key) && !typing))) land(false)
+    if (op && numPages && (!(e instanceof KeyboardEvent) || isReaderScrollKey(e))) land(false)
   }
   const onTouchStart = () => { touchDown = true }
   const onTouchEnd = () => { touchDown = false; lastScrollAt = Date.now() }
