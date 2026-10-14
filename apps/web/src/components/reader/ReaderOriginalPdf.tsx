@@ -28,6 +28,8 @@ export function ReaderOriginalPdf({ pdf, bookId, resumeUnanswered, onActivity, h
   return (
     <Suspense fallback={<div className="pdf-original__loading">Loading original pages…</div>}>
       <View
+        // Another book is another view: its engine, document and highlights start fresh.
+        key={bookId}
         fileUrl={pdf.pdfFileUrl}
         bookId={bookId}
         initialPage={pdf.initialPdfPage}

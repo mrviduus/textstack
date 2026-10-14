@@ -40,7 +40,8 @@ vi.mock('../pdfEngineLayout', () => ({ pdfFixedLayout: 'the host pdf.js layout' 
 const source = { length: 1000, read: vi.fn() }
 const openPdfSource = vi.fn(async (..._a: unknown[]): Promise<unknown> => source)
 vi.mock('../../../lib/pdfRangeSource', () => ({ openPdfSource: (...a: unknown[]) => openPdfSource(...a) }))
-vi.mock('../../../api/auth', () => ({ refreshToken: vi.fn(async () => ({})) }))
+const refreshToken = vi.fn(async (): Promise<unknown> => ({}))
+vi.mock('../../../api/auth', () => ({ refreshToken: () => refreshToken() }))
 vi.mock('../../../hooks/useTranslation', () => ({ useTranslation: () => ({ t: (k: string) => k }) }))
 const saveUserBookProgress = vi.fn(async (..._a: unknown[]) => {})
 vi.mock('../../../api/userBooks', () => ({ saveUserBookProgress: (...a: unknown[]) => saveUserBookProgress(...a) }))
@@ -79,7 +80,7 @@ beforeEach(() => {
   eng = fakeEngine()
   localPage.current = null
   vi.clearAllMocks()
-  openPdfSource.mockImplementation(async () => source)
+  openPdfSource.mockImplementation(async () => ({ ...source }))   // a new object per read of the file, as the real one
 })
 afterEach(() => {
   cleanup()
@@ -106,6 +107,37 @@ describe('PdfEngineView — the engine and its bytes', () => {
     expect(eng.engine.destroy).toHaveBeenCalled()
     expect(mountedEngineFor('pdf:b1')).toBeNull()
     expect(onEngine).toHaveBeenLastCalledWith(null)
+  })
+
+  it('a failed read after the document is open (pdf-load) is not a fallback: the reader stays', async () => {
+    const onLoadError = vi.fn()
+    render(<PdfEngineView {...base} resumeReady onLoadError={onLoadError} />)
+    await wait(0)
+    ack(1)
+    eng.emit('error', { code: 'pdf-load', detail: 'HTTP 500' })
+    expect(onLoadError).not.toHaveBeenCalled()
+    expect(screen.queryByText('reader.originalLayout.error')).toBeNull()
+  })
+
+  it('Reload waits for the new bytes: a re-render while the session refreshes never reopens on the old ones', async () => {
+    let refreshed!: () => void
+    refreshToken.mockImplementationOnce(() => new Promise((r) => { refreshed = () => r({}) }))
+    const fresh = { length: 1000, read: vi.fn() }
+    const view = render(<PdfEngineView {...base} resumeReady />)
+    await wait(0)
+    ack(1)
+    readerScrollsTo(9)
+    eng.emit('error', { code: 'pdf-auth' })
+    fireEvent.click(screen.getByText('reader.originalLayout.reload'))
+    view.rerender(<PdfEngineView {...base} resumeReady resumePage={3} />)
+    await wait(0)
+    expect(eng.engine.open).toHaveBeenCalledTimes(1)
+    openPdfSource.mockImplementation(async () => fresh)
+    await act(async () => { refreshed() })
+    await wait(0)
+    expect(eng.engine.open).toHaveBeenCalledTimes(2)
+    expect(last(eng.engine.open.mock.calls)[0]).toEqual({ layout: 'fixed', pdf: fresh })
+    expect(lastOpenPage()).toBe(9)
   })
 
   it('a load failure (pdf-load) hands over to the reflow fallback once', async () => {
@@ -313,6 +345,20 @@ describe('PdfEngineView — where it opens and what it saves (ADR-012 gate)', ()
     await wait(2300)
     expect(savedPages()).toContain(14)
     expect(saveUserBookProgress).toHaveBeenCalledTimes(1)
+  })
+
+  it('a TOC jump while the open is still travelling: the open\'s superseded ack is not a landing, nothing saved until the jump acks', async () => {
+    const view = render(<PdfEngineView {...base} resumePage={7} resumeReady />)
+    await wait(0)
+    eng.emit('ready', { opId: '1', pageCount: 40 })
+    view.rerender(<PdfEngineView {...base} resumePage={7} resumeReady scrollToPage={{ page: 14, nonce: 1 }} />)
+    // The engine supersedes the travelling open: its ack carries the open's opId at the new target.
+    eng.emit('relocated', { locator: page(14), reason: 'open', opId: '1' })
+    await wait(2300)
+    expect(writePdfPage).not.toHaveBeenCalled()
+    ack()   // the jump lands
+    await wait(2300)
+    expect(savedPages()).toContain(14)
   })
 
   it('a jump asked for before the open opens there, once (not replayed on a rerender)', async () => {

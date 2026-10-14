@@ -103,8 +103,10 @@ export default function PdfEngineView({
   // Is the page on screen one the reader chose? Closed from an open until its ack (pdfPersistGate).
   const gateRef = useRef(PDF_GATE_INITIAL)
   const jumpSeqRef = useRef(0)
-  /** The engine the current document was opened in (StrictMode makes a second one). */
-  const openedForRef = useRef<ReaderEngine | null>(null)
+  /** The engine and bytes the current document was opened with (StrictMode makes a second engine, Reload new bytes). */
+  const openedForRef = useRef<{ engine: ReaderEngine; source: PdfSource } | null>(null)
+  /** The open's document is in (`ready`): a later 'pdf-load' is one failed read, not a reason to fall back. */
+  const docReadyRef = useRef(false)
   /** Reopen here after a session-expired reload. */
   const reloadPageRef = useRef<number | null>(null)
   // Don't save the page on screen until the reader moves (an unanswered open, a newer-page move).
@@ -175,6 +177,7 @@ export default function PdfEngineView({
     setMountedEngine({ engine, href })
     const offs = [
       engine.on('ready', ({ pageCount }) => {
+        docReadyRef.current = true
         if (!pageCount) return
         numPagesRef.current = pageCount
         setNumPages(pageCount)
@@ -182,7 +185,8 @@ export default function PdfEngineView({
       }),
       engine.on('relocated', ({ locator, reason, opId }) => {
         const n = locator.locations.position
-        if (!n) return
+        // A superseded op acks with its own opId at the NEW target: not a landing, not the reader's page.
+        if (!n || (opId && Number(opId) !== jumpSeqRef.current)) return
         if (reason === 'scroll') readerMoved()   // a scrollbar drag too
         currentPageRef.current = n
         setPage(n)
@@ -202,6 +206,7 @@ export default function PdfEngineView({
       engine.on('error', ({ code, detail }) => {
         if (code === 'pdf-auth') setSessionExpired(true)
         else if (code === 'pdf-load') {
+          if (docReadyRef.current) return console.warn('[pdf] a read failed after the open', detail)
           setFailed(true)
           if (!loadErrorFiredRef.current) {
             loadErrorFiredRef.current = true
@@ -249,7 +254,7 @@ export default function PdfEngineView({
   // chapterless open waits for the server's answer (resumeReady). ---
   useEffect(() => {
     const engine = engineRef.current
-    if (!engine || !source || openedForRef.current === engine) return
+    if (!engine || !source || (openedForRef.current?.engine === engine && openedForRef.current.source === source)) return
     const reload = reloadPageRef.current
     if (reload == null && pendingJump == null && initialPage == null && !resumeReady) return
     let target: number
@@ -260,16 +265,18 @@ export default function PdfEngineView({
       target = pendingJump
       explicitRef.current = true
       holdRef.current = false
+      setPendingJump(null)
     } else {
       target = openPage
       explicitRef.current = initialPage != null
       holdRef.current = resumeUnanswered && initialPage == null
     }
-    openedForRef.current = engine
+    openedForRef.current = { engine, source }
+    docReadyRef.current = false
     gateRef.current = pdfGateReduce(gateRef.current, { type: 'documentLoaded' }).state
     jump(target, (opId) => engine.open({ layout: 'fixed', pdf: source }, at(target), opId))
     setOpened(true)
-  }, [source, pendingJump, initialPage, resumeReady, resumeUnanswered, openPage, jump, bookId])
+  }, [source, pendingJump, initialPage, resumeReady, resumeUnanswered, openPage, jump])
 
   // --- TOC / bookmark / highlight jump: once per nonce. Before the open, the open goes there. ---
   const appliedJumpRef = useRef<number | null>(null)
@@ -278,7 +285,7 @@ export default function PdfEngineView({
     appliedJumpRef.current = scrollToPage.nonce
     explicitRef.current = true
     holdRef.current = false // the reader chose this page: it saves
-    if (engineRef.current && openedForRef.current === engineRef.current) goToPage(scrollToPage.page)
+    if (engineRef.current && openedForRef.current?.engine === engineRef.current) goToPage(scrollToPage.page)
     else setPendingJump(scrollToPage.page)
   }, [scrollToPage, goToPage])
 
@@ -297,7 +304,7 @@ export default function PdfEngineView({
       const fill = { id: h.id, locator, style: COLOR_MAP[h.color] }
       return isReviewed(reviewed, h.id) ? [fill, { id: h.id, locator, style: 'dot' }] : [fill]
     }))
-  }, [highlights, reviewed, bookId])
+  }, [highlights, reviewed])
 
   // --- The reader's own input, within a page too. Input, not `scroll`: the engine's own scrolls are not the reader. ---
   useEffect(() => {
@@ -346,8 +353,9 @@ export default function PdfEngineView({
 
   const handleReload = useCallback(async () => {
     reloadPageRef.current = currentPageRef.current
-    openedForRef.current = null
     setSessionExpired(false)
+    setFailed(false)
+    loadErrorFiredRef.current = false
     try {
       await refreshToken()
     } catch {
