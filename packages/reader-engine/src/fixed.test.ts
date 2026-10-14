@@ -662,3 +662,105 @@ describe('taps and scrolling on a PDF', () => {
     expect(reader.payloads('scrollDir')).toEqual(['down', 'up'])
   })
 })
+
+describe('review fixes', () => {
+  it('E35 a page freed while its draw waits, then drawn again, has one canvas and one text layer', async () => {
+    const reader = makePdfReader({ pages: 40 })
+    await reader.open()
+    await reader.settle()
+    reader.fake.holdFrom(10)                 // the draws below wait on their pages
+    reader.scrollTo(reader.pageTop(12))
+    await reader.settle()
+    reader.scrollTo(0)                       // freed while waiting
+    await reader.settle()
+    reader.scrollTo(reader.pageTop(12))      // drawn again
+    await reader.settle()
+    reader.fake.release()
+    await reader.settle()
+    for (const el of Array.from(reader.root.querySelectorAll('[data-page]'))) {
+      expect(el.querySelectorAll('canvas').length, `page ${(el as HTMLElement).dataset.page}`).toBeLessThanOrEqual(1)
+      expect(el.querySelectorAll('.textLayer').length, `page ${(el as HTMLElement).dataset.page}`).toBeLessThanOrEqual(1)
+    }
+  })
+
+  it('E34 after a failed open, a goTo is acked and not landed, and current() stays empty', async () => {
+    const reader = makePdfReader({ pages: 40 })
+    reader.failReads(0, new Error('offline'))
+    await reader.open(3, 'o')
+    let result: string | undefined
+    void reader.goTo(5, 'g').then((r) => { result = r })
+    await reader.settle()
+    expect(result).toBe('superseded')
+    expect(reader.ack('g').page).toBe(3)
+    expect(reader.engine.current()).toBeNull()
+  })
+
+  it("E40 a drag onto the next page: the text and sentence are the start page's part too, like the rects", async () => {
+    const reader = makePdfReader({ pages: 40 })
+    await reader.open()
+    await reader.settle()
+    const r = document.createRange()
+    r.setStart(reader.span(2, 2).firstChild!, 0)
+    r.setEnd(reader.span(3, 0).firstChild!, 6)
+    reader.select(r)
+    await wait(250)
+    const sel = reader.payloads('selection')[0] as NonNullable<EngineEvents['selection']>
+    expect(sel.text).toBe(lineText(2, 2))
+    expect(sel.locator.text!.highlight).toBe(lineText(2, 2))
+    expect(sel.sentence).toBe(lineText(2, 2))
+  })
+
+  it("E39 a page whose canvas could not be made says 'render', and is drawn when it can be", async () => {
+    const real = HTMLCanvasElement.prototype.getContext
+    HTMLCanvasElement.prototype.getContext = (() => null) as unknown as typeof real
+    const reader = makePdfReader({ pages: 40 })
+    try {
+      await reader.open()
+      await reader.settle()
+      expect(reader.payloads('error')).toContainEqual({ code: 'render', detail: expect.stringContaining('page 1') })
+    } finally { HTMLCanvasElement.prototype.getContext = real }
+    reader.scrollTo(10)
+    await reader.settle()
+    expect(reader.canvases()).toContain(1)
+  })
+
+  it('E36 a scroll key typed into a host field never ends a jump', async () => {
+    const reader = makePdfReader({ pages: MIXED })
+    await reader.open()
+    reader.fake.holdFrom(10)
+    const going = reader.goTo(30, 'go')
+    await reader.settle()
+    const fields = [document.createElement('input'), document.createElement('textarea'), (() => { const d = document.createElement('div'); d.setAttribute('contenteditable', 'true'); return d })()]
+    for (const f of fields) {
+      document.body.append(f)
+      f.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+      f.remove()
+    }
+    reader.fake.release()
+    expect(await going).toBe('exact')
+  })
+
+  it("E32 page boxes have page 1's own shape from the start: the first draw is never thrown away", async () => {
+    const reader = makePdfReader({ pages: [LANDSCAPE, ...Array(9).fill(LANDSCAPE)] })
+    let atReady: { w: number; h: number } | undefined
+    reader.engine.on('ready', () => { atReady = reader.pages()[0] })
+    await reader.open()
+    await reader.settle()
+    expect(atReady).toEqual({ w: 388, h: Math.round(612 * (412 - 24) / 792) })
+    expect(reader.fake.renders).toBe(reader.canvases().length)
+  })
+
+  it('E23 + E28 a new document starts fresh: its first scroll down and its first tap are sent', async () => {
+    const reader = makePdfReader({ pages: 40 })
+    await reader.open()
+    reader.scrollTo(100)
+    await reader.settle()
+    reader.tap(200, 300)
+    await reader.open(undefined, 'second')
+    reader.tap(200, 300)
+    reader.scrollTo(200)
+    await reader.settle()
+    expect(reader.payloads('scrollDir')).toEqual(['down', 'down'])
+    expect(reader.payloads('tap')).toHaveLength(2)
+  })
+})

@@ -48,6 +48,7 @@ interface Slot {
   marks: HTMLElement | null                 // decorations, painted from rects
   drawn: number | null
   drawing: number | null
+  gen: number                               // bumped by every free: a draw from before it bails
   task: { cancel(): void } | null
 }
 type Group = 'highlight' | 'search'
@@ -254,6 +255,7 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
       s.canvas = null
     }
     s.drawn = s.drawing = null
+    s.gen++
   }
 
   async function draw(n: number, s: Slot) {
@@ -261,9 +263,10 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
     if (s.drawn === sc || s.drawing === sc) return
     free(s)
     s.drawing = sc
+    const gen = s.gen
     try {
       const p = await pdf!.getPage(n)
-      if (s.drawing !== sc) return
+      if (s.gen !== gen) return
       const vp = p.getViewport({ scale: sc })
       const dpr = win.devicePixelRatio || 1
       const canvas = doc.createElement('canvas')
@@ -272,13 +275,16 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
       canvas.height = Math.floor(vp.height * dpr)
       Object.assign(canvas.style, { display: 'block', width: `${Math.floor(vp.width)}px`, height: `${Math.floor(vp.height)}px` })
       const ctx = canvas.getContext('2d')
-      if (!ctx) return
+      if (!ctx) {
+        s.drawing = null   // the next sync tries again
+        return emit('error', { code: 'render', detail: `page ${n}: no 2d canvas context` })
+      }
       s.el.append(canvas)
       s.canvas = canvas
       const t = p.render({ canvasContext: ctx, viewport: vp, transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : undefined })
       s.task = t
       await t.promise
-      if (s.drawing !== sc) return
+      if (s.gen !== gen) return
       const text = doc.createElement('div')
       text.className = 'textLayer'
       text.style.setProperty('--scale-factor', String(sc))
@@ -287,7 +293,7 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
       const layer = new pdfjs.TextLayer({ textContentSource: p.streamTextContent(), container: text, viewport: vp } as never)
       s.task = layer
       await layer.render()
-      if (s.drawing !== sc) return
+      if (s.gen !== gen) return
       s.task = null
       s.drawing = null
       s.drawn = sc
@@ -360,6 +366,11 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
     const textEl = pageEl && slots[Number(pageEl.dataset.page) - 1]?.text
     if (!pageEl || !textEl) return
     const n = Number(pageEl.dataset.page)
+    // A drag onto the next page keeps the start page's part (E40): its text, like its rects.
+    if (!textEl.contains(range.endContainer)) {
+      range = range.cloneRange()
+      range.setEnd(textEl, textEl.childNodes.length)
+    }
     const raw = range.toString()
     const exact = raw.trim()
     const anchor = buildPdfAnchor(n, pageEl.getBoundingClientRect(), Array.from(range.getClientRects()), scale, exact)
@@ -558,7 +569,12 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
     failed = new Set()
     failLoad = null
     cancelHold()
+    win.clearTimeout(selTimer)
     sent = held = null
+    last = 1
+    dir = null
+    lastTap = -Infinity
+    ownTop = null
     void task?.destroy()
     task = null
   }
@@ -571,10 +587,16 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
     let loaded: PdfDoc
     try {
       // A failed read never rejects pdf.js's promise (it waits for the bytes): `fail` does.
-      loaded = await Promise.race([loading.promise, new Promise<never>((_, reject) => { failLoad = reject })])
+      const failure = new Promise<never>((_, reject) => { failLoad = reject })
+      loaded = await Promise.race([loading.promise, failure])
+      // Page 1's size first: the boxes and the first draws are then at the real fit, not the estimate.
+      const first = (await Promise.race([loaded.getPage(1), failure])).getViewport({ scale: 1 })
+      dims[0] = { w: first.width, h: first.height }
     } catch (e) {
       if (mine !== docSeq) return
       fail(e)
+      void loading.destroy()
+      task = null
       land(false)
       return
     }
@@ -588,7 +610,7 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
       el.className = 'pdf-page'
       el.dataset.page = String(n)
       Object.assign(el.style, { position: 'relative', margin: '6px auto', overflow: 'hidden', background: '#fff' })
-      slots.push({ el, canvas: null, text: null, marks: null, drawn: null, drawing: null, task: null })
+      slots.push({ el, canvas: null, text: null, marks: null, drawn: null, drawing: null, gen: 0, task: null })
     }
     column.append(...slots.map((s) => s.el))
     applySizes(scale)
@@ -647,7 +669,8 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
   // The reader's own gesture ends a travelling jump where they are; a late landing must not snap them
   // back. Input events, not `scroll`: sizes streaming in move the scroll with no reader.
   const onGesture = (e: Event) => {
-    if (op && numPages && (!(e instanceof KeyboardEvent) || SCROLL_KEYS.has(e.key))) land(false)
+    const typing = (e.target as Element | null)?.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])')
+    if (op && numPages && (!(e instanceof KeyboardEvent) || (SCROLL_KEYS.has(e.key) && !typing))) land(false)
   }
   const onTouchStart = () => { touchDown = true }
   const onTouchEnd = () => { touchDown = false; lastScrollAt = Date.now() }
@@ -685,6 +708,11 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
     async goTo(loc, o) {
       if (loc.locations.position === undefined) {
         emit('error', { code: 'anchor-miss', detail: 'a PDF place is a page: the locator has no position' })
+        emit('relocated', { locator: at(here()), reason: 'goTo', opId: o?.opId })
+        return 'superseded'
+      }
+      if (!numPages && !task) {
+        // Nothing open and nothing opening (before an open, after a failed one): it cannot land.
         emit('relocated', { locator: at(here()), reason: 'goTo', opId: o?.opId })
         return 'superseded'
       }
