@@ -62,6 +62,16 @@ describe('template and injection agree', () => {
     }
   })
 
+  it('tells the engine page the status-bar height, so pages land below the bars (E42)', () => {
+    const calls: number[] = []
+    const g = globalThis as unknown as Record<string, unknown>
+    const doc = { getElementById: () => null, body: { style: {} } }
+    g.window = { __tsPdfInsets: (top: number) => calls.push(top) }
+    g.document = doc
+    try { new Function(pdfChromeInjectionJs(chrome))() } finally { delete g.window; delete g.document }
+    expect(calls).toEqual([24])
+  })
+
   it('produces injectable JS with no template-literal terminator', () => {
     // The injection string is embedded in a JS template literal on the way to
     // injectJavaScript; a stray backtick would terminate it. This has bitten

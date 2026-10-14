@@ -15,6 +15,7 @@ vi.mock('../../lib/api', () => ({ API_URL: 'https://api.test' }))
 vi.mock('../../lib/readerHtml', () => ({
   buildReaderHtml: (html: string, t: { backgroundColor: string }) => `<doc bg=${t.backgroundColor}>${html}`,
   buildPdfViewerHtml: () => '<pdf>',
+  buildPdfEngineHtml: () => '<pdf engine>',
 }))
 
 const LIGHT = themeStyles.light

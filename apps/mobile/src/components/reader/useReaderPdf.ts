@@ -6,6 +6,7 @@ import { getAccessToken, onUnauthorized } from '../../lib/api'
 import { useToast } from '../../context/ToastContext'
 import { returnedToForeground, decideNewerPosition, readerMovedSince } from '../../lib/progressRestore'
 import { initialPdfJump } from '../../lib/pdfInitialJump'
+import { READER_ENGINE_PDF } from '../../lib/readerEnginePdfFlag'
 import type { ReaderShellProps } from './readerShellTypes'
 
 type Args = Pick<ReaderShellProps,
@@ -205,6 +206,11 @@ export function useReaderPdf({
   const recoverPdfAuthRef = useRef<() => void>(() => {})
   recoverPdfAuthRef.current = () => {
     onUnauthorized().then(tok => {
+      if (tok && READER_ENGINE_PDF) {
+        // The engine page reopens itself at its page with the new token: the document stays.
+        injectJs(`window.__tsPdfReopen && window.__tsPdfReopen(${JSON.stringify(tok)})`)
+        return
+      }
       if (tok) {
         setPdfToken(tok)
         setPdfReloadNonce(n => n + 1)
@@ -261,11 +267,15 @@ export function useReaderPdf({
           if (decision.persist) persistPdfPage?.(data.page, data.numPages)
         }
       }
+    } else if (data.type === 'pdfTokenRequest') {
+      // The engine page's read() got a 401 (plan gap 3): refresh (shared single-flight) and answer it;
+      // null = the session is gone, its read then fails as 'pdf-auth' → pdfAuthExpired below.
+      onUnauthorized().then(tok => injectJs(`window.__tsPdfToken && window.__tsPdfToken(${JSON.stringify(tok ?? null)})`))
     } else if (data.type === 'pdfAuthExpired') {
-      // Silent recovery: remember the page, refresh the token (shared
-      // single-flight), then rebuild the viewer source with the fresh token.
-      pdfInitialPageRef.current = currentPdfPageRef.current ?? pdfInitialPageRef.current
-      pdfIsReloadRef.current = true
+      // Silent recovery: refresh the token, then rebuild the old viewer at the tracked page. The engine
+      // page reopens itself instead — a reload only if a document was open (else the resume still runs).
+      if (!READER_ENGINE_PDF) pdfInitialPageRef.current = currentPdfPageRef.current ?? pdfInitialPageRef.current
+      pdfIsReloadRef.current = READER_ENGINE_PDF ? pdfReadyRef.current : true
       recoverPdfAuthRef.current()
     } else if (data.type === 'pdfLoadError') {
       // Corrupt / unreadable PDF (NOT the 401 reload path). Surface the reader
@@ -274,7 +284,7 @@ export function useReaderPdf({
       setPdfError(true)
     } else return false
     return true
-  }, [maybeInitialPdfJump, persistPdfPage, recordSessionActivity, repaintPdf])
+  }, [maybeInitialPdfJump, persistPdfPage, recordSessionActivity, repaintPdf, injectJs])
 
   return {
     pdfToken, pdfTokenReady, pdfReloadNonce, isLocalOriginal,

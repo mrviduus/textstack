@@ -1,8 +1,9 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import type { MutableRefObject } from 'react'
 import type { EdgeInsets } from 'react-native-safe-area-context'
-import { buildReaderHtml, buildEngineReaderHtml, buildPdfViewerHtml } from '../../lib/readerHtml'
+import { buildReaderHtml, buildEngineReaderHtml, buildPdfViewerHtml, buildPdfEngineHtml } from '../../lib/readerHtml'
 import { READER_ENGINE } from '../../lib/readerEngineFlag'
+import { READER_ENGINE_PDF } from '../../lib/readerEnginePdfFlag'
 import { pdfDocumentKey, pdfChromeInjectionJs } from '../../lib/pdfViewerChrome'
 import {
   readerDocumentKey, readerChromeInjectionJs, latchReaderChrome, readerChromeChanged, type ReaderChrome,
@@ -170,7 +171,12 @@ export function useReaderDocument({
     const documentUrl = isLocalOriginal
       ? originalFileUrl.slice(originalFileUrl.lastIndexOf('/') + 1)
       : originalFileUrl
-    return buildPdfViewerHtml(documentUrl, pdfToken, {
+    // The engine page (EXPO_PUBLIC_READER_ENGINE_PDF) takes the same inputs; a token refresh reaches it
+    // over the bridge (useReaderPdf), so the key's token never changes under it.
+    const build = READER_ENGINE_PDF
+      ? (url: string, token: string | null, o: Parameters<typeof buildPdfViewerHtml>[2]) => buildPdfEngineHtml(url, token, { ...o, local: isLocalOriginal })
+      : buildPdfViewerHtml
+    return build(documentUrl, pdfToken, {
       theme: {
         fontSize: settings.fontSize,
         lineHeight: settings.lineHeight,
