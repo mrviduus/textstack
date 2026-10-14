@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Reader** — engine Phase 5 slice 3 (flag off): web Original-layout PDFs open through the engine behind `VITE_READER_ENGINE_PDF` / `?engine=pdf` — range reads with cookie + 401 retry, window scroll, landing below the bars (E42) — web, shared · [details](docs/changelog-archive/2026-H2.md#2026-10-14-reader-engine-phase-5-slice-3-web-pdfs-on-the-eng)
 - **Reader** — engine test E37 (fling defers a re-fit) on fake timers; real timers flaked on CI and failed #830's deploy — shared
 - **Reader** — engine Phase 5 PR A (slices 1–2, no app uses it): PDF as the `fixed` layout — host pdf.js seam, `read()` byte ranges, page window, jump, zoom, text layer, selection, highlights (E32–E41) — shared · [details](docs/changelog-archive/2026-H2.md#2026-10-14-reader-engine-phase-5-pr-a-pdf-as-the-fixed-layou)
 - **Docs** — reader engine Phase 5 (PDF as the `fixed` layout) slice plan, owner took all 8 recommendations: [`reader-engine-phase5-plan.md`](docs/01-architecture/reader-engine-phase5-plan.md) — docs
