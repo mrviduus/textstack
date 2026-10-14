@@ -4,6 +4,7 @@
 // Relative imports, not '@textstack/shared': the mobile WebView gets this package as an esbuild
 // IIFE, the same reason packages/reader-overlay imports relatively.
 import type { PdfRect } from '../../shared/src/reader/pdfHighlightAnchor'
+import type { PdfSource } from '../../shared/src/reader/pdfSource'
 
 /** Plain rect, viewport coordinates. DOMRect serialises to {} across the WebView bridge. */
 export interface Rect { x: number; y: number; width: number; height: number }
@@ -49,7 +50,7 @@ export interface ChapterDoc {
    * Fixed: bytes, or ranges read by the host (which owns auth). `read` rejects with `{ code: 'pdf-auth' }`
    * when auth is gone for good (the host has already refreshed and retried): the `'pdf-auth'` error.
    */
-  pdf?: { data: ArrayBuffer } | { length: number; read(begin: number, end: number): Promise<Uint8Array> }
+  pdf?: PdfSource
   lang?: string
   dir?: 'ltr' | 'rtl'
 }

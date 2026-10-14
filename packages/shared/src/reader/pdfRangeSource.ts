@@ -1,7 +1,6 @@
-/** What the reader engine opens a PDF from (`ChapterDoc['pdf']`, reader-engine `api.ts`). */
-export type PdfSource =
-  | { data: ArrayBuffer }
-  | { length: number; read(begin: number, end: number): Promise<Uint8Array> }
+import type { PdfSource } from './pdfSource'
+
+export type { PdfSource }
 
 interface Deps {
   fetch?: typeof globalThis.fetch

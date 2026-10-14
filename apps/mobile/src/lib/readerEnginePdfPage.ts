@@ -8,7 +8,7 @@
 //     (`pdfTokenRequest` → `__tsPdfToken`), so the WebView is never rebuilt for a token (plan gap 3);
 //   - downloaded (`local`): the file read off the disk whole, no network, no token (the reading path rule).
 // Bundled with pdf.js by apps/web/scripts/pdfViewer/engineEntry.ts (outside the 64 KB engine budget).
-import type { ChapterDoc, Locator, ReaderEngine } from '../../../../packages/reader-engine/src/api'
+import type { Locator, ReaderEngine } from '../../../../packages/reader-engine/src/api'
 import { locatorToPdfAnchor, pdfAnchorToLocator } from '../../../../packages/reader-engine/src/mappers'
 import { openPdfSource, type PdfSource } from '../../../../packages/shared/src/reader/pdfRangeSource'
 import { HIGHLIGHT_BG } from './readerColors'
@@ -156,7 +156,7 @@ export function startPdfPage(engine: ReaderEngine, w: PdfPageWindow): void {
         opened = true
         latest = target.id
         numPages = 0
-        void engine.open({ layout: 'fixed', pdf } as ChapterDoc, at(target.page), target.id)
+        void engine.open({ layout: 'fixed', pdf }, at(target.page), target.id)
       },
       (e: unknown) => {
         if (mine !== generation) return
