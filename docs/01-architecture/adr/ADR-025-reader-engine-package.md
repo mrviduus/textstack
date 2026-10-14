@@ -223,7 +223,7 @@ debug build, production API as a guest, *1984* Part One (35 k chars, 26.8 k px).
 | 5 | Highlights paint | PASS |
 | 6 | Font change keeps the reading line | PASS — same sentence before/after, 3–5 ms |
 | 7 | Renderer crash → same place | PASS — CDP `Page.crash`; reopened about one line back (save debounce) |
-| 8 | Text anchors on the PDF text layer | PASS off-device (37/37 over 40 pages of a real PDF); not run on device (needs a production upload) |
+| 8 | Text anchors on the PDF text layer | PASS off-device (37/37 over 40 pages of a real PDF); not run on device (needs a production upload). *Rerun 2026-10-14 on the engine (Phase 5 slice 2, `playground/fixed.e2e.ts`): 40/40 pages of the committed fixture — selection text on the page's text layer, `PdfAnchor` round-trip byte-identical, paint within 1 px of the text. Device run: Phase 5 slice 4.* |
 
 What it changes in this ADR:
 
