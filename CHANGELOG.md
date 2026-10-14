@@ -23,6 +23,8 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Infra** — API CORS exposes `Content-Range`, so the PDF engine's length probe works cross-origin (dev, CI); found by the `@reader-pdf` smoke — backend
+- **Tests** — engine Phase 5 slice 5 step 1: web `@reader-pdf` Playwright smoke (open + canvas, page jump, resume after reload, selection → `kind:"pdf"` highlight that repaints), gating with the PDF engine off and on — web, CI · [details](docs/changelog-archive/2026-H2.md#2026-10-14-reader-engine-phase-5-slice-5-web-pdf-smoke)
 - **Reader** — engine Phase 5 slice 4 (flag off): mobile Original-layout PDFs open through the engine behind `EXPO_PUBLIC_READER_ENGINE_PDF` — range reads with the bearer token inside the WebView, a 401 refreshes over the bridge (no rebuild), downloaded PDFs read off the disk, old viewer protocol to RN; range source moved to shared — mobile, web, shared · [details](docs/changelog-archive/2026-H2.md#2026-10-14-reader-engine-phase-5-slice-4-mobile-pdfs-on-the)
 - **Reader** — engine Phase 5 slice 3 (flag off): web Original-layout PDFs open through the engine behind `VITE_READER_ENGINE_PDF` / `?engine=pdf` — range reads with cookie + 401 retry, window scroll, landing below the bars (E42) — web, shared · [details](docs/changelog-archive/2026-H2.md#2026-10-14-reader-engine-phase-5-slice-3-web-pdfs-on-the-eng)
 - **Reader** — engine test E37 (fling defers a re-fit) on fake timers; real timers flaked on CI and failed #830's deploy — shared

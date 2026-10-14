@@ -244,6 +244,7 @@ export default function PdfEngineView({
       (e: unknown) => {
         if (off) return
         if ((e as { code?: string })?.code === 'pdf-auth') return setSessionExpired(true)
+        console.warn('[pdf] the file could not be opened', e)
         setFailed(true)
         if (!loadErrorFiredRef.current) {
           loadErrorFiredRef.current = true
