@@ -76,9 +76,48 @@ describe('useReaderChapter — reload (Try again, #849)', () => {
     getChapter.mockImplementationOnce(async (_b: string, slug: string) => ({
       id: ids[slug], chapterNumber: 0, slug, title: slug, html: '<p>fresh</p>', wordCount: 10, prev: null, next: null,
     }))
+    const loadId = result.current.loadId
     act(() => result.current.reload())
     expect(result.current.loading).toBe(false)   // the reader stays on screen
     await waitFor(() => expect(result.current.chapter?.html).toBe('<p>fresh</p>'))
     expect(getChapter).toHaveBeenCalledWith('b', 'one')
+    expect(result.current.loadId).toBe(loadId + 1)   // a landed load, even with the same html
+  })
+
+  it('a reload that fails (offline) keeps the reader: no page error, the chapter on screen stays', async () => {
+    const { result, rerender } = renderHook(
+      (slug: string) => useReaderChapter({ mode: 'public', bookSlug: 'b', chapterSlug: slug, isAuthenticated: true }),
+      { initialProps: 'two' },
+    )
+    await waitFor(() => expect(result.current.chapter?.identifier).toBe('two'))
+    rerender('one')
+    await waitFor(() => expect(result.current.chapter?.identifier).toBe('one'))
+    const before = result.current.chapter
+    const loadId = result.current.loadId
+    getChapter.mockClear()
+    getChapter.mockRejectedValueOnce(new Error('offline'))
+    act(() => result.current.reload())
+    await waitFor(() => expect(getChapter).toHaveBeenCalled())
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)) })
+    expect(result.current.error).toBeNull()
+    expect(result.current.chapter).toBe(before)
+    expect(result.current.loadId).toBe(loadId)   // nothing landed: the in-reader error stays
+    expect(result.current.loading).toBe(false)
+  })
+
+  it('a failed reload is one load: the next chapter reads the cache again, with its loading screen', async () => {
+    const { result, rerender } = renderHook(
+      (slug: string) => useReaderChapter({ mode: 'public', bookSlug: 'b', chapterSlug: slug, isAuthenticated: true }),
+      { initialProps: 'two' },
+    )
+    await waitFor(() => expect(result.current.chapter?.identifier).toBe('two'))
+    getChapter.mockRejectedValueOnce(new Error('offline'))
+    act(() => result.current.reload())
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)) })
+    getChapter.mockClear()
+    rerender('one')
+    expect(result.current.loading).toBe(true)
+    await waitFor(() => expect(result.current.chapter?.identifier).toBe('one'))
+    expect(getChapter).not.toHaveBeenCalled()   // from the cache
   })
 })

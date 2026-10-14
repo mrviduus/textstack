@@ -1,4 +1,4 @@
-import type { ComponentProps } from 'react'
+import { useCallback, type ComponentProps } from 'react'
 import { ReaderSection } from './ReaderSection'
 import { ReaderNav } from './ReaderNav'
 import { ReaderChapterDiscuss } from './ReaderChapterDiscuss'
@@ -14,6 +14,8 @@ interface Props {
   onEngineOpened: (chapterSlug: string) => void
   /** Load the chapter again from the network (useReaderChapter's reload): Try again after a failed open. */
   onReload: () => void
+  /** useReaderChapter's `loadId`: a new load of the chapter clears a failed open. */
+  loadId: number
   /** End-of-chapter Discuss; null for an anonymous reader. */
   discuss: Omit<ComponentProps<typeof ReaderChapterDiscuss>, 'chapter'> | null
   /** 1-based positional index of the chapter, null when unknown. */
@@ -28,11 +30,13 @@ interface Props {
 
 /** The reflow reader's one mounted chapter: its text, the Discuss row and the chapter nav. */
 export function ReaderReflowChapter({
-  chapter, settings, onTap, onEngineOpened, onReload, discuss, chapterNumber, totalChapters, chapterProgress, onGoTo, onFinish, finishLabel,
+  chapter, settings, onTap, onEngineOpened, onReload, loadId, discuss, chapterNumber, totalChapters, chapterProgress, onGoTo, onFinish, finishLabel,
 }: Props) {
   // #849: a chapter the engine cannot open says so here. Try again refetches it; the fresh chapter clears the
   // failure, and a fresh engine opens it.
-  const failure = useChapterEngineFailure(chapter)
+  const failure = useChapterEngineFailure(chapter.identifier, loadId)
+  const { clear } = failure
+  const opened = useCallback((slug: string) => { clear(slug); onEngineOpened(slug) }, [clear, onEngineOpened])
   return (
     <>
       {failure.failed ? <ReaderOpenError onRetry={onReload} /> : <ReaderSection
@@ -42,7 +46,7 @@ export function ReaderReflowChapter({
         html={chapter.html}
         settings={settings}
         onTap={onTap}
-        onEngineOpened={(slug) => { failure.clear(slug); onEngineOpened(slug) }}
+        onEngineOpened={opened}
         onEngineError={failure.onEngineError}
       />}
       {/* End-of-chapter Discuss (chapter-review.md §12). Signed-in only, like the chapter-row

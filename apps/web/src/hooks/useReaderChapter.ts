@@ -50,6 +50,8 @@ export interface UseReaderChapterResult {
   error: string | null
   /** Load the chapter again from the network, skipping the cache, with the reader left on screen (Try again). */
   reload: () => void
+  /** +1 for every load that lands (a chapter change, a refresh, a reload, even with the same html). */
+  loadId: number
 }
 
 export function useReaderChapter({
@@ -72,9 +74,11 @@ export function useReaderChapter({
 
   const editionIdRef = useRef<string | null>(null)
   const fetchedKeyRef = useRef<string | null>(null)
-  // reload(): a new seq; a load that lands records it, so a cancelled one (StrictMode) still reloads.
+  // reload(): a new seq; the load that ends (landed or failed) records it, so a cancelled one (StrictMode)
+  // still reloads and only one load skips the cache.
   const [reloadSeq, setReloadSeq] = useState(0)
   const loadedSeqRef = useRef(0)
+  const [loadId, setLoadId] = useState(0)
   const reload = useCallback(() => setReloadSeq((n) => n + 1), [])
 
   useEffect(() => {
@@ -97,6 +101,7 @@ export function useReaderChapter({
     const fetchData = async () => {
       if (!fresh) setLoading(true)
       setError(null)
+      let landed = false
 
       try {
         if (mode === 'public') {
@@ -157,7 +162,7 @@ export function useReaderChapter({
                 })
               }
               fetchedKeyRef.current = fetchKey
-              loadedSeqRef.current = reloadSeq
+              landed = true
               setLoading(false)
               return
             }
@@ -197,7 +202,7 @@ export function useReaderChapter({
 
           cacheChapter(bk.id, ch).catch(() => {})
           fetchedKeyRef.current = fetchKey
-          loadedSeqRef.current = reloadSeq
+          landed = true
         } else {
           // Fetch the book first — its hasOriginalPdf decides whether a missing
           // chapter is fatal. A chapterless/indexing PDF opens in Original with
@@ -250,7 +255,7 @@ export function useReaderChapter({
             })),
           })
           fetchedKeyRef.current = fetchKey
-          loadedSeqRef.current = reloadSeq
+          landed = true
         }
       } catch (err) {
         if (cancelled) return
@@ -258,13 +263,20 @@ export function useReaderChapter({
           fetchData()
           return
         }
+        // A failed reload (offline) never replaces the reader: the chapter on screen stays, with its
+        // in-reader error and Try again.
+        if (fresh) return console.warn('[reader] chapter reload failed', err)
         if (err instanceof InvalidContentTypeError) {
           setError('Chapter not found. The book may have been removed.')
         } else {
           setError((err as Error).message)
         }
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) {
+          setLoading(false)
+          loadedSeqRef.current = reloadSeq   // a reload is one load, landed or failed
+          if (landed) setLoadId((n) => n + 1)
+        }
       }
     }
 
@@ -272,5 +284,5 @@ export function useReaderChapter({
     return () => { cancelled = true }
   }, [mode, bookSlug, chapterSlug, userBookId, userChapterSlug, isAuthenticated, api, markFetchStart, wasAbortedDueToWake, reloadSeq])
 
-  return { chapter, book, publicChapter, publicBook, loading, error, reload }
+  return { chapter, book, publicChapter, publicBook, loading, error, reload, loadId }
 }

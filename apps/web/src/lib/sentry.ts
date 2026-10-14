@@ -10,7 +10,7 @@
 type SentryModule = typeof import('./sentryClient')
 
 const dsn = (import.meta.env.VITE_SENTRY_DSN as string | undefined)?.trim()
-let sentry: Promise<SentryModule> | null = null
+let sentry: Promise<SentryModule | null> | null = null
 
 const stripQuery = (url: string) => url.replace(/[?#].*$/, '')
 
@@ -36,11 +36,11 @@ export function initSentry(): void {
       },
     })
     return Sentry
-  })
+  }).catch(() => null)   // the chunk did not load (offline, a deploy replaced it): reporting stays off
 }
 
 /** An error the user saw (an error state on screen), with our tags; logged to the console as well. */
 export function reportError(error: unknown, tags: Record<string, string>): void {
   console.error('[error]', tags, error)
-  void sentry?.then((Sentry) => Sentry.captureException(error, { tags }))
+  void sentry?.then((Sentry) => Sentry?.captureException(error, { tags }))
 }

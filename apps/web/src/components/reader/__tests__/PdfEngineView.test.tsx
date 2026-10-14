@@ -127,6 +127,23 @@ describe('PdfEngineView — the engine and its bytes', () => {
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
+  it('#853 an open that rejects after Reload replaced it reports nothing and shows no error', async () => {
+    let reject!: (e: Error) => void
+    eng.engine.open.mockImplementationOnce(() => new Promise((_, r) => { reject = r }))
+    render(<PdfEngineView {...base} resumeReady />)
+    await wait(0)
+    eng.emit('error', { code: 'pdf-auth' })
+    let refreshed!: () => void
+    refreshToken.mockImplementationOnce(() => new Promise((r) => { refreshed = () => r({}) }))
+    fireEvent.click(screen.getByText('reader.originalLayout.reload'))
+    reject(new Error('stale'))   // before the new bytes: the old open is already replaced
+    await wait(0)
+    refreshed()
+    await wait(0)
+    expect(reportError).not.toHaveBeenCalled()
+    expect(screen.queryByText('reader.openError.message')).toBeNull()
+  })
+
   it('#853 an open that rejects after the view is gone reports nothing', async () => {
     let reject!: (e: Error) => void
     eng.engine.open.mockImplementationOnce(() => new Promise((_, r) => { reject = r }))

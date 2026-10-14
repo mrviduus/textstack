@@ -27,7 +27,7 @@ const chapter = (id: string, html = '<p>x</p>') => ({
 const props = {
   settings: {} as ReaderSettings, onTap: () => {}, onEngineOpened: () => {}, discuss: null,
   chapterNumber: 2, totalChapters: 3, chapterProgress: 0, onGoTo: () => {}, onFinish: () => {}, finishLabel: 'Finish',
-  onReload: () => {},
+  onReload: () => {}, loadId: 1,
 }
 
 describe('ReaderReflowChapter: the engine cannot open the chapter', () => {
@@ -47,11 +47,20 @@ describe('ReaderReflowChapter: the engine cannot open the chapter', () => {
     failNext = false
     fireEvent.click(screen.getByText('reader.openError.retry'))
     expect(onReload).toHaveBeenCalledTimes(1)
+    rerender(<ReaderReflowChapter chapter={chapter('a')} {...props} onReload={onReload} />)   // a re-render: no new load
     expect(screen.getByRole('alert')).toBeTruthy()   // until the network's chapter lands
-    rerender(<ReaderReflowChapter chapter={chapter('a', '<p>fresh</p>')} {...props} onReload={onReload} />)
+    rerender(<ReaderReflowChapter chapter={chapter('a', '<p>fresh</p>')} {...props} onReload={onReload} loadId={2} />)
     expect(opens).toEqual(['a <p>x</p>', 'a <p>fresh</p>'])
     expect(screen.queryByRole('alert')).toBeNull()
     expect(screen.getByTestId('chapter')).toBeTruthy()
+  })
+
+  it('tryAgain_SameHtmlFromTheNetwork_StillOpensAgain', () => {
+    const { rerender } = render(<ReaderReflowChapter chapter={chapter('a')} {...props} />)
+    failNext = false
+    rerender(<ReaderReflowChapter chapter={chapter('a')} {...props} loadId={2} />)
+    expect(opens).toEqual(['a <p>x</p>', 'a <p>x</p>'])
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 
   it('failOnA_GoToB_ReturnToA_AOpensAgain', () => {

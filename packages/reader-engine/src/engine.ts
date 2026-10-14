@@ -289,15 +289,37 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
     return lo < nodes.length ? starts.get(nodes[lo])! : text.length
   }
 
+  /** The line box (root-relative) of an offset's first visible character; null where there is none (jsdom). */
+  function boxAt(offset: number): Rect | null {
+    let at = offset
+    while (at < text.length - 1 && /[\s­​]/.test(text[at])) at++
+    const range = rangeOf(at, 1)
+    return (range && rectsOf(range)[0]) || null
+  }
+
+  /**
+   * E45: the first character of the line at content y, by the text's own boxes, no hit test: the text
+   * under a popup or a drawer. Two binary searches (the line, then its start); null with no boxes.
+   */
+  function offsetAtLine(y: number): number | null {
+    const top = (at: number) => boxAt(at)?.y
+    const line = y - measure(root).top
+    if (top(0) === undefined) return null
+    let lo = 0
+    let hi = text.length - 1
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if ((top(mid) ?? Infinity) <= line) lo = mid; else hi = mid - 1 }
+    const lineTop = top(lo)! - 1
+    let a = 0
+    while (a < lo) { const mid = (a + lo) >> 1; if ((top(mid) ?? -Infinity) >= lineTop) lo = mid; else a = mid + 1 }
+    return a
+  }
+
   /**
    * Content y of a chapter offset: the middle of the line of its first visible character (whitespace,
    * soft hyphens and zero-width spaces have no width), or the estimate where there is none.
    */
   function yAtOffset(offset: number): number {
-    let at = offset
-    while (at < text.length - 1 && /[\s\u00AD\u200B]/.test(text[at])) at++
-    const range = rangeOf(at, 1)
-    const r = range && rectsOf(range)[0]
+    const r = boxAt(offset)
     if (r) return measure(root).top + r.y + r.height / 2
     const seg = segments.find((s) => offset < s.start + s.length) ?? segments[segments.length - 1]
     if (!seg) return 0
@@ -315,8 +337,9 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
   /** The reader's place right now, read off the reading line. */
   function capture(): Locator {
     const p = probe()
-    if (p === 'covered' && last) return last   // E45: the reader cannot see the line; the place they saw holds
-    const at = typeof p === 'number' ? p : offsetAtY(scroller.scrollTop + READING_LINE * viewport().height)
+    const line = scroller.scrollTop + READING_LINE * viewport().height
+    // E45: something covers the line (a popup, a drawer): the text under it, by geometry.
+    const at = typeof p === 'number' ? p : (p === 'covered' ? offsetAtLine(line) : null) ?? offsetAtY(line)
     return (href && locatorAt(text, at, href, progression())) || { href, type: 'text/html', locations: { progression: progression() } }
   }
 

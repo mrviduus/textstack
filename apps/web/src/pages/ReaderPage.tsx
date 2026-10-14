@@ -56,7 +56,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
   const { t } = useTranslation()
   const navigate = useNavigate()
 
-  const { chapter, book, publicChapter, publicBook, loading, error, reload: reloadChapter } = useReaderChapter({
+  const { chapter, book, publicChapter, publicBook, loading, error, reload: reloadChapter, loadId: chapterLoadId } = useReaderChapter({
     mode,
     bookSlug,
     chapterSlug,
@@ -336,6 +336,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
                 onTap={() => { readingSession.recordActivity(); showImmersiveBars() }}
                 onEngineOpened={setEngineOpenedFor}
                 onReload={reloadChapter}
+                loadId={chapterLoadId}
                 discuss={reviewTarget && {
                   reviewed: chapterReviews.has(chapter.identifier),
                   reviewPath: reviewedMarks.reviewPath(chapter.identifier),

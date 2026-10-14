@@ -171,19 +171,47 @@ test('E43 a font change while a drawer covers the reading line keeps the place (
   expect(r.dy).toBeLessThan(r.line)   // still on the reading line after the reflow
 })
 
-test('E45 the reader scrolls while a drawer covers the reading line, then changes the font: the place is kept', async ({ page }) => {
+/** Something over the reading line with text of its own (a popup, a drawer): the caret there is not the chapter's. */
+async function cover(page: Page, box: { top: string; height: string }) {
+  await page.evaluate((box) => {
+    const el = document.createElement('div')
+    el.id = 'cover'
+    el.textContent = 'Translate Explain Highlight Copy '.repeat(40)
+    Object.assign(el.style, { position: 'fixed', left: '0', right: '0', top: box.top, height: box.height, overflow: 'hidden', background: 'white', zIndex: '10' })
+    document.body.append(el)
+  }, box)
+}
+const uncover = (page: Page) => page.evaluate(() => document.getElementById('cover')?.remove())
+
+/** How far the engine's place is from the reading line, by the text's own boxes (no hit test). */
+const placeOffLine = (page: Page) => page.evaluate(() => ({
+  dy: Math.abs(window.pg.yOf(window.pg.offsetOf(window.engine.current()!)!) - (scrollY + innerHeight * 0.25)),
+  line: window.pg.lineHeight(),
+}))
+
+test('E45 a popup over the reading line while the reader scrolls: every scroll reads the text truly on the line', async ({ page }) => {
+  await openChapter(page, 'moby-dick-5')
+  await readerScrolls(page, 0.3)
+  await cover(page, { top: '20%', height: '10%' })   // a word popup's band, across the reading line
+  try {
+    for (const f of [0.35, 0.5, 0.65]) {
+      await readerScrolls(page, f)
+      const r = await placeOffLine(page)
+      expect(r.dy, `at ${f}`).toBeLessThan(r.line)
+    }
+  } finally {
+    await uncover(page)
+  }
+})
+
+test('E45 the reader scrolls under a drawer, then changes the font: the text that was on the line stays on it', async ({ page }) => {
   await openChapter(page, 'moby-dick-5')
   await readerScrolls(page, 0.5)
-  const before = await page.evaluate(() => window.engine.current()!)
-  await page.evaluate(() => {
-    const el = document.createElement('div')
-    el.id = 'drawer'
-    el.textContent = 'Font size Line height Font family '.repeat(40)
-    Object.assign(el.style, { position: 'fixed', inset: '0', background: 'white', zIndex: '10' })
-    document.body.append(el)
-  })
+  await cover(page, { top: '0', height: '100%' })
+  let under: Locator
   try {
     await readerScrolls(page, 0.52)   // behind the drawer: the caret at the reading line lands on the drawer
+    under = await page.evaluate(() => window.engine.current()!)
     const acked = await page.evaluate(() => new Promise<boolean>((r) => {
       const off = window.engine.on('relocated', (e) => { if (e.reason === 'style') { off(); r(true) } })
       setTimeout(() => { off(); r(false) }, 2000)
@@ -191,13 +219,9 @@ test('E45 the reader scrolls while a drawer covers the reading line, then change
     }))
     expect(acked, "the style change's 'style' relocation").toBe(true)
   } finally {
-    await page.evaluate(() => document.getElementById('drawer')?.remove())
+    await uncover(page)
   }
-  const r = await page.evaluate((before) => ({
-    now: window.engine.current()!.text,
-    dy: Math.abs(window.pg.yOf(window.pg.offsetOf(before)!) - (scrollY + innerHeight * 0.25)),
-    line: window.pg.lineHeight(),
-  }), before)
-  expect(r.now).toEqual(before.text)
+  expect(await page.evaluate(() => window.engine.current()!.text)).toEqual(under.text)
+  const r = await placeOffLine(page)
   expect(r.dy).toBeLessThan(r.line)
 })

@@ -110,6 +110,8 @@ export default function PdfEngineView({
   const jumpSeqRef = useRef(0)
   /** The engine and bytes the current document was opened with (StrictMode makes a second engine, Reload new bytes). */
   const openedForRef = useRef<{ engine: ReaderEngine; source: PdfSource } | null>(null)
+  /** The current open (#853): Reload moves it on at once, so the old open's rejection is stale. */
+  const openSeqRef = useRef(0)
   /** The open's document is in (`ready`): a later 'pdf-load' is one failed read, not a reason to fall back. */
   const docReadyRef = useRef(false)
   /** Reopen here after a session-expired reload. */
@@ -284,9 +286,10 @@ export default function PdfEngineView({
     openedForRef.current = { engine, source }
     docReadyRef.current = false
     gateRef.current = pdfGateReduce(gateRef.current, { type: 'documentLoaded' }).state
+    const mine = ++openSeqRef.current
     jump(target, (opId) => engine.open({ layout: 'fixed', pdf: source }, at(target), opId).catch((e: unknown) => {
-      // Only the open still current: an unmount, or Reload's new bytes, replaced it.
-      if (engineRef.current !== engine || openedForRef.current?.source !== source) return
+      // Only the open still current: an unmount or a Reload replaced it.
+      if (engineRef.current !== engine || openSeqRef.current !== mine) return
       reportError(e, { area: 'reader-engine', book: bookId })
       setOpenFailed(true)
     }))
@@ -368,6 +371,7 @@ export default function PdfEngineView({
 
   const handleReload = useCallback(async () => {
     reloadPageRef.current = currentPageRef.current
+    openSeqRef.current++   // the open in flight is replaced now, not when the new bytes come
     setSessionExpired(false)
     setFailed(false)
     setOpenFailed(false)

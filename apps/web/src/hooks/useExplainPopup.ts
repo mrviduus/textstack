@@ -15,7 +15,7 @@ export interface UseExplainPopupResult {
   explanation: string | null
   isExplaining: boolean
   error: string | null
-  /** `sentence`: the engine's, around the selection; the selection itself when missing. */
+  /** `sentence`: the engine's, around the selection; the explained word or phrase when missing. */
   openFromSelection: (selectionText: string, rect: DOMRect | null, sentence?: string) => void
   close: () => void
 }
@@ -52,7 +52,7 @@ export function useExplainPopup({
       setShow(true)
       explainApi({
         word: target,
-        sentence: sentence || selectionText,   // no sentence from the engine: never fail silently
+        sentence: sentence || target,   // no sentence from the engine: never fail silently
         bookId: editionId,
         targetLang: nativeLanguage,
       })
