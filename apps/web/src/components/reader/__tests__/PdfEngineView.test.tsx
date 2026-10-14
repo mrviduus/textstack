@@ -191,6 +191,20 @@ describe('PdfEngineView — the engine and its bytes', () => {
     expect(onTap).toHaveBeenCalled()
   })
 
+  it('pages land clear of the bars: the top bar and the toolbar go to the engine as insets.top (E42)', async () => {
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains('pdf-engine__toolbar') ? 49 : 0
+    })
+    const onPageChange = vi.fn()
+    render(<PdfEngineView {...base} resumeReady={false} onPageChange={onPageChange} />)   // not opened yet
+    await wait(0)
+    expect(eng.engine.setStyle).toHaveBeenCalledWith({ insets: { top: 56 + 49, bottom: 0 } })
+    // Its 'style' ack before the document is in is not a page the reader is on.
+    eng.emit('relocated', { locator: page(1), reason: 'style' })
+    expect(onPageChange).not.toHaveBeenCalled()
+    vi.restoreAllMocks()
+  })
+
   it('zoom buttons set the engine zoom; Fit goes back to 1', async () => {
     render(<PdfEngineView {...base} resumeReady />)
     await wait(0)

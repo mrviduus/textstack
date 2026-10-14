@@ -49,6 +49,8 @@ type PdfSource = NonNullable<ChapterDoc['pdf']>
 const ACTIVITY_THROTTLE_MS = 1500
 const SERVER_PROGRESS_DEBOUNCE_MS = 2000
 const LOCAL_DEBOUNCE_MS = 500
+/** The reader's fixed top bar (reader.css `.reader-top-bar`). */
+const TOP_BAR_PX = 56
 const at = (page: number): Locator => ({ type: 'application/pdf', locations: { position: page } })
 
 /**
@@ -81,6 +83,7 @@ export default function PdfEngineView({
   const { t } = useTranslation()
   const wrapRef = useRef<HTMLDivElement>(null)
   const rootRef = useRef<HTMLDivElement>(null)
+  const toolbarRef = useRef<HTMLDivElement>(null)
   const engineRef = useRef<ReaderEngine | null>(null)
   const cb = useRef({ onPageChange, onNumPages, onActivity, onLoadError, onTap, onEngine, highlights })
   cb.current = { onPageChange, onNumPages, onActivity, onLoadError, onTap, onEngine, highlights }
@@ -183,6 +186,8 @@ export default function PdfEngineView({
       }),
       engine.on('relocated', ({ locator, reason, opId }) => {
         const n = locator.locations.position
+        // Before this engine's open (the insets' 'style' ack): no page yet.
+        if (openedForRef.current?.engine !== engine) return
         // A superseded op acks with its own opId at the NEW target: not a landing, not the reader's page.
         if (!n || (opId && Number(opId) !== jumpSeqRef.current)) return
         if (reason === 'scroll') readerMoved()   // a scrollbar drag too
@@ -218,6 +223,8 @@ export default function PdfEngineView({
         if (h) setEditHl({ highlight: h, rect: new DOMRect(rect.x, rect.y, rect.width, rect.height) })
       }),
     ]
+    // E42: pages land clear of the top bar and the toolbar under it.
+    engine.setStyle({ insets: { top: TOP_BAR_PX + (toolbarRef.current?.offsetHeight ?? 0), bottom: 0 } })
     cb.current.onEngine?.(href)
     return () => {
       offs.forEach((off) => off())
@@ -381,7 +388,7 @@ export default function PdfEngineView({
 
   return (
     <div ref={wrapRef} className={`pdf-engine${invert ? ' pdf-engine--invert' : ''}`}>
-      <div className="pdf-original__toolbar pdf-engine__toolbar">
+      <div ref={toolbarRef} className="pdf-original__toolbar pdf-engine__toolbar">
         <button type="button" className="pdf-original__btn" onClick={() => applyZoom(1)} title={t('reader.originalLayout.fitWidth')}>
           {t('reader.originalLayout.fit')}
         </button>
