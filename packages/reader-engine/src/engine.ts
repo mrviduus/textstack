@@ -304,13 +304,16 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
     return (range && rectsOf(range)[0]) || null
   }
 
-  /** From an offset, the box of the first character that has one, past hidden text node by node; null: none. */
-  function boxFrom(offset: number): Rect | null {
+  /**
+   * From an offset whose run leads into hidden text, the first offset with a box, node by node (a visible
+   * node may end in such a run: then the next one); the chapter's length: none.
+   */
+  function boxFrom(offset: number): number {
     for (const t of nodes) {
       const s = starts.get(t)!
-      if (s + t.length > offset && rectsOf(rangeOf(s, t.length)!).length) return boxAt(Math.max(offset, s))
+      if (s + t.length > offset && rectsOf(rangeOf(s, t.length)!).length && boxAt(Math.max(offset, s))) return Math.max(offset, s)
     }
-    return null
+    return text.length
   }
 
   /**
@@ -325,17 +328,18 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
     const on = (r: Rect | null) => !!r && r.y <= line && line < r.y + r.height
     /** The first offset in [a, b) whose line ends below `below`. */
     const first = (a: number, b: number, below: number) => {
-      while (a < b) { const m = (a + b) >> 1; const r = boxAt(m) ?? boxFrom(m); if (!r || r.y + r.height > below) b = m; else a = m + 1 }
+      while (a < b) { const m = (a + b) >> 1; const r = boxAt(m) ?? boxAt(boxFrom(m)); if (!r || r.y + r.height > below) b = m; else a = m + 1 }
       return a
     }
-    const at = first(0, text.length, line)
+    const from = first(0, text.length, line)
+    const at = boxAt(from) ? from : boxFrom(from)   // past a run into hidden text: the text after it
     if (on(boxAt(at))) return at
     let above: Text | null = null
     let top = 0
     let bottom = -Infinity
     for (const t of nodes) {
       const s = starts.get(t)!
-      const range = s < at + 400 && s + t.length > at - 400 && rangeOf(s, t.length)
+      const range = s < at + 400 && s + t.length > from - 400 && rangeOf(s, t.length)
       for (const b of range ? rectsOf(range) : []) {
         if (on(b)) return first(s, s + t.length, line)
         if (b.y + b.height <= line && b.y + b.height > bottom) [above, top, bottom] = [t, b.y, b.y + b.height]

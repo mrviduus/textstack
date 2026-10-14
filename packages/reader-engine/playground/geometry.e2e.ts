@@ -211,6 +211,21 @@ test('E45 a popup over the reading line while the reader scrolls: every scroll r
  * nearest above.
  */
 async function expectCoveredLineRule(page: Page) {
+  // Text = visible characters: the line boxes of every run of them (whitespace, soft hyphens, zero-width
+  // spaces and word joiners are not text), in page coordinates; a cover does not move them.
+  await page.evaluate(() => {
+    const walker = document.createTreeWalker(document.querySelector('#reader')!.firstElementChild!, NodeFilter.SHOW_TEXT)
+    const range = document.createRange()
+    const lines: [number, number][] = []
+    for (let n = walker.nextNode() as Text | null; n; n = walker.nextNode() as Text | null) {
+      for (const m of n.data.matchAll(/[^\s­​⁠﻿]+/g)) {
+        range.setStart(n, m.index!)
+        range.setEnd(n, m.index! + m[0].length)
+        for (const b of Array.from(range.getClientRects())) if (b.width > 0 && b.height > 0) lines.push([b.top + scrollY, b.bottom + scrollY])
+      }
+    }
+    Object.assign(window, { textLines: lines })
+  })
   await cover(page, { top: '20%', height: '10%' })
   try {
     for (let i = 1; i <= 24; i++) {
@@ -218,17 +233,11 @@ async function expectCoveredLineRule(page: Page) {
       const r = await page.evaluate(() => {
           const at = window.pg.offsetOf(window.engine.current()!)!
           const y = scrollY + innerHeight * 0.25
-          const walker = document.createTreeWalker(document.querySelector('#reader')!.firstElementChild!, NodeFilter.SHOW_TEXT)
-          const range = document.createRange()
           let above = Infinity
           let onLine = false
-          for (let n = walker.nextNode(); n; n = walker.nextNode()) {
-            range.selectNodeContents(n)
-            for (const b of Array.from(range.getClientRects()).filter((b) => b.width > 0 && b.height > 0)) {
-              const top = b.top + scrollY
-              if (top <= y && y < b.bottom + scrollY) onLine = true
-              else if (b.bottom + scrollY <= y) above = Math.min(above, y - (b.bottom + scrollY))
-            }
+          for (const [top, bottom] of (window as unknown as { textLines: [number, number][] }).textLines) {
+            if (top <= y && y < bottom) onLine = true
+            else if (bottom <= y) above = Math.min(above, y - bottom)
           }
           return { off: window.pg.offLine(at, y), want: onLine ? 0 : above, y, found: window.pg.text().slice(at, at + 40) }
         })
@@ -253,6 +262,16 @@ test('E45 under a popup, hidden blocks and long collapsed whitespace before the 
   await openChapter(page, 'moby-dick-5-hidden')   // display:none notes and 300-space runs: characters with no box
   await expectCoveredLineRule(page)
 })
+
+for (const width of [412, 600]) {
+  test(`E45 under a popup, a whitespace and word-joiner run right before hidden text does not break the search @${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 839 })
+    // Every paragraph ends in 1500 spaces and U+2060, then a display:none note: most midpoints of the search
+    // land in such a run, whose next visible character is past the hidden note.
+    await openChapter(page, 'moby-dick-5-hidden-run')
+    await expectCoveredLineRule(page)
+  })
+}
 
 test('E45 a covered reading line in a gap between blocks reads the text just above with a bounded search, not a scan of the chapter', async ({ page }) => {
   await openChapter(page, 'ulysses-15')   // 2760 table cells: a scan of every text node is thousands of box reads

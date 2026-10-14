@@ -11,6 +11,8 @@ describe('web Sentry scrub', () => {
       exception: { values: [
         { type: 'Error', value: 'key tsk_live_ABC-123 rejected at /api/search?q=war and peace' },
         { type: 'Error', value: 'link /en/books/x#:~:text=call me ishmael "quoted"' },
+        { type: 'Error', value: `GET /api/search?q=don't panic now\nnext line` },
+        { type: 'Error', value: 'GET /api/search?q=say "moby dick" ok' },
       ] },
       breadcrumbs: [{ message: 'tso_token in a crumb' }],
       request: { url: 'https://textstack.app/en/books/x?highlight=1', query_string: 'highlight=1', headers: { Referer: 'x' } },
@@ -19,9 +21,11 @@ describe('web Sentry scrub', () => {
     const out = scrubEvent(event)!
 
     expect(out.message).toBe('fetch /mcp/k/[redacted] failed with Bearer [redacted]')
-    // From ? or # to the end of the line or the next quote: no search words, decoded or not.
+    // From ? or # to the end of the line: no search words, decoded or not, quotes in them or not.
     expect(out.exception!.values![0].value).toBe('key [redacted] rejected at /api/search')
-    expect(out.exception!.values![1].value).toBe('link /en/books/x"quoted"')
+    expect(out.exception!.values![1].value).toBe('link /en/books/x')
+    expect(out.exception!.values![2].value).toBe('GET /api/search\nnext line')
+    expect(out.exception!.values![3].value).toBe('GET /api/search')
     expect(out.breadcrumbs).toBeUndefined()
     expect(out.request).toEqual({ url: 'https://textstack.app/en/books/x' })
   })
