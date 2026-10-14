@@ -41,8 +41,12 @@ describe('L4 — a failed refresh after a PDF 401 is not silent', () => {
     const start = pdfHook.indexOf('recoverPdfAuthRef.current = () => {')
     const body = pdfHook.slice(start, pdfHook.indexOf('\n  }\n', start))
     expect(body).toMatch(/if \(tok\) \{[\s\S]*setPdfReloadNonce[\s\S]*return\s*\}/)
-    expect(body).toContain("t(language, 'reader.pdfReconnect')")
-    expect(body).toContain('onPress: () => recoverPdfAuthRef.current()')
+    expect(body).toContain('showPdfReconnectRef.current()')
+    // The toast lives in its own function since the engine page can reach it without a refresh.
+    const toastAt = pdfHook.indexOf('showPdfReconnectRef.current = () => {')
+    const toast = pdfHook.slice(toastAt, pdfHook.indexOf('\n  }\n', toastAt))
+    expect(toast).toContain("t(language, 'reader.pdfReconnect')")
+    expect(toast).toContain('onPress: () => recoverPdfAuthRef.current()')
   })
 
   it('the 401 message runs it, and the copy exists', () => {

@@ -6,6 +6,7 @@ import { getAccessToken, onUnauthorized } from '../../lib/api'
 import { useToast } from '../../context/ToastContext'
 import { returnedToForeground, decideNewerPosition, readerMovedSince } from '../../lib/progressRestore'
 import { initialPdfJump } from '../../lib/pdfInitialJump'
+import { READER_ENGINE_PDF } from '../../lib/readerEnginePdfFlag'
 import type { ReaderShellProps } from './readerShellTypes'
 
 type Args = Pick<ReaderShellProps,
@@ -203,13 +204,27 @@ export function useReaderPdf({
   const pdfAuthToastRef = useRef<number | null>(null)
   useEffect(() => () => hideToast(pdfAuthToastRef.current), [hideToast])
   const recoverPdfAuthRef = useRef<() => void>(() => {})
+  // Engine page: RN's last token answer was null — the session is already known gone (finding 4).
+  const pdfTokenDeniedRef = useRef(false)
   recoverPdfAuthRef.current = () => {
     onUnauthorized().then(tok => {
+      if (tok && READER_ENGINE_PDF) {
+        // The engine page reopens itself at its page with the new token: the document stays. The state
+        // follows (not in the document key in this mode), so a remount after a dead renderer opens with it.
+        setPdfToken(tok)
+        injectJs(`window.__tsPdfReopen && window.__tsPdfReopen(${JSON.stringify(tok)})`)
+        return
+      }
       if (tok) {
         setPdfToken(tok)
         setPdfReloadNonce(n => n + 1)
         return
       }
+      showPdfReconnectRef.current()
+    })
+  }
+  const showPdfReconnectRef = useRef<() => void>(() => {})
+  showPdfReconnectRef.current = () => {
       if (!aliveRef.current) return
       pdfAuthToastRef.current = showToast({
         variant: 'info',
@@ -219,7 +234,6 @@ export function useReaderPdf({
         onPress: () => recoverPdfAuthRef.current(),
         duration: 8000,
       })
-    })
   }
 
   // Run the deferred initial jump once the async server resume page arrives
@@ -233,6 +247,7 @@ export function useReaderPdf({
       // the deferred server-resume initial jump if the fetch already resolved.
       if (typeof data.numPages === 'number') { setPdfNumPages(data.numPages); pdfNumPagesRef.current = data.numPages }
       pdfReadyRef.current = true
+      pdfTokenDeniedRef.current = false   // a document opened: the refused token is history
       setPdfError(false)
       // Close the persist gate for this document. Without it, a reload (bar
       // toggle, token refresh) left the gate from the PREVIOUS document open,
@@ -261,12 +276,22 @@ export function useReaderPdf({
           if (decision.persist) persistPdfPage?.(data.page, data.numPages)
         }
       }
+    } else if (data.type === 'pdfTokenRequest') {
+      // The engine page's read() got a 401 (plan gap 3): refresh (shared single-flight) and answer it;
+      // null = the session is gone, its read then fails as 'pdf-auth' → pdfAuthExpired below.
+      // The answer echoes the request's id: a late one (after the page's timeout) answers nothing newer.
+      const answer = (tok: string | null) => {
+        pdfTokenDeniedRef.current = !tok
+        if (tok) setPdfToken(tok)
+        injectJs(`window.__tsPdfToken && window.__tsPdfToken(${JSON.stringify(tok)}, ${Number(data.id) || 0})`)
+      }
+      onUnauthorized().then(tok => answer(tok ?? null), () => answer(null))
     } else if (data.type === 'pdfAuthExpired') {
-      // Silent recovery: remember the page, refresh the token (shared
-      // single-flight), then rebuild the viewer source with the fresh token.
-      pdfInitialPageRef.current = currentPdfPageRef.current ?? pdfInitialPageRef.current
-      pdfIsReloadRef.current = true
-      recoverPdfAuthRef.current()
+      // Silent recovery (old: rebuild at the tracked page; engine: reopen in place, see recover).
+      if (!READER_ENGINE_PDF) pdfInitialPageRef.current = currentPdfPageRef.current ?? pdfInitialPageRef.current
+      pdfIsReloadRef.current = READER_ENGINE_PDF ? pdfReadyRef.current : true
+      if (!(READER_ENGINE_PDF && pdfTokenDeniedRef.current)) recoverPdfAuthRef.current()
+      else { pdfTokenDeniedRef.current = false; showPdfReconnectRef.current() }   // just refused: no 2nd refresh
     } else if (data.type === 'pdfLoadError') {
       // Corrupt / unreadable PDF (NOT the 401 reload path). Surface the reader
       // error state → "open as text" (if reflow chapters exist) or hard error.
@@ -274,7 +299,7 @@ export function useReaderPdf({
       setPdfError(true)
     } else return false
     return true
-  }, [maybeInitialPdfJump, persistPdfPage, recordSessionActivity, repaintPdf])
+  }, [maybeInitialPdfJump, persistPdfPage, recordSessionActivity, repaintPdf, injectJs])
 
   return {
     pdfToken, pdfTokenReady, pdfReloadNonce, isLocalOriginal,

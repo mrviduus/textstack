@@ -1,8 +1,9 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import type { MutableRefObject } from 'react'
 import type { EdgeInsets } from 'react-native-safe-area-context'
-import { buildReaderHtml, buildEngineReaderHtml, buildPdfViewerHtml } from '../../lib/readerHtml'
+import { buildReaderHtml, buildEngineReaderHtml, buildPdfViewerHtml, buildPdfEngineHtml } from '../../lib/readerHtml'
 import { READER_ENGINE } from '../../lib/readerEngineFlag'
+import { READER_ENGINE_PDF } from '../../lib/readerEnginePdfFlag'
 import { pdfDocumentKey, pdfChromeInjectionJs } from '../../lib/pdfViewerChrome'
 import {
   readerDocumentKey, readerChromeInjectionJs, latchReaderChrome, readerChromeChanged, type ReaderChrome,
@@ -153,7 +154,8 @@ export function useReaderDocument({
   // ADR-012 S4b — the Original-layout PDF document. Rebuilt when the token
   // refreshes (nonce) so a silent 401 recovery reloads at the tracked page.
   const pdfHtml = useMemo(() => {
-    if (!original || !originalFileUrl) return ''
+    // Not before the token: the document carries it, and (engine) the key does not — built early, it kept null.
+    if (!original || !originalFileUrl || !pdfTokenReady) return ''
     // Chrome is read from the ref, deliberately outside the dependency list.
     const chrome = chromeRef.current ?? {
       safeArea: { top: insets.top, bottom: insets.bottom },
@@ -170,7 +172,7 @@ export function useReaderDocument({
     const documentUrl = isLocalOriginal
       ? originalFileUrl.slice(originalFileUrl.lastIndexOf('/') + 1)
       : originalFileUrl
-    return buildPdfViewerHtml(documentUrl, pdfToken, {
+    const options = {
       theme: {
         fontSize: settings.fontSize,
         lineHeight: settings.lineHeight,
@@ -181,13 +183,18 @@ export function useReaderDocument({
       },
       initialPage: pdfInitialPageRef.current ?? originalInitialPage ?? null,
       safeArea: chrome.safeArea,
-    })
+    }
+    // The engine page (EXPO_PUBLIC_READER_ENGINE_PDF): same inputs; a token refresh reaches it over the bridge.
+    return READER_ENGINE_PDF
+      ? buildPdfEngineHtml(documentUrl, pdfToken, { ...options, local: isLocalOriginal })
+      : buildPdfViewerHtml(documentUrl, pdfToken, options)
     // Keyed on document identity ONLY. Insets and theme are absent on purpose —
     // that absence is the fix, and pdfViewerChrome.test.ts asserts it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [original, pdfDocumentKey({
+  }, [original, pdfTokenReady, pdfDocumentKey({
     fileUrl: originalFileUrl ?? '',
-    token: pdfToken,
+    // Engine page: not the token — a refresh reaches the live page; a remount (webViewKey) reads the latest.
+    token: READER_ENGINE_PDF ? null : pdfToken,
     nonce: pdfReloadNonce + webViewKey,
     initialPage: pdfInitialPageRef.current ?? originalInitialPage ?? null,
   })])
