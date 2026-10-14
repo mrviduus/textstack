@@ -48,8 +48,9 @@ export interface UseReaderChapterResult {
   publicBook: BookDetail | null
   loading: boolean
   error: string | null
-  /** Load the chapter again from the network, skipping the cache, with the reader left on screen (Try again). */
-  reload: () => void
+  /** Load the chapter again from the network, skipping the cache, with the reader left on screen (Try again).
+   *  Resolves whether it landed. */
+  reload: () => Promise<boolean>
   /** +1 for every load that lands (a chapter change, a refresh, a reload, even with the same html). */
   loadId: number
 }
@@ -79,7 +80,12 @@ export function useReaderChapter({
   const [reloadSeq, setReloadSeq] = useState(0)
   const loadedSeqRef = useRef(0)
   const [loadId, setLoadId] = useState(0)
-  const reload = useCallback(() => setReloadSeq((n) => n + 1), [])
+  const reloadDoneRef = useRef<((landed: boolean) => void) | null>(null)
+  const reload = useCallback(() => new Promise<boolean>((resolve) => {
+    reloadDoneRef.current?.(false)   // an earlier reload still running: this one replaces it
+    reloadDoneRef.current = resolve
+    setReloadSeq((n) => n + 1)
+  }), [])
 
   useEffect(() => {
     if (mode === 'public' && (!bookSlug || !chapterSlug)) return
@@ -276,6 +282,10 @@ export function useReaderChapter({
           setLoading(false)
           loadedSeqRef.current = reloadSeq   // a reload is one load, landed or failed
           if (landed) setLoadId((n) => n + 1)
+          if (fresh) {
+            reloadDoneRef.current?.(landed)
+            reloadDoneRef.current = null
+          }
         }
       }
     }

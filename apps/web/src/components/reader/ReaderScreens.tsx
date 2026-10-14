@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { SeoHead } from '../SeoHead'
 import { LocalizedLink } from '../LocalizedLink'
@@ -44,13 +45,28 @@ export function ReaderErrorScreen({ seoTitle, heading, body, linkTo, linkText, l
   )
 }
 
-/** The engine could not open the chapter (#849, #853): said inside the reader, whose bars and nav stay. */
-export function ReaderOpenError({ onRetry }: { onRetry: () => void }) {
+/**
+ * The engine could not open the chapter (#849, #853): said inside the reader, whose bars and nav stay.
+ * Try again is disabled while `onRetry` runs; `false` from it (nothing loaded) says so.
+ */
+export function ReaderOpenError({ onRetry }: { onRetry: () => Promise<boolean | void> }) {
   const { t } = useTranslation()
+  const [busy, setBusy] = useState(false)
+  const [stillFailing, setStillFailing] = useState(false)
+  const retry = async () => {
+    setBusy(true)
+    setStillFailing(false)
+    const landed = await onRetry()
+    setBusy(false)
+    setStillFailing(landed === false)
+  }
   return (
     <div className="reader-open-error" role="alert">
       <p>{t('reader.openError.message')}</p>
-      <button type="button" className="reader-open-error__retry" onClick={onRetry}>{t('reader.openError.retry')}</button>
+      {stillFailing && <p>{t('reader.openError.stillFailing')}</p>}
+      <button type="button" className="reader-open-error__retry" onClick={retry} disabled={busy}>
+        {t(busy ? 'reader.openError.opening' : 'reader.openError.retry')}
+      </button>
     </div>
   )
 }

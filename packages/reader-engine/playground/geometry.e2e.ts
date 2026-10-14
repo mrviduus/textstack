@@ -204,6 +204,20 @@ test('E45 a popup over the reading line while the reader scrolls: every scroll r
   }
 })
 
+test('E45 under a popup, floated figures with captions beside the reading line still read the text on the line', async ({ page }) => {
+  await openChapter(page, 'moby-dick-5-float')   // a float every third paragraph: caption text sits below the lines after it
+  await cover(page, { top: '20%', height: '10%' })
+  try {
+    for (let i = 1; i <= 24; i++) {
+      await readerScrolls(page, i / 25)
+      const r = await placeOffLine(page)
+      expect(r.dy, `at ${i}/25`).toBeLessThan(r.line)
+    }
+  } finally {
+    await uncover(page)
+  }
+})
+
 test('E45 the reader scrolls under a drawer, then changes the font: the text that was on the line stays on it', async ({ page }) => {
   await openChapter(page, 'moby-dick-5')
   await readerScrolls(page, 0.5)

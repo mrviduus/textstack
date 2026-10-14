@@ -13,7 +13,7 @@ interface Props {
   onTap: () => void
   onEngineOpened: (chapterSlug: string) => void
   /** Load the chapter again from the network (useReaderChapter's reload): Try again after a failed open. */
-  onReload: () => void
+  onReload: () => Promise<boolean>
   /** useReaderChapter's `loadId`: a new load of the chapter clears a failed open. */
   loadId: number
   /** End-of-chapter Discuss; null for an anonymous reader. */

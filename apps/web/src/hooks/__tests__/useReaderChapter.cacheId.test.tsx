@@ -77,9 +77,11 @@ describe('useReaderChapter — reload (Try again, #849)', () => {
       id: ids[slug], chapterNumber: 0, slug, title: slug, html: '<p>fresh</p>', wordCount: 10, prev: null, next: null,
     }))
     const loadId = result.current.loadId
-    act(() => result.current.reload())
+    let landed: Promise<boolean> | undefined
+    act(() => { landed = result.current.reload() })
     expect(result.current.loading).toBe(false)   // the reader stays on screen
     await waitFor(() => expect(result.current.chapter?.html).toBe('<p>fresh</p>'))
+    expect(await landed).toBe(true)
     expect(getChapter).toHaveBeenCalledWith('b', 'one')
     expect(result.current.loadId).toBe(loadId + 1)   // a landed load, even with the same html
   })
@@ -96,9 +98,11 @@ describe('useReaderChapter — reload (Try again, #849)', () => {
     const loadId = result.current.loadId
     getChapter.mockClear()
     getChapter.mockRejectedValueOnce(new Error('offline'))
-    act(() => result.current.reload())
+    let landed: Promise<boolean> | undefined
+    act(() => { landed = result.current.reload() })
     await waitFor(() => expect(getChapter).toHaveBeenCalled())
     await act(async () => { await new Promise((r) => setTimeout(r, 0)) })
+    expect(await landed).toBe(false)   // Try again says it is still failing
     expect(result.current.error).toBeNull()
     expect(result.current.chapter).toBe(before)
     expect(result.current.loadId).toBe(loadId)   // nothing landed: the in-reader error stays
@@ -112,7 +116,7 @@ describe('useReaderChapter — reload (Try again, #849)', () => {
     )
     await waitFor(() => expect(result.current.chapter?.identifier).toBe('two'))
     getChapter.mockRejectedValueOnce(new Error('offline'))
-    act(() => result.current.reload())
+    act(() => { void result.current.reload() })
     await act(async () => { await new Promise((r) => setTimeout(r, 0)) })
     getChapter.mockClear()
     rerender('one')

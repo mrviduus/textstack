@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, cleanup, fireEvent, screen } from '@testing-library/react'
+import { render, cleanup, fireEvent, screen, act, within } from '@testing-library/react'
 import { useEffect } from 'react'
 import type { ReaderSettings } from '../../../hooks/useReaderSettings'
 
@@ -27,7 +27,7 @@ const chapter = (id: string, html = '<p>x</p>') => ({
 const props = {
   settings: {} as ReaderSettings, onTap: () => {}, onEngineOpened: () => {}, discuss: null,
   chapterNumber: 2, totalChapters: 3, chapterProgress: 0, onGoTo: () => {}, onFinish: () => {}, finishLabel: 'Finish',
-  onReload: () => {}, loadId: 1,
+  onReload: async () => true, loadId: 1,
 }
 
 describe('ReaderReflowChapter: the engine cannot open the chapter', () => {
@@ -42,7 +42,7 @@ describe('ReaderReflowChapter: the engine cannot open the chapter', () => {
   })
 
   it('tryAgain_RefetchesTheChapter_ThenOpensTheNewHtml_AndClearsTheError', () => {
-    const onReload = vi.fn()
+    const onReload = vi.fn(async () => true)
     const { rerender } = render(<ReaderReflowChapter chapter={chapter('a')} {...props} onReload={onReload} />)
     failNext = false
     fireEvent.click(screen.getByText('reader.openError.retry'))
@@ -53,6 +53,21 @@ describe('ReaderReflowChapter: the engine cannot open the chapter', () => {
     expect(opens).toEqual(['a <p>x</p>', 'a <p>fresh</p>'])
     expect(screen.queryByRole('alert')).toBeNull()
     expect(screen.getByTestId('chapter')).toBeTruthy()
+  })
+
+  it('tryAgain_DisabledWhileTheReloadRuns_AFailedReloadSaysSo', async () => {
+    let done!: (landed: boolean) => void
+    const onReload = vi.fn(() => new Promise<boolean>((r) => { done = r }))
+    render(<ReaderReflowChapter chapter={chapter('a')} {...props} onReload={onReload} />)
+    fireEvent.click(screen.getByText('reader.openError.retry'))
+    const busy = within(screen.getByRole('alert')).getByRole('button')
+    expect(busy.textContent).toBe('reader.openError.opening')
+    expect((busy as HTMLButtonElement).disabled).toBe(true)
+    await act(async () => { done(false) })
+    const again = within(screen.getByRole('alert')).getByRole('button')
+    expect(again.textContent).toBe('reader.openError.retry')
+    expect((again as HTMLButtonElement).disabled).toBe(false)
+    expect(screen.getByText('reader.openError.stillFailing')).toBeTruthy()
   })
 
   it('tryAgain_SameHtmlFromTheNetwork_StillOpensAgain', () => {

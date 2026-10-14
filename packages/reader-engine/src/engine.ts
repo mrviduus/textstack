@@ -311,6 +311,14 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
     const lineTop = top(lo)! - 1
     let a = 0
     while (a < lo) { const mid = (a + lo) >> 1; if ((top(mid) ?? -Infinity) >= lineTop) lo = mid; else a = mid + 1 }
+    const on = (r?: Rect | null) => !!r && r.y <= line && line < r.y + r.height
+    if (on(boxAt(a))) return a
+    // A float (a figure caption) puts line tops out of text order: the text node with a box on the line.
+    for (const t of nodes) {
+      const s = starts.get(t)!
+      const r = rangeOf(s, t.length)
+      if (r && rectsOf(r).some(on)) for (let i = s; i < s + t.length; i++) if (on(boxAt(i))) return i
+    }
     return a
   }
 
