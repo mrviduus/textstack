@@ -273,6 +273,18 @@
   pointer-events: none;
 }
 
+/* Out of the flow: the engine places pages by their offset in the document, so a message
+ * appearing or going above the column would move the reader by its height. */
+.pdf-engine .pdf-original__loading,
+.pdf-engine .pdf-original__error,
+.pdf-engine .pdf-original__banner {
+  position: fixed;
+  top: 112px;
+  left: 0;
+  right: 0;
+  z-index: 6;
+}
+
 /* A zoomed page wider than the screen scrolls sideways in the column, not the whole page
  * (a wider document makes phone browsers zoom out). */
 .pdf-engine__pages {
