@@ -78,7 +78,7 @@ const BANNER = `// AUTO-GENERATED — do not edit.
 /* prettier-ignore */
 `
 
-/** @returns {Promise<{ fileContent: string, workerKb: number, controllerKb: number, engineKb: number, totalKb: number }>} */
+/** @returns {Promise<{ fileContent: string, workerKb: number, libKb: number, controllerKb: number, engineKb: number, totalKb: number }>} */
 export async function buildPdfViewerFile() {
   const workerResult = await build({ ...common, entryPoints: [workerEntry] })
   const workerSource = workerResult.outputFiles[0].text
