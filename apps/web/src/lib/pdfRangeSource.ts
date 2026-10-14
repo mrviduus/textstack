@@ -36,7 +36,10 @@ export async function openPdfSource(url: string, { fetch = globalThis.fetch, ref
   return {
     length,
     async read(begin, end) {
-      return new Uint8Array(await (await get(`${begin}-${end - 1}`)).arrayBuffer())
+      const r = await get(`${begin}-${end - 1}`)
+      // A 200 here is the whole file, not the chunk: never hand it to pdf.js as one (→ 'pdf-load').
+      if (r.status !== 206) throw new Error(`PDF ${url}: HTTP ${r.status} for a range`)
+      return new Uint8Array(await r.arrayBuffer())
     },
   }
 }

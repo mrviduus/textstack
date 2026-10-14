@@ -76,6 +76,13 @@ describe('openPdfSource', () => {
     await expect(ranges(s, vi.fn(async () => { throw new Error('no session') }))).rejects.toEqual({ code: 'pdf-auth' })
   })
 
+  it('openPdfSource_LaterReadAnswers200_RejectsInsteadOfHandingInTheWholeFile', async () => {
+    const s = server()
+    const src = await ranges(s)
+    s.fetch.mockImplementationOnce(async () => new Response(FILE.slice(), { status: 200 }))
+    await expect(src.read(10, 14)).rejects.toBeInstanceOf(Error)
+  })
+
   it('openPdfSource_ServerError_RejectsAnErrorNotPdfAuth', async () => {
     const fetch = vi.fn(async () => new Response(null, { status: 500 }))
     await expect(openPdfSource('/f', { fetch: asFetch(fetch), refresh: vi.fn() })).rejects.toBeInstanceOf(Error)
