@@ -57,7 +57,7 @@ carries its `opId`.
 ### Fixed layout (PDF, Phase 5)
 
 Pinned in `src/fixed.test.ts` (jsdom, a fake pdf.js) and `playground/fixed.e2e.ts` (Chromium, the committed fixture).
-The generic op rules hold for a PDF too and are pinned there under their own IDs (E4 supersede, E6 style ack, E7 `current()` mid-op, E9 destroy, E12 ready).
+The generic rules hold for a PDF too and are pinned there under their own IDs (E4 supersede, E6 style ack, E7 `current()` mid-op, E9 destroy, E12 ready; E20 drag selection, E21 hold, E22 tap, E23 scroll direction, E28 double tap).
 A PDF's place is its page: `locations.position`, 1-based (stored as `page:<N>`, frozen).
 
 | ID | Rule | Why / source | Since |
@@ -68,6 +68,10 @@ A PDF's place is its page: `locations.position`, 1-based (stored as `page:<N>`, 
 | E35 | Only pages near the screen have a canvas: drawn within one page of the visible ones (300 px margin), freed past two (shared `computePageRings`); the count stays bounded however far the reader goes. | A 100-page PDF without the window ran the tab out of memory | 2026-10-13 |
 | E36 | The reader scrolling to another page emits one `'scroll'` with it (the page filling most of the screen, shared `readingPage`); the engine's own scrolls never do. The reader's gesture (touch, wheel, a scroll key: arrows, PageUp / PageDown, Space, Home / End; not Escape or a modifier) during a jump ends it where they are: it resolves `'superseded'`, acked with that page, and never snaps back. | QA-007 #3 (save the page being read); mobile "TOC jump cancelled by a drag" | 2026-10-13 |
 | E37 | Sizes arriving and a re-fit (the width changes) keep the reader on the same spot of the same page. While the reader scrolls (a fling), the change waits until scrolling has stopped 150 ms: a scroll from code stops a fling. | Mobile viewer: +3 pages per reopen after a late re-fit | 2026-10-13 |
+| E38 | `setStyle({ zoom })` scales every page to fit × zoom (0.2–5×; `'fit'` = 1), redraws the drawn pages sharp at the new scale and keeps the page under the top line at the same fraction (the shared zoom anchor, web H4); one `'style'` ack with that page. A zoom is the reader's command: it never waits for a fling. A page wider than the screen scrolls sideways, never cut off on the left. | Phase 5 answer 5a (web zoom buttons); web H4 | 2026-10-14 |
+| E39 | Each drawn page has pdf.js's text layer over its canvas, at the page's scale: the text can be selected. It goes with the canvas when the page leaves the window. | ADR-012 original-first: select, translate, highlight on the scan | 2026-10-14 |
+| E40 | A selection on a PDF (drag or hold) carries a locator with its page, its text (`text.highlight`) and its rects (`ext.rects`, page-relative at scale 1), so `locatorToPdfAnchor` writes today's `PdfAnchor` and the stored highlight paints back on the same text at any zoom. A selection that runs onto the next page keeps the start page's part. | Stored `PdfAnchor` is frozen (ADR-025); web/mobile `buildPdfAnchor` | 2026-10-14 |
+| E41 | `decorate` paints each item on its page from its `ext.rects` at the live scale (a `'dot'`: a dot just after the last rect), over the text but letting a selection start through it; repainted after a zoom; a call replaces its group. A tap on a painted rect emits `decorationTap` (by geometry; a highlight wins over a search hit). An item with no page or no rects is not drawn. | Web `PdfHighlightLayer` + M2 hit test; mobile `__pdfHighlightAtPoint` | 2026-10-14 |
 
 ## Before users get the engine (Phase 3)
 
