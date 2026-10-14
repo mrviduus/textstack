@@ -13,7 +13,7 @@ const log = (msg: string) => w.ReactNativeWebView.postMessage(JSON.stringify({ t
 addEventListener('error', (e) => log(`[pdf engine page] ${e.message}`))
 addEventListener('unhandledrejection', (e) => log(`[pdf engine page] ${String(e.reason)}`))
 
-// A real worker off the UI thread, from the inlined worker source (PDF_WORKER_SCRIPT, loaded before this).
+// A real worker off the UI thread, from the inlined worker source (PDF_JS_SCRIPT, loaded before this).
 if (w.__TS_PDF_WORKER_SRC) {
   ;(pdfjsLib as unknown as { GlobalWorkerOptions: { workerSrc: string } }).GlobalWorkerOptions.workerSrc =
     URL.createObjectURL(new Blob([w.__TS_PDF_WORKER_SRC], { type: 'application/javascript' }))

@@ -6,7 +6,7 @@ import { READER_ANCHOR_SCRIPT } from './readerAnchorScript.generated'
 import { TEXT_POSITION_VERSION, POSITION_QUOTE_LENGTH, ANCHOR_CONTEXT_LENGTH } from '@textstack/shared'
 import { READER_SELECTION_BRIDGE, SCROLL_DIR_DETECTOR } from './readerBridge'
 import { READER_ENGINE_SCRIPT } from './readerEngineScript.generated'
-import { PDF_WORKER_SCRIPT, PDF_VIEWER_SCRIPT, PDF_ENGINE_SCRIPT } from './pdfViewerScript'
+import { PDF_JS_SCRIPT, PDF_VIEWER_SCRIPT, PDF_ENGINE_SCRIPT } from './pdfViewerScript'
 import { HIGHLIGHT_BG, VOCAB_STAGE_COLORS } from './readerColors'
 
 export interface ReaderTheme {
@@ -1603,7 +1603,7 @@ export function buildPdfViewerHtml(fileUrl: string, token: string | null, option
   <!-- The bridge draws the tapped-word mark on an overlay layer (SEL-1). -->
   <script>${READER_OVERLAY_SCRIPT}</script>
   <script>${READER_SELECTION_BRIDGE}</script>
-  <script>${PDF_WORKER_SCRIPT}</script>
+  <script>${PDF_JS_SCRIPT}</script>
   <script>${PDF_VIEWER_SCRIPT}</script>
 </head>
 <body>
@@ -1648,7 +1648,7 @@ export function buildPdfEngineHtml(fileUrl: string, token: string | null, option
   <div id="pdf-root"></div>
   <script>window.__TS_PDF = ${bootstrap};</script>
   <script>${SCROLL_DIR_DETECTOR}</script>
-  <script>${PDF_WORKER_SCRIPT}</script>
+  <script>${PDF_JS_SCRIPT}</script>
   <script>${PDF_ENGINE_SCRIPT}</script>
 </body>
 </html>`

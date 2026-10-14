@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { buildReaderHtml, buildPdfEngineHtml, buildPdfViewerHtml } from './readerHtml'
-import { PDF_ENGINE_SCRIPT, PDF_VIEWER_SCRIPT, PDF_WORKER_SCRIPT } from './pdfViewerScript'
+import { PDF_ENGINE_SCRIPT, PDF_VIEWER_SCRIPT, PDF_JS_SCRIPT } from './pdfViewerScript'
 import { READER_SELECTION_BRIDGE } from './readerBridge'
 
 // Second argument is the theme, and its default is load-bearing — passing {}
@@ -45,7 +45,7 @@ describe('PDF documents (ADR-025 Phase 5 slice 4)', () => {
 
   it('the engine document: the engine page with the worker before it, no old selection bridge or viewer', () => {
     expect(engine).toContain(PDF_ENGINE_SCRIPT)
-    expect(engine.indexOf(PDF_WORKER_SCRIPT)).toBeLessThan(engine.indexOf(PDF_ENGINE_SCRIPT))
+    expect(engine.indexOf(PDF_JS_SCRIPT)).toBeLessThan(engine.indexOf(PDF_ENGINE_SCRIPT))
     expect(engine).not.toContain(PDF_VIEWER_SCRIPT)
     expect(engine).not.toContain(READER_SELECTION_BRIDGE)
     // The engine finds its root when it runs: the scripts come after it.
@@ -59,7 +59,7 @@ describe('PDF documents (ADR-025 Phase 5 slice 4)', () => {
   })
 
   it('the old viewer (flag off) still loads its worker before it, and its bridge', () => {
-    expect(old.indexOf(PDF_WORKER_SCRIPT)).toBeLessThan(old.indexOf(PDF_VIEWER_SCRIPT))
+    expect(old.indexOf(PDF_JS_SCRIPT)).toBeLessThan(old.indexOf(PDF_VIEWER_SCRIPT))
     expect(old).toContain(READER_SELECTION_BRIDGE)
     expect(old).not.toContain(PDF_ENGINE_SCRIPT)
   })

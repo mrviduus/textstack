@@ -5,4 +5,4 @@
 //
 // To change the Original-layout PDF viewer, edit the entry + run:
 //   pnpm -C apps/web build:mobile-pdf
-export { PDF_WORKER_SCRIPT, PDF_VIEWER_SCRIPT, PDF_ENGINE_SCRIPT } from './pdfViewerScript.generated'
+export { PDF_JS_SCRIPT, PDF_VIEWER_SCRIPT, PDF_ENGINE_SCRIPT } from './pdfViewerScript.generated'
