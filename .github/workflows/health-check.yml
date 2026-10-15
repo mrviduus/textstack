@@ -139,6 +139,28 @@ jobs:
           fi
           echo "SSG last rebuilt ${age}h ago"
 
+      # Edge TTS is an unofficial endpoint. On 2026-10-15 it answered 403 for 5+ hours, every
+      # /api/tts was a 502, and every check above stayed green (#827, #880). The text is unique
+      # per run on purpose: a fixed word is served from the API's disk cache and passes while
+      # Edge is down. Cost: ~288 tiny files a day in the TTS cache (~2-3 MB), reaped by its
+      # 30-day TTL and 1 GB LRU sweep; one request per run, far under the 120/min 'tts' limit.
+      # No -f: a 502 body carries Edge's reason (e.g. "403"); curl still retries 5xx under
+      # CURL_RETRY, which rides out a deploy.
+      - name: Smoke — TTS synthesizes through Edge
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          f="$RUNNER_TEMP/tts.mp3"
+          meta=$(curl -s $CURL_RETRY -G -o "$f" -w '%{http_code} %{size_download} %{content_type}' \
+            --data-urlencode "text=Health check $(date +%s)" --data-urlencode "lang=en" \
+            https://textstack.app/api/tts) || { echo "::error::no response from /api/tts"; exit 1; }
+          read -r code size type <<< "$meta"
+          if [ "$code" != "200" ] || [ "$type" != "audio/mpeg" ] || [ "$size" -le 1024 ]; then
+            echo "::error::TTS is down: HTTP $code, $type, $size bytes. Edge TTS probably changed its token protocol — see docs/03-ops/uptime-monitoring.md"
+            head -c 500 "$f"; exit 1
+          fi
+          echo "TTS ok: $size bytes"
+
       - name: Smoke — book listing
         run: |
           body=$(curl -sf $CURL_RETRY "https://textstack.app/api/books?lang=en&limit=1")

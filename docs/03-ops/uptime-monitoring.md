@@ -34,12 +34,14 @@ if DB is down, API returns 503 and UptimeRobot pages.
 | Public site down | `curl -I https://textstack.app/` → nginx/tunnel issue. Check Cloudflare Tunnel status, nginx logs on server. |
 | `/api/health` failing | `ssh asus` → `docker compose ps` → find unhealthy container. `docker compose logs api worker db --tail=100`. |
 | Admin down (only) | Admin container — `docker compose logs admin`. Public site likely still fine. |
+| TTS down (health-check step "TTS synthesizes through Edge", or Sentry "TTS upstream failed") | The step log prints the 502 body. `403 when 101 was expected` = Microsoft changed the Edge token protocol (#827): diff upstream [rany2/edge-tts](https://github.com/rany2/edge-tts) `src/edge_tts/drm.py` + `constants.py` against `backend/src/Tts/TextStack.Tts/EdgeTtsDrm.cs` (version string, hash, headers), regenerate test vectors with upstream. Timeout/other: `docker compose logs api --tail=200 \| grep -i tts`. Reproduce: `curl -G --data-urlencode "text=test $(date +%s)" -d lang=en https://textstack.app/api/tts -o /dev/null -w '%{http_code}\n'` (unique text — a cached word passes while Edge is down). |
 
 ## GitHub Actions health-check
 
 `.github/workflows/health-check.yml` runs every 5 min. Beyond `/health` on both hosts and both
 frontends, it asks things UptimeRobot cannot: a Googlebot-UA request must get prerendered HTML
-(`X-SEO-Render: ssg`, >5 KB, has `<title>`), SSG must not be failing or stale (>72h), and book
-listing, search and author pages must work. Not redundant — the SSG checks exist because
+(`X-SEO-Render: ssg`, >5 KB, has `<title>`), SSG must not be failing or stale (>36h), and book
+listing, search and author pages must work, and `/api/tts` must synthesize a unique phrase
+through Edge (unique so the disk cache can't hide an Edge outage; #880). Not redundant — the SSG checks exist because
 crawler-only breakage went unnoticed twice. There is also `GET /health/ready` (per-component:
 db, storage critical; ollama soft).
