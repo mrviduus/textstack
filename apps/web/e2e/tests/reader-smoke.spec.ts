@@ -328,6 +328,40 @@ test.describe('Reader smoke @reader-smoke', () => {
     }, { timeout: 10_000 }).toBe(true)
   })
 
+  test('a TOC chapter click closes the drawer and opens that chapter', async ({ browser }) => {
+    const { page, book } = await readerPage(browser, 'toc')
+    await openChapter(page, book, 1)
+
+    // dispatchEvent: the top bar auto-hides with pointer-events: none (immersive mode).
+    await page.locator('.reader-top-bar').getByTitle('Table of Contents').dispatchEvent('click')
+    const drawer = page.getByRole('dialog', { name: 'Table of Contents' })
+    await expect(drawer).toBeVisible()
+
+    await drawer.locator(`a[href*="/${book.ch2.slug}"]`).click()
+    await expect(drawer).toBeHidden()
+    await expect(page).toHaveURL(atChapter(book.ch2.slug))
+    await expect(article(page)).toContainText(CH2_ONLY_SENTENCE)
+  })
+
+  test('reading past 1% adds the book to the library', async ({ browser }) => {
+    const { page, book } = await readerPage(browser, 'library')
+    const request = page.context().request
+    await request.delete(`${API_URL}/me/library/${book.editionId}`, { headers: API_HEADERS })
+    const inLibrary = async () => {
+      const resp = await request.get(`${API_URL}/me/library`, { headers: API_HEADERS })
+      expect(resp.ok(), `GET /me/library: ${resp.status()}`).toBeTruthy()
+      const { items } = (await resp.json()) as { items: { editionId: string }[] }
+      return items.some((i) => i.editionId === book.editionId)
+    }
+    expect(await inLibrary(), 'precondition: the book is not in the library').toBe(false)
+
+    await openChapter(page, book, 1)
+    await waitForOpenSave(page, book, book.ch1.slug)
+    // Opening chapter 1 at its top is 0% of the book; the middle of it is well past 1%.
+    await scrollToMiddleAndSave(page, book, book.ch1.slug)
+    await expect.poll(inLibrary, { timeout: 10_000 }).toBe(true)
+  })
+
   // `blocked`: the progress GET fails fast (offline, refused). `hung`: it never
   // answers (captive portal, stalled proxy) — the reader gives up after 3 s (#729).
   // Either way the GET is "no answer": restore falls back to this device's record

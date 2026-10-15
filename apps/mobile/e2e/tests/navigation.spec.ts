@@ -32,12 +32,15 @@ test.describe('Navigation', () => {
     await page.waitForLoadState('networkidle')
     // Signed out, Library renders an EmptyState with a Sign In action. It must
     // never be blank: this route is the app's front door since #453.
-    await expect(page.locator('text=/Sign in/i').first()).toBeVisible({ timeout: 15000 })
+    await expect(
+      page.getByText('An account is only needed to carry your library to another phone.', { exact: false }),
+    ).toBeVisible({ timeout: 15000 })
   })
 
   test('Profile renders', async ({ page }) => {
     await page.goto('/profile')
     await page.waitForLoadState('networkidle')
-    await expect(page.locator('text=/Sign in|Appearance|Language/i').first()).toBeVisible({ timeout: 15000 })
+    // Signed out (this lane): the screen's own prompt, not a word the tab bar could also hold.
+    await expect(page.getByText('Sign in to track your reading', { exact: true })).toBeVisible({ timeout: 15000 })
   })
 })

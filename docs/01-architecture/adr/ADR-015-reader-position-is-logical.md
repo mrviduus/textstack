@@ -173,7 +173,7 @@ answering it twice. `readerWriteTarget.test.ts` now pins that it cannot come bac
 - `tests/TextStack.UnitTests/UpsertProgressTests.cs`, `UserBookProgressServiceTests.cs` — the
   no-two-disagreeing-positions invariant on both paths
 - `tests/TextStack.UnitTests/LocatorSpaceTests.cs` — `text:` is still not a space
-- `apps/web/e2e/tests/reader-progress.spec.ts` — ADR-007's acceptance criterion, at last
+- `apps/web/e2e/tests/reader-smoke.spec.ts` ("a font size change keeps the same paragraph") — ADR-007's acceptance criterion, at last (moved there from `reader-progress.spec.ts` in #774)
 
 ## See also
 

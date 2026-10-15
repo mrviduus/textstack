@@ -775,7 +775,6 @@ jobs:
       #
       # @reader-pdf (reader-pdf.spec.ts) joins it: the Original-layout PDF opens, jumps, highlights
       # and resumes. Its user uploads the engine's 40-page fixture; Original needs no worker.
-      # reader-progress.spec.ts does not gate (fixed sleeps, shared user): it runs in the full suite below.
       - name: E2E smoke + reader smoke — gates the PR
         working-directory: apps/web
         run: pnpm test:e2e --grep "@smoke|@reader-smoke|@reader-pdf"

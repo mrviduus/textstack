@@ -10,32 +10,29 @@ import { test, expect } from '@playwright/test'
  * not exist to be asserted; making the claim needs an authenticated fixture,
  * which is Lane A's job (MOBILE-TEST-PLAN.md).
  *
- * Every expectation below accepts the sign-in branch explicitly, rather than
- * assuming a session this lane does not establish.
+ * Every expectation below is on an element of this screen that renders signed
+ * in or out — never a word the tab bar or another screen could also show.
  */
 test.describe('Highlights', () => {
-  test('renders the screen or asks the reader to sign in', async ({ page }) => {
+  test('renders the screen', async ({ page }) => {
     await page.goto('/highlights')
     await page.waitForLoadState('networkidle')
+    // The header action exists only on this screen, signed in or not.
     await expect(
-      page.locator('text=/Highlights|Sign in/i').first(),
+      page.getByRole('button', { name: 'Revisit highlights one at a time' }),
     ).toBeVisible({ timeout: 15000 })
   })
 
-  test('renders its search field or the sign-in prompt', async ({ page }) => {
+  test('renders its search field', async ({ page }) => {
     await page.goto('/highlights')
     await page.waitForLoadState('networkidle')
-    await expect(
-      page.locator('input[placeholder*="Search" i]').first()
-        .or(page.locator('text=/Sign in/i').first()),
-    ).toBeVisible({ timeout: 15000 })
+    await expect(page.getByPlaceholder('Search highlights...')).toBeVisible({ timeout: 15000 })
   })
 
   test('the review route renders', async ({ page }) => {
     await page.goto('/highlights/review')
     await page.waitForLoadState('networkidle')
-    await expect(
-      page.locator('text=/Review|caught up|No highlights|Sign in/i').first(),
-    ).toBeVisible({ timeout: 15000 })
+    // The screen's header title, set in every one of its states.
+    await expect(page.getByText('Revisit Highlights', { exact: true })).toBeVisible({ timeout: 15000 })
   })
 })

@@ -20,6 +20,9 @@ test.describe('Books', () => {
   test('shows either books or an empty state, never nothing', async ({ page }) => {
     await page.goto('/books')
     await page.waitForLoadState('networkidle')
-    await expect(page.locator('text=/All|No books/').first()).toBeVisible({ timeout: 15000 })
+    // Not the genre chip "All" — it renders whether or not the list does.
+    await expect(
+      page.getByTestId('book-card').first().or(page.getByText('No books yet', { exact: true })),
+    ).toBeVisible({ timeout: 15000 })
   })
 })

@@ -16,15 +16,13 @@ test.describe('Smoke tests @smoke', () => {
 
   test('/en/books lists books', async ({ page }) => {
     await page.goto('/en/books')
-    await page.waitForLoadState('networkidle')
-    const content = page.locator('main, [role="main"], #root')
-    await expect(content).toBeVisible()
+    // A real card (a link to a book), not the loading skeleton.
+    await expect(page.locator('a.book-card[href*="/books/"]').first()).toBeVisible({ timeout: 15_000 })
   })
 
   test('/en/search returns results page', async ({ page }) => {
     await page.goto('/en/search?q=test')
-    await page.waitForLoadState('networkidle')
-    await expect(page.locator('body')).toContainText(/search|results|test/i)
+    await expect(page.locator('.search-page__input')).toHaveValue('test', { timeout: 15_000 })
   })
 
   test('404 page for invalid route', async ({ page }) => {

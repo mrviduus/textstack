@@ -114,16 +114,16 @@ apps/web/e2e/
 │   └── test-data.ts              # Test data helpers
 ├── helpers/
 │   ├── api.ts                    # API login helpers
-│   ├── storage.ts                # Storage state helpers
-│   └── reader.ts                 # Reader page helpers
-└── tests/                        # 9 specs (2026-10-04)
-    ├── smoke.spec.ts             # Homepage, book page, basic navigation
+│   └── reader.ts                 # waitForReaderLoad
+└── tests/                        # 10 specs (2026-10-15)
+    ├── smoke.spec.ts             # @smoke gate: pages render, API health
+    ├── reader-smoke.spec.ts      # @reader-smoke gate: position, Next/Prev, highlights, TOC, auto-add to library
+    ├── reader-pdf.spec.ts        # @reader-pdf gate: Original-layout PDF
     ├── auth.spec.ts              # Login, user session
     ├── search.spec.ts            # Search query → results
-    ├── bookmarks.spec.ts         # Create/delete bookmarks
-    ├── reader-progress.spec.ts   # Reading progress save/restore
-    ├── reader-mobile.spec.ts     # Mobile reader (iPhone viewport)
-    ├── guest-landing.spec.ts     # Guest flows
+    ├── bookmarks.spec.ts         # Add/remove bookmark round trip to the server
+    ├── reader-mobile.spec.ts     # Mobile reader smoke (iPhone viewport)
+    ├── guest-landing.spec.ts     # No POST /auth/guest on landing pages
     ├── vocabulary.spec.ts        # SRS word list + review
     └── delete-account.spec.ts    # Account deletion
 ```
