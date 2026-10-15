@@ -52,7 +52,7 @@ public static class TtsEndpoints
         catch (Exception ex) when (ex is not OperationCanceledException) { return UpstreamFailed(logger, ex, req); }
     }
 
-    private static async Task<IResult> GetTimestamps(
+    internal static async Task<IResult> GetTimestamps(
         HttpContext http,
         string? text,
         string? lang,
@@ -79,11 +79,17 @@ public static class TtsEndpoints
     // #880: these 502s were silent for 5 h when Edge started answering 403 (#827).
     // Error = a Sentry event (MinimumEventLevel = Error); Sentry groups them into one
     // issue by exception + stack, so an outage is one alert, not hundreds.
-    // Timeouts stay Warning: Edge is slow at times, and the health-check probe catches
-    // a hard hang (504) anyway. No text in the message: it is the reader's passage.
+    // InvalidOperationException is our own throw for input-driven results — an unknown
+    // voice or punctuation-only text gives "empty audio" (also the size cap) — so it is
+    // Warning: anonymous callers must not spend the Sentry quota. Everything else
+    // (WebSocketException on the handshake 403, IO) is Edge itself → Error. If Edge
+    // ever returns empty audio for everything, the health-check probe still goes red.
+    // Timeouts stay Warning: Edge is slow at times, and the probe catches a hard hang.
+    // No text in the message: it is the reader's passage.
     private static IResult UpstreamFailed(ILogger logger, Exception ex, TtsRequest req)
     {
-        logger.LogError(ex, "TTS upstream failed (lang={Lang}, voice={Voice})", req.Lang, req.Voice);
+        var level = ex is InvalidOperationException ? LogLevel.Warning : LogLevel.Error;
+        logger.Log(level, ex, "TTS upstream failed (lang={Lang}, voice={Voice})", req.Lang, req.Voice);
         return Results.Problem(detail: $"TTS service error: {ex.Message}", statusCode: 502);
     }
 
@@ -198,7 +204,7 @@ public static class TtsEndpoints
         return false;
     }
 
-    private static async Task<IResult> GetVoices(
+    internal static async Task<IResult> GetVoices(
         string? lang,
         ITtsService tts,
         ILogger<ITtsService> logger,
