@@ -4,7 +4,7 @@ Phase 6 of [ADR-025](adr/ADR-025-reader-engine-package.md): every platform reads
 `packages/reader-engine`, so the old reader, the four flags and the shims go. Deletion only: no new
 behaviour, no API change.
 
-Status: **done 2026-10-15** — slice 0 #843 and PR A #848 merged 2026-10-14, follow-ups #852 merged; PR B #866 (mobile, slices 3–4) merged 2026-10-15 (owner: no wait for the Play launch); PR C (slice 5, cleanup) opened 2026-10-15. Left: EAS variables after the bake (#867), test review #846. Owner answered 2026-10-14 (see Owner answers), from a read-only survey right after Phase 5. All four flags are on for
+Status: **done 2026-10-15** — slice 0 #843 and PR A #848 merged 2026-10-14, follow-ups #852 merged; PR B #866 (mobile, slices 3–4) merged 2026-10-15 (owner: no wait for the Play launch); PR C #868 (slice 5, cleanup) opened 2026-10-15. Left: EAS variables after the bake (#867), test review #846. Owner answered 2026-10-14 (see Owner answers), from a read-only survey right after Phase 5. All four flags are on for
 everyone: mobile reflow since 2026-10-12, web reflow 2026-10-13, web + mobile PDF 2026-10-14
 (`apps/web/production.env`, EAS production + OTA). The owner's prod pass of Phase 4 is still pending (STATUS).
 
