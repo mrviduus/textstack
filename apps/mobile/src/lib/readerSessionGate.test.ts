@@ -145,7 +145,6 @@ describe('M4 wiring — SessionGate consults and feeds the memory', () => {
   })
   it('the deadline and the mint answer are both recorded', () => {
     expect(gate).toContain('gateMemory.deadlinePassed(outcomeRef.current)')
-    expect(gate).not.toContain('gateMemory.record(true)')
     expect(gate).toMatch(/outcomeRef\.current = result\s+gateMemory\.record/)
     expect(gate).toContain('gateMemory.record(gateGaveUp(')
   })

@@ -41,7 +41,7 @@ type Options = {
    *  server write when one was made, so a caller can wait for it (Discuss). */
   persist: (snap: ProgressSnapshot) => Promise<unknown> | void
   /** Source-specific read of the saved resume position for a chapter — from the
-   *  DEVICE only. The open never waits on a network (progressRestoreOrder.test.ts).
+   *  DEVICE only. The open never waits on a network (readerSources.test.ts, useReaderPersistence.test.ts).
    *  MUST be stable (wrap in useCallback). */
   loadPosition: (chapterSlug: string) => Promise<SavedPosition>
   /** Background, started after `loadPosition` and never awaited by the open: a

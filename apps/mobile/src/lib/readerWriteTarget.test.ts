@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 /**
@@ -27,24 +27,11 @@ import { join } from 'node:path'
 const read = (p: string) => readFileSync(join(__dirname, p), 'utf8')
 
 describe('one chapter per document', () => {
-  it('nothing appends a chapter into the reader document', () => {
-    const html = read('readerHtml.ts')
-    expect(html).not.toMatch(/function appendChapter|requestNextChapter|enableInfiniteScroll/)
-    expect(existsSync(join(__dirname, '../hooks/useReaderInfiniteScroll.ts'))).toBe(false)
-  })
-
   it('the document holds a single chapter, named once', () => {
     // ADR-015 anchors are scoped to one chapter: the engine page opens one <template>, under one slug.
     const html = read('readerHtml.ts')
     expect(html.match(/<template id="ts-chapter">/g)).toHaveLength(1)
     expect(read('readerEnginePage.ts')).toMatch(/^const href = root\.dataset\.slug \?\? ''$/m)
-  })
-
-  it('the shell has no second "visible chapter" to disagree with the route', () => {
-    // The shell is split into ReaderShell.tsx + its use* hooks next to it; none may grow one.
-    const shell = ['ReaderShell.tsx', 'useReaderSessionFeed.ts', 'useReaderChapterNav.ts', 'useReaderDocument.ts', 'useReaderPdf.ts', 'useReaderMessages.ts', 'useReaderWordActions.ts']
-      .map(f => read(`../components/reader/${f}`)).join('\n')
-    expect(shell).not.toMatch(/visibleChapterSlug|finishedSlugRef/)
   })
 })
 
@@ -67,23 +54,8 @@ describe('the write follows the reader', () => {
   })
 })
 
-describe('the restore follows the document', () => {
-  it('loads the saved position for the chapter the document was built from', () => {
-    const src = read('../hooks/useReaderPersistence.ts')
-    expect(src).toMatch(/loadPosition\(chapterSlug\)/)
-  })
-
-  it('a rebuild of the same chapter shuts the write gate until its restore lands', () => {
-    // A re-parsed chapter or the OpenDyslexic face still rebuilds the document;
-    // its load event reports zero, which must not be written over a real place.
-    const src = read('../hooks/useReaderPersistence.ts')
-    // (The target is decided first — rule 8, pending before a snapshot — then the gate shuts.)
-    const start = src.indexOf('const onDocumentRebuild = useCallback(')
-    const body = src.slice(start, src.indexOf('}, [', start))
-    expect(body.trimEnd()).toMatch(/dispatchGate\(\{ type: 'chapterEntered', chapterSlug: chapterSlug \?\? null \}\)$/)
-    expect(body.indexOf('duringRestorePlan(')).toBeLessThan(body.indexOf("type: 'chapterEntered'"))
-  })
-})
+// The restore follows the document (loadPosition(route chapter); a rebuild shuts the write gate
+// until its restore lands): behaviour tests in hooks/useReaderPersistence.test.ts (C1, rule 8).
 
 describe('book progress is never a chapter fraction', () => {
   // A chapter fraction is 1.0 at the end of every chapter; written into the

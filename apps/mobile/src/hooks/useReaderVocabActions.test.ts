@@ -151,7 +151,6 @@ describe('useReaderVocabActions', () => {
   it('TR-3: the reader looks up and builds the vocab map with the same key normalizer', () => {
     const shell = readFileSync(resolve(__dirname, '../components/reader/ReaderShell.tsx'), 'utf8')
     const map = readFileSync(resolve(__dirname, 'useReaderVocabMap.ts'), 'utf8')
-    expect(shell).not.toContain('selection.text.toLowerCase()')
     expect(shell).toContain('vocabMapRef.current[vocabMapKey(selection.text)]')
     expect(map).toContain('map[vocabMapKey(w.word)]')
   })

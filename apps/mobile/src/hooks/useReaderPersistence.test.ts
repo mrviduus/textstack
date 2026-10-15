@@ -234,6 +234,16 @@ describe('C1 — the restore waits for both the document and the saved position'
     ])
   })
 
+  it('the server is asked only after the device answered, and the restore never waits for it', async () => {
+    const r = mountReader()
+    expect(r.io.loadPosition).toHaveBeenCalledWith('ch-1')
+    expect(r.io.loadNewer).not.toHaveBeenCalled()
+    await r.answerPosition(saved({ offset: 900 }))
+    expect(r.io.loadNewer).toHaveBeenCalledTimes(1)
+    r.web.loadEnd()                                           // the server check is still in flight
+    expect(r.web.restores()).toEqual([{ kind: 'RestoreScroll', arg: '900', id: 1 }])
+  })
+
   it('the book id resolving after the document loaded does not forget the load', async () => {
     const r = mountReader({ bookKey: null })
     r.web.loadEnd()
@@ -268,6 +278,23 @@ describe('the write gate — nothing is saved before the restore lands', () => {
     r.web.loadEnd()
     r.web.progress(0, 0)
     r.unmount()
+    expect(r.io.persist).not.toHaveBeenCalled()
+  })
+
+  it('H1: a debounced save fires against the gate as it is then — a rebuild armed after it writes nothing', async () => {
+    const r = await openLanded()
+    r.web.progress(1500, 0.5)                                 // debounced save armed, gate open
+    r.rerender({ fontFamily: DYSLEXIC_FONT })                 // rebuild: the gate shuts
+    r.tick(2000)
+    expect(r.io.persist).not.toHaveBeenCalled()
+  })
+
+  it('H1: a save armed for one book is dropped when another book opens in the same document', async () => {
+    const r = await openLanded()
+    r.web.progress(1500, 0.5)                                 // armed for "book"
+    r.rerender({ bookKey: 'other' })
+    await r.answerPosition(saved({}))                         // nothing saved for "other": its gate opens at once
+    r.tick(2000)
     expect(r.io.persist).not.toHaveBeenCalled()
   })
 
@@ -542,6 +569,7 @@ describe('chapter change', () => {
     a.unmount()
 
     const b = mountReader({ chapterSlug: 'ch-2' })
+    expect(b.io.loadPosition).toHaveBeenCalledWith('ch-2')    // the chapter the document holds
     b.io.persist.mockImplementation(s => { record = s })
     await b.answerPosition(fromRecord('ch-2'))
     await b.answerNewer(null)

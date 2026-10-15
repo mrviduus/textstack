@@ -3,15 +3,14 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 /**
- * Source guards for the R3 reader fixes the WebView and native views make impossible to drive in
- * CI. The decisions themselves are tested in firstRun, readerSessionGate, bookLanguage,
- * rebuildRestore, sessionMath and progressRestore.
+ * Source guards for the R3 fixes that live in native-view components (ReaderShell, PdfReaderChrome):
+ * react-dom cannot mount them. The decisions are tested in firstRun (readerBackAction),
+ * readerSessionGate, bookLanguage, rebuildRestore, sessionMath and progressRestore; L4 (a failed PDF
+ * refresh is not silent) is a behaviour test in components/reader/useReaderPdfEngine.test.ts.
  */
 const read = (file: string) => readFileSync(resolve(__dirname, '../..', file), 'utf8')
 const shell = read('src/components/reader/ReaderShell.tsx')
-const pdfHook = read('src/components/reader/useReaderPdf.ts')
 const pdfChrome = read('src/components/reader/PdfReaderChrome.tsx')
-const en = JSON.parse(read('../../packages/shared/src/i18n/en.json'))
 
 describe('M3 — Android back with the word toolbar open closes the toolbar', () => {
   it('the back handler asks readerBackAction and closes the selection itself', () => {
@@ -33,25 +32,5 @@ describe('M7 — the PDF page input is never under the keyboard', () => {
     expect(pdfChrome.indexOf('<TextInput')).toBeGreaterThan(modal)
     expect(pdfChrome.indexOf('<TextInput')).toBeLessThan(pdfChrome.indexOf('</Modal>'))
     expect(pdfChrome).toContain('onRequestClose={closeInput}')
-  })
-})
-
-describe('L4 — a failed refresh after a PDF 401 is not silent', () => {
-  it('a null token shows a toast whose action retries the same recovery', () => {
-    const start = pdfHook.indexOf('recoverPdfAuthRef.current = () => {')
-    const body = pdfHook.slice(start, pdfHook.indexOf('\n  }\n', start))
-    expect(body).toMatch(/if \(tok\) \{[\s\S]*__tsPdfReopen[\s\S]*return\s*\}/)
-    expect(body).toContain('showPdfReconnectRef.current()')
-    // The toast lives in its own function since the engine page can reach it without a refresh.
-    const toastAt = pdfHook.indexOf('showPdfReconnectRef.current = () => {')
-    const toast = pdfHook.slice(toastAt, pdfHook.indexOf('\n  }\n', toastAt))
-    expect(toast).toContain("t(language, 'reader.pdfReconnect')")
-    expect(toast).toContain('onPress: () => recoverPdfAuthRef.current()')
-  })
-
-  it('the 401 message runs it, and the copy exists', () => {
-    const start = pdfHook.indexOf("data.type === 'pdfAuthExpired'")
-    expect(pdfHook.slice(start, start + 500)).toContain('recoverPdfAuthRef.current()')
-    expect(en.reader.pdfReconnect).toBeTruthy()
   })
 })

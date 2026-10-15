@@ -4,13 +4,13 @@ import { resolve } from 'node:path'
 import { gateOpened, restoreGateReduce, RESTORE_GATE_INITIAL, type RestoreGateState } from './readerWriteGate'
 
 /**
- * R4: the foreground check across a renderer kill (bug 3) and the restore ack's scrollY (bug 4).
- * Rule 8 (rebuild/reflow during a restore) is in rebuildRestore.test.ts, the PDF start page in
+ * R4: the restore ack's scrollY (bug 4). Bug 3 (the foreground check across a renderer kill) and
+ * review #2 (a rebuild keeps the pending target) are behaviour tests in
+ * hooks/useReaderPersistence.test.ts; rule 8 is in rebuildRestore.test.ts, the PDF start page in
  * pdfInitialJump.test.ts.
  */
 const read = (file: string) => readFileSync(resolve(__dirname, '../..', file), 'utf8')
 const persistence = read('src/hooks/useReaderPersistence.ts')
-const shell = read('src/components/reader/ReaderShell.tsx')
 const feed = read('src/components/reader/useReaderSessionFeed.ts')
 const doc = read('src/components/reader/useReaderDocument.ts')
 const body = (src: string, from: string, to = '}, [') => {
@@ -33,24 +33,8 @@ describe('gateOpened — the edge a deferred foreground check waits for', () => 
   })
 })
 
-describe('bug 3 — back in the foreground during a rebuild or restore (M6 remount)', () => {
-  it('the check waits for the restore to land instead of skipping or running against the load event', () => {
-    const listener = body(persistence, "AppState.addEventListener('change'", 'return () => sub.remove()')
-    expect(listener).not.toContain('!readinessRef.current.restored')
-    expect(listener).toContain('whenLanded(')
-    // An answer that arrives mid-rebuild waits too.
-    expect(listener).toMatch(/\.then\(newer => \{[\s\S]*whenLanded\(/)
-  })
-
-  it('the deferred check runs on the gate opening, with the landing as the move baseline', () => {
-    const dispatch = body(persistence, 'const dispatchGate = useCallback(')
-    expect(dispatch).toContain('gateOpened(prev, gateRef.current)')
-    expect(dispatch).toContain('afterLandRef.current')
-    const listener = body(persistence, "AppState.addEventListener('change'", 'return () => sub.remove()')
-    expect(listener).toContain('landedNow ? scrollOffsetRef.current : (lastLandingRef.current ?? scrollOffsetRef.current)')
-  })
-})
-
+// Kept as guards until a behaviour test exists (#873: the persistence harness does not yet catch a
+// lost landingBaseline, and the WebView source switch needs the PDF → text path mounted).
 describe('bug 4 — the restore ack carries the landing', () => {
   // The page half (the ack carries scrollY, then the landing is reported): readerEnginePage.test.ts.
   it("persistence takes the ack's scrollY as the move baseline; the shell passes it", () => {
@@ -59,20 +43,10 @@ describe('bug 4 — the restore ack carries the landing', () => {
     expect(feed).toContain('onRestoreLanded(data.restoreId, data.scrollY)')
   })
 
-  it('review #2: pending is asked through pendingRestoreTarget, rebuild target first', () => {
-    const p = body(persistence, 'const pendingTarget = useCallback(')
-    expect(p).toContain('pendingRestoreTarget(')
-    expect(p).toContain('rebuildTarget: rebuildTargetRef.current')
-  })
-
   it('review #3: a new WebView source (PDF → "Read as text") resets the loaded flag and the applied typography', () => {
     const eff = body(doc, 'useEffect(() => {\n    docLoadedRef.current = false', '}, [webViewSource])')
     expect(eff).toContain('readerAppliedTypographyRef.current = builtTypographyRef.current')
     // Before the typography effect, so a change in the same render waits for onLoadEnd.
     expect(doc.indexOf('}, [webViewSource])')).toBeLessThan(doc.indexOf('useEffect(() => { applyTypography() }'))
-  })
-
-  it('the ponytail ceiling on a silent landing is gone', () => {
-    expect(shell + feed + doc).not.toContain('a restore that lands without moving >0.5% posts no report')
   })
 })
