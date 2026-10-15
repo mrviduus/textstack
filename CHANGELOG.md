@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Infra** — the empty `backups/` folder and the stale `scripts/restore_postgres.md` (pointed at it, `books_db`) are gone; dumps live in `~/backups/textstack` and R2 ([`backup.md`](docs/03-ops/backup.md)); `backups/` stays git- and docker-ignored — repo
 - **Reader** — post-PR-A fixes: an engine open that fails (reflow Fixes #849, PDF Fixes #853) says so inside the reader with Try again (a network refetch) and is reported; browser Sentry on web (`@sentry/react`, lazy): reports to Sentry once `VITE_SENTRY_DSN` is set (owner step); a popup or drawer over the reading line no longer hides the place (E45); a `goTo` overtaking an open leaves the chapter ready (E46); translation labels styled by the engine (E44); Explain works without a sentence — web, mobile (engine bundle → OTA on merge), engine · [details](docs/changelog-archive/2026-H2.md#2026-10-14-reader-post-pr-a-fixes)
 - **Reader** — engine Phase 6 PR A (slices 1 + 2): the old web reader is deleted — both `VITE_READER_ENGINE*` flags and `?engine=` overrides, the overlay layers, `WordHint`, the DOM branches of selection / search / scroll sync, the old PDF viewer; R1–R4 scroll-sync pins rewritten on the engine; closes #818 — web, CI · [details](docs/changelog-archive/2026-H2.md#2026-10-14-reader-engine-phase-6-pr-a-web-old-reader-deleted)
 - **Reader** — fix: web saved-word translations above words drew at full body size (engine SVG `.reader-translation` had no web style); same rule as mobile — web
