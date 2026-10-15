@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { heroResumeRoute } from './bookRoutes'
@@ -12,6 +12,9 @@ import { withDeadline } from './deadline'
 const read = (p: string) => readFileSync(resolve(__dirname, '../..', p), 'utf8')
 
 describe('QA-007', () => {
+  // A test that fails on fake timers must not leave them to the next one (the mid-test switches back stay: real-timer code follows them).
+  afterEach(() => { vi.useRealTimers() })
+
   it('LIB-1: Cancel stops the download only — the book stays in the Library (a download is intent)', () => {
     const src = read('app/book/[slug].tsx')
     expect(src).toMatch(/onCancel=\{\(\) => cancelDownload\(book\.id\)\}/)
@@ -139,7 +142,9 @@ describe('QA-007', () => {
   // SEL-1 on the engine page (buildEngineReaderHtml): RN's real clearSelectionJs injected into the real page.
   const SEL_CHAPTER = '<p>alpha beta</p><p>gamma delta</p>'
   async function selPage(html = SEL_CHAPTER) {
+    vi.useRealTimers()   // the open settles on real time (a test may open a second page)
     const page = await openEnginePage(html)
+    vi.useFakeTimers()   // then the hold / settle windows: the page's timers are jsdom's, which call the global setTimeout
     const [p, q] = Array.from(page.root.querySelectorAll('p'))
     const selections = () => page.messages.filter((m) => m.type === 'selection') as unknown as { text: string; token?: number }[]
     const wordMarks = () => page.root.querySelectorAll('svg [data-group="selection"]').length
@@ -147,7 +152,7 @@ describe('QA-007', () => {
     const hold = async (el: Element, offset: number) => {
       ;(page.w as unknown as { __caret: () => Range }).__caret = () => { const c = page.w.document.createRange(); c.setStart(el.firstChild!, offset); return c }
       el.dispatchEvent(new page.w.PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch', clientX: 30, clientY: 310 }))
-      await new Promise(res => setTimeout(res, HELD_MS))
+      await vi.advanceTimersByTimeAsync(HELD_MS)
     }
     /** A drag selection over [start, end) of `el`'s text, once it settles; null = collapse it. */
     const drag = async (el: Element | null, start = 0, end = 0) => {
@@ -155,7 +160,7 @@ describe('QA-007', () => {
       sel.removeAllRanges()
       if (el) { const r = page.w.document.createRange(); r.setStart(el.firstChild!, start); r.setEnd(el.firstChild!, end); sel.addRange(r) }
       page.w.document.dispatchEvent(new page.w.Event('selectionchange'))
-      await new Promise(res => setTimeout(res, SETTLED_MS))
+      await vi.advanceTimersByTimeAsync(SETTLED_MS)
     }
     return { ...page, p, q, selections, wordMarks, hold, drag }
   }
@@ -222,7 +227,7 @@ describe('QA-007', () => {
     const sent = page.selections().length
     page.call(clearSelectionJs(page.selections().at(-1)!.token, true))
     expect(page.w.document.getSelection()!.toString()).toBe('gamma')
-    await new Promise(res => setTimeout(res, SETTLED_MS))
+    await vi.advanceTimersByTimeAsync(SETTLED_MS)
     expect(page.selections()).toHaveLength(sent) // nothing posted: RN's toolbar stays
     // The full clear still ends it.
     page.call(clearSelectionJs(page.selections().at(-1)!.token))

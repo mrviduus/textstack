@@ -84,8 +84,8 @@ function selected(text: string, source: 'hold' | 'drag' = 'drag'): EngineEvents[
   return { locator, text, sentence: SENTENCE, source, tooLong: false, rect: { x: 10, y: 20, width: 30, height: 10 } }
 }
 
-/** The word popup opens after the host's stabilisation window. */
-const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 250)) })
+/** The word popup opens after the host's stabilisation window (fake timers). */
+const settle = () => act(async () => { await vi.advanceTimersByTimeAsync(250) })
 
 describe('ReaderHighlights with the engine', () => {
   let eng: ReturnType<typeof fakeEngine>
@@ -113,6 +113,7 @@ describe('ReaderHighlights with the engine', () => {
   }
 
   beforeEach(() => {
+    vi.useFakeTimers()
     vi.clearAllMocks()
     vocabMap = new Map()
     noLocator = false
@@ -121,6 +122,7 @@ describe('ReaderHighlights with the engine', () => {
   })
   afterEach(() => {
     cleanup()
+    vi.useRealTimers()
     unmountEngine(eng.engine)
     vi.restoreAllMocks()
   })
@@ -324,7 +326,7 @@ describe('ReaderHighlights with the engine', () => {
 
   const drawerJump = async (h: StoredHighlight, onNavigateToHighlight = vi.fn()) => {
     renderReader({ highlights: [h], scrollToHl: { id: h.id, nonce: 1 }, onNavigateToHighlight })
-    await act(async () => { await new Promise((r) => requestAnimationFrame(r)) })
+    await act(async () => { vi.advanceTimersToNextFrame() })
     return onNavigateToHighlight
   }
 
