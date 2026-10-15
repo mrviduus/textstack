@@ -2,7 +2,7 @@
 // Drift guard for the mobile PDF viewer bundle. Rebuilds it, compares against
 // the committed file, fails non-zero on any difference.
 //
-// Mirrors check-mobile-overlay.mjs, which the PDF bundle never had. That gap is
+// Mirrors check-mobile-engine.mjs, which the PDF bundle never had. That gap is
 // not theoretical: apps/web/scripts/pdfViewer/engineEntry.ts is the source of the
 // page that owns the reader's position in a PDF, and an edit to it that ships
 // without a rebuild changes nothing at runtime — silently, with a green CI and

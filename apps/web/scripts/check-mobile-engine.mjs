@@ -12,18 +12,18 @@ let over = false
 for (const bundle of BUNDLES) {
   const { content, length } = await renderBundle(bundle)
   if (bundle.budget && length > bundle.budget) {
-    console.error(`\n[check:mobile-overlay] ${bundle.out} is ${length} chars, over its ${bundle.budget} budget.`)
+    console.error(`\n[check:mobile-engine] ${bundle.out} is ${length} chars, over its ${bundle.budget} budget.`)
     console.error('Cut code, or raise the budget in mobile-bundles.mjs in its own PR (ADR-025).\n')
     over = true
   }
   const actual = await readFile(bundle.out, 'utf8').catch(() => null)
   if (actual !== content) {
-    console.error(`\n[check:mobile-overlay] ${bundle.out} is out of date.\n`)
+    console.error(`\n[check:mobile-engine] ${bundle.out} is out of date.\n`)
     stale = true
   } else {
-    console.log(`[check:mobile-overlay] ${bundle.out} is up to date.`)
+    console.log(`[check:mobile-engine] ${bundle.out} is up to date.`)
   }
 }
 
-if (stale) console.error('Run: pnpm -C apps/web build:mobile-overlay\n')
+if (stale) console.error('Run: pnpm -C apps/web build:mobile-engine\n')
 if (stale || over) process.exit(1)

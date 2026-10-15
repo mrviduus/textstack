@@ -348,7 +348,7 @@ jobs:
 
       - name: Drift-check mobile overlay bundle
         working-directory: apps/web
-        run: pnpm check:mobile-overlay
+        run: pnpm check:mobile-engine
 
       # The PDF bundle had no such guard. engineEntry.ts (+ readerEnginePdfPage.ts) is the source
       # of the page that owns the reader's position in a PDF, and an edit shipped without a
