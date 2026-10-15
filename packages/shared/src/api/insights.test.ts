@@ -1,7 +1,6 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
-import '../client' // cookie-mode initApi
-import { insightsApi } from '@textstack/shared'
-const { getBookInsights } = insightsApi
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { initApi } from './client'
+import { getBookInsights } from './insights'
 
 /**
  * The shape on the wire, pinned.
@@ -13,6 +12,10 @@ const { getBookInsights } = insightsApi
  * `InsightsEndpoints` actually returns: a bare array.</p>
  */
 describe('getBookInsights', () => {
+  beforeEach(() => {
+    // Cookie mode, as web runs it.
+    initApi({ baseUrl: 'http://api', getAccessToken: async () => null, onUnauthorized: async () => null, credentials: 'include' })
+  })
   afterEach(() => {
     vi.restoreAllMocks()
     vi.unstubAllGlobals()

@@ -64,30 +64,18 @@ export interface ContinueReadingInputs {
 }
 
 /**
- * Pick the single "Continue Reading" book to show on home — the most
- * recently active not-yet-finished book across catalog + user-book sources.
- *
- * Returns `null` when nothing is in progress. Caller renders empty state.
+ * Every in-progress book, most recently active first. `[0]` is the resume
+ * hero, the rest is the rail behind it — one ranking, so the two can never
+ * disagree about which book is "current". Empty when nothing is in progress.
  *
  * Semantics:
- *   - Each item is scored by `updatedAtMs`. Highest wins.
+ *   - Each item is scored by `updatedAtMs`. Highest first.
  *   - 100%-complete books are excluded (`>= 1`).
  *   - Local vs server is decided by `localProgressWins` — the local device
  *     stamp against the server row's CLIENT stamp, never its server-clock
  *     `updatedAt`.
  *   - For user-books: server progressUpdatedAt is the ranking anchor; the
  *     local bookPercent is shown when the local record wins.
- */
-export function pickContinueReadingBook(input: ContinueReadingInputs): ContinueReadingPick | null {
-  return rankContinueReading(input)[0] ?? null
-}
-
-/**
- * Every in-progress book, most recently active first.
- *
- * Same merge semantics as `pickContinueReadingBook` — which is now just
- * `rank(...)[0]` — so the resume hero and the rail behind it can never
- * disagree about which book is "current".
  *
  * This exists because `LibraryShelfItem` (the `/me/library/shelves`
  * payload) carries no `chapterSlug`, so a shelf tap structurally cannot
