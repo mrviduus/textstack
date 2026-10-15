@@ -27,7 +27,6 @@ const ROOTS = [
   resolve(__dirname, '../..'), // apps/web/src
   resolve(__dirname, '../../../scripts'),
   resolve(__dirname, '../../../../../packages/shared/src'),
-  resolve(__dirname, '../../../../../packages/reader-overlay/src'),
 ]
 
 function read(dir: string, out: string[] = []): string[] {

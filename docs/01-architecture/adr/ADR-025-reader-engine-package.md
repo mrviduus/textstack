@@ -78,7 +78,7 @@ export interface Locator {
     totalProgression?: number                    // fraction of the book: `percent:<n>`, start/end sentinels
     position?: number                            // PDF page, 1-based
     charOffset?: number                          // hint, verified, never trusted
-    legacyScrollY?: number                       // read/write `scroll:<slug>:<px>` until Phase 6
+    legacyScrollY?: number                       // read/write `scroll:<slug>:<px>` until #840
   }
   text?: { before?: string; highlight?: string; after?: string }   // W3C TextQuoteSelector
   ext?: { stored?: { kind: 'anchor' | 'position' | 'pdf' | 'progress'; value: string; href?: string }; rects?: PdfRect[] }
@@ -253,7 +253,7 @@ What it changes in this ADR:
 | 3 | Mobile adopts (flag), QA-007 rerun | yes, flag |
 | 4 | Web adopts (flag), smoke runs flag on and off | yes, flag |
 | 5 | PDF as the `fixed` layout | yes, flag |
-| 6 | Cleanup: flags, shims, old code; grep for old names = 0 | yes |
+| 6 | Cleanup: flags, shims, old code; grep for old names = 0 — **done 2026-10-15** (#843, #848, #852, #866, PR C); shims kept as issues (answer 6a), EAS variables #867 | yes |
 
 ## Alternatives rejected
 

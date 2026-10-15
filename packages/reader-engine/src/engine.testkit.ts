@@ -89,8 +89,12 @@ export function deferred() {
 const tick = () => new Promise<void>((r) => setTimeout(r, 0))
 
 const engines: { destroy(): void }[] = []
+const realClientRects = Range.prototype.getClientRects
 /** Call from afterEach. */
-export function destroyAll() { engines.splice(0).forEach((e) => e.destroy()) }
+export function destroyAll() {
+  engines.splice(0).forEach((e) => e.destroy())
+  Range.prototype.getClientRects = realClientRects
+}
 
 /**
  * A reader on the fake layout. `fonts` holds every open on a promise (a slow webfont), to catch the
@@ -99,8 +103,10 @@ export function destroyAll() { engines.splice(0).forEach((e) => e.destroy()) }
 /**
  * `noCaret`: a browser without `caretPositionFromPoint` or line boxes, so the engine estimates. `caret`:
  * what the browser's caret hits instead of the chapter (a popup over it). `boxReads()` counts line-box reads.
+ * `browserBoxes`: no `rects` seam, the engine reads `Range.getClientRects` itself, and that browser adds a
+ * zero-width and a zero-height box beside every line box, as real ones do at a line end or a column edge.
  */
-export function makeReader(opts: { html?: string; fonts?: () => Promise<void>; noCaret?: boolean; caret?: () => { node: Node; offset: number } } = {}) {
+export function makeReader(opts: { html?: string; fonts?: () => Promise<void>; noCaret?: boolean; caret?: () => { node: Node; offset: number }; browserBoxes?: boolean } = {}) {
   const html = opts.html ?? CHAPTER
   const root = document.createElement('div')
   document.body.append(root)
@@ -139,6 +145,14 @@ export function makeReader(opts: { html?: string; fonts?: () => Promise<void>; n
 
   let resize = () => {}
   let boxReads = 0
+  if (opts.browserBoxes) {
+    Range.prototype.getClientRects = function (this: Range) {
+      return lineBoxes(root, this).flatMap((b) => {
+        const y = b.y - top   // on screen: the chapter's top moves up as the reader scrolls
+        return [new DOMRect(b.x, y, b.width, b.height), new DOMRect(b.x + b.width, y, 0, b.height), new DOMRect(b.x, y + b.height, b.width, 0)]
+      }) as unknown as DOMRectList
+    }
+  }
   const engine = createEngine(root, {
     scroller,
     measure: (el) => layout(root).boxes.get(el) ?? { top: 0, height: layout(root).total },
@@ -146,7 +160,7 @@ export function makeReader(opts: { html?: string; fonts?: () => Promise<void>; n
     schedule: (cb) => { setTimeout(cb, 0) },
     observeResize: (_el, cb) => { resize = cb; return () => { resize = () => {} } },
     fontsReady: opts.fonts ?? (() => Promise.resolve()),
-    rects: (range) => { boxReads++; return opts.noCaret ? [] : lineBoxes(root, range) },
+    rects: opts.browserBoxes ? undefined : (range) => { boxReads++; return opts.noCaret ? [] : lineBoxes(root, range) },
     caret: opts.noCaret ? () => null : opts.caret ?? caret,
   })
   engines.push(engine)

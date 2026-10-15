@@ -27,7 +27,6 @@ COPY apps/web/package.json apps/web/
 COPY apps/admin/package.json apps/admin/
 COPY apps/mobile/package.json apps/mobile/
 COPY packages/shared/package.json packages/shared/
-COPY packages/reader-overlay/package.json packages/reader-overlay/
 COPY packages/reader-engine/package.json packages/reader-engine/
 
 # node-linker=isolated: the workspace is hoisted for Metro's sake (pnpm-workspace.yaml),

@@ -2,8 +2,7 @@
 // document order — what web `createTextAnchor` and the phone's `getSelectionAnchor` count — so stored
 // anchors land on the same characters. Reads the DOM only; never changes a text node.
 //
-// Skips the apps' gloss nodes like both apps do: the legacy vocab path still writes them into the
-// chapter until Phase 6, and the engine's own overlay carries the same marker.
+// Skips the reader's gloss nodes (READER_GLOSS_SELECTOR): the engine's own overlay carries that marker.
 import type { Locator } from './api'
 import { ANCHOR_CONTEXT_LENGTH } from '../../shared/src/reader/textAnchor'
 import { buildTextPosition } from '../../shared/src/reader/textPosition'
@@ -146,4 +145,17 @@ export function locatorAt(text: string, at: number, href: string, progression: n
     locations: { charOffset: p.charOffset, progression: p.chapterFraction },
     text: { before: p.anchor.prefix, highlight: p.anchor.exact, after: p.anchor.suffix },
   }
+}
+
+// The one matcher behind in-book search (`find`). Case-insensitive, NBSP == space, non-overlapping.
+// Offsets are into `text`. ponytail: assumes lowercasing keeps lengths (true outside a few letters such
+// as Turkish İ).
+const fold = (s: string) => s.toLowerCase().replace(/\u00a0/g, ' ')
+export function findTextOffsets(text: string, needle: string): number[] {
+  const out: number[] = []
+  if (!needle) return out
+  const hay = fold(text)
+  const n = fold(needle)
+  for (let i = hay.indexOf(n); i !== -1; i = hay.indexOf(n, i + n.length)) out.push(i)
+  return out
 }

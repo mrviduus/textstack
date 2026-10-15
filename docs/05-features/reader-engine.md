@@ -34,7 +34,7 @@ carries its `opId`.
 | E10 | Real server HTML (newlines between blocks, blocks inside blocks) behaves the same as clean HTML. | Code review of slice 3 (bug: all positions below paragraph 1 read as one) | 2026-10-12 |
 | E11 | An op's ack names the place it was sent to, even when the scroll stops short (chapter top or end). | Code review of slice 3 (bug: position moved backwards on save) | 2026-10-12 |
 | E12 | `ready` fires for every chapter shown, even when a `goTo` overtakes the `open`. | Code review of slice 3 (bug: host waits forever) | 2026-10-12 |
-| E13 | `decorate` draws each highlight or search hit over its text; the chapter's text nodes never change. A call replaces its own group only. | ADR-025: decorations draw over the text | 2026-10-12 |
+| E13 | `decorate` draws each highlight or search hit over its text; the chapter's text nodes never change. A call replaces its own group only. A box with no area (a line end, a column edge) is not drawn. | ADR-025: decorations draw over the text | 2026-10-12 |
 | E14 | An item from another chapter, or whose text is gone, is not drawn. Never on a look-alike place. | ADR-015; same ladder as `goTo` (quote, exact or fuzzy) | 2026-10-12 |
 | E15 | Decorations follow their text: redrawn after a style change and a late reflow. They belong to their chapter: open another and its own are drawn; come back and these are again. | Web R2 "ghost highlights" / new chapter never painted | 2026-10-12 |
 | E16 | A tap on a highlight or search hit emits `decorationTap` with its id and box on screen. A highlight under a search hit wins. A tap on plain text, or the click that ends a selection, emits nothing. | ADR-025 API | 2026-10-12 |

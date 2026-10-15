@@ -27,6 +27,15 @@ describe('decorate', () => {
     expect(chapterText(reader.root)).toBe(chapterText(reader.chapter))
   })
 
+  it('E13 a box with no area (a line end, a column edge) is not drawn', async () => {
+    const reader = makeReader({ browserBoxes: true })
+    await reader.open()
+
+    reader.engine.decorate('highlight', [{ id: 'h1', locator: reader.quote(MIDDLE) }])
+
+    expect(reader.drawn('highlight')).toEqual([{ id: 'h1', rects: reader.boxesOf(MIDDLE) }])
+  })
+
   it('E13 a new call replaces its own group and leaves the other', async () => {
     const reader = makeReader()
     await reader.open()

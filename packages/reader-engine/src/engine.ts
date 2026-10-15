@@ -13,11 +13,10 @@
 // - What the reader does with the page becomes one event each (selection, hold, tap, link, image,
 //   scroll direction, chapter end); the host draws every popup. Timings are the mobile bridge's.
 import type { ChapterDoc, EngineEvents, EngineOptions, GoToResult, Locator, Reason, ReaderEngine, Rect, Style } from './api'
-import { Overlayer, type DrawFn } from './overlay'
+import { highlight, underline, type DrawFn } from './overlay'
 import { resolveLocator, type Resolved } from './resolve'
-import { findTextOffsets } from './textWalker'
 import { tokenizeVocabWords } from '../../shared/src/text/vocabKey'
-import { locatorAt, matchWords, quoteAt, rangesIn, textNodes } from './text'
+import { findTextOffsets, locatorAt, matchWords, quoteAt, rangesIn, textNodes } from './text'
 
 /** A quarter down the viewport: where both apps capture, so a position means the same place on each. */
 const READING_LINE = 0.25
@@ -77,7 +76,7 @@ const COLORS = {
   word: 'var(--reader-word, rgba(59, 130, 246, 0.5))',
   selection: 'var(--reader-selection, rgba(196, 112, 75, 0.35))',
 }
-const DRAW: Record<Mark['group'], DrawFn> = { highlight: Overlayer.highlight, search: Overlayer.highlight, word: Overlayer.underline, selection: Overlayer.highlight }
+const DRAW: Record<Mark['group'], DrawFn> = { highlight, search: highlight, word: underline, selection: highlight }
 const SVG = 'http://www.w3.org/2000/svg'
 /** On every engine's root: its text is reader text, never a cover over another engine's line (E45). */
 const MARK = 'data-reader-engine'
