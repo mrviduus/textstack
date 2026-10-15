@@ -18,11 +18,10 @@
     "paths": {
       "@textstack/shared": ["../../packages/shared/src/index.ts"],
       "@textstack/shared/*": ["../../packages/shared/src/*"],
-      "@textstack/reader-overlay": ["../../packages/reader-overlay/src/index.ts"],
       "@textstack/reader-engine": ["../../packages/reader-engine/src/index.ts"],
       "@textstack/reader-engine/fixed": ["../../packages/reader-engine/src/fixed.ts"]
     }
   },
-  "include": ["src", "../../packages/reader-overlay/src"],
+  "include": ["src"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

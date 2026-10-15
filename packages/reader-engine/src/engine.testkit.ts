@@ -99,8 +99,10 @@ export function destroyAll() { engines.splice(0).forEach((e) => e.destroy()) }
 /**
  * `noCaret`: a browser without `caretPositionFromPoint` or line boxes, so the engine estimates. `caret`:
  * what the browser's caret hits instead of the chapter (a popup over it). `boxReads()` counts line-box reads.
+ * `browserBoxes`: no `rects` seam, the engine reads `Range.getClientRects` itself, and that browser adds a
+ * zero-width and a zero-height box beside every line box, as real ones do at a line end or a column edge.
  */
-export function makeReader(opts: { html?: string; fonts?: () => Promise<void>; noCaret?: boolean; caret?: () => { node: Node; offset: number } } = {}) {
+export function makeReader(opts: { html?: string; fonts?: () => Promise<void>; noCaret?: boolean; caret?: () => { node: Node; offset: number }; browserBoxes?: boolean } = {}) {
   const html = opts.html ?? CHAPTER
   const root = document.createElement('div')
   document.body.append(root)
@@ -139,6 +141,24 @@ export function makeReader(opts: { html?: string; fonts?: () => Promise<void>; n
 
   let resize = () => {}
   let boxReads = 0
+  // Patched for this reader's ranges only, put back by its destroy (destroyAll calls it).
+  const before = Range.prototype.getClientRects
+  let unpatch = () => {}
+  if (opts.browserBoxes) {
+    const patched = function (this: Range) {
+      if (!root.contains(this.commonAncestorContainer)) return before.call(this)
+      return lineBoxes(root, this).flatMap((b) => {
+        const y = b.y - top   // on screen: the chapter's top moves up as the reader scrolls
+        return [new DOMRect(b.x, y, b.width, b.height), new DOMRect(b.x + b.width, y, 0, b.height), new DOMRect(b.x, y + b.height, b.width, 0)]
+      }) as unknown as DOMRectList
+    }
+    Range.prototype.getClientRects = patched
+    unpatch = () => {
+      if (Range.prototype.getClientRects !== patched) return
+      if (before) Range.prototype.getClientRects = before
+      else delete (Range.prototype as Partial<Range>).getClientRects   // jsdom has none
+    }
+  }
   const engine = createEngine(root, {
     scroller,
     measure: (el) => layout(root).boxes.get(el) ?? { top: 0, height: layout(root).total },
@@ -146,9 +166,11 @@ export function makeReader(opts: { html?: string; fonts?: () => Promise<void>; n
     schedule: (cb) => { setTimeout(cb, 0) },
     observeResize: (_el, cb) => { resize = cb; return () => { resize = () => {} } },
     fontsReady: opts.fonts ?? (() => Promise.resolve()),
-    rects: (range) => { boxReads++; return opts.noCaret ? [] : lineBoxes(root, range) },
+    rects: opts.browserBoxes ? undefined : (range) => { boxReads++; return opts.noCaret ? [] : lineBoxes(root, range) },
     caret: opts.noCaret ? () => null : opts.caret ?? caret,
   })
+  const destroyEngine = engine.destroy
+  engine.destroy = () => { destroyEngine(); unpatch() }
   engines.push(engine)
   // The chapter fills the root: the engine probes the reading line inside its box.
   ;(root.firstElementChild as HTMLElement).getBoundingClientRect = () => root.getBoundingClientRect()

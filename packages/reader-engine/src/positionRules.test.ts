@@ -10,7 +10,7 @@ import { CHAPTER, deferred, destroyAll, makeReader } from './engine.testkit'
 /**
  * ADR-019's eight position rules (docs/01-architecture/adr/ADR-019-reader-position-rules.md), one
  * pinning test each, through the engine's API: the engine itself, plus the pure rules it re-exports
- * from packages/shared (D2: the code stays in shared until Phase 6). The host keeps save timing and I/O.
+ * from packages/shared (D2: the code stays in shared; moving it is out of Phase 6, answer 6a). The host keeps save timing and I/O.
  */
 
 afterEach(() => {

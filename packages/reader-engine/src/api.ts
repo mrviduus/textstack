@@ -2,7 +2,7 @@
 // A change here amends that ADR. Types only; `createEngine` (src/engine.ts) implements the core.
 //
 // Relative imports, not '@textstack/shared': the mobile WebView gets this package as an esbuild
-// IIFE, the same reason packages/reader-overlay imports relatively.
+// IIFE (`apps/web/scripts/mobile-bundles.mjs`), and esbuild there has no package aliases.
 import type { PdfRect } from '../../shared/src/reader/pdfHighlightAnchor'
 import type { PdfSource } from '../../shared/src/reader/pdfSource'
 
@@ -25,7 +25,7 @@ export interface Locator {
     position?: number
     /** Hint, verified, never trusted. */
     charOffset?: number
-    /** The old `scroll:<slug>:<px>` locator; read and written until Phase 6. */
+    /** The old `scroll:<slug>:<px>` locator; read and written until #840 (ADR-025 answer 4). */
     legacyScrollY?: number
   }
   /** W3C Web Annotation TextQuoteSelector. */

@@ -18,8 +18,7 @@
     "build:mobile-overlay": "node scripts/build-mobile-overlay.mjs",
     "build:mobile-pdf": "node scripts/build-mobile-pdf.mjs",
     "check:mobile-overlay": "node scripts/check-mobile-overlay.mjs",
-    "check:mobile-pdf": "node scripts/check-mobile-pdf.mjs",
-    "bench:reader-overlay": "node scripts/bench-reader-overlay.mjs"
+    "check:mobile-pdf": "node scripts/check-mobile-pdf.mjs"
   },
   "dependencies": {
     "@sentry/node": "catalog:",

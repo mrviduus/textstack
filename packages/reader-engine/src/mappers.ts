@@ -149,7 +149,7 @@ export function progressToLocator(s: string): Locator | null {
 }
 
 /**
- * Old builds read this string, so a reflow position is written as `scroll:` until Phase 6. Without a
+ * Old builds read this string, so a reflow position is written as `scroll:` until #840. Without a
  * `legacyScrollY` there is nothing truthful to write: null, never `chapter:` ("the top").
  */
 export function locatorToProgress(loc: Locator | null): string | null {
