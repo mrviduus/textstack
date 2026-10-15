@@ -53,11 +53,13 @@ public class EdgeTtsService : ITtsService, IHostedService, IDisposable
         {
             _logger.LogWarning(ex, "TTS disk cache unavailable at {Path}, running without cache", _config.CachePath);
         }
-        // Pre-warm Bing voices list so the first synth skips the WS round-trip.
+        // Pre-warm the voice list (HTTP) so /tts/voices and the default-voice
+        // fallback for langs outside DefaultVoices have it from the start.
+        // Warning, not Debug: a failure here is the first sign Edge rejects our token (#827).
         _ = Task.Run(async () =>
         {
             try { await GetVoicesAsync(null, CancellationToken.None); }
-            catch (Exception ex) { _logger.LogDebug(ex, "TTS voice pre-warm failed (will retry lazily)"); }
+            catch (Exception ex) { _logger.LogWarning(ex, "TTS voice pre-warm failed (will retry lazily)"); }
         });
         return Task.CompletedTask;
     }
