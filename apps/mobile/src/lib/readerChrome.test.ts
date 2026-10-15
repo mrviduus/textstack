@@ -5,7 +5,6 @@ import {
   readerDocumentKey,
   latchReaderChrome,
   readerChromeChanged,
-  readerTypographyCss,
   readerTypographyInjectionJs,
   readerTypographyChanged,
   fontFaceKey,
@@ -95,15 +94,12 @@ describe('template and injection agree', () => {
     expect(readerChromeInjectionJs(chrome)).not.toContain('`')
   })
 
-  it('carry the same typography', () => {
-    const css = readerTypographyCss(typography)
+  it('injection carries the typography', () => {
     const js = readerTypographyInjectionJs(typography, 7)
-    for (const out of [css, js]) {
-      expect(out).toContain('Georgia, serif')
-      expect(out).toContain('18px')
-      expect(out).toContain('1.6')
-      expect(out).toContain('left')
-    }
+    expect(js).toContain('Georgia, serif')
+    expect(js).toContain('18px')
+    expect(js).toContain('1.6')
+    expect(js).toContain('left')
   })
 
   it('hands the restore id to the WebView so the write gate can shut', () => {

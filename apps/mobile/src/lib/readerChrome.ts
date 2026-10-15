@@ -79,11 +79,6 @@ function typographyDecls(t: ReaderTypography): string {
       text-align: ${t.textAlign};`
 }
 
-/** CSS for a document being built. */
-export function readerTypographyCss(t: ReaderTypography): string {
-  return typographyDecls(t)
-}
-
 /**
  * The same values applied to a document already on screen.
  *

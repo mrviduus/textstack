@@ -25,10 +25,6 @@ export type AnalyticsEvent =
   | 'reading_session_end'
   | 'vocab_saved'
   | 'book_uploaded'
-  | 'translation_used'
-  | 'tts_played'
-  | 'search_performed'
-  | 'landing_cta_click'
 
 type Params = Record<string, string | number | boolean | null | undefined>
 
@@ -120,41 +116,4 @@ export function trackBookUploaded(args: {
     size_bytes: args.sizeBytes,
     size_mb: Math.round((args.sizeBytes / 1024 / 1024) * 10) / 10,
   })
-}
-
-export function trackTranslationUsed(args: {
-  fromLang: string
-  toLang: string
-  kind: 'word' | 'selection'
-}): void {
-  track('translation_used', {
-    from_lang: args.fromLang,
-    to_lang: args.toLang,
-    kind: args.kind,
-  })
-}
-
-export function trackTtsPlayed(args: {
-  language: string
-  kind: 'word' | 'sentence' | 'selection'
-}): void {
-  track('tts_played', { language: args.language, kind: args.kind })
-}
-
-export function trackSearchPerformed(args: {
-  query: string
-  resultsCount?: number
-}): void {
-  track('search_performed', {
-    // Truncate to keep cardinality bounded.
-    query: args.query.slice(0, 100),
-    results_count: args.resultsCount,
-  })
-}
-
-export function trackLandingCtaClick(args: {
-  page: string
-  label: string
-}): void {
-  track('landing_cta_click', { page: args.page, label: args.label })
 }

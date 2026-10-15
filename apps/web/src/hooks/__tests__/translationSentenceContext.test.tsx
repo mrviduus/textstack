@@ -1,8 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import { useRef } from 'react'
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
 
 const getCachedTranslation = vi.fn((..._a: unknown[]) => Promise.resolve(null))
 const cacheTranslation = vi.fn((..._a: unknown[]) => Promise.resolve())
@@ -35,24 +33,24 @@ beforeEach(() => {
 
 function mountSync(vocabMap: VocabMap, initial: BubbleLike) {
   const updateTranslation = vi.fn()
+  const setBubble = vi.fn()
   const hook = renderHook(
     ({ lang, bubble = initial }: { lang: string; bubble?: BubbleLike }) => {
       const abortRef = useRef<AbortController | null>(null)
       return useBubbleTranslationSync<BubbleLike>({
-        bubble, setBubble: vi.fn(), vocabMap, updateTranslation,
+        bubble, setBubble, vocabMap, updateTranslation,
         targetLang: lang, bookLanguage: 'en', abortRef,
       })
     },
     { initialProps: { lang: 'pt' } as { lang: string; bubble?: BubbleLike } },
   )
-  return { ...hook, updateTranslation }
+  return { ...hook, updateTranslation, setBubble }
 }
 
 describe('TR-1: web translate calls carry the tapped sentence', () => {
+  // ReaderHighlights passing the selection's sentence to the popup is asserted by rendering it:
+  // ReaderHighlights.engine.test.tsx `…TranslateCarriesTheSentence`.
   it('TR-1: selection toolbar translates and caches with the sentence, also after a language switch', async () => {
-    const shell = readFileSync(resolve(__dirname, '../../components/reader/ReaderHighlights.tsx'), 'utf8')
-    expect(shell).toMatch(/translationPopup\.open\(selection\.text, selection\.rect, \{ sentence/)
-
     const { result } = renderHook(() => useTranslationPopup({ bookLanguage: 'en', targetLang: 'pt' }))
     await act(async () => { result.current.open('pocketed', null, ctx) })
     expect(translate).toHaveBeenLastCalledWith('pocketed', 'en', 'pt', undefined, ctx)
@@ -109,14 +107,16 @@ describe('TR-2: the word bubble never overwrites a saved translation', () => {
     expect(updateTranslation).toHaveBeenLastCalledWith('pocketed', 'поклав')
   })
 
-  it('TR-3: the word popup offers "Use this translation" only for a non-switched translation in the native language', () => {
-    const shell = readFileSync(resolve(__dirname, '../../components/reader/ReaderHighlights.tsx'), 'utf8')
-    expect(shell).toContain('savedTranslationOffer(entry.translation, bubble.langSwitched ? null : bubble.translation, bubble.translationLang, nativeLanguage)')
-  })
+  it('TR-3: a language switch marks the bubble switched, in the new language — so no "Use this translation" offer', async () => {
+    // ReaderHighlights offers the saved translation only for `!bubble.langSwitched` in the native
+    // language (`savedTranslationOffer`, tested in shared). This is the half that sets the flag.
+    const b = { word: 'pocketed', translation: 'embolsou', translationLoading: false, translationLang: 'pt', ...ctx }
+    const { rerender, setBubble } = mountSync(saved(), b)
+    await act(async () => {})
+    expect(setBubble).not.toHaveBeenCalled()
 
-  it('TR-2: no bubble path PATCHes on its own — all go through updateTranslation', () => {
-    for (const f of ['../useWordBubble.ts', '../useBubbleTranslationSync.ts', '../../lib/wordBubbleFetch.ts']) {
-      expect(readFileSync(resolve(__dirname, f), 'utf8')).not.toMatch(/updateWord\(/)
-    }
+    await act(async () => { rerender({ lang: 'uk' }) })
+    const next = setBubble.mock.calls.map(([update]) => update(b)).find((x) => x.langSwitched !== undefined)
+    expect(next).toMatchObject({ word: 'pocketed', translationLang: 'uk', langSwitched: true })
   })
 })
