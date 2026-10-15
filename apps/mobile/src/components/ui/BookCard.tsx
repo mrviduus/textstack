@@ -32,7 +32,7 @@ export function BookCard({ title, author, coverUrl, onPress, animationDelay = 0,
 
   return (
     <Animated.View style={{ width: '48%', marginBottom: 20, opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
-      <TouchableOpacity onPress={onPress} activeOpacity={0.85}>
+      <TouchableOpacity onPress={onPress} activeOpacity={0.85} testID="book-card">
         <View style={[styles.coverWrapper, { backgroundColor: colors.surface }]}>
           {coverUrl ? (
             <Image source={{ uri: coverUrl }} style={styles.cover} contentFit="cover" />

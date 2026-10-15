@@ -8,12 +8,14 @@ test.describe('Search', () => {
     const searchInput = page.locator('.search-page__input')
     await expect(searchInput).toBeVisible({ timeout: 15_000 })
 
-    await searchInput.fill('test')
-    // Wait for debounce (300ms) + buffer before pressing Enter
-    await page.waitForTimeout(500)
-    await searchInput.press('Enter')
-    // URL updates via setSearchParams — wait for it
-    await expect(page).toHaveURL(/q=test/, { timeout: 10_000 })
+    // Retried, not slept: on a cold page the first fill can land before the app has
+    // settled and be thrown away (CI, 2026-10-15) — then the URL never changes.
+    await expect(async () => {
+      await searchInput.fill('test')
+      await searchInput.press('Enter')
+      // URL updates via setSearchParams
+      await expect(page).toHaveURL(/q=test/, { timeout: 2_000 })
+    }).toPass({ timeout: 15_000 })
   })
 
   test('empty search shows empty state', async ({ page }) => {
