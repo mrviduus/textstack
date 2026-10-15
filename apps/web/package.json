@@ -15,9 +15,9 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test --config e2e/playwright.config.ts",
     "test:e2e:ui": "playwright test --config e2e/playwright.config.ts --ui",
-    "build:mobile-overlay": "node scripts/build-mobile-overlay.mjs",
+    "build:mobile-engine": "node scripts/build-mobile-engine.mjs",
     "build:mobile-pdf": "node scripts/build-mobile-pdf.mjs",
-    "check:mobile-overlay": "node scripts/check-mobile-overlay.mjs",
+    "check:mobile-engine": "node scripts/check-mobile-engine.mjs",
     "check:mobile-pdf": "node scripts/check-mobile-pdf.mjs"
   },
   "dependencies": {

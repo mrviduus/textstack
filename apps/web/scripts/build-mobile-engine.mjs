@@ -2,8 +2,8 @@
 // Bundles the mobile WebView entry points into vanilla-JS IIFE strings and
 // writes them as constants under apps/mobile/src/lib/.
 //
-// Run via `pnpm -C apps/web build:mobile-overlay`. The definitions live in
-// mobile-bundles.mjs, shared with check-mobile-overlay.mjs so the guard cannot
+// Run via `pnpm -C apps/web build:mobile-engine`. The definitions live in
+// mobile-bundles.mjs, shared with check-mobile-engine.mjs so the guard cannot
 // disagree with what this writes.
 
 import { writeFile, mkdir } from 'node:fs/promises'

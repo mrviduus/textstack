@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **CI** — `build:mobile-overlay` / `check:mobile-overlay` renamed `build:mobile-engine` / `check:mobile-engine` (the bundle is the engine; `reader-overlay` is gone) — web, CI
 - **Reader** — engine Phase 6 PR C (slice 5): `packages/reader-overlay` deleted with its aliases and bench; dead engine code pruned (the `Overlayer` class, `textWalker`, unused draws; 49 tests dropped, 1 rewritten as E13); fix: search finds decomposed accents (E49) and quotes hits after a Turkish İ at their place (E50); mobile engine bundle 65,233 → 53,300 chars; Phase 6 done, EAS variables after the bake (#867) (#868, Fixes #795) — [archive](docs/changelog-archive/2026-H2.md#2026-10-15-reader-engine-phase6-pr-c)
 - **Mobile** — engine Phase 6 PR B (slices 3 + 4): the old mobile reader is deleted — both `EXPO_PUBLIC_READER_ENGINE*` flags, the old reflow page and selection bridge, the overlay / anchor bundles, the old PDF viewer and its rebuild-on-401; cross-app anchors and QA-007 SEL-1 now run on the engine page; EAS variables kept until the bake (Fixes #815) — [archive](docs/changelog-archive/2026-H2.md#2026-10-15-reader-engine-phase6-pr-b)
 - **Security** — admin (textstack.dev) gets X-Frame-Options, nosniff, Referrer-Policy, HSTS and a `frame-ancestors` CSP on the port-80 block Cloudflare actually reaches (Fixes #864); `/assets/`, `/avatars/`, book assets keep nosniff (Cache-Control via `$cache_immutable`); the bot 404 is `text/html`, not octet-stream (Fixes #861) — infra

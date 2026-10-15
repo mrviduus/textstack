@@ -1,6 +1,6 @@
 // The mobile WebView bundles, and how their generated files are rendered.
 //
-// Shared by build-mobile-overlay.mjs (writes them) and check-mobile-overlay.mjs
+// Shared by build-mobile-engine.mjs (writes them) and check-mobile-engine.mjs
 // (fails CI if the committed files no longer match). The two used to carry their
 // own copy of the banner text, so editing one and not the other made the guard
 // report a clean tree as out of date — a drift guard that had drifted.
@@ -53,7 +53,7 @@ export async function renderBundle({ entry, constName, source, blurb, globalName
   const bundleSource = result.outputFiles[0].text.trim()
   const banner = `// AUTO-GENERATED — do not edit.
 // Source: ${source}
-// Regenerate: pnpm -C apps/web build:mobile-overlay
+// Regenerate: pnpm -C apps/web build:mobile-engine
 //
 // ${blurb}
 

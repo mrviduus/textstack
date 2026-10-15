@@ -1,6 +1,6 @@
 // AUTO-GENERATED — do not edit.
 // Source: apps/mobile/src/lib/readerEnginePage.ts
-// Regenerate: pnpm -C apps/web build:mobile-overlay
+// Regenerate: pnpm -C apps/web build:mobile-engine
 //
 // IIFE bundle of the engine page (@textstack/reader-engine + its RN protocol),
 // transpiled for Android WebView (es2017). Loaded by buildEngineReaderHtml.
