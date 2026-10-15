@@ -5,11 +5,13 @@ import { useReaderKeyboard } from './useReaderKeyboard'
 /**
  * ReaderPage's drawers (TOC, settings, in-chapter search): open state, the
  * search over the chapter's html, the `?find=` seed and the keyboard shortcuts.
+ * `canSearch` false (the PDF Original layout, #850): the search drawer closes and Cmd/Ctrl+F is the browser's.
  */
-export function useReaderDrawers(chapterHtml: string, engineHref: string | null) {
+export function useReaderDrawers(chapterHtml: string, engineHref: string | null, canSearch = true) {
   const [tocOpen, setTocOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
+  if (searchOpen && !canSearch) setSearchOpen(false)
 
   const searchApi = useInBookSearch(chapterHtml, engineHref)
   const { search, clear: clearSearch } = searchApi
@@ -31,6 +33,7 @@ export function useReaderDrawers(chapterHtml: string, engineHref: string | null)
     tocOpen,
     settingsOpen,
     searchOpen,
+    canSearch,
     setTocOpen,
     setSettingsOpen,
     setSearchOpen,

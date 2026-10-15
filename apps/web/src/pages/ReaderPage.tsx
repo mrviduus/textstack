@@ -183,7 +183,7 @@ export function ReaderPage({ mode = 'public' }: ReaderPageProps) {
   })
 
   // Search hook needs chapter html, use empty string until loaded
-  const drawers = useReaderDrawers(chapter?.html || '', originalActive ? null : engineOpenedFor)
+  const drawers = useReaderDrawers(chapter?.html || '', originalActive ? null : engineOpenedFor, !originalActive)
   const { setTocOpen, setSettingsOpen, searchOpen, setSearchOpen } = drawers
 
   // Drawer jump to a reflow highlight in a chapter the reader hasn't mounted

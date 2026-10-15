@@ -224,6 +224,14 @@ describe('find', () => {
     expect(hits.map((h) => h.locator.locations.charOffset)).toEqual([17, 33])
     expect(reader.engine.find('İSTANBUL HAS').map((h) => h.locator.text?.highlight)).toEqual(['İstanbul has'])
   })
+
+  it('E51 a dotted capital İ matches a plain i, either way round', async () => {
+    const reader = makeReader({ html: '<p>İstanbul, then Istanbul, then istanbul.</p>' })
+    await reader.open()
+
+    expect(reader.engine.find('istanbul').map((h) => h.locator.text?.highlight)).toEqual(['İstanbul', 'Istanbul', 'istanbul'])
+    expect(reader.engine.find('İSTANBUL').map((h) => h.locator.text?.highlight)).toEqual(['İstanbul', 'Istanbul', 'istanbul'])
+  })
 })
 
 describe('testkit browserBoxes', () => {
@@ -308,6 +316,20 @@ describe('markWords', () => {
 
     reader.engine.markWords([{ word: 'ships' }], false)
     expect(reader.drawn('word').map((d) => d.id)).toEqual(Array(120).fill('ships'))
+  })
+
+  it('E51 a word after a letter whose fold changes length (İ, e + U+0301) is marked on its own letters; İ matches i', async () => {
+    const reader = makeReader({ html: '<p>İstanbul before dawn: the café keeper, in the café.</p>' })
+    await reader.open()
+
+    reader.engine.markWords([{ word: 'keeper' }, { word: 'before dawn' }, { word: 'istanbul' }, { word: 'café' }], false)
+
+    const marks = reader.drawn('word')
+    expect(marks.map((d) => d.id)).toEqual(['istanbul', 'before dawn', 'café', 'keeper', 'café'])
+    for (const [quote, mark] of [['İstanbul', marks[0]], ['before dawn', marks[1]], ['café', marks[2]], ['keeper', marks[3]]] as const) {
+      const [box] = reader.boxesOf(quote)
+      expect(mark.rects[0], quote).toMatchObject({ x: box.x, width: box.width })
+    }
   })
 
   it('E19 with translations on, each one is drawn above its word, and the chapter text stays the same', async () => {
