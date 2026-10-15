@@ -366,7 +366,8 @@ describe('sizes', () => {
     await reader.open()
     reader.scrollTo(reader.pageTop(15) + PAGE_H / 2)   // the middle of page 15, on estimated sizes
     await reader.settle()
-    await new Promise((r) => setTimeout(r, 200))      // the reader stopped
+    vi.useFakeTimers()
+    await vi.advanceTimersByTimeAsync(200)      // the reader stopped
     const before = reader.spot()!
     const reasons = reader.reasons().length
     reader.fake.release()
@@ -382,7 +383,8 @@ describe('sizes', () => {
     await reader.open(10)
     reader.scrollTo(reader.pageTop(10) + 200)
     await reader.settle()
-    await new Promise((r) => setTimeout(r, 200))
+    vi.useFakeTimers()
+    await vi.advanceTimersByTimeAsync(200)
     const before = reader.spot()!
     reader.setWidth(800)
     await reader.settle()
@@ -395,8 +397,10 @@ describe('sizes', () => {
   it("E37 the engine's own scroll is not a fling: a size change right after a jump applies at once", async () => {
     const reader = makePdfReader({ pages: 40 })
     await reader.open()
-    await reader.goTo(10)
-    await new Promise((r) => setTimeout(r, 5))  // the jump's scroll event just arrived
+    vi.useFakeTimers()
+    const landed = reader.goTo(10)
+    await vi.advanceTimersByTimeAsync(5)        // the jump landed; its scroll event just arrived
+    await landed
     reader.setWidth(800)
     expect(reader.pages()[0].w).toBe(800 - 24)
     expect(reader.spot()!.page).toBe(10)
@@ -418,7 +422,8 @@ describe('sizes', () => {
   })
 })
 
-const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+/** The clock runs `ms` (fake timers: switch them on before the event that starts the wait). */
+const wait = (ms: number) => vi.advanceTimersByTimeAsync(ms)
 
 describe('zoom', () => {
   it("E38 zoom 2 doubles every page and keeps the page under the top line at the same fraction; one 'style' ack", async () => {
@@ -460,6 +465,7 @@ describe('zoom', () => {
   it('E38 a zoom is the reader’s command: it applies at once, even mid-fling', async () => {
     const reader = makePdfReader({ pages: 40 })
     await reader.open(10)
+    vi.useFakeTimers()
     reader.scrollTo(reader.pageTop(10) + 150)
     await wait(5)   // a fling's scroll event just arrived
     reader.setStyle({ zoom: 1.5 })
@@ -489,6 +495,7 @@ describe('selection on a PDF', () => {
     const reader = makePdfReader({ pages: 40 })
     await reader.open()
     await reader.settle()
+    vi.useFakeTimers()   // the settle / hold windows run on the fake clock
     return reader
   }
   const selections = (reader: ReturnType<typeof makePdfReader>) => reader.payloads('selection') as EngineEvents['selection'][]
@@ -658,6 +665,7 @@ describe('highlights on a PDF', () => {
     const reader = makePdfReader({ pages: 40 })
     await reader.open()
     await reader.settle()
+    vi.useFakeTimers()
     reader.engine.decorate('search', [hl('s1', 2, [quoteRect(2, 1, 'keeper counted')])])
     reader.engine.decorate('highlight', [hl('h1', 2, [quoteRect(2, 1, 'keeper')])])
     const p = reader.pointAt(2, 1, 'keeper')
@@ -678,6 +686,7 @@ describe('taps and scrolling on a PDF', () => {
     const reader = makePdfReader({ pages: 40 })
     await reader.open()
     await reader.settle()
+    vi.useFakeTimers()
     reader.tap(200, 300)
     expect(reader.payloads('tap')).toEqual([{ x: 200, y: 300 }])
     await wait(350)
@@ -748,6 +757,7 @@ describe('review fixes', () => {
     const reader = makePdfReader({ pages: 40 })
     await reader.open()
     await reader.settle()
+    vi.useFakeTimers()
     const r = document.createRange()
     r.setStart(reader.span(2, 2).firstChild!, 0)
     r.setEnd(reader.span(3, 0).firstChild!, 6)

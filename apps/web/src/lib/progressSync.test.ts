@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 
 const { upsertProgressMock } = vi.hoisted(() => ({ upsertProgressMock: vi.fn() }))
 vi.mock('../api/auth', () => ({ upsertProgress: upsertProgressMock }))
@@ -17,6 +17,7 @@ describe('flushLocalProgress', () => {
     localStorage.clear()
     upsertProgressMock.mockReset()
   })
+  afterEach(() => vi.useRealTimers())
 
   it('returns 0 when no reading.progress.* keys present', async () => {
     localStorage.setItem('unrelated.key', 'x')
@@ -154,6 +155,7 @@ describe('flushLocalProgress', () => {
   })
 
   it('processes entries sequentially (one at a time)', async () => {
+    vi.useFakeTimers()
     let inFlight = 0
     let maxInFlight = 0
     upsertProgressMock.mockImplementation(async () => {
@@ -170,7 +172,9 @@ describe('flushLocalProgress', () => {
       chapterId: CHAP2, locator: 'page:4', percent: 0.2, updatedAt: 1000,
     }))
 
-    await flushLocalProgress()
+    const flushed = flushLocalProgress()
+    await vi.advanceTimersByTimeAsync(10)   // both 5 ms calls, one after the other
+    await flushed
 
     expect(maxInFlight).toBe(1)
   })

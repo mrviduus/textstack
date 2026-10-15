@@ -8,8 +8,6 @@ import type { StoredHighlight } from '../../../lib/offlineDb'
 // zoom, highlights (paint + tap → edit popup). The engine itself is faked: its events in, its calls out.
 // Rewrites of the old viewer's persistGate / jump / loadError tests at the host level (Phase 5).
 
-vi.setConfig({ testTimeout: 15_000 })
-
 type Handler = (p: unknown) => void
 function fakeEngine() {
   const handlers: Record<string, Handler[]> = {}
@@ -61,7 +59,8 @@ import PdfEngineView from '../PdfEngineView'
 import { mountedEngineFor } from '../../../lib/readerEngine'
 
 const last = <T,>(xs: T[]): T => xs[xs.length - 1]
-const wait = (ms: number) => act(async () => { await new Promise((r) => setTimeout(r, ms)) })
+/** Fake time: the debounces (local page, server progress) run out without a real wait. */
+const wait = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms) })
 const page = (n: number): Locator => ({ type: 'application/pdf', locations: { position: n } })
 const lastOpenPage = () => (last(eng.engine.open.mock.calls)[1] as Locator).locations.position
 /** The engine acks the latest open / goTo with its page (the jump landed); an open says `ready` first. */
@@ -82,6 +81,7 @@ function setVisibility(v: 'hidden' | 'visible') {
 const base = { fileUrl: '/me/books/b1/file', bookId: 'b1', initialPage: null, scrollToPage: null }
 
 beforeEach(() => {
+  vi.useFakeTimers()
   eng = fakeEngine()
   localPage.current = null
   vi.clearAllMocks()
@@ -89,6 +89,7 @@ beforeEach(() => {
 })
 afterEach(() => {
   cleanup()
+  vi.useRealTimers()
   Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
 })
 

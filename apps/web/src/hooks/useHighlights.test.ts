@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
 import type { StoredHighlight } from '../lib/offlineDb'
 
@@ -296,15 +296,17 @@ describe('replayAllPendingHighlights', () => {
 // a signed-out local load is not the signed-in list a ?highlight= link needs.
 describe('useHighlights.loaded', () => {
   beforeEach(() => vi.clearAllMocks())
+  afterEach(() => vi.useRealTimers())
 
   it('is false again from the very render auth resolves until the server list is in', async () => {
     vi.mocked(offlineDb.getHighlightsForEdition).mockResolvedValue([])
     vi.mocked(userData.getPublicHighlights).mockReturnValue(new Promise(() => {}))
     const { result, rerender } = renderHook((auth: boolean) => useHighlights('ed-1', undefined, { isAuthenticated: auth }), { initialProps: false })
     await waitFor(() => expect((result.current as { loaded?: boolean }).loaded).toBe(true))
+    vi.useFakeTimers()   // after waitFor: it polls on real timers
     rerender(true)
     expect((result.current as { loaded?: boolean }).loaded).toBe(false)
-    await new Promise((r) => setTimeout(r, 30))
+    await act(async () => { await vi.advanceTimersByTimeAsync(30) })
     expect((result.current as { loaded?: boolean }).loaded).toBe(false)
   })
 })

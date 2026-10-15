@@ -19,18 +19,20 @@ class NoopResizeObserver {
   unobserve(): void {}
 }
 
-/** The open has landed: settles the fonts wait and the frame (jsdom has rAF on a timer). */
-const opened = () => act(async () => { await new Promise((r) => setTimeout(r, 50)) })
+/** The open has landed: settles the fonts wait and the frame (fake timers, rAF included). */
+const opened = () => act(async () => { await vi.advanceTimersByTimeAsync(50) })
 
 describe('ReaderSection with the engine', () => {
   const originalRO = globalThis.ResizeObserver
   beforeEach(() => {
+    vi.useFakeTimers()
     globalThis.ResizeObserver = NoopResizeObserver as unknown as typeof ResizeObserver
     // jsdom has none; the engine's default scroller is the page.
     Object.defineProperty(document, 'scrollingElement', { value: document.documentElement, configurable: true })
   })
   afterEach(() => {
     cleanup()
+    vi.useRealTimers()
     globalThis.ResizeObserver = originalRO
   })
 

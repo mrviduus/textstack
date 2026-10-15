@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { openEnginePage } from '../test/enginePage'
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { openEnginePage, HELD_MS, SETTLED_MS } from '../test/enginePage'
 
 /**
  * The engine page (ADR-025 Phase 3) speaks the protocol the old page spoke: RN keeps calling the same
@@ -81,14 +81,18 @@ function sentenceRange(page: Awaited<ReturnType<typeof openPage>>, word: string,
 }
 
 describe('the engine page: selection and words (Phase 3 slice 3)', () => {
+  // The page's timers are jsdom's, which call the global setTimeout: fake timers reach them (not its clock).
+  afterEach(() => { vi.useRealTimers() })
+
   it('a held word posts wordEngage, then a tap-mode selection with its sentence, anchor and token', async () => {
     const page = await openPage()
     const w = page.w as unknown as Window & { __caret: () => Range }
     w.__caret = () => { const r = sentenceRange(page, 'counted'); r.setEnd(r.startContainer, r.startOffset + 2); r.collapse(false); return r }
     page.messages.length = 0
+    vi.useFakeTimers()
     const p = page.w.document.querySelector('#ts-root p:nth-child(2)')!
     p.dispatchEvent(new page.w.PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch', clientX: 50, clientY: 50 }))
-    await new Promise((r) => setTimeout(r, 500))   // the hold
+    await vi.advanceTimersByTimeAsync(HELD_MS)   // the hold
     const [engage, sel] = page.messages
     expect(engage).toMatchObject({ type: 'wordEngage' })
     expect(sel).toMatchObject({ type: 'selection', mode: 'tap', text: 'counted', sentence: SENTENCE, tooLong: false })
@@ -99,27 +103,29 @@ describe('the engine page: selection and words (Phase 3 slice 3)', () => {
   it('a drag selection posts drag mode; its collapse posts an empty selection', async () => {
     const page = await openPage()
     page.messages.length = 0
+    vi.useFakeTimers()
     const sel = page.w.getSelection()!
     sel.addRange(sentenceRange(page, 'keeper', 'ships'))
     page.w.document.dispatchEvent(new page.w.Event('selectionchange'))
-    await new Promise((r) => setTimeout(r, 260))
+    await vi.advanceTimersByTimeAsync(SETTLED_MS)
     expect(page.messages.find((m) => m.type === 'selection')).toMatchObject({ mode: 'drag', text: 'keeper counted the ships' })
 
     page.messages.length = 0
     sel.removeAllRanges()
     page.w.document.dispatchEvent(new page.w.Event('selectionchange'))
-    await new Promise((r) => setTimeout(r, 260))
+    await vi.advanceTimersByTimeAsync(SETTLED_MS)
     expect(page.messages.filter((m) => m.type === 'selection')).toEqual([{ type: 'selection', text: '' }])
   })
 
   it("__tsClearSelection ends the page's selection, unless a newer one was posted since (SEL-1)", async () => {
     const page = await openPage()
+    vi.useFakeTimers()
     const sel = page.w.getSelection()!
     const drag = async (from: string, to: string) => {
       sel.removeAllRanges()
       sel.addRange(sentenceRange(page, from, to))
       page.w.document.dispatchEvent(new page.w.Event('selectionchange'))
-      await new Promise((r) => setTimeout(r, 260))
+      await vi.advanceTimersByTimeAsync(SETTLED_MS)
       return page.messages.filter((m) => m.type === 'selection').at(-1)!.token as number
     }
     const old = await drag('keeper', 'ships')
@@ -140,13 +146,17 @@ describe('the engine page: selection and words (Phase 3 slice 3)', () => {
     ;(doc.getElementById('fn1') as HTMLElement).scrollIntoView = () => { scrolled = true }
     page.messages.length = 0
     const click = (el: Element) => { el.dispatchEvent(new page.w.MouseEvent('click', { bubbles: true, cancelable: true })) }
+    // The double-tap window reads the page's own performance.now(), which fake timers do not reach: step it.
+    const realNow = page.w.performance.now.bind(page.w.performance)
+    let skew = 0
+    page.w.performance.now = () => realNow() + skew
     click(root.querySelector('img')!)
     expect(doc.querySelector('.ts-img-lightbox img')!.getAttribute('alt')).toBe('Map')
     page.call('__closeImageLightbox()')
-    await new Promise((r) => setTimeout(r, 320))   // past the double-tap window
+    skew += 320   // past the double-tap window
     click(root.querySelector('a[href="#fn1"]')!)
     expect(scrolled).toBe(true)
-    await new Promise((r) => setTimeout(r, 320))
+    skew += 320
     click(root.querySelector('a[href^="https"]')!)
     expect(page.messages.filter((m) => m.type !== 'log')).toEqual([{ type: 'openLink', href: 'https://example.com/x' }])
   })

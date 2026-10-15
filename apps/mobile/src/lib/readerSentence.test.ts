@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { openEnginePage, HELD_MS, SETTLED_MS } from '../test/enginePage'
@@ -31,24 +31,27 @@ const lastSelection = (page: Awaited<ReturnType<typeof openEnginePage>>) =>
 async function hold(c: Case) {
   const { page, node } = await pageFor(c)
   ;(page.w as unknown as { __caret: () => Range }).__caret = () => { const r = page.w.document.createRange(); r.setStart(node, c.offset + 1); return r }
+  vi.useFakeTimers()   // the page's timers are jsdom's, which call the global setTimeout
   node.parentElement!.dispatchEvent(new page.w.PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch', clientX: 1, clientY: 1 }))
-  await new Promise((r) => setTimeout(r, HELD_MS))
+  await vi.advanceTimersByTimeAsync(HELD_MS)
   return lastSelection(page)
 }
 
 /** A drag selection over the word, the selectionchange path. */
 async function drag(c: Case) {
   const { page, node } = await pageFor(c)
+  vi.useFakeTimers()
   const r = page.w.document.createRange()
   r.setStart(node, c.offset)
   r.setEnd(node, c.offset + c.word.length)
   page.w.document.getSelection()!.addRange(r)
   page.w.document.dispatchEvent(new page.w.Event('selectionchange'))
-  await new Promise((res) => setTimeout(res, SETTLED_MS))
+  await vi.advanceTimersByTimeAsync(SETTLED_MS)
   return lastSelection(page)
 }
 
 describe('TR-1: the engine page sends the sentence of the selected word', () => {
+  afterEach(() => { vi.useRealTimers() })
   it.each(cases)('TR-1 shared fixture: $name', async (c) => {
     const msg = c.selectThroughGloss ? await drag(c) : await hold(c)
     expect(msg?.text).toBe(c.word)

@@ -1,7 +1,7 @@
 // Test kit for fixed.test.ts: a fake pdf.js (pages and their sizes, ranges read through the host, no
 // pixels), a fake layout for the page column (jsdom has none) and a reader driver, so each test reads
 // as its rule (docs/05-features/reader-engine.md, E32–E37).
-import { expect } from 'vitest'
+import { expect, vi } from 'vitest'
 import type { EngineEvents, Style } from './api'
 import { createEngine } from './engine'
 import { fixedLayout, type PdfJs, type PdfRangeTransport } from './fixed'
@@ -120,7 +120,8 @@ export function fakePdfjs(pages: Dim[], opts: { broken?: boolean } = {}) {
 const MARGIN = 6
 export const VIEWPORT = 800
 
-const tick = () => new Promise<void>((r) => setTimeout(r, 0))
+/** One round of 0 ms timers; under fake timers the clock steps 1 ms (fake-timers runs a 0 ms timer set in a timer 1 ms later). */
+const tick = () => vi.isFakeTimers() ? vi.advanceTimersByTimeAsync(1).then(() => {}) : new Promise<void>((r) => setTimeout(r, 0))
 
 // --- Screen geometry (jsdom has none): boxes, line rects and the caret, read off the fake layout --------
 
