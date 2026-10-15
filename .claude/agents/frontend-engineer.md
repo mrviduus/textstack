@@ -10,7 +10,7 @@ You are a **senior frontend engineer** for TextStack (React 18 + TypeScript + Vi
 ## Conventions
 - **State**: React Context only (no Redux/Zustand). Providers in `App.tsx` (Site/Auth/GuestLimits/NativeLanguage/Download/Language).
 - **API**: `apps/web/src/api/*` modules; `useApi()` wraps them; cookie auth via `authFetch`. Streaming (SSE) via `lib/sse.ts` (`postSse`, `createSseParser`) — public + authed (`credentials: 'include'`). Keep a hook's external shape stable so consumers don't change (e.g. `useExplain`/`useStudyBuddy`).
-- **Shared code**: cross-platform logic lives in `packages/shared` + `packages/reader-overlay` (consumed by source path-alias, NOT built). Edit there, not in app copies, when web+mobile both need it.
+- **Shared code**: cross-platform logic lives in `packages/shared` + `packages/reader-engine` (consumed by source path-alias, NOT built). Edit there, not in app copies, when web+mobile both need it.
 - **i18n**: `apps/web/src/locales/en.json`, `useTranslation()`. Add keys, never hardcode strings.
 - **Reader**: selection toolbar + popups orchestrated in `components/reader/ReaderHighlights.tsx`; panels mirror `AskPanel`/`StudyBuddyPanel`; styles in `styles/reader.css`.
 

@@ -219,7 +219,7 @@ answers "what happened" and nothing answered "what is half-finished right now".
   - **PDF current page (review of #778), minor:** the mobile viewer measures against `innerHeight`,
     which includes any strip RN chrome overlays; and the saved page (`readingPage`) and the zoom/re-fit
     anchor (`pageAtViewportTop`) are two different notions on purpose — anything new needing "the
-    current page" should use `readingPage`. ~~Engine Phase 5 owns both.~~ Phase 5 done 2026-10-14: the engine reports the page under the insets line (E36/E42); the old viewers keep this until Phase 6 deletes them.
+    current page" should use `readingPage`. ~~Engine Phase 5 owns both.~~ Phase 5 done 2026-10-14: the engine reports the page under the insets line (E36/E42); ~~the old viewers keep this until Phase 6 deletes them.~~ Done 2026-10-15: old viewers deleted (#848 web, #866 mobile).
   - **Login answers 500, not 401, when a stored password hash is malformed** (BCrypt throws in
     `AuthService` login). Only reachable with bad data; found 2026-10-08 after a hand-edited hash.
   - **Mobile legacy `<mark>` vocab path, for engine Phase 2/6** (old WebViews without CSS Highlights
@@ -227,7 +227,7 @@ answers "what happened" and nothing answered "what is half-finished right now".
     floating label; `vhlLegacyMark` rewrites text nodes, which moves live highlight ranges' boundaries;
     nothing redraws highlights after marking. A per-consumer wrapper (#776, closed unmerged) was inert
     on chapter load and could crash on a collapsed range. Root fix: one text-only measurement inside the
-    overlay (Phase 2); the legacy path is deleted in Phase 6. The "fuzzy match paints `exact.length`"
+    overlay (Phase 2); ~~the legacy path is deleted in Phase 6.~~ Done 2026-10-15: `vhlLegacyMark` and the old WebView reader deleted in #866. The "fuzzy match paints `exact.length`"
     item was not a bug: the resolver's fuzzy window is `exact.length` wide by design.
   - **Mobile reader hooks have no tests of their own.** Fixes are tested through pure modules
     extracted from them and source-text wiring guards (`readerR3Wiring.test.ts`,
