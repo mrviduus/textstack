@@ -576,17 +576,38 @@ jobs:
         run: |
           cd $PROJECT_DIR
           # /etc/nginx/sites-available/textstack is vasyl:vasyl 664, so cp works
-          # without sudo. Only nginx -t and reload need sudo (passwordless via
-          # sudoers for nginx/systemctl).
-          if ! diff -q infra/nginx/textstack.conf /etc/nginx/sites-available/textstack > /dev/null 2>&1; then
+          # without sudo. Only nginx -t, reload and restart need sudo.
+          CFG=/etc/nginx/sites-available/textstack
+          if ! diff -q infra/nginx/textstack.conf "$CFG" > /dev/null 2>&1; then
             echo "nginx config changed — syncing"
-            cp infra/nginx/textstack.conf /etc/nginx/sites-available/textstack
-            sudo nginx -t
-            sudo systemctl reload nginx
-            echo "nginx reloaded"
-          else
-            echo "nginx config unchanged — skip reload"
+            cp infra/nginx/textstack.conf "$CFG"
           fi
+          sudo nginx -t
+          # A reload can fail and still exit 0: the master logs [emerg] to error.log and keeps the
+          # old workers. A limit_req zone whose key changed (#693) needs a restart, so every reload
+          # from 2026-10-04 to 10-15 failed this way and no nginx change went live. So: on every
+          # deploy, workers older than the config file mean the config is not live → reload, and
+          # if that does not take, restart.
+          # Only live workers count: after a good reload the old ones linger as "worker process is
+          # shutting down" until their SSE / WebSocket connections close.
+          live_workers() { ps -o etimes=,args= --ppid "$(cat /run/nginx.pid 2>/dev/null)" 2>/dev/null | grep 'worker process$' || true; }
+          stale_workers() {
+            local cfg_ts now e _
+            cfg_ts=$(stat -c %Y "$CFG"); now=$(date +%s)
+            while read -r e _; do
+              [ -n "$e" ] && [ $(( now - e )) -lt "$cfg_ts" ] && return 0
+            done < <(live_workers)
+            return 1
+          }
+          if stale_workers; then sudo systemctl reload nginx; sleep 3; fi
+          if stale_workers; then
+            echo "::warning::nginx reload did not take — restarting"
+            sudo grep emerg /var/log/nginx/error.log | tail -n 3 || true
+            sudo systemctl restart nginx; sleep 3
+          fi
+          [ -n "$(live_workers)" ] || { echo "FAIL: nginx has no running workers"; exit 1; }
+          stale_workers && { echo "FAIL: nginx still runs a config older than $CFG"; exit 1; }
+          echo "nginx runs the current config"
 
       # Poll instead of a fixed sleep: passes as soon as the API answers, and gives a
       # slow start up to ~2.5 min instead of failing at 30s.
@@ -664,8 +685,12 @@ jobs:
           BOT_RENDER=$(curl -sf -I -H "Host: textstack.app" -H "User-Agent: Googlebot/2.1" http://localhost/en/ | grep -i x-seo-render | tr -d '\r')
           echo "Bot: $BOT_RENDER"
           # Bot gets SSG if files exist, SPA fallback if not — both are OK post-deploy
-          # But header MUST be present (proves nginx config is loaded)
+          # But header MUST be present
           [ -n "$BOT_RENDER" ] && echo "Bot detection OK" || { echo "FAIL: x-seo-render header missing for bot"; exit 1; }
+
+          echo "=== Security headers live (#857; proves the current config is loaded) ==="
+          curl -sf -I -H "Host: textstack.app" http://localhost/en/ | grep -qi '^content-security-policy:.*frame-ancestors' \
+            && echo "CSP OK" || { echo "FAIL: /en/ has no CSP — nginx is not running the current config"; exit 1; }
 
           echo "=== nginx bot map configured ==="
           grep -q 'map.*is_bot' /etc/nginx/sites-available/textstack || { echo "FAIL: bot map missing from nginx"; exit 1; }

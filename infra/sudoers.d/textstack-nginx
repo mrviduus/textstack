@@ -3,3 +3,4 @@
 vasyl ALL=(ALL) NOPASSWD: /usr/bin/tee /etc/nginx/sites-available/textstack
 vasyl ALL=(ALL) NOPASSWD: /usr/sbin/nginx -t
 vasyl ALL=(ALL) NOPASSWD: /usr/bin/systemctl reload nginx
+vasyl ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart nginx
