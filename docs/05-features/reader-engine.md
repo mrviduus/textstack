@@ -6,7 +6,7 @@ What `packages/reader-engine` promises its hosts (web, mobile), in plain words. 
 [phase 2 plan](../01-architecture/reader-engine-phase2-plan.md).
 
 Each rule has one ID. The test that pins it starts its name with that ID
-(`packages/reader-engine/src/engine.test.ts`; decorations, E13–E19 and E44, in `decorations.test.ts`; events, E20–E24 and E28, in `events.test.ts`; geometry on real chapters in Chromium, E25–E27, E29, E30, E43 and E45, in `playground/geometry.e2e.ts`). Change a rule here first, then its test, then the code.
+(`packages/reader-engine/src/engine.test.ts`; decorations, E13–E19, E44, E49 and E50, in `decorations.test.ts`; events, E20–E24 and E28, in `events.test.ts`; geometry on real chapters in Chromium, E25–E27, E29, E30, E43 and E45, in `playground/geometry.e2e.ts`). Change a rule here first, then its test, then the code.
 
 ADR-019's eight position rules are pinned once each in `src/positionRules.test.ts` (`rule 1` … `rule 8`),
 through the engine and the pure rules it re-exports from shared (`newerPosition`, `progressPrecedence`,
@@ -59,6 +59,8 @@ carries its `opId`.
 | E46 | `open` resolves `'superseded'` in two cases a host can tell apart: its document was replaced (a newer `open`, `destroy`: `current()` is another chapter or null), or a `goTo` overtook it after its document landed (`ready` was said and `current().href` is this chapter). In the second case the chapter is open and positioned by the `goTo`: a host may treat it as opened. | #852 review: web left a chapter un-ready when a `goTo` overtook its open | 2026-10-14 |
 | E47 | `clearSelection({ markOnly: true })` removes only the held word's mark: the page's own selection stays and nothing is sent (no `selection: null`). The host calls it right before it paints that text as a highlight, so a failed save leaves the selection for another try. Plain `clearSelection()` still ends everything. Reflow and PDF. | SEL-1 (old bridge `markOnly`): the engine page ignored it, so a failed highlight dropped the selection | 2026-10-15 |
 | E48 | A selection's sentence is the one the shared TR-1 fixture (`packages/shared/src/text/__fixtures__/sentences.json`) pins: the tapped occurrence's own sentence, ended by `.`, `!` or `?`, never a gloss; a long one is cut to 200 characters around the word, and a cut edge keeps its space (`... words`). | TR-1 (translate sent the wrong sentence); the old web and mobile extractors shared this fixture | 2026-10-15 |
+| E49 | `find` matches a composed letter and its decomposed form (`é` = `e` + U+0301) either way round: query and text are NFC-normalised the same way, as saved words are (E18). | Review of #868: search folded case and NBSP but not NFC | 2026-10-15 |
+| E50 | A `find` hit is quoted at its own place in the chapter's text even after a letter whose fold changes length (Turkish `İ` lowercases to two characters): offsets are mapped back from the folded text. | Review of #868: `find` used `at + query.length` on folded offsets | 2026-10-15 |
 
 ### Fixed layout (PDF, Phase 5)
 

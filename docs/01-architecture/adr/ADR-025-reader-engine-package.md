@@ -253,7 +253,7 @@ What it changes in this ADR:
 | 3 | Mobile adopts (flag), QA-007 rerun | yes, flag |
 | 4 | Web adopts (flag), smoke runs flag on and off | yes, flag |
 | 5 | PDF as the `fixed` layout | yes, flag |
-| 6 | Cleanup: flags, shims, old code; grep for old names = 0 — **done 2026-10-15** (#843, #848, #852, #866, #868); shims kept as issues (answer 6a), EAS variables #867 | yes |
+| 6 | Cleanup: flags, shims, old code; grep for old names = 0 — **done 2026-10-15** (#843, #848, #852, #866, #868); shims kept as issues (answer 6a), EAS variables #867. Kept names, live: the CSS variables `--reader-overlay-*` and the `data-reader-overlay` / `data-vocab-overlay` attributes | yes |
 
 ## Alternatives rejected
 

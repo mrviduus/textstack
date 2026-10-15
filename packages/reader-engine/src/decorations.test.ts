@@ -8,7 +8,12 @@ import { chapterText, textNodes } from './text'
  * with its rule ID (docs/05-features/reader-engine.md). The fake layout is in engine.testkit.ts.
  */
 
-afterEach(() => { destroyAll(); vi.restoreAllMocks() })
+const browserClientRects = Range.prototype.getClientRects
+afterEach(() => {
+  destroyAll()
+  vi.restoreAllMocks()
+  expect(Range.prototype.getClientRects).toBe(browserClientRects)   // `browserBoxes` never outlives its reader
+})
 
 const MIDDLE = 'Malin log 3'
 
@@ -199,6 +204,47 @@ describe('find', () => {
     await reader.open()
     expect(reader.engine.find('Malin log 3')).toHaveLength(1)
     expect(reader.engine.find('')).toEqual([])
+  })
+
+  it('E49 a composed letter matches its decomposed form, either way round', async () => {
+    const reader = makeReader({ html: '<p>Un cafe\u0301 noir, un caf\u00e9 au lait.</p>' })
+    await reader.open()
+
+    expect(reader.engine.find('caf\u00e9').map((h) => h.locator.text?.highlight)).toEqual(['cafe\u0301', 'caf\u00e9'])
+    expect(reader.engine.find('cafe\u0301').map((h) => h.locator.text?.highlight)).toEqual(['cafe\u0301', 'caf\u00e9'])
+  })
+
+  it('E50 a hit after a letter whose lowercase is longer (Turkish İ) is quoted at its own place in the text', async () => {
+    const reader = makeReader({ html: '<p>İstanbul has the keeper, and the keeper counted.</p>' })
+    await reader.open()
+
+    const hits = reader.engine.find('KEEPER')
+
+    expect(hits.map((h) => h.locator.text?.highlight)).toEqual(['keeper', 'keeper'])
+    expect(hits.map((h) => h.locator.locations.charOffset)).toEqual([17, 33])
+    expect(reader.engine.find('İSTANBUL HAS').map((h) => h.locator.text?.highlight)).toEqual(['İstanbul has'])
+  })
+})
+
+describe('testkit browserBoxes', () => {
+  it("fakes boxes for its reader's ranges only, and its destroy puts the page's own back", async () => {
+    const PAGE = [] as unknown as DOMRectList
+    const page = () => PAGE   // what the page answered before (another testkit's stub, a browser)
+    Range.prototype.getClientRects = page
+    try {
+      const reader = makeReader({ browserBoxes: true })
+      await reader.open()
+      const outside = document.createRange()
+      outside.selectNodeContents(document.body.appendChild(document.createElement('p')))
+      expect(outside.getClientRects()).toBe(PAGE)
+      expect(reader.root.ownerDocument.createRange().getClientRects).not.toBe(page)
+
+      reader.engine.destroy()
+      expect(Range.prototype.getClientRects).toBe(page)
+    } finally {
+      if (browserClientRects) Range.prototype.getClientRects = browserClientRects
+      else delete (Range.prototype as Partial<Range>).getClientRects   // jsdom has none
+    }
   })
 })
 

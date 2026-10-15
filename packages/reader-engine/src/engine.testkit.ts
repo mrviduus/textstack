@@ -89,12 +89,8 @@ export function deferred() {
 const tick = () => new Promise<void>((r) => setTimeout(r, 0))
 
 const engines: { destroy(): void }[] = []
-const realClientRects = Range.prototype.getClientRects
 /** Call from afterEach. */
-export function destroyAll() {
-  engines.splice(0).forEach((e) => e.destroy())
-  Range.prototype.getClientRects = realClientRects
-}
+export function destroyAll() { engines.splice(0).forEach((e) => e.destroy()) }
 
 /**
  * A reader on the fake layout. `fonts` holds every open on a promise (a slow webfont), to catch the
@@ -145,12 +141,22 @@ export function makeReader(opts: { html?: string; fonts?: () => Promise<void>; n
 
   let resize = () => {}
   let boxReads = 0
+  // Patched for this reader's ranges only, put back by its destroy (destroyAll calls it).
+  const before = Range.prototype.getClientRects
+  let unpatch = () => {}
   if (opts.browserBoxes) {
-    Range.prototype.getClientRects = function (this: Range) {
+    const patched = function (this: Range) {
+      if (!root.contains(this.commonAncestorContainer)) return before.call(this)
       return lineBoxes(root, this).flatMap((b) => {
         const y = b.y - top   // on screen: the chapter's top moves up as the reader scrolls
         return [new DOMRect(b.x, y, b.width, b.height), new DOMRect(b.x + b.width, y, 0, b.height), new DOMRect(b.x, y + b.height, b.width, 0)]
       }) as unknown as DOMRectList
+    }
+    Range.prototype.getClientRects = patched
+    unpatch = () => {
+      if (Range.prototype.getClientRects !== patched) return
+      if (before) Range.prototype.getClientRects = before
+      else delete (Range.prototype as Partial<Range>).getClientRects   // jsdom has none
     }
   }
   const engine = createEngine(root, {
@@ -163,6 +169,8 @@ export function makeReader(opts: { html?: string; fonts?: () => Promise<void>; n
     rects: opts.browserBoxes ? undefined : (range) => { boxReads++; return opts.noCaret ? [] : lineBoxes(root, range) },
     caret: opts.noCaret ? () => null : opts.caret ?? caret,
   })
+  const destroyEngine = engine.destroy
+  engine.destroy = () => { destroyEngine(); unpatch() }
   engines.push(engine)
   // The chapter fills the root: the engine probes the reading line inside its box.
   ;(root.firstElementChild as HTMLElement).getBoundingClientRect = () => root.getBoundingClientRect()

@@ -801,8 +801,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
     },
 
     find(query) {
-      return findTextOffsets(text, query).map((at) => {
-        const end = at + query.length
+      return findTextOffsets(text, query).map(([at, end]) => {
         const from = Math.max(0, at - FIND_CONTEXT)
         const to = Math.min(text.length, end + FIND_CONTEXT)
         const context = `${from > 0 ? '...' : ''}${text.slice(from, to)}${to < text.length ? '...' : ''}`

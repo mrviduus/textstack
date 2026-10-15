@@ -117,7 +117,7 @@ All queues are Postgres tables polled by the consumer; there is no message broke
 | `apps/admin` | Admin React SPA on `textstack.dev` |
 | `apps/mobile` | Expo 57 / React Native 0.86 (Android first) |
 | `packages/shared` | `@textstack/shared` — API client, types, i18n, reader progress logic (source alias, not published) |
-| `packages/reader-overlay` | `@textstack/reader-overlay` — DOM overlay engine for highlights/vocab/search |
+| `packages/reader-engine` | `@textstack/reader-engine` — the reader engine, reflow + PDF ([ADR-025](adr/ADR-025-reader-engine-package.md)); `packages/reader-overlay` was deleted in #868 |
 
 Details: [frontend.md](frontend.md).
 

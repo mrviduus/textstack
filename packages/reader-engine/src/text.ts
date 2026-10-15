@@ -147,15 +147,25 @@ export function locatorAt(text: string, at: number, href: string, progression: n
   }
 }
 
-// The one matcher behind in-book search (`find`). Case-insensitive, NBSP == space, non-overlapping.
-// Offsets are into `text`. ponytail: assumes lowercasing keeps lengths (true outside a few letters such
-// as Turkish İ).
-const fold = (s: string) => s.toLowerCase().replace(/\u00a0/g, ' ')
-export function findTextOffsets(text: string, needle: string): number[] {
-  const out: number[] = []
-  if (!needle) return out
-  const hay = fold(text)
+// The one matcher behind in-book search (`find`): case-insensitive, NBSP == space, composed ==
+// decomposed (NFC), non-overlapping (E17, E49). Folding can change a length (Turkish İ lowercases to two
+// characters, e + U+0301 composes to one), so the text is folded one letter-with-its-marks at a time and
+// each hit is mapped back to `[start, end]` in `text` itself (E50).
+const fold = (s: string) => s.normalize('NFC').toLowerCase().replace(/\u00a0/g, ' ')
+const LETTER = /\P{M}\p{M}*|\p{M}+/gu
+export function findTextOffsets(text: string, needle: string): [number, number][] {
   const n = fold(needle)
-  for (let i = hay.indexOf(n); i !== -1; i = hay.indexOf(n, i + n.length)) out.push(i)
+  if (!n) return []
+  let hay = ''
+  const from: number[] = []   // per folded character: where its letter starts in `text`
+  const to: number[] = []     // ... and ends
+  LETTER.lastIndex = 0
+  for (let m = LETTER.exec(text); m; m = LETTER.exec(text)) {   // not matchAll: Android 7–9 WebViews lack it
+    const f = fold(m[0])
+    hay += f
+    for (let k = 0; k < f.length; k++) { from.push(m.index); to.push(m.index + m[0].length) }
+  }
+  const out: [number, number][] = []
+  for (let i = hay.indexOf(n); i !== -1; i = hay.indexOf(n, i + n.length)) out.push([from[i], to[i + n.length - 1]])
   return out
 }
