@@ -12,40 +12,71 @@ namespace TextStack.Tts;
 /// </summary>
 internal static class EdgeTtsClient
 {
-    private const string TrustedClientToken = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
-    private const string SecMsGecVersion = "1-143.0.3650.75";
-    private const string ChromiumVersion = "143.0.3650.75";
+    private const string TrustedClientToken = EdgeTtsDrm.TrustedClientToken;
+    private const string Major = EdgeTtsDrm.ChromiumMajorVersion;
     private const string WssBase = "wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1";
     private const string VoiceListUrl = "https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/voices/list?trustedclienttoken=" + TrustedClientToken;
     private const string OutputFormat = "audio-24khz-48kbitrate-mono-mp3";
-    private const long WinEpoch = 11_644_473_600L;
+    // Upstream BASE_HEADERS: major version only (143.0.0.0), like a real Edge UA.
+    private const string UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/" + Major + ".0.0.0 Safari/537.36 Edg/" + Major + ".0.0.0";
 
     // Shared HttpClient — the anti-pattern of `new HttpClient()` per call
     // exhausts sockets under load (TIME_WAIT buildup). This endpoint is
     // currently called at most once per process (voice list cached), but
     // keeping the pattern correct prevents future regression.
-    private static readonly HttpClient SharedHttp = new()
+    // AutomaticDecompression adds its own Accept-Encoding (gzip, deflate, br);
+    // upstream also offers zstd, which .NET can't decode, so we don't.
+    private static readonly HttpClient SharedHttp = new(new SocketsHttpHandler
+    {
+        AutomaticDecompression = System.Net.DecompressionMethods.All
+    })
     {
         Timeout = TimeSpan.FromSeconds(15)
     };
 
+    private static string GecQuery() =>
+        $"&Sec-MS-GEC={EdgeTtsDrm.GenerateSecMsGec()}&Sec-MS-GEC-Version={EdgeTtsDrm.SecMsGecVersion}";
+
+    // Upstream Communicate.stream / list_voices: on 403, correct the clock
+    // from the server's Date header and retry exactly once.
+    private static async Task<ClientWebSocket> ConnectAsync(CancellationToken ct)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            var ws = new ClientWebSocket();
+            ws.Options.CollectHttpResponseDetails = true;
+            ws.Options.SetRequestHeader("Pragma", "no-cache");
+            ws.Options.SetRequestHeader("Cache-Control", "no-cache");
+            ws.Options.SetRequestHeader("Origin", "chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold");
+            ws.Options.SetRequestHeader("User-Agent", UserAgent);
+            ws.Options.SetRequestHeader("Accept-Encoding", "gzip, deflate, br, zstd");
+            ws.Options.SetRequestHeader("Accept-Language", "en-US,en;q=0.9");
+            ws.Options.SetRequestHeader("Cookie", $"muid={GenerateMuid()};");
+            var url = $"{WssBase}?TrustedClientToken={TrustedClientToken}&ConnectionId={Guid.NewGuid():N}{GecQuery()}";
+            try
+            {
+                await ws.ConnectAsync(new Uri(url), ct);
+                return ws;
+            }
+            catch (WebSocketException) when (attempt == 0 && ws.HttpStatusCode == System.Net.HttpStatusCode.Forbidden
+                && EdgeTtsDrm.AdjustClockSkew(ServerDate(ws.HttpResponseHeaders)))
+            {
+                ws.Dispose();
+            }
+            catch
+            {
+                ws.Dispose();
+                throw;
+            }
+        }
+    }
+
+    private static string? ServerDate(IReadOnlyDictionary<string, IEnumerable<string>>? headers) =>
+        headers is not null && headers.TryGetValue("Date", out var v) ? v.FirstOrDefault() : null;
+
     public static async Task<(byte[] Audio, List<WordTimestamp> Timestamps)> SynthesizeAsync(string text, string voice, string rate, string volume, string pitch, string lang, CancellationToken ct, long maxAudioBytes = 5L * 1024 * 1024)
     {
-        var connectionId = Guid.NewGuid().ToString("N");
-        var secGec = GenerateSecMsGec();
-        var muid = GenerateMuid();
-        var url = $"{WssBase}?TrustedClientToken={TrustedClientToken}&Sec-MS-GEC={secGec}&Sec-MS-GEC-Version={SecMsGecVersion}&ConnectionId={connectionId}";
-
-        using var ws = new ClientWebSocket();
-        ws.Options.SetRequestHeader("Pragma", "no-cache");
-        ws.Options.SetRequestHeader("Cache-Control", "no-cache");
-        ws.Options.SetRequestHeader("Origin", "chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold");
-        ws.Options.SetRequestHeader("Accept-Encoding", "gzip, deflate, br, zstd");
-        ws.Options.SetRequestHeader("Accept-Language", "en-US,en;q=0.9");
-        ws.Options.SetRequestHeader("User-Agent", $"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{ChromiumVersion} Safari/537.36 Edg/{ChromiumVersion}");
-        ws.Options.SetRequestHeader("Cookie", $"muid={muid};");
-
-        await ws.ConnectAsync(new Uri(url), ct);
+        using var ws = await ConnectAsync(ct);
 
         // 1. Send config
         var configMessage =
@@ -219,22 +250,31 @@ internal static class EdgeTtsClient
 
     public static async Task<List<EdgeVoiceData>> GetVoicesAsync(CancellationToken ct)
     {
-        // Headers per-request (not on SharedHttp.DefaultRequestHeaders) — shared
-        // client is stateless; mutating defaults on a static client would race
-        // across concurrent callers.
-        using var req = new HttpRequestMessage(HttpMethod.Get, VoiceListUrl);
-        req.Headers.Add("Authority", "speech.platform.bing.com");
-        req.Headers.Add("Sec-CH-UA", $"\"Microsoft Edge\";v=\"{ChromiumVersion.Split('.')[0]}\", \"Chromium\";v=\"{ChromiumVersion.Split('.')[0]}\", \"Not?A_Brand\";v=\"99\"");
-        req.Headers.Add("Accept", "application/json");
-        req.Headers.Add("Sec-Fetch-Site", "none");
-        req.Headers.Add("Sec-Fetch-Mode", "cors");
-        req.Headers.Add("Sec-Fetch-Dest", "empty");
-        req.Headers.Add("User-Agent", $"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{ChromiumVersion} Safari/537.36 Edg/{ChromiumVersion}");
+        for (var attempt = 0; ; attempt++)
+        {
+            // Headers per-request (not on SharedHttp.DefaultRequestHeaders) — shared
+            // client is stateless; mutating defaults on a static client would race
+            // across concurrent callers. Values = upstream VOICE_HEADERS.
+            using var req = new HttpRequestMessage(HttpMethod.Get, VoiceListUrl + GecQuery());
+            req.Headers.TryAddWithoutValidation("Authority", "speech.platform.bing.com");
+            req.Headers.TryAddWithoutValidation("Sec-CH-UA", $"\" Not;A Brand\";v=\"99\", \"Microsoft Edge\";v=\"{Major}\", \"Chromium\";v=\"{Major}\"");
+            req.Headers.TryAddWithoutValidation("Sec-CH-UA-Mobile", "?0");
+            req.Headers.TryAddWithoutValidation("Accept", "*/*");
+            req.Headers.TryAddWithoutValidation("Sec-Fetch-Site", "none");
+            req.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", "cors");
+            req.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", "empty");
+            req.Headers.TryAddWithoutValidation("User-Agent", UserAgent);
+            req.Headers.TryAddWithoutValidation("Accept-Language", "en-US,en;q=0.9");
+            req.Headers.TryAddWithoutValidation("Cookie", $"muid={GenerateMuid()};");
 
-        using var res = await SharedHttp.SendAsync(req, HttpCompletionOption.ResponseContentRead, ct);
-        res.EnsureSuccessStatusCode();
-        var json = await res.Content.ReadAsStringAsync(ct);
-        return JsonSerializer.Deserialize<List<EdgeVoiceData>>(json) ?? [];
+            using var res = await SharedHttp.SendAsync(req, HttpCompletionOption.ResponseContentRead, ct);
+            if (attempt == 0 && res.StatusCode == System.Net.HttpStatusCode.Forbidden
+                && EdgeTtsDrm.AdjustClockSkew(res.Headers.Date?.ToString("r")))
+                continue;
+            res.EnsureSuccessStatusCode();
+            var json = await res.Content.ReadAsStringAsync(ct);
+            return JsonSerializer.Deserialize<List<EdgeVoiceData>>(json) ?? [];
+        }
     }
 
     private static async Task SendTextAsync(ClientWebSocket ws, string message, CancellationToken ct)
@@ -253,18 +293,6 @@ internal static class EdgeTtsClient
             return $"{parts[0]}-{parts[1]}";
         if (!string.IsNullOrWhiteSpace(lang)) return lang.Contains('-') ? lang : $"{lang.ToLowerInvariant()}-{lang.ToUpperInvariant()}";
         return "en-US";
-    }
-
-    private static string GenerateSecMsGec()
-    {
-        // Match edge-tts Python: unix_ts + WIN_EPOCH, round to 300s, multiply by 1e7
-        var unixTs = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        var ticks = unixTs + WinEpoch;
-        ticks -= ticks % 300;
-        ticks *= 10_000_000;
-        var input = $"{ticks}{TrustedClientToken}";
-        var hash = SHA256.HashData(Encoding.ASCII.GetBytes(input));
-        return Convert.ToHexString(hash);
     }
 
     private static string GenerateMuid()
