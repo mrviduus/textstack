@@ -13,8 +13,7 @@ import { useReaderSettings, themeStyles } from '../../hooks/useReaderSettings'
 
 vi.mock('../../lib/api', () => ({ API_URL: 'https://api.test' }))
 vi.mock('../../lib/readerHtml', () => ({
-  buildReaderHtml: (html: string, t: { backgroundColor: string }) => `<doc bg=${t.backgroundColor}>${html}`,
-  buildPdfViewerHtml: () => '<pdf>',
+  buildEngineReaderHtml: (html: string, t: { backgroundColor: string }) => `<doc bg=${t.backgroundColor}>${html}`,
   buildPdfEngineHtml: () => '<pdf engine>',
 }))
 
@@ -32,7 +31,7 @@ function mountDocument(slug: string, theme: { backgroundColor: string; textColor
     settings: { fontSize: 18, lineHeight: 1.6, textAlign: 'left' } as never,
     resolvedFontFamily: 'serif', resolvedTheme: p.theme as never,
     insets: { top: 0, bottom: 0, left: 0, right: 0 },
-    pdfToken: null, pdfTokenReady: false, pdfReloadNonce: 0, isLocalOriginal: false,
+    pdfToken: null, pdfTokenReady: false, isLocalOriginal: false,
     pdfInitialPageRef: ref(null), currentPdfPageRef: ref(null), pdfIsReloadRef: ref(false), pdfReadyRef: ref(false),
   }), { slug, theme })
   // ReaderShell's reflow onLoadEnd, the document half.

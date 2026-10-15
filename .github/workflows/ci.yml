@@ -350,8 +350,8 @@ jobs:
         working-directory: apps/web
         run: pnpm check:mobile-overlay
 
-      # The PDF bundle had no such guard. entry.ts is the source of the viewer
-      # that owns the reader's position in a PDF, and an edit shipped without a
+      # The PDF bundle had no such guard. engineEntry.ts (+ readerEnginePdfPage.ts) is the source
+      # of the page that owns the reader's position in a PDF, and an edit shipped without a
       # rebuild changes nothing at runtime — silently, past a green CI.
       - name: Drift-check mobile PDF bundle
         working-directory: apps/web

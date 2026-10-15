@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Mobile** — engine Phase 6 PR B (slices 3 + 4): the old mobile reader is deleted — both `EXPO_PUBLIC_READER_ENGINE*` flags, the old reflow page and selection bridge, the overlay / anchor bundles, the old PDF viewer and its rebuild-on-401; cross-app anchors and QA-007 SEL-1 now run on the engine page; EAS variables kept until the bake (Fixes #815) — [archive](docs/changelog-archive/2026-H2.md#2026-10-15-reader-engine-phase6-pr-b)
 - **Security** — admin (textstack.dev) gets X-Frame-Options, nosniff, Referrer-Policy, HSTS and a `frame-ancestors` CSP on the port-80 block Cloudflare actually reaches (Fixes #864); `/assets/`, `/avatars/`, book assets keep nosniff (Cache-Control via `$cache_immutable`); the bot 404 is `text/html`, not octet-stream (Fixes #861) — infra
 - **Security** — fix: the #860 CSP blocked the Cloudflare Web Analytics beacon Cloudflare injects at the edge; CSP allows `static.cloudflareinsights.com` (script) and `cloudflareinsights.com` (beacon) — infra
 - **Infra** — fix: nginx reloads failed silently from 2026-10-04 (#693 changed a `limit_req` zone key; a reload cannot), so #693, #738, #852 and #860 never went live; deploy now checks nginx workers are newer than the config, reloads, else restarts, else fails; post-deploy check requires the CSP — CI · [incident](docs/incidents/2026-10-15-nginx-reload-failed-silently-for-eleven-days.md)

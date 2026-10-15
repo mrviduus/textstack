@@ -4,10 +4,8 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { heroResumeRoute } from './bookRoutes'
 import { downloadAndSave } from './downloadAndSave'
-import { READER_SELECTION_BRIDGE } from './readerBridge'
 import { clearSelectionJs } from './readerSelectionJs'
-import { buildReaderHtml } from './readerHtml'
-import { createRequire } from 'node:module'
+import { openEnginePage, HELD_MS, SETTLED_MS } from '../test/enginePage'
 import { withDeadline } from './deadline'
 
 /** QA-007 owner rules. Screens and the WebView aren't drivable here: behaviour where a pure piece exists, source guards for the wiring. */
@@ -138,31 +136,44 @@ describe('QA-007', () => {
     expect(hero).toMatch(/if \(focusedRef\.current\) router\.push\(route as never\)/)
   })
 
-  it('SEL-1: closing a selection clears the WebView one, never a newer one; highlight keeps it on failure', async () => {
-    vi.useFakeTimers()
-    document.body.innerHTML = '<p id="p">alpha beta gamma</p>'
-    const posted: { text: string; token?: number }[] = []
-    ;(window as any).ReactNativeWebView = { postMessage: (m: string) => { const d = JSON.parse(m); if (d.type === 'selection') posted.push(d) } }
-    new Function(READER_SELECTION_BRIDGE)()
-    const text = document.getElementById('p')!.firstChild!
-    const select = (start: number, end: number) => {
-      const r = document.createRange(); r.setStart(text, start); r.setEnd(text, end)
-      const s = window.getSelection()!; s.removeAllRanges(); s.addRange(r)
-      document.dispatchEvent(new Event('selectionchange')); vi.advanceTimersByTime(300)
+  // SEL-1 on the engine page (buildEngineReaderHtml): RN's real clearSelectionJs injected into the real page.
+  const SEL_CHAPTER = '<p>alpha beta</p><p>gamma delta</p>'
+  async function selPage(html = SEL_CHAPTER) {
+    const page = await openEnginePage(html)
+    const [p, q] = Array.from(page.root.querySelectorAll('p'))
+    const selections = () => page.messages.filter((m) => m.type === 'selection') as unknown as { text: string; token?: number }[]
+    const wordMarks = () => page.root.querySelectorAll('svg [data-group="selection"]').length
+    /** Press and hold on `el` at `offset` of its text (the engine's hold reads the caret there). */
+    const hold = async (el: Element, offset: number) => {
+      ;(page.w as unknown as { __caret: () => Range }).__caret = () => { const c = page.w.document.createRange(); c.setStart(el.firstChild!, offset); return c }
+      el.dispatchEvent(new page.w.PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch', clientX: 30, clientY: 310 }))
+      await new Promise(res => setTimeout(res, HELD_MS))
     }
-    select(0, 10) // "alpha beta"
-    const older = posted.at(-1)!
-    select(11, 16) // "gamma" — newer
-    const newer = posted.at(-1)!
+    /** A drag selection over [start, end) of `el`'s text, once it settles; null = collapse it. */
+    const drag = async (el: Element | null, start = 0, end = 0) => {
+      const sel = page.w.document.getSelection()!
+      sel.removeAllRanges()
+      if (el) { const r = page.w.document.createRange(); r.setStart(el.firstChild!, start); r.setEnd(el.firstChild!, end); sel.addRange(r) }
+      page.w.document.dispatchEvent(new page.w.Event('selectionchange'))
+      await new Promise(res => setTimeout(res, SETTLED_MS))
+    }
+    return { ...page, p, q, selections, wordMarks, hold, drag }
+  }
+
+  it('SEL-1: closing a selection clears the WebView one, never a newer one; highlight keeps it on failure', async () => {
+    const page = await selPage()
+    await page.drag(page.p, 0, 10) // "alpha beta"
+    const older = page.selections().at(-1)!
+    await page.drag(page.q, 0, 5) // "gamma" — newer
+    const newer = page.selections().at(-1)!
     expect(typeof older.token).toBe('number')
     expect(newer.token).not.toBe(older.token)
     // A late clear for the older selection is ignored…
-    new Function(clearSelectionJs(older.token))()
-    expect(window.getSelection()!.toString()).toBe('gamma')
+    page.call(clearSelectionJs(older.token))
+    expect(page.w.document.getSelection()!.toString()).toBe('gamma')
     // …the current one's clears it.
-    new Function(clearSelectionJs(newer.token))()
-    expect(window.getSelection()!.toString()).toBe('')
-    vi.useRealTimers()
+    page.call(clearSelectionJs(newer.token))
+    expect(page.w.document.getSelection()!.toString()).toBe('')
 
     // Every close path goes through the one effect that injects the clear with the closed token.
     const actions = read('src/components/reader/useReaderWordActions.ts')
@@ -171,21 +182,12 @@ describe('QA-007', () => {
     expect(read('src/hooks/useReaderHighlights.ts')).toMatch(/injectJs\(`\$\{clearSelectionJs\(selection\.token, true\)\};renderHighlight\(/)
     expect(actions).toMatch(/if \(await createHighlight\([^)]*\)\) closeOwnSelection\(selection\)/)
   })
+
   it('SEL-1: selection tokens are unique across documents — a stale clear from the last chapter never matches', async () => {
-    // @ts-expect-error -- jsdom ships no types and vitest's jsdom env is all we need it for
-    const { JSDOM } = await import('jsdom')
     const firstToken = async () => {
-      const dom = new JSDOM('<p id="p">alpha beta</p>', { url: 'https://reader.test/', runScripts: 'outside-only' })
-      const w = dom.window as any
-      const posted: { token?: number }[] = []
-      w.ReactNativeWebView = { postMessage: (m: string) => { const d = JSON.parse(m); if (d.type === 'selection' && d.text) posted.push(d) } }
-      w.eval(READER_SELECTION_BRIDGE)
-      const t = w.document.getElementById('p').firstChild
-      const r = w.document.createRange(); r.setStart(t, 0); r.setEnd(t, 5)
-      w.getSelection().addRange(r)
-      w.document.dispatchEvent(new w.Event('selectionchange'))
-      await new Promise(res => setTimeout(res, 300))
-      return posted.at(-1)!.token
+      const page = await selPage()
+      await page.drag(page.p, 0, 5)
+      return page.selections().at(-1)!.token
     }
     const a = await firstToken()
     const b = await firstToken()
@@ -193,112 +195,80 @@ describe('QA-007', () => {
     expect(a).not.toBe(b)
   })
 
-  /** Real bridge in its own jsdom; the reader page's overlayer (readerHtml hlEnsureOverlayer) recorded; a press-and-hold helper. */
-  async function bridgeDoc() {
-    // @ts-expect-error -- jsdom ships no types and vitest's jsdom env is all we need it for
-    const { JSDOM } = await import('jsdom')
-    const dom = new JSDOM('<p id="p">alpha beta</p><p id="q">gamma delta</p>', { url: 'https://reader.test/', runScripts: 'outside-only' })
-    const w = dom.window as any
-    const d = w.document
-    const posted: { token?: number }[] = []
-    w.ReactNativeWebView = { postMessage: (m: string) => { const x = JSON.parse(m); if (x.type === 'selection' && x.text) posted.push(x) } }
-    const marks = new Map<string, Range>()
-    const layer = { redraws: 0, element: d.createElement('div'), add: (k: string, r: Range) => marks.set(k, r), remove: (k: string) => marks.delete(k), syncScroll() {}, redraw() { layer.redraws++ } }
-    w.__TSOverlayer = { create: () => layer, highlight: null }
-    w.eval(READER_SELECTION_BRIDGE)
-    const p = d.getElementById('p')
-    const q = d.getElementById('q')
-    const hold = async (el: HTMLElement, offset: number) => {
-      d.caretRangeFromPoint = () => { const c = d.createRange(); c.setStart(el.firstChild!, offset); return c }
-      const touch = new w.Event('touchstart', { bubbles: true })
-      Object.defineProperty(touch, 'changedTouches', { value: [{ clientX: 1, clientY: 1 }] })
-      el.dispatchEvent(touch)
-      await new Promise(res => setTimeout(res, 500))
-    }
-    return { w, d, p, q, posted, hold, marks, layer }
-  }
-
-  it('SEL-1: the word mark is drawn on the overlayer — the chapter text gains no element', async () => {
-    const { p, hold, marks } = await bridgeDoc()
-    const before = { html: p.innerHTML, children: p.childNodes.length }
-    await hold(p, 7) // "beta"
-    expect(marks.get('ts-word-mark')?.toString()).toBe('beta')
-    expect({ html: p.innerHTML, children: p.childNodes.length }).toEqual(before)
+  it('SEL-1: the word mark is drawn on the overlay — the chapter text gains no element', async () => {
+    const page = await selPage()
+    const before = { html: page.p.innerHTML, children: page.p.childNodes.length }
+    await page.hold(page.p, 7) // "beta"
+    expect(page.selections().at(-1)).toMatchObject({ text: 'beta' })
+    expect(page.wordMarks()).toBe(1)
+    expect({ html: page.p.innerHTML, children: page.p.childNodes.length }).toEqual(before)
   })
 
-  it('SEL-1: closing the mark leaves a highlight Range in the same paragraph intact', async () => {
-    const { w, d, p, posted, hold, marks } = await bridgeDoc()
-    const hl = d.createRange(); hl.setStart(p.firstChild, 0); hl.setEnd(p.firstChild, 5) // "alpha" highlighted
-    await hold(p, 7)
-    w.eval(clearSelectionJs(posted.at(-1)!.token))
-    expect(marks.has('ts-word-mark')).toBe(false)
-    expect(hl.collapsed).toBe(false)
-    expect(hl.toString()).toBe('alpha')
+  it('SEL-1: closing the mark leaves a highlight in the same paragraph intact', async () => {
+    const page = await selPage()
+    page.call(`renderHighlight('h1', ${JSON.stringify(JSON.stringify({ prefix: '', exact: 'alpha', suffix: ' beta' }))}, 'yellow', 'alpha')`)
+    await page.hold(page.p, 7)
+    page.call(clearSelectionJs(page.selections().at(-1)!.token))
+    expect(page.wordMarks()).toBe(0)
+    expect(page.root.querySelectorAll('svg [data-group="highlight"][data-id="h1"]').length).toBe(1)
   })
 
-  it('SEL-1: tapping a second word moves the mark', async () => {
-    const { p, q, hold, marks } = await bridgeDoc()
-    await hold(p, 7)
-    await hold(q, 2)
-    expect(marks.get('ts-word-mark')?.toString()).toBe('gamma')
-    expect(marks.size).toBe(1)
+  it('SEL-1: a mark-only clear (before a highlight paints) drops the word mark but keeps the selection, so a failed save can retry', async () => {
+    const page = await selPage()
+    await page.hold(page.p, 7)
+    page.call(clearSelectionJs(page.selections().at(-1)!.token, true))
+    expect(page.wordMarks()).toBe(0)
+    await page.drag(page.q, 0, 5) // "gamma"
+    const sent = page.selections().length
+    page.call(clearSelectionJs(page.selections().at(-1)!.token, true))
+    expect(page.w.document.getSelection()!.toString()).toBe('gamma')
+    await new Promise(res => setTimeout(res, SETTLED_MS))
+    expect(page.selections()).toHaveLength(sent) // nothing posted: RN's toolbar stays
+    // The full clear still ends it.
+    page.call(clearSelectionJs(page.selections().at(-1)!.token))
+    expect(page.w.document.getSelection()!.toString()).toBe('')
+  })
+
+  it('SEL-1: holding a second word moves the mark', async () => {
+    const page = await selPage()
+    await page.hold(page.p, 7)
+    await page.hold(page.q, 2)
+    expect(page.selections().at(-1)).toMatchObject({ text: 'gamma' })
+    expect(page.wordMarks()).toBe(1)
   })
 
   it('SEL-1: a stale clear leaves the newer mark; a mark-only clear with no token is a no-op', async () => {
-    const { w, p, q, posted, hold, marks } = await bridgeDoc()
-    await hold(p, 7)
-    const older = posted.at(-1)!.token
-    await hold(q, 2)
-    w.eval(clearSelectionJs(older))
-    expect(marks.get('ts-word-mark')?.toString()).toBe('gamma')
+    const page = await selPage()
+    await page.hold(page.p, 7)
+    const older = page.selections().at(-1)!.token
+    await page.hold(page.q, 2)
+    page.call(clearSelectionJs(older))
+    expect(page.wordMarks()).toBe(1)
     expect(clearSelectionJs(undefined, true)).toBe('')
   })
 
   it('SEL-1: a word marked inside a highlight — a tap on it still opens the highlight (the mark is never hit-tested)', async () => {
-    const { JSDOM, VirtualConsole } = createRequire(__filename)('jsdom')
-    const posted: { type: string; highlightId?: string }[] = []
+    const page = await selPage('<p>She sat in the garden and watched the moon.</p>')
+    // No layout in jsdom: every range sits on the same rect, as a word inside its highlight does.
     const rect = { x: 20, y: 300, left: 20, top: 300, right: 80, bottom: 320, width: 60, height: 20 }
-    const dom = new JSDOM(buildReaderHtml('<p>She sat in the garden and watched the moon.</p>', undefined, 'ch-1'), {
-      runScripts: 'dangerously', pretendToBeVisual: true, virtualConsole: new VirtualConsole(),
-      beforeParse(win: any) {
-        win.ReactNativeWebView = { postMessage: (m: string) => posted.push(JSON.parse(m)) }
-        // No layout in jsdom: every range sits on the same rect, as a word inside its highlight does.
-        win.Range.prototype.getClientRects = function () { return [rect] }
-        win.Range.prototype.getBoundingClientRect = function () { return rect }
-      },
-    })
-    const w = dom.window as any
-    const d = w.document
-    w.eval(`renderHighlight("h1", ${JSON.stringify(JSON.stringify({ prefix: 'She sat in the ', exact: 'garden', suffix: ' and' }))}, "yellow", "garden")`)
-    const text = d.querySelector('p').firstChild
-    d.caretRangeFromPoint = () => { const c = d.createRange(); c.setStart(text, 17); return c }
-    const touch = new w.Event('touchstart', { bubbles: true })
-    Object.defineProperty(touch, 'changedTouches', { value: [{ clientX: 30, clientY: 310 }] })
-    d.querySelector('p').dispatchEvent(touch)
-    await new Promise(res => setTimeout(res, 1000)) // hold fires, then the justAnchored window passes
-    expect(posted.some(m => m.type === 'selection' && (m as any).text === 'garden')).toBe(true)
-    d.body.dispatchEvent(new w.MouseEvent('click', { bubbles: true, clientX: 30, clientY: 310 }))
-    expect(posted.filter(m => m.type === 'highlightTap')).toEqual([{ type: 'highlightTap', highlightId: 'h1' }])
+    page.w.Range.prototype.getClientRects = function () { return [rect] as unknown as DOMRectList }
+    page.call(`renderHighlight("h1", ${JSON.stringify(JSON.stringify({ prefix: 'She sat in the ', exact: 'garden', suffix: ' and' }))}, "yellow", "garden")`)
+    await page.hold(page.p, 17)
+    expect(page.selections().at(-1)).toMatchObject({ text: 'garden' })
+    const click = () => page.p.dispatchEvent(new page.w.MouseEvent('click', { bubbles: true, clientX: 30, clientY: 310 }))
+    click()   // the hold's own finger-up: swallowed
+    click()
+    expect(page.messages.filter(m => m.type === 'highlightTap')).toEqual([{ type: 'highlightTap', highlightId: 'h1' }])
   })
 
-  it('SEL-1: a drag selection collapsing clears the word mark itself (RN\'s clear carries a token the collapse made stale)', async () => {
-    const { w, d, p, q, hold, marks } = await bridgeDoc()
-    await hold(p, 7) // "beta" marked
-    await new Promise(res => setTimeout(res, 1600)) // past the tap's suppression window
-    d.dispatchEvent(new w.Event('selectionchange')); await new Promise(res => setTimeout(res, 300)) // ActionMode gone: tap state reset
-    const r = d.createRange(); r.setStart(q.firstChild, 0); r.setEnd(q.firstChild, 11)
-    w.getSelection().addRange(r)
-    d.dispatchEvent(new w.Event('selectionchange')); await new Promise(res => setTimeout(res, 300))
-    w.getSelection().removeAllRanges()
-    d.dispatchEvent(new w.Event('selectionchange')); await new Promise(res => setTimeout(res, 300))
-    expect(marks.has('ts-word-mark')).toBe(false)
-  })
-
-  it('SEL-1: the word mark redraws on resize/rotate, as on scroll', async () => {
-    const { w, p, hold, layer } = await bridgeDoc()
-    await hold(p, 7)
-    w.dispatchEvent(new w.Event('resize'))
-    expect(layer.redraws).toBe(1)
+  it('SEL-1: a drag selection replaces the word mark, and its collapse ends the selection', async () => {
+    const page = await selPage()
+    await page.hold(page.p, 7) // "beta" marked
+    await page.drag(page.q, 0, 11)
+    expect(page.wordMarks()).toBe(0)
+    await page.drag(null)
+    expect(page.selections().at(-1)).toEqual({ type: 'selection', text: '' })
+    expect(page.wordMarks()).toBe(0)
   })
 
   it('LIB-1a: Download with no session mints a guest first, then saves; a failed or never-answering mint still downloads, without the save', async () => {
@@ -432,26 +402,4 @@ describe('QA-007', () => {
     expect(fn).toMatch(/AND source_start_page IS NULL/)
     expect(fn).toMatch(/if \(c\.sourceStartPage == null\) continue/)
   })
-
-  it('SEL-1: the word mark redraws on image load and fonts.ready, like the highlight overlayer', async () => {
-    const { w, d, p, hold, layer } = await bridgeDocWithFonts()
-    await hold(p, 7)
-    await Promise.resolve(); await Promise.resolve()
-    expect(layer.redraws).toBe(1)
-    const img = d.createElement('img'); d.body.appendChild(img)
-    img.dispatchEvent(new w.Event('load'))
-    expect(layer.redraws).toBe(2)
-  })
-
-  it('SEL-1: a typography change (font size, line height) redraws the word mark too — a style change fires no resize', () => {
-    // Review r8: only _hlOverlayer was redrawn, so the mark sat over a different word after the reflow.
-    expect(read('src/lib/readerHtml.ts')).toMatch(/style\.textContent = css;[\s\S]*?_hlOverlayer\.redraw\(\)[\s\S]*?_wordMarkOv\.redraw\(\)[\s\S]*?ackRestore\(restoreId\)/)
-  })
-
-  async function bridgeDocWithFonts() {
-    // fonts.ready must exist before the bridge creates its layer; jsdom ships none.
-    const r = await bridgeDoc()
-    r.d.fonts = { ready: Promise.resolve() }
-    return r
-  }
 })

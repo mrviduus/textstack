@@ -2,7 +2,7 @@
  * The reflow reader's chrome — safe-area padding and theme colours — and the
  * rule about what may rebuild its document.
  *
- * Same defect the PDF viewer had, found while fixing that one. `buildReaderHtml`
+ * Same defect the PDF viewer had, found while fixing that one. The reflow builder
  * takes safe-area insets, and the reader renders `<StatusBar hidden={!barsVisible}>`;
  * on Android hiding the status bar changes `insets.top`. `useReaderBars` hides
  * the bars three seconds after open and toggles them on every change of scroll

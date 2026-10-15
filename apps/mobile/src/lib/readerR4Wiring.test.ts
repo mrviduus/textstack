@@ -13,7 +13,6 @@ const persistence = read('src/hooks/useReaderPersistence.ts')
 const shell = read('src/components/reader/ReaderShell.tsx')
 const feed = read('src/components/reader/useReaderSessionFeed.ts')
 const doc = read('src/components/reader/useReaderDocument.ts')
-const html = read('src/lib/readerHtml.ts')
 const body = (src: string, from: string, to = '}, [') => {
   const start = src.indexOf(from)
   expect(start).toBeGreaterThan(-1)
@@ -53,13 +52,7 @@ describe('bug 3 — back in the foreground during a rebuild or restore (M6 remou
 })
 
 describe('bug 4 — the restore ack carries the landing', () => {
-  it('the ack posts a chapter-relative scrollY and is followed by a forced progress report', () => {
-    const ack = body(html, 'function ackRestore(restoreId)', '\n    }\n')
-    expect(ack).toContain('currentChapterBounds()')
-    expect(ack).toMatch(/lastProgress = -1;\s*reportProgress\(\);/)
-    expect(ack.indexOf('reportProgress()')).toBeGreaterThan(ack.indexOf("type: 'restored'"))
-  })
-
+  // The page half (the ack carries scrollY, then the landing is reported): readerEnginePage.test.ts.
   it("persistence takes the ack's scrollY as the move baseline; the shell passes it", () => {
     const landed = body(persistence, 'const onRestoreLanded = useCallback(')
     expect(landed).toContain('moveBaselineRef.current = landingBaseline(moveBaselineRef.current, scrollY)')

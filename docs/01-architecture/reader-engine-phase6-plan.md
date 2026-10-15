@@ -4,7 +4,7 @@ Phase 6 of [ADR-025](adr/ADR-025-reader-engine-package.md): every platform reads
 `packages/reader-engine`, so the old reader, the four flags and the shims go. Deletion only: no new
 behaviour, no API change.
 
-Status: **in progress** — slice 0 #843 and PR A #848 merged 2026-10-14, follow-ups #852 merged; next: PR B (mobile) ≥ 7 days after the Play launch. Owner answered 2026-10-14 (see Owner answers), from a read-only survey right after Phase 5. All four flags are on for
+Status: **in progress** — slice 0 #843 and PR A #848 merged 2026-10-14, follow-ups #852 merged; PR B (mobile, slices 3–4) opened 2026-10-15 (owner: no wait for the Play launch); next: PR C. Owner answered 2026-10-14 (see Owner answers), from a read-only survey right after Phase 5. All four flags are on for
 everyone: mobile reflow since 2026-10-12, web reflow 2026-10-13, web + mobile PDF 2026-10-14
 (`apps/web/production.env`, EAS production + OTA). The owner's prod pass of Phase 4 is still pending (STATUS).
 
@@ -91,7 +91,7 @@ Today a rollback is a one-line flag change (~15 min, ADR-025 answer 1). After de
 
 1. ~~**Bake first.** No deletion PR until its flag has been on for everyone ≥ 7 days, the owner's prod pass
    for that platform is done, and nothing in Sentry or the issues is an engine regression that needs the
-   old path.~~ Owner answer 1b: no bake, delete now. Mobile still waits for the Play launch (answer 2a).
+   old path.~~ Owner answer 1b: no bake, delete now. Mobile no longer waits for the Play launch (answer 2a, 2026-10-15).
 2. **Pure deletions.** A deletion PR changes no behaviour and mixes in no refactor; then a revert is safe.
 3. **A tag** `reader-legacy-final` on `main` before the first deletion: the old code stays one checkout away.
 4. **EAS variables last.** Delete `EXPO_PUBLIC_READER_ENGINE*` from EAS only after the mobile PR has baked:
@@ -147,7 +147,7 @@ the mobile `restoreId` / `readerMovedSince` protocol, the mount slot (question 6
 ## Owner answers (2026-10-14)
 
 1b **delete now**, no bake (tag `reader-legacy-final` and EAS-variables-last still hold) · 2a web first,
-mobile PR B ≥ 7 days after the Play launch · 3a three PRs + slice 0 · 4a `scroll:` later (#840) ·
+mobile PR B ≥ 7 days after the Play launch (owner 2026-10-15: PR B now, no wait) · 3a three PRs + slice 0 · 4a `scroll:` later (#840) ·
 5a delete `packages/reader-overlay` in slice 5 · 6a deletion only, shims → issues · 7a slice 0 now.
 
 ## Questions for the owner

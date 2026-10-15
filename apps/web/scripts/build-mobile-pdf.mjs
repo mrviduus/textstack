@@ -13,10 +13,10 @@ import { writeFile, mkdir } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { buildPdfViewerFile, OUT_FILE } from './pdfViewer/bundle.mjs'
 
-const { fileContent, workerKb, libKb, controllerKb, engineKb, totalKb } = await buildPdfViewerFile()
+const { fileContent, workerKb, libKb, engineKb, totalKb } = await buildPdfViewerFile()
 
 await mkdir(dirname(OUT_FILE), { recursive: true })
 await writeFile(OUT_FILE, fileContent, 'utf8')
 
 console.log(`wrote ${OUT_FILE}`)
-console.log(`  worker: ${workerKb} KB · pdf.js: ${libKb} KB · old viewer: ${controllerKb} KB · engine page: ${engineKb} KB · total: ${totalKb} KB`)
+console.log(`  worker: ${workerKb} KB · pdf.js: ${libKb} KB · engine page: ${engineKb} KB · total: ${totalKb} KB`)

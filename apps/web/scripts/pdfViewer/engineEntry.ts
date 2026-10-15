@@ -1,7 +1,7 @@
-// The mobile PDF engine page's bundle entry (ADR-025 Phase 5 slice 4, EXPO_PUBLIC_READER_ENGINE_PDF):
+// The mobile PDF engine page's bundle entry (ADR-025 Phase 5 slice 4):
 // legacy pdf.js (old Android WebViews) + the engine's fixed layout + the page's RN protocol
 // (apps/mobile/src/lib/readerEnginePdfPage.ts). Here, not in apps/mobile, because pdf.js resolves from
-// apps/web. Outside the 64 KB engine budget, like the old viewer (entry.ts). Bundled by bundle.mjs.
+// apps/web. Outside the 64 KB engine budget. Bundled by bundle.mjs.
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.min.mjs'
 import { createEngine } from '../../../../packages/reader-engine/src/engine'
 import { fixedLayout, type PdfJs } from '../../../../packages/reader-engine/src/fixed'

@@ -383,7 +383,7 @@ export function ReaderShell(props: ReaderShellProps) {
           // Android's WebView ignores the viewport's user-scalable unless the
           // built-in zoom is enabled; the on-screen +/- controls are suppressed
           // so only the pinch gesture is exposed. PDF only — see the viewport
-          // comment in buildPdfViewerHtml.
+          // comment in buildPdfEngineHtml.
           setBuiltInZoomControls={original}
           setDisplayZoomControls={false}
           scrollEnabled

@@ -33,11 +33,11 @@ describe('one chapter per document', () => {
     expect(existsSync(join(__dirname, '../hooks/useReaderInfiniteScroll.ts'))).toBe(false)
   })
 
-  it('the document tracks a single chapter element', () => {
-    // ADR-015 anchors are scoped to one data-chapter-slug element.
+  it('the document holds a single chapter, named once', () => {
+    // ADR-015 anchors are scoped to one chapter: the engine page opens one <template>, under one slug.
     const html = read('readerHtml.ts')
-    expect(html).toMatch(/var tsChapter = null;/)
-    expect(html).not.toMatch(/chapterSlugs\.push/)
+    expect(html.match(/<template id="ts-chapter">/g)).toHaveLength(1)
+    expect(read('readerEnginePage.ts')).toMatch(/^const href = root\.dataset\.slug \?\? ''$/m)
   })
 
   it('the shell has no second "visible chapter" to disagree with the route', () => {

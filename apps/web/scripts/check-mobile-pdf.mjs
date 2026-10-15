@@ -3,8 +3,8 @@
 // the committed file, fails non-zero on any difference.
 //
 // Mirrors check-mobile-overlay.mjs, which the PDF bundle never had. That gap is
-// not theoretical: apps/web/scripts/pdfViewer/entry.ts is the source of the
-// viewer that owns the reader's position in a PDF, and an edit to it that ships
+// not theoretical: apps/web/scripts/pdfViewer/engineEntry.ts is the source of the
+// page that owns the reader's position in a PDF, and an edit to it that ships
 // without a rebuild changes nothing at runtime — silently, with a green CI and
 // a passing review.
 
