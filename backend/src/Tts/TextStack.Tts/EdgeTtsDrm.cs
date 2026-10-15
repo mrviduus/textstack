@@ -31,10 +31,15 @@ internal static class EdgeTtsDrm
             return DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000.0 + _clockSkewSeconds;
     }
 
+    // A Date header further off than this is a broken proxy/header, not our clock.
+    private const double MaxSkewSeconds = 12 * 3600;
+
     /// <summary>
     /// Upstream DRM.handle_client_response_error: on a 403, shift our clock by
-    /// (server Date − our clock). Returns false when the Date header is missing
-    /// or unparsable (upstream raises SkewAdjustmentError; caller then gives up).
+    /// (server Date − our clock). Returns true only when a retry is worth it:
+    /// the skew was applied AND it moves us to another 5-minute token window.
+    /// False for a missing/unparsable/implausible Date (upstream raises
+    /// SkewAdjustmentError) and for a small skew that would resend the same token.
     /// </summary>
     public static bool AdjustClockSkew(string? serverDate)
     {
@@ -44,7 +49,7 @@ internal static class EdgeTtsDrm
             var skew = SkewFromServerDate(serverDate, DateTimeOffset.FromUnixTimeMilliseconds((long)(now * 1000)));
             if (skew is null) return false;
             _clockSkewSeconds += skew.Value;
-            return true;
+            return TokenChanges(now, skew.Value);
         }
     }
 
@@ -54,8 +59,14 @@ internal static class EdgeTtsDrm
         if (!DateTimeOffset.TryParse(serverDate, CultureInfo.InvariantCulture,
                 DateTimeStyles.AssumeUniversal, out var parsed))
             return null;
-        return (parsed - clientNow).TotalSeconds;
+        var skew = (parsed - clientNow).TotalSeconds;
+        return Math.Abs(skew) > MaxSkewSeconds ? null : skew;
     }
+
+    internal static bool TokenChanges(double clientUnixNow, double skew) =>
+        Window(clientUnixNow) != Window(clientUnixNow + skew);
+
+    private static long Window(double unixSeconds) => ((long)Math.Floor(unixSeconds) + WinEpoch) / 300;
 
     public static string GenerateSecMsGec() => GenerateSecMsGec((long)Math.Floor(UnixNow()));
 

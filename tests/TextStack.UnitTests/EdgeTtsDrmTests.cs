@@ -41,6 +41,32 @@ public class EdgeTtsDrmTests
         Assert.Equal(60.0, EdgeTtsDrm.SkewFromServerDate("Wed, 15 Oct 2025 12:00:00 GMT", client));
     }
 
+    [Fact]
+    public void SkewFromServerDate_ClientOneHourBehind_Returns3600()
+    {
+        var client = new DateTimeOffset(2025, 10, 15, 11, 0, 0, TimeSpan.Zero);
+        Assert.Equal(3600.0, EdgeTtsDrm.SkewFromServerDate("Wed, 15 Oct 2025 12:00:00 GMT", client));
+    }
+
+    [Theory]
+    [InlineData(13)]
+    [InlineData(-13)]
+    public void SkewFromServerDate_MoreThan12Hours_ReturnsNull(int hours)
+    {
+        var client = new DateTimeOffset(2025, 10, 15, 12, 0, 0, TimeSpan.Zero).AddHours(-hours);
+        Assert.Null(EdgeTtsDrm.SkewFromServerDate("Wed, 15 Oct 2025 12:00:00 GMT", client));
+    }
+
+    [Theory]
+    [InlineData(1_760_531_150.0, 0.5, false)]   // mid-window, sub-second: same token, retry is pointless
+    [InlineData(1_760_531_150.0, -40.0, false)] // still inside the same 5-min window
+    [InlineData(1_760_531_099.5, 0.8, true)]    // crosses the window edge: new token
+    [InlineData(1_760_531_150.0, 3600.0, true)] // the forced 1 h skew of the live check
+    public void TokenChanges_Skew_TrueOnlyWhenWindowMoves(double clientUnixNow, double skew, bool expected)
+    {
+        Assert.Equal(expected, EdgeTtsDrm.TokenChanges(clientUnixNow, skew));
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]

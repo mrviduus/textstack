@@ -21,8 +21,8 @@ internal static class EdgeTtsClient
     private const string UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/" + Major + ".0.0.0 Safari/537.36 Edg/" + Major + ".0.0.0";
 
     // Shared HttpClient — the anti-pattern of `new HttpClient()` per call
-    // exhausts sockets under load (TIME_WAIT buildup). This endpoint is
-    // currently called at most once per process (voice list cached), but
+    // exhausts sockets under load (TIME_WAIT buildup). The voice list is
+    // cached with a TTL, so this is called rarely — once per refresh — but
     // keeping the pattern correct prevents future regression.
     // AutomaticDecompression adds its own Accept-Encoding (gzip, deflate, br);
     // upstream also offers zstd, which .NET can't decode, so we don't.
