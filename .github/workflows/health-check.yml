@@ -17,6 +17,11 @@ env:
 # No checkout and no API calls: the job token gets nothing.
 permissions: {}
 
+# A slow run (deploy window, hung upstream) must not stack 5-min runs on top of it.
+concurrency:
+  group: health-check
+  cancel-in-progress: false
+
 jobs:
   health:
     runs-on: ubuntu-latest
@@ -169,3 +174,30 @@ jobs:
           done
           echo "checked $(echo "$slugs" | wc -l | tr -d ' ') author pages from books at offset $OFFSET; $bad not crawlable"
           [ "$bad" -eq 0 ]
+
+      # Last on purpose: it runs even when a step above failed (!cancelled()), while the
+      # smokes above default to success(), so placed earlier a TTS outage would skip them.
+      #
+      # Edge TTS is an unofficial endpoint. On 2026-10-15 it answered 403 for 5+ hours, every
+      # /api/tts was a 502, and every check above stayed green (#827, #880). The text is unique
+      # per run on purpose: a fixed word is served from the API's disk cache and passes while
+      # Edge is down. Cost: a ~32 KB mp3 + a .ts.json per run, ~9 MB a day, ~275 MB over the
+      # cache's 30-day TTL (under its 1 GB LRU cap); one request per run, far under the 120/min
+      # 'tts' limit. No -f so the log shows the status; Cloudflare replaces a 502 body with
+      # "error code: 502", so Edge's reason is in Sentry / `docker compose logs api`, not here.
+      # curl still retries 5xx under CURL_RETRY (rides out a deploy); --max-time caps each
+      # attempt so a hung Edge call fails instead of holding the run.
+      - name: Smoke — TTS synthesizes through Edge
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          f="$RUNNER_TEMP/tts.mp3"
+          meta=$(curl -s $CURL_RETRY --max-time 30 -G -o "$f" -w '%{http_code} %{size_download} %{content_type}' \
+            --data-urlencode "text=Health check $(date +%s)" --data-urlencode "lang=en" \
+            https://textstack.app/api/tts) || { echo "::error::no response from /api/tts"; exit 1; }
+          read -r code size type <<< "$meta"
+          if [ "$code" != "200" ] || [ "$type" != "audio/mpeg" ] || [ "$size" -le 1024 ]; then
+            echo "::error::TTS is down: HTTP $code, $type, $size bytes. Edge TTS probably changed its token protocol — see docs/03-ops/uptime-monitoring.md"
+            head -c 500 "$f"; exit 1
+          fi
+          echo "TTS ok: $size bytes"
