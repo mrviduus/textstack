@@ -6,6 +6,7 @@
  */
 import { act } from 'react'
 import { describe, expect, it, vi } from 'vitest'
+import { t } from '@textstack/shared'
 import { renderHook } from '../../test/renderHook'
 import { useReaderPdf } from './useReaderPdf'
 import { useReaderDocument } from './useReaderDocument'
@@ -132,6 +133,24 @@ describe('useReaderPdf — engine PDF page, token over the bridge', () => {
     await r.send({ type: 'pdfReady', numPages: 100 })
     await r.send({ type: 'pdfAuthExpired' })
     expect(r.h.result.current.pdfToken).toBe('fresher')
+  })
+
+  it('L4: a refresh after pdfAuthExpired that finds no session is not silent — a toast whose Retry runs the recovery again', async () => {
+    const r = await mount()
+    await r.send({ type: 'pdfReady', numPages: 100 })
+    refresh.mockClear()
+    show.mockClear()
+    refresh.mockResolvedValueOnce(null)
+    await r.send({ type: 'pdfAuthExpired' })
+    expect(refresh).toHaveBeenCalledTimes(1)
+    expect(r.injected.some(js => js.includes('__tsPdfReopen'))).toBe(false)
+    expect(show).toHaveBeenCalledTimes(1)
+    const shown = show.mock.calls[0][0] as { message: string; onPress(): void }
+    expect(shown.message).toBe(t('en', 'reader.pdfReconnect'))
+    expect(shown.message).not.toBe('reader.pdfReconnect')   // the copy exists
+    await act(async () => { shown.onPress() })
+    expect(refresh).toHaveBeenCalledTimes(2)
+    expect(r.injected.at(-1)).toBe('window.__tsPdfReopen && window.__tsPdfReopen("fresh")')
   })
 
   it('pdfAuthExpired right after RN answered no token: the reconnect toast, no second refresh', async () => {

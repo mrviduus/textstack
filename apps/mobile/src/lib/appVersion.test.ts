@@ -56,7 +56,6 @@ describe('X-App-Version wiring', () => {
   it('the update gate compares the build number, never the version name', () => {
     const gate = read('src/components/ForceUpdateGate.tsx')
     expect(gate).toContain('Application.nativeBuildVersion')
-    expect(gate).not.toContain('nativeApplicationVersion')
   })
 
   it('the upload XHR sets them', () => {

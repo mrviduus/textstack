@@ -4,7 +4,7 @@
  * The reading path waits for neither a token nor a network (CLAUDE.md), so a chapter always
  * opens from the local record. The server is asked in the background, and its answer can only
  * ADD something: a position another device recorded later than the one this chapter opened from.
- * These are the pure decisions behind that; `progressRestoreOrder.test.ts` pins the ordering.
+ * These are the pure decisions behind that; `components/reader/readerSources.test.ts` pins the ordering.
  */
 
 export {

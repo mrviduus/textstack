@@ -1,4 +1,4 @@
-import { describe, it, expect, afterAll } from 'vitest'
+import { describe, it, expect, afterAll, vi } from 'vitest'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { openEnginePage, SETTLED_MS, type EnginePage } from '../test/enginePage'
@@ -50,7 +50,8 @@ function reader(ch: AnchorFixtureChapter): Promise<Reader> {
   return r
 }
 
-const settled = () => new Promise((res) => setTimeout(res, SETTLED_MS))
+// The selection settle window, on fake time: the page's timers are jsdom's, which call the global setTimeout.
+const settled = () => vi.advanceTimersByTimeAsync(SETTLED_MS)
 
 async function boot(ch: AnchorFixtureChapter): Promise<Reader> {
   const page = await openEnginePage(ch.html, ch.slug)
@@ -64,16 +65,21 @@ async function boot(ch: AnchorFixtureChapter): Promise<Reader> {
   let ids = 0
   const lastSelection = () => page.messages.filter((x) => x.type === 'selection').at(-1)
   const anchorFor = async (range: Range) => {
-    const sel = page.w.document.getSelection()!
-    sel.removeAllRanges()
-    sel.addRange(range)
-    page.w.document.dispatchEvent(new page.w.Event('selectionchange'))
-    await settled()
-    const anchor = (lastSelection()?.anchor as Anchor | undefined) ?? null
-    sel.removeAllRanges()
-    page.w.document.dispatchEvent(new page.w.Event('selectionchange'))
-    await settled()
-    return anchor
+    vi.useFakeTimers()
+    try {
+      const sel = page.w.document.getSelection()!
+      sel.removeAllRanges()
+      sel.addRange(range)
+      page.w.document.dispatchEvent(new page.w.Event('selectionchange'))
+      await settled()
+      const anchor = (lastSelection()?.anchor as Anchor | undefined) ?? null
+      sel.removeAllRanges()
+      page.w.document.dispatchEvent(new page.w.Event('selectionchange'))
+      await settled()
+      return anchor
+    } finally {
+      vi.useRealTimers()   // the next chapter's page opens on real time
+    }
   }
   const resolve = (anchor: unknown) => {
     const id = `hl-${++ids}`
@@ -148,23 +154,20 @@ describe("mobile anchor creator (the engine page's selection message)", () => {
   })
 })
 
-describe("mobile resolver (the engine page's renderHighlight) resolves every producer", () => {
-  const producers = ['web.json', 'mobile.json', 'mcp.json'] as const
-
-  for (const file of producers) {
-    describe(file, () => {
-      for (const [name, anchor] of Object.entries(read(file))) {
-        const c = ANCHOR_CASES.find((x) => x.name === name)
-        it(`${name}: resolves to the selected text`, async () => {
-          const chapterId = c?.chapter ?? (anchor.chapterId as string)
-          const r = await reader(chapterById(chapterId))
-          // The original passage, whatever spacing the producer quoted (nbsp-as-space).
-          const want = c?.exact ?? PRODUCER_ONLY_CASES[name]
-          expect(r.resolve(anchor)?.text).toBe(want)
-        })
-      }
-    })
-  }
+describe("mobile resolver (the engine page's renderHighlight)", () => {
+  // Every row of every producer is resolved by the engine itself (reader-engine text.test.ts T3, same
+  // fixture files). Here: that the page's renderHighlight bridge hands an anchor to it and paints it.
+  it.each([
+    ['web.json', 'inline-tags'],
+    ['mobile.json', 'inline-tags'],
+    ['mcp.json', 'inline-tags'],
+    ['mcp.json', 'nbsp-as-space'],   // a producer-only row: quoted with a plain space
+  ])('%s %s: resolves to the selected text', async (file, name) => {
+    const anchor = read(file)[name]
+    const c = ANCHOR_CASES.find((x) => x.name === name)
+    const r = await reader(chapterById(c?.chapter ?? (anchor.chapterId as string)))
+    expect(r.resolve(anchor)?.text).toBe(c?.exact ?? PRODUCER_ONLY_CASES[name])
+  })
 
   const repeats: [string, string, string][] = [
     [CHAPTER_A_ID, 'repeated-first', 'repeated-second'],

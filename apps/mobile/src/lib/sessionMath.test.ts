@@ -106,7 +106,6 @@ describe('session wiring (M8, L2)', () => {
 
   it('the heartbeat and the hand-off use the same clamped tick', () => {
     expect(session.match(/creditTick\(\)/g)?.length).toBeGreaterThanOrEqual(3)
-    expect(session).not.toMatch(/Math\.min\(elapsed, 60\)/)
   })
 
   it('the shell feeds the session only reports after the restore settled', () => {

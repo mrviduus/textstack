@@ -12,10 +12,21 @@ import { resolve } from 'node:path'
 import { renderHook } from '../../test/renderHook'
 import { useReaderPdf } from './useReaderPdf'
 
+const appState = vi.hoisted(() => {
+  const listeners = new Set<(s: string) => void>()
+  return { listeners, current: 'active', set(s: string) { appState.current = s; for (const l of [...listeners]) l(s) } }
+})
 vi.mock('react-native', () => ({
-  AppState: { currentState: 'active', addEventListener: () => ({ remove: () => {} }) },
+  AppState: {
+    get currentState() { return appState.current },
+    addEventListener: (_: string, fn: (s: string) => void) => {
+      appState.listeners.add(fn)
+      return { remove: () => appState.listeners.delete(fn) }
+    },
+  },
 }))
-vi.mock('../../context/ToastContext', () => ({ useToast: () => ({ show: vi.fn(() => 1), dismiss: vi.fn() }) }))
+const toast = vi.hoisted(() => ({ show: vi.fn((_o: { onPress?: () => void }) => 7), dismiss: vi.fn() }))
+vi.mock('../../context/ToastContext', () => ({ useToast: () => toast }))
 vi.mock('../../lib/api', () => ({ getAccessToken: async () => null, onUnauthorized: async () => null }))
 
 const CHAPTERS = [
@@ -44,7 +55,7 @@ function mount(chapterSlug: string, resumePage: number, startPage: number, picke
     repaintPdf: () => {},
   })
   const send = (data: object) => act(() => { h.result.current.onMessage(data) })
-  return { injected, persisted, send }
+  return { h, injected, persisted, send }
 }
 
 const detail = readFileSync(resolve(__dirname, '../../../app/my-books/[id].tsx'), 'utf8')
@@ -96,5 +107,43 @@ describe('useReaderPdf — a saved page before the first chapter', () => {
     const r = mount('two', 1, 40)
     r.send({ type: 'pdfReady', numPages: 195 })
     expect(jumps(r.injected)).toEqual([])
+  })
+})
+
+describe('useReaderPdf — a newer page from the server (R2 H3 review #4, M1)', () => {
+  /** Chapter two opened at the saved page 45, then the reader read on to 50. */
+  function readOn() {
+    toast.show.mockClear()
+    toast.dismiss.mockClear()
+    const r = mount('two', 45, 40)
+    r.send({ type: 'pdfReady', numPages: 195 })
+    r.send({ type: 'pdfPage', page: 45, numPages: 195, jumpId: 1 })
+    r.send({ type: 'pdfPage', page: 50, numPages: 195 })
+    const offer = (o: { page: number; at: number; onReturn?: boolean }) => r.h.rerender({ originalNewerPage: o })
+    return { ...r, offer }
+  }
+
+  it('a return offer measures "moved" from the page at the return: not moved since → goes there', () => {
+    const r = readOn()
+    act(() => appState.set('background'))
+    act(() => appState.set('active'))                        // back on page 50
+    r.offer({ page: 60, at: 1, onReturn: true })
+    expect(jumps(r.injected).at(-1)).toMatchObject({ page: 60 })
+    expect(toast.show).not.toHaveBeenCalled()
+  })
+
+  it('every offer is a new event: the same page offered twice asks twice', () => {
+    const r = readOn()                                        // moved since the open (45 → 50)
+    r.offer({ page: 60, at: 1 })
+    r.offer({ page: 60, at: 2 })
+    expect(toast.show).toHaveBeenCalledTimes(2)
+    expect(jumps(r.injected).map(j => j.page)).toEqual([45])
+  })
+
+  it('the prompt is hidden when the reader closes (M1)', () => {
+    const r = readOn()
+    r.offer({ page: 60, at: 1 })
+    r.h.unmount()
+    expect(toast.dismiss).toHaveBeenCalledWith(7)
   })
 })

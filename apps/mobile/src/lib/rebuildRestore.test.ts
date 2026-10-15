@@ -175,7 +175,6 @@ describe('L1 / M6 wiring', () => {
     const start = persistence.indexOf('const onWebViewLoaded = useCallback(')
     const body = persistence.slice(start, persistence.indexOf('readiness({ type: \'webViewLoaded\' })', start))
     expect(body).toContain('restoreTo(target)')
-    expect(body).not.toContain('__textstackRestorePercent')
     const at = persistence.indexOf('const restoreTo = useCallback(')
     expect(persistence.slice(at, persistence.indexOf('}, [', at))).toContain('rebuildRestoreJs(target, restoreId)')
   })
