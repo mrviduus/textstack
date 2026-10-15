@@ -722,8 +722,10 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
       paint()
     },
 
-    clearSelection() {
-      sent = held = null
+    clearSelection(opts) {
+      held = null
+      if (opts?.markOnly) return paint()   // E47: the host paints it as a highlight; the selection stays
+      sent = null
       paint()
       const sel = doc.getSelection()
       if (sel?.anchorNode && column.contains(sel.anchorNode)) sel.removeAllRanges()

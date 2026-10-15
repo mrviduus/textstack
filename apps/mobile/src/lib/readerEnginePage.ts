@@ -16,7 +16,7 @@ type Page = Window & {
   __textstackRestorePercent(fraction: number, restoreId: number): void
   __textstackApplyTypography(css: string, restoreId: number): void
   __tsSetChapterEnd(model: ChapterEndModel | null): void
-  __tsClearSelection(token: number | null): void
+  __tsClearSelection(token: number | null, markOnly?: boolean): void
   __textstackScrollToHighlight(anchorJson: string): void
   /** The lightbox, a plain script beside this bundle (readerHtml IMAGE_LIGHTBOX). */
   __tsOpenImage(src: string, alt: string): void
@@ -172,7 +172,8 @@ engine.on('selection', (s) => {
   // mode 'tap' = a held word: RN always opens the WordCard for it. The anchor is the old bridge's shape.
   post({ type: 'selection', mode: s.source === 'hold' ? 'tap' : 'drag', text: s.text, sentence: s.sentence, anchor: { prefix: q.before, exact: q.highlight, suffix: q.after }, tooLong: s.tooLong, token })
 })
-page.__tsClearSelection = (t) => { if (typeof t !== 'number' || t === token) engine.clearSelection() }
+// markOnly (E47): only the held mark goes, before RN paints the text as a highlight; a failed save keeps the selection.
+page.__tsClearSelection = (t, markOnly) => { if (typeof t !== 'number' || t === token) engine.clearSelection({ markOnly: !!markOnly }) }
 
 engine.on('imageTap', (e) => page.__tsOpenImage(e.src, e.alt || ''))
 // A footnote stays a link (ADR-025 answer 3): it jumps to its note; a web link opens outside.

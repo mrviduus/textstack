@@ -61,7 +61,7 @@ export function useReaderDocument({
   // M6: the OS killed the WebView's renderer (memory pressure, a long PDF). The view is dead —
   // Android needs a NEW one, not a reload — so it is remounted under a new key, at the saved
   // place: the reflow document through the rebuild restore (text anchor, rebuildRestore.ts), the
-  // PDF through the same tracked-page bootstrap the silent 401 recovery uses.
+  // PDF engine page through its bootstrap at the tracked page (initialPage) and the latest token.
   const [webViewKey, setWebViewKey] = useState(0)
   const onRendererGone = useCallback(() => {
     if (original) {

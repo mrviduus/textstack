@@ -587,6 +587,22 @@ describe('selection on a PDF', () => {
     expect(reader.drawn(2, 'selection')).toEqual([])
   })
 
+  it('E47 clearSelection({ markOnly }) drops the held mark only: a drag stays selected, nothing is sent', async () => {
+    const reader = await opened()
+    const p = reader.pointAt(2, 1, 'keeper')
+    reader.pointer('pointerdown', p.x + 10, p.y, reader.span(2, 1))
+    await wait(500)
+    reader.engine.clearSelection({ markOnly: true })
+    expect(reader.drawn(2, 'selection')).toEqual([])
+    reader.select(reader.range(2, 1, 'keeper counted'))
+    await wait(250)
+    const sent = selections(reader).length
+    reader.engine.clearSelection({ markOnly: true })
+    expect(document.getSelection()!.toString()).toBe('keeper counted')
+    await wait(250)
+    expect(selections(reader)).toHaveLength(sent)
+  })
+
   it('E21 moving 8 px cancels the hold', async () => {
     const reader = await opened()
     const p = reader.pointAt(2, 1, 'keeper')

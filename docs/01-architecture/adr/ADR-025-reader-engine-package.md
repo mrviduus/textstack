@@ -126,7 +126,7 @@ export interface ReaderEngine {
   decorate(group: 'highlight' | 'search', items: { id: string; locator: Locator; style?: string }[]): void // replaces the group
   markWords(items: { word: string; style?: string; translation?: string }[], showTranslations: boolean): void
   find(query: string): { locator: Locator; context: string }[]
-  clearSelection(): void
+  clearSelection(opts?: { markOnly?: boolean }): void   // markOnly (E47, amended 2026-10-15): the held mark only
   current(): Locator | null                      // web; mobile keeps the last `relocated`
   on<K extends keyof EngineEvents>(e: K, cb: (p: EngineEvents[K]) => void): () => void
   destroy(): void

@@ -1,5 +1,10 @@
 import { createRequire } from 'node:module'
 import { buildEngineReaderHtml } from '../lib/readerHtml'
+import { HOLD_MS, SELECTION_SETTLE_MS } from '../../../../packages/reader-engine/src/timing'
+
+/** Past the engine's hold (E21) and its selection settle (E20), with a margin for jsdom timers. */
+export const HELD_MS = HOLD_MS + 50
+export const SETTLED_MS = SELECTION_SETTLE_MS + 40
 
 // jsdom ships no types and mobile has no @types/jsdom; only these two are used.
 const { JSDOM, VirtualConsole } = createRequire(__filename)('jsdom') as {

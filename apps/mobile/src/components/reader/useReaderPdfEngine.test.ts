@@ -8,6 +8,7 @@ import { act } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { renderHook } from '../../test/renderHook'
 import { useReaderPdf } from './useReaderPdf'
+import { useReaderDocument } from './useReaderDocument'
 
 const refresh = vi.fn(async (): Promise<string | null> => 'fresh')
 vi.mock('react-native', () => ({
@@ -15,12 +16,27 @@ vi.mock('react-native', () => ({
 }))
 const show = vi.fn((..._a: unknown[]) => 1)
 vi.mock('../../context/ToastContext', () => ({ useToast: () => ({ show, dismiss: vi.fn() }) }))
-vi.mock('../../lib/api', () => ({ getAccessToken: async () => 't0', onUnauthorized: () => refresh() }))
+vi.mock('../../lib/api', () => ({ API_URL: 'https://api.test', getAccessToken: async () => 't0', onUnauthorized: () => refresh() }))
+// Counts document builds: a token refresh must not rebuild the WebView document.
+const builds = vi.hoisted(() => ({ n: 0 }))
+vi.mock('../../lib/readerHtml', () => ({ buildEngineReaderHtml: () => '<doc>', buildPdfEngineHtml: () => `<pdf ${++builds.n}>` }))
 
 async function mount() {
   const injected: string[] = []
   const persisted: number[] = []
-  const h = renderHook(useReaderPdf, {
+  // Wired as ReaderShell wires them: the PDF hook feeds the document hook.
+  const both = (p: Parameters<typeof useReaderPdf>[0]) => {
+    const pdf = useReaderPdf(p)
+    const doc = useReaderDocument({
+      original: true, originalFileUrl: p.originalFileUrl, originalInitialPage: p.originalInitialPage, htmlChapterSlug: 'one',
+      injectJs: p.injectJs, reflow: (() => {}) as never, onDocumentRebuild: () => {}, chapter: { html: '' },
+      settings: { fontSize: 18, lineHeight: 1.6, textAlign: 'left' } as never, resolvedFontFamily: 'serif',
+      resolvedTheme: { backgroundColor: '#fff', textColor: '#000' } as never, insets: { top: 0, bottom: 0, left: 0, right: 0 },
+      ...pdf,
+    })
+    return { ...pdf, webViewSource: doc.webViewSource }
+  }
+  const h = renderHook(both, {
     original: true,
     originalFileUrl: 'https://api.test/me/books/b1/file',
     originalInitialPage: 5,
@@ -82,10 +98,15 @@ describe('useReaderPdf — engine PDF page, token over the bridge', () => {
     await r.send({ type: 'pdfPage', page: 5, numPages: 100, jumpId: 0 })
     await r.send({ type: 'pdfPage', page: 17, numPages: 100, jumpId: 0 })
     const initial = r.h.result.current.pdfInitialPageRef.current
+    const source = r.h.result.current.webViewSource
+    const built = builds.n
+    expect(built, 'the PDF document was built').toBeGreaterThan(0)
 
     await r.send({ type: 'pdfAuthExpired' })
     expect(r.injected.at(-1)).toBe('window.__tsPdfReopen && window.__tsPdfReopen("fresh")')
-    // No reload: same start page (the token is not in the document key).
+    // No reload: the same document (the token is not in its key), not rebuilt, same start page.
+    expect(r.h.result.current.webViewSource).toBe(source)
+    expect(builds.n).toBe(built)
     expect(r.h.result.current.pdfInitialPageRef.current).toBe(initial)
 
     // The reopened document: no jump back to the chapter start; its landing on 17 is saved.

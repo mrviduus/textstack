@@ -105,7 +105,8 @@ export interface ReaderEngine {
   decorate(group: 'highlight' | 'search', items: { id: string; locator: Locator; style?: string }[]): void
   markWords(items: { word: string; style?: string; translation?: string }[], showTranslations: boolean): void
   find(query: string): { locator: Locator; context: string }[]
-  clearSelection(): void
+  /** Ends the selection: the held mark and the page's own. `markOnly` (E47): the held mark only. */
+  clearSelection(opts?: { markOnly?: boolean }): void
   /** Web only; mobile keeps the last `relocated`. */
   current(): Locator | null
   on<K extends keyof EngineEvents>(e: K, cb: (p: EngineEvents[K]) => void): () => void

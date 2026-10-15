@@ -31,10 +31,8 @@ const FONTS_DEADLINE_MS = 4000
 /** Characters of text either side of a `find` match, like the web drawer's list. */
 const FIND_CONTEXT = 40
 
-/** iOS fires `selectionchange` all through a drag: a selection is sent once it stops changing. */
-export const SELECTION_SETTLE_MS = 220
-/** A deliberate hold, not a brush; moving this far makes it a scroll. */
-export const HOLD_MS = 450
+import { SELECTION_SETTLE_MS, HOLD_MS } from './timing'
+export { SELECTION_SETTLE_MS, HOLD_MS }
 export const HOLD_SLOP_PX = 8
 /** The server's translate and TTS cap: a longer selection is still sent, flagged. */
 export const SELECTION_MAX_CHARS = 500
@@ -57,7 +55,11 @@ export function sentenceAround(text: string, from: number, to: number, start: nu
   if (sentence.length <= SENTENCE_MAX) return sentence
   const c = Math.max(a, start - 80, end - SENTENCE_MAX)
   const d = Math.min(b, c + SENTENCE_MAX)
-  return `${c > a ? '...' : ''}${text.slice(c, d).trim()}${d < b ? '...' : ''}`
+  // A cut edge keeps its space, as both apps' extractors did (TR-1 fixture, E48): "... words".
+  let cut = text.slice(c, d)
+  if (c <= a) cut = cut.trimStart()
+  if (d >= b) cut = cut.trimEnd()
+  return `${c > a ? '...' : ''}${cut}${d < b ? '...' : ''}`
 }
 
 /** A run of the chapter's text inside one block, with the chapter offset it starts at. */
@@ -779,8 +781,10 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
       checkEnd()
     },
 
-    clearSelection() {
-      sent = held = null
+    clearSelection(opts) {
+      held = null
+      if (opts?.markOnly) return redraw()   // E47: the host paints it as a highlight; the selection stays
+      sent = null
       redraw()
       const sel = doc.getSelection()
       if (sel?.anchorNode && content.contains(sel.anchorNode)) sel.removeAllRanges()

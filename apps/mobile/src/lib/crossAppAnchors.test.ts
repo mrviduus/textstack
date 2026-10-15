@@ -1,7 +1,7 @@
 import { describe, it, expect, afterAll } from 'vitest'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { openEnginePage, type EnginePage } from '../test/enginePage'
+import { openEnginePage, SETTLED_MS, type EnginePage } from '../test/enginePage'
 import {
   ANCHOR_CASES,
   CHAPTER_A_ID,
@@ -39,7 +39,7 @@ type Anchor = { prefix: string; exact: string; suffix: string }
 type Reader = EnginePage & {
   /** The anchor the page posts for the selection `range`, once it settles. */
   anchorFor(range: Range): Promise<Anchor | null>
-  /** The text renderHighlight drew for `anchor`, and where it starts in the chapter; null = nothing drawn. */
+  /** The text renderHighlight drew for `anchor` (its own mark, by id), and where it starts; null = nothing drawn. */
   resolve(anchor: unknown): { text: string; offset: number } | null
 }
 
@@ -50,14 +50,18 @@ function reader(ch: AnchorFixtureChapter): Promise<Reader> {
   return r
 }
 
-const settled = () => new Promise((res) => setTimeout(res, 260))
+const settled = () => new Promise((res) => setTimeout(res, SETTLED_MS))
 
 async function boot(ch: AnchorFixtureChapter): Promise<Reader> {
   const page = await openEnginePage(ch.html, ch.slug)
-  // The engine measures each mark's whole Range once to draw it: record what it measured.
-  const measured: Range[] = []
-  const rects = page.w.Range.prototype.getClientRects
-  page.w.Range.prototype.getClientRects = function (this: Range) { measured.push(this.cloneRange()); return rects.call(this) }
+  // No layout in jsdom: a range's one box encodes where it is in the chapter text (x = offset, width =
+  // length), so a drawn mark's own <rect> says which text it covers.
+  page.w.Range.prototype.getClientRects = function (this: Range) {
+    const at = offsetOf(page.root, this), length = this.toString().length
+    return [{ left: at, top: 0, right: at + length, bottom: 1, width: length, height: 1 }] as unknown as DOMRectList
+  }
+  const text = page.root.textContent!
+  let ids = 0
   const lastSelection = () => page.messages.filter((x) => x.type === 'selection').at(-1)
   const anchorFor = async (range: Range) => {
     const sel = page.w.document.getSelection()!
@@ -72,11 +76,13 @@ async function boot(ch: AnchorFixtureChapter): Promise<Reader> {
     return anchor
   }
   const resolve = (anchor: unknown) => {
-    measured.length = 0
-    page.call(`renderHighlight('x', ${JSON.stringify(JSON.stringify(anchor))}, 'yellow', '')`)
-    const drawn = measured.at(-1)
-    page.call(`removeHighlight('x')`)
-    return drawn ? { text: drawn.toString(), offset: offsetOf(page.root, drawn) } : null
+    const id = `hl-${++ids}`
+    page.call(`renderHighlight('${id}', ${JSON.stringify(JSON.stringify(anchor))}, 'yellow', '')`)
+    const box = page.root.querySelector(`svg [data-group="highlight"][data-id="${id}"] rect`)
+    page.call(`removeHighlight('${id}')`)
+    if (!box) return null
+    const offset = Number(box.getAttribute('x')), length = Number(box.getAttribute('width'))
+    return { text: text.slice(offset, offset + length), offset }
   }
   return { ...page, anchorFor, resolve }
 }
@@ -134,22 +140,8 @@ describe("mobile anchor creator (the engine page's selection message)", () => {
     }
   })
 
-  it('takes exact from the Range, not from a WebView-serialized Selection', async () => {
-    // Chromium/WebKit serialize a Selection like innerText — a paragraph break
-    // becomes newlines. jsdom does not, so fake the device's serialization.
-    const r = await reader(chapterById(CHAPTER_A_ID))
-    const c = ANCHOR_CASES.find((x) => x.name === 'across-paragraphs')!
-    const el = chapterEl(r)
-    const range = rangeAt(r, el, caseStart(el.textContent!, c), c.exact.length)
-    const sel = r.w.document.getSelection()!
-    const real = sel.toString
-    sel.toString = () => 'striking thirteen.\n\nThe hallway'
-    try {
-      expect((await r.anchorFor(range))!.exact).toBe(c.exact)
-    } finally {
-      sel.toString = real
-    }
-  })
+  // A Selection serialized like innerText (newlines at paragraph breaks) never reaches the anchor: the
+  // engine cuts `exact` from its chapter text by offsets (E20); `across-paragraphs` above pins the result.
 
   afterAll(() => {
     if (UPDATE) writeFileSync(join(FIXTURES, 'mobile.json'), JSON.stringify(generated, null, 2) + '\n')

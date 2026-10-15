@@ -5,7 +5,7 @@ import { resolve } from 'node:path'
 import { heroResumeRoute } from './bookRoutes'
 import { downloadAndSave } from './downloadAndSave'
 import { clearSelectionJs } from './readerSelectionJs'
-import { openEnginePage } from '../test/enginePage'
+import { openEnginePage, HELD_MS, SETTLED_MS } from '../test/enginePage'
 import { withDeadline } from './deadline'
 
 /** QA-007 owner rules. Screens and the WebView aren't drivable here: behaviour where a pure piece exists, source guards for the wiring. */
@@ -147,7 +147,7 @@ describe('QA-007', () => {
     const hold = async (el: Element, offset: number) => {
       ;(page.w as unknown as { __caret: () => Range }).__caret = () => { const c = page.w.document.createRange(); c.setStart(el.firstChild!, offset); return c }
       el.dispatchEvent(new page.w.PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch', clientX: 30, clientY: 310 }))
-      await new Promise(res => setTimeout(res, 500))
+      await new Promise(res => setTimeout(res, HELD_MS))
     }
     /** A drag selection over [start, end) of `el`'s text, once it settles; null = collapse it. */
     const drag = async (el: Element | null, start = 0, end = 0) => {
@@ -155,7 +155,7 @@ describe('QA-007', () => {
       sel.removeAllRanges()
       if (el) { const r = page.w.document.createRange(); r.setStart(el.firstChild!, start); r.setEnd(el.firstChild!, end); sel.addRange(r) }
       page.w.document.dispatchEvent(new page.w.Event('selectionchange'))
-      await new Promise(res => setTimeout(res, 300))
+      await new Promise(res => setTimeout(res, SETTLED_MS))
     }
     return { ...page, p, q, selections, wordMarks, hold, drag }
   }
@@ -211,6 +211,22 @@ describe('QA-007', () => {
     page.call(clearSelectionJs(page.selections().at(-1)!.token))
     expect(page.wordMarks()).toBe(0)
     expect(page.root.querySelectorAll('svg [data-group="highlight"][data-id="h1"]').length).toBe(1)
+  })
+
+  it('SEL-1: a mark-only clear (before a highlight paints) drops the word mark but keeps the selection, so a failed save can retry', async () => {
+    const page = await selPage()
+    await page.hold(page.p, 7)
+    page.call(clearSelectionJs(page.selections().at(-1)!.token, true))
+    expect(page.wordMarks()).toBe(0)
+    await page.drag(page.q, 0, 5) // "gamma"
+    const sent = page.selections().length
+    page.call(clearSelectionJs(page.selections().at(-1)!.token, true))
+    expect(page.w.document.getSelection()!.toString()).toBe('gamma')
+    await new Promise(res => setTimeout(res, SETTLED_MS))
+    expect(page.selections()).toHaveLength(sent) // nothing posted: RN's toolbar stays
+    // The full clear still ends it.
+    page.call(clearSelectionJs(page.selections().at(-1)!.token))
+    expect(page.w.document.getSelection()!.toString()).toBe('')
   })
 
   it('SEL-1: holding a second word moves the mark', async () => {

@@ -111,6 +111,31 @@ describe('selection', () => {
   })
 })
 
+describe('selection, cleared for a highlight', () => {
+  it('E47 clearSelection({ markOnly }) drops the held mark only: a drag stays selected, nothing is sent', async () => {
+    const reader = makeReader({ html: CHAPTER })
+    await reader.open()
+    vi.useFakeTimers()
+    const at = reader.pointAt('Malin log 3')
+    reader.pointer('pointerdown', at.x, at.y)
+    await vi.advanceTimersByTimeAsync(500)
+    reader.pointer('pointerup', at.x, at.y)
+    reader.engine.clearSelection({ markOnly: true })
+    expect(reader.drawn('selection')).toEqual([])
+
+    reader.select('Oban log 2')
+    await vi.advanceTimersByTimeAsync(300)
+    const sent = reader.payloads('selection').length
+    reader.engine.clearSelection({ markOnly: true })
+    expect(document.getSelection()!.toString()).toBe('Oban log 2')
+    await vi.advanceTimersByTimeAsync(300)
+    expect(reader.payloads('selection')).toHaveLength(sent)
+
+    reader.engine.clearSelection()
+    expect(document.getSelection()!.rangeCount).toBe(0)
+  })
+})
+
 describe('taps', () => {
   it('E22 a tap is one event: link, image, decoration or plain tap; a click ending a selection or a hold, or on the footer, is none', async () => {
     const extra = '<p>See <a href="#fn1">note 1</a> and <a href="https://example.com/x">the site</a>. <img src="fig.png" alt="Figure 1"></p>'

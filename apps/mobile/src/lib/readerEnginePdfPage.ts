@@ -30,7 +30,7 @@ export interface PdfPageWindow {
   scrollToPage?(n: number, jumpId?: number): void
   __setPdfHighlights?(list: { id: string; color: string; anchor: unknown }[]): void
   __pdfCreateHighlight?(): void
-  __tsClearSelection?(token: number | null): void
+  __tsClearSelection?(token: number | null, markOnly?: boolean): void
   /** RN's answer to `pdfTokenRequest {id}`: a fresh token, or null (the session is gone), and the request's id. */
   __tsPdfToken?(token: string | null, id: number): void
   /** After `pdfAuthExpired` and a successful refresh: open again, at the page the reader is on. */
@@ -193,7 +193,8 @@ export function startPdfPage(engine: ReaderEngine, w: PdfPageWindow): void {
     if (json) post({ type: 'pdfHighlightCreate', anchor: JSON.parse(json) })
     engine.clearSelection()
   }
-  w.__tsClearSelection = (t) => { if (typeof t !== 'number' || t === selToken) engine.clearSelection() }
+  // markOnly (E47): only the held mark goes, before RN paints the text as a highlight; a failed save keeps the selection.
+  w.__tsClearSelection = (t, markOnly) => { if (typeof t !== 'number' || t === selToken) engine.clearSelection({ markOnly: !!markOnly }) }
 
   open(page, '0')
 }
