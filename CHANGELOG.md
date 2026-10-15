@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Security** — admin (textstack.dev) gets X-Frame-Options, nosniff, Referrer-Policy, HSTS and a `frame-ancestors` CSP on the port-80 block Cloudflare actually reaches (Fixes #864); `/assets/`, `/avatars/`, book assets keep nosniff (Cache-Control via `$cache_immutable`); the bot 404 is `text/html`, not octet-stream (Fixes #861) — infra
 - **Security** — fix: the #860 CSP blocked the Cloudflare Web Analytics beacon Cloudflare injects at the edge; CSP allows `static.cloudflareinsights.com` (script) and `cloudflareinsights.com` (beacon) — infra
 - **Infra** — fix: nginx reloads failed silently from 2026-10-04 (#693 changed a `limit_req` zone key; a reload cannot), so #693, #738, #852 and #860 never went live; deploy now checks nginx workers are newer than the config, reloads, else restarts, else fails; post-deploy check requires the CSP — CI · [incident](docs/incidents/2026-10-15-nginx-reload-failed-silently-for-eleven-days.md)
 - **Security** — every HTML page now gets the CSP, X-Frame-Options, nosniff and Referrer-Policy (nginx dropped them in locations with their own `add_header`, Fixes #857); CSP covers GSI, gtag, Ahrefs, fonts, Sentry, blob audio; fix: web PDFs could not open — nginx served the pdf.js `.mjs` worker as octet-stream — infra, web · [details](docs/changelog-archive/2026-H2.md#2026-10-15-nginx-security-headers)
