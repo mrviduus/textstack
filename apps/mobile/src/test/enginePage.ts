@@ -40,7 +40,11 @@ export async function openEnginePage(chapterHtml: string, slug = 'ch-1', caret?:
     },
   })
   const settle = () => new Promise((r) => setTimeout(r, 60))
-  await settle()   // the open: fonts, a frame, its ack
+  // The open: fonts, a frame, then its landing is reported as `progress`. An empty chapter reports
+  // nothing, so the old fixed wait stays as the deadline.
+  for (let t = 0; t < 60 && !messages.some((m) => m.type === 'progress'); t += 5) {
+    await new Promise((r) => setTimeout(r, 5))
+  }
   const call = (js: string) => (w as unknown as { eval(s: string): unknown }).eval(js)
   const root = w.document.getElementById('ts-root')!
   return { w, messages, settle, call, root }

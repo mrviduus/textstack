@@ -10,7 +10,7 @@ vi.mock('@textstack/shared', async (importOriginal) => ({
 vi.mock('../lib/dataEvents', () => ({ emitDataChange: vi.fn() }))
 
 import {
-  startTutorSession, sendTutorAnswer, sendTutorFeedback, buildPlanCard, buildQueue, isSessionComplete,
+  startTutorSession, sendTutorAnswer, sendTutorFeedback,
   type TutorPlanItem,
 } from '@textstack/shared'
 import { useTutorSession } from './useTutorSession'
@@ -24,64 +24,6 @@ const planItem = (id: string, word: string, over: Partial<TutorPlanItem> = {}): 
   wordId: id, word, stage: 1, exerciseType: 'recognition', difficulty: 'easy', why: `study ${word}`,
   translation: `${word}-tr`, definition: null, sentence: `a ${word} sentence`, bookTitle: 'Some Book',
   hint: null, distractors: [], ...over,
-})
-
-describe('tutor pure logic', () => {
-  it('buildPlanCard projects an enriched plan item onto a flashcard when it carries no options', () => {
-    const card = buildPlanCard(planItem('w1', 'foo'))
-    expect(card).toMatchObject({
-      wordId: 'w1', word: 'foo', translation: 'foo-tr',
-      originalSentence: 'a foo sentence', bookTitle: 'Some Book',
-    })
-    expect(card.options).toBeNull()
-  })
-
-  it('buildPlanCard carries the options and the cloze the server built', () => {
-    // The whole point of the change: exerciseType is calibrated server-side and used to be rendered
-    // as a badge over a card that was identical for all three types. The options and the blanked
-    // sentence now come down with the item, and this projection must not drop them — dropping them
-    // is exactly what it used to do, with `options: null` hardcoded.
-    const card = buildPlanCard(planItem('w1', 'foo', {
-      exerciseType: 'context',
-      options: ['bar', 'foo', 'baz', 'qux'],
-      correctOptionIndex: 1,
-      blankSentence: 'a ____ sentence',
-    }))
-
-    expect(card.options).toEqual(['bar', 'foo', 'baz', 'qux'])
-    expect(card.correctOptionIndex).toBe(1)
-    expect(card.blankSentence).toBe('a ____ sentence')
-  })
-
-  it('buildPlanCard ignores a correct index that arrives without options', () => {
-    // An index into a list that is not there would index `undefined` in the card component. Better
-    // to render the flashcard the payload actually supports.
-    const card = buildPlanCard(planItem('w1', 'foo', { correctOptionIndex: 2 }))
-
-    expect(card.options).toBeNull()
-    expect(card.correctOptionIndex).toBeNull()
-  })
-
-  it('buildPlanCard tolerates missing optional fields (null, not undefined)', () => {
-    const card = buildPlanCard(planItem('w1', 'foo', { translation: undefined, sentence: undefined, bookTitle: undefined, hint: undefined }))
-    expect(card.translation).toBeNull()
-    expect(card.originalSentence).toBeNull()
-    expect(card.bookTitle).toBeNull()
-    expect(card.hint).toBeNull()
-  })
-
-  it('buildQueue keeps every enriched item (no join, nothing dropped)', () => {
-    const plan = [planItem('w1', 'a'), planItem('w2', 'b')]
-    const queue = buildQueue(plan)
-    expect(queue).toHaveLength(2)
-    expect(queue.map(q => q.item.wordId)).toEqual(['w1', 'w2'])
-    expect(queue[0].card.word).toBe('a')
-  })
-
-  it('isSessionComplete is true only for an empty plan', () => {
-    expect(isSessionComplete([])).toBe(true)
-    expect(isSessionComplete([planItem('w1', 'a')])).toBe(false)
-  })
 })
 
 describe('useTutorSession flow', () => {

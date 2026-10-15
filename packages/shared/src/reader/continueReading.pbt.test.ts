@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import fc from 'fast-check'
-import { pickContinueReadingBook, type LocalProgressLite, type UserBookProgressLite } from './continueReading'
+import { rankContinueReading, type LocalProgressLite, type UserBookProgressLite } from './continueReading'
 import type { UserLibraryItem, ReadingProgressDto, UserBookDto } from '../types/api'
 
 /**
- * Property-based tests for `pickContinueReadingBook`.
+ * Property-based tests for `rankContinueReading` (every entry, not just the head).
  *
  * Hand-crafted tests (`continueReading.test.ts`) cover named scenarios.
  * These tests generate thousands of random input combos and verify
@@ -12,10 +12,10 @@ import type { UserLibraryItem, ReadingProgressDto, UserBookDto } from '../types/
  * of "weird real-world data" that no human would think to enumerate.
  *
  * Invariants checked:
- *   1. Result is null OR has the LATEST updatedAtMs among all valid items.
- *   2. Picked book is never finished (percent < 1).
- *   3. Catalog books not in library are never picked.
- *   4. Non-ready user-books are never picked.
+ *   1. The head has the LATEST updatedAtMs and the list is sorted newest first.
+ *   2. No ranked book is finished (percent < 1).
+ *   3. Catalog books not in library are never ranked.
+ *   4. Non-ready user-books are never ranked.
  *   5. Function never throws on any input shape.
  */
 
@@ -74,7 +74,7 @@ const arbUserBookProgressLite: fc.Arbitrary<UserBookProgressLite> = fc.record({
 
 // --- Tests -------------------------------------------------------------
 
-describe('pickContinueReadingBook — property-based invariants', () => {
+describe('rankContinueReading — property-based invariants', () => {
   it('never throws on any input shape', () => {
     fc.assert(
       fc.property(
@@ -96,7 +96,7 @@ describe('pickContinueReadingBook — property-based invariants', () => {
             }
           }
           // Call should never throw
-          expect(() => pickContinueReadingBook({
+          expect(() => rankContinueReading({
             library, serverProgress, userBooks,
             localCatalogMap: new Map(),
             localUserBookMap: new Map(),
@@ -107,7 +107,7 @@ describe('pickContinueReadingBook — property-based invariants', () => {
     )
   })
 
-  it('picked book is never finished (percent < 1)', () => {
+  it('no ranked book is finished (percent < 1)', () => {
     fc.assert(
       fc.property(
         fc.array(arbLibraryItem, { minLength: 1, maxLength: 8 }),
@@ -117,18 +117,18 @@ describe('pickContinueReadingBook — property-based invariants', () => {
           const localMap = new Map<string, LocalProgressLite>()
           // Put local progress on the first library item
           localMap.set(library[0].editionId, localProg)
-          const result = pickContinueReadingBook({
+          const ranked = rankContinueReading({
             library, serverProgress: [], userBooks,
             localCatalogMap: localMap, localUserBookMap: new Map(),
           })
-          if (result) expect(result.percent).toBeLessThan(1)
+          for (const p of ranked) expect(p.percent).toBeLessThan(1)
         },
       ),
       { numRuns: 200 },
     )
   })
 
-  it('catalog books not in library are never picked, even with server progress', () => {
+  it('catalog books not in library are never ranked, even with server progress', () => {
     fc.assert(
       fc.property(
         fc.array(arbLibraryItem, { maxLength: 5 }),
@@ -142,13 +142,13 @@ describe('pickContinueReadingBook — property-based invariants', () => {
             percent: 0.5,
             updatedAt: new Date().toISOString(),
           } as ReadingProgressDto))
-          const result = pickContinueReadingBook({
+          const ranked = rankContinueReading({
             library, serverProgress, userBooks: [],
             localCatalogMap: new Map(), localUserBookMap: new Map(),
           })
-          if (result && result.type === 'edition') {
+          for (const p of ranked) {
             // Must be in library
-            expect(library.some(l => l.slug === result.slug)).toBe(true)
+            if (p.type === 'edition') expect(library.some(l => l.slug === p.slug)).toBe(true)
           }
         },
       ),
@@ -156,17 +156,18 @@ describe('pickContinueReadingBook — property-based invariants', () => {
     )
   })
 
-  it('non-ready user-books are never picked', () => {
+  it('non-ready user-books are never ranked', () => {
     fc.assert(
       fc.property(
         fc.array(arbUserBook, { minLength: 1, maxLength: 10 }),
         (userBooks) => {
-          const result = pickContinueReadingBook({
+          const ranked = rankContinueReading({
             library: [], serverProgress: [], userBooks,
             localCatalogMap: new Map(), localUserBookMap: new Map(),
           })
-          if (result && result.type === 'userbook') {
-            const pickedBook = userBooks.find(ub => ub.id === result.id)
+          for (const p of ranked) {
+            if (p.type !== 'userbook') continue
+            const pickedBook = userBooks.find(ub => ub.id === p.id)
             expect(pickedBook?.status.toLowerCase()).toBe('ready')
           }
         },
@@ -175,7 +176,7 @@ describe('pickContinueReadingBook — property-based invariants', () => {
     )
   })
 
-  it('result.updatedAtMs is the MAX of all candidate items (most-recent invariant)', () => {
+  it('head.updatedAtMs is the MAX and the list is sorted newest first', () => {
     // Build a scenario with multiple candidate user books — picked one
     // must have the largest progressUpdatedAt timestamp.
     fc.assert(
@@ -199,13 +200,14 @@ describe('pickContinueReadingBook — property-based invariants', () => {
             progressUpdatedAt: new Date(ts).toISOString(),
             progressChapterSlug: 'ch-1',
           }))
-          const result = pickContinueReadingBook({
+          const ranked = rankContinueReading({
             library: [], serverProgress: [], userBooks,
             localCatalogMap: new Map(), localUserBookMap: new Map(),
           })
-          expect(result).not.toBeNull()
           const maxTs = Math.max(...items.map(i => i.ts))
-          expect(result!.updatedAtMs).toBe(maxTs)
+          expect(ranked[0].updatedAtMs).toBe(maxTs)
+          const stamps = ranked.map(p => p.updatedAtMs)
+          expect(stamps).toEqual([...stamps].sort((a, b) => b - a))
         },
       ),
       { numRuns: 100 },

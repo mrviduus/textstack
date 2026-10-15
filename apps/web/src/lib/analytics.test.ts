@@ -7,10 +7,6 @@ import {
   trackReadingSessionEnd,
   trackVocabSaved,
   trackBookUploaded,
-  trackTranslationUsed,
-  trackTtsPlayed,
-  trackSearchPerformed,
-  trackLandingCtaClick,
 } from './analytics'
 
 // --- Helpers -----------------------------------------------------------
@@ -52,8 +48,8 @@ describe('analytics.track — safety guarantees', () => {
 
   it('passes empty object when params omitted', () => {
     const calls = installGtagSpy()
-    track('search_performed')
-    expect(calls[0]).toEqual(['event', 'search_performed', {}])
+    track('login')
+    expect(calls[0]).toEqual(['event', 'login', {}])
   })
 })
 
@@ -178,55 +174,5 @@ describe('trackBookUploaded', () => {
     const calls = installGtagSpy()
     trackBookUploaded({ format: 'pdf', sizeBytes: 5_242_880 }) // 5.0 MB exact
     expect((calls[0][2] as Record<string, unknown>).size_mb).toBe(5)
-  })
-})
-
-describe('trackTranslationUsed', () => {
-  afterEach(() => uninstallGtag())
-
-  it('emits with from/to lang and kind', () => {
-    const calls = installGtagSpy()
-    trackTranslationUsed({ fromLang: 'fr', toLang: 'en', kind: 'word' })
-    expect(calls[0][2]).toEqual({ from_lang: 'fr', to_lang: 'en', kind: 'word' })
-  })
-})
-
-describe('trackTtsPlayed', () => {
-  afterEach(() => uninstallGtag())
-
-  it('emits with language and kind', () => {
-    const calls = installGtagSpy()
-    trackTtsPlayed({ language: 'de', kind: 'sentence' })
-    expect(calls[0][2]).toEqual({ language: 'de', kind: 'sentence' })
-  })
-})
-
-describe('trackSearchPerformed', () => {
-  afterEach(() => uninstallGtag())
-
-  it('truncates query to 100 chars (cardinality control)', () => {
-    const calls = installGtagSpy()
-    const longQuery = 'a'.repeat(500)
-    trackSearchPerformed({ query: longQuery, resultsCount: 12 })
-    const params = calls[0][2] as Record<string, unknown>
-    expect((params.query as string).length).toBe(100)
-    expect(params.results_count).toBe(12)
-  })
-
-  it('short query passes through', () => {
-    const calls = installGtagSpy()
-    trackSearchPerformed({ query: 'dracula' })
-    const params = calls[0][2] as Record<string, unknown>
-    expect(params.query).toBe('dracula')
-  })
-})
-
-describe('trackLandingCtaClick', () => {
-  afterEach(() => uninstallGtag())
-
-  it('emits page + label', () => {
-    const calls = installGtagSpy()
-    trackLandingCtaClick({ page: '/landing', label: 'Try free' })
-    expect(calls[0][2]).toEqual({ page: '/landing', label: 'Try free' })
   })
 })

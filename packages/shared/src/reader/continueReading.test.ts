@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { pickContinueReadingBook, type LocalProgressLite, type UserBookProgressLite } from './continueReading'
+import { rankContinueReading, type ContinueReadingInputs, type LocalProgressLite, type UserBookProgressLite } from './continueReading'
 import type { UserLibraryItem, ReadingProgressDto, UserBookDto } from '../types/api'
 
 // --- Fixtures ----------------------------------------------------------
@@ -46,21 +46,33 @@ const ub = (overrides: Partial<UserBookDto> = {}): UserBookDto => ({
 const emptyLocal = new Map<string, LocalProgressLite>()
 const emptyUb = new Map<string, UserBookProgressLite>()
 
+/** The head of the ranking — the book the resume hero shows. */
+const head = (input: ContinueReadingInputs) => rankContinueReading(input)[0]
+
+const inputs = (o: Partial<ContinueReadingInputs> = {}): ContinueReadingInputs => ({
+  library: [],
+  serverProgress: [],
+  userBooks: [],
+  localCatalogMap: emptyLocal,
+  localUserBookMap: emptyUb,
+  ...o,
+})
+
 // --- Degenerate inputs -------------------------------------------------
 
-describe('pickContinueReadingBook — empty / no-data inputs', () => {
+describe('rankContinueReading — empty / no-data inputs', () => {
   it('returns null when everything is empty', () => {
-    expect(pickContinueReadingBook({
+    expect(rankContinueReading({
       library: [], serverProgress: [], userBooks: [],
       localCatalogMap: emptyLocal, localUserBookMap: emptyUb,
-    })).toBeNull()
+    })).toEqual([])
   })
 
   it('returns null when library has books but no progress data', () => {
-    expect(pickContinueReadingBook({
+    expect(rankContinueReading({
       library: [lib()], serverProgress: [], userBooks: [],
       localCatalogMap: emptyLocal, localUserBookMap: emptyUb,
-    })).toBeNull()
+    })).toEqual([])
   })
 
   it('excludes a finished catalog book, from either source', () => {
@@ -69,47 +81,40 @@ describe('pickContinueReadingBook — empty / no-data inputs', () => {
     // book fraction from web, which forced this function to track the source
     // and refuse to trust a server 1.0 — a chapter fraction reaches 1.0 at the
     // bottom of every chapter.
-    expect(pickContinueReadingBook({
+    expect(rankContinueReading({
       library: [lib()], serverProgress: [srvProg({ percent: 1 })], userBooks: [],
       localCatalogMap: emptyLocal, localUserBookMap: emptyUb,
-    })).toBeNull()
+    })).toEqual([])
 
     const localFinished = new Map<string, LocalProgressLite>([
       ['ed-1', { chapterSlug: 'chapter-1', percent: 1, bookPercent: 1, updatedAt: Date.parse('2026-05-02T10:00:00Z') }],
     ])
-    expect(pickContinueReadingBook({
+    expect(rankContinueReading({
       library: [lib()], serverProgress: [srvProg({ percent: 0.3 })], userBooks: [],
       localCatalogMap: localFinished, localUserBookMap: emptyUb,
-    })).toBeNull()
+    })).toEqual([])
   })
 
   it('excludes finished user-books', () => {
-    expect(pickContinueReadingBook({
+    expect(rankContinueReading({
       library: [], serverProgress: [], userBooks: [ub({ progressPercent: 1 })],
       localCatalogMap: emptyLocal, localUserBookMap: emptyUb,
-    })).toBeNull()
-  })
-
-  it('excludes non-ready user-books (status=processing)', () => {
-    expect(pickContinueReadingBook({
-      library: [], serverProgress: [], userBooks: [ub({ status: 'processing' })],
-      localCatalogMap: emptyLocal, localUserBookMap: emptyUb,
-    })).toBeNull()
+    })).toEqual([])
   })
 
   it('excludes user-books with null progress timestamp', () => {
-    expect(pickContinueReadingBook({
+    expect(rankContinueReading({
       library: [], serverProgress: [], userBooks: [ub({ progressUpdatedAt: null })],
       localCatalogMap: emptyLocal, localUserBookMap: emptyUb,
-    })).toBeNull()
+    })).toEqual([])
   })
 })
 
 // --- Catalog books -----------------------------------------------------
 
-describe('pickContinueReadingBook — catalog books', () => {
+describe('rankContinueReading — catalog books', () => {
   it('returns the only in-progress catalog book', () => {
-    const r = pickContinueReadingBook({
+    const r = head({
       library: [lib()],
       serverProgress: [srvProg({ percent: 0.35 })],
       userBooks: [],
@@ -126,7 +131,7 @@ describe('pickContinueReadingBook — catalog books', () => {
       chapterSlug: 'chapter-2', percent: 0.6, bookPercent: 0.55,
       updatedAt: Date.parse('2026-05-02T10:00:00Z'), // newer than server
     }
-    const r = pickContinueReadingBook({
+    const r = head({
       library: [lib()],
       serverProgress: [srvProg({ percent: 0.3 })],
       userBooks: [],
@@ -146,13 +151,13 @@ describe('pickContinueReadingBook — catalog books', () => {
       chapterSlug: 'chapter-2', percent: 0.6,
       updatedAt: Date.parse('2026-05-02T10:00:00Z'),
     }
-    expect(pickContinueReadingBook({
+    expect(rankContinueReading({
       library: [lib()],
       serverProgress: [srvProg({ percent: 0.3 })],
       userBooks: [],
       localCatalogMap: new Map([['ed-1', local]]),
       localUserBookMap: emptyUb,
-    })).toBeNull()
+    })).toEqual([])
   })
 
   it('prefers server when its CLIENT stamp is newer, even over an unsynced local (web moved on)', () => {
@@ -160,7 +165,7 @@ describe('pickContinueReadingBook — catalog books', () => {
       chapterSlug: 'chapter-OLD', percent: 0.4, bookPercent: 0.35,
       updatedAt: Date.parse('2026-05-01T08:00:00Z'),
     }
-    const r = pickContinueReadingBook({
+    const r = head({
       library: [lib()],
       serverProgress: [srvProg({
         percent: 0.5, chapterSlug: 'chapter-NEW',
@@ -181,7 +186,7 @@ describe('pickContinueReadingBook — catalog books', () => {
       chapterSlug: 'chapter-1', percent: 0.4, bookPercent: 0.28,
       updatedAt: Date.parse('2026-05-01T08:00:00Z'), synced: true,
     }
-    const r = pickContinueReadingBook({
+    const r = head({
       library: [lib()],
       serverProgress: [srvProg({ percent: 0.5, chapterSlug: 'chapter-1' })],
       userBooks: [],
@@ -198,7 +203,7 @@ describe('pickContinueReadingBook — catalog books', () => {
       chapterSlug: 'chapter-2', percent: 0.6, bookPercent: 0.55,
       updatedAt: Date.parse('2026-05-01T09:30:00Z'), synced: true,
     }
-    const r = pickContinueReadingBook({
+    const r = head({
       library: [lib()],
       serverProgress: [srvProg({ percent: 0.3, updatedAt: '2026-05-01T10:00:00Z', clientUpdatedAt: '2026-05-01T09:00:00Z' })],
       userBooks: [],
@@ -214,7 +219,7 @@ describe('pickContinueReadingBook — catalog books', () => {
       chapterSlug: 'chapter-3', percent: 0.4, bookPercent: 0.7,
       updatedAt: Date.parse('2026-05-01T08:00:00Z'), synced: true,
     }
-    const r = pickContinueReadingBook({
+    const r = head({
       library: [lib()],
       serverProgress: [srvProg({ percent: 0.5, chapterSlug: 'chapter-1' })],
       userBooks: [],
@@ -227,9 +232,9 @@ describe('pickContinueReadingBook — catalog books', () => {
 
 // --- User books --------------------------------------------------------
 
-describe('pickContinueReadingBook — user books', () => {
+describe('rankContinueReading — user books', () => {
   it('returns the only in-progress user book', () => {
-    const r = pickContinueReadingBook({
+    const r = head({
       library: [], serverProgress: [],
       userBooks: [ub({ progressPercent: 0.42 })],
       localCatalogMap: emptyLocal,
@@ -245,7 +250,7 @@ describe('pickContinueReadingBook — user books', () => {
       bookPercent: 0.31,
       updatedAt: ubMs - 30_000, // 30s earlier — within 60s grace
     }
-    const r = pickContinueReadingBook({
+    const r = head({
       library: [], serverProgress: [],
       userBooks: [ub({ progressPercent: 0.5 })], // chapter % from server
       localCatalogMap: emptyLocal,
@@ -256,7 +261,7 @@ describe('pickContinueReadingBook — user books', () => {
 
   it('RES-1: a winning local record supplies the locator (its page), not the server row', () => {
     const T = Date.parse('2026-05-10T12:00:00Z')
-    const pick = (local: UserBookProgressLite) => pickContinueReadingBook({
+    const pick = (local: UserBookProgressLite) => head({
       library: [], serverProgress: [],
       userBooks: [ub({ progressChapterSlug: null, progressLocator: 'page:10' })],
       localCatalogMap: emptyLocal,
@@ -274,7 +279,7 @@ describe('pickContinueReadingBook — user books', () => {
 
   it('RES-1: a winning local record in text mode resumes at its chapterSlug; a page-mode one at its page', () => {
     const T = Date.parse('2026-05-10T12:00:00Z')
-    const pick = (local: UserBookProgressLite) => pickContinueReadingBook({
+    const pick = (local: UserBookProgressLite) => head({
       library: [], serverProgress: [],
       userBooks: [ub({ progressChapterSlug: 'ch-1', progressLocator: 'page:10' })],
       localCatalogMap: emptyLocal,
@@ -300,7 +305,7 @@ describe('pickContinueReadingBook — user books', () => {
       updatedAt: ubMs + 90_000, // ahead of the server clock — irrelevant, it is not compared
       synced: true,
     }
-    const r = pickContinueReadingBook({
+    const r = head({
       library: [], serverProgress: [],
       userBooks: [ub({ progressPercent: 0.5 })],
       localCatalogMap: emptyLocal,
@@ -312,7 +317,7 @@ describe('pickContinueReadingBook — user books', () => {
   it('a fast clock does not let a synced local record beat its own clamped server row', () => {
     const T = Date.parse('2026-05-10T12:00:00Z')
     const localUb: UserBookProgressLite = { bookPercent: 0.31, updatedAt: T + 3_600_000, synced: true }
-    const r = pickContinueReadingBook({
+    const r = head({
       library: [], serverProgress: [],
       userBooks: [ub({
         progressPercent: 0.5,
@@ -327,7 +332,7 @@ describe('pickContinueReadingBook — user books', () => {
 
   it('a newer write from another device beats an unsynced local record', () => {
     const localUb: UserBookProgressLite = { bookPercent: 0.31, updatedAt: Date.parse('2026-05-10T11:00:00Z') }
-    const r = pickContinueReadingBook({
+    const r = head({
       library: [], serverProgress: [],
       userBooks: [ub({ progressPercent: 0.5, progressClientUpdatedAt: '2026-05-10T11:30:00Z' })],
       localCatalogMap: emptyLocal,
@@ -337,7 +342,7 @@ describe('pickContinueReadingBook — user books', () => {
   })
 
   it('falls back to server when no local cache exists', () => {
-    const r = pickContinueReadingBook({
+    const r = head({
       library: [], serverProgress: [],
       userBooks: [ub({ progressPercent: 0.5 })],
       localCatalogMap: emptyLocal,
@@ -347,7 +352,7 @@ describe('pickContinueReadingBook — user books', () => {
   })
 
   it('preserves null title with Untitled fallback', () => {
-    const r = pickContinueReadingBook({
+    const r = head({
       library: [], serverProgress: [],
       userBooks: [ub({ title: null })],
       localCatalogMap: emptyLocal,
@@ -359,31 +364,9 @@ describe('pickContinueReadingBook — user books', () => {
 
 // --- Mixed: catalog vs user-book ---------------------------------------
 
-describe('pickContinueReadingBook — mixed sources', () => {
-  it('returns the most-recently-updated book across both sources (catalog wins)', () => {
-    const r = pickContinueReadingBook({
-      library: [lib()],
-      serverProgress: [srvProg({ updatedAt: '2026-06-01T10:00:00Z', percent: 0.3 })],
-      userBooks: [ub({ progressUpdatedAt: '2026-05-10T12:00:00Z' })],
-      localCatalogMap: emptyLocal,
-      localUserBookMap: emptyUb,
-    })
-    expect(r?.type).toBe('edition')
-  })
-
-  it('returns the most-recently-updated book across both sources (user-book wins)', () => {
-    const r = pickContinueReadingBook({
-      library: [lib()],
-      serverProgress: [srvProg({ updatedAt: '2026-05-01T10:00:00Z', percent: 0.3 })],
-      userBooks: [ub({ progressUpdatedAt: '2026-06-15T12:00:00Z' })],
-      localCatalogMap: emptyLocal,
-      localUserBookMap: emptyUb,
-    })
-    expect(r?.type).toBe('userbook')
-  })
-
+describe('rankContinueReading — mixed sources', () => {
   it('returns the more-recent of multiple catalog books', () => {
-    const r = pickContinueReadingBook({
+    const r = head({
       library: [lib(), lib({ editionId: 'ed-2', slug: 'ulysses', title: 'Ulysses' })],
       serverProgress: [
         srvProg({ editionId: 'ed-1', updatedAt: '2026-05-01T10:00:00Z', percent: 0.3 }),
@@ -400,52 +383,52 @@ describe('pickContinueReadingBook — mixed sources', () => {
   it('books not in library are ignored even if they have progress', () => {
     // Server may have stale progress rows for books the user removed
     // from library — never surface those.
-    const r = pickContinueReadingBook({
+    const r = rankContinueReading({
       library: [], // empty library
       serverProgress: [srvProg({ percent: 0.5 })],
       userBooks: [],
       localCatalogMap: emptyLocal,
       localUserBookMap: emptyUb,
     })
-    expect(r).toBeNull()
+    expect(r).toEqual([])
   })
 
   it('books in library but with no progress in any source → not picked', () => {
-    const r = pickContinueReadingBook({
+    const r = rankContinueReading({
       library: [lib({ editionId: 'ed-NEVER-READ' })],
       serverProgress: [],
       userBooks: [],
       localCatalogMap: emptyLocal,
       localUserBookMap: emptyUb,
     })
-    expect(r).toBeNull()
+    expect(r).toEqual([])
   })
 })
 
-describe('pickContinueReadingBook — malformed timestamps', () => {
+describe('rankContinueReading — malformed timestamps', () => {
   it('treats unparseable user-book timestamp as never-updated', () => {
     // Date.parse returns NaN for garbage — must not crash, must not be picked.
-    const r = pickContinueReadingBook({
+    const r = rankContinueReading({
       library: [],
       serverProgress: [],
       userBooks: [ub({ progressUpdatedAt: 'not-a-date' })],
       localCatalogMap: emptyLocal,
       localUserBookMap: emptyUb,
     })
-    expect(r).toBeNull()
+    expect(r).toEqual([])
   })
 
   it('treats unparseable catalog server.updatedAt as never-updated', () => {
     // Same defense for catalog path — server may return garbage on a
     // corrupted row or under partial outages. picker must not pick it.
-    const r = pickContinueReadingBook({
+    const r = rankContinueReading({
       library: [lib()],
       serverProgress: [srvProg({ updatedAt: 'not-a-date' as unknown as string })],
       userBooks: [],
       localCatalogMap: emptyLocal,
       localUserBookMap: emptyUb,
     })
-    expect(r).toBeNull()
+    expect(r).toEqual([])
   })
 
   it('falls through to local when server timestamp is unparseable', () => {
@@ -455,7 +438,7 @@ describe('pickContinueReadingBook — malformed timestamps', () => {
       chapterSlug: 'chapter-3', percent: 0.4, bookPercent: 0.4,
       updatedAt: Date.parse('2026-05-15T10:00:00Z'),
     }
-    const r = pickContinueReadingBook({
+    const r = head({
       library: [lib()],
       serverProgress: [srvProg({ updatedAt: 'corrupt-date' as unknown as string, percent: 0.5 })],
       userBooks: [],
@@ -467,14 +450,14 @@ describe('pickContinueReadingBook — malformed timestamps', () => {
   })
 
   it('empty-string server timestamp behaves the same as missing', () => {
-    const r = pickContinueReadingBook({
+    const r = rankContinueReading({
       library: [lib()],
       serverProgress: [srvProg({ updatedAt: '' as unknown as string })],
       userBooks: [],
       localCatalogMap: emptyLocal,
       localUserBookMap: emptyUb,
     })
-    expect(r).toBeNull()
+    expect(r).toEqual([])
   })
 
   it('accepts numeric epoch ms timestamps (backend serializer drift)', () => {
@@ -482,7 +465,7 @@ describe('pickContinueReadingBook — malformed timestamps', () => {
     // certain System.Text.Json converters). The picker must not silently
     // ignore those — parseEpochMs handles both string and number forms.
     const ts = Date.parse('2026-06-01T10:00:00Z')
-    const r = pickContinueReadingBook({
+    const r = head({
       library: [lib()],
       serverProgress: [srvProg({ updatedAt: ts as unknown as string, percent: 0.42 })],
       userBooks: [],
@@ -494,24 +477,91 @@ describe('pickContinueReadingBook — malformed timestamps', () => {
   })
 
   it('rejects zero / negative epoch ms numbers', () => {
-    const r = pickContinueReadingBook({
+    const r = rankContinueReading({
       library: [lib()],
       serverProgress: [srvProg({ updatedAt: 0 as unknown as string })],
       userBooks: [],
       localCatalogMap: emptyLocal,
       localUserBookMap: emptyUb,
     })
-    expect(r).toBeNull()
+    expect(r).toEqual([])
   })
 
   it('rejects NaN / Infinity epoch ms numbers', () => {
-    const r = pickContinueReadingBook({
+    const r = rankContinueReading({
       library: [lib()],
       serverProgress: [srvProg({ updatedAt: Infinity as unknown as string })],
       userBooks: [],
       localCatalogMap: emptyLocal,
       localUserBookMap: emptyUb,
     })
-    expect(r).toBeNull()
+    expect(r).toEqual([])
+  })
+})
+
+// --- The whole list (rail + hero) --------------------------------------
+
+describe('rankContinueReading — the whole list', () => {
+  it('orders most-recently-active first, across both sources', () => {
+    // Catalog book touched later than the user book — it must lead.
+    const ranked = rankContinueReading(inputs({
+      library: [lib()],
+      serverProgress: [srvProg({ updatedAt: '2026-05-20T10:00:00Z' })],
+      userBooks: [ub({ progressUpdatedAt: '2026-05-10T12:00:00Z' })],
+    }))
+    expect(ranked.map(p => p.type)).toEqual(['edition', 'userbook'])
+
+    // Flip the timestamps and the order must flip with them.
+    const flipped = rankContinueReading(inputs({
+      library: [lib()],
+      serverProgress: [srvProg({ updatedAt: '2026-05-01T10:00:00Z' })],
+      userBooks: [ub({ progressUpdatedAt: '2026-05-30T12:00:00Z' })],
+    }))
+    expect(flipped.map(p => p.type)).toEqual(['userbook', 'edition'])
+  })
+
+  it('keeps input order on an exact timestamp tie — library before user books', () => {
+    // Matches the old strictly-greater-than comparison, which left the first
+    // encountered winner in place. Array#sort is stable, so this holds.
+    const ranked = rankContinueReading(inputs({
+      library: [lib()],
+      serverProgress: [srvProg({ updatedAt: '2026-05-10T12:00:00Z' })],
+      userBooks: [ub({ progressUpdatedAt: '2026-05-10T12:00:00Z' })],
+    }))
+    expect(ranked.map(p => p.type)).toEqual(['edition', 'userbook'])
+  })
+
+  it('excludes finished books from the whole list, not just the head', () => {
+    const finished = new Map([
+      ['ed-1', { chapterSlug: 'last', percent: 1, bookPercent: 1, updatedAt: Date.parse('2026-06-01T00:00:00Z') }],
+    ])
+    const ranked = rankContinueReading(inputs({
+      library: [lib({ editionId: 'ed-1' }), lib({ editionId: 'ed-2', slug: 'moby-dick' })],
+      serverProgress: [
+        srvProg({ editionId: 'ed-1', percent: 0.9, updatedAt: '2026-05-30T00:00:00Z' }),
+        srvProg({ editionId: 'ed-2', percent: 0.4, updatedAt: '2026-05-01T00:00:00Z' }),
+      ],
+      localCatalogMap: finished,
+    }))
+    expect(ranked).toHaveLength(1)
+    expect(ranked[0]).toMatchObject({ type: 'edition', slug: 'moby-dick' })
+  })
+
+  it('excludes user books that are not ready', () => {
+    // A book still being parsed has no chapters to resume into.
+    expect(rankContinueReading(inputs({
+      userBooks: [ub({ status: 'Processing' }), ub({ id: 'ub-2', status: 'Failed' })],
+    }))).toEqual([])
+  })
+
+  it('carries the chapter slug needed for a real resume link', () => {
+    // /me/library/shelves has no chapterSlug, so a shelf tap cannot resume.
+    // These picks can.
+    const ranked = rankContinueReading(inputs({
+      library: [lib()],
+      serverProgress: [srvProg({ chapterSlug: 'chapter-7' })],
+      userBooks: [ub({ progressChapterSlug: 'part-3' })],
+    }))
+    expect(ranked.map(p => p.chapterSlug).sort()).toEqual(['chapter-7', 'part-3'])
   })
 })

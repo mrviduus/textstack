@@ -57,7 +57,3 @@ export function flushPendingSessions(submit: Submit = readingTrackingApi.submitS
 export function clearPendingSessions(): Promise<void> {
   return serialized(() => AsyncStorage.removeItem(KEY))
 }
-
-export async function getPendingSessions(): Promise<PendingSession[]> {
-  return read()
-}
