@@ -160,6 +160,27 @@ describe('the engine page: selection and words (Phase 3 slice 3)', () => {
     click(root.querySelector('a[href^="https"]')!)
     expect(page.messages.filter((m) => m.type !== 'log')).toEqual([{ type: 'openLink', href: 'https://example.com/x' }])
   })
+
+  it('#814 a link naming its file (ch03.xhtml#n1) jumps to its note in this chapter, like web; a malformed one is ignored', async () => {
+    const page = await openPage()
+    const doc = page.w.document
+    const root = doc.getElementById('ts-root')!.firstElementChild!
+    root.insertAdjacentHTML('beforeend', '<p><a href="ch03.xhtml#n1">1</a><a href="ch03.xhtml#%E0">2</a></p><p id="n1">Note.</p>')
+    let scrolled = false
+    ;(doc.getElementById('n1') as HTMLElement).scrollIntoView = () => { scrolled = true }
+    const realNow = page.w.performance.now.bind(page.w.performance)
+    let skew = 0
+    page.w.performance.now = () => realNow() + skew
+    const errors: unknown[] = []
+    page.w.addEventListener('error', (e) => errors.push(e.error))
+
+    root.querySelector('a[href="ch03.xhtml#%E0"]')!.dispatchEvent(new page.w.MouseEvent('click', { bubbles: true, cancelable: true }))
+    skew += 320   // past the double-tap window
+    root.querySelector('a[href="ch03.xhtml#n1"]')!.dispatchEvent(new page.w.MouseEvent('click', { bubbles: true, cancelable: true }))
+
+    expect(scrolled).toBe(true)
+    expect(errors).toEqual([])
+  })
 })
 
 describe('the engine page: highlights and vocab (Phase 3 slice 4)', () => {

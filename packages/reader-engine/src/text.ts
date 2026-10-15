@@ -97,29 +97,30 @@ const WORD_CHAR = /[\p{L}\p{M}\p{N}]/u
  * Where saved words stand in the chapter (chapter offsets), by the apps' vocabulary key: whole words,
  * any case, one text node at a time like the web matcher — a block or a `<sup>` ends a word, since the
  * chapter text joins nodes with nothing between them. Phrases first, longest first, so "make sense" is
- * never also "make" + "sense".
- * ponytail: offsets assume NFC and lowercasing keep lengths (not so for Turkish İ), like the web
- * matcher; map offsets through the normalisation if such a book shows up.
+ * never also "make" + "sense". Matched on the folded text and mapped back, like `find` (E51).
  */
 export function matchWords<T extends { word: string }>(root: Node, items: T[], nodes?: Text[]): { item: T; start: number; end: number }[] {
-  const byKey = new Map(items.map((i) => [normalizeVocabKey(i.word), i]))
+  const key = (w: string) => fold(normalizeVocabKey(w))
+  const byKey = new Map(items.map((i) => [key(i.word), i]))
   const phrases = [...byKey.keys()].filter((k) => k.includes(' ')).sort((a, b) => b.length - a.length)
   const out: { item: T; start: number; end: number }[] = []
   let base = 0
   for (const { data: text } of byKey.size ? (nodes ?? textNodes(root)) : []) {
     const taken = new Uint8Array(text.length)
-    const lower = text.normalize('NFC').toLowerCase()
-    for (const key of phrases) {
-      for (let at = lower.indexOf(key); at !== -1; at = lower.indexOf(key, at + 1)) {
-        const end = at + key.length
-        if (WORD_CHAR.test(text.charAt(at - 1)) || WORD_CHAR.test(text.charAt(end)) || taken.subarray(at, end).includes(1)) continue
-        taken.fill(1, at, end)
-        out.push({ item: byKey.get(key)!, start: base + at, end: base + end })
+    const { hay, from, to } = folded(text)
+    for (const k of phrases) {
+      for (let at = hay.indexOf(k); at !== -1; at = hay.indexOf(k, at + 1)) {
+        const start = from[at]
+        const end = to[at + k.length - 1]
+        if (WORD_CHAR.test(text.charAt(start - 1)) || WORD_CHAR.test(text.charAt(end)) || taken.subarray(start, end).includes(1)) continue
+        taken.fill(1, start, end)
+        out.push({ item: byKey.get(k)!, start: base + start, end: base + end })
       }
     }
-    for (const t of tokenizeVocabWords(text)) {
-      const item = byKey.get(normalizeVocabKey(t.word))
-      if (item && !taken[t.start]) out.push({ item, start: base + t.start, end: base + t.end })
+    for (const t of tokenizeVocabWords(hay)) {
+      const item = byKey.get(key(t.word))
+      const start = from[t.start]
+      if (item && !taken[start]) out.push({ item, start: base + start, end: base + to[t.end - 1] })
     }
     base += text.length
   }
@@ -147,24 +148,37 @@ export function locatorAt(text: string, at: number, href: string, progression: n
   }
 }
 
-// The one matcher behind in-book search (`find`): case-insensitive, NBSP == space, composed ==
-// decomposed (NFC), non-overlapping (E17, E49). Folding can change a length (Turkish İ lowercases to two
-// characters, e + U+0301 composes to one), so the text is folded one letter-with-its-marks at a time and
-// each hit is mapped back to `[start, end]` in `text` itself (E50).
-const fold = (s: string) => s.normalize('NFC').toLowerCase().replace(/\u00a0/g, ' ')
+// The one fold behind in-book search (`find`) and saved words (`matchWords`): case-insensitive, NBSP ==
+// space, composed == decomposed (NFC), dotted capital İ == i (E17, E49, E51). Folding can change a
+// length (İ lowercases to i + U+0307, e + U+0301 composes to one), so the text is folded one
+// letter-with-its-marks at a time and each hit is mapped back to `[start, end]` in `text` itself (E50).
+const fold = (s: string) => s.normalize('NFC').toLowerCase().replace(/i\u0307/g, 'i').replace(/\u00a0/g, ' ')
 const LETTER = /\P{M}\p{M}*|\p{M}+/gu
-export function findTextOffsets(text: string, needle: string): [number, number][] {
-  const n = fold(needle)
-  if (!n) return []
+const ASCII = /^[\x00-\x7f]*$/
+
+/** `text` folded, and per folded character where its letter starts (`from`) and ends (`to`) in `text`. */
+function folded(text: string): { hay: string; from: number[]; to: number[] } {
   let hay = ''
-  const from: number[] = []   // per folded character: where its letter starts in `text`
-  const to: number[] = []     // ... and ends
+  const from: number[] = []
+  const to: number[] = []
+  if (ASCII.test(text)) {   // folds letter for letter: `find` 10x faster on an English chapter
+    for (let i = 0; i < text.length; i++) { from.push(i); to.push(i + 1) }
+    return { hay: text.toLowerCase(), from, to }
+  }
   LETTER.lastIndex = 0
   for (let m = LETTER.exec(text); m; m = LETTER.exec(text)) {   // not matchAll: Android 7–9 WebViews lack it
     const f = fold(m[0])
     hay += f
     for (let k = 0; k < f.length; k++) { from.push(m.index); to.push(m.index + m[0].length) }
   }
+  return { hay, from, to }
+}
+
+/** Every non-overlapping match of `needle` in `text`, as `[start, end]` in `text`. */
+export function findTextOffsets(text: string, needle: string): [number, number][] {
+  const n = fold(needle)
+  if (!n) return []
+  const { hay, from, to } = folded(text)
   const out: [number, number][] = []
   for (let i = hay.indexOf(n); i !== -1; i = hay.indexOf(n, i + n.length)) out.push([from[i], to[i + n.length - 1]])
   return out

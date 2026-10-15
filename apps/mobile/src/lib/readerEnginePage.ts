@@ -177,9 +177,14 @@ page.__tsClearSelection = (t, markOnly) => { if (typeof t !== 'number' || t === 
 
 engine.on('imageTap', (e) => page.__tsOpenImage(e.src, e.alt || ''))
 // A footnote stays a link (ADR-025 answer 3): it jumps to its note; a web link opens outside.
-engine.on('linkClick', ({ href: h }) => {
-  if (h[0] === '#') document.getElementById(decodeURIComponent(h.slice(1)))?.scrollIntoView()
-  else if (/^https?:/i.test(h)) post({ type: 'openLink', href: h })
+// `#n1` or `ch03.xhtml#n1` (EPUBs name their own file, #814): jump when the note is in this chapter, like web.
+engine.on('linkClick', ({ href: h, internal }) => {
+  if (/^https?:/i.test(h)) return post({ type: 'openLink', href: h })
+  if (!internal || !h.includes('#')) return
+  let id = h.slice(h.indexOf('#') + 1)
+  try { id = decodeURIComponent(id) } catch { /* a malformed % stays as written */ }
+  const note = document.getElementById(id)
+  if (note && root.contains(note)) note.scrollIntoView()
 })
 
 // Highlights (slice 4), drawn by the engine: RN still adds and removes them one at a time.

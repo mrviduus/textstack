@@ -626,6 +626,9 @@ function createFixed(root: HTMLElement, opts: EngineOptions, pdfjs: PdfJs): Read
       ownTop = null
       lastScrollAt = Date.now()
       readerMoved = true
+      // A scroll the engine did not make is the reader's (a scrollbar drag, middle-click autoscroll,
+      // #829): it ends a jump like a gesture. The engine's own size changes re-aim in the same task.
+      if (op && numPages) land(false)
       const d = scroller.scrollTop - dirBase
       const next = d >= SCROLL_DOWN_PX ? 'down' : d <= -SCROLL_UP_PX ? 'up' : null
       if (next) {

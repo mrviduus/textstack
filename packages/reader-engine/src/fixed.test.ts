@@ -335,6 +335,23 @@ describe('reading', () => {
     }
   })
 
+  it('E36 a scroll the engine did not make (a scrollbar drag, middle-click autoscroll: no touch, wheel or key) ends a jump too (#829)', async () => {
+    const reader = makePdfReader({ pages: MIXED })
+    await reader.open()
+    reader.fake.holdFrom(10)
+    const going = reader.goTo(30, 'go')
+    await reader.settle()
+
+    reader.scrollTo(reader.pageTop(3))
+    await reader.settle()
+
+    expect(await going).toBe('superseded')
+    expect(reader.ack('go').page).toBe(3)
+    reader.fake.release()
+    await reader.settle()
+    expect(reader.spot()!.page).toBe(3)
+  })
+
   it('E36 the scroll keys, shared with the host: arrows / PageDown / Space scroll; Escape does not; nor a key typed in a field', () => {
     const key = (k: string, target: EventTarget = document.body) => {
       const e = new KeyboardEvent('keydown', { key: k })

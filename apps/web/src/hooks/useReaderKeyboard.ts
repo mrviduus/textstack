@@ -4,6 +4,8 @@ interface UseReaderKeyboardOptions {
   tocOpen: boolean
   settingsOpen: boolean
   searchOpen: boolean
+  /** False: no in-book search here (PDF Original layout, #850); Cmd/Ctrl+F stays the browser's. */
+  canSearch?: boolean
   setTocOpen: (open: boolean) => void
   setSettingsOpen: (open: boolean) => void
   setSearchOpen: (open: boolean) => void
@@ -16,6 +18,7 @@ export function useReaderKeyboard({
   tocOpen,
   settingsOpen,
   searchOpen,
+  canSearch = true,
   setTocOpen,
   setSettingsOpen,
   setSearchOpen,
@@ -39,13 +42,13 @@ export function useReaderKeyboard({
       return
     }
 
-    if (inInput) return
+    if (inInput || !canSearch) return
 
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f') {
       setSearchOpen(true)
       e.preventDefault()
     }
-  }, [tocOpen, settingsOpen, searchOpen, setTocOpen, setSettingsOpen, setSearchOpen, clearSearch])
+  }, [tocOpen, settingsOpen, searchOpen, canSearch, setTocOpen, setSettingsOpen, setSearchOpen, clearSearch])
 
   useEffect(() => {
     document.addEventListener('keydown', handleKeyDown)
