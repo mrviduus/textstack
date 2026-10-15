@@ -37,14 +37,15 @@ was loaded: the old one sent the same header.
 
 ## Fix
 
-The deploy step (`.github/workflows/deploy.yml`, Sync nginx config) now checks, on every deploy and not
-only when the file changed, that every nginx worker is younger than the config file. If not, it
+#862. The deploy step (`.github/workflows/deploy.yml`, Sync nginx config) now checks, on every deploy and not
+only when the file changed, that every live nginx worker is younger than `textstack.conf`. If not, it
 reloads; if the workers are still old, it restarts nginx (a restart is the only way to change a zone
 key) and fails the deploy if even that does not take. *Verify SEO setup* now also requires a CSP with
 `frame-ancestors` on `/en/` — a header only the current config sends.
 
-This closes the class for nginx (any reload that does not take, for any reason), not just this zone.
-It would not catch a header that is present in the file but wrong — that is what the CSP check is for.
+This closes the class for `textstack.conf` (a reload of it that does not take, for any reason), not
+just this zone. It does not watch `nginx.conf` or certbot's includes, which deploy never touches; the
+CSP check catches a stale config whatever the cause.
 
 ## Lesson
 

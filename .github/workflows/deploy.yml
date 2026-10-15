@@ -588,20 +588,24 @@ jobs:
           # from 2026-10-04 to 10-15 failed this way and no nginx change went live. So: on every
           # deploy, workers older than the config file mean the config is not live → reload, and
           # if that does not take, restart.
+          # Only live workers count: after a good reload the old ones linger as "worker process is
+          # shutting down" until their SSE / WebSocket connections close.
+          live_workers() { ps -o etimes=,args= --ppid "$(cat /run/nginx.pid 2>/dev/null)" 2>/dev/null | grep 'worker process$' || true; }
           stale_workers() {
-            local cfg_ts now p
+            local cfg_ts now e _
             cfg_ts=$(stat -c %Y "$CFG"); now=$(date +%s)
-            for p in $(pgrep -P "$(cat /run/nginx.pid)"); do
-              [ $(( now - $(ps -o etimes= -p "$p") )) -lt "$cfg_ts" ] && return 0
-            done
+            while read -r e _; do
+              [ -n "$e" ] && [ $(( now - e )) -lt "$cfg_ts" ] && return 0
+            done < <(live_workers)
             return 1
           }
           if stale_workers; then sudo systemctl reload nginx; sleep 3; fi
           if stale_workers; then
             echo "::warning::nginx reload did not take — restarting"
-            sudo tail -n 5 /var/log/nginx/error.log | grep emerg || true
+            sudo grep emerg /var/log/nginx/error.log | tail -n 3 || true
             sudo systemctl restart nginx; sleep 3
           fi
+          [ -n "$(live_workers)" ] || { echo "FAIL: nginx has no running workers"; exit 1; }
           stale_workers && { echo "FAIL: nginx still runs a config older than $CFG"; exit 1; }
           echo "nginx runs the current config"
 
