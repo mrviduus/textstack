@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { createRequire } from 'node:module'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { buildPdfEngineHtml, buildPdfViewerHtml } from './readerHtml'
+import { buildPdfEngineHtml } from './readerHtml'
 import { PDF_JS_SCRIPT } from './pdfViewerScript'
 
 /**
@@ -65,26 +65,5 @@ describe('the PDF bundles', () => {
     expect(requests[0]).toEqual({ range: 'bytes=0-0', auth: 'Bearer tok' })
     expect(requests.length).toBeGreaterThan(1)
     expect(requests.every((r) => r.auth === 'Bearer tok' && /^bytes=\d+-\d+$/.test(r.range))).toBe(true)
-  }, 20000)
-
-  it('the old viewer (flag off) runs on the same shared pdf.js global: it opens the file and says pdfReady', async () => {
-    const messages: { type: string; [k: string]: unknown }[] = []
-    new JSDOM(buildPdfViewerHtml('https://api.test/me/books/b1/file', 'tok', { initialPage: 3 }), {
-      runScripts: 'dangerously',
-      pretendToBeVisual: true,
-      url: 'https://api.test/',
-      virtualConsole: new VirtualConsole(),
-      beforeParse(win: Win) {
-        webView(win, messages)
-        win.IntersectionObserver = class { observe() {} disconnect() {} } as unknown as typeof IntersectionObserver
-        // pdf.js streams the URL itself here (no ranges): the whole file, in the page's realm.
-        win.fetch = (async () => ({
-          ok: true, status: 200, headers: new Headers({ 'Content-Length': String(FILE.length) }),
-          body: new ReadableStream({ start(c) { c.enqueue(new (win.Uint8Array as typeof Uint8Array)(FILE)); c.close() } }),
-        })) as unknown as typeof fetch
-      },
-    })
-    for (let i = 0; i < 100 && !messages.some((m) => m.type === 'pdfReady' || m.type === 'pdfLoadError'); i++) await new Promise((r) => setTimeout(r, 20))
-    expect(messages.filter((m) => m.type === 'pdfReady' || m.type === 'pdfLoadError')[0]).toEqual({ type: 'pdfReady', numPages: 40 })
   }, 20000)
 })

@@ -1,10 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { matchesChapter } from './highlightChapter'
 
 /**
- * The reflow WebView paints whatever it is handed — matchesChapter is the only chapter gate.
+ * The reflow WebView paints whatever it is handed — matchesChapter is the only chapter gate (the
+ * engine page refuses a kind:"pdf" anchor itself: readerEnginePage.test.ts).
  * Behaviour pinned as it ships: the ROW's FK columns decide, the anchor never does.
  */
 const row = (r: { chapterId?: string | null; userChapterId?: string | null; anchor?: object }) => ({
@@ -37,35 +36,5 @@ describe('matchesChapter', () => {
   it('a kind:"pdf" highlight (saved chapterless) never matches a reflow chapter', () => {
     const pdf = row({ anchor: { v: 1, kind: 'pdf', page: 3, rects: [], exact: 'hello' } })
     for (const id of ['c1', 'u1', '']) expect(matchesChapter(pdf, id)).toBe(false)
-  })
-})
-
-describe('renderHighlight (WebView) refuses a PDF anchor', () => {
-  // Lives inside the HTML string; extracted and run, as readerPositionScript.test.ts does.
-  const src = readFileSync(join(__dirname, 'readerHtml.ts'), 'utf8')
-  const start = src.indexOf('function renderHighlight(')
-  let i = src.indexOf('{', start), depth = 0
-  for (; i < src.length; i++) {
-    if (src[i] === '{') depth++
-    else if (src[i] === '}' && --depth === 0) break
-  }
-  const run = (anchor: unknown) => {
-    const painted: string[] = []
-    const fn = new Function('hlBuildRange', 'hlPaintRangeOverlay', 'console',
-      `${src.slice(start, i + 1)}; return renderHighlight;`)(
-      () => ({}),
-      (_r: unknown, id: string) => { painted.push(id); return { ok: true } },
-      { warn() {}, log() {} },
-    )
-    fn('h1', JSON.stringify(anchor), 'yellow', 'hello')
-    return painted
-  }
-
-  it('paints a text anchor', () => {
-    expect(run({ exact: 'hello' })).toEqual(['h1'])
-  })
-
-  it('does not paint a kind:"pdf" anchor, even with exact text', () => {
-    expect(run({ v: 1, kind: 'pdf', page: 3, rects: [], exact: 'hello' })).toEqual([])
   })
 })

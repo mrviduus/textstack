@@ -1,5 +1,5 @@
-// Fixed layout (PDF, ADR-012) behind the engine API (ADR-025, Phase 5): the port of the mobile viewer
-// (apps/web/scripts/pdfViewer/entry.ts). The host brings pdf.js — `createEngine(root, { fixed:
+// Fixed layout (PDF, ADR-012) behind the engine API (ADR-025, Phase 5): the port of the old mobile viewer
+// (deleted in Phase 6 PR B). The host brings pdf.js — `createEngine(root, { fixed:
 // fixedLayout(pdfjs) })` — so the engine never imports it (the mobile bundle's 64 KB budget).
 //
 // - A column of page boxes, each its own shape, fit to the width. Only pages near the screen have a canvas

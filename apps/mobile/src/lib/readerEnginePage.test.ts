@@ -1,48 +1,17 @@
 import { describe, it, expect } from 'vitest'
-import { createRequire } from 'node:module'
-import { buildEngineReaderHtml } from './readerHtml'
+import { openEnginePage } from '../test/enginePage'
 
 /**
- * The engine page (ADR-025 Phase 3) speaks the old page's protocol: RN keeps calling the same
+ * The engine page (ADR-025 Phase 3) speaks the protocol the old page spoke: RN keeps calling the same
  * `window.__textstack*` functions and reading the same messages, so `useReaderPersistence` and its
  * ADR-019 write gate do not change. These boot the real document in jsdom (no layout: positions are
  * checked on the emulator, QA-007).
  */
 
-const { JSDOM, VirtualConsole } = createRequire(__filename)('jsdom') as {
-  JSDOM: new (html: string, opts: Record<string, unknown>) => { window: Window & typeof globalThis }
-  VirtualConsole: new () => unknown
-}
-
 const SENTENCE = 'The keeper counted the ships before dawn.'
 const CHAPTER = `<p>Opening words of the chapter.</p><p>${SENTENCE}</p><p>The last words.</p>`
 
-type Msg = { type: string; [k: string]: unknown }
-
-async function openPage() {
-  const messages: Msg[] = []
-  const { window: w } = new JSDOM(buildEngineReaderHtml(CHAPTER, undefined, 'ch-1'), {
-    runScripts: 'dangerously',
-    pretendToBeVisual: true,
-    virtualConsole: new VirtualConsole(),
-    beforeParse(win: Window & typeof globalThis & Record<string, unknown>) {
-      win.ReactNativeWebView = { postMessage: (s: string) => messages.push(JSON.parse(s)) }
-      win.ResizeObserver = class { observe() {} disconnect() {} } as unknown as typeof ResizeObserver
-      // jsdom lacks these; every Android WebView has them.
-      Object.defineProperty(win.Document.prototype, 'scrollingElement', { get() { return this.documentElement } })
-      win.Range.prototype.getClientRects = function () { return [] as unknown as DOMRectList }
-      // A test that holds a word sets __caret; the reading-line probe sees no caret otherwise.
-      win.Document.prototype.caretRangeFromPoint = function () {
-        const c = (win as unknown as { __caret?: () => Range | null }).__caret
-        return c ? c() : null
-      }
-    },
-  })
-  const settle = () => new Promise((r) => setTimeout(r, 60))
-  await settle()   // the open: fonts, a frame, its ack
-  const call = (js: string) => (w as unknown as { eval(s: string): unknown }).eval(js)
-  return { w, messages, settle, call }
-}
+const openPage = () => openEnginePage(CHAPTER)
 
 /** A stored reading position (TextPosition v1) at the start of SENTENCE. */
 function position(chapterSlug = 'ch-1') {
@@ -62,7 +31,8 @@ describe('the engine page', () => {
     page.call(`__textstackRestoreAnchor(${JSON.stringify(JSON.stringify(position()))}, 7)`)
     await page.settle()
     const [ack, progress] = page.messages
-    expect(ack).toMatchObject({ type: 'restored', restoreId: 7 })
+    // R4 bug 4: the ack carries the landing (scrollY, the move baseline), and the landing is always reported.
+    expect(ack).toMatchObject({ type: 'restored', restoreId: 7, scrollY: expect.any(Number) })
     expect(progress).toMatchObject({ type: 'progress', chapterSlug: 'ch-1' })
     expect((progress.position as { anchor: { exact: string } }).anchor.exact.startsWith('The keeper counted')).toBe(true)
   })
@@ -236,6 +206,12 @@ describe('the engine page: highlights and vocab (Phase 3 slice 4)', () => {
     page.call(`__textstackScrollToHighlight(${JSON.stringify(JSON.stringify({ exact: 'not in this chapter' }))})`)
     await page.settle()
     expect(page.messages.filter((m) => m.type !== 'log')).toEqual([])
+  })
+
+  it('renderHighlight refuses a kind:"pdf" anchor, even with exact text (it would paint a PDF quote into reflow)', async () => {
+    const page = await openPage()
+    page.call(`renderHighlight('p1', ${JSON.stringify(JSON.stringify({ v: 1, kind: 'pdf', page: 3, rects: [], exact: 'keeper counted' }))}, 'yellow', 'keeper counted')`)
+    expect(layer(page).querySelector('[data-group="highlight"]')).toBeNull()
   })
 
   it('renderHighlight with an anchor that is not JSON draws the highlight from its text', async () => {

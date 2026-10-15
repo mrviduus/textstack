@@ -1,5 +1,5 @@
-// The PDF engine page (ADR-025 Phase 5 slice 4): runs INSIDE the reader WebView when
-// EXPO_PUBLIC_READER_ENGINE_PDF is on. Like the reflow engine page (readerEnginePage.ts) it speaks the old
+// The PDF engine page (ADR-025 Phase 5 slice 4): runs INSIDE the reader WebView.
+// Like the reflow engine page (readerEnginePage.ts) it speaks the old
 // viewer's protocol to RN — `scrollToPage(n, jumpId)`, `__setPdfHighlights`, `__pdfCreateHighlight` in;
 // `pdfReady`, `pdfPage`, `pdfLoadError`, `pdfAuthExpired`, `pdfHighlightCreate`, `selection`, `tap`,
 // `highlightTap` out — so `useReaderPdf` and its ADR-012 gate do not change. The engine's fixed layout

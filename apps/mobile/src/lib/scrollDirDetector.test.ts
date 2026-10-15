@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { SCROLL_DIR_DETECTOR, READER_SELECTION_BRIDGE } from './readerBridge'
+import { SCROLL_DIR_DETECTOR } from './readerBridge'
+import { buildEngineReaderHtml, buildPdfEngineHtml } from './readerHtml'
 
 type FakeWindow = {
   scrollY: number
@@ -33,8 +34,9 @@ beforeEach(() => {
 })
 
 describe('SCROLL_DIR_DETECTOR', () => {
-  it('is embedded in the reader bridge', () => {
-    expect(READER_SELECTION_BRIDGE).toContain(SCROLL_DIR_DETECTOR)
+  it('is inlined by both engine documents (reflow and PDF)', () => {
+    expect(buildEngineReaderHtml('<p>x</p>')).toContain(SCROLL_DIR_DETECTOR)
+    expect(buildPdfEngineHtml('f.pdf', null, { local: true })).toContain(SCROLL_DIR_DETECTOR)
   })
 
   it('down ≥48px hides, 6px up reveals', () => {

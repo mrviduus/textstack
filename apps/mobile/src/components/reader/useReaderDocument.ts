@@ -1,9 +1,7 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import type { MutableRefObject } from 'react'
 import type { EdgeInsets } from 'react-native-safe-area-context'
-import { buildReaderHtml, buildEngineReaderHtml, buildPdfViewerHtml, buildPdfEngineHtml } from '../../lib/readerHtml'
-import { READER_ENGINE } from '../../lib/readerEngineFlag'
-import { READER_ENGINE_PDF } from '../../lib/readerEnginePdfFlag'
+import { buildEngineReaderHtml, buildPdfEngineHtml } from '../../lib/readerHtml'
 import { pdfDocumentKey, pdfChromeInjectionJs } from '../../lib/pdfViewerChrome'
 import {
   readerDocumentKey, readerChromeInjectionJs, latchReaderChrome, readerChromeChanged, type ReaderChrome,
@@ -26,7 +24,6 @@ type Args = Pick<ReaderShellProps,
   // From useReaderPdf.
   pdfToken: string | null
   pdfTokenReady: boolean
-  pdfReloadNonce: number
   isLocalOriginal: boolean
   pdfInitialPageRef: MutableRefObject<number | null>
   currentPdfPageRef: MutableRefObject<number | null>
@@ -42,7 +39,7 @@ type Args = Pick<ReaderShellProps,
 export function useReaderDocument({
   original, originalFileUrl, originalInitialPage, htmlChapterSlug, injectJs, reflow, onDocumentRebuild,
   chapter, settings, resolvedFontFamily, resolvedTheme, insets,
-  pdfToken, pdfTokenReady, pdfReloadNonce, isLocalOriginal,
+  pdfToken, pdfTokenReady, isLocalOriginal,
   pdfInitialPageRef, currentPdfPageRef, pdfIsReloadRef, pdfReadyRef,
 }: Args) {
   // Safe-area padding + theme colours for whichever document is open (reflow or
@@ -104,7 +101,7 @@ export function useReaderDocument({
       readerAppliedTypographyRef.current = typography
       builtTypographyRef.current = typography
       docLoadedRef.current = false  // a new document; onLoadEnd says when it can take injections
-      return (READER_ENGINE ? buildEngineReaderHtml : buildReaderHtml)(chapter.html, {
+      return buildEngineReaderHtml(chapter.html, {
         fontSize: typography.fontSize,
         lineHeight: typography.lineHeight,
         fontFamily: typography.fontFamily,
@@ -151,10 +148,9 @@ export function useReaderDocument({
     reflow(id => readerTypographyInjectionJs(next, id))
   }, [original, resolvedFontFamily, settings.fontSize, settings.lineHeight, settings.textAlign, reflow])
 
-  // ADR-012 S4b — the Original-layout PDF document. Rebuilt when the token
-  // refreshes (nonce) so a silent 401 recovery reloads at the tracked page.
+  // ADR-012 S4b — the Original-layout PDF document. Rebuilt on a remount after a dead renderer (nonce).
   const pdfHtml = useMemo(() => {
-    // Not before the token: the document carries it, and (engine) the key does not — built early, it kept null.
+    // Not before the token: the document carries it, and the key does not — built early, it kept null.
     if (!original || !originalFileUrl || !pdfTokenReady) return ''
     // Chrome is read from the ref, deliberately outside the dependency list.
     const chrome = chromeRef.current ?? {
@@ -184,18 +180,15 @@ export function useReaderDocument({
       initialPage: pdfInitialPageRef.current ?? originalInitialPage ?? null,
       safeArea: chrome.safeArea,
     }
-    // The engine page (EXPO_PUBLIC_READER_ENGINE_PDF): same inputs; a token refresh reaches it over the bridge.
-    return READER_ENGINE_PDF
-      ? buildPdfEngineHtml(documentUrl, pdfToken, { ...options, local: isLocalOriginal })
-      : buildPdfViewerHtml(documentUrl, pdfToken, options)
+    // A token refresh reaches the engine page over the bridge, not by a rebuild.
+    return buildPdfEngineHtml(documentUrl, pdfToken, { ...options, local: isLocalOriginal })
     // Keyed on document identity ONLY. Insets and theme are absent on purpose —
     // that absence is the fix, and pdfViewerChrome.test.ts asserts it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [original, pdfTokenReady, pdfDocumentKey({
     fileUrl: originalFileUrl ?? '',
-    // Engine page: not the token — a refresh reaches the live page; a remount (webViewKey) reads the latest.
-    token: READER_ENGINE_PDF ? null : pdfToken,
-    nonce: pdfReloadNonce + webViewKey,
+    // Not the token: a refresh reaches the live page; a remount (webViewKey) reads the latest.
+    nonce: webViewKey,
     initialPage: pdfInitialPageRef.current ?? originalInitialPage ?? null,
   })])
 

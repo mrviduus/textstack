@@ -1,5 +1,5 @@
-// The engine page (ADR-025 Phase 3): runs INSIDE the reader WebView when EXPO_PUBLIC_READER_ENGINE is
-// on. It speaks the old page's protocol to RN — the same `window.__textstack*` calls in, the same
+// The engine page (ADR-025 Phase 3): runs INSIDE the reader WebView.
+// It speaks the old page's protocol to RN — the same `window.__textstack*` calls in, the same
 // messages out (`progress`, `restored`, `tap`, `chapterEnd`) — so the RN side, `useReaderPersistence`
 // and its ADR-019 write gate, does not change. The engine renders and keeps the place; this file only
 // translates. Bundled as an IIFE into readerEngineScript.generated.ts (apps/web/scripts/mobile-bundles.mjs).

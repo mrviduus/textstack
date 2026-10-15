@@ -193,6 +193,6 @@ describe('L1 / M6 wiring', () => {
 
   it('M6: the remounted document is rebuilt with current typography', () => {
     expect(doc).toContain('[documentKey, webViewKey]')
-    expect(doc).toContain('nonce: pdfReloadNonce + webViewKey')
+    expect(doc).toContain('nonce: webViewKey')
   })
 })

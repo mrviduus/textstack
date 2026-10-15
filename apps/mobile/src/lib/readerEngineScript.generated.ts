@@ -3,8 +3,7 @@
 // Regenerate: pnpm -C apps/web build:mobile-overlay
 //
 // IIFE bundle of the engine page (@textstack/reader-engine + its RN protocol),
-// transpiled for Android WebView (es2017). Loaded by buildEngineReaderHtml when
-// EXPO_PUBLIC_READER_ENGINE is on.
+// transpiled for Android WebView (es2017). Loaded by buildEngineReaderHtml.
 
 /* eslint-disable */
 /* prettier-ignore */

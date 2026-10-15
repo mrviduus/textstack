@@ -6,7 +6,6 @@ import { getAccessToken, onUnauthorized } from '../../lib/api'
 import { useToast } from '../../context/ToastContext'
 import { returnedToForeground, decideNewerPosition, readerMovedSince } from '../../lib/progressRestore'
 import { initialPdfJump } from '../../lib/pdfInitialJump'
-import { READER_ENGINE_PDF } from '../../lib/readerEnginePdfFlag'
 import type { ReaderShellProps } from './readerShellTypes'
 
 type Args = Pick<ReaderShellProps,
@@ -37,13 +36,11 @@ export function useReaderPdf({
   useEffect(() => () => hideToast(pdfNewerToastRef.current), [hideToast])
 
   // --- ADR-012 S4b: Original-layout PDF viewer state ------------------------
-  // The Bearer token is fetched once and injected into pdf.js httpHeaders via
-  // the viewer HTML. On a mid-read Range 401 the WebView posts `pdfAuthExpired`
-  // → we refresh (shared single-flight) and rebuild the source (nonce bump)
-  // restoring the current page — no visible banner (mobile UX).
+  // The Bearer token is fetched once and handed to the engine page in its HTML. On a mid-read
+  // Range 401 the page asks for a fresh one (`pdfTokenRequest`) or, failing that, posts
+  // `pdfAuthExpired` → we refresh (shared single-flight) and the page reopens in place.
   const [pdfToken, setPdfToken] = useState<string | null>(null)
   const [pdfTokenReady, setPdfTokenReady] = useState(false)
-  const [pdfReloadNonce, setPdfReloadNonce] = useState(0)
   const currentPdfPageRef = useRef<number | null>(null)
   const pdfInitialPageRef = useRef<number | null>(originalInitialPage ?? null)
   // S4c — top-visible page + page count for the PDF chrome + page-bookmark
@@ -204,20 +201,15 @@ export function useReaderPdf({
   const pdfAuthToastRef = useRef<number | null>(null)
   useEffect(() => () => hideToast(pdfAuthToastRef.current), [hideToast])
   const recoverPdfAuthRef = useRef<() => void>(() => {})
-  // Engine page: RN's last token answer was null — the session is already known gone (finding 4).
+  // RN's last token answer was null — the session is already known gone (finding 4).
   const pdfTokenDeniedRef = useRef(false)
   recoverPdfAuthRef.current = () => {
     onUnauthorized().then(tok => {
-      if (tok && READER_ENGINE_PDF) {
+      if (tok) {
         // The engine page reopens itself at its page with the new token: the document stays. The state
-        // follows (not in the document key in this mode), so a remount after a dead renderer opens with it.
+        // follows (not in the document key), so a remount after a dead renderer opens with it.
         setPdfToken(tok)
         injectJs(`window.__tsPdfReopen && window.__tsPdfReopen(${JSON.stringify(tok)})`)
-        return
-      }
-      if (tok) {
-        setPdfToken(tok)
-        setPdfReloadNonce(n => n + 1)
         return
       }
       showPdfReconnectRef.current()
@@ -287,10 +279,9 @@ export function useReaderPdf({
       }
       onUnauthorized().then(tok => answer(tok ?? null), () => answer(null))
     } else if (data.type === 'pdfAuthExpired') {
-      // Silent recovery (old: rebuild at the tracked page; engine: reopen in place, see recover).
-      if (!READER_ENGINE_PDF) pdfInitialPageRef.current = currentPdfPageRef.current ?? pdfInitialPageRef.current
-      pdfIsReloadRef.current = READER_ENGINE_PDF ? pdfReadyRef.current : true
-      if (!(READER_ENGINE_PDF && pdfTokenDeniedRef.current)) recoverPdfAuthRef.current()
+      // Silent recovery: the page reopens in place (see recover).
+      pdfIsReloadRef.current = pdfReadyRef.current
+      if (!pdfTokenDeniedRef.current) recoverPdfAuthRef.current()
       else { pdfTokenDeniedRef.current = false; showPdfReconnectRef.current() }   // just refused: no 2nd refresh
     } else if (data.type === 'pdfLoadError') {
       // Corrupt / unreadable PDF (NOT the 401 reload path). Surface the reader
@@ -302,7 +293,7 @@ export function useReaderPdf({
   }, [maybeInitialPdfJump, persistPdfPage, recordSessionActivity, repaintPdf, injectJs])
 
   return {
-    pdfToken, pdfTokenReady, pdfReloadNonce, isLocalOriginal,
+    pdfToken, pdfTokenReady, isLocalOriginal,
     currentPdfPageRef, pdfInitialPageRef, pdfReadyRef, pdfIsReloadRef,
     pdfCurrentPage, pdfNumPages, pdfError, setPdfError,
     scrollPdfToPage, onMessage,

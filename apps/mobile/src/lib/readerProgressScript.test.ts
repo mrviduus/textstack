@@ -1,138 +1,91 @@
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { openEnginePage } from '../test/enginePage'
+import { buildEngineReaderHtml } from './readerHtml'
 
 /**
- * Tests the progress reporter that actually ships.
+ * The progress the engine page reports (`place()` in readerEnginePage.ts), on the real page.
  *
- * `reportProgress` lives inside the HTML string handed to the reader WebView,
- * so it cannot be imported. Rather than leave the most consequential arithmetic
- * in the app untested, this extracts the two functions from the source and runs
- * them against a fake DOM.
+ * What it locks down: React Native feeds this value to `computeBookProgress()` as the WITHIN-CHAPTER
+ * fraction, so it must be measured against the chapter element — not the document, which also holds
+ * the end-of-chapter block (and, until 2026-10-03, appended chapters: the book percent ran backwards
+ * every time one landed). The scroll offset is chapter-relative for the same reason.
  *
- * What it locks down: React Native feeds this value to `computeBookProgress()`
- * as the WITHIN-CHAPTER fraction, so it must be measured against the chapter
- * element — not the document, which also holds the end-of-chapter block (and,
- * until 2026-10-03, appended chapters: the book percent ran backwards every
- * time one landed). The scroll offset is chapter-relative for the same reason.
+ * jsdom has no layout: the chapter's box, the scroll and the viewport are stubbed.
  */
 
-const SOURCE = readFileSync(join(__dirname, 'readerHtml.ts'), 'utf8')
-
-function extractFunction(name: string): string {
-  const start = SOURCE.indexOf(`function ${name}()`)
-  if (start < 0) throw new Error(`${name} not found in readerHtml.ts — did it get renamed?`)
-  let depth = 0
-  let seenBrace = false
-  let i = start
-  for (; i < SOURCE.length; i++) {
-    const c = SOURCE[i]
-    if (c === '{') { depth++; seenBrace = true } else if (c === '}') {
-      depth--
-      if (seenBrace && depth === 0) { i++; break }
-    }
-  }
-  return SOURCE.slice(start, i)
-}
-
-const SCRIPT = `${extractFunction('currentChapterBounds')}\n${extractFunction('reportProgress')}`
-
-interface ProgressMessage {
-  type: string
-  progress: number
-  chapterSlug: string | null
-  scrollY: number
-}
-
-interface Scenario {
-  /** The chapter element, in document coordinates. */
-  chapter: { slug: string; top: number; height: number } | null
-  scrollY: number
-  innerHeight: number
-  scrollHeight: number
-  text?: string
-}
-
-/** Runs the extracted reporter once and returns the message it posted, if any. */
-function report(s: Scenario): ProgressMessage | null {
-  const sent: ProgressMessage[] = []
-  const ctx: Record<string, unknown> = {
-    tsChapter: s.chapter && {
-      slug: s.chapter.slug,
-      el: {
-        getBoundingClientRect: () => ({
-          top: s.chapter!.top - s.scrollY,
-          bottom: s.chapter!.top + s.chapter!.height - s.scrollY,
-        }),
-      },
-    },
-    window: {
-      scrollY: s.scrollY,
-      innerHeight: s.innerHeight,
-      ReactNativeWebView: { postMessage: (m: string) => sent.push(JSON.parse(m)) },
-    },
-    document: {
-      documentElement: { scrollHeight: s.scrollHeight },
-      body: { innerText: s.text ?? 'a chapter with real prose in it' },
-    },
-    // The shipped script keeps this in an enclosing scope; -1 guarantees the
-    // 0.005 delta gate opens so a single call always reports.
-    lastProgress: -1,
-    isFinite,
-    Math,
-    JSON,
-  }
-  // eslint-disable-next-line no-new-func
-  new Function('ctx', `with (ctx) { ${SCRIPT}; reportProgress(); }`)(ctx)
-  return sent[0] ?? null
-}
-
 const VIEWPORT = 800
-const ch = (slug: string, top: number, height: number) => ({ slug, top, height })
+type Layout = { top: number; height: number }
 
-describe('reader progress reporter', () => {
-  it('reports 0 at the top and 1 at the bottom', () => {
-    expect(report({ chapter: ch('one', 0, 3000), scrollY: 0, innerHeight: VIEWPORT, scrollHeight: 3000 }))
-      .toMatchObject({ progress: 0, chapterSlug: 'one', scrollY: 0 })
-    expect(report({ chapter: ch('one', 0, 3000), scrollY: 2200, innerHeight: VIEWPORT, scrollHeight: 3000 }))
-      .toMatchObject({ progress: 1, chapterSlug: 'one' })
+async function page(html = '<p>A chapter with real prose in it.</p>') {
+  const p = await openEnginePage(html)
+  const w = p.w as unknown as { scrollY: number; innerHeight: number }
+  const layout: Layout = { top: 0, height: 0 }
+  Object.defineProperty(p.w, 'innerHeight', { configurable: true, value: VIEWPORT })
+  Object.defineProperty(p.w, 'scrollY', { configurable: true, writable: true, value: 0 })
+  // The engine reads the scroll off the page's scroller.
+  Object.defineProperty(p.w.document.documentElement, 'scrollTop', { configurable: true, get: () => w.scrollY, set: (v: number) => { w.scrollY = v } })
+  const chapter = p.root.firstElementChild as HTMLElement
+  chapter.getBoundingClientRect = () => ({ top: layout.top - w.scrollY, bottom: layout.top + layout.height - w.scrollY } as DOMRect)
+  /** Scrolls to `scrollY` with the chapter laid out at `l`; the progress the page reports, or null. */
+  const at = async (l: Layout, scrollY: number) => {
+    Object.assign(layout, l)
+    w.scrollY = scrollY
+    p.messages.length = 0
+    p.w.dispatchEvent(new p.w.Event('scroll'))
+    p.w.document.dispatchEvent(new p.w.Event('scroll'))
+    await p.settle()
+    return (p.messages.filter((m) => m.type === 'progress').at(-1) ?? null) as { progress: number; scrollY: number } | null
+  }
+  return { ...p, at }
+}
+
+describe('engine page progress', () => {
+  it('reports 0 at the top and 1 at the bottom of the chapter', async () => {
+    const p = await page()
+    const ch = { top: 0, height: 5000 }
+    expect((await p.at(ch, 2100))!.progress).toBeCloseTo(0.5)
+    expect((await p.at(ch, 4200))!.progress).toBe(1)
+    expect((await p.at(ch, 0))!.progress).toBe(0)
   })
 
-  it('treats a chapter shorter than the viewport as read', () => {
-    expect(report({ chapter: ch('one', 0, 500), scrollY: 0, innerHeight: VIEWPORT, scrollHeight: VIEWPORT }))
-      .toMatchObject({ progress: 1 })
+  it('reaches 1 at the end of the chapter text, not at the end of the block below it', async () => {
+    const p = await page()
+    // The chapter-end block sits below the chapter: the document is taller, the chapter is what counts.
+    const ch = { top: 0, height: 3000 }
+    await p.at(ch, 1000)
+    expect((await p.at(ch, 3000 - VIEWPORT))!.progress).toBe(1)
   })
 
-  it('reports nothing at all for an empty chapter', () => {
-    // Restoring a saved position calls scrollTo, which fires this listener. A
-    // blank chapter would otherwise bank 100% into the book-wide percent
-    // without the user reading a word.
-    expect(report({
-      chapter: ch('one', 0, 0), scrollY: 0, innerHeight: VIEWPORT, scrollHeight: VIEWPORT, text: '   \n  ',
-    })).toBeNull()
+  it('reports a chapter-relative offset when the chapter sits below the page padding', async () => {
+    const p = await page()
+    const r = (await p.at({ top: 120, height: 5000 }, 1120))!
+    expect(r.scrollY).toBe(1000)
+    expect(r.progress).toBeCloseTo(1000 / (5000 - VIEWPORT))
   })
 
-  it('reaches 1 at the end of the chapter text, not at the end of the block below it', () => {
-    // The end-of-chapter block adds ~400px under the chapter. Measured against
-    // the document, the reader standing at the last line would read ~85%.
-    expect(report({ chapter: ch('one', 0, 3000), scrollY: 2200, innerHeight: VIEWPORT, scrollHeight: 3400 }))
-      .toMatchObject({ progress: 1, chapterSlug: 'one' })
-    expect(report({ chapter: ch('one', 0, 3000), scrollY: 2600, innerHeight: VIEWPORT, scrollHeight: 3400 }))
-      .toMatchObject({ progress: 1 })
+  it('treats a chapter shorter than the viewport as read', async () => {
+    // jsdom lays nothing out: the chapter is 0 px tall, shorter than the screen. The open's report says read.
+    const p = await openEnginePage('<p>A short chapter.</p>')
+    expect(p.messages.filter((m) => m.type === 'progress').at(-1)).toMatchObject({ progress: 1 })
   })
 
-  it('reports a chapter-relative offset when the chapter sits below the page padding', () => {
-    const msg = report({ chapter: ch('one', 52, 3000), scrollY: 1052, innerHeight: VIEWPORT, scrollHeight: 3452 })
-    expect(msg?.scrollY).toBe(1000)
+  it('a saved offset is restored in the same space the report wrote it (chapter-relative)', async () => {
+    const p = await page()
+    const ch = { top: 52, height: 3000 }   // below the page padding
+    await p.at(ch, 500)
+    p.messages.length = 0
+    p.call('__textstackRestoreScroll(1200, 5)')
+    await p.settle()
+    expect(p.messages.find((m) => m.type === 'restored')).toMatchObject({ restoreId: 5, scrollY: 1200 })
   })
 
-  it('stays inside 0..1 and is monotonic as the reader scrolls forward', () => {
-    let prev = 0
-    for (let y = 0; y <= 2600; y += 100) {
-      const msg = report({ chapter: ch('one', 0, 3000), scrollY: y, innerHeight: VIEWPORT, scrollHeight: 3400 })!
-      expect(msg.progress).toBeGreaterThanOrEqual(prev)
-      expect(msg.progress).toBeLessThanOrEqual(1)
-      prev = msg.progress
-    }
+  it('the document never makes scrolling smooth (it turned every restore into an animation, acked before it landed)', () => {
+    expect(buildEngineReaderHtml('<p>x</p>')).not.toMatch(/scroll-behavior:\s*smooth/)
+  })
+
+  it('reports nothing at all for an empty chapter', async () => {
+    const p = await openEnginePage('<p>   </p>')
+    expect(p.messages.filter((m) => m.type === 'progress')).toEqual([])
   })
 })
+

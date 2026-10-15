@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
- * With EXPO_PUBLIC_READER_ENGINE_PDF on, the Original-layout PDF document is the engine page, mounted the
- * way the old viewer was: streamed from the API origin, or a downloaded file beside a file:// base (the
+ * The Original-layout PDF document is the engine page: streamed from the API origin, or a downloaded
+ * file beside a file:// base (the
  * reading path needs no network and no token for it).
  */
 import { act } from 'react'
@@ -10,12 +10,9 @@ import { renderHook } from '../../test/renderHook'
 import { useReaderDocument } from './useReaderDocument'
 
 const built: { url: string; token: string | null; local: boolean }[] = []
-vi.mock('../../lib/readerEnginePdfFlag', () => ({ READER_ENGINE_PDF: true }))
 vi.mock('../../lib/api', () => ({ API_URL: 'https://api.test' }))
 vi.mock('../../lib/readerHtml', () => ({
-  buildReaderHtml: () => '<doc>',
   buildEngineReaderHtml: () => '<doc>',
-  buildPdfViewerHtml: () => '<old pdf>',
   buildPdfEngineHtml: (url: string, token: string | null, o: { local: boolean }) => { built.push({ url, token, local: o.local }); return '<pdf engine>' },
 }))
 
@@ -28,7 +25,7 @@ function mount(fileUrl: string, token: string | null, ready = true) {
     settings: { fontSize: 18, lineHeight: 1.6, textAlign: 'left' } as never,
     resolvedFontFamily: 'serif', resolvedTheme: { backgroundColor: '#fff', textColor: '#000' } as never,
     insets: { top: 24, bottom: 0, left: 0, right: 0 },
-    pdfToken: p.token, pdfTokenReady: p.ready, pdfReloadNonce: 0, isLocalOriginal: fileUrl.startsWith('file://'),
+    pdfToken: p.token, pdfTokenReady: p.ready, isLocalOriginal: fileUrl.startsWith('file://'),
     pdfInitialPageRef: ref(null), currentPdfPageRef: ref(null), pdfIsReloadRef: ref(false), pdfReadyRef: ref(false),
   }), { token, ready })
 }

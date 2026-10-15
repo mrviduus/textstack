@@ -30,7 +30,7 @@ export interface ReaderShellProps {
   chapter: ReaderShellChapter
   /** URL slug of the current chapter. */
   chapterSlug: string
-  /** 3rd arg to buildReaderHtml (chapter slug baked into 'progress' messages).
+  /** 3rd arg to buildEngineReaderHtml (chapter slug baked into 'progress' messages).
    *  Public passes its chapterSlug; user-book historically passed undefined. */
   htmlChapterSlug?: string
   bookTitle: string | null

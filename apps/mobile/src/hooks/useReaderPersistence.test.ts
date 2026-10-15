@@ -44,8 +44,8 @@ vi.mock('../context/LanguageContext', () => ({ useLanguage: () => ({ language: '
 vi.mock('./useOnline', () => ({ useOnline: () => true }))
 vi.mock('../lib/api', () => ({ API_URL: 'https://api.test' }))
 vi.mock('../lib/readerHtml', () => ({
-  buildReaderHtml: (html: string, _t: unknown, slug: string) => `<doc ${slug}>${html}`,
-  buildPdfViewerHtml: () => '<pdf>',
+  buildEngineReaderHtml: (html: string, _t: unknown, slug: string) => `<doc ${slug}>${html}`,
+  buildPdfEngineHtml: () => '<pdf>',
 }))
 
 // --- harness -----------------------------------------------------------------------------------
@@ -137,7 +137,7 @@ function mountReader(initial: Partial<Props> = {}) {
       chapter, settings: { fontSize: p.fontSize, lineHeight: 1.6, textAlign: 'left' } as never,
       resolvedFontFamily: p.fontFamily, resolvedTheme: { backgroundColor: '#fff', textColor: '#000' } as never,
       insets: { top: 0, bottom: 0, left: 0, right: 0 },
-      pdfToken: null, pdfTokenReady: false, pdfReloadNonce: 0, isLocalOriginal: false,
+      pdfToken: null, pdfTokenReady: false, isLocalOriginal: false,
       pdfInitialPageRef, currentPdfPageRef, pdfIsReloadRef, pdfReadyRef,
     })
     // ReaderShell's onLoadEnd, reflow branch — the persistence and typography half of it.

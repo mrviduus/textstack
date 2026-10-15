@@ -40,7 +40,7 @@ describe('L4 — a failed refresh after a PDF 401 is not silent', () => {
   it('a null token shows a toast whose action retries the same recovery', () => {
     const start = pdfHook.indexOf('recoverPdfAuthRef.current = () => {')
     const body = pdfHook.slice(start, pdfHook.indexOf('\n  }\n', start))
-    expect(body).toMatch(/if \(tok\) \{[\s\S]*setPdfReloadNonce[\s\S]*return\s*\}/)
+    expect(body).toMatch(/if \(tok\) \{[\s\S]*__tsPdfReopen[\s\S]*return\s*\}/)
     expect(body).toContain('showPdfReconnectRef.current()')
     // The toast lives in its own function since the engine page can reach it without a refresh.
     const toastAt = pdfHook.indexOf('showPdfReconnectRef.current = () => {')
