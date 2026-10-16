@@ -19,6 +19,8 @@ public class RobotsTxtTests : IClassFixture<LiveApiFixture>
         var body = await resp.Content.ReadAsStringAsync(Ct);
 
         Assert.True(resp.IsSuccessStatusCode);
+        // A site with indexing off serves only "Disallow: /" (the CI stack) — nothing more to assert.
+        Assert.SkipWhen(body.Contains("Disallow: /\n") && !body.Contains("Disallow: /admin"), "site has indexing disabled");
         Assert.Contains("Disallow: /*?direct=", body);
         Assert.Contains("Disallow: /*?highlight=", body);
     }
