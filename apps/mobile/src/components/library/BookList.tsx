@@ -15,7 +15,8 @@ import { fonts } from '../../theme/typography'
 import { AddToCollectionSheet } from './AddToCollectionSheet'
 import { useSheetMount } from '../../hooks/useSheetMount'
 import { BookStatusBadge } from './BookStatusBadge'
-import { ResumeButton } from './ResumeButton'
+import { ResumeButton, useResume } from './ResumeButton'
+import { continuePickFor, firstContinuePick, keyOfPick } from '../../lib/continueRow'
 import { GeneratedCover } from './GeneratedCover'
 import { useBookActions } from '../../hooks/useBookActions'
 import { styles, type ViewMode } from './shared'
@@ -76,10 +77,11 @@ export function BookList({
   // One pick per book, keyed like the rows. Local-aware (rankContinueReading), so a book read
   // offline resumes where it was left, not at the stale server position.
   const picks = useMemo(
-    () => new Map(resumeList.map(p => [p.type === 'userbook' ? `u:${p.id}` : `s:${p.slug}`, p] as const)),
+    () => new Map(resumeList.map(p => [keyOfPick(p), p] as const)),
     [resumeList],
   )
-  const top = resumeList[0]
+  const top = useMemo(() => firstContinuePick(entries, picks), [entries, picks])
+  const { open: resume, busyKey } = useResume()
   const numColumns = viewMode === 'grid' ? Math.max(2, Math.floor(width / 130)) : 1
 
   const { showSavedActions, showUploadActions } = useBookActions()
@@ -198,8 +200,7 @@ export function BookList({
     // saying the same words.
     const pill = isProcessing ? 'processing' : isFailed ? 'failed' : showNew ? 'new' : null
 
-    const pick = picks.get(e.kind === 'saved' ? `s:${e.item.slug}` : `u:${e.book.id}`)
-    const canContinue = pick && !isFinished && (e.kind === 'saved' || isReady)
+    const pick = continuePickFor(e, picks)
 
     if (viewMode === 'grid') {
       const cardWidth = (width - 20 - (numColumns - 1) * 10) / numColumns
@@ -222,9 +223,9 @@ export function BookList({
                   <BookStatusBadge variant={pill} />
                 </View>
               )}
-              {canContinue && (
+              {pick && (
                 <View style={{ position: 'absolute', right: 6, bottom: 6 }}>
-                  <ResumeButton pick={pick} filled={pick === top} compact />
+                  <ResumeButton pick={pick} filled={pick === top} compact onResume={resume} busyKey={busyKey} />
                 </View>
               )}
             </View>
@@ -253,7 +254,7 @@ export function BookList({
     }
 
     const serverProgress = e.kind === 'saved' ? progressMap[e.item.editionId] : undefined
-    const continuePill = canContinue ? <ResumeButton pick={pick} filled={pick === top} /> : null
+    const continuePill = pick ? <ResumeButton pick={pick} filled={pick === top} onResume={resume} busyKey={busyKey} /> : null
     const lastRead = e.kind === 'saved' ? serverProgress?.updatedAt : e.book.progressUpdatedAt
 
     return (
