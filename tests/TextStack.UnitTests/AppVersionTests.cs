@@ -112,12 +112,26 @@ public class AppVersionTests
     }
 
     [Fact]
+    public void GetAppConfig_LatestBuildSet_ReturnsIt()
+    {
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Mobile:LatestBuild"] = "32" })
+            .Build();
+
+        var result = Assert.IsType<Ok<AppConfigResponse>>(AppConfigEndpoints.GetAppConfig(config));
+
+        Assert.Equal(32, result.Value!.LatestBuild);
+        Assert.Null(result.Value.MinSupportedBuild);
+    }
+
+    [Fact]
     public void GetAppConfig_Unset_ReturnsNull()
     {
         var result = Assert.IsType<Ok<AppConfigResponse>>(
             AppConfigEndpoints.GetAppConfig(new ConfigurationBuilder().Build()));
 
         Assert.Null(result.Value!.MinSupportedBuild);
+        Assert.Null(result.Value.LatestBuild);
     }
 
     private sealed class ScopeCapturingLogger : ILogger<AppVersionMiddleware>

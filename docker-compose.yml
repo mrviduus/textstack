@@ -127,6 +127,8 @@ services:
       # Oldest Android build (versionCode, e.g. 23) allowed to run; below it the app shows "Please update".
       # Empty or <=0 = no minimum. Advisory: the API never refuses an old build.
       Mobile__MinSupportedBuild: ${MOBILE_MIN_SUPPORTED_BUILD:-}
+      # Newest Android build (versionCode) on the tester track; older builds get a dismissible "new version" bar.
+      Mobile__LatestBuild: ${MOBILE_LATEST_BUILD:-}
     volumes:
       - ./data/storage:/storage
       - ./data/textstack:/data/textstack

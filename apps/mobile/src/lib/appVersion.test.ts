@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { appVersionHeaders, isBelowMinimumBuild, isCheckDue, CHECK_INTERVAL_MS } from './appVersion'
+import { appVersionHeaders, isBelowMinimumBuild, isCheckDue, buildGate, nudgeVisible, isBelowBuild, CHECK_INTERVAL_MS } from './appVersion'
 
 describe('isBelowMinimumBuild', () => {
   it('build 22 < min 23 → blocked', () => expect(isBelowMinimumBuild('22', 23)).toBe(true))
@@ -14,6 +14,53 @@ describe('isBelowMinimumBuild', () => {
     })
   it.each([[null], [undefined], [0], [-1], [''], [NaN]])('minimum %j → never blocks', (min) => {
     expect(isBelowMinimumBuild('22', min as string | number | null)).toBe(false)
+  })
+})
+
+describe('buildGate', () => {
+  it('below the minimum → blocked, even when also below latest', () => {
+    expect(buildGate('22', { minSupportedBuild: 23, latestBuild: 32 })).toBe('blocked')
+  })
+  it('supported but below latest → nudge', () => {
+    expect(buildGate('31', { minSupportedBuild: 23, latestBuild: 32 })).toBe('nudge')
+    expect(buildGate('31', { latestBuild: 32 })).toBe('nudge')
+  })
+  it('on the latest build or newer → ok', () => {
+    expect(buildGate('32', { latestBuild: 32 })).toBe('ok')
+    expect(buildGate('33', { latestBuild: 32 })).toBe('ok')
+  })
+  it('no config, garbage, or an unknown current build → ok (never nag on a bad answer)', () => {
+    expect(buildGate('31', {})).toBe('ok')
+    expect(buildGate('31', { latestBuild: 0 })).toBe('ok')
+    expect(buildGate(null, { minSupportedBuild: 23, latestBuild: 32 })).toBe('ok')
+    expect(buildGate('abc', { latestBuild: 32 })).toBe('ok')
+  })
+})
+
+describe('nudgeVisible', () => {
+  const base = { gate: 'nudge' as const, latest: 32, dismissedFor: null as number | null, reading: false, legacyBanner: false }
+  it('shows on a nudge nobody dismissed', () => expect(nudgeVisible(base)).toBe(true))
+  it('hidden unless the gate says nudge', () => {
+    expect(nudgeVisible({ ...base, gate: 'ok' })).toBe(false)
+    expect(nudgeVisible({ ...base, gate: 'blocked' })).toBe(false)
+  })
+  it('hidden in the reader — it must not sit over the text or its controls', () => {
+    expect(nudgeVisible({ ...base, reading: true })).toBe(false)
+  })
+  it('hidden when the legacy-runtime banner already says the same thing', () => {
+    expect(nudgeVisible({ ...base, legacyBanner: true })).toBe(false)
+  })
+  it('a dismissal covers that build only — a newer latest shows the bar again', () => {
+    expect(nudgeVisible({ ...base, dismissedFor: 32 })).toBe(false)
+    expect(nudgeVisible({ ...base, latest: 33, dismissedFor: 32 })).toBe(true)
+  })
+})
+
+describe('isBelowBuild', () => {
+  it('is the neutral comparison behind both gates', () => {
+    expect(isBelowBuild('31', 32)).toBe(true)
+    expect(isBelowBuild('32', 32)).toBe(false)
+    expect(isBelowBuild(null, 32)).toBe(false)
   })
 })
 
