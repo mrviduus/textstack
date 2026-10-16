@@ -22,8 +22,8 @@ const themes: { value: Theme; label: string; bg: string }[] = [
 ]
 
 const fonts: { value: FontFamily; label: string; fontFamily: string }[] = [
-  { value: 'serif', label: 'Serif', fontFamily: 'Georgia, serif' },
-  { value: 'sans', label: 'Sans', fontFamily: 'sans-serif' },
+  { value: 'serif', label: 'Serif', fontFamily: 'var(--font-serif)' },
+  { value: 'sans', label: 'Sans', fontFamily: 'var(--font-sans)' },
   { value: 'dyslexic', label: 'Dyslexic', fontFamily: '"OpenDyslexic", sans-serif' },
 ]
 
@@ -33,7 +33,7 @@ const alignments: { value: TextAlign; label: string }[] = [
   { value: 'justify', label: 'Justify' },
 ]
 
-const lineHeights = [1.5, 1.65, 1.8]
+const lineHeights = [1.5, 1.6, 1.65, 1.8]
 
 const ttsSpeeds = [0.75, 1.0, 1.25, 1.5, 2.0]
 

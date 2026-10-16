@@ -12,7 +12,7 @@ interface Props {
   onUpdate: (patch: Partial<ReaderSettings>) => void
 }
 
-const lineHeights = [1.5, 1.65, 1.8]
+const lineHeights = [1.5, 1.6, 1.65, 1.8]
 const fontOptions: { key: ReaderSettings['fontFamily']; label: string }[] = [
   { key: 'serif', label: 'Serif' },
   { key: 'sans', label: 'Sans' },

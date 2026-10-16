@@ -11,8 +11,16 @@ import { resolve } from 'node:path'
 // Static assets are invisible to unit tests unless a test goes looking, so this one
 // does. Any font added under public/fonts should get a line here.
 const FONTS = ['OpenDyslexic-Regular.woff2']
+const TEXTSTACK_FONTS = ['Regular', 'Italic', 'Bold', 'BoldItalic']
 
 describe('bundled web fonts', () => {
+  for (const name of TEXTSTACK_FONTS) {
+    it(`TextStack ${name} is a real WOFF2 font`, () => {
+      const bytes = readFileSync(resolve(__dirname, `../../assets/fonts/TextStack-${name}.woff2`))
+      expect(bytes.subarray(0, 4).toString('ascii')).toBe('wOF2')
+      expect(bytes.length).toBeGreaterThan(10_000)
+    })
+  }
   for (const name of FONTS) {
     it(`${name} is a real woff2`, () => {
       const bytes = readFileSync(resolve(__dirname, '../../../public/fonts', name))

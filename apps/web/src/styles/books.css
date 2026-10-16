@@ -61,9 +61,9 @@
 }
 
 .site-header__wordmark {
-  font-family: 'Crimson Pro', 'Playfair Display', serif;
+  font-family: var(--font-serif);
   font-size: 24px;
-  font-weight: 600;
+  font-weight: 400;
   letter-spacing: -0.02em;
   color: var(--color-text);
   transition: font-size 0.3s ease;
@@ -2490,7 +2490,7 @@ html.dark .search-page__sub-result-highlight b {
 }
 
 .author-detail__name {
-  font-family: 'Crimson Pro', 'Playfair Display', serif;
+  font-family: var(--font-serif);
   font-size: clamp(2.5rem, 5vw, 4rem);
   font-weight: 600;
   letter-spacing: -0.02em;
@@ -2525,7 +2525,7 @@ html.dark .search-page__sub-result-highlight b {
 }
 
 .author-detail__about-inline h2 {
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-serif);
   font-size: 1.25rem;
   font-weight: 600;
   margin-bottom: 12px;
@@ -5374,7 +5374,7 @@ html.dark .user-book-detail__spinner {
 }
 
 .library-list-item__title {
-  font-family: 'Crimson Pro', 'Playfair Display', serif;
+  font-family: var(--font-serif);
   font-size: clamp(1.5rem, 3vw, 2rem);
   font-weight: 500;
   color: var(--color-text);
@@ -5677,7 +5677,7 @@ html.dark .user-book-detail__spinner {
 }
 
 .book-hero__title {
-  font-family: 'Crimson Pro', 'Playfair Display', serif;
+  font-family: var(--font-serif);
   font-size: clamp(2.5rem, 6vw, 5rem);
   font-weight: 700;
   line-height: 1.1;
@@ -5870,7 +5870,7 @@ html.dark .book-hero__read-btn--secondary {
   display: flex;
   align-items: center;
   gap: 16px;
-  font-family: 'Crimson Pro', 'Playfair Display', serif;
+  font-family: var(--font-serif);
   font-size: 1.75rem;
   font-weight: 700;
   margin: 0 0 48px;
@@ -6003,7 +6003,7 @@ html.dark .book-hero__read-btn--secondary {
 }
 
 .book-about h2 {
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-serif);
   font-size: 1.5rem;
   font-weight: 600;
   margin-bottom: 16px;
@@ -6023,7 +6023,7 @@ html.dark .book-hero__read-btn--secondary {
 }
 
 .book-themes h2 {
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-serif);
   font-size: 1.5rem;
   font-weight: 600;
   margin-bottom: 24px;
@@ -6063,7 +6063,7 @@ html.dark .book-hero__read-btn--secondary {
 }
 
 .book-relevance h2 {
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-serif);
   font-size: 1.5rem;
   font-weight: 600;
   margin-bottom: 16px;
@@ -6083,7 +6083,7 @@ html.dark .book-hero__read-btn--secondary {
 }
 
 .book-author-section h2 {
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-serif);
   font-size: 1.5rem;
   font-weight: 600;
   margin-bottom: 16px;
@@ -6108,7 +6108,7 @@ html.dark .book-hero__read-btn--secondary {
 }
 
 .book-faq h2 {
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-serif);
   font-size: 1.5rem;
   font-weight: 600;
   margin-bottom: 24px;
@@ -6223,7 +6223,7 @@ html.dark .book-hero__read-btn--secondary {
 }
 
 .author-about h2 {
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-serif);
   font-size: 1.5rem;
   font-weight: 600;
   margin-bottom: 16px;
@@ -6241,7 +6241,7 @@ html.dark .book-hero__read-btn--secondary {
 }
 
 .author-themes h2 {
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-serif);
   font-size: 1.5rem;
   font-weight: 600;
   margin-bottom: 24px;
@@ -6297,7 +6297,7 @@ html.dark .book-hero__read-btn--secondary {
 }
 
 .author-relevance h2 {
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-serif);
   font-size: 1.5rem;
   font-weight: 600;
   margin-bottom: 16px;
@@ -6316,7 +6316,7 @@ html.dark .book-hero__read-btn--secondary {
 }
 
 .author-faq h2 {
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-serif);
   font-size: 1.5rem;
   font-weight: 600;
   margin-bottom: 24px;
@@ -6422,7 +6422,7 @@ html.dark .book-hero__read-btn--secondary {
   margin-top: 48px;
 }
 .book-more-by-author h2 {
-  font-family: 'Crimson Pro', 'Playfair Display', serif;
+  font-family: var(--font-serif);
   font-size: 20px;
   font-weight: 600;
   margin-bottom: 24px;
@@ -6454,7 +6454,7 @@ html.dark .book-hero__read-btn--secondary {
   object-fit: cover;
 }
 .book-more-by-author__cover-text {
-  font-family: 'Crimson Pro', 'Playfair Display', serif;
+  font-family: var(--font-serif);
   font-size: 28px;
   font-weight: 600;
   color: #fff;

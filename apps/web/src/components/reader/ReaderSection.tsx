@@ -29,9 +29,9 @@ interface Props {
 function fontFamily(f: ReaderSettings['fontFamily']): string {
   switch (f) {
     case 'serif':
-      return 'Georgia, "Times New Roman", serif'
+      return 'var(--font-serif)'
     case 'sans':
-      return '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+      return 'var(--font-sans)'
     case 'dyslexic':
       return '"OpenDyslexic", sans-serif'
   }

@@ -106,6 +106,16 @@ describe('ReaderSection with the engine', () => {
     expect(article.style.textAlign).toBe('center')
   })
 
+  it.each([
+    ['serif', 'var(--font-serif)'],
+    ['sans', 'var(--font-sans)'],
+    ['dyslexic', '"OpenDyslexic", sans-serif'],
+  ] as const)('engine_FontChoice_%s_ReachesTheChapter', async (fontFamily, expected) => {
+    const { container } = render(<ReaderSection chapterId="c1" chapterSlug="ch-1" chapterIndex={0} html="<p>One</p>" settings={{ ...settings, fontFamily }} />)
+    await opened()
+    expect(container.querySelector('article')!.style.fontFamily).toBe(expected)
+  })
+
   it('engine_OpenFails_ReportsTheErrorAndTheChapter_849', async () => {
     const onEngineError = vi.fn()
     reportError.mockClear()

@@ -6,7 +6,7 @@ export type TextAlign = 'left' | 'center' | 'justify'
 
 export interface ReaderSettings {
   fontSize: number // 16-26
-  lineHeight: number // 1.5, 1.65, 1.8
+  lineHeight: number // 1.5, 1.6, 1.65, 1.8
   textAlign: TextAlign
   theme: Theme
   fontFamily: FontFamily
@@ -19,8 +19,8 @@ export interface ReaderSettings {
 const STORAGE_KEY = 'reader.settings.v1'
 
 const defaults: ReaderSettings = {
-  fontSize: 18,
-  lineHeight: 1.8,
+  fontSize: 20,
+  lineHeight: 1.6,
   textAlign: 'center',
   theme: 'light',
   fontFamily: 'serif',

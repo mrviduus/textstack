@@ -1,4 +1,4 @@
-import { openDyslexicBase64 } from './openDyslexicBase64'
+import { readerFontFaceCss } from './readerFonts'
 import { pdfChromeCss } from './pdfViewerChrome'
 import { readerChromeCss, type ReaderChrome } from './readerChrome'
 import { SCROLL_DIR_DETECTOR } from './readerBridge'
@@ -15,9 +15,9 @@ export interface ReaderTheme {
 }
 
 const defaultTheme: ReaderTheme = {
-  fontSize: 18,
-  lineHeight: 1.65,
-  fontFamily: 'Georgia, serif',
+  fontSize: 20,
+  lineHeight: 1.6,
+  fontFamily: '"TextStack", Georgia, serif',
   textAlign: 'left',
   backgroundColor: '#ffffff',
   textColor: '#111827',
@@ -27,16 +27,6 @@ const defaultTheme: ReaderTheme = {
  *  can. This value lands in an HTML attribute, so it is escaped, not trusted. */
 function escapeAttr(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
-
-function buildFontFace(fontFamily: string): string {
-  if (!fontFamily.includes('OpenDyslexic')) return ''
-  return `@font-face {
-    font-family: 'OpenDyslexic';
-    src: url(data:font/woff2;base64,${openDyslexicBase64}) format('woff2');
-    font-weight: normal;
-    font-style: normal;
-  }`
 }
 
 /**
@@ -271,7 +261,7 @@ export function buildEngineReaderHtml(chapterHtml: string, theme: ReaderTheme = 
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
   <style>
-${readerStyle(theme, chrome, buildFontFace(theme.fontFamily))}
+${readerStyle(theme, chrome, readerFontFaceCss(theme.fontFamily))}
   </style>
 </head>
 <body>
