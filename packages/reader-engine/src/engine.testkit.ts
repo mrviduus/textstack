@@ -102,7 +102,7 @@ export function destroyAll() { engines.splice(0).forEach((e) => e.destroy()) }
  * `browserBoxes`: no `rects` seam, the engine reads `Range.getClientRects` itself, and that browser adds a
  * zero-width and a zero-height box beside every line box, as real ones do at a line end or a column edge.
  */
-export function makeReader(opts: { html?: string; fonts?: () => Promise<void>; noCaret?: boolean; caret?: () => { node: Node; offset: number }; browserBoxes?: boolean } = {}) {
+export function makeReader(opts: { html?: string; fonts?: () => Promise<void>; noCaret?: boolean; caret?: () => { node: Node; offset: number }; browserBoxes?: boolean; glyphTop?: (range: Range) => number } = {}) {
   const html = opts.html ?? CHAPTER
   const root = document.createElement('div')
   document.body.append(root)
@@ -166,6 +166,7 @@ export function makeReader(opts: { html?: string; fonts?: () => Promise<void>; n
     schedule: (cb) => { setTimeout(cb, 0) },
     observeResize: (_el, cb) => { resize = cb; return () => { resize = () => {} } },
     fontsReady: opts.fonts ?? (() => Promise.resolve()),
+    glyphTop: opts.glyphTop,
     rects: opts.browserBoxes ? undefined : (range) => { boxReads++; return opts.noCaret ? [] : lineBoxes(root, range) },
     caret: opts.noCaret ? () => null : opts.caret ?? caret,
   })

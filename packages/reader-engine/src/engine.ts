@@ -81,7 +81,9 @@ const SVG = 'http://www.w3.org/2000/svg'
 /** On every engine's root: its text is reader text, never a cover over another engine's line (E45). */
 const MARK = 'data-reader-engine'
 /** A translation label's look (E44), as both hosts styled `.reader-translation` before. */
-const LABEL_LOOK = 'font: italic 400 0.42em -apple-system, system-ui, sans-serif; opacity: .55'
+const LABEL_LOOK = 'font-style: italic; font-weight: 400; font-size: 0.42em; opacity: .55'
+/** Air between a label's baseline and its word's glyph top, px. */
+const LABEL_GAP = 2
 /** Style `'dot'` (E31): a small dot just after the item's last line, no fill (web's reviewed highlight). */
 const DOT = 'dot'
 const drawDot: DrawFn = (rects) => {
@@ -156,6 +158,17 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
     return Array.from(range.getClientRects())
       .filter((r) => r.width > 0 && r.height > 0)
       .map((r) => ({ x: r.left - o.left, y: r.top - o.top, width: r.width, height: r.height }))
+  })
+  const canvas = doc.createElement('canvas').getContext?.('2d') ?? null
+  /** E54: from the line box's top down to the word's glyph top — ascent the font reserves minus the letters' own height. */
+  const glyphTop = opts.glyphTop ?? ((range: Range): number => {
+    const el = range.startContainer.parentElement
+    if (!canvas || !el) return 0
+    const cs = win.getComputedStyle(el)
+    canvas.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`
+    const m = canvas.measureText(range.toString())
+    const top = m.fontBoundingBoxAscent - m.actualBoundingBoxAscent
+    return Number.isFinite(top) && top > 0 ? top : 0   // no metrics (old WebView): the box top, as before
   })
   const frame = () => new Promise<void>((r) => schedule(r))
 
@@ -471,7 +484,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
         const label = doc.createElementNS(SVG, 'text')
         label.setAttribute('class', 'reader-translation')
         label.setAttribute('x', String(first.x + first.width / 2))
-        label.setAttribute('y', String(first.y))
+        label.setAttribute('y', String(first.y + (range ? glyphTop(range) : 0) - LABEL_GAP))
         label.setAttribute('text-anchor', 'middle')
         label.setAttribute('fill', 'currentColor')   // the theme's text colour (root's `color`)
         // E44: its own look, so no host can forget it (web once drew labels at body size).
