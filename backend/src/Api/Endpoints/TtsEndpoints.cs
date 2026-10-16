@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Primitives;
 using TextStack.Tts;
@@ -26,7 +27,8 @@ public static class TtsEndpoints
         group.MapGet("/voices", GetVoices).WithName("GetTtsVoices").RequireRateLimiting("tts-voices");
     }
 
-    private static async Task<IResult> Synthesize(
+    // internal: unit-tested (#880 logging).
+    internal static async Task<IResult> Synthesize(
         HttpContext http,
         string? text,
         string? lang,
@@ -34,6 +36,7 @@ public static class TtsEndpoints
         double? speed,
         ITtsService tts,
         IOptions<TtsConfiguration> options,
+        ILogger<ITtsService> logger,
         CancellationToken ct)
     {
         if (TryPreprocess(http, text, lang, voice, speed, options.Value, out var req, out var shortCircuit))
@@ -45,14 +48,11 @@ public static class TtsEndpoints
             WriteCacheHeaders(http, req.Etag, req.ResponseCacheSeconds);
             return Results.File(audio, "audio/mpeg", enableRangeProcessing: true);
         }
-        catch (TaskCanceledException) { return Results.Problem("TTS request timed out", statusCode: 504); }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            return Results.Problem(detail: $"TTS service error: {ex.Message}", statusCode: 502);
-        }
+        catch (TaskCanceledException ex) { return TimedOut(logger, ex); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { return UpstreamFailed(logger, ex, req); }
     }
 
-    private static async Task<IResult> GetTimestamps(
+    internal static async Task<IResult> GetTimestamps(
         HttpContext http,
         string? text,
         string? lang,
@@ -60,6 +60,7 @@ public static class TtsEndpoints
         double? speed,
         ITtsService tts,
         IOptions<TtsConfiguration> options,
+        ILogger<ITtsService> logger,
         CancellationToken ct)
     {
         if (TryPreprocess(http, text, lang, voice, speed, options.Value, out var req, out var shortCircuit))
@@ -71,11 +72,31 @@ public static class TtsEndpoints
             WriteCacheHeaders(http, req.Etag, req.ResponseCacheSeconds);
             return Results.Ok(result.Timestamps);
         }
-        catch (TaskCanceledException) { return Results.Problem("TTS request timed out", statusCode: 504); }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            return Results.Problem(detail: $"TTS service error: {ex.Message}", statusCode: 502);
-        }
+        catch (TaskCanceledException ex) { return TimedOut(logger, ex); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { return UpstreamFailed(logger, ex, req); }
+    }
+
+    // #880: these 502s were silent for 5 h when Edge started answering 403 (#827).
+    // Error = a Sentry event (MinimumEventLevel = Error); Sentry groups them into one
+    // issue by exception + stack, so an outage is one alert, not hundreds.
+    // InvalidOperationException is our own throw for input-driven results — an unknown
+    // voice or punctuation-only text gives "empty audio" (also the size cap) — so it is
+    // Warning: anonymous callers must not spend the Sentry quota. Everything else
+    // (WebSocketException on the handshake 403, IO) is Edge itself → Error. If Edge
+    // ever returns empty audio for everything, the health-check probe still goes red.
+    // Timeouts stay Warning: Edge is slow at times, and the probe catches a hard hang.
+    // No text in the message: it is the reader's passage.
+    private static IResult UpstreamFailed(ILogger logger, Exception ex, TtsRequest req)
+    {
+        var level = ex is InvalidOperationException ? LogLevel.Warning : LogLevel.Error;
+        logger.Log(level, ex, "TTS upstream failed (lang={Lang}, voice={Voice})", req.Lang, req.Voice);
+        return Results.Problem(detail: $"TTS service error: {ex.Message}", statusCode: 502);
+    }
+
+    private static IResult TimedOut(ILogger logger, Exception ex)
+    {
+        logger.LogWarning(ex, "TTS request timed out");
+        return Results.Problem("TTS request timed out", statusCode: 504);
     }
 
     // Parsed + validated request shared between /tts and /tts/timestamps.
@@ -183,9 +204,10 @@ public static class TtsEndpoints
         return false;
     }
 
-    private static async Task<IResult> GetVoices(
+    internal static async Task<IResult> GetVoices(
         string? lang,
         ITtsService tts,
+        ILogger<ITtsService> logger,
         CancellationToken ct)
     {
         try
@@ -195,6 +217,7 @@ public static class TtsEndpoints
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            logger.LogError(ex, "TTS voice list fetch failed");
             return Results.Problem("Failed to fetch voices", statusCode: 502);
         }
     }
