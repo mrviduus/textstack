@@ -1,7 +1,7 @@
 namespace Api.Endpoints;
 
-/// <summary>What the mobile app reads at start. Null minimum = no minimum.</summary>
-public record AppConfigResponse(int? MinSupportedBuild);
+/// <summary>What the mobile app reads at start. Null minimum = no minimum; null latest = no nudge.</summary>
+public record AppConfigResponse(int? MinSupportedBuild, int? LatestBuild);
 
 public static class AppConfigEndpoints
 {
@@ -17,8 +17,14 @@ public static class AppConfigEndpoints
     /// build too. Empty, &lt;=0 or garbage = no minimum. Advisory only: the app shows a blocking
     /// "please update" screen below it, the server never refuses a request.
     /// </summary>
+    /// <para><c>Mobile:LatestBuild</c> (env <c>Mobile__LatestBuild</c>): the newest versionCode on the
+    /// Play track testers use. Below it (but at or above the minimum) the app shows a dismissible
+    /// "new version" bar, because Play updates early-access builds late and an OTA only reaches a
+    /// build with the same runtime — an older build is stuck silently. Same parsing rules.</para>
     public static IResult GetAppConfig(IConfiguration config) =>
-        Results.Ok(new AppConfigResponse(ParseMinBuild(config["Mobile:MinSupportedBuild"])));
+        Results.Ok(new AppConfigResponse(
+            ParseMinBuild(config["Mobile:MinSupportedBuild"]),
+            ParseMinBuild(config["Mobile:LatestBuild"])));
 
     public static int? ParseMinBuild(string? raw) =>
         int.TryParse(raw?.Trim(), out var n) && n > 0 ? n : null;

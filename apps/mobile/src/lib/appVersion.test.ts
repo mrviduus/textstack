@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { appVersionHeaders, isBelowMinimumBuild, isCheckDue, CHECK_INTERVAL_MS } from './appVersion'
+import { appVersionHeaders, isBelowMinimumBuild, isCheckDue, buildGate, CHECK_INTERVAL_MS } from './appVersion'
 
 describe('isBelowMinimumBuild', () => {
   it('build 22 < min 23 → blocked', () => expect(isBelowMinimumBuild('22', 23)).toBe(true))
@@ -14,6 +14,26 @@ describe('isBelowMinimumBuild', () => {
     })
   it.each([[null], [undefined], [0], [-1], [''], [NaN]])('minimum %j → never blocks', (min) => {
     expect(isBelowMinimumBuild('22', min as string | number | null)).toBe(false)
+  })
+})
+
+describe('buildGate', () => {
+  it('below the minimum → blocked, even when also below latest', () => {
+    expect(buildGate('22', { minSupportedBuild: 23, latestBuild: 32 })).toBe('blocked')
+  })
+  it('supported but below latest → nudge', () => {
+    expect(buildGate('31', { minSupportedBuild: 23, latestBuild: 32 })).toBe('nudge')
+    expect(buildGate('31', { latestBuild: 32 })).toBe('nudge')
+  })
+  it('on the latest build or newer → ok', () => {
+    expect(buildGate('32', { latestBuild: 32 })).toBe('ok')
+    expect(buildGate('33', { latestBuild: 32 })).toBe('ok')
+  })
+  it('no config, garbage, or an unknown current build → ok (never nag on a bad answer)', () => {
+    expect(buildGate('31', {})).toBe('ok')
+    expect(buildGate('31', { latestBuild: 0 })).toBe('ok')
+    expect(buildGate(null, { minSupportedBuild: 23, latestBuild: 32 })).toBe('ok')
+    expect(buildGate('abc', { latestBuild: 32 })).toBe('ok')
   })
 })
 

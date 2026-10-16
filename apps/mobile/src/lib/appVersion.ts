@@ -43,6 +43,21 @@ export function isBelowMinimumBuild(
   return current != null && min != null && current < min
 }
 
+export type BuildGate = 'ok' | 'nudge' | 'blocked'
+
+/**
+ * `blocked` below the minimum; `nudge` below the latest (a dismissible bar); else `ok`.
+ * Every unusable input resolves to `ok` — a bad config must never nag or lock anyone.
+ */
+export function buildGate(
+  currentBuild: string | number | null | undefined,
+  cfg: { minSupportedBuild?: number | null; latestBuild?: number | null },
+): BuildGate {
+  if (isBelowMinimumBuild(currentBuild, cfg.minSupportedBuild)) return 'blocked'
+  if (isBelowMinimumBuild(currentBuild, cfg.latestBuild)) return 'nudge'
+  return 'ok'
+}
+
 export const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000
 
 /** Foreground re-checks at most once a day. Null = never checked this launch. */

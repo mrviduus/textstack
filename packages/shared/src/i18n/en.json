@@ -801,6 +801,11 @@
     "readyInReader": "Update ready — applies when you leave the reader",
     "restarting": "Restarting to apply the update…",
     "updated": "TextStack updated",
+    "newBuild": {
+      "text": "A new version of TextStack is available",
+      "cta": "Update",
+      "dismiss": "Not now"
+    },
     "forceUpdate": {
       "title": "Please update TextStack",
       "body": "This version is no longer supported. Install the latest version from Google Play to keep reading.",
