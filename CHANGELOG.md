@@ -24,6 +24,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 ## [Unreleased]
 
 - **Mobile** — dismissible "new version available" bar when the build is below `Mobile:LatestBuild` (`GET /app/config`, env `MOBILE_LATEST_BUILD`): an older build never gets an OTA and Play updates testers late — backend, mobile
+- **Reader** — translation labels sit just above their word's glyphs and use the chapter's font (E54, E44): TextStack's tall line box had floated them over the line above — reader-engine, mobile, web
 - **Mobile** — `BookList.tsx` 380 → 140 lines: row logic is a tested pure `bookRowModel`, UI split into `BookGridCell` / `BookListRow`, offline state in `useBookOffline`; no behaviour change — mobile
 - **Mobile** — Library: top Continue hero removed; every started book has Continue on its row (list pill, grid badge) — mobile
 - **SEO** — Bing WMT fixes: bots get 404 for junk URLs outside `/en/` (Bing had indexed `/$1`), robots.txt blocks `?direct=` / `?highlight=` duplicates, contact page noindex — nginx, api, web — [write-up](docs/changelog-archive/2026-H2.md#2026-10-15-bing-webmaster-fixes)

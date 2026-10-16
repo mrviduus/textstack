@@ -352,13 +352,88 @@ describe('markWords', () => {
     expect(reader.engine.current()).toEqual(here)
   })
 
-  it('E44 a translation carries its own look: small, italic, sans-serif, faint; no host CSS needed', async () => {
+  it('E54 a label sits just above its word\'s glyphs, not above the line box: a tall font (TextStack: 1.56em box) no longer lifts it', async () => {
+    const yOf = async (glyphTop: number) => {
+      const reader = makeReader({ glyphTop: () => glyphTop })
+      await reader.open()
+      reader.engine.markWords([{ word: 'keeper', translation: 'хранитель' }], true)
+      return { y: reader.translations()[0].y, box: reader.boxesOf('keeper')[0] }
+    }
+    const flat = await yOf(0)     // no measurement: the box top
+    const tall = await yOf(11)    // 11px of empty ascent above the glyphs
+    expect(flat.y).toBe(flat.box.y)
+    expect(tall.y).toBe(tall.box.y + 11 - 2)   // the label follows the glyphs down, 2px of air above them
+    expect(tall.y).toBeGreaterThan(tall.box.y)   // …into the box, not above it
+  })
+
+  describe('E54 default glyph measurement (canvas, in the chapter\'s own font)', () => {
+    const stubCanvas = (metrics: Record<string, number | undefined> | ((text: string) => Record<string, number | undefined>)) => {
+      const measured: string[] = []
+      const ctx = {
+        font: '',
+        measureText: (text: string) => { measured.push(text); return typeof metrics === 'function' ? metrics(text) : metrics },
+      }
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx as unknown as CanvasRenderingContext2D)
+      return { measured, ctx }
+    }
+    afterEach(() => vi.restoreAllMocks())
+
+    const labelsOf = async (words: { word: string; translation: string }[]) => {
+      const reader = makeReader()
+      await reader.open()
+      reader.engine.markWords(words, true)
+      return { labels: reader.translations(), box: (w: string) => reader.boxesOf(w)[0] }
+    }
+
+    it('lowers the label by the ascent the font reserves minus the letters\' own height, minus a 2px gap', async () => {
+      stubCanvas({ fontBoundingBoxAscent: 22, actualBoundingBoxAscent: 15 })
+      const { labels, box } = await labelsOf([{ word: 'keeper', translation: 'хранитель' }])
+      expect(labels[0].y).toBe(box('keeper').y + 7 - 2)
+    })
+
+    it('measures one reference glyph pair, never the word: two words on a line get labels at the same offset from their boxes', async () => {
+      // A word's own ink would differ ("keeper" has ascenders, "ease" has not) and stagger the labels.
+      const { measured } = stubCanvas((text) => ({ fontBoundingBoxAscent: 22, actualBoundingBoxAscent: text === 'keeper' ? 15 : text === 'ease' ? 10 : 14 }))
+      const { labels, box } = await labelsOf([{ word: 'keeper', translation: 'хранитель' }, { word: 'ships', translation: 'корабли' }])
+      expect(measured.length).toBeGreaterThan(0)
+      expect(new Set(measured).size).toBe(1)   // always the same reference text
+      expect(measured).not.toContain('keeper')
+      expect(labels[0].y - box('keeper').y).toBe(8 - 2)
+    })
+
+    it('asks the canvas once per font, not once per mark', async () => {
+      const { measured } = stubCanvas({ fontBoundingBoxAscent: 22, actualBoundingBoxAscent: 15 })
+      await labelsOf([{ word: 'keeper', translation: 'хранитель' }])
+      expect(measured.length).toBeLessThan(5)   // 120 marks drawn; the font string is the cache key
+    })
+
+    it('without metrics (older WebView) or a nonsense answer, the label stays at the box top exactly as before', async () => {
+      for (const metrics of [{}, { fontBoundingBoxAscent: NaN, actualBoundingBoxAscent: 3 }, { fontBoundingBoxAscent: 5, actualBoundingBoxAscent: 9 }]) {
+        vi.restoreAllMocks()
+        stubCanvas(metrics)
+        const { labels, box } = await labelsOf([{ word: 'keeper', translation: 'хранитель' }])
+        expect(labels[0].y, JSON.stringify(metrics)).toBe(box('keeper').y)
+      }
+    })
+
+    it('with no canvas at all (jsdom), or one that throws, the label still draws at the box top', async () => {
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+      let r = await labelsOf([{ word: 'keeper', translation: 'хранитель' }])
+      expect(r.labels[0].y).toBe(r.box('keeper').y)
+      vi.restoreAllMocks()
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => { throw new Error('canvas blocked') })
+      r = await labelsOf([{ word: 'keeper', translation: 'хранитель' }])
+      expect(r.labels[0].y).toBe(r.box('keeper').y)
+    })
+  })
+
+  it('E44 a translation carries its own look: small, italic, in the reader\'s font, faint; no host CSS needed', async () => {
     const reader = makeReader()
     await reader.open()
     reader.engine.markWords([{ word: 'keeper', translation: 'хранитель' }], true)
     const label = reader.root.querySelector('text')!
-    // One `font` shorthand, weight included: a bold chapter root never leaks into the label.
-    expect(label.getAttribute('style')).toBe('font: italic 400 0.42em -apple-system, system-ui, sans-serif; opacity: .55')
+    // Weight and style set outright: a bold chapter root never leaks into the label. No family: it follows the chapter's.
+    expect(label.getAttribute('style')).toBe('font-style: italic; font-weight: 400; font-size: 0.42em; opacity: .55')
   })
 
   it('E19 with translations off, words are underlined and no translation is drawn', async () => {

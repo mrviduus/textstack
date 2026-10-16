@@ -131,6 +131,12 @@ export interface EngineOptions {
    * is reused for the next mark: read it during the call, never keep it.
    */
   rects?: (range: Range) => Rect[]
+  /**
+   * How far below its line box's top a range's glyphs start, in px (E54). The box is the font's
+   * ascent + descent (TextStack: 1.56em), so its top sits well above the letters; a translation
+   * label anchors to the letters. Default: measured on a canvas in the chapter's own font.
+   */
+  glyphTop?: (range: Range) => number
   /** The caret at a point on screen (jsdom has no `caretPositionFromPoint`). */
   caret?: (x: number, y: number) => { node: Node; offset: number } | null
 }
