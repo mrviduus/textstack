@@ -1,4 +1,5 @@
 import { openDyslexicBase64 } from './openDyslexicBase64'
+import { readerFontFaceCss } from './readerFonts.generated'
 import { pdfChromeCss } from './pdfViewerChrome'
 import { readerChromeCss, type ReaderChrome } from './readerChrome'
 import { SCROLL_DIR_DETECTOR } from './readerBridge'
@@ -15,9 +16,9 @@ export interface ReaderTheme {
 }
 
 const defaultTheme: ReaderTheme = {
-  fontSize: 18,
-  lineHeight: 1.65,
-  fontFamily: 'Georgia, serif',
+  fontSize: 20,
+  lineHeight: 1.6,
+  fontFamily: '"TextStack", Georgia, serif',
   textAlign: 'left',
   backgroundColor: '#ffffff',
   textColor: '#111827',
@@ -30,8 +31,10 @@ function escapeAttr(s: string): string {
 }
 
 function buildFontFace(fontFamily: string): string {
-  if (!fontFamily.includes('OpenDyslexic')) return ''
-  return `@font-face {
+  // Both standard families stay available when typography is injected into a live chapter.
+  // Keeping their faces in every document avoids a rebuild on serif/sans changes.
+  if (!fontFamily.includes('OpenDyslexic')) return readerFontFaceCss
+  return `${readerFontFaceCss}\n@font-face {
     font-family: 'OpenDyslexic';
     src: url(data:font/woff2;base64,${openDyslexicBase64}) format('woff2');
     font-weight: normal;

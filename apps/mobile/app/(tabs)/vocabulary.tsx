@@ -715,7 +715,7 @@ const styles = StyleSheet.create({
 
   // Mode toggle
   // Context snippet
-  contextText: { fontSize: 12, fontFamily: 'Inter-Regular', marginTop: 2 },
+  contextText: { fontSize: 12, fontFamily: 'SourceSans3-Regular', marginTop: 2 },
   // Review buttons
   reviewBtn: {
     paddingVertical: 12,

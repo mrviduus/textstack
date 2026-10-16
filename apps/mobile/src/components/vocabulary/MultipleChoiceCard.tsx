@@ -72,10 +72,10 @@ const styles = StyleSheet.create({
   card: { borderRadius: 16, padding: 24, borderWidth: 1 },
   promptRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
   speakBtn: { padding: 4 },
-  prompt: { fontSize: 17, fontFamily: 'Inter-Medium', flex: 1, lineHeight: 24 },
+  prompt: { fontSize: 17, fontFamily: 'SourceSans3-Medium', flex: 1, lineHeight: 24 },
   promptCloze: { fontStyle: 'italic' },
-  hint: { fontSize: 13, fontFamily: 'Inter-Regular', marginBottom: 16, lineHeight: 18 },
+  hint: { fontSize: 13, fontFamily: 'SourceSans3-Regular', marginBottom: 16, lineHeight: 18 },
   options: { gap: 10 },
   option: { borderRadius: 12, paddingVertical: 14, paddingHorizontal: 20, borderWidth: 1 },
-  optionText: { fontSize: 16, fontFamily: 'Inter-Medium', textAlign: 'center' },
+  optionText: { fontSize: 16, fontFamily: 'SourceSans3-Medium', textAlign: 'center' },
 })

@@ -37,7 +37,7 @@
 }
 
 .about-page__title {
-  font-family: 'Crimson Pro', 'Playfair Display', serif;
+  font-family: var(--font-serif);
   font-size: clamp(3rem, 8vw, 6rem);
   font-weight: 700;
   line-height: 1.1;
@@ -61,7 +61,7 @@
 
 /* Intro - italic lead paragraph */
 .about-page__intro {
-  font-family: 'Crimson Pro', 'Playfair Display', serif;
+  font-family: var(--font-serif);
   font-size: clamp(1.25rem, 2.5vw, 1.5rem);
   font-style: italic;
   line-height: 1.6;
@@ -85,7 +85,7 @@
 }
 
 .about-page__mission-heading {
-  font-family: 'Crimson Pro', 'Playfair Display', serif;
+  font-family: var(--font-serif);
   font-size: clamp(2rem, 4vw, 2.5rem);
   font-weight: 400;
   margin: 64px 0 32px;
@@ -122,7 +122,7 @@
 }
 
 .about-creator-card__heading {
-  font-family: 'Crimson Pro', 'Playfair Display', serif;
+  font-family: var(--font-serif);
   font-size: 1.75rem;
   font-weight: 700;
   margin: 0 0 40px;

@@ -21,7 +21,7 @@
 }
 
 .home-hero__title {
-  font-family: 'Crimson Pro', 'Playfair Display', serif;
+  font-family: var(--font-serif);
   font-size: clamp(3rem, 10vw, 6rem);
   font-weight: 300;
   line-height: 1.05;
@@ -31,7 +31,7 @@
 }
 
 .home-hero__subtitle {
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-serif);
   font-size: clamp(1.125rem, 2vw, 1.5rem);
   font-style: italic;
   color: var(--color-text-secondary);
@@ -255,7 +255,7 @@
 }
 
 .home-hero__brand-line {
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-serif);
   font-size: 14px;
   color: var(--color-text-secondary);
   opacity: 0.7;
@@ -403,7 +403,7 @@
   align-items: center;
   gap: 12px;
   padding: 0 0 16px;
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-serif);
   font-style: italic;
   font-size: clamp(1rem, 1.5vw, 1.125rem);
   color: var(--color-text-secondary);
@@ -430,14 +430,14 @@
 }
 
 .home-recommended__title {
-  font-family: 'Crimson Pro', 'Playfair Display', serif;
+  font-family: var(--font-serif);
   font-size: clamp(1.5rem, 3vw, 2rem);
   margin: 0;
   font-weight: 500;
 }
 
 .home-recommended__subtitle {
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-serif);
   font-style: italic;
   font-size: clamp(0.875rem, 1.2vw, 1rem);
   color: var(--color-text-secondary);
@@ -724,7 +724,7 @@
 }
 
 .site-footer__logo {
-  font-family: 'Crimson Pro', 'Playfair Display', serif;
+  font-family: var(--font-serif);
   font-size: 24px;
   font-weight: 600;
   color: var(--color-text);
@@ -863,7 +863,7 @@
 }
 
 .home-features__heading {
-  font-family: 'Crimson Pro', 'Playfair Display', serif;
+  font-family: var(--font-serif);
   font-size: clamp(1.75rem, 4vw, 2.5rem);
   font-weight: 400;
   line-height: 1.15;
@@ -874,7 +874,7 @@
 }
 
 .home-features__subheading {
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-serif);
   font-style: italic;
   font-size: clamp(1rem, 1.5vw, 1.125rem);
   color: var(--color-text-secondary);
@@ -927,7 +927,7 @@
 }
 
 .home-feature-card__title {
-  font-family: 'Crimson Pro', 'Playfair Display', serif;
+  font-family: var(--font-serif);
   font-size: 1.25rem;
   font-weight: 500;
   margin: 0 0 8px;
@@ -955,7 +955,7 @@
 }
 
 .home-faq__heading {
-  font-family: 'Crimson Pro', 'Playfair Display', serif;
+  font-family: var(--font-serif);
   font-size: clamp(1.75rem, 4vw, 2.5rem);
   font-weight: 400;
   line-height: 1.15;
@@ -966,7 +966,7 @@
 }
 
 .home-faq__subheading {
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-serif);
   font-style: italic;
   font-size: clamp(1rem, 1.5vw, 1.125rem);
   color: var(--color-text-secondary);
@@ -997,7 +997,7 @@
   padding: 20px 0;
   background: none;
   border: none;
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-serif);
   font-size: clamp(1rem, 1.5vw, 1.125rem);
   font-weight: 500;
   color: var(--color-text);
@@ -1064,7 +1064,7 @@
 }
 
 .home-comparison__heading {
-  font-family: 'Crimson Pro', 'Playfair Display', serif;
+  font-family: var(--font-serif);
   font-size: clamp(1.75rem, 4vw, 2.5rem);
   font-weight: 400;
   line-height: 1.15;
@@ -1075,7 +1075,7 @@
 }
 
 .home-comparison__subheading {
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-serif);
   font-style: italic;
   font-size: clamp(1rem, 1.5vw, 1.125rem);
   color: var(--color-text-secondary);

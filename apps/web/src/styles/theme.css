@@ -2,7 +2,43 @@
   box-sizing: border-box;
 }
 
+/* User-provided TextStack fonts. See docs/typography.md for provenance and licensing. */
+@font-face {
+  font-family: 'TextStack';
+  src: url('/fonts/TextStack-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'TextStack';
+  src: url('/fonts/TextStack-Italic.ttf') format('truetype');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'TextStack';
+  src: url('/fonts/TextStack-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'TextStack';
+  src: url('/fonts/TextStack-BoldItalic.ttf') format('truetype');
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+
 :root {
+  --font-serif: 'TextStack', Georgia, 'Times New Roman', serif;
+  --font-sans: 'Source Sans 3', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
   /* Brand colors */
   --color-brand: #C4704B;
   --color-brand-hover: #A85A3A;
@@ -43,19 +79,24 @@ body {
   color: var(--color-text);
   margin: 0;
   overflow-x: hidden;
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+}
+
+button, input, select, textarea {
+  font-family: var(--font-sans);
 }
 
 /* Global typography */
 h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-serif);
   font-weight: 400;
   letter-spacing: -0.02em;
 }
 
 /* Serif display text */
 .serif-text, .editorial-title {
-  font-family: 'Crimson Pro', 'Playfair Display', serif;
+  font-family: var(--font-serif);
 }
 
 /* Book shadow effect */

@@ -20,7 +20,7 @@
 }
 
 .legal-page__title {
-  font-family: 'Crimson Pro', 'Playfair Display', serif;
+  font-family: var(--font-serif);
   font-size: clamp(3rem, 8vw, 4.5rem);
   font-weight: 700;
   line-height: 1.1;
@@ -38,7 +38,7 @@
 
 /* Intro - italic lead paragraph */
 .legal-page__intro {
-  font-family: 'Crimson Pro', 'Playfair Display', serif;
+  font-family: var(--font-serif);
   font-size: clamp(1.125rem, 2vw, 1.25rem);
   font-style: italic;
   line-height: 1.6;
@@ -59,7 +59,7 @@
 }
 
 .legal-page__section h2 {
-  font-family: 'Crimson Pro', 'Playfair Display', serif;
+  font-family: var(--font-serif);
   font-size: clamp(1.5rem, 3vw, 1.75rem);
   font-weight: 600;
   margin: 0 0 16px;

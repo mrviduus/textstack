@@ -1,12 +1,13 @@
 import { TextStyle } from 'react-native'
 
 export const fonts = {
-  serif: 'CrimsonPro-Regular',
-  serifBold: 'CrimsonPro-SemiBold',
-  serifItalic: 'CrimsonPro-Italic',
-  sans: 'Inter-Regular',
-  sansMedium: 'Inter-Medium',
-  sansBold: 'Inter-SemiBold',
+  serif: 'TextStack-Regular',
+  serifBold: 'TextStack-Bold',
+  serifItalic: 'TextStack-Italic',
+  serifBoldItalic: 'TextStack-BoldItalic',
+  sans: 'SourceSans3-Regular',
+  sansMedium: 'SourceSans3-Medium',
+  sansBold: 'SourceSans3-Semibold',
 }
 
 export const typography: Record<string, TextStyle> = {

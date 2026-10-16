@@ -42,8 +42,8 @@ const LEGACY_KEY = 'reader.settings.v1'
 type StoredSettings = Partial<ReaderSettings>
 
 const defaults: ReaderSettings = {
-  fontSize: 18,
-  lineHeight: 1.65,
+  fontSize: 20,
+  lineHeight: 1.6,
   fontFamily: 'serif',
   // Owner's call, and it also ends a disagreement: web has defaulted to
   // 'center' since it shipped, so the two clients now open a book the same way.
@@ -59,8 +59,8 @@ const defaults: ReaderSettings = {
 }
 
 const fontFamilyMap: Record<string, string> = {
-  serif: 'Georgia, "Times New Roman", serif',
-  sans: '-apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+  serif: '"TextStack", Georgia, "Times New Roman", serif',
+  sans: '"Source Sans 3", -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
   dyslexic: '"OpenDyslexic", sans-serif',
 }
 

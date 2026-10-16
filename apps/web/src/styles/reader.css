@@ -7,6 +7,11 @@
   font-display: swap;
 }
 
+/* Chapter headings follow the reader's selected font, including accessibility mode. */
+.reader-section__article :is(h1, h2, h3, h4, h5, h6) {
+  font-family: inherit;
+}
+
 /* Theme variables.
  *
  * Reader theme is set on <html data-theme=light|sepia|dark> by useReaderSettings.

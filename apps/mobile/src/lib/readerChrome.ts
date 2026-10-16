@@ -25,7 +25,8 @@
  * and the serif/sans family are ordinary CSS and are applied to the live
  * document by `readerTypographyInjectionJs`, exactly as padding and colour are.
  *
- * What stays a document input is the `@font-face`: OpenDyslexic is 150KB of
+ * Standard TextStack and Source Sans faces are always bundled in the document.
+ * What stays a document input is the optional `@font-face`: OpenDyslexic is 150KB of
  * inlined base64 that `buildFontFace` emits only when it is selected, and
  * putting it in every document to save a rare rebuild is the wrong trade.
  * `fontFaceKey` is what the key carries, so serif↔sans costs nothing and only
