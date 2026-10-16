@@ -70,6 +70,15 @@ describe('bookRowModel finished and last read', () => {
     expect(bookRowModel(saved(), noProgress, NOW).lastRead).toBeUndefined()
   })
 
+  it('a failed upload carries its error message; other books have none', () => {
+    expect(bookRowModel(upload({ status: 'Failed', errorMessage: 'bad epub' }), noProgress, NOW).errorMessage).toBe('bad epub')
+    expect(bookRowModel(saved(), noProgress, NOW).errorMessage).toBeUndefined()
+  })
+
+  it('a saved book with no title falls back to "Untitled" too', () => {
+    expect(bookRowModel(saved({ title: '' }), noProgress, NOW).title).toBe('Untitled')
+  })
+
   it('title falls back to "Untitled"', () => {
     expect(bookRowModel(upload({ title: '' }), noProgress, NOW).title).toBe('Untitled')
   })

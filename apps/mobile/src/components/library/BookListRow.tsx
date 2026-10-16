@@ -6,7 +6,7 @@ import { useTheme } from '../../context/ThemeContext'
 import { useLanguage } from '../../context/LanguageContext'
 import { fonts } from '../../theme/typography'
 import type { BookRowModel } from '../../lib/bookRow'
-import type { OfflineFor } from '../../hooks/useBookOffline'
+import type { BookOffline } from '../../hooks/useBookOffline'
 import { BookStatusBadge } from './BookStatusBadge'
 import { GeneratedCover } from './GeneratedCover'
 import { OfflineStateBadge } from './OfflineStateBadge'
@@ -15,7 +15,7 @@ import { styles } from './shared'
 
 interface Props {
   model: BookRowModel
-  offline: ReturnType<OfflineFor>
+  offline: BookOffline
   pick: ContinueReadingPick | undefined
   isTop: boolean
   busyKey: string | null

@@ -93,8 +93,7 @@ export function BookList({
   /** Where tapping the row goes. An upload still parsing has nothing to open. */
   const openEntry = (e: LibraryEntry) => {
     if (e.kind === 'saved') { router.push(`/book/${e.item.slug}`); return }
-    const s = e.book.status.toLowerCase()
-    if (s === 'ready' || s === 'completed') router.push(`/my-books/${e.book.id}`)
+    if (bookRowModel(e, progressMap).isReady) router.push(`/my-books/${e.book.id}`)
   }
 
   const cardWidth = (width - 20 - (numColumns - 1) * 10) / numColumns

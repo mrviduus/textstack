@@ -81,4 +81,4 @@ export function useBookOffline() {
   return offlineFor
 }
 
-export type OfflineFor = ReturnType<typeof useBookOffline>
+export type BookOffline = ReturnType<ReturnType<typeof useBookOffline>>
