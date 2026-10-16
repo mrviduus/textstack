@@ -48,6 +48,11 @@ public static class SeoEndpoints
             sb.AppendLine("Disallow: /*/highlights");
             sb.AppendLine("Disallow: /*/stats");
             sb.AppendLine("Disallow: /*/reset-password");
+            // Param duplicates of chapter/book pages (Bing: limited crawl capacity)
+            sb.AppendLine("Disallow: /*?direct=");
+            sb.AppendLine("Disallow: /*?highlight=");
+            sb.AppendLine("Disallow: /*&direct=");
+            sb.AppendLine("Disallow: /*&highlight=");
             sb.AppendLine();
             sb.AppendLine($"Sitemap: {baseUrl}/sitemap.xml");
         }

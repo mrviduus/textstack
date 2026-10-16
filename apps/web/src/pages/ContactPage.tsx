@@ -14,6 +14,7 @@ export function ContactPage() {
       <SeoHead
         title={t('contact.seoTitle')}
         description={t('contact.seoDesc')}
+        noindex
       />
 
       <header className="legal-page__header">
