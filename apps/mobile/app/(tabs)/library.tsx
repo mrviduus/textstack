@@ -29,7 +29,6 @@ import { useLibrarySort } from '../../src/hooks/useLibrarySort'
 import { useLibraryStatus } from '../../src/hooks/useLibraryStatus'
 import { useLibrarySearch } from '../../src/hooks/useLibrarySearch'
 import { matchesQuery } from '@textstack/shared'
-import { ResumeHero } from '../../src/components/library/ResumeHero'
 import { useContinueReadingList } from '../../src/hooks/useContinueReadingList'
 import { BookList } from '../../src/components/library/BookList'
 import { styles, type ViewMode } from '../../src/components/library/shared'
@@ -316,7 +315,7 @@ export default function LibraryScreen() {
     : searched
   const entries = sortEntries(collectionFiltered, sort, progressMap)
 
-  // Everything above the first book row. Three blocks: resume, search, filters.
+  // Everything above the first book row. Two blocks: search, filters. Continue lives on the rows.
   // It used to be thirteen — roughly 2.4 screens of chrome a reader scrolled
   // past to reach their own books.
   const sourceFiltered = source !== 'all' || activeCollectionId != null
@@ -332,7 +331,6 @@ export default function LibraryScreen() {
       {/* Above everything, because it changes how the whole list should be read:
           uploads and saved-but-undownloaded books are not cached at all. */}
       {loadError === 'offline' && <OfflineBanner message={t('library.offline.partial')} />}
-      {resumeList.length > 0 && <ResumeHero pick={resumeList[0]} />}
       {/* Silent until the store is nearly full, so it appears exactly when it
           changes what the reader would do next. The full figure is on Profile. */}
       <StorageQuotaRow variant="warning" refreshKey={userBooks.length} />
@@ -407,6 +405,7 @@ export default function LibraryScreen() {
         onRefresh={onRefresh}
         viewMode={viewMode}
         listHeader={listHeader}
+        resumeList={resumeList}
       />
       {sheetMounted && <LibraryViewSheet
         visible={sheetOpen}

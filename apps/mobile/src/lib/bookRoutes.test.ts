@@ -50,7 +50,7 @@ describe('heroResumeRoute', () => {
   // A test that fails on fake timers must not leave them to the next one.
   afterEach(() => { vi.useRealTimers() })
 
-  it('QA-007 RES-1: hero Continue on a page:N upload opens the reader at the chapter holding the page; lookup failure → detail', async () => {
+  it('QA-007 RES-1: Continue on a page:N upload opens the reader at the chapter holding the page; lookup failure → detail', async () => {
     const pick = { type: 'userbook' as const, id: 'ub1', title: 'PDF', coverPath: null, percent: 0.3, chapterSlug: null, locator: 'page:42', updatedAtMs: 1 }
     const chapters = [
       { slug: 'intro', chapterNumber: 0, sourceStartPage: 1 },
@@ -71,7 +71,7 @@ describe('heroResumeRoute', () => {
     // The PDF reader restores the page itself when Continue opens the chapter holding it.
     expect(read('src/components/reader/useReaderPdf.ts')).toContain('resumePage: originalNewerPage?.page ?? originalResumePage')
     // Repeat taps ignored while the lookup runs (component-local).
-    const hero = read('src/components/library/ResumeHero.tsx')
+    const hero = read('src/components/library/ResumeButton.tsx')
     expect(hero).toMatch(/if \(busyRef\.current\) return/)
     expect(hero).toContain('heroResumeRoute(pick')
   })
@@ -97,8 +97,8 @@ describe('heroResumeRoute', () => {
     expect(await heroResumeRoute(pick, { device, server })).toBe('/my-books/read/ub1/chapter-1')
     expect(device).toHaveBeenCalledWith('ub1')
     expect(server).not.toHaveBeenCalled()
-    // ResumeHero wires the device loader to SQLite: chapters + the cached book meta's count.
-    const hero = read('src/components/library/ResumeHero.tsx')
+    // ResumeButton wires the device loader to SQLite: chapters + the cached book meta's count.
+    const hero = read('src/components/library/ResumeButton.tsx')
     expect(hero).toMatch(/listCachedUserChapterPages\(id\)/)
     expect(hero).toMatch(/getCachedUserBookMeta\(id\)/)
   })
@@ -124,7 +124,7 @@ describe('heroResumeRoute', () => {
     await vi.advanceTimersByTimeAsync(3000)
     expect(await route).toBe('/my-books/ub1')
     vi.useRealTimers()
-    const hero = read('src/components/library/ResumeHero.tsx')
+    const hero = read('src/components/library/ResumeButton.tsx')
     expect(hero).toMatch(/accessibilityState=\{\{ busy \}\}/)
     expect(hero).toMatch(/\{busy \? <ActivityIndicator/)
   })
@@ -155,8 +155,8 @@ describe('heroResumeRoute', () => {
     expect(server).not.toHaveBeenCalled()
   })
 
-  it('QA-007 RES-1: no navigation once the hero has lost focus or unmounted', () => {
-    const hero = read('src/components/library/ResumeHero.tsx')
+  it('QA-007 RES-1: no navigation once the Continue button has lost focus or unmounted', () => {
+    const hero = read('src/components/library/ResumeButton.tsx')
     expect(hero).toMatch(/useFocusEffect\(useCallback\(\(\) => \{\s*focusedRef\.current = true\s*return \(\) => \{ focusedRef\.current = false \}/)
     expect(hero).toMatch(/if \(focusedRef\.current\) router\.push\(route as never\)/)
   })
@@ -176,7 +176,7 @@ describe('heroResumeRoute', () => {
     await heroResumeRoute(pick, { device: async () => ({ chapters: [{ slug: 'ch0', sourceStartPage: 1 }], totalChapters: 1 }), server, remember })
     expect(remember).not.toHaveBeenCalled()
     // Wiring: the hero hands them to SQLite, which only fills, never clears.
-    expect(read('src/components/library/ResumeHero.tsx')).toMatch(/remember: storeCachedUserChapterStartPages/)
+    expect(read('src/components/library/ResumeButton.tsx')).toMatch(/remember: storeCachedUserChapterStartPages/)
     expect(read('src/lib/offlineDb.ts')).toMatch(/UPDATE user_chapters SET source_start_page = \? WHERE book_id = \? AND chapter_slug = \? AND source_start_page IS NULL/)
     expect(read('src/lib/offlineDb.web.ts')).toContain('export async function storeCachedUserChapterStartPages')
   })

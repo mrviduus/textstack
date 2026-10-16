@@ -460,8 +460,6 @@
   "library.readingProgress": "Reading Progress",
   "library.resume.a11yResume": "Continue reading {title}, {percent} percent complete",
   "library.resume.continue": "Continue",
-  "library.resume.percentComplete": "{percent}% complete",
-  "library.resume.start": "Start reading",
   "library.search.clear": "Clear search",
   "library.search.contentToggle": "Search inside books",
   "library.search.empty": "No books match \"{query}\"",

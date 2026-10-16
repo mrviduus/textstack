@@ -68,17 +68,6 @@ export const styles = StyleSheet.create({
   progressTrack: { flex: 1, height: 4, borderRadius: 2, overflow: 'hidden' },
   progressFill: { height: '100%', borderRadius: 2 },
   progressText: { fontFamily: fonts.sans, fontSize: 11, width: 32 },
-  continueBtn: {
-    marginTop: 8,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    alignSelf: 'flex-start',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  continueBtnText: { color: '#fff', fontFamily: fonts.sansMedium, fontSize: 13 },
   uploadBtn: {
     margin: 14,
     paddingVertical: 12,
