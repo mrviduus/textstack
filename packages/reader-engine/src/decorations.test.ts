@@ -359,48 +359,71 @@ describe('markWords', () => {
       reader.engine.markWords([{ word: 'keeper', translation: 'хранитель' }], true)
       return { y: reader.translations()[0].y, box: reader.boxesOf('keeper')[0] }
     }
-    const flat = await yOf(0)     // glyphs start at the box top (Georgia-like)
-    const tall = await yOf(9)     // 9px of empty ascent above the glyphs
-    expect(tall.y - flat.y).toBe(9)   // the label follows the glyphs down
+    const flat = await yOf(0)     // no measurement: the box top
+    const tall = await yOf(11)    // 11px of empty ascent above the glyphs
+    expect(flat.y).toBe(flat.box.y)
+    expect(tall.y).toBe(tall.box.y + 11 - 2)   // the label follows the glyphs down, 2px of air above them
     expect(tall.y).toBeGreaterThan(tall.box.y)   // …into the box, not above it
   })
 
   describe('E54 default glyph measurement (canvas, in the chapter\'s own font)', () => {
-    const stubCanvas = (metrics: Record<string, number | undefined>) => {
-      const fonts: string[] = []
-      const ctx = { set font(v: string) { fonts.push(v) }, measureText: () => metrics }
-      const spy = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx as unknown as CanvasRenderingContext2D)
-      return { fonts, spy }
+    const stubCanvas = (metrics: Record<string, number | undefined> | ((text: string) => Record<string, number | undefined>)) => {
+      const measured: string[] = []
+      const ctx = {
+        font: '',
+        measureText: (text: string) => { measured.push(text); return typeof metrics === 'function' ? metrics(text) : metrics },
+      }
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx as unknown as CanvasRenderingContext2D)
+      return { measured, ctx }
     }
     afterEach(() => vi.restoreAllMocks())
 
-    const labelY = async () => {
+    const labelsOf = async (words: { word: string; translation: string }[]) => {
       const reader = makeReader()
       await reader.open()
-      reader.engine.markWords([{ word: 'keeper', translation: 'хранитель' }], true)
-      return { y: reader.translations()[0].y, box: reader.boxesOf('keeper')[0] }
+      reader.engine.markWords(words, true)
+      return { labels: reader.translations(), box: (w: string) => reader.boxesOf(w)[0] }
     }
 
-    it('lowers the label by the ascent the font reserves minus the letters\' own height', async () => {
-      const { fonts } = stubCanvas({ fontBoundingBoxAscent: 22, actualBoundingBoxAscent: 15 })
-      const { y, box } = await labelY()
-      expect(y).toBe(box.y + 7 - 2)   // 22 - 15 = 7px of empty ascent, minus the 2px gap
-      expect(fonts.length).toBeGreaterThan(0)   // the font was set from the chapter's computed style (jsdom computes none, so no value to pin)
+    it('lowers the label by the ascent the font reserves minus the letters\' own height, minus a 2px gap', async () => {
+      stubCanvas({ fontBoundingBoxAscent: 22, actualBoundingBoxAscent: 15 })
+      const { labels, box } = await labelsOf([{ word: 'keeper', translation: 'хранитель' }])
+      expect(labels[0].y).toBe(box('keeper').y + 7 - 2)
     })
 
-    it('without metrics (older WebView) or a nonsense answer, falls back to the box top', async () => {
+    it('measures one reference glyph pair, never the word: two words on a line get labels at the same offset from their boxes', async () => {
+      // A word's own ink would differ ("keeper" has ascenders, "ease" has not) and stagger the labels.
+      const { measured } = stubCanvas((text) => ({ fontBoundingBoxAscent: 22, actualBoundingBoxAscent: text === 'keeper' ? 15 : text === 'ease' ? 10 : 14 }))
+      const { labels, box } = await labelsOf([{ word: 'keeper', translation: 'хранитель' }, { word: 'ships', translation: 'корабли' }])
+      expect(measured.length).toBeGreaterThan(0)
+      expect(new Set(measured).size).toBe(1)   // always the same reference text
+      expect(measured).not.toContain('keeper')
+      expect(labels[0].y - box('keeper').y).toBe(8 - 2)
+    })
+
+    it('asks the canvas once per font, not once per mark', async () => {
+      const { measured } = stubCanvas({ fontBoundingBoxAscent: 22, actualBoundingBoxAscent: 15 })
+      await labelsOf([{ word: 'keeper', translation: 'хранитель' }])
+      expect(measured.length).toBeLessThan(5)   // 120 marks drawn; the font string is the cache key
+    })
+
+    it('without metrics (older WebView) or a nonsense answer, the label stays at the box top exactly as before', async () => {
       for (const metrics of [{}, { fontBoundingBoxAscent: NaN, actualBoundingBoxAscent: 3 }, { fontBoundingBoxAscent: 5, actualBoundingBoxAscent: 9 }]) {
         vi.restoreAllMocks()
         stubCanvas(metrics)
-        const { y, box } = await labelY()
-        expect(y, JSON.stringify(metrics)).toBe(box.y - 2)
+        const { labels, box } = await labelsOf([{ word: 'keeper', translation: 'хранитель' }])
+        expect(labels[0].y, JSON.stringify(metrics)).toBe(box('keeper').y)
       }
     })
 
-    it('with no canvas at all (jsdom), still draws the label at the box top', async () => {
+    it('with no canvas at all (jsdom), or one that throws, the label still draws at the box top', async () => {
       vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
-      const { y, box } = await labelY()
-      expect(y).toBe(box.y - 2)
+      let r = await labelsOf([{ word: 'keeper', translation: 'хранитель' }])
+      expect(r.labels[0].y).toBe(r.box('keeper').y)
+      vi.restoreAllMocks()
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => { throw new Error('canvas blocked') })
+      r = await labelsOf([{ word: 'keeper', translation: 'хранитель' }])
+      expect(r.labels[0].y).toBe(r.box('keeper').y)
     })
   })
 

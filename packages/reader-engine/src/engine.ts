@@ -159,16 +159,33 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
       .filter((r) => r.width > 0 && r.height > 0)
       .map((r) => ({ x: r.left - o.left, y: r.top - o.top, width: r.width, height: r.height }))
   })
-  const canvas = doc.createElement('canvas').getContext?.('2d') ?? null
-  /** E54: from the line box's top down to the word's glyph top — ascent the font reserves minus the letters' own height. */
+  /** One measuring canvas, made on first use: it is optional, and a host that blocks canvas must not break `createEngine`. */
+  let canvas: CanvasRenderingContext2D | null | undefined
+  const glyphTopByFont = new Map<string, number>()
+  /**
+   * E54: from the line box's top down to where the letters start — the ascent the font reserves minus
+   * the height of a reference glyph pair ('Hd': cap and ascender), so every label on a line sits at the
+   * same height whatever letters its word has. Cached per font string: `paint` runs on every resize.
+   * 0 = no answer (no canvas, no metrics, nonsense): the label stays at the box top, as before.
+   */
   const glyphTop = opts.glyphTop ?? ((range: Range): number => {
     const el = range.startContainer.parentElement
-    if (!canvas || !el) return 0
-    const cs = win.getComputedStyle(el)
-    canvas.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`
-    const m = canvas.measureText(range.toString())
-    const top = m.fontBoundingBoxAscent - m.actualBoundingBoxAscent
-    return Number.isFinite(top) && top > 0 ? top : 0   // no metrics (old WebView): the box top, as before
+    if (!el) return 0
+    try {
+      if (canvas === undefined) canvas = doc.createElement('canvas').getContext?.('2d') ?? null
+      if (!canvas) return 0
+      const cs = win.getComputedStyle(el)
+      const font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`
+      let top = glyphTopByFont.get(font)
+      if (top === undefined) {
+        canvas.font = font
+        const m = canvas.measureText('Hd')
+        const t = m.fontBoundingBoxAscent - m.actualBoundingBoxAscent
+        top = Number.isFinite(t) && t > 0 ? t : 0
+        glyphTopByFont.set(font, top)
+      }
+      return top
+    } catch { return 0 }
   })
   const frame = () => new Promise<void>((r) => schedule(r))
 
@@ -484,7 +501,8 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
         const label = doc.createElementNS(SVG, 'text')
         label.setAttribute('class', 'reader-translation')
         label.setAttribute('x', String(first.x + first.width / 2))
-        label.setAttribute('y', String(first.y + (range ? glyphTop(range) : 0) - LABEL_GAP))
+        const down = range ? glyphTop(range) : 0
+        label.setAttribute('y', String(first.y + (down > 0 ? down - LABEL_GAP : 0)))   // no measurement: the box top, exactly as before
         label.setAttribute('text-anchor', 'middle')
         label.setAttribute('fill', 'currentColor')   // the theme's text colour (root's `color`)
         // E44: its own look, so no host can forget it (web once drew labels at body size).
