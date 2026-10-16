@@ -23,7 +23,7 @@ After replacing native font assets, run `pnpm -C apps/mobile build:reader-fonts`
 
 The user supplied files from `~/Downloads/TextStack Fonts/`. All four are byte-identical to the corresponding Michelangelus files in the [official Microsoft download](https://www.microsoft.com/en-us/download/details.aspx?id=108856). CSS exposes them as `TextStack`; internal font names remain unchanged.
 
-The accompanying EULA is retained beside the font files in each app. It grants no redistribution or sublicensing rights. No separate license permitting web or app redistribution has been supplied. Renaming the files does not establish those rights; release clearance remains unresolved.
+The original download license grants no redistribution or sublicensing rights. No separate license permitting web or app redistribution has been supplied. Renaming the files does not establish those rights; release clearance remains unresolved.
 
 Source Sans 3 files come from [Adobe's official release branch](https://github.com/adobe-fonts/source-sans/tree/release/TTF), with its license in `apps/mobile/assets/fonts/SourceSans3-LICENSE.md`.
 
