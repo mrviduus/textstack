@@ -12,7 +12,8 @@ export const keyOfPick = (p: ContinueReadingPick): string => (p.type === 'userbo
  */
 export function continuePickFor(e: LibraryEntry, picks: ReadonlyMap<string, ContinueReadingPick>): ContinueReadingPick | undefined {
   const pick = picks.get(pickKey(e))
-  if (!pick) return undefined
+  // pickCatalog keeps a 0% book that has a chapter; "Continue" would promise a place to return to that doesn't exist.
+  if (!pick || pick.percent <= 0) return undefined
   if (e.kind === 'saved') return pick
   const status = e.book.status.toLowerCase()
   const ready = status === 'ready' || status === 'completed'

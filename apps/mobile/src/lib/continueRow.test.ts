@@ -19,6 +19,12 @@ describe('continuePickFor', () => {
     expect(continuePickFor(saved('u1'), picks)).toBeUndefined()
   })
 
+  it('a 0% pick (opened, not scrolled) offers no Continue', () => {
+    const picks = picksOf({ ...editionPick('dracula'), percent: 0 }, { ...userPick('u1'), percent: 0 })
+    expect(continuePickFor(saved('dracula'), picks)).toBeUndefined()
+    expect(continuePickFor(upload('u1'), picks)).toBeUndefined()
+  })
+
   it('an upload that is not ready, or is marked finished, offers no Continue', () => {
     const picks = picksOf(userPick('u1'))
     expect(continuePickFor(upload('u1', { status: 'Processing' }), picks)).toBeUndefined()

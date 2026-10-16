@@ -7,18 +7,9 @@ import type { ContinueReadingPick } from '@textstack/shared'
 import { useTheme } from '../../context/ThemeContext'
 import { useLanguage } from '../../context/LanguageContext'
 import { fonts } from '../../theme/typography'
-import { heroResumeRoute } from '../../lib/bookRoutes'
+import { resumeUploadRoute } from '../../lib/bookRoutes'
 import { keyOfPick } from '../../lib/continueRow'
 import { getCachedUserBookMeta, listCachedUserChapterPages, storeCachedUserChapterStartPages } from '../../lib/offlineDb'
-
-/**
- * Continue on a Library row or grid cover. The Library used to open on a hero card with
- * the same book as row one; the row now carries the action itself.
- *
- * It links straight into the reader at the last chapter, not to the book
- * detail page. A detail page is a second decision the user did not ask for.
- * `filled` marks the first visible Continue; the rest are quiet outlines. `compact` (grid cover badge) is always solid, since an outline does not read over a cover.
- */
 
 /**
  * One instance for the whole Library: the lookup guard, the focus guard and the router live here,
@@ -39,7 +30,7 @@ export function useResume() {
     busyRef.current = true
     setBusyKey(keyOfPick(pick))
     try {
-      const route = await heroResumeRoute(pick, {
+      const route = await resumeUploadRoute(pick, {
         device: async id => {
           const [chapters, meta] = await Promise.all([listCachedUserChapterPages(id), getCachedUserBookMeta(id)])
           return { chapters, totalChapters: meta?.totalChapters ?? 0 }
@@ -56,6 +47,14 @@ export function useResume() {
   return { open, busyKey }
 }
 
+/**
+ * Continue on a Library row or grid cover. The Library used to open on a hero card with
+ * the same book as row one; the row now carries the action itself.
+ *
+ * It links straight into the reader at the last chapter, not to the book
+ * detail page. A detail page is a second decision the user did not ask for.
+ * `filled` marks the first visible Continue; the rest are quiet outlines. `compact` (grid cover badge) is always solid, since an outline does not read over a cover.
+ */
 export function ResumeButton({ pick, filled: wantFilled, compact, onResume, busyKey }: {
   pick: ContinueReadingPick
   filled: boolean
