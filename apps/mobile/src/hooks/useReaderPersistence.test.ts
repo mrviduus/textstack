@@ -331,15 +331,15 @@ describe('the write gate — nothing is saved before the restore lands', () => {
 })
 
 describe('rebuilds and reflows keep the restore target (rule 8)', () => {
-  it('a rebuild while the open restore is in flight restores the saved target, not the load-event top', async () => {
-    const r = mountReader()
+  it.each([[STD_FONT, DYSLEXIC_FONT], ['TextStack', 'Source Sans 3'], ['Source Sans 3', 'TextStack']])('a %s to %s rebuild during restore keeps the saved target', async (initialFamily, fontFamily) => {
+    const r = mountReader({ fontFamily: initialFamily })
     const A = pos('ch-1', 'saved place')
     await r.answerPosition(saved({ position: A }))
     r.web.loadEnd()
     const first = r.web.lastRestore()!
     expect(first.kind).toBe('RestoreAnchor')
 
-    r.rerender({ fontFamily: DYSLEXIC_FONT })                // new font face → rebuild
+    r.rerender({ fontFamily })                               // new font face → rebuild
     r.web.progress(0, 0, pos('ch-1', 'chapter top'))         // the new document's load event
     r.web.send({ type: 'restored', restoreId: first.id, scrollY: 900 })  // the dead document's late ack
     r.tick(2000)

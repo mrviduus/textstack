@@ -22,15 +22,13 @@
  * rebuilt from the ROUTE chapter — so a reader 55% into chapter two (back when
  * the reader appended chapters into one document) was moved to 74% of chapter one, and the debounced save
  * then wrote that over their real position. Font size, line height, alignment
- * and the serif/sans family are ordinary CSS and are applied to the live
+ * are ordinary CSS and are applied to the live
  * document by `readerTypographyInjectionJs`, exactly as padding and colour are.
  *
- * Standard TextStack and Source Sans faces are always bundled in the document.
- * What stays a document input is the optional `@font-face`: OpenDyslexic is 150KB of
- * inlined base64 that `buildFontFace` emits only when it is selected, and
- * putting it in every document to save a rare rebuild is the wrong trade.
- * `fontFaceKey` is what the key carries, so serif↔sans costs nothing and only
- * a move to or from the dyslexic face rebuilds.
+ * Only the selected compressed family is embedded. A family change rebuilds through
+ * the existing document restore path, just like OpenDyslexic. This lets the engine
+ * wait for the new fonts before restoring the reading position. Size, alignment
+ * and spacing still update the open document without a rebuild.
  */
 
 export interface ReaderChrome {
@@ -107,13 +105,11 @@ export function readerTypographyChanged(a: ReaderTypography | null, b: ReaderTyp
 /**
  * The identity of a reflow document. Insets, colours and typography are absent
  * on purpose — that absence is the fix, and an absence is what a reviewer stops
- * seeing. What remains is what genuinely cannot be injected: the chapter the
- * document was built from and whether the OpenDyslexic `@font-face` was inlined.
+ * seeing. The chapter and embedded font family use the rebuild/restore path.
  */
 export function readerDocumentKey(d: {
   chapterSlug: string
-  /** 'dyslexic' when the document must carry an inlined @font-face, else 'std'.
-   *  NOT the family itself: serif↔sans is pure CSS and is injected. */
+  /** The embedded family: changes use the existing rebuild/restore path. */
   fontFaceKey: string
   /** Length is enough to notice a different chapter without hashing it. */
   htmlLength: number
@@ -123,9 +119,12 @@ export function readerDocumentKey(d: {
   ].join(' ')
 }
 
-/** Which documents need the inlined face. Mirrors `buildFontFace`. */
+/** Identity of the selected compressed font payload. */
 export function fontFaceKey(fontFamily: string): string {
-  return fontFamily.includes('OpenDyslexic') ? 'dyslexic' : 'std'
+  if (fontFamily.includes('OpenDyslexic')) return 'dyslexic'
+  if (fontFamily.includes('TextStack')) return 'textstack'
+  if (fontFamily.includes('Source Sans 3')) return 'source-sans'
+  return 'std'
 }
 
 /** Insets latch to the largest seen — the top bar is an overlay that comes back. */

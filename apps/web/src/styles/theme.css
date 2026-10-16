@@ -5,7 +5,7 @@
 /* User-provided TextStack fonts. See docs/typography.md for provenance and licensing. */
 @font-face {
   font-family: 'TextStack';
-  src: url('/fonts/TextStack-Regular.ttf') format('truetype');
+  src: url('../assets/fonts/TextStack-Regular.woff2') format('woff2');
   font-weight: 400;
   font-style: normal;
   font-display: swap;
@@ -13,7 +13,7 @@
 
 @font-face {
   font-family: 'TextStack';
-  src: url('/fonts/TextStack-Italic.ttf') format('truetype');
+  src: url('../assets/fonts/TextStack-Italic.woff2') format('woff2');
   font-weight: 400;
   font-style: italic;
   font-display: swap;
@@ -21,7 +21,7 @@
 
 @font-face {
   font-family: 'TextStack';
-  src: url('/fonts/TextStack-Bold.ttf') format('truetype');
+  src: url('../assets/fonts/TextStack-Bold.woff2') format('woff2');
   font-weight: 700;
   font-style: normal;
   font-display: swap;
@@ -29,7 +29,7 @@
 
 @font-face {
   font-family: 'TextStack';
-  src: url('/fonts/TextStack-BoldItalic.ttf') format('truetype');
+  src: url('../assets/fonts/TextStack-BoldItalic.woff2') format('woff2');
   font-weight: 700;
   font-style: italic;
   font-display: swap;
