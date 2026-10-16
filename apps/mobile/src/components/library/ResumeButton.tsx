@@ -16,17 +16,18 @@ import { getCachedUserBookMeta, listCachedUserChapterPages, storeCachedUserChapt
  *
  * It links straight into the reader at the last chapter, not to the book
  * detail page. A detail page is a second decision the user did not ask for.
- * `filled` marks the most recently read book; the rest are quiet outlines.
+ * `filled` marks the most recently read book; the rest are quiet outlines. `compact` (grid cover badge) is always solid, since an outline does not read over a cover.
  */
+// One chapter-list lookup at a time across every row (RES-1); taps while it runs are ignored.
+const busyRef = { current: false }
+
 export function ResumeButton({ pick, filled: wantFilled, compact }: { pick: ContinueReadingPick; filled: boolean; compact?: boolean }) {
   const filled = wantFilled || !!compact
   const { colors } = useTheme()
   const { t } = useLanguage()
   const router = useRouter()
-  // One chapter-list lookup at a time (RES-1); repeat taps while it runs are ignored.
-  const busyRef = useRef(false)
   const [busy, setBusy] = useState(false)
-  // A lookup that resolves after the reader left the Library (or the hero unmounted) must not navigate.
+  // A lookup that resolves after the reader left the Library (or the button unmounted) must not navigate.
   const focusedRef = useRef(true)
   useFocusEffect(useCallback(() => {
     focusedRef.current = true

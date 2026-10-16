@@ -308,10 +308,12 @@ export function BookList({
             )}
 
             {((lastRead && !isFailed) || continuePill) && (
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
-                <Text numberOfLines={1} style={{ flexShrink: 1, marginRight: 8, fontFamily: fonts.sans, fontSize: 11, color: colors.textSecondary }}>
-                  {lastRead && !isFailed ? `${t('library.lastRead')} ${formatTimeAgo(lastRead)}` : ''}
-                </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: lastRead && !isFailed ? 'space-between' : 'flex-end', marginTop: 4 }}>
+                {lastRead && !isFailed && (
+                  <Text numberOfLines={1} style={{ flexShrink: 1, marginRight: 8, fontFamily: fonts.sans, fontSize: 11, color: colors.textSecondary }}>
+                    {`${t('library.lastRead')} ${formatTimeAgo(lastRead)}`}
+                  </Text>
+                )}
                 {continuePill}
               </View>
             )}
