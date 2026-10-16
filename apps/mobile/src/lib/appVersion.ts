@@ -34,14 +34,17 @@ function toBuild(v: string | number | null | undefined): number | null {
  * minimum, an unknown current build (web, dev) or a garbage value all mean "don't
  * block": a misconfiguration must not lock every reader out.
  */
-export function isBelowMinimumBuild(
+export function isBelowBuild(
   currentBuild: string | number | null | undefined,
-  minBuild: string | number | null | undefined,
+  otherBuild: string | number | null | undefined,
 ): boolean {
   const current = toBuild(currentBuild)
-  const min = toBuild(minBuild)
-  return current != null && min != null && current < min
+  const other = toBuild(otherBuild)
+  return current != null && other != null && current < other
 }
+
+/** The blocking gate's comparison. Same rule as `isBelowBuild`; kept under its own name for the call site. */
+export const isBelowMinimumBuild = isBelowBuild
 
 export type BuildGate = 'ok' | 'nudge' | 'blocked'
 
@@ -54,8 +57,23 @@ export function buildGate(
   cfg: { minSupportedBuild?: number | null; latestBuild?: number | null },
 ): BuildGate {
   if (isBelowMinimumBuild(currentBuild, cfg.minSupportedBuild)) return 'blocked'
-  if (isBelowMinimumBuild(currentBuild, cfg.latestBuild)) return 'nudge'
+  if (isBelowBuild(currentBuild, cfg.latestBuild)) return 'nudge'
   return 'ok'
+}
+
+/**
+ * Whether the "new version" bar shows. Never in the reader (it would sit over the text and its
+ * controls), never on top of the legacy-runtime banner (same message), and a dismissal covers only
+ * the `latest` it was made for, so a newer build brings the bar back.
+ */
+export function nudgeVisible(s: {
+  gate: BuildGate
+  latest: number | null
+  dismissedFor: number | null
+  reading: boolean
+  legacyBanner: boolean
+}): boolean {
+  return s.gate === 'nudge' && !s.reading && !s.legacyBanner && s.latest !== s.dismissedFor
 }
 
 export const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000

@@ -16,11 +16,14 @@ public static class AppConfigEndpoints
     /// version "1.0.0" (EAS bumps only versionCode), so a name-based minimum would block the newest
     /// build too. Empty, &lt;=0 or garbage = no minimum. Advisory only: the app shows a blocking
     /// "please update" screen below it, the server never refuses a request.
-    /// </summary>
+    ///
     /// <para><c>Mobile:LatestBuild</c> (env <c>Mobile__LatestBuild</c>): the newest versionCode on the
     /// Play track testers use. Below it (but at or above the minimum) the app shows a dismissible
     /// "new version" bar, because Play updates early-access builds late and an OTA only reaches a
-    /// build with the same runtime — an older build is stuck silently. Same parsing rules.</para>
+    /// build with the same runtime — an older build is stuck silently. Same parsing rules. Set it
+    /// only once the build is fully rolled out on that track: a staged rollout would nudge testers
+    /// to an update Play does not yet offer them.</para>
+    /// </summary>
     public static IResult GetAppConfig(IConfiguration config) =>
         Results.Ok(new AppConfigResponse(
             ParseMinBuild(config["Mobile:MinSupportedBuild"]),

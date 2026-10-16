@@ -7,7 +7,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '../context/ThemeContext'
 import { useLanguage } from '../context/LanguageContext'
 import { fonts } from '../theme/typography'
-import { buildGate, isCheckDue, type BuildGate } from '../lib/appVersion'
+import { usePathname } from 'expo-router'
+import * as Updates from 'expo-updates'
+import { buildGate, isCheckDue, nudgeVisible, type BuildGate } from '../lib/appVersion'
+import { isLegacyRuntime } from '../lib/legacyRuntime'
+import { isReading } from '../lib/updateApply'
 import { openPlayStore } from '../lib/playStore'
 
 // Android only: the button goes to Google Play, and there is no iOS listing to send anyone to.
@@ -28,7 +32,9 @@ const CURRENT_BUILD = Application.nativeBuildVersion
  */
 export function ForceUpdateGate() {
   const [gate, setGate] = useState<BuildGate>('ok')
-  const [dismissed, setDismissed] = useState(false)
+  const [latest, setLatest] = useState<number | null>(null)
+  const [dismissedFor, setDismissedFor] = useState<number | null>(null)
+  const pathname = usePathname()
   const lastCheckedAt = useRef<number | null>(null)
 
   useEffect(() => {
@@ -38,7 +44,10 @@ export function ForceUpdateGate() {
       if (!isCheckDue(lastCheckedAt.current, now)) return
       lastCheckedAt.current = now
       publicFetch<{ minSupportedBuild?: number | null; latestBuild?: number | null }>('/app/config')
-        .then(cfg => setGate(buildGate(CURRENT_BUILD, cfg)))
+        .then(cfg => {
+          setGate(buildGate(CURRENT_BUILD, cfg))
+          setLatest(cfg.latestBuild ?? null)
+        })
         .catch(() => { lastCheckedAt.current = null }) // retry on the next foreground
     }
     check()
@@ -47,11 +56,15 @@ export function ForceUpdateGate() {
   }, [])
 
   if (gate === 'blocked') return <ForceUpdateScreen />
-  if (gate === 'nudge' && !dismissed) return <NewBuildBar onDismiss={() => setDismissed(true)} />
+  if (nudgeVisible({
+    gate, latest, dismissedFor,
+    reading: isReading(pathname),
+    legacyBanner: isLegacyRuntime(Updates.runtimeVersion, Updates.isEnabled, Platform.OS),
+  })) return <NewBuildBar onDismiss={() => setDismissedFor(latest)} />
   return null
 }
 
-/** A newer build exists on Play: say so once per launch, never in the way of reading. */
+/** A newer build exists on Play: say so, but never over the reader (see `nudgeVisible`). */
 function NewBuildBar({ onDismiss }: { onDismiss: () => void }) {
   const { colors } = useTheme()
   const { t } = useLanguage()
@@ -62,10 +75,10 @@ function NewBuildBar({ onDismiss }: { onDismiss: () => void }) {
       accessibilityRole="alert"
     >
       <Text style={[styles.barText, { color: colors.text }]} numberOfLines={2}>{t('updates.newBuild.text')}</Text>
-      <TouchableOpacity onPress={openPlayStore} hitSlop={8} accessibilityRole="button">
+      <TouchableOpacity onPress={openPlayStore} hitSlop={12} accessibilityRole="button">
         <Text style={[styles.barCta, { color: colors.primary }]}>{t('updates.newBuild.cta')}</Text>
       </TouchableOpacity>
-      <TouchableOpacity onPress={onDismiss} hitSlop={8} accessibilityRole="button" accessibilityLabel={t('updates.newBuild.dismiss')}>
+      <TouchableOpacity onPress={onDismiss} hitSlop={12} accessibilityRole="button" accessibilityLabel={t('updates.newBuild.dismiss')}>
         <Ionicons name="close" size={18} color={colors.textSecondary} />
       </TouchableOpacity>
     </View>
@@ -98,7 +111,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12, borderWidth: 1,
   },
   barText: { flex: 1, fontFamily: fonts.sans, fontSize: 13 },
-  barCta: { fontFamily: fonts.sansBold, fontSize: 14 },
+  barCta: { flexShrink: 0, fontFamily: fonts.sansBold, fontSize: 14 },
   wrap: { alignItems: 'center', justifyContent: 'center', padding: 32, gap: 14, zIndex: 1000, elevation: 1000 },
   title: { fontFamily: fonts.sansBold, fontSize: 20, textAlign: 'center' },
   body: { fontFamily: fonts.sans, fontSize: 15, lineHeight: 22, textAlign: 'center' },
