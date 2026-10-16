@@ -25,12 +25,12 @@ export function resumeRoute(pick: ContinueReadingPick): string {
 type ChapterRow = ChapterPageAnchor & { chapterNumber: number }
 
 /**
- * The Library hero's Continue (RES-1). An upload read as PDF pages saves `page:<N>` and no chapter,
+ * The Library Continue button's route (RES-1). An upload read as PDF pages saves `page:<N>` and no chapter,
  * so `resumeRoute` sent it to the detail screen. Here the chapter list names the chapter holding
  * that page, and the PDF reader then restores the page itself. The device's chapters first (the
  * reading path waits for no network), but only a complete download whose rows place the page; else the server, 3 s deadline. Lookup fails → detail.
  */
-export async function heroResumeRoute(
+export async function resumeUploadRoute(
   pick: ContinueReadingPick,
   loaders: {
     /** The cached chapters and the book meta's chapter count — a partial download can't place a page. */

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { View, Text, FlatList, TouchableOpacity, RefreshControl, useWindowDimensions } from 'react-native'
 import { Image } from 'expo-image'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -6,8 +6,8 @@ import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import {
   getStorageUrl,
-  entryKey, entryTitle, entryAuthor, entryCoverPath, entryProgress, resumeChapterSlug,
-  type LibraryEntry, type UserLibraryItem, type ReadingProgressDto, formatTimeAgo, userBooksApi, createBooksApi } from '@textstack/shared'
+  entryKey, entryTitle, entryAuthor, entryCoverPath, entryProgress,
+  type LibraryEntry, type UserLibraryItem, type ContinueReadingPick, type ReadingProgressDto, formatTimeAgo, userBooksApi, createBooksApi } from '@textstack/shared'
 import { useTheme } from '../../context/ThemeContext'
 import { useLanguage } from '../../context/LanguageContext'
 import { useToast } from '../../context/ToastContext'
@@ -15,6 +15,8 @@ import { fonts } from '../../theme/typography'
 import { AddToCollectionSheet } from './AddToCollectionSheet'
 import { useSheetMount } from '../../hooks/useSheetMount'
 import { BookStatusBadge } from './BookStatusBadge'
+import { ResumeButton, useResume } from './ResumeButton'
+import { continuePickFor, firstContinuePick, keyOfPick } from '../../lib/continueRow'
 import { GeneratedCover } from './GeneratedCover'
 import { useBookActions } from '../../hooks/useBookActions'
 import { styles, type ViewMode } from './shared'
@@ -55,11 +57,13 @@ interface Props {
   onRefresh: () => void
   viewMode: ViewMode
   listHeader: React.ReactNode
+  /** In-progress books, most recent first. [0] gets the filled Continue; the rest are outlines. */
+  resumeList: ContinueReadingPick[]
 }
 
 export function BookList({
   entries, progressMap, library, setLibrary, setProgressMap,
-  refreshing, onRefresh, viewMode, listHeader,
+  refreshing, onRefresh, viewMode, listHeader, resumeList,
 }: Props) {
   const router = useRouter()
   const { colors } = useTheme()
@@ -70,6 +74,14 @@ export function BookList({
   // Clear the floating tab bar (~56 + bottom inset) so the last row isn't
   // hidden behind it or the raised "+" button.
   const bottomPad = 56 + insets.bottom + 24
+  // One pick per book, keyed like the rows. Local-aware (rankContinueReading), so a book read
+  // offline resumes where it was left, not at the stale server position.
+  const picks = useMemo(
+    () => new Map(resumeList.map(p => [keyOfPick(p), p] as const)),
+    [resumeList],
+  )
+  const top = useMemo(() => firstContinuePick(entries, picks), [entries, picks])
+  const { open: resume, busyKey } = useResume()
   const numColumns = viewMode === 'grid' ? Math.max(2, Math.floor(width / 130)) : 1
 
   const { showSavedActions, showUploadActions } = useBookActions()
@@ -188,6 +200,8 @@ export function BookList({
     // saying the same words.
     const pill = isProcessing ? 'processing' : isFailed ? 'failed' : showNew ? 'new' : null
 
+    const pick = continuePickFor(e, picks)
+
     if (viewMode === 'grid') {
       const cardWidth = (width - 20 - (numColumns - 1) * 10) / numColumns
       return (
@@ -207,6 +221,11 @@ export function BookList({
               {pill && (
                 <View style={styles.gridPillSlot}>
                   <BookStatusBadge variant={pill} />
+                </View>
+              )}
+              {pick && (
+                <View style={{ position: 'absolute', right: 6, bottom: 6 }}>
+                  <ResumeButton pick={pick} filled={pick === top} compact onResume={resume} busyKey={busyKey} />
                 </View>
               )}
             </View>
@@ -235,13 +254,7 @@ export function BookList({
     }
 
     const serverProgress = e.kind === 'saved' ? progressMap[e.item.editionId] : undefined
-    // `serverProgress.chapterSlug` is derived server-side from the row's `chapterId`, and that id
-    // stopped moving while the reader still appended chapters (until 2026-10-03); rows written then
-    // still disagree. Following it sent a reader 45% in back to the top of chapter two. The locator
-    // is the position.
-    const continueSlug = e.kind === 'saved'
-      ? resumeChapterSlug(serverProgress?.chapterSlug, serverProgress?.locator, null)
-      : null
+    const continuePill = pick ? <ResumeButton pick={pick} filled={pick === top} onResume={resume} busyKey={busyKey} /> : null
     const lastRead = e.kind === 'saved' ? serverProgress?.updatedAt : e.book.progressUpdatedAt
 
     return (
@@ -295,10 +308,15 @@ export function BookList({
               </Text>
             )}
 
-            {lastRead && !isFailed && (
-              <Text style={{ fontFamily: fonts.sans, fontSize: 11, color: colors.textSecondary, marginTop: 4 }}>
-                {t('library.lastRead')} {formatTimeAgo(lastRead)}
-              </Text>
+            {((lastRead && !isFailed) || continuePill) && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: lastRead && !isFailed ? 'space-between' : 'flex-end', marginTop: 4 }}>
+                {lastRead && !isFailed && (
+                  <Text numberOfLines={1} style={{ flexShrink: 1, marginRight: 8, fontFamily: fonts.sans, fontSize: 11, color: colors.textSecondary }}>
+                    {`${t('library.lastRead')} ${formatTimeAgo(lastRead)}`}
+                  </Text>
+                )}
+                {continuePill}
+              </View>
             )}
 
             {/* Where the book is, and the tap that changes it — on the shelf,
@@ -318,23 +336,6 @@ export function BookList({
               )
             })()}
 
-            {continueSlug ? (
-              <TouchableOpacity
-                style={[styles.continueBtn, { backgroundColor: colors.primary }]}
-                onPress={() => router.push(`/reader/${(e as { item: UserLibraryItem }).item.slug}/${continueSlug}`)}
-              >
-                <Ionicons name="play" size={12} color="#fff" />
-                {/* "Continue" promises to put the reader back where they stopped.
-                    A book at 0% has a chapterSlug the moment the reader opens it
-                    and scrolls nothing, so the promise was made with nowhere to
-                    return to. `library.resume.start` has existed in en.json since
-                    the beginning, unused — the switch was intended and never
-                    wired. */}
-                <Text style={styles.continueBtnText}>
-                  {pct > 0 ? t('library.resume.continue') : t('library.resume.start')}
-                </Text>
-              </TouchableOpacity>
-            ) : null}
           </View>
         </TouchableOpacity>
 

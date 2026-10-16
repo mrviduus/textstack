@@ -64,8 +64,8 @@ export interface ContinueReadingInputs {
 }
 
 /**
- * Every in-progress book, most recently active first. `[0]` is the resume
- * hero, the rest is the rail behind it — one ranking, so the two can never
+ * Every in-progress book, most recently active first. `[0]` is the book
+ * Library fills its Continue for, the rest are outlines — one ranking, so the two can never
  * disagree about which book is "current". Empty when nothing is in progress.
  *
  * Semantics:

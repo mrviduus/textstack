@@ -50,7 +50,7 @@ export function useContinueReadingList(
   )
 
   // Memoised because the Library screen re-renders every 5s while an upload is
-  // processing, and a fresh array identity would re-render the hero and the
+  // processing, and a fresh array identity would re-render every row and the
   // whole rail each time for nothing.
   return useMemo(
     () => rankContinueReading({

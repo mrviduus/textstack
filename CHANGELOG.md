@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Mobile** — Library: top Continue hero removed; every started book has Continue on its row (list pill, grid badge) — mobile
 - **SEO** — Bing WMT fixes: bots get 404 for junk URLs outside `/en/` (Bing had indexed `/$1`), robots.txt blocks `?direct=` / `?highlight=` duplicates, contact page noindex — nginx, api, web — [write-up](docs/changelog-archive/2026-H2.md#2026-10-15-bing-webmaster-fixes)
 - **TTS** — failures are loud: Edge-side 502s log at Error (→ Sentry; bad-input 502s Warning), health-check synthesizes a unique phrase every 5 min (cache can't hide an Edge outage), runbook row (Fixes #880) — backend, CI — [write-up](docs/changelog-archive/2026-H2.md#2026-10-15-tts-failures-loud)
 - **TTS** — prod 502 fixed: Edge TTS now needs the v2 `Sec-MS-GEC` token; ported upstream edge-tts v2 (token, headers, voice-list token, 403 → clock-skew retry) (Fixes #827) — backend — [write-up](docs/changelog-archive/2026-H2.md#2026-10-15-tts-sec-ms-gec-v2)

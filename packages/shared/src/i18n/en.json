@@ -286,8 +286,6 @@
     },
     "resume": {
       "continue": "Continue",
-      "start": "Start reading",
-      "percentComplete": "{percent}% complete",
       "a11yResume": "Continue reading {title}, {percent} percent complete"
     },
     "firstBook": {
