@@ -20,6 +20,8 @@ import { decideNewerPosition, readerMovedSince, returnedToForeground, REFLOW_MOV
 import { useToast } from '../context/ToastContext'
 import { useLanguage } from '../context/LanguageContext'
 
+const SAVE_DEBOUNCE_MS = 500
+
 type Options = {
   /** editionId (catalog) or userBookId (user-book). null disables I/O.
    *  Also the trigger that re-loads the saved position once it resolves. */
@@ -438,9 +440,10 @@ export function useReaderPersistence({
   const saveProgressRef = useRef(saveProgress)
   saveProgressRef.current = saveProgress
 
-  // 2s-debounced save fired on every WebView progress bump. Short enough that
-  // a force-kill mid-chapter loses < ~2s of scroll, long enough that fast
-  // scrubbing doesn't spam writes.
+  // Debounced save fired on every WebView progress bump. Short enough that a force-kill right
+  // after Home loses < ~SAVE_DEBOUNCE_MS of scroll (#811: the background flush's writes are async
+  // and the process can die before they land), long enough that fast scrubbing doesn't spam writes.
+  // ponytail: only a synchronous store (MMKV, a native build) closes the window fully.
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const bumpProgress = useCallback(() => {
     // ReaderShell has just written the live refs from the WebView's message, so this is also where
@@ -456,7 +459,7 @@ export function useReaderPersistence({
     debounceRef.current = setTimeout(() => {
       debounceRef.current = null
       saveProgressRef.current()
-    }, 2000)
+    }, SAVE_DEBOUNCE_MS)
   }, [enabled, bookKey, chapterSlug, restoredFor, dispatchGate, scrollOffsetRef])
 
   // Load saved position + reset the restore machine whenever the chapter (or

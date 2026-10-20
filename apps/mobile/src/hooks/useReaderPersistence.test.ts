@@ -281,6 +281,14 @@ describe('the write gate — nothing is saved before the restore lands', () => {
     expect(r.io.persist).not.toHaveBeenCalled()
   })
 
+  it('#811: scroll that stops for 0.5s is saved without waiting for the old 2s', async () => {
+    const r = await openLanded()
+    r.web.progress(1500, 0.5)
+    r.tick(500)
+    expect(r.io.persist).toHaveBeenCalledTimes(1)
+    expect(r.io.persist.mock.calls[0][0]).toMatchObject({ scrollOffset: 1500 })
+  })
+
   it('H1: a debounced save fires against the gate as it is then — a rebuild armed after it writes nothing', async () => {
     const r = await openLanded()
     r.web.progress(1500, 0.5)                                 // debounced save armed, gate open
