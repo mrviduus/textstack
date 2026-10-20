@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Mobile** — reading position saves 0.5s after scroll stops (was 2s): shrinks the window lost when the app is killed right after Home; a full fix needs a synchronous store (Fixes #811) — mobile
 - **Mobile** — EAS `submit.production` releases to 100% (was 10% staged): first Play publish has no users to protect — mobile, CI
 - **Reader** — PDF toolbar: active Dim button keeps its accent background on hover/sticky touch, text no longer white-on-light (Fixes #841) — web
 - **Mobile** — dismissible "new version available" bar when the build is below `Mobile:LatestBuild` (`GET /app/config`, env `MOBILE_LATEST_BUILD`): an older build never gets an OTA and Play updates testers late — backend, mobile
