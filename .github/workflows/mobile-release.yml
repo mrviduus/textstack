@@ -11,11 +11,10 @@ name: Mobile Release (EAS)
 #                  to the `track` input (internal | closed | production). Android-only.
 # Submit destination = the `track` input → eas.json `submit.<track>` profile.
 #
-# `production` opens a STAGED rollout at 10% (eas.json submit.production:
-# releaseStatus inProgress + rollout 0.1). EAS cannot advance an existing rollout —
-# 10% → 25% → 50% → 100% is done by hand in Play Console → Production → Manage
-# rollout. Re-running this workflow with a larger rollout creates a NEW release
-# instead of widening the current one.
+# `production` releases to 100% (eas.json submit.production: releaseStatus completed) —
+# first publish, no existing users to protect. For a later update, set
+# releaseStatus inProgress + rollout 0.1 there; EAS cannot advance an existing rollout —
+# widening is done by hand in Play Console → Production → Manage rollout.
 #
 # Requires repo secret EXPO_TOKEN (expo.dev → Account → Access tokens).
 # workflow_dispatch ONLY — no push/tag/schedule triggers, so the store is never
@@ -39,7 +38,7 @@ on:
         options: [production, preview]
         default: production
       track:
-        description: Submit track (submit / build-submit only). production = 10% staged rollout.
+        description: Submit track (submit / build-submit only). production = 100% release.
         type: choice
         options: [internal, closed, production]
         default: internal

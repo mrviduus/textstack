@@ -50,8 +50,7 @@
     "production": {
       "android": {
         "track": "production",
-        "releaseStatus": "inProgress",
-        "rollout": 0.1,
+        "releaseStatus": "completed",
         "changesNotSentForReview": false
       }
     }
