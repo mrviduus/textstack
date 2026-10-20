@@ -45,6 +45,11 @@
   color: #fff;
 }
 
+/* :hover alone would repaint the background light under the white text (sticky on touch) */
+.pdf-original__btn--active:hover {
+  background: var(--reader-accent, #2563eb);
+}
+
 .pdf-original__page-input {
   width: 48px;
   height: 32px;
