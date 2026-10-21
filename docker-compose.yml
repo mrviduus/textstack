@@ -165,6 +165,8 @@ services:
       args:
         GIT_SHA: "${GIT_SHA:-}"
     container_name: textstack_worker_prod
+    # Single consumer: ingestion claims are check-then-act and the metadata-enrichment sweep assumes one
+    # worker. Do not scale or add a second worker container (see ADR-022).
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       ConnectionStrings__Default: "Host=db;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
@@ -295,6 +297,7 @@ services:
       args:
         GIT_SHA: "${GIT_SHA:-}"
     container_name: textstack_ssg_worker
+    # Single consumer: startup fails every Running ssg job, so a second ssg-worker would kill a live render.
     # tini reaps Chromium/chrome_crashpad children left behind by Puppeteer.
     # Without this, each prerender leaves a <defunct> Z process on the host
     # (28 chromium + 28 crashpad zombies observed over a few hours of SSG
