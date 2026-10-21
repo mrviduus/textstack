@@ -89,12 +89,15 @@ catalog:
   '@types/react': ~19.2.18
   '@types/react-dom': ~19.2.7
   '@vitejs/plugin-react': ^4.7.0
-  '@vitest/coverage-v8': ^4.1.11
+  '@vitest/coverage-v8': ^4.1.12
   jsdom: ^28.1.0
   pdfjs-dist: 4.10.38
   react: 19.2.3
   react-dom: 19.2.3
   react-router-dom: ^7.15.1
   typescript: ~5.9.2
-  vite: ^6.4.2
-  vitest: ^4.1.11
+  vite: ^6.4.5
+  vitest: ^4.1.12
+
+minimumReleaseAgeExclude:
+  - vite@6.4.5
