@@ -44,6 +44,9 @@ public class SeoBackfillJob
 
     public string? Error { get; set; }
 
+    /// <summary>Times this job was claimed. A Running job left by a dead poller is re-queued until <c>SeoJobProcessor.MaxAttempts</c>.</summary>
+    public int AttemptCount { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? StartedAt { get; set; }
     public DateTimeOffset? CompletedAt { get; set; }

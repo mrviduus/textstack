@@ -20,6 +20,11 @@ public class SeoJobProcessor(
     SeoContentApplier applier,
     IEmailService email)
 {
+    // A Running row untouched for this long means the poller that claimed it died (crash, deploy) — recover it.
+    public static readonly TimeSpan StaleAfter = TimeSpan.FromHours(1);
+    public const int MaxAttempts = 3;
+    public const string ExceededAttemptsError = "Exceeded max attempts (poller died or timed out on every attempt)";
+
     public record JobContext(
         Guid JobId,
         string EntityType,
@@ -27,6 +32,29 @@ public class SeoJobProcessor(
         List<FieldPrompt> Prompts);
 
     public record FieldPrompt(string FieldType, string Prompt, string OutputSchema, string Model, int MaxTokens, double Temperature);
+
+    /// <summary>
+    /// Running jobs older than <see cref="StaleAfter"/> were claimed by a poller that never reported back. Re-queue
+    /// them while attempts remain, else Failed (retryable from admin). Without this a dead claim stays Running
+    /// forever and the EnqueueAsync dedup guard blocks that entity for good.
+    /// </summary>
+    public async Task RecoverStaleAsync(CancellationToken ct)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var cutoff = now - StaleAfter;
+
+        // Each UPDATE re-checks Running in the DB, so a poller that finishes mid-sweep is never overwritten.
+        var stale = db.SeoBackfillJobs.Where(j => j.Status == SeoJobStatus.Running && j.StartedAt < cutoff);
+
+        await stale.Where(j => j.AttemptCount >= MaxAttempts).ExecuteUpdateAsync(s => s
+            .SetProperty(j => j.Status, SeoJobStatus.Failed)
+            .SetProperty(j => j.Error, ExceededAttemptsError)
+            .SetProperty(j => j.CompletedAt, now), ct);
+
+        await stale.Where(j => j.AttemptCount < MaxAttempts).ExecuteUpdateAsync(s => s
+            .SetProperty(j => j.Status, SeoJobStatus.Queued)
+            .SetProperty(j => j.StartedAt, (DateTimeOffset?)null), ct);
+    }
 
     /// <summary>
     /// Atomically claims up to `limit` queued jobs and marks them Running.
@@ -37,6 +65,8 @@ public class SeoJobProcessor(
         if (limit <= 0) limit = 1;
         if (limit > 50) limit = 50;
 
+        await RecoverStaleAsync(ct);
+
         var claimed = new List<Guid>();
         var now = DateTimeOffset.UtcNow;
         var running = (int)SeoJobStatus.Running;
@@ -46,7 +76,7 @@ public class SeoJobProcessor(
         // ToListAsync on FromSqlInterpolated forces enumeration (and UPDATE execution).
         var rows = await db.SeoBackfillJobs.FromSqlInterpolated($@"
             UPDATE seo_backfill_jobs
-            SET status = {running}, started_at = {now}
+            SET status = {running}, started_at = {now}, attempt_count = attempt_count + 1
             WHERE id IN (
               SELECT id FROM seo_backfill_jobs
               WHERE status = {queued}
@@ -75,7 +105,7 @@ public class SeoJobProcessor(
 
         var affected = await db.SeoBackfillJobs.FromSqlInterpolated($@"
             UPDATE seo_backfill_jobs
-            SET status = {running}, started_at = {now}
+            SET status = {running}, started_at = {now}, attempt_count = attempt_count + 1
             WHERE id = {jobId} AND status = {queued}
             RETURNING *
         ").AsNoTracking().ToListAsync(ct);
