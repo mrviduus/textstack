@@ -4,6 +4,7 @@ import {
   strayLockfiles,
   advisoryId,
   classify,
+  isBlocking,
   chunk,
   fetchAdvisories,
   LookupFailed,
@@ -134,6 +135,26 @@ describe('classify', () => {
   it('treats an advisory with no usable id as unlisted, not as known', () => {
     const { unknown } = classify([{ url: 'https://example.com/x', id: null, module_name: 'x' }], known)
     expect(unknown).toHaveLength(1)
+  })
+})
+
+describe('severity gate', () => {
+  const at = (severity) => ({ ...advisory('GHSA-bbbb-bbbb-bbbb', 'right-pad'), severity })
+
+  it('lets low and moderate through as warnings', () => {
+    const { blocking, warnings } = classify([at('low'), at('moderate')], known)
+    expect(blocking).toEqual([])
+    expect(warnings).toHaveLength(2)
+  })
+
+  it('blocks high and critical', () => {
+    const { blocking } = classify([at('high'), at('critical')], known)
+    expect(blocking).toHaveLength(2)
+  })
+
+  it('fails closed on a missing or unknown severity', () => {
+    expect(isBlocking({})).toBe(true)
+    expect(isBlocking({ severity: 'weird' })).toBe(true)
   })
 })
 
