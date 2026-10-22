@@ -14,6 +14,9 @@ namespace Worker.Services;
 /// dead-process rows stuck in <see cref="MetadataEnrichmentStatus.Running"/> past the stale window back to
 /// Pending. It is the only consumer (ADR-022): a fresh ingestion leaves the book Pending and the next
 /// tick takes it.
+/// <para>Single consumer: the per-book claim is atomic, but the id read and the stale sweep assume nobody else
+/// is enriching. A second worker would have its live Running rows reset to Pending after <c>StaleAfter</c> and
+/// enriched twice.</para>
 /// </summary>
 public class MetadataEnrichmentWorker(
     IDbContextFactory<AppDbContext> dbFactory,

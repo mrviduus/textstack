@@ -24,6 +24,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 ## [Unreleased]
 
 - **Deps** — vite 6.4.5, vitest + coverage 4.1.12: clears 7 npm advisories failing the `advisories` CI job — web, admin, shared
+- **Docs** — "single consumer" notes where correctness needs one worker: metadata-enrichment worker, ssg `failInterruptedJobs`, compose `worker` / `ssg-worker` — backend, infra
 - **Mobile** — reading position saves 0.5s after scroll stops (was 2s): shrinks the window lost when the app is killed right after Home; a full fix needs a synchronous store (Fixes #811) — mobile
 - **Mobile** — EAS `submit.production` releases to 100% (was 10% staged): first Play publish has no users to protect — mobile, CI
 - **Reader** — PDF toolbar: active Dim button keeps its accent background on hover/sticky touch, text no longer white-on-light (Fixes #841) — web

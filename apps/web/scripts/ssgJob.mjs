@@ -54,6 +54,9 @@ export const INTERRUPTED_ERROR = 'interrupted (not owned by the running ssg-work
  * status writes failed, or by a claim whose UPDATE committed but whose reply was lost. Without this,
  * one such row stays Running for good and every later enqueue is skipped as a duplicate. Failed, not
  * re-queued: a job that kills the worker would otherwise kill it again. Returns the ids it closed.
+ *
+ * Single consumer: this closes EVERY Running row with no age check. A second ssg-worker starting while
+ * the first is mid-render would mark the live job Failed. Never run two.
  */
 export async function failInterruptedJobs(pool) {
   const { rows } = await pool.query(
