@@ -71,6 +71,10 @@ public static class IngestionMetrics
     public static void SetJobsPending(int count) => _jobsPending = count;
     public static void SetOldestPendingJobAge(double ageMs) => _oldestPendingJobAgeMs = ageMs;
 
+    // Rows still Running/Processing past their queue's stale window, per queue (a long legit job counts too).
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> _stuckJobs = new();
+    public static void SetStuckJobs(string queue, int count) => _stuckJobs[queue] = count;
+
     static IngestionMetrics()
     {
         Meter.CreateObservableGauge(
@@ -82,6 +86,11 @@ public static class IngestionMetrics
             "ingestion_jobs_pending",
             () => _jobsPending,
             description: "Number of jobs waiting in queue");
+
+        Meter.CreateObservableGauge(
+            "queue_stuck_jobs",
+            () => _stuckJobs.Select(kv => new Measurement<int>(kv.Value, new KeyValuePair<string, object?>("queue", kv.Key))),
+            description: "Jobs Running/Processing past their stale window, by queue (sustained nonzero = likely stuck)");
 
         Meter.CreateObservableGauge(
             "ingestion_queue_lag_ms",

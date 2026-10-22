@@ -49,7 +49,7 @@ public class MetadataEnrichmentWorker(
     // claim query + fire best-effort). Mirrors GuestCleanupWorker's delay-loop shape.
     private static readonly TimeSpan Interval = TimeSpan.FromSeconds(30);
     // A Running row untouched for this long means the process that claimed it died mid-run → reclaim.
-    private static readonly TimeSpan StaleAfter = TimeSpan.FromMinutes(10);
+    public static readonly TimeSpan StaleAfter = TimeSpan.FromMinutes(10);
     private const int BatchSize = 20;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

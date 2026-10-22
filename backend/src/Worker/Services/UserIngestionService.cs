@@ -41,7 +41,7 @@ public class UserIngestionService
         _logger = logger;
     }
 
-    private static readonly TimeSpan StuckJobTimeout = TimeSpan.FromMinutes(2);
+    public static readonly TimeSpan StuckJobTimeout = TimeSpan.FromMinutes(2);
     // Shared with catalog ingestion (Application) so the two caps cannot drift apart.
     private const int MaxAttempts = IngestionService.MaxAttempts;
 
