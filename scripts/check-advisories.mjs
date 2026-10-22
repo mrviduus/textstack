@@ -15,7 +15,8 @@
 //
 // **Three outcomes, and the third is the one that was missing.**
 //   • clean                                → exit 0
-//   • an advisory nobody has written down  → exit 1, someone must look at it
+//   • a HIGH/CRITICAL nobody has written down → exit 1, someone must look at it
+//     (a low/moderate one is a warning: Dependabot security updates open its fix PR)
 //   • an entry here that no longer appears → exit 1, it is fixed; delete it
 //   • COULD NOT CHECK                      → exit 1, and says so in those words
 //
@@ -250,6 +251,12 @@ export async function fetchAdvisories(installed, { fetchImpl = fetch, retries = 
  * in `fetchAdvisories`, where a failure is a thrown `LookupFailed` and never a
  * quiet pass.
  */
+/** Severities that fail a pull request. Anything lower is shown as a warning: Dependabot security
+ *  updates already open the fix PR for it, and an advisory published today must not turn red every
+ *  unrelated PR (it did, twice in a week). No severity or an unrecognised one blocks — fail closed. */
+const NON_BLOCKING = new Set(['low', 'moderate'])
+export const isBlocking = (a) => !NON_BLOCKING.has(String(a.severity).toLowerCase())
+
 export function classify(found, known = KNOWN) {
   const seen = new Set()
   const unknown = []
@@ -259,7 +266,13 @@ export function classify(found, known = KNOWN) {
     if (!known[a.id]) unknown.push(a)
   }
   const stale = Object.keys(known).filter((id) => !seen.has(id))
-  return { found, unknown, stale }
+  return {
+    found,
+    unknown,
+    stale,
+    blocking: unknown.filter(isBlocking),
+    warnings: unknown.filter((a) => !isBlocking(a)),
+  }
 }
 
 function summary(lines) {
@@ -298,7 +311,7 @@ async function main() {
     throw e
   }
 
-  const { unknown, stale } = classify(found)
+  const { blocking, warnings, stale } = classify(found)
   let strays
   try {
     strays = strayLockfiles()
@@ -307,7 +320,11 @@ async function main() {
     throw e
   }
 
-  if (unknown.length || stale.length || strays.length) {
+  for (const a of warnings) {
+    console.warn(`::warning title=Advisory (${a.severity}): ${a.module_name}::${a.id ?? a.url} ${a.vulnerable_versions} — ${a.title} (non-blocking; Dependabot opens the fix PR)`)
+  }
+
+  if (blocking.length || stale.length || strays.length) {
     console.error('Advisory check failed:\n')
     for (const path of strays) {
       console.error(`  • ${path} is a second lockfile.`)
@@ -315,7 +332,7 @@ async function main() {
       console.error('    while still being visible to every scanner that reads the repository.')
       console.error('    Delete it — workspace members resolve through the root lockfile.\n')
     }
-    for (const a of unknown) {
+    for (const a of blocking) {
       console.error(`  • ${String(a.severity).toUpperCase()} ${a.module_name} ${a.vulnerable_versions} — ${a.id ?? a.url}`)
       console.error(`    ${a.title}`)
       console.error(`    ${a.url}`)
@@ -325,12 +342,13 @@ async function main() {
       console.error(`  • ${id} (${KNOWN[id].module}) is listed as known but no longer reported.`)
       console.error('    It was fixed or the dependency is gone — delete the entry.\n')
     }
-    summary(['### Advisories: failed', '', `${unknown.length} unlisted, ${stale.length} stale, ${strays.length} stray lockfile(s).`])
+    summary(['### Advisories: failed', '', `${blocking.length} unlisted, ${warnings.length} non-blocking, ${stale.length} stale, ${strays.length} stray lockfile(s).`])
     process.exit(1)
   }
 
-  console.log(`No unlisted advisories. ${found.length} known and accounted for:`)
-  for (const a of found) {
+  const listed = found.filter((a) => KNOWN[a.id])
+  console.log(`No blocking advisories (${warnings.length} non-blocking). ${listed.length} known and accounted for:`)
+  for (const a of listed) {
     console.log(`  ${String(a.severity).padEnd(8)} ${a.module_name} — ${a.id}, known since ${KNOWN[a.id].since}`)
   }
 }
