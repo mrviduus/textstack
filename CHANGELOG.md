@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Ops** — `user_ingestion_job_duration_ms` histogram (user-upload jobs had no timing): p50/p99/max to size the 2-minute lease — backend
 - **Deps** — dompurify 3.4.17: clears 3 advisories (1 critical) failing the `advisories` CI job — web
 - **CI** — `advisories` fails a PR only on HIGH/CRITICAL (or unknown severity); low/moderate are `::warning::` annotations, Dependabot opens the fix PR: a fresh upstream advisory had turned every unrelated PR red twice in a week — ci
 - **SEO** — a Running backfill job left by a dead poller is re-queued after 1h (max 3 attempts, then Failed) instead of blocking its entity forever; new `seo_backfill_jobs.attempt_count` — backend
