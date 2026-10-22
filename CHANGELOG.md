@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **SEO** — a Running backfill job left by a dead poller is re-queued after 1h (max 3 attempts, then Failed) instead of blocking its entity forever; new `seo_backfill_jobs.attempt_count` — backend
 - **Deps** — vite 6.4.5, vitest + coverage 4.1.12: clears 7 npm advisories failing the `advisories` CI job — web, admin, shared
 - **Docs** — "single consumer" notes where correctness needs one worker: metadata-enrichment worker, ssg `failInterruptedJobs`, compose `worker` / `ssg-worker` — backend, infra
 - **Mobile** — reading position saves 0.5s after scroll stops (was 2s): shrinks the window lost when the app is killed right after Home; a full fix needs a synchronous store (Fixes #811) — mobile

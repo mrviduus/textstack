@@ -2508,6 +2508,10 @@ namespace Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("approved_by_user_id");
 
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempt_count");
+
                     b.Property<string>("BeforeSnapshot")
                         .HasColumnType("jsonb")
                         .HasColumnName("before_snapshot");

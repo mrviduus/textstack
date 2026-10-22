@@ -330,6 +330,7 @@ public static class AdminSeoBackfillEndpoints
             return Results.BadRequest(new { error = $"Cannot retry job in status {j.Status}" });
         j.Status = SeoJobStatus.Queued;
         j.Error = null;
+        j.AttemptCount = 0;
         j.StartedAt = null;
         j.CompletedAt = null;
         j.RawOutputs = null;
