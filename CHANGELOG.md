@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Deps** — dompurify 3.4.17: clears 3 advisories (1 critical) failing the `advisories` CI job — web
 - **SEO** — a Running backfill job left by a dead poller is re-queued after 1h (max 3 attempts, then Failed) instead of blocking its entity forever; new `seo_backfill_jobs.attempt_count` — backend
 - **Deps** — vite 6.4.5, vitest + coverage 4.1.12: clears 7 npm advisories failing the `advisories` CI job — web, admin, shared
 - **Docs** — "single consumer" notes where correctness needs one worker: metadata-enrichment worker, ssg `failInterruptedJobs`, compose `worker` / `ssg-worker` — backend, infra
