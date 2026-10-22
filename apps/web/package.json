@@ -24,7 +24,7 @@
     "@sentry/node": "catalog:",
     "@sentry/react": "catalog:",
     "cmdk": "^1.1.1",
-    "dompurify": "^3.4.3",
+    "dompurify": "^3.4.17",
     "pdfjs-dist": "catalog:",
     "pg": "^8.20.0",
     "puppeteer": "^25.10.0",
