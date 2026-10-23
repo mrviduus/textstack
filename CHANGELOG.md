@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **CI** — `advisories`: a stale `KNOWN` entry (advisory fixed or withdrawn upstream) is a `::warning::`, not a failure: it had turned every unrelated PR red three times in two weeks; blocking advisories and stray lockfiles still fail — ci
 - **CI** — `advisories`: drop the `braces` (GHSA-vfj7-8cjw-p6xm) entry from `KNOWN`; the registry no longer reports it, and the stale-entry rule was failing every PR — ci
 - **Ops** — stuck jobs reach Sentry: `StuckJobsMetricsWorker` logs an Error when a queue still has jobs past its stale window on two checks in a row (on change, else every 15 min); production exports no OTLP metrics, so this is the only alert — backend
 - **Ops** — worker and ssg-worker hold a Postgres advisory lock for their lifetime: a second copy (`--scale`, deploy overlap) waits instead of racing every claim or failing the first ssg-worker's live job; the lock dies with its process (ADR-022/023 were convention only) — backend, web scripts
