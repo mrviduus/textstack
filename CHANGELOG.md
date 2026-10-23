@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **CI** — `advisories`: drop the `braces` (GHSA-vfj7-8cjw-p6xm) entry from `KNOWN`; the registry no longer reports it, and the stale-entry rule was failing every PR — ci
 - **Ops** — stuck jobs reach Sentry: `StuckJobsMetricsWorker` logs an Error when a queue still has jobs past its stale window on two checks in a row (on change, else every 15 min); production exports no OTLP metrics, so this is the only alert — backend
 - **Ops** — `user_ingestion_job_duration_ms` histogram (user-upload jobs had no timing): p50/p99/max to size the 2-minute lease — backend
 - **Deps** — dompurify 3.4.17: clears 3 advisories (1 critical) failing the `advisories` CI job — web
