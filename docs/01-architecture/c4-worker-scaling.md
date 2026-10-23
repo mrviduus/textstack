@@ -116,8 +116,11 @@ background services have no locks), so a second API replica is out of scope here
 Queue wait stays above one to two minutes for real users, a job approaches its lease, or an availability
 requirement appears. Until then the cheapest correct state is the current one.
 
-## Open questions found while drawing this
+## Resolved while drawing this
 
-- `infra/nginx/textstack.conf` aliases `/ssg/` to `.../data/ssg/` (comment: "host bind mount data/ssg/"), while
-  `docker-compose.yml` mounts `./apps/web/dist` into the ssg-worker and the README says it writes
-  `apps/web/dist/ssg`. One of them is stale; check the host before touching nginx.
+`infra/nginx/textstack.conf` has `location /ssg/ { alias .../data/ssg/; }`, and its comment says SSG output lands in
+`data/ssg/`. On the host (2026-10-23) `data/ssg/` does not exist; the pages are in `apps/web/dist/ssg/`, which is
+what compose mounts into the ssg-worker. Bots still get them because `try_files $ssg_file` resolves
+`/ssg/<uri>/index.html` against the nginx root (`apps/web/dist`) directly; the `/ssg/` alias location is never
+reached. So the alias and its comment are stale but harmless. Removing them is a nginx change (it deploys to
+production), so it is left for whoever next touches that file.
