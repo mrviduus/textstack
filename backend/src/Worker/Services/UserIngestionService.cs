@@ -41,7 +41,9 @@ public class UserIngestionService
         _logger = logger;
     }
 
-    public static readonly TimeSpan StuckJobTimeout = TimeSpan.FromMinutes(2);
+    // Same lease as catalog ingestion. Was 2 min with a slowest real upload of 74 s: a larger file would be
+    // re-picked while still running. Cost: a job whose worker died waits up to 10 min before its retry.
+    public static readonly TimeSpan StuckJobTimeout = TimeSpan.FromMinutes(10);
     // Shared with catalog ingestion (Application) so the two caps cannot drift apart.
     private const int MaxAttempts = IngestionService.MaxAttempts;
 

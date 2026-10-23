@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Ingestion** — user-upload stuck-job lease 2 → 10 min (same as catalog): slowest real upload took 74 s, so 2 min was one big file from re-running a job still in progress; a dead worker's job now retries after 10 min, not 2 — backend
 - **Ops** — `user_ingestion_job_duration_ms` histogram (user-upload jobs had no timing): p50/p99/max to size the 2-minute lease — backend
 - **Deps** — dompurify 3.4.17: clears 3 advisories (1 critical) failing the `advisories` CI job — web
 - **CI** — `advisories` fails a PR only on HIGH/CRITICAL (or unknown severity); low/moderate are `::warning::` annotations, Dependabot opens the fix PR: a fresh upstream advisory had turned every unrelated PR red twice in a week — ci
