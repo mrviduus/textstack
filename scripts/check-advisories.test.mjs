@@ -4,6 +4,7 @@ import {
   strayLockfiles,
   advisoryId,
   classify,
+  failsBuild,
   isBlocking,
   chunk,
   fetchAdvisories,
@@ -155,6 +156,19 @@ describe('severity gate', () => {
   it('fails closed on a missing or unknown severity', () => {
     expect(isBlocking({})).toBe(true)
     expect(isBlocking({ severity: 'weird' })).toBe(true)
+  })
+})
+
+describe('what fails the build', () => {
+  it('does not fail on a stale KNOWN entry (upstream moved, not the PR)', () => {
+    const { blocking, stale } = classify([], known)
+    expect(stale).toHaveLength(1)
+    expect(failsBuild({ blocking, strays: [] })).toBe(false)
+  })
+
+  it('fails on a blocking advisory or a stray lockfile', () => {
+    expect(failsBuild({ blocking: [{}], strays: [] })).toBe(true)
+    expect(failsBuild({ blocking: [], strays: ['a/pnpm-lock.yaml'] })).toBe(true)
   })
 })
 

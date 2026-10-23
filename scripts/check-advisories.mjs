@@ -17,7 +17,9 @@
 //   • clean                                → exit 0
 //   • a HIGH/CRITICAL nobody has written down → exit 1, someone must look at it
 //     (a low/moderate one is a warning: Dependabot security updates open its fix PR)
-//   • an entry here that no longer appears → exit 1, it is fixed; delete it
+//   • an entry here that no longer appears → a warning (delete it). Not a failure: upstream decides when an
+//     advisory is withdrawn or fixed, and a rule that reddens every unrelated PR on that day punishes the
+//     wrong people (it did, three times in two weeks). Cleaning the list is housekeeping, not a gate.
 //   • COULD NOT CHECK                      → exit 1, and says so in those words
 //
 // That last one is why this file was rewritten on 2026-09-28. It used to ask
@@ -267,6 +269,9 @@ export function classify(found, known = KNOWN) {
   }
 }
 
+/** What turns the build red. A stale KNOWN entry is deliberately not here (see the header). */
+export const failsBuild = ({ blocking, strays }) => blocking.length > 0 || strays.length > 0
+
 function summary(lines) {
   const path = process.env.GITHUB_STEP_SUMMARY
   if (!path) return
@@ -316,7 +321,11 @@ async function main() {
     console.warn(`::warning title=Advisory (${a.severity}): ${a.module_name}::${a.id ?? a.url} ${a.vulnerable_versions} — ${a.title} (non-blocking; Dependabot opens the fix PR)`)
   }
 
-  if (blocking.length || stale.length || strays.length) {
+  for (const id of stale) {
+    console.warn(`::warning title=Stale KNOWN entry: ${KNOWN[id].module}::${id} is listed as known but no longer reported — it was fixed or the dependency is gone; delete the entry from scripts/check-advisories.mjs`)
+  }
+
+  if (failsBuild({ blocking, strays })) {
     console.error('Advisory check failed:\n')
     for (const path of strays) {
       console.error(`  • ${path} is a second lockfile.`)
@@ -330,16 +339,12 @@ async function main() {
       console.error(`    ${a.url}`)
       console.error('    Fix it, or add it to KNOWN in scripts/check-advisories.mjs with the reason.\n')
     }
-    for (const id of stale) {
-      console.error(`  • ${id} (${KNOWN[id].module}) is listed as known but no longer reported.`)
-      console.error('    It was fixed or the dependency is gone — delete the entry.\n')
-    }
-    summary(['### Advisories: failed', '', `${blocking.length} unlisted, ${warnings.length} non-blocking, ${stale.length} stale, ${strays.length} stray lockfile(s).`])
+    summary(['### Advisories: failed', '', `${blocking.length} unlisted, ${warnings.length} non-blocking, ${stale.length} stale (warning only), ${strays.length} stray lockfile(s).`])
     process.exit(1)
   }
 
   const listed = found.filter((a) => KNOWN[a.id])
-  console.log(`No blocking advisories (${warnings.length} non-blocking). ${listed.length} known and accounted for:`)
+  console.log(`No blocking advisories (${warnings.length} non-blocking, ${stale.length} stale KNOWN entries). ${listed.length} known and accounted for:`)
   for (const a of listed) {
     console.log(`  ${String(a.severity).padEnd(8)} ${a.module_name} — ${a.id}, known since ${KNOWN[a.id].since}`)
   }
