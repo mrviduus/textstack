@@ -21,6 +21,40 @@ public class StuckJobsMetricsWorker(IDbContextFactory<AppDbContext> dbFactory, I
     private static readonly TimeSpan Interval = TimeSpan.FromMinutes(1);
     // ponytail: ssgJob.mjs deadline is max(60 min, 2 s/route), so a huge full build can read as stuck; scale by TotalRoutes if it does.
     private static readonly TimeSpan SsgStaleAfter = TimeSpan.FromMinutes(60);
+    // Production exports no OTLP metrics, so Sentry (Error level = event) is the only way anyone hears of a stuck job.
+    private static readonly TimeSpan RepeatAlertAfter = TimeSpan.FromMinutes(15);
+    // Every queue reclaims a stale job within seconds to a minute; one sighting is usually a recovery in progress
+    // (a deploy killed a job), not a failure. Alert only when it is still there on the next check.
+    private const int ChecksBeforeAlert = 2;
+
+    private readonly Dictionary<string, (int Count, DateTimeOffset At)> _lastAlert = [];
+    private readonly Dictionary<string, int> _streak = [];
+
+    /// <summary>Alert when stuck jobs persisted across checks and the count changed, or the last alert is old enough.</summary>
+    public static bool ShouldAlert(int count, int consecutiveChecks, (int Count, DateTimeOffset At)? last, DateTimeOffset now) =>
+        count > 0 && consecutiveChecks >= ChecksBeforeAlert
+        && (last is null || last.Value.Count != count || now - last.Value.At >= RepeatAlertAfter);
+
+    private void Report(string queue, int count, TimeSpan window, DateTimeOffset now)
+    {
+        IngestionMetrics.SetStuckJobs(queue, count);
+        if (count == 0)
+        {
+            _streak.Remove(queue);
+            _lastAlert.Remove(queue);
+            return;
+        }
+
+        var streak = _streak.GetValueOrDefault(queue) + 1;
+        _streak[queue] = streak;
+        var seen = _lastAlert.TryGetValue(queue, out var last);
+        if (ShouldAlert(count, streak, seen ? last : null, now))
+        {
+            logger.LogError("{Count} {Queue} job(s) still running after {Window} and not reclaimed — consumer likely died mid-job",
+                count, queue, window);
+            _lastAlert[queue] = (count, now);
+        }
+    }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -49,24 +83,24 @@ public class StuckJobsMetricsWorker(IDbContextFactory<AppDbContext> dbFactory, I
         var now = DateTimeOffset.UtcNow;
 
         var seo = now - SeoJobProcessor.StaleAfter;
-        IngestionMetrics.SetStuckJobs("seo_backfill", await db.SeoBackfillJobs
-            .CountAsync(j => j.Status == SeoJobStatus.Running && j.StartedAt < seo, ct));
+        Report("seo_backfill", await db.SeoBackfillJobs
+            .CountAsync(j => j.Status == SeoJobStatus.Running && j.StartedAt < seo, ct), SeoJobProcessor.StaleAfter, now);
 
         var ingestion = now - IngestionService.StuckJobTimeout;
-        IngestionMetrics.SetStuckJobs("ingestion", await db.IngestionJobs
-            .CountAsync(j => j.Status == JobStatus.Processing && j.StartedAt < ingestion, ct));
+        Report("ingestion", await db.IngestionJobs
+            .CountAsync(j => j.Status == JobStatus.Processing && j.StartedAt < ingestion, ct), IngestionService.StuckJobTimeout, now);
 
         var userIngestion = now - UserIngestionService.StuckJobTimeout;
-        IngestionMetrics.SetStuckJobs("user_ingestion", await db.UserIngestionJobs
-            .CountAsync(j => j.Status == JobStatus.Processing && j.StartedAt < userIngestion, ct));
+        Report("user_ingestion", await db.UserIngestionJobs
+            .CountAsync(j => j.Status == JobStatus.Processing && j.StartedAt < userIngestion, ct), UserIngestionService.StuckJobTimeout, now);
 
         var ssg = now - SsgStaleAfter;
-        IngestionMetrics.SetStuckJobs("ssg_rebuild", await db.SsgRebuildJobs
-            .CountAsync(j => j.Status == SsgRebuildJobStatus.Running && j.StartedAt < ssg, ct));
+        Report("ssg_rebuild", await db.SsgRebuildJobs
+            .CountAsync(j => j.Status == SsgRebuildJobStatus.Running && j.StartedAt < ssg, ct), SsgStaleAfter, now);
 
         var enrichment = now - MetadataEnrichmentWorker.StaleAfter;
-        IngestionMetrics.SetStuckJobs("metadata_enrichment", await db.UserBooks
+        Report("metadata_enrichment", await db.UserBooks
             .CountAsync(b => b.MetadataEnrichmentStatus == MetadataEnrichmentStatus.Running
-                             && b.MetadataEnrichmentAt < enrichment, ct));
+                             && b.MetadataEnrichmentAt < enrichment, ct), MetadataEnrichmentWorker.StaleAfter, now);
     }
 }

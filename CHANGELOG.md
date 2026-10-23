@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Ops** — stuck jobs reach Sentry: `StuckJobsMetricsWorker` logs an Error when a queue still has jobs past its stale window on two checks in a row (on change, else every 15 min); production exports no OTLP metrics, so this is the only alert — backend
 - **Ops** — `user_ingestion_job_duration_ms` histogram (user-upload jobs had no timing): p50/p99/max to size the 2-minute lease — backend
 - **Deps** — dompurify 3.4.17: clears 3 advisories (1 critical) failing the `advisories` CI job — web
 - **CI** — `advisories` fails a PR only on HIGH/CRITICAL (or unknown severity); low/moderate are `::warning::` annotations, Dependabot opens the fix PR: a fresh upstream advisory had turned every unrelated PR red twice in a week — ci
