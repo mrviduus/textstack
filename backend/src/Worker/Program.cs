@@ -79,6 +79,7 @@ builder.Services.AddSingleton<UserIngestionService>();
 builder.Services.AddHostedService<IngestionWorker>();
 // Sweep: drains Pending (API re-enrich reaches the worker here) + reclaims stale Running rows.
 builder.Services.AddHostedService<MetadataEnrichmentWorker>();
+builder.Services.AddHostedService<StuckJobsMetricsWorker>();
 
 // SSG Rebuild handled by dedicated ssg_worker container (apps/web/scripts/ssg-worker.mjs)
 

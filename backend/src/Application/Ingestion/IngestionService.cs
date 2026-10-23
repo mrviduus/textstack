@@ -35,7 +35,7 @@ public record ExtractionWarningDto(int Code, string Message);
 public class IngestionService(
     IAppDbContext db, IFileStorageService storage, ILogger<IngestionService> logger)
 {
-    private static readonly TimeSpan StuckJobTimeout = TimeSpan.FromMinutes(10);
+    public static readonly TimeSpan StuckJobTimeout = TimeSpan.FromMinutes(10);
     public const int MaxAttempts = 3;
     public const string ExceededAttemptsError = "Exceeded max retry attempts (worker crashed or timed out on every attempt)";
 
