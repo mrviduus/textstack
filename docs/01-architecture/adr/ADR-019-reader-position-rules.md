@@ -3,7 +3,7 @@
 **Status:** Accepted · **Date:** 2026-10-05 · **Extends** [ADR-015](ADR-015-reader-position-is-logical.md),
 [ADR-013](ADR-013-reader-position-model.md) · **Related** [ADR-012](ADR-012-pdf-original-first-lazy-parse.md),
 [ADR-014](ADR-014-guest-sessions.md) · **Background:** [bug hunt R1/R2](../../changelog-archive/2026-H2.md#2026-10-05-reader-bug-hunt-r1-r2),
-R3 #723–#725, [reader-engine-evaluation.md](../reader-engine-evaluation.md) §4.
+R3 #723–#725, the reader-engine evaluation (deleted; see git history).
 
 ## Context
 

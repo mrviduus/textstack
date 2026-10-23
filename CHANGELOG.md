@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Docs** — pruned 53 obsolete docs (finished reader-engine phase plans, overlay-v2, ux-roadmap v1/v3, historical plans and snapshots), repaired links and indexes, dropped StudyBuddy/RAG leftovers from agents and skills; STATUS: Android in production — docs
 - **Docs** — README rewritten as a short product page (web, Google Play, features, assistant workflow, local start); stale Expo / Node / MCP tool count / dictionary claims and the star requests dropped; CONTRIBUTING trimmed; Node version now points at `.nvmrc` — docs
 - **Docs** — removed `docs/04-articles/` (the dynamic-rendering SEO article draft); nothing linked to it — docs
 - **Docs** — C4 page: the nginx `/ssg/` alias to `data/ssg/` is stale but harmless (SSG is served from `apps/web/dist/ssg` via the root), checked on the host — docs
@@ -65,7 +66,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 - **Reader** — engine Phase 6 PR A (slices 1 + 2): the old web reader is deleted — both `VITE_READER_ENGINE*` flags and `?engine=` overrides, the overlay layers, `WordHint`, the DOM branches of selection / search / scroll sync, the old PDF viewer; R1–R4 scroll-sync pins rewritten on the engine; closes #818 — web, CI · [details](docs/changelog-archive/2026-H2.md#2026-10-14-reader-engine-phase-6-pr-a-web-old-reader-deleted)
 - **Reader** — fix: web saved-word translations above words drew at full body size (engine SVG `.reader-translation` had no web style); same rule as mobile — web
 
-- **Infra** — engine Phase 6 slice 0 (#839): every e2e run builds web with both reader engines on, as prod ships; the separate engine-on step goes (`reader-progress` now reports only: fixed sleeps, shared user); owner answered the [Phase 6 plan](docs/01-architecture/reader-engine-phase6-plan.md) (delete now, web first) — CI, docs
+- **Infra** — engine Phase 6 slice 0 (#839): every e2e run builds web with both reader engines on, as prod ships; the separate engine-on step goes (`reader-progress` now reports only: fixed sleeps, shared user); owner answered the Phase 6 plan (delete now, web first) — CI, docs
 - **Mobile** — engine Phase 5 done: `EXPO_PUBLIC_READER_ENGINE_PDF=true` in EAS production + OTA `6b3e3e8f` — every app reader opens Original-layout PDFs through the engine; owner checked on the phone; rollback = `eas env:delete` + OTA — mobile
 - **Reader** — engine Phase 5 web: `VITE_READER_ENGINE_PDF=true` in `apps/web/production.env` — every web reader reads Original-layout PDFs through the engine; owner checked PDFs with `?engine=pdf`; rollback = delete the line and merge — web
 - **Library** — downloading an uploaded book saves it under the book's title, not `file.pdf` (`Content-Disposition: inline; filename*=`) — backend
@@ -75,7 +76,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 - **Reader** — engine Phase 5 slice 3 (flag off): web Original-layout PDFs open through the engine behind `VITE_READER_ENGINE_PDF` / `?engine=pdf` — range reads with cookie + 401 retry, window scroll, landing below the bars (E42) — web, shared · [details](docs/changelog-archive/2026-H2.md#2026-10-14-reader-engine-phase-5-slice-3-web-pdfs-on-the-eng)
 - **Reader** — engine test E37 (fling defers a re-fit) on fake timers; real timers flaked on CI and failed #830's deploy — shared
 - **Reader** — engine Phase 5 PR A (slices 1–2, no app uses it): PDF as the `fixed` layout — host pdf.js seam, `read()` byte ranges, page window, jump, zoom, text layer, selection, highlights (E32–E41) — shared · [details](docs/changelog-archive/2026-H2.md#2026-10-14-reader-engine-phase-5-pr-a-pdf-as-the-fixed-layou)
-- **Docs** — reader engine Phase 5 (PDF as the `fixed` layout) slice plan, owner took all 8 recommendations: [`reader-engine-phase5-plan.md`](docs/01-architecture/reader-engine-phase5-plan.md) — docs
+- **Docs** — reader engine Phase 5 (PDF as the `fixed` layout) slice plan, owner took all 8 recommendations: reader-engine-phase5-plan.md — docs
 - **Reader** — engine Phase 4 done: `VITE_READER_ENGINE=true` in `apps/web/production.env` — every web reader reads reflow chapters through the engine (PDF unchanged); owner's manual pass follows on prod; rollback = delete the line and merge — web
 - **Reader** — engine Phase 4 slice 5 step 1: CI runs `reader-smoke` + `reader-progress` again on a `VITE_READER_ENGINE=true` build, gating; reader-smoke reads highlights from either renderer and checks the build has the engine; blind spots → #824 — web, infra
 - **Reader** — engine Phase 4 #822 follow-ups (flag still off): drawer search list = engine hits, too-long selection notice, highlight jump without the old resolver and back in place on a miss, `currentSrc` image taps (E22), dark search hit, dead overlay events deleted — web, shared · [details](docs/changelog-archive/2026-H2.md#2026-10-13-reader-engine-phase-4-pr-822-review-follow-ups)

@@ -27,6 +27,8 @@ Free book library with Kindle-like reader. EPUB/PDF upload, parsing, SEO pages, 
 | [Incident Runbook](03-ops/incident-runbook.md) | First-response for DB/worker/SSG/site outages |
 | [infra/scripts/README](../infra/scripts/README.md) | Pollers (SEO publish, SEO backfill, quality) — what, install, logs |
 | [infra/systemd/README](../infra/systemd/README.md) | User-level systemd units |
+| [Play Store release](03-ops/play-store-release.md) | Android release runbook (EAS, tracks, OTA) |
+| [Android App Links](03-ops/android-app-links.md) | Deep links / assetlinks |
 | [E2E Testing Guide](04-dev/e2e-guide.md) | Playwright setup, UI mode, troubleshooting |
 | [LLM Provider Swap](04-dev/llm-provider-swap.md) | Swap the Ollama calls (distractors, metadata) for a hosted API |
 
@@ -48,12 +50,17 @@ Free book library with Kindle-like reader. EPUB/PDF upload, parsing, SEO pages, 
 
 ```
 docs/
-├── 00-vision/          # Why: goals, roadmap
-├── 01-architecture/    # How: design, ADRs
+├── 00-vision/          # Why: goals, vision
+├── 01-architecture/    # How: design, ADRs, architecture review
 ├── 02-system/          # What: schemas, APIs
-├── 03-ops/             # Run: setup, deploy
+├── 03-ops/             # Run: setup, deploy, Play release
 ├── 04-dev/             # Build: test, security
-└── 05-features/        # Feature PDDs
+├── 05-features/        # Feature docs
+├── claude/             # Reference loaded from CLAUDE.md
+├── incidents/          # Postmortems
+├── qa/                 # Manual scenarios and reports
+├── changelog-archive/  # Full write-ups behind CHANGELOG lines
+└── marketing/ research/ loadtest/
 ```
 
 ## Features
@@ -61,10 +68,6 @@ docs/
 ### Implemented
 | Feature | Docs |
 |---------|------|
-| Kindle-like Reader | [reader.md](05-features/reader.md) |
-| Offline Reading | [offline-reading.md](05-features/offline-reading.md) |
-| User Auth & Library | [user-auth.md](05-features/user-auth.md) |
-| Full-text Search | [feat-0006](05-features/feat-0006-search-library.md) |
 | Text Extraction | [feat-0003](05-features/feat-0003-text-extraction-core.md) |
 | Observability | [feat-0005](05-features/feat-0005-observability-opentelemetry.md) |
 | i18n | `/:lang/` routes; English only since 2026-04-21 (Ukrainian removed) |

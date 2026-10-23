@@ -1,6 +1,6 @@
 # ADR-007: Single Domain Consolidation
 
-**Status**: Implemented (dev), Pending Deploy (prod)
+**Status**: Implemented (live in prod since 2026-10-04)
 
 > **Update 2026-10-04: live in prod.** `infra/nginx/textstack.conf` serves the admin app on `textstack.dev` with `X-Robots-Tag: noindex, nofollow`; the per-slice "PENDING PROD" marks below are historical. Numbering note: two other files also carry number 007 — see [README](../README.md#adrs).
 **Date**: 2025-01

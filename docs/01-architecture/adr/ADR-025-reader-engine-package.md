@@ -1,7 +1,7 @@
 # ADR-025 — The reader is one engine package: `packages/reader-engine`
 
 **Status:** Accepted · **Date:** 2026-10-08 · **Supersedes:**
-[`reader-engine-evaluation.md`](../reader-engine-evaluation.md) (investigation) · **Amends:**
+`reader-engine-evaluation.md` (investigation, since deleted; see git history) · **Amends:**
 [ADR-019](ADR-019-reader-position-rules.md) (where the rules live) · **Keeps:**
 [ADR-012](ADR-012-pdf-original-first-lazy-parse.md) (PDF original-first),
 [ADR-015](ADR-015-reader-position-is-logical.md) (position = place in the text),
@@ -275,7 +275,7 @@ What it changes in this ADR:
 - One place to fix the reader; a bug fixed there is fixed on both platforms.
 - About 5–6 weeks after launch, in reversible steps. Two code paths exist during the overlap; each
   phase ends with a deletion step.
-- `reader-engine-evaluation.md` becomes history. ADR-019 keeps its rules; this ADR moves their home.
+- `reader-engine-evaluation.md` became history (deleted). ADR-019 keeps its rules; this ADR moves their home.
 - No shim period on mobile: the WebView document and RN ship in one bundle. The only cross-version
   contracts are stored shapes and server data, which the mappers keep byte-identical.
 

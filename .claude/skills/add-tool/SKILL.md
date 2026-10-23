@@ -1,6 +1,6 @@
 ---
 name: add-tool
-description: Add a new agent/function-calling tool (ITool) to TextStack. Use when adding a capability the LLM or Study Buddy agent can call — e.g. fetch data, search, look something up. Covers schema, InvokeAsync, registry auto-discovery, and tests.
+description: Add a new agent/function-calling tool (ITool) to TextStack. Use when adding a capability the LLM or an agent can call — e.g. fetch data, search, look something up. Covers schema, InvokeAsync, registry auto-discovery, and tests.
 ---
 
 # Add a new ITool
@@ -25,12 +25,10 @@ JSON-Schema-validated before invoke; the agent/Explain decides when to call them
 
 2. **Stateless** — the tool is a singleton; per-request state arrives via `ctx`. No fields holding scoped deps.
 
-3. **Wire it to a consumer if needed**: Study Buddy's allowed set is `StudyBuddyAgent.AllowedTools`;
-   Explain gates tools via `ExplainToolTriggers` + `ExplainEndpoints.ResolveTools`. A tool can exist in
+3. **Wire it to a consumer if needed**: Explain gates tools via `ExplainToolTriggers` + `ExplainEndpoints.ResolveTools`. A tool can exist in
    the registry without being offered to a given feature.
 
-4. **Tests** (`tests/TextStack.UnitTests`): add the tool name to the canonical list in
-   `StudyBuddyToolsTests.AllApplicationTools` (set-equality assertion catches missing/stray); add a
+4. **Tests** (`tests/TextStack.UnitTests`): add a
    schema-validity case (happy path passes `ToolDispatcher.ValidateArgs`, malformed + unknown-prop fail).
    DB/RAG behaviour is covered by integration/e2e, not unit.
 

@@ -3,12 +3,12 @@
 **Status**: Proposed (implemented — `SeoTemplate`, `SeoBackfillJob`, `SeoBackfillSettings`, `AdminSeoBackfillEndpoints.cs`, `InternalSeoEndpoints.cs` exist as of 2026-10-04). Moved here from `docs/` on 2026-10-04.
 **Date**: 2026-04-14
 **Deciders**: Vasyl
-**Supersedes**: partially overrides `docs/seo-content-task.md` (manual tracker)
+**Supersedes**: partially overrides `docs/seo-content-task.md` (deleted, see git history) (manual tracker)
 
 ## Context
 
 Поточний SEO pipeline — ручний:
-- `docs/seo-content-task.md` трекінг: 654 авторів + 1,567 editions заповнено партіями через Claude CLI за 3 тижні.
+- `docs/seo-content-task.md` (deleted, see git history) трекінг: 654 авторів + 1,567 editions заповнено партіями через Claude CLI за 3 тижні.
 - Темплейти захардкожені в `infra/scripts/seo-generate.sh` (edition + author bio/description/relevance/themes/faqs).
 - `AutoPublishJob` автоматизує лише **Draft → Published** pipeline для editions. Уже published сутності та Authors/Genres/BlogPost без автоматичного backfill.
 - Немає coverage dashboard. Немає editable templates. Немає review/revert UI.
@@ -323,4 +323,4 @@ Route: `/admin/seo?tab=...`. `apps/admin/src/api/seo.ts` — client wrapper.
 - `backend/src/Domain/Entities/AutoPublishJob.cs` — job pattern.
 - `backend/src/Api/Endpoints/InternalEndpoints.cs` — Docker-network guard.
 - `docs/SEO_PLAYBOOK.md` — SEO conventions.
-- `docs/seo-content-task.md` — legacy manual tracker (to be deprecated).
+- `docs/seo-content-task.md` (deleted, see git history) — legacy manual tracker (to be deprecated).

@@ -30,7 +30,7 @@ git status --short                               # any uncommitted?
 
 ## Step 2 — Read slice brief (if applicable)
 
-If slice number detected, read `docs/ux-roadmap/<NN>-*.md` to extract:
+If the user names a slice brief (an issue or a doc), read it to extract:
 - Slice title
 - Goal (one sentence)
 - Rollback plan
@@ -59,7 +59,7 @@ Use this template (HEREDOC):
 
 ## Slice
 
-`docs/ux-roadmap/<NN>-<slug>.md` — Phase <X>
+<link to the slice brief or issue, if any>
 
 ## Changes
 
@@ -181,7 +181,6 @@ Changelog: one line under ## [Unreleased] + write-up in docs/changelog-archive/<
 
 Next steps:
 - Request review (or self-review the diff one more time).
-- After merge, mark slice <NN> done in docs/ux-roadmap/README.md (single edit, take 10 seconds).
 ```
 
 ## Failure modes — handle gracefully

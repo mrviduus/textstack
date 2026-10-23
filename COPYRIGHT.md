@@ -37,7 +37,6 @@ Contact: mrviduus@gmail.com
 ## Third-party content
 
 - Standard Ebooks seed corpus: CC0 / public domain
-- Free Dictionary API responses: public domain
 - Edge TTS: used under Microsoft's Edge Read Aloud terms
 - All third-party dependencies retain their respective licenses; see
   package.json, *.csproj, and Directory.Packages.props for full lists
