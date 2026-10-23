@@ -58,7 +58,7 @@ make rebuild-ssg              # Queue a Full SSG rebuild job (ssg-worker), follo
 make backup                   # Backup to ~/backups/textstack/
 make backup-list              # List all backups
 make restore FILE=path.gz     # Restore from backup
-docker compose exec db psql -U app books   # DB shell
+docker compose exec db sh -c 'psql -U "$POSTGRES_USER" "$POSTGRES_DB"'   # DB shell (user/db come from .env; prod's user is not `app`)
 docker compose down -v                      # Reset all (loses data)
 
 # Tests
