@@ -6,7 +6,7 @@ Verified against code on 2026-10-04.
 
 ## High-Level View
 
-How requests move between these parts: the interactive [map](https://mrviduus.github.io/textstack/architecture/) (source [textstack-map.html](textstack-map.html)), or the same as Mermaid in [flows.md](flows.md).
+How the deployment is laid out and what a second worker would take: [c4-worker-scaling.md](c4-worker-scaling.md). How requests move between these parts: the interactive [map](https://mrviduus.github.io/textstack/architecture/) (source [textstack-map.html](textstack-map.html)), or the same as Mermaid in [flows.md](flows.md).
 
 ```
 Internet ─► Cloudflare (DNS + TLS) ─► Cloudflare Tunnel ─► nginx on host (:80)

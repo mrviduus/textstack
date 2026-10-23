@@ -25,7 +25,7 @@ Images: built + secret-scanned on GitHub, pulled by digest from GHCR; secrets on
 
 **Nginx bot detection**: Regex map identifies crawlers (Google, Bing, Yandex, social bots) → routes to prerendered SSG HTML. Rate limiting zones: API (10r/s), uploads (1r/s), translation (5r/m), MCP (10r/s).
 
-**Systemd services**: `seo-publish-poller` (auto-publish with SEO generation).
+**Systemd services** (`infra/systemd/`, user units, restarted on every deploy): `seo-publish-poller` (auto-publish with SEO generation), `seo-backfill-poller` (SEO backfill jobs via the Claude CLI), `quality-poller` (book quality jobs).
 
 **Notable env vars** (beyond `.env.example` basics): `INDEXNOW_KEY`, `INDEXNOW_ENABLED`.
 
