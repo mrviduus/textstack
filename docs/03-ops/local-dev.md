@@ -4,7 +4,7 @@
 
 - Docker + Docker Compose
 - .NET 10 SDK (for migrations without Docker)
-- Node.js 18+ and pnpm
+- Node.js (version in `.nvmrc`) and pnpm
 
 ## Quick Start
 

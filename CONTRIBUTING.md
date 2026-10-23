@@ -5,23 +5,19 @@ reports, and PRs are welcome.
 
 ## Quick ways to help
 
-1. ⭐ **Star the repo** — the strongest signal I have about whether this is
-   useful.
-2. 🐛 **Report a bug** — [open an issue](../../issues/new/choose) with the
+1. **Report a bug**: [open an issue](https://github.com/mrviduus/textstack/issues/new/choose) with the
    bug template.
-3. 💡 **Suggest a feature** — especially if you're reading AI/ML books and
-   the reader is missing something.
-4. 📝 **Try it + send feedback** — [textstack.app](https://textstack.app),
-   then ping me on [@Rexetdeus](https://twitter.com/Rexetdeus) or the
+2. **Suggest a feature**: especially if the reader is missing something
+   for deep reading.
+3. **Try it and send feedback**: [textstack.app](https://textstack.app),
+   then reach out via [@Rexetdeus](https://twitter.com/Rexetdeus) or the
    contact form on the site.
 
 ## Running locally
 
-See the [README Quick start](README.md#quick-start). Everything runs in
-Docker via `docker compose up --build`.
-
-For day-to-day dev without Docker, see [CLAUDE.md](CLAUDE.md) — full command
-reference (tests, migrations, mobile, lint).
+See [README: Run locally](README.md#run-locally). For day-to-day dev, tests,
+migrations, mobile and lint see [local-dev.md](docs/03-ops/local-dev.md) and
+[CLAUDE.md](CLAUDE.md).
 
 ## Before sending a PR
 
@@ -74,7 +70,7 @@ reference (tests, migrations, mobile, lint).
 
 - Scope creep that doesn't serve deep reading.
 - Adding new LLM providers just to have them — we have Ollama (local) and
-  plans for Claude; keep that surface small.
+  OpenAI; keep that surface small.
 - Reintroducing features I deliberately removed.
 
 ## Architecture at a glance
@@ -126,6 +122,5 @@ Be kind. Assume good faith. That's it.
 
 - Twitter: [@Rexetdeus](https://twitter.com/Rexetdeus)
 - Email via [textstack.app](https://textstack.app) contact form
-- GitHub Discussions (broader questions)
 
 Thanks for being here.

@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Docs** — README rewritten as a short product page (web, Google Play, features, assistant workflow, local start); stale Expo / Node / MCP tool count / dictionary claims and the star requests dropped; CONTRIBUTING trimmed; Node version now points at `.nvmrc` — docs
 - **Docs** — removed `docs/04-articles/` (the dynamic-rendering SEO article draft); nothing linked to it — docs
 - **Docs** — C4 page: the nginx `/ssg/` alias to `data/ssg/` is stale but harmless (SSG is served from `apps/web/dist/ssg` via the root), checked on the host — docs
 - **CI** — `advisories`: a stale `KNOWN` entry (advisory fixed or withdrawn upstream) is a `::warning::`, not a failure: it had turned every unrelated PR red three times in two weeks; blocking advisories and stray lockfiles still fail — ci
