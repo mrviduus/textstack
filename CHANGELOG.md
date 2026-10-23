@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Docs** — removed `docs/04-articles/` (the dynamic-rendering SEO article draft); nothing linked to it — docs
 - **Docs** — C4 page: the nginx `/ssg/` alias to `data/ssg/` is stale but harmless (SSG is served from `apps/web/dist/ssg` via the root), checked on the host — docs
 - **CI** — `advisories`: a stale `KNOWN` entry (advisory fixed or withdrawn upstream) is a `::warning::`, not a failure: it had turned every unrelated PR red three times in two weeks; blocking advisories and stray lockfiles still fail — ci
 - **CI** — `advisories`: drop the `braces` (GHSA-vfj7-8cjw-p6xm) entry from `KNOWN`; the registry no longer reports it, and the stale-entry rule was failing every PR — ci
