@@ -17,6 +17,7 @@
 
 import { spawn } from 'child_process';
 import { writeFileSync, unlinkSync, existsSync, readFileSync } from 'fs';
+import pg from 'pg';
 import { rename, rm } from 'fs/promises';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
@@ -31,6 +32,8 @@ import {
   readResults,
   reportOncePerOutage,
   superviseChild,
+  acquireSingleInstanceLock,
+  SSG_LOCK_KEY,
 } from './ssgJob.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -424,6 +427,17 @@ async function main() {
     console.error('Failed to connect to database:', err.message);
     process.exit(1);
   }
+
+  // Single consumer (ADR-022): wait here if another ssg-worker is alive, before nextJob can fail its job.
+  // Its own connection (a pooled one would hand the lock back); an error event would otherwise crash us.
+  const lockClient = new pg.Client({ connectionString: DATABASE_URL });
+  lockClient.on('error', (err) => console.warn('Single-instance lock connection lost:', err.message));
+  await lockClient.connect();
+  await acquireSingleInstanceLock(lockClient, SSG_LOCK_KEY, {
+    sleep,
+    onWait: () => console.warn('Another ssg-worker holds the single-instance lock; waiting for it to exit'),
+  });
+  console.log('Single-instance lock acquired');
 
   // Heartbeat file — docker healthcheck reads mtime
   const HEARTBEAT = '/tmp/ssg-worker-alive';

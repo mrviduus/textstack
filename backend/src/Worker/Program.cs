@@ -65,9 +65,12 @@ TextStack.Ai.Agents.ServiceCollectionExtensions.AddAiAgents(builder.Services);
 builder.Services.AddScoped<Application.Agents.EnrichmentAgent>();
 builder.Services.AddSingleton<BookMetadataGenerator>();
 builder.Services.AddSingleton<IBookMetadataGenerator, EnrichmentAgentMetadataGenerator>();
+// Single consumer (ADR-022/023), enforced: a second copy waits here before any other service starts.
+// Must stay FIRST among hosted services.
+builder.Services.AddHostedService(sp => new SingleInstanceLock(connectionString, sp.GetRequiredService<ILogger<SingleInstanceLock>>()));
 // Startup observability: probe EVERY provider the route table references, once, before any worker
 // loop starts — and open that provider's circuit if it is unreachable, so the loops skip instead of
-// hammering. Must stay FIRST among hosted services. Supersedes the old EnrichmentKeyCheck.
+// hammering. Supersedes the old EnrichmentKeyCheck.
 builder.Services.AddHostedService<AiProviderReadinessCheck>();
 builder.Services.AddSingleton<ITagSuggestionGenerator, TagSuggestionGenerator>();
 builder.Services.AddSingleton<IngestionWorkerService>();

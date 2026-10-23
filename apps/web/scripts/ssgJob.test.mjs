@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import pg from 'pg'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
+  acquireSingleInstanceLock,
   assertBuildSurvived,
   carryForwardFailedPages,
   claimNextJob,
@@ -19,6 +20,7 @@ import {
   readResults,
   reportOncePerOutage,
   superviseChild,
+  SSG_LOCK_KEY,
   survivalFloor,
 } from './ssgJob.mjs'
 import { NOINDEX_SKIP } from './ssgRender.mjs'
@@ -320,6 +322,62 @@ describe('claimNextJob / failInterruptedJobs', () => {
       expect((await claimNextJob(pool)).id).toBe(id('c'))
       expect(await claimNextJob(pool)).toBeNull()
       expect(await statuses()).toEqual({ a: 'Failed', b: 'Running', c: 'Running', d: 'Completed' })
+    })
+  })
+})
+
+describe('acquireSingleInstanceLock', () => {
+  const clientAnswering = (answers) => {
+    const queries = []
+    return {
+      queries,
+      query: async (sql, params) => {
+        queries.push(params)
+        return { rows: [{ ok: answers.shift() }] }
+      },
+    }
+  }
+
+  it('returns at once when nobody holds the lock', async () => {
+    const client = clientAnswering([true])
+    let waits = 0
+    await acquireSingleInstanceLock(client, SSG_LOCK_KEY, { onWait: () => waits++, sleep: async () => {} })
+    expect(client.queries).toHaveLength(1)
+    expect(waits).toBe(0)
+  })
+
+  it('waits, reporting once, until the holder is gone', async () => {
+    const client = clientAnswering([false, false, true])
+    let waits = 0
+    let sleeps = 0
+    await acquireSingleInstanceLock(client, SSG_LOCK_KEY, {
+      onWait: () => waits++,
+      sleep: async () => { sleeps++ },
+    })
+    expect(client.queries).toHaveLength(3)
+    expect(waits).toBe(1)
+    expect(sleeps).toBe(2)
+  })
+
+  // Real Postgres, when SSG_TEST_DATABASE_URL is set: a second session really cannot take it.
+  describe.skipIf(!process.env.SSG_TEST_DATABASE_URL)('on Postgres', () => {
+    it('is held by one connection and free again when it disconnects', async () => {
+      const key = SSG_LOCK_KEY + 100 // not the real key, in case the stack is running
+      const a = new pg.Client({ connectionString: process.env.SSG_TEST_DATABASE_URL })
+      const b = new pg.Client({ connectionString: process.env.SSG_TEST_DATABASE_URL })
+      await a.connect()
+      await b.connect()
+      try {
+        await acquireSingleInstanceLock(a, key, { sleep: async () => {} })
+        const blocked = await b.query('SELECT pg_try_advisory_lock($1) AS ok', [key])
+        expect(blocked.rows[0].ok).toBe(false)
+        await a.end()
+        const free = await b.query('SELECT pg_try_advisory_lock($1) AS ok', [key])
+        expect(free.rows[0].ok).toBe(true)
+      } finally {
+        await b.end()
+        await a.end().catch(() => {})
+      }
     })
   })
 })

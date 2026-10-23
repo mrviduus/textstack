@@ -47,6 +47,27 @@ export function reportOncePerOutage(report) {
 /** What a Running row nobody is rendering is closed with. */
 export const INTERRUPTED_ERROR = 'interrupted (not owned by the running ssg-worker)';
 
+/** Advisory-lock key for the one ssg-worker (the Worker's is in SingleInstanceLock.cs). */
+export const SSG_LOCK_KEY = 0x54533002
+
+/**
+ * Holds a Postgres session advisory lock on `client` for as long as the client stays connected (a crash
+ * releases it), so a second ssg-worker waits here instead of failing the first one's live job in
+ * `failInterruptedJobs`. Polls rather than blocks: the database's statement_timeout would cancel a
+ * blocking pg_advisory_lock. `client` must be its own connection, not a pooled one.
+ * ponytail: lost if the connection drops (database restart) and not re-taken.
+ */
+export async function acquireSingleInstanceLock(client, key, { onWait = () => {}, sleep, intervalMs = 5000 }) {
+  let waited = false
+  for (;;) {
+    const { rows } = await client.query('SELECT pg_try_advisory_lock($1) AS ok', [key])
+    if (rows[0].ok) return
+    if (!waited) onWait()
+    waited = true
+    await sleep(intervalMs)
+  }
+}
+
 /**
  * Recovery (ADR-022), run before every claim. ssg-worker is the queue's only consumer and runs one job
  * at a time, so between jobs nothing of ours is Running: any such row is dead. It was left by a
