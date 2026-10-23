@@ -49,7 +49,11 @@ public class IngestionWorker : BackgroundService
                 if (userJob is not null)
                 {
                     _logger.LogInformation("Found user job {JobId}, processing...", userJob.Id);
+                    var started = System.Diagnostics.Stopwatch.GetTimestamp();
                     await _userIngestionService.ProcessJobAsync(userJob.Id, stoppingToken);
+                    // A shutdown returns the job to the queue after a partial run; that is not a duration.
+                    if (!stoppingToken.IsCancellationRequested)
+                        IngestionMetrics.UserJobDuration.Record(System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds);
                     continue;
                 }
 

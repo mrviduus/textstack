@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Ops** — `user_ingestion_job_duration_ms` histogram (user-upload jobs had no timing): p50/p99/max to size the 2-minute lease — backend
 - **Deps** — dompurify 3.4.17: clears 3 advisories (1 critical) failing the `advisories` CI job — web
 - **CI** — `advisories` fails a PR only on HIGH/CRITICAL (or unknown severity); low/moderate are `::warning::` annotations, Dependabot opens the fix PR: a fresh upstream advisory had turned every unrelated PR red twice in a week — ci
 - **Ops** — `queue_stuck_jobs{queue}` gauge: rows Running/Processing past their stale window for seo_backfill, ingestion, user_ingestion, ssg_rebuild, metadata_enrichment (worker, every 1 min) — backend

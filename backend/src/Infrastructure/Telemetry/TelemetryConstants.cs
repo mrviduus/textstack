@@ -57,6 +57,12 @@ public static class IngestionMetrics
         unit: "ms",
         description: "Ingestion job duration in milliseconds");
 
+    // Wall time of one user-upload job attempt (any outcome). Source for sizing the 2-minute lease.
+    public static readonly Histogram<double> UserJobDuration = Meter.CreateHistogram<double>(
+        "user_ingestion_job_duration_ms",
+        unit: "ms",
+        description: "User-upload ingestion job duration in milliseconds");
+
     public static readonly Histogram<double> ExtractionDuration = Meter.CreateHistogram<double>(
         "extraction_duration_ms",
         unit: "ms",
