@@ -19,6 +19,29 @@ public class StuckJobsMetricsWorker(IDbContextFactory<AppDbContext> dbFactory, I
     : BackgroundService
 {
     private static readonly TimeSpan Interval = TimeSpan.FromMinutes(1);
+    // Production exports no OTLP metrics, so Sentry (Error level = event) is the only way anyone hears of a stuck job.
+    private static readonly TimeSpan RepeatAlertAfter = TimeSpan.FromMinutes(15);
+    private readonly Dictionary<string, (int Count, DateTimeOffset At)> _lastAlert = [];
+
+    /// <summary>Alert when a queue has stuck jobs and the count changed, or the last alert for it is old enough.</summary>
+    public static bool ShouldAlert(int count, (int Count, DateTimeOffset At)? last, DateTimeOffset now) =>
+        count > 0 && (last is null || last.Value.Count != count || now - last.Value.At >= RepeatAlertAfter);
+
+    private void Report(string queue, int count, TimeSpan window, DateTimeOffset now)
+    {
+        IngestionMetrics.SetStuckJobs(queue, count);
+        var seen = _lastAlert.TryGetValue(queue, out var last);
+        if (ShouldAlert(count, seen ? last : null, now))
+        {
+            logger.LogError("{Count} {Queue} job(s) still running after {Window} — worker likely died mid-job",
+                count, queue, window);
+            _lastAlert[queue] = (count, now);
+        }
+        else if (count == 0)
+        {
+            _lastAlert.Remove(queue);
+        }
+    }
     // ponytail: ssgJob.mjs deadline is max(60 min, 2 s/route), so a huge full build can read as stuck; scale by TotalRoutes if it does.
     private static readonly TimeSpan SsgStaleAfter = TimeSpan.FromMinutes(60);
 
@@ -49,24 +72,24 @@ public class StuckJobsMetricsWorker(IDbContextFactory<AppDbContext> dbFactory, I
         var now = DateTimeOffset.UtcNow;
 
         var seo = now - SeoJobProcessor.StaleAfter;
-        IngestionMetrics.SetStuckJobs("seo_backfill", await db.SeoBackfillJobs
-            .CountAsync(j => j.Status == SeoJobStatus.Running && j.StartedAt < seo, ct));
+        Report("seo_backfill", await db.SeoBackfillJobs
+            .CountAsync(j => j.Status == SeoJobStatus.Running && j.StartedAt < seo, ct), SeoJobProcessor.StaleAfter, now);
 
         var ingestion = now - IngestionService.StuckJobTimeout;
-        IngestionMetrics.SetStuckJobs("ingestion", await db.IngestionJobs
-            .CountAsync(j => j.Status == JobStatus.Processing && j.StartedAt < ingestion, ct));
+        Report("ingestion", await db.IngestionJobs
+            .CountAsync(j => j.Status == JobStatus.Processing && j.StartedAt < ingestion, ct), IngestionService.StuckJobTimeout, now);
 
         var userIngestion = now - UserIngestionService.StuckJobTimeout;
-        IngestionMetrics.SetStuckJobs("user_ingestion", await db.UserIngestionJobs
-            .CountAsync(j => j.Status == JobStatus.Processing && j.StartedAt < userIngestion, ct));
+        Report("user_ingestion", await db.UserIngestionJobs
+            .CountAsync(j => j.Status == JobStatus.Processing && j.StartedAt < userIngestion, ct), UserIngestionService.StuckJobTimeout, now);
 
         var ssg = now - SsgStaleAfter;
-        IngestionMetrics.SetStuckJobs("ssg_rebuild", await db.SsgRebuildJobs
-            .CountAsync(j => j.Status == SsgRebuildJobStatus.Running && j.StartedAt < ssg, ct));
+        Report("ssg_rebuild", await db.SsgRebuildJobs
+            .CountAsync(j => j.Status == SsgRebuildJobStatus.Running && j.StartedAt < ssg, ct), SsgStaleAfter, now);
 
         var enrichment = now - MetadataEnrichmentWorker.StaleAfter;
-        IngestionMetrics.SetStuckJobs("metadata_enrichment", await db.UserBooks
+        Report("metadata_enrichment", await db.UserBooks
             .CountAsync(b => b.MetadataEnrichmentStatus == MetadataEnrichmentStatus.Running
-                             && b.MetadataEnrichmentAt < enrichment, ct));
+                             && b.MetadataEnrichmentAt < enrichment, ct), MetadataEnrichmentWorker.StaleAfter, now);
     }
 }
