@@ -242,6 +242,7 @@ Central versioning via `Directory.Packages.props` — don't add `<Version>` in i
 - **`offlineDb.web.ts` mirrors every export of `offlineDb.ts`**, or the web bundle (which mobile e2e runs against) fails to resolve.
 - **Guest = a real session.** `isAuthenticated` is `user !== null`; account-only questions go through `capabilitiesFor(user)` (mobile `capabilities.ts`), never inline `user?.isGuest` (ADR-014).
 - **MCP tool count is asserted in four tests** and descriptions are mirrored verbatim in `Contracts/Mcp/McpManifest.cs` — change all together.
+- **Docs, comments, ADRs, commits, PRs: English only.** Cyrillic is allowed only as real input data (tests, fixtures, seed migrations, translation examples).
 - **Never deploy by SSH.** Deploy = merge to `main`; break-glass `gh workflow run deploy.yml`.
 
 ## Reference — read when the task touches it

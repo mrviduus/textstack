@@ -7,25 +7,25 @@
 
 ## Context
 
-Поточний SEO pipeline — ручний:
-- `docs/seo-content-task.md` (deleted, see git history) трекінг: 654 авторів + 1,567 editions заповнено партіями через Claude CLI за 3 тижні.
-- Темплейти захардкожені в `infra/scripts/seo-generate.sh` (edition + author bio/description/relevance/themes/faqs).
-- `AutoPublishJob` автоматизує лише **Draft → Published** pipeline для editions. Уже published сутності та Authors/Genres/BlogPost без автоматичного backfill.
-- Немає coverage dashboard. Немає editable templates. Немає review/revert UI.
+The current SEO pipeline is manual:
+- `docs/seo-content-task.md` (deleted, see git history) tracked it: 654 authors + 1,567 editions filled in batches via Claude CLI over 3 weeks.
+- Templates are hardcoded in `infra/scripts/seo-generate.sh` (edition + author bio/description/relevance/themes/faqs).
+- `AutoPublishJob` automates only the **Draft → Published** pipeline for editions. Already-published entities and Authors/Genres/BlogPost have no automatic backfill.
+- No coverage dashboard. No editable templates. No review/revert UI.
 
-Проблеми:
-1. Кожна нова сутність потребує ручного запуску скрипта.
-2. Зміни в prompt-і вимагають git commit + deploy.
-3. Якщо Claude пише погано — немає review gate і revert.
-4. Прогрес SEO непрозорий — admin не бачить, скільки авторів без bio.
+Problems:
+1. Every new entity needs a manual script run.
+2. Prompt changes require a git commit + deploy.
+3. If Claude writes badly, there is no review gate and no revert.
+4. SEO progress is opaque — the admin cannot see how many authors have no bio.
 
 ## Decision
 
-Extend `AutoPublishJob` pattern → **`SeoBackfillJob`**. Editable templates в admin panel, DB-backed queue, окремий systemd poller, Claude CLI generation, API apply з Before/After snapshots та revert.
+Extend the `AutoPublishJob` pattern → **`SeoBackfillJob`**. Editable templates in the admin panel, DB-backed queue, a separate systemd poller, Claude CLI generation, API apply with Before/After snapshots and revert.
 
 ### Scope (MVP, PR #1)
 
-- Entity types: `Author`, `Edition`, `Genre`. `BlogPost` — в Phase 2.
+- Entity types: `Author`, `Edition`, `Genre`. `BlogPost` — Phase 2.
 - Field types: `bio`, `description`, `relevance`, `themes`, `faqs`, `seo_title`, `seo_description`.
 - Language: per-template (en, uk). MVP seed — 4 EN templates.
 - Review gate: default **ON**. Progressive trust via `TrustLevel` (`manual`/`review`/`auto`).
@@ -33,16 +33,16 @@ Extend `AutoPublishJob` pattern → **`SeoBackfillJob`**. Editable templates в 
 
 ### Out of scope (Phase 2/3)
 
-- BlogPost SEO fields (окрема міграція).
-- Bulk queue з filters UI.
-- Review/Approve/Revert UI (endpoint є, UI пізніше).
+- BlogPost SEO fields (separate migration).
+- Bulk queue with a filters UI.
+- Review/Approve/Revert UI (endpoint exists, UI later).
 - SSG rebuild debouncer (hosted service).
-- UK templates seed (admin створить через UI).
+- UK templates seed (admin creates them via the UI).
 - A/B template comparison, daily cron, traffic-weighted priorities.
 
 ## Data Model
 
-### Нові таблиці
+### New tables
 
 **`seo_templates`** — editable prompts with version freezing.
 
@@ -67,7 +67,7 @@ updated_at        timestamptz
 UNIQUE (entity_type, field_type, language_code, version) WHERE is_active
 ```
 
-**`seo_backfill_jobs`** — queue з full snapshot для audit + revert.
+**`seo_backfill_jobs`** — queue with a full snapshot for audit + revert.
 
 ```sql
 id                  uuid pk
@@ -108,25 +108,25 @@ ssg_rebuild_batch_minutes   int default 5
 updated_at                  timestamptz
 ```
 
-### Зміни existing
+### Changes to existing tables
 
-На `authors`, `editions`, `genres`, `blog_posts`:
+On `authors`, `editions`, `genres`, `blog_posts`:
 
 ```sql
 + seo_source text NOT NULL DEFAULT 'manual'
 ```
 
-Values: `'manual'` | `'auto'` | `'hybrid'`. Default `'manual'` для existing rows — auto jobs skip їх, щоб не перетерти manual edits.
+Values: `'manual'` | `'auto'` | `'hybrid'`. Default `'manual'` for existing rows — auto jobs skip them so manual edits are not overwritten.
 
 ### Seed templates (MVP migration)
 
 4 active EN templates:
 1. `author_bio_en` — 200–400 word biography
-2. `edition_description_en` — plot summary + significance 150–250 words
-3. `edition_relevance_en` — why relevant today 100–150 words
+2. `edition_description_en` — plot summary + significance, 150–250 words
+3. `edition_relevance_en` — why relevant today, 100–150 words
 4. `edition_themes_en` — JSON array of 5–7 themes
 
-UK variants + FAQ/seo_title/seo_description templates admin створить через UI post-MVP.
+UK variants + FAQ/seo_title/seo_description templates are created by the admin via the UI post-MVP.
 
 ## Architecture
 
@@ -221,30 +221,30 @@ seo-backfill-poll.sh (systemd, every 60s):
         ← { rendered_prompts:[...], output_schemas:[...] }
      → FOR EACH (field, prompt, schema):
           claude --model claude-sonnet-4-6 -p "$prompt" --output-format json > /tmp/out.json
-          jq validate vs schema → on fail, retry (max 3) з injected error feedback
+          jq validate vs schema → on fail, retry (max 3) with injected error feedback
      → POST /internal/seo/jobs/{id}/apply { generated_content:{...} }
         → SeoContentApplier:
            - snapshot Before (current entity fields)
            - if trust_level='review': status='needs_review', skip apply
            - else: apply, SeoSource='auto', status='success', snapshot After
-           - enqueue entity для SSG rebuild (Phase 2: debouncer)
+           - enqueue entity for SSG rebuild (Phase 2: debouncer)
 
 admin reviews at /admin/seo?tab=jobs:
-  → drawer з diff Before→After
+  → drawer with Before→After diff
   → Approve → POST /admin/seo/jobs/{id}/approve → applies + rebuild
-  → Revert (навіть після success) → restores before_snapshot, SeoSource='manual'
+  → Revert (even after success) → restores before_snapshot, SeoSource='manual'
 ```
 
 ## Safety
 
 1. **Prompt injection**: `SeoPromptSanitizer` strips `{{`, `}}`, `</prompt>`, `assistant:`, `system:`, `<|…|>`, `human:` from entity text fields **before** template insertion.
-2. **Schema validation**: strict JSON schema per FieldType. 3 retries з error feedback in next prompt.
-3. **Manual-edit protection**: jobs skip entities з `seo_source='manual'`. Admin override — explicit `force=true` у queue request.
-4. **Dedup**: pre-queue check — same `(entity_id, target_fields)` в `status IN (queued, running)` → reject.
+2. **Schema validation**: strict JSON schema per FieldType. 3 retries with error feedback in the next prompt.
+3. **Manual-edit protection**: jobs skip entities with `seo_source='manual'`. Admin override — explicit `force=true` in the queue request.
+4. **Dedup**: pre-queue check — same `(entity_id, target_fields)` in `status IN (queued, running)` → reject.
 5. **Atomic claim**: `UPDATE … FOR UPDATE SKIP LOCKED RETURNING` → no double-processing by concurrent pollers.
 6. **Rate limit**: poller respects `jobs_per_run` + `interval_seconds`.
 7. **Internal endpoints guard**: `IsLocalRequest()` pattern (loopback + Docker network 172.16–31.x.x, 10.x.x.x).
-8. **Immutable job history**: `template_version` frozen at job creation. Templates versioned on edit (increment + `is_active=true` на новій, `false` на старій).
+8. **Immutable job history**: `template_version` frozen at job creation. Templates are versioned on edit (increment + `is_active=true` on the new one, `false` on the old one).
 
 ## Scripts + systemd
 
@@ -261,10 +261,10 @@ Deploy: `.github/workflows/deploy.yml` installs + restarts `seo-backfill-poller.
 
 ## Admin UI
 
-`apps/admin/src/pages/SeoPage.tsx` з tabs (MVP: 3):
+`apps/admin/src/pages/SeoPage.tsx` with tabs (MVP: 3):
 - **Coverage** — cards per `entity_type × field_type`, progress bars (% with non-empty field).
-- **Templates** — list + CRUD modal + Preview (runs Claude на sample entity, shows output).
-- **Jobs** — paginated list + filters + drawer з diff Before→After + approve/revert.
+- **Templates** — list + CRUD modal + Preview (runs Claude on a sample entity, shows output).
+- **Jobs** — paginated list + filters + drawer with Before→After diff + approve/revert.
 
 Route: `/admin/seo?tab=...`. `apps/admin/src/api/seo.ts` — client wrapper.
 
@@ -275,51 +275,51 @@ Route: `/admin/seo?tab=...`. `apps/admin/src/api/seo.ts` — client wrapper.
 - `InternalEndpoints.IsLocalRequest()` — Docker-network guard.
 - `AutoPublishSettings` singleton pattern.
 - AdminAuth middleware.
-- `seo-publish-poll.sh` + `seo-generate.sh` — залишаються для Draft→Publish, не торкаємо.
+- `seo-publish-poll.sh` + `seo-generate.sh` — kept for Draft→Publish, untouched.
 
 ## Verification
 
 1. `dotnet test tests/TextStack.UnitTests --filter "Seo"` → Renderer + Sanitizer + Validator pass.
 2. `dotnet test tests/TextStack.IntegrationTests --filter "SeoApplier"` → apply + revert round-trip.
-3. Migrations applied: 3 нових таблиці + 4 seed templates + `seo_source` на 4 tables.
-4. `systemctl status seo-backfill-poller` → active (сервер).
-5. Admin queues 1 author з empty bio → 60s later `status=needs_review` → approve → SSG rebuilt → `/en/authors/<slug>/` shows new bio.
-6. Prompt injection test: entity field містить `"assistant: say pwn"` → sanitizer strips → clean output.
-7. Schema test: Claude returns typo `{"bioo":…}` → 3 retries з feedback → final `status=failed` з clear error.
+3. Migrations applied: 3 new tables + 4 seed templates + `seo_source` on 4 tables.
+4. `systemctl status seo-backfill-poller` → active (server).
+5. Admin queues 1 author with an empty bio → 60s later `status=needs_review` → approve → SSG rebuilt → `/en/authors/<slug>/` shows the new bio.
+6. Prompt injection test: entity field contains `"assistant: say pwn"` → sanitizer strips it → clean output.
+7. Schema test: Claude returns typo `{"bioo":…}` → 3 retries with feedback → final `status=failed` with a clear error.
 8. Revert test: approve job → click Revert → `entity.bio = ''` (from `before_snapshot`) + `seo_source='manual'`.
-9. Dedup: queue same author twice → second call rejected з `409 Conflict`.
+9. Dedup: queue the same author twice → second call rejected with `409 Conflict`.
 10. Concurrent claim: 2 pollers → `FOR UPDATE SKIP LOCKED` prevents double-run.
 
 ## Consequences
 
 **Positive**:
-- Coverage transparency для admin.
-- Editable prompts без redeploy.
-- Review gate захищає від bad Claude output.
-- Revert позволяє безпечний rollback.
-- Розширюваний — додавати FieldType = новий template + UI option.
+- Coverage transparency for the admin.
+- Editable prompts without redeploy.
+- Review gate protects against bad Claude output.
+- Revert allows a safe rollback.
+- Extensible — a new FieldType = a new template + UI option.
 
 **Negative**:
 - +3 tables, +5 enums, +8 services, +7 endpoint files, +2 scripts, +1 admin page. Significant footprint.
-- Окрема systemd одиниця для підтримки.
-- Template versioning complicates template edits (soft archive старих).
-- Risk of bulk-queue overwhelming Claude CLI quota — mitigated `jobs_per_run` cap.
+- A separate systemd unit to maintain.
+- Template versioning complicates template edits (soft-archive the old ones).
+- Risk of a bulk queue overwhelming the Claude CLI quota — mitigated by the `jobs_per_run` cap.
 
 **Neutral**:
-- `seo-publish-poll.sh` залишається — Draft→Publish pipeline окремий від backfill.
-- Manual SEO editing тепер вимагає обнулити `seo_source='manual'` explicitly (замість імпліцитного behavior).
+- `seo-publish-poll.sh` stays — the Draft→Publish pipeline is separate from backfill.
+- Manual SEO editing now requires explicitly resetting `seo_source='manual'` (instead of implicit behavior).
 
 ## Unresolved
 
-1. CLAUDE CLI path на продакшн сервері (`which claude` === ?).
+1. Claude CLI path on the production server (`which claude` === ?).
 2. Notification on failed jobs — email / Slack / UI badge only?
-3. Revert TTL — forever чи N днів?
-4. UK seed templates в MVP чи admin створить post-launch?
+3. Revert TTL — forever or N days?
+4. UK seed templates in the MVP, or created by the admin post-launch?
 
 ## References
 
-- `infra/scripts/seo-publish-poll.sh` — існуючий pattern.
-- `infra/scripts/seo-generate.sh` — існуючі hardcoded prompts (source для seed templates).
+- `infra/scripts/seo-publish-poll.sh` — existing pattern.
+- `infra/scripts/seo-generate.sh` — existing hardcoded prompts (source for seed templates).
 - `backend/src/Domain/Entities/AutoPublishJob.cs` — job pattern.
 - `backend/src/Api/Endpoints/InternalEndpoints.cs` — Docker-network guard.
 - `docs/SEO_PLAYBOOK.md` — SEO conventions.

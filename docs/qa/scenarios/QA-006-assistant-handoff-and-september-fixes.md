@@ -86,7 +86,7 @@ regressed; check `curl -s https://textstack.app/api/genres/adventure | jq '.edit
 
 ---
 
-## §2 — Insights: the конспект, its date, and removing one
+## §2 — Insights: the study notes, their dates, and removing one
 
 Needs at least one insight to exist. There is no UI to create one — it arrives over MCP — so do §6
 first, or ask for one to be seeded.

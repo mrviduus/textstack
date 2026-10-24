@@ -51,7 +51,7 @@ thing `save_insight` stores, with a shape. The question is where the shape goes.
 **A. A separate `chapter_review` table, one row per review.** Two conclusions per chapter — the
 insight and the review — with two replace semantics, two DELETE affordances and two lists to render
 in reading order. It re-opens the exact question settled on 2026-09-10 (one conclusion per chapter)
-by the side door, and every screen that renders the конспект grows a join. Rejected.
+by the side door, and every screen that renders the study notes grows a join. Rejected.
 
 **B. `BookInsight` rows with a `kind` column (`note` | `review`) in the unique key.** This *is* the
 category-in-the-key design the consilium rejected, with a different enum. Rejected for the reasons

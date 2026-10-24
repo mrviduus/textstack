@@ -102,7 +102,7 @@ month:
 - a chapter → `save_insight` with a `chapterSlug`;
 - the whole book → `save_insight` with no `chapterSlug`.
 
-A study конспект is then not a separate frozen document but the assembly of those
+Study notes are then not a separate frozen document but the assembly of those
 in reading order. Run the pass again and it is current, because one insight is
 kept per (you, book, chapter) and a save replaces.
 
