@@ -127,6 +127,15 @@ export const KNOWN = {
       'Only through @expo/cli (the dev server / build CLI), never the app bundle or the web. ' +
       'No fixed release exists to move to; overriding inside Expo is how a mobile build breaks.',
   },
+  'GHSA-mrhx-c7xc-m3w5': {
+    since: '2026-10-24',
+    module: 'zod',
+    needs: '>=4.6.6',
+    why:
+      'zod 3.25.76 now only through @expo/cli (the dev server / build CLI), which depends on zod 3; ' +
+      'no fixed 3.x exists. The production path (puppeteer > chromium-bidi, SSG prerender) is on ' +
+      'zod 4.6.7 since puppeteer 25.16. Forcing 3 -> 4 inside Expo is how a mobile build breaks.',
+  },
 }
 
 /**
