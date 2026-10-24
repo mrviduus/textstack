@@ -131,7 +131,7 @@ required", and `last_used_at` is stamped. That covers the bridge path
 | `McpAccessKey` | Long-lived, revocable, SHA-256 stored; middleware above the rate limiter |
 | Connect page | On `/mcp`: create a key, see it once, copy a ready-to-paste config, revoke |
 | Catalog brief | Was handing tools an identifier they reject — the Discuss button had never worked |
-| Web insights | Was calling an API layer the web never initialises — the конспект section had never rendered |
+| Web insights | Was calling an API layer the web never initialises — the study notes section had never rendered |
 
 ### What is left, in the order it should be done
 
@@ -447,7 +447,7 @@ over the lifecycle. They disagreed on the answer and converged on the question.
   conclusion about the *right* chapter, and nothing covers one filed against the *wrong* chapter.
   Shipped as `DELETE /me/insights/{id}` with an affordance on both clients.
 - **No MCP delete tool.** The asymmetry is categorical: `save_insight`'s worst case is one bad
-  paragraph removed in a tap; a delete tool's worst case is a year of конспект gone, from a stateless
+  paragraph removed in a tap; a delete tool's worst case is a year of study notes gone, from a stateless
   bridge that cannot confirm intent, against a table with no soft-delete and no trash.
 - **Not tabs.** Both sides refused them independently. The panel renders *nothing* when empty, on
   purpose; a tab bar must render before you know what is behind it, and at ≤10 insights per book
@@ -467,7 +467,7 @@ questions came back the way that needs no schema:
   buy nothing there: a chapter label and reading order carry it, and both already ship. No column, no
   migration, no tabs.
 - **One insight per chapter, refined over time** — so even if a category is ever added, it stays a
-  label and the unique key does not move. Re-running keeps refreshing the конспект instead of
+  label and the unique key does not move. Re-running keeps refreshing the study notes instead of
   accumulating four rows per chapter.
 
 So the category enum is **not being built**. What the panel was actually missing for "come back a
