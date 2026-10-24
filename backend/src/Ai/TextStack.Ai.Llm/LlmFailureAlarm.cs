@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace TextStack.Ai.Llm;
 
 /// <summary>
@@ -21,14 +23,36 @@ public static class LlmFailureAlarm
     /// <summary>Sets the shared cooldown from <c>Ai:RouteAlarm:CooldownMinutes</c> at startup.</summary>
     public static void Configure(TimeSpan cooldown) => _throttle = new AlarmThrottle(cooldown);
 
+    // OpenAI SDK messages read "HTTP 404 (invalid_request_error: model_not_found) …". Compiled, not
+    // [GeneratedRegex]: the ARM64 SIGILL caveat (CLAUDE.md, Extraction).
+    private static readonly Regex ProviderCode = new(@"\(\s*[a-z_]+\s*:\s*([a-z_]+)\s*\)", RegexOptions.Compiled);
+    private static readonly Regex HttpStatus = new(@"\bHTTP (\d{3})\b", RegexOptions.Compiled);
+
     /// <summary>
-    /// Reports one provider failure, throttled per (provider, task, reason). A dead Ollama during a
-    /// 106-page PDF parse produces one event, not 106.
+    /// What went wrong, short enough to group by: the provider's error code (<c>model_not_found</c>,
+    /// <c>invalid_api_key</c>), else <c>http_404</c>, else the exception type, else the reason.
+    /// </summary>
+    public static string ErrorCode(string reason, Exception? ex)
+    {
+        if (ex is null) return reason;
+        if (ProviderCode.Match(ex.Message) is { Success: true } code) return code.Groups[1].Value;
+        if (HttpStatus.Match(ex.Message) is { Success: true } status) return $"http_{status.Groups[1].Value}";
+        return ex.GetType().Name;
+    }
+
+    /// <summary>
+    /// Reports one provider failure, throttled per (provider, task, reason, error code). A dead Ollama
+    /// during a 106-page PDF parse produces one event, not 106.
+    ///
+    /// Fingerprinted by the same key, so each distinct failure is its own Sentry issue and fires the
+    /// new-issue alert. Grouped by exception type instead, a retired model joined an old, ongoing
+    /// invalid_api_key issue and notified nobody (docs/incidents/2026-10-24-translation-down-on-a-retired-model.md).
     /// </summary>
     public static void Capture(string provider, string? featureTag, string reason, Exception? ex = null)
     {
         var task = string.IsNullOrWhiteSpace(featureTag) ? "unknown" : featureTag;
-        if (!_throttle.TryEnter($"llm|{provider}|{task}|{reason}", DateTimeOffset.UtcNow))
+        var code = ErrorCode(reason, ex);
+        if (!_throttle.TryEnter($"llm|{provider}|{task}|{reason}|{code}", DateTimeOffset.UtcNow))
             return;
 
         try
@@ -38,6 +62,8 @@ public static class LlmFailureAlarm
                 scope.SetTag("ai.provider", provider);
                 scope.SetTag("ai.task", task);
                 scope.SetTag("ai.failure", reason);
+                scope.SetTag("ai.error_code", code);
+                scope.SetFingerprint(["llm-failure", provider, task, reason, code]);
             }
 
             if (ex is not null)
