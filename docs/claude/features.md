@@ -34,9 +34,9 @@ Upload EPUB/PDF → BookFile (stored) → IngestionJob (queued)
 
 **Dictionary — removed 2026-10-03.** ~~`GET /dictionary/{lang}/{word}`~~ proxied the free api.dictionaryapi.dev, which was flaky (outages, false 404s that our cache then stored for 24h as "not found"). Gone with it: `DictionaryCache`, its sweeper, `DefinitionEnricher` (auto English definition on vocab save — new words now get none; existing data untouched) and the admin backfill endpoint. The web word popup no longer shows phonetic/definition; in **definition mode** (native = book language, nothing to translate) it fetches the contextual Explain instead (`lib/wordBubbleFetch.ts`). Review feedback shows only what is on the card.
 
-**Translation**: `POST /api/translate` via OpenAI (`gpt-4.1-nano`). Config: `OpenAI:ApiKey`, `OpenAI:Model`, `OpenAI:Translate:MaxTextLength`. LibreTranslate dropped 2026-04-22.
+**Translation**: `POST /api/translate` via OpenAI (`gpt-4.1-mini`). Config: `OpenAI:ApiKey`, `OpenAI:Model`, `OpenAI:Translate:MaxTextLength`. LibreTranslate dropped 2026-04-22.
 
-**Explain (contextual)**: `POST /api/explain` — LLM-powered 2-3 sentence explanation of a word in the sentence it appears in. Uses `ILlmService` (OpenAI `gpt-4.1-mini` via `OpenAI:Explain:Model` — deliberately stronger than the nano default; kept on mini 2026-10-03 because the saving was cents). SHA256-keyed file cache at `data/explain-cache`, 30d TTL. Rate limited per-IP (20/min). Impl: `backend/src/Api/Endpoints/ExplainEndpoints.cs`.
+**Explain (contextual)**: `POST /api/explain` — LLM-powered 2-3 sentence explanation of a word in the sentence it appears in. Uses `ILlmService` (OpenAI `gpt-4.1-mini` via `OpenAI:Explain:Model` — kept on mini 2026-10-03 because the saving was cents; translate is on mini too since 2026-10-24). SHA256-keyed file cache at `data/explain-cache`, 30d TTL. Rate limited per-IP (20/min). Impl: `backend/src/Api/Endpoints/ExplainEndpoints.cs`.
 
 **TTS (Text-to-Speech)**: Edge TTS via direct WebSocket to `speech.platform.bing.com`. No API key, no deps.
 - **`TextStack.Tts`** class library: `EdgeTtsClient` (WebSocket protocol), `EdgeTtsService` (disk cache + `IHostedService` startup cleanup)

@@ -6,7 +6,7 @@ Text selection features for the Reader that enable users to highlight, translate
 
 **Features:**
 - **Highlights** — 4 colors (yellow, green, pink, blue), persisted to DB
-- **Translation** — OpenAI `gpt-4.1-nano` (`OpenAI:Model`), up to 500 chars (`OpenAI:Translate:MaxTextLength`). LibreTranslate was dropped 2026-04-22
+- **Translation** — OpenAI `gpt-4.1-mini` (`OpenAI:Model`), up to 500 chars (`OpenAI:Translate:MaxTextLength`). LibreTranslate was dropped 2026-04-22
 - ~~**Dictionary**~~ — Free Dictionary API removed 2026-10-03; in definition mode (native = book language) the word popup shows the contextual Explain instead
 - **Notes** — Inline notes attached to highlights
 
@@ -32,7 +32,7 @@ Text selection features for the Reader that enable users to highlight, translate
 │                          Backend API                             │
 ├──────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  POST /api/translate ──────► OpenAI (gpt-4.1-nano), file cache   │
+│  POST /api/translate ──────► OpenAI (gpt-4.1-mini), file cache   │
 │  GET  /api/translate/languages                                   │
 │                                                                  │
 │  POST /api/explain   ──────► OpenAI (gpt-4.1-mini), file cache   │

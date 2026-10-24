@@ -47,7 +47,7 @@ public class AiCacheKeyTests
     {
         var empty = new ConfigurationBuilder().Build();
         Assert.Equal("gpt-4.1-mini", ExplainEndpoints.CacheModelId(empty));
-        Assert.Equal("gpt-4.1-nano", TranslationEndpoints.CacheModelId(empty));
+        Assert.Equal("gpt-4.1-mini", TranslationEndpoints.CacheModelId(empty));
 
         var set = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {

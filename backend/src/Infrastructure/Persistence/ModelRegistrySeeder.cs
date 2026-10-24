@@ -18,7 +18,7 @@ public static class ModelRegistrySeeder
     [
         ("explain", "openai-explain", "gpt-4.1-mini"),
         ("explain.toolcall", "openai-explain", "gpt-4.1-mini"),
-        ("translate", "openai", "gpt-4.1-nano"),
+        ("translate", "openai", "gpt-4.1-mini"),
         ("distractor", "ollama", "gemma4:e2b"),
         ("bookmeta", "ollama", "gemma4:e2b"),
         ("tagsuggestion", "ollama", "gemma4:e2b"),

@@ -70,7 +70,7 @@ export function TranslationSheet({ visible, text, sentence, bookId, onClose, onS
     // `cachedTranslate`, not `translationApi.translate`. This sheet is opened
     // from the selection toolbar, which has ALREADY fetched and memoized the
     // gloss for exactly this text — going direct re-bought a paid
-    // `gpt-4.1-nano` call for a string the process was holding in memory, and
+    // `gpt-4.1-mini` call for a string the process was holding in memory, and
     // never wrote its own answer back for the next reader of the same word.
     cachedTranslate(text, fromLang, translationTarget, { sentence, bookId })
       .then(({ translation }) => {

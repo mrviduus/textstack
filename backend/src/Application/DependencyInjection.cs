@@ -159,7 +159,7 @@ public static class DependencyInjection
         services.AddKeyedSingleton<global::TextStack.Ai.Core.ILlmService, global::TextStack.Ai.Llm.OllamaLlmClient>("ollama-raw");
 
         // A dedicated OpenAI judge provider on a STRONGER model (Eval:JudgeModel,
-        // default gpt-4.1) — separate from the nano generation model so the eval
+        // default gpt-4.1) — separate from the generation model so the eval
         // judge is both more reliable and not the same model it's grading.
         services.AddKeyedSingleton<global::TextStack.Ai.Core.ILlmService>("openai-judge-raw", (sp, key) =>
             new global::TextStack.Ai.Llm.OpenAiLlmClient(
@@ -167,9 +167,9 @@ public static class DependencyInjection
                 sp.GetRequiredService<ILogger<global::TextStack.Ai.Llm.OpenAiLlmClient>>(),
                 sp.GetRequiredService<IConfiguration>()["Eval:JudgeModel"] ?? "gpt-4.1"));
 
-        // Explain runs a STRONGER generation model than the nano default (OpenAI:Explain:Model,
+        // Explain has its own generation model (OpenAI:Explain:Model,
         // default gpt-4.1-mini). Routed per-feature (Ai:Routes:explain[.toolcall] → openai-explain)
-        // so translate stays on nano. This model is also the distillation teacher.
+        // so it is set apart from translate's OpenAI:Model. This model is also the distillation teacher.
         services.AddKeyedSingleton<global::TextStack.Ai.Core.ILlmService>("openai-explain-raw", (sp, key) =>
             new global::TextStack.Ai.Llm.OpenAiLlmClient(
                 sp.GetRequiredService<IConfiguration>(),

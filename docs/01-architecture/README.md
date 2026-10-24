@@ -125,7 +125,7 @@ Details: [frontend.md](frontend.md).
 
 | Service | Used for | Failure mode |
 |---------|----------|--------------|
-| OpenAI | Translate (`gpt-4.1-nano`), Explain (`gpt-4.1-mini`), Tutor, embeddings (`text-embedding-3-small`) | Feature returns error; reading unaffected |
+| OpenAI | Translate (`gpt-4.1-mini`), Explain (`gpt-4.1-mini`), Tutor, embeddings (`text-embedding-3-small`) | Feature returns error; reading unaffected |
 | Ollama (self-hosted) | Vocabulary distractors/hint/explanation, book metadata | Fallback distractors; fields stay null |
 | Edge TTS (`speech.platform.bing.com`, no key) | Text-to-speech | No audio |
 | Resend | Password reset, admin alert emails | No email |

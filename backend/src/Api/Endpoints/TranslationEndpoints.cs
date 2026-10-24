@@ -113,12 +113,11 @@ public static class TranslationEndpoints
         {
             return Results.Problem("Translation request timed out", statusCode: 504);
         }
-        catch (Exception ex)
+        // Budget hard-stop → ExceptionMiddleware's 429. Provider failures are already reported (throttled)
+        // by TracingDecorator → LlmFailureAlarm; logging here too would send one event per word tap.
+        catch (Exception ex) when (ex is not global::TextStack.Ai.Core.BudgetExceededException)
         {
-            return Results.Problem(
-                detail: $"Translation service unavailable: {ex.Message}",
-                statusCode: 503
-            );
+            return Results.Problem(detail: "Translation service unavailable", statusCode: 503);
         }
     }
 
@@ -134,7 +133,7 @@ public static class TranslationEndpoints
             $"v{promptVersion}|{model}|{srcLang}|{tgtLang}|{genre ?? ""}|{sentence ?? ""}|{text}");
 
     // ponytail: the configured model (same fallback as OpenAiLlmClient), not the gateway's runtime route.
-    internal static string CacheModelId(IConfiguration config) => config["OpenAI:Model"] ?? "gpt-4.1-nano";
+    internal static string CacheModelId(IConfiguration config) => config["OpenAI:Model"] ?? "gpt-4.1-mini";
 
     private static IResult GetLanguages()
     {

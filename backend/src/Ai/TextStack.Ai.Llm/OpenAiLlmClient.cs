@@ -42,7 +42,7 @@ public sealed class OpenAiLlmClient : ILlmService
         _model = modelOverride
             ?? config["OpenAI:Model"]
             ?? Environment.GetEnvironmentVariable("OPENAI_MODEL")
-            ?? "gpt-4.1-nano";
+            ?? "gpt-4.1-mini";
 
         // Reasoning models (gpt-5, o1, o3…) spend tokens on internal reasoning
         // before visible output. MaxOutputTokenCount caps the COMBINED total, so
