@@ -23,7 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
-- **AI** — translation back up: OpenAI retired `gpt-4.1-nano` (every `/translate` was 503 `model_not_found`); default `OpenAI:Model` is now `gpt-4.1-mini` (config, compose, client fallback, cache id, registry seed, privacy text); the translate catch now logs Error (Sentry) instead of only returning 503, and stops echoing provider errors; registry row migrated — backend, [incident](docs/incidents/2026-10-24-translation-down-on-a-retired-model.md)
+- **AI** — translation back up: OpenAI retired `gpt-4.1-nano`; translate defaults to `gpt-4.1-mini` — backend, [incident](docs/incidents/2026-10-24-translation-down-on-a-retired-model.md)
 - **Docs** — English only: deleted 3 Russian Android QA reports, ADR-010 translated, stray Cyrillic words replaced, rule added to CLAUDE.md — docs
 - **Deps** — undici 6.29.1 / 7.30.1 and puppeteer 25.16.0 (its zod moves to 4.6.7): clears 2 high advisories failing `advisories`; zod 3 under @expo/cli allowlisted in `KNOWN` — web
 - **Docs** — STATUS.md cut from 522 to ~110 lines: closed and struck-through items, build history and duplicated write-ups removed (git and the changelog archive keep them); every open item kept — docs

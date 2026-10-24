@@ -113,10 +113,10 @@ public static class TranslationEndpoints
         {
             return Results.Problem("Translation request timed out", statusCode: 504);
         }
-        catch (Exception ex)
+        // Budget hard-stop → ExceptionMiddleware's 429. Provider failures are already reported (throttled)
+        // by TracingDecorator → LlmFailureAlarm; logging here too would send one event per word tap.
+        catch (Exception ex) when (ex is not global::TextStack.Ai.Core.BudgetExceededException)
         {
-            // Error = a Sentry event. Without it a retired model 503'd every call unseen.
-            logger.LogError(ex, "Translate LLM call failed");
             return Results.Problem(detail: "Translation service unavailable", statusCode: 503);
         }
     }

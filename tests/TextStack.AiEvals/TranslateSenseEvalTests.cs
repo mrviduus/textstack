@@ -142,7 +142,7 @@ public class TranslateSenseEvalTests
     }
 
     /// <summary>
-    /// Live: nano vs mini × with/without sentence, judged by gpt-4.1 (stronger than both,
+    /// Live: mini × with/without sentence (nano retired 2026-10), judged by gpt-4.1 (stronger,
     /// so mini is not grading itself). Opt-in:
     /// <c>OPENAI_API_KEY=… dotnet test tests/TextStack.AiEvals --filter "Name~TranslateSense_Live"</c>
     /// </summary>
@@ -158,7 +158,8 @@ public class TranslateSenseEvalTests
         var ct = TestContext.Current.CancellationToken;
 
         var lines = new List<string> { $"judge={judgeModel}, cases={goldens.Count}x{Targets.Length}" };
-        foreach (var model in new[] { "gpt-4.1-nano", "gpt-4.1-mini" })
+        // gpt-4.1-nano was retired by OpenAI (2026-10); it would error every case.
+        foreach (var model in new[] { "gpt-4.1-mini" })
         {
             foreach (var withContext in new[] { true, false })
             {

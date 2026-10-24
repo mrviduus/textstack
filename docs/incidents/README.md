@@ -11,7 +11,7 @@ available at the time. The fix that matters is the one that closes the *class*, 
 
 | Date | Incident | Shape |
 |---|---|---|
-| 2026-10-24 | [Translation failed on every call on a retired model, and nothing logged it](2026-10-24-translation-down-on-a-retired-model.md) | Catch without a log |
+| 2026-10-24 | [Translation failed on every call on a retired model, and health said ready](2026-10-24-translation-down-on-a-retired-model.md) | Health checks what is cheap, not what is paid |
 | 2026-10-15 | [Every nginx change for eleven days "reloaded" and never went live](2026-10-15-nginx-reload-failed-silently-for-eleven-days.md) | Exit code of the request, not the result |
 | 2026-09-02 | [A deploy waited on a prompt, and 1990 pages went missing](2026-09-02-corepack-prompt-stranded-the-ssg.md) | A move, not a copy |
 | 2026-09-01 | [SSG rebuilds failed silently after the workspace move](2026-09-01-ssg-worker-lost-its-output-path.md) | Absolute path outlived its layout |
