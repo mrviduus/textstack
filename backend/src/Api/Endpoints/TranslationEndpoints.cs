@@ -115,10 +115,9 @@ public static class TranslationEndpoints
         }
         catch (Exception ex)
         {
-            return Results.Problem(
-                detail: $"Translation service unavailable: {ex.Message}",
-                statusCode: 503
-            );
+            // Error = a Sentry event. Without it a retired model 503'd every call unseen.
+            logger.LogError(ex, "Translate LLM call failed");
+            return Results.Problem(detail: "Translation service unavailable", statusCode: 503);
         }
     }
 
