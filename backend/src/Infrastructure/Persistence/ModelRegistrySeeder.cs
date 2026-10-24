@@ -1,5 +1,6 @@
 using Domain.Entities;
 using Domain.Enums;
+using TextStack.Ai.Llm;
 using Microsoft.EntityFrameworkCore;
 
 namespace Infrastructure.Persistence;
@@ -16,9 +17,9 @@ public static class ModelRegistrySeeder
     // appsettings Ai:Routes + the per-provider model config.
     private static readonly (string Feature, string Provider, string Model)[] Primaries =
     [
-        ("explain", "openai-explain", "gpt-4.1-mini"),
-        ("explain.toolcall", "openai-explain", "gpt-4.1-mini"),
-        ("translate", "openai", "gpt-4.1-mini"),
+        ("explain", "openai-explain", OpenAiModels.DefaultExplainModel),
+        ("explain.toolcall", "openai-explain", OpenAiModels.DefaultExplainModel),
+        ("translate", "openai", OpenAiModels.DefaultModel),
         ("distractor", "ollama", "gemma4:e2b"),
         ("bookmeta", "ollama", "gemma4:e2b"),
         ("tagsuggestion", "ollama", "gemma4:e2b"),

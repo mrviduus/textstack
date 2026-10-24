@@ -165,7 +165,7 @@ public static class DependencyInjection
             new global::TextStack.Ai.Llm.OpenAiLlmClient(
                 sp.GetRequiredService<IConfiguration>(),
                 sp.GetRequiredService<ILogger<global::TextStack.Ai.Llm.OpenAiLlmClient>>(),
-                sp.GetRequiredService<IConfiguration>()["Eval:JudgeModel"] ?? "gpt-4.1"));
+                global::TextStack.Ai.Llm.OpenAiModels.Judge(sp.GetRequiredService<IConfiguration>())));
 
         // Explain has its own generation model (OpenAI:Explain:Model,
         // default gpt-4.1-mini). Routed per-feature (Ai:Routes:explain[.toolcall] → openai-explain)
@@ -174,7 +174,7 @@ public static class DependencyInjection
             new global::TextStack.Ai.Llm.OpenAiLlmClient(
                 sp.GetRequiredService<IConfiguration>(),
                 sp.GetRequiredService<ILogger<global::TextStack.Ai.Llm.OpenAiLlmClient>>(),
-                sp.GetRequiredService<IConfiguration>()["OpenAI:Explain:Model"] ?? "gpt-4.1-mini"));
+                global::TextStack.Ai.Llm.OpenAiModels.Explain(sp.GetRequiredService<IConfiguration>())));
 
         // Decorated providers (keyed): TracingDecorator wraps each raw provider.
         foreach (var providerKey in global::TextStack.Ai.Llm.AiProviderKeys.Registered)

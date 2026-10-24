@@ -45,7 +45,7 @@ public static partial class AdminAiQualityEndpoints
             return Results.Problem("Judge LLM is not configured.", statusCode: 503);
         }
 
-        var judgeModelId = config["Eval:JudgeModel"] ?? "gpt-4.1";
+        var judgeModelId = global::TextStack.Ai.Llm.OpenAiModels.Judge(config);
         var baseline = new BaselineFieldAgent(gateway);
         var gitSha = Environment.GetEnvironmentVariable("GIT_SHA");
 

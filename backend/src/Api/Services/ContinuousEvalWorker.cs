@@ -142,7 +142,7 @@ public sealed class ContinuousEvalWorker(
     private async Task RunAndAlertAsync(IServiceProvider sp, IAppDbContext db, CancellationToken ct)
     {
         var features = config.GetSection("Eval:Scheduled:Features").Get<string[]>() ?? ["explain"];
-        var judgeModelId = config["Eval:JudgeModel"] ?? "gpt-4.1";
+        var judgeModelId = global::TextStack.Ai.Llm.OpenAiModels.Judge(config);
 
         // Snapshot prior scheduled scores BEFORE the new run is written.
         var prior = await LoadLatestScheduledScoresAsync(db, features, ct);

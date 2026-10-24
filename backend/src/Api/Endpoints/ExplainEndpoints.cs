@@ -346,7 +346,7 @@ public static class ExplainEndpoints
 
     // ponytail: the configured model (same fallback as the openai-explain provider), not the one the gateway
     // routes to at call time — an admin route promote does not invalidate the cache; bump ExplainPrompt.Version.
-    internal static string CacheModelId(IConfiguration config) => config["OpenAI:Explain:Model"] ?? "gpt-4.1-mini";
+    internal static string CacheModelId(IConfiguration config) => global::TextStack.Ai.Llm.OpenAiModels.Explain(config);
 }
 
 /// <summary>

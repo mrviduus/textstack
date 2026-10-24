@@ -39,10 +39,7 @@ public sealed class OpenAiLlmClient : ILlmService
         // modelOverride lets a second instance (e.g. the eval judge) run a different,
         // stronger model than the default generation model — without it every OpenAI
         // caller is pinned to OpenAI:Model.
-        _model = modelOverride
-            ?? config["OpenAI:Model"]
-            ?? Environment.GetEnvironmentVariable("OPENAI_MODEL")
-            ?? "gpt-4.1-mini";
+        _model = modelOverride ?? OpenAiModels.Default(config);
 
         // Reasoning models (gpt-5, o1, o3…) spend tokens on internal reasoning
         // before visible output. MaxOutputTokenCount caps the COMBINED total, so

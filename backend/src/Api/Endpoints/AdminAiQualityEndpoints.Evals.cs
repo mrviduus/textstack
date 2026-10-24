@@ -46,7 +46,7 @@ public static partial class AdminAiQualityEndpoints
             var useOpenAiJudge = string.Equals(body?.Judge, "openai", StringComparison.OrdinalIgnoreCase);
             judgeKey = useOpenAiJudge ? "openai-judge" : "ollama";
             judgeModelId = useOpenAiJudge
-                ? config["Eval:JudgeModel"] ?? "gpt-4.1"
+                ? global::TextStack.Ai.Llm.OpenAiModels.Judge(config)
                 : config["Ollama:Model"] ?? "gemma4:e2b";
             gitSha = Environment.GetEnvironmentVariable("GIT_SHA");
             features = body?.Features;

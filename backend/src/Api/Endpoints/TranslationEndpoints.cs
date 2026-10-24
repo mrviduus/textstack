@@ -132,8 +132,8 @@ public static class TranslationEndpoints
         FileJsonCache<TranslateResponse>.Key(
             $"v{promptVersion}|{model}|{srcLang}|{tgtLang}|{genre ?? ""}|{sentence ?? ""}|{text}");
 
-    // ponytail: the configured model (same fallback as OpenAiLlmClient), not the gateway's runtime route.
-    internal static string CacheModelId(IConfiguration config) => config["OpenAI:Model"] ?? "gpt-4.1-mini";
+    // ponytail: the configured model (same resolver as OpenAiLlmClient), not the gateway's runtime route.
+    internal static string CacheModelId(IConfiguration config) => global::TextStack.Ai.Llm.OpenAiModels.Default(config);
 
     private static IResult GetLanguages()
     {
