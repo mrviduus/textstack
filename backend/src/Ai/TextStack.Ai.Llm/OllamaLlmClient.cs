@@ -95,7 +95,8 @@ public sealed class OllamaLlmClient : ILlmService
                 // exception) — which is exactly why these failures are invisible in llm_traces:
                 // TracingDecorator only sees a successful, zero-token answer. Report them here.
                 LlmFailureAlarm.Capture(
-                    "ollama", request.FeatureTag, LlmFailureAlarm.ReasonHttpStatus);
+                    "ollama", request.FeatureTag, LlmFailureAlarm.ReasonHttpStatus,
+                    code: $"http_{(int)response.StatusCode}");
                 // Deliberately does NOT trip the circuit: a non-2xx means Ollama is ALIVE and
                 // answering (typically a wrong Ollama:Model → 404). That fails in milliseconds and
                 // is fixed by one config edit — hiding it behind 30 minutes of silence would turn a
