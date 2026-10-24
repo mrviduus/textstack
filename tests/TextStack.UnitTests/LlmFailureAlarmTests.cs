@@ -9,25 +9,44 @@ namespace TextStack.UnitTests;
 /// </summary>
 public class LlmFailureAlarmTests
 {
+    private const string Reason = LlmFailureAlarm.ReasonException;
+
     [Fact]
     public void ErrorCode_OpenAiModelRetired_ReturnsProviderCode() =>
-        Assert.Equal("model_not_found", LlmFailureAlarm.ErrorCode("exception", new Exception(
+        Assert.Equal("model_not_found", LlmFailureAlarm.ErrorCode(Reason, new Exception(
             "HTTP 404 (invalid_request_error: model_not_found)\n\nThe model `gpt-4.1-nano` has been deprecated")));
 
     [Fact]
     public void ErrorCode_OpenAiBadKey_DiffersFromRetiredModel() =>
-        Assert.Equal("invalid_api_key", LlmFailureAlarm.ErrorCode("exception", new Exception(
+        Assert.Equal("invalid_api_key", LlmFailureAlarm.ErrorCode(Reason, new Exception(
             "HTTP 401 (invalid_request_error: invalid_api_key)")));
 
     [Fact]
-    public void ErrorCode_StatusWithoutCode_ReturnsHttpStatus() =>
-        Assert.Equal("http_503", LlmFailureAlarm.ErrorCode("exception", new Exception("HTTP 503 Service Unavailable")));
+    public void ErrorCode_MixedCaseCode_KeepsIt() =>
+        Assert.Equal("DeploymentNotFound", LlmFailureAlarm.ErrorCode(Reason, new Exception(
+            "HTTP 404 (NotFound: DeploymentNotFound)")));
 
     [Fact]
-    public void ErrorCode_PlainException_ReturnsTypeName() =>
-        Assert.Equal("TimeoutException", LlmFailureAlarm.ErrorCode("exception", new TimeoutException("slow")));
+    public void ErrorCode_StatusWithoutCode_ReturnsHttpStatus() =>
+        Assert.Equal("http_503", LlmFailureAlarm.ErrorCode(Reason, new Exception("HTTP 503 Service Unavailable")));
+
+    [Fact]
+    public void ErrorCode_WrappedProviderError_ReadsInnerException() =>
+        Assert.Equal("model_not_found", LlmFailureAlarm.ErrorCode(Reason, new InvalidOperationException(
+            "LLM call failed", new Exception("HTTP 404 (invalid_request_error: model_not_found)"))));
+
+    [Fact]
+    public void ErrorCode_ParenthesesInBodyText_AreNotACode() =>
+        Assert.Equal("JsonException", LlmFailureAlarm.ErrorCode(Reason,
+            new System.Text.Json.JsonException("Invalid token (expected: object) at line 1")));
 
     [Fact]
     public void ErrorCode_NoException_ReturnsReason() =>
         Assert.Equal("timeout", LlmFailureAlarm.ErrorCode(LlmFailureAlarm.ReasonTimeout, null));
+
+    [Fact]
+    public void Fingerprint_DifferentCodes_Differ() =>
+        Assert.NotEqual(
+            string.Join('|', LlmFailureAlarm.Fingerprint("openai", "translate", Reason, "invalid_api_key")),
+            string.Join('|', LlmFailureAlarm.Fingerprint("openai", "translate", Reason, "model_not_found")));
 }

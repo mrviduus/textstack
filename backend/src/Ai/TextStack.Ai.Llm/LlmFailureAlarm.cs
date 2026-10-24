@@ -23,22 +23,32 @@ public static class LlmFailureAlarm
     /// <summary>Sets the shared cooldown from <c>Ai:RouteAlarm:CooldownMinutes</c> at startup.</summary>
     public static void Configure(TimeSpan cooldown) => _throttle = new AlarmThrottle(cooldown);
 
-    // OpenAI SDK messages read "HTTP 404 (invalid_request_error: model_not_found) …". Compiled, not
-    // [GeneratedRegex]: the ARM64 SIGILL caveat (CLAUDE.md, Extraction).
-    private static readonly Regex ProviderCode = new(@"\(\s*[a-z_]+\s*:\s*([a-z_]+)\s*\)", RegexOptions.Compiled);
-    private static readonly Regex HttpStatus = new(@"\bHTTP (\d{3})\b", RegexOptions.Compiled);
+    // OpenAI SDK messages start "HTTP 404 (invalid_request_error: model_not_found)". Anchored to the
+    // "HTTP NNN (type: code)" head so body text like "(expected: object)" never becomes a code — the
+    // set of codes stays small, which the fingerprint and the never-evicted throttle both rely on.
+    // Compiled, not [GeneratedRegex]: the ARM64 SIGILL caveat (CLAUDE.md, Extraction).
+    private static readonly Regex HttpError = new(
+        @"^HTTP (\d{3})(?: \(\s*\w+\s*:\s*(\w{1,64})\s*\))?", RegexOptions.Compiled);
 
     /// <summary>
     /// What went wrong, short enough to group by: the provider's error code (<c>model_not_found</c>,
     /// <c>invalid_api_key</c>), else <c>http_404</c>, else the exception type, else the reason.
+    /// Walks inner exceptions, so a wrapper rethrow does not collapse distinct causes into one type.
     /// </summary>
     public static string ErrorCode(string reason, Exception? ex)
     {
         if (ex is null) return reason;
-        if (ProviderCode.Match(ex.Message) is { Success: true } code) return code.Groups[1].Value;
-        if (HttpStatus.Match(ex.Message) is { Success: true } status) return $"http_{status.Groups[1].Value}";
+        for (var e = ex; e is not null; e = e.InnerException)
+        {
+            if (HttpError.Match(e.Message) is not { Success: true } m) continue;
+            return m.Groups[2].Success ? m.Groups[2].Value : $"http_{m.Groups[1].Value}";
+        }
         return ex.GetType().Name;
     }
+
+    /// <summary>Sentry fingerprint for one failure; joined, it is also the throttle key.</summary>
+    public static string[] Fingerprint(string provider, string task, string reason, string code) =>
+        ["llm-failure", provider, task, reason, code];
 
     /// <summary>
     /// Reports one provider failure, throttled per (provider, task, reason, error code). A dead Ollama
@@ -52,7 +62,8 @@ public static class LlmFailureAlarm
     {
         var task = string.IsNullOrWhiteSpace(featureTag) ? "unknown" : featureTag;
         var code = ErrorCode(reason, ex);
-        if (!_throttle.TryEnter($"llm|{provider}|{task}|{reason}|{code}", DateTimeOffset.UtcNow))
+        var fingerprint = Fingerprint(provider, task, reason, code);
+        if (!_throttle.TryEnter(string.Join('|', fingerprint), DateTimeOffset.UtcNow))
             return;
 
         try
@@ -63,7 +74,7 @@ public static class LlmFailureAlarm
                 scope.SetTag("ai.task", task);
                 scope.SetTag("ai.failure", reason);
                 scope.SetTag("ai.error_code", code);
-                scope.SetFingerprint(["llm-failure", provider, task, reason, code]);
+                scope.SetFingerprint(fingerprint);
             }
 
             if (ex is not null)
