@@ -127,6 +127,14 @@ export const KNOWN = {
       'Only through @expo/cli (the dev server / build CLI), never the app bundle or the web. ' +
       'No fixed release exists to move to; overriding inside Expo is how a mobile build breaks.',
   },
+  'GHSA-mrhx-c7xc-m3w5': {
+    since: '2026-10-24',
+    module: 'zod',
+    needs: '>=4.6.6',
+    why:
+      "Only through @expo/cli (the dev server / build CLI), which pins zod 3. A 3 -> 4 major " +
+      'forced inside Expo is how a mobile build breaks. Not in the app bundle.',
+  },
 }
 
 /**
