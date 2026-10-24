@@ -41,10 +41,10 @@
 Each is a real defect, known and not yet fixed.
 
 **Ingestion, SSG, ops**
-- **Uploaded originals are readable by URL without auth** (`/storage`, ADR-024). Fix: originals move behind `/me/books/{id}/file`.
+- **Uploaded originals are readable by URL without auth** (`/storage`, ADR-024, #913). Fix: originals move behind `/me/books/{id}/file`.
 - **`/internal` trusts a forwarded address from the home LAN** (ADR-024): `ForwardedHeaders` trusts `X-Forwarded-For` from 192.168/16. nginx refuses it from outside. Fix: shared-secret header (ADR-024 step 3, after #19).
 - **Six user routes live outside `/me`** and rely on their handler's check: `GET /auth/me`, `POST /auth/device/approve|deny`, `POST /oauth/authorize/approve|deny`, `GET /oauth/token-status`. No plan to move them.
-- **Mobile OTA targets one runtime only** (#762): it publishes to the runtime of the newest *finished* production build. If production runs an older build than Closed testing, production stops receiving OTAs. **Fix before the second store release.** [Runbook](03-ops/play-store-release.md#known-limits-of-the-automatic-ota).
+- **Mobile OTA targets one runtime only** (#762, issue #914): it publishes to the runtime of the newest *finished* production build. If production runs an older build than Closed testing, production stops receiving OTAs. **Fix before the second store release.** [Runbook](03-ops/play-store-release.md#known-limits-of-the-automatic-ota).
 - **Deploy-interrupted uploads (ADR-022, fixed #769)** were not yet watched through a real deploy: check the next deploy's Worker log for "interrupted by shutdown; returned to queue" and that no upload ends `Failed`.
 - **Interrupted ingestion can leave orphan image files** (disk only). Fix: deterministic image names, or sweep `assets/` against `book_assets`.
 - **Vocabulary words promoted by the hourly reconciler are never enriched** (`DailyCapService.ReconcileUserAsync` does not call `QueueEnrichment`).
@@ -59,7 +59,7 @@ Each is a real defect, known and not yet fixed.
 - **`llm_traces` grows without bound** (prompts and book excerpts, no cleanup job; account deletion anonymises). Check the size before writing a retention job.
 - **Four dependency advisories have no fix to apply** (`decode-uri-component`, `uuid` inside Expo's tree; `braces`, `node-forge` with no fixed release). Listed in `KNOWN` in `scripts/check-advisories.mjs`; none ships in the app. Currently the `advisories` check also warns on `undici` GHSA-4qv8-2p9j-2685 and GHSA-f72v-6w45-q472 (Dependabot opens the fix).
 - **`@sentry/react-native` is ahead of the Expo SDK pin** (8.24 vs `~7.11`); recorded in `expo.install.exclude` as deliberate, but nobody remembers whether it was.
-- **Play Console:** the Data Safety form may still hold the pre-2026-08-20 answers, which contradict the privacy policy; the correct answers are in [`play-store-release.md`](03-ops/play-store-release.md). The store listing text was updated 2026-10-24 (in review); the **feature graphic and one screenshot still show "Ask this book"**, which no longer exists.
+- **Play Console** (#915, #916): the Data Safety form may still hold the pre-2026-08-20 answers, which contradict the privacy policy; the correct answers are in [`play-store-release.md`](03-ops/play-store-release.md). The store listing text was updated 2026-10-24 (in review); the **feature graphic and one screenshot still show "Ask this book"**, which no longer exists.
 - **One permission group still requested without need:** 20 OEM launcher/badge permissions from ShortcutBadger via `expo-notifications` (WATCH list in `apps/mobile/scripts/check-android-permissions.mjs`). Confirm in Play Console → App content that the foreground-service declaration is gone (removed in 1.1.0).
 - **Notification permission dialog (P2-5)** from the 2026-08-26 pass: no code path in the app can produce it (`targetSdkVersion: 36`). Reproduce with `adb logcat` on an emulator before changing anything.
 
