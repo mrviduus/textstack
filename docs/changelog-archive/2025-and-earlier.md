@@ -222,8 +222,8 @@ Complete rebuild of the user-owned books experience. From "upload buried 4 click
 
 ### Content: OpenBook2 Ukrainian Library Import
 - **220 EPUB books** imported from [OpenBook2](https://sites.google.com/view/openbook2) (public domain Ukrainian classics)
-- **~50 Ukrainian authors** created — Franko, Shevchenko, Lesya Ukrainka, Kotsiubynsky, Shakespeare, Dickens, etc.
-- **Categories**: Ukrainian literature, world literature, public digitization
+- **~50 Ukrainian authors** created — Franko, Shevchenko, Lesya Ukrainka, Kotsiubynsky, Shakespeare, Dickens, etc. (stored as Франко, Шевченко, Леся Українка, Коцюбинський, Шекспір, Діккенс)
+- **Categories**: Ukrainian literature, world literature, public digitization (stored as українська література, світова література, суспільне оцифрування)
 - **Scraper**: Node.js script crawled Google Sites pages, extracted Google Drive EPUB links, downloaded 311 MB
 - **Upload**: batch upload via admin API with auto author/genre creation
 - **Source**: OpenBook2 — an online library of Ukrainian and world classics

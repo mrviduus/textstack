@@ -132,8 +132,9 @@ export const KNOWN = {
     module: 'zod',
     needs: '>=4.6.6',
     why:
-      "Only through @expo/cli (the dev server / build CLI), which pins zod 3. A 3 -> 4 major " +
-      'forced inside Expo is how a mobile build breaks. Not in the app bundle.',
+      'zod 3.25.76 now only through @expo/cli (the dev server / build CLI), which depends on zod 3; ' +
+      'no fixed 3.x exists. The production path (puppeteer > chromium-bidi, SSG prerender) is on ' +
+      'zod 4.6.7 since puppeteer 25.16. Forcing 3 -> 4 inside Expo is how a mobile build breaks.',
   },
 }
 
