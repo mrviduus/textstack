@@ -134,7 +134,7 @@ public static class TranslationEndpoints
             $"v{promptVersion}|{model}|{srcLang}|{tgtLang}|{genre ?? ""}|{sentence ?? ""}|{text}");
 
     // ponytail: the configured model (same fallback as OpenAiLlmClient), not the gateway's runtime route.
-    internal static string CacheModelId(IConfiguration config) => config["OpenAI:Model"] ?? "gpt-4.1-nano";
+    internal static string CacheModelId(IConfiguration config) => config["OpenAI:Model"] ?? "gpt-4.1-mini";
 
     private static IResult GetLanguages()
     {

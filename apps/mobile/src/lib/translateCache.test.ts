@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 /**
- * `POST /translate` is a paid `gpt-4.1-nano` call on the most frequent action
+ * `POST /translate` is a paid `gpt-4.1-mini` call on the most frequent action
  * in the product (tap a word). These tests exist because the module used to
  * memoize the RESULT and not the PROMISE: two callers in the same ~1s window
  * both missed the cache and both were billed, while the file's own docblock

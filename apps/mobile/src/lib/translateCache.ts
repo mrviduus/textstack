@@ -31,7 +31,7 @@ function cacheSet(k: string, v: CachedTranslation) {
  * Point 2 above was a claim this file could not keep. It memoized the RESULT
  * and nothing else, so two callers inside the same ~1s window both read
  * `cache.get(k) === undefined`, both called the API, and both were billed:
- * `/translate` is OpenAI `gpt-4.1-nano`, on the most frequent action in the
+ * `/translate` is OpenAI `gpt-4.1-mini`, on the most frequent action in the
  * product. The server-side file cache does not save you either — the second
  * request reads a cache entry the first one has not written yet.
  *

@@ -42,7 +42,7 @@ cp .env.example .env
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `OPENAI_API_KEY` | For translate/explain/tutor | empty | → `OpenAI__ApiKey` (api **and** worker) |
-| `OPENAI_MODEL` | No | `gpt-4.1-nano` | Default model (translate) → `OpenAI__Model` |
+| `OPENAI_MODEL` | No | `gpt-4.1-mini` | Default model (translate) → `OpenAI__Model` |
 | `OPENAI_EXPLAIN_MODEL` | No | `gpt-4.1-mini` | Explain model → `OpenAI__Explain__Model` |
 | `RESEND_API_KEY` | For password reset | empty | → `Resend__ApiKey` |
 | `RESEND_FROM_EMAIL` | No | `noreply@textstack.app` | → `Resend__FromEmail` |
