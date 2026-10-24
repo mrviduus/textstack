@@ -1,7 +1,7 @@
 # Translation failed on every call because OpenAI retired its model, and health said ready
 
 **Date:** 2026-10-24
-**Status:** Mitigated (fix in #918; production also needs `OPENAI_MODEL` changed in the server `.env`)
+**Status:** Resolved (#918, deployed 2026-10-24; `POST /api/translate` → 200 after the deploy)
 
 ## Impact
 
@@ -14,7 +14,8 @@ Start time: not yet measured. Every failed call is an error row in `llm_traces` 
 ## Root cause
 
 Translation ran on `gpt-4.1-nano`, the default `OpenAI:Model` in every place that names a default
-(appsettings, compose, `.env.example`, the client fallback). OpenAI retired the model, and the call
+(appsettings, compose, `.env.example`, the client fallback). Production's `.env` does not set
+`OPENAI_MODEL`, so the compose default was what ran. OpenAI retired the model, and the call
 began failing with `model_not_found`. Explain kept working only because it has its own route on
 `gpt-4.1-mini`.
 
@@ -38,7 +39,8 @@ sent one unthrottled event per word tap on top of the throttled one. It was remo
   hard-stop through to `ExceptionMiddleware` (429 instead of 503).
 
 That closes the *instance*. The *class* — a model id with an end date that nobody is watching — is
-open: no check fails on a retired model, and the server `.env` can still pin one.
+open: no check fails on a retired model (#921; one model-id constant: #920). Because the compose default is what production runs,
+the fix needed a deploy, not a server edit.
 
 ## Lesson
 
@@ -51,4 +53,4 @@ the endpoint.
 
 The owner noticed translation was not working while using the app — not by an alert. Whether the
 throttled Sentry event (`ai.task=translate`, `ai.failure=exception`) arrived, and why it went unread,
-is not yet checked. That is the open question this incident leaves.
+is not yet checked. That is the open question this incident leaves (#919).
