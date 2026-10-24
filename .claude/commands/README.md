@@ -14,10 +14,10 @@ Project-level slash commands for the TextStack repo. Each command is a markdown 
 
 `/slice` was removed on 2026-08-20 — it read a `PLAYBOOK-ai-portfolio.md` that never
 existed in git, and the AI-portfolio phases it was written for are complete. Point
-Claude at the brief directly instead: "read docs/ux-roadmap-v3/03-*.md and plan it".
+Claude at the brief (issue or doc) directly instead.
 
 ```
-1. read the slice brief (e.g. docs/ux-roadmap-v3/03-library-sidebar-source-filter.md)
+1. read the slice brief (issue or doc)
 
 2. work on the slice with Claude Code as usual
 
@@ -33,7 +33,6 @@ Claude at the brief directly instead: "read docs/ux-roadmap-v3/03-*.md and plan 
    → commits CHANGELOG.md change
    → pushes and opens PR via gh
 
-5. After PR merged, manually tick the checkbox in the roadmap README
 ```
 
 ## Workflow — outside slices
@@ -54,7 +53,7 @@ Claude at the brief directly instead: "read docs/ux-roadmap-v3/03-*.md and plan 
 
 Solo dev workflow. Sequential slice work. Subagents would add configuration overhead without proportional benefit. Slash commands give 80% of the value (workflow standardization, reduced friction, no-forget changelog) at 10% of the complexity.
 
-If/when the team grows or parallel epics start: revisit and add `architect` / `developer` / `tester` subagents in `.claude/agents/` — see `docs/ux-roadmap/README.md` for the broader workflow context.
+If/when the team grows or parallel epics start: revisit and add `architect` / `developer` / `tester` subagents in `.claude/agents/`.
 
 ## Editing these commands
 
@@ -69,7 +68,6 @@ After editing, the next `/<command>` invocation picks up changes — no reload n
 ## Conventions assumed
 
 - CHANGELOG.md at repo root, format: `## [Unreleased]` → `### <Category> (YYYY-MM-DD)` → bullets.
-- Roadmap briefs at `docs/ux-roadmap/NN-<slug>.md`.
 - Branch name pattern `ux/my-books-v2*` (or other epic branch).
 - Commit message pattern `my-books-v2 [NN]: <title>` for slice work.
 - `gh` CLI authenticated.

@@ -15,7 +15,6 @@ EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "00-vision", "00-vision", "{D1A1A1A1-0000-0000-0000-000000000001}"
 	ProjectSection(SolutionItems) = preProject
 		docs\00-vision\README.md = docs\00-vision\README.md
-		docs\00-vision\roadmap.md = docs\00-vision\roadmap.md
 	EndProjectSection
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "01-architecture", "01-architecture", "{D1A1A1A1-0000-0000-0000-000000000002}"

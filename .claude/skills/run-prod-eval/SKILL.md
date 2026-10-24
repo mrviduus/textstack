@@ -1,6 +1,6 @@
 ---
 name: run-prod-eval
-description: Run an AI eval gate on production and read the result. Use to score a feature's DoD on prod (tool-call accuracy, RAG recall/spoiler, Study Buddy judge/steps/cost) — the real scored runs that need an OpenAI key + corpus and an admin session, not CI.
+description: Run an AI eval gate on production and read the result. Use to score a feature's DoD on prod (tool-call accuracy, judged suites) — the real scored runs that need an OpenAI key + corpus and an admin session, not CI.
 ---
 
 # Run a prod eval
@@ -11,9 +11,6 @@ live corpus + key, admin-triggered, and persists an `eval_run` row (visible on `
 ## Endpoints (admin-only, POST)
 
 - Tool-call accuracy (Phase 5): `/api/admin/ai-quality/evals/toolcalls/run` — sync, ~30 nano calls.
-- RAG retrieval + spoiler (Phase 4): `/api/admin/ai-quality/evals/{editionId}/eval` (under `/admin/rag/...`).
-- RAG citation + retrieval: `POST /admin/rag/{editionId}/eval?judge=openai`.
-- Study Buddy (Phase 6): `/api/admin/ai-quality/evals/studybuddy/run?editionId=<id>&judge=openai`.
 - Generic judged suite: `/api/admin/ai-quality/evals/run` (body `{features, judge}`), async — poll `/evals/status`.
 
 `judge=openai` uses the stronger `Eval:JudgeModel` (gpt-4.1, independent of the nano generator);
@@ -25,8 +22,7 @@ live corpus + key, admin-triggered, and persists an `eval_run` row (visible on `
    Wait out the ~25-min deploy window (the admin session also expires ~30 min — re-login if needed).
 2. Confirm the endpoint exists (not 404): `curl -s -o /dev/null -w '%{http_code}'` POST unauth → expect 401.
 3. Get a catalog `editionId` if needed: `curl -s 'https://textstack.app/api/books?lang=en&limit=1'`.
-   (RAG/Study Buddy tools need an edition **with embedded chapter_chunks** to be meaningful — a user-upload
-   or a book without embeddings gives contaminated tool results; note this in the report.)
+   
 4. In a tab logged into **textstack.dev** (admin), fire it via `fetch` (cookie auth) and stash the result on
    `window` (the run can take 1-3 min): `fetch(url,{method:'POST',credentials:'include'}).then(r=>r.text())…`.
    Poll `window.__result`. Read `eval_runs` directly if the tab drops: `/api/admin/ai-quality/evals?feature=<f>&limit=5`.

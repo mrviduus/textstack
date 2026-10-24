@@ -3,7 +3,7 @@
 ## Status
 Implemented
 
-> **Note**: Tempo removed to save RAM. Traces collected via OTEL but not stored long-term. See `docs/tempo-restore.md` to re-enable.
+> **Note**: Tempo removed to save RAM. Traces collected via OTEL but not stored long-term. Restoring Tempo means re-adding a collector and Grafana; the old guide is in git history (`docs/tempo-restore.md`).
 
 ## Goal
 Production-grade observability for API + Worker using OpenTelemetry:

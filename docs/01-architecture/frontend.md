@@ -30,7 +30,7 @@ Three apps, two shared packages.
 Consumed as source through path aliases (not built or published).
 - `@textstack/shared` — API client, API types, i18n, sentence splitting, anon/guest helpers, reader
   progress logic. Edit here when both web and mobile need the change.
-- `@textstack/reader-overlay` — DOM overlay engine (highlight/vocab/search layers) for the web
+- `@textstack/reader-engine` — the reader's rendering, position and decorations, shared by web and mobile ([ADR-025](adr/ADR-025-reader-engine-package.md))
   reader and the mobile WebView bundle.
 
 ---

@@ -2,8 +2,7 @@
 
 What `packages/reader-engine` promises its hosts (web, mobile), in plain words. Design and API:
 [ADR-025](../01-architecture/adr/ADR-025-reader-engine-package.md); position rules:
-[ADR-019](../01-architecture/adr/ADR-019-reader-position-rules.md); slices:
-[phase 2 plan](../01-architecture/reader-engine-phase2-plan.md).
+[ADR-019](../01-architecture/adr/ADR-019-reader-position-rules.md).
 
 Each rule has one ID. The test that pins it starts its name with that ID
 (`packages/reader-engine/src/engine.test.ts`; decorations, E13–E19, E44, E49–E51 and E54, in `decorations.test.ts`; events, E20–E24 and E28, in `events.test.ts`; geometry on real chapters in Chromium, E25–E27, E29, E30, E43 and E45, in `playground/geometry.e2e.ts`). Change a rule here first, then its test, then the code.
