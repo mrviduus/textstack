@@ -8,8 +8,9 @@
 Every `POST /api/translate` on production returned 503 — web, mobile and the reader's word bubble.
 Explain, the tutor and reading were unaffected. Confirmed live on 2026-10-24 with two requests, both
 `503 · HTTP 404 (invalid_request_error: model_not_found) The model gpt-4.1-nano has been deprecated`.
-Start time: not yet measured. Every failed call is an error row in `llm_traces` (feature
-`translate`), so the first one dates it — check the admin AI Quality page.
+Start: the first failed call was 2026-10-24 19:52 UTC — Sentry's first `model_not_found` event, and
+the throttle always lets the first hit per hour through, so there was no earlier failure in the last
+30 days. End: the #918 deploy the same evening. Roughly one to two hours, not days.
 
 ## Root cause
 
@@ -51,6 +52,13 @@ the endpoint.
 
 ## Detection
 
-The owner noticed translation was not working while using the app — not by an alert. Whether the
-throttled Sentry event (`ai.task=translate`, `ai.failure=exception`) arrived, and why it went unread,
-is not yet checked. That is the open question this incident leaves (#919).
+The owner noticed translation was not working while using the app, at about the time it broke. Sentry
+had it too: the 19:52 UTC event arrived, tagged `ai.task=translate`, with the full `model_not_found`
+message — but no notification went out.
+
+Why: Sentry grouped it by exception type (`System.ClientModel.ClientResultException`) into an existing
+issue first seen three months earlier, which already held an unrelated `401 invalid_api_key` from an
+`agent.run` on 2026-10-06 and was in the *ongoing* state. The only error alert is the default one —
+new and regressed issues. An event joining an ongoing issue is neither, so it was silent. Any
+provider failure with the same exception type lands in that one issue: a retired model, a revoked
+key and a quota error all look like one old problem. Tracked in #919.
