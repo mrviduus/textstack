@@ -10,7 +10,7 @@ Free book library w/ Kindle-like reader. Upload EPUB/PDF → parse → SEO pages
 
 **Stack**: ASP.NET Core (API + Worker) + PostgreSQL + React + React Native (Expo)
 
-**Prerequisites**: Docker, .NET 10 SDK, Node.js 18+, pnpm
+**Prerequisites**: Docker, .NET 10 SDK, Node.js (`.nvmrc`), pnpm
 
 **CI/CD**: Push to `main` → auto-deploy (no SSG rebuild). Full SSG rebuild: nightly after the backup (`backup.yml`); on demand via the admin panel, `make rebuild-ssg`, or a manual deploy with `rebuild_ssg`.
 
