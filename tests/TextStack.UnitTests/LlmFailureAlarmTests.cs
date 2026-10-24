@@ -41,6 +41,29 @@ public class LlmFailureAlarmTests
             new System.Text.Json.JsonException("Invalid token (expected: object) at line 1")));
 
     [Fact]
+    public void ErrorCode_EmptyErrorType_KeepsCode() =>
+        Assert.Equal("insufficient_quota", LlmFailureAlarm.ErrorCode(Reason, new Exception(
+            "HTTP 429 (: insufficient_quota)")));
+
+    [Fact]
+    public void ErrorCode_AggregateSecondInner_FindsProviderCode() =>
+        Assert.Equal("model_not_found", LlmFailureAlarm.ErrorCode(Reason, new AggregateException(
+            new TimeoutException("slow"), new Exception("HTTP 404 (invalid_request_error: model_not_found)"))));
+
+    [Fact]
+    public void ErrorCode_WrappedNonHttpCause_ReturnsRootType() =>
+        Assert.Equal("TimeoutException", LlmFailureAlarm.ErrorCode(Reason, new InvalidOperationException(
+            "LLM call failed", new TimeoutException("slow"))));
+
+    [Fact]
+    public void ErrorCode_CallerSuppliedCode_Wins() =>
+        Assert.Equal("http_404", LlmFailureAlarm.ErrorCode(LlmFailureAlarm.ReasonHttpStatus, null, "http_404"));
+
+    [Fact]
+    public void Fingerprint_KeepsSentryDefaultGrouping() =>
+        Assert.Equal("{{ default }}", LlmFailureAlarm.Fingerprint("openai", "translate", Reason, "model_not_found")[0]);
+
+    [Fact]
     public void ErrorCode_NoException_ReturnsReason() =>
         Assert.Equal("timeout", LlmFailureAlarm.ErrorCode(LlmFailureAlarm.ReasonTimeout, null));
 
