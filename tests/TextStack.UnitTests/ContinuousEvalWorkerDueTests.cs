@@ -3,6 +3,8 @@ using Application.Ai;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+using TextStack.Ai.Llm;
 
 namespace TextStack.UnitTests;
 
@@ -59,7 +61,7 @@ public class ContinuousEvalWorkerDueTests
             .Build();
 
     private static ContinuousEvalWorker Worker(IServiceScopeFactory scopeFactory, IConfiguration config) =>
-        new(scopeFactory, config, new EvalRunGate(), new EvalRegressionDetector(),
+        new(scopeFactory, config, Options.Create(new EvalOptions()), new EvalRunGate(), new EvalRegressionDetector(),
             NullLogger<ContinuousEvalWorker>.Instance);
 
     [Fact]
@@ -67,7 +69,7 @@ public class ContinuousEvalWorkerDueTests
     {
         var gate = new EvalRunGate();
         var worker = new ContinuousEvalWorker(
-            new ExplodingScopeFactory(), Config(enabled: false), gate,
+            new ExplodingScopeFactory(), Config(enabled: false), Options.Create(new EvalOptions()), gate,
             new EvalRegressionDetector(), NullLogger<ContinuousEvalWorker>.Instance);
 
         // Must NOT throw (scope factory would explode if used) and must NOT enter the gate.
@@ -85,7 +87,7 @@ public class ContinuousEvalWorkerDueTests
         // and critically the gate must NOT be left entered, since the throw happens before TryEnter.
         var gate = new EvalRunGate();
         var worker = new ContinuousEvalWorker(
-            new ExplodingScopeFactory(), Config(enabled: true), gate,
+            new ExplodingScopeFactory(), Config(enabled: true), Options.Create(new EvalOptions()), gate,
             new EvalRegressionDetector(), NullLogger<ContinuousEvalWorker>.Instance);
 
         await Assert.ThrowsAsync<InvalidOperationException>(

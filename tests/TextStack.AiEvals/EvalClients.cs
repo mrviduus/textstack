@@ -18,8 +18,9 @@ internal static class EvalClients
     {
         var key = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
         Assert.SkipWhen(string.IsNullOrWhiteSpace(key), "OPENAI_API_KEY not set — eval skipped (opt-in).");
-        // Empty config: OpenAiLlmClient falls back to OPENAI_API_KEY / OPENAI_MODEL env vars.
-        return new OpenAiLlmClient(new ConfigurationBuilder().Build(), NullLogger<OpenAiLlmClient>.Instance);
+        // Empty config: the key comes from OPENAI_API_KEY; the model from OPENAI_MODEL, else the code default.
+        var model = Environment.GetEnvironmentVariable("OPENAI_MODEL") is { Length: > 0 } m ? m : new OpenAiOptions().Model;
+        return new OpenAiLlmClient(new ConfigurationBuilder().Build(), NullLogger<OpenAiLlmClient>.Instance, model);
     }
 
     /// <summary>

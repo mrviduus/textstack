@@ -22,7 +22,8 @@ public sealed class OpenAiLlmClient : ILlmService
     private readonly int _reasoningBudget;
     private readonly ILogger<OpenAiLlmClient> _logger;
 
-    public OpenAiLlmClient(IConfiguration config, ILogger<OpenAiLlmClient> logger, string? modelOverride = null)
+    /// <param name="model">From <see cref="OpenAiOptions"/> / <see cref="EvalOptions"/> — the client has no default of its own.</param>
+    public OpenAiLlmClient(IConfiguration config, ILogger<OpenAiLlmClient> logger, string model)
     {
         _logger = logger;
 
@@ -36,13 +37,8 @@ public sealed class OpenAiLlmClient : ILlmService
         if (string.IsNullOrWhiteSpace(apiKey))
             throw new InvalidOperationException("OPENAI_API_KEY not configured (OpenAI:ApiKey / OPENAI_API_KEY is empty)");
 
-        // modelOverride lets a second instance (e.g. the eval judge) run a different,
-        // stronger model than the default generation model — without it every OpenAI
-        // caller is pinned to OpenAI:Model.
-        _model = modelOverride
-            ?? config["OpenAI:Model"]
-            ?? Environment.GetEnvironmentVariable("OPENAI_MODEL")
-            ?? "gpt-4.1-mini";
+        ArgumentException.ThrowIfNullOrWhiteSpace(model);
+        _model = model;
 
         // Reasoning models (gpt-5, o1, o3…) spend tokens on internal reasoning
         // before visible output. MaxOutputTokenCount caps the COMBINED total, so

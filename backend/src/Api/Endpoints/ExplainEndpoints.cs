@@ -9,7 +9,9 @@ using Application.Auth;
 using Application.Common.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using TextStack.Ai.Core;
+using TextStack.Ai.Llm;
 using TextStack.Ai.Tools;
 
 namespace Api.Endpoints;
@@ -37,6 +39,7 @@ public static class ExplainEndpoints
         [FromBody] ExplainRequest request,
         HttpContext httpContext,
         IConfiguration config,
+        IOptions<OpenAiOptions> openAi,
         ILlmService llm,
         IAppDbContext db,
         AuthService authService,
@@ -61,8 +64,10 @@ public static class ExplainEndpoints
         var genre = await ResolveGenreAsync(request.Genre, request.BookId, db, logger, ct);
         var cache = new FileJsonCache<ExplainResponse>(
             config.GetValue<string>("Explain:CachePath") ?? "/tmp/explain-cache", config.GetValue("Explain:CacheTtlDays", 30), logger);
+        // ponytail: the configured model (the one the openai-explain provider is built with), not the one the gateway
+        // routes to at call time — an admin route promote does not invalidate the cache; bump ExplainPrompt.Version.
         var cacheKey = ComputeCacheKey(
-            request.Word, request.Sentence, genre, targetLang, CacheModelId(config), ExplainPrompt.Version);
+            request.Word, request.Sentence, genre, targetLang, openAi.Value.Explain.Model, ExplainPrompt.Version);
 
         // Function-calling (AI-031b): which tools this request may use. Book tools need an edition in
         // context; the highlights tool additionally needs a signed-in user. Kill switch:
@@ -343,10 +348,6 @@ public static class ExplainEndpoints
         string word, string sentence, string? genre, string targetLang, string model, int promptVersion) =>
         FileJsonCache<ExplainResponse>.Key(
             $"v{promptVersion}|{model}|{word.ToLowerInvariant()}|{sentence}|{genre ?? ""}|{targetLang}");
-
-    // ponytail: the configured model (same fallback as the openai-explain provider), not the one the gateway
-    // routes to at call time — an admin route promote does not invalidate the cache; bump ExplainPrompt.Version.
-    internal static string CacheModelId(IConfiguration config) => config["OpenAI:Explain:Model"] ?? "gpt-4.1-mini";
 }
 
 /// <summary>

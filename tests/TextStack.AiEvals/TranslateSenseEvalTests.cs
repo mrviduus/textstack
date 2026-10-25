@@ -152,14 +152,14 @@ public class TranslateSenseEvalTests
         var key = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
         Assert.SkipWhen(string.IsNullOrWhiteSpace(key), "OPENAI_API_KEY not set — eval skipped (opt-in).");
 
-        var judgeModel = Environment.GetEnvironmentVariable("EVAL_JUDGE_MODEL") ?? "gpt-4.1";
+        var judgeModel = Environment.GetEnvironmentVariable("EVAL_JUDGE_MODEL") ?? new EvalOptions().JudgeModel;
         var judge = Client(judgeModel);
         var goldens = TranslateSenseEvalRunner.LoadGoldens();
         var ct = TestContext.Current.CancellationToken;
 
         var lines = new List<string> { $"judge={judgeModel}, cases={goldens.Count}x{Targets.Length}" };
         // gpt-4.1-nano was retired by OpenAI (2026-10); it would error every case.
-        foreach (var model in new[] { "gpt-4.1-mini" })
+        foreach (var model in new[] { new OpenAiOptions().Model })
         {
             foreach (var withContext in new[] { true, false })
             {

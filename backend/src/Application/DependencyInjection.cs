@@ -14,6 +14,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Application;
 
@@ -154,8 +155,21 @@ public static class DependencyInjection
                 ladder);
         });
 
+        // OpenAI model ids (Options pattern). The class defaults are the only defaults; FillBlanks turns
+        // an empty env value (compose's `${OPENAI_MODEL:-}`) back into the default.
+        services.AddOptions<global::TextStack.Ai.Llm.OpenAiOptions>()
+            .BindConfiguration(global::TextStack.Ai.Llm.OpenAiOptions.SectionName)
+            .PostConfigure(o => o.FillBlanks());
+        services.AddOptions<global::TextStack.Ai.Llm.EvalOptions>()
+            .BindConfiguration(global::TextStack.Ai.Llm.EvalOptions.SectionName)
+            .PostConfigure(o => o.FillBlanks());
+
         // Raw providers (keyed) on Core.ILlmService.
-        services.AddKeyedSingleton<global::TextStack.Ai.Core.ILlmService, global::TextStack.Ai.Llm.OpenAiLlmClient>("openai-raw");
+        services.AddKeyedSingleton<global::TextStack.Ai.Core.ILlmService>("openai-raw", (sp, key) =>
+            new global::TextStack.Ai.Llm.OpenAiLlmClient(
+                sp.GetRequiredService<IConfiguration>(),
+                sp.GetRequiredService<ILogger<global::TextStack.Ai.Llm.OpenAiLlmClient>>(),
+                sp.GetRequiredService<IOptions<global::TextStack.Ai.Llm.OpenAiOptions>>().Value.Model));
         services.AddKeyedSingleton<global::TextStack.Ai.Core.ILlmService, global::TextStack.Ai.Llm.OllamaLlmClient>("ollama-raw");
 
         // A dedicated OpenAI judge provider on a STRONGER model (Eval:JudgeModel,
@@ -165,7 +179,7 @@ public static class DependencyInjection
             new global::TextStack.Ai.Llm.OpenAiLlmClient(
                 sp.GetRequiredService<IConfiguration>(),
                 sp.GetRequiredService<ILogger<global::TextStack.Ai.Llm.OpenAiLlmClient>>(),
-                sp.GetRequiredService<IConfiguration>()["Eval:JudgeModel"] ?? "gpt-4.1"));
+                sp.GetRequiredService<IOptions<global::TextStack.Ai.Llm.EvalOptions>>().Value.JudgeModel));
 
         // Explain has its own generation model (OpenAI:Explain:Model,
         // default gpt-4.1-mini). Routed per-feature (Ai:Routes:explain[.toolcall] → openai-explain)
@@ -174,7 +188,7 @@ public static class DependencyInjection
             new global::TextStack.Ai.Llm.OpenAiLlmClient(
                 sp.GetRequiredService<IConfiguration>(),
                 sp.GetRequiredService<ILogger<global::TextStack.Ai.Llm.OpenAiLlmClient>>(),
-                sp.GetRequiredService<IConfiguration>()["OpenAI:Explain:Model"] ?? "gpt-4.1-mini"));
+                sp.GetRequiredService<IOptions<global::TextStack.Ai.Llm.OpenAiOptions>>().Value.Explain.Model));
 
         // Decorated providers (keyed): TracingDecorator wraps each raw provider.
         foreach (var providerKey in global::TextStack.Ai.Llm.AiProviderKeys.Registered)

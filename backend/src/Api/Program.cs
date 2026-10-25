@@ -13,6 +13,7 @@ using Infrastructure.Persistence;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Options;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -104,7 +105,8 @@ if (!app.Environment.IsEnvironment("Test"))
     // abort startup, so it's guarded + logged rather than allowed to escape.
     try
     {
-        await ModelRegistrySeeder.SeedAsync(db);
+        await ModelRegistrySeeder.SeedAsync(
+            db, app.Services.GetRequiredService<IOptions<TextStack.Ai.Llm.OpenAiOptions>>().Value);
     }
     catch (Exception ex)
     {

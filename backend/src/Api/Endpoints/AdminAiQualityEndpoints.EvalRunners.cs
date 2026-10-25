@@ -4,8 +4,10 @@ using Contracts.Admin;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using TextStack.Ai.Core;
 using TextStack.Ai.EvalSuite;
+using TextStack.Ai.Llm;
 using TextStack.Ai.Tools;
 
 namespace Api.Endpoints;
@@ -20,6 +22,7 @@ public static partial class AdminAiQualityEndpoints
         HttpContext httpContext,
         IServiceProvider services,
         IConfiguration config,
+        IOptions<EvalOptions> evalOptions,
         TextStack.Ai.EvalSuite.CrewAbEvalRunner runner,
         FieldCrew crew,
         IAppDbContext db,
@@ -45,7 +48,7 @@ public static partial class AdminAiQualityEndpoints
             return Results.Problem("Judge LLM is not configured.", statusCode: 503);
         }
 
-        var judgeModelId = config["Eval:JudgeModel"] ?? "gpt-4.1";
+        var judgeModelId = evalOptions.Value.JudgeModel;
         var baseline = new BaselineFieldAgent(gateway);
         var gitSha = Environment.GetEnvironmentVariable("GIT_SHA");
 

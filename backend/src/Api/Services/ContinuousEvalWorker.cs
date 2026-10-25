@@ -3,8 +3,10 @@ using Application.Ai;
 using Application.Auth;
 using Application.Common.Interfaces;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using TextStack.Ai.Core;
 using TextStack.Ai.EvalSuite;
+using TextStack.Ai.Llm;
 
 namespace Api.Services;
 
@@ -20,6 +22,7 @@ namespace Api.Services;
 public sealed class ContinuousEvalWorker(
     IServiceScopeFactory scopeFactory,
     IConfiguration config,
+    IOptions<EvalOptions> evalOptions,
     IEvalRunGate gate,
     EvalRegressionDetector regressionDetector,
     ILogger<ContinuousEvalWorker> logger) : BackgroundService
@@ -142,7 +145,7 @@ public sealed class ContinuousEvalWorker(
     private async Task RunAndAlertAsync(IServiceProvider sp, IAppDbContext db, CancellationToken ct)
     {
         var features = config.GetSection("Eval:Scheduled:Features").Get<string[]>() ?? ["explain"];
-        var judgeModelId = config["Eval:JudgeModel"] ?? "gpt-4.1";
+        var judgeModelId = evalOptions.Value.JudgeModel;
 
         // Snapshot prior scheduled scores BEFORE the new run is written.
         var prior = await LoadLatestScheduledScoresAsync(db, features, ct);

@@ -4,8 +4,10 @@ using Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using TextStack.Ai.Core;
 using TextStack.Ai.EvalSuite;
+using TextStack.Ai.Llm;
 
 namespace Api.Endpoints;
 
@@ -22,6 +24,7 @@ public static partial class AdminAiQualityEndpoints
         [FromBody] RunEvalsRequest? body,
         IServiceScopeFactory scopeFactory,
         IConfiguration config,
+        IOptions<EvalOptions> evalOptions,
         Application.Ai.IEvalRunGate gate,
         ILogger<Program> logger)
     {
@@ -46,7 +49,7 @@ public static partial class AdminAiQualityEndpoints
             var useOpenAiJudge = string.Equals(body?.Judge, "openai", StringComparison.OrdinalIgnoreCase);
             judgeKey = useOpenAiJudge ? "openai-judge" : "ollama";
             judgeModelId = useOpenAiJudge
-                ? config["Eval:JudgeModel"] ?? "gpt-4.1"
+                ? evalOptions.Value.JudgeModel
                 : config["Ollama:Model"] ?? "gemma4:e2b";
             gitSha = Environment.GetEnvironmentVariable("GIT_SHA");
             features = body?.Features;

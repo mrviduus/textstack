@@ -3,6 +3,8 @@ using Application.Common.Interfaces;
 using Application.Vocabulary;
 using Domain.LLM;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
+using TextStack.Ai.Llm;
 
 namespace Api.Endpoints;
 
@@ -22,6 +24,7 @@ public static class TranslationEndpoints
     private static async Task<IResult> Translate(
         [FromBody] TranslateRequest request,
         IConfiguration config,
+        IOptions<OpenAiOptions> openAi,
         ILlmServiceFactory llmFactory,
         IAppDbContext db,
         IFrequencyFilter freqFilter,
@@ -82,8 +85,9 @@ public static class TranslationEndpoints
         var genre = await ExplainEndpoints.ResolveGenreAsync(request.Genre, request.BookId, db, logger, ct);
 
         var cache = new FileJsonCache<TranslateResponse>(cachePath, cacheTtlDays, logger);
+        // ponytail: the configured model (the one the openai provider is built with), not the gateway's runtime route.
         var cacheKey = ComputeCacheKey(
-            request.Text, srcLang, tgtLang, genre, sentence, CacheModelId(config), TranslatePrompt.Version);
+            request.Text, srcLang, tgtLang, genre, sentence, openAi.Value.Model, TranslatePrompt.Version);
         if (await cache.TryReadAsync(cacheKey, ct) is { } cachedResp && !string.IsNullOrWhiteSpace(cachedResp.TranslatedText))
             // Re-attach a fresh category — it's word-only (cache key
             // also varies by sentence/genre, so don't trust the stored one).
@@ -131,9 +135,6 @@ public static class TranslationEndpoints
         string text, string srcLang, string tgtLang, string? genre, string? sentence, string model, int promptVersion) =>
         FileJsonCache<TranslateResponse>.Key(
             $"v{promptVersion}|{model}|{srcLang}|{tgtLang}|{genre ?? ""}|{sentence ?? ""}|{text}");
-
-    // ponytail: the configured model (same fallback as OpenAiLlmClient), not the gateway's runtime route.
-    internal static string CacheModelId(IConfiguration config) => config["OpenAI:Model"] ?? "gpt-4.1-mini";
 
     private static IResult GetLanguages()
     {

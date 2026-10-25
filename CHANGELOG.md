@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **AI** — OpenAI model ids via the Options pattern (`OpenAiOptions`, `EvalOptions`): class defaults are the only defaults; appsettings and compose no longer repeat them — backend
 - **AI** — provider-failure alarms fingerprinted by error code (`model_not_found`, `invalid_api_key`, …): each is its own Sentry issue and fires the new-issue alert — backend, [write-up](docs/changelog-archive/2026-H2.md#2026-10-24-llm-alarm-fingerprint)
 - **Docs** — translation incident resolved: production ran the compose default, not a `.env` pin; follow-ups #919–#923 — docs
 - **AI** — translation back up: OpenAI retired `gpt-4.1-nano`; translate defaults to `gpt-4.1-mini` — backend, [incident](docs/incidents/2026-10-24-translation-down-on-a-retired-model.md)
