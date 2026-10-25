@@ -62,4 +62,17 @@ public class OpenAiOptionsTests
         Assert.Equal(new OpenAiOptions().Explain.Model, openAi.Explain.Model);
         Assert.Equal(new EvalOptions().JudgeModel, eval.JudgeModel);
     }
+
+    [Fact]
+    public void Resolve_TrailingCarriageReturn_IsTrimmed()
+    {
+        var (openAi, eval) = Resolve(new()
+        {
+            ["OpenAI:Model"] = "translate-model\r",
+            ["Eval:JudgeModel"] = " judge-model ",
+        });
+
+        Assert.Equal("translate-model", openAi.Model);
+        Assert.Equal("judge-model", eval.JudgeModel);
+    }
 }

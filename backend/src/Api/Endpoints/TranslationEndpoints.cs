@@ -136,7 +136,6 @@ public static class TranslationEndpoints
         FileJsonCache<TranslateResponse>.Key(
             $"v{promptVersion}|{model}|{srcLang}|{tgtLang}|{genre ?? ""}|{sentence ?? ""}|{text}");
 
-
     private static IResult GetLanguages()
     {
         // Static list — OpenAI handles any BCP47 pair, but clients want a UI list.

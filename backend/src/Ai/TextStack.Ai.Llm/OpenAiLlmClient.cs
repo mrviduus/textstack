@@ -37,6 +37,7 @@ public sealed class OpenAiLlmClient : ILlmService
         if (string.IsNullOrWhiteSpace(apiKey))
             throw new InvalidOperationException("OPENAI_API_KEY not configured (OpenAI:ApiKey / OPENAI_API_KEY is empty)");
 
+        ArgumentException.ThrowIfNullOrWhiteSpace(model);
         _model = model;
 
         // Reasoning models (gpt-5, o1, o3…) spend tokens on internal reasoning

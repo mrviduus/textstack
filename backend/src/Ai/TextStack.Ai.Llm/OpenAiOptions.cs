@@ -18,14 +18,18 @@ public sealed class OpenAiOptions
     /// <summary>
     /// Compose passes an unset variable as an empty string (<c>${OPENAI_MODEL:-}</c>), and the binder
     /// overwrites the default with it. An empty model id would reach OpenAI as a 400; treat it as unset.
+    /// Trims too: a CRLF <c>.env</c> leaves a trailing <c>\r</c> that OpenAI reads as an unknown model.
     /// </summary>
     public void FillBlanks()
     {
         var defaults = new OpenAiOptions();
-        if (string.IsNullOrWhiteSpace(Model)) Model = defaults.Model;
+        Model = OrDefault(Model, defaults.Model);
         Explain ??= new();
-        if (string.IsNullOrWhiteSpace(Explain.Model)) Explain.Model = defaults.Explain.Model;
+        Explain.Model = OrDefault(Explain.Model, defaults.Explain.Model);
     }
+
+    internal static string OrDefault(string? value, string fallback) =>
+        string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
 
     public sealed class ExplainModelOptions
     {
@@ -43,6 +47,6 @@ public sealed class EvalOptions
 
     public void FillBlanks()
     {
-        if (string.IsNullOrWhiteSpace(JudgeModel)) JudgeModel = new EvalOptions().JudgeModel;
+        JudgeModel = OpenAiOptions.OrDefault(JudgeModel, new EvalOptions().JudgeModel);
     }
 }
