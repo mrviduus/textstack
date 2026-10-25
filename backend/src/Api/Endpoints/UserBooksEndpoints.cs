@@ -269,7 +269,10 @@ public static class UserBooksEndpoints
         store.SweepStale(userId.Value, DateTime.UtcNow);
 
         var maxPart = entitlementOptions.MaxSingleUploadBytes;
-        var declared = httpContext.Request.ContentLength ?? 0;
+        // The quota and size checks below run on the declared length before a byte is stored, so a body
+        // without one (chunked transfer encoding) could overshoot both by a whole part.
+        if (httpContext.Request.ContentLength is not { } declared)
+            return Results.StatusCode(StatusCodes.Status411LengthRequired);
         if (declared > maxPart)
             return Results.BadRequest(new { error = $"Part too large (max {maxPart / 1024 / 1024} MB)" });
 
@@ -305,6 +308,9 @@ public static class UserBooksEndpoints
 
         if (string.IsNullOrWhiteSpace(request.FileName))
             return Results.BadRequest(new { error = "FileName is required" });
+        // Before joining hundreds of MB that UploadAsync would refuse anyway; the parts stay for a retry.
+        if (!UserBookService.IsSupportedUpload(request.FileName))
+            return Results.BadRequest(new { error = "Unsupported file format. Only EPUB and PDF are supported." });
 
         await using var file = await store.AssembleAsync(userId.Value, uploadId, request.PartCount, ct);
         if (file is null)

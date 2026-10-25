@@ -747,6 +747,9 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage, IEnt
         return string.IsNullOrWhiteSpace(cleaned) ? raw : cleaned;
     }
 
+    /// <summary>True for the formats an upload can become a book from (EPUB, PDF).</summary>
+    public static bool IsSupportedUpload(string fileName) => DetectFormat(fileName) != BookFormat.Other;
+
     private static BookFormat DetectFormat(string fileName)
     {
         var ext = Path.GetExtension(fileName).ToLowerInvariant();

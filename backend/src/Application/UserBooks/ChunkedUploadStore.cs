@@ -95,29 +95,28 @@ public sealed class ChunkedUploadStore(string root)
     }
 
     /// <summary>
-    /// Joins parts <c>0..partCount-1</c> into one file and removes the parts. The upload directory is first
-    /// renamed (atomic): a second complete for the same upload finds nothing and gets null, so one upload
-    /// can never become two books or fail mid-copy. The returned stream is seekable (UploadAsync checks the
-    /// quota by length) and removes its directory when disposed; after a crash, the directory still sits
-    /// under the user's, where <see cref="SweepStale"/> finds it. Null if the upload is unknown or a part
-    /// is missing — then the parts are put back, so the client can re-send the missing one.
+    /// Joins parts <c>0..partCount-1</c> into one file and removes the parts. Null, touching nothing, if the
+    /// upload is unknown or a part is missing — the client can re-send it and complete again. Otherwise the
+    /// upload directory is renamed (atomic) before joining: a second complete for the same upload finds
+    /// nothing and gets null, so one upload never becomes two books or fails mid-copy. The returned stream
+    /// is seekable (UploadAsync checks the quota by length) and removes its directory when disposed; after
+    /// a crash the directory still sits under the user's, where <see cref="SweepStale"/> finds it.
+    /// ponytail: a failure while joining (client gone mid-complete) drops the parts; the client then
+    /// re-uploads. Keeping them would mean putting a claimed directory back while parts may still arrive.
     /// </summary>
     public async Task<Stream?> AssembleAsync(Guid userId, Guid uploadId, int partCount, CancellationToken ct)
     {
         if (partCount is < 1 or > MaxParts) return null;
 
         var dir = UploadDir(userId, uploadId);
+        if (!Enumerable.Range(0, partCount).All(i => File.Exists(PartPath(dir, i)))) return null;
+
         var claimed = $"{dir}.assembling-{Guid.NewGuid():N}";
         try { Directory.Move(dir, claimed); }
         catch (DirectoryNotFoundException) { return null; }
         catch (IOException) { return null; }
 
         var parts = Enumerable.Range(0, partCount).Select(i => PartPath(claimed, i)).ToList();
-        if (!parts.All(File.Exists))
-        {
-            Directory.Move(claimed, dir);
-            return null;
-        }
 
         var output = new AssembledFile(claimed);
         try

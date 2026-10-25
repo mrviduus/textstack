@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { uploadUserBook } from '../userBooks'
+import { uploadUserBook, RATE_LIMIT_WAIT_MS } from '../userBooks'
 
 // Cloudflare 413s any single request body over ~100 MB before it reaches the API. A file above the
 // server's maxSingleUploadBytes must go up as parts + complete; a small one stays one multipart POST.
@@ -112,5 +112,30 @@ describe('uploadUserBook', () => {
     const last = sent[sent.length - 1]
     expect(last.method).toBe('DELETE')
     expect(last.url).toMatch(/\/me\/books\/uploads\/[^/]+$/)
+  })
+
+  it('never retries complete — the first attempt already claimed the parts', async () => {
+    stubQuota()
+    const sent = stubXhr([200, 200, 503])
+
+    await expect(uploadUserBook(fakeFile(90 * MB))).rejects.toThrow()
+
+    expect(sent.filter((s) => s.url.endsWith('/complete'))).toHaveLength(1)
+  })
+
+  it('waits out a 429 from the upload limiter, then retries the part', async () => {
+    vi.useFakeTimers()
+    try {
+      stubQuota()
+      const sent = stubXhr([429, 200])
+
+      const done = uploadUserBook(fakeFile(90 * MB))
+      await vi.advanceTimersByTimeAsync(RATE_LIMIT_WAIT_MS)
+      await done
+
+      expect(sent.filter((s) => s.url.endsWith('/parts/0'))).toHaveLength(2)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

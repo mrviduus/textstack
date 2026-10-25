@@ -166,7 +166,9 @@ async function uploadInParts(
         (loaded) => onProgress?.(((start + loaded) / file.size) * 100), 'application/octet-stream'))
     }
     const body = JSON.stringify({ fileName: file.name, partCount, title: title ?? null, language: language ?? null })
-    return JSON.parse(await withOneRetry(() => send('POST', `${base}/complete`, body, undefined, 'application/json')))
+    // Never retried: the first attempt claims the parts, so a retry can only fail — and the book may
+    // already exist if just the response was lost.
+    return JSON.parse(await send('POST', `${base}/complete`, body, undefined, 'application/json'))
   } catch (err) {
     // Free the parts already on the server; best effort — they are swept after a day anyway.
     send('DELETE', base, null).catch(() => {})
@@ -174,14 +176,19 @@ async function uploadInParts(
   }
 }
 
+// The `user-upload` limiter's window (per IP, 20 requests/min); a 429 waits it out once.
+export const RATE_LIMIT_WAIT_MS = 60_000
+
 // A part can outlive the access cookie on a slow link (single POSTs auth once, up front): a 401 refreshes
-// the cookie and retries; a dropped connection or 5xx retries once. A 4xx answer is final.
+// the cookie and retries; a 429 waits for the limiter window; a dropped connection or 5xx retries once.
+// Any other 4xx is final.
 async function withOneRetry(request: () => Promise<string>): Promise<string> {
   try {
     return await request()
   } catch (err) {
     const status = err instanceof UploadError ? err.status : 0
     if (status === 401) await refreshToken()
+    else if (status === 429) await new Promise((r) => setTimeout(r, RATE_LIMIT_WAIT_MS))
     else if (status >= 400 && status < 500) throw err
     return request()
   }
