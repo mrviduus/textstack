@@ -42,8 +42,8 @@ cp .env.example .env
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `OPENAI_API_KEY` | For translate/explain/tutor | empty | → `OpenAI__ApiKey` (api **and** worker) |
-| `OPENAI_MODEL` | No | `gpt-4.1-mini` | Default model (translate) → `OpenAI__Model` |
-| `OPENAI_EXPLAIN_MODEL` | No | `gpt-4.1-mini` | Explain model → `OpenAI__Explain__Model` |
+| `OPENAI_MODEL` | No | `gpt-4.1-mini` (in `OpenAiOptions`) | Default model (translate) → `OpenAI__Model`. Empty = the code default |
+| `OPENAI_EXPLAIN_MODEL` | No | `gpt-4.1-mini` (in `OpenAiOptions`) | Explain model → `OpenAI__Explain__Model`. Empty = the code default |
 | `RESEND_API_KEY` | For password reset | empty | → `Resend__ApiKey` |
 | `RESEND_FROM_EMAIL` | No | `noreply@textstack.app` | → `Resend__FromEmail` |
 | `ADMIN_ALERT_EMAIL` | No | empty (alerts off) | SEO backfill / ops failure alerts → `Resend__AdminAlertEmail` |

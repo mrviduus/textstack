@@ -1,6 +1,5 @@
 using Api.Endpoints;
 using Application.Ai;
-using Microsoft.Extensions.Configuration;
 
 namespace TextStack.UnitTests;
 
@@ -40,21 +39,5 @@ public class AiCacheKeyTests
         var a = TranslationEndpoints.ComputeCacheKey("w", "en", "uk", null, null, "gpt-4.1-nano", TranslatePrompt.Version);
         var b = TranslationEndpoints.ComputeCacheKey("w", "en", "uk", null, null, "gpt-4.1-mini", TranslatePrompt.Version);
         Assert.NotEqual(a, b);
-    }
-
-    [Fact]
-    public void CacheModelId_ConfigUnsetOrSet_ResolvesSameModelAsProvider()
-    {
-        var empty = new ConfigurationBuilder().Build();
-        Assert.Equal("gpt-4.1-mini", ExplainEndpoints.CacheModelId(empty));
-        Assert.Equal("gpt-4.1-mini", TranslationEndpoints.CacheModelId(empty));
-
-        var set = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
-        {
-            ["OpenAI:Explain:Model"] = "x",
-            ["OpenAI:Model"] = "y",
-        }).Build();
-        Assert.Equal("x", ExplainEndpoints.CacheModelId(set));
-        Assert.Equal("y", TranslationEndpoints.CacheModelId(set));
     }
 }

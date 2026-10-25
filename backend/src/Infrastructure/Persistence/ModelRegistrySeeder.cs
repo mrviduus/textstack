@@ -14,24 +14,24 @@ namespace Infrastructure.Persistence;
 public static class ModelRegistrySeeder
 {
     // (feature, provider key, model id) for each current PRIMARY route. Mirrors
-    // appsettings Ai:Routes + the per-provider model config.
-    private static readonly (string Feature, string Provider, string Model)[] Primaries =
+    // appsettings Ai:Routes + the configured OpenAI models, so the registry names what is served.
+    private static (string Feature, string Provider, string Model)[] Primaries(OpenAiOptions openAi) =>
     [
-        ("explain", "openai-explain", OpenAiModels.DefaultExplainModel),
-        ("explain.toolcall", "openai-explain", OpenAiModels.DefaultExplainModel),
-        ("translate", "openai", OpenAiModels.DefaultModel),
+        ("explain", "openai-explain", openAi.Explain.Model),
+        ("explain.toolcall", "openai-explain", openAi.Explain.Model),
+        ("translate", "openai", openAi.Model),
         ("distractor", "ollama", "gemma4:e2b"),
         ("bookmeta", "ollama", "gemma4:e2b"),
         ("tagsuggestion", "ollama", "gemma4:e2b"),
     ];
 
-    public static async Task SeedAsync(AppDbContext db, CancellationToken ct = default)
+    public static async Task SeedAsync(AppDbContext db, OpenAiOptions openAi, CancellationToken ct = default)
     {
         if (await db.Models.AnyAsync(ct))
             return;
 
         var now = DateTimeOffset.UtcNow;
-        db.Models.AddRange(Primaries.Select(p => new ModelRegistration
+        db.Models.AddRange(Primaries(openAi).Select(p => new ModelRegistration
         {
             Id = Guid.NewGuid(),
             FeatureTag = p.Feature,
