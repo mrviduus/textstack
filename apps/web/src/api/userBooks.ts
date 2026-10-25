@@ -1,5 +1,6 @@
 import { authFetch, API_BASE, ApiError } from './client'
 import { trackBookUploaded } from '../lib/analytics'
+import { refreshToken } from './auth'
 
 export interface UserBook {
   id: string
@@ -112,29 +113,35 @@ export interface StorageQuota {
 const DEFAULT_MAX_SINGLE_UPLOAD = 80 * 1024 * 1024
 const MAX_PART_BYTES = 50 * 1024 * 1024
 
-function uploadError(xhr: XMLHttpRequest): Error {
-  if (xhr.status === 413) return new Error('File is too large to upload. Try a smaller file.')
+class UploadError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message)
+  }
+}
+
+function uploadError(xhr: XMLHttpRequest): UploadError {
+  if (xhr.status === 413) return new UploadError('File is too large to upload. Try a smaller file.', 413)
   let error = `Upload failed: ${xhr.status}`
   try {
     const json = JSON.parse(xhr.responseText)
     if (json.error) error = json.error
   } catch {}
-  return new Error(error)
+  return new UploadError(error, xhr.status)
 }
 
 function send(
   method: string,
   url: string,
-  body: XMLHttpRequestBodyInit,
-  onLoaded?: (loadedBytes: number) => void,
+  body: XMLHttpRequestBodyInit | null,
+  onLoaded?: (loadedBytes: number, totalBytes: number | null) => void,
   contentType?: string
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
-    xhr.upload.addEventListener('progress', (e) => onLoaded?.(e.loaded))
+    xhr.upload.addEventListener('progress', (e) => onLoaded?.(e.loaded, e.lengthComputable ? e.total : null))
     xhr.addEventListener('load', () =>
       xhr.status >= 200 && xhr.status < 300 ? resolve(xhr.responseText) : reject(uploadError(xhr)))
-    xhr.addEventListener('error', () => reject(new Error('Upload failed')))
+    xhr.addEventListener('error', () => reject(new UploadError('Upload failed', 0)))
     xhr.open(method, url)
     xhr.withCredentials = true
     if (contentType) xhr.setRequestHeader('Content-Type', contentType)
@@ -151,14 +158,33 @@ async function uploadInParts(
 ): Promise<UploadResponse> {
   const base = `${API_BASE}/me/books/uploads/${crypto.randomUUID()}`
   const partCount = Math.ceil(file.size / partBytes)
-  for (let i = 0; i < partCount; i++) {
-    const start = i * partBytes
-    const blob = file.slice(start, Math.min(start + partBytes, file.size))
-    await send('PUT', `${base}/parts/${i}`, blob,
-      (loaded) => onProgress?.(((start + loaded) / file.size) * 100), 'application/octet-stream')
+  try {
+    for (let i = 0; i < partCount; i++) {
+      const start = i * partBytes
+      const blob = file.slice(start, Math.min(start + partBytes, file.size))
+      await withOneRetry(() => send('PUT', `${base}/parts/${i}`, blob,
+        (loaded) => onProgress?.(((start + loaded) / file.size) * 100), 'application/octet-stream'))
+    }
+    const body = JSON.stringify({ fileName: file.name, partCount, title: title ?? null, language: language ?? null })
+    return JSON.parse(await withOneRetry(() => send('POST', `${base}/complete`, body, undefined, 'application/json')))
+  } catch (err) {
+    // Free the parts already on the server; best effort — they are swept after a day anyway.
+    send('DELETE', base, null).catch(() => {})
+    throw err
   }
-  const body = JSON.stringify({ fileName: file.name, partCount, title: title ?? null, language: language ?? null })
-  return JSON.parse(await send('POST', `${base}/complete`, body, undefined, 'application/json'))
+}
+
+// A part can outlive the access cookie on a slow link (single POSTs auth once, up front): a 401 refreshes
+// the cookie and retries; a dropped connection or 5xx retries once. A 4xx answer is final.
+async function withOneRetry(request: () => Promise<string>): Promise<string> {
+  try {
+    return await request()
+  } catch (err) {
+    const status = err instanceof UploadError ? err.status : 0
+    if (status === 401) await refreshToken()
+    else if (status >= 400 && status < 500) throw err
+    return request()
+  }
 }
 
 export async function uploadUserBook(
@@ -181,7 +207,7 @@ export async function uploadUserBook(
     if (title) formData.append('title', title)
     if (language) formData.append('language', language)
     result = JSON.parse(await send('POST', `${API_BASE}/me/books/upload`, formData,
-      (loaded) => onProgress?.((loaded / file.size) * 100)))
+      (loaded, total) => { if (total) onProgress?.((loaded / total) * 100) }))
   }
 
   // GA4: conversion signal — users who upload their own book are far

@@ -8,10 +8,13 @@ const MB = 1024 * 1024
 
 interface Sent { method: string; url: string; body: unknown }
 
-function stubXhr(status = 200, response = '{"userBookId":"b1","jobId":"j1","status":"Queued"}') {
+const OK = '{"userBookId":"b1","jobId":"j1","status":"Queued"}'
+
+/** Each request takes the next status from `statuses` (the last one repeats). */
+function stubXhr(statuses: number[] = [200], response = OK) {
   const sent: Sent[] = []
   class FakeXhr {
-    status = status
+    status = 0
     responseText = response
     private method = ''
     private url = ''
@@ -23,6 +26,7 @@ function stubXhr(status = 200, response = '{"userBookId":"b1","jobId":"j1","stat
     setRequestHeader() {}
     send(body: unknown) {
       sent.push({ method: this.method, url: this.url, body })
+      this.status = statuses[Math.min(sent.length - 1, statuses.length - 1)]
       queueMicrotask(() => this.listeners.load?.())
     }
   }
@@ -32,6 +36,14 @@ function stubXhr(status = 200, response = '{"userBookId":"b1","jobId":"j1","stat
 
 function fakeFile(size: number, name = 'book.pdf'): File {
   return { size, name, slice: (start: number, end: number) => ({ start, end }) } as unknown as File
+}
+
+function stubQuota() {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+    ok: true, status: 200,
+    json: async () => ({ maxSingleUploadBytes: 80 * MB }),
+    text: async () => JSON.stringify({ maxSingleUploadBytes: 80 * MB }),
+  }))
 }
 
 describe('uploadUserBook', () => {
@@ -54,11 +66,7 @@ describe('uploadUserBook', () => {
   })
 
   it('sends a file over the server ceiling as ordered parts, then complete', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true, status: 200,
-      json: async () => ({ maxSingleUploadBytes: 80 * MB }),
-      text: async () => JSON.stringify({ maxSingleUploadBytes: 80 * MB }),
-    }))
+    stubQuota()
     const sent = stubXhr()
 
     const result = await uploadUserBook(fakeFile(105 * MB))
@@ -80,8 +88,29 @@ describe('uploadUserBook', () => {
   })
 
   it('explains a 413 instead of surfacing the raw status', async () => {
-    stubXhr(413, '<html>413 Request Entity Too Large</html>')
+    stubXhr([413], '<html>413 Request Entity Too Large</html>')
 
     await expect(uploadUserBook(fakeFile(5 * MB))).rejects.toThrow(/too large/i)
+  })
+
+  it('retries a part once after a dropped connection or 5xx', async () => {
+    stubQuota()
+    const sent = stubXhr([503, 200])
+
+    await uploadUserBook(fakeFile(90 * MB))
+
+    expect(sent.filter((s) => s.url.endsWith('/parts/0'))).toHaveLength(2)
+    expect(sent[sent.length - 1].url).toContain('/complete')
+  })
+
+  it('frees the server-side parts when a part fails for good', async () => {
+    stubQuota()
+    const sent = stubXhr([200, 400])
+
+    await expect(uploadUserBook(fakeFile(90 * MB))).rejects.toThrow()
+
+    const last = sent[sent.length - 1]
+    expect(last.method).toBe('DELETE')
+    expect(last.url).toMatch(/\/me\/books\/uploads\/[^/]+$/)
   })
 })

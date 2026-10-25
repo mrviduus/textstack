@@ -273,9 +273,14 @@ public static class UserBooksEndpoints
         if (declared > maxPart)
             return Results.BadRequest(new { error = $"Part too large (max {maxPart / 1024 / 1024} MB)" });
 
-        // Refuse before storing a byte once the upload could no longer fit the quota.
+        // Same per-file cap as a single upload: parts get a book past Cloudflare, not past this.
+        if (store.UploadBytes(userId.Value, uploadId, exceptIndex: index) + declared > Api.Extensions.ServiceCollectionExtensions.MaxUploadBytes)
+            return Results.BadRequest(new { error = $"File too large (max {Api.Extensions.ServiceCollectionExtensions.MaxUploadBytes / 1024 / 1024} MB)" });
+
+        // Refuse before storing a byte once everything this user has in flight could no longer fit the
+        // quota — counted across all their uploads, so parallel upload ids cannot fill the temp disk.
         var quotaError = await userBookService.CheckUploadQuotaAsync(
-            userId.Value, store.StoredBytes(userId.Value, uploadId, exceptIndex: index) + declared, ct);
+            userId.Value, store.UserBytes(userId.Value, uploadId, exceptIndex: index) + declared, ct);
         if (quotaError is not null)
             return Results.BadRequest(new { error = quotaError });
 

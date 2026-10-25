@@ -165,14 +165,14 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage, IEnt
             userBookId, job.Id, UserBookStatus.Processing.ToString(), format == BookFormat.Pdf), null);
     }
 
-    /// <summary>
-    /// Storage and book-count limits of the user's tier for a file of <paramref name="fileSize"/>
-    /// bytes. Needs only the size, so an upload is checked before it is read.
-    /// </summary>
     /// <summary>Quota check for a chunked upload's bytes so far — a part that could never become a book is refused.</summary>
     public async Task<string?> CheckUploadQuotaAsync(Guid userId, long bytes, CancellationToken ct) =>
         (await CheckQuotaAsync(userId, bytes, ct)).Error;
 
+    /// <summary>
+    /// Storage and book-count limits of the user's tier for a file of <paramref name="fileSize"/>
+    /// bytes. Needs only the size, so an upload is checked before it is read.
+    /// </summary>
     private async Task<(User? User, string? Error)> CheckQuotaAsync(Guid userId, long fileSize, CancellationToken ct)
     {
         var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct);
