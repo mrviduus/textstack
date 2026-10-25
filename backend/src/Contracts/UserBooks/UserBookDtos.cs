@@ -111,6 +111,9 @@ public record UploadUserBookResponse(Guid UserBookId, Guid JobId, string Status,
 /// "Send to TextStack" web clip — the extension sends already-clean (Readability) article HTML.
 /// The server never fetches a URL. Lands on the private Read later shelf.
 /// </summary>
+/// <summary>Finishes a chunked upload: parts <c>0..PartCount-1</c> were sent to <c>/me/books/uploads/{id}/parts/{index}</c>.</summary>
+public record CompleteChunkedUploadRequest(string FileName, int PartCount, string? Title, string? Language);
+
 public record ClipRequest(string Title, string? Author, string? SourceUrl, string Html, string? Language);
 
 /// <param name="Tier">Entitlement tier name (Guest|Free|Supporter|Staff).</param>
