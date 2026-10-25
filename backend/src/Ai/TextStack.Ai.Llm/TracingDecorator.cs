@@ -34,6 +34,7 @@ public sealed class TracingDecorator(
             var response = await inner.CompleteAsync(request, ct);
             sw.Stop();
             TryPersist(BuildTrace(request, response, sw.ElapsedMilliseconds, error: null), isError: false);
+            AlarmIfEmpty(request, response);
             return response;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -101,10 +102,24 @@ public sealed class TracingDecorator(
         }
 
         sw.Stop();
-        TryPersist(
-            BuildTrace(request, BuildStreamedResponse(text.ToString(), toolCalls, usage, modelId, traceId),
-                sw.ElapsedMilliseconds, error: null),
-            isError: false);
+        var streamed = BuildStreamedResponse(text.ToString(), toolCalls, usage, modelId, traceId);
+        TryPersist(BuildTrace(request, streamed, sw.ElapsedMilliseconds, error: null), isError: false);
+        AlarmIfEmpty(request, streamed);
+    }
+
+    /// <summary>
+    /// A call that "succeeded" with no text and no tool calls — e.g. a reasoning model spending its whole
+    /// budget on thinking. No exception, so the catch above never sees it, and callers turn it into a 502
+    /// (translate) that nobody hears about (#922). <c>InputTokens == 0</c> means no call completed: Ollama
+    /// returns that shape for a failure it has already reported itself, so it is not reported twice.
+    /// </summary>
+    public static bool IsEmptyAnswer(LlmResponse response) =>
+        string.IsNullOrWhiteSpace(response.Text) && response.ToolCalls.Count == 0 && response.Usage.InputTokens > 0;
+
+    private void AlarmIfEmpty(LlmRequest request, LlmResponse response)
+    {
+        if (IsEmptyAnswer(response))
+            LlmFailureAlarm.Capture(providerKey, request.FeatureTag, LlmFailureAlarm.ReasonEmptyResponse);
     }
 
     /// <summary>Assembles the accumulated stream into an <see cref="LlmResponse"/> for tracing —
