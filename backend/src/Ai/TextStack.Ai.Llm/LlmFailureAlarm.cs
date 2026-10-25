@@ -17,6 +17,7 @@ public static class LlmFailureAlarm
     public const string ReasonHttpStatus = "http_status";
     public const string ReasonTimeout = "timeout";
     public const string ReasonTransport = "transport";
+    public const string ReasonEmptyResponse = "empty_response";
 
     private static AlarmThrottle _throttle = new(TimeSpan.FromMinutes(60));
 
