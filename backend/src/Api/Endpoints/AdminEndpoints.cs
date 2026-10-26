@@ -151,7 +151,7 @@ public static class AdminEndpoints
         if (!valid)
             return Results.BadRequest(new { error });
 
-        var (workValid, workError, work) = await adminService.GetOrCreateWorkAsync(siteId, title, workId, ct);
+        var (workValid, workError, work) = await adminService.GetOrCreateWorkAsync(siteId, title, language, workId, ct);
         if (!workValid)
             return Results.BadRequest(new { error = workError });
 

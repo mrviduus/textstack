@@ -36,7 +36,7 @@ public partial class AdminService
     }
 
     public async Task<(bool Valid, string? Error, Work? Work)> GetOrCreateWorkAsync(
-        Guid siteId, string title, Guid? workId, CancellationToken ct)
+        Guid siteId, string title, string language, Guid? workId, CancellationToken ct)
     {
         if (workId.HasValue)
         {
@@ -45,18 +45,25 @@ public partial class AdminService
                 return (false, "Work not found", null);
             if (work.SiteId != siteId)
                 return (false, "Work belongs to different site", null);
+            // Unique (work_id, language) on editions would otherwise fail the save with a 500.
+            if (await db.Editions.AnyAsync(e => e.WorkId == work.Id && e.Language == language, ct))
+                return (false, $"Work already has an edition in '{language}'", null);
             return (true, null, work);
         }
 
+        // Every upload without an explicit work gets its own. Reusing a same-titled work attached a
+        // second same-language edition to it, which unique (work_id, language) rejected with a 500
+        // (#943); no production work ever held two editions, and the admin UI never sends workId.
+        // A taken or empty slug gets the work id's prefix: no retry loop, and unlike "-2" it does not
+        // read as a real title ("Dune 2").
+        var id = Guid.NewGuid();
         var slug = SlugGenerator.GenerateSlug(title);
-        var existingWork = await db.Works
-            .FirstOrDefaultAsync(w => w.Slug == slug, ct);
-        if (existingWork is not null)
-            return (true, null, existingWork);
+        if (slug.Length == 0 || await db.Works.AnyAsync(w => w.Slug == slug, ct))
+            slug = slug.Length == 0 ? id.ToString("N")[..8] : $"{slug}-{id.ToString("N")[..8]}";
 
         var newWork = new Work
         {
-            Id = Guid.NewGuid(),
+            Id = id,
             SiteId = siteId,
             Slug = slug,
             CreatedAt = DateTimeOffset.UtcNow
