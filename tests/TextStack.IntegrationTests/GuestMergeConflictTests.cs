@@ -110,4 +110,55 @@ public class GuestMergeConflictTests(LiveApiFixture fixture) : IClassFixture<Liv
             + "(UserId, EditionId, StartedAt) unique index on reading_sessions and rolled back. "
             + "The user cannot sign in — every retry re-presents the same guest token.");
     }
+
+    private async Task<(Guid EditionId, Guid ChapterId)> AnyEditionChapterAsync(CancellationToken ct)
+    {
+        var books = await SendOkAsync(Req(HttpMethod.Get, "/books?limit=1"), ct);
+        var items = books.GetProperty("items");
+        Assert.SkipWhen(items.GetArrayLength() == 0, "no published editions in this database");
+        var book = await SendOkAsync(Req(HttpMethod.Get, $"/books/{items[0].GetProperty("slug").GetString()}"), ct);
+        var chapters = book.GetProperty("chapters");
+        Assert.SkipWhen(chapters.GetArrayLength() == 0, "edition has no chapters");
+        return (book.GetProperty("id").GetGuid(), chapters[0].GetProperty("id").GetGuid());
+    }
+
+    private async Task PutProgressAsync(
+        string token, Guid editionId, Guid chapterId, string locator, DateTimeOffset readAt, CancellationToken ct)
+    {
+        var req = Req(HttpMethod.Put, $"/me/progress/{editionId}", token);
+        req.Content = JsonContent.Create(new { chapterId, locator, percent = (double?)null, updatedAt = readAt });
+        await SendOkAsync(req, ct);
+    }
+
+    [Fact]
+    public async Task Login_GuestProgressReadEarlierButSentLater_AccountPositionWins()
+    {
+        // #942: the guest's position was READ an hour before the account's, but reached the server
+        // after it (an offline flush). The merge must keep the reading that happened last.
+        var ct = TestContext.Current.CancellationToken;
+        var (editionId, chapterId) = await AnyEditionChapterAsync(ct);
+        var now = DateTimeOffset.UtcNow;
+
+        var email = $"merge-clock-{Guid.NewGuid():N}@textstack.test";
+        var register = Req(HttpMethod.Post, "/auth/register");
+        register.Content = JsonContent.Create(new { email, password = AccountPassword, name = "Clock" });
+        var account = await SendOkAsync(register, ct);
+        var accountToken = account.GetProperty("accessToken").GetString()!;
+        await PutProgressAsync(accountToken, editionId, chapterId, "account-read-last", now.AddHours(-1), ct);
+
+        var guest = await SendOkAsync(Req(HttpMethod.Post, "/auth/guest"), ct);
+        var guestToken = guest.GetProperty("accessToken").GetString()!;
+        await PutProgressAsync(guestToken, editionId, chapterId, "guest-read-first", now.AddHours(-2), ct);
+
+        var login = Req(HttpMethod.Post, "/auth/login", guestToken);
+        login.Content = JsonContent.Create(new { email, password = AccountPassword });
+        var loginResp = await fixture.Client.SendAsync(login, ct);
+        Assert.SkipWhen(loginResp.StatusCode == HttpStatusCode.TooManyRequests, "user-login rate limit hit");
+        Assert.Equal(HttpStatusCode.OK, loginResp.StatusCode);
+        var merged = await loginResp.Content.ReadFromJsonAsync<JsonElement>(ct);
+
+        var progress = await SendOkAsync(
+            Req(HttpMethod.Get, $"/me/progress/{editionId}", merged.GetProperty("accessToken").GetString()), ct);
+        Assert.Equal("account-read-last", progress.GetProperty("locator").GetString());
+    }
 }

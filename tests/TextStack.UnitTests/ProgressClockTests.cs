@@ -98,4 +98,79 @@ public class ProgressClockTests
         var queuedEarlier = target.UpdatedAt.AddSeconds(-30);
         Assert.True(ProgressClock.IsStale(queuedEarlier, target.ClientUpdatedAt, DateTimeOffset.UtcNow));
     }
+
+    [Fact]
+    public void IsNewer_LateFlushedOlderReading_Loses()
+    {
+        // #942: the guest's offline position reached the server later, but was read earlier.
+        var guest = new ReadingProgress { Locator = "g", UpdatedAt = ServerNow, ClientUpdatedAt = ServerNow.AddHours(-2) };
+        var account = new ReadingProgress { Locator = "a", UpdatedAt = ServerNow.AddHours(-1), ClientUpdatedAt = ServerNow.AddHours(-1) };
+
+        Assert.False(ProgressClock.IsNewer(guest, account));
+        Assert.True(ProgressClock.IsNewer(account, guest));
+    }
+
+    [Fact]
+    public void IsNewer_OneRowWithoutClientClock_ComparesServerStampsOnly()
+    {
+        // The guest's client clock says "later", but the legacy account row has no client clock:
+        // mixing the two clocks is meaningless, so both are compared on the server stamp.
+        var legacy = new ReadingProgress { Locator = "l", UpdatedAt = ServerNow };
+        var guest = new ReadingProgress { Locator = "g", UpdatedAt = ServerNow.AddMinutes(-1), ClientUpdatedAt = ServerNow.AddMinutes(2) };
+
+        Assert.False(ProgressClock.IsNewer(guest, legacy));
+        Assert.True(ProgressClock.IsNewer(legacy, guest));
+    }
+
+    [Fact]
+    public void IsNewer_BothLegacy_ComparesServerStamps()
+    {
+        var newer = new ReadingProgress { Locator = "n", UpdatedAt = ServerNow };
+        var older = new ReadingProgress { Locator = "o", UpdatedAt = ServerNow.AddDays(-1) };
+
+        Assert.True(ProgressClock.IsNewer(newer, older));
+    }
+
+    [Fact]
+    public void IsNewer_Tie_GoesToSecondRow()
+    {
+        var a = new ReadingProgress { Locator = "a", UpdatedAt = ServerNow, ClientUpdatedAt = ServerNow };
+        var b = new ReadingProgress { Locator = "b", UpdatedAt = ServerNow, ClientUpdatedAt = ServerNow };
+
+        Assert.False(ProgressClock.IsNewer(a, b));
+    }
+
+    [Fact]
+    public void MergeInto_LoserReachedFurther_KeepsHigherChapter()
+    {
+        var keep = new ReadingProgress { Locator = "k", MaxChapterNumber = 3 };
+        ProgressClock.MergeInto(keep, new ReadingProgress { Locator = "d", MaxChapterNumber = 30 });
+        Assert.Equal(30, keep.MaxChapterNumber);
+    }
+
+    [Fact]
+    public void MergeInto_ChapterZeroAgainstNone_KeepsZero()
+    {
+        // Chapter numbers can start at 0: 0 is a reached chapter, not "none".
+        var keep = new ReadingProgress { Locator = "k" };
+        ProgressClock.MergeInto(keep, new ReadingProgress { Locator = "d", MaxChapterNumber = 0 });
+        Assert.Equal(0, keep.MaxChapterNumber);
+    }
+
+    [Fact]
+    public void MergeInto_BothNone_StaysNull()
+    {
+        var keep = new ReadingProgress { Locator = "k" };
+        ProgressClock.MergeInto(keep, new ReadingProgress { Locator = "d" });
+        Assert.Null(keep.MaxChapterNumber);
+    }
+
+    [Fact]
+    public void MergeInto_LoserFinished_WinnerUnfinishedStaysUnfinished()
+    {
+        // The reader cleared the finish later (the winner): the older finish must not come back.
+        var keep = new ReadingProgress { Locator = "k", CompletedAt = null };
+        ProgressClock.MergeInto(keep, new ReadingProgress { Locator = "d", CompletedAt = ServerNow.AddDays(-1) });
+        Assert.Null(keep.CompletedAt);
+    }
 }
