@@ -1,3 +1,5 @@
+using Domain.Entities;
+
 namespace Application.ReadingTracking;
 
 /// <summary>
@@ -46,4 +48,13 @@ public static class ProgressClock
         var clamped = Clamp(incoming, serverNow);
         return clamped.HasValue && storedClient.HasValue && clamped.Value <= storedClient.Value;
     }
+
+    /// <summary>
+    /// Whether <paramref name="a"/> holds a later reading than <paramref name="b"/> (two rows for one
+    /// book, guest → account merge). Client clocks, like every other write; a row without one
+    /// (written before the column existed) falls back to its server stamp. Comparing server stamps
+    /// let an old offline position, flushed late, beat a newer one (#942).
+    /// </summary>
+    public static bool IsNewer(ReadingProgress a, ReadingProgress b) =>
+        (a.ClientUpdatedAt ?? a.UpdatedAt) > (b.ClientUpdatedAt ?? b.UpdatedAt);
 }

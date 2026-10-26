@@ -98,4 +98,24 @@ public class ProgressClockTests
         var queuedEarlier = target.UpdatedAt.AddSeconds(-30);
         Assert.True(ProgressClock.IsStale(queuedEarlier, target.ClientUpdatedAt, DateTimeOffset.UtcNow));
     }
+
+    [Fact]
+    public void IsNewer_LateFlushedOlderReading_Loses()
+    {
+        // #942: the guest's offline position reached the server later, but was read earlier.
+        var guest = new ReadingProgress { Locator = "g", UpdatedAt = ServerNow, ClientUpdatedAt = ServerNow.AddHours(-2) };
+        var account = new ReadingProgress { Locator = "a", UpdatedAt = ServerNow.AddHours(-1), ClientUpdatedAt = ServerNow.AddHours(-1) };
+
+        Assert.False(ProgressClock.IsNewer(guest, account));
+        Assert.True(ProgressClock.IsNewer(account, guest));
+    }
+
+    [Fact]
+    public void IsNewer_RowWithoutClientClock_FallsBackToServerStamp()
+    {
+        var legacy = new ReadingProgress { Locator = "l", UpdatedAt = ServerNow };
+        var older = new ReadingProgress { Locator = "o", UpdatedAt = ServerNow.AddDays(-1), ClientUpdatedAt = ServerNow.AddDays(-1) };
+
+        Assert.True(ProgressClock.IsNewer(legacy, older));
+    }
 }

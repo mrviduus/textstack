@@ -5,6 +5,7 @@ using System.Text;
 using Application.Collections;
 using Application.Common;
 using Application.Common.Interfaces;
+using Application.ReadingTracking;
 using Domain.Entities;
 using Google.Apis.Auth;
 using Microsoft.EntityFrameworkCore;
@@ -251,8 +252,8 @@ public class AuthService
         // the two SaveChanges, we'd leave a dangling IsGuest=true row with no data.
         await using var tx = await _db.BeginTransactionAsync(ct);
 
-        // === ReadingProgress: LWW conflict resolution by UpdatedAt ===
-        // Unique on (UserId, SiteId, EditionId). Keep whichever row was updated more recently.
+        // === ReadingProgress: last-write-wins on the client clock (ProgressClock.IsNewer) ===
+        // Unique on (UserId, SiteId, EditionId). Keep whichever row holds the later reading.
         var guestProgress = await _db.ReadingProgresses.Where(x => x.UserId == guestUserId).ToListAsync(ct);
         if (guestProgress.Count > 0)
         {
@@ -264,7 +265,7 @@ public class AuthService
             {
                 if (realByKey.TryGetValue((g.SiteId, g.EditionId), out var r))
                 {
-                    if (g.UpdatedAt > r.UpdatedAt) { _db.ReadingProgresses.Remove(r); g.UserId = realUserId; }
+                    if (ProgressClock.IsNewer(g, r)) { _db.ReadingProgresses.Remove(r); g.UserId = realUserId; }
                     else { _db.ReadingProgresses.Remove(g); }
                 }
                 else { g.UserId = realUserId; }
