@@ -8,23 +8,10 @@ namespace Infrastructure.Persistence;
 /// <summary>
 /// Entity Framework DbContext for TextStack.
 ///
-/// Schema configuration is split across partial files by domain:
-///
-///   - AppDbContext.Catalog.cs       Site, Work, Edition, Chapter, BookFile, BookAsset, IngestionJob, Author, Genre, TextStackImport
-///   - AppDbContext.User.cs          User, UserLibrary, refresh tokens, password reset, device authorization, admin user
-///   - AppDbContext.Reading.cs       ReadingProgress, Bookmark, Note, Highlight, Session, Goal, Achievement
-///   - AppDbContext.UserBooks.cs     UserBook, UserChapter, UserBookFile, UserIngestionJob, UserBookBookmark, BookQualityJob
-///   - AppDbContext.Vocabulary.cs    VocabularyWord, Reviews, Settings, Pending, WordLookup/Frequency/Cluster
-///   - AppDbContext.Ops.cs           AdminSettings, SsgRebuildJob/Result, LintResult, AutoPublishJob
-///   - AppDbContext.Seo.cs           SeoTemplate, SeoBackfillJob/Settings, SEO source defaults on Author/Edition/Genre
-///   - AppDbContext.Collections.cs   Collection, BookCollection
-///   - AppDbContext.Ai.cs            LlmTrace, ShadowRun, ModelRegistration, ModelPromotion, EvalRun
-///   - AppDbContext.Agents.cs        AgentRun, TutorSession
-///   - AppDbContext.Insights.cs      BookInsight, ReviewQuestion
-///   - AppDbContext.McpKeys.cs       McpAccessKey
-///   - AppDbContext.OAuth.cs         OAuthClient, OAuthAuthorizationRequest, OAuthGrant
-///
-/// Table map and status: docs/01-architecture/data-model.md.
+/// Schema configuration is split into one partial file per domain (AppDbContext.Catalog.cs,
+/// .User.cs, .Reading.cs, .UserBooks.cs, .Vocabulary.cs, .Ops.cs, .Seo.cs, .Collections.cs, .Ai.cs,
+/// .Agents.cs, .Insights.cs, .McpKeys.cs, .OAuth.cs). Which table lives where, and its status:
+/// docs/01-architecture/data-model.md — kept there, not here, so there is one list to update.
 /// </summary>
 public partial class AppDbContext : DbContext, IAppDbContext
 {

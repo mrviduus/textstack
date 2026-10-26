@@ -60,8 +60,8 @@ public class ReadingProgress : ISiteScoped
     /// they got. Null on legacy rows → callers fall back to the current chapter (self-heals on the
     /// next progress save).
     /// <para>
-    /// The spoiler frontier: chapter review, insights and review questions read it through
-    /// <c>ChapterFrontier</c> to know how far the reader has got.
+    /// The spoiler frontier: chapter review reads it (<c>ChapterReviewService</c> →
+    /// <c>ChapterFrontier</c>) to know how far the reader has got.
     /// </para>
     /// </summary>
     public int? MaxChapterNumber { get; set; }
