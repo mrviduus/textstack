@@ -57,9 +57,18 @@ public static class ProgressClock
     /// offline position flushed late beat a newer one (#942). The trade-off is that the two rows may
     /// come from two devices, and a device running behind loses by its lag; phones sync time, offline
     /// flushes are routine. When either row lacks a client clock (written before the column
-    /// existed), both are compared on the server clock — never one clock against the other.
+    /// existed), both are compared on the server clock — never one clock against the other. Against
+    /// such a legacy account row that is the old behaviour: there is no better signal to use.
     /// </para>
     /// </summary>
     public static bool IsNewer(ReadingProgress a, ReadingProgress b) =>
         a.ClientUpdatedAt is { } ac && b.ClientUpdatedAt is { } bc ? ac > bc : a.UpdatedAt > b.UpdatedAt;
+
+    /// <summary>
+    /// Folds the losing row of a merge into the winner. Position and finish are last-write-wins and
+    /// stay the winner's — a finish the reader cleared later must not come back. The high-water mark
+    /// only grows, so the furthest chapter either row reached survives (chapter numbers can be 0).
+    /// </summary>
+    public static void MergeInto(ReadingProgress keep, ReadingProgress drop) =>
+        keep.MaxChapterNumber = new[] { keep.MaxChapterNumber, drop.MaxChapterNumber }.Max();
 }

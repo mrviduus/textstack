@@ -266,12 +266,7 @@ public class AuthService
                 if (realByKey.TryGetValue((g.SiteId, g.EditionId), out var r))
                 {
                     var (keep, drop) = ProgressClock.IsNewer(g, r) ? (g, r) : (r, g);
-                    // The position is last-write-wins; how far the reader got and whether they
-                    // finished are not — the dropped row's high-water mark and finish survive.
-                    keep.MaxChapterNumber = keep.MaxChapterNumber is { } k && drop.MaxChapterNumber is { } d
-                        ? Math.Max(k, d)
-                        : keep.MaxChapterNumber ?? drop.MaxChapterNumber;
-                    keep.CompletedAt ??= drop.CompletedAt;
+                    ProgressClock.MergeInto(keep, drop);
                     keep.UserId = realUserId;
                     _db.ReadingProgresses.Remove(drop);
                 }
