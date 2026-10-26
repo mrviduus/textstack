@@ -56,7 +56,7 @@ Rows: exact `count(*)` in production on 2026-10-26 (`pg_stat_user_tables` estima
 | 17 | `seo_templates` | Versioned SEO prompt templates | Clean | Nothing stops two active rows for one (entity, field, language) | 24 |
 | 18 | `seo_backfill_jobs` | SEO generation audit trail | Keep | Polymorphic `entity_id`, no FK | 12 |
 | 19 | `seo_backfill_settings` | SEO poller knobs (one row) | Clean | `language_filter`, `entity_type_filter`, `ssg_rebuild_batch_minutes` editable, read by nothing | 1 |
-| 20 | `ssg_rebuild_jobs` | Prerender queue (`ssg-worker`) | Clean | `book/author/genre_slugs_json` always null, `mode` always Full, `timeout_ms` unused; finished jobs never purged | 11,659 |
+| 20 | `ssg_rebuild_jobs` | Prerender queue (`ssg-worker`) | Clean | `book/author/genre_slugs_json` always null, `mode` always Full, `timeout_ms` unused; finished jobs purged after 30 d (newest Completed kept) | 11,659 |
 | 21 | `ssg_rebuild_results` | Per-route prerender result | Retire | No writer since 2026-01-23 (all rows are from that day); the admin page shows only those | 349 |
 
 ### Accounts and access
@@ -67,11 +67,11 @@ Rows: exact `count(*)` in production on 2026-10-26 (`pg_stat_user_tables` estima
 | 23 | `user_refresh_tokens` | Reader sessions | Keep | Swept by `AdminRefreshTokenCleanupWorker` | 170 |
 | 24 | `admin_users` | Admin accounts | Decide | Second user table; candidate `users.role` | 1 |
 | 25 | `admin_refresh_tokens` | Admin sessions | Decide | Same shape as reader tokens, no reuse detection | 0 |
-| 26 | `password_reset_tokens` | Email reset codes | Clean | Never swept | 0 |
-| 27 | `device_authorizations` | MCP device-flow codes | Clean | Never swept | 4 |
+| 26 | `password_reset_tokens` | Email reset codes | Keep | Swept 1 day past expiry | 0 |
+| 27 | `device_authorizations` | MCP device-flow codes | Keep | Swept 1 day past expiry; deleted with the account | 4 |
 | 28 | `oauth_clients` | MCP OAuth clients ([ADR-017](adr/ADR-017-mcp-oauth-authorization-server.md)) | Keep | | 3 |
 | 29 | `oauth_authorization_requests` | Pending OAuth authorizations | Clean | `user_id` has no FK, survives account delete | 1 |
-| 30 | `oauth_grants` | MCP OAuth tokens | Clean | Expired and revoked rows never purged | 3 |
+| 30 | `oauth_grants` | MCP OAuth tokens | Keep | Revoked / refresh-expired rows swept after 1 day | 3 |
 | 31 | `mcp_access_keys` | `tsk_…` connect keys | Keep | Overlaps `oauth_grants` (both MCP bearers) | 1 |
 | 32 | `admin_settings` | Admin key/value settings | Keep | | 6 |
 
@@ -113,20 +113,20 @@ Rows: exact `count(*)` in production on 2026-10-26 (`pg_stat_user_tables` estima
 | 54 | `word_lookups` | Tapped rare words | Decide | Same columns again + `tap_count` | 65 |
 | 55 | `word_frequencies` | Zipf word frequencies | Retire | Copied from an embedded `.gz` at startup, read back whole; read the file directly | 20,000 |
 | 56 | `word_clusters` | Book and concept groups of saved words | Keep | Concept clusters need pgvector + embeddings | 100 |
-| 57 | `tutor_session` | Learning-tutor state between turns | Clean | Finished sessions never deleted → delete 90 days after finish | 6 |
+| 57 | `tutor_session` | Learning-tutor state between turns | Keep | Deleted after 90 days without use | 6 |
 
 ### AI operations
 
 | # | Table | Purpose | Status | Notes | Rows |
 |---|---|---|---|---|---|
-| 58 | `llm_traces` | LLM call traces (cost, latency, text) | Clean | No retention: 790 MB, 755 MB of it `messages_json`; prompts outlive a deleted account (SET NULL) | 3,852 |
-| 59 | `agent_run` | Agent run steps | Clean | Same retention and account-delete gap | 104 |
-| 60 | `shadow_runs` | Primary vs shadow model comparisons | Retire | Off by default; admin page only | 0 |
+| 58 | `llm_traces` | LLM call traces (cost, latency, text) | Keep | Writers record no user; text scrubbed after 30 d, cost/latency kept (was 790 MB, 755 MB of it `messages_json`) | 3,852 |
+| 59 | `agent_run` | Agent run steps | Keep | Deleted after 30 d and with the account | 104 |
+| 60 | `shadow_runs` | Primary vs shadow model comparisons | Retire | Off by default; admin page only; swept after 30 d meanwhile | 0 |
 | 61 | `models` | Model registry, live routing | Decide | Duplicates config `Ai:Routes` | 8 |
 | 62 | `model_promotions` | Promote/rollback history | Decide | Goes with `models` | 0 |
 | 63 | `eval_runs` | Eval score history | Decide | Depends on the admin AI-quality page | 34 |
 
-**Count by status:** Keep 17 · Clean 26 · Retire 5 · Decide 13 · Site 2.
+**Count by status:** Keep 23 · Clean 20 · Retire 5 · Decide 13 · Site 2.
 
 ## Core relationships
 
@@ -168,12 +168,12 @@ and `reading_sessions` serve both through nullable edition-or-upload keys.
 | `vocabulary_words`, `vocabulary_reviews`, `user_vocabulary_settings`, `tutor_session` | user_id | Learning patterns |
 | `bookmarks`, `highlights`, `notes`, `book_insight`, `review_question` | user_id | Annotations, assistant output |
 | `mcp_access_keys`, `oauth_grants`, `device_authorizations`, `oauth_authorization_requests` | user id | Credentials |
-| `llm_traces`, `agent_run`, `shadow_runs` | prompt/response text (scrubbed before write) | **Kept after account delete** (SET NULL) — fix tracked in the cleanup |
+| `llm_traces`, `agent_run`, `shadow_runs` | prompt/response text (scrubbed before write) | Traces/shadow runs carry no user id; their text goes after 30 d. Agent runs are deleted with the account |
 | `user_books`, `user_chapters`, `user_book_files`, `user_book_bookmarks`, `user_libraries`, `user_ingestion_jobs` | user_id | Uploaded content + library |
 
 **Guest users**: `users.is_guest = true`. `GuestCleanupWorker` (every 2 h) deletes guests inactive
 30 days that hold nothing durable. **Account deletion**: `DELETE /me/account` (`AccountEndpoints.cs`)
-removes the `users` row and relies on FK cascades.
+deletes the user's agent runs, device codes and pending OAuth requests, then the `users` row, relying on FK cascades for the rest. Retention: `RetentionCleanupWorker` (daily).
 
 ## Enums stored as integers
 
