@@ -28,7 +28,8 @@ public partial class AppDbContext
             e.Property(x => x.ToolCallsJson).HasColumnType("jsonb");
             e.Property(x => x.CostUsd).HasColumnType("numeric(10,6)");
 
-            // Optional FK → users; a deleted user nulls the column but keeps the trace.
+            // Optional FK → users. Writers leave it null today; the text is scrubbed after 30 days
+            // (RetentionCleanupWorker), the cost/latency row stays.
             e.HasOne(x => x.User)
                 .WithMany()
                 .HasForeignKey(x => x.UserId)
@@ -49,7 +50,8 @@ public partial class AppDbContext
             e.Property(x => x.PrimaryCostUsd).HasColumnType("numeric(10,6)");
             e.Property(x => x.ShadowCostUsd).HasColumnType("numeric(10,6)");
 
-            // Optional FK → users; a deleted user nulls the column but keeps the run.
+            // Optional FK → users. The gateway leaves it null today; rows go after 30 days
+            // (RetentionCleanupWorker).
             e.HasOne(x => x.User)
                 .WithMany()
                 .HasForeignKey(x => x.UserId)

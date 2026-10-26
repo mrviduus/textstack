@@ -55,4 +55,4 @@ Free book library with Kindle-like reader. Upload EPUB/PDF → parse → SEO pag
 
 - [STATUS.md](../STATUS.md) — what is in flight, broken, or deliberately not being done.
 - [Architecture](../01-architecture/README.md) — System design
-- [Database](../02-system/database.md) — Schema reference
+- [Data model](../01-architecture/data-model.md) — Schema reference

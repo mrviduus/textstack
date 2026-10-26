@@ -68,4 +68,4 @@ Upload form fields: `file`, `siteId`, `title`, `language`, `description?`, `work
 
 ## See also
 
-- [Ingestion pipeline](ingestion.md) · [Database](database.md) · CLI `create-admin` in CLAUDE.md
+- [Ingestion pipeline](ingestion.md) · [Data model](../01-architecture/data-model.md) · CLI `create-admin` in CLAUDE.md

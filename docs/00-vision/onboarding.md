@@ -73,7 +73,7 @@ Look for `good-first-issue` label.
 |------|-----|
 | `CLAUDE.md` | Codebase guidance, patterns |
 | `docs/01-architecture/README.md` | System design |
-| `docs/02-system/database.md` | DB schema |
+| `docs/01-architecture/data-model.md` | DB schema: every table + status |
 | `docs/04-dev/testing.md` | Testing strategy |
 
 ## Common Tasks
