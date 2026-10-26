@@ -89,7 +89,7 @@ builder.Services.AddHostedService<StuckJobsMetricsWorker>();
 // Guest cleanup (purge inactive guests every 2h)
 builder.Services.AddHostedService<GuestCleanupWorker>();
 
-// Admin refresh token cleanup (purge expired rows daily)
+// Retention: expired tokens, old AI text, idle tutor sessions, finished SSG jobs (daily)
 builder.Services.AddHostedService<RetentionCleanupWorker>();
 
 // Heartbeat file for docker healthcheck

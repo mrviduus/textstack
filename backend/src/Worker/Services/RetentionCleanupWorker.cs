@@ -31,6 +31,8 @@ public class RetentionCleanupWorker(
     /// <summary>What a scrubbed trace's required <c>messages_json</c> holds.</summary>
     public const string ScrubbedMessages = "[]";
 
+    private const int ScrubBatch = 500;
+
     /// <summary>Tutor sessions idle this long are over, finished or abandoned (#944).</summary>
     public static readonly TimeSpan TutorSessionRetention = TimeSpan.FromDays(90);
 
@@ -66,8 +68,9 @@ public class RetentionCleanupWorker(
         var db = scope.ServiceProvider.GetRequiredService<IAppDbContext>();
 
         var now = DateTimeOffset.UtcNow;
+        var tokenCutoff = now - TokenGrace;
         await DeleteAsync("admin refresh tokens",
-            () => db.AdminRefreshTokens.Where(t => t.ExpiresAt < now).ExecuteDeleteAsync(ct), ct);
+            () => db.AdminRefreshTokens.Where(t => t.ExpiresAt < tokenCutoff).ExecuteDeleteAsync(ct), ct);
         await DeleteAsync("user refresh tokens",
             () => db.UserRefreshTokens.Where(ExpiredUserToken(now)).ExecuteDeleteAsync(ct), ct);
         await DeleteAsync("password reset tokens",
@@ -77,12 +80,23 @@ public class RetentionCleanupWorker(
         await DeleteAsync("OAuth grants",
             () => db.OAuthGrants.Where(DeadOAuthGrant(now)).ExecuteDeleteAsync(ct), ct);
         // Traces keep their cost, tokens and latency for spend history; only the text goes.
-        await DeleteAsync("LLM trace texts (scrubbed)",
-            () => db.LlmTraces.Where(LlmTraceTextToScrub(now)).ExecuteUpdateAsync(s => s
-                .SetProperty(t => t.SystemPrompt, (string?)null)
-                .SetProperty(t => t.MessagesJson, ScrubbedMessages)
-                .SetProperty(t => t.ResponseText, (string?)null)
-                .SetProperty(t => t.ToolCallsJson, (string?)null), ct), ct);
+        // Batches: the first run rewrites months of text (~750 MB); one statement would be one huge
+        // transaction.
+        await DeleteAsync("LLM trace texts (scrubbed)", async () =>
+        {
+            int batch, total = 0;
+            do
+            {
+                batch = await db.LlmTraces.Where(LlmTraceTextToScrub(now)).OrderBy(t => t.Id).Take(ScrubBatch)
+                    .ExecuteUpdateAsync(s => s
+                        .SetProperty(t => t.SystemPrompt, (string?)null)
+                        .SetProperty(t => t.MessagesJson, ScrubbedMessages)
+                        .SetProperty(t => t.ResponseText, (string?)null)
+                        .SetProperty(t => t.ToolCallsJson, (string?)null), ct);
+                total += batch;
+            } while (batch == ScrubBatch && !ct.IsCancellationRequested);
+            return total;
+        }, ct);
         await DeleteAsync("shadow runs",
             () => db.ShadowRuns.Where(OldShadowRun(now)).ExecuteDeleteAsync(ct), ct);
         await DeleteAsync("agent runs",

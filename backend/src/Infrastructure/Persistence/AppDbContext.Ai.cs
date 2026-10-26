@@ -51,7 +51,8 @@ public partial class AppDbContext
             e.Property(x => x.PrimaryCostUsd).HasColumnType("numeric(10,6)");
             e.Property(x => x.ShadowCostUsd).HasColumnType("numeric(10,6)");
 
-            // Optional FK → users; a deleted user nulls the column but keeps the run.
+            // Optional FK → users. The gateway leaves it null today; rows go after 30 days
+            // (RetentionCleanupWorker).
             e.HasOne(x => x.User)
                 .WithMany()
                 .HasForeignKey(x => x.UserId)
