@@ -343,14 +343,22 @@ public class UserBookOriginalFileEndpointTests
         var bookId = await UploadPdfAsync();
         Assert.SkipWhen(bookId is null, "pdf upload unavailable");
 
-        var meResp = await _auth.Client.SendAsync(_auth.CreateRequest(HttpMethod.Get, "/auth/me"), ct);
-        var me = await meResp.Content.ReadFromJsonAsync<MeResponse>(cancellationToken: ct);
-        var userId = me!.Id.ToString();
-        // Same layout as LocalFileStorageService.SaveUserFileAsync.
-        var path = $"/storage/users/{userId[..2]}/{userId}/books/{bookId}/original.pdf";
+        // Positive control: the file exists (the owner gets it) — so a 404 below is the guard,
+        // not a wrong path.
+        var own = await _auth.Client.SendAsync(_auth.CreateRequest(HttpMethod.Get, $"/me/books/{bookId}/file"), ct);
+        Assert.Equal(HttpStatusCode.OK, own.StatusCode);
 
-        var response = await _anon.Client.SendAsync(_anon.CreateRequest(HttpMethod.Get, path), ct);
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        var meResp = await _auth.Client.SendAsync(_auth.CreateRequest(HttpMethod.Get, "/auth/me"), ct);
+        Assert.Equal(HttpStatusCode.OK, meResp.StatusCode);
+        var me = await meResp.Content.ReadFromJsonAsync<MeResponse>(cancellationToken: ct);
+        Assert.NotEqual(Guid.Empty, me!.User.Id);
+
+        var dir = Application.Common.UserStoragePaths.BookDirectory(me.User.Id, bookId!.Value).Replace('\\', '/');
+        foreach (var path in new[] { $"/storage/{dir}/original.pdf", $"/storage//{dir}/original.pdf" })
+        {
+            var response = await _anon.Client.SendAsync(_anon.CreateRequest(HttpMethod.Get, path), ct);
+            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        }
     }
 
     [Fact]
@@ -416,5 +424,7 @@ public class UserBookOriginalFileEndpointTests
 
     private record DetailResponse(bool HasOriginalPdf, long? OriginalFileBytes);
 
-    private record MeResponse(Guid Id);
+    private record MeResponse(MeUser User);
+
+    private record MeUser(Guid Id);
 }

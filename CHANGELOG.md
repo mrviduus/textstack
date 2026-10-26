@@ -23,7 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
-- **Users** — a reader's uploaded book file is no longer downloadable by its `/storage` URL; `GET /me/books/{id}/file` (owner check) is the only door (#913) — backend, infra · [details](docs/changelog-archive/2026-H2.md#2026-10-26-upload-originals-closed)
+- **Users** — a reader's uploaded book and its chapter images are no longer downloadable by `/storage` URL — only the cover stays public; owner-checked `/me/books/{id}/file` and `/assets` are the doors (#913) — backend, infra · [details](docs/changelog-archive/2026-H2.md#2026-10-26-upload-originals-closed)
 - **Uploads** — books over Cloudflare’s ~100 MB request cap upload in 50 MB parts, joined server-side; a 413 now reads as "file too large" instead of a status code — backend, web
 - **AI** — an LLM call that returns no text and no tool calls now raises the provider-failure alarm (`empty_response`), for every feature — backend
 - **AI** — OpenAI model ids via the Options pattern (`OpenAiOptions`, `EvalOptions`): class defaults are the only defaults; appsettings and compose no longer repeat them — backend

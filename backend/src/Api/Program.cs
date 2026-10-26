@@ -183,10 +183,11 @@ if (!Directory.Exists(storagePath))
 {
     Directory.CreateDirectory(storagePath);
 }
-// A reader's uploaded book is served only by GET /me/books/{id}/file (owner check), never here.
+// Must stay before UseStaticFiles: of a reader's upload folder only the cover is public; the book
+// and its images go through owner-checked /me/books/{id}/file and /assets (UserStoragePolicy).
 app.Use(async (ctx, next) =>
 {
-    if (Api.Extensions.UploadOriginalPolicy.IsBlocked(ctx.Request.Path))
+    if (Api.Extensions.UserStoragePolicy.IsBlocked(ctx.Request.Path))
     {
         ctx.Response.StatusCode = StatusCodes.Status404NotFound;
         return;
