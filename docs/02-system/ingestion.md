@@ -77,4 +77,4 @@ No app code writes FTS. A Postgres trigger (`chapters_search_vector_trigger`, mi
 
 ## See also
 
-- [Database](database.md) · [Admin panel](admin.md) · [feat-0003 text extraction](../05-features/feat-0003-text-extraction-core.md)
+- [Data model](../01-architecture/data-model.md) · [Admin panel](admin.md) · [feat-0003 text extraction](../05-features/feat-0003-text-extraction-core.md)
