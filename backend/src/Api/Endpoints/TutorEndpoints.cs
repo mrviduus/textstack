@@ -115,6 +115,8 @@ public static class TutorEndpoints
 
         var item = new TutorFeedbackItem(request.WordId, request.Correct, Math.Max(0, request.ResponseTimeMs));
         await ApplyAnswersToSrsAsync(db, recorder, session, [item], userId.Value, httpContext.GetSiteId(), ct);
+        // An answer is use: the 90-day idle sweep reads UpdatedAt.
+        session.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
 
         return Results.Ok(new { applied = true });

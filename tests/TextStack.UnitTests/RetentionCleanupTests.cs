@@ -71,4 +71,48 @@ public class RetentionCleanupTests
     [Fact]
     public void OldTutorSession_UsedRecently_Kept() =>
         Assert.False(IsOldTutorSession(Now.AddDays(-89)));
+
+    [Fact]
+    public void ExpiredPasswordReset_OverADayPastExpiry_Deleted_WithinGrace_Kept()
+    {
+        var rule = RetentionCleanupWorker.ExpiredPasswordReset(Now).Compile();
+        Assert.True(rule(new PasswordResetToken { ExpiresAt = Now.AddDays(-2) }));
+        Assert.False(rule(new PasswordResetToken { ExpiresAt = Now.AddHours(-1) }));
+    }
+
+    [Fact]
+    public void ExpiredDeviceAuthorization_OverADayPastExpiry_Deleted_WithinGrace_Kept()
+    {
+        var rule = RetentionCleanupWorker.ExpiredDeviceAuthorization(Now).Compile();
+        Assert.True(rule(new DeviceAuthorization { ExpiresAt = Now.AddDays(-2) }));
+        Assert.False(rule(new DeviceAuthorization { ExpiresAt = Now.AddHours(-1) }));
+    }
+
+    private static LlmTrace Trace(DateTimeOffset createdAt, string messages = "[{\"role\":\"user\"}]", string? response = "text") =>
+        new() { FeatureTag = "f", ModelId = "m", PromptHash = "h", MessagesJson = messages, ResponseText = response, CreatedAt = createdAt };
+
+    [Fact]
+    public void LlmTraceTextToScrub_OldWithText_Selected()
+    {
+        var rule = RetentionCleanupWorker.LlmTraceTextToScrub(Now).Compile();
+        Assert.True(rule(Trace(Now.AddDays(-31))));
+    }
+
+    [Fact]
+    public void LlmTraceTextToScrub_Recent_Kept() =>
+        Assert.False(RetentionCleanupWorker.LlmTraceTextToScrub(Now).Compile()(Trace(Now.AddDays(-29))));
+
+    [Fact]
+    public void LlmTraceTextToScrub_AlreadyScrubbed_NotRewrittenDaily() =>
+        Assert.False(RetentionCleanupWorker.LlmTraceTextToScrub(Now).Compile()(
+            Trace(Now.AddDays(-31), RetentionCleanupWorker.ScrubbedMessages, response: null)));
+
+    [Fact]
+    public void OldAgentRun_Over30Days_Deleted_Recent_Kept()
+    {
+        var rule = RetentionCleanupWorker.OldAgentRun(Now).Compile();
+        AgentRun Run(DateTimeOffset at) => new() { Agent = "a", Goal = "g", Status = "done", StepsJson = "[]", CreatedAt = at };
+        Assert.True(rule(Run(Now.AddDays(-31))));
+        Assert.False(rule(Run(Now.AddDays(-29))));
+    }
 }

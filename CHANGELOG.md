@@ -23,7 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
-- **Users** — account delete now removes the user's AI traces, agent runs and pending OAuth/device codes; daily retention sweep for expired tokens, AI text (30 d), idle tutor sessions (90 d), finished SSG jobs (30 d) (#940 #941 #944 #949) — backend · [details](docs/changelog-archive/2026-H2.md#2026-10-26-retention-sweep)
+- **Users** — account delete now removes the user's agent runs and pending OAuth/device codes; daily retention sweep: expired tokens, AI trace text scrubbed and shadow/agent runs dropped after 30 d, idle tutor sessions (90 d), finished SSG jobs (30 d) (#940 #941 #944 #949) — backend · [details](docs/changelog-archive/2026-H2.md#2026-10-26-retention-sweep)
 - **Uploads** — books over Cloudflare’s ~100 MB request cap upload in 50 MB parts, joined server-side; a 413 now reads as "file too large" instead of a status code — backend, web
 - **AI** — an LLM call that returns no text and no tool calls now raises the provider-failure alarm (`empty_response`), for every feature — backend
 - **AI** — OpenAI model ids via the Options pattern (`OpenAiOptions`, `EvalOptions`): class defaults are the only defaults; appsettings and compose no longer repeat them — backend
