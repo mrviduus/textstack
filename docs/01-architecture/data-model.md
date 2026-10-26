@@ -134,7 +134,7 @@ Rows: exact `count(*)` in production on 2026-10-26 (`pg_stat_user_tables` estima
 erDiagram
     users ||--o{ user_books : uploads
     user_books ||--o{ user_chapters : "split into"
-    user_books ||--|| user_book_files : original
+    user_books ||--o{ user_book_files : original
     user_books ||--o{ user_book_bookmarks : has
     users ||--o{ user_libraries : saves
     editions ||--o{ user_libraries : "saved as"
@@ -177,15 +177,25 @@ removes the `users` row and relies on FK cascades.
 
 ## Enums stored as integers
 
-Raw SQL and `infra/scripts` hard-code these numbers — changing a value is a data migration.
-Other enums (`users.tier`, SSG job status/mode, `edition_authors.role`, `book_assets.kind`, lint
-severity, model registry) are stored as text — the house style for new enum columns.
+Raw SQL and `infra/scripts` hard-code these numbers — changing or reordering a value is a data
+migration. Only 8 enums are stored as text (the house style for new enum columns): `UserTier`,
+`AuthorRole`, `AssetKind`, `LintSeverity`, `SsgRebuildJobStatus`, `SsgRebuildMode`, `ModelStatus`,
+`PromotionAction`. Everything below is an integer column.
 
 ```csharp
-EditionStatus { Draft=0, Published=1, Hidden=2 }
-BookFormat    { Epub=0, Pdf=1, Fb2=2 /* legacy: one row still references it */, Html=3, Other=99 }
-JobStatus     { Queued=0, Processing=1, Succeeded=2, Failed=3 }
-AdminRole     { Admin=0, Editor=1, Moderator=2 }
+EditionStatus            { Draft=0, Published=1, Hidden=2 }
+BookFormat               { Epub=0, Pdf=1, Fb2=2 /* legacy: one row still references it */, Html=3, Other=99 }
+JobStatus                { Queued=0, Processing=1, Succeeded=2, Failed=3 }
+UserBookStatus           { Processing=0, Ready=1, Failed=2 }
+AdminRole                { Admin=0, Editor=1, Moderator=2 }
+MetadataEnrichmentStatus { NotStarted=0, Pending=1, Running=2, Completed=3, Failed=4 }
+AutoPublishJobStatus     { Queued=0, Running=1, GeneratingSeo=2, AwaitingReview=3, Publishing=4, Completed=5, Failed=6, Cancelled=7 }
+BookQualityJobStatus     { Queued=0, Validating=1, Fixing=2, Completed=3, Failed=4, Cancelled=5 }
+SeoJobStatus             { Queued=0, Running=1, NeedsReview=2, Success=3, Failed=4, Reverted=5 }
+SeoEntityType            { Author=0, Edition=1, Genre=2 }
+SeoFieldType             { Bio=0, Description=1, Relevance=2, Themes=3, Faqs=4, SeoTitle=5, SeoDescription=6 }
+SeoSource                { Manual=0, Auto=1, Hybrid=2 }
+SeoTrustLevel            { Manual=0, Review=1, Auto=2 }
 ```
 
 ## Migrations (today)

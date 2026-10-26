@@ -16,7 +16,6 @@ Free book library with Kindle-like reader. EPUB/PDF upload, parsing, SEO pages, 
 | [Vision](00-vision/README.md) | Goals, principles, stack |
 | [Architecture](01-architecture/README.md) | System design: services, projects, pipeline, external deps |
 | [Delivery](01-architecture/delivery.md) | PR → images → deploy flow, external dependencies, secret controls |
-| [Data model](01-architecture/data-model.md) | All entities by area + PII map |
 | [Data model](01-architecture/data-model.md) | Every table: purpose, status, PII |
 | API Docs | http://localhost:8080/scalar/v1 (live) |
 | [Local Dev](03-ops/local-dev.md) | Docker, migrations |
