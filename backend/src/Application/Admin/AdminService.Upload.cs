@@ -45,25 +45,25 @@ public partial class AdminService
                 return (false, "Work not found", null);
             if (work.SiteId != siteId)
                 return (false, "Work belongs to different site", null);
+            // Unique (work_id, language) on editions would otherwise fail the save with a 500.
+            if (await db.Editions.AnyAsync(e => e.WorkId == work.Id && e.Language == language, ct))
+                return (false, $"Work already has an edition in '{language}'", null);
             return (true, null, work);
         }
 
-        // Reuse a same-titled work only for a language it does not have yet. A second book with the
-        // same title and language needs its own work: unique (work_id, language) on editions
-        // rejected the save, and the upload failed with a 500 (#943).
-        var baseSlug = SlugGenerator.GenerateSlug(title);
-        var existingWork = await db.Works
-            .FirstOrDefaultAsync(w => w.Slug == baseSlug && !w.Editions.Any(e => e.Language == language), ct);
-        if (existingWork is not null)
-            return (true, null, existingWork);
-
-        var slug = baseSlug;
-        for (var n = 2; await db.Works.AnyAsync(w => w.Slug == slug, ct); n++)
-            slug = $"{baseSlug}-{n}";
+        // Every upload without an explicit work gets its own. Reusing a same-titled work attached a
+        // second same-language edition to it, which unique (work_id, language) rejected with a 500
+        // (#943); no production work ever held two editions, and the admin UI never sends workId.
+        // A taken or empty slug gets the work id's prefix: no retry loop, and unlike "-2" it does not
+        // read as a real title ("Dune 2").
+        var id = Guid.NewGuid();
+        var slug = SlugGenerator.GenerateSlug(title);
+        if (slug.Length == 0 || await db.Works.AnyAsync(w => w.Slug == slug, ct))
+            slug = slug.Length == 0 ? id.ToString("N")[..8] : $"{slug}-{id.ToString("N")[..8]}";
 
         var newWork = new Work
         {
-            Id = Guid.NewGuid(),
+            Id = id,
             SiteId = siteId,
             Slug = slug,
             CreatedAt = DateTimeOffset.UtcNow

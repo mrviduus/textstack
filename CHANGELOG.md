@@ -23,7 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
-- **Admin** — uploading a second catalog book with the same title and language gets its own work instead of failing with a 500 (#943) — backend
+- **Admin** — uploading a second catalog book with the same title gets its own work instead of failing with a 500 (#943) — backend · [details](docs/changelog-archive/2026-H2.md#2026-10-26-same-title-upload)
 - **Uploads** — books over Cloudflare’s ~100 MB request cap upload in 50 MB parts, joined server-side; a 413 now reads as "file too large" instead of a status code — backend, web
 - **AI** — an LLM call that returns no text and no tool calls now raises the provider-failure alarm (`empty_response`), for every feature — backend
 - **AI** — OpenAI model ids via the Options pattern (`OpenAiOptions`, `EvalOptions`): class defaults are the only defaults; appsettings and compose no longer repeat them — backend
