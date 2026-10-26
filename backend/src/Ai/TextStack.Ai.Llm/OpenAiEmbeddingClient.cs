@@ -7,7 +7,7 @@ using TextStack.Ai.Core;
 namespace TextStack.Ai.Llm;
 
 /// <summary>
-/// OpenAI implementation of <see cref="IEmbeddingService"/> (Phase 4 RAG). Wraps the OpenAI
+/// OpenAI implementation of <see cref="IEmbeddingService"/> (vocabulary concept clusters, AI-058; the RAG it was built for is gone). Wraps the OpenAI
 /// SDK <see cref="EmbeddingClient"/> for <c>text-embedding-3-small</c> (1536-d), mirroring
 /// <see cref="OpenAiLlmClient"/>'s config/construction. Stateless and thread-safe; registered
 /// as a singleton. Cost is logged per batch via <see cref="ModelPricing"/>.

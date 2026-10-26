@@ -10,8 +10,9 @@ namespace Infrastructure.Persistence;
 ///
 /// Schema configuration is split into one partial file per domain (AppDbContext.Catalog.cs,
 /// .User.cs, .Reading.cs, .UserBooks.cs, .Vocabulary.cs, .Ops.cs, .Seo.cs, .Collections.cs, .Ai.cs,
-/// .Agents.cs, .Insights.cs, .McpKeys.cs, .OAuth.cs). Which table lives where, and its status:
-/// docs/01-architecture/data-model.md — kept there, not here, so there is one list to update.
+/// .Agents.cs, .Insights.cs, .McpKeys.cs, .OAuth.cs) — the file name says the domain; each
+/// file's <c>Entity&lt;T&gt;</c> calls are the entity list. Table purpose and status:
+/// docs/01-architecture/data-model.md.
 /// </summary>
 public partial class AppDbContext : DbContext, IAppDbContext
 {

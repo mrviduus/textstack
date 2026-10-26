@@ -275,7 +275,7 @@ public static class DependencyInjection
                 sp.GetRequiredService<ILogger<global::TextStack.Ai.Llm.ModelGateway>>(),
                 sp.GetService<global::TextStack.Ai.Llm.IRouteAlarm>()));
 
-        // Embeddings (Phase 4 RAG). Single OpenAI provider; resolved lazily so a keyless
+        // Embeddings (vocabulary concept clusters, AI-058). Single OpenAI provider; resolved lazily so a keyless
         // host still starts (the client throws on construction without a key).
         services.AddSingleton<global::TextStack.Ai.Core.IEmbeddingService, global::TextStack.Ai.Llm.OpenAiEmbeddingClient>();
 

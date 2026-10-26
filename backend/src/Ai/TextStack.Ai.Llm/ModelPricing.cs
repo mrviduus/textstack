@@ -21,7 +21,7 @@ public static class ModelPricing
             ["gpt-4.1-mini"] = (0.40m, 1.60m),
             ["gpt-4.1"] = (2.00m, 8.00m),
             ["gpt-4o-mini"] = (0.15m, 0.60m),
-            // Embedding model (Phase 4 RAG): input-only, no output tokens.
+            // Embedding model (vocabulary clusters): input-only, no output tokens.
             ["text-embedding-3-small"] = (0.02m, 0m),
         };
 

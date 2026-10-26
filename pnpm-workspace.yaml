@@ -19,7 +19,7 @@
 # Confirmed by node_modules/.modules.yaml still reporting nodeLinker "isolated".
 nodeLinker: hoisted
 
-# No `overrides:` block, and the two findings that remain are why.
+# No `overrides:` block, and the findings that remain (below) are why.
 #
 # extract-zip <=2.0.1 (high, symlink path traversal) used to arrive inside
 # puppeteer 24, and could not be fixed: the advisory demanded >=2.0.2 and 2.0.2
