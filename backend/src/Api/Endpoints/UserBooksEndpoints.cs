@@ -21,6 +21,16 @@ public static class UserBooksEndpoints
             .RequireRateLimiting("user-upload")
             .DisableAntiforgery();
 
+        // Chunked upload for books over the single-request ceiling (Cloudflare, ~100 MB): parts, then complete.
+        group.MapPut("/uploads/{uploadId:guid}/parts/{index:int}", UploadPart)
+            .WithName("UploadUserBookPart")
+            .RequireRateLimiting("user-upload")
+            .DisableAntiforgery();
+        group.MapPost("/uploads/{uploadId:guid}/complete", CompleteChunkedUpload)
+            .WithName("CompleteUserBookUpload")
+            .RequireRateLimiting("user-upload");
+        group.MapDelete("/uploads/{uploadId:guid}", AbortChunkedUpload).WithName("AbortUserBookUpload");
+
         group.MapPost("/clip", ClipArticle)
             .WithName("ClipArticle")
             .RequireRateLimiting("clip");
@@ -241,6 +251,84 @@ public static class UserBooksEndpoints
             return Results.BadRequest(new { error });
 
         return Results.Ok(response);
+    }
+
+    private static async Task<IResult> UploadPart(
+        Guid uploadId,
+        int index,
+        HttpContext httpContext,
+        AuthService authService,
+        UserBookService userBookService,
+        ChunkedUploadStore store,
+        Application.Entitlements.EntitlementOptions entitlementOptions,
+        CancellationToken ct)
+    {
+        var userId = httpContext.GetUserId(authService);
+        if (userId == null) return Results.Unauthorized();
+
+        store.SweepStale(userId.Value, DateTime.UtcNow);
+
+        var maxPart = entitlementOptions.MaxSingleUploadBytes;
+        // The quota and size checks below run on the declared length before a byte is stored, so a body
+        // without one (chunked transfer encoding) could overshoot both by a whole part.
+        if (httpContext.Request.ContentLength is not { } declared)
+            return Results.StatusCode(StatusCodes.Status411LengthRequired);
+        if (declared > maxPart)
+            return Results.BadRequest(new { error = $"Part too large (max {maxPart / 1024 / 1024} MB)" });
+
+        // Same per-file cap as a single upload: parts get a book past Cloudflare, not past this.
+        if (store.UploadBytes(userId.Value, uploadId, exceptIndex: index) + declared > Api.Extensions.ServiceCollectionExtensions.MaxUploadBytes)
+            return Results.BadRequest(new { error = $"File too large (max {Api.Extensions.ServiceCollectionExtensions.MaxUploadBytes / 1024 / 1024} MB)" });
+
+        // Refuse before storing a byte once everything this user has in flight could no longer fit the
+        // quota — counted across all their uploads, so parallel upload ids cannot fill the temp disk.
+        var quotaError = await userBookService.CheckUploadQuotaAsync(
+            userId.Value, store.UserBytes(userId.Value, uploadId, exceptIndex: index) + declared, ct);
+        if (quotaError is not null)
+            return Results.BadRequest(new { error = quotaError });
+
+        var size = await store.SavePartAsync(userId.Value, uploadId, index, httpContext.Request.Body, maxPart, ct);
+        if (size is null)
+            return Results.BadRequest(new { error = $"Invalid part (empty, over {maxPart / 1024 / 1024} MB, or index out of range)" });
+
+        return Results.Ok(new { index, size });
+    }
+
+    private static async Task<IResult> CompleteChunkedUpload(
+        Guid uploadId,
+        [FromBody] CompleteChunkedUploadRequest request,
+        HttpContext httpContext,
+        AuthService authService,
+        UserBookService userBookService,
+        ChunkedUploadStore store,
+        CancellationToken ct)
+    {
+        var userId = httpContext.GetUserId(authService);
+        if (userId == null) return Results.Unauthorized();
+
+        if (string.IsNullOrWhiteSpace(request.FileName))
+            return Results.BadRequest(new { error = "FileName is required" });
+        // Before joining hundreds of MB that UploadAsync would refuse anyway; the parts stay for a retry.
+        if (!UserBookService.IsSupportedUpload(request.FileName))
+            return Results.BadRequest(new { error = "Unsupported file format. Only EPUB and PDF are supported." });
+
+        await using var file = await store.AssembleAsync(userId.Value, uploadId, request.PartCount, ct);
+        if (file is null)
+            return Results.BadRequest(new { error = "Upload is incomplete — a part is missing" });
+
+        var (response, error) = await userBookService.UploadAsync(
+            userId.Value, file, request.FileName, request.Title, request.Language, ct);
+
+        return error is not null ? Results.BadRequest(new { error }) : Results.Ok(response);
+    }
+
+    private static IResult AbortChunkedUpload(
+        Guid uploadId, HttpContext httpContext, AuthService authService, ChunkedUploadStore store)
+    {
+        var userId = httpContext.GetUserId(authService);
+        if (userId == null) return Results.Unauthorized();
+        store.Delete(userId.Value, uploadId);
+        return Results.NoContent();
     }
 
     private const int MaxClipHtmlBytes = 2 * 1024 * 1024; // ~2 MB

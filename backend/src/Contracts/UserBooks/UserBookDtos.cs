@@ -107,6 +107,9 @@ public record TocEntryDto(string Title, int? ChapterNumber, IReadOnlyList<TocEnt
 // immediately — the file is stored at upload, so it is true the instant a PDF lands.
 public record UploadUserBookResponse(Guid UserBookId, Guid JobId, string Status, bool HasOriginalPdf);
 
+/// <summary>Finishes a chunked upload: parts <c>0..PartCount-1</c> were sent to <c>/me/books/uploads/{id}/parts/{index}</c>.</summary>
+public record CompleteChunkedUploadRequest(string FileName, int PartCount, string? Title, string? Language);
+
 /// <summary>
 /// "Send to TextStack" web clip — the extension sends already-clean (Readability) article HTML.
 /// The server never fetches a URL. Lands on the private Read later shelf.

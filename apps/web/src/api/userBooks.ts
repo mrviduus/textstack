@@ -1,5 +1,6 @@
 import { authFetch, API_BASE, ApiError } from './client'
 import { trackBookUploaded } from '../lib/analytics'
+import { refreshToken } from './auth'
 
 export interface UserBook {
   id: string
@@ -103,6 +104,94 @@ export interface StorageQuota {
   usedBytes: number
   limitBytes: number
   usedPercent: number
+  /** Largest single request body the platform accepts; bigger uploads go in parts. */
+  maxSingleUploadBytes?: number
+}
+
+// Cloudflare refuses any single request body over ~100 MB with a 413 before it reaches the API; the server
+// reports its own ceiling as maxSingleUploadBytes. Bigger files go up as parts and are joined server-side.
+const DEFAULT_MAX_SINGLE_UPLOAD = 80 * 1024 * 1024
+const MAX_PART_BYTES = 50 * 1024 * 1024
+
+class UploadError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message)
+  }
+}
+
+function uploadError(xhr: XMLHttpRequest): UploadError {
+  if (xhr.status === 413) return new UploadError('File is too large to upload. Try a smaller file.', 413)
+  let error = `Upload failed: ${xhr.status}`
+  try {
+    const json = JSON.parse(xhr.responseText)
+    if (json.error) error = json.error
+  } catch {}
+  return new UploadError(error, xhr.status)
+}
+
+function send(
+  method: string,
+  url: string,
+  body: XMLHttpRequestBodyInit | null,
+  onLoaded?: (loadedBytes: number, totalBytes: number | null) => void,
+  contentType?: string
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.upload.addEventListener('progress', (e) => onLoaded?.(e.loaded, e.lengthComputable ? e.total : null))
+    xhr.addEventListener('load', () =>
+      xhr.status >= 200 && xhr.status < 300 ? resolve(xhr.responseText) : reject(uploadError(xhr)))
+    xhr.addEventListener('error', () => reject(new UploadError('Upload failed', 0)))
+    xhr.open(method, url)
+    xhr.withCredentials = true
+    if (contentType) xhr.setRequestHeader('Content-Type', contentType)
+    xhr.send(body)
+  })
+}
+
+async function uploadInParts(
+  file: File,
+  partBytes: number,
+  title?: string,
+  language?: string,
+  onProgress?: (percent: number) => void
+): Promise<UploadResponse> {
+  const base = `${API_BASE}/me/books/uploads/${crypto.randomUUID()}`
+  const partCount = Math.ceil(file.size / partBytes)
+  try {
+    for (let i = 0; i < partCount; i++) {
+      const start = i * partBytes
+      const blob = file.slice(start, Math.min(start + partBytes, file.size))
+      await withOneRetry(() => send('PUT', `${base}/parts/${i}`, blob,
+        (loaded) => onProgress?.(((start + loaded) / file.size) * 100), 'application/octet-stream'))
+    }
+    const body = JSON.stringify({ fileName: file.name, partCount, title: title ?? null, language: language ?? null })
+    // Never retried: the first attempt claims the parts, so a retry can only fail — and the book may
+    // already exist if just the response was lost.
+    return JSON.parse(await send('POST', `${base}/complete`, body, undefined, 'application/json'))
+  } catch (err) {
+    // Free the parts already on the server; best effort — they are swept after a day anyway.
+    send('DELETE', base, null).catch(() => {})
+    throw err
+  }
+}
+
+// The `user-upload` limiter's window (per IP, 20 requests/min); a 429 waits it out once.
+export const RATE_LIMIT_WAIT_MS = 60_000
+
+// A part can outlive the access cookie on a slow link (single POSTs auth once, up front): a 401 refreshes
+// the cookie and retries; a 429 waits for the limiter window; a dropped connection or 5xx retries once.
+// Any other 4xx is final.
+async function withOneRetry(request: () => Promise<string>): Promise<string> {
+  try {
+    return await request()
+  } catch (err) {
+    const status = err instanceof UploadError ? err.status : 0
+    if (status === 401) await refreshToken()
+    else if (status === 429) await new Promise((r) => setTimeout(r, RATE_LIMIT_WAIT_MS))
+    else if (status >= 400 && status < 500) throw err
+    return request()
+  }
 }
 
 export async function uploadUserBook(
@@ -111,43 +200,29 @@ export async function uploadUserBook(
   language?: string,
   onProgress?: (percent: number) => void
 ): Promise<UploadResponse> {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest()
+  // Only a big file pays for the quota round-trip that tells us the server's ceiling.
+  const maxSingle = file.size > DEFAULT_MAX_SINGLE_UPLOAD
+    ? (await getStorageQuota().catch(() => null))?.maxSingleUploadBytes ?? DEFAULT_MAX_SINGLE_UPLOAD
+    : DEFAULT_MAX_SINGLE_UPLOAD
+
+  let result: UploadResponse
+  if (file.size > maxSingle) {
+    result = await uploadInParts(file, Math.min(maxSingle, MAX_PART_BYTES), title, language, onProgress)
+  } else {
     const formData = new FormData()
     formData.append('file', file)
     if (title) formData.append('title', title)
     if (language) formData.append('language', language)
+    result = JSON.parse(await send('POST', `${API_BASE}/me/books/upload`, formData,
+      (loaded, total) => { if (total) onProgress?.((loaded / total) * 100) }))
+  }
 
-    xhr.upload.addEventListener('progress', (e) => {
-      if (e.lengthComputable && onProgress) {
-        onProgress((e.loaded / e.total) * 100)
-      }
-    })
-
-    xhr.addEventListener('load', () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        // GA4: conversion signal — users who upload their own book are far
-        // more valuable than passive catalog readers. Derive format from
-        // extension since MIME for .epub is inconsistent across browsers.
-        const ext = (file.name.split('.').pop() || '').toLowerCase()
-        trackBookUploaded({ format: ext || 'unknown', sizeBytes: file.size })
-        resolve(JSON.parse(xhr.responseText))
-      } else {
-        let error = `Upload failed: ${xhr.status}`
-        try {
-          const json = JSON.parse(xhr.responseText)
-          if (json.error) error = json.error
-        } catch {}
-        reject(new Error(error))
-      }
-    })
-
-    xhr.addEventListener('error', () => reject(new Error('Upload failed')))
-
-    xhr.open('POST', `${API_BASE}/me/books/upload`)
-    xhr.withCredentials = true
-    xhr.send(formData)
-  })
+  // GA4: conversion signal — users who upload their own book are far
+  // more valuable than passive catalog readers. Derive format from
+  // extension since MIME for .epub is inconsistent across browsers.
+  const ext = (file.name.split('.').pop() || '').toLowerCase()
+  trackBookUploaded({ format: ext || 'unknown', sizeBytes: file.size })
+  return result
 }
 
 export interface GetUserBooksOptions {

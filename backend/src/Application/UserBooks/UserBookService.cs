@@ -165,6 +165,10 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage, IEnt
             userBookId, job.Id, UserBookStatus.Processing.ToString(), format == BookFormat.Pdf), null);
     }
 
+    /// <summary>Quota check for a chunked upload's bytes so far — a part that could never become a book is refused.</summary>
+    public async Task<string?> CheckUploadQuotaAsync(Guid userId, long bytes, CancellationToken ct) =>
+        (await CheckQuotaAsync(userId, bytes, ct)).Error;
+
     /// <summary>
     /// Storage and book-count limits of the user's tier for a file of <paramref name="fileSize"/>
     /// bytes. Needs only the size, so an upload is checked before it is read.
@@ -742,6 +746,9 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage, IEnt
         var cleaned = global::TextStack.Extraction.Utilities.BookTitleCleaner.Clean(raw);
         return string.IsNullOrWhiteSpace(cleaned) ? raw : cleaned;
     }
+
+    /// <summary>True for the formats an upload can become a book from (EPUB, PDF).</summary>
+    public static bool IsSupportedUpload(string fileName) => DetectFormat(fileName) != BookFormat.Other;
 
     private static BookFormat DetectFormat(string fileName)
     {

@@ -26,7 +26,8 @@ public static partial class ServiceCollectionExtensions
 {
     // Match nginx client_max_body_size (500MB) + per-user storage quota.
     // Default Kestrel cap is 30MB → users hit 413 on real-world PDFs.
-    private const long MaxUploadBytes = 500L * 1024 * 1024;
+    // Also the cap on a chunked upload's assembled size (UserBooksEndpoints): parts must not lift it.
+    internal const long MaxUploadBytes = 500L * 1024 * 1024;
 
     /// <summary>Kestrel + multipart body limits sized to match nginx (500MB).</summary>
     public static WebApplicationBuilder AddTextStackUploadLimits(this WebApplicationBuilder builder)

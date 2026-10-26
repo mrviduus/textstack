@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Uploads** — books over Cloudflare’s ~100 MB request cap upload in 50 MB parts, joined server-side; a 413 now reads as "file too large" instead of a status code — backend, web
 - **AI** — an LLM call that returns no text and no tool calls now raises the provider-failure alarm (`empty_response`), for every feature — backend
 - **AI** — OpenAI model ids via the Options pattern (`OpenAiOptions`, `EvalOptions`): class defaults are the only defaults; appsettings and compose no longer repeat them — backend
 - **AI** — provider-failure alarms fingerprinted by error code (`model_not_found`, `invalid_api_key`, …): each is its own Sentry issue and fires the new-issue alert — backend, [write-up](docs/changelog-archive/2026-H2.md#2026-10-24-llm-alarm-fingerprint)

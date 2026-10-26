@@ -40,6 +40,8 @@ public static partial class ServiceCollectionExtensions
 
         // User books
         services.AddScoped<Application.UserBooks.UserBookService>();
+        services.AddSingleton(new Application.UserBooks.ChunkedUploadStore(
+            Path.Combine(Path.GetTempPath(), "textstack-uploads")));
         services.AddScoped<Application.UserBooks.MetadataService>();
         services.AddScoped<Application.UserBooks.TagService>();
         services.AddScoped<Application.Collections.CollectionService>();
