@@ -15,6 +15,8 @@ public class UserStoragePolicyTests
     [InlineData("/storage//users/ab/abcd/books/1234/original.epub")]  // doubled slash after /storage
     [InlineData("/storage/users//ab/abcd/books//1234/original.epub")]
     [InlineData("/storage/users/ab/abcd/books/1234/assets/cover.png")] // a "cover" not at the book root
+    [InlineData("/storage/users/ab/abcd/books/1234/cover.jpg.bak")]   // nginx's cover rule rejects these too
+    [InlineData("/storage/users/ab/abcd/books/1234/cover.")]
     public void IsBlocked_PrivateUploadFile_True(string path) =>
         Assert.True(UserStoragePolicy.IsBlocked(new PathString(path)));
 

@@ -16,8 +16,19 @@ namespace Api.Extensions;
 /// </summary>
 public static class UserStoragePolicy
 {
+    /// <summary>
+    /// Headers for any stored reader file served on this origin (EPUB images include SVG): it must
+    /// never run as a page — no scripts, unique origin. Used by <c>/storage</c> and the asset route.
+    /// </summary>
+    public const string StoredFileCsp =
+        "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; media-src 'self'; sandbox";
+
     public static bool IsBlocked(PathString path)
     {
+        // Cheap exit for every non-storage request. "/storage//users" still starts with /storage.
+        if (!path.StartsWithSegments("/storage", StringComparison.OrdinalIgnoreCase))
+            return false;
+
         var segments = (path.Value ?? "").Split('/', StringSplitOptions.RemoveEmptyEntries);
         if (segments.Length < 2
             || !segments[0].Equals("storage", StringComparison.OrdinalIgnoreCase)
@@ -25,9 +36,12 @@ public static class UserStoragePolicy
             return false;
 
         // users/{shard}/{userId}/books/{bookId}/cover.<ext> — nothing else under users/.
+        // Same shape nginx allows: cover.<letters/digits>, nothing like "cover.jpg.bak".
         var isCover = segments.Length == 7
             && segments[4].Equals("books", StringComparison.OrdinalIgnoreCase)
-            && segments[6].StartsWith("cover.", StringComparison.OrdinalIgnoreCase);
+            && segments[6].StartsWith("cover.", StringComparison.OrdinalIgnoreCase)
+            && segments[6].Length > "cover.".Length
+            && segments[6]["cover.".Length..].All(char.IsAsciiLetterOrDigit);
         return !isCover;
     }
 }

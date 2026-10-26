@@ -203,8 +203,7 @@ app.UseStaticFiles(new StaticFileOptions
     OnPrepareResponse = ctx =>
     {
         ctx.Context.Response.Headers.XContentTypeOptions = "nosniff";
-        ctx.Context.Response.Headers.ContentSecurityPolicy =
-            "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; media-src 'self'; sandbox";
+        ctx.Context.Response.Headers.ContentSecurityPolicy = Api.Extensions.UserStoragePolicy.StoredFileCsp;
     }
 });
 
