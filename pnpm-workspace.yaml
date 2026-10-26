@@ -19,7 +19,7 @@
 # Confirmed by node_modules/.modules.yaml still reporting nodeLinker "isolated".
 nodeLinker: hoisted
 
-# No `overrides:` block, and the two findings that remain are why.
+# No `overrides:` block, and the findings that remain (below) are why.
 #
 # extract-zip <=2.0.1 (high, symlink path traversal) used to arrive inside
 # puppeteer 24, and could not be fixed: the advisory demanded >=2.0.2 and 2.0.2
@@ -32,6 +32,13 @@ nodeLinker: hoisted
 # decode-uri-component and uuid (moderate) sit under
 # @expo/vector-icons > expo-font > expo. Forcing versions through an SDK's
 # internals to quiet an audit is how a working mobile build stops working.
+#
+# zod 3.25.76 and node-forge 1.4.0 (high, 2026-10-26) both arrive through
+# @expo/cli — the build tool, never in the app bundle. zod's fix is 4.6.6, a
+# major that @expo/cli cannot take (installed 57.0.27 and latest 58.1.15 both pin zod ^3.25.76), and zod 3 has
+# no patched release. node-forge has no fix at all; its only path is Expo's
+# OTA code signing (@expo/code-signing-certificates), which this app does not
+# configure. Revisit when @expo/cli moves to zod 4 or node-forge ships a fix (#957).
 
 packages:
   - apps/web

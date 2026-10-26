@@ -34,8 +34,8 @@ public partial class AppDbContext
             e.Property(x => x.Source).HasMaxLength(40);
             e.Property(x => x.RetiredReason).HasMaxLength(60);
 
-            // AI-058: OpenAI word embedding. Same float[] <-> pgvector vector(1536)
-            // conversion as Edition.Embedding (AppDbContext.Catalog.cs). NULL until
+            // AI-058: OpenAI word embedding, float[] <-> pgvector vector(1536) — the only
+            // vector column left (the RAG tables went 2026-09-10). NULL until
             // embedded at save / backfill. NO HNSW index — concept clustering is an
             // in-memory N²/2 pass over a single user's ≤300 vectors, not a SQL ANN scan.
             e.Property(x => x.Embedding)

@@ -269,7 +269,7 @@ public static class UserDataEndpoints
             else if (request.Percent is <= 0)
                 target.CompletedAt = null;
         }
-        // High-water mark for the RAG spoiler gate — monotonic, never decreases. NULL means
+        // High-water mark for the chapter-review spoiler frontier — monotonic, never decreases. NULL means
         // "never recorded" (distinct from ordinal 0, a real 0-based first chapter), so the first
         // write seeds it rather than max-ing against an implied 0.
         target.MaxChapterNumber = target.MaxChapterNumber.HasValue

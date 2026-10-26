@@ -673,8 +673,7 @@ if (args.Length > 0 && args[0] == "create-admin")
 }
 
 // CLI: backfill-vocabulary-embeddings — AI-058. Embeds every vocabulary_words row whose
-// embedding IS NULL (across ALL users), in batches, and writes the vectors back. Unlike
-// backfill-edition-embeddings (which reuses existing chunk vectors → $0), this DOES call
+// embedding IS NULL (across ALL users), in batches, and writes the vectors back. It calls
 // OpenAI and costs money — one embedding request per word.
 if (args.Length > 0 && args[0] == "backfill-vocabulary-embeddings")
 {

@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Docs** — persistence-layer comments match the code (partial list, dead RAG lines, `MaxChapterNumber` is read); unfixable zod/node-forge advisories recorded in `pnpm-workspace.yaml` (#945, #957) — backend, mobile
 - **Users** — signing in from a guest session keeps the position read last, not the one that reached the server last; the furthest chapter reached survives the merge (#942) — backend · [details](docs/changelog-archive/2026-H2.md#2026-10-26-guest-merge-clock)
 - **Users** — account delete now removes the user's agent runs and pending OAuth/device codes; daily retention sweep: expired tokens, AI trace text scrubbed and shadow/agent runs dropped after 30 d, idle tutor sessions (90 d), finished SSG jobs (30 d) (#940 #941 #944 #949) — backend · [details](docs/changelog-archive/2026-H2.md#2026-10-26-retention-sweep)
 - **Users** — a reader's uploaded book and its chapter images are no longer downloadable by `/storage` URL — only the cover stays public; owner-checked `/me/books/{id}/file` and `/assets` are the doors (#913) — backend, infra · [details](docs/changelog-archive/2026-H2.md#2026-10-26-upload-originals-closed)
