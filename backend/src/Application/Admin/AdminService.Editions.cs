@@ -286,6 +286,12 @@ public partial class AdminService
         await CollectionService.RemoveFromAllCollectionsAsync(db, null, id, "savedbook", ct);
         db.Editions.Remove(edition);
 
+        // Its work goes too when this was the work's only edition: every upload creates its own work
+        // (#943), so a delete-and-reupload would otherwise leave an empty work holding the slug.
+        if (!await db.Editions.AnyAsync(e => e.WorkId == edition.WorkId && e.Id != id, ct)
+            && await db.Works.FindAsync([edition.WorkId], ct) is { } work)
+            db.Works.Remove(work);
+
         await db.SaveChangesAsync(ct);
         return (true, null);
     }
