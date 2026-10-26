@@ -36,7 +36,7 @@ public partial class AdminService
     }
 
     public async Task<(bool Valid, string? Error, Work? Work)> GetOrCreateWorkAsync(
-        Guid siteId, string title, Guid? workId, CancellationToken ct)
+        Guid siteId, string title, string language, Guid? workId, CancellationToken ct)
     {
         if (workId.HasValue)
         {
@@ -48,11 +48,18 @@ public partial class AdminService
             return (true, null, work);
         }
 
-        var slug = SlugGenerator.GenerateSlug(title);
+        // Reuse a same-titled work only for a language it does not have yet. A second book with the
+        // same title and language needs its own work: unique (work_id, language) on editions
+        // rejected the save, and the upload failed with a 500 (#943).
+        var baseSlug = SlugGenerator.GenerateSlug(title);
         var existingWork = await db.Works
-            .FirstOrDefaultAsync(w => w.Slug == slug, ct);
+            .FirstOrDefaultAsync(w => w.Slug == baseSlug && !w.Editions.Any(e => e.Language == language), ct);
         if (existingWork is not null)
             return (true, null, existingWork);
+
+        var slug = baseSlug;
+        for (var n = 2; await db.Works.AnyAsync(w => w.Slug == slug, ct); n++)
+            slug = $"{baseSlug}-{n}";
 
         var newWork = new Work
         {
