@@ -23,7 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
-- **Users** — signing in from a guest session keeps the reading position read last on the device, not the one that reached the server last (#942) — backend
+- **Users** — signing in from a guest session keeps the position read last, not the one that reached the server last; the furthest chapter and a finish survive the merge (#942) — backend · [details](docs/changelog-archive/2026-H2.md#2026-10-26-guest-merge-clock)
 - **Uploads** — books over Cloudflare’s ~100 MB request cap upload in 50 MB parts, joined server-side; a 413 now reads as "file too large" instead of a status code — backend, web
 - **AI** — an LLM call that returns no text and no tool calls now raises the provider-failure alarm (`empty_response`), for every feature — backend
 - **AI** — OpenAI model ids via the Options pattern (`OpenAiOptions`, `EvalOptions`): class defaults are the only defaults; appsettings and compose no longer repeat them — backend

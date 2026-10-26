@@ -51,10 +51,15 @@ public static class ProgressClock
 
     /// <summary>
     /// Whether <paramref name="a"/> holds a later reading than <paramref name="b"/> (two rows for one
-    /// book, guest → account merge). Client clocks, like every other write; a row without one
-    /// (written before the column existed) falls back to its server stamp. Comparing server stamps
-    /// let an old offline position, flushed late, beat a newer one (#942).
+    /// book, guest → account merge). Ties go to <paramref name="b"/>.
+    /// <para>
+    /// Client clocks when both rows have one: a server stamp says when a write ARRIVED, so an old
+    /// offline position flushed late beat a newer one (#942). The trade-off is that the two rows may
+    /// come from two devices, and a device running behind loses by its lag; phones sync time, offline
+    /// flushes are routine. When either row lacks a client clock (written before the column
+    /// existed), both are compared on the server clock — never one clock against the other.
+    /// </para>
     /// </summary>
     public static bool IsNewer(ReadingProgress a, ReadingProgress b) =>
-        (a.ClientUpdatedAt ?? a.UpdatedAt) > (b.ClientUpdatedAt ?? b.UpdatedAt);
+        a.ClientUpdatedAt is { } ac && b.ClientUpdatedAt is { } bc ? ac > bc : a.UpdatedAt > b.UpdatedAt;
 }

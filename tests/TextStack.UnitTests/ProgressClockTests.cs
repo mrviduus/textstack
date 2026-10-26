@@ -111,11 +111,32 @@ public class ProgressClockTests
     }
 
     [Fact]
-    public void IsNewer_RowWithoutClientClock_FallsBackToServerStamp()
+    public void IsNewer_OneRowWithoutClientClock_ComparesServerStampsOnly()
     {
+        // The guest's client clock says "later", but the legacy account row has no client clock:
+        // mixing the two clocks is meaningless, so both are compared on the server stamp.
         var legacy = new ReadingProgress { Locator = "l", UpdatedAt = ServerNow };
-        var older = new ReadingProgress { Locator = "o", UpdatedAt = ServerNow.AddDays(-1), ClientUpdatedAt = ServerNow.AddDays(-1) };
+        var guest = new ReadingProgress { Locator = "g", UpdatedAt = ServerNow.AddMinutes(-1), ClientUpdatedAt = ServerNow.AddMinutes(2) };
 
-        Assert.True(ProgressClock.IsNewer(legacy, older));
+        Assert.False(ProgressClock.IsNewer(guest, legacy));
+        Assert.True(ProgressClock.IsNewer(legacy, guest));
+    }
+
+    [Fact]
+    public void IsNewer_BothLegacy_ComparesServerStamps()
+    {
+        var newer = new ReadingProgress { Locator = "n", UpdatedAt = ServerNow };
+        var older = new ReadingProgress { Locator = "o", UpdatedAt = ServerNow.AddDays(-1) };
+
+        Assert.True(ProgressClock.IsNewer(newer, older));
+    }
+
+    [Fact]
+    public void IsNewer_Tie_GoesToSecondRow()
+    {
+        var a = new ReadingProgress { Locator = "a", UpdatedAt = ServerNow, ClientUpdatedAt = ServerNow };
+        var b = new ReadingProgress { Locator = "b", UpdatedAt = ServerNow, ClientUpdatedAt = ServerNow };
+
+        Assert.False(ProgressClock.IsNewer(a, b));
     }
 }
