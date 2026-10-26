@@ -333,6 +333,27 @@ public class UserBookOriginalFileEndpointTests
     }
 
     [Fact]
+    public async Task GetStoragePath_UploadOriginal_Returns404()
+    {
+        Assert.SkipUnless(_auth.IsAuthenticated, "test auth unavailable");
+        var ct = TestContext.Current.CancellationToken;
+
+        // #913: the original sits under the static root, and its path is two ids the API hands
+        // out. Anyone holding them must not be able to download it — /file is the only door.
+        var bookId = await UploadPdfAsync();
+        Assert.SkipWhen(bookId is null, "pdf upload unavailable");
+
+        var meResp = await _auth.Client.SendAsync(_auth.CreateRequest(HttpMethod.Get, "/auth/me"), ct);
+        var me = await meResp.Content.ReadFromJsonAsync<MeResponse>(cancellationToken: ct);
+        var userId = me!.Id.ToString();
+        // Same layout as LocalFileStorageService.SaveUserFileAsync.
+        var path = $"/storage/users/{userId[..2]}/{userId}/books/{bookId}/original.pdf";
+
+        var response = await _anon.Client.SendAsync(_anon.CreateRequest(HttpMethod.Get, path), ct);
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
     public async Task GetBook_WithOriginalUpload_ReturnsOriginalFileBytes()
     {
         Assert.SkipUnless(_auth.IsAuthenticated, "test auth unavailable");
@@ -394,4 +415,6 @@ public class UserBookOriginalFileEndpointTests
     private record UploadResponse(Guid UserBookId, Guid JobId, string Status);
 
     private record DetailResponse(bool HasOriginalPdf, long? OriginalFileBytes);
+
+    private record MeResponse(Guid Id);
 }

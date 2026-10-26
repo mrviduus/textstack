@@ -183,6 +183,16 @@ if (!Directory.Exists(storagePath))
 {
     Directory.CreateDirectory(storagePath);
 }
+// A reader's uploaded book is served only by GET /me/books/{id}/file (owner check), never here.
+app.Use(async (ctx, next) =>
+{
+    if (Api.Extensions.UploadOriginalPolicy.IsBlocked(ctx.Request.Path))
+    {
+        ctx.Response.StatusCode = StatusCodes.Status404NotFound;
+        return;
+    }
+    await next();
+});
 app.UseStaticFiles(new StaticFileOptions
 {
     FileProvider = new PhysicalFileProvider(storagePath),

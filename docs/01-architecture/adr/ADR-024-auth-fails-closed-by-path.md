@@ -113,7 +113,8 @@ Later item: a shared-secret header for `/internal` callers (the pollers, ssg-wor
 0. Anonymous `/me/*` sweep in IntegrationTests, run on `main`.
 1. `/me` and `/internal` gates; delete the 20 `IsLocalRequest` checks; `ApiMarker`; `RoutesSnapshotTests`
    + `routes.public.txt`.
-2. `/storage` per the owner's answer.
+2. `/storage` per the owner's answer. **Step 1 done (#913, 2026-10-26):** `original.*` under
+   `/storage/users/` answers 404 in the Api (`UploadOriginalPolicy`) and nginx; covers and images remain.
 3. Later: shared secret for `/internal`; admin roles and audit with #19.
 
 ## Owner decisions (2026-10-07)
