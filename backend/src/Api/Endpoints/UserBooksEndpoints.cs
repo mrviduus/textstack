@@ -568,6 +568,10 @@ public static class UserBooksEndpoints
         if (stream is null)
             return Results.NotFound();
 
+        // Same rule as /storage: an SVG from an uploaded EPUB must not run script on this origin.
+        httpContext.Response.Headers.XContentTypeOptions = "nosniff";
+        httpContext.Response.Headers.ContentSecurityPolicy = UserStoragePolicy.StoredFileCsp;
+
         return Results.File(stream, contentType);
     }
 

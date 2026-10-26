@@ -333,6 +333,35 @@ public class UserBookOriginalFileEndpointTests
     }
 
     [Fact]
+    public async Task GetStoragePath_UploadOriginal_Returns404()
+    {
+        Assert.SkipUnless(_auth.IsAuthenticated, "test auth unavailable");
+        var ct = TestContext.Current.CancellationToken;
+
+        // #913: the original sits under the static root, and its path is two ids the API hands
+        // out. Anyone holding them must not be able to download it — /file is the only door.
+        var bookId = await UploadPdfAsync();
+        Assert.SkipWhen(bookId is null, "pdf upload unavailable");
+
+        // Positive control: the file exists (the owner gets it) — so a 404 below is the guard,
+        // not a wrong path.
+        var own = await _auth.Client.SendAsync(_auth.CreateRequest(HttpMethod.Get, $"/me/books/{bookId}/file"), ct);
+        Assert.Equal(HttpStatusCode.OK, own.StatusCode);
+
+        var meResp = await _auth.Client.SendAsync(_auth.CreateRequest(HttpMethod.Get, "/auth/me"), ct);
+        Assert.Equal(HttpStatusCode.OK, meResp.StatusCode);
+        var me = await meResp.Content.ReadFromJsonAsync<MeResponse>(cancellationToken: ct);
+        Assert.NotEqual(Guid.Empty, me!.User.Id);
+
+        var dir = Application.Common.UserStoragePaths.BookDirectory(me.User.Id, bookId!.Value).Replace('\\', '/');
+        foreach (var path in new[] { $"/storage/{dir}/original.pdf", $"/storage//{dir}/original.pdf" })
+        {
+            var response = await _anon.Client.SendAsync(_anon.CreateRequest(HttpMethod.Get, path), ct);
+            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        }
+    }
+
+    [Fact]
     public async Task GetBook_WithOriginalUpload_ReturnsOriginalFileBytes()
     {
         Assert.SkipUnless(_auth.IsAuthenticated, "test auth unavailable");
@@ -394,4 +423,8 @@ public class UserBookOriginalFileEndpointTests
     private record UploadResponse(Guid UserBookId, Guid JobId, string Status);
 
     private record DetailResponse(bool HasOriginalPdf, long? OriginalFileBytes);
+
+    private record MeResponse(MeUser User);
+
+    private record MeUser(Guid Id);
 }

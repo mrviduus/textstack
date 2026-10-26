@@ -388,7 +388,7 @@ These were found with `grep` on 2026-10-04. Re-run it before the PR.
   clash)", which goes away.
 - `docs/01-architecture/README.md:3,4,104`
 - `docs/01-architecture/multisite.md:4,5`
-- `docs/02-system/database.md:8`
+- `docs/02-system/database.md:8` (file deleted 2026-10-26; replaced by `data-model.md`)
 - `docs/04-dev/security.md:111` (002)
 - `docs/changelog-archive/2025-and-earlier.md:246` (deploy runbook)
 - `docs/changelog-archive/2026-H2.md:2159` (reader-autosave link → ADR-008)

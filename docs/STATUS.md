@@ -33,7 +33,7 @@
 - **Assistant handoff, owner checks:** that the mobile Claude and ChatGPT apps accept a custom connector at all, and one live end-to-end conversation on a phone.
 - **Chunked upload:** 1 of 8 steps (tiers, #449). Files over ~100 MB still fail at Cloudflare's body cap with `Upload failed: 413`.
 - **Two-audience onboarding** ("I work in tech" / "I'm learning English"), planned, not started. Was deferred until Play production, which is now live. The mobile card still says "Learn a language by reading real books". [Plan](marketing/onboarding-consilium-2026-10-08.md). Prod nit: 10 arXiv editions have their abstract inside "About this edition".
-- **Later, in 2–3 bundled PRs:** the rest of [review 2026-10](01-architecture/review-2026-10/00-summary.md) (#19 admin roles/audit, #20 book models, #21 LLM jobs on the owner's Claude login, #24 web `api/` duplicate, #25 two SEO engines, #26 GDPR traces, #31 ADR numbering, #32 housekeeping) and the ADR-022/023/024 remainder (`/storage` originals move, delete the book quality queue, reconciler enrichment).
+- **Later, in 2–3 bundled PRs:** the rest of [review 2026-10](01-architecture/review-2026-10/00-summary.md) (#19 admin roles/audit, #20 book models, #21 LLM jobs on the owner's Claude login, #24 web `api/` duplicate, #25 two SEO engines, #26 GDPR traces, #31 ADR numbering, #32 housekeeping) and the ADR-022/023/024 remainder (`/storage` covers #956, delete the book quality queue, reconciler enrichment).
 - **Article:** Sentry write-up, draft on vasyl.blog; needs edits, image, publish, then a DEV cross-post.
 
 ## Known-broken / open follow-ups
@@ -41,7 +41,7 @@
 Each is a real defect, known and not yet fixed.
 
 **Ingestion, SSG, ops**
-- **Uploaded originals are readable by URL without auth** (`/storage`, ADR-024, #913). Fix: originals move behind `/me/books/{id}/file`.
+- **Upload covers are readable by URL without auth** (`/storage`, ADR-024 step 2) — #956.
 - **`/internal` trusts a forwarded address from the home LAN** (ADR-024): `ForwardedHeaders` trusts `X-Forwarded-For` from 192.168/16. nginx refuses it from outside. Fix: shared-secret header (ADR-024 step 3, after #19).
 - **Six user routes live outside `/me`** and rely on their handler's check: `GET /auth/me`, `POST /auth/device/approve|deny`, `POST /oauth/authorize/approve|deny`, `GET /oauth/token-status`. No plan to move them.
 - **Mobile OTA targets one runtime only** (#762, issue #914): it publishes to the runtime of the newest *finished* production build. If production runs an older build than Closed testing, production stops receiving OTAs. **Fix before the second store release.** [Runbook](03-ops/play-store-release.md#known-limits-of-the-automatic-ota).

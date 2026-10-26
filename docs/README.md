@@ -16,8 +16,7 @@ Free book library with Kindle-like reader. EPUB/PDF upload, parsing, SEO pages, 
 | [Vision](00-vision/README.md) | Goals, principles, stack |
 | [Architecture](01-architecture/README.md) | System design: services, projects, pipeline, external deps |
 | [Delivery](01-architecture/delivery.md) | PR → images → deploy flow, external dependencies, secret controls |
-| [Data model](01-architecture/data-model.md) | All entities by area + PII map |
-| [Database](02-system/database.md) | Detailed schema of the core tables (partial) |
+| [Data model](01-architecture/data-model.md) | Every table: purpose, status, PII |
 | API Docs | http://localhost:8080/scalar/v1 (live) |
 | [Local Dev](03-ops/local-dev.md) | Docker, migrations |
 | [Environment Variables](03-ops/environment-variables.md) | Complete env var reference |
@@ -79,7 +78,7 @@ docs/
 ## Reading Order
 
 1. **New to project**: [Vision](00-vision/README.md) → [Architecture](01-architecture/README.md) → [Local Dev](03-ops/local-dev.md)
-2. **Backend work**: [Database](02-system/database.md) → [Ingestion](02-system/ingestion.md) → API Docs (Scalar)
+2. **Backend work**: [Data model](01-architecture/data-model.md) → [Ingestion](02-system/ingestion.md) → API Docs (Scalar)
 3. **Frontend work**: [Reader](05-features/reader.md) → [Offline](05-features/offline-reading.md) → [Auth](05-features/user-auth.md)
 4. **Ops**: [Local Dev](03-ops/local-dev.md) → [Production Deployment](03-ops/deployment.md) → [Backup](03-ops/backup.md)
 
@@ -121,7 +120,7 @@ line at the top of each file.
 
 | Event | Update |
 |-------|--------|
-| Entity added | 01-architecture/data-model.md (and database.md if core) |
+| Entity added | 01-architecture/data-model.md |
 | Endpoint added | (auto in Scalar) |
 | Architecture decision | New ADR |
 | Migration created | Mention if significant |
