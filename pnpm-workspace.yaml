@@ -32,6 +32,13 @@ nodeLinker: hoisted
 # decode-uri-component and uuid (moderate) sit under
 # @expo/vector-icons > expo-font > expo. Forcing versions through an SDK's
 # internals to quiet an audit is how a working mobile build stops working.
+#
+# zod 3.25.76 and node-forge 1.4.0 (high, 2026-10-26) both arrive through
+# @expo/cli — the build tool, never in the app bundle. zod's fix is 4.6.6, a
+# major that @expo/cli (^3.25.76, still in 58.1.15) cannot take, and zod 3 has
+# no patched release. node-forge has no fix at all; its only path is Expo's
+# OTA code signing (@expo/code-signing-certificates), which this app does not
+# configure. Revisit when @expo/cli moves to zod 4 or node-forge ships a fix.
 
 packages:
   - apps/web

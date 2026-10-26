@@ -60,12 +60,8 @@ public class ReadingProgress : ISiteScoped
     /// they got. Null on legacy rows → callers fall back to the current chapter (self-heals on the
     /// next progress save).
     /// <para>
-    /// CURRENTLY WRITE-ONLY. Its reader was the RAG spoiler gate, deleted 2026-09-10 with the rest of
-    /// the retrieval spine. Kept deliberately rather than dropped: it is one int, it keeps
-    /// accumulating correctly, and the planned <c>get_book_progress</c> MCP tool needs exactly this —
-    /// "how far has this reader actually got" is the question an outside assistant must be able to
-    /// ask before it can avoid spoiling a book. Dropping it would mean re-deriving a history we are
-    /// already recording.
+    /// The spoiler frontier: chapter review, insights and review questions read it through
+    /// <c>ChapterFrontier</c> to know how far the reader has got.
     /// </para>
     /// </summary>
     public int? MaxChapterNumber { get; set; }

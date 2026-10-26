@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Docs** — persistence-layer comments match the code (partial list, dead RAG lines, `MaxChapterNumber` is read); unfixable zod/node-forge advisories recorded in `pnpm-workspace.yaml` (#945) — backend
 - **Uploads** — books over Cloudflare’s ~100 MB request cap upload in 50 MB parts, joined server-side; a 413 now reads as "file too large" instead of a status code — backend, web
 - **AI** — an LLM call that returns no text and no tool calls now raises the provider-failure alarm (`empty_response`), for every feature — backend
 - **AI** — OpenAI model ids via the Options pattern (`OpenAiOptions`, `EvalOptions`): class defaults are the only defaults; appsettings and compose no longer repeat them — backend
