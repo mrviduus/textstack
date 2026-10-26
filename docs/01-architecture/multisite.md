@@ -69,4 +69,4 @@ UserBook (and its children), auth/OAuth/AI-ops tables.
 
 ## See also
 
-- [Database: Site/SiteDomain](../02-system/database.md)
+- [Data model: sites, site_domains](data-model.md)

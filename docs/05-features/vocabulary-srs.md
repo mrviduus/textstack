@@ -134,6 +134,6 @@ The older 10-test suite and its `helpers/vocabulary.ts` no longer exist.
 
 ## Database
 
-See [database.md](../02-system/database.md#vocabulary-tables) for full schema.
+Tables: [data model → Vocabulary and tutor](../01-architecture/data-model.md#vocabulary-and-tutor); columns in `backend/src/Domain/Entities/`.
 
 Key tables: `vocabulary_words`, `vocabulary_reviews`

@@ -8,25 +8,16 @@ namespace Infrastructure.Persistence;
 /// <summary>
 /// Entity Framework DbContext for TextStack.
 ///
-/// Schema configuration is split across partial files by domain to keep
-/// each file under ~150 LOC and reviewable in isolation:
-///
-///   - AppDbContext.Catalog.cs       Site, Work, Edition, Chapter, BookFile, IngestionJob, Author, Genre, …
-///   - AppDbContext.User.cs          User, UserLibrary, refresh tokens, password reset, admin user
-///   - AppDbContext.Reading.cs       ReadingProgress, Bookmark, Note, Highlight, Session, Goal, Achievement
-///   - AppDbContext.UserBooks.cs     UserBook, UserChapter, UserBookFile, UserIngestionJob, UserBookBookmark, BookQuality
-///   - AppDbContext.Vocabulary.cs    VocabularyWord, Reviews, Settings, Pending, WordLookup/Frequency/Cluster
-///   - AppDbContext.Ops.cs           AdminSettings, SsgRebuild, LintResult
-///   - AppDbContext.Seo.cs           SeoTemplate, SeoBackfillJob/Settings, SeoSource defaults
-///   - AppDbContext.Collections.cs   Collection, BookCollection
-///
-/// All splits use C# `partial class` — compile-identical to the original
-/// monolithic file. Migrations are unaffected (model snapshot identical).
+/// Schema configuration is split into one partial file per domain (AppDbContext.Catalog.cs,
+/// .User.cs, .Reading.cs, .UserBooks.cs, .Vocabulary.cs, .Ops.cs, .Seo.cs, .Collections.cs, .Ai.cs,
+/// .Agents.cs, .Insights.cs, .McpKeys.cs, .OAuth.cs) — the file name says the domain; each
+/// file's <c>Entity&lt;T&gt;</c> calls are the entity list. Table purpose and status:
+/// docs/01-architecture/data-model.md.
 /// </summary>
 public partial class AppDbContext : DbContext, IAppDbContext
 {
     // R1b: drives the site-scoped global query filters (OnModelCreating) and the
-    // SaveChanges write-stamping above. Process-wide constant in single-site.
+    // SaveChanges write-stamping below. Process-wide constant in single-site.
     private readonly ICurrentSite _currentSite;
 
     public AppDbContext(DbContextOptions<AppDbContext> options, ICurrentSite currentSite) : base(options)
@@ -114,10 +105,6 @@ public partial class AppDbContext : DbContext, IAppDbContext
     public DbSet<OAuthClient> OAuthClients => Set<OAuthClient>();
     public DbSet<OAuthAuthorizationRequest> OAuthAuthorizationRequests => Set<OAuthAuthorizationRequest>();
     public DbSet<OAuthGrant> OAuthGrants => Set<OAuthGrant>();
-
-    // Phase 4 RAG. Intentionally not on IAppDbContext — retrieval uses raw Npgsql.
-
-    // Phase 2 on-demand RAG over user uploads. Isolated per-user table; not on IAppDbContext.
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -29,7 +29,8 @@ public partial class AppDbContext
             e.Property(x => x.Confidence).HasColumnType("double precision");
             e.Property(x => x.ToolCallsCount).HasDefaultValue(0);
 
-            // Optional FK → users; a deleted user nulls the column but keeps the run.
+            // Optional FK → users. Account delete removes the user's runs first (AccountEndpoints),
+            // so SetNull only covers deletes outside that path.
             e.HasOne(x => x.User)
                 .WithMany()
                 .HasForeignKey(x => x.UserId)

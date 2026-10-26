@@ -183,6 +183,17 @@ if (!Directory.Exists(storagePath))
 {
     Directory.CreateDirectory(storagePath);
 }
+// Must stay before UseStaticFiles: of a reader's upload folder only the cover is public; the book
+// and its images go through owner-checked /me/books/{id}/file and /assets (UserStoragePolicy).
+app.Use(async (ctx, next) =>
+{
+    if (Api.Extensions.UserStoragePolicy.IsBlocked(ctx.Request.Path))
+    {
+        ctx.Response.StatusCode = StatusCodes.Status404NotFound;
+        return;
+    }
+    await next();
+});
 app.UseStaticFiles(new StaticFileOptions
 {
     FileProvider = new PhysicalFileProvider(storagePath),
@@ -192,8 +203,7 @@ app.UseStaticFiles(new StaticFileOptions
     OnPrepareResponse = ctx =>
     {
         ctx.Context.Response.Headers.XContentTypeOptions = "nosniff";
-        ctx.Context.Response.Headers.ContentSecurityPolicy =
-            "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; media-src 'self'; sandbox";
+        ctx.Context.Response.Headers.ContentSecurityPolicy = Api.Extensions.UserStoragePolicy.StoredFileCsp;
     }
 });
 
@@ -663,8 +673,7 @@ if (args.Length > 0 && args[0] == "create-admin")
 }
 
 // CLI: backfill-vocabulary-embeddings — AI-058. Embeds every vocabulary_words row whose
-// embedding IS NULL (across ALL users), in batches, and writes the vectors back. Unlike
-// backfill-edition-embeddings (which reuses existing chunk vectors → $0), this DOES call
+// embedding IS NULL (across ALL users), in batches, and writes the vectors back. It calls
 // OpenAI and costs money — one embedding request per word.
 if (args.Length > 0 && args[0] == "backfill-vocabulary-embeddings")
 {

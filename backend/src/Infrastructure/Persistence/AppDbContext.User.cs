@@ -89,7 +89,8 @@ public partial class AppDbContext
             // Lookup-by-user_code only matters for pending rows (approve step).
             e.HasIndex(x => x.UserCode).HasFilter("status = 'pending'");
             e.HasIndex(x => x.ExpiresAt);
-            // User stays null until approved; SetNull keeps the audit row if the user is deleted.
+            // User stays null until approved. Account delete removes the user's rows first
+            // (AccountEndpoints); expired rows go after a day (RetentionCleanupWorker).
             e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.SetNull);
         });
     }
