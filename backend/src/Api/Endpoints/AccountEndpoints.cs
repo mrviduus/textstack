@@ -30,9 +30,9 @@ public static class AccountEndpoints
     /// bookmarks/chunks/quality jobs, collections → book-collections, refresh
     /// tokens, password-reset tokens) is configured ON DELETE CASCADE, so a
     /// single <c>Users.Remove</c> + SaveChanges removes it all in FK-safe order.
-    /// Audit rows (llm_traces, shadow_runs, agent_run, device_authorizations)
-    /// are ON DELETE SET NULL — their user_id is nulled, preserving the trace
-    /// while removing the personal link.
+    /// Rows that would survive the cascade are deleted explicitly first: llm_traces,
+    /// agent_run, shadow_runs, device_authorizations (FK is SET NULL, but the text
+    /// in them is the user's) and oauth_authorization_requests (no FK).
     ///
     /// Wrapped in a transaction so it is all-or-nothing. Disk files (avatar +
     /// uploaded book files) are not in the DB, so they are removed via the
@@ -60,6 +60,15 @@ public static class AccountEndpoints
             : null;
 
         await using var tx = await db.BeginTransactionAsync(ct);
+
+        // SET NULL would keep these rows with the user's prompts, book text and outputs in them,
+        // and oauth_authorization_requests.user_id has no FK at all — so they go explicitly (#941).
+        var id = user.Id;
+        await db.LlmTraces.Where(x => x.UserId == id).ExecuteDeleteAsync(ct);
+        await db.AgentRuns.Where(x => x.UserId == id).ExecuteDeleteAsync(ct);
+        await db.ShadowRuns.Where(x => x.UserId == id).ExecuteDeleteAsync(ct);
+        await db.DeviceAuthorizations.Where(x => x.UserId == id).ExecuteDeleteAsync(ct);
+        await db.OAuthAuthorizationRequests.Where(x => x.UserId == id).ExecuteDeleteAsync(ct);
 
         db.Users.Remove(user);
         await db.SaveChangesAsync(ct);

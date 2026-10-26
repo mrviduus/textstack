@@ -90,7 +90,7 @@ builder.Services.AddHostedService<StuckJobsMetricsWorker>();
 builder.Services.AddHostedService<GuestCleanupWorker>();
 
 // Admin refresh token cleanup (purge expired rows daily)
-builder.Services.AddHostedService<AdminRefreshTokenCleanupWorker>();
+builder.Services.AddHostedService<RetentionCleanupWorker>();
 
 // Heartbeat file for docker healthcheck
 builder.Services.AddHostedService<HeartbeatWorker>();
