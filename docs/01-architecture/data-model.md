@@ -1,159 +1,210 @@
-# Data Model Overview
+# Data Model
 
-One-page map of Postgres entities. For exact columns + types read
-`backend/src/Domain/Entities/` — C# records are the source of truth.
-For schema evolution read `backend/src/Infrastructure/Migrations/`
-(138 migrations as of 2026-10-04, chronological). `AppDbContext` is split into partials by area
-(`AppDbContext.Catalog.cs`, `.Reading.cs`, `.Vocabulary.cs`, `.Ai.cs`, `.OAuth.cs`, …). 64 `DbSet`s.
+The one map of the PostgreSQL schema: every table, what it is for, and what happens to it next.
+Column-level truth: `backend/src/Domain/Entities/` and the model snapshot
+(`backend/src/Infrastructure/Migrations/AppDbContextModelSnapshot.cs`). Audited 2026-10-26 for the
+database cleanup ([#926](https://github.com/mrviduus/textstack/issues/926)).
 
-## Grouped by domain
+**Update this page in the same PR as any schema change.** A PR that adds, drops or reshapes a table
+changes its row here.
 
-### 1. Catalog (admin-curated library)
+## Numbers (2026-10-26)
 
-Canonical books and their metadata. Admins create/edit; SSG prerenders pages
-for SEO.
+| | |
+|---|---|
+| Tables | 63 (62 `DbSet`s + the `edition_genres` join) |
+| Migrations | 148 in the repo, `20251217180704_Initial_WorkEdition_Admin` → `20261024202404_TranslateRegistryOnGpt41Mini`; **147 applied in production** — `20260219000000_AddSearchPerformanceIndexes` has no `.Designer.cs`, so EF never saw it ([#948](https://github.com/mrviduus/textstack/issues/948)) |
+| Indexes | 181 (145 `HasIndex` + keys + raw-SQL indexes) |
+| Site-scoped | 24 tables carry `site_id` + an EF query filter (single site forever, [ADR-007](adr/007-single-domain-consolidation.md)) |
+| Objects outside the EF model | extensions `pg_trgm`, `vector`; `get_fts_config()` + `chapters` search-vector trigger; generated `user_chapters.search_vector`; GiST trigram index on `lower(editions.title)` — all created by raw SQL in migrations |
+| Largest | `chapters` 2.6 GB · `llm_traces` 790 MB (3,852 rows) · `user_chapters` 131 MB · `lint_results` 30 MB |
 
-- `Work` — canonical title (just slug)
-- `Edition` — per-language version of a Work. Title, description, cover, SEO fields
-- `Chapter` — rendered HTML + plain text + FTS vector
-- `Author`, `EditionAuthor` — many-to-many
-- `Genre` — Edition ↔ Genre many-to-many via `edition_genres` (`Edition.Genres`)
-- `BookFile`, `BookAsset` — raw uploaded originals + derived covers
-- `IngestionJob` — async pipeline (upload → parse → chapters)
-- `AutoPublishJob`, `BookQualityJob`, `LintResult` — quality/autopublish pipelines
+## Status legend
 
-### 2. SEO + search
+| Status | Meaning |
+|---|---|
+| **Keep** | Live, no known problem |
+| **Clean** | Live; dead columns, redundant indexes or missing constraints to fix (listed in Notes) |
+| **Retire** | Dead or replaceable; drop in the cleanup |
+| **Decide** | Live but duplicated or questionable; needs a design decision before V2 |
+| **Site** | Goes away with the single-site cleanup |
 
-Supporting the discovery layer.
+Rows: exact `count(*)` in production on 2026-10-26 (`pg_stat_user_tables` estimates were stale — `chapters` read 0).
 
-- `SsgRebuildJob`, `SsgRebuildResult` — Puppeteer prerender queue
-- `SeoTemplate`, `SeoBackfillJob`, `SeoBackfillSettings` — admin SEO automation
-- `TextStackImport` — bulk import pipeline
+## Inventory
 
-Search has no table of its own: `chapters.search_vector` is maintained by a DB trigger
-(`search_documents` was dropped 2026-10-01).
+### Catalog — admin-curated public library, SEO, prerender
 
-### 3. Users + auth
+| # | Table | Purpose | Status | Notes | Rows |
+|---|---|---|---|---|---|
+| 1 | `sites` | The one site's settings | Site | Live: `primary_domain`, `default_language`, `indexing_enabled`, `sitemap_enabled` → config. Dead: `theme`, `ads_enabled`, `features_json` (sent to clients, never read) | 1 |
+| 2 | `site_domains` | Host → site lookup | Site | `is_primary` never read; unknown hosts already fall back to the one site | 4 |
+| 3 | `works` | Language-neutral book (slug only) | Decide | 1:1 with `editions` (1,433 each in prod); merge into `editions`. Possible duplicate-title upload collision (`AdminService.Upload.cs:52`) | 1,433 |
+| 4 | `editions` | A published book: title, cover, SEO fields, status | Clean | `source_edition_id` always null (+ index); `canonical_override` edited in admin, read nowhere | 1,433 |
+| 5 | `chapters` | Chapter HTML, plain text, `search_vector` (trigger) | Keep | `(edition_id, slug)` index not unique though slug is a lookup key | 40,722 |
+| 6 | `authors` | Author pages | Keep | `canonical_override` write-only (as editions); redundant `(site_id)` index | 725 |
+| 7 | `edition_authors` | Edition ↔ author, with order and role | Keep | `role` is always `Author` | 1,437 |
+| 8 | `genres` | Genre pages and filters | Keep | redundant `(site_id)` index | 58 |
+| 9 | `edition_genres` | Edition ↔ genre join (implicit) | Keep | EF default column names `editions_id`, `genres_id` | 2,134 |
+| 10 | `book_files` | Original catalog upload | Clean | `sha256` written, never read (+ index) | 22 |
+| 11 | `book_assets` | Inline images extracted from books | Clean | `kind` always `InlineImage`; `(edition_id)` index redundant | 5,011 |
+| 12 | `ingestion_jobs` | Catalog extraction queue | Clean | `work_id`, `source_edition_id` write-only copies (+ indexes) | 25 |
+| 13 | `lint_results` | Extraction lint findings | Retire | Written by the worker; no admin UI reads it | 18,380 |
+| 14 | `text_stack_imports` | Import provenance, Standard Ebooks dedupe | Keep | 1:1 with edition (inferred) — candidate for a column on `editions` | 1,409 |
+| 15 | `auto_publish_jobs` | SEO generate-and-publish queue | Decide | Overlaps `seo_backfill_jobs` | 2,993 |
+| 16 | `book_quality_jobs` | PDF content-quality cleanup queue | Clean | Edition XOR user book, no CHECK | 67 |
+| 17 | `seo_templates` | Versioned SEO prompt templates | Clean | Nothing stops two active rows for one (entity, field, language) | 24 |
+| 18 | `seo_backfill_jobs` | SEO generation audit trail | Keep | Polymorphic `entity_id`, no FK | 12 |
+| 19 | `seo_backfill_settings` | SEO poller knobs (one row) | Clean | `language_filter`, `entity_type_filter`, `ssg_rebuild_batch_minutes` editable, read by nothing | 1 |
+| 20 | `ssg_rebuild_jobs` | Prerender queue (`ssg-worker`) | Clean | `book/author/genre_slugs_json` always null, `mode` always Full, `timeout_ms` unused; finished jobs never purged | 11,659 |
+| 21 | `ssg_rebuild_results` | Per-route prerender result | Retire | No writer since 2026-01-23 (all rows are from that day); the admin page shows only those | 349 |
 
-End-users and their authentication primitives.
+### Accounts and access
 
-- **`User` — PII** (email, optional name, OAuth subject IDs)
-- `UserRefreshToken` — refresh tokens (random string, stored as-is)
-- `DeviceAuthorization` — MCP device-flow codes
-- `McpAccessKey` — `tsk_…` connect keys
-- `OAuthClient`, `OAuthAuthorizationRequest`, `OAuthGrant` — our OAuth AS for MCP ([ADR-017](adr/ADR-017-mcp-oauth-authorization-server.md))
-- `PasswordResetToken` — short-lived email reset
-- **`AdminUser` — PII** (email only)
-- `AdminRefreshToken`, `AdminSettings`
+| # | Table | Purpose | Status | Notes | Rows |
+|---|---|---|---|---|---|
+| 22 | `users` | Readers, incl. guests ([ADR-014](adr/ADR-014-guest-sessions.md)) | Keep | 310 of 357 are guests | 357 |
+| 23 | `user_refresh_tokens` | Reader sessions | Keep | Swept by `AdminRefreshTokenCleanupWorker` | 170 |
+| 24 | `admin_users` | Admin accounts | Decide | Second user table; candidate `users.role` | 1 |
+| 25 | `admin_refresh_tokens` | Admin sessions | Decide | Same shape as reader tokens, no reuse detection | 0 |
+| 26 | `password_reset_tokens` | Email reset codes | Clean | Never swept | 0 |
+| 27 | `device_authorizations` | MCP device-flow codes | Clean | Never swept | 4 |
+| 28 | `oauth_clients` | MCP OAuth clients ([ADR-017](adr/ADR-017-mcp-oauth-authorization-server.md)) | Keep | | 3 |
+| 29 | `oauth_authorization_requests` | Pending OAuth authorizations | Clean | `user_id` has no FK, survives account delete | 1 |
+| 30 | `oauth_grants` | MCP OAuth tokens | Clean | Expired and revoked rows never purged | 3 |
+| 31 | `mcp_access_keys` | `tsk_…` connect keys | Keep | Overlaps `oauth_grants` (both MCP bearers) | 1 |
+| 32 | `admin_settings` | Admin key/value settings | Keep | | 6 |
 
-### 4. User-uploaded books (parallel to catalog)
+### Personal library — user uploads and shelves
 
-Separate from admin catalog — each user has their own library.
+| # | Table | Purpose | Status | Notes | Rows |
+|---|---|---|---|---|---|
+| 33 | `user_books` | A user's uploaded book; also holds its reading progress | Clean | `suggested_tags_at` write-only; `is_read`/`read_at` duplicate `completed_at`; `(user_id)` index redundant | 96 |
+| 34 | `user_chapters` | Server-extracted chapters of an upload | Clean | `content_quality_score` write-only; `(user_book_id)` index redundant | 2,710 |
+| 35 | `user_book_files` | Original upload file | Clean | `(sha256)` index unused (column is the ETag — kept) | 96 |
+| 36 | `user_ingestion_jobs` | Upload extraction queue | Clean | `units_count` never read (to verify) | 100 |
+| 37 | `user_book_bookmarks` | Bookmarks in uploads | Decide | Same shape as `bookmarks` | 18 |
+| 38 | `user_libraries` | Catalog books a user saved | Decide | A personal book row could be the library entry | 246 |
+| 39 | `collections` | Personal shelves | Clean | `(user_id)` index redundant | 1 |
+| 40 | `book_collections` | Book on a shelf | Clean | `book_id` points at two tables (`book_type`), no FK, no CHECK; orphans already repaired once | 3 |
 
-- `UserBook` → `UserChapter`
-- `UserBookFile` — original upload (may hold filename; not PII)
-- `UserIngestionJob` — per-user async parse
-- `UserBookBookmark`
-- `UserLibrary` — User ↔ Edition favorites
-- `Collection`, `BookCollection` — user shelves; `BookCollection.BookType` is `userbook` | `savedbook` (polymorphic, no FK to the book)
+### Reading — position, annotations, activity
 
-### 5. Reading engagement
+| # | Table | Purpose | Status | Notes | Rows |
+|---|---|---|---|---|---|
+| 41 | `reading_progresses` | Position in a catalog book | Decide | Uploads keep progress on `user_books` instead; legacy `locator` (`scroll:<slug>:<px>`) next to `position_json` | 435 |
+| 42 | `bookmarks` | Bookmarks in catalog books | Decide | No unique key; twin of `user_book_bookmarks` | 9 |
+| 43 | `highlights` | Highlights + their note text, catalog or upload | Clean | Edition-or-upload keys, no CHECK; SET NULL can leave a highlight with no book | 39 |
+| 44 | `notes` | Standalone notes | Retire | No writer anywhere; `highlights.note_text` holds notes | 0 |
+| 45 | `reading_sessions` | Reading time for stats and streaks | Clean | Same edition-or-upload keys without CHECK | 587 |
+| 46 | `reading_goals` | Daily/yearly goal | Clean | `(user_id, site_id)` index redundant | 1 |
+| 47 | `user_achievements` | Unlocked achievements | Clean | `(user_id, site_id)` index redundant | 154 |
+| 48 | `book_insight` | Assistant conclusions + chapter reviews ([ADR-016](adr/ADR-016-chapter-review-lives-in-book-insight.md)) | Keep | Well constrained. First table moved to Dapper | 7 |
+| 49 | `review_question` | Self-check questions, own SRS queue | Keep | | 11 |
 
-What users do while reading. Drives stats, achievements, offline sync.
+### Vocabulary and tutor
 
-- `ReadingProgress` — per-book position
-- `ReadingSession` — time-boxed session (30s heartbeat, duration, words read)
-- `ReadingGoal` — daily_minutes / books_per_year target
-- `UserAchievement` — 20 achievements (milestones/streaks)
-- `Bookmark`, `Highlight`, `Note` — annotations
-- `BookInsight` — one assistant conclusion per (user, book, chapter); `ReviewJson` holds the chapter review ([ADR-016](adr/ADR-016-chapter-review-lives-in-book-insight.md))
-- `ReviewQuestion` — self-check questions from chapter reviews, own SRS queue
-- `UserVocabularySettings`
+| # | Table | Purpose | Status | Notes | Rows |
+|---|---|---|---|---|---|
+| 50 | `vocabulary_words` | Saved words + SRS state | Clean | `(user_id, site_id)` index redundant; `embedding vector(1536)` | 1,824 |
+| 51 | `vocabulary_reviews` | Each review answer | Keep | | 461 |
+| 52 | `user_vocabulary_settings` | Per-user vocabulary settings | Keep | | 0 |
+| 53 | `pending_vocabulary_words` | Saves over the daily cap | Decide | Same columns as `vocabulary_words` | 0 |
+| 54 | `word_lookups` | Tapped rare words | Decide | Same columns again + `tap_count` | 65 |
+| 55 | `word_frequencies` | Zipf word frequencies | Retire | Copied from an embedded `.gz` at startup, read back whole; read the file directly | 20,000 |
+| 56 | `word_clusters` | Book and concept groups of saved words | Keep | Concept clusters need pgvector + embeddings | 100 |
+| 57 | `tutor_session` | Learning-tutor state between turns | Clean | Finished sessions never deleted → delete 90 days after finish | 6 |
 
-### 6. Vocabulary SRS
+### AI operations
 
-Spaced-repetition language learning layer.
+| # | Table | Purpose | Status | Notes | Rows |
+|---|---|---|---|---|---|
+| 58 | `llm_traces` | LLM call traces (cost, latency, text) | Clean | No retention: 790 MB, 755 MB of it `messages_json`; prompts outlive a deleted account (SET NULL) | 3,852 |
+| 59 | `agent_run` | Agent run steps | Clean | Same retention and account-delete gap | 104 |
+| 60 | `shadow_runs` | Primary vs shadow model comparisons | Retire | Off by default; admin page only | 0 |
+| 61 | `models` | Model registry, live routing | Decide | Duplicates config `Ai:Routes` | 8 |
+| 62 | `model_promotions` | Promote/rollback history | Decide | Goes with `models` | 0 |
+| 63 | `eval_runs` | Eval score history | Decide | Depends on the admin AI-quality page | 34 |
 
-- `VocabularyWord` — saved word + LLM-generated distractors/hint/explanation + SRS state (stage, interval)
-- `VocabularyReview` — each answer event (correct, time, mode)
-- `PendingVocabularyWord` — saves over the daily cap; `DailyCapReconcilerWorker` promotes them into `VocabularyWord` later
-- `WordLookup` — tapped rare words kept out of SRS until tapped again
-- `WordFrequency` — Zipf frequency reference data (loaded at startup)
-- `WordCluster` — groups of saved words (book / concept clusters; concept clustering uses `VocabularyWord.Embedding`, pgvector)
-- `TutorSession` — Learning Tutor state between turns
+**Count by status:** Keep 17 · Clean 26 · Retire 5 · Decide 13 · Site 2.
 
-### 7. AI ops (model gateway, evals)
+## Core relationships
 
-- `LlmTrace` — sampled LLM call traces (cost, latency)
-- `ShadowRun` — primary vs shadow model comparisons
-- `ModelRegistration` (table `models`), `ModelPromotion` — model registry + promote/rollback
-- `EvalRun` — eval score history
-- `AgentRun` — persisted agent run steps
-
-### 8. Multisite (legacy — single-site permanent, ADR-007)
-
-- `Site`, `SiteDomain` — still resolved per request; `ISiteScoped` entities carry `SiteId` and get
-  an EF global query filter on `ICurrentSite.Id` (see [multisite.md](multisite.md))
-
-## Ownership graph (high-level)
-
+```mermaid
+erDiagram
+    users ||--o{ user_books : uploads
+    user_books ||--o{ user_chapters : "split into"
+    user_books ||--o{ user_book_files : original
+    user_books ||--o{ user_book_bookmarks : has
+    users ||--o{ user_libraries : saves
+    editions ||--o{ user_libraries : "saved as"
+    works ||--o{ editions : "published as"
+    editions ||--o{ chapters : contains
+    users ||--o{ reading_progresses : tracks
+    editions ||--o{ reading_progresses : "position in"
+    users ||--o{ bookmarks : places
+    users ||--o{ highlights : makes
+    editions |o--o{ highlights : "in catalog book"
+    user_books |o--o{ highlights : "in upload"
+    users ||--o{ book_insight : concludes
+    users ||--o{ vocabulary_words : saves
+    vocabulary_words ||--o{ vocabulary_reviews : "reviewed in"
+    users ||--o{ collections : owns
+    collections ||--o{ book_collections : holds
 ```
-Site ─┬─ Work ── Edition ─┬─ Chapter
-      │                    ├─ EditionAuthor ─ Author
-      │                    └─ edition_genres ─ Genre (M:N)
-      │
-      ├─ User ─┬─ UserRefreshToken
-      │       ├─ UserLibrary ─ Edition (favorites)
-      │       ├─ ReadingProgress, ReadingSession, ReadingGoal, UserAchievement
-      │       ├─ Bookmark, Highlight, Note            (on Chapter)
-      │       ├─ VocabularyWord → VocabularyReview
-      │       └─ UserBook ─┬─ UserChapter
-      │                    ├─ UserBookFile
-      │                    ├─ UserBookBookmark
-      │                    └─ UserIngestionJob
-      │
-      └─ AdminUser ─ AdminRefreshToken
-```
+
+Two parallel reading models exist side by side: catalog books (`editions` → `reading_progresses`,
+`bookmarks`) and uploads (`user_books` with progress columns, `user_book_bookmarks`). `highlights`
+and `reading_sessions` serve both through nullable edition-or-upload keys.
 
 ## PII / GDPR map
 
-Tables that hold personal data, for data-flow / subject-access-request
-planning.
-
 | Table | Fields | Notes |
 |-------|--------|-------|
-| `User` | email, name?, google_subject?, apple_subject?, last_active_at | Primary PII |
-| `AdminUser` | email | Internal staff accounts |
-| `UserRefreshToken` | user_id + token (plain) | Session binding |
-| `AdminRefreshToken` | admin_user_id + cookie hash | Session binding |
-| `PasswordResetToken` | user_id + short-lived token hash | Auto-expires |
-| `ReadingSession`, `ReadingProgress`, `ReadingGoal`, `UserAchievement` | user_id FK | Activity, behavioural |
-| `VocabularyWord`, `VocabularyReview`, `UserVocabularySettings` | user_id FK | Learning patterns |
-| `Bookmark`, `Highlight`, `Note`, `BookInsight`, `ReviewQuestion` | user_id FK | Reading annotations, assistant output |
-| `McpAccessKey`, `OAuthGrant`, `DeviceAuthorization` | user_id FK | Credentials |
-| `LlmTrace`, `ShadowRun` | prompt/response text (PII-scrubbed before write) | AI observability |
-| `UserBook`, `UserChapter`, `UserBookFile`, `UserBookBookmark`, `UserLibrary`, `UserIngestionJob` | user_id FK | User-uploaded content + library |
+| `users` | email, name?, google_subject?, apple_subject?, last_active_at | Primary PII |
+| `admin_users` | email | Staff accounts |
+| `user_refresh_tokens`, `admin_refresh_tokens`, `password_reset_tokens` | user id + token hash | Sessions, reset codes |
+| `reading_sessions`, `reading_progresses`, `reading_goals`, `user_achievements` | user_id | Behavioural |
+| `vocabulary_words`, `vocabulary_reviews`, `user_vocabulary_settings`, `tutor_session` | user_id | Learning patterns |
+| `bookmarks`, `highlights`, `notes`, `book_insight`, `review_question` | user_id | Annotations, assistant output |
+| `mcp_access_keys`, `oauth_grants`, `device_authorizations`, `oauth_authorization_requests` | user id | Credentials |
+| `llm_traces`, `agent_run`, `shadow_runs` | prompt/response text (scrubbed before write) | **Kept after account delete** (SET NULL) — fix tracked in the cleanup |
+| `user_books`, `user_chapters`, `user_book_files`, `user_book_bookmarks`, `user_libraries`, `user_ingestion_jobs` | user_id | Uploaded content + library |
 
-**Guest users**: `User` rows with `is_guest = true` ([ADR-014](adr/ADR-014-guest-sessions.md)).
-`GuestCleanupWorker` runs every 2 h and deletes guests inactive 30 days **that hold nothing durable**
-(vocab, highlights, bookmarks, library, uploads, notes, progress). Engaged guests are kept.
+**Guest users**: `users.is_guest = true`. `GuestCleanupWorker` (every 2 h) deletes guests inactive
+30 days that hold nothing durable. **Account deletion**: `DELETE /me/account` (`AccountEndpoints.cs`)
+removes the `users` row and relies on FK cascades.
 
-**Account deletion**: self-service hard delete, `DELETE /me/account` (`AccountEndpoints.cs`,
-rate-limited, refuses OAuth tokens).
+## Enums stored as integers
 
-## Migrations
+Raw SQL and `infra/scripts` hard-code these numbers — changing or reordering a value is a data
+migration. Only 8 enums are stored as text (the house style for new enum columns): `UserTier`,
+`AuthorRole`, `AssetKind`, `LintSeverity`, `SsgRebuildJobStatus`, `SsgRebuildMode`, `ModelStatus`,
+`PromotionAction`. Everything below is an integer column.
 
-- Count: 138. Not all additive: e.g. `RemoveAdminAuditLog` (2026-01-22), `DropSearchDocuments` (2026-10-01).
-- Tool: `dotnet ef migrations add <Name> --project backend/src/Infrastructure --startup-project backend/src/Api`
-- Rollback all: `docker compose run --rm -e MIGRATE_TARGET=0 migrator`
-- Migrator runs as one-shot container in prod compose; `api` waits on
-  `service_completed_successfully`. It is the only thing that migrates
-  ([ADR-021](adr/ADR-021-migrations-owned-by-the-migrator.md)); a schema behind the Api's build shows as
-  `/health/ready` 503 (`components.schema`).
+```csharp
+EditionStatus            { Draft=0, Published=1, Hidden=2 }
+BookFormat               { Epub=0, Pdf=1, Fb2=2 /* legacy: one row still references it */, Html=3, Other=99 }
+JobStatus                { Queued=0, Processing=1, Succeeded=2, Failed=3 }
+UserBookStatus           { Processing=0, Ready=1, Failed=2 }
+AdminRole                { Admin=0, Editor=1, Moderator=2 }
+MetadataEnrichmentStatus { NotStarted=0, Pending=1, Running=2, Completed=3, Failed=4 }
+AutoPublishJobStatus     { Queued=0, Running=1, GeneratingSeo=2, AwaitingReview=3, Publishing=4, Completed=5, Failed=6, Cancelled=7 }
+BookQualityJobStatus     { Queued=0, Validating=1, Fixing=2, Completed=3, Failed=4, Cancelled=5 }
+SeoJobStatus             { Queued=0, Running=1, NeedsReview=2, Success=3, Failed=4, Reverted=5 }
+SeoEntityType            { Author=0, Edition=1, Genre=2 }
+SeoFieldType             { Bio=0, Description=1, Relevance=2, Themes=3, Faqs=4, SeoTitle=5, SeoDescription=6 }
+SeoSource                { Manual=0, Auto=1, Hybrid=2 }
+SeoTrustLevel            { Manual=0, Review=1, Auto=2 }
+```
+
+## Migrations (today)
+
+EF Core migrations, applied only by the `migrator` container
+([ADR-021](adr/ADR-021-migrations-owned-by-the-migrator.md)); a schema behind the Api's build shows
+as `/health/ready` 503. Being replaced by plain SQL `up`/`down` files under `database/` — see #926.
 
 ## See also
 
-- [CLAUDE.md](../../CLAUDE.md#key-concepts) — entity descriptions + workflows
-- [backend/src/Domain/Entities/](../../backend/src/Domain/Entities/) — C# records
-- [docs/01-architecture/multisite.md](multisite.md) — site resolution (ADR-007)
-- [docs/03-ops/backup.md](../03-ops/backup.md) — backup + restore drill
+- [multisite.md](multisite.md) — site resolution (ADR-007)
+- [../03-ops/backup.md](../03-ops/backup.md) — backup + restore drill
