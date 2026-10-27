@@ -16,7 +16,7 @@ changes its row here.
 | Migrations | SQL since 2026-10-26: `0000_baseline` stands for the 147 EF Core migrations production had applied (`20251217180704_Initial_WorkEdition_Admin` → `20261024202404_TranslateRegistryOnGpt41Mini`), which were then deleted. The 148th, `20260219000000_AddSearchPerformanceIndexes`, had no `.Designer.cs` and never ran; its indexes turned out unusable by search, closed not-planned ([#948](https://github.com/mrviduus/textstack/issues/948)) |
 | SQL baseline | [`database/migrations/0000_baseline.up.sql`](../../database/migrations/0000_baseline.up.sql): this whole schema, grouped and numbered as below, + seed rows ([#931](https://github.com/mrviduus/textstack/issues/931)); builds a schema identical to production |
 | Ledger | `schema_migrations` (not in the inventory: the runner's, not the app's). EF Core's `__EFMigrationsHistory` dropped by `0001` ([#961](https://github.com/mrviduus/textstack/issues/961)) |
-| Indexes | 174 after `0002` (baseline 181: keys + raw-SQL indexes + 145 `HasIndex`, 139 since `0002`) |
+| Indexes | 173 after `0003` (baseline 181: keys + raw-SQL indexes + 145 `HasIndex`, 138 now) |
 | Site-scoped | 24 tables carry `site_id` + an EF query filter (single site forever, [ADR-007](adr/007-single-domain-consolidation.md)) |
 | Objects outside the EF model | extensions `pg_trgm`, `vector`; `get_fts_config()` + `chapters` search-vector trigger; generated `user_chapters.search_vector` — in the baseline like everything else. The GiST trigram index on `lower(editions.title)` was dropped by `0002` (no query used it, #948) |
 | Largest | `chapters` 2.6 GB · `llm_traces` 790 MB (3,852 rows) · `user_chapters` 131 MB · `lint_results` 30 MB |
@@ -48,7 +48,7 @@ Rows: exact `count(*)` in production on 2026-10-26 (`pg_stat_user_tables` estima
 | 7 | `edition_authors` | Edition ↔ author, with order and role | Keep | `role` is always `Author` | 1,437 |
 | 8 | `genres` | Genre pages and filters | Keep | redundant `(site_id)` index | 58 |
 | 9 | `edition_genres` | Edition ↔ genre join (implicit) | Keep | EF default column names `editions_id`, `genres_id` | 2,134 |
-| 10 | `book_files` | Original catalog upload | Clean | `sha256` written, never read (index dropped, `0002`) | 22 |
+| 10 | `book_files` | Original catalog upload | Clean | `sha256` no longer written or mapped (#937): old rows keep stale hashes, new rows null, until the column is dropped next; index dropped `0002` | 22 |
 | 11 | `book_assets` | Inline images extracted from books | Clean | `kind` always `InlineImage`; `(edition_id)` index dropped (`0002`) | 5,011 |
 | 12 | `ingestion_jobs` | Catalog extraction queue | Clean | `work_id`, `source_edition_id` write-only copies (+ indexes) | 25 |
 | 13 | `lint_results` | Extraction lint findings | Retire | Written by the worker; no admin UI reads it | 18,380 |
@@ -108,7 +108,7 @@ Rows: exact `count(*)` in production on 2026-10-26 (`pg_stat_user_tables` estima
 
 | # | Table | Purpose | Status | Notes | Rows |
 |---|---|---|---|---|---|
-| 50 | `vocabulary_words` | Saved words + SRS state | Clean | `(user_id, site_id)` index redundant; `embedding vector(1536)` | 1,824 |
+| 50 | `vocabulary_words` | Saved words + SRS state | Clean | `(user_id, site_id)` index dropped (`0003`); `embedding vector(1536)` | 1,824 |
 | 51 | `vocabulary_reviews` | Each review answer | Keep | | 461 |
 | 52 | `user_vocabulary_settings` | Per-user vocabulary settings | Keep | | 0 |
 | 53 | `pending_vocabulary_words` | Saves over the daily cap | Decide | Same columns as `vocabulary_words` | 0 |

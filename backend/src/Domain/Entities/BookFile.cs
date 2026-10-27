@@ -9,7 +9,6 @@ public class BookFile
     public required string OriginalFileName { get; set; }
     public required string StoragePath { get; set; }
     public BookFormat Format { get; set; }
-    public string? Sha256 { get; set; }
     public DateTimeOffset UploadedAt { get; set; }
 
     public Edition Edition { get; set; } = null!;
