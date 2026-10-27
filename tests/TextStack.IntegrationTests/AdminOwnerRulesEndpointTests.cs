@@ -134,4 +134,39 @@ public class AdminOwnerRulesEndpointTests : IClassFixture<AuthenticatedApiFixtur
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
+
+    [Fact]
+    public async Task UpdateSeoTemplate_OlderVersion_Returns409AndRevivedKeyKeepsNumbering()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        // A key of its own: a random language code no real template uses.
+        var body = new
+        {
+            entityType = "Genre",
+            fieldType = "Description",
+            languageCode = $"t{Guid.NewGuid():N}"[..8],
+            name = "stale-edit",
+            promptTemplate = "x",
+            outputSchema = "{}",
+        };
+        async Task<(Guid Id, int Version)> Read(HttpResponseMessage r)
+        {
+            Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+            var json = await r.Content.ReadFromJsonAsync<JsonElement>(ct);
+            return (json.GetProperty("id").GetGuid(), json.GetProperty("version").GetInt32());
+        }
+
+        var v1 = await Read(await SendAdminAsync(HttpMethod.Post, "/admin/seo/templates", body, ct));
+        var v2 = await Read(await SendAdminAsync(HttpMethod.Put, $"/admin/seo/templates/{v1.Id}", body, ct));
+
+        var stale = await SendAdminAsync(HttpMethod.Put, $"/admin/seo/templates/{v1.Id}", body, ct);
+        Assert.Equal(HttpStatusCode.Conflict, stale.StatusCode);
+
+        Assert.Equal(HttpStatusCode.OK,
+            (await SendAdminAsync(HttpMethod.Delete, $"/admin/seo/templates/{v2.Id}", null, ct)).StatusCode);
+        var revived = await Read(await SendAdminAsync(HttpMethod.Post, "/admin/seo/templates", body, ct));
+        await SendAdminAsync(HttpMethod.Delete, $"/admin/seo/templates/{revived.Id}", null, ct);
+
+        Assert.Equal((1, 2, 3), (v1.Version, v2.Version, revived.Version));
+    }
 }
