@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Queue a Full SSG rebuild and follow it until it ends. `make rebuild-ssg` runs this on the server.
 #
-# It goes through the job queue — the same POST the nightly backup makes — so ssg-worker renders it
+# It goes through the job queue — the same POST the admin button makes — so ssg-worker renders it
 # with all of its guards (survival floor, carry-forward of failed routes, stall detection, Sentry).
 # Ctrl-C stops following, not the job. Exit 0 only when a job that read its routes after this call
 # ends Completed.

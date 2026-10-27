@@ -316,7 +316,7 @@ public partial class AdminService
         edition.PublishedAt = DateTimeOffset.UtcNow;
         edition.UpdatedAt = DateTimeOffset.UtcNow;
 
-        // No SSG enqueue (ADR-023): crawlers see the change after the nightly Full rebuild.
+        // No SSG enqueue (ADR-023): crawlers see the change after the next manual Full rebuild (no nightly since #992).
         await db.SaveChangesAsync(ct);
         return (true, null);
     }

@@ -41,7 +41,7 @@ flowchart TD
   W --> P[pull name@digest, tag :sha<br/>no digest / pull fails → build on server]
   P --> UP[compose up → migrator → api, worker, …]
   UP --> H[health: API, containers, frontend, MCP, SEO]
-  H --> SSG[SSG content check<br/>full rebuild nightly or on rebuild_ssg]
+  H --> SSG[SSG content check<br/>full rebuild only on rebuild_ssg (frozen, #992)]
 
   OTA --> FP{runtime matches<br/>production build?}
   FP -->|yes| SCAN[export with EAS env → scan bundle] --> PUB[eas update]

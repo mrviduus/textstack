@@ -301,8 +301,9 @@ app.MapGet("/health/ready", async (AppDbContext db, IHttpClientFactory httpFacto
     // renders fine. Each was found by a person eventually noticing.
     //
     // Reported, never fatal: stale pages are an SEO problem, not a reason to
-    // fail a probe that gates traffic. The alarm lives in health-check.yml,
-    // which reads this.
+    // fail a probe that gates traffic. health-check.yml reads this and alarms
+    // on a failed last run only: the tree is frozen (#992), so its age is
+    // reported, not alarmed.
     try
     {
         var newest = await db.SsgRebuildJobs

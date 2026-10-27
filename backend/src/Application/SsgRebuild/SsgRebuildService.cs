@@ -129,8 +129,8 @@ public class SsgRebuildService : ISsgJobService
     {
         // A Queued Full covers this call: ssg-worker has not read its routes yet. A Running one blocks
         // too: re-rendering every route right after it is wasted work (~20 min, ~2000 IndexNow URLs),
-        // and an edit made during the run waits for the next nightly — or the admin "New Rebuild"
-        // button, which creates a job without this check. `make rebuild-ssg` waits it out and asks again.
+        // and an edit made during the run waits for the next manual rebuild (no nightly since #992) — the admin
+        // "New Rebuild" button, which creates a job without this check. `make rebuild-ssg` waits it out and asks again.
         if (await _db.SsgRebuildJobs.AnyAsync(j =>
                 j.Status == SsgRebuildJobStatus.Queued || j.Status == SsgRebuildJobStatus.Running, ct))
             return null;
