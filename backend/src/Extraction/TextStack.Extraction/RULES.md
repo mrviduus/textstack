@@ -1,6 +1,6 @@
 # TextStack Text Processing Rules
 
-This document describes all transformation and lint rules in the text processing pipeline.
+This document describes all transformation rules in the text processing pipeline.
 
 ## Pipeline Order
 
@@ -15,7 +15,6 @@ This document describes all transformation and lint rules in the text processing
    └── Currency.NormalizeCurrency()
 4. SemanticProcessor.Semanticate()
    └── Abbreviations.MarkupExtendedAbbreviations()
-5. Linter (quality checks)
 ```
 
 ---
@@ -275,60 +274,6 @@ Abbreviations at end of sentence get `class="eoc"`:
 ```html
 <abbr class="eoc">etc.</abbr>
 ```
-
----
-
-## 5. Lint Rules
-
-### 5.1 Typography Rules
-
-| Code | Severity | Description | Pattern |
-|------|----------|-------------|---------|
-| T001 | Warning | Straight quotes found | `"` or `'` outside HTML tags |
-| T002 | Warning | Wrong dash type | Spaced hyphen or `--` |
-| T003 | Info | Multiple spaces | 2+ consecutive spaces |
-
-### 5.2 Markup Rules
-
-| Code | Severity | Description | Pattern |
-|------|----------|-------------|---------|
-| X001 | Info | Empty tag | `<p></p>`, `<span></span>`, etc. |
-
-### 5.3 Encoding Rules
-
-| Code | Severity | Description | Pattern |
-|------|----------|-------------|---------|
-| M001 | Error | Mojibake detected | `â€™`, `Ã©`, `Â£`, etc. |
-| U001 | Warning/Error | Unusual character | Control chars, PUA, zero-width |
-
-**Mojibake patterns (UTF-8 as Latin-1):**
-- `â€™` → apostrophe
-- `â€œ` → left double quote
-- `â€"` → em dash
-- `Ã©` → é
-- `Â£` → £
-- `ï»¿` → BOM
-- `�` (U+FFFD) → replacement character
-
-**Unusual characters:**
-- Control characters (U+0000-U+001F except tab/newline)
-- Zero-width characters (U+200B, U+200C, U+200D, U+FEFF)
-- Soft hyphen (U+00AD)
-- Private Use Area (U+E000-U+F8FF)
-- Various unusual spaces (U+2000-U+200A, U+202F, U+205F)
-
-### 5.4 Spelling Rules
-
-| Code | Severity | Description | Pattern |
-|------|----------|-------------|---------|
-| S001 | Info | Archaic/British spelling | connexion, shew, gaol, grey, etc. |
-
-**Flagged spellings (not auto-fixed, need review):**
-- connexion, reflexion, shew, gaol, despatch, burthen
-- clew (nautical), waggon, behove
-- grey, storey, gantlet, enquire
-- encyclopaedia, aeon, foetus
-- mould, smoulder, plough, draught
 
 ---
 

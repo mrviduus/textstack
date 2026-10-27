@@ -181,8 +181,8 @@ deletes the user's agent runs, device codes and pending OAuth requests, then the
 ## Enums stored as integers
 
 Raw SQL and `infra/scripts` hard-code these numbers — changing or reordering a value is a data
-migration. Only 8 enums are stored as text (the house style for new enum columns): `UserTier`,
-`AuthorRole`, `AssetKind`, `LintSeverity`, `SsgRebuildJobStatus`, `SsgRebuildMode`, `ModelStatus`,
+migration. Only 7 enums are stored as text (the house style for new enum columns): `UserTier`,
+`AuthorRole`, `AssetKind`, `SsgRebuildJobStatus`, `SsgRebuildMode`, `ModelStatus`,
 `PromotionAction`. Everything below is an integer column.
 
 ```csharp
