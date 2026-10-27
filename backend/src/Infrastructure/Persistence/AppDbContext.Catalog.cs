@@ -79,7 +79,6 @@ public partial class AppDbContext
         modelBuilder.Entity<BookFile>(e =>
         {
             e.HasIndex(x => x.EditionId);
-            e.HasIndex(x => x.Sha256);
             e.HasOne(x => x.Edition).WithMany(x => x.BookFiles).HasForeignKey(x => x.EditionId).OnDelete(DeleteBehavior.Cascade);
         });
 
@@ -152,7 +151,6 @@ public partial class AppDbContext
         // BookAsset — extracted images/etc tied to an edition.
         modelBuilder.Entity<BookAsset>(e =>
         {
-            e.HasIndex(x => x.EditionId);
             e.HasIndex(x => new { x.EditionId, x.OriginalPath }).IsUnique();
             e.Property(x => x.Kind).HasConversion<string>().HasMaxLength(20);
             e.Property(x => x.OriginalPath).HasMaxLength(500);
