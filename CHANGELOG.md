@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Search** — migration `0002`: title and author `LIKE` search use GIN trigram indexes (the never-run EF migration's indexes, minus `editions (site_id, status)`) (#948) — infra · [details](docs/changelog-archive/2026-H2.md#2026-10-27-search-trigram-indexes)
 - **Infra** — migration `0001` drops EF Core's `__EFMigrationsHistory` (down restores its 147 rows); `make migrate` mounts the checkout's `database/`, so new SQL runs without rebuilding the image (#961) — infra · [details](docs/changelog-archive/2026-H2.md#2026-10-26-drop-ef-history)
 - **Infra** — the migrator runs `database/migrate.sh` (22 MB alpine + psql); `/health/ready` reads the `schema_migrations` ledger; rollback is `make migrate-down V=n`; the 148 EF migrations, `AppDbContextFactory` and `MigrationPolicy` are deleted; ADR-026 (#931) — backend, infra · [details](docs/changelog-archive/2026-H2.md#2026-10-26-migrator-on-sql)
 - **Infra** — `database/`: plain SQL migrations, a psql runner (ledger, checksums, rollback) and a baseline that builds the production schema exactly; CI round trip + EF drift guard; production still migrates with EF until the next PR (#931) — backend, infra · [details](docs/changelog-archive/2026-H2.md#2026-10-26-sql-migrations-runner)
