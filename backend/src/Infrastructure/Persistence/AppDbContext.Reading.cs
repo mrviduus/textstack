@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore;
 namespace Infrastructure.Persistence;
 
 /// <summary>
-/// Per-user reading interactions: progress, bookmarks, notes, highlights,
+/// Per-user reading interactions: progress, bookmarks, highlights,
 /// session telemetry, goals, and achievements.
 /// </summary>
 public partial class AppDbContext

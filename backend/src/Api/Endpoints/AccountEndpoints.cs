@@ -24,7 +24,7 @@ public static class AccountEndpoints
     /// Hard-deletes the authenticated user and ALL data linked to them.
     ///
     /// Strategy: every user-owned entity has a configured FK to <c>users</c>.
-    /// Owned data (library, progress, bookmarks, notes, highlights, reading
+    /// Owned data (library, progress, bookmarks, highlights, reading
     /// sessions / goals / achievements, vocabulary words+reviews+settings+
     /// pending+lookups+clusters, user books → chapters/files/ingestion jobs/
     /// bookmarks/chunks/quality jobs, collections → book-collections, refresh

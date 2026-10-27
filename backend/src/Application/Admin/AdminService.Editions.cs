@@ -276,7 +276,7 @@ public partial class AdminService
             return (false, "Cannot delete published edition. Unpublish first.");
 
         // Chapters go by the database's edition cascade, in the same statement as the readers'
-        // progress/bookmarks/notes — deleting them first would trip those rows' NO ACTION FKs.
+        // progress/bookmarks — deleting them first would trip those rows' NO ACTION FKs.
         db.BookFiles.RemoveRange(edition.BookFiles);
 
         // Delete ingestion jobs

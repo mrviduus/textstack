@@ -516,7 +516,7 @@ public static class ChapterReconciler
     /// <summary>
     /// Marks <paramref name="chapter"/> for deletion after moving its readers to
     /// <paramref name="successorId"/> (default: the nearest chapter before it, else after it).
-    /// Required: progress/bookmark/note FKs are NO ACTION, so a bare delete of a chapter someone
+    /// Required: progress/bookmark FKs are NO ACTION, so a bare delete of a chapter someone
     /// reads fails instead of silently taking their data with it. Call inside a transaction —
     /// the re-point runs immediately, the delete on the caller's SaveChanges. Returns the successor,
     /// or null when the edition has no other chapter.
