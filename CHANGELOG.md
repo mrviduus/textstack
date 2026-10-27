@@ -25,7 +25,6 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 - **Admin** — editing an SEO template that is not its key's active version returns 409 instead of replacing the newer one; create numbers a revived key max+1 instead of v1 again (#984) — backend
 - **Infra** — one Postgres violation helper (unique, FK, class 23; wrapped or bare), one `ForKey`/`ActiveForKey` query for the SEO template key; no behavior change (#987, #988) — backend
-- **Library** — a deleted book's highlights keep its title (`highlights.book_title`, migration `0014`, backfilled) and All highlights shows "<title> (deleted)" (#982) — backend, web, mobile, infra
 - **Library** — a deleted book's highlights keep its title (`highlights.book_title`, written on book delete, migration `0014`) and All highlights shows "<title> (deleted)" (#982) — backend, web, mobile, infra
 - **Infra** — migration `0013`: CHECK a highlight's chapter id matches its owner's kind (catalog chapter ↔ edition, upload chapter ↔ user book) (#989) — infra
 - **Infra** — admin integration tests log in as admin (one shared login) and fail in CI without a session instead of skipping; CI creates the admin first (#990) — infra
