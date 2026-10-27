@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Admin** — SEO template create/edit with a missing required field returns 400, quality-job create for an unknown book 404 (were 500) (#985, #986) — backend
 - **Infra** — migration `0012`: CHECK at most one owner on `highlights`/`reading_sessions` (deleted book → kept, no owner), exactly one on `book_quality_jobs`, `book_collections.book_type` values; one active SEO template per key (unique index) (#939) — infra · [details](docs/changelog-archive/2026-H2.md#2026-10-27-owner-and-enum-checks)
 - **Backend** — reading sessions and quality jobs refuse both an edition and an upload, highlights mixed chapter ids (400); a second active SEO template for a key is refused (409) and edit deactivates before it inserts — ahead of `0012`'s CHECKs (#939) — backend · [details](docs/changelog-archive/2026-H2.md#2026-10-27-owner-and-enum-checks)
 - **Infra** — migration `0011` drops the 13 dead columns and their 3 indexes and 3 FKs; refuses if one was written after the code stopped (#937) — infra · [details](docs/changelog-archive/2026-H2.md#2026-10-27-stop-writing-dead-columns)

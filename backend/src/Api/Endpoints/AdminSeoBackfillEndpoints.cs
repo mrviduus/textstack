@@ -122,6 +122,7 @@ public static class AdminSeoBackfillEndpoints
     private static async Task<IResult> CreateTemplate(
         [FromBody] UpsertTemplateRequest req, IAppDbContext db, CancellationToken ct)
     {
+        if (InvalidField(req, create: true) is { } invalid) return Results.BadRequest(new { error = invalid });
         if (!Enum.TryParse<SeoEntityType>(req.EntityType, true, out var et))
             return Results.BadRequest(new { error = "Unknown entityType" });
         if (!Enum.TryParse<SeoFieldType>(req.FieldType, true, out var ft))
@@ -133,7 +134,7 @@ public static class AdminSeoBackfillEndpoints
         var trust = SeoTrustLevel.Review;
         if (!string.IsNullOrWhiteSpace(req.TrustLevel) && Enum.TryParse<SeoTrustLevel>(req.TrustLevel, true, out var parsed)) trust = parsed;
 
-        var language = req.LanguageCode.ToLowerInvariant();
+        var language = req.LanguageCode.Trim().ToLowerInvariant();
         // One active template per key (ix_seo_templates_entity_type_field_type_language_code, #939): a second goes through Edit.
         if (await db.SeoTemplates.AnyAsync(t => t.EntityType == et && t.FieldType == ft
                 && t.LanguageCode == language && t.IsActive, ct))
@@ -168,6 +169,7 @@ public static class AdminSeoBackfillEndpoints
     private static async Task<IResult> UpdateTemplate(
         Guid id, [FromBody] UpsertTemplateRequest req, IAppDbContext db, CancellationToken ct)
     {
+        if (InvalidField(req, create: false) is { } invalid) return Results.BadRequest(new { error = invalid });
         // "Edit" creates a new Version — old one deactivated.
         var current = await db.SeoTemplates.FirstOrDefaultAsync(t => t.Id == id, ct);
         if (current is null) return Results.NotFound();
@@ -219,6 +221,24 @@ public static class AdminSeoBackfillEndpoints
         catch (DbUpdateException ex) when (UserDataEndpoints.IsUniqueViolation(ex)) { return ActiveTemplateConflict(); }
         await tx.CommitAsync(ct);
         return Results.Ok(new { next.Id, next.Version });
+    }
+
+    // The request record's non-nullable strings arrive null when the JSON leaves them out, and a
+    // value over its column's length (AppDbContext.Seo.cs) fails the insert: both were 500s.
+    // An edit keeps its template's key, so the key fields are checked on create only.
+    private static string? InvalidField(UpsertTemplateRequest req, bool create)
+    {
+        if (create && string.IsNullOrWhiteSpace(req.EntityType)) return "entityType is required";
+        if (create && string.IsNullOrWhiteSpace(req.FieldType)) return "fieldType is required";
+        if (create && string.IsNullOrWhiteSpace(req.LanguageCode)) return "languageCode is required";
+        if (string.IsNullOrWhiteSpace(req.Name)) return "name is required";
+        if (string.IsNullOrWhiteSpace(req.PromptTemplate)) return "promptTemplate is required";
+        if (string.IsNullOrWhiteSpace(req.OutputSchema)) return "outputSchema is required";
+        if (create && req.LanguageCode.Trim().Length > 8) return "languageCode is longer than 8";
+        if (req.Name.Trim().Length > 200) return "name is longer than 200";
+        if (req.Description?.Trim().Length > 500) return "description is longer than 500";
+        if (req.Model?.Length > 100) return "model is longer than 100";
+        return null;
     }
 
     private static IResult ActiveTemplateConflict() =>
