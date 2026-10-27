@@ -35,8 +35,13 @@ public class DeletedUploadTrailTests
     {
         var h = new Highlight
         {
-            Id = Guid.NewGuid(), UserId = userId ?? _userId, AnchorJson = "{}", Color = "yellow",
-            SelectedText = "x", DeletedBookSha256 = sha, DeletedChapterSlug = slug,
+            Id = Guid.NewGuid(),
+            UserId = userId ?? _userId,
+            AnchorJson = "{}",
+            Color = "yellow",
+            SelectedText = "x",
+            DeletedBookSha256 = sha,
+            DeletedChapterSlug = slug,
         };
         _highlights.Add(h);
         return h;
@@ -47,7 +52,7 @@ public class DeletedUploadTrailTests
     {
         var h = Ownerless("1-intro");
 
-        var (highlights, _, _) = await DeletedUploadTrail.ReattachAsync(_db, _book, Sha, default);
+        var (highlights, _, _) = await DeletedUploadTrail.ReattachAsync(_db, _book, Sha, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, highlights);
         Assert.Equal(_book.Id, h.UserBookId);
@@ -60,7 +65,7 @@ public class DeletedUploadTrailTests
     {
         var h = Ownerless(slug: null);
 
-        await DeletedUploadTrail.ReattachAsync(_db, _book, Sha, default);
+        await DeletedUploadTrail.ReattachAsync(_db, _book, Sha, TestContext.Current.CancellationToken);
 
         Assert.Equal(_book.Id, h.UserBookId);
         Assert.Null(h.UserChapterId);
@@ -71,7 +76,7 @@ public class DeletedUploadTrailTests
     {
         var h = Ownerless("9-gone");
 
-        await DeletedUploadTrail.ReattachAsync(_db, _book, Sha, default);
+        await DeletedUploadTrail.ReattachAsync(_db, _book, Sha, TestContext.Current.CancellationToken);
 
         Assert.Null(h.UserBookId);
         Assert.Equal(Sha, h.DeletedBookSha256);
@@ -83,7 +88,7 @@ public class DeletedUploadTrailTests
         var other = Ownerless("1-intro", userId: Guid.NewGuid());
         var otherFile = Ownerless("1-intro", sha: "different");
 
-        await DeletedUploadTrail.ReattachAsync(_db, _book, Sha, default);
+        await DeletedUploadTrail.ReattachAsync(_db, _book, Sha, TestContext.Current.CancellationToken);
 
         Assert.Null(other.UserBookId);
         Assert.Null(otherFile.UserBookId);
@@ -95,7 +100,7 @@ public class DeletedUploadTrailTests
         var s = new ReadingSession { Id = Guid.NewGuid(), UserId = _userId, DeletedBookSha256 = Sha };
         _sessions.Add(s);
 
-        var (_, sessions, _) = await DeletedUploadTrail.ReattachAsync(_db, _book, Sha, default);
+        var (_, sessions, _) = await DeletedUploadTrail.ReattachAsync(_db, _book, Sha, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, sessions);
         Assert.Equal(_book.Id, s.UserBookId);
@@ -108,14 +113,19 @@ public class DeletedUploadTrailTests
         _book.BookFiles = [new UserBookFile { Id = Guid.NewGuid(), Sha256 = Sha, OriginalFileName = "d.epub", StoragePath = "p" }];
         var h = new Highlight
         {
-            Id = Guid.NewGuid(), UserId = _userId, UserBookId = _book.Id, UserChapter = _chapters[0],
-            AnchorJson = "{}", Color = "yellow", SelectedText = "x",
+            Id = Guid.NewGuid(),
+            UserId = _userId,
+            UserBookId = _book.Id,
+            UserChapter = _chapters[0],
+            AnchorJson = "{}",
+            Color = "yellow",
+            SelectedText = "x",
         };
         _highlights.Add(h);
         var s = new ReadingSession { Id = Guid.NewGuid(), UserId = _userId, UserBookId = _book.Id };
         _sessions.Add(s);
 
-        await DeletedUploadTrail.Keep(_db, _book, default);
+        await DeletedUploadTrail.Keep(_db, _book, TestContext.Current.CancellationToken);
 
         Assert.Equal(("Dune", Sha, "1-intro"), (h.BookTitle, h.DeletedBookSha256, h.DeletedChapterSlug));
         Assert.Equal(Sha, s.DeletedBookSha256);
@@ -129,7 +139,7 @@ public class DeletedUploadTrailTests
         var clash = new ReadingSession { Id = Guid.NewGuid(), UserId = _userId, StartedAt = start, DeletedBookSha256 = Sha };
         _sessions.Add(clash);
 
-        var (_, sessions, skipped) = await DeletedUploadTrail.ReattachAsync(_db, _book, Sha, default);
+        var (_, sessions, skipped) = await DeletedUploadTrail.ReattachAsync(_db, _book, Sha, TestContext.Current.CancellationToken);
 
         Assert.Equal((0, 1), (sessions, skipped));
         Assert.Null(clash.UserBookId);
