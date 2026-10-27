@@ -13,6 +13,8 @@ public class Highlight : ISiteScoped
     public required string Color { get; set; }
     public required string SelectedText { get; set; }
     public string? NoteText { get; set; }
+    /// <summary>The book's title, written when the book is deleted (owner SET NULL) and shown from then on.</summary>
+    public string? BookTitle { get; set; }
     public int Version { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }

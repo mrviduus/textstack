@@ -440,6 +440,9 @@ public class UserBookService(IAppDbContext db, IFileStorageService storage, IEnt
 
         // Delete from database (cascade will handle related entities; collection rows have no FK)
         await CollectionService.RemoveFromAllCollectionsAsync(db, null, bookId, "userbook", ct);
+        // Its highlights stay, with no book (SET NULL): keep the title they were made in (#982).
+        foreach (var h in await db.Highlights.Where(h => h.UserBookId == bookId).ToListAsync(ct))
+            h.BookTitle = book.Title;
         db.UserBooks.Remove(book);
         await db.SaveChangesAsync(ct);
 

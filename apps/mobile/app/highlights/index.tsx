@@ -114,8 +114,9 @@ export default function HighlightsScreen() {
   const sections = useMemo<BookSection[]>(() => {
     const groups = new Map<string, { title: string; coverPath: string | null; items: HighlightListItem[] }>()
     for (const h of highlights) {
-      const bookKey = h.editionId || h.userBookId || '_none'
-      const bookTitle = h.editionTitle || h.userBookTitle || 'Unknown Book'
+      // A deleted book has no id left; its kept title tells its highlights apart from another's.
+      const bookKey = h.editionId || h.userBookId || (h.deletedBookTitle ? `deleted:${h.deletedBookTitle}` : '_none')
+      const bookTitle = h.editionTitle || h.userBookTitle || (h.deletedBookTitle ? `${h.deletedBookTitle} (deleted)` : 'Unknown Book')
       const coverPath = h.editionCoverPath || h.userBookCoverPath || null
       if (!groups.has(bookKey)) groups.set(bookKey, { title: bookTitle, coverPath, items: [] })
       groups.get(bookKey)!.items.push(h)

@@ -284,6 +284,9 @@ public partial class AdminService
         db.IngestionJobs.RemoveRange(jobs);
 
         await CollectionService.RemoveFromAllCollectionsAsync(db, null, id, "savedbook", ct);
+        // Its highlights stay, with no book (SET NULL): keep the title they were made in (#982).
+        foreach (var h in await db.Highlights.Where(h => h.EditionId == id).ToListAsync(ct))
+            h.BookTitle = edition.Title;
         db.Editions.Remove(edition);
 
         // Its work goes too when this was the work's only edition: every upload creates its own work

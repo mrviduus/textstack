@@ -129,7 +129,8 @@ public static class HighlightsEndpoints
                 h.ChapterId != null ? h.Chapter!.Title : null,
                 h.UserChapterId != null ? h.UserChapter!.Title : null,
                 h.ChapterId != null ? h.Chapter!.Slug : null,
-                h.UserChapterId != null ? h.UserChapter!.Slug : null
+                h.UserChapterId != null ? h.UserChapter!.Slug : null,
+                h.EditionId == null && h.UserBookId == null ? h.BookTitle : null
             ))
             .ToListAsync(ct);
 
@@ -161,7 +162,7 @@ public static class HighlightsEndpoints
                 h.AnchorJson,
                 h.Color,
                 h.NoteText,
-                h.EditionId != null ? h.Edition!.Title : (h.UserBookId != null ? h.UserBook!.Title : null),
+                h.EditionId != null ? h.Edition!.Title : (h.UserBookId != null ? h.UserBook!.Title : h.BookTitle),
                 h.ChapterId != null ? h.Chapter!.Title : (h.UserChapterId != null ? h.UserChapter!.Title : null),
                 h.LastReviewedAt
             ))
@@ -531,7 +532,9 @@ public record HighlightListItemDto(
     string? ChapterTitle,
     string? UserChapterTitle,
     string? ChapterSlug,
-    string? UserChapterSlug
+    string? UserChapterSlug,
+    // Set only when the book was deleted (no edition or upload left): the title it had (#982).
+    string? DeletedBookTitle
 );
 
 public record HighlightReviewDto(

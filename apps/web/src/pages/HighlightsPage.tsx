@@ -80,12 +80,13 @@ export function HighlightsPage({ embedded }: { embedded?: boolean } = {}) {
   const groups: BookGroup[] = []
   const bookMap = new Map<string, BookGroup>()
   for (const h of highlights) {
-    const bookId = h.userBookId || h.editionId || 'unknown'
+    // A deleted book has no id left; its kept title tells its highlights apart from another's.
+    const bookId = h.userBookId || h.editionId || (h.deletedBookTitle ? `deleted:${h.deletedBookTitle}` : 'unknown')
     let group = bookMap.get(bookId)
     if (!group) {
       group = {
         bookId,
-        bookTitle: h.userBookTitle || h.editionTitle || 'Unknown Book',
+        bookTitle: h.userBookTitle || h.editionTitle || (h.deletedBookTitle ? `${h.deletedBookTitle} (deleted)` : 'Unknown Book'),
         coverPath: h.userBookCoverPath || h.editionCoverPath || null,
         isUserBook: !!h.userBookId,
         highlights: [],
