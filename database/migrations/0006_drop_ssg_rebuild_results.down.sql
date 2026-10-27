@@ -1,6 +1,8 @@
 -- Undoes 0006_drop_ssg_rebuild_results: recreates the table empty, as 0000_baseline has it. Rows
 -- come from a backup (see the up header).
 
+SET LOCAL lock_timeout = '5s';
+
 CREATE TABLE public.ssg_rebuild_results (
     id uuid NOT NULL,
     job_id uuid NOT NULL,
