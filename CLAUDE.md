@@ -229,7 +229,7 @@ Also: the windows are 1–5 minutes, so **two overlapping runs throttle each oth
 
 ## Extraction Pipeline
 
-Supported formats: EPUB, PDF. Processing order: Spelling → Hyphenation → Typography → Semantic → Linter. Details in `backend/src/Extraction/TextStack.Extraction/RULES.md`. ARM64 caveat: uses compiled `Regex` not `[GeneratedRegex]` (SIGILL bug).
+Supported formats: EPUB, PDF. Processing order: Spelling → Hyphenation → Typography → Semantic. Details in `backend/src/Extraction/TextStack.Extraction/RULES.md`. ARM64 caveat: uses compiled `Regex` not `[GeneratedRegex]` (SIGILL bug).
 
 ## Package Management
 

@@ -48,7 +48,7 @@ There is no Sites page (removed with multisite, ADR-007).
 | SSG | `/admin/ssg/*` | `AdminSsgRebuildEndpoints.cs` |
 | Auto publish | `/admin/autopublish/*` | `AdminAutoPublishEndpoints.cs` |
 | SEO backfill | `/admin/seo/*` | `AdminSeoBackfillEndpoints.cs` |
-| Quality, lint, settings, diagnostics | `/admin/…` | `AdminBookQualityEndpoints.cs`, `AdminLintEndpoints.cs`, `AdminSettingsEndpoints.cs`, `AdminDiagnosticsEndpoints.cs` |
+| Quality, settings, diagnostics | `/admin/…` | `AdminBookQualityEndpoints.cs`, `AdminSettingsEndpoints.cs`, `AdminDiagnosticsEndpoints.cs` |
 | AI quality | `/admin/ai-quality/*` | `AdminAiQualityEndpoints*.cs` |
 | Stats | `GET /admin/stats` | `AdminEndpoints.cs` |
 

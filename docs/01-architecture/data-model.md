@@ -52,7 +52,7 @@ Rows: exact `count(*)` in production on 2026-10-26 (`pg_stat_user_tables` estima
 | 10 | `book_files` | Original catalog upload | Clean | `sha256` dropped (`0004`, #937) | 22 |
 | 11 | `book_assets` | Inline images extracted from books | Clean | `kind` always `InlineImage`; `(edition_id)` index dropped (`0002`) | 5,011 |
 | 12 | `ingestion_jobs` | Catalog extraction queue | Clean | `work_id`, `source_edition_id` write-only copies (+ indexes) | 25 |
-| 13 | `lint_results` | Extraction lint findings | Retire | Written by the worker; no admin UI reads it | 18,380 |
+| 13 | `lint_results` | Extraction lint findings | Retire | No admin UI ever read it. Writer, `/admin/editions/{id}/lint` endpoints and entity removed; code no longer maps it; dropped next release (#936) | 18,380 |
 | 14 | `text_stack_imports` | Import provenance, Standard Ebooks dedupe | Keep | 1:1 with edition (inferred) — candidate for a column on `editions` | 1,409 |
 | 15 | `auto_publish_jobs` | SEO generate-and-publish queue | Decide | Overlaps `seo_backfill_jobs` | 2,993 |
 | 16 | `book_quality_jobs` | PDF content-quality cleanup queue | Clean | Edition XOR user book, no CHECK | 67 |
@@ -181,8 +181,8 @@ deletes the user's agent runs, device codes and pending OAuth requests, then the
 ## Enums stored as integers
 
 Raw SQL and `infra/scripts` hard-code these numbers — changing or reordering a value is a data
-migration. Only 8 enums are stored as text (the house style for new enum columns): `UserTier`,
-`AuthorRole`, `AssetKind`, `LintSeverity`, `SsgRebuildJobStatus`, `SsgRebuildMode`, `ModelStatus`,
+migration. Only 7 enums are stored as text (the house style for new enum columns): `UserTier`,
+`AuthorRole`, `AssetKind`, `SsgRebuildJobStatus`, `SsgRebuildMode`, `ModelStatus`,
 `PromotionAction`. Everything below is an integer column.
 
 ```csharp

@@ -29,7 +29,6 @@ public interface IAppDbContext
     DbSet<TextStackImport> TextStackImports { get; }
     DbSet<SsgRebuildJob> SsgRebuildJobs { get; }
     DbSet<BookAsset> BookAssets { get; }
-    DbSet<LintResult> LintResults { get; }
     DbSet<UserBook> UserBooks { get; }
     DbSet<UserChapter> UserChapters { get; }
     DbSet<UserBookFile> UserBookFiles { get; }
