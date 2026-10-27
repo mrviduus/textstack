@@ -137,7 +137,7 @@ public static class AdminSeoBackfillEndpoints
         // One active template per key (ix_seo_templates_entity_type_field_type_language_code, #939): a second goes through Edit.
         if (await db.SeoTemplates.AnyAsync(t => t.EntityType == et && t.FieldType == ft
                 && t.LanguageCode == language && t.IsActive, ct))
-            return Results.Conflict(new { error = "An active template exists for this key; edit it instead" });
+            return ActiveTemplateConflict();
 
         var tpl = new SeoTemplate
         {
@@ -159,7 +159,9 @@ public static class AdminSeoBackfillEndpoints
             UpdatedAt = DateTimeOffset.UtcNow,
         };
         db.SeoTemplates.Add(tpl);
-        await db.SaveChangesAsync(ct);
+        // A concurrent create can pass the check above too; the index refuses the second.
+        try { await db.SaveChangesAsync(ct); }
+        catch (DbUpdateException ex) when (UserDataEndpoints.IsUniqueViolation(ex)) { return ActiveTemplateConflict(); }
         return Results.Ok(new { tpl.Id, tpl.Version });
     }
 
@@ -182,6 +184,12 @@ public static class AdminSeoBackfillEndpoints
                 && t.LanguageCode == current.LanguageCode && t.IsActive)
             .ExecuteUpdateAsync(u => u.SetProperty(t => t.IsActive, false).SetProperty(t => t.UpdatedAt, now), ct);
 
+        // Editing an older version must not reuse a number the key already has.
+        var lastVersion = await db.SeoTemplates
+            .Where(t => t.EntityType == current.EntityType && t.FieldType == current.FieldType
+                && t.LanguageCode == current.LanguageCode)
+            .MaxAsync(t => t.Version, ct);
+
         var trust = current.TrustLevel;
         if (!string.IsNullOrWhiteSpace(req.TrustLevel) && Enum.TryParse<SeoTrustLevel>(req.TrustLevel, true, out var parsed)) trust = parsed;
 
@@ -199,16 +207,21 @@ public static class AdminSeoBackfillEndpoints
             MaxTokens = req.MaxTokens ?? current.MaxTokens,
             Temperature = req.Temperature ?? current.Temperature,
             TrustLevel = trust,
-            Version = current.Version + 1,
+            Version = lastVersion + 1,
             IsActive = true,
             CreatedAt = DateTimeOffset.UtcNow,
             UpdatedAt = DateTimeOffset.UtcNow,
         };
         db.SeoTemplates.Add(next);
-        await db.SaveChangesAsync(ct);
+        // A concurrent edit of the same key inserts its own active row; the index refuses the second.
+        try { await db.SaveChangesAsync(ct); }
+        catch (DbUpdateException ex) when (UserDataEndpoints.IsUniqueViolation(ex)) { return ActiveTemplateConflict(); }
         await tx.CommitAsync(ct);
         return Results.Ok(new { next.Id, next.Version });
     }
+
+    private static IResult ActiveTemplateConflict() =>
+        Results.Conflict(new { error = "The key already has an active template; edit it instead" });
 
     private static async Task<IResult> DeactivateTemplate(Guid id, IAppDbContext db, CancellationToken ct)
     {
