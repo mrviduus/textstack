@@ -247,19 +247,21 @@ public static class AdminSeoBackfillEndpoints
     }
 
     private static IResult StaleTemplateConflict() =>
-        Results.Conflict(new { error = "This is not the key's active version any more; reload and edit that" });
+        Results.Conflict(new { error = "Not the key's active version any more: reload and edit the active one, or create to revive a deactivated key" });
 
     private static IResult ActiveTemplateConflict() =>
         Results.Conflict(new { error = "The key already has an active template; edit it instead" });
 
     private static async Task<IResult> DeactivateTemplate(Guid id, IAppDbContext db, CancellationToken ct)
     {
-        var t = await db.SeoTemplates.FirstOrDefaultAsync(x => x.Id == id, ct);
-        if (t is null) return Results.NotFound();
-        t.IsActive = false;
-        t.UpdatedAt = DateTimeOffset.UtcNow;
-        await db.SaveChangesAsync(ct);
-        return Results.Ok();
+        // Guarded like edit's deactivate: racing an edit of this version, it waits on the row lock and
+        // then matches nothing, instead of reporting success while the edit's new version stays active.
+        var now = DateTimeOffset.UtcNow;
+        var deactivated = await db.SeoTemplates
+            .Where(t => t.Id == id && t.IsActive)
+            .ExecuteUpdateAsync(u => u.SetProperty(t => t.IsActive, false).SetProperty(t => t.UpdatedAt, now), ct);
+        if (deactivated == 1) return Results.Ok();
+        return await db.SeoTemplates.AnyAsync(t => t.Id == id, ct) ? StaleTemplateConflict() : Results.NotFound();
     }
 
     public record PreviewTemplateRequest(Guid EntityId);
