@@ -64,7 +64,6 @@ internal sealed class CapturingDb : IAppDbContext
     public DbSet<Genre> Genres => throw new NotSupportedException();
     public DbSet<TextStackImport> TextStackImports => throw new NotSupportedException();
     public DbSet<SsgRebuildJob> SsgRebuildJobs => throw new NotSupportedException();
-    public DbSet<SsgRebuildResult> SsgRebuildResults => throw new NotSupportedException();
     public DbSet<BookAsset> BookAssets => throw new NotSupportedException();
     public DbSet<LintResult> LintResults => throw new NotSupportedException();
     public DbSet<UserBook> UserBooks => throw new NotSupportedException();

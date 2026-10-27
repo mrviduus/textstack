@@ -31,11 +31,4 @@ public interface ISsgJobService
     Task<SsgRebuildPreviewDto> GetPreviewAsync(
         Guid siteId,
         CancellationToken ct);
-
-    /// <summary>Gets job statistics.</summary>
-    Task<SsgRebuildJobStatsDto?> GetJobStatsAsync(Guid jobId, CancellationToken ct);
-
-    /// <summary>Gets paginated render results for a job.</summary>
-    Task<(int Total, List<SsgRebuildResultDto> Items)> GetResultsAsync(
-        Guid jobId, SsgRebuildResultsFilter filter, CancellationToken ct);
 }

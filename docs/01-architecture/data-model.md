@@ -60,7 +60,7 @@ Rows: exact `count(*)` in production on 2026-10-26 (`pg_stat_user_tables` estima
 | 18 | `seo_backfill_jobs` | SEO generation audit trail | Keep | Polymorphic `entity_id`, no FK | 12 |
 | 19 | `seo_backfill_settings` | SEO poller knobs (one row) | Clean | `language_filter`, `entity_type_filter`, `ssg_rebuild_batch_minutes` editable, read by nothing | 1 |
 | 20 | `ssg_rebuild_jobs` | Prerender queue (`ssg-worker`) | Clean | `book/author/genre_slugs_json` always null, `mode` always Full, `timeout_ms` unused; finished jobs purged after 30 d (newest Completed kept) | 11,659 |
-| 21 | `ssg_rebuild_results` | Per-route prerender result | Retire | No writer since 2026-01-23 (all rows are from that day); the admin page shows only those | 349 |
+| 21 | `ssg_rebuild_results` | Per-route prerender result | Retire | No writer since 2026-01-23 (all rows are from that day). Code no longer maps it, admin job page drops its stats/results; dropped next release (#933) | 349 |
 
 ### Accounts and access
 

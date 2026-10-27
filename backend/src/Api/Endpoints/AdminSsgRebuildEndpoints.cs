@@ -31,15 +31,6 @@ public static class AdminSsgRebuildEndpoints
         group.MapPost("/jobs/{id:guid}/cancel", CancelJob)
             .WithName("CancelSsgRebuildJob")
             .WithDescription("Cancel a running or queued SSG rebuild job");
-
-        // Results
-        group.MapGet("/jobs/{id:guid}/stats", GetJobStats)
-            .WithName("GetSsgRebuildJobStats")
-            .WithDescription("Get statistics for a rebuild job");
-
-        group.MapGet("/jobs/{id:guid}/results", GetResults)
-            .WithName("GetSsgRebuildResults")
-            .WithDescription("Get rebuild results with filtering");
     }
 
     private static async Task<IResult> GetPreview(
@@ -96,28 +87,5 @@ public static class AdminSsgRebuildEndpoints
     {
         var cancelled = await service.CancelJobAsync(id, ct);
         return cancelled ? Results.Ok() : Results.BadRequest(new { error = "Job not found or already completed" });
-    }
-
-    private static async Task<IResult> GetJobStats(
-        Guid id,
-        ISsgJobService service,
-        CancellationToken ct)
-    {
-        var stats = await service.GetJobStatsAsync(id, ct);
-        return stats == null ? Results.NotFound() : Results.Ok(stats);
-    }
-
-    private static async Task<IResult> GetResults(
-        Guid id,
-        [FromQuery] bool? failed,
-        [FromQuery] string? routeType,
-        [FromQuery] int offset = 0,
-        [FromQuery] int limit = 50,
-        ISsgJobService service = null!,
-        CancellationToken ct = default)
-    {
-        var filter = new SsgRebuildResultsFilter(failed, routeType, offset, limit);
-        var (total, items) = await service.GetResultsAsync(id, filter, ct);
-        return Results.Ok(new { total, items });
     }
 }

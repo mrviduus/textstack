@@ -325,27 +325,6 @@ export interface SsgRebuildJobDetail {
   finishedAt: string | null
 }
 
-export interface SsgRebuildJobStats {
-  total: number
-  successful: number
-  failed: number
-  bookRoutes: number
-  authorRoutes: number
-  genreRoutes: number
-  staticRoutes: number
-  avgRenderTimeMs: number
-}
-
-export interface SsgRebuildResult {
-  id: string
-  route: string
-  routeType: string
-  success: boolean
-  renderTimeMs: number | null
-  error: string | null
-  renderedAt: string
-}
-
 export interface SsgRebuildPreview {
   totalRoutes: number
   bookCount: number
@@ -1068,20 +1047,6 @@ export const adminApi = {
 
   cancelSsgRebuildJob: async (id: string): Promise<void> => {
     await fetchVoid(`/admin/ssg/jobs/${id}/cancel`, { method: 'POST' })
-  },
-
-  getSsgRebuildJobStats: async (id: string): Promise<SsgRebuildJobStats> => {
-    return fetchJson<SsgRebuildJobStats>(`/admin/ssg/jobs/${id}/stats`)
-  },
-
-  getSsgRebuildResults: async (id: string, params?: { failed?: boolean; routeType?: string; limit?: number; offset?: number }): Promise<PaginatedResult<SsgRebuildResult>> => {
-    const query = new URLSearchParams()
-    if (params?.failed !== undefined) query.set('failed', String(params.failed))
-    if (params?.routeType) query.set('routeType', params.routeType)
-    if (params?.limit) query.set('limit', String(params.limit))
-    if (params?.offset) query.set('offset', String(params.offset))
-    const qs = query.toString()
-    return fetchJson<PaginatedResult<SsgRebuildResult>>(`/admin/ssg/jobs/${id}/results${qs ? `?${qs}` : ''}`)
   },
 
   // Session Settings

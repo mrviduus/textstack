@@ -41,36 +41,6 @@ public record SsgRebuildJobDetailDto(
     DateTimeOffset? FinishedAt
 );
 
-public record SsgRebuildJobStatsDto(
-    int Total,
-    int Successful,
-    int Failed,
-    int BookRoutes,
-    int AuthorRoutes,
-    int GenreRoutes,
-    int StaticRoutes,
-    double AvgRenderTimeMs
-);
-
-// --- Result DTOs ---
-
-public record SsgRebuildResultDto(
-    Guid Id,
-    string Route,
-    string RouteType,
-    bool Success,
-    int? RenderTimeMs,
-    string? Error,
-    DateTimeOffset RenderedAt
-);
-
-public record SsgRebuildResultsFilter(
-    bool? Failed = null,
-    string? RouteType = null,
-    int Offset = 0,
-    int Limit = 50
-);
-
 // --- Preview DTO ---
 
 public record SsgRebuildPreviewDto(
