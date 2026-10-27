@@ -131,9 +131,6 @@ GET    /ssg/genres                     Get all genre slugs
 
 ## Database Schema
 
-Columns the code reads and writes. `mode`, `timeout_ms` and the three `*_slugs_json` columns still
-exist, unused (defaults from `0008`), until the next release drops them (#937).
-
 ```sql
 CREATE TABLE ssg_rebuild_jobs (
     id UUID PRIMARY KEY,
