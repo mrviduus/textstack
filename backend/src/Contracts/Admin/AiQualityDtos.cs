@@ -126,59 +126,7 @@ public record ScheduledEvalPointDto(
     string GitSha,
     DateTimeOffset CreatedAt);
 
-// ── Shadow-run comparison + models registry (Phase 12 RLOps) ──────────────────
-
-/// <summary>One primary↔shadow pairing rolled up over the window (from shadow_runs).
-/// Deltas are shadow − primary; the monthly projection scales the window's cost delta
-/// to 30 days. Agreement metrics (exact/length/both-present) only count rows where BOTH
-/// responses are present.</summary>
-public record ShadowPairDto(
-    string FeatureTag,
-    string PrimaryModelId,
-    string ShadowModelId,
-    long Runs,
-    int PrimaryP50LatencyMs,
-    int ShadowP50LatencyMs,
-    int LatencyDeltaMs,
-    decimal PrimaryCostUsd,
-    decimal ShadowCostUsd,
-    decimal CostDeltaUsd,
-    decimal ProjectedMonthlyCostDeltaUsd,
-    long PrimaryTokensOut,
-    long ShadowTokensOut,
-    long TokensOutDelta,
-    double ExactMatchRate,
-    double AvgLengthRatio,
-    double BothPresentRate,
-    DateTimeOffset FirstSeen,
-    DateTimeOffset LastSeen);
-
-/// <summary>The shadow Summary payload: window + total runs + per-pair rollups.</summary>
-public record ShadowSummaryDto(
-    DateTimeOffset From,
-    DateTimeOffset To,
-    long TotalRuns,
-    IReadOnlyList<ShadowPairDto> Pairs);
-
-/// <summary>One redacted shadow sample (primary vs shadow side by side) for the drill-in.</summary>
-public record ShadowSampleDto(
-    Guid Id,
-    string? PrimaryResponse,
-    string? ShadowResponse,
-    int PrimaryLatencyMs,
-    int ShadowLatencyMs,
-    decimal PrimaryCostUsd,
-    decimal ShadowCostUsd,
-    int PrimaryTokensOut,
-    int ShadowTokensOut,
-    bool ExactMatch,
-    string PromptHash,
-    Guid? PrimaryTraceId,
-    Guid? ShadowTraceId,
-    DateTimeOffset CreatedAt);
-
-/// <summary>Paged shadow-sample list for one pair.</summary>
-public record ShadowSamplesPageDto(long Total, IReadOnlyList<ShadowSampleDto> Items);
+// ── Models registry (Phase 12 RLOps) ──────────────────
 
 /// <summary>One row in the models registry (table <c>models</c>); Status is the string enum.</summary>
 public record ModelRegistrationDto(

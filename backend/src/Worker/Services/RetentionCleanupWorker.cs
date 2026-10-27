@@ -24,7 +24,7 @@ public class RetentionCleanupWorker(
     /// <summary>A day past expiry before a token row goes, so an in-flight request never races it.</summary>
     public static readonly TimeSpan TokenGrace = TimeSpan.FromDays(1);
 
-    /// <summary>LLM traces, shadow runs and agent runs hold prompt and output text; the admin
+    /// <summary>LLM traces and agent runs hold prompt and output text; the admin
     /// AI-quality page defaults to the last 30 days and spend tracking reads only today (#941).</summary>
     public static readonly TimeSpan AiTextRetention = TimeSpan.FromDays(30);
 
@@ -97,8 +97,6 @@ public class RetentionCleanupWorker(
             } while (batch == ScrubBatch && !ct.IsCancellationRequested);
             return total;
         }, ct);
-        await DeleteAsync("shadow runs",
-            () => db.ShadowRuns.Where(OldShadowRun(now)).ExecuteDeleteAsync(ct), ct);
         await DeleteAsync("agent runs",
             () => db.AgentRuns.Where(OldAgentRun(now)).ExecuteDeleteAsync(ct), ct);
         await DeleteAsync("tutor sessions",
@@ -172,12 +170,6 @@ public class RetentionCleanupWorker(
         return t => t.CreatedAt < cutoff
             && (t.MessagesJson != ScrubbedMessages || t.SystemPrompt != null
                 || t.ResponseText != null || t.ToolCallsJson != null);
-    }
-
-    public static Expression<Func<ShadowRun, bool>> OldShadowRun(DateTimeOffset now)
-    {
-        var cutoff = now - AiTextRetention;
-        return r => r.CreatedAt < cutoff;
     }
 
     public static Expression<Func<AgentRun, bool>> OldAgentRun(DateTimeOffset now)

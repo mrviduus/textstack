@@ -5,7 +5,7 @@ namespace TextStack.IntegrationTests;
 
 /// <summary>
 /// Integration tests for the table-driven promote/rollback endpoints (Phase 12 RLOps slice 3),
-/// against the live API on the admin host. Mirrors AdminShadowEndpointTests: auth + validation
+/// against the live API on the admin host. Auth + validation
 /// paths assert without depending on seeded mutable state, and a full promote→reflected-in-/models
 /// →rollback round-trip runs when the fixture user is admin. Skips (not fails) when auth/endpoint
 /// is unavailable. To run: `docker compose up` (API on :8080) with ENABLE_TEST_AUTH=true; runs in CI.

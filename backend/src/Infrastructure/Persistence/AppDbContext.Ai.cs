@@ -36,28 +36,6 @@ public partial class AppDbContext
                 .OnDelete(DeleteBehavior.SetNull);
         });
 
-        modelBuilder.Entity<ShadowRun>(e =>
-        {
-            // Hot query: recent shadow runs for a feature (comparison dashboards).
-            e.HasIndex(x => new { x.FeatureTag, x.CreatedAt });
-            // Per-user lookups; partial index keeps it small (mirrors llm_traces).
-            e.HasIndex(x => x.UserId).HasFilter("user_id IS NOT NULL");
-
-            e.Property(x => x.FeatureTag).HasMaxLength(64);
-            e.Property(x => x.PrimaryModelId).HasMaxLength(128);
-            e.Property(x => x.ShadowModelId).HasMaxLength(128);
-            e.Property(x => x.PromptHash).HasMaxLength(64);
-            e.Property(x => x.PrimaryCostUsd).HasColumnType("numeric(10,6)");
-            e.Property(x => x.ShadowCostUsd).HasColumnType("numeric(10,6)");
-
-            // Optional FK → users. The gateway leaves it null today; rows go after 30 days
-            // (RetentionCleanupWorker).
-            e.HasOne(x => x.User)
-                .WithMany()
-                .HasForeignKey(x => x.UserId)
-                .OnDelete(DeleteBehavior.SetNull);
-        });
-
         modelBuilder.Entity<ModelRegistration>(e =>
         {
             // Hot query: which models serve a feature, by status (gateway / seeder).

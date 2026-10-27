@@ -94,7 +94,6 @@ internal sealed class CapturingDb : IAppDbContext
     public DbSet<LlmTrace> LlmTraces => throw new NotSupportedException();
     public DbSet<AgentRun> AgentRuns => throw new NotSupportedException();
     public DbSet<TutorSession> TutorSessions => throw new NotSupportedException();
-    public DbSet<ShadowRun> ShadowRuns => throw new NotSupportedException();
     public DbSet<ModelRegistration> Models => throw new NotSupportedException();
     public DbSet<ModelPromotion> ModelPromotions => throw new NotSupportedException();
     public DbSet<BookInsight> BookInsights => throw new NotSupportedException();
