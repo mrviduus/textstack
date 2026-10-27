@@ -626,6 +626,12 @@ jobs:
       # together, the enforcement test finishes in ~2.7s and fifteen guest/merge tests then SKIP,
       # which is precisely the "green with no coverage" outcome the guest PR exists to prevent.
       # Raising the limit cannot resolve it: the enforcement test consumes limit+1 by construction.
+      # The admin tests log in as this account (AuthenticatedApiFixture); without it they fail in
+      # CI rather than skip, since a skip is a green run with the admin endpoints untested (#990).
+      # Idempotent, as in the e2e job.
+      - name: Create admin user for integration tests
+        run: docker compose exec -T api dotnet Api.dll create-admin admin@textstack.app admin Admin
+
       - name: Integration tests
         run: dotnet test tests/TextStack.IntegrationTests --filter "FullyQualifiedName!~RateLimitEnforcement"
         env:

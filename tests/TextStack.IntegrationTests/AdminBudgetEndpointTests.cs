@@ -8,8 +8,8 @@ namespace TextStack.IntegrationTests;
 /// the live API on the admin host (textstack.dev). Budgets are OFF by default, so the regression
 /// guarantee is that GET /admin/ai-quality/budgets returns a well-formed list of rows (one per
 /// routed/configured feature) with mode "off" and a $0/0% budget — and that the endpoint is
-/// admin-gated (401 without auth). Authed assertions need the fixture's test user to be admin;
-/// otherwise AdminAuth → 401/403 and the test is skipped rather than false-passing.
+/// admin-gated (401 without auth). Authed assertions run as the fixture's admin; without
+/// one they skip locally and fail in CI (#990).
 ///
 /// To run: `docker compose up` (API on :8080) with `ENABLE_TEST_AUTH=true`; runs in CI.
 /// </summary>
@@ -34,15 +34,12 @@ public class AdminBudgetEndpointTests : IClassFixture<AuthenticatedApiFixture>
     [Fact]
     public async Task GetBudgets_Authed_BudgetsOffByDefault_ReturnsWellFormedRows()
     {
-        Assert.SkipUnless(_fixture.IsAuthenticated, "auth unavailable");
+        _fixture.RequireAdmin();
 
         var request = _fixture.CreateAdminRequest(HttpMethod.Get, "/admin/ai-quality/budgets");
         var response = await _fixture.Client.SendAsync(request, TestContext.Current.CancellationToken);
 
         Assert.SkipWhen(IntegrationSkip.Unavailable(response), "endpoint not deployed");
-        Assert.SkipWhen(
-            response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden,
-            "test user is not admin");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         using var doc = JsonDocument.Parse(
