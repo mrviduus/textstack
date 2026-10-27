@@ -105,12 +105,8 @@ jobs:
           fi
           echo "schema ok"
 
-      # Two ways SSG dies, and they need different patience.
-      #
-      # A failing rebuild is a malfunction whatever the cadence — the next one
-      # will not help either — so it alarms at once. Staleness: the full rebuild
-      # runs nightly after the backup (backup.yml), so a healthy tree is <25h
-      # old. 36 hours means one night was missed — worth an alarm, not a page.
+      # A failing rebuild is a malfunction, so it alarms at once. Age is not checked: since #992
+      # the SSG tree is frozen and rebuilt only by hand, so an old tree is the normal state.
       - name: SSG freshness
         if: ${{ !cancelled() && steps.ready.outcome == 'success' }}
         run: |
@@ -126,7 +122,6 @@ jobs:
           echo "$ssg"
 
           status=$(printf '%s' "$ssg" | jq -r '.status')
-          age=$(printf '%s' "$ssg" | jq -r '.ageHours // empty')
           failed=$(printf '%s' "$ssg" | jq -r '.lastRunFailed // false')
 
           if [ "$failed" = "true" ]; then
@@ -137,12 +132,7 @@ jobs:
             echo "::warning::No completed SSG rebuild on record."
             exit 0
           fi
-          # bash has no floats; compare whole hours.
-          if [ "${age%.*}" -ge 36 ]; then
-            echo "::error::Newest SSG rebuild is ${age}h old. The nightly rebuild did not run."
-            exit 1
-          fi
-          echo "SSG last rebuilt ${age}h ago"
+          echo "SSG last rebuilt $(printf '%s' "$ssg" | jq -r '.ageHours')h ago"
 
       - name: Smoke — book listing
         run: |

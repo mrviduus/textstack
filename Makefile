@@ -73,7 +73,7 @@ fix-permissions:
 		chown -R 1000:1000 /data/textstack /data/tts-cache /data/explain-cache /data/translate-cache /data/pdf-cleanup-dataset'
 	@echo "Done."
 
-# Queues a Full rebuild for ssg-worker (same as the nightly) and follows it to the end.
+# Queues a Full rebuild for ssg-worker and follows it to the end (the only rebuild besides admin, #992).
 rebuild-ssg:
 	@./infra/scripts/rebuild-ssg.sh
 
