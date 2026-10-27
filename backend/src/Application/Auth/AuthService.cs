@@ -356,7 +356,6 @@ public class AuthService
         // beyond Id belong here; ReadingSessions is the exception and is handled below. ===
         await _db.Highlights.Where(x => x.UserId == guestUserId).ExecuteUpdateAsync(s => s.SetProperty(x => x.UserId, realUserId), ct);
         await _db.Bookmarks.Where(x => x.UserId == guestUserId).ExecuteUpdateAsync(s => s.SetProperty(x => x.UserId, realUserId), ct);
-        await _db.Notes.Where(x => x.UserId == guestUserId).ExecuteUpdateAsync(s => s.SetProperty(x => x.UserId, realUserId), ct);
         // ReadingSession is NOT a plain re-parent, despite having lived under that header. It carries
         // TWO unique indexes, both partial (AppDbContext.Reading.cs):
         //     (user_id, edition_id,   started_at) WHERE edition_id   IS NOT NULL

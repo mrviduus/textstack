@@ -24,5 +24,4 @@ public class Highlight : ISiteScoped
     public Chapter? Chapter { get; set; }
     public UserBook? UserBook { get; set; }
     public UserChapter? UserChapter { get; set; }
-    public Note? Note { get; set; }
 }

@@ -225,7 +225,6 @@ public class MappingTests
             {
                 e.Ignore(x => x.User); e.Ignore(x => x.Site); e.Ignore(x => x.Edition);
                 e.Ignore(x => x.Chapter); e.Ignore(x => x.UserBook); e.Ignore(x => x.UserChapter);
-                e.Ignore(x => x.Note);
             });
             b.Entity<Bookmark>(e =>
             {

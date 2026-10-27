@@ -20,7 +20,6 @@ public interface IAppDbContext
     DbSet<UserLibrary> UserLibraries { get; }
     DbSet<ReadingProgress> ReadingProgresses { get; }
     DbSet<Bookmark> Bookmarks { get; }
-    DbSet<Note> Notes { get; }
     DbSet<AdminUser> AdminUsers { get; }
     DbSet<AdminRefreshToken> AdminRefreshTokens { get; }
     DbSet<UserRefreshToken> UserRefreshTokens { get; }
