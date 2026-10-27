@@ -105,8 +105,7 @@ WHERE created_at > now() - interval '30 days';
 \echo '=== 11. ANNOTATIONS ==='
 SELECT
   (SELECT COUNT(*) FROM highlights) AS highlights,
-  (SELECT COUNT(*) FROM bookmarks)  AS bookmarks,
-  (SELECT COUNT(*) FROM notes)      AS notes;
+  (SELECT COUNT(*) FROM bookmarks)  AS bookmarks;
 
 \echo
 \echo '=== 12. RETENTION (weekly cohorts, registered users) ==='
