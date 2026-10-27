@@ -17,7 +17,6 @@ public partial class AppDbContext
         // VocabularyWord
         modelBuilder.Entity<VocabularyWord>(e =>
         {
-            e.HasIndex(x => new { x.UserId, x.SiteId });
             // Phase 1 anti-spiral: retired rows are excluded from queue — index on IsRetired
             // so the filtered scan is a tight prefix read, not a full index scan + filter.
             e.HasIndex(x => new { x.UserId, x.SiteId, x.IsRetired, x.NextReviewAt });

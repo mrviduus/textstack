@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using System.Text.Json;
 using Application.Common.Interfaces;
 using Contracts.Admin;
@@ -129,11 +128,6 @@ public partial class AdminService
         // The client's file name is display data: keep only its last segment for the stored copy.
         var storagePath = await storage.SaveFileAsync(edition.Id, Path.GetFileName(req.FileName), req.FileStream, ct);
 
-        req.FileStream.Position = 0;
-        using var sha = SHA256.Create();
-        var hashBytes = await sha.ComputeHashAsync(req.FileStream, ct);
-        var hash = Convert.ToHexString(hashBytes).ToLowerInvariant();
-
         var bookFile = new BookFile
         {
             Id = Guid.NewGuid(),
@@ -141,7 +135,6 @@ public partial class AdminService
             OriginalFileName = req.FileName,
             StoragePath = storagePath,
             Format = format,
-            Sha256 = hash,
             UploadedAt = DateTimeOffset.UtcNow
         };
         db.BookFiles.Add(bookFile);
