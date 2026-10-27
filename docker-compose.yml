@@ -61,8 +61,14 @@ services:
       context: .
       dockerfile: backend/Docker/Migrator.Dockerfile
     container_name: textstack_migrator_prod
+    # database/migrate.sh (ADR-026): psql reads the libpq variables. Rollback is a one-off with the
+    # target as an argument: `docker compose run --rm migrator down <version>` (make migrate-down).
     environment:
-      ConnectionStrings__Default: "Host=db;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      PGHOST: db
+      PGPORT: "5432"
+      PGDATABASE: ${POSTGRES_DB}
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
     depends_on:
       db:
         condition: service_healthy

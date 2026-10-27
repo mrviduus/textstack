@@ -85,8 +85,8 @@ jobs:
           [ -z "$down" ] || { echo "::error::/api/health/ready (HTTP $code): critical component down: $down"; exit 1; }
           echo "readiness HTTP $code"
 
-      # The Api never migrates (ADR-021). A schema behind the running build — a MIGRATE_TARGET
-      # rollback, a migrator that did not run — shows here as components.schema != ok.
+      # The Api never migrates (ADR-021, ADR-026). A schema behind the running build — a
+      # `migrate.sh down`, a migrator that did not run — shows here as components.schema != ok.
       - name: Schema matches the build
         if: ${{ !cancelled() && steps.ready.outcome == 'success' }}
         run: |
@@ -100,7 +100,7 @@ jobs:
           status=$(printf '%s' "$schema" | jq -r '.status')
           if [ "$status" != "ok" ]; then
             pending=$(printf '%s' "$schema" | jq -r '(.pending // []) | join(", ")')
-            echo "::error::Database schema is $status for the running API. Pending migrations: ${pending:-none listed} ($schema). Run the migrator, or roll the code back too (ADR-021)."
+            echo "::error::Database schema is $status for the running API. Pending migrations: ${pending:-none listed} ($schema). Run the migrator, or roll the code back too (ADR-026)."
             exit 1
           fi
           echo "schema ok"

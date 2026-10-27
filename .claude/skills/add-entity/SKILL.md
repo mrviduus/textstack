@@ -1,9 +1,9 @@
 ---
 name: add-entity
-description: Add a new EF Core entity + migration to TextStack (with optional writer service). Use when persisting a new kind of record — table, DbSet, mapping, migration, and wiring. Covers the AppDbContext partial pattern and the LlmTrace/AgentRun-style writer.
+description: Add a new EF Core entity + SQL migration to TextStack (with optional writer service). Use when persisting a new kind of record — table, DbSet, mapping, migration, and wiring. Covers the AppDbContext partial pattern and the LlmTrace/AgentRun-style writer.
 ---
 
-# Add an EF Core entity + migration
+# Add an EF Core entity + SQL migration
 
 Pattern mirrors `LlmTrace` / `EvalRun` / `AgentRun`. Domain stays framework-free; mapping lives in an
 `AppDbContext.<Area>.cs` partial; the DbSet is exposed on both `IAppDbContext` and `AppDbContext`.
@@ -24,23 +24,23 @@ Pattern mirrors `LlmTrace` / `EvalRun` / `AgentRun`. Domain stays framework-free
    `DbSet<<Name>> <Plural> => Set<<Name>>();` to `AppDbContext.cs` AND `DbSet<<Name>> <Plural> { get; }`
    to `IAppDbContext`.
 
-4. **Migration**:
-   `dotnet ef migrations add Add<Name> --project backend/src/Infrastructure --startup-project backend/src/Api`
-   Review the generated `Up` (column types, FK, index). For an out-of-model raw-SQL feature (e.g. a
-   generated `tsvector`), the diff is empty — hand-write the `migrationBuilder.Sql(...)` like
-   `AddChapterChunkSearchVector`.
+4. **Migration** — plain SQL, written by hand ([`database/README.md`](../../../database/README.md),
+   ADR-026): `database/migrations/NNNN_add_<name>.up.sql` (header: what / why / issue / compatibility /
+   down) with the `CREATE TABLE`, keys, FKs and indexes the mapping declares (`pk_<table>`,
+   `ix_<table>_<cols>`, `fk_<table>_<target>_<col>` — the names EF would give), and
+   `NNNN_add_<name>.down.sql` that drops it. Update `docs/01-architecture/data-model.md` in the same PR.
 
 5. **Writer** (optional, for observability records like agent runs): interface in `Ai.Core`
    (`I<Name>Writer`), `Db<Name>Writer` in `Application/Ai` (scoped, `: global::TextStack.Ai.Core.I<Name>Writer`,
    maps a framework-free record → entity, serializes blobs to jsonb), registered
    `AddScoped<...I<Name>Writer, Db<Name>Writer>()` in `Application/DependencyInjection.cs`.
 
-6. **Verify the migration on real Postgres**:
-   `docker compose up -d db && docker compose build migrator && docker compose up migrator`
-   then `\d <table>` + a jsonb insert/read roundtrip. (DB creds: `textstack_prod`/`textstack_prod`.)
-   CI's `docker` job runs `ef database update` against `pgvector/pgvector:pg16` too.
+6. **Verify on real Postgres**: `docker compose build migrator && make migrate`, then `\d <table>` +
+   a jsonb insert/read roundtrip. CI's backend job runs `database/tests/roundtrip.sh` (up, down, up)
+   and `SchemaDriftTests`, which fails if the mapping and the SQL disagree on a column.
 
 ## Gotchas
 - Don't add `<Version>` to a csproj — central versions in `Directory.Packages.props`.
-- The migrator image is built from compiled migrations; rebuild it (`docker compose build migrator`)
-  before applying a fresh migration locally, or it won't include it.
+- The migrator image copies `database/`; rebuild it (`docker compose build migrator`) before applying
+  a fresh migration locally, or it won't include it.
+- Never edit an applied migration file (the runner checks its checksum); add the next number.

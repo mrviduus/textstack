@@ -1,3 +1,4 @@
+using Domain;
 using Domain.Entities;
 using Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -12,16 +13,18 @@ namespace TextStack.UnitTests;
 // but forgets its HasQueryFilter, it would silently leak rows across sites with
 // no compile error — this test turns that into a red build.
 //
-// Builds the REAL production model (AppDbContextFactory wires UseNpgsql +
-// UseVector). Model construction does not open a connection, so no live DB is
-// needed. Query filters are read via the EF 10 API IReadOnlyEntityType
+// Builds the REAL production model (UseNpgsql + UseVector, as the Api does).
+// Model construction does not open a connection, so no live DB is needed. Query filters are read via the EF 10 API IReadOnlyEntityType
 // .GetDeclaredQueryFilters() (named-filter aware; the parameterless
 // GetQueryFilter() is the legacy single-filter accessor).
 public class SiteScopedFilterRegistrationTests
 {
     private static IModel BuildModel()
     {
-        using var ctx = new AppDbContextFactory().CreateDbContext([]);
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseNpgsql("Host=localhost", o => o.UseVector())
+            .Options;
+        using var ctx = new AppDbContext(options, new CurrentSite(SiteConstants.DefaultSiteId));
         return ctx.Model;
     }
 

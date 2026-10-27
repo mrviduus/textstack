@@ -1,8 +1,8 @@
 # Data Model
 
 The one map of the PostgreSQL schema: every table, what it is for, and what happens to it next.
-Column-level truth: `backend/src/Domain/Entities/` and the model snapshot
-(`backend/src/Infrastructure/Migrations/AppDbContextModelSnapshot.cs`). Audited 2026-10-26 for the
+Column-level truth: [`database/migrations/`](../../database/README.md) — the baseline plus every
+numbered migration after it ([ADR-026](adr/ADR-026-sql-first-migrations.md)). Audited 2026-10-26 for the
 database cleanup ([#926](https://github.com/mrviduus/textstack/issues/926)).
 
 **Update this page in the same PR as any schema change.** A PR that adds, drops or reshapes a table
@@ -13,11 +13,11 @@ changes its row here.
 | | |
 |---|---|
 | Tables | 63 (62 `DbSet`s + the `edition_genres` join) |
-| Migrations | 148 in the repo, `20251217180704_Initial_WorkEdition_Admin` → `20261024202404_TranslateRegistryOnGpt41Mini`; **147 applied in production** — `20260219000000_AddSearchPerformanceIndexes` has no `.Designer.cs`, so EF never saw it ([#948](https://github.com/mrviduus/textstack/issues/948)) |
+| Migrations | SQL since 2026-10-26: `0000_baseline` stands for the 147 EF Core migrations production had applied (`20251217180704_Initial_WorkEdition_Admin` → `20261024202404_TranslateRegistryOnGpt41Mini`), which were then deleted. The 148th, `20260219000000_AddSearchPerformanceIndexes`, had no `.Designer.cs` and never ran ([#948](https://github.com/mrviduus/textstack/issues/948)) |
 | SQL baseline | [`database/migrations/0000_baseline.up.sql`](../../database/migrations/0000_baseline.up.sql): this whole schema, grouped and numbered as below, + seed rows ([#931](https://github.com/mrviduus/textstack/issues/931)); builds a schema identical to production |
 | Indexes | 181 (145 `HasIndex` + keys + raw-SQL indexes) |
 | Site-scoped | 24 tables carry `site_id` + an EF query filter (single site forever, [ADR-007](adr/007-single-domain-consolidation.md)) |
-| Objects outside the EF model | extensions `pg_trgm`, `vector`; `get_fts_config()` + `chapters` search-vector trigger; generated `user_chapters.search_vector`; GiST trigram index on `lower(editions.title)` — all created by raw SQL in migrations |
+| Objects outside the EF model | extensions `pg_trgm`, `vector`; `get_fts_config()` + `chapters` search-vector trigger; generated `user_chapters.search_vector`; GiST trigram index on `lower(editions.title)` — in the baseline like everything else |
 | Largest | `chapters` 2.6 GB · `llm_traces` 790 MB (3,852 rows) · `user_chapters` 131 MB · `lint_results` 30 MB |
 
 ## Status legend

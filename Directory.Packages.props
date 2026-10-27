@@ -20,7 +20,6 @@
     <PackageVersion Include="Scalar.AspNetCore" Version="2.14.14" />
     <!-- Entity Framework -->
     <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.8" />
-    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.8" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.8" />
     <!-- Transitive pin (EF Sqlite, tests only): 2.1.11 carries GHSA-2m69-gcr7-jv3q. Drop when EF ships >= 2.1.12. -->
     <PackageVersion Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.13" />
