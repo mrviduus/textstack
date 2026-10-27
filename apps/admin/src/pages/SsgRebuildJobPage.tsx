@@ -75,33 +75,31 @@ export function SsgRebuildJobPage() {
 
       {error && <div className="error-banner">{error}</div>}
 
-      <div className="job-overview">
-        <div className="overview-card">
-          <h3>Job Details</h3>
-          <dl>
-            <dt>Site</dt><dd>{job.siteCode}</dd>
-            <dt>Mode</dt><dd><span className={getModeClass(job.mode)}>{job.mode}</span></dd>
-            <dt>Status</dt><dd><span className={getJobStatusClass(job.status)}>{job.status}</span></dd>
-            <dt>Progress</dt>
-            <dd>
-              <div className="progress-cell">
-                <div className="progress-bar" style={{ width: '100px' }}>
-                  <div
-                    className="progress-bar__fill"
-                    style={{ width: `${getProgressPercent()}%` }}
-                  />
-                </div>
-                <span>{getProgressPercent()}%</span>
+      <div className="overview-card">
+        <h3>Job Details</h3>
+        <dl>
+          <dt>Site</dt><dd>{job.siteCode}</dd>
+          <dt>Mode</dt><dd><span className={getModeClass(job.mode)}>{job.mode}</span></dd>
+          <dt>Status</dt><dd><span className={getJobStatusClass(job.status)}>{job.status}</span></dd>
+          <dt>Progress</dt>
+          <dd>
+            <div className="progress-cell">
+              <div className="progress-bar" style={{ width: '100px' }}>
+                <div
+                  className="progress-bar__fill"
+                  style={{ width: `${getProgressPercent()}%` }}
+                />
               </div>
-            </dd>
-            <dt>Concurrency</dt><dd>{job.concurrency}</dd>
-            <dt>Timeout</dt><dd>{job.timeoutMs}ms</dd>
-            <dt>Created</dt><dd>{formatDate(job.createdAt)}</dd>
-            <dt>Started</dt><dd>{formatDate(job.startedAt)}</dd>
-            <dt>Finished</dt><dd>{formatDate(job.finishedAt)}</dd>
-          </dl>
-          {job.error && <div className="job-error">Error: {job.error}</div>}
-        </div>
+              <span>{getProgressPercent()}%</span>
+            </div>
+          </dd>
+          <dt>Concurrency</dt><dd>{job.concurrency}</dd>
+          <dt>Timeout</dt><dd>{job.timeoutMs}ms</dd>
+          <dt>Created</dt><dd>{formatDate(job.createdAt)}</dd>
+          <dt>Started</dt><dd>{formatDate(job.startedAt)}</dd>
+          <dt>Finished</dt><dd>{formatDate(job.finishedAt)}</dd>
+        </dl>
+        {job.error && <div className="job-error">Error: {job.error}</div>}
       </div>
     </div>
   )

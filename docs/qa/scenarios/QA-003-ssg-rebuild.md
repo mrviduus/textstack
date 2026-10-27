@@ -208,7 +208,7 @@ _Note: API tests not performed in this run (UI-only testing)_
 | Job list | Shows all jobs with pagination | ✅ Works |
 | Job start | Status changes to Running | ✅ Works |
 | Job cancel | Status changes to Cancelled | ✅ Works |
-| Job detail | Shows stats and progress | ✅ Works |
+| Job detail | Shows details and progress | ✅ Works |
 | Status filter | Filters correctly | ✅ Works |
 
 ---
@@ -223,8 +223,6 @@ _Note: API tests not performed in this run (UI-only testing)_
 | `/admin/ssg/jobs/{id}` | GET | Job details |
 | `/admin/ssg/jobs/{id}/start` | POST | Start job |
 | `/admin/ssg/jobs/{id}/cancel` | POST | Cancel job |
-| `/admin/ssg/jobs/{id}/stats` | GET | Job statistics |
-| `/admin/ssg/jobs/{id}/results` | GET | Render results |
 
 ---
 
