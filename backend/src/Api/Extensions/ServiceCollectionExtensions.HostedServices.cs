@@ -20,9 +20,6 @@ public static partial class ServiceCollectionExtensions
         // Vocabulary anti-spiral: daily-cap pending → SRS reconciler (F2)
         services.AddHostedService<DailyCapReconcilerWorker>();
 
-        // Vocabulary anti-spiral: one-shot seed of word_frequencies from embedded gz (F1)
-        services.AddHostedService<WordFrequencyLoaderWorker>();
-
         // Vocabulary anti-spiral: 24h cluster candidate builder (F3)
         services.AddHostedService<ClusterCandidateBuilderWorker>();
 

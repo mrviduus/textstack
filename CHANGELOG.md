@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Vocabulary** — the word-frequency filter reads the embedded `wordfreq-en.json.gz` directly instead of a startup copy in `word_frequencies`; the loader worker is gone, classification unchanged (same ranks/Zipf, test pins a sample); table dropped next release (#935) — backend
 - **Infra** — migration `0006` drops the never-written `ssg_rebuild_results` (349 rows from 2026-01-23) (#933) — infra
 - **Admin** — SSG job page drops its stats card and results table (always empty: nothing has written `ssg_rebuild_results` since 2026-01-23); entity, `/stats` + `/results` endpoints removed; table dropped next release (#933) — backend, admin
 - **Infra** — migration `0005` drops the dead table `notes` (0 rows; refuses to run if any appear) (#932) — infra

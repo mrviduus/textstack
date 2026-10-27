@@ -21,6 +21,5 @@
   </ItemGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="Persistence\Data\wordfreq-en.json.gz" />
   </ItemGroup>
 </Project>

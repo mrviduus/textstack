@@ -92,7 +92,7 @@ code does not pass `SiteId` by hand. The `site_id` columns stay. See [multisite.
 | Host | Hosted services |
 |------|-----------------|
 | Worker | `IngestionWorker` (admin + user uploads, polls every 5 s), `MetadataEnrichmentWorker`, `GuestCleanupWorker` (2 h / 30 d), `RetentionCleanupWorker` (daily: expired tokens, AI traces > 30 d, idle tutor sessions > 90 d, finished SSG jobs > 30 d), `HeartbeatWorker`, `AiProviderReadinessCheck`, `TextStackWatcher` (optional) |
-| Api | `AutoRetireSweeperWorker`, `DailyCapReconcilerWorker`, `WordFrequencyLoaderWorker`, `ClusterCandidateBuilderWorker`, `ConceptClusteringWorker`, `ContinuousEvalWorker`, `EdgeTtsService` (cache cleanup) |
+| Api | `AutoRetireSweeperWorker`, `DailyCapReconcilerWorker`, `ClusterCandidateBuilderWorker`, `ConceptClusteringWorker`, `ContinuousEvalWorker`, `EdgeTtsService` (cache cleanup) |
 | ssg-worker | Polls `ssg_rebuild_jobs` every 5 s, runs `prerender.mjs`, swaps `dist/ssg` atomically, pings IndexNow |
 | Host systemd | `seo-publish-poll.sh`, `seo-backfill-poll.sh`, `quality-poll.sh` (Claude CLI) |
 

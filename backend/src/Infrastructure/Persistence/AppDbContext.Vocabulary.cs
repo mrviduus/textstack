@@ -6,7 +6,7 @@ namespace Infrastructure.Persistence;
 /// <summary>
 /// SRS vocabulary + anti-spiral entities: VocabularyWord + reviews +
 /// per-user settings + PendingVocabularyWord (over-cap buffer, F2) +
-/// WordLookup (rare-word taps, F1) + WordFrequency (reference data) +
+/// WordLookup (rare-word taps, F1) +
 /// WordCluster (LLM-grouped bonus rounds, F3).
 /// </summary>
 public partial class AppDbContext
@@ -120,18 +120,6 @@ public partial class AppDbContext
             e.HasOne(x => x.Chapter).WithMany().HasForeignKey(x => x.ChapterId).OnDelete(DeleteBehavior.SetNull);
             e.HasOne(x => x.UserBook).WithMany().HasForeignKey(x => x.UserBookId).OnDelete(DeleteBehavior.SetNull);
             e.HasQueryFilter(x => x.SiteId == _currentSite.Id);
-        });
-
-        // WordFrequency (F1: reference data — seeded from wordfreq export at startup)
-        modelBuilder.Entity<WordFrequency>(e =>
-        {
-            // Primary classify lookup: (language, word) unique.
-            e.HasIndex(x => new { x.Language, x.Word }).IsUnique();
-            // Rank-ordered scans (e.g., "top 5000 for language X").
-            e.HasIndex(x => new { x.Language, x.Rank });
-            e.Property(x => x.Language).HasMaxLength(8);
-            e.Property(x => x.Word).HasMaxLength(200);
-            e.Property(x => x.Pos).HasMaxLength(20);
         });
 
         // WordCluster (F3: LLM-grouped thematic bonus rounds)

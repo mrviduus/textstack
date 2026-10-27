@@ -20,7 +20,7 @@ Worker has its own 8 (`Worker/Program.cs:71-103`). Every push to `main` restarts
 | `SsgPeriodicRebuildWorker` | 5 min check | queues a Full SSG job if none **completed** in N h (default 24) | a second scheduler for the nightly rebuild `backup.yml:122-126` already queues, and a crash loop: a Full job that keeps failing is queued again every 5 min |
 | `AutoRetireSweeperWorker` | 6 h | retires mastered words | timer restarts with the Api |
 | `DailyCapReconcilerWorker` | 1 h | promotes pending words into SRS | **promoted words are never enriched** (below) |
-| `WordFrequencyLoaderWorker` | once | seeds 20k `word_frequencies` rows | idempotent |
+| ~~`WordFrequencyLoaderWorker`~~ | once | seeded 20k `word_frequencies` rows; removed 2026-10-27, the filter reads the file (#935) | idempotent |
 | `ClusterCandidateBuilderWorker` | 24 h | Ollama groups recent words | waits 10 min, runs, waits 24 h, so it runs ~10 min after every deploy |
 | `ConceptClusteringWorker` | 7 d | full replace of concept clusters | same: runs after every deploy, not weekly |
 | `ContinuousEvalWorker` | 1 h check, **OFF** | scheduled judge evals | a **session** advisory lock (`pg_try_advisory_lock`, `ContinuousEvalWorker.cs:221,235`) + DB last-run |

@@ -26,5 +26,6 @@
 
   <ItemGroup>
     <EmbeddedResource Include="ChapterReview\ReviewMethod.md" LogicalName="Application.ChapterReview.ReviewMethod.md" />
+    <EmbeddedResource Include="Vocabulary\Data\wordfreq-en.json.gz" LogicalName="Application.Vocabulary.Data.wordfreq-en.json.gz" />
   </ItemGroup>
 </Project>
