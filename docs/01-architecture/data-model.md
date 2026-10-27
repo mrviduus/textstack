@@ -12,11 +12,11 @@ changes its row here.
 
 | | |
 |---|---|
-| Tables | 62 (61 `DbSet`s + the `edition_genres` join); `notes` dropped by `0005` |
+| Tables | 61 (60 `DbSet`s + the `edition_genres` join); `notes` dropped by `0005`, `ssg_rebuild_results` by `0006` |
 | Migrations | SQL since 2026-10-26: `0000_baseline` stands for the 147 EF Core migrations production had applied (`20251217180704_Initial_WorkEdition_Admin` → `20261024202404_TranslateRegistryOnGpt41Mini`), which were then deleted. The 148th, `20260219000000_AddSearchPerformanceIndexes`, had no `.Designer.cs` and never ran; its indexes turned out unusable by search, closed not-planned ([#948](https://github.com/mrviduus/textstack/issues/948)) |
 | SQL baseline | [`database/migrations/0000_baseline.up.sql`](../../database/migrations/0000_baseline.up.sql): this whole schema, grouped and numbered as below, + seed rows ([#931](https://github.com/mrviduus/textstack/issues/931)); builds a schema identical to production |
 | Ledger | `schema_migrations` (not in the inventory: the runner's, not the app's). EF Core's `__EFMigrationsHistory` dropped by `0001` ([#961](https://github.com/mrviduus/textstack/issues/961)) |
-| Indexes | 167 after `0005` (baseline 181: keys + raw-SQL indexes + 145 `HasIndex`, 133 now) |
+| Indexes | 164 after `0006` (baseline 181: keys + raw-SQL indexes + 145 `HasIndex`, 131 now) |
 | Site-scoped | 23 tables carry `site_id` + an EF query filter (single site forever, [ADR-007](adr/007-single-domain-consolidation.md)) |
 | Objects outside the EF model | extensions `pg_trgm`, `vector`; `get_fts_config()` + `chapters` search-vector trigger; generated `user_chapters.search_vector` — in the baseline like everything else. The GiST trigram index on `lower(editions.title)` was dropped by `0002` (no query used it, #948) |
 | Largest | `chapters` 2.6 GB · `llm_traces` 790 MB (3,852 rows) · `user_chapters` 131 MB · `lint_results` 30 MB |
@@ -60,7 +60,7 @@ Rows: exact `count(*)` in production on 2026-10-26 (`pg_stat_user_tables` estima
 | 18 | `seo_backfill_jobs` | SEO generation audit trail | Keep | Polymorphic `entity_id`, no FK | 12 |
 | 19 | `seo_backfill_settings` | SEO poller knobs (one row) | Clean | `language_filter`, `entity_type_filter`, `ssg_rebuild_batch_minutes` editable, read by nothing | 1 |
 | 20 | `ssg_rebuild_jobs` | Prerender queue (`ssg-worker`) | Clean | `book/author/genre_slugs_json` always null, `mode` always Full, `timeout_ms` unused; finished jobs purged after 30 d (newest Completed kept) | 11,659 |
-| 21 | `ssg_rebuild_results` | Per-route prerender result | Retire | No writer since 2026-01-23 (all rows are from that day). Code no longer maps it, admin job page drops its stats/results; dropped next release (#933) | 349 |
+| 21 | ~~`ssg_rebuild_results`~~ | Per-route prerender result | Dropped | Dropped by `0006` (#933): no writer since 2026-01-23; its 349 rows were all from that day | — |
 
 ### Accounts and access
 
@@ -129,7 +129,7 @@ Rows: exact `count(*)` in production on 2026-10-26 (`pg_stat_user_tables` estima
 | 62 | `model_promotions` | Promote/rollback history | Decide | Goes with `models` | 0 |
 | 63 | `eval_runs` | Eval score history | Decide | Depends on the admin AI-quality page | 34 |
 
-**Count by status:** Keep 23 · Clean 20 · Retire 4 · Decide 13 · Site 2 · Dropped 1.
+**Count by status:** Keep 23 · Clean 20 · Retire 3 · Decide 13 · Site 2 · Dropped 2.
 
 ## Core relationships
 

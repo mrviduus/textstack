@@ -24,6 +24,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 ## [Unreleased]
 
 - **AI** — the never-enabled shadow-model path is removed: gateway shadow calls, `Ai:Shadow` config, the writer, the admin Shadow tab and its endpoints, the 30-day sweep; table `shadow_runs` (0 rows) dropped next release. Model registry promote/rollback unchanged (#934) — backend, admin
+- **Infra** — migration `0006` drops the never-written `ssg_rebuild_results` (349 rows from 2026-01-23) (#933) — infra
 - **Admin** — SSG job page drops its stats card and results table (always empty: nothing has written `ssg_rebuild_results` since 2026-01-23); entity, `/stats` + `/results` endpoints removed; table dropped next release (#933) — backend, admin
 - **Infra** — migration `0005` drops the dead table `notes` (0 rows; refuses to run if any appear) (#932) — infra
 - **Infra** — the never-wired `Note` entity and its call sites (re-ingest, guest merge, guest cleanup) are removed; table `notes` (0 rows) is dropped next release (#932) — backend
