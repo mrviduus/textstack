@@ -94,6 +94,10 @@ public static class AdminBookQualityEndpoints
     {
         if ((req.EditionId is null) == (req.UserBookId is null))
             return Results.BadRequest(new { error = "Exactly one of EditionId or UserBookId required" });
+        var exists = req.EditionId is { } editionId
+            ? await db.Editions.AnyAsync(e => e.Id == editionId, ct)
+            : await db.UserBooks.AnyAsync(b => b.Id == req.UserBookId, ct);
+        if (!exists) return Results.NotFound(new { error = "Book not found" });
 
         var job = new BookQualityJob
         {

@@ -122,6 +122,8 @@ public static class AdminSeoBackfillEndpoints
     private static async Task<IResult> CreateTemplate(
         [FromBody] UpsertTemplateRequest req, IAppDbContext db, CancellationToken ct)
     {
+        if (MissingField(req, create: true) is { } missing)
+            return Results.BadRequest(new { error = $"{missing} is required" });
         if (!Enum.TryParse<SeoEntityType>(req.EntityType, true, out var et))
             return Results.BadRequest(new { error = "Unknown entityType" });
         if (!Enum.TryParse<SeoFieldType>(req.FieldType, true, out var ft))
@@ -171,6 +173,8 @@ public static class AdminSeoBackfillEndpoints
         // "Edit" creates a new Version — old one deactivated.
         var current = await db.SeoTemplates.FirstOrDefaultAsync(t => t.Id == id, ct);
         if (current is null) return Results.NotFound();
+        if (MissingField(req, create: false) is { } missing)
+            return Results.BadRequest(new { error = $"{missing} is required" });
 
         try { using var _ = JsonDocument.Parse(req.OutputSchema); }
         catch (JsonException ex) { return Results.BadRequest(new { error = $"Invalid outputSchema JSON: {ex.Message}" }); }
@@ -220,6 +224,15 @@ public static class AdminSeoBackfillEndpoints
         await tx.CommitAsync(ct);
         return Results.Ok(new { next.Id, next.Version });
     }
+
+    // The request record's non-nullable strings arrive null when the JSON leaves them out.
+    // An edit keeps its template's key, so the key fields are required on create only.
+    private static string? MissingField(UpsertTemplateRequest req, bool create) =>
+        create && string.IsNullOrWhiteSpace(req.LanguageCode) ? "languageCode"
+        : string.IsNullOrWhiteSpace(req.Name) ? "name"
+        : string.IsNullOrWhiteSpace(req.PromptTemplate) ? "promptTemplate"
+        : string.IsNullOrWhiteSpace(req.OutputSchema) ? "outputSchema"
+        : null;
 
     private static IResult ActiveTemplateConflict() =>
         Results.Conflict(new { error = "The key already has an active template; edit it instead" });

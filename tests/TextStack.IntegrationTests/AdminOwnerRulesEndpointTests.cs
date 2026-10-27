@@ -58,4 +58,67 @@ public class AdminOwnerRulesEndpointTests : IClassFixture<AuthenticatedApiFixtur
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
     }
+
+    [Theory]
+    [InlineData("editionId")]
+    [InlineData("userBookId")]
+    public async Task CreateQualityJob_UnknownBook_Returns404(string owner)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var response = await SendAdminAsync(HttpMethod.Post, "/admin/quality/jobs",
+            new Dictionary<string, Guid> { [owner] = Guid.NewGuid() }, ct);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("languageCode")]
+    [InlineData("name")]
+    [InlineData("promptTemplate")]
+    [InlineData("outputSchema")]
+    public async Task CreateSeoTemplate_MissingField_Returns400(string field)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var body = new Dictionary<string, string>
+        {
+            ["entityType"] = "Edition",
+            ["fieldType"] = "SeoDescription",
+            ["languageCode"] = "en",
+            ["name"] = "missing-field",
+            ["promptTemplate"] = "x",
+            ["outputSchema"] = "{}",
+        };
+        body.Remove(field);
+
+        var response = await SendAdminAsync(HttpMethod.Post, "/admin/seo/templates", body, ct);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("name")]
+    [InlineData("promptTemplate")]
+    [InlineData("outputSchema")]
+    public async Task UpdateSeoTemplate_MissingField_Returns400(string field)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var body = new Dictionary<string, string>
+        {
+            ["name"] = "missing-field",
+            ["promptTemplate"] = "x",
+            ["outputSchema"] = "{}",
+        };
+        body.Remove(field);
+
+        // Validation runs after the lookup, so the id must exist: edit any template.
+        var list = await SendAdminAsync(HttpMethod.Get, "/admin/seo/templates", null, ct);
+        Assert.Equal(HttpStatusCode.OK, list.StatusCode);
+        var any = (await list.Content.ReadFromJsonAsync<JsonElement>(ct)).EnumerateArray().FirstOrDefault();
+        Assert.SkipWhen(any.ValueKind == JsonValueKind.Undefined, "no template seeded");
+
+        var response = await SendAdminAsync(HttpMethod.Put,
+            $"/admin/seo/templates/{any.GetProperty("id").GetString()}", body, ct);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
 }
