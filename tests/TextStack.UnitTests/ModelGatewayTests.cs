@@ -29,13 +29,11 @@ public class ModelGatewayTests
         services.AddKeyedSingleton<ILlmService>("ollama", new KeyEchoLlm("ollama"));
         var sp = services.BuildServiceProvider();
 
-        // No shadow routes → primary-only routing (these tests cover primary routing).
-        var shadow = new ShadowOptions(0.0, new Dictionary<string, string>(), null, 15);
         // No registry routes → falls through to the config route (these tests cover config routing).
         var routes = new StubRouteProvider();
         // Budgets OFF → routing unaffected (budget routing covered in ModelGatewayBudgetTests).
         return new ModelGateway(
-            sp, cfg, sp.GetRequiredService<IServiceScopeFactory>(), shadow, routes,
+            sp, cfg, routes,
             new NoopSpendTracker(), BudgetOptions.Empty, NullLogger<ModelGateway>.Instance);
     }
 
@@ -90,9 +88,8 @@ public class ModelGatewayTests
         services.AddKeyedSingleton<ILlmService>("ollama", new KeyEchoLlm("ollama"));
         var sp = services.BuildServiceProvider();
 
-        var shadow = new ShadowOptions(0.0, new Dictionary<string, string>(), null, 15);
         return new ModelGateway(
-            sp, cfg, sp.GetRequiredService<IServiceScopeFactory>(), shadow, routes,
+            sp, cfg, routes,
             new NoopSpendTracker(), BudgetOptions.Empty, NullLogger<ModelGateway>.Instance);
     }
 

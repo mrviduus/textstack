@@ -57,7 +57,7 @@ back to random distractors either way.
 
 **Other fire-and-forget:** admin "run evals now" (`AdminAiQualityEndpoints.Evals.cs:61`), the budget alert
 email (`RollingSpendTracker.cs:188`), trace rows (`TracingDecorator.cs:125`), shadow calls
-(`ModelGateway.cs:295`), tag suggestions in the Worker (`UserIngestionService.cs:339`).
+(`ModelGateway.cs:295`; removed 2026-10-27, #934), tag suggestions in the Worker (`UserIngestionService.cs:339`).
 
 **Instances.** `docker-compose.yml` gives `api`, `worker` and `ssg-worker` a fixed `container_name`
 (`:82`, `:165`, `:295`), so `--scale` cannot run, and each host poller is one systemd unit. Nothing says

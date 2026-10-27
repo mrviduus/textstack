@@ -14,15 +14,12 @@ import {
   CrewAbEvalResult,
   EnrichmentEvalResult,
   TutorEvalResult,
-  ShadowSummary,
-  ShadowPair,
-  ShadowSample,
   ModelRegistration,
   ModelPromotionResult,
   ScheduledEvalPoint,
 } from '../api/client'
 
-type Tab = 'summary' | 'traces' | 'transcripts' | 'evals' | 'shadow' | 'models'
+type Tab = 'summary' | 'traces' | 'transcripts' | 'evals' | 'models'
 
 const KNOWN_FEATURES = ['explain', 'translate', 'distractor', 'bookmeta', 'tagsuggestion', 'eval.judge']
 
@@ -32,7 +29,7 @@ export function AiQualityPage() {
     <div className="dashboard-page">
       <h1>AI Quality</h1>
       <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid #e5e7eb', margin: '12px 0 16px' }}>
-        {(['summary', 'traces', 'transcripts', 'evals', 'shadow', 'models'] as Tab[]).map((t) => (
+        {(['summary', 'traces', 'transcripts', 'evals', 'models'] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -55,7 +52,6 @@ export function AiQualityPage() {
       {tab === 'traces' && <TracesTab />}
       {tab === 'transcripts' && <TranscriptsTab />}
       {tab === 'evals' && <EvalsTab />}
-      {tab === 'shadow' && <ShadowTab />}
       {tab === 'models' && <ModelsTab />}
     </div>
   )
@@ -1140,232 +1136,6 @@ function EvalsTab() {
   )
 }
 
-// ─────────────────────────── Shadow ───────────────────────────
-
-const SHADOW_PAGE = 25
-
-function deltaColor(delta: number, lowerIsBetter: boolean): string {
-  if (delta === 0) return '#6b7280'
-  const good = lowerIsBetter ? delta < 0 : delta > 0
-  return good ? '#059669' : '#dc2626'
-}
-
-function fmtDelta(delta: number, suffix: string): string {
-  const sign = delta > 0 ? '+' : ''
-  return `${sign}${delta}${suffix}`
-}
-
-function ShadowTab() {
-  const [data, setData] = useState<ShadowSummary | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [days, setDays] = useState(30)
-  const [feature, setFeature] = useState('')
-  const [selected, setSelected] = useState<ShadowPair | null>(null)
-
-  useEffect(() => {
-    setLoading(true)
-    const from = new Date(Date.now() - days * 86400000).toISOString()
-    adminApi
-      .getShadowSummary({ from, feature: feature || undefined })
-      .then((d) => {
-        setData(d)
-        setError(null)
-      })
-      .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load'))
-      .finally(() => setLoading(false))
-  }, [days, feature])
-
-  // Feature options derived from the summary's pairs (distinct featureTags), not hardcoded.
-  const featureOptions = [...new Set((data?.pairs ?? []).map((p) => p.featureTag))].sort()
-
-  return (
-    <>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <select
-            value={feature}
-            onChange={(e) => setFeature(e.target.value)}
-            style={input}
-          >
-            <option value="">All features</option>
-            {featureOptions.map((f) => (
-              <option key={f} value={f}>
-                {f}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div style={{ display: 'flex', gap: 4 }}>
-          {RANGES.map((r) => (
-            <button key={r.days} onClick={() => setDays(r.days)} style={rangeBtn(days === r.days)}>
-              {r.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {error && <Banner text={error} />}
-
-      {loading ? (
-        <p className="dashboard-page__subtitle" style={{ marginTop: 12 }}>Loading…</p>
-      ) : !data || data.pairs.length === 0 ? (
-        <p className="dashboard-empty" style={{ marginTop: 24 }}>
-          No shadow runs in this window. Shadow routing is OFF by default — enable Ai:Shadow:Routes:&#123;feature&#125; + a
-          sample rate to start comparing.
-        </p>
-      ) : (
-        <>
-          <div style={{ display: 'flex', gap: 24, margin: '16px 0' }}>
-            <Totals label="Total shadow runs" value={data.totalRuns.toLocaleString()} />
-            <Totals label="Pairs" value={String(data.pairs.length)} />
-          </div>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-            <thead>
-              <tr style={{ textAlign: 'left', color: '#6b7280', borderBottom: '1px solid #e5e7eb' }}>
-                <th style={th}>Feature</th>
-                <th style={th}>Primary</th>
-                <th style={th}>Shadow</th>
-                <th style={th}>Runs</th>
-                <th style={th}>p50 latency (P / S / Δ)</th>
-                <th style={th}>Cost (P / S / Δ)</th>
-                <th style={th}>Proj. monthly Δ</th>
-                <th style={th}>Exact-match</th>
-                <th style={th}>Len ratio</th>
-                <th style={th}>Last seen</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.pairs.map((p) => (
-                <tr
-                  key={`${p.featureTag}|${p.primaryModelId}|${p.shadowModelId}`}
-                  onClick={() => setSelected(p)}
-                  style={{ cursor: 'pointer', borderBottom: '1px solid #f3f4f6' }}
-                >
-                  <td style={td}>{p.featureTag}</td>
-                  <td style={td}>{p.primaryModelId}</td>
-                  <td style={td}>{p.shadowModelId}</td>
-                  <td style={td}>{p.runs.toLocaleString()}</td>
-                  <td style={td}>
-                    {p.primaryP50LatencyMs} / {p.shadowP50LatencyMs} ms{' '}
-                    <span style={{ color: deltaColor(p.latencyDeltaMs, true), fontWeight: 600 }}>
-                      {fmtDelta(p.latencyDeltaMs, 'ms')}
-                    </span>
-                  </td>
-                  <td style={td}>
-                    ${p.primaryCostUsd.toFixed(4)} / ${p.shadowCostUsd.toFixed(4)}{' '}
-                    <span style={{ color: deltaColor(p.costDeltaUsd, true), fontWeight: 600 }}>
-                      {p.costDeltaUsd >= 0 ? '+' : '-'}${Math.abs(p.costDeltaUsd).toFixed(4)}
-                    </span>
-                  </td>
-                  <td style={{ ...td, color: deltaColor(p.projectedMonthlyCostDeltaUsd, true), fontWeight: 600 }}>
-                    {p.projectedMonthlyCostDeltaUsd >= 0 ? '+' : '-'}${Math.abs(p.projectedMonthlyCostDeltaUsd).toFixed(2)}
-                  </td>
-                  <td style={td}>{(p.exactMatchRate * 100).toFixed(1)}%</td>
-                  <td style={td}>{p.avgLengthRatio.toFixed(2)}×</td>
-                  <td style={td}>{timeAgo(p.lastSeen)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <p style={{ fontSize: 12, color: '#9ca3af', marginTop: 12 }}>
-            Agreement = lexical (exact-match + length ratio), not a quality verdict. Semantic judge scoring lands in a later
-            slice.
-          </p>
-        </>
-      )}
-
-      {selected && <ShadowSamplesModal pair={selected} onClose={() => setSelected(null)} />}
-    </>
-  )
-}
-
-function ShadowSamplesModal({ pair, onClose }: { pair: ShadowPair; onClose: () => void }) {
-  const [items, setItems] = useState<ShadowSample[]>([])
-  const [total, setTotal] = useState(0)
-  const [offset, setOffset] = useState(0)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    setLoading(true)
-    adminApi
-      .getShadowSamples({
-        feature: pair.featureTag,
-        primaryModelId: pair.primaryModelId,
-        shadowModelId: pair.shadowModelId,
-        limit: SHADOW_PAGE,
-        offset,
-      })
-      .then((d) => {
-        setItems(d.items)
-        setTotal(d.total)
-        setError(null)
-      })
-      .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load samples'))
-      .finally(() => setLoading(false))
-  }, [pair, offset])
-
-  return (
-    <div onClick={onClose} style={overlay}>
-      <div onClick={(e) => e.stopPropagation()} style={modal}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-          <h2 style={{ margin: 0, fontSize: 18 }}>{pair.featureTag} · shadow samples</h2>
-          <button onClick={onClose} style={{ ...rangeBtn(false), border: 'none' }}>✕</button>
-        </div>
-        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 12 }}>
-          primary <strong>{pair.primaryModelId}</strong> · shadow <strong>{pair.shadowModelId}</strong>
-        </div>
-
-        {error && <Banner text={error} />}
-
-        {loading ? (
-          <p className="dashboard-page__subtitle">Loading…</p>
-        ) : items.length === 0 ? (
-          <p className="dashboard-empty">No samples for this pair.</p>
-        ) : (
-          <>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              {items.map((s) => (
-                <div key={s.id} style={card}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                    <span style={{ fontSize: 12, color: '#6b7280' }}>{timeAgo(s.createdAt)}</span>
-                    <span
-                      style={{
-                        fontSize: 11,
-                        fontWeight: 600,
-                        textTransform: 'uppercase',
-                        color: s.exactMatch ? '#059669' : '#d97706',
-                      }}
-                    >
-                      {s.exactMatch ? 'exact match' : 'differs'}
-                    </span>
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                    <div>
-                      <div style={{ fontSize: 11, textTransform: 'uppercase', color: '#9ca3af', marginBottom: 4 }}>
-                        Primary · {s.primaryLatencyMs}ms · ${s.primaryCostUsd.toFixed(4)} · {s.primaryTokensOut} tok
-                      </div>
-                      <pre style={pre}>{s.primaryResponse ?? '—'}</pre>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 11, textTransform: 'uppercase', color: '#9ca3af', marginBottom: 4 }}>
-                        Shadow · {s.shadowLatencyMs}ms · ${s.shadowCostUsd.toFixed(4)} · {s.shadowTokensOut} tok
-                      </div>
-                      <pre style={pre}>{s.shadowResponse ?? '—'}</pre>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <Pager offset={offset} total={total} onChange={setOffset} pageSize={SHADOW_PAGE} label="samples" />
-          </>
-        )}
-      </div>
-    </div>
-  )
-}
-
 // ─────────────────────────── Models ───────────────────────────
 
 function modelStatusColor(status: string): string {
@@ -1432,8 +1202,8 @@ function ModelsTab() {
   return (
     <>
       <p className="dashboard-page__subtitle" style={{ margin: '0 0 12px' }}>
-        Registered models per feature and their routing status. Promote a shadow to primary or roll a feature back to its
-        previous primary.
+        Registered models per feature and their routing status. Shadow models are standbys and serve nothing. Promote one
+        to primary or roll a feature back to its previous primary.
       </p>
 
       {error && <Banner text={error} />}
@@ -1527,7 +1297,7 @@ function ModelConfirmDialog({
   const title = action.kind === 'promote' ? 'Promote to primary' : 'Roll back primary'
   const message =
     action.kind === 'promote'
-      ? `Promote ${row.modelId} to primary for ${row.featureTag}? The current primary will keep running as shadow.`
+      ? `Promote ${row.modelId} to primary for ${row.featureTag}? The current primary becomes a standby (Shadow) and stops serving.`
       : `Roll back ${row.featureTag} to its previous primary?`
   return (
     <div onClick={onClose} style={overlay}>

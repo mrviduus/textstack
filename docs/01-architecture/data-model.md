@@ -124,7 +124,7 @@ Rows: exact `count(*)` in production on 2026-10-26 (`pg_stat_user_tables` estima
 |---|---|---|---|---|---|
 | 58 | `llm_traces` | LLM call traces (cost, latency, text) | Keep | Writers record no user; text scrubbed after 30 d, cost/latency kept (was 790 MB, 755 MB of it `messages_json`) | 3,852 |
 | 59 | `agent_run` | Agent run steps | Keep | Deleted after 30 d and with the account | 104 |
-| 60 | `shadow_runs` | Primary vs shadow model comparisons | Retire | Off by default; admin page only; swept after 30 d meanwhile | 0 |
+| 60 | `shadow_runs` | Primary vs shadow model comparisons | Retire | Never switched on. Shadow path, admin tab and sweep removed; code no longer maps it; dropped next release (#934) | 0 |
 | 61 | `models` | Model registry, live routing | Decide | Duplicates config `Ai:Routes` | 8 |
 | 62 | `model_promotions` | Promote/rollback history | Decide | Goes with `models` | 0 |
 | 63 | `eval_runs` | Eval score history | Decide | Depends on the admin AI-quality page | 34 |
@@ -171,7 +171,7 @@ and `reading_sessions` serve both through nullable edition-or-upload keys.
 | `vocabulary_words`, `vocabulary_reviews`, `user_vocabulary_settings`, `tutor_session` | user_id | Learning patterns |
 | `bookmarks`, `highlights`, `book_insight`, `review_question` | user_id | Annotations, assistant output |
 | `mcp_access_keys`, `oauth_grants`, `device_authorizations`, `oauth_authorization_requests` | user id | Credentials |
-| `llm_traces`, `agent_run`, `shadow_runs` | prompt/response text (scrubbed before write) | Traces/shadow runs carry no user id; their text goes after 30 d. Agent runs are deleted with the account |
+| `llm_traces`, `agent_run` | prompt/response text (scrubbed before write) | Traces carry no user id; their text goes after 30 d. Agent runs are deleted with the account. (`shadow_runs` held the same, was never written, and is dropped by #934) |
 | `user_books`, `user_chapters`, `user_book_files`, `user_book_bookmarks`, `user_libraries`, `user_ingestion_jobs` | user_id | Uploaded content + library |
 
 **Guest users**: `users.is_guest = true`. `GuestCleanupWorker` (every 2 h) deletes guests inactive

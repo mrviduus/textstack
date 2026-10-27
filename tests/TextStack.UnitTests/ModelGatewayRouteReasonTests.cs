@@ -67,8 +67,7 @@ public class ModelGatewayRouteReasonTests
 
         var alarm = new RecordingRouteAlarm();
         var gateway = new ModelGateway(
-            sp, cfg, sp.GetRequiredService<IServiceScopeFactory>(),
-            new ShadowOptions(0.0, new Dictionary<string, string>(), null, 15),
+            sp, cfg,
             new StubRouteProvider(registryRoutes),
             new NoopSpendTracker(), BudgetOptions.Empty,
             NullLogger<ModelGateway>.Instance, alarm);

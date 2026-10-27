@@ -13,7 +13,6 @@ namespace Api.Endpoints;
 ///   - AdminAiQualityEndpoints.Traces.cs       GetTraces, GetTrace, GetAgentRuns, GetAgentRun
 ///   - AdminAiQualityEndpoints.Evals.cs        RunEvals, GetEvalStatus, GetEvals, GetEvalTrend
 ///   - AdminAiQualityEndpoints.EvalRunners.cs  per-agent/crew eval trigger endpoints
-///   - AdminAiQualityEndpoints.Shadow.cs       GetShadowSummary, ToPairDto, GetShadowSamples
 ///   - AdminAiQualityEndpoints.Models.cs       GetModels, PromoteModel, RollbackModel
 ///   - AdminAiQualityEndpoints.Budgets.cs      GetBudgets
 ///
@@ -38,8 +37,6 @@ public static partial class AdminAiQualityEndpoints
         group.MapPost("/tutor/eval", RunTutorEval);
         group.MapPost("/evals/criticdefects/run", RunCriticDefectEval);
         group.MapPost("/evals/crew-ab/run", RunCrewAbEval);
-        group.MapGet("/shadow/summary", GetShadowSummary);
-        group.MapGet("/shadow/samples", GetShadowSamples);
         group.MapGet("/models", GetModels);
         group.MapPost("/models/{id:guid}/promote", PromoteModel);
         group.MapPost("/models/{feature}/rollback", RollbackModel);
