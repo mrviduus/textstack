@@ -27,10 +27,14 @@ LOCK TABLE public.highlights, public.reading_sessions, public.book_quality_jobs,
 -- Rows the constraints below would refuse: say which rule, instead of a bare 23514/23505.
 DO $$
 BEGIN
-    IF EXISTS (SELECT 1 FROM public.highlights WHERE num_nonnulls(edition_id, user_book_id) > 1)
-        OR EXISTS (SELECT 1 FROM public.reading_sessions WHERE num_nonnulls(edition_id, user_book_id) > 1)
-        OR EXISTS (SELECT 1 FROM public.book_quality_jobs WHERE num_nonnulls(edition_id, user_book_id) <> 1) THEN
-        RAISE EXCEPTION 'a highlight, reading session or quality job has both owners (or a job none); fix it first (#939)';
+    IF EXISTS (SELECT 1 FROM public.highlights WHERE num_nonnulls(edition_id, user_book_id) > 1) THEN
+        RAISE EXCEPTION 'a highlight has both edition_id and user_book_id; fix it first (#939)';
+    END IF;
+    IF EXISTS (SELECT 1 FROM public.reading_sessions WHERE num_nonnulls(edition_id, user_book_id) > 1) THEN
+        RAISE EXCEPTION 'a reading session has both edition_id and user_book_id; fix it first (#939)';
+    END IF;
+    IF EXISTS (SELECT 1 FROM public.book_quality_jobs WHERE num_nonnulls(edition_id, user_book_id) <> 1) THEN
+        RAISE EXCEPTION 'a quality job has both or neither of edition_id and user_book_id; fix it first (#939)';
     END IF;
     IF EXISTS (SELECT 1 FROM public.book_collections WHERE book_type NOT IN ('userbook', 'savedbook')) THEN
         RAISE EXCEPTION 'book_collections has a book_type other than userbook/savedbook; fix it first (#939)';
