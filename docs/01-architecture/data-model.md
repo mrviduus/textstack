@@ -12,11 +12,11 @@ changes its row here.
 
 | | |
 |---|---|
-| Tables | 60 (59 `DbSet`s + the `edition_genres` join); `notes` dropped by `0005`, `ssg_rebuild_results` by `0006`, `shadow_runs` by `0007` |
+| Tables | 59 (57 `DbSet`s + the `edition_genres` join + the unmapped `lint_results`); `notes` dropped by `0005`, `ssg_rebuild_results` by `0006`, `shadow_runs` by `0007`, `word_frequencies` by `0009` |
 | Migrations | SQL since 2026-10-26: `0000_baseline` stands for the 147 EF Core migrations production had applied (`20251217180704_Initial_WorkEdition_Admin` → `20261024202404_TranslateRegistryOnGpt41Mini`), which were then deleted. The 148th, `20260219000000_AddSearchPerformanceIndexes`, had no `.Designer.cs` and never ran; its indexes turned out unusable by search, closed not-planned ([#948](https://github.com/mrviduus/textstack/issues/948)) |
 | SQL baseline | [`database/migrations/0000_baseline.up.sql`](../../database/migrations/0000_baseline.up.sql): this whole schema, grouped and numbered as below, + seed rows ([#931](https://github.com/mrviduus/textstack/issues/931)); builds a schema identical to production |
 | Ledger | `schema_migrations` (not in the inventory: the runner's, not the app's). EF Core's `__EFMigrationsHistory` dropped by `0001` ([#961](https://github.com/mrviduus/textstack/issues/961)) |
-| Indexes | 161 after `0007` (baseline 181: keys + raw-SQL indexes + 145 `HasIndex`, 129 now) |
+| Indexes | 158 after `0009` (baseline 181: keys + raw-SQL indexes + 145 `HasIndex`, 123 now) |
 | Site-scoped | 23 tables carry `site_id` + an EF query filter (single site forever, [ADR-007](adr/007-single-domain-consolidation.md)) |
 | Objects outside the EF model | extensions `pg_trgm`, `vector`; `get_fts_config()` + `chapters` search-vector trigger; generated `user_chapters.search_vector` — in the baseline like everything else. The GiST trigram index on `lower(editions.title)` was dropped by `0002` (no query used it, #948) |
 | Largest | `chapters` 2.6 GB · `llm_traces` 790 MB (3,852 rows) · `user_chapters` 131 MB · `lint_results` 30 MB |
@@ -114,7 +114,7 @@ Rows: exact `count(*)` in production on 2026-10-26 (`pg_stat_user_tables` estima
 | 52 | `user_vocabulary_settings` | Per-user vocabulary settings | Keep | | 0 |
 | 53 | `pending_vocabulary_words` | Saves over the daily cap | Decide | Same columns as `vocabulary_words` | 0 |
 | 54 | `word_lookups` | Tapped rare words | Decide | Same columns again + `tap_count` | 65 |
-| 55 | `word_frequencies` | Zipf word frequencies | Retire | `FrequencyFilter` now reads the embedded `.gz` directly; loader worker and entity removed; dropped next release (#935) | 20,000 |
+| 55 | ~~`word_frequencies`~~ | Zipf word frequencies | Dropped | Dropped by `0009` (#935): a startup copy of the embedded `.gz`, which `FrequencyFilter` now reads directly | — |
 | 56 | `word_clusters` | Book and concept groups of saved words | Keep | Concept clusters need pgvector + embeddings | 100 |
 | 57 | `tutor_session` | Learning-tutor state between turns | Keep | Deleted after 90 days without use | 6 |
 
@@ -129,7 +129,7 @@ Rows: exact `count(*)` in production on 2026-10-26 (`pg_stat_user_tables` estima
 | 62 | `model_promotions` | Promote/rollback history | Decide | Goes with `models` | 0 |
 | 63 | `eval_runs` | Eval score history | Decide | Depends on the admin AI-quality page | 34 |
 
-**Count by status:** Keep 23 · Clean 20 · Retire 2 · Decide 13 · Site 2 · Dropped 3.
+**Count by status:** Keep 23 · Clean 20 · Retire 1 · Decide 13 · Site 2 · Dropped 4.
 
 ## Core relationships
 
