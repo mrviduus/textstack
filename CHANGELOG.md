@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Library** — re-uploading a deleted file brings its highlights (by chapter slug) and reading sessions back; migration `0015` keeps the file's sha256 on them at delete (#983) — backend, worker, infra
 - **Admin** — editing an SEO template that is not its key's active version returns 409 instead of replacing the newer one; create numbers a revived key max+1 instead of v1 again (#984) — backend
 - **Infra** — one Postgres violation helper (unique, FK, class 23; wrapped or bare), one `ForKey`/`ActiveForKey` query for the SEO template key; no behavior change (#987, #988) — backend
 - **Library** — a deleted book's highlights keep its title (`highlights.book_title`, written on book delete, migration `0014`) and All highlights shows "<title> (deleted)" (#982) — backend, web, mobile, infra

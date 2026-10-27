@@ -15,6 +15,10 @@ public class Highlight : ISiteScoped
     public string? NoteText { get; set; }
     /// <summary>The book's title, written when the book is deleted (owner SET NULL) and shown from then on.</summary>
     public string? BookTitle { get; set; }
+    /// <summary>A deleted upload's file and this highlight's chapter in it, to re-attach on re-upload (#983).</summary>
+    public string? DeletedBookSha256 { get; set; }
+    /// <inheritdoc cref="DeletedBookSha256"/>
+    public string? DeletedChapterSlug { get; set; }
     public int Version { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }

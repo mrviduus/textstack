@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Application.Common.Interfaces;
 using Application.Ingestion;
+using Application.UserBooks;
 using Domain.Entities;
 using Domain.Enums;
 using Domain.Utilities;
@@ -334,6 +335,21 @@ public class UserIngestionService
             job.Error = null;
 
             await db.SaveChangesAsync(ct);
+
+            // Same file uploaded again after a delete: its highlights and sessions come back (#983).
+            // Best-effort: the book is already Ready; a failure here leaves the rows ownerless, as before.
+            try
+            {
+                var (reHighlights, reSessions) = await DeletedUploadTrail.ReattachAsync(
+                    db, job.UserBook, job.UserBookFile.Sha256, ct);
+                if (reHighlights + reSessions > 0)
+                    _logger.LogInformation("Re-attached {Highlights} highlights, {Sessions} sessions to user book {BookId}",
+                        reHighlights, reSessions, job.UserBookId);
+            }
+            catch (DbUpdateException ex)
+            {
+                _logger.LogWarning(ex, "Could not re-attach a deleted copy's rows to user book {BookId}", job.UserBookId);
+            }
 
             foreach (var file in oldAssets)
             {
