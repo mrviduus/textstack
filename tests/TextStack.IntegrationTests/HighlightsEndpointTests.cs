@@ -257,6 +257,26 @@ public class HighlightsEndpointTests : IClassFixture<LiveApiFixture>, IClassFixt
     }
 
     [Fact]
+    public async Task CreateHighlight_UserBookWithCatalogChapterId_Returns400()
+    {
+        // #939: an upload highlight must not carry a catalog chapter id — it would be stored as given.
+        // Random ids: the check runs before any lookup, so without it this answers 404.
+        Assert.SkipUnless(_auth.IsAuthenticated, "test auth unavailable");
+
+        var req = _auth.CreateRequest(HttpMethod.Post, "/me/highlights");
+        req.Content = JsonContent.Create(new
+        {
+            userBookId = Guid.NewGuid(),
+            chapterId = Guid.NewGuid(),
+            anchorJson = PdfAnchorJson,
+            color = "yellow",
+            selectedText = "real books"
+        });
+        var resp = await _auth.Client.SendAsync(req, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+    }
+
+    [Fact]
     public async Task CreateHighlight_UserBookNotOwnedByCaller_Returns404AndNotCreated()
     {
         // Ownership must still hold on the chapterless PDF path: a UserBookId the caller does not

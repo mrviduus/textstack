@@ -48,7 +48,8 @@ public partial class AppDbContext
             e.HasQueryFilter(x => x.SiteId == _currentSite.Id);
         });
 
-        // Highlight — can attach to either an Edition+Chapter or a UserBook+UserChapter.
+        // Highlight — attaches to at most one of Edition+Chapter or UserBook+UserChapter (CHECK, #939);
+        // none once its book is deleted: it stays the user's (All highlights, review).
         modelBuilder.Entity<Highlight>(e =>
         {
             e.HasIndex(x => x.ChapterId);
@@ -68,7 +69,8 @@ public partial class AppDbContext
             e.HasQueryFilter(x => x.SiteId == _currentSite.Id);
         });
 
-        // ReadingSession
+        // ReadingSession — at most one of Edition or UserBook (CHECK, #939); none once its book is
+        // deleted: streaks and totals still count it.
         modelBuilder.Entity<ReadingSession>(e =>
         {
             e.HasIndex(x => new { x.UserId, x.SiteId });

@@ -16,7 +16,7 @@ public partial class AppDbContext
         // SeoTemplate — editable Claude prompts per entity_type × field_type × language, version-frozen.
         modelBuilder.Entity<SeoTemplate>(e =>
         {
-            e.HasIndex(x => new { x.EntityType, x.FieldType, x.LanguageCode, x.IsActive });
+            e.HasIndex(x => new { x.EntityType, x.FieldType, x.LanguageCode }).IsUnique().HasFilter("is_active");
             e.Property(x => x.LanguageCode).HasMaxLength(8);
             e.Property(x => x.Name).HasMaxLength(200);
             e.Property(x => x.Description).HasMaxLength(500);
