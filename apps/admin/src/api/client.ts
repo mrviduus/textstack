@@ -290,7 +290,6 @@ export interface EditionGenre {
 
 // SSG Rebuild
 export type SsgRebuildJobStatus = 'Queued' | 'Running' | 'Completed' | 'Failed' | 'Cancelled'
-// Full is the only mode since 2026-10-08; old rows also read back as Full.
 
 export interface SsgRebuildJobListItem {
   id: string

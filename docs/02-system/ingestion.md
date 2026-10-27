@@ -9,7 +9,7 @@ Upload → store → queue job → Worker extracts chapters. Two parallel pipeli
 | | Admin catalog | User upload |
 |-|---------------|-------------|
 | Endpoint | `POST /admin/books/upload` (multipart) | `POST /me/books/upload` |
-| Form fields | `file`, `siteId`, `title`, `language`, `description?`, `workId?`, `sourceEditionId?`, `authorIds?`, `genreId?` | `file`, `title?`, `language?` |
+| Form fields | `file`, `siteId`, `title`, `language`, `description?`, `workId?`, `authorIds?`, `genreId?` | `file`, `title?`, `language?` |
 | Logic | `Application/Admin/AdminService.Upload.cs` | `Application/UserBooks/UserBookService.cs` |
 | Creates | Work/Edition (Draft), `BookFile`, `IngestionJob` (Queued) | `UserBook`, `UserBookFile`, `UserIngestionJob` |
 | Limits | admin only | entitlement tier (storage, max books) |

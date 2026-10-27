@@ -53,7 +53,7 @@ There is no Sites page (removed with multisite, ADR-007).
 | Stats | `GET /admin/stats` | `AdminEndpoints.cs` |
 
 Upload form fields: `file`, `siteId`, `title`, `language`, `description?`, `workId?`,
-`sourceEditionId?`, `authorIds?`, `genreId?`. A successful ingestion publishes the edition
+`authorIds?`, `genreId?`. A successful ingestion publishes the edition
 ([ingestion.md](ingestion.md)).
 
 ## Key files
