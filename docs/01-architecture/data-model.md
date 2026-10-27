@@ -12,11 +12,11 @@ changes its row here.
 
 | | |
 |---|---|
-| Tables | 61 (60 `DbSet`s + the `edition_genres` join); `notes` dropped by `0005`, `ssg_rebuild_results` by `0006` |
+| Tables | 60 (59 `DbSet`s + the `edition_genres` join); `notes` dropped by `0005`, `ssg_rebuild_results` by `0006`, `shadow_runs` by `0007` |
 | Migrations | SQL since 2026-10-26: `0000_baseline` stands for the 147 EF Core migrations production had applied (`20251217180704_Initial_WorkEdition_Admin` → `20261024202404_TranslateRegistryOnGpt41Mini`), which were then deleted. The 148th, `20260219000000_AddSearchPerformanceIndexes`, had no `.Designer.cs` and never ran; its indexes turned out unusable by search, closed not-planned ([#948](https://github.com/mrviduus/textstack/issues/948)) |
 | SQL baseline | [`database/migrations/0000_baseline.up.sql`](../../database/migrations/0000_baseline.up.sql): this whole schema, grouped and numbered as below, + seed rows ([#931](https://github.com/mrviduus/textstack/issues/931)); builds a schema identical to production |
 | Ledger | `schema_migrations` (not in the inventory: the runner's, not the app's). EF Core's `__EFMigrationsHistory` dropped by `0001` ([#961](https://github.com/mrviduus/textstack/issues/961)) |
-| Indexes | 164 after `0006` (baseline 181: keys + raw-SQL indexes + 145 `HasIndex`, 131 now) |
+| Indexes | 161 after `0007` (baseline 181: keys + raw-SQL indexes + 145 `HasIndex`, 129 now) |
 | Site-scoped | 23 tables carry `site_id` + an EF query filter (single site forever, [ADR-007](adr/007-single-domain-consolidation.md)) |
 | Objects outside the EF model | extensions `pg_trgm`, `vector`; `get_fts_config()` + `chapters` search-vector trigger; generated `user_chapters.search_vector` — in the baseline like everything else. The GiST trigram index on `lower(editions.title)` was dropped by `0002` (no query used it, #948) |
 | Largest | `chapters` 2.6 GB · `llm_traces` 790 MB (3,852 rows) · `user_chapters` 131 MB · `lint_results` 30 MB |
@@ -124,12 +124,12 @@ Rows: exact `count(*)` in production on 2026-10-26 (`pg_stat_user_tables` estima
 |---|---|---|---|---|---|
 | 58 | `llm_traces` | LLM call traces (cost, latency, text) | Keep | Writers record no user; text scrubbed after 30 d, cost/latency kept (was 790 MB, 755 MB of it `messages_json`) | 3,852 |
 | 59 | `agent_run` | Agent run steps | Keep | Deleted after 30 d and with the account | 104 |
-| 60 | `shadow_runs` | Primary vs shadow model comparisons | Retire | Never switched on. Shadow path, admin tab and sweep removed; code no longer maps it; dropped next release (#934) | 0 |
+| 60 | ~~`shadow_runs`~~ | Primary vs shadow model comparisons | Dropped | Dropped by `0007` (#934): shadow routing was never switched on | — |
 | 61 | `models` | Model registry, live routing | Decide | Duplicates config `Ai:Routes` | 8 |
 | 62 | `model_promotions` | Promote/rollback history | Decide | Goes with `models` | 0 |
 | 63 | `eval_runs` | Eval score history | Decide | Depends on the admin AI-quality page | 34 |
 
-**Count by status:** Keep 23 · Clean 20 · Retire 3 · Decide 13 · Site 2 · Dropped 2.
+**Count by status:** Keep 23 · Clean 20 · Retire 2 · Decide 13 · Site 2 · Dropped 3.
 
 ## Core relationships
 
@@ -171,7 +171,7 @@ and `reading_sessions` serve both through nullable edition-or-upload keys.
 | `vocabulary_words`, `vocabulary_reviews`, `user_vocabulary_settings`, `tutor_session` | user_id | Learning patterns |
 | `bookmarks`, `highlights`, `book_insight`, `review_question` | user_id | Annotations, assistant output |
 | `mcp_access_keys`, `oauth_grants`, `device_authorizations`, `oauth_authorization_requests` | user id | Credentials |
-| `llm_traces`, `agent_run` | prompt/response text (scrubbed before write) | Traces carry no user id; their text goes after 30 d. Agent runs are deleted with the account. (`shadow_runs` held the same, was never written, and is dropped by #934) |
+| `llm_traces`, `agent_run` | prompt/response text (scrubbed before write) | Traces carry no user id; their text goes after 30 d. Agent runs are deleted with the account. (`shadow_runs` held the same, was never written; dropped by `0007`) |
 | `user_books`, `user_chapters`, `user_book_files`, `user_book_bookmarks`, `user_libraries`, `user_ingestion_jobs` | user_id | Uploaded content + library |
 
 **Guest users**: `users.is_guest = true`. `GuestCleanupWorker` (every 2 h) deletes guests inactive
