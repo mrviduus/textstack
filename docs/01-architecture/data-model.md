@@ -48,7 +48,7 @@ Rows: exact `count(*)` in production on 2026-10-26 (`pg_stat_user_tables` estima
 | 7 | `edition_authors` | Edition ↔ author, with order and role | Keep | `role` is always `Author` | 1,437 |
 | 8 | `genres` | Genre pages and filters | Keep | redundant `(site_id)` index | 58 |
 | 9 | `edition_genres` | Edition ↔ genre join (implicit) | Keep | EF default column names `editions_id`, `genres_id` | 2,134 |
-| 10 | `book_files` | Original catalog upload | Clean | `sha256` no longer written or mapped (#937; index dropped `0002`, column dropped next) | 22 |
+| 10 | `book_files` | Original catalog upload | Clean | `sha256` no longer written or mapped (#937): old rows keep stale hashes, new rows null, until the column is dropped next; index dropped `0002` | 22 |
 | 11 | `book_assets` | Inline images extracted from books | Clean | `kind` always `InlineImage`; `(edition_id)` index dropped (`0002`) | 5,011 |
 | 12 | `ingestion_jobs` | Catalog extraction queue | Clean | `work_id`, `source_edition_id` write-only copies (+ indexes) | 25 |
 | 13 | `lint_results` | Extraction lint findings | Retire | Written by the worker; no admin UI reads it | 18,380 |
