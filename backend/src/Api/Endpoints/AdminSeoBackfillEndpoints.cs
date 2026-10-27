@@ -159,7 +159,7 @@ public static class AdminSeoBackfillEndpoints
             UpdatedAt = DateTimeOffset.UtcNow,
         };
         db.SeoTemplates.Add(tpl);
-        // A concurrent create can pass the check above too; the index refuses the second.
+        // A concurrent create can pass the check above too; once 0012 is in, its index refuses the second.
         try { await db.SaveChangesAsync(ct); }
         catch (DbUpdateException ex) when (UserDataEndpoints.IsUniqueViolation(ex)) { return ActiveTemplateConflict(); }
         return Results.Ok(new { tpl.Id, tpl.Version });
@@ -213,7 +213,8 @@ public static class AdminSeoBackfillEndpoints
             UpdatedAt = DateTimeOffset.UtcNow,
         };
         db.SeoTemplates.Add(next);
-        // A concurrent edit of the same key inserts its own active row; the index refuses the second.
+        // A concurrent edit of the same key inserts its own active row; once 0012 is in, its index
+        // refuses the second.
         try { await db.SaveChangesAsync(ct); }
         catch (DbUpdateException ex) when (UserDataEndpoints.IsUniqueViolation(ex)) { return ActiveTemplateConflict(); }
         await tx.CommitAsync(ct);

@@ -148,9 +148,9 @@ public class ReadingSessionsEndpointTests : IClassFixture<LiveApiFixture>, IClas
             endPercent = 0.1
         };
 
-        // Not IntegrationSkip.Unavailable: without the check, these unknown ids answer 404 — a failure here.
+        // No skip: without the check these unknown ids answer 404, and after 0012 the CHECK answers
+        // 500 — both are failures here.
         var response = await _auth.Client.SendAsync(PostSession(body), TestContext.Current.CancellationToken);
-        Assert.SkipWhen(response.StatusCode == HttpStatusCode.InternalServerError, "host erroring");
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
