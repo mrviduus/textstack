@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Infra** — migration `0005` drops the dead table `notes` (0 rows; refuses to run if any appear) (#932) — infra
 - **Infra** — the never-wired `Note` entity and its call sites (re-ingest, guest merge, guest cleanup) are removed; table `notes` (0 rows) is dropped next release (#932) — backend
 - **Infra** — migration `0004` drops `book_files.sha256`; the round-trip check ignores column order, so a down file can re-add a dropped column (#937) — infra
 - **Infra** — admin upload stops computing the never-read `book_files.sha256`; the column is dropped next release (#937) — backend

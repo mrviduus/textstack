@@ -30,6 +30,7 @@ changes its row here.
 | **Retire** | Dead or replaceable; drop in the cleanup |
 | **Decide** | Live but duplicated or questionable; needs a design decision before V2 |
 | **Site** | Goes away with the single-site cleanup |
+| **Dropped** | Gone from the schema; row kept so the numbering stays stable |
 
 Rows: exact `count(*)` in production on 2026-10-26 (`pg_stat_user_tables` estimates were stale — `chapters` read 0).
 
@@ -97,7 +98,7 @@ Rows: exact `count(*)` in production on 2026-10-26 (`pg_stat_user_tables` estima
 | 41 | `reading_progresses` | Position in a catalog book | Decide | Uploads keep progress on `user_books` instead; legacy `locator` (`scroll:<slug>:<px>`) next to `position_json` | 435 |
 | 42 | `bookmarks` | Bookmarks in catalog books | Decide | No unique key; twin of `user_book_bookmarks` | 9 |
 | 43 | `highlights` | Highlights + their note text, catalog or upload | Clean | Edition-or-upload keys, no CHECK; SET NULL can leave a highlight with no book | 39 |
-| 44 | `notes` | Standalone notes | Retire | No writer anywhere; `highlights.note_text` holds notes. Code no longer maps it; dropped next release (#932) | 0 |
+| 44 | ~~`notes`~~ | Standalone notes | Dropped | Dropped by `0005` (#932): no writer ever; `highlights.note_text` holds notes | — |
 | 45 | `reading_sessions` | Reading time for stats and streaks | Clean | Same edition-or-upload keys without CHECK | 587 |
 | 46 | `reading_goals` | Daily/yearly goal | Clean | `(user_id, site_id)` index redundant | 1 |
 | 47 | `user_achievements` | Unlocked achievements | Clean | `(user_id, site_id)` index redundant | 154 |
@@ -128,7 +129,7 @@ Rows: exact `count(*)` in production on 2026-10-26 (`pg_stat_user_tables` estima
 | 62 | `model_promotions` | Promote/rollback history | Decide | Goes with `models` | 0 |
 | 63 | `eval_runs` | Eval score history | Decide | Depends on the admin AI-quality page | 34 |
 
-**Count by status:** Keep 23 · Clean 20 · Retire 5 · Decide 13 · Site 2.
+**Count by status:** Keep 23 · Clean 20 · Retire 4 · Decide 13 · Site 2 · Dropped 1.
 
 ## Core relationships
 
@@ -168,7 +169,7 @@ and `reading_sessions` serve both through nullable edition-or-upload keys.
 | `user_refresh_tokens`, `admin_refresh_tokens`, `password_reset_tokens` | user id + token hash | Sessions, reset codes |
 | `reading_sessions`, `reading_progresses`, `reading_goals`, `user_achievements` | user_id | Behavioural |
 | `vocabulary_words`, `vocabulary_reviews`, `user_vocabulary_settings`, `tutor_session` | user_id | Learning patterns |
-| `bookmarks`, `highlights`, `notes`, `book_insight`, `review_question` | user_id | Annotations, assistant output |
+| `bookmarks`, `highlights`, `book_insight`, `review_question` | user_id | Annotations, assistant output |
 | `mcp_access_keys`, `oauth_grants`, `device_authorizations`, `oauth_authorization_requests` | user id | Credentials |
 | `llm_traces`, `agent_run`, `shadow_runs` | prompt/response text (scrubbed before write) | Traces/shadow runs carry no user id; their text goes after 30 d. Agent runs are deleted with the account |
 | `user_books`, `user_chapters`, `user_book_files`, `user_book_bookmarks`, `user_libraries`, `user_ingestion_jobs` | user_id | Uploaded content + library |
