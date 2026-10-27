@@ -566,54 +566,6 @@ export interface TutorEvalResult {
     toolCalls: number
   }[]
 }
-// Shadow comparison
-export interface ShadowPair {
-  featureTag: string
-  primaryModelId: string
-  shadowModelId: string
-  runs: number
-  primaryP50LatencyMs: number
-  shadowP50LatencyMs: number
-  latencyDeltaMs: number
-  primaryCostUsd: number
-  shadowCostUsd: number
-  costDeltaUsd: number
-  projectedMonthlyCostDeltaUsd: number
-  primaryTokensOut: number
-  shadowTokensOut: number
-  tokensOutDelta: number
-  exactMatchRate: number
-  avgLengthRatio: number
-  bothPresentRate: number
-  firstSeen: string
-  lastSeen: string
-}
-export interface ShadowSummary {
-  from: string
-  to: string
-  totalRuns: number
-  pairs: ShadowPair[]
-}
-export interface ShadowSample {
-  id: string
-  primaryResponse: string | null
-  shadowResponse: string | null
-  primaryLatencyMs: number
-  shadowLatencyMs: number
-  primaryCostUsd: number
-  shadowCostUsd: number
-  primaryTokensOut: number
-  shadowTokensOut: number
-  exactMatch: boolean
-  promptHash: string
-  primaryTraceId: string | null
-  shadowTraceId: string | null
-  createdAt: string
-}
-export interface ShadowSamplesPage {
-  total: number
-  items: ShadowSample[]
-}
 // Scheduled-eval trend (Evals tab)
 export interface ScheduledEvalPoint {
   feature: string
@@ -1269,26 +1221,6 @@ export const adminApi = {
     return fetchJson<TutorEvalResult>('/admin/ai-quality/tutor/eval', {
       method: 'POST',
     })
-  },
-
-  getShadowSummary: async (params: { from?: string; to?: string; feature?: string }): Promise<ShadowSummary> => {
-    const query = new URLSearchParams()
-    if (params.from) query.set('from', params.from)
-    if (params.to) query.set('to', params.to)
-    if (params.feature) query.set('feature', params.feature)
-    const qs = query.toString()
-    return fetchJson<ShadowSummary>(`/admin/ai-quality/shadow/summary${qs ? `?${qs}` : ''}`)
-  },
-
-  getShadowSamples: async (params: { feature: string; primaryModelId: string; shadowModelId: string; limit?: number; offset?: number }): Promise<ShadowSamplesPage> => {
-    const query = new URLSearchParams()
-    query.set('feature', params.feature)
-    query.set('primaryModelId', params.primaryModelId)
-    query.set('shadowModelId', params.shadowModelId)
-    if (params.limit) query.set('limit', String(params.limit))
-    if (params.offset) query.set('offset', String(params.offset))
-    const qs = query.toString()
-    return fetchJson<ShadowSamplesPage>(`/admin/ai-quality/shadow/samples${qs ? `?${qs}` : ''}`)
   },
 
   getEvalTrend: async (params?: { feature?: string; limit?: number }): Promise<ScheduledEvalPoint[]> => {

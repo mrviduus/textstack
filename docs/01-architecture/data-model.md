@@ -124,7 +124,7 @@ Rows: exact `count(*)` in production on 2026-10-26 (`pg_stat_user_tables` estima
 |---|---|---|---|---|---|
 | 58 | `llm_traces` | LLM call traces (cost, latency, text) | Keep | Writers record no user; text scrubbed after 30 d, cost/latency kept (was 790 MB, 755 MB of it `messages_json`) | 3,852 |
 | 59 | `agent_run` | Agent run steps | Keep | Deleted after 30 d and with the account | 104 |
-| 60 | `shadow_runs` | Primary vs shadow model comparisons | Retire | Off by default; admin page only; swept after 30 d meanwhile | 0 |
+| 60 | `shadow_runs` | Primary vs shadow model comparisons | Retire | Never switched on. Shadow path, admin tab and sweep removed; code no longer maps it; dropped next release (#934) | 0 |
 | 61 | `models` | Model registry, live routing | Decide | Duplicates config `Ai:Routes` | 8 |
 | 62 | `model_promotions` | Promote/rollback history | Decide | Goes with `models` | 0 |
 | 63 | `eval_runs` | Eval score history | Decide | Depends on the admin AI-quality page | 34 |

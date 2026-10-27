@@ -32,7 +32,7 @@ public static class AccountEndpoints
     /// single <c>Users.Remove</c> + SaveChanges removes it all in FK-safe order.
     /// Rows that would survive the cascade are deleted explicitly first: agent_run and
     /// device_authorizations (FK is SET NULL, but the content is the user's) and
-    /// oauth_authorization_requests (no FK). llm_traces / shadow_runs carry no user id;
+    /// oauth_authorization_requests (no FK). llm_traces carry no user id;
     /// their text is scrubbed after 30 days by RetentionCleanupWorker.
     ///
     /// Wrapped in a transaction so it is all-or-nothing. Disk files (avatar +
@@ -64,8 +64,8 @@ public static class AccountEndpoints
 
         // SET NULL would keep these rows with the user's goals and agent output in them, and
         // oauth_authorization_requests.user_id has no FK at all — so they go explicitly (#941).
-        // llm_traces and shadow_runs are not here: their writers never record a user
-        // (TracingDecorator, ModelGateway), so RetentionCleanupWorker's 30-day text scrub covers them.
+        // llm_traces are not here: their writer never records a user (TracingDecorator), so
+        // RetentionCleanupWorker's 30-day text scrub covers them.
         var id = user.Id;
         await db.AgentRuns.Where(x => x.UserId == id).ExecuteDeleteAsync(ct);
         await db.DeviceAuthorizations.Where(x => x.UserId == id).ExecuteDeleteAsync(ct);

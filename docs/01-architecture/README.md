@@ -47,7 +47,7 @@ quality-poller — shell scripts in infra/scripts/ that call the Claude CLI.
 | `Tts/TextStack.Tts` | Edge TTS WebSocket client + disk cache |
 | `Vocabulary/TextStack.Vocabulary` | SRS engine, review cards, distractor generator |
 | `Ai/TextStack.Ai.Core` | AI abstractions (`ILlmService` etc.) |
-| `Ai/TextStack.Ai.Llm` | `ModelGateway`: OpenAI + Ollama clients, routing, shadow runs, tracing, budgets |
+| `Ai/TextStack.Ai.Llm` | `ModelGateway`: OpenAI + Ollama clients, routing, tracing, budgets |
 | `Ai/TextStack.Ai.Tools`, `Ai/TextStack.Ai.Agents` | Tool calling + agent loop (`TutorAgent`, `EnrichmentAgent` in `Application/Agents/`) |
 | `Ai/TextStack.Ai.Evals`, `Ai/TextStack.Ai.EvalSuite` | Eval framework + runners (admin AI-quality page, continuous evals) |
 | `Ai/TextStack.Ai.Mcp` | MCP server; references only `Contracts`, talks to the API over HTTP |

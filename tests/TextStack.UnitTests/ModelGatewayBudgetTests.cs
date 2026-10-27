@@ -12,7 +12,7 @@ namespace TextStack.UnitTests;
 /// slice 4). Under budget → true primary; over + fallback (registered) → fallback key; over +
 /// fallback (unregistered) → primary (no break); over + hardstop → BudgetExceededException; mode
 /// off → primary regardless; tracker throws → primary (no break). Record fires exactly once per
-/// call; the shadow self-skip still compares the TRUE primary even when a budget redirect happens.
+/// call.
 /// </summary>
 public class ModelGatewayBudgetTests
 {
@@ -116,13 +116,12 @@ public class ModelGatewayBudgetTests
         services.AddKeyedSingleton<ILlmService>("openai", new ThrowingStreamLlm());
         var sp = services.BuildServiceProvider();
 
-        var shadow = new ShadowOptions(0.0, new Dictionary<string, string>(), null, 15);
         var budgets = new BudgetOptions(
             new FeatureBudget(null, null, BudgetMode.Off),
             new Dictionary<string, FeatureBudget> { ["explain"] = new(5m, "ollama", BudgetMode.Fallback) });
         var tracker = new StubSpendTracker(0m);
         var gateway = new ModelGateway(
-            sp, cfg, sp.GetRequiredService<IServiceScopeFactory>(), shadow,
+            sp, cfg,
             new StubRouteProvider(), tracker, budgets, NullLogger<ModelGateway>.Instance);
 
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
@@ -131,52 +130,6 @@ public class ModelGatewayBudgetTests
         });
 
         Assert.Equal(0, tracker.RecordCalls); // mid-stream throw → spend NOT recorded
-    }
-
-    // ShadowKey == TRUE primary key → self-skip must hold even though the budget redirected the
-    // serving route to the fallback. The shadow compares the TRUE primary, not the budget fallback.
-    [Fact]
-    public async Task BudgetRedirect_DoesNotAffectShadowSelfSkip()
-    {
-        // Registry/config primary for "explain" = "openai". Shadow route = "openai" (same as primary)
-        // → self-shadow skip. Budget pushes the SERVING route to "fallback", but shadow still compares
-        // against the true primary "openai" and skips.
-        var cfg = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["Ai:DefaultProvider"] = "openai",
-                ["Ai:Routes:explain"] = "openai",
-            })
-            .Build();
-
-        var writer = new CountingShadowWriter();
-        var services = new ServiceCollection();
-        services.AddKeyedSingleton<ILlmService>("openai", new KeyEcho("primary"));
-        services.AddKeyedSingleton<ILlmService>("openai-raw", new KeyEcho("primary-raw"));
-        services.AddKeyedSingleton<ILlmService>("fallback", new KeyEcho("fallback"));
-        services.AddScoped<IShadowRunWriter>(_ => writer);
-        var sp = services.BuildServiceProvider();
-
-        // Shadow route points at "openai" == true primary → must self-skip.
-        var shadow = new ShadowOptions(1.0,
-            new Dictionary<string, string> { ["explain"] = "openai" }, null, 15);
-        var budgets = new BudgetOptions(
-            new FeatureBudget(null, null, BudgetMode.Off),
-            new Dictionary<string, FeatureBudget>
-            {
-                ["explain"] = new(5m, "fallback", BudgetMode.Fallback),
-            });
-        var tracker = new StubSpendTracker(9m); // over budget → redirect to fallback
-
-        var gateway = new ModelGateway(
-            sp, cfg, sp.GetRequiredService<IServiceScopeFactory>(), shadow,
-            new StubRouteProvider(), tracker, budgets, NullLogger<ModelGateway>.Instance);
-
-        var resp = await gateway.CompleteAsync(Req(), CancellationToken.None);
-        Assert.Equal("fallback", resp.ModelId); // budget redirected the serving route
-
-        await Task.Delay(50, TestContext.Current.CancellationToken);
-        Assert.Equal(0, writer.Count); // self-shadow skipped (shadow key == TRUE primary)
     }
 
     // ---- harness ----
@@ -199,7 +152,6 @@ public class ModelGatewayBudgetTests
             services.AddKeyedSingleton<ILlmService>("ollama", new KeyEcho("fallback"));
         var sp = services.BuildServiceProvider();
 
-        var shadow = new ShadowOptions(0.0, new Dictionary<string, string>(), null, 15);
         var budgets = new BudgetOptions(
             new FeatureBudget(null, null, BudgetMode.Off),
             new Dictionary<string, FeatureBudget>
@@ -209,7 +161,7 @@ public class ModelGatewayBudgetTests
 
         var stub = new StubSpendTracker(spent);
         var gateway = new ModelGateway(
-            sp, cfg, sp.GetRequiredService<IServiceScopeFactory>(), shadow,
+            sp, cfg,
             new StubRouteProvider(), tracker ?? stub, budgets, NullLogger<ModelGateway>.Instance);
         return (gateway, stub);
     }
@@ -262,17 +214,6 @@ public class ModelGatewayBudgetTests
         {
             await Task.CompletedTask;
             yield return new LlmDelta(FinalUsage: new LlmUsage(1, 1, 0.001m), ModelId: id);
-        }
-    }
-
-    private sealed class CountingShadowWriter : IShadowRunWriter
-    {
-        private int _count;
-        public int Count => Volatile.Read(ref _count);
-        public Task WriteAsync(ShadowRun run, CancellationToken ct)
-        {
-            Interlocked.Increment(ref _count);
-            return Task.CompletedTask;
         }
     }
 }

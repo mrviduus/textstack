@@ -31,7 +31,7 @@ There is no audit log: `admin_audit_logs` was dropped on 2026-01-22 (migration `
 Dashboard · Upload · Jobs (ingestion) · User Uploads (moderation, takedown) · Editions + edit
 (SEO fields, cover) · Chapter editor · Authors · Genres · Tools (import/sync/reprocess) ·
 SSG Rebuild (+ job detail) · Auto Publish · SEO Backfill · Book Quality · AI Quality
-(traces, evals, shadow, models, budgets) · Settings.
+(traces, evals, models, budgets) · Settings.
 
 There is no Sites page (removed with multisite, ADR-007).
 
