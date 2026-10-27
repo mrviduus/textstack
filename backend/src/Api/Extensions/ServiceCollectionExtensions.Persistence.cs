@@ -28,7 +28,7 @@ public static partial class ServiceCollectionExtensions
                     // Several of these fire at every startup, in production too: Edition
                     // and Author carry the site query filter and are the required end of
                     // relationships with BookAsset, BookFile, Chapter, ChapterChunk,
-                    // EditionAuthor, IngestionJob and LintResult.
+                    // EditionAuthor and IngestionJob.
                     //
                     // The hazard EF is describing — a required principal filtered out,
                     // leaving dependents with nowhere to point — cannot occur here. The

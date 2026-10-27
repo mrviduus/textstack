@@ -63,7 +63,6 @@ public partial class AppDbContext : DbContext, IAppDbContext
     public DbSet<TextStackImport> TextStackImports => Set<TextStackImport>();
     public DbSet<SsgRebuildJob> SsgRebuildJobs => Set<SsgRebuildJob>();
     public DbSet<BookAsset> BookAssets => Set<BookAsset>();
-    public DbSet<LintResult> LintResults => Set<LintResult>();
     public DbSet<UserBook> UserBooks => Set<UserBook>();
     public DbSet<UserChapter> UserChapters => Set<UserChapter>();
     public DbSet<UserBookFile> UserBookFiles => Set<UserBookFile>();

@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Infra** — ingestion stops writing `lint_results` (18k rows nothing displayed); its admin endpoints and entity are removed; table dropped next release (#936) — backend
 - **AI** — the never-enabled shadow-model path is removed: gateway shadow calls, `Ai:Shadow` config, the writer, the admin Shadow tab and its endpoints, the 30-day sweep; table `shadow_runs` (0 rows) dropped next release. Model registry promote/rollback unchanged (#934) — backend, admin
 - **Infra** — migration `0006` drops the never-written `ssg_rebuild_results` (349 rows from 2026-01-23) (#933) — infra
 - **Admin** — SSG job page drops its stats card and results table (always empty: nothing has written `ssg_rebuild_results` since 2026-01-23); entity, `/stats` + `/results` endpoints removed; table dropped next release (#933) — backend, admin

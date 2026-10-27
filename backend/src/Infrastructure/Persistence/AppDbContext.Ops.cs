@@ -36,15 +36,6 @@ public partial class AppDbContext
             e.HasQueryFilter(x => x.SiteId == _currentSite.Id);
         });
 
-        // LintResult
-        modelBuilder.Entity<LintResult>(e =>
-        {
-            e.HasIndex(x => x.EditionId);
-            e.Property(x => x.Severity).HasConversion<string>().HasMaxLength(20);
-            e.Property(x => x.Code).HasMaxLength(10);
-            e.HasOne(x => x.Edition).WithMany().HasForeignKey(x => x.EditionId).OnDelete(DeleteBehavior.Cascade);
-        });
-
         // AutoPublishJob — otherwise convention-configured; here only to carry the
         // R1b site-scoped query filter (no schema config, so no migration delta).
         modelBuilder.Entity<AutoPublishJob>(e =>

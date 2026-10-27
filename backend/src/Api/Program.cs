@@ -401,7 +401,6 @@ app.MapAdminGenresEndpoints();
 app.MapAdminSsgRebuildEndpoints();
 app.MapAdminAutoPublishEndpoints();
 app.MapAdminSeoBackfillEndpoints();
-app.MapAdminLintEndpoints();
 app.MapAdminSettingsEndpoints();
 app.MapAdminDiagnosticsEndpoints();
 app.MapBooksEndpoints();
