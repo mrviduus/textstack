@@ -13,12 +13,12 @@ changes its row here.
 | | |
 |---|---|
 | Tables | 63 (62 `DbSet`s + the `edition_genres` join) |
-| Migrations | SQL since 2026-10-26: `0000_baseline` stands for the 147 EF Core migrations production had applied (`20251217180704_Initial_WorkEdition_Admin` → `20261024202404_TranslateRegistryOnGpt41Mini`), which were then deleted. The 148th, `20260219000000_AddSearchPerformanceIndexes`, had no `.Designer.cs` and never ran ([#948](https://github.com/mrviduus/textstack/issues/948)) |
+| Migrations | SQL since 2026-10-26: `0000_baseline` stands for the 147 EF Core migrations production had applied (`20251217180704_Initial_WorkEdition_Admin` → `20261024202404_TranslateRegistryOnGpt41Mini`), which were then deleted. The 148th, `20260219000000_AddSearchPerformanceIndexes`, had no `.Designer.cs` and never ran; its indexes turned out unusable by search, closed not-planned ([#948](https://github.com/mrviduus/textstack/issues/948)) |
 | SQL baseline | [`database/migrations/0000_baseline.up.sql`](../../database/migrations/0000_baseline.up.sql): this whole schema, grouped and numbered as below, + seed rows ([#931](https://github.com/mrviduus/textstack/issues/931)); builds a schema identical to production |
 | Ledger | `schema_migrations` (not in the inventory: the runner's, not the app's). EF Core's `__EFMigrationsHistory` dropped by `0001` ([#961](https://github.com/mrviduus/textstack/issues/961)) |
-| Indexes | 181 (145 `HasIndex` + keys + raw-SQL indexes) |
+| Indexes | 174 after `0002` (181 in the baseline: 145 `HasIndex` + keys + raw-SQL indexes) |
 | Site-scoped | 24 tables carry `site_id` + an EF query filter (single site forever, [ADR-007](adr/007-single-domain-consolidation.md)) |
-| Objects outside the EF model | extensions `pg_trgm`, `vector`; `get_fts_config()` + `chapters` search-vector trigger; generated `user_chapters.search_vector`; GiST trigram index on `lower(editions.title)` — in the baseline like everything else |
+| Objects outside the EF model | extensions `pg_trgm`, `vector`; `get_fts_config()` + `chapters` search-vector trigger; generated `user_chapters.search_vector` — in the baseline like everything else. The GiST trigram index on `lower(editions.title)` was dropped by `0002` (no query used it, #948) |
 | Largest | `chapters` 2.6 GB · `llm_traces` 790 MB (3,852 rows) · `user_chapters` 131 MB · `lint_results` 30 MB |
 
 ## Status legend
@@ -48,8 +48,8 @@ Rows: exact `count(*)` in production on 2026-10-26 (`pg_stat_user_tables` estima
 | 7 | `edition_authors` | Edition ↔ author, with order and role | Keep | `role` is always `Author` | 1,437 |
 | 8 | `genres` | Genre pages and filters | Keep | redundant `(site_id)` index | 58 |
 | 9 | `edition_genres` | Edition ↔ genre join (implicit) | Keep | EF default column names `editions_id`, `genres_id` | 2,134 |
-| 10 | `book_files` | Original catalog upload | Clean | `sha256` written, never read (+ index) | 22 |
-| 11 | `book_assets` | Inline images extracted from books | Clean | `kind` always `InlineImage`; `(edition_id)` index redundant | 5,011 |
+| 10 | `book_files` | Original catalog upload | Clean | `sha256` written, never read (index dropped, `0002`) | 22 |
+| 11 | `book_assets` | Inline images extracted from books | Clean | `kind` always `InlineImage`; `(edition_id)` index dropped (`0002`) | 5,011 |
 | 12 | `ingestion_jobs` | Catalog extraction queue | Clean | `work_id`, `source_edition_id` write-only copies (+ indexes) | 25 |
 | 13 | `lint_results` | Extraction lint findings | Retire | Written by the worker; no admin UI reads it | 18,380 |
 | 14 | `text_stack_imports` | Import provenance, Standard Ebooks dedupe | Keep | 1:1 with edition (inferred) — candidate for a column on `editions` | 1,409 |
@@ -81,13 +81,13 @@ Rows: exact `count(*)` in production on 2026-10-26 (`pg_stat_user_tables` estima
 
 | # | Table | Purpose | Status | Notes | Rows |
 |---|---|---|---|---|---|
-| 33 | `user_books` | A user's uploaded book; also holds its reading progress | Clean | `suggested_tags_at` write-only; `is_read`/`read_at` duplicate `completed_at`; `(user_id)` index redundant | 96 |
-| 34 | `user_chapters` | Server-extracted chapters of an upload | Clean | `content_quality_score` write-only; `(user_book_id)` index redundant | 2,710 |
-| 35 | `user_book_files` | Original upload file | Clean | `(sha256)` index unused (column is the ETag — kept) | 96 |
+| 33 | `user_books` | A user's uploaded book; also holds its reading progress | Clean | `suggested_tags_at` write-only; `is_read`/`read_at` duplicate `completed_at`; `(user_id)` index dropped (`0002`) | 96 |
+| 34 | `user_chapters` | Server-extracted chapters of an upload | Clean | `content_quality_score` write-only; `(user_book_id)` index dropped (`0002`) | 2,710 |
+| 35 | `user_book_files` | Original upload file | Clean | `(sha256)` index dropped (`0002`; column is the ETag — kept) | 96 |
 | 36 | `user_ingestion_jobs` | Upload extraction queue | Clean | `units_count` never read (to verify) | 100 |
 | 37 | `user_book_bookmarks` | Bookmarks in uploads | Decide | Same shape as `bookmarks` | 18 |
 | 38 | `user_libraries` | Catalog books a user saved | Decide | A personal book row could be the library entry | 246 |
-| 39 | `collections` | Personal shelves | Clean | `(user_id)` index redundant | 1 |
+| 39 | `collections` | Personal shelves | Clean | `(user_id)` index dropped (`0002`) | 1 |
 | 40 | `book_collections` | Book on a shelf | Clean | `book_id` points at two tables (`book_type`), no FK, no CHECK; orphans already repaired once | 3 |
 
 ### Reading — position, annotations, activity

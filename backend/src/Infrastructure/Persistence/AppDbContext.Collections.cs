@@ -14,7 +14,6 @@ public partial class AppDbContext
         // Collection
         modelBuilder.Entity<Collection>(e =>
         {
-            e.HasIndex(x => x.UserId);
             e.HasIndex(x => new { x.UserId, x.SortOrder });
             e.Property(x => x.Name).HasMaxLength(100).IsRequired();
             e.Property(x => x.Color).HasMaxLength(20).HasDefaultValue("default");

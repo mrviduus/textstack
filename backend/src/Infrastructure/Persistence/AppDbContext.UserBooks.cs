@@ -16,7 +16,6 @@ public partial class AppDbContext
         // UserBook
         modelBuilder.Entity<UserBook>(e =>
         {
-            e.HasIndex(x => x.UserId);
             e.HasIndex(x => x.Status);
             e.HasIndex(x => new { x.UserId, x.Slug }).IsUnique();
             e.Property(x => x.Title).HasMaxLength(500);
@@ -53,7 +52,6 @@ public partial class AppDbContext
         // UserChapter
         modelBuilder.Entity<UserChapter>(e =>
         {
-            e.HasIndex(x => x.UserBookId);
             e.HasIndex(x => new { x.UserBookId, x.ChapterNumber }).IsUnique();
             e.HasIndex(x => new { x.UserBookId, x.Slug }).IsUnique();
             e.Property(x => x.Title).HasMaxLength(500);
@@ -65,7 +63,6 @@ public partial class AppDbContext
         modelBuilder.Entity<UserBookFile>(e =>
         {
             e.HasIndex(x => x.UserBookId);
-            e.HasIndex(x => x.Sha256);
             e.Property(x => x.OriginalFileName).HasMaxLength(500);
             e.Property(x => x.StoragePath).HasMaxLength(500);
             e.Property(x => x.Sha256).HasMaxLength(64);
