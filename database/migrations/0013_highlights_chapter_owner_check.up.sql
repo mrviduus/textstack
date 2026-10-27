@@ -7,9 +7,9 @@
 -- Issue: https://github.com/mrviduus/textstack/issues/989
 -- Compatibility: highlight create has refused mixed chapter ids since #980.
 --        Prod backup 2026-10-27: 0 of 39 highlights pair a chapter with the other kind of book;
---        up, down, up ran clean on it (0008-0013). A guard refuses, by name, any such row written since. Locks: ACCESS EXCLUSIVE on
---        highlights, taken up front; past the 5 s timeout the file aborts with nothing changed,
---        and is rerun.
+--        up, down, up ran clean on it (0008-0013). A guard refuses, by name, any such row
+--        written since. Locks: ACCESS EXCLUSIVE on highlights, taken up front; past the 5 s
+--        timeout the file aborts with nothing changed, and is rerun.
 -- Down:  0013_highlights_chapter_owner_check.down.sql drops the CHECK. No data changes either way.
 
 SET LOCAL lock_timeout = '5s';
@@ -20,8 +20,8 @@ LOCK TABLE public.highlights IN ACCESS EXCLUSIVE MODE;
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM public.highlights
-               WHERE (chapter_id IS NOT NULL AND user_book_id IS NOT NULL)
-                  OR (user_chapter_id IS NOT NULL AND edition_id IS NOT NULL)) THEN
+               WHERE NOT ((chapter_id IS NULL OR user_book_id IS NULL)
+                      AND (user_chapter_id IS NULL OR edition_id IS NULL))) THEN
         RAISE EXCEPTION 'a highlight pairs a chapter with the other kind of book; fix it first (#989)';
     END IF;
 END $$;
