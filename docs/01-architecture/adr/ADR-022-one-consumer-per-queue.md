@@ -87,7 +87,7 @@ startup" already means "orphaned".
 
 `SsgPeriodicRebuildWorker` checks every 5 min and queues a Full rebuild when none **completed** inside the
 interval. A Full job that keeps failing is therefore queued again every 5 min, forever. ADR-023 deletes
-that worker; `backup.yml` stays the one nightly trigger.
+that worker; `backup.yml` stays the one nightly trigger (removed 2026-10-27, #992: SSG is frozen, rebuilds are manual).
 
 ## Alternatives
 

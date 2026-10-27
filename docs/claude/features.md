@@ -95,7 +95,7 @@ What replaced it: the app hands back **the file the reader uploaded**, from the 
 - `seo-generate.sh` calls Claude CLI (`claude-sonnet-4-6`) to generate SEO fields (description, relevance, themes, FAQs)
 - Publishes via `POST /internal/editions/{id}/publish` (Docker network only)
 - Settings: books/day, hour UTC, require review, language filter, priority queue
-- Publishing queues no SSG rebuild (ADR-023): the book reaches crawlers at the nightly Full rebuild
+- Publishing queues no SSG rebuild (ADR-023): the book reaches crawlers at the next manual Full rebuild (`make rebuild-ssg` / admin "New Rebuild"; no nightly since #992)
 
 **SEO Backfill**: Template-driven SEO field generation for Authors, Editions, Genres.
 - Admin page at `/seo-backfill` — Coverage, Templates, Jobs, Settings tabs
@@ -115,10 +115,9 @@ What replaced it: the app hands back **the file the reader uploaded**, from the 
 **SSG**: Puppeteer prerenders SEO pages to static HTML
 - nginx serves SSG first, falls back to SPA
 - Run `make rebuild-ssg` after content changes
-- SSG worker: separate always-running container, the queue's only consumer (ADR-022). The API only inserts a `Queued` Full job (nightly / `make rebuild-ssg` / admin button; a Queued or Running Full blocks the nightly and `make` path); the worker claims it every 5s (`FOR UPDATE SKIP LOCKED` → `Running`) and, before every claim, fails any `Running` row (between jobs nothing of its own is running, so such a row is dead). Supports IndexNow (Bing/Yandex) via `INDEXNOW_KEY`
-- Schedule: only `backup.yml`'s nightly Full rebuild (the periodic worker and its admin settings were deleted 2026-10-08)
+- SSG worker: separate always-running container, the queue's only consumer (ADR-022). The API only inserts a `Queued` Full job (`make rebuild-ssg` / admin button / deploy `rebuild_ssg`; a Queued or Running Full blocks the `make` path); the worker claims it every 5s (`FOR UPDATE SKIP LOCKED` → `Running`) and, before every claim, fails any `Running` row (between jobs nothing of its own is running, so such a row is dead). Supports IndexNow (Bing/Yandex) via `INDEXNOW_KEY`
+- Schedule: none. The tree is frozen (#992): the nightly rebuild was removed; rebuilds are manual only
 
 **When to rebuild SSG**: nothing rebuilds on an edit (no per-edit jobs since 2026-10-08, ADR-023).
 After adding/publishing books, editing metadata, authors, genres or the Popular shelf, crawlers see the
-change after the nightly Full rebuild; for it now, run `make rebuild-ssg` or the admin "New Rebuild"
-button. NOT needed for: reading progress, bookmarks, user data
+change only after a manual rebuild: `make rebuild-ssg` or the admin "New Rebuild" button. NOT needed for: reading progress, bookmarks, user data

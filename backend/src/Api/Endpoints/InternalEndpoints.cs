@@ -93,8 +93,8 @@ public static class InternalEndpoints
 
         var result = await bookService.ReplaceFeaturedAsync(req.Slugs, ct);
 
-        // No SSG enqueue (ADR-023): home + /books pick up the new order at the nightly Full rebuild,
-        // or now with `make rebuild-ssg`.
+        // No SSG enqueue (ADR-023): home + /books pick up the new order at the next manual
+        // Full rebuild (`make rebuild-ssg`; no nightly since #992).
         return Results.Ok(new { applied = result.Applied, notFound = result.NotFound });
     }
 

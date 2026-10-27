@@ -13,7 +13,7 @@ public interface ISsgJobService
 
     /// <summary>
     /// Queues a Full rebuild (ssg-worker claims it); null when a Full job is already Queued or Running.
-    /// The nightly trigger (backup.yml → /internal/ssg/rebuild-all) and `make rebuild-ssg` use it.
+    /// `make rebuild-ssg` (→ /internal/ssg/rebuild-all) uses it; there is no nightly trigger since #992.
     /// </summary>
     Task<SsgRebuildJob?> EnqueueFullRebuildAsync(Guid siteId, CancellationToken ct);
 

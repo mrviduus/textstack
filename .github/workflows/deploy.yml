@@ -29,7 +29,7 @@ on:
         description: 'Commit SHA on main to roll back to (7-40 hex; optional)'
         required: false
       rebuild_ssg:
-        description: 'Full SSG rebuild now (otherwise it runs nightly after the backup)'
+        description: 'Full SSG rebuild now (no nightly rebuild since #992)'
         type: boolean
         default: false
 
@@ -225,7 +225,7 @@ jobs:
       # ssg-worker (its image tag changes every deploy), and the fallback frontend build empties
       # apps/web/dist, which ssg-worker writes into (dist/ssg-new); a rebuild caught in that
       # window fails by design (assertBuildSurvived — the 2026-08-31 guard) and leaves
-      # ssg-worker unhealthy. Rebuilds come from the nightly backup, the admin button and make rebuild-ssg,
+      # ssg-worker unhealthy. Rebuilds come from the admin button, make rebuild-ssg and rebuild_ssg (no nightly since #992),
       # so any of them can be mid-run when a merge lands.
       # Waits up to 40 min (a full rebuild is ~25), then proceeds with a warning: a wedged
       # job must not block deploys forever, and the guard still protects the live tree.
@@ -633,7 +633,7 @@ jobs:
       # A full rebuild is ~25 min of Puppeteer on the prod box and held the only runner for it.
       # Not needed per deploy: the snapshot step above keeps the old SSG tree AND the assets it
       # references, so crawlers keep complete pages. Nothing rebuilds per edit (ADR-023): a published
-      # book reaches crawlers after the nightly Full rebuild (backup.yml), or after `make rebuild-ssg`
+      # book reaches crawlers only after `make rebuild-ssg` (no nightly since #992)
       # / the admin button. Tick `rebuild_ssg` on a manual run when a release changes how SEO pages render.
       - name: Queue SSG rebuild
         if: inputs.rebuild_ssg
@@ -641,7 +641,10 @@ jobs:
           # Stamp the moment we asked, so the wait below can require a swap that happened
           # *after* it rather than guessing from a file's age.
           echo "SSG_QUEUED_AT=$(date +%s)" >> $GITHUB_ENV
-          curl -sf -X POST http://localhost:8080/internal/ssg/rebuild-all && echo "SSG rebuild queued" || echo "SSG rebuild queue failed (non-blocking)"
+          # Blocking: without the nightly this is one of the few rebuild paths, and the wait below
+          # would otherwise poll for 40 min before failing.
+          curl -sf -X POST http://localhost:8080/internal/ssg/rebuild-all || { echo "FAIL: SSG rebuild queue failed"; exit 1; }
+          echo "SSG rebuild queued"
 
       - name: Health check frontend
         run: |
@@ -727,6 +730,8 @@ jobs:
           echo "SSG rebuild complete"
 
       - name: Validate SSG content
+        env:
+          REBUILT: ${{ inputs.rebuild_ssg }}
         run: |
           # Catch skeleton-only SSG files (empty <h1>, only skeleton divs). Silent-save bug
           # from before P0.5 left 247 stale shells on disk for 3 months.
@@ -739,8 +744,11 @@ jobs:
           # Quality was checked; quantity was not. On 2026-08-31 the tree held 104 author
           # pages, 23 genres and zero books — every surviving file had a valid <h1>, so this
           # step passed while the entire catalogue was 404 to crawlers. Compare against the
-          # route list the rebuild was given.
-          EXPECTED=$(curl -sf http://localhost:8080/ssg/routes | grep -o '"/[^"]*"' | wc -l)
+          # route list the rebuild was given. Only after this deploy rebuilt: the tree is frozen
+          # (#992), so routes published since the last rebuild have no page by design, and the
+          # floor would turn every later deploy red.
+          EXPECTED=0
+          [ "$REBUILT" = true ] && EXPECTED=$(curl -sf http://localhost:8080/ssg/routes | grep -o '"/[^"]*"' | wc -l)
           if [ "$EXPECTED" -gt 0 ]; then
             FLOOR=$(( EXPECTED * 9 / 10 ))
             if [ "$TOTAL" -lt "$FLOOR" ]; then
@@ -751,7 +759,7 @@ jobs:
             fi
             echo "SSG coverage: $TOTAL pages against $EXPECTED routes (floor $FLOOR)"
           else
-            echo "Could not read route list — skipping coverage check"
+            echo "No rebuild in this deploy, or no route list — skipping coverage check"
           fi
 
           BAD=0

@@ -133,3 +133,12 @@ All as recommended.
 1. **"One Api, one Worker":** accepted as a written rule.
 2. **Admin SSG periodic-rebuild settings:** deleted. `backup.yml`'s nightly rebuild is the only schedule.
 3. **Words promoted by the reconciler:** enrich them: the enrichment moves into an Application service and the reconciler awaits it one word at a time (see the table). Durable enrichment stays deferred.
+
+## Amendment 2026-10-27 (#992)
+
+The nightly Full rebuild this ADR relied on is removed and its age alarm with it: SSG is frozen
+while its future is decided (#992; Search Console, 90 days: 6 clicks, 295 impressions, against a
+~20 min rebuild and ~2000 IndexNow URLs each night). Consequence: a publish, edit or Popular-shelf
+change reaches crawlers only after a manual rebuild (`make rebuild-ssg`, the admin button, or a
+deploy with `rebuild_ssg`). The per-edit enqueues stay deleted; nothing else in this decision changes.
+

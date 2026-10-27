@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Ops** — SSG frozen: no nightly Full rebuild, no SSG age alarm; pages still served, rebuild by hand (admin, `make rebuild-ssg`, deploy `rebuild_ssg`) (#992) — infra · [details](docs/changelog-archive/2026-H2.md#2026-10-27-ssg-frozen)
 - **Library** — re-uploading a deleted file brings its highlights (by chapter slug) and reading sessions back; migration `0015` keeps the file's sha256 on them at delete (#983) — backend, worker, infra
 - **Admin** — editing an SEO template that is not its key's active version returns 409 instead of replacing the newer one; create numbers a revived key max+1 instead of v1 again (#984) — backend
 - **Infra** — one Postgres violation helper (unique, FK, class 23; wrapped or bare), one `ForKey`/`ActiveForKey` query for the SEO template key; no behavior change (#987, #988) — backend
