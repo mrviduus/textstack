@@ -209,6 +209,9 @@ public static class HighlightsEndpoints
 
         if (isUserBook == isEdition)
             return Results.BadRequest("Provide either EditionId+ChapterId or UserBookId+UserChapterId");
+        // The other pair's chapter would be stored as given and point into a different book.
+        if (isEdition ? request.UserChapterId.HasValue : request.ChapterId.HasValue)
+            return Results.BadRequest("Do not mix catalog and upload chapter ids");
         if (ValidateFields(request.Color, request.AnchorJson, request.SelectedText, required: true) is { } invalid)
             return Results.BadRequest(invalid);
 
