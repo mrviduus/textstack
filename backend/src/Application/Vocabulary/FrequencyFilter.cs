@@ -51,7 +51,7 @@ public class FrequencyFilter : IFrequencyFilter
             return new(FrequencyClassKind.SrsEligible, null, null, 1, null);
 
         // OOV — not in the top 20k. Treat as rare; no rank/zipf.
-        if (!Words.Value.TryGetValue(word.ToLowerInvariant(), out var e))
+        if (!Words.Value.TryGetValue(word, out var e))
             return new(FrequencyClassKind.LookupOnly, null, null, 0, "rare_word");
 
         if (e.Rank <= TierInstantMax)
@@ -72,8 +72,13 @@ public class FrequencyFilter : IFrequencyFilter
         using var stream = typeof(FrequencyFilter).Assembly.GetManifestResourceStream(ResourceName)
             ?? throw new InvalidOperationException($"Embedded resource {ResourceName} is missing");
         using var gz = new GZipStream(stream, CompressionMode.Decompress);
-        var entries = JsonSerializer.Deserialize<List<Entry>>(gz, JsonSerializerOptions.Web) ?? [];
-        return entries.ToDictionary(x => x.Word.ToLowerInvariant());
+        // A missing or corrupt file throws on first use, every call after it too: a build defect,
+        // caught by FrequencyFilterTests before it ships.
+        var words = new Dictionary<string, Entry>(StringComparer.OrdinalIgnoreCase);
+        // The file is rank-ordered, so a repeated word keeps its most common rank.
+        foreach (var e in JsonSerializer.Deserialize<List<Entry>>(gz, JsonSerializerOptions.Web) ?? [])
+            words.TryAdd(e.Word, e);
+        return words;
     }
 
     private sealed record Entry(string Word, int Rank, double Zipf);
