@@ -78,7 +78,6 @@ public partial class AppDbContext : DbContext, IAppDbContext
     public DbSet<UserVocabularySettings> UserVocabularySettings => Set<UserVocabularySettings>();
     public DbSet<PendingVocabularyWord> PendingVocabularyWords => Set<PendingVocabularyWord>();
     public DbSet<WordLookup> WordLookups => Set<WordLookup>();
-    public DbSet<WordFrequency> WordFrequencies => Set<WordFrequency>();
     public DbSet<WordCluster> WordClusters => Set<WordCluster>();
     public DbSet<AutoPublishJob> AutoPublishJobs => Set<AutoPublishJob>();
     public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();

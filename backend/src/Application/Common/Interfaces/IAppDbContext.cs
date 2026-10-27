@@ -44,7 +44,6 @@ public interface IAppDbContext
     DbSet<UserVocabularySettings> UserVocabularySettings { get; }
     DbSet<PendingVocabularyWord> PendingVocabularyWords { get; }
     DbSet<WordLookup> WordLookups { get; }
-    DbSet<WordFrequency> WordFrequencies { get; }
     DbSet<WordCluster> WordClusters { get; }
     DbSet<AutoPublishJob> AutoPublishJobs { get; }
     DbSet<PasswordResetToken> PasswordResetTokens { get; }
