@@ -133,12 +133,18 @@ public static class AdminSeoBackfillEndpoints
         var trust = SeoTrustLevel.Review;
         if (!string.IsNullOrWhiteSpace(req.TrustLevel) && Enum.TryParse<SeoTrustLevel>(req.TrustLevel, true, out var parsed)) trust = parsed;
 
+        var language = req.LanguageCode.ToLowerInvariant();
+        // One active template per key (ix_seo_templates_entity_type_field_type_language_code, #939): a second goes through Edit.
+        if (await db.SeoTemplates.AnyAsync(t => t.EntityType == et && t.FieldType == ft
+                && t.LanguageCode == language && t.IsActive, ct))
+            return Results.Conflict(new { error = "An active template exists for this key; edit it instead" });
+
         var tpl = new SeoTemplate
         {
             Id = Guid.NewGuid(),
             EntityType = et,
             FieldType = ft,
-            LanguageCode = req.LanguageCode.ToLowerInvariant(),
+            LanguageCode = language,
             Name = req.Name.Trim(),
             Description = req.Description?.Trim(),
             PromptTemplate = req.PromptTemplate,
@@ -167,9 +173,14 @@ public static class AdminSeoBackfillEndpoints
         try { using var _ = JsonDocument.Parse(req.OutputSchema); }
         catch (JsonException ex) { return Results.BadRequest(new { error = $"Invalid outputSchema JSON: {ex.Message}" }); }
 
-        // Deactivate current + insert new active version.
-        current.IsActive = false;
-        current.UpdatedAt = DateTimeOffset.UtcNow;
+        // Deactivate the key's active version, then insert the new one. Two statements in order:
+        // the one-active unique index cannot be deferred, and one SaveChanges does not fix the order.
+        await using var tx = await db.BeginTransactionAsync(ct);
+        var now = DateTimeOffset.UtcNow;
+        await db.SeoTemplates
+            .Where(t => t.EntityType == current.EntityType && t.FieldType == current.FieldType
+                && t.LanguageCode == current.LanguageCode && t.IsActive)
+            .ExecuteUpdateAsync(u => u.SetProperty(t => t.IsActive, false).SetProperty(t => t.UpdatedAt, now), ct);
 
         var trust = current.TrustLevel;
         if (!string.IsNullOrWhiteSpace(req.TrustLevel) && Enum.TryParse<SeoTrustLevel>(req.TrustLevel, true, out var parsed)) trust = parsed;
@@ -195,6 +206,7 @@ public static class AdminSeoBackfillEndpoints
         };
         db.SeoTemplates.Add(next);
         await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
         return Results.Ok(new { next.Id, next.Version });
     }
 

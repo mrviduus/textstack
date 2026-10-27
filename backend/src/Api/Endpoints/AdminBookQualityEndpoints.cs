@@ -92,8 +92,8 @@ public static class AdminBookQualityEndpoints
     private static async Task<IResult> CreateJob(
         [FromBody] CreateQualityJobRequest req, IAppDbContext db, CancellationToken ct)
     {
-        if (req.EditionId is null && req.UserBookId is null)
-            return Results.BadRequest(new { error = "EditionId or UserBookId required" });
+        if ((req.EditionId is null) == (req.UserBookId is null))
+            return Results.BadRequest(new { error = "Exactly one of EditionId or UserBookId required" });
 
         var job = new BookQualityJob
         {

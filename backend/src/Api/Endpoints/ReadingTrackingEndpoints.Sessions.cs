@@ -24,8 +24,8 @@ public static partial class ReadingTrackingEndpoints
         var siteId = httpContext.GetSiteId();
 
         // Validation
-        if (request.EditionId == null && request.UserBookId == null)
-            return Results.BadRequest("EditionId or UserBookId required");
+        if ((request.EditionId == null) == (request.UserBookId == null))
+            return Results.BadRequest("Exactly one of EditionId or UserBookId required");
         if (request.DurationSeconds <= 0 || request.DurationSeconds > 14400)
             return Results.BadRequest("DurationSeconds must be 1-14400");
         if (request.StartedAt > DateTimeOffset.UtcNow.AddMinutes(5))

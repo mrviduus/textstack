@@ -48,7 +48,8 @@ public partial class AppDbContext
             e.HasQueryFilter(x => x.SiteId == _currentSite.Id);
         });
 
-        // Highlight — can attach to either an Edition+Chapter or a UserBook+UserChapter.
+        // Highlight — attaches to exactly one of Edition+Chapter or UserBook+UserChapter (CHECK, #939);
+        // goes with its book.
         modelBuilder.Entity<Highlight>(e =>
         {
             e.HasIndex(x => x.ChapterId);
@@ -60,15 +61,15 @@ public partial class AppDbContext
             e.Property(x => x.AnchorJson).HasColumnType("jsonb");
             e.Property(x => x.Color).HasMaxLength(20);
             e.HasOne(x => x.User).WithMany(x => x.Highlights).HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
-            e.HasOne(x => x.Edition).WithMany().HasForeignKey(x => x.EditionId).OnDelete(DeleteBehavior.SetNull);
+            e.HasOne(x => x.Edition).WithMany().HasForeignKey(x => x.EditionId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.Chapter).WithMany().HasForeignKey(x => x.ChapterId).OnDelete(DeleteBehavior.SetNull);
-            e.HasOne(x => x.UserBook).WithMany().HasForeignKey(x => x.UserBookId).OnDelete(DeleteBehavior.SetNull);
+            e.HasOne(x => x.UserBook).WithMany().HasForeignKey(x => x.UserBookId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.UserChapter).WithMany().HasForeignKey(x => x.UserChapterId).OnDelete(DeleteBehavior.SetNull);
             e.HasOne(x => x.Site).WithMany().HasForeignKey(x => x.SiteId).OnDelete(DeleteBehavior.Restrict);
             e.HasQueryFilter(x => x.SiteId == _currentSite.Id);
         });
 
-        // ReadingSession
+        // ReadingSession — exactly one of Edition or UserBook (CHECK, #939); goes with its book.
         modelBuilder.Entity<ReadingSession>(e =>
         {
             e.HasIndex(x => new { x.UserId, x.SiteId });
@@ -77,8 +78,8 @@ public partial class AppDbContext
             e.HasIndex(x => new { x.UserId, x.UserBookId, x.StartedAt }).IsUnique().HasFilter("user_book_id IS NOT NULL");
             e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.Site).WithMany().HasForeignKey(x => x.SiteId).OnDelete(DeleteBehavior.Restrict);
-            e.HasOne(x => x.Edition).WithMany().HasForeignKey(x => x.EditionId).OnDelete(DeleteBehavior.SetNull);
-            e.HasOne(x => x.UserBook).WithMany().HasForeignKey(x => x.UserBookId).OnDelete(DeleteBehavior.SetNull);
+            e.HasOne(x => x.Edition).WithMany().HasForeignKey(x => x.EditionId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.UserBook).WithMany().HasForeignKey(x => x.UserBookId).OnDelete(DeleteBehavior.Cascade);
             e.HasQueryFilter(x => x.SiteId == _currentSite.Id);
         });
 

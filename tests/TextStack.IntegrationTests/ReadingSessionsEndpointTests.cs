@@ -133,6 +133,27 @@ public class ReadingSessionsEndpointTests : IClassFixture<LiveApiFixture>, IClas
     }
 
     [Fact]
+    public async Task SubmitSession_BothEditionAndUserBook_Returns400()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var body = new
+        {
+            editionId = Guid.NewGuid(),
+            userBookId = Guid.NewGuid(),   // invalid: exactly one owner (#939)
+            startedAt = now.AddMinutes(-5),
+            endedAt = now,
+            durationSeconds = 300,
+            wordsRead = 10,
+            startPercent = 0.0,
+            endPercent = 0.1
+        };
+
+        var response = await _auth.Client.SendAsync(PostSession(body), TestContext.Current.CancellationToken);
+        Assert.SkipWhen(IntegrationSkip.Unavailable(response), "endpoint unavailable (404/500)");
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
     public async Task SubmitSession_ZeroDuration_Returns400()
     {
         var now = DateTimeOffset.UtcNow;
