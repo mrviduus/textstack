@@ -108,6 +108,8 @@ ssg_rebuild_batch_minutes   int default 5
 updated_at                  timestamptz
 ```
 
+> **Update 2026-10-27:** the poller never read `language_filter`, `entity_type_filter` or `ssg_rebuild_batch_minutes`; migration `0011` dropped them (#937).
+
 ### Changes to existing tables
 
 On `authors`, `editions`, `genres`, `blog_posts`:

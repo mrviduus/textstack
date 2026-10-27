@@ -32,6 +32,8 @@ Work (canonical identity)
 - `WorkId` (FK)
 - `Language` (en, uk)
 - `SourceEditionId` (nullable, points to EN for translations)
+
+> **Update 2026-10-27:** nothing ever set or read `SourceEditionId`; the column was dropped by migration `0011` (#937). Translations of a work share its `WorkId`.
 - `Status` (Draft, Published, Hidden)
 
 ## Consequences
