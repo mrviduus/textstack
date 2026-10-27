@@ -42,13 +42,6 @@ public partial class AppDbContext
             e.Property(x => x.AfterSnapshot).HasColumnType("jsonb");
         });
 
-        // SeoBackfillSettings — singleton.
-        modelBuilder.Entity<SeoBackfillSettings>(e =>
-        {
-            e.Property(x => x.LanguageFilter).HasColumnType("text[]");
-            e.Property(x => x.EntityTypeFilter).HasColumnType("text[]");
-        });
-
         // seo_source on SEO-bearing entities — default 'Manual' (0) preserves existing rows.
         // These augment the entity configs in Catalog.cs without conflicting; EF merges them.
         modelBuilder.Entity<Author>().Property(x => x.SeoSource).HasDefaultValue(Domain.Enums.SeoSource.Manual);

@@ -330,7 +330,6 @@ public class UserIngestionService
             job.UserBook.MetadataEnrichmentAt = null;
             job.UserBook.UpdatedAt = DateTimeOffset.UtcNow;
             job.Status = JobStatus.Succeeded;
-            job.UnitsCount = result.Units.Count;
             job.FinishedAt = DateTimeOffset.UtcNow;
             job.Error = null;
 
@@ -377,7 +376,6 @@ public class UserIngestionService
                         if (book.Tags.Length > 0) return;
 
                         book.SuggestedTags = tags;
-                        book.SuggestedTagsAt = DateTimeOffset.UtcNow;
                         book.UpdatedAt = DateTimeOffset.UtcNow;
                         // Status-safety here relies on EF issuing a column-granular UPDATE (only the modified
                         // columns above — never MetadataEnrichmentStatus). This runs on a SEPARATE DbContext,

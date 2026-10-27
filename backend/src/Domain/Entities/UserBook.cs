@@ -93,7 +93,6 @@ public class UserBook
 
     // AI-suggested tags pending user approval (slice 17). Cleared on accept or dismiss.
     public string[] SuggestedTags { get; set; } = [];
-    public DateTimeOffset? SuggestedTagsAt { get; set; }
 
 
     public User User { get; set; } = null!;

@@ -7,14 +7,7 @@ public class SsgRebuildJob : ISiteScoped
     public Guid Id { get; set; }
     public Guid SiteId { get; set; }
 
-    public SsgRebuildMode Mode { get; set; } = SsgRebuildMode.Full;
     public int Concurrency { get; set; } = 4;
-    public int TimeoutMs { get; set; } = 30000;
-
-    // Unused since Specific mode was removed (2026-10-08); columns kept, always null.
-    public string? BookSlugsJson { get; set; }
-    public string? AuthorSlugsJson { get; set; }
-    public string? GenreSlugsJson { get; set; }
 
     // Progress
     public SsgRebuildJobStatus Status { get; set; } = SsgRebuildJobStatus.Queued;

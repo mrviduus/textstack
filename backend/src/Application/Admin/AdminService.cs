@@ -17,7 +17,6 @@ public record UploadBookRequest(
     string Language,
     string? Description,
     Guid? WorkId,
-    Guid? SourceEditionId,
     string FileName,
     long FileSize,
     Stream FileStream,

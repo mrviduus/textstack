@@ -13,7 +13,6 @@ public class Edition : ISiteScoped
     public string? Description { get; set; }
     public EditionStatus Status { get; set; }
     public DateTimeOffset? PublishedAt { get; set; }
-    public Guid? SourceEditionId { get; set; }
     public string? CoverPath { get; set; }
     public bool IsPublicDomain { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
@@ -42,8 +41,6 @@ public class Edition : ISiteScoped
 
     public Work Work { get; set; } = null!;
     public Site Site { get; set; } = null!;
-    public Edition? SourceEdition { get; set; }
-    public ICollection<Edition> TranslatedEditions { get; set; } = [];
     public ICollection<Chapter> Chapters { get; set; } = [];
     public ICollection<BookFile> BookFiles { get; set; } = [];
     public ICollection<IngestionJob> IngestionJobs { get; set; } = [];

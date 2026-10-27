@@ -405,20 +405,14 @@ public static class AdminSeoBackfillEndpoints
         {
             s.Enabled,
             s.JobsPerRun,
-            s.IntervalSeconds,
-            s.LanguageFilter,
-            s.EntityTypeFilter,
-            s.SsgRebuildBatchMinutes
+            s.IntervalSeconds
         });
     }
 
     public record UpdateSettingsRequest(
         bool? Enabled,
         int? JobsPerRun,
-        int? IntervalSeconds,
-        string[]? LanguageFilter,
-        string[]? EntityTypeFilter,
-        int? SsgRebuildBatchMinutes);
+        int? IntervalSeconds);
 
     private static async Task<IResult> UpdateSettings(
         [FromBody] UpdateSettingsRequest req, IAppDbContext db, CancellationToken ct)
@@ -432,9 +426,6 @@ public static class AdminSeoBackfillEndpoints
         if (req.Enabled.HasValue) s.Enabled = req.Enabled.Value;
         if (req.JobsPerRun.HasValue) s.JobsPerRun = Math.Clamp(req.JobsPerRun.Value, 1, 50);
         if (req.IntervalSeconds.HasValue) s.IntervalSeconds = Math.Clamp(req.IntervalSeconds.Value, 10, 3600);
-        if (req.LanguageFilter is not null) s.LanguageFilter = req.LanguageFilter;
-        if (req.EntityTypeFilter is not null) s.EntityTypeFilter = req.EntityTypeFilter;
-        if (req.SsgRebuildBatchMinutes.HasValue) s.SsgRebuildBatchMinutes = Math.Clamp(req.SsgRebuildBatchMinutes.Value, 1, 60);
         s.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
         return Results.Ok();

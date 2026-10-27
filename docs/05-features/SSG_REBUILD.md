@@ -73,7 +73,6 @@ SSG (Static Site Generation) Rebuild is a feature that pre-renders React pages t
 |------|---------|
 | `Domain/Entities/SsgRebuildJob.cs` | Job entity with status, progress, timestamps |
 | `Domain/Enums/SsgRebuildJobStatus.cs` | Queued, Running, Completed, Failed, Cancelled |
-| `Domain/Enums/SsgRebuildMode.cs` | Full only (Incremental and Specific removed 2026-10-08) |
 | `Application/SsgRebuild/SsgRebuildService.cs` | Creates and manages jobs |
 | `Application/SsgRebuild/SsgRouteProvider.cs` | Provides routes to render |
 | `Api/Endpoints/AdminSsgRebuildEndpoints.cs` | Admin CRUD endpoints |
@@ -132,20 +131,18 @@ GET    /ssg/genres                     Get all genre slugs
 
 ## Database Schema
 
+Columns the code reads and writes. `mode`, `timeout_ms` and the three `*_slugs_json` columns still
+exist, unused (defaults from `0008`), until the next release drops them (#937).
+
 ```sql
 CREATE TABLE ssg_rebuild_jobs (
     id UUID PRIMARY KEY,
     site_id UUID NOT NULL REFERENCES sites(id),
     status VARCHAR(20) NOT NULL,  -- Queued, Running, Completed, Failed, Cancelled
-    mode VARCHAR(20) NOT NULL,    -- Full (legacy values read as Full)
     total_routes INT,
     rendered_count INT DEFAULT 0,
     failed_count INT DEFAULT 0,
     concurrency INT DEFAULT 4,
-    timeout_ms INT DEFAULT 30000,
-    book_slugs_json TEXT,         -- JSON array for incremental
-    author_slugs_json TEXT,
-    genre_slugs_json TEXT,
     error TEXT,
     created_at TIMESTAMP NOT NULL,
     started_at TIMESTAMP,
@@ -186,7 +183,7 @@ make clean-ssg  # Removes ssg, ssg-new, ssg-old
 
 1. Open https://textstack.dev/ssg-rebuild
 2. Click "New Rebuild"
-3. Pick mode, click "Create"
+3. Click "Create" (every rebuild renders all routes)
 4. Monitor progress in job list
 
 ### Via CLI
@@ -254,7 +251,6 @@ docker logs textstack_ssg_worker 2>&1 | grep -i error
 
 Common issues:
 - API returning 500 → check API logs
-- Timeout → increase timeout_ms in job
 - Memory issues → reduce concurrency
 
 ---

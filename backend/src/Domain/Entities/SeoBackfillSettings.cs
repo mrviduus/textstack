@@ -16,14 +16,5 @@ public class SeoBackfillSettings
 
     public int IntervalSeconds { get; set; } = 60;
 
-    /// <summary>Restrict to these language codes (empty = all).</summary>
-    public string[] LanguageFilter { get; set; } = [];
-
-    /// <summary>Restrict to these entity type names (empty = all).</summary>
-    public string[] EntityTypeFilter { get; set; } = [];
-
-    /// <summary>Minutes the debouncer waits before triggering SSG rebuild after successful applies.</summary>
-    public int SsgRebuildBatchMinutes { get; set; } = 5;
-
     public DateTimeOffset UpdatedAt { get; set; }
 }
