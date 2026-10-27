@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Api.Middleware;
 using Application.Agents;
+using Application.Common;
 using Application.Common.Interfaces;
 using Application.Seo;
 using Domain.Entities;
@@ -136,8 +137,7 @@ public static class AdminSeoBackfillEndpoints
 
         var language = req.LanguageCode.Trim().ToLowerInvariant();
         // One active template per key (ix_seo_templates_entity_type_field_type_language_code, #939): a second goes through Edit.
-        if (await db.SeoTemplates.AnyAsync(t => t.EntityType == et && t.FieldType == ft
-                && t.LanguageCode == language && t.IsActive, ct))
+        if (await db.SeoTemplates.Where(SeoTemplate.HasKey(et, ft, language)).AnyAsync(t => t.IsActive, ct))
             return ActiveTemplateConflict();
 
         var tpl = new SeoTemplate
@@ -162,7 +162,7 @@ public static class AdminSeoBackfillEndpoints
         db.SeoTemplates.Add(tpl);
         // A concurrent create can pass the check above too; once 0012 is in, its index refuses the second.
         try { await db.SaveChangesAsync(ct); }
-        catch (DbUpdateException ex) when (UserDataEndpoints.IsUniqueViolation(ex)) { return ActiveTemplateConflict(); }
+        catch (DbUpdateException ex) when (ex.IsUniqueViolation()) { return ActiveTemplateConflict(); }
         return Results.Ok(new { tpl.Id, tpl.Version });
     }
 
@@ -179,17 +179,16 @@ public static class AdminSeoBackfillEndpoints
 
         // Deactivate the key's active version, then insert the new one. Two statements in order:
         // the one-active unique index cannot be deferred, and one SaveChanges does not fix the order.
+        var key = SeoTemplate.HasKey(current.EntityType, current.FieldType, current.LanguageCode);
         await using var tx = await db.BeginTransactionAsync(ct);
         var now = DateTimeOffset.UtcNow;
         await db.SeoTemplates
-            .Where(t => t.EntityType == current.EntityType && t.FieldType == current.FieldType
-                && t.LanguageCode == current.LanguageCode && t.IsActive)
+            .Where(key).Where(t => t.IsActive)
             .ExecuteUpdateAsync(u => u.SetProperty(t => t.IsActive, false).SetProperty(t => t.UpdatedAt, now), ct);
 
         // Editing an older version must not reuse a number the key already has.
         var lastVersion = await db.SeoTemplates
-            .Where(t => t.EntityType == current.EntityType && t.FieldType == current.FieldType
-                && t.LanguageCode == current.LanguageCode)
+            .Where(key)
             .MaxAsync(t => t.Version, ct);
 
         var trust = current.TrustLevel;
@@ -218,7 +217,7 @@ public static class AdminSeoBackfillEndpoints
         // A concurrent edit of the same key inserts its own active row; once 0012 is in, its index
         // refuses the second.
         try { await db.SaveChangesAsync(ct); }
-        catch (DbUpdateException ex) when (UserDataEndpoints.IsUniqueViolation(ex)) { return ActiveTemplateConflict(); }
+        catch (DbUpdateException ex) when (ex.IsUniqueViolation()) { return ActiveTemplateConflict(); }
         await tx.CommitAsync(ct);
         return Results.Ok(new { next.Id, next.Version });
     }

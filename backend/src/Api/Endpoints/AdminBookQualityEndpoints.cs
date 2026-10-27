@@ -1,9 +1,9 @@
+using Application.Common;
 using Application.Common.Interfaces;
 using Domain.Entities;
 using Domain.Enums;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Npgsql;
 
 namespace Api.Endpoints;
 
@@ -107,7 +107,7 @@ public static class AdminBookQualityEndpoints
         db.BookQualityJobs.Add(job);
         // Unknown (or just deleted) book: the FK refuses the job.
         try { await db.SaveChangesAsync(ct); }
-        catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.ForeignKeyViolation })
+        catch (DbUpdateException ex) when (ex.IsForeignKeyViolation())
         {
             return Results.NotFound(new { error = "Book not found" });
         }

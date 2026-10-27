@@ -1,3 +1,4 @@
+using Application.Common;
 using Application.Common.Interfaces;
 using Contracts.ReadingTracking;
 using Domain.Entities;
@@ -84,14 +85,14 @@ public class ReadingSessionService(IAppDbContext db, ILogger<ReadingSessionServi
         {
             await db.SaveChangesAsync(ct);
         }
-        catch (DbUpdateException ex) when (ex.InnerException is Npgsql.PostgresException { SqlState: "23505" })
+        catch (DbUpdateException ex) when (ex.IsUniqueViolation())
         {
             // Race-window fallback: another concurrent request slipped in
             // between our pre-check and SaveChanges. The first one won; we
             // ack idempotently.
             return new SubmitSessionResponse(session.Id, []);
         }
-        catch (DbUpdateException ex) when (ex.InnerException is Npgsql.PostgresException { SqlState: "23503" })
+        catch (DbUpdateException ex) when (ex.IsForeignKeyViolation())
         {
             // Belt-and-suspenders for the delete-between-check-and-insert race: the referenced
             // user_book/edition was removed after our existence pre-check but before this insert. The

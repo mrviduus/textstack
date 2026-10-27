@@ -3,12 +3,12 @@ using Api.Mapping;
 using Api.Sites;
 using Application.Auth;
 using Application.Collections;
+using Application.Common;
 using Application.Common.Interfaces;
 using Application.ReadingTracking;
 using Domain.Entities;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Npgsql;
 
 namespace Api.Endpoints;
 
@@ -194,7 +194,7 @@ public static class UserDataEndpoints
         {
             await db.SaveChangesAsync(ct);
         }
-        catch (DbUpdateException ex) when (inserted is not null && IsUniqueViolation(ex))
+        catch (DbUpdateException ex) when (inserted is not null && ex.IsUniqueViolation())
         {
             // Lost an insert race. The read-then-insert above has no concurrency control, and a
             // single reader legitimately fires overlapping PUTs: the 30s session heartbeat, a
@@ -281,13 +281,6 @@ public static class UserDataEndpoints
         // now, so a queued write recorded before it cannot undo it (see ProgressClock.Stamp).
         target.ClientUpdatedAt = ProgressClock.Stamp(request.UpdatedAt, now);
     }
-
-    /// <summary>
-    /// True for a Postgres unique-constraint violation (SQLSTATE 23505). Matched on the SQLSTATE
-    /// rather than the message so it survives locale and constraint renames.
-    /// </summary>
-    public static bool IsUniqueViolation(DbUpdateException ex) =>
-        ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation };
 
     private static async Task<IResult> DeleteProgress(
         Guid editionId,
@@ -541,7 +534,7 @@ public static class UserDataEndpoints
         {
             await db.SaveChangesAsync(ct);
         }
-        catch (DbUpdateException ex) when (IsUniqueViolation(ex))
+        catch (DbUpdateException ex) when (ex.IsUniqueViolation())
         {
             // Double tap: the other request inserted between our read and this insert.
             db.UserLibraries.Remove(libraryItem);

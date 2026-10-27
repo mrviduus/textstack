@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using Domain.Enums;
 
 namespace Domain.Entities;
@@ -42,4 +43,12 @@ public class SeoTemplate
 
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
+
+    /// <summary>
+    /// The template's key (entity, field, language): versions of one key share it, and at most one
+    /// of them is active (ix_seo_templates_entity_type_field_type_language_code).
+    /// </summary>
+    public static Expression<Func<SeoTemplate, bool>> HasKey(
+        SeoEntityType entityType, SeoFieldType fieldType, string languageCode) =>
+        t => t.EntityType == entityType && t.FieldType == fieldType && t.LanguageCode == languageCode;
 }

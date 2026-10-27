@@ -2,7 +2,6 @@ using Api.Endpoints;
 using Application.ReadingTracking;
 using Domain.Entities;
 using Microsoft.EntityFrameworkCore;
-using Npgsql;
 
 namespace TextStack.UnitTests;
 
@@ -13,7 +12,8 @@ namespace TextStack.UnitTests;
 /// violated <c>ix_reading_progresses_user_id_site_id_edition_id</c> (23505): a 500 to the client and
 /// a silently lost reading position. Sentry caught it on its first day in production.
 ///
-/// These lock the two pure seams the recovery path depends on.
+/// These lock the pure seam the recovery path depends on; its unique-violation match is locked in
+/// <see cref="DbUpdateExceptionExtensionsTests"/>.
 /// </summary>
 public class UpsertProgressTests
 {
@@ -160,38 +160,6 @@ public class UpsertProgressTests
         UserDataEndpoints.ApplyProgressUpdate(target, Request(Guid.NewGuid()), 1);
 
         Assert.True(target.UpdatedAt >= before);
-    }
-
-    /// <summary>
-    /// The recovery path must trigger on a unique violation and NOTHING else — matched on SQLSTATE
-    /// so it survives locale changes and constraint renames.
-    /// </summary>
-    [Fact]
-    public void IsUniqueViolation_UniqueViolation_True()
-    {
-        var ex = new DbUpdateException("save failed", new PostgresException(
-            "duplicate key value violates unique constraint", "ERROR", "ERROR",
-            PostgresErrorCodes.UniqueViolation));
-
-        Assert.True(UserDataEndpoints.IsUniqueViolation(ex));
-    }
-
-    [Fact]
-    public void IsUniqueViolation_ForeignKeyViolation_False()
-    {
-        var ex = new DbUpdateException("save failed", new PostgresException(
-            "insert violates foreign key constraint", "ERROR", "ERROR",
-            PostgresErrorCodes.ForeignKeyViolation));
-
-        Assert.False(UserDataEndpoints.IsUniqueViolation(ex));
-    }
-
-    [Fact]
-    public void IsUniqueViolation_NonPostgresInner_False()
-    {
-        var ex = new DbUpdateException("save failed", new InvalidOperationException("boom"));
-
-        Assert.False(UserDataEndpoints.IsUniqueViolation(ex));
     }
 
     [Fact]
