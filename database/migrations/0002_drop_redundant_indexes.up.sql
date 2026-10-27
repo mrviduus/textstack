@@ -8,13 +8,18 @@
 --            ix_user_chapters_user_book_id  ⊂ ix_user_chapters_user_book_id_chapter_number
 --          no query filters by the column:
 --            ix_book_files_sha256, ix_user_book_files_sha256
---          no query can use it (#948: search's LIKE … OR EXISTS and similarity() > x never pick it):
+--          search cannot use it (#948: LIKE … OR EXISTS and similarity() > x never pick it); the
+--          only other user is the reimport fallback's lower(title) = x, a one-off on 1,433 rows:
 --            idx_editions_title_trgm
 -- Why:   each index costs on every write and in the backup; these serve nothing.
 -- Issue: https://github.com/mrviduus/textstack/issues/938
 -- Compatibility: indexes only; queries keep the same plans or use the wider index.
---        The site_id-prefixed vocabulary_words index goes with #946.
+--        The site_id-prefixed vocabulary_words index goes with #946. lock_timeout: each DROP takes
+--        an exclusive lock held to commit; behind a long reader it fails (rerun) instead of queueing
+--        every request on these tables.
 -- Down:  0002_drop_redundant_indexes.down.sql recreates all 7 exactly as 0000_baseline has them.
+
+SET LOCAL lock_timeout = '5s';
 
 DROP INDEX public.ix_book_assets_edition_id;
 DROP INDEX public.ix_collections_user_id;
