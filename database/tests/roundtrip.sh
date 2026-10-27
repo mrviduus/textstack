@@ -41,16 +41,16 @@ trap cleanup EXIT
 fail() { echo "FAIL: $*" >&2; exit 1; }
 # The runner (or the copy's runner) against database $1.
 migrate() { db=$1; shift; PGDATABASE=$db sh "$ROOT/migrate.sh" "$@"; }
-# The schema of database $1 without the ledgers, for comparing two databases. Column order is
-# ignored (each CREATE TABLE's columns sorted, trailing commas cut): a down file that re-adds a
-# dropped column puts it last, and nothing reads columns by position.
-dump() {
-    pg_dump -d "$1" --schema-only --no-owner --no-privileges -T schema_migrations -T '"__EFMigrationsHistory"' |
-        grep -v '^\\\(un\)\?restrict' |
-        awk 'inb && /^\)/ { close("sort"); inb = 0 }
-             inb { sub(/,$/, ""); print | "sort"; next }
-             { print }
-             /^CREATE TABLE .*\($/ { fflush(); inb = 1 }'
+# The schema of database $1 without the ledgers, for comparing two databases.
+dump() { pg_dump -d "$1" --schema-only --no-owner --no-privileges -T schema_migrations -T '"__EFMigrationsHistory"' | grep -v '^\\\(un\)\?restrict'; }
+# The same, column order ignored (each CREATE TABLE's columns sorted, trailing commas cut). Only for
+# down vs a fresh build: a down file that re-adds a dropped column puts it last. Every other check
+# stays strict.
+dump_cols() {
+    dump "$1" | awk 'inb && /^\)/ { close("sort"); inb = 0 }
+                     inb { sub(/,$/, ""); print | "sort"; next }
+                     { print }
+                     /^CREATE (UNLOGGED )?TABLE .*\($/ { fflush(); inb = 1 }'
 }
 # Run the runner and fail unless its output contains $2. Captured first: `| grep -q` would stop
 # reading at the match and kill the runner mid-run.
@@ -73,7 +73,7 @@ dump_upto() {
     done
     PGDATABASE=$ADMIN dropdb --if-exists "$REF"; PGDATABASE=$ADMIN createdb "$REF"
     PGDATABASE=$REF sh "$COPY/upto/migrate.sh" up > /dev/null
-    dump "$REF"
+    dump_cols "$REF"
 }
 
 echo "== 1. fresh database: up, up again, verify"
@@ -91,7 +91,7 @@ for v in $(value "$DB" 'SELECT version FROM schema_migrations WHERE version > 0 
     prev=$(value "$DB" "SELECT max(version) FROM schema_migrations WHERE version < $v")
     migrate "$DB" down "$prev"
     [ "$(value "$DB" 'SELECT max(version) FROM schema_migrations')" = "$prev" ] || fail "down $prev left newer versions"
-    [ "$(dump "$DB")" = "$(dump_upto "$prev")" ] || fail "down $prev left a schema other than version $prev's"
+    [ "$(dump_cols "$DB")" = "$(dump_upto "$prev")" ] || fail "down $prev left a schema other than version $prev's"
     # Below 0001, its down file must have put EF Core's ledger back, all of it.
     if [ "$prev" -lt 1 ]; then
         [ "$(value "$DB" 'SELECT count(*) || max(migration_id) FROM "__EFMigrationsHistory"')" = "147$(sed -n 's/^EF_HEAD=//p' "$ROOT/migrate.sh")" ] \

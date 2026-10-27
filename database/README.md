@@ -90,9 +90,10 @@ Never edit a file that has been applied anywhere; add a new one.
 
 - `tests/roundtrip.sh`, on throwaway databases: up and a no-op second up; for each version, newest
   first, down to the one below it — `pg_dump --schema-only` must equal a fresh database built only
-  that far (column order ignored: a re-added column lands last) — and up again, back to the full schema; the EF-history bootstrap and its refusal of a
-  history that ends elsewhere; an edited file failing `verify` and `up`; `down` refusing an unknown
-  version. Each refusal is checked by its message.
+  that far, column order ignored (a re-added column lands last) — and up again, back to the full
+  schema; the EF-history bootstrap and its refusal of a history that ends elsewhere; an edited file
+  failing `verify` and `up`; `down` refusing an unknown version. Each refusal is checked by its
+  message.
 - `tests/TextStack.IntegrationTests/SchemaDriftTests.cs`: every column the EF Core model maps exists in
   the migrated database with the same type and nullability, and every NOT NULL column without a
   default on a mapped table is in the model.
