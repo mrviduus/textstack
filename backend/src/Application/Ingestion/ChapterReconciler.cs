@@ -9,7 +9,7 @@ using Microsoft.Extensions.Logging;
 namespace Application.Ingestion;
 
 /// <summary>
-/// Re-ingesting a book must not cost its readers anything. Reading progress, bookmarks, notes and
+/// Re-ingesting a book must not cost its readers anything. Reading progress, bookmarks and
 /// highlights all hang on a chapter's <c>Id</c>; re-ingestion used to delete every chapter and
 /// insert fresh ones, so progress and bookmarks cascaded away and highlights were orphaned
 /// (2026-10 reader audit, C1/H1). Re-ingestion now updates chapters IN PLACE and keeps their Ids.
@@ -538,8 +538,6 @@ public static class ChapterReconciler
                 .ExecuteUpdateAsync(s => s.SetProperty(x => x.ChapterId, t), ct);
             await db.Bookmarks.IgnoreQueryFilters().Where(x => x.ChapterId == from)
                 .ExecuteUpdateAsync(s => s.SetProperty(x => x.ChapterId, t), ct);
-            await db.Notes.IgnoreQueryFilters().Where(x => x.ChapterId == from)
-                .ExecuteUpdateAsync(s => s.SetProperty(x => x.ChapterId, t), ct);
             await db.Highlights.IgnoreQueryFilters().Where(x => x.ChapterId == from)
                 .ExecuteUpdateAsync(s => s.SetProperty(x => x.ChapterId, (Guid?)t), ct);
         }
@@ -548,7 +546,6 @@ public static class ChapterReconciler
             // The edition's last chapter: there is nowhere left to hold a position or a bookmark.
             await db.ReadingProgresses.IgnoreQueryFilters().Where(x => x.ChapterId == from).ExecuteDeleteAsync(ct);
             await db.Bookmarks.IgnoreQueryFilters().Where(x => x.ChapterId == from).ExecuteDeleteAsync(ct);
-            await db.Notes.IgnoreQueryFilters().Where(x => x.ChapterId == from).ExecuteDeleteAsync(ct);
         }
         db.Chapters.Remove(chapter);
         return to;

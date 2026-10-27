@@ -35,5 +35,4 @@ public class Chapter
     public Edition Edition { get; set; } = null!;
     public ICollection<ReadingProgress> ReadingProgresses { get; set; } = [];
     public ICollection<Bookmark> Bookmarks { get; set; } = [];
-    public ICollection<Note> Notes { get; set; } = [];
 }

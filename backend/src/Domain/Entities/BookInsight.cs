@@ -30,9 +30,9 @@ namespace Domain.Entities;
 /// user's own upload) is set — enforced by a DB CHECK. Site-scoped (<see cref="ISiteScoped"/>) like
 /// the other per-user tables. Plain POCO; EF mapping in AppDbContext.Insights.cs.</para>
 ///
-/// <para>Deliberately not <c>Note</c>: its API was never wired up and it is hard-bound to an
-/// edition. The chat container this once contrasted itself against is gone — the conversation now
-/// happens in the reader's own assistant, which is the whole point of this table.</para>
+/// <para>Not the old <c>notes</c> table (removed, #932): its API was never wired up and it was
+/// hard-bound to an edition. The chat container this once contrasted itself against is gone — the
+/// conversation now happens in the reader's own assistant, which is the whole point of this table.</para>
 /// </summary>
 public class BookInsight : ISiteScoped
 {

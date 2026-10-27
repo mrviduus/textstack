@@ -56,7 +56,6 @@ internal sealed class CapturingDb : IAppDbContext
     public DbSet<UserLibrary> UserLibraries => throw new NotSupportedException();
     public DbSet<ReadingProgress> ReadingProgresses => throw new NotSupportedException();
     public DbSet<Bookmark> Bookmarks => throw new NotSupportedException();
-    public DbSet<Note> Notes => throw new NotSupportedException();
     public DbSet<AdminUser> AdminUsers => throw new NotSupportedException();
     public DbSet<AdminRefreshToken> AdminRefreshTokens => throw new NotSupportedException();
     public DbSet<UserRefreshToken> UserRefreshTokens => throw new NotSupportedException();

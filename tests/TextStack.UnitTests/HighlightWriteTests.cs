@@ -19,7 +19,7 @@ public class HighlightWriteTests
         protected override void OnModelCreating(ModelBuilder b) => b.Entity<Highlight>(e =>
         {
             e.Ignore(x => x.User); e.Ignore(x => x.Site); e.Ignore(x => x.Edition); e.Ignore(x => x.Chapter);
-            e.Ignore(x => x.UserBook); e.Ignore(x => x.UserChapter); e.Ignore(x => x.Note);
+            e.Ignore(x => x.UserBook); e.Ignore(x => x.UserChapter);
         });
     }
 

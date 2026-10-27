@@ -54,7 +54,6 @@ public partial class AppDbContext : DbContext, IAppDbContext
     public DbSet<UserLibrary> UserLibraries => Set<UserLibrary>();
     public DbSet<ReadingProgress> ReadingProgresses => Set<ReadingProgress>();
     public DbSet<Bookmark> Bookmarks => Set<Bookmark>();
-    public DbSet<Note> Notes => Set<Note>();
     public DbSet<AdminUser> AdminUsers => Set<AdminUser>();
     public DbSet<AdminRefreshToken> AdminRefreshTokens => Set<AdminRefreshToken>();
     public DbSet<UserRefreshToken> UserRefreshTokens => Set<UserRefreshToken>();

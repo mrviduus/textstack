@@ -97,7 +97,7 @@ Rows: exact `count(*)` in production on 2026-10-26 (`pg_stat_user_tables` estima
 | 41 | `reading_progresses` | Position in a catalog book | Decide | Uploads keep progress on `user_books` instead; legacy `locator` (`scroll:<slug>:<px>`) next to `position_json` | 435 |
 | 42 | `bookmarks` | Bookmarks in catalog books | Decide | No unique key; twin of `user_book_bookmarks` | 9 |
 | 43 | `highlights` | Highlights + their note text, catalog or upload | Clean | Edition-or-upload keys, no CHECK; SET NULL can leave a highlight with no book | 39 |
-| 44 | `notes` | Standalone notes | Retire | No writer anywhere; `highlights.note_text` holds notes | 0 |
+| 44 | `notes` | Standalone notes | Retire | No writer anywhere; `highlights.note_text` holds notes. Code no longer maps it; dropped next release (#932) | 0 |
 | 45 | `reading_sessions` | Reading time for stats and streaks | Clean | Same edition-or-upload keys without CHECK | 587 |
 | 46 | `reading_goals` | Daily/yearly goal | Clean | `(user_id, site_id)` index redundant | 1 |
 | 47 | `user_achievements` | Unlocked achievements | Clean | `(user_id, site_id)` index redundant | 154 |
