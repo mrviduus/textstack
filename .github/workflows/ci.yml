@@ -117,7 +117,7 @@ jobs:
             case "$f" in
               '') ;;
               docs/*) ;;
-              backend/*|tests/*|*.sln|Directory.*.props|NuGet.Config|global.json|docker-compose*.yml) backend=true ;;
+              backend/*|database/*|tests/*|*.sln|Directory.*.props|NuGet.Config|global.json|docker-compose*.yml) backend=true ;;
               apps/web/*|apps/admin/*) web=true ;;
               apps/mobile/*) mobile=true ;;
               extension/*) extension=true ;;
@@ -205,8 +205,8 @@ jobs:
     timeout-minutes: 20
     services:
       postgres:
-        # pgvector image (stock pg16 + vector ext) so `dotnet ef database update`
-        # can run the AddPgVectorAndChunks migration's CREATE EXTENSION vector.
+        # pgvector image (stock pg16 + vector ext): the baseline migration runs
+        # CREATE EXTENSION vector.
         image: pgvector/pgvector:pg16
         env:
           POSTGRES_USER: app
@@ -250,13 +250,27 @@ jobs:
       - name: Lint (format check)
         run: dotnet format --no-restore --verify-no-changes
 
-      - name: Install EF Core tools
-        run: dotnet tool install --global dotnet-ef
+      # database/migrate.sh and every migration on scratch databases: up, down one version deeper
+      # per pass then up again, the EF-history bootstrap, edited files (database/README.md).
+      # Run in the postgres image, so psql/pg_dump match the server and `sh` is a strict POSIX
+      # shell (dash), as close to the migrator's busybox as ubuntu gets.
+      - name: Migrations round trip
+        run: >-
+          docker run --rm --network host -v "$PWD/database:/database:ro"
+          -e PGHOST=localhost -e PGUSER=app -e PGPASSWORD=changeme -e PGDATABASE=books
+          pgvector/pgvector:pg16 sh /database/tests/roundtrip.sh
 
       - name: Run migrations
-        run: dotnet ef database update --project backend/src/Infrastructure --startup-project backend/src/Api
+        run: >-
+          docker run --rm --network host -v "$PWD/database:/database:ro"
+          -e PGHOST=localhost -e PGUSER=app -e PGPASSWORD=changeme -e PGDATABASE=books
+          pgvector/pgvector:pg16 sh /database/migrate.sh up
+
+      # The EF Core model against the database migrate.sh just built (SchemaDriftTests).
+      - name: Schema drift (EF model vs database/migrations)
+        run: dotnet test tests/TextStack.IntegrationTests --no-build --filter "FullyQualifiedName~SchemaDriftTests"
         env:
-          ConnectionStrings__Default: "Host=localhost;Port=5432;Database=books;Username=app;Password=changeme"
+          TEST_DB_CONNECTION: "Host=localhost;Port=5432;Database=books;Username=app;Password=changeme"
 
       - name: Search tests
         run: dotnet test tests/TextStack.Search.Tests --no-build
