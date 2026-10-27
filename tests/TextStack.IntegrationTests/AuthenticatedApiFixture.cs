@@ -22,6 +22,8 @@ public class AuthenticatedApiFixture : IAsyncLifetime
     private bool _loginAvailable;
 
     // One admin login per test run, shared by every fixture: admin-login allows 5 per minute per IP.
+    // ponytail: one token for the whole run and the admin access token lives 15 min; the suite
+    // takes ~15 s. Log in per class (inside the rate limit) if it ever runs that long.
     private static readonly Lazy<Task<(string Cookie, string? Error)>> AdminLogin = new(LoginAdminAsync);
     private string _adminCookieHeader = string.Empty;
     private string? _adminLoginError;
@@ -37,6 +39,9 @@ public class AuthenticatedApiFixture : IAsyncLifetime
             BaseAddress = new Uri(baseUrl),
             Timeout = TimeSpan.FromSeconds(30)
         };
+
+        // Independent of test-login: the admin account needs no test auth.
+        (_adminCookieHeader, _adminLoginError) = await AdminLogin.Value;
 
         // Authenticate — extract Set-Cookie manually (Secure cookies don't stick over HTTP)
         var loginRequest = new HttpRequestMessage(HttpMethod.Post, "/auth/test-login");
@@ -60,8 +65,6 @@ public class AuthenticatedApiFixture : IAsyncLifetime
         resp.EnsureSuccessStatusCode();
         _loginAvailable = true;
         _cookieHeader = CookieHeader(resp);
-
-        (_adminCookieHeader, _adminLoginError) = await AdminLogin.Value;
     }
 
     // "access_token=xxx; path=/; ..." → "access_token=xxx", joined into one Cookie header.
@@ -70,6 +73,8 @@ public class AuthenticatedApiFixture : IAsyncLifetime
             ? string.Join("; ", cookies.Select(c => c.Split(';')[0].Trim()).Where(c => c.Length > 0))
             : string.Empty;
 
+    // Never throws: a failed admin login must not fail the user-only classes sharing this fixture.
+    // Retries once, as test-login does, for an API still warming up.
     private static async Task<(string Cookie, string? Error)> LoginAdminAsync()
     {
         using var client = new HttpClient(new HttpClientHandler { UseCookies = false })
@@ -77,19 +82,31 @@ public class AuthenticatedApiFixture : IAsyncLifetime
             BaseAddress = new Uri(Environment.GetEnvironmentVariable("API_URL") ?? "http://localhost:8080"),
             Timeout = TimeSpan.FromSeconds(30)
         };
-        var request = new HttpRequestMessage(HttpMethod.Post, "/admin/auth/login")
+        string? error = null;
+        for (var attempt = 0; attempt < 2; attempt++)
         {
-            Content = JsonContent.Create(new
+            if (attempt > 0) await Task.Delay(500);
+            try
             {
-                email = Environment.GetEnvironmentVariable("ADMIN_EMAIL") ?? "admin@textstack.app",
-                password = Environment.GetEnvironmentVariable("ADMIN_PASSWORD") ?? "admin",
-            })
-        };
-        request.Headers.Host = AdminHost;
-        var resp = await client.SendAsync(request);
-        return resp.IsSuccessStatusCode
-            ? (CookieHeader(resp), null)
-            : (string.Empty, $"admin login answered {(int)resp.StatusCode}");
+                using var request = new HttpRequestMessage(HttpMethod.Post, "/admin/auth/login")
+                {
+                    Content = JsonContent.Create(new
+                    {
+                        email = Environment.GetEnvironmentVariable("ADMIN_EMAIL") ?? "admin@textstack.app",
+                        password = Environment.GetEnvironmentVariable("ADMIN_PASSWORD") ?? "admin",
+                    })
+                };
+                request.Headers.Host = AdminHost;
+                using var resp = await client.SendAsync(request);
+                if (resp.IsSuccessStatusCode) return (CookieHeader(resp), null);
+                error = $"admin login answered {(int)resp.StatusCode}";
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+            {
+                error = $"admin login failed: {ex.Message}";
+            }
+        }
+        return (string.Empty, error);
     }
 
     public HttpRequestMessage CreateRequest(HttpMethod method, string path)
@@ -119,8 +136,9 @@ public class AuthenticatedApiFixture : IAsyncLifetime
     public void RequireAdmin()
     {
         if (_adminCookieHeader.Length > 0) return;
-        var reason = _adminLoginError ?? "test login unavailable";
-        if (Environment.GetEnvironmentVariable("CI") == "true") Assert.Fail($"no admin session in CI: {reason}");
+        var reason = _adminLoginError ?? "admin login did not run";
+        var ci = Environment.GetEnvironmentVariable("CI");
+        if (!string.IsNullOrEmpty(ci) && ci != "false") Assert.Fail($"no admin session in CI: {reason}");
         Assert.Skip($"no admin session: {reason}");
     }
 

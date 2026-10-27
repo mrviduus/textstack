@@ -8,7 +8,8 @@ namespace TextStack.IntegrationTests;
 /// against the live API on the admin host. Auth + validation
 /// paths assert without depending on seeded mutable state, and a full promote→reflected-in-/models
 /// →rollback round-trip runs as the fixture's admin. Skips locally when there is no admin session
-/// or the endpoint is not deployed; in CI a missing admin session fails (#990). To run: `docker compose up` (API on :8080) with ENABLE_TEST_AUTH=true; runs in CI.
+/// or the endpoint is not deployed; in CI a missing admin session fails (#990).
+/// To run: `docker compose up` (API on :8080) with ENABLE_TEST_AUTH=true; runs in CI.
 /// </summary>
 public class AdminModelPromotionEndpointTests : IClassFixture<AuthenticatedApiFixture>
 {

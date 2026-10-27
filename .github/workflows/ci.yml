@@ -619,6 +619,12 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      # The admin tests log in as this account (AuthenticatedApiFixture); without it they fail in
+      # CI rather than skip, since a skip is a green run with the admin endpoints untested (#990).
+      # Idempotent, as in the e2e job.
+      - name: Create admin user for integration tests
+        run: docker compose exec -T api dotnet Api.dll create-admin admin@textstack.app admin Admin
+
       # Everything EXCEPT the rate-limit enforcement test. That one deliberately drains the whole
       # guest-session bucket (60 consecutive POST /auth/guest until one is rejected), and the bucket
       # is keyed on client IP with a 5-minute window — in CI every request comes from one host, so
@@ -626,12 +632,6 @@ jobs:
       # together, the enforcement test finishes in ~2.7s and fifteen guest/merge tests then SKIP,
       # which is precisely the "green with no coverage" outcome the guest PR exists to prevent.
       # Raising the limit cannot resolve it: the enforcement test consumes limit+1 by construction.
-      # The admin tests log in as this account (AuthenticatedApiFixture); without it they fail in
-      # CI rather than skip, since a skip is a green run with the admin endpoints untested (#990).
-      # Idempotent, as in the e2e job.
-      - name: Create admin user for integration tests
-        run: docker compose exec -T api dotnet Api.dll create-admin admin@textstack.app admin Admin
-
       - name: Integration tests
         run: dotnet test tests/TextStack.IntegrationTests --filter "FullyQualifiedName!~RateLimitEnforcement"
         env:
