@@ -171,7 +171,7 @@ and `reading_sessions` serve both through nullable edition-or-upload keys.
 | `vocabulary_words`, `vocabulary_reviews`, `user_vocabulary_settings`, `tutor_session` | user_id | Learning patterns |
 | `bookmarks`, `highlights`, `book_insight`, `review_question` | user_id | Annotations, assistant output |
 | `mcp_access_keys`, `oauth_grants`, `device_authorizations`, `oauth_authorization_requests` | user id | Credentials |
-| `llm_traces`, `agent_run`, `shadow_runs` | prompt/response text (scrubbed before write) | Traces/shadow runs carry no user id; their text goes after 30 d. Agent runs are deleted with the account |
+| `llm_traces`, `agent_run` | prompt/response text (scrubbed before write) | Traces carry no user id; their text goes after 30 d. Agent runs are deleted with the account. (`shadow_runs` held the same, was never written, and is dropped by #934) |
 | `user_books`, `user_chapters`, `user_book_files`, `user_book_bookmarks`, `user_libraries`, `user_ingestion_jobs` | user_id | Uploaded content + library |
 
 **Guest users**: `users.is_guest = true`. `GuestCleanupWorker` (every 2 h) deletes guests inactive

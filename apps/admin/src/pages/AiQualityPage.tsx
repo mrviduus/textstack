@@ -1202,8 +1202,8 @@ function ModelsTab() {
   return (
     <>
       <p className="dashboard-page__subtitle" style={{ margin: '0 0 12px' }}>
-        Registered models per feature and their routing status. Promote a shadow to primary or roll a feature back to its
-        previous primary.
+        Registered models per feature and their routing status. Shadow models are standbys and serve nothing. Promote one
+        to primary or roll a feature back to its previous primary.
       </p>
 
       {error && <Banner text={error} />}
@@ -1297,7 +1297,7 @@ function ModelConfirmDialog({
   const title = action.kind === 'promote' ? 'Promote to primary' : 'Roll back primary'
   const message =
     action.kind === 'promote'
-      ? `Promote ${row.modelId} to primary for ${row.featureTag}? The current primary will keep running as shadow.`
+      ? `Promote ${row.modelId} to primary for ${row.featureTag}? The current primary becomes a standby (Shadow) and stops serving.`
       : `Roll back ${row.featureTag} to its previous primary?`
   return (
     <div onClick={onClose} style={overlay}>

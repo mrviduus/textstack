@@ -2,7 +2,7 @@ namespace TextStack.Ai.Core;
 
 /// <summary>
 /// The single seam through which every LLM call in TextStack flows. Tracing, routing, retries,
-/// shadowing and escalation are decorators/composition on top — never sprinkled in callers.
+/// and escalation are decorators/composition on top — never sprinkled in callers.
 /// </summary>
 public interface ILlmService
 {

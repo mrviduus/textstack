@@ -5,7 +5,6 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using TextStack.Ai.Core;
-using TextStack.Observability;
 
 namespace TextStack.Ai.Llm;
 
