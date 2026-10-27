@@ -7,6 +7,8 @@ public class ReadingSession : ISiteScoped
     public Guid SiteId { get; set; }
     public Guid? EditionId { get; set; }
     public Guid? UserBookId { get; set; }
+    /// <summary>A deleted upload's file, to re-attach the session on re-upload (#983).</summary>
+    public string? DeletedBookSha256 { get; set; }
     public DateTimeOffset StartedAt { get; set; }
     public DateTimeOffset EndedAt { get; set; }
     public int DurationSeconds { get; set; }

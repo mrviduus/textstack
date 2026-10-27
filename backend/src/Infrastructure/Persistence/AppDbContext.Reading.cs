@@ -60,6 +60,7 @@ public partial class AppDbContext
             e.HasIndex(x => new { x.UserId, x.SiteId, x.UserBookId }).HasFilter("user_book_id IS NOT NULL");
             e.Property(x => x.AnchorJson).HasColumnType("jsonb");
             e.Property(x => x.Color).HasMaxLength(20);
+            e.Property(x => x.DeletedBookSha256).HasMaxLength(64);
             e.HasOne(x => x.User).WithMany(x => x.Highlights).HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.Edition).WithMany().HasForeignKey(x => x.EditionId).OnDelete(DeleteBehavior.SetNull);
             e.HasOne(x => x.Chapter).WithMany().HasForeignKey(x => x.ChapterId).OnDelete(DeleteBehavior.SetNull);
@@ -76,6 +77,7 @@ public partial class AppDbContext
             e.HasIndex(x => new { x.UserId, x.SiteId });
             e.HasIndex(x => new { x.UserId, x.StartedAt });
             e.HasIndex(x => new { x.UserId, x.EditionId, x.StartedAt }).IsUnique().HasFilter("edition_id IS NOT NULL");
+            e.Property(x => x.DeletedBookSha256).HasMaxLength(64);
             e.HasIndex(x => new { x.UserId, x.UserBookId, x.StartedAt }).IsUnique().HasFilter("user_book_id IS NOT NULL");
             e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.Site).WithMany().HasForeignKey(x => x.SiteId).OnDelete(DeleteBehavior.Restrict);

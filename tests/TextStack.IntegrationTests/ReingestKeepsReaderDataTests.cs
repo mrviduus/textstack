@@ -80,6 +80,66 @@ public class ReingestKeepsReaderDataTests(AuthenticatedApiFixture auth) : IClass
         }
     }
 
+    [Fact]
+    public async Task DeleteThenClipSameContent_HighlightReattachedToNewBook()
+    {
+        Assert.SkipUnless(auth.IsAuthenticated, "test auth unavailable");
+        // Unique per run, so no earlier run's ownerless rows share the file's sha256.
+        var marker = Guid.NewGuid().ToString("N");
+        var body = new
+        {
+            title = $"Reattach {marker}"[..20],
+            html = $"<h1>Reattach</h1><p>Real fluency comes from real books. {marker}</p>",
+            language = "en"
+        };
+        async Task<Guid?> ClipAsync()
+        {
+            var clip = auth.CreateRequest(HttpMethod.Post, "/me/books/clip");
+            clip.Content = JsonContent.Create(body);
+            var resp = await auth.Client.SendAsync(clip, Ct);
+            Assert.SkipWhen(resp.StatusCode == HttpStatusCode.TooManyRequests, "clip rate limited");
+            Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+            return (await resp.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("userBookId").GetGuid();
+        }
+
+        var firstId = (await ClipAsync())!.Value;
+        var first = await WaitForReadyAsync(firstId);
+        Assert.SkipWhen(first is null, "worker did not process the clip");
+        var hl = auth.CreateRequest(HttpMethod.Post, "/me/highlights");
+        hl.Content = JsonContent.Create(new
+        {
+            userBookId = firstId,
+            userChapterId = first!.Value.GetProperty("chapters")[0].GetProperty("id").GetGuid(),
+            anchorJson = """{"prefix":"","exact":"real books","suffix":""}""",
+            color = "yellow",
+            selectedText = "real books"
+        });
+        Assert.Equal(HttpStatusCode.Created, (await auth.Client.SendAsync(hl, Ct)).StatusCode);
+        Assert.True((await auth.Client.SendAsync(auth.CreateRequest(HttpMethod.Delete, $"/me/books/{firstId}"), Ct)).IsSuccessStatusCode);
+
+        var secondId = (await ClipAsync())!.Value;
+        try
+        {
+            var second = await WaitForReadyAsync(secondId);
+            Assert.SkipWhen(second is null, "worker did not process the second clip");
+            var newChapterId = second!.Value.GetProperty("chapters")[0].GetProperty("id").GetGuid();
+
+            // Re-attach runs right after Ready, in a second save: give it a moment.
+            JsonElement highlights = default;
+            for (var i = 0; i < 10; i++)
+            {
+                highlights = await GetJsonAsync($"/me/highlights/userbook/{secondId}");
+                if (highlights.GetArrayLength() > 0) break;
+                await Task.Delay(500, Ct);
+            }
+            Assert.Equal(newChapterId, Assert.Single(highlights.EnumerateArray()).GetProperty("userChapterId").GetGuid());
+        }
+        finally
+        {
+            await auth.Client.SendAsync(auth.CreateRequest(HttpMethod.Delete, $"/me/books/{secondId}"), Ct);
+        }
+    }
+
     private async Task<JsonElement> GetJsonAsync(string path)
     {
         var resp = await auth.Client.SendAsync(auth.CreateRequest(HttpMethod.Get, path), Ct);

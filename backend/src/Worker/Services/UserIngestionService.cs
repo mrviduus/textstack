@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Application.Common.Interfaces;
 using Application.Ingestion;
+using Application.UserBooks;
 using Domain.Entities;
 using Domain.Enums;
 using Domain.Utilities;
@@ -334,6 +335,24 @@ public class UserIngestionService
             job.Error = null;
 
             await db.SaveChangesAsync(ct);
+
+            // Same file uploaded again after a delete: its highlights and sessions come back (#983).
+            // Best-effort, on its own context: the book is already Ready, and a failure here must
+            // neither fail it nor leave pending changes for this context's next save. Rows stay
+            // ownerless, as before. ponytail: clients may see Ready a moment before the highlights.
+            try
+            {
+                await using var trailDb = await _dbFactory.CreateDbContextAsync(ct);
+                var r = await DeletedUploadTrail.ReattachAsync(trailDb, job.UserBook, job.UserBookFile.Sha256, ct);
+                if (r.Highlights + r.Sessions + r.Skipped > 0)
+                    _logger.LogInformation(
+                        "Re-attached {Highlights} highlights, {Sessions} sessions to user book {BookId}; {Skipped} left ownerless (chapter or session clash)",
+                        r.Highlights, r.Sessions, job.UserBookId, r.Skipped);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(ex, "Could not re-attach a deleted copy's rows to user book {BookId}", job.UserBookId);
+            }
 
             foreach (var file in oldAssets)
             {
