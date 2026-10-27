@@ -1,5 +1,6 @@
 -- Undoes 0010_drop_lint_results: recreates the table empty, as 0000_baseline has it. Rows come from a
--- backup or a re-ingest with the code before #975 (see the up header).
+-- backup or a re-ingest with the code before #975 (see the up header). Run this BEFORE rolling the
+-- code back past #975: that code writes the table on every catalog ingest.
 
 SET LOCAL lock_timeout = '5s';
 
