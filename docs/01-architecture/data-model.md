@@ -97,9 +97,9 @@ Rows: exact `count(*)` in production on 2026-10-26 (`pg_stat_user_tables` estima
 |---|---|---|---|---|---|
 | 41 | `reading_progresses` | Position in a catalog book | Decide | Uploads keep progress on `user_books` instead; legacy `locator` (`scroll:<slug>:<px>`) next to `position_json` | 435 |
 | 42 | `bookmarks` | Bookmarks in catalog books | Decide | No unique key; twin of `user_book_bookmarks` | 9 |
-| 43 | `highlights` | Highlights + their note text, catalog or upload | Clean | Exactly one of edition / upload (`ck_highlights_owner`); goes with its book (CASCADE), `0012`, #939 | 38 |
+| 43 | `highlights` | Highlights + their note text, catalog or upload | Clean | At most one of edition / upload (`ck_highlights_owner`, `0012`, #939); none after its book is deleted (SET NULL), still shown in All highlights | 39 |
 | 44 | ~~`notes`~~ | Standalone notes | Dropped | Dropped by `0005` (#932): no writer ever; `highlights.note_text` holds notes | — |
-| 45 | `reading_sessions` | Reading time for stats and streaks | Clean | Exactly one of edition / upload (`ck_reading_sessions_owner`); goes with its book (CASCADE), `0012`, #939 | 573 |
+| 45 | `reading_sessions` | Reading time for stats and streaks | Clean | At most one of edition / upload (`ck_reading_sessions_owner`, `0012`, #939); none after its book is deleted (SET NULL), still counted in stats | 587 |
 | 46 | `reading_goals` | Daily/yearly goal | Clean | `(user_id, site_id)` index redundant | 1 |
 | 47 | `user_achievements` | Unlocked achievements | Clean | `(user_id, site_id)` index redundant | 154 |
 | 48 | `book_insight` | Assistant conclusions + chapter reviews ([ADR-016](adr/ADR-016-chapter-review-lives-in-book-insight.md)) | Keep | Well constrained. First table moved to Dapper | 7 |
@@ -158,7 +158,7 @@ erDiagram
 
 Two parallel reading models exist side by side: catalog books (`editions` → `reading_progresses`,
 `bookmarks`) and uploads (`user_books` with progress columns, `user_book_bookmarks`). `highlights`
-and `reading_sessions` serve both through edition-or-upload keys, exactly one set (`0012`).
+and `reading_sessions` serve both through edition-or-upload keys, at most one set (`0012`); a deleted book leaves both NULL.
 
 ## PII / GDPR map
 
