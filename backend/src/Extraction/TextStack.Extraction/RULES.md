@@ -277,12 +277,6 @@ Abbreviations at end of sentence get `class="eoc"`:
 
 ---
 
-## Configuration
-
-Currently all rules are always enabled. Future: add configuration to enable/disable individual rules.
-
----
-
 ## Source
 
 Rules ported from [Standard Ebooks](https://standardebooks.org/) tools:

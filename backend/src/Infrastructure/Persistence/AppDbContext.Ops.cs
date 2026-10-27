@@ -4,8 +4,8 @@ using Microsoft.EntityFrameworkCore;
 namespace Infrastructure.Persistence;
 
 /// <summary>
-/// Operational entities — admin settings + SSG rebuild bookkeeping +
-/// lint result rows. Not tied to a single product domain.
+/// Operational entities — admin settings + SSG rebuild bookkeeping.
+/// Not tied to a single product domain.
 /// </summary>
 public partial class AppDbContext
 {

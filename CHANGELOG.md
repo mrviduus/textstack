@@ -23,7 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
-- **Infra** — ingestion stops linting: `lint_results` (18k rows nothing displayed), its admin endpoints, entity and the now-uncalled `Extraction.Lint` rules are removed; table dropped next release (#936) — backend
+- **Infra** — ingestion stops linting: `lint_results` (18k rows nothing displayed), its admin endpoints, entity and the now-uncalled `Extraction.Lint` rules are removed; table dropped next release (#936) — backend · [details](docs/changelog-archive/2026-H2.md#2026-10-27-remove-linter)
 - **Vocabulary** — the word-frequency filter reads the embedded `wordfreq-en.json.gz` directly instead of a startup copy in `word_frequencies`; the loader worker is gone, classification unchanged (same ranks/Zipf, test pins a sample); table dropped next release (#935) — backend
 - **Infra** — migration `0007` drops the never-written `shadow_runs` (0 rows; refuses to run if any appear) (#934) — infra · [details](docs/changelog-archive/2026-H2.md#2026-10-27-drop-dead-tables)
 - **AI** — the never-enabled shadow-model path is removed: gateway shadow calls, `Ai:Shadow` config, the writer, the admin Shadow tab and its endpoints, the 30-day sweep; table `shadow_runs` (0 rows) dropped next release. Model registry promote/rollback unchanged (#934) — backend, admin
