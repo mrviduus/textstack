@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Infra** — migration `0004` drops `book_files.sha256`; the round-trip check ignores column order, so a down file can re-add a dropped column (#937) — infra
 - **Infra** — admin upload stops computing the never-read `book_files.sha256`; the column is dropped next release (#937) — backend
 - **Infra** — migration `0003` drops the redundant `vocabulary_words(user_id, site_id)` index (#938) — infra
 - **Infra** — migration `0002` drops 7 indexes no query needs: 4 left prefixes of wider indexes, 2 `sha256` indexes no query filters by, the GiST title trigram index search can't use (#938, #948) — backend, infra · [details](docs/changelog-archive/2026-H2.md#2026-10-27-drop-redundant-indexes)

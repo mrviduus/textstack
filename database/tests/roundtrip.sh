@@ -41,8 +41,17 @@ trap cleanup EXIT
 fail() { echo "FAIL: $*" >&2; exit 1; }
 # The runner (or the copy's runner) against database $1.
 migrate() { db=$1; shift; PGDATABASE=$db sh "$ROOT/migrate.sh" "$@"; }
-# The schema of database $1 without the ledgers, for comparing two databases.
-dump() { pg_dump -d "$1" --schema-only --no-owner --no-privileges -T schema_migrations -T '"__EFMigrationsHistory"' | grep -v '^\\\(un\)\?restrict'; }
+# The schema of database $1 without the ledgers, for comparing two databases. Column order is
+# ignored (each CREATE TABLE's columns sorted, trailing commas cut): a down file that re-adds a
+# dropped column puts it last, and nothing reads columns by position.
+dump() {
+    pg_dump -d "$1" --schema-only --no-owner --no-privileges -T schema_migrations -T '"__EFMigrationsHistory"' |
+        grep -v '^\\\(un\)\?restrict' |
+        awk 'inb && /^\)/ { close("sort"); inb = 0 }
+             inb { sub(/,$/, ""); print | "sort"; next }
+             { print }
+             /^CREATE TABLE .*\($/ { fflush(); inb = 1 }'
+}
 # Run the runner and fail unless its output contains $2. Captured first: `| grep -q` would stop
 # reading at the match and kill the runner mid-run.
 expect() { out=$(migrate "$1" up); echo "$out"; case $out in *"$2"*) ;; *) fail "$3" ;; esac; }
