@@ -129,7 +129,8 @@ public static class HighlightsEndpoints
                 h.ChapterId != null ? h.Chapter!.Title : null,
                 h.UserChapterId != null ? h.UserChapter!.Title : null,
                 h.ChapterId != null ? h.Chapter!.Slug : null,
-                h.UserChapterId != null ? h.UserChapter!.Slug : null
+                h.UserChapterId != null ? h.UserChapter!.Slug : null,
+                h.EditionId == null && h.UserBookId == null ? h.BookTitle : null
             ))
             .ToListAsync(ct);
 
@@ -161,7 +162,7 @@ public static class HighlightsEndpoints
                 h.AnchorJson,
                 h.Color,
                 h.NoteText,
-                h.EditionId != null ? h.Edition!.Title : (h.UserBookId != null ? h.UserBook!.Title : null),
+                h.EditionId != null ? h.Edition!.Title : (h.UserBookId != null ? h.UserBook!.Title : h.BookTitle),
                 h.ChapterId != null ? h.Chapter!.Title : (h.UserChapterId != null ? h.UserChapter!.Title : null),
                 h.LastReviewedAt
             ))
@@ -215,6 +216,7 @@ public static class HighlightsEndpoints
         if (ValidateFields(request.Color, request.AnchorJson, request.SelectedText, required: true) is { } invalid)
             return Results.BadRequest(invalid);
 
+        string bookTitle;
         if (isEdition)
         {
             if (!request.ChapterId.HasValue)
@@ -226,6 +228,7 @@ public static class HighlightsEndpoints
                 .Where(e => e.Id == editionId)
                 .FirstOrDefaultAsync(ct);
             if (edition == null) return Results.NotFound("Edition not found");
+            bookTitle = edition.Title;
 
             var chapter = await db.Chapters
                 .Where(c => c.Id == chapterId && c.EditionId == editionId)
@@ -242,6 +245,7 @@ public static class HighlightsEndpoints
                 .Where(b => b.Id == request.UserBookId!.Value && b.UserId == userId.Value)
                 .FirstOrDefaultAsync(ct);
             if (userBook == null) return Results.NotFound("User book not found");
+            bookTitle = userBook.Title;
 
             if (request.UserChapterId.HasValue)
             {
@@ -299,6 +303,7 @@ public static class HighlightsEndpoints
             Color = request.Color,
             SelectedText = request.SelectedText,
             NoteText = request.NoteText,
+            BookTitle = bookTitle,
             Version = 1,
             CreatedAt = now,
             UpdatedAt = now,
@@ -531,7 +536,9 @@ public record HighlightListItemDto(
     string? ChapterTitle,
     string? UserChapterTitle,
     string? ChapterSlug,
-    string? UserChapterSlug
+    string? UserChapterSlug,
+    // Set only when the book was deleted (no edition or upload left): the title it had (#982).
+    string? DeletedBookTitle
 );
 
 public record HighlightReviewDto(

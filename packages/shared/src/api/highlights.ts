@@ -37,6 +37,8 @@ export interface HighlightListItem {
   userChapterTitle: string | null
   chapterSlug: string | null
   userChapterSlug: string | null
+  /** Set only when the book was deleted: the title it had (#982). */
+  deletedBookTitle: string | null
 }
 
 export interface HighlightListResponse {

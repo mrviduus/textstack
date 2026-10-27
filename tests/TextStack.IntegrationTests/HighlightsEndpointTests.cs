@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 
 namespace TextStack.IntegrationTests;
 
@@ -335,6 +336,38 @@ public class HighlightsEndpointTests : IClassFixture<LiveApiFixture>, IClassFixt
         });
         var resp = await _auth.Client.SendAsync(req, TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetAllHighlights_BookDeleted_KeepsHighlightWithItsTitle()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        Assert.SkipUnless(_auth.IsAuthenticated, "test auth unavailable");
+        var bookId = await SeedUserBookIdAsync();
+        Assert.SkipWhen(bookId is null, "clip seed unavailable");
+
+        var marker = $"deleted-book-{Guid.NewGuid():N}";
+        var create = _auth.CreateRequest(HttpMethod.Post, "/me/highlights");
+        create.Content = JsonContent.Create(new
+        {
+            userBookId = bookId,
+            anchorJson = PdfAnchorJson,
+            color = "yellow",
+            selectedText = marker
+        });
+        Assert.Equal(HttpStatusCode.Created, (await _auth.Client.SendAsync(create, ct)).StatusCode);
+
+        var delete = _auth.CreateRequest(HttpMethod.Delete, $"/me/books/{bookId}");
+        Assert.True((await _auth.Client.SendAsync(delete, ct)).IsSuccessStatusCode);
+
+        var all = _auth.CreateRequest(HttpMethod.Get, $"/me/highlights/all?search={marker}");
+        var resp = await _auth.Client.SendAsync(all, ct);
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        var page = await resp.Content.ReadFromJsonAsync<JsonElement>(ct);
+        var found = Assert.Single(page.GetProperty("items").EnumerateArray());
+
+        Assert.Equal(JsonValueKind.Null, found.GetProperty("userBookId").ValueKind);
+        Assert.Equal("PDF Highlights Integration", found.GetProperty("deletedBookTitle").GetString());
     }
 
     private record ClipResponse(Guid UserBookId, Guid JobId, string Status);
