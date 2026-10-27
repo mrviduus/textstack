@@ -216,7 +216,6 @@ public static class HighlightsEndpoints
         if (ValidateFields(request.Color, request.AnchorJson, request.SelectedText, required: true) is { } invalid)
             return Results.BadRequest(invalid);
 
-        string bookTitle;
         if (isEdition)
         {
             if (!request.ChapterId.HasValue)
@@ -228,7 +227,6 @@ public static class HighlightsEndpoints
                 .Where(e => e.Id == editionId)
                 .FirstOrDefaultAsync(ct);
             if (edition == null) return Results.NotFound("Edition not found");
-            bookTitle = edition.Title;
 
             var chapter = await db.Chapters
                 .Where(c => c.Id == chapterId && c.EditionId == editionId)
@@ -245,7 +243,6 @@ public static class HighlightsEndpoints
                 .Where(b => b.Id == request.UserBookId!.Value && b.UserId == userId.Value)
                 .FirstOrDefaultAsync(ct);
             if (userBook == null) return Results.NotFound("User book not found");
-            bookTitle = userBook.Title;
 
             if (request.UserChapterId.HasValue)
             {
@@ -303,7 +300,6 @@ public static class HighlightsEndpoints
             Color = request.Color,
             SelectedText = request.SelectedText,
             NoteText = request.NoteText,
-            BookTitle = bookTitle,
             Version = 1,
             CreatedAt = now,
             UpdatedAt = now,

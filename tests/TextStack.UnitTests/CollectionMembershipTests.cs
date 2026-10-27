@@ -30,6 +30,7 @@ public class CollectionMembershipTests
         db.Setup(x => x.UserBooks).Returns(() => new FakeDbSet<UserBook>(_userBooks));
         db.Setup(x => x.UserLibraries).Returns(() => new FakeDbSet<UserLibrary>(_libraries));
         db.Setup(x => x.Users).Returns(() => new FakeDbSet<User>([]));
+        db.Setup(x => x.Highlights).Returns(() => new FakeDbSet<Highlight>([]));
         _db = db.Object;
         _service = new CollectionService(_db);
     }
