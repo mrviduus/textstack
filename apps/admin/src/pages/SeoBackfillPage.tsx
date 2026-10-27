@@ -945,11 +945,6 @@ function SettingsTab() {
         <input type="number" min={10} max={3600} value={settings.intervalSeconds}
           onChange={e => { setSettings({ ...settings, intervalSeconds: Number(e.target.value) }); setSaved(false) }} />
       </label>
-      <label style={{ display: 'block', marginBottom: '1rem' }}>
-        SSG rebuild batch (minutes):{' '}
-        <input type="number" min={1} max={60} value={settings.ssgRebuildBatchMinutes}
-          onChange={e => { setSettings({ ...settings, ssgRebuildBatchMinutes: Number(e.target.value) }); setSaved(false) }} />
-      </label>
       <button onClick={save} disabled={saving} style={btnPrimary}>{saving ? 'Saving…' : 'Save'}</button>
       {saveError && <div style={{ color: '#c33', marginTop: '0.5rem' }}>Save failed: {saveError}</div>}
       {saved && !saveError && <div style={{ color: '#3a3', marginTop: '0.5rem' }}>Saved.</div>}

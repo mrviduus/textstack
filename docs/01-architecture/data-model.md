@@ -43,7 +43,7 @@ Rows: exact `count(*)` in production on 2026-10-26 (`pg_stat_user_tables` estima
 | 1 | `sites` | The one site's settings | Site | Live: `primary_domain`, `default_language`, `indexing_enabled`, `sitemap_enabled` → config. Dead: `theme`, `ads_enabled`, `features_json` (sent to clients, never read) | 1 |
 | 2 | `site_domains` | Host → site lookup | Site | `is_primary` never read; unknown hosts already fall back to the one site | 4 |
 | 3 | `works` | Language-neutral book (slug only) | Decide | 1:1 with `editions` (1,433 each in prod); merge into `editions`. Possible duplicate-title upload collision (`AdminService.Upload.cs:52`) | 1,433 |
-| 4 | `editions` | A published book: title, cover, SEO fields, status | Clean | `source_edition_id` always null (+ index); `canonical_override` edited in admin, read nowhere | 1,433 |
+| 4 | `editions` | A published book: title, cover, SEO fields, status | Clean | `source_edition_id` always null (+ index) — code no longer writes it, dropped next release (#937); `canonical_override` edited in admin, read nowhere | 1,433 |
 | 5 | `chapters` | Chapter HTML, plain text, `search_vector` (trigger) | Keep | `(edition_id, slug)` index not unique though slug is a lookup key | 40,722 |
 | 6 | `authors` | Author pages | Keep | `canonical_override` write-only (as editions); redundant `(site_id)` index | 725 |
 | 7 | `edition_authors` | Edition ↔ author, with order and role | Keep | `role` is always `Author` | 1,437 |
@@ -51,15 +51,15 @@ Rows: exact `count(*)` in production on 2026-10-26 (`pg_stat_user_tables` estima
 | 9 | `edition_genres` | Edition ↔ genre join (implicit) | Keep | EF default column names `editions_id`, `genres_id` | 2,134 |
 | 10 | `book_files` | Original catalog upload | Clean | `sha256` dropped (`0004`, #937) | 22 |
 | 11 | `book_assets` | Inline images extracted from books | Clean | `kind` always `InlineImage`; `(edition_id)` index dropped (`0002`) | 5,011 |
-| 12 | `ingestion_jobs` | Catalog extraction queue | Clean | `work_id`, `source_edition_id` write-only copies (+ indexes) | 25 |
+| 12 | `ingestion_jobs` | Catalog extraction queue | Clean | `work_id`, `source_edition_id` write-only copies (+ indexes) — code no longer writes them, dropped next release (#937) | 25 |
 | 13 | `lint_results` | Extraction lint findings | Retire | Written by the worker; no admin UI reads it | 18,380 |
 | 14 | `text_stack_imports` | Import provenance, Standard Ebooks dedupe | Keep | 1:1 with edition (inferred) — candidate for a column on `editions` | 1,409 |
 | 15 | `auto_publish_jobs` | SEO generate-and-publish queue | Decide | Overlaps `seo_backfill_jobs` | 2,993 |
 | 16 | `book_quality_jobs` | PDF content-quality cleanup queue | Clean | Edition XOR user book, no CHECK | 67 |
 | 17 | `seo_templates` | Versioned SEO prompt templates | Clean | Nothing stops two active rows for one (entity, field, language) | 24 |
 | 18 | `seo_backfill_jobs` | SEO generation audit trail | Keep | Polymorphic `entity_id`, no FK | 12 |
-| 19 | `seo_backfill_settings` | SEO poller knobs (one row) | Clean | `language_filter`, `entity_type_filter`, `ssg_rebuild_batch_minutes` editable, read by nothing | 1 |
-| 20 | `ssg_rebuild_jobs` | Prerender queue (`ssg-worker`) | Clean | `book/author/genre_slugs_json` always null, `mode` always Full, `timeout_ms` unused; finished jobs purged after 30 d (newest Completed kept) | 11,659 |
+| 19 | `seo_backfill_settings` | SEO poller knobs (one row) | Clean | `language_filter`, `entity_type_filter`, `ssg_rebuild_batch_minutes` editable, read by nothing — code no longer writes them, dropped next release (#937); `0008` gives them defaults meanwhile | 1 |
+| 20 | `ssg_rebuild_jobs` | Prerender queue (`ssg-worker`) | Clean | `book/author/genre_slugs_json` always null, `mode` always Full, `timeout_ms` unused — code no longer writes them, dropped next release (#937) (`0008` defaults `mode`, `timeout_ms` meanwhile); finished jobs purged after 30 d (newest Completed kept) | 11,659 |
 | 21 | ~~`ssg_rebuild_results`~~ | Per-route prerender result | Dropped | Dropped by `0006` (#933): no writer since 2026-01-23; its 349 rows were all from that day | — |
 
 ### Accounts and access
@@ -82,10 +82,10 @@ Rows: exact `count(*)` in production on 2026-10-26 (`pg_stat_user_tables` estima
 
 | # | Table | Purpose | Status | Notes | Rows |
 |---|---|---|---|---|---|
-| 33 | `user_books` | A user's uploaded book; also holds its reading progress | Clean | `suggested_tags_at` write-only; `is_read`/`read_at` duplicate `completed_at`; `(user_id)` index dropped (`0002`) | 96 |
+| 33 | `user_books` | A user's uploaded book; also holds its reading progress | Clean | `suggested_tags_at` write-only — code no longer writes it, dropped next release (#937); `is_read`/`read_at` duplicate `completed_at`; `(user_id)` index dropped (`0002`) | 96 |
 | 34 | `user_chapters` | Server-extracted chapters of an upload | Clean | `content_quality_score` write-only; `(user_book_id)` index dropped (`0002`) | 2,710 |
 | 35 | `user_book_files` | Original upload file | Clean | `(sha256)` index dropped (`0002`; column is the ETag — kept) | 96 |
-| 36 | `user_ingestion_jobs` | Upload extraction queue | Clean | `units_count` never read (to verify) | 100 |
+| 36 | `user_ingestion_jobs` | Upload extraction queue | Clean | `units_count` never read (checked: admin reads the catalog job's) — code no longer writes it, dropped next release (#937) | 100 |
 | 37 | `user_book_bookmarks` | Bookmarks in uploads | Decide | Same shape as `bookmarks` | 18 |
 | 38 | `user_libraries` | Catalog books a user saved | Decide | A personal book row could be the library entry | 246 |
 | 39 | `collections` | Personal shelves | Clean | `(user_id)` index dropped (`0002`) | 1 |

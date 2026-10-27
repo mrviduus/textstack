@@ -80,7 +80,7 @@ while :; do
   # "skipped": a Full rebuild is already Queued or Running. A Queued one has not read its routes yet,
   # so its result is ours: follow it. A Running one may have read them before this call: wait for it,
   # then ask again.
-  read -r job status <<<"$(sql "SELECT id, status FROM ssg_rebuild_jobs WHERE mode = 'Full' AND status IN ('Queued','Running') ORDER BY created_at DESC LIMIT 1")"
+  read -r job status <<<"$(sql "SELECT id, status FROM ssg_rebuild_jobs WHERE status IN ('Queued','Running') ORDER BY created_at DESC LIMIT 1")"
   [ -n "$job" ] || { sleep "$POLL"; continue; } # it ended between the POST and the query; ask again
   rc=0
   if [ "$status" = Queued ]; then

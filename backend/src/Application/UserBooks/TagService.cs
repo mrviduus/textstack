@@ -51,7 +51,6 @@ public class TagService(IAppDbContext db)
 
         book.Tags = merged;
         book.SuggestedTags = [];
-        book.SuggestedTagsAt = null;
         book.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
         return (merged, null);
@@ -64,7 +63,6 @@ public class TagService(IAppDbContext db)
         if (book is null) return false;
 
         book.SuggestedTags = [];
-        book.SuggestedTagsAt = null;
         book.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
         return true;

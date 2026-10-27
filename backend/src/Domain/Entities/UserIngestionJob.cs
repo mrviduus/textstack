@@ -11,7 +11,6 @@ public class UserIngestionJob
     public int AttemptCount { get; set; }
     public string? Error { get; set; }
     public string? SourceFormat { get; set; }
-    public int? UnitsCount { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? StartedAt { get; set; }
     public DateTimeOffset? FinishedAt { get; set; }

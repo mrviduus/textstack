@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { adminApi, SsgRebuildJobDetail } from '../api/client'
-import { getJobStatusClass, getModeClass, formatDate } from '../utils/badges'
+import { getJobStatusClass, formatDate } from '../utils/badges'
 
 export function SsgRebuildJobPage() {
   const { id } = useParams<{ id: string }>()
@@ -79,7 +79,6 @@ export function SsgRebuildJobPage() {
         <h3>Job Details</h3>
         <dl>
           <dt>Site</dt><dd>{job.siteCode}</dd>
-          <dt>Mode</dt><dd><span className={getModeClass(job.mode)}>{job.mode}</span></dd>
           <dt>Status</dt><dd><span className={getJobStatusClass(job.status)}>{job.status}</span></dd>
           <dt>Progress</dt>
           <dd>
@@ -94,7 +93,6 @@ export function SsgRebuildJobPage() {
             </div>
           </dd>
           <dt>Concurrency</dt><dd>{job.concurrency}</dd>
-          <dt>Timeout</dt><dd>{job.timeoutMs}ms</dd>
           <dt>Created</dt><dd>{formatDate(job.createdAt)}</dd>
           <dt>Started</dt><dd>{formatDate(job.startedAt)}</dd>
           <dt>Finished</dt><dd>{formatDate(job.finishedAt)}</dd>

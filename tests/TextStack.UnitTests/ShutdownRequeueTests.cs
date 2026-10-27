@@ -24,7 +24,7 @@ public class ShutdownRequeueTests : IDisposable
         {
             b.Entity<IngestionJob>(e =>
             {
-                e.Ignore(x => x.Edition); e.Ignore(x => x.BookFile); e.Ignore(x => x.Work); e.Ignore(x => x.SourceEdition);
+                e.Ignore(x => x.Edition); e.Ignore(x => x.BookFile);
             });
             b.Entity<UserIngestionJob>(e => { e.Ignore(x => x.UserBook); e.Ignore(x => x.UserBookFile); });
             b.Entity<UserBook>(e =>

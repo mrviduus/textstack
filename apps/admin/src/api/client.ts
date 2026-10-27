@@ -291,13 +291,11 @@ export interface EditionGenre {
 // SSG Rebuild
 export type SsgRebuildJobStatus = 'Queued' | 'Running' | 'Completed' | 'Failed' | 'Cancelled'
 // Full is the only mode since 2026-10-08; old rows also read back as Full.
-export type SsgRebuildMode = 'Full'
 
 export interface SsgRebuildJobListItem {
   id: string
   siteId: string
   siteCode: string
-  mode: SsgRebuildMode
   status: SsgRebuildJobStatus
   totalRoutes: number
   renderedCount: number
@@ -312,13 +310,11 @@ export interface SsgRebuildJobDetail {
   id: string
   siteId: string
   siteCode: string
-  mode: SsgRebuildMode
   status: SsgRebuildJobStatus
   totalRoutes: number
   renderedCount: number
   failedCount: number
   concurrency: number
-  timeoutMs: number
   error: string | null
   createdAt: string
   startedAt: string | null
@@ -1437,7 +1433,4 @@ export interface SeoBackfillSettings {
   enabled: boolean
   jobsPerRun: number
   intervalSeconds: number
-  languageFilter: string[]
-  entityTypeFilter: string[]
-  ssgRebuildBatchMinutes: number
 }

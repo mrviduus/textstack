@@ -11,13 +11,6 @@ export const getJobStatusClass = (status: string): string => {
   return classes[status] || 'badge'
 }
 
-export const getModeClass = (mode: string): string => {
-  const classes: Record<string, string> = {
-    Full: 'badge badge--info',
-  }
-  return classes[mode] || 'badge'
-}
-
 export const formatDate = (date: string | null): string => {
   if (!date) return '-'
   return new Date(date).toLocaleString()

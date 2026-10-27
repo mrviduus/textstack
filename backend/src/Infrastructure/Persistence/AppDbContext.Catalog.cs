@@ -52,7 +52,6 @@ public partial class AppDbContext
         modelBuilder.Entity<Edition>(e =>
         {
             e.HasIndex(x => x.SiteId);
-            e.HasIndex(x => x.SourceEditionId);
             e.HasIndex(x => x.Status);
             e.HasIndex(x => new { x.WorkId, x.Language }).IsUnique();
             e.HasIndex(x => new { x.SiteId, x.Language, x.Slug }).IsUnique();
@@ -61,7 +60,6 @@ public partial class AppDbContext
 
             e.HasOne(x => x.Work).WithMany(x => x.Editions).HasForeignKey(x => x.WorkId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.Site).WithMany().HasForeignKey(x => x.SiteId).OnDelete(DeleteBehavior.Restrict);
-            e.HasOne(x => x.SourceEdition).WithMany(x => x.TranslatedEditions).HasForeignKey(x => x.SourceEditionId).OnDelete(DeleteBehavior.SetNull);
             e.HasQueryFilter(x => x.SiteId == _currentSite.Id);
         });
 
@@ -87,8 +85,6 @@ public partial class AppDbContext
         {
             e.HasIndex(x => x.BookFileId);
             e.HasIndex(x => x.EditionId);
-            e.HasIndex(x => x.SourceEditionId);
-            e.HasIndex(x => x.WorkId);
             e.HasIndex(x => x.Status);
             e.HasIndex(x => x.CreatedAt);
             e.Property(x => x.TargetLanguage).HasMaxLength(8);
@@ -97,8 +93,6 @@ public partial class AppDbContext
             e.Property(x => x.WarningsJson).HasColumnType("jsonb");
             e.HasOne(x => x.BookFile).WithMany(x => x.IngestionJobs).HasForeignKey(x => x.BookFileId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.Edition).WithMany(x => x.IngestionJobs).HasForeignKey(x => x.EditionId).OnDelete(DeleteBehavior.Cascade);
-            e.HasOne(x => x.SourceEdition).WithMany().HasForeignKey(x => x.SourceEditionId).OnDelete(DeleteBehavior.SetNull);
-            e.HasOne(x => x.Work).WithMany().HasForeignKey(x => x.WorkId).OnDelete(DeleteBehavior.SetNull);
         });
 
         // Author

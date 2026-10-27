@@ -26,12 +26,7 @@ public partial class AppDbContext
             e.HasIndex(x => x.SiteId);
             e.HasIndex(x => x.Status);
             e.HasIndex(x => x.CreatedAt);
-            // Full is the only mode; any legacy string (Incremental, Specific) reads as Full, never throws.
-            e.Property(x => x.Mode).HasConversion(v => v.ToString(), _ => Domain.Enums.SsgRebuildMode.Full).HasMaxLength(20);
             e.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
-            e.Property(x => x.BookSlugsJson).HasColumnType("jsonb");
-            e.Property(x => x.AuthorSlugsJson).HasColumnType("jsonb");
-            e.Property(x => x.GenreSlugsJson).HasColumnType("jsonb");
             e.HasOne(x => x.Site).WithMany().HasForeignKey(x => x.SiteId).OnDelete(DeleteBehavior.Restrict);
             e.HasQueryFilter(x => x.SiteId == _currentSite.Id);
         });

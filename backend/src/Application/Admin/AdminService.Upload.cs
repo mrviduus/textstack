@@ -92,7 +92,6 @@ public partial class AdminService
             Title = req.Title,
             Description = req.Description,
             Status = EditionStatus.Draft,
-            SourceEditionId = req.SourceEditionId,
             IsPublicDomain = false,
             CreatedAt = DateTimeOffset.UtcNow,
             UpdatedAt = DateTimeOffset.UtcNow
@@ -145,8 +144,6 @@ public partial class AdminService
             EditionId = edition.Id,
             BookFileId = bookFile.Id,
             TargetLanguage = req.Language,
-            WorkId = req.WorkId,
-            SourceEditionId = req.SourceEditionId,
             Status = JobStatus.Queued,
             AttemptCount = 0,
             CreatedAt = DateTimeOffset.UtcNow

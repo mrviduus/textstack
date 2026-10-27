@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { adminApi, SsgRebuildJobListItem, SsgRebuildJobStatus, SsgRebuildMode, SsgRebuildPreview, DEFAULT_SITE_ID } from '../api/client'
+import { adminApi, SsgRebuildJobListItem, SsgRebuildJobStatus, SsgRebuildPreview, DEFAULT_SITE_ID } from '../api/client'
 
 export function SsgRebuildPage() {
   const [jobs, setJobs] = useState<SsgRebuildJobListItem[]>([])
@@ -99,13 +99,6 @@ export function SsgRebuildPage() {
     return <span className={classes[status] || 'badge'}>{status}</span>
   }
 
-  const getModeBadge = (mode: SsgRebuildMode) => {
-    const classes: Record<SsgRebuildMode, string> = {
-      Full: 'badge badge--info',
-    }
-    return <span className={classes[mode] || 'badge'}>{mode}</span>
-  }
-
   const formatDate = (date: string | null) => {
     if (!date) return '-'
     return new Date(date).toLocaleString()
@@ -197,7 +190,6 @@ export function SsgRebuildPage() {
           <thead>
             <tr>
               <th>Status</th>
-              <th>Mode</th>
               <th>Progress</th>
               <th>Rendered</th>
               <th>Failed</th>
@@ -209,7 +201,6 @@ export function SsgRebuildPage() {
             {jobs.map(job => (
               <tr key={job.id}>
                 <td>{getStatusBadge(job.status)}</td>
-                <td>{getModeBadge(job.mode)}</td>
                 <td>
                   <div className="progress-cell">
                     <div className="progress-bar">
