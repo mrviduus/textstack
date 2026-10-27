@@ -32,14 +32,17 @@ public static class DeletedUploadTrail
     /// Re-attaches the user's ownerless rows from an earlier upload of the same file to
     /// <paramref name="book"/>, whose chapters must be saved. A highlight whose chapter slug the new
     /// book does not have stays ownerless: without its chapter a text anchor never paints. Same file
-    /// and extractor give the same slugs; a changed extractor may not.
+    /// and extractor give the same slugs; a changed extractor may not. A session whose start time
+    /// the book already has (two deleted copies synced the same session) stays ownerless too: the
+    /// unique (user, book, started_at) index would refuse it, and the whole save with it.
     /// </summary>
-    /// <returns>Highlights and sessions re-attached.</returns>
-    public static async Task<(int Highlights, int Sessions)> ReattachAsync(
+    public static async Task<(int Highlights, int Sessions, int Skipped)> ReattachAsync(
         IAppDbContext db, UserBook book, string? sha256, CancellationToken ct)
     {
-        if (sha256 is null) return (0, 0);
-        // ponytail: no index on deleted_book_sha256; scans one user's ownerless rows (a handful).
+        if (sha256 is null) return (0, 0, 0);
+        // ponytail: no index serves this lookup (prod: 1 ownerless highlight, 14 sessions). Add a
+        // partial index on (user_id, deleted_book_sha256) WHERE deleted_book_sha256 IS NOT NULL if
+        // ownerless rows grow.
         var highlights = await db.Highlights
             .Where(h => h.UserId == book.UserId && h.EditionId == null && h.UserBookId == null
                 && h.DeletedBookSha256 == sha256)
@@ -48,7 +51,7 @@ public static class DeletedUploadTrail
             .Where(s => s.UserId == book.UserId && s.EditionId == null && s.UserBookId == null
                 && s.DeletedBookSha256 == sha256)
             .ToListAsync(ct);
-        if (highlights.Count == 0 && sessions.Count == 0) return (0, 0);
+        if (highlights.Count == 0 && sessions.Count == 0) return (0, 0, 0);
 
         var chapterIds = await db.UserChapters.Where(c => c.UserBookId == book.Id)
             .ToDictionaryAsync(c => c.Slug, c => c.Id, ct);
@@ -63,16 +66,24 @@ public static class DeletedUploadTrail
             }
             h.UserBookId = book.Id;
             h.UserChapterId = chapterId;
+            h.BookTitle = null;
             h.DeletedBookSha256 = null;
             h.DeletedChapterSlug = null;
             attached++;
         }
+
+        var startedAt = (await db.ReadingSessions.Where(s => s.UserBookId == book.Id)
+            .Select(s => s.StartedAt).ToListAsync(ct)).ToHashSet();
+        var sessionsAttached = 0;
         foreach (var s in sessions)
         {
+            if (!startedAt.Add(s.StartedAt)) continue;
             s.UserBookId = book.Id;
             s.DeletedBookSha256 = null;
+            sessionsAttached++;
         }
         await db.SaveChangesAsync(ct);
-        return (attached, sessions.Count);
+        return (attached, sessionsAttached,
+            highlights.Count - attached + sessions.Count - sessionsAttached);
     }
 }

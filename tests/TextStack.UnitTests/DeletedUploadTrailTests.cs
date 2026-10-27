@@ -47,7 +47,7 @@ public class DeletedUploadTrailTests
     {
         var h = Ownerless("1-intro");
 
-        var (highlights, _) = await DeletedUploadTrail.ReattachAsync(_db, _book, Sha, default);
+        var (highlights, _, _) = await DeletedUploadTrail.ReattachAsync(_db, _book, Sha, default);
 
         Assert.Equal(1, highlights);
         Assert.Equal(_book.Id, h.UserBookId);
@@ -95,7 +95,7 @@ public class DeletedUploadTrailTests
         var s = new ReadingSession { Id = Guid.NewGuid(), UserId = _userId, DeletedBookSha256 = Sha };
         _sessions.Add(s);
 
-        var (_, sessions) = await DeletedUploadTrail.ReattachAsync(_db, _book, Sha, default);
+        var (_, sessions, _) = await DeletedUploadTrail.ReattachAsync(_db, _book, Sha, default);
 
         Assert.Equal(1, sessions);
         Assert.Equal(_book.Id, s.UserBookId);
@@ -119,5 +119,19 @@ public class DeletedUploadTrailTests
 
         Assert.Equal(("Dune", Sha, "1-intro"), (h.BookTitle, h.DeletedBookSha256, h.DeletedChapterSlug));
         Assert.Equal(Sha, s.DeletedBookSha256);
+    }
+
+    [Fact]
+    public async Task ReattachAsync_SessionStartAlreadyOnBook_StaysOwnerless()
+    {
+        var start = DateTimeOffset.UtcNow;
+        _sessions.Add(new ReadingSession { Id = Guid.NewGuid(), UserId = _userId, UserBookId = _book.Id, StartedAt = start });
+        var clash = new ReadingSession { Id = Guid.NewGuid(), UserId = _userId, StartedAt = start, DeletedBookSha256 = Sha };
+        _sessions.Add(clash);
+
+        var (_, sessions, skipped) = await DeletedUploadTrail.ReattachAsync(_db, _book, Sha, default);
+
+        Assert.Equal((0, 1), (sessions, skipped));
+        Assert.Null(clash.UserBookId);
     }
 }
