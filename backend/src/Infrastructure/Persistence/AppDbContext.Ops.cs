@@ -4,8 +4,8 @@ using Microsoft.EntityFrameworkCore;
 namespace Infrastructure.Persistence;
 
 /// <summary>
-/// Operational entities — admin settings + SSG rebuild bookkeeping +
-/// lint result rows. Not tied to a single product domain.
+/// Operational entities — admin settings + SSG rebuild bookkeeping.
+/// Not tied to a single product domain.
 /// </summary>
 public partial class AppDbContext
 {
@@ -29,15 +29,6 @@ public partial class AppDbContext
             e.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
             e.HasOne(x => x.Site).WithMany().HasForeignKey(x => x.SiteId).OnDelete(DeleteBehavior.Restrict);
             e.HasQueryFilter(x => x.SiteId == _currentSite.Id);
-        });
-
-        // LintResult
-        modelBuilder.Entity<LintResult>(e =>
-        {
-            e.HasIndex(x => x.EditionId);
-            e.Property(x => x.Severity).HasConversion<string>().HasMaxLength(20);
-            e.Property(x => x.Code).HasMaxLength(10);
-            e.HasOne(x => x.Edition).WithMany().HasForeignKey(x => x.EditionId).OnDelete(DeleteBehavior.Cascade);
         });
 
         // AutoPublishJob — otherwise convention-configured; here only to carry the

@@ -31,8 +31,7 @@ Catalog steps:
 2. Save cover (optimized via `ImageOptimizer`).
 3. `Application/Ingestion/IngestionService.ProcessParsedBookAsync` writes chapters and sets the
    Edition to **Published** (`PublishedAt = now`).
-4. Run the linter (`LintResult`).
-5. Optionally queue a `BookQualityJob` (admin setting `quality.autoQueueAfterIngestion`).
+4. Optionally queue a `BookQualityJob` (admin setting `quality.autoQueueAfterIngestion`).
 
 User steps are the same idea; user PDFs drop inline images because the reader shows the original
 PDF ([ADR-012](../01-architecture/adr/ADR-012-pdf-original-first-lazy-parse.md)). After success the
@@ -48,7 +47,7 @@ genre/year/description via the LLM.
 | HTML | `HtmlTextExtractor` | HtmlAgilityPack |
 | FB2 / other | `UnsupportedTextExtractor` | — |
 
-Text processing order: Spelling → Hyphenation → Typography → Semantic → Linter. Rules:
+Text processing order: Spelling → Hyphenation → Typography → Semantic. Rules:
 `RULES.md` in that folder. `Quality/ChapterContentQualityAnalyzer` scores chapters 0–100.
 ARM64 note: compiled `Regex`, not `[GeneratedRegex]`.
 

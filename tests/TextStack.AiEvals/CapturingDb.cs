@@ -65,7 +65,6 @@ internal sealed class CapturingDb : IAppDbContext
     public DbSet<TextStackImport> TextStackImports => throw new NotSupportedException();
     public DbSet<SsgRebuildJob> SsgRebuildJobs => throw new NotSupportedException();
     public DbSet<BookAsset> BookAssets => throw new NotSupportedException();
-    public DbSet<LintResult> LintResults => throw new NotSupportedException();
     public DbSet<UserBook> UserBooks => throw new NotSupportedException();
     public DbSet<UserChapter> UserChapters => throw new NotSupportedException();
     public DbSet<UserBookFile> UserBookFiles => throw new NotSupportedException();
@@ -81,7 +80,6 @@ internal sealed class CapturingDb : IAppDbContext
     public DbSet<UserVocabularySettings> UserVocabularySettings => throw new NotSupportedException();
     public DbSet<PendingVocabularyWord> PendingVocabularyWords => throw new NotSupportedException();
     public DbSet<WordLookup> WordLookups => throw new NotSupportedException();
-    public DbSet<WordFrequency> WordFrequencies => throw new NotSupportedException();
     public DbSet<WordCluster> WordClusters => throw new NotSupportedException();
     public DbSet<AutoPublishJob> AutoPublishJobs => throw new NotSupportedException();
     public DbSet<PasswordResetToken> PasswordResetTokens => throw new NotSupportedException();

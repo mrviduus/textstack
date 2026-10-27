@@ -29,7 +29,6 @@ public interface IAppDbContext
     DbSet<TextStackImport> TextStackImports { get; }
     DbSet<SsgRebuildJob> SsgRebuildJobs { get; }
     DbSet<BookAsset> BookAssets { get; }
-    DbSet<LintResult> LintResults { get; }
     DbSet<UserBook> UserBooks { get; }
     DbSet<UserChapter> UserChapters { get; }
     DbSet<UserBookFile> UserBookFiles { get; }
@@ -45,7 +44,6 @@ public interface IAppDbContext
     DbSet<UserVocabularySettings> UserVocabularySettings { get; }
     DbSet<PendingVocabularyWord> PendingVocabularyWords { get; }
     DbSet<WordLookup> WordLookups { get; }
-    DbSet<WordFrequency> WordFrequencies { get; }
     DbSet<WordCluster> WordClusters { get; }
     DbSet<AutoPublishJob> AutoPublishJobs { get; }
     DbSet<PasswordResetToken> PasswordResetTokens { get; }

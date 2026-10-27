@@ -63,7 +63,6 @@ public partial class AppDbContext : DbContext, IAppDbContext
     public DbSet<TextStackImport> TextStackImports => Set<TextStackImport>();
     public DbSet<SsgRebuildJob> SsgRebuildJobs => Set<SsgRebuildJob>();
     public DbSet<BookAsset> BookAssets => Set<BookAsset>();
-    public DbSet<LintResult> LintResults => Set<LintResult>();
     public DbSet<UserBook> UserBooks => Set<UserBook>();
     public DbSet<UserChapter> UserChapters => Set<UserChapter>();
     public DbSet<UserBookFile> UserBookFiles => Set<UserBookFile>();
@@ -79,7 +78,6 @@ public partial class AppDbContext : DbContext, IAppDbContext
     public DbSet<UserVocabularySettings> UserVocabularySettings => Set<UserVocabularySettings>();
     public DbSet<PendingVocabularyWord> PendingVocabularyWords => Set<PendingVocabularyWord>();
     public DbSet<WordLookup> WordLookups => Set<WordLookup>();
-    public DbSet<WordFrequency> WordFrequencies => Set<WordFrequency>();
     public DbSet<WordCluster> WordClusters => Set<WordCluster>();
     public DbSet<AutoPublishJob> AutoPublishJobs => Set<AutoPublishJob>();
     public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
