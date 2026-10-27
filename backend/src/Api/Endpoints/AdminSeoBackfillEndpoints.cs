@@ -140,6 +140,9 @@ public static class AdminSeoBackfillEndpoints
         if (await db.SeoTemplates.ActiveForKey(et, ft, language).AnyAsync(ct))
             return ActiveTemplateConflict();
 
+        // A deactivated key revived by create continues its numbering: v1 may already exist.
+        var lastVersion = await db.SeoTemplates.ForKey(et, ft, language).MaxAsync(t => (int?)t.Version, ct) ?? 0;
+
         var tpl = new SeoTemplate
         {
             Id = Guid.NewGuid(),
@@ -154,7 +157,7 @@ public static class AdminSeoBackfillEndpoints
             MaxTokens = req.MaxTokens ?? 4096,
             Temperature = req.Temperature ?? 0.7,
             TrustLevel = trust,
-            Version = 1,
+            Version = lastVersion + 1,
             IsActive = true,
             CreatedAt = DateTimeOffset.UtcNow,
             UpdatedAt = DateTimeOffset.UtcNow,
@@ -173,19 +176,24 @@ public static class AdminSeoBackfillEndpoints
         // "Edit" creates a new Version — old one deactivated.
         var current = await db.SeoTemplates.FirstOrDefaultAsync(t => t.Id == id, ct);
         if (current is null) return Results.NotFound();
+        // An older version's form is stale: saving it would replace a newer edit (#984).
+        if (!current.IsActive) return StaleTemplateConflict();
 
         try { using var _ = JsonDocument.Parse(req.OutputSchema); }
         catch (JsonException ex) { return Results.BadRequest(new { error = $"Invalid outputSchema JSON: {ex.Message}" }); }
 
-        // Deactivate the key's active version, then insert the new one. Two statements in order:
-        // the one-active unique index cannot be deferred, and one SaveChanges does not fix the order.
+        // Deactivate this version, then insert the new one. Two statements in order: the one-active
+        // unique index cannot be deferred, and one SaveChanges does not fix the order.
         await using var tx = await db.BeginTransactionAsync(ct);
         var now = DateTimeOffset.UtcNow;
-        await db.SeoTemplates
-            .ActiveForKey(current.EntityType, current.FieldType, current.LanguageCode)
+        // By id and still active, not "the key's active row": a concurrent edit of the same version
+        // waits on this row's lock, then finds it inactive and matches nothing — so it gets 409
+        // instead of deactivating the winner's new version.
+        var deactivated = await db.SeoTemplates
+            .Where(t => t.Id == current.Id && t.IsActive)
             .ExecuteUpdateAsync(u => u.SetProperty(t => t.IsActive, false).SetProperty(t => t.UpdatedAt, now), ct);
+        if (deactivated == 0) return StaleTemplateConflict();
 
-        // Editing an older version must not reuse a number the key already has.
         var lastVersion = await db.SeoTemplates
             .ForKey(current.EntityType, current.FieldType, current.LanguageCode)
             .MaxAsync(t => t.Version, ct);
@@ -213,8 +221,7 @@ public static class AdminSeoBackfillEndpoints
             UpdatedAt = DateTimeOffset.UtcNow,
         };
         db.SeoTemplates.Add(next);
-        // A concurrent edit of the same key inserts its own active row; once 0012 is in, its index
-        // refuses the second.
+        // Backstop: the key already has another active row (a concurrent create); the index refuses it.
         try { await db.SaveChangesAsync(ct); }
         catch (DbUpdateException ex) when (ex.IsUniqueViolation()) { return ActiveTemplateConflict(); }
         await tx.CommitAsync(ct);
@@ -239,17 +246,22 @@ public static class AdminSeoBackfillEndpoints
         return null;
     }
 
+    private static IResult StaleTemplateConflict() =>
+        Results.Conflict(new { error = "Not the key's active version any more: reload and edit the active one, or create to revive a deactivated key" });
+
     private static IResult ActiveTemplateConflict() =>
         Results.Conflict(new { error = "The key already has an active template; edit it instead" });
 
     private static async Task<IResult> DeactivateTemplate(Guid id, IAppDbContext db, CancellationToken ct)
     {
-        var t = await db.SeoTemplates.FirstOrDefaultAsync(x => x.Id == id, ct);
-        if (t is null) return Results.NotFound();
-        t.IsActive = false;
-        t.UpdatedAt = DateTimeOffset.UtcNow;
-        await db.SaveChangesAsync(ct);
-        return Results.Ok();
+        // Guarded like edit's deactivate: racing an edit of this version, it waits on the row lock and
+        // then matches nothing, instead of reporting success while the edit's new version stays active.
+        var now = DateTimeOffset.UtcNow;
+        var deactivated = await db.SeoTemplates
+            .Where(t => t.Id == id && t.IsActive)
+            .ExecuteUpdateAsync(u => u.SetProperty(t => t.IsActive, false).SetProperty(t => t.UpdatedAt, now), ct);
+        if (deactivated == 1) return Results.Ok();
+        return await db.SeoTemplates.AnyAsync(t => t.Id == id, ct) ? StaleTemplateConflict() : Results.NotFound();
     }
 
     public record PreviewTemplateRequest(Guid EntityId);

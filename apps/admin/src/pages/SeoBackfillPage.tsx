@@ -305,7 +305,8 @@ function TemplatesTab() {
               <td style={{ ...td, textAlign: 'right' }}>v{t.version}</td>
               <td style={td}>{t.isActive ? 'active' : 'inactive'}</td>
               <td style={td}>
-                <button onClick={() => setEditing({ id: t.id })} style={btnSmall}>Edit</button>{' '}
+                {/* Only the active version can be edited (409 otherwise); a deactivated key is revived by New. */}
+                {t.isActive && <><button onClick={() => setEditing({ id: t.id })} style={btnSmall}>Edit</button>{' '}</>}
                 <button onClick={() => setPreviewing(t)} style={btnSmall}>Preview</button>{' '}
                 {t.isActive && <button onClick={() => onDeactivate(t)} style={btnSmallDanger}>Deactivate</button>}
               </td>
