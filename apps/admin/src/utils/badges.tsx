@@ -18,16 +18,6 @@ export const getModeClass = (mode: string): string => {
   return classes[mode] || 'badge'
 }
 
-export const getRouteTypeBadge = (type: string) => {
-  const classes: Record<string, string> = {
-    book: 'badge badge--book',
-    author: 'badge badge--author',
-    genre: 'badge badge--genre',
-    static: 'badge badge--secondary',
-  }
-  return <span className={classes[type] || 'badge'}>{type}</span>
-}
-
 export const formatDate = (date: string | null): string => {
   if (!date) return '-'
   return new Date(date).toLocaleString()

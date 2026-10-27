@@ -28,7 +28,6 @@ public interface IAppDbContext
     DbSet<Genre> Genres { get; }
     DbSet<TextStackImport> TextStackImports { get; }
     DbSet<SsgRebuildJob> SsgRebuildJobs { get; }
-    DbSet<SsgRebuildResult> SsgRebuildResults { get; }
     DbSet<BookAsset> BookAssets { get; }
     DbSet<LintResult> LintResults { get; }
     DbSet<UserBook> UserBooks { get; }

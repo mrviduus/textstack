@@ -30,5 +30,4 @@ public class SsgRebuildJob : ISiteScoped
 
     // Relations
     public Site Site { get; set; } = null!;
-    public ICollection<SsgRebuildResult> Results { get; set; } = [];
 }

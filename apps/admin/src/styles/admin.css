@@ -1835,13 +1835,6 @@ body {
 }
 
 /* Job Detail Page */
-.job-overview {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 24px;
-  margin-bottom: 32px;
-}
-
 .overview-card {
   background: #fff;
   padding: 24px;
@@ -1889,48 +1882,6 @@ body {
   color: #991b1b;
   border-radius: 6px;
   font-size: 13px;
-}
-
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-}
-
-.stats-card .stat {
-  padding: 12px;
-  background: #f9fafb;
-  border-radius: 8px;
-  text-align: center;
-}
-
-.stat-value {
-  display: block;
-  font-size: 24px;
-  font-weight: 700;
-  color: #1a1a2e;
-}
-
-.stat-label {
-  font-size: 11px;
-  color: #666;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.stat--success .stat-value { color: #059669; }
-.stat--redirect .stat-value { color: #d97706; }
-.stat--client-error .stat-value { color: #dc2626; }
-.stat--server-error .stat-value { color: #7c3aed; }
-.stat--warning .stat-value { color: #ea580c; }
-
-.results-section h2 {
-  margin: 0 0 16px;
-}
-
-.results-table .missing {
-  color: #dc2626;
-  font-style: italic;
 }
 
 .status-2xx { color: #059669; font-weight: 600; }
@@ -2392,15 +2343,6 @@ body {
   }
 
   /* Job overview — single column */
-  .job-overview {
-    grid-template-columns: 1fr;
-  }
-
-  /* Stats grid — 2 columns */
-  .stats-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
   /* DL grids — single column */
   .edition-info dl,
   .chapter-info dl,

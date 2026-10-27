@@ -36,16 +36,6 @@ public partial class AppDbContext
             e.HasQueryFilter(x => x.SiteId == _currentSite.Id);
         });
 
-        // SsgRebuildResult
-        modelBuilder.Entity<SsgRebuildResult>(e =>
-        {
-            e.HasIndex(x => x.JobId);
-            e.HasIndex(x => new { x.JobId, x.Route }).IsUnique();
-            e.Property(x => x.Route).HasMaxLength(500);
-            e.Property(x => x.RouteType).HasMaxLength(20);
-            e.HasOne(x => x.Job).WithMany(x => x.Results).HasForeignKey(x => x.JobId).OnDelete(DeleteBehavior.Cascade);
-        });
-
         // LintResult
         modelBuilder.Entity<LintResult>(e =>
         {
