@@ -14,6 +14,7 @@ changes its row here.
 |---|---|
 | Tables | 63 (62 `DbSet`s + the `edition_genres` join) |
 | Migrations | 148 in the repo, `20251217180704_Initial_WorkEdition_Admin` → `20261024202404_TranslateRegistryOnGpt41Mini`; **147 applied in production** — `20260219000000_AddSearchPerformanceIndexes` has no `.Designer.cs`, so EF never saw it ([#948](https://github.com/mrviduus/textstack/issues/948)) |
+| SQL baseline | [`database/migrations/0000_baseline.up.sql`](../../database/migrations/0000_baseline.up.sql): this whole schema, grouped and numbered as below, + seed rows ([#931](https://github.com/mrviduus/textstack/issues/931)); builds a schema identical to production |
 | Indexes | 181 (145 `HasIndex` + keys + raw-SQL indexes) |
 | Site-scoped | 24 tables carry `site_id` + an EF query filter (single site forever, [ADR-007](adr/007-single-domain-consolidation.md)) |
 | Objects outside the EF model | extensions `pg_trgm`, `vector`; `get_fts_config()` + `chapters` search-vector trigger; generated `user_chapters.search_vector`; GiST trigram index on `lower(editions.title)` — all created by raw SQL in migrations |
