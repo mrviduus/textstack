@@ -8,7 +8,7 @@ namespace TextStack.UnitTests;
 /// Recovery paths (lost insert races, a book deleted mid-request) must trigger on their own SQLSTATE
 /// and nothing else — matched on SQLSTATE so they survive locale changes and constraint renames.
 /// </summary>
-public class DbUpdateExceptionExtensionsTests
+public class PostgresExceptionExtensionsTests
 {
     private static DbUpdateException Postgres(string sqlState) =>
         new("save failed", new PostgresException("constraint failed", "ERROR", "ERROR", sqlState));
@@ -30,11 +30,24 @@ public class DbUpdateExceptionExtensionsTests
         Assert.False(Postgres(PostgresErrorCodes.UniqueViolation).IsForeignKeyViolation());
 
     [Fact]
+    public void IsUniqueViolation_BarePostgresException_True() =>
+        Assert.True(new PostgresException("dup", "ERROR", "ERROR", PostgresErrorCodes.UniqueViolation).IsUniqueViolation());
+
+    [Fact]
+    public void IsIntegrityViolation_CheckViolation_True() =>
+        Assert.True(Postgres(PostgresErrorCodes.CheckViolation).IsIntegrityViolation());
+
+    [Fact]
+    public void IsIntegrityViolation_SerializationFailure_False() =>
+        Assert.False(Postgres(PostgresErrorCodes.SerializationFailure).IsIntegrityViolation());
+
+    [Fact]
     public void NonPostgresInner_NeitherViolation()
     {
         var ex = new DbUpdateException("save failed", new InvalidOperationException("boom"));
 
         Assert.False(ex.IsUniqueViolation());
         Assert.False(ex.IsForeignKeyViolation());
+        Assert.False(ex.IsIntegrityViolation());
     }
 }

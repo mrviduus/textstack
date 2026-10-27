@@ -502,7 +502,7 @@ public class SeoJobProcessor(
         foreach (var field in fields)
         {
             var tpl = await db.SeoTemplates.AsNoTracking()
-                .Where(SeoTemplate.HasKey(entityType, field, language)).Where(t => t.IsActive)
+                .ActiveForKey(entityType, field, language)
                 .OrderByDescending(t => t.Version)
                 .FirstOrDefaultAsync(ct)
                 ?? throw new InvalidOperationException($"No active template for {entityType}/{field}/{language}");

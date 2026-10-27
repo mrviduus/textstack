@@ -1,7 +1,6 @@
 using Api.Endpoints;
 using Application.ReadingTracking;
 using Domain.Entities;
-using Microsoft.EntityFrameworkCore;
 
 namespace TextStack.UnitTests;
 
@@ -13,7 +12,7 @@ namespace TextStack.UnitTests;
 /// a silently lost reading position. Sentry caught it on its first day in production.
 ///
 /// These lock the pure seam the recovery path depends on; its unique-violation match is locked in
-/// <see cref="DbUpdateExceptionExtensionsTests"/>.
+/// <see cref="PostgresExceptionExtensionsTests"/>.
 /// </summary>
 public class UpsertProgressTests
 {

@@ -137,7 +137,7 @@ public static class AdminSeoBackfillEndpoints
 
         var language = req.LanguageCode.Trim().ToLowerInvariant();
         // One active template per key (ix_seo_templates_entity_type_field_type_language_code, #939): a second goes through Edit.
-        if (await db.SeoTemplates.Where(SeoTemplate.HasKey(et, ft, language)).AnyAsync(t => t.IsActive, ct))
+        if (await db.SeoTemplates.ActiveForKey(et, ft, language).AnyAsync(ct))
             return ActiveTemplateConflict();
 
         var tpl = new SeoTemplate
@@ -179,16 +179,15 @@ public static class AdminSeoBackfillEndpoints
 
         // Deactivate the key's active version, then insert the new one. Two statements in order:
         // the one-active unique index cannot be deferred, and one SaveChanges does not fix the order.
-        var key = SeoTemplate.HasKey(current.EntityType, current.FieldType, current.LanguageCode);
         await using var tx = await db.BeginTransactionAsync(ct);
         var now = DateTimeOffset.UtcNow;
         await db.SeoTemplates
-            .Where(key).Where(t => t.IsActive)
+            .ActiveForKey(current.EntityType, current.FieldType, current.LanguageCode)
             .ExecuteUpdateAsync(u => u.SetProperty(t => t.IsActive, false).SetProperty(t => t.UpdatedAt, now), ct);
 
         // Editing an older version must not reuse a number the key already has.
         var lastVersion = await db.SeoTemplates
-            .Where(key)
+            .ForKey(current.EntityType, current.FieldType, current.LanguageCode)
             .MaxAsync(t => t.Version, ct);
 
         var trust = current.TrustLevel;
