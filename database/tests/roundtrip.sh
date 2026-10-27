@@ -2,11 +2,14 @@
 # roundtrip.sh — checks database/migrate.sh and every migration on throwaway databases (CI).
 #
 #   1. fresh database: up, up again (no-op), verify
-#   2. for each version, newest first: down to the one below it, then up — the schema dumps the
-#      same as after step 1 (each .down.sql undoes its .up.sql; one deeper per pass, so a broken
-#      down file is not hidden by an older one that drops more)
-#   3. a database EF Core built: up records the baseline without running it, then applies the rest
+#   2. for each applied version, newest first: down to the version below it — the schema dumps the
+#      same as a fresh database built only up to that version — then up again, back to step 1's
+#      schema. One version deeper per pass, so a broken down file is not hidden by an older one
+#      that drops more.
+#   3. a database EF Core built: refused while its history is not at the baseline's last EF
+#      migration; then up records the baseline without running it and applies the rest
 #   4. an edited applied file fails verify and up; down refuses versions this copy does not contain
+#      (each refusal checked by its message, not only by a non-zero exit)
 #
 # Connection: the libpq variables (PGHOST, PGUSER, PGPASSWORD, ...). PGDATABASE is only the
 # database the scratch ones are created from; it is not touched. Needs psql, pg_dump, createdb.
@@ -20,13 +23,15 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 ADMIN=${PGDATABASE:-postgres}
 DB=roundtrip_$$
 EF=roundtrip_ef_$$
-# A writable copy of database/ for step 4, which edits files.
+REF=roundtrip_ref_$$
+# Writable copies of database/: a partial one per pass of step 2, an edited one for step 4.
 COPY=$(mktemp -d)
 
 # Drop the scratch databases and the copy however the script ends.
 cleanup() {
     PGDATABASE=$ADMIN dropdb --if-exists "$DB"
     PGDATABASE=$ADMIN dropdb --if-exists "$EF"
+    PGDATABASE=$ADMIN dropdb --if-exists "$REF"
     rm -rf "$COPY"
 }
 trap cleanup EXIT
@@ -40,8 +45,26 @@ dump() { pg_dump -d "$1" --schema-only --no-owner --no-privileges -T schema_migr
 # Run the runner and fail unless its output contains $2. Captured first: `| grep -q` would stop
 # reading at the match and kill the runner mid-run.
 expect() { out=$(migrate "$1" up); echo "$out"; case $out in *"$2"*) ;; *) fail "$3" ;; esac; }
+# Fail unless the runner in folder $1, against database $2 with the remaining arguments, exits
+# non-zero with $3 in its output: a refusal for any other reason proves nothing.
+refuses() {
+    dir=$1 db=$2 msg=$3; shift 3
+    if out=$(PGDATABASE=$db sh "$dir/migrate.sh" "$@" 2>&1); then fail "migrate.sh $* succeeded; expected: $msg"; fi
+    echo "$out"
+    case $out in *"$msg"*) ;; *) fail "migrate.sh $* failed, but not with: $msg" ;; esac
+}
 # One value from database $1.
 value() { psql -X -At -d "$1" -c "$2"; }
+# The schema of a fresh database built from only the migrations up to version $1.
+dump_upto() {
+    rm -rf "$COPY/upto"; mkdir -p "$COPY/upto/migrations"; cp "$ROOT/migrate.sh" "$COPY/upto/"
+    for f in "$ROOT"/migrations/*.sql; do
+        [ "$(basename "$f" | cut -d_ -f1 | sed 's/^0*//; s/^$/0/')" -le "$1" ] && cp "$f" "$COPY/upto/migrations/"
+    done
+    PGDATABASE=$ADMIN dropdb --if-exists "$REF"; PGDATABASE=$ADMIN createdb "$REF"
+    PGDATABASE=$REF sh "$COPY/upto/migrate.sh" up > /dev/null
+    dump "$REF"
+}
 
 echo "== 1. fresh database: up, up again, verify"
 PGDATABASE=$ADMIN createdb "$DB"
@@ -52,10 +75,13 @@ FIRST=$(dump "$DB")
 
 echo "== 2. down one version deeper per pass, then up"
 for v in $(value "$DB" 'SELECT version FROM schema_migrations WHERE version > 0 ORDER BY 1 DESC'); do
-    migrate "$DB" down $((v - 1))
-    [ "$(value "$DB" 'SELECT max(version) FROM schema_migrations')" = $((v - 1)) ] || fail "down $((v - 1)) left newer versions"
+    # The applied version just below v (numbers may have gaps).
+    prev=$(value "$DB" "SELECT max(version) FROM schema_migrations WHERE version < $v")
+    migrate "$DB" down "$prev"
+    [ "$(value "$DB" 'SELECT max(version) FROM schema_migrations')" = "$prev" ] || fail "down $prev left newer versions"
+    [ "$(dump "$DB")" = "$(dump_upto "$prev")" ] || fail "down $prev left a schema other than version $prev's"
     migrate "$DB" up
-    [ "$(dump "$DB")" = "$FIRST" ] || fail "up after down $((v - 1)) built a different schema"
+    [ "$(dump "$DB")" = "$FIRST" ] || fail "up after down $prev built a different schema"
 done
 
 echo "== 3. a database EF Core built"
@@ -63,17 +89,21 @@ PGDATABASE=$ADMIN createdb "$EF"
 # The baseline's schema without the runner, as the 147 EF Core migrations left production.
 psql -X -q -v ON_ERROR_STOP=1 -d "$EF" -f "$ROOT/migrations/0000_baseline.up.sql"
 psql -X -q -v ON_ERROR_STOP=1 -d "$EF" -c 'CREATE TABLE "__EFMigrationsHistory" (migration_id text PRIMARY KEY)'
+# A history short of the baseline's last EF migration is another schema: refused.
+psql -X -q -v ON_ERROR_STOP=1 -d "$EF" -c "INSERT INTO \"__EFMigrationsHistory\" VALUES ('20261001000000_Older')"
+refuses "$ROOT" "$EF" "EF Core history ends at" up
+psql -X -q -v ON_ERROR_STOP=1 -d "$EF" -c "INSERT INTO \"__EFMigrationsHistory\" VALUES ('$(sed -n 's/^EF_HEAD=//p' "$ROOT/migrate.sh")')"
 expect "$EF" "Bootstrap:" "up did not bootstrap from the EF history"
 [ "$(value "$EF" 'SELECT execution_ms FROM schema_migrations WHERE version = 0')" = 0 ] || fail "the baseline ran on an EF database"
 [ "$(dump "$EF")" = "$FIRST" ] || fail "the EF database did not end at the same schema"
 
 echo "== 4. edited files, unknown versions"
-cp -R "$ROOT/." "$COPY"
-echo "-- edited" >> "$COPY/migrations/0000_baseline.up.sql"
-PGDATABASE=$DB sh "$COPY/migrate.sh" verify && fail "verify accepted an edited applied file"
-PGDATABASE=$DB sh "$COPY/migrate.sh" up && fail "up ran with an edited applied file"
+cp -R "$ROOT/." "$COPY/edited"
+echo "-- edited" >> "$COPY/edited/migrations/0000_baseline.up.sql"
+refuses "$COPY/edited" "$DB" "CHANGED after it was applied: 0000_baseline.up.sql" verify
+refuses "$COPY/edited" "$DB" "checksum mismatch; nothing applied" up
 # A version a newer release applied: down must refuse rather than skip it.
 psql -X -q -d "$DB" -c "INSERT INTO schema_migrations (version, name, checksum, execution_ms) VALUES (9999, 'newer', 'x', 0)"
-migrate "$DB" down 0 && fail "down ran with a version this copy does not contain"
+refuses "$ROOT" "$DB" "versions this copy does not contain (9999" down 0
 
 echo "All round-trip checks passed."

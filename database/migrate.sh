@@ -27,31 +27,46 @@ num() { echo "$1" | sed 's/^0*//; s/^$/0/'; }
 version_of() { num "$(basename "$1" | cut -d_ -f1)"; }
 # "0007_add_x.up.sql" → "0007_add_x", the name the ledger and the logs show.
 label_of() { basename "$1" .up.sql; }
+# A list on one line, for messages.
+words() { printf '%s' "$1" | tr '\n' ' '; }
 # The .up.sql (or, with "down", .down.sql) file of a version, or nothing when it has none.
 file_of() { set -- "$DIR/$(printf '%04d' "$1")"_*."${2:-up}".sql; [ -e "$1" ] && echo "$1" || true; }
+
+# The last EF Core migration production applied; the baseline is the schema it left (bootstrap).
+EF_HEAD=20261024202404_TranslateRegistryOnGpt41Mini
 
 # Every up file this copy contains, oldest first: the zero-padded prefix sorts by version.
 UPS=$(ls "$DIR"/*.up.sql)
 # Their versions, one per line.
 KNOWN=$(for f in $UPS; do version_of "$f"; done)
-# Two files with one version would both claim the same ledger row.
-DUP=$(printf '%s\n' "$KNOWN" | sort -n | uniq -d)
-[ -z "$DUP" ] || die "two up files share version $DUP"
+# Two files of one kind with one version: the runner would pick one of them silently.
+for kind in up down; do
+    DUP=$(for f in "$DIR"/*."$kind".sql; do [ -e "$f" ] && version_of "$f"; done | sort -n | uniq -d)
+    [ -z "$DUP" ] || die "two .$kind.sql files share version $(words "$DUP")"
+done
 
-# Applied versions, oldest first; nothing when the ledger does not exist yet. A psql failure stops
-# the script (set -e) instead of reading as "nothing applied".
-applied() {
+# "version|checksum" per ledger row, oldest first; nothing when the ledger does not exist yet.
+# A psql failure stops the script (set -e) instead of reading as "nothing applied".
+ledger() {
     # to_regclass is NULL for a missing table, where a plain SELECT would fail.
     has=$(q -At -c "SELECT to_regclass('public.schema_migrations') IS NOT NULL")
-    if [ "$has" = t ]; then q -At -c "SELECT version FROM public.schema_migrations ORDER BY 1"; fi
+    if [ "$has" = t ]; then q -At -c "SELECT version || '|' || checksum FROM public.schema_migrations ORDER BY version"; fi
 }
-# A list on one line, for messages.
-words() { printf '%s' "$1" | tr '\n' ' '; }
+# The versions of a ledger() list.
+versions() { printf '%s\n' "$1" | cut -d'|' -f1 | grep . || true; }
 # Lines of list $1 that are not lines of list $2.
 minus() { for x in $1; do printf '%s\n' "$2" | grep -qx "$x" || echo "$x"; done; }
+# "t" when the database was built by EF Core and has no ledger yet: up will bootstrap.
+ef_only() { q -At -c "SELECT to_regclass('public.schema_migrations') IS NULL AND to_regclass('public.\"__EFMigrationsHistory\"') IS NOT NULL"; }
 
 # Create the ledger on first use; on a database EF Core migrated, record the baseline as applied.
 init() {
+    # The baseline stands for exactly the EF history production has. A database stopped short of
+    # it (or past it) has another schema, and recording the baseline would hide that.
+    if [ "$(ef_only)" = t ]; then
+        head=$(q -At -c 'SELECT max(migration_id) FROM public."__EFMigrationsHistory"')
+        [ "$head" = "$EF_HEAD" ] || die "EF Core history ends at '$head', the baseline at '$EF_HEAD'; bring it there with the EF migrator image first"
+    fi
     # One transaction; the lock makes a second runner wait here instead of racing the CREATE.
     q --single-transaction -v sum="$(checksum "$DIR/0000_baseline.up.sql")" -f - <<'SQL'
 SELECT pg_advisory_xact_lock(hashtext('schema_migrations')) AS locked \gset
@@ -102,13 +117,11 @@ DELETE FROM public.schema_migrations WHERE version = :v;
 SQL
 }
 
-# Applied files whose checksum differs from the ledger's: applied files are never edited.
+# Applied files whose checksum differs from the ledger list $1: applied files are never edited.
+# Down files are not checked: until it runs, a down file may still be fixed.
 verify() {
     bad=0
-    # "version|checksum" per applied row; nothing before the ledger exists.
-    rows=""
-    if [ -n "$(applied)" ]; then rows=$(q -At -c "SELECT version || '|' || checksum FROM public.schema_migrations ORDER BY 1"); fi
-    for row in $rows; do
+    for row in $1; do
         f=$(file_of "${row%%|*}")
         # Unknown versions (no file here) are reported by status and refused by down, not here.
         if [ -n "$f" ] && [ "$(checksum "$f")" != "${row#*|}" ]; then
@@ -119,16 +132,16 @@ verify() {
     return $bad
 }
 
-# Versions the database has applied that this copy has no file for: a newer release ran them.
-unknown() { minus "$(applied)" "$KNOWN"; }
-
 case "${1:-}" in
 up)
     init
-    verify || die "checksum mismatch; nothing applied"
+    # The ledger, read once: run() re-checks each version under the lock anyway.
+    L=$(ledger); APPLIED=$(versions "$L")
+    verify "$L" || die "checksum mismatch; nothing applied"
     # After a code rollback the database is ahead of this copy: normal, left in place.
-    U=$(unknown); [ -z "$U" ] || echo "NOTE: applied versions this copy does not contain: $(words "$U"). Left in place."
-    PENDING=$(minus "$KNOWN" "$(applied)")
+    U=$(minus "$APPLIED" "$KNOWN")
+    [ -z "$U" ] || echo "NOTE: applied versions this copy does not contain: $(words "$U"). Left in place."
+    PENDING=$(minus "$KNOWN" "$APPLIED")
     [ -n "$PENDING" ] || { echo "Up to date."; exit 0; }
     for v in $PENDING; do run "$(file_of "$v")" up; done
     echo "Done."
@@ -139,14 +152,15 @@ down)
     case "$T" in '' | *[!0-9]*) die "usage: migrate.sh down <version>" ;; esac
     T=$(num "$T")
     init
-    verify || die "checksum mismatch; nothing reverted"
+    L=$(ledger); APPLIED=$(versions "$L")
+    verify "$L" || die "checksum mismatch; nothing reverted"
     # Only the copy that contains a migration has its down file. An older copy (after a code
     # rollback) would skip it and report success — refuse. Roll the schema back first, with the
     # image deployed now, then the code (ADR-021's order).
-    U=$(unknown)
+    U=$(minus "$APPLIED" "$KNOWN")
     [ -z "$U" ] || die "the database has versions this copy does not contain ($(words "$U")); run down with the copy that has them"
     # Applied versions above the target, newest first.
-    TODO=$(for v in $(applied); do [ "$v" -gt "$T" ] && echo "$v"; done | sort -rn)
+    TODO=$(for v in $APPLIED; do [ "$v" -gt "$T" ] && echo "$v"; done | sort -rn)
     [ -n "$TODO" ] || { echo "Nothing above version $T."; exit 0; }
     # Check every down file exists before reverting any, so a missing one cannot stop halfway.
     for v in $TODO; do [ -n "$(file_of "$v" down)" ] || die "version $v has no .down.sql; nothing reverted"; done
@@ -155,16 +169,19 @@ down)
     ;;
 status)
     # The ledger as a table, then what is missing on either side. Read-only: no ledger is created.
-    if [ -n "$(applied)" ]; then
+    L=$(ledger); APPLIED=$(versions "$L")
+    if [ -n "$APPLIED" ]; then
         q -c "SELECT version, name, applied_at, execution_ms FROM public.schema_migrations ORDER BY 1"
+    elif [ "$(ef_only)" = t ]; then
+        echo "No ledger; EF Core history found: up will record 0000_baseline as applied without running it."
     else
         echo "No ledger yet (or it is empty): migrate.sh up creates it."
     fi
-    echo "Pending: $(words "$(minus "$KNOWN" "$(applied)")")"
-    echo "Unknown (applied, no file here): $(words "$(unknown)")"
+    echo "Pending: $(words "$(minus "$KNOWN" "$APPLIED")")"
+    echo "Unknown (applied, no file here): $(words "$(minus "$APPLIED" "$KNOWN")")"
     ;;
 verify)
-    verify && echo "Checksums match."
+    verify "$(ledger)" && echo "Checksums match."
     ;;
 *)
     die "usage: migrate.sh up | down <version> | status | verify"
