@@ -23,7 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
-- **Infra** — code stops writing 13 dead columns (`ssg_rebuild_jobs` mode/timeout/slug lists, `ingestion_jobs.work_id`/`source_edition_id`, `editions.source_edition_id`, 3 unused SEO-backfill settings, `user_books.suggested_tags_at`, `user_ingestion_jobs.units_count`); migration `0008` gives the 5 NOT NULL ones defaults; admin drops the Mode/Timeout fields and the SSG-batch setting; columns dropped next release (#937) — backend, admin, infra
+- **Infra** — code stops writing 13 dead columns (`ssg_rebuild_jobs` mode/timeout/slug lists, `ingestion_jobs.work_id`/`source_edition_id`, `editions.source_edition_id`, 3 unused SEO-backfill settings, `user_books.suggested_tags_at`, `user_ingestion_jobs.units_count`); migration `0008` gives the 5 NOT NULL ones defaults; admin drops the Mode/Timeout fields and the SSG-batch setting; columns dropped next release (#937) — backend, admin, infra · [details](docs/changelog-archive/2026-H2.md#2026-10-27-stop-writing-dead-columns)
 - **Infra** — migration `0007` drops the never-written `shadow_runs` (0 rows; refuses to run if any appear) (#934) — infra · [details](docs/changelog-archive/2026-H2.md#2026-10-27-drop-dead-tables)
 - **AI** — the never-enabled shadow-model path is removed: gateway shadow calls, `Ai:Shadow` config, the writer, the admin Shadow tab and its endpoints, the 30-day sweep; table `shadow_runs` (0 rows) dropped next release. Model registry promote/rollback unchanged (#934) — backend, admin
 - **Infra** — migration `0006` drops the never-written `ssg_rebuild_results` (349 rows from 2026-01-23) (#933) — infra

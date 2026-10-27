@@ -1,6 +1,6 @@
--- Undoes 0008_default_dead_not_null_columns: drops the five defaults. No data changes. This release's
--- code inserts without these columns, so between this down and the code rollback a new SSG job (or a
--- first SEO-settings save) fails with a NOT NULL error; roll the code back right after.
+-- Undoes 0008_default_dead_not_null_columns: drops the five defaults. No data changes.
+-- Order: roll the CODE back first, then run this. This release's code inserts without these columns,
+-- so running this down under it makes a new SSG job (or a first SEO-settings save) fail NOT NULL.
 
 SET LOCAL lock_timeout = '5s';
 

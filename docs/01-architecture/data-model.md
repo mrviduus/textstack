@@ -83,7 +83,7 @@ Rows: exact `count(*)` in production on 2026-10-26 (`pg_stat_user_tables` estima
 | # | Table | Purpose | Status | Notes | Rows |
 |---|---|---|---|---|---|
 | 33 | `user_books` | A user's uploaded book; also holds its reading progress | Clean | `suggested_tags_at` write-only — code no longer writes it, dropped next release (#937); `is_read`/`read_at` duplicate `completed_at`; `(user_id)` index dropped (`0002`) | 96 |
-| 34 | `user_chapters` | Server-extracted chapters of an upload | Clean | `content_quality_score` write-only; `(user_book_id)` index dropped (`0002`) | 2,710 |
+| 34 | `user_chapters` | Server-extracted chapters of an upload | Clean | `content_quality_score` read only by `infra/scripts/quality-poll.sh` (kept); `(user_book_id)` index dropped (`0002`) | 2,710 |
 | 35 | `user_book_files` | Original upload file | Clean | `(sha256)` index dropped (`0002`; column is the ETag — kept) | 96 |
 | 36 | `user_ingestion_jobs` | Upload extraction queue | Clean | `units_count` never read (checked: admin reads the catalog job's) — code no longer writes it, dropped next release (#937) | 100 |
 | 37 | `user_book_bookmarks` | Bookmarks in uploads | Decide | Same shape as `bookmarks` | 18 |
