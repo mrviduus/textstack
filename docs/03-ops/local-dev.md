@@ -41,8 +41,8 @@ make migrate-status          # applied, pending, unknown versions
 make migrate-down V=3        # revert every version above 3
 ```
 
-The migrator runs its image as built: after editing `database/`, `make build` (or
-`docker compose build migrator`) first. After a `down`, restart the Api with `docker compose restart
+The `make` targets mount this checkout's `database/` into the migrator, so a migration just written
+runs without rebuilding the image; a plain `docker compose up` runs the image's own copy. After a `down`, restart the Api with `docker compose restart
 api` (or `up -d --no-deps api`); a plain `docker compose up -d` re-runs the migrator to head.
 
 Rolling back a release: **schema first, with the current image**, check `/health/ready` shows the

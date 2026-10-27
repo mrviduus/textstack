@@ -34,17 +34,21 @@ status:
 # Database schema (database/README.md, ADR-026)
 # ============================================================
 
-# Runs the migrator image as built or pulled; after editing database/ locally, `make build` first.
+# This checkout's database/ is mounted over the image's copy, so a migration just written runs
+# without rebuilding the image. On the server the checkout is the deployed commit (deploy.yml
+# "Pull latest code"), so the files are the image's own.
+MIGRATOR = docker compose run --rm -v $(CURDIR)/database:/database:ro migrator
+
 migrate:
-	docker compose run --rm migrator up
+	$(MIGRATOR) up
 
 # Reverts every applied version above V. Schema first, then the code (ADR-026).
 migrate-down:
 	@test -n "$(V)" || { echo 'usage: make migrate-down V=<version>'; exit 1; }
-	docker compose run --rm migrator down $(V)
+	$(MIGRATOR) down $(V)
 
 migrate-status:
-	docker compose run --rm migrator status
+	$(MIGRATOR) status
 
 # ============================================================
 # Deployment
