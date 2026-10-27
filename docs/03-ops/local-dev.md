@@ -42,8 +42,9 @@ make migrate-down V=3        # revert every version above 3
 ```
 
 The `make` targets mount this checkout's `database/` into the migrator, so a migration just written
-runs without rebuilding the image; a plain `docker compose up` runs the image's own copy. After a `down`, restart the Api with `docker compose restart
-api` (or `up -d --no-deps api`); a plain `docker compose up -d` re-runs the migrator to head.
+runs without rebuilding the image. A plain `docker compose up` runs the image's own copy — to the
+image's head, which misses migrations written since the last `make build`. After a `down`, restart the
+Api with `docker compose restart api` (or `up -d --no-deps api`); `make migrate` brings it back up.
 
 Rolling back a release: **schema first, with the current image**, check `/health/ready` shows the
 expected `pending`, **then** the code (`rollback_commit`). An older image has no down files for newer

@@ -6,8 +6,9 @@
 #      same as a fresh database built only up to that version — then up again, back to step 1's
 #      schema. One version deeper per pass, so a broken down file is not hidden by an older one
 #      that drops more.
-#   3. a database EF Core built: refused while its history is not at the baseline's last EF
-#      migration; then up records the baseline without running it and applies the rest
+#   3. a database EF Core built (its ledger from 0001's down file): refused while its history does
+#      not end at the baseline's last EF migration; then up records the baseline without running it
+#      and applies the rest
 #   4. an edited applied file fails verify and up; down refuses versions this copy does not contain
 #      (each refusal checked by its message, not only by a non-zero exit)
 #
@@ -72,6 +73,8 @@ migrate "$DB" up
 expect "$DB" "Up to date." "a second up applied something"
 migrate "$DB" verify
 FIRST=$(dump "$DB")
+# 0001 drops EF Core's ledger; dump() leaves that table out, so check it here.
+[ "$(value "$DB" "SELECT to_regclass('public.\"__EFMigrationsHistory\"') IS NULL")" = t ] || fail "__EFMigrationsHistory survived up"
 
 echo "== 2. down one version deeper per pass, then up"
 for v in $(value "$DB" 'SELECT version FROM schema_migrations WHERE version > 0 ORDER BY 1 DESC'); do
@@ -80,6 +83,11 @@ for v in $(value "$DB" 'SELECT version FROM schema_migrations WHERE version > 0 
     migrate "$DB" down "$prev"
     [ "$(value "$DB" 'SELECT max(version) FROM schema_migrations')" = "$prev" ] || fail "down $prev left newer versions"
     [ "$(dump "$DB")" = "$(dump_upto "$prev")" ] || fail "down $prev left a schema other than version $prev's"
+    # Below 0001, its down file must have put EF Core's ledger back, all of it.
+    if [ "$prev" -lt 1 ]; then
+        [ "$(value "$DB" 'SELECT count(*) || max(migration_id) FROM "__EFMigrationsHistory"')" = "147$(sed -n 's/^EF_HEAD=//p' "$ROOT/migrate.sh")" ] \
+            || fail "0001 down did not restore the 147 EF history rows"
+    fi
     migrate "$DB" up
     [ "$(dump "$DB")" = "$FIRST" ] || fail "up after down $prev built a different schema"
 done
@@ -88,11 +96,12 @@ echo "== 3. a database EF Core built"
 PGDATABASE=$ADMIN createdb "$EF"
 # The baseline's schema without the runner, as the 147 EF Core migrations left production.
 psql -X -q -v ON_ERROR_STOP=1 -d "$EF" -f "$ROOT/migrations/0000_baseline.up.sql"
-psql -X -q -v ON_ERROR_STOP=1 -d "$EF" -c 'CREATE TABLE "__EFMigrationsHistory" (migration_id text PRIMARY KEY)'
-# A history short of the baseline's last EF migration is another schema: refused.
-psql -X -q -v ON_ERROR_STOP=1 -d "$EF" -c "INSERT INTO \"__EFMigrationsHistory\" VALUES ('20261001000000_Older')"
+# EF Core's ledger as production had it: 0001's down file holds its exact shape and rows.
+psql -X -q -v ON_ERROR_STOP=1 -d "$EF" -f "$ROOT/migrations/0001_drop_ef_migrations_history.down.sql"
+# A history past the baseline's last EF migration is another schema: refused.
+psql -X -q -v ON_ERROR_STOP=1 -d "$EF" -c "INSERT INTO \"__EFMigrationsHistory\" VALUES ('20991231000000_Newer', '10.0.8')"
 refuses "$ROOT" "$EF" "EF Core history ends at" up
-psql -X -q -v ON_ERROR_STOP=1 -d "$EF" -c "INSERT INTO \"__EFMigrationsHistory\" VALUES ('$(sed -n 's/^EF_HEAD=//p' "$ROOT/migrate.sh")')"
+psql -X -q -v ON_ERROR_STOP=1 -d "$EF" -c "DELETE FROM \"__EFMigrationsHistory\" WHERE migration_id = '20991231000000_Newer'"
 expect "$EF" "Bootstrap:" "up did not bootstrap from the EF history"
 [ "$(value "$EF" 'SELECT execution_ms FROM schema_migrations WHERE version = 0')" = 0 ] || fail "the baseline ran on an EF database"
 [ "$(dump "$EF")" = "$FIRST" ] || fail "the EF database did not end at the same schema"
