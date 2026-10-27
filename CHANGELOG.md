@@ -23,7 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
-- **Backend** — reading sessions and quality jobs refuse both an edition and an upload (400); a second active SEO template for a key is refused (409) and edit deactivates before it inserts — ahead of `0012`'s CHECKs (#939) — backend · [details](docs/changelog-archive/2026-H2.md#2026-10-27-owner-and-enum-checks)
+- **Backend** — reading sessions and quality jobs refuse both an edition and an upload, highlights mixed chapter ids (400); a second active SEO template for a key is refused (409) and edit deactivates before it inserts — ahead of `0012`'s CHECKs (#939) — backend · [details](docs/changelog-archive/2026-H2.md#2026-10-27-owner-and-enum-checks)
 - **Infra** — migration `0011` drops the 13 dead columns and their 3 indexes and 3 FKs; refuses if one was written after the code stopped (#937) — infra · [details](docs/changelog-archive/2026-H2.md#2026-10-27-stop-writing-dead-columns)
 - **Infra** — migration `0010` drops `lint_results` (18k findings nothing read); refuses if a row is newer than the writer's removal (#936) — infra · [details](docs/changelog-archive/2026-H2.md#2026-10-27-remove-linter)
 - **Infra** — migration `0009` drops `word_frequencies`, the startup copy of the embedded word-frequency file (#935) — infra · [details](docs/changelog-archive/2026-H2.md#2026-10-27-drop-dead-tables)
