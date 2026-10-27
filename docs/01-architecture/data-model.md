@@ -114,7 +114,7 @@ Rows: exact `count(*)` in production on 2026-10-26 (`pg_stat_user_tables` estima
 | 52 | `user_vocabulary_settings` | Per-user vocabulary settings | Keep | | 0 |
 | 53 | `pending_vocabulary_words` | Saves over the daily cap | Decide | Same columns as `vocabulary_words` | 0 |
 | 54 | `word_lookups` | Tapped rare words | Decide | Same columns again + `tap_count` | 65 |
-| 55 | `word_frequencies` | Zipf word frequencies | Retire | Copied from an embedded `.gz` at startup, read back whole; read the file directly | 20,000 |
+| 55 | `word_frequencies` | Zipf word frequencies | Retire | `FrequencyFilter` now reads the embedded `.gz` directly; loader worker and entity removed; dropped next release (#935) | 20,000 |
 | 56 | `word_clusters` | Book and concept groups of saved words | Keep | Concept clusters need pgvector + embeddings | 100 |
 | 57 | `tutor_session` | Learning-tutor state between turns | Keep | Deleted after 90 days without use | 6 |
 
