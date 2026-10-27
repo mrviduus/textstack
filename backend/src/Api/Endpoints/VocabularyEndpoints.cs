@@ -3,6 +3,7 @@ using Api.Extensions;
 using Api.Mapping;
 using Api.Sites;
 using Application.Auth;
+using Application.Common;
 using Application.Common.Interfaces;
 using Domain.Entities;
 using Microsoft.AspNetCore.Mvc;
@@ -297,7 +298,7 @@ public static partial class VocabularyEndpoints
     /// The whole save rolls back either way; the caller re-reads the winner.
     /// </summary>
     private static bool IsLostSaveRace(DbUpdateException ex) =>
-        ex is DbUpdateConcurrencyException || UserDataEndpoints.IsUniqueViolation(ex);
+        ex is DbUpdateConcurrencyException || ex.IsUniqueViolation();
 
     /// <summary>
     /// The "already saved" answer for a word in the SRS table or the pending buffer, else null. Used by

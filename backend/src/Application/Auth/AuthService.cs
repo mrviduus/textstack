@@ -187,7 +187,7 @@ public class AuthService
                     realUserId, guestUserId, method);
             return true;
         }
-        catch (Exception ex) when (IsConstraintViolation(ex))
+        catch (Exception ex) when (ex.IsIntegrityViolation())
         {
             // Deterministic failures ONLY — and the narrowness is the whole point.
             //
@@ -215,24 +215,6 @@ public class AuthService
             return false;
         }
     }
-
-    /// <summary>
-    /// True for a Postgres integrity-constraint violation (SQLSTATE class 23) — unique, foreign-key,
-    /// check, not-null. Deterministic by construction: the offending row is still there on the next
-    /// attempt.
-    /// </summary>
-    /// <remarks>
-    /// BOTH shapes are checked, and that is not defensive padding. <c>SaveChangesAsync</c> wraps the
-    /// driver error in <see cref="DbUpdateException"/>, but <c>ExecuteUpdateAsync</c>/
-    /// <c>ExecuteDeleteAsync</c> bypass the change tracker and let the bare
-    /// <c>Npgsql.PostgresException</c> escape. This merge is mostly bulk statements — including the
-    /// ReadingSessions re-parent that produced the original 500 — so a <c>DbUpdateException</c>-only
-    /// catch would have missed the exact failure it was written for. Verified by disabling the
-    /// ReadingSessions conflict fix and watching the guard not fire.
-    /// </remarks>
-    private static bool IsConstraintViolation(Exception ex) =>
-        (ex as Npgsql.PostgresException ?? ex.InnerException as Npgsql.PostgresException)
-            is { } pg && pg.SqlState.StartsWith("23", StringComparison.Ordinal);
 
     /// <returns><c>true</c> when a guest row was merged and deleted; <c>false</c> for the no-op cases.</returns>
     private async Task<bool> MergeGuestCoreAsync(Guid guestUserId, Guid realUserId, CancellationToken ct)
