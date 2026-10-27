@@ -16,7 +16,7 @@ changes its row here.
 | Migrations | SQL since 2026-10-26: `0000_baseline` stands for the 147 EF Core migrations production had applied (`20251217180704_Initial_WorkEdition_Admin` → `20261024202404_TranslateRegistryOnGpt41Mini`), which were then deleted. The 148th, `20260219000000_AddSearchPerformanceIndexes`, had no `.Designer.cs` and never ran; its indexes turned out unusable by search, closed not-planned ([#948](https://github.com/mrviduus/textstack/issues/948)) |
 | SQL baseline | [`database/migrations/0000_baseline.up.sql`](../../database/migrations/0000_baseline.up.sql): this whole schema, grouped and numbered as below, + seed rows ([#931](https://github.com/mrviduus/textstack/issues/931)); builds a schema identical to production |
 | Ledger | `schema_migrations` (not in the inventory: the runner's, not the app's). EF Core's `__EFMigrationsHistory` dropped by `0001` ([#961](https://github.com/mrviduus/textstack/issues/961)) |
-| Indexes | 153 after `0011` (baseline 181: keys + raw-SQL indexes + 145 `HasIndex`, 123 now) |
+| Indexes | 153 after `0012` (baseline 181: keys + raw-SQL indexes + 145 `HasIndex`, 123 now) |
 | Site-scoped | 23 tables carry `site_id` + an EF query filter (single site forever, [ADR-007](adr/007-single-domain-consolidation.md)) |
 | Objects outside the EF model | extensions `pg_trgm`, `vector`; `get_fts_config()` + `chapters` search-vector trigger; generated `user_chapters.search_vector` — in the baseline like everything else. The GiST trigram index on `lower(editions.title)` was dropped by `0002` (no query used it, #948) |
 | Largest | `chapters` 2.6 GB · `llm_traces` 790 MB (3,852 rows) · `user_chapters` 131 MB |
@@ -55,8 +55,8 @@ Rows: exact `count(*)` in production on 2026-10-26 (`pg_stat_user_tables` estima
 | 13 | ~~`lint_results`~~ | Extraction lint findings | Dropped | Dropped by `0010` (#936): no admin UI ever read it | — |
 | 14 | `text_stack_imports` | Import provenance, Standard Ebooks dedupe | Keep | 1:1 with edition (inferred) — candidate for a column on `editions` | 1,409 |
 | 15 | `auto_publish_jobs` | SEO generate-and-publish queue | Decide | Overlaps `seo_backfill_jobs` | 2,993 |
-| 16 | `book_quality_jobs` | PDF content-quality cleanup queue | Clean | Edition XOR user book, no CHECK | 67 |
-| 17 | `seo_templates` | Versioned SEO prompt templates | Clean | Nothing stops two active rows for one (entity, field, language) | 24 |
+| 16 | `book_quality_jobs` | PDF content-quality cleanup queue | Clean | Exactly one of edition / user book (`ck_book_quality_jobs_owner`, `0012`, #939) | 67 |
+| 17 | `seo_templates` | Versioned SEO prompt templates | Clean | One active row per (entity, field, language): unique partial index (`0012`, #939) | 24 |
 | 18 | `seo_backfill_jobs` | SEO generation audit trail | Keep | Polymorphic `entity_id`, no FK | 12 |
 | 19 | `seo_backfill_settings` | SEO poller knobs (one row) | Clean | `language_filter`, `entity_type_filter`, `ssg_rebuild_batch_minutes` dropped (`0011`, #937) | 1 |
 | 20 | `ssg_rebuild_jobs` | Prerender queue (`ssg-worker`) | Clean | `book/author/genre_slugs_json`, `mode`, `timeout_ms` dropped (`0011`, #937); finished jobs purged after 30 d (newest Completed kept) | 11,659 |
@@ -89,7 +89,7 @@ Rows: exact `count(*)` in production on 2026-10-26 (`pg_stat_user_tables` estima
 | 37 | `user_book_bookmarks` | Bookmarks in uploads | Decide | Same shape as `bookmarks` | 18 |
 | 38 | `user_libraries` | Catalog books a user saved | Decide | A personal book row could be the library entry | 246 |
 | 39 | `collections` | Personal shelves | Clean | `(user_id)` index dropped (`0002`) | 1 |
-| 40 | `book_collections` | Book on a shelf | Clean | `book_id` points at two tables (`book_type`), no FK, no CHECK; orphans already repaired once | 3 |
+| 40 | `book_collections` | Book on a shelf | Clean | `book_id` points at two tables (`book_type`, CHECKed by `0012`), no FK; orphans already repaired once | 3 |
 
 ### Reading — position, annotations, activity
 
@@ -97,9 +97,9 @@ Rows: exact `count(*)` in production on 2026-10-26 (`pg_stat_user_tables` estima
 |---|---|---|---|---|---|
 | 41 | `reading_progresses` | Position in a catalog book | Decide | Uploads keep progress on `user_books` instead; legacy `locator` (`scroll:<slug>:<px>`) next to `position_json` | 435 |
 | 42 | `bookmarks` | Bookmarks in catalog books | Decide | No unique key; twin of `user_book_bookmarks` | 9 |
-| 43 | `highlights` | Highlights + their note text, catalog or upload | Clean | Edition-or-upload keys, no CHECK; SET NULL can leave a highlight with no book | 39 |
+| 43 | `highlights` | Highlights + their note text, catalog or upload | Clean | Exactly one of edition / upload (`ck_highlights_owner`); goes with its book (CASCADE), `0012`, #939 | 38 |
 | 44 | ~~`notes`~~ | Standalone notes | Dropped | Dropped by `0005` (#932): no writer ever; `highlights.note_text` holds notes | — |
-| 45 | `reading_sessions` | Reading time for stats and streaks | Clean | Same edition-or-upload keys without CHECK | 587 |
+| 45 | `reading_sessions` | Reading time for stats and streaks | Clean | Exactly one of edition / upload (`ck_reading_sessions_owner`); goes with its book (CASCADE), `0012`, #939 | 573 |
 | 46 | `reading_goals` | Daily/yearly goal | Clean | `(user_id, site_id)` index redundant | 1 |
 | 47 | `user_achievements` | Unlocked achievements | Clean | `(user_id, site_id)` index redundant | 154 |
 | 48 | `book_insight` | Assistant conclusions + chapter reviews ([ADR-016](adr/ADR-016-chapter-review-lives-in-book-insight.md)) | Keep | Well constrained. First table moved to Dapper | 7 |
@@ -158,7 +158,7 @@ erDiagram
 
 Two parallel reading models exist side by side: catalog books (`editions` → `reading_progresses`,
 `bookmarks`) and uploads (`user_books` with progress columns, `user_book_bookmarks`). `highlights`
-and `reading_sessions` serve both through nullable edition-or-upload keys.
+and `reading_sessions` serve both through edition-or-upload keys, exactly one set (`0012`).
 
 ## PII / GDPR map
 
