@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Infra** — the migrator runs `database/migrate.sh` (22 MB alpine + psql); `/health/ready` reads the `schema_migrations` ledger; rollback is `make migrate-down V=n`; the 148 EF migrations, `AppDbContextFactory` and `MigrationPolicy` are deleted; ADR-026 (#931) — backend, infra · [details](docs/changelog-archive/2026-H2.md#2026-10-26-migrator-on-sql)
 - **Infra** — `database/`: plain SQL migrations, a psql runner (ledger, checksums, rollback) and a baseline that builds the production schema exactly; CI round trip + EF drift guard; production still migrates with EF until the next PR (#931) — backend, infra · [details](docs/changelog-archive/2026-H2.md#2026-10-26-sql-migrations-runner)
 - **Admin** — uploading a second catalog book with the same title gets its own work instead of failing with a 500 (#943) — backend · [details](docs/changelog-archive/2026-H2.md#2026-10-26-same-title-upload)
 - **Docs** — persistence-layer comments match the code (partial list, dead RAG lines, `MaxChapterNumber` is read); unfixable zod/node-forge advisories recorded in `pnpm-workspace.yaml` (#945, #957) — backend, mobile

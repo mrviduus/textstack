@@ -1,6 +1,8 @@
 # ADR-021 — Migrations are owned by the migrator
 
-**Status:** Accepted · **Date:** 2026-10-07 · **PRs:** #706 (Api stops migrating), this PR (readiness,
+**Status:** Accepted; mechanics superseded by [ADR-026](ADR-026-sql-first-migrations.md) (2026-10-26:
+plain SQL migrations, `migrate.sh down <version>` instead of `MIGRATE_TARGET`, no Api migration under
+`dotnet run`). Who migrates and the rollback order still hold. · **Date:** 2026-10-07 · **PRs:** #706 (Api stops migrating), this PR (readiness,
 rollback path) · **Review:** [2026-10 #17](../review-2026-10/00-summary.md), backend N6
 
 ## Context

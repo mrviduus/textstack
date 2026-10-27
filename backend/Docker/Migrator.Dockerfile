@@ -1,42 +1,12 @@
-# EF Core migrations bundle on runtime-deps: the SDK, the source and dotnet-ef stay in the build
-# stage (delivery.md "Images"; migrate.sh runs it). Base images pinned by digest; Dependabot moves them.
-# Build stage on the build machine's arch, cross-publishing for the target: see Worker.Dockerfile.
-FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0-alpine@sha256:230c3fbae0ceedc70bca04eed2bfb5694e8b248cadbb81010f41b7a993601f55 AS build
-ARG TARGETARCH
-WORKDIR /src
-
-COPY Directory.Build.props Directory.Packages.props ./
-# dotnet-ef at the EF Core version the code builds against (a bundle from a newer tool than the
-# runtime it embeds is unsupported). Read from Directory.Packages.props so a bump moves both.
-RUN EF_VERSION=$(sed -n 's/.*"Microsoft.EntityFrameworkCore.Design" Version="\([^"]*\)".*/\1/p' Directory.Packages.props) \
-    && test -n "$EF_VERSION" \
-    && dotnet tool install --global dotnet-ef --version "$EF_VERSION"
-ENV PATH="$PATH:/root/.dotnet/tools"
-
-COPY backend/src/ backend/src/
-
-# Infrastructure is both the migrations and the startup project: AppDbContextFactory (design-time)
-# lives there, so the Api's own dependencies stay out of the bundle (Application's still come in).
-# dotnet ef does not restore; the bundle restores its own RID-specific build.
-# /app/known-migrations: every migration this image contains, for migrate.sh's step 0 and pending
-# list (the bundle can only update, not list).
-RUN RID=linux-musl-$([ "$TARGETARCH" = amd64 ] && echo x64 || echo "$TARGETARCH") \
-    && mkdir /app \
-    && dotnet restore backend/src/Infrastructure \
-    && dotnet ef migrations list --no-connect \
-        --project backend/src/Infrastructure --startup-project backend/src/Infrastructure \
-       | grep -E '^[0-9]{14}_' > /app/known-migrations \
-    && test -s /app/known-migrations \
-    && dotnet ef migrations bundle --self-contained -r "$RID" -o /app/efbundle \
-        --project backend/src/Infrastructure --startup-project backend/src/Infrastructure
-
-FROM mcr.microsoft.com/dotnet/runtime-deps:10.0-alpine@sha256:1a5dbee0a1d2bb1d038e212e8ccdbc12783b5cfbed866fe75d126ee80178a52a AS runtime
-# postgresql-client: migrate.sh reads __EFMigrationsHistory (step 0, pending list).
-# krb5-libs: Npgsql loads libgssapi_krb5 (same as the Api image).
-RUN apk add --no-cache krb5-libs postgresql-client
-WORKDIR /app
-COPY --from=build /app/efbundle /app/known-migrations ./
-COPY --chmod=755 backend/Docker/migrate.sh /migrate.sh
-# runtime-deps ships the non-root `app` user (APP_UID).
-USER $APP_UID
-ENTRYPOINT ["/migrate.sh"]
+# The migrator: psql + database/ (ADR-026). No .NET: migrations are plain SQL files that
+# database/migrate.sh applies. Base image pinned by digest (tag kept for humans); Dependabot moves it.
+# postgresql16-client matches the server's major version (pgvector/pgvector:pg16).
+FROM alpine:3.22@sha256:2e0b81d60597f449baa56dc25d355367869d2dca4cd57e866f1e2b52af3eb55f
+RUN apk add --no-cache postgresql16-client
+COPY database/migrate.sh /database/migrate.sh
+COPY database/migrations/ /database/migrations/
+# Non-root; the image needs no writable path.
+USER nobody
+# `docker compose run --rm migrator down 3` replaces CMD; a plain `up -d` runs `up`.
+ENTRYPOINT ["sh", "/database/migrate.sh"]
+CMD ["up"]

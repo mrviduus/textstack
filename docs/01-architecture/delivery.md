@@ -83,7 +83,7 @@ Compressed size (what CI pushes and the server pulls), after #748:
 | worker | `aspnet:10.0-alpine` | ~110 MB | no Node/browser; ICU on (`HtmlCleaner` normalises), PDFium + Skia musl natives, `font-dejavu` |
 | admin | `nginx-unprivileged:stable-alpine` | ~26 MB | static `dist` on :81, SPA fallback |
 | ssg-worker | `node:<.nvmrc>-alpine` | ~417 MB | apk Chromium; `pnpm deploy --prod` (pg, puppeteer, `@sentry/node`). Sentry added +6.9 MB compressed, +61 MB on disk (2026-10-07) |
-| migrator | `runtime-deps:10.0-alpine` | ~89 MB | self-contained EF Core migrations bundle (`linux-musl-<arch>`) + `psql` + the build-time list of its migrations; was ~1.4 GB (full SDK + source + `dotnet-ef`) until 2026-10-07 |
+| migrator | `alpine:3.22` | ~22 MB | `postgresql16-client` + `database/` (`migrate.sh` and the SQL files, [ADR-026](adr/ADR-026-sql-first-migrations.md)); was an EF Core migrations bundle (~89 MB) until 2026-10-26, and the full SDK (~1.4 GB) before 2026-10-07 |
 | mcp-server | `aspnet:10.0-alpine` | ~53 MB | Sentry added +0.35 MB |
 | web | `scratch` | ~3.8 MB on disk | `apps/web/dist` (vite output + `public/`) under `/dist`; no OS, no shell, never started |
 
@@ -281,6 +281,6 @@ environment reports nothing on any service.
 | Full SSG rebuild on deploy | Run workflow with `rebuild_ssg`, or `make rebuild-ssg` |
 | Workflow permissions | top-level `permissions:` stays read/none; widen per job |
 | GHCR retention | `ghcr-retention.yml` env (`KEEP_NEWEST`, `KEEP_DAYS`, `DEPLOYS`, `MAX_DELETE`, `PACKAGES` = `SERVICES` in `images.yml` + `web`); rules in `scripts/ghcr-retention.mjs`. Preview: Actions → GHCR retention → Run workflow (dry run is the default) |
-| Database schema / rollback | Only the `migrator` service migrates ([ADR-021](adr/ADR-021-migrations-owned-by-the-migrator.md)); rollback `docker compose run --rm -e MIGRATE_TARGET=<name> migrator` with the **current** image, **before** `rollback_commit`. Behind-schema alarm: `health-check.yml` step "Schema matches the build" |
+| Database schema / rollback | Only the `migrator` service migrates ([ADR-021](adr/ADR-021-migrations-owned-by-the-migrator.md)); rollback `docker compose run --rm migrator down <version>` ([ADR-026](adr/ADR-026-sql-first-migrations.md)) with the **current** image, **before** `rollback_commit`. Behind-schema alarm: `health-check.yml` step "Schema matches the build" |
 | What Sentry may receive | .NET: `backend/src/Observability/TextStack.Observability/SentryScrubber.cs` (+ `McpHosts.ConfigureSentry`); ssg-worker: `apps/web/scripts/ssgSentry.mjs`; mobile: `apps/mobile/src/lib/sentryScrub.ts`. Change all three together, and the privacy policy if the promise changes |
 | OpenTelemetry export | `OTEL_EXPORTER_OTLP_ENDPOINT` in the server `.env` (unset = off) |

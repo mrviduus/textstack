@@ -22,8 +22,7 @@ public static partial class ServiceCollectionExtensions
             sp => new CurrentSite(sp.GetRequiredService<IConfiguration>()));
 
         services.AddDbContext<AppDbContext>(options =>
-            options.UseNpgsql(connectionString, o => o.UseVector())
-                .UseSnakeCaseNamingConvention()
+            options.UseTextStackNpgsql(connectionString)
                 .ConfigureWarnings(w => w
                     .Ignore(RelationalEventId.PendingModelChangesWarning)
                     // Ten of these fire at every startup, in production too: Edition,

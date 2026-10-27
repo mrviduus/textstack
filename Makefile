@@ -1,4 +1,4 @@
-.PHONY: up down restart logs status backup restore backup-list backup-verify rebuild-ssg clean-ssg featured featured-show nginx-setup build rebuild fix-permissions test lint seo-publish-setup seo-publish-status seo-publish-logs seo-publish-restart seo-publish-stop quality-poll-setup quality-poll-status quality-poll-logs quality-poll-restart quality-poll-stop
+.PHONY: up down restart logs status migrate migrate-down migrate-status backup restore backup-list backup-verify rebuild-ssg clean-ssg featured featured-show nginx-setup build rebuild fix-permissions test lint seo-publish-setup seo-publish-status seo-publish-logs seo-publish-restart seo-publish-stop quality-poll-setup quality-poll-status quality-poll-logs quality-poll-restart quality-poll-stop
 
 # ============================================================
 # Docker Services
@@ -29,6 +29,22 @@ status:
 	@docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "(textstack|NAMES)"
 	@echo ""
 	@curl -sf http://localhost:8080/health > /dev/null && echo "API: healthy" || echo "API: unhealthy"
+
+# ============================================================
+# Database schema (database/README.md, ADR-026)
+# ============================================================
+
+# Runs the migrator image as built or pulled; after editing database/ locally, `make build` first.
+migrate:
+	docker compose run --rm migrator up
+
+# Reverts every applied version above V. Schema first, then the code (ADR-026).
+migrate-down:
+	@test -n "$(V)" || { echo 'usage: make migrate-down V=<version>'; exit 1; }
+	docker compose run --rm migrator down $(V)
+
+migrate-status:
+	docker compose run --rm migrator status
 
 # ============================================================
 # Deployment

@@ -55,7 +55,8 @@ docker run --rm --network host -v "$PWD/database:/database:ro" \
 
 ## Adding a migration
 
-1. Next free number (gaps are fine; never reuse one), both files: `0001_add_x.up.sql` and `0001_add_x.down.sql`.
+1. Next free number (gaps are fine; never reuse one), both files: `0001_add_x.up.sql` and
+   `0001_add_x.down.sql` — four digits, `_`, lowercase snake_case (anything else is refused).
 2. Start the up file with this header:
 
    ```sql

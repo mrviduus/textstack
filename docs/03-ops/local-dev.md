@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - Docker + Docker Compose
-- .NET 10 SDK (for migrations without Docker)
+- .NET 10 SDK (to run the backend without Docker)
 - Node.js (version in `.nvmrc`) and pnpm
 
 ## Quick Start
@@ -29,55 +29,39 @@ proxy) and `textstack.dev` as admin. There are no `*.localhost` gateway hosts an
 
 ## Migrations
 
-Only the dedicated `migrator` Docker service migrates ([ADR-021](../01-architecture/adr/ADR-021-migrations-owned-by-the-migrator.md));
-the Api never does under Docker. If the schema is behind the Api's build, the Api logs Critical at start
-and `/health/ready` answers 503 with `components.schema.pending` until the migrator runs.
+The schema is plain SQL in [`database/`](../../database/README.md) ([ADR-026](../01-architecture/adr/ADR-026-sql-first-migrations.md)).
+Only the `migrator` service applies it — the Api never migrates, also not under `dotnet run`. If the
+schema is behind the Api's build, the Api logs Critical at start and `/health/ready` answers 503 with
+`components.schema.pending` until the migrator runs.
 
-### Apply All (default)
 ```bash
-docker compose up
+docker compose up            # runs the migrator (up) before api and worker
+make migrate                 # the same, on its own
+make migrate-status          # applied, pending, unknown versions
+make migrate-down V=3        # revert every version above 3
 ```
 
-### Target Specific Migration
-```bash
-docker compose run --rm -e MIGRATE_TARGET=Initial_Content migrator
-```
-
-### Rollback All
-```bash
-docker compose run --rm -e MIGRATE_TARGET=0 migrator
-```
-
-`-e` on a one-off `run`, never `.env`: compose reads `.env` on every `up`, so a target left there would
-roll back on every deploy. The old `MIGRATE_TARGET=… docker compose up migrator` form never reached
-the container. After a rollback, restart the Api with `docker compose restart api` (or `up -d --no-deps api`);
-a plain `docker compose up -d` re-runs the migrator to head.
+The migrator runs its image as built: after editing `database/`, `make build` (or
+`docker compose build migrator`) first. After a `down`, restart the Api with `docker compose restart
+api` (or `up -d --no-deps api`); a plain `docker compose up -d` re-runs the migrator to head.
 
 Rolling back a release: **schema first, with the current image**, check `/health/ready` shows the
-expected `pending`, **then** the code (`rollback_commit`). An older image cannot revert migrations it
-does not contain; the migrator now exits 1 if asked to
-([ADR-021](../01-architecture/adr/ADR-021-migrations-owned-by-the-migrator.md#rolling-back-a-release-with-a-migration--order-matters)).
+expected `pending`, **then** the code (`rollback_commit`). An older image has no down files for newer
+versions; `down` exits 1 if asked
+([ADR-026](../01-architecture/adr/ADR-026-sql-first-migrations.md#rolling-back-a-release-with-a-migration--order-unchanged-from-adr-021)).
 
 ### Create New Migration
-```bash
-dotnet ef migrations add <Name> \
-  --project backend/src/Infrastructure \
-  --startup-project backend/src/Api
-```
 
-### Local (without Docker)
-```bash
-dotnet ef database update \
-  --project backend/src/Infrastructure \
-  --startup-project backend/src/Api
-```
+A numbered pair, `database/migrations/NNNN_<name>.up.sql` + `.down.sql`, with the header from
+[`database/README.md`](../../database/README.md#adding-a-migration). Change the EF mapping to match;
+`SchemaDriftTests` checks the two agree.
 
 ## Run Without Docker
 
 ### Backend
 ```bash
-# API (applies pending migrations at start: launchSettings sets Database__MigrateOnStartup;
-# under Docker only the `migrator` service migrates)
+# API (does not migrate). Compose db: `make migrate`. Any other Postgres:
+#   PGHOST=localhost PGUSER=app PGPASSWORD=changeme PGDATABASE=books sh database/migrate.sh up
 dotnet run --project backend/src/Api
 
 # Worker
@@ -112,7 +96,6 @@ Copy `.env.example` to `.env` for overrides.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | none — required | DB credentials |
-| `MIGRATE_TARGET` | (latest) | Target migration — pass with `docker compose run --rm -e`, not `.env` |
 
 Full list: [environment-variables.md](environment-variables.md).
 

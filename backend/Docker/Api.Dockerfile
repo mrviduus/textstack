@@ -20,6 +20,8 @@ RUN RID=linux-musl-$([ "$TARGETARCH" = amd64 ] && echo x64 || echo "$TARGETARCH"
     && dotnet restore backend/src/Api/Api.csproj -r "$RID"
 
 COPY backend/src/ backend/src/
+# Embedded in Api.dll: /health/ready compares them with the schema_migrations ledger (ADR-026).
+COPY database/migrations/ database/migrations/
 RUN RID=linux-musl-$([ "$TARGETARCH" = amd64 ] && echo x64 || echo "$TARGETARCH") \
     && dotnet publish backend/src/Api/Api.csproj -c Release -r "$RID" --self-contained false -o /app/publish
 

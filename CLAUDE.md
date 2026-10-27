@@ -92,10 +92,11 @@ pnpm -C apps/admin dev        # http://localhost:81
 pnpm -C apps/web build
 pnpm -C apps/admin build
 
-# Migrations
-dotnet ef migrations add <Name> --project backend/src/Infrastructure --startup-project backend/src/Api
-docker compose run --rm -e MIGRATE_TARGET=<Name> migrator   # Roll back to <Name> (0 = all). Never put MIGRATE_TARGET in .env
-# Only the migrator migrates (ADR-021). Api: Development + launchSettings flag only; behind schema → /health/ready 503
+# Migrations: plain SQL in database/ (database/README.md, ADR-026). New change = NNNN_<name>.up.sql + .down.sql
+make migrate                  # docker compose run --rm migrator up (rebuild the image after editing database/)
+make migrate-status           # applied / pending / unknown versions
+make migrate-down V=<n>       # revert versions above n — schema first, then the code
+# Only the migrator migrates (ADR-021); the Api never does. Behind schema → /health/ready 503
 
 # Mobile app (apps/mobile)
 cd apps/mobile

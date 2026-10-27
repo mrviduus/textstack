@@ -16,6 +16,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The migrations this build was written against: /health/ready compares them with the
+         schema_migrations ledger (Extensions/SchemaVersion.cs, ADR-026). -->
+    <EmbeddedResource Include="..\..\..\database\migrations\*.up.sql" LogicalName="migrations/%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Application\Application.csproj" />
     <ProjectReference Include="..\Infrastructure\Infrastructure.csproj" />
     <ProjectReference Include="..\Observability\TextStack.Observability\TextStack.Observability.csproj" />

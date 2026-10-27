@@ -35,6 +35,11 @@ file_of() { set -- "$DIR/$(printf '%04d' "$1")"_*."${2:-up}".sql; [ -e "$1" ] &&
 # The last EF Core migration production applied; the baseline is the schema it left (bootstrap).
 EF_HEAD=20261024202404_TranslateRegistryOnGpt41Mini
 
+# Every file must be NNNN_<snake_case>.up.sql or .down.sql: versions are read from the prefix (here
+# and in the Api's /health/ready), so anything else would be misread.
+for f in "$DIR"/*; do
+    basename "$f" | grep -Eqx '[0-9]{4}_[a-z0-9_]+\.(up|down)\.sql' || die "bad migration name: $(basename "$f") (NNNN_<snake_case>.up.sql)"
+done
 # Every up file this copy contains, oldest first: the zero-padded prefix sorts by version.
 UPS=$(ls "$DIR"/*.up.sql)
 # Their versions, one per line.
@@ -65,7 +70,7 @@ init() {
     # it (or past it) has another schema, and recording the baseline would hide that.
     if [ "$(ef_only)" = t ]; then
         head=$(q -At -c 'SELECT max(migration_id) FROM public."__EFMigrationsHistory"')
-        [ "$head" = "$EF_HEAD" ] || die "EF Core history ends at '$head', the baseline at '$EF_HEAD'; bring it there with the EF migrator image first"
+        [ "$head" = "$EF_HEAD" ] || die "EF Core history ends at '$head', the baseline at '$EF_HEAD'; a copy of this schema cannot be bootstrapped: restore a production backup, or start from an empty database"
     fi
     # One transaction; the lock makes a second runner wait here instead of racing the CREATE.
     q --single-transaction -v sum="$(checksum "$DIR/0000_baseline.up.sql")" -f - <<'SQL'

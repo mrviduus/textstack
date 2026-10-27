@@ -80,25 +80,23 @@ if (!app.Environment.IsEnvironment("Test"))
 {
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    // The `migrator` compose service owns the schema (ADR-021); see MigrationPolicy.
-    if (MigrationPolicy.ShouldMigrateOnStartup(app.Environment, app.Configuration))
-        db.Database.Migrate();
+    // The `migrator` compose service owns the schema (ADR-021, ADR-026); the Api never migrates.
     // A schema behind this build is reported, not fatal: throwing here would crash-loop the Api
-    // (restart: always) through a deliberate MIGRATE_TARGET rollback. /health/ready answers 503
-    // with the pending list until the migrator catches up.
+    // (restart: always) through a deliberate `migrate.sh down`. /health/ready answers 503 with the
+    // pending list until the migrator catches up.
     try
     {
-        var pending = (await db.Database.GetPendingMigrationsAsync()).ToList();
+        var pending = await SchemaVersion.PendingAsync(db);
         if (pending.Count > 0)
             app.Logger.LogCritical(
                 "Database schema is behind this build: {PendingCount} pending migration(s), newest {NewestPending}. " +
-                "The Api does not migrate. Unless the schema was rolled back on purpose (ADR-021), the migrator should run. " +
+                "The Api does not migrate. Unless the schema was rolled back on purpose (ADR-026), the migrator should run. " +
                 "/health/ready is 503 until the schema matches",
                 pending.Count, pending[^1]);
     }
     catch (Exception ex)
     {
-        app.Logger.LogError(ex, "Could not read the migration history at startup; /health/ready reports it");
+        app.Logger.LogError(ex, "Could not read the schema_migrations ledger at startup; /health/ready reports it");
     }
     // Idempotent: seed the model registry (current Primary routes) only if empty (AI-075).
     // Non-critical (the gateway routes by config today) — a seeding failure must NOT
@@ -240,7 +238,7 @@ app.MapGet("/health/ready", async (AppDbContext db, IHttpClientFactory httpFacto
         criticalOk = false;
     }
 
-    // Critical: the Api never migrates (ADR-021), so after a MIGRATE_TARGET rollback, or a
+    // Critical: the Api never migrates (ADR-021, ADR-026), so after `migrate.sh down`, or a
     // migrator that did not run, this build is serving against a schema it was not written for.
     // Skipped with the db down: already a 503, and a second connect timeout per probe buys nothing.
     if (!criticalOk)
@@ -249,7 +247,7 @@ app.MapGet("/health/ready", async (AppDbContext db, IHttpClientFactory httpFacto
     {
         try
         {
-            var pending = (await db.Database.GetPendingMigrationsAsync(ct)).ToList();
+            var pending = await SchemaVersion.PendingAsync(db, ct);
             if (pending.Count == 0)
                 components["schema"] = new { status = "ok" };
             else
