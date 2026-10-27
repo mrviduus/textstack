@@ -3,6 +3,7 @@ using Domain.Entities;
 using Domain.Enums;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace Api.Endpoints;
 
@@ -94,10 +95,6 @@ public static class AdminBookQualityEndpoints
     {
         if ((req.EditionId is null) == (req.UserBookId is null))
             return Results.BadRequest(new { error = "Exactly one of EditionId or UserBookId required" });
-        var exists = req.EditionId is { } editionId
-            ? await db.Editions.AnyAsync(e => e.Id == editionId, ct)
-            : await db.UserBooks.AnyAsync(b => b.Id == req.UserBookId, ct);
-        if (!exists) return Results.NotFound(new { error = "Book not found" });
 
         var job = new BookQualityJob
         {
@@ -108,7 +105,12 @@ public static class AdminBookQualityEndpoints
         };
 
         db.BookQualityJobs.Add(job);
-        await db.SaveChangesAsync(ct);
+        // Unknown (or just deleted) book: the FK refuses the job.
+        try { await db.SaveChangesAsync(ct); }
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.ForeignKeyViolation })
+        {
+            return Results.NotFound(new { error = "Book not found" });
+        }
 
         return Results.Created($"/admin/quality/jobs/{job.Id}", new { id = job.Id });
     }

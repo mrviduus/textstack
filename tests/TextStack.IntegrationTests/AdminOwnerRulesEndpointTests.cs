@@ -72,6 +72,8 @@ public class AdminOwnerRulesEndpointTests : IClassFixture<AuthenticatedApiFixtur
     }
 
     [Theory]
+    [InlineData("entityType")]
+    [InlineData("fieldType")]
     [InlineData("languageCode")]
     [InlineData("name")]
     [InlineData("promptTemplate")]
@@ -110,14 +112,25 @@ public class AdminOwnerRulesEndpointTests : IClassFixture<AuthenticatedApiFixtur
         };
         body.Remove(field);
 
-        // Validation runs after the lookup, so the id must exist: edit any template.
-        var list = await SendAdminAsync(HttpMethod.Get, "/admin/seo/templates", null, ct);
-        Assert.Equal(HttpStatusCode.OK, list.StatusCode);
-        var any = (await list.Content.ReadFromJsonAsync<JsonElement>(ct)).EnumerateArray().FirstOrDefault();
-        Assert.SkipWhen(any.ValueKind == JsonValueKind.Undefined, "no template seeded");
+        // Validation runs before the lookup: an unknown id gets 400, and nothing real is edited.
+        var response = await SendAdminAsync(HttpMethod.Put, $"/admin/seo/templates/{Guid.NewGuid()}", body, ct);
 
-        var response = await SendAdminAsync(HttpMethod.Put,
-            $"/admin/seo/templates/{any.GetProperty("id").GetString()}", body, ct);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task CreateSeoTemplate_LanguageCodeTooLong_Returns400()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var response = await SendAdminAsync(HttpMethod.Post, "/admin/seo/templates", new
+        {
+            entityType = "Edition",
+            fieldType = "SeoDescription",
+            languageCode = "english-us",
+            name = "too-long",
+            promptTemplate = "x",
+            outputSchema = "{}",
+        }, ct);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
