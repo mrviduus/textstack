@@ -7,9 +7,10 @@
 -- Issue: https://github.com/mrviduus/textstack/issues/936
 -- Compatibility: the deployed code no longer maps the table. The guard refuses to drop it if any
 --        row is newer than 13:00 UTC, just after #975 deployed (2026-10-27 12:56): that would mean a
---        live writer. Code from before #975 writes the table on every catalog ingest: to roll the code back
---        past #975, run this file's down FIRST (`make migrate-down V=9`). Dropping the FK briefly locks editions too; past the 5 s timeout it aborts
---        with nothing changed, and is rerun.
+--        live writer. Code from before #975 writes the table on every catalog ingest: to roll the
+--        code back past #975, run this file's down FIRST (`make migrate-down V=9`). Dropping the FK
+--        briefly locks editions too; past the 5 s timeout it aborts with nothing changed, and is
+--        rerun.
 -- Down:  0010_drop_lint_results.down.sql recreates the table, index and FK exactly as 0000_baseline
 --        has them, empty. The findings are not restored; they were derived data (re-ingesting with
 --        the code before #975 regenerates them). If wanted: the pre-deploy dump
