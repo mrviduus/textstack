@@ -51,7 +51,7 @@ docker run --rm --network host -v "$PWD/database:/database:ro" \
   and `__EFMigrationsHistory` exists, `up` creates the ledger, records `0000_baseline` as applied
   (`execution_ms` 0) and runs nothing for it. Only if that history ends at the last EF migration the
   baseline stands for (`EF_HEAD` in `migrate.sh`); any other history is a different schema, refused.
-  The EF history table is left as it is.
+  `0001` then drops the EF history table; its down file restores it with its 147 rows.
 
 ## Adding a migration
 

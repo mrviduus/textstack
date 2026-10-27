@@ -93,7 +93,7 @@ pnpm -C apps/web build
 pnpm -C apps/admin build
 
 # Migrations: plain SQL in database/ (database/README.md, ADR-026). New change = NNNN_<name>.up.sql + .down.sql
-make migrate                  # docker compose run --rm migrator up (rebuild the image after editing database/)
+make migrate                  # migrator up, with this checkout's database/ mounted (no rebuild needed)
 make migrate-status           # applied / pending / unknown versions
 make migrate-down V=<n>       # revert versions above n — schema first, then the code
 # Only the migrator migrates (ADR-021); the Api never does. Behind schema → /health/ready 503

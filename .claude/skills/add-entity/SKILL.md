@@ -35,12 +35,12 @@ Pattern mirrors `LlmTrace` / `EvalRun` / `AgentRun`. Domain stays framework-free
    maps a framework-free record → entity, serializes blobs to jsonb), registered
    `AddScoped<...I<Name>Writer, Db<Name>Writer>()` in `Application/DependencyInjection.cs`.
 
-6. **Verify on real Postgres**: `docker compose build migrator && make migrate`, then `\d <table>` +
+6. **Verify on real Postgres**: `make migrate` (mounts `database/`, no rebuild), then `\d <table>` +
    a jsonb insert/read roundtrip. CI's backend job runs `database/tests/roundtrip.sh` (up, down, up)
    and `SchemaDriftTests`, which fails if the mapping and the SQL disagree on a column.
 
 ## Gotchas
 - Don't add `<Version>` to a csproj — central versions in `Directory.Packages.props`.
-- The migrator image copies `database/`; rebuild it (`docker compose build migrator`) before applying
-  a fresh migration locally, or it won't include it.
+- `make migrate` uses this checkout's `database/`; a plain `docker compose up` uses the image's copy,
+  so rebuild (`docker compose build migrator`) before relying on that.
 - Never edit an applied migration file (the runner checks its checksum); add the next number.

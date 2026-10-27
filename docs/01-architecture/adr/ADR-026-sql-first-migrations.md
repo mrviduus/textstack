@@ -26,9 +26,9 @@ EF model.
    `pg_advisory_xact_lock` and re-reads the ledger, so concurrent runners serialize. Applied files are
    never edited: a changed checksum stops `up` and `down`.
 3. **Production bootstrap**: no ledger + `__EFMigrationsHistory` ending at the last EF migration →
-   create the ledger, record `0000` as applied, run nothing. Any other EF history is refused. The EF
-   history table stays until a later contract step, so a code rollback to an EF-migrator image finds a
-   complete history and does nothing.
+   create the ledger, record `0000` as applied, run nothing. Any other EF history is refused. `0001`
+   then drops the EF history table (#961); its down file puts it back, rows included, for a rollback
+   to an EF-migrator image.
 4. **ADR-021 holds**: only the `migrator` compose service migrates (now a ~22 MB alpine image with
    psql and `database/`); the Api never does — not even for `dotnet run`, which used to migrate behind
    a launchSettings flag. The Api embeds the up files at build time; at start and on every
@@ -81,4 +81,5 @@ versions, and `down` exits 1 saying so.
   migrations folder and `AppDbContextFactory` are deleted). Entity changes are written twice — the
   mapping and the SQL — and the drift test keeps them together until EF is gone.
 - Local development migrates with `make migrate` (the migrator image), including for `dotnet run`.
-- `__EFMigrationsHistory` stays in production, unused, until it is dropped in a later migration.
+- `__EFMigrationsHistory` was dropped by `0001` (#961). Its down file restores it with all 147 rows,
+  so rolling the code back past #960 is `down 0` with the current image, then the code.

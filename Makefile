@@ -1,4 +1,4 @@
-.PHONY: up down restart logs status migrate migrate-down migrate-status backup restore backup-list backup-verify rebuild-ssg clean-ssg featured featured-show nginx-setup build rebuild fix-permissions test lint seo-publish-setup seo-publish-status seo-publish-logs seo-publish-restart seo-publish-stop quality-poll-setup quality-poll-status quality-poll-logs quality-poll-restart quality-poll-stop
+.PHONY: up down restart logs status migrate migrate-down migrate-status migrator-guard backup restore backup-list backup-verify rebuild-ssg clean-ssg featured featured-show nginx-setup build rebuild fix-permissions test lint seo-publish-setup seo-publish-status seo-publish-logs seo-publish-restart seo-publish-stop quality-poll-setup quality-poll-status quality-poll-logs quality-poll-restart quality-poll-stop
 
 # ============================================================
 # Docker Services
@@ -34,17 +34,30 @@ status:
 # Database schema (database/README.md, ADR-026)
 # ============================================================
 
-# Runs the migrator image as built or pulled; after editing database/ locally, `make build` first.
-migrate:
-	docker compose run --rm migrator up
+# This checkout's database/ is mounted over the image's copy, so a migration just written runs
+# without rebuilding the image.
+MIGRATOR = docker compose run --rm -v "$(CURDIR)/database:/database:ro" migrator
+
+# On the server the running Api carries its release (SENTRY_RELEASE, from GIT_SHA; empty in local
+# builds). A checkout that is not that release — a deploy that failed after "Pull latest code" —
+# must not run its own migrations under the old code: refuse, and name the image-only command.
+migrator-guard:
+	@rel=$$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' $$(docker compose ps -q api) 2>/dev/null | sed -n 's/^SENTRY_RELEASE=//p'); \
+	head=$$(git rev-parse --short=12 HEAD); \
+	[ -z "$$rel" ] || [ "$$rel" = "$$head" ] || { \
+		echo "This checkout ($$head) is not the running release ($$rel)."; \
+		echo "Use the deployed image's files: docker compose run --rm migrator <up|down N|status>"; exit 1; }
+
+migrate: migrator-guard
+	$(MIGRATOR) up
 
 # Reverts every applied version above V. Schema first, then the code (ADR-026).
-migrate-down:
+migrate-down: migrator-guard
 	@test -n "$(V)" || { echo 'usage: make migrate-down V=<version>'; exit 1; }
-	docker compose run --rm migrator down $(V)
+	$(MIGRATOR) down $(V)
 
-migrate-status:
-	docker compose run --rm migrator status
+migrate-status: migrator-guard
+	$(MIGRATOR) status
 
 # ============================================================
 # Deployment

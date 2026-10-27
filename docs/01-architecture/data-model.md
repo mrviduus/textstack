@@ -15,6 +15,7 @@ changes its row here.
 | Tables | 63 (62 `DbSet`s + the `edition_genres` join) |
 | Migrations | SQL since 2026-10-26: `0000_baseline` stands for the 147 EF Core migrations production had applied (`20251217180704_Initial_WorkEdition_Admin` → `20261024202404_TranslateRegistryOnGpt41Mini`), which were then deleted. The 148th, `20260219000000_AddSearchPerformanceIndexes`, had no `.Designer.cs` and never ran ([#948](https://github.com/mrviduus/textstack/issues/948)) |
 | SQL baseline | [`database/migrations/0000_baseline.up.sql`](../../database/migrations/0000_baseline.up.sql): this whole schema, grouped and numbered as below, + seed rows ([#931](https://github.com/mrviduus/textstack/issues/931)); builds a schema identical to production |
+| Ledger | `schema_migrations` (not in the inventory: the runner's, not the app's). EF Core's `__EFMigrationsHistory` dropped by `0001` ([#961](https://github.com/mrviduus/textstack/issues/961)) |
 | Indexes | 181 (145 `HasIndex` + keys + raw-SQL indexes) |
 | Site-scoped | 24 tables carry `site_id` + an EF query filter (single site forever, [ADR-007](adr/007-single-domain-consolidation.md)) |
 | Objects outside the EF model | extensions `pg_trgm`, `vector`; `get_fts_config()` + `chapters` search-vector trigger; generated `user_chapters.search_vector`; GiST trigram index on `lower(editions.title)` — in the baseline like everything else |
