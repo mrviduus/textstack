@@ -12,6 +12,11 @@ public class SchemaVersionTests
     public void Known_EmbeddedFromDatabaseFolder_StartsWithBaseline() =>
         Assert.Equal("0000_baseline", SchemaVersion.Known[0]);
 
+    // migrate.sh refuses other names too; this fails the build before an image is made.
+    [Fact]
+    public void Known_EveryName_IsFourDigitsUnderscoreSnakeCase() =>
+        Assert.All(SchemaVersion.Known, k => Assert.Matches("^[0-9]{4}_[a-z0-9_]+$", k));
+
     [Fact]
     public void Pending_SomeApplied_ReturnsTheRestInOrder() =>
         Assert.Equal(["0001_a", "0003_c"], SchemaVersion.Pending(["0000_baseline", "0001_a", "0002_b", "0003_c"], [0, 2]));

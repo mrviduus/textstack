@@ -36,8 +36,7 @@ public class SchemaDriftTests
         var ct = TestContext.Current.CancellationToken;
 
         // The model the Api runs with; building it opens no connection.
-        var options = new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(DbConn, o => o.UseVector()).Options;
-        await using var ctx = new AppDbContext(options, new CurrentSite(SiteConstants.DefaultSiteId));
+        await using var ctx = new AppDbContext(AppDbContextOptions.For(DbConn), new CurrentSite(SiteConstants.DefaultSiteId));
 
         var expected = new List<Column>();
         foreach (var entity in ctx.Model.GetEntityTypes())

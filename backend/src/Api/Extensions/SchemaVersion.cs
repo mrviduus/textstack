@@ -23,6 +23,10 @@ internal static class SchemaVersion
     /// <summary>Known migrations the ledger does not list. No ledger yet = all of them.</summary>
     public static async Task<List<string>> PendingAsync(DbContext db, CancellationToken ct = default)
     {
+        // Nothing embedded (an image built without database/migrations/) would read as "ok" for
+        // any schema; fail instead, so the probe reports "unknown" and 503.
+        if (Known.Count == 0)
+            throw new InvalidOperationException("No migrations embedded in this build (Api.csproj, Api.Dockerfile)");
         var hasLedger = await db.Database
             .SqlQueryRaw<bool>("""SELECT to_regclass('public.schema_migrations') IS NOT NULL AS "Value" """)
             .SingleAsync(ct);

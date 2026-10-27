@@ -19,11 +19,7 @@ public class SsgRebuildModeMappingTests
     [InlineData("anything")]
     public void ModeConverter_AnyStoredString_ReadsAsFull(string stored)
     {
-        var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseNpgsql("Host=unused", o => o.UseVector())
-            .UseSnakeCaseNamingConvention()
-            .Options;
-        using var db = new AppDbContext(options, new CurrentSite(Guid.NewGuid()));
+        using var db = new AppDbContext(AppDbContextOptions.For("Host=unused"), new CurrentSite(Guid.NewGuid()));
 
         var converter = db.Model.FindEntityType(typeof(SsgRebuildJob))!
             .FindProperty(nameof(SsgRebuildJob.Mode))!.GetValueConverter()!;

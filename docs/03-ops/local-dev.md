@@ -60,7 +60,8 @@ A numbered pair, `database/migrations/NNNN_<name>.up.sql` + `.down.sql`, with th
 
 ### Backend
 ```bash
-# API (does not migrate: run `make migrate` first)
+# API (does not migrate). Compose db: `make migrate`. Any other Postgres:
+#   PGHOST=localhost PGUSER=app PGPASSWORD=changeme PGDATABASE=books sh database/migrate.sh up
 dotnet run --project backend/src/Api
 
 # Worker
