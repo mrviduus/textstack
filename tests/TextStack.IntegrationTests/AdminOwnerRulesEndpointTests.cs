@@ -6,8 +6,8 @@ namespace TextStack.IntegrationTests;
 
 /// <summary>
 /// Admin writes refuse rows that 0012's constraints would reject (#939): a quality job with both
-/// owners, a second active SEO template for one key. Needs the fixture's test user to be admin;
-/// otherwise skipped. To run: `docker compose up` (API on :8080) with `ENABLE_TEST_AUTH=true`.
+/// owners, a second active SEO template for one key. Runs as the fixture's admin (skipped locally
+/// without one, failed in CI). To run: `docker compose up` (API on :8080) with `ENABLE_TEST_AUTH=true`.
 /// </summary>
 public class AdminOwnerRulesEndpointTests : IClassFixture<AuthenticatedApiFixture>
 {
@@ -17,13 +17,10 @@ public class AdminOwnerRulesEndpointTests : IClassFixture<AuthenticatedApiFixtur
 
     private async Task<HttpResponseMessage> SendAdminAsync(HttpMethod method, string path, object? body, CancellationToken ct)
     {
-        Assert.SkipUnless(_fixture.IsAuthenticated, "auth unavailable");
+        _fixture.RequireAdmin();
         var request = _fixture.CreateAdminRequest(method, path);
         if (body is not null) request.Content = JsonContent.Create(body);
         var response = await _fixture.Client.SendAsync(request, ct);
-        Assert.SkipWhen(
-            response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden,
-            "test user is not admin");
         return response;
     }
 

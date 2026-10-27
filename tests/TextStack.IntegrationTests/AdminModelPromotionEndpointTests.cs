@@ -7,8 +7,9 @@ namespace TextStack.IntegrationTests;
 /// Integration tests for the table-driven promote/rollback endpoints (Phase 12 RLOps slice 3),
 /// against the live API on the admin host. Auth + validation
 /// paths assert without depending on seeded mutable state, and a full promote→reflected-in-/models
-/// →rollback round-trip runs when the fixture user is admin. Skips (not fails) when auth/endpoint
-/// is unavailable. To run: `docker compose up` (API on :8080) with ENABLE_TEST_AUTH=true; runs in CI.
+/// →rollback round-trip runs as the fixture's admin. Skips locally when there is no admin session
+/// or the endpoint is not deployed; in CI a missing admin session fails (#990).
+/// To run: `docker compose up` (API on :8080) with ENABLE_TEST_AUTH=true; runs in CI.
 /// </summary>
 public class AdminModelPromotionEndpointTests : IClassFixture<AuthenticatedApiFixture>
 {
@@ -45,28 +46,25 @@ public class AdminModelPromotionEndpointTests : IClassFixture<AuthenticatedApiFi
     [Fact]
     public async Task Promote_NonexistentModel_BadRequest()
     {
-        Assert.SkipUnless(_fixture.IsAuthenticated, "auth unavailable");
+        _fixture.RequireAdmin();
 
         var request = _fixture.CreateAdminRequest(
             HttpMethod.Post, $"/admin/ai-quality/models/{Guid.NewGuid()}/promote");
         var response = await _fixture.Client.SendAsync(request, TestContext.Current.CancellationToken);
 
         Assert.SkipWhen(IntegrationSkip.Unavailable(response), "endpoint not deployed");
-        Assert.SkipWhen(
-            response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden,
-            "test user is not admin");
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     [Fact]
     public async Task Promote_AlreadyPrimaryRow_BadRequest()
     {
-        Assert.SkipUnless(_fixture.IsAuthenticated, "auth unavailable");
+        _fixture.RequireAdmin();
 
         // Find a currently-Primary registration from the seeded registry; promoting it again
         // must be rejected (already-Primary → 400). Read-only; leaves the registry untouched.
         var models = await GetModels();
-        Assert.SkipWhen(models is null, "endpoint not deployed / not admin");
+        Assert.SkipWhen(models is null, "endpoint not deployed");
         var primary = models!.Value.EnumerateArray()
             .FirstOrDefault(m => m.GetProperty("status").GetString() == "Primary");
         Assert.SkipWhen(primary.ValueKind == JsonValueKind.Undefined, "no seeded Primary row");
@@ -82,7 +80,7 @@ public class AdminModelPromotionEndpointTests : IClassFixture<AuthenticatedApiFi
     [Fact]
     public async Task Rollback_NoPriorPromotion_Conflict()
     {
-        Assert.SkipUnless(_fixture.IsAuthenticated, "auth unavailable");
+        _fixture.RequireAdmin();
 
         // A feature that has never been promoted has nothing to roll back → 409.
         var request = _fixture.CreateAdminRequest(
@@ -90,9 +88,6 @@ public class AdminModelPromotionEndpointTests : IClassFixture<AuthenticatedApiFi
         var response = await _fixture.Client.SendAsync(request, TestContext.Current.CancellationToken);
 
         Assert.SkipWhen(IntegrationSkip.Unavailable(response), "endpoint not deployed");
-        Assert.SkipWhen(
-            response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden,
-            "test user is not admin");
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
     }
 
@@ -100,10 +95,8 @@ public class AdminModelPromotionEndpointTests : IClassFixture<AuthenticatedApiFi
     {
         var request = _fixture.CreateAdminRequest(HttpMethod.Get, "/admin/ai-quality/models");
         var response = await _fixture.Client.SendAsync(request, TestContext.Current.CancellationToken);
-        if (IntegrationSkip.Unavailable(response)
-            || response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden
-            || response.StatusCode != HttpStatusCode.OK)
-            return null;
+        if (IntegrationSkip.Unavailable(response)) return null;
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         var doc = JsonDocument.Parse(
             await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));

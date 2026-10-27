@@ -33,15 +33,12 @@ public class AdminEvalTrendEndpointTests : IClassFixture<AuthenticatedApiFixture
     [Fact]
     public async Task GetEvalTrend_Authed_ReturnsScheduledRowsArray()
     {
-        Assert.SkipUnless(_fixture.IsAuthenticated, "auth unavailable");
+        _fixture.RequireAdmin();
 
         var request = _fixture.CreateAdminRequest(HttpMethod.Get, "/admin/ai-quality/drift/eval-trend");
         var response = await _fixture.Client.SendAsync(request, TestContext.Current.CancellationToken);
 
         Assert.SkipWhen(IntegrationSkip.Unavailable(response), "endpoint not deployed");
-        Assert.SkipWhen(
-            response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden,
-            "test user is not admin");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         using var doc = JsonDocument.Parse(
@@ -65,16 +62,13 @@ public class AdminEvalTrendEndpointTests : IClassFixture<AuthenticatedApiFixture
     [Fact]
     public async Task GetEvalTrend_FilteredByMissingFeature_ReturnsEmpty()
     {
-        Assert.SkipUnless(_fixture.IsAuthenticated, "auth unavailable");
+        _fixture.RequireAdmin();
 
         var request = _fixture.CreateAdminRequest(
             HttpMethod.Get, "/admin/ai-quality/drift/eval-trend?feature=__no_such_feature__&limit=5");
         var response = await _fixture.Client.SendAsync(request, TestContext.Current.CancellationToken);
 
         Assert.SkipWhen(IntegrationSkip.Unavailable(response), "endpoint not deployed");
-        Assert.SkipWhen(
-            response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden,
-            "test user is not admin");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         using var doc = JsonDocument.Parse(

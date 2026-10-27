@@ -8,12 +8,11 @@ namespace TextStack.IntegrationTests;
 /// Integration tests for the admin agent-run transcript endpoints (AI-045), against the live API on
 /// the admin host (textstack.dev). Mirrors the Study Buddy live-server pattern: auth + validation +
 /// not-found paths are asserted without needing seeded rows (an empty agent_run table still returns a
-/// well-formed page), and the list/detail shapes are sanity-checked. A run requires admin auth via the
-/// fixture cookie (test-login); when unavailable, the relevant tests SKIP rather than false-pass.
+/// well-formed page), and the list/detail shapes are sanity-checked. A run requires the fixture's admin
+/// session; without one the relevant tests skip locally and fail in CI (#990).
 ///
-/// To run: requires `docker compose up` (API on :8080) with `ENABLE_TEST_AUTH=true`. The fixture's
-/// test user must be an admin for the authed assertions; otherwise AdminAuth returns 401/403 and those
-/// tests are skipped via the IsAuthenticated / status guards.
+/// To run: requires `docker compose up` (API on :8080) with `ENABLE_TEST_AUTH=true`. The authed
+/// assertions log in as ADMIN_EMAIL / ADMIN_PASSWORD (see <see cref="AuthenticatedApiFixture"/>).
 /// </summary>
 public class AdminAgentRunsEndpointTests : IClassFixture<AuthenticatedApiFixture>
 {
@@ -36,16 +35,12 @@ public class AdminAgentRunsEndpointTests : IClassFixture<AuthenticatedApiFixture
     [Fact]
     public async Task GetAgentRuns_Authed_ReturnsPagedShape_ListOmitsStepsJson()
     {
-        Assert.SkipUnless(_fixture.IsAuthenticated, "auth unavailable");
+        _fixture.RequireAdmin();
 
         var request = _fixture.CreateAdminRequest(HttpMethod.Get, "/admin/ai-quality/agent-runs?limit=5");
         var response = await _fixture.Client.SendAsync(request, TestContext.Current.CancellationToken);
 
         Assert.SkipWhen(IntegrationSkip.Unavailable(response), "endpoint not deployed");
-        // Test user may not be admin in this environment → AdminAuth rejects; skip rather than fail.
-        Assert.SkipWhen(
-            response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden,
-            "test user is not admin");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         using var doc = JsonDocument.Parse(
@@ -69,16 +64,13 @@ public class AdminAgentRunsEndpointTests : IClassFixture<AuthenticatedApiFixture
     [Fact]
     public async Task GetAgentRuns_AgentFilter_ReturnsOnlyMatching()
     {
-        Assert.SkipUnless(_fixture.IsAuthenticated, "auth unavailable");
+        _fixture.RequireAdmin();
 
         var request = _fixture.CreateAdminRequest(
             HttpMethod.Get, "/admin/ai-quality/agent-runs?agent=crew.autopublish&limit=10");
         var response = await _fixture.Client.SendAsync(request, TestContext.Current.CancellationToken);
 
         Assert.SkipWhen(IntegrationSkip.Unavailable(response), "endpoint not deployed");
-        Assert.SkipWhen(
-            response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden,
-            "test user is not admin");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         using var doc = JsonDocument.Parse(
@@ -106,15 +98,12 @@ public class AdminAgentRunsEndpointTests : IClassFixture<AuthenticatedApiFixture
     [Fact]
     public async Task GetAgentRun_AuthedUnknownId_NotFound()
     {
-        Assert.SkipUnless(_fixture.IsAuthenticated, "auth unavailable");
+        _fixture.RequireAdmin();
 
         var request = _fixture.CreateAdminRequest(
             HttpMethod.Get, $"/admin/ai-quality/agent-runs/{Guid.NewGuid()}");
         var response = await _fixture.Client.SendAsync(request, TestContext.Current.CancellationToken);
 
-        Assert.SkipWhen(
-            response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden,
-            "test user is not admin");
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 }
