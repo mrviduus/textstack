@@ -130,7 +130,8 @@ public class VocabularyAntiSpiralEndpointTests : IClassFixture<LiveApiFixture>, 
     {
         var request = _auth.CreateRequest(HttpMethod.Post, $"/me/vocabulary/words/{Guid.NewGuid()}/unretire");
         var response = await _auth.Client.SendAsync(request, TestContext.Current.CancellationToken);
-        Assert.SkipWhen(IntegrationSkip.Unavailable(response), "endpoint unavailable (404/500)");
+        // No IntegrationSkip.Unavailable here: 404 IS the expected answer, so that guard skipped this
+        // test on every run instead of letting it pass.
         Assert.SkipUnless(_auth.IsAuthenticated, "test auth unavailable");
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);

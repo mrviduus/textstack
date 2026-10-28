@@ -1,0 +1,7 @@
+# CI-only overlay for the `docker` job's integration run: publishes Postgres on the runner's
+# loopback so the DB-backed integration tests (TEST_DB_CONNECTION) can reach it. Without it they
+# skip — green with nothing asserted. Production compose exposes no db port, on purpose.
+services:
+  db:
+    ports:
+      - "127.0.0.1:5432:5432"

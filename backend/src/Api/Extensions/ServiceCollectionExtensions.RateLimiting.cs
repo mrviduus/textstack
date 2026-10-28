@@ -69,13 +69,15 @@ public static partial class ServiceCollectionExtensions
             });
             // Device Authorization Grant (RFC 8628, AI-050a) — all per-IP.
             // device-code: CLI requests a device_code; one per CLI session, 5/min is ample.
+            // Configurable (RateLimits:DeviceCodePermitLimit) for the integration suite only.
+            var deviceCodePermitLimit = rateLimits.EffectiveDeviceCodePermitLimit;
             options.AddPolicy("device-code", httpContext =>
             {
                 var ip = IpPartitionKey(httpContext.Connection.RemoteIpAddress) ?? "unknown";
                 return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
                 {
                     Window = TimeSpan.FromMinutes(1),
-                    PermitLimit = 5,
+                    PermitLimit = deviceCodePermitLimit,
                     QueueLimit = 0,
                 });
             });

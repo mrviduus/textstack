@@ -212,7 +212,7 @@ Test naming convention: `{MethodName}_{Scenario}_{ExpectedResult}`
 
 ```bash
 CLIP_PERMIT_LIMIT=200 ACCOUNT_DELETE_PERMIT_LIMIT=50 GUEST_SESSION_PERMIT_LIMIT=50 \
-  USER_LOGIN_PERMIT_LIMIT=100 \
+  USER_LOGIN_PERMIT_LIMIT=100 DEVICE_CODE_PERMIT_LIMIT=50 \
   docker compose up -d --no-deps --force-recreate api
 dotnet test tests/TextStack.IntegrationTests
 docker compose up -d --no-deps --force-recreate api   # back to production values

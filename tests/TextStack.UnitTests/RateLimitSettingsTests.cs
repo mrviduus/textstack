@@ -69,6 +69,14 @@ public class RateLimitSettingsTests
     }
 
     [Fact]
+    public void DeviceCodePermitLimit_UnconfiguredConfiguredAndInvalid_BehavesLikeGuestKnob()
+    {
+        Assert.Equal(5, Bind().EffectiveDeviceCodePermitLimit);
+        Assert.Equal(50, Bind(("RateLimits:DeviceCodePermitLimit", "50")).EffectiveDeviceCodePermitLimit);
+        Assert.Equal(5, Bind(("RateLimits:DeviceCodePermitLimit", "0")).EffectiveDeviceCodePermitLimit);
+    }
+
+    [Fact]
     public void AccountDeletePermitLimit_UnconfiguredConfiguredAndInvalid_BehavesLikeGuestKnob()
     {
         Assert.Equal(3, Bind().EffectiveAccountDeletePermitLimit);

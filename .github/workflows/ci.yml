@@ -590,6 +590,7 @@ jobs:
           USER_LOGIN_PERMIT_LIMIT=100
           CLIP_PERMIT_LIMIT=200
           ACCOUNT_DELETE_PERMIT_LIMIT=50
+          DEVICE_CODE_PERMIT_LIMIT=50
           GUEST_DAILY_ENRICHMENT_CAP=3
           EOF
 
@@ -607,8 +608,9 @@ jobs:
       - name: Build containers
         run: docker compose -f docker-compose.yml -f .github/docker-compose.ci.yml build
 
+      # The ci-db overlay publishes Postgres on loopback for the DB-backed integration tests.
       - name: Start services
-        run: docker compose up -d
+        run: docker compose -f docker-compose.yml -f .github/docker-compose.ci-db.yml up -d
 
       - name: Wait for API health
         run: |
@@ -636,6 +638,8 @@ jobs:
         run: dotnet test tests/TextStack.IntegrationTests --filter "FullyQualifiedName!~RateLimitEnforcement"
         env:
           API_URL: http://localhost:8080
+          # DB-backed tests (DeviceAuth, RefreshTokenHardening, UserBookOriginalFile, …) skip without it.
+          TEST_DB_CONNECTION: "Host=localhost;Port=5432;Database=books;Username=app;Password=changeme"
 
       # Restarting the API drops the in-memory limiter partitions, so this starts from a full
       # bucket and cannot be starved by the run above.

@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **CI** — integration job reaches Postgres (`TEST_DB_CONNECTION`, loopback-only overlay), so 9 DB-backed tests run instead of skipping; `RateLimits:DeviceCodePermitLimit` knob (prod 5); unretire-404 test no longer skips itself — infra, tests
 - **Infra** — migration `0016`: composite FKs — a highlight's chapter belongs to the highlight's own book, not just the same kind (#998) — infra
 - **Ops** — SSG frozen: no nightly Full rebuild, no SSG age alarm; pages still served, rebuild by hand (admin, `make rebuild-ssg`, deploy `rebuild_ssg`) (#992) — infra · [details](docs/changelog-archive/2026-H2.md#2026-10-27-ssg-frozen)
 - **Library** — re-uploading a deleted file brings its highlights (by chapter slug) and reading sessions back; migration `0015` keeps the file's sha256 on them at delete (#983) — backend, worker, infra
