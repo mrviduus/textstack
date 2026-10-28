@@ -285,9 +285,7 @@ public sealed class ChapterReviewService(
             return (null, new(404, new("not_found", $"No chapter '{slug}' in this book")));
 
         var bookId = userBookId ?? editionId!.Value;
-        // ponytail: reads every insight of the book and keeps the reviews; a reviews-only query if books get hundreds.
-        var reviewRows = (await insights.ListForBookAsync(userId, userBookId, editionId, ct))
-            .Where(i => i.ReviewJson != null && i.ChapterSlug != null);
+        var reviewRows = await insights.ListReviewsForBookAsync(userId, userBookId, editionId, ct);
         var reviews = reviewRows
             .Select(r => (r.ChapterSlug, Review: ReadStored(r.ReviewJson), Chapter: chapters.FirstOrDefault(c => c.Slug == r.ChapterSlug)))
             .Where(r => r.Review is not null)

@@ -499,6 +499,7 @@ public static class ChapterReconciler
         IInsightRepository repository, IDbContextTransaction tx, Guid? userBookId, Guid? editionId,
         IReadOnlyDictionary<string, SlugMove> moves, ILogger? logger, CancellationToken ct)
     {
+        if (moves.Count == 0) return;
         var insights = await repository.ListAllReadersChapterInsightsAsync(userBookId, editionId, tx, ct);
         var moved = InsightMoves(insights, moves, (i, to) => logger?.LogWarning(
             "Re-ingest: insight {InsightId} on chapter {From} cannot move to {To}; the user already has one there",

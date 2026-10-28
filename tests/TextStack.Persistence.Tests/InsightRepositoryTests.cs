@@ -94,6 +94,33 @@ public class InsightRepositoryTests(PostgresFixture db)
     }
 
     [Fact]
+    public async Task ListReviewsForBookAsync_ReturnsReviewsOnly()
+    {
+        var (user, book) = await db.NewReaderWithBookAsync();
+        await _repo.SaveAsync(Insight(user, book, "1-intro", "plain"), Ct);
+        await _repo.SaveAsync(Insight(user, book, null, "book-level"), Ct);
+        await using var ef = db.NewDbContext();
+        await using (var tx = await ef.BeginTransactionAsync(Ct))
+        {
+            await _repo.SaveReviewAsync(Insight(user, book, "2-next", "review", reviewJson: "{}"), tx, Ct);
+            await tx.CommitAsync(Ct);
+        }
+
+        var reviews = await _repo.ListReviewsForBookAsync(user, book, null, Ct);
+
+        Assert.Equal("2-next", Assert.Single(reviews).ChapterSlug);
+    }
+
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    public async Task ListForBookAsync_NotExactlyOneBook_Throws(bool userBook, bool edition)
+    {
+        await Assert.ThrowsAsync<ArgumentException>(() => _repo.ListForBookAsync(
+            Guid.NewGuid(), userBook ? Guid.NewGuid() : null, edition ? Guid.NewGuid() : null, Ct));
+    }
+
+    [Fact]
     public async Task SaveReviewAsync_OverPlainInsight_ReplacesInPlace_AndRollsBackWithTheTransaction()
     {
         var (user, book) = await db.NewReaderWithBookAsync();

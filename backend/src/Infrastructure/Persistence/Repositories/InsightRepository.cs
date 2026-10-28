@@ -26,10 +26,26 @@ public sealed class InsightRepository(NpgsqlDataSource dataSource) : IInsightRep
     public async Task<IReadOnlyList<BookInsight>> ListForBookAsync(
         Guid userId, Guid? userBookId, Guid? editionId, CancellationToken ct)
     {
+        RequireOneBook(userBookId, editionId);
         // One of the two ids is null, and "= NULL" matches nothing: the predicate is the other one.
         const string sql = $"""
             SELECT {Columns} FROM book_insight
             WHERE user_id = @userId AND (user_book_id = @userBookId OR edition_id = @editionId)
+            """;
+        await using var conn = await dataSource.OpenConnectionAsync(ct);
+        var rows = await conn.QueryAsync<BookInsight>(new CommandDefinition(
+            sql, new { userId, userBookId, editionId }, cancellationToken: ct));
+        return rows.AsList();
+    }
+
+    public async Task<IReadOnlyList<BookInsight>> ListReviewsForBookAsync(
+        Guid userId, Guid? userBookId, Guid? editionId, CancellationToken ct)
+    {
+        RequireOneBook(userBookId, editionId);
+        const string sql = $"""
+            SELECT {Columns} FROM book_insight
+            WHERE user_id = @userId AND (user_book_id = @userBookId OR edition_id = @editionId)
+              AND review_json IS NOT NULL AND chapter_slug IS NOT NULL
             """;
         await using var conn = await dataSource.OpenConnectionAsync(ct);
         var rows = await conn.QueryAsync<BookInsight>(new CommandDefinition(
@@ -83,8 +99,9 @@ public sealed class InsightRepository(NpgsqlDataSource dataSource) : IInsightRep
     public async Task<IReadOnlyList<BookInsight>> ListAllReadersChapterInsightsAsync(
         Guid? userBookId, Guid? editionId, IDbContextTransaction tx, CancellationToken ct)
     {
-        const string sql = $"""
-            SELECT {Columns} FROM book_insight
+        RequireOneBook(userBookId, editionId);
+        const string sql = """
+            SELECT id, user_id, chapter_slug FROM book_insight
             WHERE (user_book_id = @userBookId OR edition_id = @editionId) AND chapter_slug IS NOT NULL
             """;
         var t = tx.GetDbTransaction();
@@ -109,6 +126,13 @@ public sealed class InsightRepository(NpgsqlDataSource dataSource) : IInsightRep
             ids = moves.Select(m => m.Id).ToArray(),
             slugs = moves.Select(m => m.To).ToArray(),
         }, t, cancellationToken: ct));
+    }
+
+    /// <summary>The OR predicates above read one book only if exactly one id is set — a caller bug otherwise.</summary>
+    private static void RequireOneBook(Guid? userBookId, Guid? editionId)
+    {
+        if (userBookId.HasValue == editionId.HasValue)
+            throw new ArgumentException("Exactly one of userBookId or editionId must be set.");
     }
 
     /// <summary>The unique index of the insight's book kind — a closed choice between two constants.</summary>

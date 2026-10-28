@@ -29,7 +29,7 @@ public sealed class ReviewQuestionService(IAppDbContext db, IInsightRepository i
         if (questions.Count == 0) return new(total, []);
 
         // review_question → book_insight was an EF join; book_insight is Dapper now (ADR-028).
-        // The FK cascades, so every question's insight exists.
+        // The FK cascades; a question whose insight was deleted between the two reads is skipped.
         var insightById = (await insights.ListByIdsAsync(
                 userId, questions.Select(q => q.BookInsightId).Distinct().ToList(), ct))
             .ToDictionary(i => i.Id);

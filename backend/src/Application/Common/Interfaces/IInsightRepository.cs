@@ -6,7 +6,7 @@ namespace Application.Common.Interfaces;
 /// <summary>
 /// <see cref="BookInsight"/> persistence (table <c>book_insight</c>) — the first module off EF Core
 /// (ADR-028; rules in docs/01-architecture/data-access.md). A book is named by exactly one of
-/// <c>userBookId</c> (an upload) or <c>editionId</c> (a catalog book).
+/// <c>userBookId</c> (an upload) or <c>editionId</c> (a catalog book); both or neither throws.
 /// <para>Methods taking an <see cref="IDbContextTransaction"/> run inside the caller's EF transaction,
 /// so their writes commit or roll back with the EF writes around them.</para>
 /// </summary>
@@ -14,6 +14,9 @@ public interface IInsightRepository
 {
     /// <summary>One reader's insights on one book, unordered.</summary>
     Task<IReadOnlyList<BookInsight>> ListForBookAsync(Guid userId, Guid? userBookId, Guid? editionId, CancellationToken ct);
+
+    /// <summary>One reader's chapter reviews on one book (rows with <c>ReviewJson</c> and a chapter slug).</summary>
+    Task<IReadOnlyList<BookInsight>> ListReviewsForBookAsync(Guid userId, Guid? userBookId, Guid? editionId, CancellationToken ct);
 
     /// <summary>The reader's insights among <paramref name="ids"/>; others' ids are skipped.</summary>
     Task<IReadOnlyList<BookInsight>> ListByIdsAsync(Guid userId, IReadOnlyCollection<Guid> ids, CancellationToken ct);
@@ -37,7 +40,8 @@ public interface IInsightRepository
 
     /// <summary>
     /// System operation (re-ingestion): EVERY reader's chapter insights on one book — the ones whose
-    /// slug may have to follow a chapter.
+    /// slug may have to follow a chapter. Only <c>Id</c>, <c>UserId</c> and <c>ChapterSlug</c> are
+    /// loaded: it runs inside the chapter rewrite's transaction, and the text is not needed.
     /// </summary>
     Task<IReadOnlyList<BookInsight>> ListAllReadersChapterInsightsAsync(
         Guid? userBookId, Guid? editionId, IDbContextTransaction tx, CancellationToken ct);
