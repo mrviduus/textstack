@@ -9,8 +9,9 @@
 --          chapter of edition B passed. Only highlight create's lookup refused it.
 -- Issue: https://github.com/mrviduus/textstack/issues/998
 -- Compatibility: highlight create and upload re-attach (#983) set the chapter from the same book.
---        Prod backup 2026-10-27: see the PR. A guard refuses, by name, any violating row written
---        since. Locks: SHARE on chapters / user_chapters while the unique indexes build (reads go
+--        Prod backup 2026-10-27: 0 of 39 highlights have a chapter of another book; up (22 ms on
+--        40,722 chapters), down, up ran clean on it. A guard refuses, by name, any violating row
+--        written since. Locks: SHARE on chapters / user_chapters while the unique indexes build (reads go
 --        on, writes wait), ACCESS EXCLUSIVE on highlights; all taken up front, 5 s lock timeout,
 --        rerun if it aborts.
 -- Down:  0016_highlights_chapter_same_book.down.sql drops the FKs and unique constraints. No data
