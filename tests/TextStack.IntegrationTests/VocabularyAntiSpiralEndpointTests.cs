@@ -137,5 +137,17 @@ public class VocabularyAntiSpiralEndpointTests : IClassFixture<LiveApiFixture>, 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
+    [Fact]
+    public async Task Unretire_GetMethod_Returns405()
+    {
+        // A missing route is a 404 too, so the test above alone would pass without the endpoint.
+        // A wrong method on an existing route is a 405: the route is there.
+        var request = _auth.CreateRequest(HttpMethod.Get, $"/me/vocabulary/words/{Guid.NewGuid()}/unretire");
+        var response = await _auth.Client.SendAsync(request, TestContext.Current.CancellationToken);
+        Assert.SkipUnless(_auth.IsAuthenticated, "test auth unavailable");
+
+        Assert.Equal(HttpStatusCode.MethodNotAllowed, response.StatusCode);
+    }
+
     #endregion
 }
