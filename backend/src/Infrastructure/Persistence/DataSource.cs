@@ -16,8 +16,10 @@ public static class DataSource
     /// Process-wide Dapper setting: snake_case columns map to PascalCase properties without aliases.
     /// A module initializer, so it holds however a connection is built (tests, CLI), not only here.
     /// </summary>
+#pragma warning disable CA2255 // deliberate: this assembly is the app's persistence layer, not a reusable library
     [ModuleInitializer]
     internal static void ConfigureDapper() => DefaultTypeMap.MatchNamesWithUnderscores = true;
+#pragma warning restore CA2255
 
     public static NpgsqlDataSource Create(string connectionString)
     {
