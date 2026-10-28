@@ -215,6 +215,9 @@ CLIP_PERMIT_LIMIT=200 ACCOUNT_DELETE_PERMIT_LIMIT=50 GUEST_SESSION_PERMIT_LIMIT=
   USER_LOGIN_PERMIT_LIMIT=100 DEVICE_CODE_PERMIT_LIMIT=50 \
   docker compose up -d --no-deps --force-recreate api
 dotnet test tests/TextStack.IntegrationTests
+# DB-backed tests (DeviceAuth, RefreshTokenHardening, …) skip unless Postgres is reachable: start the
+# stack with `-f docker-compose.yml -f .github/docker-compose.ci-db.yml` and set
+# TEST_DB_CONNECTION="Host=localhost;Port=5432;Database=<db>;Username=<user>;Password=<pw>"
 docker compose up -d --no-deps --force-recreate api   # back to production values
 ```
 
