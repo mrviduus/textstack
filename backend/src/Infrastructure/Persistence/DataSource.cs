@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Dapper;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
@@ -11,11 +12,15 @@ namespace Infrastructure.Persistence;
 /// </summary>
 public static class DataSource
 {
+    /// <summary>
+    /// Process-wide Dapper setting: snake_case columns map to PascalCase properties without aliases.
+    /// A module initializer, so it holds however a connection is built (tests, CLI), not only here.
+    /// </summary>
+    [ModuleInitializer]
+    internal static void ConfigureDapper() => DefaultTypeMap.MatchNamesWithUnderscores = true;
+
     public static NpgsqlDataSource Create(string connectionString)
     {
-        // Process-wide Dapper setting: snake_case columns map to PascalCase properties without aliases.
-        DefaultTypeMap.MatchNamesWithUnderscores = true;
-
         var builder = new NpgsqlDataSourceBuilder(connectionString);
         builder.UseVector();
         return builder.Build();
