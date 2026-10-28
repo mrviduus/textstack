@@ -13,12 +13,6 @@ public sealed class PostgresFtsOptions
     public const string SectionName = "Search:PostgresFts";
 
     /// <summary>
-    /// PostgreSQL connection string.
-    /// If not set, uses the default application connection string.
-    /// </summary>
-    public string? ConnectionString { get; set; }
-
-    /// <summary>
     /// Highlight options for ts_headline.
     /// </summary>
     public HighlightOptions Highlights { get; set; } = HighlightOptions.Default;
