@@ -64,7 +64,6 @@ public interface IAppDbContext
     DbSet<EvalRun> EvalRuns { get; }
     DbSet<AgentRun> AgentRuns { get; }
     DbSet<TutorSession> TutorSessions { get; }
-    DbSet<BookInsight> BookInsights { get; }
     DbSet<ReviewQuestion> ReviewQuestions { get; }
 
     Task<int> SaveChangesAsync(CancellationToken ct = default);

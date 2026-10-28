@@ -62,6 +62,7 @@ public static class InsightsEndpoints
         HttpContext httpContext,
         AuthService authService,
         IAppDbContext db,
+        IInsightRepository insights,
         [FromQuery] Guid? userBookId,
         [FromQuery] Guid? editionId,
         CancellationToken ct = default)
@@ -89,10 +90,7 @@ public static class InsightsEndpoints
             if (!exists) return Results.NotFound("Edition not found");
         }
 
-        var rows = await db.BookInsights
-            .Where(i => i.UserId == userId.Value
-                && (userBookId.HasValue ? i.UserBookId == userBookId : i.EditionId == editionId))
-            .ToListAsync(ct);
+        var rows = await insights.ListForBookAsync(userId.Value, userBookId, editionId, ct);
 
         if (rows.Count == 0) return Results.Ok(Array.Empty<BookInsightDto>());
 
@@ -148,6 +146,7 @@ public static class InsightsEndpoints
         HttpContext httpContext,
         AuthService authService,
         IAppDbContext db,
+        IInsightRepository insights,
         CancellationToken ct)
     {
         var userId = httpContext.GetUserId(authService);
@@ -199,30 +198,6 @@ public static class InsightsEndpoints
         var now = DateTimeOffset.UtcNow;
 
         // Upsert: one insight per (user, book, chapter). See BookInsight for why replace, not append.
-        var existing = await db.BookInsights.FirstOrDefaultAsync(
-            i => i.UserId == userId.Value
-                && i.UserBookId == request.UserBookId
-                && i.EditionId == request.EditionId
-                && i.ChapterSlug == chapterSlug,
-            ct);
-
-        if (existing is not null)
-        {
-            // A structured review owns this slot (ADR-016 §3). Overwriting it here would silently
-            // drop review_json and orphan the chapter's SRS questions, so refuse and name the fix.
-            if (existing.ReviewJson is not null)
-                return Results.Json(new ReviewErrorDto(
-                    "review_exists",
-                    "This chapter has a structured review; replace it with save_chapter_review."),
-                    statusCode: StatusCodes.Status409Conflict);
-
-            existing.Text = request.Text;
-            existing.Question = request.Question;
-            existing.UpdatedAt = now;
-            await db.SaveChangesAsync(ct);
-            return Results.Ok(ToDto(existing));
-        }
-
         var insight = new BookInsight
         {
             Id = Guid.NewGuid(),
@@ -238,10 +213,19 @@ public static class InsightsEndpoints
             UpdatedAt = now,
         };
 
-        db.BookInsights.Add(insight);
-        await db.SaveChangesAsync(ct);
+        var saved = await insights.SaveAsync(insight, ct);
 
-        return Results.Created($"/me/insights/{insight.Id}", ToDto(insight));
+        // A structured review owns this slot (ADR-016 §3). Overwriting it here would silently
+        // drop review_json and orphan the chapter's SRS questions, so refuse and name the fix.
+        if (saved is null)
+            return Results.Json(new ReviewErrorDto(
+                "review_exists",
+                "This chapter has a structured review; replace it with save_chapter_review."),
+                statusCode: StatusCodes.Status409Conflict);
+
+        return saved.Id == insight.Id
+            ? Results.Created($"/me/insights/{saved.Id}", ToDto(saved))
+            : Results.Ok(ToDto(saved));
     }
 
     /// <summary>
@@ -252,24 +236,18 @@ public static class InsightsEndpoints
         Guid id,
         HttpContext httpContext,
         AuthService authService,
-        IAppDbContext db,
+        IInsightRepository insights,
         CancellationToken ct = default)
     {
         var userId = httpContext.GetUserId(authService);
         if (userId == null) return Results.Unauthorized();
 
-        var insight = await db.BookInsights
-            .FirstOrDefaultAsync(i => i.Id == id && i.UserId == userId.Value, ct);
-
-        if (insight is null) return Results.NotFound();
-
         // Hard delete, matching the entity's stated posture: a конспект, not a log. A soft-delete
         // column would also have to enter both partial unique index filters, which is where the
         // NULLS NOT DISTINCT rule that protects the book-level row lives.
-        db.BookInsights.Remove(insight);
-        await db.SaveChangesAsync(ct);
-
-        return Results.NoContent();
+        return await insights.DeleteAsync(userId.Value, id, ct)
+            ? Results.NoContent()
+            : Results.NotFound();
     }
 
     private static BookInsightDto ToDto(BookInsight i) => new(

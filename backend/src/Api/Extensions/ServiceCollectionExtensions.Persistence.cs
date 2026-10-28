@@ -11,8 +11,8 @@ namespace Api.Extensions;
 public static partial class ServiceCollectionExtensions
 {
     /// <summary>
-    /// Core persistence: ICurrentSite, AppDbContext (Npgsql + pgvector + snake_case),
-    /// the IAppDbContext facade, and local file storage.
+    /// Core persistence: ICurrentSite, the shared NpgsqlDataSource (ADR-028), AppDbContext on it
+    /// (Npgsql + pgvector + snake_case), the IAppDbContext facade, and local file storage.
     /// R1a: ICurrentSite MUST stay registered before AddDbContext.
     /// </summary>
     public static IServiceCollection AddTextStackPersistence(
@@ -21,8 +21,10 @@ public static partial class ServiceCollectionExtensions
         services.AddSingleton<ICurrentSite>(
             sp => new CurrentSite(sp.GetRequiredService<IConfiguration>()));
 
-        services.AddDbContext<AppDbContext>(options =>
-            options.UseTextStackNpgsql(connectionString)
+        services.AddTextStackDataAccess(connectionString);
+
+        services.AddDbContext<AppDbContext>((sp, options) =>
+            options.UseTextStackNpgsql(sp.GetRequiredService<Npgsql.NpgsqlDataSource>())
                 .ConfigureWarnings(w => w
                     .Ignore(RelationalEventId.PendingModelChangesWarning)
                     // Several of these fire at every startup, in production too: Edition

@@ -9,7 +9,7 @@ namespace Domain.Entities;
 /// did not change — matched by <see cref="PromptHash"/> — and deletes the ones that went away.</para>
 ///
 /// <para>SRS fields mean exactly what they mean on <see cref="VocabularyWord"/>; the math is the same
-/// <c>SrsEngine</c>. Plain POCO; EF mapping in AppDbContext.Insights.cs.</para>
+/// <c>SrsEngine</c>. Plain POCO; EF mapping in AppDbContext.ReviewQuestions.cs.</para>
 /// </summary>
 public class ReviewQuestion : ISiteScoped
 {
@@ -42,5 +42,4 @@ public class ReviewQuestion : ISiteScoped
 
     public User User { get; set; } = null!;
     public Site Site { get; set; } = null!;
-    public BookInsight BookInsight { get; set; } = null!;
 }

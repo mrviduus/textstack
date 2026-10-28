@@ -20,6 +20,7 @@ namespace Worker.Services;
 public class UserIngestionService
 {
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
+    private readonly IInsightRepository _insights;
     private readonly IFileStorageService _storage;
     private readonly IExtractorRegistry _extractorRegistry;
     private readonly IImageOptimizer _imageOptimizer;
@@ -28,6 +29,7 @@ public class UserIngestionService
 
     public UserIngestionService(
         IDbContextFactory<AppDbContext> dbFactory,
+        IInsightRepository insights,
         IFileStorageService storage,
         IExtractorRegistry extractorRegistry,
         IImageOptimizer imageOptimizer,
@@ -35,6 +37,7 @@ public class UserIngestionService
         ILogger<UserIngestionService> logger)
     {
         _dbFactory = dbFactory;
+        _insights = insights;
         _storage = storage;
         _extractorRegistry = extractorRegistry;
         _imageOptimizer = imageOptimizer;
@@ -280,7 +283,7 @@ public class UserIngestionService
 
             // In place, keeping Ids (ChapterReconciler): a Retry on a Ready book used to recreate
             // every chapter and orphan the reader's highlights and bookmarks.
-            await ChapterReconciler.ReconcileUserBookAsync(db, job.UserBook, chapters, ct, _logger);
+            await ChapterReconciler.ReconcileUserBookAsync(db, _insights, job.UserBook, chapters, ct, _logger);
 
             if (qualityScores.Count > 0)
             {

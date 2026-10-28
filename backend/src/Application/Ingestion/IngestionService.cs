@@ -33,7 +33,7 @@ public record ExtractionSummary(
 public record ExtractionWarningDto(int Code, string Message);
 
 public class IngestionService(
-    IAppDbContext db, IFileStorageService storage, ILogger<IngestionService> logger)
+    IAppDbContext db, IInsightRepository insights, IFileStorageService storage, ILogger<IngestionService> logger)
 {
     public static readonly TimeSpan StuckJobTimeout = TimeSpan.FromMinutes(10);
     public const int MaxAttempts = 3;
@@ -137,7 +137,7 @@ public class IngestionService(
                 UpdatedAt = DateTimeOffset.UtcNow
             });
         }
-        await ChapterReconciler.ReconcileEditionAsync(db, job.EditionId, chapters, ct, logger);
+        await ChapterReconciler.ReconcileEditionAsync(db, insights, job.EditionId, chapters, ct, logger);
 
         // Update edition metadata if empty
         if (string.IsNullOrEmpty(job.Edition.Description) && !string.IsNullOrEmpty(parsed.Description))

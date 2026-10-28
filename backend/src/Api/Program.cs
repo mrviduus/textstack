@@ -42,7 +42,7 @@ var storagePath = builder.Configuration["Storage:RootPath"] ?? "/storage";
 // Persistence, search, RAG, product services, workers, and rate-limiting.
 builder.Services
     .AddTextStackPersistence(connectionString, builder.Configuration)
-    .AddTextStackSearchStack(connectionString)
+    .AddTextStackSearchStack()
     .AddTextStackContentServices(builder.Configuration)
     .AddTextStackHostedServices()
     .AddTextStackRateLimiting(builder.Configuration);

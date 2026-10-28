@@ -33,17 +33,20 @@ public class StandardEbooksSyncService
     private const string GitHubCloneUrl = "https://github.com/standardebooks";
 
     private readonly IAppDbContext _db;
+    private readonly IInsightRepository _insights;
     private readonly IFileStorageService _storage;
     private readonly ILogger<StandardEbooksSyncService> _logger;
     private readonly HttpClient _httpClient;
 
     public StandardEbooksSyncService(
         IAppDbContext db,
+        IInsightRepository insights,
         IFileStorageService storage,
         ILogger<StandardEbooksSyncService> logger,
         HttpClient httpClient)
     {
         _db = db;
+        _insights = insights;
         _storage = storage;
         _logger = logger;
         _httpClient = httpClient;
@@ -182,7 +185,7 @@ public class StandardEbooksSyncService
             total, alreadyImportedCount, missing.Count);
 
         // 4. Clone and import missing books
-        var importService = new TextStackImportService(_db, _storage,
+        var importService = new TextStackImportService(_db, _insights, _storage,
             _logger as ILogger<TextStackImportService> ??
             Microsoft.Extensions.Logging.Abstractions.NullLogger<TextStackImportService>.Instance);
 

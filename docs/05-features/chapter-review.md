@@ -49,7 +49,7 @@ about it.` plus the id line (`(TextStack: book <id>, chapter <slug>)` or `(TextS
 
 | Seam | Where | Note |
 |---|---|---|
-| `BookInsight`, one per (user, book, slug), save replaces | `Domain/Entities/BookInsight.cs:23-27`; `Infrastructure/Persistence/AppDbContext.Insights.cs:42-49` | XOR CHECK, `NULLS NOT DISTINCT` |
+| `BookInsight`, one per (user, book, slug), save replaces | `Domain/Entities/BookInsight.cs:23-27`; `database/migrations/0000_baseline.up.sql` (`book_insight`); upserts in `Infrastructure/Persistence/Repositories/InsightRepository.cs` (ADR-028) | XOR CHECK, `NULLS NOT DISTINCT` |
 | `/me/insights` | `Api/Endpoints/InsightsEndpoints.cs:49-57`; slug check `:175-193`; upsert `:199` | logic inline in endpoint |
 | `save_insight` / `get_my_insights` | `Ai/TextStack.Ai.Mcp/Tools/McpToolCatalog.cs:781`, `:836` | the SDK does **not** validate `InputSchema` (`:760-762`) |
 | Bridge error handling | `Http/TextStackApiClient.cs:373-392` | **any non-2xx → null**; server error text never reaches the model |
@@ -355,8 +355,8 @@ Files:
   `ReviewMethod.md`; `Application.csproj` (EmbeddedResource)
 - Contracts: `ChapterReview/ChapterReviewDtos.cs` (context, input, stored review, save result,
   error, due item, answer req/resp); `Insights/InsightDtos.cs` (+`Review`)
-- Infrastructure: `Persistence/AppDbContext.Insights.cs` (`review_json` jsonb + `ReviewQuestion`
-  mapping, site filter, cascades, indexes), `AppDbContext.cs` DbSet, `Migrations/*_AddChapterReview.cs`
+- Infrastructure: `Persistence/Repositories/InsightRepository.cs` (`book_insight`, Dapper, ADR-028),
+  `Persistence/AppDbContext.ReviewQuestions.cs` (`ReviewQuestion` EF mapping, site filter, indexes), `AppDbContext.cs` DbSet, `Migrations/*_AddChapterReview.cs`
 - Api: `Endpoints/ChapterReviewEndpoints.cs` (4 routes), `InsightsEndpoints.cs` (409 + DTO
   `Review`), `Program.cs` (map), `Extensions/ServiceCollectionExtensions.Content.cs` (2 scoped
   services), `Extensions/ServiceCollectionExtensions.RateLimiting.cs` (`insights` per user)

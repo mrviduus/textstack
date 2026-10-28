@@ -28,8 +28,10 @@ var connectionString = builder.Configuration.GetConnectionString("Default")
 builder.Services.AddSingleton<Application.Common.Interfaces.ICurrentSite>(
     sp => new Infrastructure.Persistence.CurrentSite(sp.GetRequiredService<IConfiguration>()));
 
-builder.Services.AddDbContextFactory<AppDbContext>(options =>
-    options.UseTextStackNpgsql(connectionString)
+builder.Services.AddTextStackDataAccess(connectionString);
+
+builder.Services.AddDbContextFactory<AppDbContext>((sp, options) =>
+    options.UseTextStackNpgsql(sp.GetRequiredService<Npgsql.NpgsqlDataSource>())
         .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
 
 // Register IAppDbContext for scoped services (creates context via factory)
