@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace Infrastructure.Persistence;
 
@@ -8,14 +9,15 @@ namespace Infrastructure.Persistence;
 /// </summary>
 public static class AppDbContextOptions
 {
-    public static DbContextOptionsBuilder UseTextStackNpgsql(this DbContextOptionsBuilder options, string connectionString) =>
-        options.UseNpgsql(connectionString, o => o.UseVector()).UseSnakeCaseNamingConvention();
+    /// <summary>EF on the process's shared <see cref="DataSource"/>, so EF and Dapper use one pool.</summary>
+    public static DbContextOptionsBuilder UseTextStackNpgsql(this DbContextOptionsBuilder options, NpgsqlDataSource dataSource) =>
+        options.UseNpgsql(dataSource, o => o.UseVector()).UseSnakeCaseNamingConvention();
 
     /// <summary>Options for a context built by hand, outside DI (tests).</summary>
     public static DbContextOptions<AppDbContext> For(string connectionString)
     {
         var options = new DbContextOptionsBuilder<AppDbContext>();
-        options.UseTextStackNpgsql(connectionString);
+        options.UseTextStackNpgsql(DataSource.Create(connectionString));
         return options.Options;
     }
 }

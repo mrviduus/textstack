@@ -6,14 +6,14 @@ namespace Api.Extensions;
 public static partial class ServiceCollectionExtensions
 {
     /// <summary>
-    /// Search stack: the TextStack.Search library + the Postgres FTS provider.
+    /// Search stack: the TextStack.Search library + the Postgres FTS provider, on the shared
+    /// NpgsqlDataSource (registered by AddTextStackPersistence).
     /// </summary>
-    public static IServiceCollection AddTextStackSearchStack(this IServiceCollection services, string connectionString)
+    public static IServiceCollection AddTextStackSearchStack(this IServiceCollection services)
     {
         services.AddTextStackSearch();
         services.AddPostgresFtsProvider(
-            _ => () => new NpgsqlConnection(connectionString),
-            options => options.ConnectionString = connectionString);
+            sp => sp.GetRequiredService<NpgsqlDataSource>().CreateConnection);
 
         return services;
     }
