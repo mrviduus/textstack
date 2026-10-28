@@ -27,14 +27,15 @@ namespace Domain.Entities;
 /// freshness, and a writer that wants to add rather than replace reads the existing text first.</para>
 ///
 /// <para>Exactly one of <see cref="EditionId"/> (a catalog book) or <see cref="UserBookId"/> (the
-/// user's own upload) is set — enforced by a DB CHECK. Site-scoped (<see cref="ISiteScoped"/>) like
-/// the other per-user tables. Plain POCO; EF mapping in AppDbContext.Insights.cs.</para>
+/// user's own upload) is set — enforced by a DB CHECK. Plain POCO; persisted by Dapper through
+/// <c>IInsightRepository</c> (ADR-028), which writes <see cref="SiteId"/> but does not filter on it
+/// (single-site, ADR-007).</para>
 ///
 /// <para>Not the old <c>notes</c> table (removed, #932): its API was never wired up and it was
 /// hard-bound to an edition. The chat container this once contrasted itself against is gone — the
 /// conversation now happens in the reader's own assistant, which is the whole point of this table.</para>
 /// </summary>
-public class BookInsight : ISiteScoped
+public class BookInsight
 {
     public Guid Id { get; set; }
     public Guid UserId { get; set; }
@@ -74,10 +75,4 @@ public class BookInsight : ISiteScoped
 
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
-
-    // Navigation
-    public User User { get; set; } = null!;
-    public Site Site { get; set; } = null!;
-    public Edition? Edition { get; set; }
-    public UserBook? UserBook { get; set; }
 }

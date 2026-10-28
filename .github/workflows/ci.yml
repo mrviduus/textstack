@@ -275,6 +275,11 @@ jobs:
       - name: Search tests
         run: dotnet test tests/TextStack.Search.Tests --no-build
 
+      # Dapper repositories against real Postgres (ADR-028): Testcontainers starts its own
+      # pgvector:pg16 and builds the schema with database/migrate.sh. Uses the runner's Docker.
+      - name: Persistence tests
+        run: dotnet test tests/TextStack.Persistence.Tests --no-build
+
       # MCP over-the-wire integration suite (AI-053) — hermetic (loopback only, no
       # Postgres/Docker). In the solution, so --no-build reuses the Build step above.
       - name: MCP integration tests
@@ -624,6 +629,13 @@ jobs:
       # Idempotent, as in the e2e job.
       - name: Create admin user for integration tests
         run: docker compose exec -T api dotnet Api.dll create-admin admin@textstack.app admin Admin
+
+      # The baseline seed has no edition ChapterReviewEndpointTests can use, so the class skipped
+      # every run: green with the review round trip untested. Test data only; idempotent.
+      - name: Seed editions for chapter-review tests
+        run: >-
+          docker compose exec -T db sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" "$POSTGRES_DB"'
+          < tests/TextStack.IntegrationTests/Fixtures/chapter-review-editions.sql
 
       # Everything EXCEPT the rate-limit enforcement test. That one deliberately drains the whole
       # guest-session bucket (60 consecutive POST /auth/guest until one is rejected), and the bucket

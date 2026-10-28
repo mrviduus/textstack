@@ -67,6 +67,7 @@ dotnet test tests/TextStack.UnitTests
 dotnet test tests/TextStack.IntegrationTests
 dotnet test tests/TextStack.Extraction.Tests
 dotnet test tests/TextStack.Search.Tests
+dotnet test tests/TextStack.Persistence.Tests   # Dapper repositories on real Postgres (Testcontainers; needs Docker)
 dotnet test --filter "Name~TestMethodName"  # Single test
 pnpm -C apps/web test                       # Frontend unit tests (Vitest)
 pnpm -C apps/web test:watch                 # Watch mode
@@ -198,6 +199,7 @@ tests/
 ├── TextStack.IntegrationTests/    # API tests against running server (LiveApiFixture → localhost:8080, override via API_URL env)
 ├── TextStack.Extraction.Tests/    # Book parsing (EPUB/PDF)
 ├── TextStack.Search.Tests/        # Search logic
+├── TextStack.Persistence.Tests/   # Dapper repositories, Testcontainers Postgres built by database/migrate.sh (ADR-028)
 ├── TextStack.AiEvals/             # Eval runners on fake LLMs; live evals skip w/o OPENAI_API_KEY
 ├── TextStack.Ai.Mcp.Tests/        # MCP over-the-wire (loopback)
 apps/web/e2e/                      # Playwright E2E (chromium, mobile, admin projects)
@@ -214,6 +216,9 @@ Test naming convention: `{MethodName}_{Scenario}_{ExpectedResult}`
 CLIP_PERMIT_LIMIT=200 ACCOUNT_DELETE_PERMIT_LIMIT=50 GUEST_SESSION_PERMIT_LIMIT=50 \
   USER_LOGIN_PERMIT_LIMIT=100 \
   docker compose up -d --no-deps --force-recreate api
+# once per database: editions ChapterReviewEndpointTests needs (else it skips); idempotent
+docker compose exec -T db sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" "$POSTGRES_DB"' \
+  < tests/TextStack.IntegrationTests/Fixtures/chapter-review-editions.sql
 dotnet test tests/TextStack.IntegrationTests
 docker compose up -d --no-deps --force-recreate api   # back to production values
 ```

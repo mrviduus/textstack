@@ -95,7 +95,6 @@ internal sealed class CapturingDb : IAppDbContext
     public DbSet<TutorSession> TutorSessions => throw new NotSupportedException();
     public DbSet<ModelRegistration> Models => throw new NotSupportedException();
     public DbSet<ModelPromotion> ModelPromotions => throw new NotSupportedException();
-    public DbSet<BookInsight> BookInsights => throw new NotSupportedException();
     public DbSet<ReviewQuestion> ReviewQuestions => throw new NotSupportedException();
     public DbSet<McpAccessKey> McpAccessKeys => throw new NotSupportedException();
     public DbSet<OAuthClient> OAuthClients => throw new NotSupportedException();

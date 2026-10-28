@@ -1,5 +1,7 @@
 using System.Runtime.CompilerServices;
+using Application.Common.Interfaces;
 using Dapper;
+using Infrastructure.Persistence.Repositories;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using Pgvector.Npgsql;
@@ -28,7 +30,12 @@ public static class DataSource
         return builder.Build();
     }
 
-    /// <summary>Registers the data source as a singleton; DI disposes it (and its pool) on shutdown.</summary>
-    public static IServiceCollection AddTextStackDataSource(this IServiceCollection services, string connectionString) =>
-        services.AddSingleton(_ => Create(connectionString));
+    /// <summary>
+    /// The data source as a singleton (DI disposes it, and its pool, on shutdown) and the Dapper
+    /// repositories on it. Singletons: a repository holds nothing but the data source.
+    /// </summary>
+    public static IServiceCollection AddTextStackDataAccess(this IServiceCollection services, string connectionString) =>
+        services
+            .AddSingleton(_ => Create(connectionString))
+            .AddSingleton<IInsightRepository, InsightRepository>();
 }

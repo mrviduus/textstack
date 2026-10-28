@@ -21,7 +21,7 @@ public class IngestionRetryCapTests
     {
         var db = new Mock<IAppDbContext>();
         db.Setup(x => x.IngestionJobs).Returns(() => new FakeDbSet<IngestionJob>(_jobs));
-        _service = new IngestionService(db.Object, Mock.Of<IFileStorageService>(), NullLogger<IngestionService>.Instance);
+        _service = new IngestionService(db.Object, Mock.Of<IInsightRepository>(), Mock.Of<IFileStorageService>(), NullLogger<IngestionService>.Instance);
     }
 
     private IngestionJob AddJob(JobStatus status, int attempts, DateTimeOffset? startedAt = null)

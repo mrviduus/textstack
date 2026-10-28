@@ -15,15 +15,18 @@ public record ImportResult(Guid EditionId, int ChapterCount, int ImageCount, boo
 public class TextStackImportService
 {
     private readonly IAppDbContext _db;
+    private readonly IInsightRepository _insights;
     private readonly IFileStorageService _storage;
     private readonly ILogger<TextStackImportService> _logger;
 
     public TextStackImportService(
         IAppDbContext db,
+        IInsightRepository insights,
         IFileStorageService storage,
         ILogger<TextStackImportService> logger)
     {
         _db = db;
+        _insights = insights;
         _storage = storage;
         _logger = logger;
     }
@@ -297,7 +300,7 @@ public class TextStackImportService
                 newChapters.Add(chapter);
             }
 
-            await ChapterReconciler.ReconcileEditionAsync(_db, edition.Id, newChapters, ct, _logger);
+            await ChapterReconciler.ReconcileEditionAsync(_db, _insights, edition.Id, newChapters, ct, _logger);
 
             // 9. Record new import
             _db.TextStackImports.Add(new TextStackImport

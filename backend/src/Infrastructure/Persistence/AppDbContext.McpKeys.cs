@@ -5,7 +5,7 @@ namespace Infrastructure.Persistence;
 
 public partial class AppDbContext
 {
-    // Instance (not static) like ConfigureInsights, and for the same reason: the query filter closes
+    // Instance (not static) like ConfigureReviewQuestions, and for the same reason: the query filter closes
     // over _currentSite. ConfigureUser next door is static, which is why this lives in its own file
     // rather than beside the other credential tables.
     private void ConfigureMcpKeys(ModelBuilder modelBuilder)

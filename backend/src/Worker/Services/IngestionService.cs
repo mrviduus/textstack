@@ -17,6 +17,7 @@ namespace Worker.Services;
 public class IngestionWorkerService
 {
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
+    private readonly IInsightRepository _insights;
     private readonly IFileStorageService _storage;
     private readonly IExtractorRegistry _extractorRegistry;
     private readonly IImageOptimizer _imageOptimizer;
@@ -25,6 +26,7 @@ public class IngestionWorkerService
 
     public IngestionWorkerService(
         IDbContextFactory<AppDbContext> dbFactory,
+        IInsightRepository insights,
         IFileStorageService storage,
         IExtractorRegistry extractorRegistry,
         IImageOptimizer imageOptimizer,
@@ -32,6 +34,7 @@ public class IngestionWorkerService
         ILogger<AppIngestion.IngestionService> ingestionLogger)
     {
         _dbFactory = dbFactory;
+        _insights = insights;
         _storage = storage;
         _extractorRegistry = extractorRegistry;
         _imageOptimizer = imageOptimizer;
@@ -44,7 +47,7 @@ public class IngestionWorkerService
         using var activity = IngestionActivitySource.Source.StartActivity("ingestion.job.pick");
 
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
-        var service = new AppIngestion.IngestionService(db, _storage, _ingestionLogger);
+        var service = new AppIngestion.IngestionService(db, _insights, _storage, _ingestionLogger);
         var job = await service.GetNextJobAsync(ct);
 
         activity?.SetTag("job.found", job is not null);
@@ -85,7 +88,7 @@ public class IngestionWorkerService
         string? failureReason = null;
 
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
-        var service = new AppIngestion.IngestionService(db, _storage, _ingestionLogger);
+        var service = new AppIngestion.IngestionService(db, _insights, _storage, _ingestionLogger);
 
         var job = await service.GetJobWithDetailsAsync(jobId, ct);
 
