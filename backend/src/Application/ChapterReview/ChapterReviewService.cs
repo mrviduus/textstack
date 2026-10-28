@@ -20,7 +20,8 @@ public sealed record ReviewResult<T>(T? Value, int Status, ReviewErrorDto? Error
 /// and only the structured result comes home. Spec: docs/05-features/chapter-review.md; storage ADR-016.
 /// Guests may use it — it costs us no inference (owner decision 2026-09-29).
 /// </summary>
-public sealed class ChapterReviewService(IAppDbContext db, ILogger<ChapterReviewService> logger)
+public sealed class ChapterReviewService(
+    IAppDbContext db, IInsightRepository insights, ILogger<ChapterReviewService> logger)
 {
     /// <summary>Saved words sent with the context; enough to be useful, bounded for the tool result.</summary>
     public const int MaxWords = 200;
@@ -120,34 +121,27 @@ public sealed class ChapterReviewService(IAppDbContext db, ILogger<ChapterReview
         var closedTexts = openThreads.ToDictionary(t => t.Id, t => t.Text);
         var now = DateTimeOffset.UtcNow;
 
-        var insight = await db.BookInsights.FirstOrDefaultAsync(
-            i => i.UserId == userId
-                && i.UserBookId == request.UserBookId
-                && i.EditionId == request.EditionId
-                && i.ChapterSlug == slug,
-            ct);
-        if (insight is null)
+        // The review (Dapper) and its questions (EF) commit together: questions point at the insight.
+        await using var tx = await db.BeginTransactionAsync(ct);
+        var insight = await insights.SaveReviewAsync(new BookInsight
         {
-            insight = new BookInsight
-            {
-                Id = Guid.NewGuid(),
-                UserId = userId,
-                SiteId = siteId,
-                EditionId = request.EditionId,
-                UserBookId = request.UserBookId,
-                ChapterSlug = slug,
-                Source = "mcp",
-                CreatedAt = now,
-            };
-            db.BookInsights.Add(insight);
-        }
-        insight.ReviewJson = JsonSerializer.Serialize(review, StoreOptions);
-        insight.Text = ReviewMarkdownRenderer.Render(review, target.Chapter.Title, closedTexts);
-        insight.Question = InsightQuestion;
-        insight.UpdatedAt = now;
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            SiteId = siteId,
+            EditionId = request.EditionId,
+            UserBookId = request.UserBookId,
+            ChapterSlug = slug,
+            Text = ReviewMarkdownRenderer.Render(review, target.Chapter.Title, closedTexts),
+            Question = InsightQuestion,
+            Source = "mcp",
+            ReviewJson = JsonSerializer.Serialize(review, StoreOptions),
+            CreatedAt = now,
+            UpdatedAt = now,
+        }, tx, ct);
 
         await SyncQuestionsAsync(insight.Id, userId, siteId, review, now, ct);
         await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
 
         logger.LogInformation(
             "chapter_review.saved bookKind={BookKind} blocks={Blocks} questions={Questions} threadsOpened={ThreadsOpened} threadsClosed={ThreadsClosed}",
@@ -291,11 +285,9 @@ public sealed class ChapterReviewService(IAppDbContext db, ILogger<ChapterReview
             return (null, new(404, new("not_found", $"No chapter '{slug}' in this book")));
 
         var bookId = userBookId ?? editionId!.Value;
-        var reviewRows = await db.BookInsights
-            .Where(i => i.UserId == userId && i.ReviewJson != null && i.ChapterSlug != null
-                && (userBookId.HasValue ? i.UserBookId == bookId : i.EditionId == bookId))
-            .Select(i => new { i.ChapterSlug, i.ReviewJson })
-            .ToListAsync(ct);
+        // ponytail: reads every insight of the book and keeps the reviews; a reviews-only query if books get hundreds.
+        var reviewRows = (await insights.ListForBookAsync(userId, userBookId, editionId, ct))
+            .Where(i => i.ReviewJson != null && i.ChapterSlug != null);
         var reviews = reviewRows
             .Select(r => (r.ChapterSlug, Review: ReadStored(r.ReviewJson), Chapter: chapters.FirstOrDefault(c => c.Slug == r.ChapterSlug)))
             .Where(r => r.Review is not null)

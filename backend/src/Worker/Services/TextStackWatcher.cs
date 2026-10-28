@@ -80,7 +80,8 @@ public class TextStackWatcher : BackgroundService
         var storage = scope.ServiceProvider.GetRequiredService<IFileStorageService>();
         var logger = scope.ServiceProvider.GetRequiredService<ILogger<TextStackImportService>>();
 
-        var importService = new TextStackImportService(db, storage, logger);
+        var insights = scope.ServiceProvider.GetRequiredService<IInsightRepository>();
+        var importService = new TextStackImportService(db, insights, storage, logger);
 
         var imported = 0;
         var skipped = 0;

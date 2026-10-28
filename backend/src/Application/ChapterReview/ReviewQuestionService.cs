@@ -10,7 +10,7 @@ namespace Application.ChapterReview;
 /// The chapter-review questions' own SRS queue — a separate section of Practice, never mixed into
 /// the word session (spec §11). Same stages and intervals as words: <see cref="ISrsEngine"/>.
 /// </summary>
-public sealed class ReviewQuestionService(IAppDbContext db, ISrsEngine srs)
+public sealed class ReviewQuestionService(IAppDbContext db, IInsightRepository insights, ISrsEngine srs)
 {
     public const int DefaultLimit = 20, MaxLimit = 50;
 
@@ -21,22 +21,26 @@ public sealed class ReviewQuestionService(IAppDbContext db, ISrsEngine srs)
         var due = db.ReviewQuestions.Where(q => q.UserId == userId && !q.IsRetired && q.NextReviewAt <= now);
 
         var total = await due.CountAsync(ct);
-        var rows = await due
+        var questions = await due
             .OrderBy(q => q.NextReviewAt)
             .Take(limit)
-            .Select(q => new
-            {
-                q.Id,
-                q.Prompt,
-                q.Answer,
-                q.BlockIndex,
-                q.BookInsight.ReviewJson,
-                q.BookInsight.ChapterSlug,
-                q.BookInsight.UserBookId,
-                q.BookInsight.EditionId,
-            })
+            .Select(q => new { q.Id, q.Prompt, q.Answer, q.BlockIndex, q.BookInsightId })
             .ToListAsync(ct);
-        if (rows.Count == 0) return new(total, []);
+        if (questions.Count == 0) return new(total, []);
+
+        // review_question → book_insight was an EF join; book_insight is Dapper now (ADR-028).
+        // The FK cascades, so every question's insight exists.
+        var insightById = (await insights.ListByIdsAsync(
+                userId, questions.Select(q => q.BookInsightId).Distinct().ToList(), ct))
+            .ToDictionary(i => i.Id);
+        var rows = questions
+            .Where(q => insightById.ContainsKey(q.BookInsightId))
+            .Select(q =>
+            {
+                var i = insightById[q.BookInsightId];
+                return new { q.Id, q.Prompt, q.Answer, q.BlockIndex, i.ReviewJson, i.ChapterSlug, i.UserBookId, i.EditionId };
+            })
+            .ToList();
 
         var userBookIds = rows.Where(r => r.UserBookId != null).Select(r => r.UserBookId!.Value).Distinct().ToList();
         var editionIds = rows.Where(r => r.EditionId != null).Select(r => r.EditionId!.Value).Distinct().ToList();

@@ -10,7 +10,7 @@ namespace Infrastructure.Persistence;
 ///
 /// Schema configuration is split into one partial file per domain (AppDbContext.Catalog.cs,
 /// .User.cs, .Reading.cs, .UserBooks.cs, .Vocabulary.cs, .Ops.cs, .Seo.cs, .Collections.cs, .Ai.cs,
-/// .Agents.cs, .Insights.cs, .McpKeys.cs, .OAuth.cs) — the file name says the domain; each
+/// .Agents.cs, .ReviewQuestions.cs, .McpKeys.cs, .OAuth.cs) — the file name says the domain; each
 /// file's <c>Entity&lt;T&gt;</c> calls are the entity list. Table purpose and status:
 /// docs/01-architecture/data-model.md.
 /// </summary>
@@ -94,7 +94,6 @@ public partial class AppDbContext : DbContext, IAppDbContext
     public DbSet<EvalRun> EvalRuns => Set<EvalRun>();
     public DbSet<AgentRun> AgentRuns => Set<AgentRun>();
     public DbSet<TutorSession> TutorSessions => Set<TutorSession>();
-    public DbSet<BookInsight> BookInsights => Set<BookInsight>();
     public DbSet<ReviewQuestion> ReviewQuestions => Set<ReviewQuestion>();
     public DbSet<McpAccessKey> McpAccessKeys => Set<McpAccessKey>();
     public DbSet<OAuthClient> OAuthClients => Set<OAuthClient>();
@@ -118,7 +117,7 @@ public partial class AppDbContext : DbContext, IAppDbContext
         ConfigureCollections(modelBuilder);
         ConfigureAi(modelBuilder);
         ConfigureAgents(modelBuilder);
-        ConfigureInsights(modelBuilder);
+        ConfigureReviewQuestions(modelBuilder);
         ConfigureMcpKeys(modelBuilder);
         ConfigureOAuth(modelBuilder);
     }

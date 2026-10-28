@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using Application.Common.Interfaces;
 using Domain.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
 
 namespace Application.Ingestion;
@@ -94,7 +95,8 @@ public static class ChapterReconciler
     /// caller that then marks its job failed does not half-apply it.
     /// </summary>
     public static async Task ReconcileEditionAsync(
-        IAppDbContext db, Guid editionId, IReadOnlyList<Chapter> incoming, CancellationToken ct, ILogger? logger = null)
+        IAppDbContext db, IInsightRepository insights, Guid editionId, IReadOnlyList<Chapter> incoming,
+        CancellationToken ct, ILogger? logger = null)
     {
         var existing = await db.Chapters.Where(c => c.EditionId == editionId).ToListAsync(ct);
         if (incoming.Count == 0 && existing.Count > 0)
@@ -144,7 +146,7 @@ public static class ChapterReconciler
             foreach (var (j, i) in plan.Successors)
                 await RemoveEditionChapterAsync(db, existing[j], final[i].Id, ct);
 
-            await MoveEditionPositionsAsync(db, editionId,
+            await MoveEditionPositionsAsync(db, insights, tx, editionId,
                 SlugMoves(plan, oldSlugs, final.Select(c => c.Slug).ToList()),
                 NumberMoves(plan, oldNumbers, final.Select(c => c.ChapterNumber).ToList()),
                 logger, undo, ct);
@@ -161,7 +163,8 @@ public static class ChapterReconciler
 
     /// <summary>Same as <see cref="ReconcileEditionAsync"/> for an upload; also moves the book's own progress.</summary>
     public static async Task ReconcileUserBookAsync(
-        IAppDbContext db, UserBook book, IReadOnlyList<UserChapter> incoming, CancellationToken ct, ILogger? logger = null)
+        IAppDbContext db, IInsightRepository insights, UserBook book, IReadOnlyList<UserChapter> incoming,
+        CancellationToken ct, ILogger? logger = null)
     {
         var existing = await db.UserChapters.Where(c => c.UserBookId == book.Id).ToListAsync(ct);
         if (incoming.Count == 0 && existing.Count > 0)
@@ -216,8 +219,8 @@ public static class ChapterReconciler
                 db.UserChapters.Remove(existing[j]);
             }
 
-            await MoveUserBookPositionsAsync(db, book, SlugMoves(plan, oldSlugs, final.Select(c => c.Slug).ToList()),
-                logger, undo, ct);
+            await MoveUserBookPositionsAsync(db, insights, tx, book,
+                SlugMoves(plan, oldSlugs, final.Select(c => c.Slug).ToList()), logger, undo, ct);
 
             await db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
@@ -308,12 +311,13 @@ public static class ChapterReconciler
     /// does. Call after the removal and renumber are saved, inside the same transaction, then save.
     /// </summary>
     public static async Task MoveEditionPositionsAfterRemovalAsync(
-        IAppDbContext db, Guid editionId, IReadOnlyList<ChapterSnapshot> before,
+        IAppDbContext db, IInsightRepository insights, IDbContextTransaction tx, Guid editionId,
+        IReadOnlyList<ChapterSnapshot> before,
         IReadOnlyDictionary<Guid, Guid?> removedTo, ILogger? logger, CancellationToken ct)
     {
         var after = await SnapshotEditionAsync(db, editionId, ct);
         var plan = PlanFromIds(before.Select(c => c.Id).ToList(), after.Select(c => c.Id).ToList(), removedTo);
-        await MoveEditionPositionsAsync(db, editionId,
+        await MoveEditionPositionsAsync(db, insights, tx, editionId,
             SlugMoves(plan, before.Select(c => c.Slug).ToList(), after.Select(c => c.Slug).ToList()),
             NumberMoves(plan, before.Select(c => c.Number).ToList(), after.Select(c => c.Number).ToList()),
             logger, [], ct);
@@ -321,20 +325,21 @@ public static class ChapterReconciler
 
     /// <summary>Upload counterpart of <see cref="MoveEditionPositionsAfterRemovalAsync"/> (uploads keep no frontier).</summary>
     public static async Task MoveUserBookPositionsAfterRemovalAsync(
-        IAppDbContext db, Guid userBookId, IReadOnlyList<ChapterSnapshot> before,
+        IAppDbContext db, IInsightRepository insights, IDbContextTransaction tx, Guid userBookId,
+        IReadOnlyList<ChapterSnapshot> before,
         IReadOnlyDictionary<Guid, Guid?> removedTo, ILogger? logger, CancellationToken ct)
     {
         var book = await db.UserBooks.FirstOrDefaultAsync(b => b.Id == userBookId, ct);
         if (book is null) return;
         var after = await SnapshotUserBookAsync(db, userBookId, ct);
         var plan = PlanFromIds(before.Select(c => c.Id).ToList(), after.Select(c => c.Id).ToList(), removedTo);
-        await MoveUserBookPositionsAsync(db, book,
+        await MoveUserBookPositionsAsync(db, insights, tx, book,
             SlugMoves(plan, before.Select(c => c.Slug).ToList(), after.Select(c => c.Slug).ToList()),
             logger, [], ct);
     }
 
     private static async Task MoveEditionPositionsAsync(
-        IAppDbContext db, Guid editionId, IReadOnlyDictionary<string, SlugMove> moves,
+        IAppDbContext db, IInsightRepository insights, IDbContextTransaction tx, Guid editionId, IReadOnlyDictionary<string, SlugMove> moves,
         IReadOnlyDictionary<int, int> numbers, ILogger? logger, List<Action> undo, CancellationToken ct)
     {
         if (moves.Count == 0 && numbers.All(kv => kv.Key == kv.Value)) return;
@@ -355,12 +360,11 @@ public static class ChapterReconciler
             .Where(x => x.EditionId == editionId).ToListAsync(ct);
         undo.Add(() => Detach(db.Bookmarks, bookmarks));
         foreach (var b in bookmarks) b.Locator = MoveLocator(b.Locator, moves);
-        await MoveInsightsAsync(db, db.BookInsights.IgnoreQueryFilters().Where(x => x.EditionId == editionId),
-            moves, logger, undo, ct);
+        await MoveInsightsAsync(insights, tx, null, editionId, moves, logger, ct);
     }
 
     private static async Task MoveUserBookPositionsAsync(
-        IAppDbContext db, UserBook book, IReadOnlyDictionary<string, SlugMove> moves,
+        IAppDbContext db, IInsightRepository insights, IDbContextTransaction tx, UserBook book, IReadOnlyDictionary<string, SlugMove> moves,
         ILogger? logger, List<Action> undo, CancellationToken ct)
     {
         if (moves.Count == 0) return;
@@ -372,8 +376,7 @@ public static class ChapterReconciler
         var bookmarks = await db.UserBookBookmarks.Where(x => x.UserBookId == book.Id).ToListAsync(ct);
         undo.Add(() => Detach(db.UserBookBookmarks, bookmarks));
         foreach (var b in bookmarks) b.Locator = MoveLocator(b.Locator, moves);
-        await MoveInsightsAsync(db, db.BookInsights.IgnoreQueryFilters().Where(x => x.UserBookId == book.Id),
-            moves, logger, undo, ct);
+        await MoveInsightsAsync(insights, tx, book.Id, null, moves, logger, ct);
     }
 
     /// <summary>
@@ -491,21 +494,16 @@ public static class ChapterReconciler
             .ToList();
     }
 
+    /// <summary>Insights are Dapper (ADR-028): written now, on the caller's transaction, so a rollback undoes them.</summary>
     private static async Task MoveInsightsAsync(
-        IAppDbContext db, IQueryable<BookInsight> bookInsights, IReadOnlyDictionary<string, SlugMove> moves,
-        ILogger? logger, List<Action> undo, CancellationToken ct)
+        IInsightRepository repository, IDbContextTransaction tx, Guid? userBookId, Guid? editionId,
+        IReadOnlyDictionary<string, SlugMove> moves, ILogger? logger, CancellationToken ct)
     {
-        var insights = await bookInsights.Where(x => x.ChapterSlug != null).ToListAsync(ct);
-        undo.Add(() => Detach(db.BookInsights, insights));
+        var insights = await repository.ListAllReadersChapterInsightsAsync(userBookId, editionId, tx, ct);
         var moved = InsightMoves(insights, moves, (i, to) => logger?.LogWarning(
             "Re-ingest: insight {InsightId} on chapter {From} cannot move to {To}; the user already has one there",
             i.Id, i.ChapterSlug, to));
-        if (moved.Count == 0) return;
-
-        // Park first: the unique key is checked per row, and one insight may take another's old slug.
-        foreach (var (i, _) in moved) i.ChapterSlug = $"~{i.Id:N}";
-        await db.SaveChangesAsync(ct);
-        foreach (var (i, to) in moved) i.ChapterSlug = to;
+        await repository.MoveChapterSlugsAsync(moved.Select(m => (m.Insight.Id, m.To)).ToList(), tx, ct);
     }
 
     private static void Detach<T>(DbSet<T> set, IEnumerable<T> rows) where T : class

@@ -275,6 +275,11 @@ jobs:
       - name: Search tests
         run: dotnet test tests/TextStack.Search.Tests --no-build
 
+      # Dapper repositories against real Postgres (ADR-028): Testcontainers starts its own
+      # pgvector:pg16 and builds the schema with database/migrate.sh. Uses the runner's Docker.
+      - name: Persistence tests
+        run: dotnet test tests/TextStack.Persistence.Tests --no-build
+
       # MCP over-the-wire integration suite (AI-053) — hermetic (loopback only, no
       # Postgres/Docker). In the solution, so --no-build reuses the Build step above.
       - name: MCP integration tests

@@ -89,7 +89,7 @@ public partial class AdminService
 
         await db.SaveChangesAsync(ct);
         // Locators naming the deleted slug, and the review frontier, follow the readers (ADR-018).
-        await ChapterReconciler.MoveEditionPositionsAfterRemovalAsync(db, editionId, before,
+        await ChapterReconciler.MoveEditionPositionsAfterRemovalAsync(db, insights, tx, editionId, before,
             new Dictionary<Guid, Guid?> { [id] = successor }, null, ct);
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);

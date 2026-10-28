@@ -152,7 +152,7 @@ public static class InternalEndpoints
     internal const int QualityDeleteMaxWords = 300;
 
     private static async Task<IResult> DeleteEditionChapter(
-        Guid id, int n, IAppDbContext db, CancellationToken ct)
+        Guid id, int n, IAppDbContext db, IInsightRepository insights, CancellationToken ct)
     {
         var ch = await db.Chapters.FirstOrDefaultAsync(c => c.EditionId == id && c.ChapterNumber == n, ct);
         if (ch is null) return Results.NotFound();
@@ -180,7 +180,7 @@ public static class InternalEndpoints
         }
 
         await db.SaveChangesAsync(ct);
-        await ChapterReconciler.MoveEditionPositionsAfterRemovalAsync(db, id, before,
+        await ChapterReconciler.MoveEditionPositionsAfterRemovalAsync(db, insights, tx, id, before,
             new Dictionary<Guid, Guid?> { [ch.Id] = successor }, null, ct);
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
@@ -189,7 +189,7 @@ public static class InternalEndpoints
 
     private static async Task<IResult> MergeEditionChapters(
         Guid id, [FromBody] MergeChaptersRequest req,
-        IAppDbContext db, CancellationToken ct)
+        IAppDbContext db, IInsightRepository insights, CancellationToken ct)
     {
         if (req.ChapterNumbers is not { Count: >= 2 })
             return Results.BadRequest(new { error = "At least 2 chapter numbers required" });
@@ -232,7 +232,7 @@ public static class InternalEndpoints
         }
 
         await db.SaveChangesAsync(ct);
-        await ChapterReconciler.MoveEditionPositionsAfterRemovalAsync(db, id, before,
+        await ChapterReconciler.MoveEditionPositionsAfterRemovalAsync(db, insights, tx, id, before,
             chapters.Skip(1).ToDictionary(c => c.Id, _ => (Guid?)first.Id), null, ct);
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
@@ -284,7 +284,7 @@ public static class InternalEndpoints
     }
 
     private static async Task<IResult> DeleteUserBookChapter(
-        Guid id, int n, IAppDbContext db, CancellationToken ct)
+        Guid id, int n, IAppDbContext db, IInsightRepository insights, CancellationToken ct)
     {
         var ch = await db.UserChapters.FirstOrDefaultAsync(c => c.UserBookId == id && c.ChapterNumber == n, ct);
         if (ch is null) return Results.NotFound();
@@ -309,7 +309,7 @@ public static class InternalEndpoints
             r.ChapterNumber--;
 
         await db.SaveChangesAsync(ct);
-        await ChapterReconciler.MoveUserBookPositionsAfterRemovalAsync(db, id, before,
+        await ChapterReconciler.MoveUserBookPositionsAfterRemovalAsync(db, insights, tx, id, before,
             new Dictionary<Guid, Guid?> { [ch.Id] = successor }, null, ct);
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
@@ -318,7 +318,7 @@ public static class InternalEndpoints
 
     private static async Task<IResult> MergeUserBookChapters(
         Guid id, [FromBody] MergeChaptersRequest req,
-        IAppDbContext db, CancellationToken ct)
+        IAppDbContext db, IInsightRepository insights, CancellationToken ct)
     {
         if (req.ChapterNumbers is not { Count: >= 2 })
             return Results.BadRequest(new { error = "At least 2 chapter numbers required" });
@@ -354,7 +354,7 @@ public static class InternalEndpoints
             r.ChapterNumber -= shift;
 
         await db.SaveChangesAsync(ct);
-        await ChapterReconciler.MoveUserBookPositionsAfterRemovalAsync(db, id, before,
+        await ChapterReconciler.MoveUserBookPositionsAfterRemovalAsync(db, insights, tx, id, before,
             chapters.Skip(1).ToDictionary(c => c.Id, _ => (Guid?)first.Id), null, ct);
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
