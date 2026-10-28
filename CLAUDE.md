@@ -216,6 +216,9 @@ Test naming convention: `{MethodName}_{Scenario}_{ExpectedResult}`
 CLIP_PERMIT_LIMIT=200 ACCOUNT_DELETE_PERMIT_LIMIT=50 GUEST_SESSION_PERMIT_LIMIT=50 \
   USER_LOGIN_PERMIT_LIMIT=100 \
   docker compose up -d --no-deps --force-recreate api
+# once per database: editions ChapterReviewEndpointTests needs (else it skips); idempotent
+docker compose exec -T db sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" "$POSTGRES_DB"' \
+  < tests/TextStack.IntegrationTests/Fixtures/chapter-review-editions.sql
 dotnet test tests/TextStack.IntegrationTests
 docker compose up -d --no-deps --force-recreate api   # back to production values
 ```
