@@ -4,7 +4,7 @@
 # (-r linux-musl-<arch>), so an amd64 image built on an arm64 laptop compiles natively
 # instead of under QEMU, and the output carries only the target's native libraries:
 # a portable publish shipped PDFium and Skia for Windows, macOS, iOS, Android and WASM.
-FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0-alpine@sha256:230c3fbae0ceedc70bca04eed2bfb5694e8b248cadbb81010f41b7a993601f55 AS build
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0-alpine@sha256:cc02b814237a76c4735fb6eeee87181597b5e56f2ce458a435e527674d91f4d7 AS build
 ARG TARGETARCH
 WORKDIR /src
 
@@ -28,7 +28,7 @@ RUN RID=linux-musl-$([ "$TARGETARCH" = amd64 ] && echo x64 || echo "$TARGETARCH"
 # except `git` in StandardEbooksSyncService, which only the API registers. PDF work is
 # PdfPig (managed) plus PDFtoImage, whose PDFium and SkiaSharp (NoDependencies build)
 # ship musl binaries and need only libstdc++/libgcc, which this base already has.
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine@sha256:819bd3649d8bf53f35527c68d62e17b348ef6f24ae73073f497f00a878348062 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine@sha256:254fe017495996d3abcc487ffacdcce2b73affb380d3af87af12c8dff41fe0b0 AS runtime
 
 # icu: the alpine base runs in globalization-invariant mode, the Debian image this
 # replaced did not. Extraction calls string.Normalize and culture-aware casing on book

@@ -45,7 +45,7 @@ COPY packages/ ./packages/
 ENV VITE_API_URL=/api
 RUN pnpm --filter textstack-admin --config.node-linker=isolated build
 
-FROM nginxinc/nginx-unprivileged:stable-alpine@sha256:15c994d10d6d78658721c3bcafff14cb281fba2a4bdf9d5ba92c416a472516e3
+FROM nginxinc/nginx-unprivileged:stable-alpine@sha256:f5116ed4606f3eb015dd4a8e28cb9b351476dc0ad4bc6e9f93b19cec130cdf03
 
 # Same contract as before: plain HTTP on :81 (compose maps 127.0.0.1:81, host nginx
 # proxies textstack.dev to it), SPA fallback to index.html for client routes. Runs as
