@@ -77,6 +77,7 @@ Ollama (`Ollama__BaseUrl`, `Ollama__Model=gemma4:e2b`) and the cache paths (`Tts
 | `USER_LOGIN_PERMIT_LIMIT` | `10` | `RateLimits__UserLoginPermitLimit` (per IP / min) |
 | `CLIP_PERMIT_LIMIT` | `20` | `RateLimits__ClipPermitLimit` |
 | `ACCOUNT_DELETE_PERMIT_LIMIT` | `3` | `RateLimits__AccountDeletePermitLimit` |
+| `DEVICE_CODE_PERMIT_LIMIT` | `5` | `RateLimits__DeviceCodePermitLimit` (per IP / min) |
 | `GUEST_DAILY_ENRICHMENT_CAP` | `50` | `Entitlements__Tiers__Guest__DailyEnrichmentCap` |
 
 ### Storage

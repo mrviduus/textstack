@@ -214,12 +214,15 @@ Test naming convention: `{MethodName}_{Scenario}_{ExpectedResult}`
 
 ```bash
 CLIP_PERMIT_LIMIT=200 ACCOUNT_DELETE_PERMIT_LIMIT=50 GUEST_SESSION_PERMIT_LIMIT=50 \
-  USER_LOGIN_PERMIT_LIMIT=100 \
+  USER_LOGIN_PERMIT_LIMIT=100 DEVICE_CODE_PERMIT_LIMIT=50 \
   docker compose up -d --no-deps --force-recreate api
 # once per database: editions ChapterReviewEndpointTests needs (else it skips); idempotent
 docker compose exec -T db sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" "$POSTGRES_DB"' \
   < tests/TextStack.IntegrationTests/Fixtures/chapter-review-editions.sql
 dotnet test tests/TextStack.IntegrationTests
+# DB-backed tests (DeviceAuth, RefreshTokenHardening, …) skip unless Postgres is reachable: start the
+# stack with `-f docker-compose.yml -f .github/docker-compose.ci-db.yml` and set
+# TEST_DB_CONNECTION="Host=localhost;Port=5432;Database=<db>;Username=<user>;Password=<pw>"
 docker compose up -d --no-deps --force-recreate api   # back to production values
 ```
 

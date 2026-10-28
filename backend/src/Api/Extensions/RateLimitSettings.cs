@@ -77,6 +77,19 @@ public sealed class RateLimitSettings
     public int EffectiveAccountDeletePermitLimit =>
         Effective(AccountDeletePermitLimit, DefaultAccountDeletePermitLimit);
 
+    /// <summary>Device-code requests (<c>POST /auth/device/code</c>) allowed per IP per minute.
+    /// Production default is 5.</summary>
+    /// <remarks>
+    /// One per CLI session in real use. <c>DeviceAuthEndpointTests</c> requests a code in almost every
+    /// test — more than five from one host inside a minute once its DB-backed half runs too.
+    /// </remarks>
+    public int DeviceCodePermitLimit { get; set; } = DefaultDeviceCodePermitLimit;
+
+    public const int DefaultDeviceCodePermitLimit = 5;
+
+    /// <inheritdoc cref="EffectiveGuestSessionPermitLimit"/>
+    public int EffectiveDeviceCodePermitLimit => Effective(DeviceCodePermitLimit, DefaultDeviceCodePermitLimit);
+
     /// <summary>Shared normalization: a configured 0 or negative is a typo, and a zero permit limit
     /// is an outage, so it degrades to the production default rather than to a lockout.</summary>
     private static int Effective(int configured, int productionDefault) =>
