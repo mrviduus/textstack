@@ -135,6 +135,10 @@ public class VocabularyAntiSpiralEndpointTests : IClassFixture<LiveApiFixture>, 
         Assert.SkipUnless(_auth.IsAuthenticated, "test auth unavailable");
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        // A missing route is a 404 too. A wrong method on an existing route is a 405: the route is there.
+        var probe = _auth.CreateRequest(HttpMethod.Get, $"/me/vocabulary/words/{Guid.NewGuid()}/unretire");
+        var probeResponse = await _auth.Client.SendAsync(probe, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.MethodNotAllowed, probeResponse.StatusCode);
     }
 
     #endregion
