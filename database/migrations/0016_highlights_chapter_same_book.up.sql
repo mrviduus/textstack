@@ -8,28 +8,35 @@
 -- Why:   0013 pairs a chapter with the right *kind* of book, not the right book: edition A with a
 --          chapter of edition B passed. Only highlight create's lookup refused it.
 -- Issue: https://github.com/mrviduus/textstack/issues/998
--- Compatibility: highlight create and upload re-attach (#983) set the chapter from the same book.
+-- Compatibility: highlight create, upload re-attach (#983) and the chapter reconciler set the
+--        chapter from the same book.
 --        Prod backup 2026-10-27: 0 of 39 highlights have a chapter of another book; up (22 ms on
 --        40,722 chapters), down, up ran clean on it. A guard refuses, by name, any violating row
---        written since. Locks: SHARE on chapters / user_chapters while the unique indexes build (reads go
---        on, writes wait), ACCESS EXCLUSIVE on highlights; all taken up front, 5 s lock timeout,
---        rerun if it aborts.
+--        written since. Locks: SHARE ROW EXCLUSIVE on chapters / user_chapters while the unique
+--        indexes build (reads go on, writes wait), then ACCESS EXCLUSIVE on highlights — the order a
+--        chapter delete's SET NULL takes them, so the two cannot deadlock; all taken up front, 5 s
+--        lock timeout, rerun if it aborts.
 -- Down:  0016_highlights_chapter_same_book.down.sql drops the FKs and unique constraints. No data
 --        changes either way.
 
 SET LOCAL lock_timeout = '5s';
 
+LOCK TABLE public.chapters, public.user_chapters IN SHARE ROW EXCLUSIVE MODE;
 LOCK TABLE public.highlights IN ACCESS EXCLUSIVE MODE;
-LOCK TABLE public.chapters, public.user_chapters IN SHARE MODE;
 
--- Rows the FKs below would refuse: say which rule, instead of a bare 23503.
+-- Rows the FKs below would refuse: say which rule and which row, instead of a bare 23503.
 DO $$
+DECLARE bad uuid;
 BEGIN
-    IF EXISTS (SELECT 1 FROM public.highlights h JOIN public.chapters c ON c.id = h.chapter_id
-               WHERE c.edition_id <> h.edition_id)
-       OR EXISTS (SELECT 1 FROM public.highlights h JOIN public.user_chapters c ON c.id = h.user_chapter_id
-                  WHERE c.user_book_id <> h.user_book_id) THEN
-        RAISE EXCEPTION 'a highlight''s chapter belongs to another book; fix it first (#998)';
+    SELECT h.id INTO bad FROM public.highlights h JOIN public.chapters c ON c.id = h.chapter_id
+    WHERE c.edition_id <> h.edition_id LIMIT 1;
+    IF bad IS NOT NULL THEN
+        RAISE EXCEPTION 'highlight % has a chapter of another edition; fix it first (#998)', bad;
+    END IF;
+    SELECT h.id INTO bad FROM public.highlights h JOIN public.user_chapters c ON c.id = h.user_chapter_id
+    WHERE c.user_book_id <> h.user_book_id LIMIT 1;
+    IF bad IS NOT NULL THEN
+        RAISE EXCEPTION 'highlight % has a chapter of another upload; fix it first (#998)', bad;
     END IF;
 END $$;
 

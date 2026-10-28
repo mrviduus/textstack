@@ -48,7 +48,8 @@ public partial class AppDbContext
             e.HasQueryFilter(x => x.SiteId == _currentSite.Id);
         });
 
-        // Highlight — attaches to at most one of Edition+Chapter or UserBook+UserChapter (CHECK, #939);
+        // Highlight — attaches to at most one of Edition+Chapter or UserBook+UserChapter (CHECK, #939),
+        // its chapter from that same book (composite FKs, 0016, #998; not in this model);
         // none once its book is deleted: it stays the user's (All highlights, review).
         modelBuilder.Entity<Highlight>(e =>
         {
