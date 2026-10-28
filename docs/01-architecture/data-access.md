@@ -33,8 +33,9 @@ Dependency rule unchanged: Api → Application → Domain ← Infrastructure.
    dispose. Never hold a connection across awaits you don't own.
 6. **Transactions.** A use case that writes EF tables and a ported table together opens the
    transaction on EF and passes the `IDbContextTransaction` to the repository; the repository runs on
-   that transaction's connection (`GetDbTransaction()`), never its own. A method that can join one
-   takes `IDbContextTransaction? tx = null`.
+   that transaction's connection (`GetDbTransaction()`), never its own. A method whose write must be
+   atomic with EF writes takes a required `IDbContextTransaction tx`; one that may run either way takes
+   `IDbContextTransaction? tx = null`.
 7. **Ownership in SQL.** Every user-owned method takes `userId` and puts it in the `WHERE` (and in the
    `ON CONFLICT` key / `INSERT`). Cross-user system operations are separate, clearly named methods.
    Each repository has an isolation test: user B never reads, changes or deletes user A's rows.
