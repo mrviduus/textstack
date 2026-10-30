@@ -11,7 +11,7 @@ public static class TelemetryConstants
 
     public const string IngestionActivitySourceName = "TextStack.Ingestion";
     public const string ApiActivitySourceName = "TextStack.Api";
-    public const string MeterName = "TextStack.Ingestion";
+    public const string MeterName = TextStack.Extraction.ExtractionTelemetry.MeterName;
 }
 
 public static class IngestionActivitySource
