@@ -32,8 +32,18 @@ what differs.
 | Database | `POSTGRES_DB` | `V2_POSTGRES_DB`, default `textstack_v2` |
 | Make | `migrate`, `migrate-down V=`, `migrate-status` | `migrate-v2`, `migrate-v2-down V=`, `migrate-v2-status` |
 | Created by | the postgres image, on first start | `run.sh up`/`down`, if missing (`CREATE DATABASE` via `\gexec`); `status` and `verify` never create it |
+| Run by `docker compose up` | yes | **no** — profile `v2`; run it with `make migrate-v2` |
 
-`api` and `worker` wait for both migrators (ADR-021). Neither connects to `textstack_v2` yet (M1.2).
+`api` and `worker` wait for `migrator` (ADR-021) and **not** for `migrator-v2`: nothing connects to
+`textstack_v2` yet (M1.2), so a V2 migrator that cannot reach or create its database must not keep
+the site down. It did, once, on the day it shipped —
+[postmortem](../../docs/incidents/2026-10-30-migrator-v2-took-down-the-api.md). The wait comes back,
+over V2 endpoints only, when V2 holds real data (#1053).
+
+`run.sh` needs a role that may `CREATE DATABASE`, a reachable `postgres` maintenance database, and a
+`template1` whose collation version matches the server's. A fresh container has all three by
+construction, which is why CI never sees this; the production cluster does not (#1056). `make
+migrate-v2` is how you find that out — not a deploy.
 
 **There is no rollback of the baseline.** `make migrate-v2-down V=0` prints `Nothing above version 0.`
 and exits 0 — correct (nothing is applied above the baseline) but not a rollback: the baseline has

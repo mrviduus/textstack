@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Ops** — `migrator-v2` no longer gates `api`/`worker`: it moves behind compose profile `v2`, because nothing reads `textstack_v2` yet and a V2 migrator that cannot create its database took the API down for an hour (#1053) — infra · [**postmortem**](docs/incidents/2026-10-30-migrator-v2-took-down-the-api.md)
 - **Infra** — the V2 database `textstack_v2` exists: baseline `0000` (26 tables, ADR-031), its own runner and `migrator-v2`, schema invariants and a round trip in CI; nothing connects to it yet (#1014) — infra · [details](docs/changelog-archive/2026-H2.md#2026-10-30-v2-database-baseline)
 - **Library** — typography no longer rewrites markup: attribute values, comments, CDATA, script/style and title/textarea are masked while the prose rules run, so `class="x"` and `href="ch-1/2.html"` survive ingestion; the downstream curly-quote band-aid is gone (#1041) — backend · [details](docs/changelog-archive/2026-H2.md#2026-10-30-typography-prose-only)
 - **Docs** — ADR-031 open items 1–7 decided (clips keep `html`, null sha256 → book without file, `tags`/metadata carried, vocabulary case-merge rule, scroll-only progress kept, chapter-key fallback, admin→users by email); `epub-cfi` locator carries `quote`; STATUS.md V2 section — docs · [details](docs/changelog-archive/2026-H2.md#2026-10-30-adr-031-decisions)
