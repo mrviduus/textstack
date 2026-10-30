@@ -85,28 +85,28 @@ export function createV2Storage(files: V2Files) {
      * The opened file into the library; resolves to the retained file and the library's books. A
      * staged file becomes the retained copy unless those bytes are already retained. The copy lands
      * before the entry, so a kill between the two leaves a file that the next import of the same
-     * bytes adopts, never an entry without its file. An error after this call's move removes that
-     * copy again (an adopted one stays, as does one a complete library.json.tmp lists), so a failed
-     * import leaves no retained copy the library does not list. The page keeps the book open and may
-     * still save its `store` payload; a later import of the same bytes reuses it.
+     * bytes adopts, never an entry without its file. On an error after this call's move, the copy
+     * stays only if the library (as `books()` would read it) lists those bytes: a complete
+     * library.json.tmp beside a missing target does, an old target that survived a failed move does
+     * not, and an unreadable library keeps the copy. So a failed import leaves no retained copy the
+     * library does not list. The page keeps the book open and may still save its `store` payload; a
+     * later import of the same bytes reuses it.
      */
     addOpened: (book: { sha256: string; size: number; title: string; author: string; originalName: string }, staged: string | null) =>
       queue.run(async () => {
         const sha256 = sha256Key(book.sha256)
         const retained = bookFile(sha256)
-        let moved = false
-        if (staged) {
-          if (files.exists(retained)) files.remove(staged)
-          else { await files.move(staged, retained); moved = true }
-        }
+        const moved = staged !== null && !files.exists(retained)
+        if (moved) await files.move(staged, retained)
+        else if (staged) files.remove(staged)
         try {
           const { lib } = addOpened(await readLibrary(), { ...book, sha256 })
           await writeAtomically(files, 'library.json', JSON.stringify(lib))
           return { retained, books: lib.books as LibraryBook[] }
         } catch (e) {
-          // A complete library.json.tmp (a failed move keeps it) is what readRecovering reads when the
-          // target is missing, and it lists this book: then the copy must stay.
-          if (moved && !files.exists('library.json.tmp')) try { files.remove(retained) } catch { /* best effort; rethrow the real error */ }
+          // Keep the copy whenever the library lists it, so never an entry without its file.
+          const listed = moved && (await readLibrary().then((l) => (l.books as LibraryBook[]).some((b) => b.sha256 === sha256), () => true))
+          if (moved && !listed) try { files.remove(retained) } catch { /* best effort; rethrow the real error */ }
           throw e
         }
       }),
