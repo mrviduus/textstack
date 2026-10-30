@@ -2,6 +2,16 @@ name: Health Check
 
 on:
   schedule:
+    # Five minutes is what this asks for, not what it gets. GitHub drops scheduled runs under load
+    # and does not queue what it drops: observed 2026-10-29/30, this ran at 06:46, 13:44, 19:13,
+    # 23:16, 02:37 and 08:56 — three to six hours apart. The cost was measured on 2026-10-30, when
+    # the API was 502 for 44 minutes and the last check before it had run five hours earlier, so the
+    # outage was found by a person reading a red CI cross
+    # (docs/incidents/2026-10-30-migrator-v2-took-down-the-api.md).
+    #
+    # The request stays high because a dropped run costs nothing and the check is 6s. Do not read it
+    # as coverage: nothing here can see this site go down promptly, and nothing hosted on GitHub can
+    # see it when GitHub is the unreliable part. That needs an outside prober — #1054.
     - cron: '*/5 * * * *'
   workflow_dispatch:
 
