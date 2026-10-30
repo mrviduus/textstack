@@ -3,7 +3,7 @@
 The page that renders a local EPUB in the V2 reader's WebView ([ADR-029](../../../../../docs/01-architecture/adr/ADR-029-foliate-for-v2-epub.md)).
 foliate-js parses and renders the book; our code adds word tap, the inline translation label, highlights and
 the reading position. Slice R1 of [v2-plan.md](../../../../../docs/01-architecture/v2-plan.md) §7: the page
-and its build only. The dev route hosting it is `app/dev/epub-v2.tsx` → `src/components/v2reader/V2ReaderScreen.tsx` (R2).
+and its build only. The dev route hosting it is `app/dev/epub-v2.tsx` → `src/components/v2reader/V2ReaderScreen.tsx` (R2): the screen is required only under `__DEV__`, and production Metro hides `app/dev/` — unless `NODE_ENV=development` is exported into a release build, which then keeps a route path that only redirects home.
 
 | File | What |
 |---|---|
