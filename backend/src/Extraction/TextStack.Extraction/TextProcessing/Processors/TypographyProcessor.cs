@@ -1,4 +1,6 @@
+using System.Text;
 using System.Text.RegularExpressions;
+using HtmlAgilityPack;
 using TextStack.Extraction.TextProcessing.Abstractions;
 using TextStack.Extraction.Typography;
 
@@ -6,6 +8,7 @@ namespace TextStack.Extraction.TextProcessing.Processors;
 
 /// <summary>
 /// Typography processor: smart quotes, proper dashes, ellipses, fractions.
+/// Rewrites prose only: start tags with attributes, comments and script/style are masked first.
 /// </summary>
 public class TypographyProcessor : ITextProcessor
 {
@@ -58,14 +61,85 @@ public class TypographyProcessor : ITextProcessor
 
     // These patterns had potential backtracking issues - simplified with possessive-like approach
     // Using atomic groups via non-backtracking where possible, with explicit bounds
-    private static readonly Regex AltAttributeRegex = new(@"alt=""[^""]{0,1000}[\u00a0\u2060][^""]{0,1000}""", RegexOptions.Compiled, RegexTimeout);
     private static readonly Regex TitleElementRegex = new(@"<title>[^<]{0,1000}[\u00a0\u2060][^<]{0,1000}</title>", RegexOptions.Compiled, RegexTimeout);
+
+    // A Unicode noncharacter: never in book text. Masked markup reads "<name\uFDD0>" to the rules,
+    // so they still see tag boundaries (">'s", "</abbr> ") but no attribute values.
+    private const char Marker = '\uFDD0';
 
     public string Process(string input, IProcessingContext context)
     {
         if (string.IsNullOrEmpty(input))
             return input;
 
+        // ponytail: input already holding the marker is left untypographed rather than risk a wrong restore
+        if (input.Contains(Marker))
+            return input;
+
+        var (masked, markup) = MaskMarkup(input);
+        return Unmask(Typogrify(masked), markup) ?? input;
+    }
+
+    /// <summary>
+    /// Replaces each start tag with attributes, comment and script/style element (positions from
+    /// HtmlAgilityPack's parse, not a regex) with a placeholder; returns the originals in order.
+    /// </summary>
+    private static (string Html, List<string> Markup) MaskMarkup(string html)
+    {
+        var doc = new HtmlDocument();
+        doc.LoadHtml(html);
+        var markup = new List<string>();
+        var sb = new StringBuilder(html.Length);
+        var from = 0;
+        foreach (var node in doc.DocumentNode.Descendants())
+        {
+            if (node.OuterStartIndex < from)
+                continue;   // inside a span already masked (script/style content)
+
+            int end;
+            string token;
+            if (node.NodeType == HtmlNodeType.Comment || node.Name is "script" or "style")
+                (end, token) = (node.OuterStartIndex + node.OuterLength, "<!");
+            else if (node.NodeType == HtmlNodeType.Element && node.HasAttributes)
+                (end, token) = (StartTagEnd(html, node), "<" + node.Name);
+            else
+                continue;
+
+            sb.Append(html, from, node.OuterStartIndex - from).Append(token).Append(Marker).Append('>');
+            markup.Add(html[node.OuterStartIndex..end]);
+            from = end;
+        }
+        return (sb.Append(html, from, html.Length - from).ToString(), markup);
+    }
+
+    /// <summary>
+    /// End of the start tag: the '>' after its last attribute (HAP reports no inner start for
+    /// void elements like img/br; quoted values may themselves hold '>').
+    /// </summary>
+    private static int StartTagEnd(string html, HtmlNode node)
+    {
+        var last = node.Attributes.Max(a => Math.Max(a.StreamPosition + a.Name.Length, a.ValueStartIndex + a.ValueLength));
+        var gt = html.IndexOf('>', last);
+        return gt < 0 ? html.Length : gt + 1;
+    }
+
+    /// <summary>Puts the masked markup back; null if a placeholder went missing.</summary>
+    private static string? Unmask(string html, List<string> markup)
+    {
+        var sb = new StringBuilder(html.Length);
+        int from = 0, k = 0;
+        for (int at; (at = html.IndexOf(Marker, from)) >= 0; from = at + 2)
+        {
+            var lt = html.LastIndexOf('<', at);
+            if (k == markup.Count || lt < from)
+                return null;
+            sb.Append(html, from, lt - from).Append(markup[k++]);
+        }
+        return k == markup.Count ? sb.Append(html, from, html.Length - from).ToString() : null;
+    }
+
+    private static string Typogrify(string input)
+    {
         var html = input;
 
         // 1. Replace backtick with apostrophe (Gutenberg style)
@@ -151,11 +225,7 @@ public class TypographyProcessor : ITextProcessor
         // 24. Non-breaking space before &amp;
         html = html.Replace(" &amp;", "\u00a0&amp;");
 
-        // 25. Remove word joiners from img alt attributes
-        html = SafeReplace(AltAttributeRegex, html, m =>
-            m.Value.Replace("\u00a0", " ").Replace("\u2060", ""));
-
-        // 26. Remove word joiners from title elements
+        // 25. Remove word joiners from title elements
         html = SafeReplace(TitleElementRegex, html, m =>
             m.Value.Replace("\u00a0", " ").Replace("\u2060", ""));
 
