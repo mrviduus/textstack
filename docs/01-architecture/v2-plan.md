@@ -303,7 +303,7 @@ Verified from prototype code (not from its README): retained copy + immediate op
 
 | Slice | Agent | Do | DoD |
 |---|---|---|---|
-| **R0** ADR-029 foliate for V2 EPUB | architect → tech-writer | iframe/paginated/`epub-cfi`; ADR-025 stays for PDF + transitional server chapters; pin/patch/licence policy; gates | merged, no code |
+| **R0** [ADR-029](adr/ADR-029-foliate-for-v2-epub.md) foliate for V2 EPUB | architect → tech-writer | iframe/paginated/`epub-cfi`; ADR-025 stays for PDF + transitional server chapters; pin/patch/licence policy; gates | merged, no code |
 | **R1** page core + build | mobile-engineer | port `page.mjs`/`store.mjs`/`library.mjs`/patch to `apps/mobile/src/lib/v2reader/`; committed `v2ReaderPage.generated.ts` + CI drift check (pattern: `apps/web/scripts/mobile-bundles.mjs`) | typecheck+vitest green; fresh clone builds |
 | **R2** Android dev route | mobile-engineer | `app/dev/epub-v2.tsx` (`__DEV__ ? require : Redirect`), `V2ReaderScreen`, storage `<documents>/v2/`, tmp-write for all state | release bundle has no page; emulator import→kill→resume evidence |
 | **R3** sandbox + asserting checks | qa-automation | hostile vectors (SVG script, `<base>`, `<embed>`, `srcdoc`, meta refresh, `file://` sibling), Playwright check exits non-zero | fails when a CSP directive is removed |
@@ -325,7 +325,7 @@ Fixed rules for every slice: English only; one PR, closes its issue; `/pr` write
 | M0.1 | tech-writer | this plan → `docs/01-architecture/v2-plan.md`; `STATUS.md` V2 section; fix stale date |
 | M0.2 | architect | **[ADR-030 Two databases, one cutover](adr/ADR-030-two-databases-one-cutover.md)** (D2, §5) — supersedes the in-place parts of ADR-027 |
 | M0.3 | architect | **[ADR-031 V2 schema](adr/ADR-031-v2-schema.md)** (§4; disposition of all 58 tables; D5–D7); `data-model.md` V2 section |
-| M0.4 | architect | **ADR-029** (reader, R0) |
+| M0.4 | architect | **[ADR-029 foliate-js renders V2 EPUBs](adr/ADR-029-foliate-for-v2-epub.md)** (reader, R0) |
 | M0.5 | product-manager | GitHub issues for every slice, labels `v2-db`, `v2-reader`, `v2-cutover` |
 
 ### M1 — `textstack_v2` exists and is tested
