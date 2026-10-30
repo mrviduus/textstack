@@ -1,6 +1,6 @@
 # Status
 
-**Last updated: 2026-10-24.** Where the project is *now*: what is live, half-finished, known-broken or deliberately not done. What the product does: [`docs/README.md`](README.md). What changed and when: [`CHANGELOG.md`](../CHANGELOG.md) and [`changelog-archive/`](changelog-archive/). Closed items are deleted from here, not struck through; git history keeps them.
+**Last updated: 2026-10-30.** Where the project is *now*: what is live, half-finished, known-broken or deliberately not done. What the product does: [`docs/README.md`](README.md). What changed and when: [`CHANGELOG.md`](../CHANGELOG.md) and [`changelog-archive/`](changelog-archive/). Closed items are deleted from here, not struck through; git history keeps them.
 
 > **Keeping it honest:** a PR that finishes a line here deletes or moves that line in the same PR. New open items go to [GitHub issues](https://github.com/mrviduus/textstack/issues) with a label; the items below move to an issue when someone touches them.
 
@@ -88,11 +88,17 @@ Each is a real defect, known and not yet fixed.
 - **`t()` has no plural rules;** `plural()` in `packages/shared` handles English one-vs-many in code.
 - **Four QA accounts and their guest rows sit on production** (`qa-guest-{a,b,c,d}-20260906@textstack.app` plus abandoned guest rows holding vocabulary); the findings they were created for are closed, so they can go.
 
+## V2 — in flight
+
+- **Map:** [`v2-architecture.md`](01-architecture/v2-architecture.md) (start here) → [`v2-plan.md`](01-architecture/v2-plan.md) — two databases, one cutover, reader track in parallel; slices by milestone in §8, one issue each under [#1013](https://github.com/mrviduus/textstack/issues/1013). [ADR-027](01-architecture/adr/ADR-027-retire-public-catalog.md) stays Proposed as research input.
+- **Decided (Proposed ADRs):** [ADR-030](01-architecture/adr/ADR-030-two-databases-one-cutover.md) V2 lives in a second database `textstack_v2`, Dapper-only, one rehearsed cutover; [ADR-031](01-architecture/adr/ADR-031-v2-schema.md) the V2 schema (24 tables + 2 transitional) and the fate of every legacy table, open items 1–7 decided 2026-10-30; [ADR-029](01-architecture/adr/ADR-029-foliate-for-v2-epub.md) foliate-js renders V2 local EPUBs.
+- **Next:** M1.1 `database/v2` baseline + `migrator-v2` (code).
+- **Reader:** dev-only until the R4 gates pass.
+- **Decisions pending from the owner:** cutover date; archive location outside restic retention; who holds the physical Android device.
+
 ## Under discussion (no decision)
 
-- **[V2 architecture — start here](01-architecture/v2-architecture.md):** target boundary map, schema and next slice. [ADR-027](01-architecture/adr/ADR-027-retire-public-catalog.md) is Proposed, deferred into V2; no interim catalog migration.
-
-- **EPUB core adoption:** current ingestion is server-side; V2 targets local EPUB reading. Candidate-core production adoption and remaining runtime checks are still under discussion. PDF redesign is outside this slice.
+Nothing at the moment.
 
 ## Deliberately not doing
 
