@@ -59,7 +59,8 @@ describe('v2ReaderPageHtml', () => {
   it('bundle_OpenCancelsPendingSaves_AndNoHighlightBeforeRestored', () => {
     const html = v2ReaderPageHtml(NONCE)
     // The call sites of the two data-loss guards; the scheduler itself is unit-tested.
-    expect(html).toMatch(/async function open\(bytes, name\) \{(\s*var [^;]*;)?\s*const mine = \+\+openSeq;\s*saves\.cancel\(\);/)
+    expect(html).toMatch(/async function open\(bytes, name, mine\) \{(\s*var [^;]*;)?\s*saves\.cancel\(\);/)
+    expect(html).toMatch(/function openFor\(bytes, name\) \{\s*const mine = \+\+openSeq;/)
     expect(html).toMatch(/function highlightSelection\(\) \{[\s\S]{0,200}?if \(!entry\) return log\("warn"/)
   })
 

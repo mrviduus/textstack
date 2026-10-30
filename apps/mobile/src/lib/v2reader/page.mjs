@@ -161,8 +161,7 @@ async function makeEpub(file) {
 const text = (v) => (typeof v === 'string' ? v : v && typeof v === 'object' ? String(Object.values(v)[0] ?? '') : '')
 const firstAuthor = (m) => { const a = [].concat(m?.author ?? [])[0]; return a?.name ?? a }
 
-async function open(bytes, name) {
-  const mine = ++openSeq
+async function open(bytes, name, mine) {
   // Nothing of the previous book may land on this one; its entry is gone with the next line.
   saves.cancel()
   book = { sha256: await sha256Yielding(bytes), size: bytes.length, name }
@@ -292,8 +291,8 @@ const openFailed = (name, error) => post({ type: 'open-failed', name, error })
 
 /** One `opened` or one `open-failed` per call — unless a newer openUrl took over, and then neither. */
 function openFor(bytes, name) {
-  const mine = openSeq + 1
-  return open(bytes, name).catch((e) => {
+  const mine = ++openSeq
+  return open(bytes, name, mine).catch((e) => {
     log('error', `open: ${e?.stack ?? e}`)
     if (mine === openSeq) openFailed(name, String(e?.message ?? e).slice(0, 200))
   })

@@ -7,14 +7,6 @@ const pos = { cfi: 'epubcfi(/6/8!/4/2/1:5)', quote: 'Alice was beginning', index
 const hl = { id: 'h1', cfi: 'epubcfi(/6/8!/4/2,/1:0,/1:9)', quote: 'down the rabbit-hole', prefix: '', suffix: '', color: 'yellow' }
 
 describe('v2 reader store', () => {
-  it('sha256_KnownVectorsAndBlockEdges_MatchNodeCrypto', () => {
-    expect(sha256(new TextEncoder().encode('abc'))).toBe('ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad')
-    for (const n of [0, 55, 56, 63, 64, 65, 1000, 70001]) {
-      const b = Uint8Array.from({ length: n }, (_, i) => (i * 31 + 7) & 255)
-      expect(sha256(b), `length ${n}`).toBe(createHash('sha256').update(b).digest('hex'))
-    }
-  })
-
   it('sha1_IdentifierStrings_MatchNodeCrypto', () => {
     for (const s of ['', 'abc', 'urn:uuid:2c4a3b8e-0000-4000-8000-000000000001', 'x'.repeat(55), 'x'.repeat(64), 'é'.repeat(40)]) {
       expect(Buffer.from(sha1(s)).toString('hex'), s).toBe(createHash('sha1').update(s).digest('hex'))
@@ -84,8 +76,9 @@ describe('v2 reader store', () => {
     expect(withHighlight(e, null)).toBe(e)
   })
 
-  it('sha256_EveryLengthAcrossThreeBlocks_MatchesNodeCryptoInLowerHex', () => {
-    for (let n = 0; n <= 192; n++) {
+  it('sha256_EveryLengthAcrossThreeBlocksAndBeyond_MatchesNodeCryptoInLowerHex', () => {
+    expect(sha256(new TextEncoder().encode('abc'))).toBe('ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad')
+    for (const n of [...Array.from({ length: 193 }, (_, i) => i), 1000, 70001]) {
       const b = Uint8Array.from({ length: n }, (_, i) => (i * 131 + n) & 255)
       const h = sha256(b)
       expect(h, `length ${n}`).toBe(createHash('sha256').update(b).digest('hex'))
