@@ -102,7 +102,9 @@ export function createV2Storage(files: V2Files) {
           await writeAtomically(files, 'library.json', JSON.stringify(lib))
           return { retained, books: lib.books as LibraryBook[] }
         } catch (e) {
-          if (moved) try { files.remove(retained) } catch { /* best effort; rethrow the real error */ }
+          // A complete library.json.tmp (a failed move keeps it) is what readRecovering reads when the
+          // target is missing, and it lists this book: then the copy must stay.
+          if (moved && !files.exists('library.json.tmp')) try { files.remove(retained) } catch { /* best effort; rethrow the real error */ }
           throw e
         }
       }),
