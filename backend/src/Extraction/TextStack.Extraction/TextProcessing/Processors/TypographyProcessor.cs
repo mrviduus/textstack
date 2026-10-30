@@ -1,4 +1,7 @@
+using System.Diagnostics.Metrics;
+using System.Text;
 using System.Text.RegularExpressions;
+using HtmlAgilityPack;
 using TextStack.Extraction.TextProcessing.Abstractions;
 using TextStack.Extraction.Typography;
 
@@ -6,6 +9,7 @@ namespace TextStack.Extraction.TextProcessing.Processors;
 
 /// <summary>
 /// Typography processor: smart quotes, proper dashes, ellipses, fractions.
+/// Rewrites prose only: start tags with attributes, comments and script/style are masked first.
 /// </summary>
 public class TypographyProcessor : ITextProcessor
 {
@@ -56,16 +60,116 @@ public class TypographyProcessor : ITextProcessor
     private static readonly Regex TimeAmPmRegex = new(@"(\d)\s+([ap])\.m\.", RegexOptions.IgnoreCase | RegexOptions.Compiled, RegexTimeout);
     private static readonly Regex NegativeNumberRegex = new(@"([\s>])-(\d)", RegexOptions.Compiled, RegexTimeout);
 
-    // These patterns had potential backtracking issues - simplified with possessive-like approach
-    // Using atomic groups via non-backtracking where possible, with explicit bounds
-    private static readonly Regex AltAttributeRegex = new(@"alt=""[^""]{0,1000}[\u00a0\u2060][^""]{0,1000}""", RegexOptions.Compiled, RegexTimeout);
-    private static readonly Regex TitleElementRegex = new(@"<title>[^<]{0,1000}[\u00a0\u2060][^<]{0,1000}</title>", RegexOptions.Compiled, RegexTimeout);
+    // A Unicode noncharacter: never in book text. Every masked span reads "<\uFDD0>" to the rules, so
+    // they still see a tag boundary (">\u201C", "</abbr> ") but no attribute values; no rule matches an
+    // opening tag's name, only closing tags, which are never masked.
+    private const char Marker = '\uFDD0';
+    private const string Placeholder = "<\uFDD0>";
+
+    private static readonly Meter Meter = new(ExtractionTelemetry.MeterName);
+
+    /// <summary>Reason tags: marker_in_input | mask_failed | restore_failed.</summary>
+    internal static readonly Counter<long> SkippedCounter = Meter.CreateCounter<long>(
+        "textstack.typography.skipped", description: "Chapters returned untypographed by a safety fallback");
 
     public string Process(string input, IProcessingContext context)
     {
         if (string.IsNullOrEmpty(input))
             return input;
 
+        // ponytail: input already holding the marker is left untypographed rather than risk a wrong restore
+        if (input.Contains(Marker))
+            return Skip(input, "marker_in_input");
+
+        string masked;
+        List<string> markup;
+        try
+        {
+            (masked, markup) = MaskMarkup(input);
+        }
+        catch (Exception)
+        {
+            return Skip(input, "mask_failed");
+        }
+        return Unmask(Typogrify(masked), markup) ?? Skip(input, "restore_failed");
+    }
+
+    private static string Skip(string input, string reason)
+    {
+        SkippedCounter.Add(1, new KeyValuePair<string, object?>("reason", reason));
+        return input;
+    }
+
+    /// <summary>
+    /// Replaces each start tag with attributes, comment/CDATA and raw-text element (positions from
+    /// HtmlAgilityPack's parse, not a regex) with a placeholder; returns the originals in order.
+    /// </summary>
+    private static (string Html, List<string> Markup) MaskMarkup(string html)
+    {
+        var doc = new HtmlDocument();
+        doc.LoadHtml(html);
+        var markup = new List<string>();
+        var sb = new StringBuilder(html.Length);
+        var from = 0;
+        foreach (var node in doc.DocumentNode.Descendants())
+        {
+            if (node.OuterStartIndex < from)
+                continue;   // inside a span already masked (script/style content)
+
+            var end = node.NodeType == HtmlNodeType.Comment || node.Name is "script" or "style" or "title" or "textarea"
+                ? RawEnd(html, node)
+                : node.NodeType == HtmlNodeType.Element && node.HasAttributes ? StartTagEnd(html, node) : -1;
+            if (end < 0)
+                continue;
+
+            sb.Append(html, from, node.OuterStartIndex - from).Append(Placeholder);
+            markup.Add(html[node.OuterStartIndex..end]);
+            from = end;
+        }
+        return (sb.Append(html, from, html.Length - from).ToString(), markup);
+    }
+
+    /// <summary>
+    /// End of a span masked whole. HAP ends CDATA at its first '>' (extend to "]]>") and can report
+    /// an unclosed element's OuterLength past the end of the input (clamp).
+    /// </summary>
+    private static int RawEnd(string html, HtmlNode node)
+    {
+        var start = node.OuterStartIndex;
+        if (html.AsSpan(start).StartsWith("<![CDATA["))
+        {
+            var close = html.IndexOf("]]>", start, StringComparison.Ordinal);
+            return close < 0 ? html.Length : close + 3;
+        }
+        return Math.Min(start + node.OuterLength, html.Length);
+    }
+
+    /// <summary>
+    /// End of the start tag: the '>' after its last attribute (HAP reports no inner start for
+    /// void elements like img/br; quoted values may themselves hold '>').
+    /// </summary>
+    private static int StartTagEnd(string html, HtmlNode node)
+    {
+        var last = node.Attributes.Max(a => Math.Max(a.StreamPosition + a.Name.Length, a.ValueStartIndex + a.ValueLength));
+        var gt = html.IndexOf('>', last);
+        return gt < 0 ? html.Length : gt + 1;
+    }
+
+    /// <summary>Puts the masked markup back; null if a placeholder went missing or was damaged.</summary>
+    internal static string? Unmask(string html, List<string> markup)
+    {
+        var parts = html.Split(Placeholder);
+        if (parts.Length != markup.Count + 1 || parts.Any(p => p.Contains(Marker)))
+            return null;
+
+        var sb = new StringBuilder(html.Length);
+        for (var i = 0; i < markup.Count; i++)
+            sb.Append(parts[i]).Append(markup[i]);
+        return sb.Append(parts[^1]).ToString();
+    }
+
+    private static string Typogrify(string input)
+    {
         var html = input;
 
         // 1. Replace backtick with apostrophe (Gutenberg style)
@@ -151,14 +255,6 @@ public class TypographyProcessor : ITextProcessor
         // 24. Non-breaking space before &amp;
         html = html.Replace(" &amp;", "\u00a0&amp;");
 
-        // 25. Remove word joiners from img alt attributes
-        html = SafeReplace(AltAttributeRegex, html, m =>
-            m.Value.Replace("\u00a0", " ").Replace("\u2060", ""));
-
-        // 26. Remove word joiners from title elements
-        html = SafeReplace(TitleElementRegex, html, m =>
-            m.Value.Replace("\u00a0", " ").Replace("\u2060", ""));
-
         return html;
     }
 
@@ -179,18 +275,6 @@ public class TypographyProcessor : ITextProcessor
         try
         {
             return regex.Replace(input, replacement);
-        }
-        catch (RegexMatchTimeoutException)
-        {
-            return input;
-        }
-    }
-
-    private static string SafeReplace(Regex regex, string input, MatchEvaluator evaluator)
-    {
-        try
-        {
-            return regex.Replace(input, evaluator);
         }
         catch (RegexMatchTimeoutException)
         {
