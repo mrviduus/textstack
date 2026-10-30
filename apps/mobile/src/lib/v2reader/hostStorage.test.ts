@@ -90,6 +90,30 @@ describe('v2 host storage', () => {
     expect(ops.some((o) => o.startsWith('move staging/'))).toBe(false)
   })
 
+  it('addOpened_LibraryWriteFailsAfterTheMove_RemovesTheRetainedCopyAndRethrows', async () => {
+    const { files, data } = memoryFiles()
+    const sha = SHA_A.toLowerCase()
+    data.set('library.json', 'old')
+    data.set('staging/1.epub', 'staged')
+    const write = files.write
+    files.write = async (name, text) => {
+      if (name === 'library.json.tmp') throw new Error('ENOSPC')
+      return write(name, text)
+    }
+    await expect(createV2Storage(files).addOpened(book(sha), 'staging/1.epub')).rejects.toThrow('ENOSPC')
+    expect([...data]).toEqual([['library.json', 'old']])
+  })
+
+  it('addOpened_LibraryWriteFailsForAnAdoptedCopy_KeepsTheCopy', async () => {
+    const { files, data } = memoryFiles()
+    const sha = SHA_A.toLowerCase()
+    data.set(`books/${sha}.epub`, 'retained')
+    data.set('staging/1.epub', 'staged')
+    files.write = async () => { throw new Error('ENOSPC') }
+    await expect(createV2Storage(files).addOpened(book(sha), 'staging/1.epub')).rejects.toThrow('ENOSPC')
+    expect([...data]).toEqual([[`books/${sha}.epub`, 'retained']])
+  })
+
   it('addOpened_SameBytesConcurrently_OneEntryOneFile', async () => {
     const { files, data } = memoryFiles()
     const sha = SHA_A.toLowerCase()

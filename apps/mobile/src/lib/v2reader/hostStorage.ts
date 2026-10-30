@@ -85,19 +85,26 @@ export function createV2Storage(files: V2Files) {
      * The opened file into the library; resolves to the retained file and the library's books. A
      * staged file becomes the retained copy unless those bytes are already retained. The copy lands
      * before the entry, so a kill between the two leaves a file that the next import of the same
-     * bytes adopts, never an entry without its file.
+     * bytes adopts, never an entry without its file. An error after this call's move removes that
+     * copy again (an adopted one stays), so a failed import leaves no file the library does not list.
      */
     addOpened: (book: { sha256: string; size: number; title: string; author: string; originalName: string }, staged: string | null) =>
       queue.run(async () => {
         const sha256 = sha256Key(book.sha256)
         const retained = bookFile(sha256)
+        let moved = false
         if (staged) {
           if (files.exists(retained)) files.remove(staged)
-          else await files.move(staged, retained)
+          else { await files.move(staged, retained); moved = true }
         }
-        const { lib } = addOpened(await readLibrary(), { ...book, sha256 })
-        await writeAtomically(files, 'library.json', JSON.stringify(lib))
-        return { retained, books: lib.books as LibraryBook[] }
+        try {
+          const { lib } = addOpened(await readLibrary(), { ...book, sha256 })
+          await writeAtomically(files, 'library.json', JSON.stringify(lib))
+          return { retained, books: lib.books as LibraryBook[] }
+        } catch (e) {
+          if (moved) try { files.remove(retained) } catch { /* best effort; rethrow the real error */ }
+          throw e
+        }
       }),
 
     /** A staged file the page could not open: README "open-failed — must not keep the file". */
