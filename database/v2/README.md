@@ -32,6 +32,7 @@ what differs.
 | Database | `POSTGRES_DB` | `V2_POSTGRES_DB`, default `textstack_v2` |
 | Make | `migrate`, `migrate-down V=`, `migrate-status` | `migrate-v2`, `migrate-v2-down V=`, `migrate-v2-status` |
 | Created by | the postgres image, on first start | `run.sh up`/`down`, if missing (`CREATE DATABASE` via `\gexec`); `status` and `verify` never create it |
+| Text ordering | glibc, via the server's `en_US.utf8` | **ICU**, locale `und` — see below |
 | Run by `docker compose up` | yes | **no** — profile `v2`; run it with `make migrate-v2` |
 
 `api` and `worker` wait for `migrator` (ADR-021) and **not** for `migrator-v2`: nothing connects to
@@ -40,10 +41,32 @@ the site down. It did, once, on the day it shipped —
 [postmortem](../../docs/incidents/2026-10-30-migrator-v2-took-down-the-api.md). The wait comes back,
 over V2 endpoints only, when V2 holds real data (#1053).
 
-`run.sh` needs a role that may `CREATE DATABASE`, a reachable `postgres` maintenance database, and a
-`template1` whose collation version matches the server's. A fresh container has all three by
-construction, which is why CI never sees this; the production cluster does not (#1056). `make
-migrate-v2` is how you find that out — not a deploy.
+`run.sh` needs a role that may `CREATE DATABASE` and a reachable `postgres` maintenance database. It
+creates from `template0`, so it does not need a `template1` whose collation version still matches —
+which the production cluster did not have, and which is why `migrator-v2` could not run there at all
+until 2026-10-30 (#1056). `make migrate-v2` is how you find a problem like that out — not a deploy.
+
+### Why ICU, and not the server's locale
+
+The default would tie this database's text ordering to the host's glibc. Bump the base image and
+every text index is sorted by rules nothing uses any more, with no error: a btree lookup walks past
+rows that are present, a UNIQUE index stops seeing a duplicate. The legacy cluster has been in that
+state since its own initdb — Postgres said so once, as a log WARNING, in January.
+
+ICU's version travels with the image, which is pinned by digest and which Dependabot no longer
+bumps (#1056), so it cannot move on its own. `und`, the root locale, orders text exactly as the
+`en_US.utf8` it replaces:
+
+```
+Älvsborg < apple < zebra < Zoo < ёлка < Ель < Чехов < Ящик
+```
+
+Identical under glibc `en_US.utf8` and ICU `und`; `C` would give `Zoo < apple`, which is why the
+tempting "just use C and never think about collations again" is wrong for a library of books in
+several languages. `LC_COLLATE`/`LC_CTYPE` are still required by `CREATE DATABASE ... TEMPLATE
+template0`; with an ICU provider they are not what sorts, so `C` there is correct, not a compromise.
+
+`/health/ready` reports this database's collation version either way (#1059).
 
 **There is no rollback of the baseline.** `make migrate-v2-down V=0` prints `Nothing above version 0.`
 and exits 0 — correct (nothing is applied above the baseline) but not a rollback: the baseline has
