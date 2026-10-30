@@ -5,12 +5,12 @@ using Domain.Discussion;
 namespace Infrastructure.Persistence.Repositories;
 
 /// <summary>
-/// Dapper implementation of <see cref="IInsightRepository"/> on <c>textstack_v2</c>; the legacy table
-/// keeps its own <see cref="InsightRepository"/> until M2.4. One row per (user, book, chapter) is the
+/// Dapper implementation of <see cref="IBookInsightRepository"/> on <c>textstack_v2</c>; the legacy table
+/// keeps its own <c>InsightRepository</c> until M2.4. One row per (user, book, chapter) is the
 /// single unique index <c>ix_book_insight_user_id_book_id_chapter_slug</c>, NULLS NOT DISTINCT so the
 /// book-level row is one row too; the upserts use it as their conflict target.
 /// </summary>
-public sealed class V2InsightRepository(V2DataSource dataSource) : IInsightRepository
+public sealed class BookInsightRepository(V2DataSource dataSource) : IBookInsightRepository
 {
     private const string Columns =
         "id, user_id, book_id, chapter_slug, text, question, source, review_json, created_at, updated_at";

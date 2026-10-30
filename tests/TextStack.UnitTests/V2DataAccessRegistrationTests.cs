@@ -1,3 +1,4 @@
+using Application.Common.Interfaces;
 using Application.Discussion;
 using Application.Library;
 using Application.Reading;
@@ -19,11 +20,11 @@ public class V2DataAccessRegistrationTests
             .BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true });
 
         Type[] v2Ports = [typeof(ILibraryRepository), typeof(ISharedChapterRepository), typeof(ICheckpointRepository),
-            typeof(IInsightRepository), typeof(IReviewQuestionRepository)];
+            typeof(IBookInsightRepository), typeof(IReviewQuestionRepository)];
         foreach (var port in v2Ports)
             Assert.Contains("ConnectionStrings:V2", Assert.Throws<InvalidOperationException>(() => services.GetRequiredService(port)).Message);
         // The legacy insight port of the same name does not need V2.
-        Assert.NotNull(services.GetRequiredService<Application.Common.Interfaces.IInsightRepository>());
+        Assert.NotNull(services.GetRequiredService<IInsightRepository>());
     }
 
     [Fact]
@@ -38,7 +39,7 @@ public class V2DataAccessRegistrationTests
         Assert.NotNull(services.GetService<IReadingStateRepository>());
         Assert.NotNull(services.GetService<ISharedChapterRepository>());
         Assert.NotNull(services.GetService<ICheckpointRepository>());
-        Assert.NotNull(services.GetService<IInsightRepository>());
+        Assert.NotNull(services.GetService<IBookInsightRepository>());
         Assert.NotNull(services.GetService<IReviewQuestionRepository>());
     }
 }

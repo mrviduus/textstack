@@ -16,7 +16,7 @@ public class ReviewQuestionRepositoryTests(V2PostgresFixture db)
     private async Task<BookInsight> ReviewAsync()
     {
         var book = await db.NewReaderWithBookAsync();
-        return await new V2InsightRepository(db.DataSource).SaveReviewAsync(NewInsight(book, "ch-1", "review", "{}"), Ct);
+        return await new BookInsightRepository(db.DataSource).SaveReviewAsync(NewInsight(book, "ch-1", "review", "{}"), Ct);
     }
 
     /// <summary>A new question, due <paramref name="dueInDays"/> from <see cref="Now"/>.</summary>
@@ -84,7 +84,7 @@ public class ReviewQuestionRepositoryTests(V2PostgresFixture db)
     public async Task ReplaceForInsightAsync_OneOfTwoReviews_LeavesTheOtherReviewsQuestions()
     {
         var one = await ReviewAsync();
-        var two = await new V2InsightRepository(db.DataSource).SaveReviewAsync(new BookInsight
+        var two = await new BookInsightRepository(db.DataSource).SaveReviewAsync(new BookInsight
         {
             Id = Guid.NewGuid(),
             UserId = one.UserId,

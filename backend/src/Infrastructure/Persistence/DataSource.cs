@@ -1,6 +1,7 @@
 using System.Data;
 using System.Runtime.CompilerServices;
 using Application.Common.Interfaces;
+using Application.Discussion;
 using Application.Library;
 using Application.Reading;
 using Dapper;
@@ -69,9 +70,8 @@ public static class DataSource
                 v2ConnectionString ?? throw new InvalidOperationException("ConnectionStrings:V2 is not set")))
             .AddSingleton<ILibraryRepository, LibraryRepository>()
             .AddSingleton<IReadingStateRepository, ReadingStateRepository>()
-            // Fully qualified: Application.Discussion.IInsightRepository shares its name with the legacy port above (until M2.4).
-            .AddSingleton<Application.Discussion.ISharedChapterRepository, SharedChapterRepository>()
-            .AddSingleton<Application.Discussion.ICheckpointRepository, CheckpointRepository>()
-            .AddSingleton<Application.Discussion.IInsightRepository, V2InsightRepository>()
-            .AddSingleton<Application.Discussion.IReviewQuestionRepository, ReviewQuestionRepository>();
+            .AddSingleton<ISharedChapterRepository, SharedChapterRepository>()
+            .AddSingleton<ICheckpointRepository, CheckpointRepository>()
+            .AddSingleton<IBookInsightRepository, BookInsightRepository>()
+            .AddSingleton<IReviewQuestionRepository, ReviewQuestionRepository>();
 }

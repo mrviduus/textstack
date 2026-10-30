@@ -4,9 +4,9 @@ using static TextStack.Persistence.Tests.V2PostgresFixture;
 
 namespace TextStack.Persistence.Tests.Discussion;
 
-public class V2InsightRepositoryTests(V2PostgresFixture db)
+public class BookInsightRepositoryTests(V2PostgresFixture db)
 {
-    private readonly V2InsightRepository _repo = new(db.DataSource);
+    private readonly BookInsightRepository _repo = new(db.DataSource);
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     [Fact]
