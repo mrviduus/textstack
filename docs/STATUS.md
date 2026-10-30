@@ -90,7 +90,7 @@ Each is a real defect, known and not yet fixed.
 
 ## V2 — in flight
 
-- **Map:** [`v2-plan.md`](01-architecture/v2-plan.md) — two databases, one cutover, reader track in parallel; slices by milestone in §8.
+- **Map:** [`v2-architecture.md`](01-architecture/v2-architecture.md) (start here) → [`v2-plan.md`](01-architecture/v2-plan.md) — two databases, one cutover, reader track in parallel; slices by milestone in §8, one issue each under [#1013](https://github.com/mrviduus/textstack/issues/1013). [ADR-027](01-architecture/adr/ADR-027-retire-public-catalog.md) stays Proposed as research input.
 - **Decided (Proposed ADRs):** [ADR-030](01-architecture/adr/ADR-030-two-databases-one-cutover.md) V2 lives in a second database `textstack_v2`, Dapper-only, one rehearsed cutover; [ADR-031](01-architecture/adr/ADR-031-v2-schema.md) the V2 schema (24 tables + 2 transitional) and the fate of every legacy table, open items 1–7 decided 2026-10-30; [ADR-029](01-architecture/adr/ADR-029-foliate-for-v2-epub.md) foliate-js renders V2 local EPUBs.
 - **Next:** M1.1 `database/v2` baseline + `migrator-v2` (code).
 - **Reader:** dev-only until the R4 gates pass.
