@@ -11,6 +11,7 @@ import { rangeToLocator } from '../../../../../packages/reader-engine/src/text'
 import { mergeOverlay } from './overlays.mjs'
 import { createSaveScheduler } from './saveScheduler.mjs'
 import { emptyEntry, entryFor, foldText, sha1, sha256Yielding, withHighlight, withPosition } from './store.mjs'
+import { openableHref, sentenceOf } from './tap.mjs'
 
 const post = (m) => window.ReactNativeWebView?.postMessage(JSON.stringify(m))
 const log = (level, msg) => post({ type: 'log', level, msg })
@@ -73,18 +74,6 @@ function decorate(rects, { hl, gloss, el }) {
   if (hl) g.append(Overlayer.highlight(rects, { color: HIGHLIGHT_COLOR }))
   if (gloss) g.append(glossOf(rects, gloss, el))
   return g
-}
-
-function sentenceOf(node, start, end) {
-  const block = node.parentElement?.closest('p, li, blockquote, td, h1, h2, h3, h4, h5, h6') ?? node.parentElement
-  const r = node.ownerDocument.createRange()
-  r.setStart(block, 0)
-  r.setEnd(node, start)
-  const at = r.toString().length
-  const text = block.textContent ?? ''
-  const from = Math.max(text.lastIndexOf('. ', at), text.lastIndexOf('! ', at), text.lastIndexOf('? ', at)) + 1
-  const ends = ['. ', '! ', '? '].map((s) => text.indexOf(s, at + (end - start))).filter((i) => i >= 0)
-  return text.slice(from, ends.length ? Math.min(...ends) + 1 : text.length).replace(/\s+/g, ' ').trim()
 }
 
 function onTap(doc, index, e) {
@@ -192,17 +181,25 @@ async function open(bytes, name, mine) {
     const el = range.startContainer.nodeType === Node.TEXT_NODE ? range.startContainer.parentElement : range.startContainer
     draw(decorate, { hl: a.hl, gloss: a.gloss, el })
   })
-  view.addEventListener('external-link', (e) => { e.preventDefault(); post({ type: 'openLink', href: e.detail.a.href }) })
+  view.addEventListener('external-link', (e) => {
+    e.preventDefault()
+    const href = openableHref(e.detail.a)
+    if (href) post({ type: 'openLink', href })
+    else log('warn', `link not opened, not http(s): ${String(e.detail.a.getAttribute('href')).slice(0, 80)}`)
+  })
   const epub = await makeEpub(new File([bytes], name, { type: 'application/epub+zip' }))
   if (mine !== openSeq) return false
   await view.open(epub)
   // A book's <meta http-equiv="refresh"> navigates its own section frame away; CSP does not cover it.
+  // Parsed every time, never pre-matched on the source text: `&#x72;efresh` spells it past a text match.
   view.book.transformTarget?.addEventListener('data', ({ detail }) => {
     if (!/html/.test(detail.type)) return
     detail.data = Promise.resolve(detail.data).then((str) => {
-      if (typeof str !== 'string' || !/refresh/i.test(str)) return str
+      if (typeof str !== 'string') return str
       const doc = new DOMParser().parseFromString(str, detail.type)
-      for (const m of doc.querySelectorAll('meta[http-equiv]')) if (/refresh/i.test(m.getAttribute('http-equiv'))) m.remove()
+      const refresh = [...doc.querySelectorAll('meta[http-equiv]')].filter((m) => /refresh/i.test(m.getAttribute('http-equiv')))
+      if (!refresh.length) return str
+      refresh.forEach((m) => m.remove())
       return new XMLSerializer().serializeToString(doc)
     })
   })

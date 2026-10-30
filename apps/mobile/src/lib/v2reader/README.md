@@ -9,6 +9,7 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 |---|---|
 | `page.mjs` | Runs in the WebView. The whole adapter: our EPUB loader (SHA-1 for obfuscated fonts), the navigation queue, word tap, translation label, highlights, save/restore by CFI + quote, `meta refresh` stripped. |
 | `store.mjs` | Reader data shape (v1), one entry per book **file** (SHA-256 + size); the quote fold; pure-JS SHA-256 / SHA-1. |
+| `tap.mjs` | What a tap hands the host: the word's sentence (reader-engine's `sentenceAround`) and an external link, only if `http(s)`. |
 | `saveScheduler.mjs` | The debounced `store` message: key and payload are fixed when the save is asked for, so a save can never land on the next book. |
 | `overlays.mjs` | What is drawn over a range. foliate keys an overlay by its CFI, so a highlight and a word's translation over the same range are one overlay carrying both. |
 | `library.mjs` | V2 local library (pure): identical bytes → the existing entry, never a duplicate or reset. |
@@ -18,7 +19,8 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 | `build.mjs` | Pinned clone → patches → esbuild IIFE → `v2ReaderPage.generated.ts`. |
 | `v2ReaderPage.generated.ts` | **Generated, committed.** `v2ReaderPageHtml(nonce)`. Never edit by hand. |
 | `repro.mjs` | Test-only entry: the page + `__fol.reproRenderDuringLoad` (the reproducer behind patch 0001). |
-| `fixtures.mjs` | Writes crafted EPUBs to `fixtures/` (gitignored): `tsfonts.epub` (one font plain, IDPF-, Adobe-obfuscated) and `tshostile.epub` (book scripts + every external request kind). Needs `zip`. |
+| `fixtures.mjs` | Writes crafted EPUBs to `fixtures/` (gitignored): `tsfonts.epub` (one font plain, IDPF-, Adobe-obfuscated) and `tshostile.epub` (one row of `hostileVectors` per sandbox vector). Needs `zip`. |
+| `sandbox.check.mjs` | The hostile-book check (see Sandbox). |
 
 ## Build
 
@@ -30,7 +32,8 @@ node apps/mobile/src/lib/v2reader/build.mjs --repro   # + .vendor/v2ReaderPage.r
 
 - **foliate-js** `https://github.com/johnfactotum/foliate-js` @ `78914aef4466eb960965702401634c2cb348e9b1`
   (2026-05-01), cloned into the gitignored `.vendor/`. Every build checks out the pin, resets the tree
-  (`git checkout -- .`) and applies `patches/*.patch`; a patch that no longer applies fails the build. A bump is a PR
+  (`git checkout -- .`) and applies `patches/*.patch`; an untracked file in that tree fails the build by name (delete
+  `.vendor/` to rebuild from the pin); a patch that no longer applies fails the build. A bump is a PR
   that re-runs every ADR-029 Decision 6 check. Needs network (CI clones it too).
 - **Patch** `0001-paginator-render-while-loading.patch`: `Paginator.render()` returns while the current view has no
   `body` yet (a resize or attribute change during a section load threw). Offer it upstream; drop it on the bump
@@ -38,12 +41,13 @@ node apps/mobile/src/lib/v2reader/build.mjs --repro   # + .vendor/v2ReaderPage.r
   the patch it was 1–5 per 6 loads in Chromium, hundreds on Android).
 - esbuild comes from `apps/web` (no new dependency). Target `chrome90`, not the engine bundle's es2017: foliate
   uses private methods, static blocks and `\p{}` regexes. PDF/MOBI/FB2/CBZ/TTS/search are stubbed out.
-- **Size:** 235,367 characters of script (unminified), ~241 KB generated file. Reader-engine's 64 KB budget does
-  not apply; this page's own budget is `BUDGET` in `build.mjs` (its first committed size), raised only by a
-  deliberate PR.
+- **Size:** 236,666 characters of script (unminified), ~241 KB generated file. Reader-engine's 64 KB budget does
+  not apply; this page's own budget is `BUDGET` in `build.mjs`, raised only by a deliberate PR.
+- `BUDGET` is a tripwire by design, not a ceiling: it equals the committed size, so any growth fails `--check`
+  until the PR that grows the page says so.
 - **Licences** stay in the output (`legalComments: 'inline'`): foliate-js MIT © John Factotum; zip.js BSD-3-Clause.
 - The page imports only foliate, `packages/shared` (`tokenizeVocabWords`) and `packages/reader-engine`
-  (`rangeToLocator`). Nothing from `apps/`.
+  (`rangeToLocator`, `chapterText`, `offsetOf`, `sentenceAround`). Nothing from `apps/`.
 
 ## Sandbox
 
@@ -54,6 +58,37 @@ The section iframes are `sandbox="allow-same-origin allow-scripts"`, so the page
 default-src 'none'; script-src 'nonce-__V2_READER_NONCE__'; style-src blob: 'unsafe-inline'; img-src blob: data:;
 font-src blob: data:; media-src blob: data:; frame-src blob:; connect-src blob: data: file:; form-action 'none'; base-uri 'none'
 ```
+
+**The hostile-book check** (ADR-029 Decision 6) loads the committed page as `file://` in Chromium with file access
+(the dev route's origin), opens `tshostile.epub` through `__fol.openUrl` and exits 1 if any vector gets through: a
+book script ran (`__pwned` in any frame), a request reached its logging server (a free local port), a sibling file of
+the EPUB was read, `<base>` took effect, a refresh meta survived the page's strip, or the section frame left the
+book. It then removes or widens one directive at a time and must catch the vectors that directive stops, so a check
+that cannot fail fails itself. Every vector in `fixtures.mjs` declares how it is observed (`mark`, `request`,
+`probe`, `sandbox`) and which directive `stops` it; the check refuses to start (exit 2) when the two files disagree.
+Each page call is bounded (10 s; a timeout is an escape) and the whole check has a 3-minute deadline (exit 1 with the
+partial table).
+
+**What it proves, and where:** the CSP, in desktop headless Chromium, with the page opened by `page.goto(file://…)`
+and `--allow-file-access-from-files`. Not the Android System WebView (`loadDataWithBaseURL`, Android's file-access
+flags, `content:`/`intent:` URLs): R4 (#1036) runs the book on the device.
+
+```bash
+pnpm -C apps/web exec playwright install chromium   # once
+pnpm -C apps/web check:v2-reader-sandbox            # real CSP holds, every mutation is caught
+node --experimental-strip-types apps/mobile/src/lib/v2reader/sandbox.check.mjs --mutate=base-uri   # one mutation: exits 1
+```
+
+**Blind spots** — vectors the check reports blocked but cannot show the CSP blocking:
+
+- **`form-action 'none'`**: removing it still passes. foliate's section iframe has no `allow-forms`, so the sandbox
+  stops the submit first; the `form` row prints "by the iframe sandbox, not by the CSP".
+- **`object` / `embed`**: they reach the server only with both `default-src` (object-src) and `frame-src` opened, so no
+  single-directive mutation shows them; plugin content is also stopped by the sandbox.
+- **`svg-file-script`**: an SVG document with a script, as `<object>`/`<embed>`; stopped by object-src before
+  script-src is asked. (As `<img>` an SVG can never run script, so the fixture does not carry that half.)
+- **`link-prefetch`** escapes whenever *any* directive gains `http:` or `*`, even with `default-src 'none'`. A
+  widened `connect-src` is caught only through it, because no book script runs to use `connect-src`.
 
 The artifact carries only the placeholder `__V2_READER_NONCE__` (a fixed nonce in a public repo is one a book
 can carry); `v2ReaderPageHtml(nonce)` fills the CSP and the script tag and rejects anything but base64/hex of
@@ -91,7 +126,7 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.�
 | `word` | `index`, `word`, `sentence`, `cfi`, `rect {x, y, w, h}` (host viewport) | translates, then `showTranslation` |
 | `tap` | — | a tap not on a word (chrome toggle) |
 | `highlighted` | `id`, `cfi`, `quote` | — |
-| `openLink` | `href` | an external link; the page never navigates |
+| `openLink` | `href` | the page forwards only `http(s)` links and the host allowlists again before opening: a stated rule, not an accident. Any other scheme is dropped with a `warn` log (`mailto:`/`tel:` noted on #1069); the page never navigates |
 | `log` | `level`, `msg` | `error`: window errors and a failed open or restore. `warn`: a call that was ignored (a highlight or a restore before the book is ready) and a previous book that would not close. foliate logs its own navigation failures to the console, not here — a position that did not land is reported in `restored` instead. |
 
 A stored position or highlight is applied only while the text at its CFI still reads as its saved quote
@@ -106,7 +141,6 @@ quote at all are dropped when the entry is read. `highlightSelection()` before `
 - **Serialise library writes.** `library.mjs` is pure; two concurrent imports writing `library.json` can still lose one (R2).
 - The R2 host passes its file path (`staging/<ts>.epub` or `books/<sha256>.epub`) as `openUrl`'s `name` to match each answer to its open, so the page's stored `book.name` is that path until the contract gains an explicit open id (#1069).
 - `<documents>/v2/` is not yet counted in Device Storage nor wiped on sign-out (#1070, R6).
-- `build.mjs` resets tracked files in `.vendor/foliate-js` but does not prune untracked ones; delete `.vendor/` if that tree was touched by hand (#1046, left to R3).
 
 **WebView, dev route only** (prototype host; ADR-029 Decision 4 until the R4 security review):
 `source={{ html: v2ReaderPageHtml(nonce), baseUrl: <app documents dir> }}`, `allowFileAccess`,

@@ -97,6 +97,7 @@ jobs:
       web: ${{ steps.areas.outputs.web }}
       mobile: ${{ steps.areas.outputs.mobile }}
       extension: ${{ steps.areas.outputs.extension }}
+      v2reader: ${{ steps.areas.outputs.v2reader }}
     steps:
       # A pull_request checkout is GitHub's merge commit; its first parent is the
       # base tip. Depth 2 is both commits and nothing more.
@@ -110,10 +111,14 @@ jobs:
           set -euo pipefail
           files=$(git diff --name-only HEAD^1 HEAD)
           echo "$files"
-          backend=false web=false mobile=false extension=false
-          everything() { backend=true web=true mobile=true extension=true; }
+          backend=false web=false mobile=false extension=false v2reader=false
+          everything() { backend=true web=true mobile=true extension=true v2reader=true; }
           [ -n "$files" ] || everything
           while IFS= read -r f; do
+            # Not an area of its own: what the V2 sandbox check in `frontend` reads.
+            case "$f" in
+              apps/mobile/src/lib/v2reader/*|packages/reader-engine/*|apps/web/package.json|pnpm-lock.yaml|.github/workflows/ci.yml) v2reader=true ;;
+            esac
             case "$f" in
               '') ;;
               docs/*) ;;
@@ -131,6 +136,7 @@ jobs:
             echo "web=$web"
             echo "mobile=$mobile"
             echo "extension=$extension"
+            echo "v2reader=$v2reader"
           } | tee -a "$GITHUB_OUTPUT"
 
   # Cheapest job in the file and the one that would have saved the most time:
@@ -381,6 +387,43 @@ jobs:
       - name: Drift-check V2 reader page
         working-directory: apps/web
         run: pnpm check:v2-reader
+
+      # Chromium for the sandbox check below, installed exactly as the e2e job does (same cache key).
+      # All six steps run only when the check's inputs changed (v2reader), or on push to main.
+      - name: Get Playwright version
+        id: pw-version
+        if: ${{ needs.changes.result != 'success' || needs.changes.outputs.v2reader == 'true' }}
+        working-directory: apps/web
+        run: echo "version=$(pnpm exec playwright --version | awk '{print $2}')" >> $GITHUB_OUTPUT
+
+      - name: Cache Playwright browsers
+        id: pw-cache
+        if: ${{ needs.changes.result != 'success' || needs.changes.outputs.v2reader == 'true' }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw-version.outputs.version }}
+
+      # See the e2e job: install-deps' apt-get update fails hard on these unneeded repositories.
+      - name: Drop apt repositories Playwright does not need
+        if: ${{ needs.changes.result != 'success' || needs.changes.outputs.v2reader == 'true' }}
+        run: sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list /etc/apt/sources.list.d/azure-cli.list
+
+      - name: Install Playwright Chromium
+        if: ${{ (needs.changes.result != 'success' || needs.changes.outputs.v2reader == 'true') && steps.pw-cache.outputs.cache-hit != 'true' }}
+        working-directory: apps/web
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Install Playwright system deps
+        if: ${{ (needs.changes.result != 'success' || needs.changes.outputs.v2reader == 'true') && steps.pw-cache.outputs.cache-hit == 'true' }}
+        run: pnpm -C apps/web exec playwright install-deps chromium
+
+      # ADR-029 Decision 6: the V2 reader page's CSP holds against tshostile.epub, and the check
+      # fails when any directive is removed. Needs only Chromium (no API); ~40s.
+      - name: V2 reader sandbox — gates the PR
+        if: ${{ needs.changes.result != 'success' || needs.changes.outputs.v2reader == 'true' }}
+        working-directory: apps/web
+        run: pnpm check:v2-reader-sandbox
 
       # The PDF bundle had no such guard. engineEntry.ts (+ readerEnginePdfPage.ts) is the source
       # of the page that owns the reader's position in a PDF, and an edit shipped without a

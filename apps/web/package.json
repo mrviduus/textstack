@@ -20,7 +20,8 @@
     "build:v2-reader": "node ../mobile/src/lib/v2reader/build.mjs",
     "check:mobile-engine": "node scripts/check-mobile-engine.mjs",
     "check:mobile-pdf": "node scripts/check-mobile-pdf.mjs",
-    "check:v2-reader": "node ../mobile/src/lib/v2reader/build.mjs --check"
+    "check:v2-reader": "node ../mobile/src/lib/v2reader/build.mjs --check",
+    "check:v2-reader-sandbox": "node --experimental-strip-types ../mobile/src/lib/v2reader/sandbox.check.mjs"
   },
   "dependencies": {
     "@sentry/node": "catalog:",
