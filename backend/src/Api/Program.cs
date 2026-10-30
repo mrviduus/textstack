@@ -263,6 +263,27 @@ app.MapGet("/health/ready", async (AppDbContext db, IHttpClientFactory httpFacto
         }
     }
 
+    // Soft on purpose. A collation drift breaks no request today — it changes how text sorts, so a
+    // btree index built under the old rules can walk past rows that are there, and a mismatched
+    // template1 blocks CREATE DATABASE cluster-wide. Reporting it is the point; 503 for it would
+    // take the site down for a condition that has been true for months, and the cost of gating the
+    // site on something no request path needs was paid on 2026-10-30. The alarm is
+    // health-check.yml, which reads this component.
+    if (criticalOk)
+    {
+        try
+        {
+            var drifted = await CollationDrift.DriftedAsync(db, ct);
+            components["collation"] = drifted.Count == 0
+                ? new { status = "ok" }
+                : new { status = "drift", databases = drifted };
+        }
+        catch (Exception ex)
+        {
+            components["collation"] = new { status = "unknown", error = ex.GetType().Name };
+        }
+    }
+
     try
     {
         var root = cfg["Storage:RootPath"] ?? "/storage";

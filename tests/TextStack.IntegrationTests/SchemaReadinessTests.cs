@@ -27,4 +27,19 @@ public class SchemaReadinessTests : IClassFixture<LiveApiFixture>
             "API predates the schema readiness component");
         Assert.Equal("ok", schema.GetProperty("status").GetString());
     }
+
+    // A fresh container's data directory was made by the glibc it is running, so anything but "ok"
+    // here means the component itself is broken — the query, not the cluster (#1056).
+    [Fact]
+    public async Task HealthReady_FreshCluster_ReportsCollationOk()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var resp = await _fixture.Client.GetAsync("/health/ready", ct);
+        var body = await resp.Content.ReadFromJsonAsync<JsonElement>(ct);
+
+        var components = body.GetProperty("components");
+        Assert.SkipWhen(!components.TryGetProperty("collation", out var collation),
+            "API predates the collation readiness component");
+        Assert.Equal("ok", collation.GetProperty("status").GetString());
+    }
 }
