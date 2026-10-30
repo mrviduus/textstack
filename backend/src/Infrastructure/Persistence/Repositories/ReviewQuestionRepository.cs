@@ -16,6 +16,7 @@ public sealed class ReviewQuestionRepository(V2DataSource dataSource) : IReviewQ
 
     public async Task<DueReviewQuestions> ListDueAsync(Guid userId, DateTimeOffset now, int limit, CancellationToken ct)
     {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
         // Both on ix_review_question_user_id_is_retired_next_review_at; one round trip.
         const string sql = $"""
             SELECT count(*) FROM review_question
@@ -45,8 +46,9 @@ public sealed class ReviewQuestionRepository(V2DataSource dataSource) : IReviewQ
     {
         // Checked first, not left to the FK: the FK refuses an insert under another user's insight,
         // but a prompt hash that insight already has would take the ON CONFLICT path and rewrite
-        // the other user's question.
-        const string owned = "SELECT EXISTS (SELECT 1 FROM book_insight WHERE user_id = @userId AND id = @insightId)";
+        // the other user's question. FOR UPDATE serializes replaces of one insight: unserialized, two
+        // that share hashes in opposite order deadlock, and two disjoint ones leave their union.
+        const string owned = "SELECT EXISTS (SELECT 1 FROM book_insight WHERE user_id = @userId AND id = @insightId FOR UPDATE)";
         // A known hash keeps its schedule and counts; only what the review says changes.
         const string upsert = """
             INSERT INTO review_question (id, user_id, book_insight_id, block_index, prompt, answer, prompt_hash, stage, interval_days, consecutive_correct, next_review_at, last_reviewed_at, total_reviews, correct_reviews, is_retired, created_at, updated_at)

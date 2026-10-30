@@ -69,6 +69,65 @@ public class ReviewQuestionRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
+    public async Task ReplaceForInsightAsync_EmptySet_DeletesThemAll()
+    {
+        var insight = await ReviewAsync();
+        var question = Question("aaaa");
+        await _repo.ReplaceForInsightAsync(insight.UserId, insight.Id, [question], Ct);
+
+        Assert.True(await _repo.ReplaceForInsightAsync(insight.UserId, insight.Id, [], Ct));
+
+        Assert.Null(await _repo.GetAsync(insight.UserId, question.Id, Ct));
+    }
+
+    [Fact]
+    public async Task ReplaceForInsightAsync_OneOfTwoReviews_LeavesTheOtherReviewsQuestions()
+    {
+        var one = await ReviewAsync();
+        var two = await new V2InsightRepository(db.DataSource).SaveReviewAsync(new BookInsight
+        {
+            Id = Guid.NewGuid(),
+            UserId = one.UserId,
+            BookId = one.BookId,
+            ChapterSlug = "ch-2",
+            Text = "review",
+            ReviewJson = "{}",
+        }, Ct);
+        var ones = Question("aaaa");
+        await _repo.ReplaceForInsightAsync(one.UserId, one.Id, [ones], Ct);
+
+        await _repo.ReplaceForInsightAsync(two.UserId, two.Id, [Question("bbbb")], Ct);
+
+        Assert.NotNull(await _repo.GetAsync(one.UserId, ones.Id, Ct));
+    }
+
+    [Fact]
+    public async Task ReplaceForInsightAsync_TwoAtOnceWithSharedHashesInOppositeOrder_BothSucceedAndOneSetWins()
+    {
+        // Unserialized, these deadlock (40P01) on the two shared hashes, or leave the union of both sets.
+        for (var i = 0; i < 4; i++)
+        {
+            var insight = await ReviewAsync();
+            string[] first = ["aaaa", "bbbb", "xxxx"], second = ["bbbb", "aaaa", "yyyy"];
+
+            var results = await Task.WhenAll(
+                Task.Run(() => _repo.ReplaceForInsightAsync(insight.UserId, insight.Id, first.Select(h => Question(h)).ToList(), Ct), Ct),
+                Task.Run(() => _repo.ReplaceForInsightAsync(insight.UserId, insight.Id, second.Select(h => Question(h)).ToList(), Ct), Ct));
+
+            Assert.Equal([true, true], results);
+            var stored = (await _repo.ListDueAsync(insight.UserId, Now.AddDays(1), 10, Ct)).Questions
+                .Select(q => q.PromptHash).Order().ToArray();
+            Assert.True(stored.SequenceEqual(first.Order()) || stored.SequenceEqual(second.Order()), string.Join(",", stored));
+        }
+    }
+
+    [Fact]
+    public async Task ListDueAsync_LimitBelowOne_Throws()
+    {
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => _repo.ListDueAsync(Guid.NewGuid(), Now, 0, Ct));
+    }
+
+    [Fact]
     public async Task ListDueAsync_MixedQuestions_ReturnsDueNotRetiredMostOverdueFirstAndTheTotal()
     {
         var insight = await ReviewAsync();
