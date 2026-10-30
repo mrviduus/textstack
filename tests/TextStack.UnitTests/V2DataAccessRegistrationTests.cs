@@ -18,8 +18,12 @@ public class V2DataAccessRegistrationTests
             .AddTextStackDataAccess(Legacy, null)
             .BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true });
 
-        var error = Assert.Throws<InvalidOperationException>(() => services.GetRequiredService<ILibraryRepository>());
-        Assert.Contains("ConnectionStrings:V2", error.Message);
+        Type[] v2Ports = [typeof(ILibraryRepository), typeof(ISharedChapterRepository), typeof(ICheckpointRepository),
+            typeof(IInsightRepository), typeof(IReviewQuestionRepository)];
+        foreach (var port in v2Ports)
+            Assert.Contains("ConnectionStrings:V2", Assert.Throws<InvalidOperationException>(() => services.GetRequiredService(port)).Message);
+        // The legacy insight port of the same name does not need V2.
+        Assert.NotNull(services.GetRequiredService<Application.Common.Interfaces.IInsightRepository>());
     }
 
     [Fact]

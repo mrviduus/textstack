@@ -7,6 +7,8 @@ namespace Application.Discussion;
 /// chapter review, each with its SRS schedule. The repository only stores a schedule; computing one
 /// is <c>SrsEngine</c>'s job. Every method is scoped to <c>userId</c>
 /// (docs/01-architecture/data-access.md rule 7).
+/// <para>Input validation (JSON shape, hash format, text lengths, enum values) is the API's job: a caller
+/// bug surfaces from the repository as the schema's <c>PostgresException</c> (data-access.md rule 8).</para>
 /// </summary>
 public interface IReviewQuestionRepository
 {

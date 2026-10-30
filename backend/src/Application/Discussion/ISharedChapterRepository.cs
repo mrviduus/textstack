@@ -6,6 +6,8 @@ namespace Application.Discussion;
 /// The V2 chapter shares (table <c>shared_chapters</c>, ADR-031): immutable snapshots, so there is no
 /// update; sharing again is a new row. Every method is scoped to <c>userId</c>: another user's ids read
 /// as "not found" and change nothing (docs/01-architecture/data-access.md rule 7).
+/// <para>Input validation (JSON shape, hash format, text lengths, enum values) is the API's job: a caller
+/// bug surfaces from the repository as the schema's <c>PostgresException</c> (data-access.md rule 8).</para>
 /// </summary>
 public interface ISharedChapterRepository
 {

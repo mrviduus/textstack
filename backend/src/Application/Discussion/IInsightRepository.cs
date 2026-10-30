@@ -11,6 +11,8 @@ namespace Application.Discussion;
 /// <para>No transaction parameter yet: the legacy review save composes with the review questions in
 /// one transaction; on V2 that composition is M2.4's use case and adds <c>NpgsqlTransaction? tx</c>
 /// (#1067).</para>
+/// <para>Input validation (JSON shape, hash format, text lengths, enum values) is the API's job: a caller
+/// bug surfaces from the repository as the schema's <c>PostgresException</c> (data-access.md rule 8).</para>
 /// </summary>
 public interface IInsightRepository
 {
@@ -33,7 +35,8 @@ public interface IInsightRepository
 
     /// <summary>
     /// Inserts <paramref name="insight"/> (a chapter review), or replaces review, text and question of
-    /// the row already in its slot. Returns the stored row: the existing id when replaced.
+    /// the row already in its slot. Returns the stored row: the existing id when replaced. Throws
+    /// <see cref="ArgumentException"/> when <c>ReviewJson</c> or <c>ChapterSlug</c> is null.
     /// </summary>
     Task<BookInsight> SaveReviewAsync(BookInsight insight, CancellationToken ct);
 

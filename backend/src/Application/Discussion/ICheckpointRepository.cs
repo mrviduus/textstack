@@ -6,6 +6,8 @@ namespace Application.Discussion;
 /// The V2 discussion checkpoints (table <c>discussion_checkpoints</c>, ADR-031): append-only, read in
 /// bounded chronological pages (docs/01-architecture/mcp-discussion-checkpoints.md). Every method is
 /// scoped to <c>userId</c> (docs/01-architecture/data-access.md rule 7).
+/// <para>Input validation (JSON shape, hash format, text lengths, enum values) is the API's job: a caller
+/// bug surfaces from the repository as the schema's <c>PostgresException</c> (data-access.md rule 8).</para>
 /// </summary>
 public interface ICheckpointRepository
 {
