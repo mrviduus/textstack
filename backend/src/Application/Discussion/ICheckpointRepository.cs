@@ -36,8 +36,4 @@ public interface ICheckpointRepository
 public sealed record CheckpointCursor(DateTimeOffset CreatedAt, Guid Id);
 
 /// <summary><see cref="Next"/> is null when this is the last page, else the cursor for the next one.</summary>
-public sealed record CheckpointPage(IReadOnlyList<DiscussionCheckpoint> Items, CheckpointCursor? Next)
-{
-    /// <summary>Whether more checkpoints follow this page: the caller must not claim it read the whole history.</summary>
-    public bool HasMore => Next is not null;
-}
+public sealed record CheckpointPage(IReadOnlyList<DiscussionCheckpoint> Items, CheckpointCursor? Next);

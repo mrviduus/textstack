@@ -219,7 +219,7 @@ public class CheckpointRepositoryTests(V2PostgresFixture db)
         {
             page = await _repo.ListAsync(book.UserId, book.Id, null, 2, page?.Next, Ct);
             pages.Add(page.Items.Select(c => c.Id).ToList());
-        } while (page.HasMore);
+        } while (page.Next is not null);
 
         Assert.Equal([2, 2, 1], pages.Select(p => p.Count));
         Assert.Equal(appended, pages.SelectMany(p => p));
@@ -237,7 +237,7 @@ public class CheckpointRepositoryTests(V2PostgresFixture db)
         var page = await _repo.ListAsync(book.UserId, book.Id, "ch-1", 10, null, Ct);
 
         Assert.Equal(inChapter.Id, Assert.Single(page.Items).Id);
-        Assert.False(page.HasMore);
+        Assert.Null(page.Next);
     }
 
     [Fact]
@@ -249,7 +249,7 @@ public class CheckpointRepositoryTests(V2PostgresFixture db)
         var page = await _repo.ListAsync(book.UserId, book.Id, null, int.MaxValue, null, Ct);
 
         Assert.Single(page.Items);
-        Assert.False(page.HasMore);
+        Assert.Null(page.Next);
     }
 
     [Fact]
