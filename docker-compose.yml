@@ -394,7 +394,7 @@ services:
 
   aspire-dashboard:
     logging: *default-logging
-    image: mcr.microsoft.com/dotnet/aspire-dashboard:13.6.2@sha256:4f494c0b519ba58e56f8bb6830041f8ab071e6842c1f4dd1b474d4793dbe1593
+    image: mcr.microsoft.com/dotnet/aspire-dashboard:13.6.2@sha256:e4220c55fa3c3e40ad2d733ef07973392299b420e9bde6924e8f6a1e71ff01a8
     container_name: textstack_aspire_prod
     profiles: ["observability"]
     ports:
