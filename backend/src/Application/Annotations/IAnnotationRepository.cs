@@ -24,9 +24,10 @@ public interface IAnnotationRepository
     /// A stale write is not an error, it loses: the result carries the stored annotation (null when
     /// there is none, or it is not the user's). A deleted annotation is final: every write to it loses,
     /// even one naming its current revision, so a device that missed the delete cannot bring it back.
-    /// The book is fixed at the first write: an edit naming another book loses, and so does a file
-    /// that is not a version of it. A locator without a file is refused by the schema (a
-    /// <c>PostgresException</c>), as a broken invariant.
+    /// The book is fixed at the first write: an edit naming another book loses. A book or file that is
+    /// not the user's, a file of another book, or a locator without a file is refused by the schema (a
+    /// <c>PostgresException</c>), as a broken invariant: the endpoint checks them first, since it must
+    /// tell <c>unknown_file</c> from <c>file_replaced</c> anyway.
     /// </summary>
     /// <exception cref="ArgumentException">The annotation names another user.</exception>
     Task<RevisionedWrite<Annotation>> SaveAsync(Guid userId, Annotation annotation, long? expectedRevision, CancellationToken ct);

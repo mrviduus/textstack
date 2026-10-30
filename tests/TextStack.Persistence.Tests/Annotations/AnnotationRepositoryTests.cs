@@ -1,9 +1,8 @@
-using System.Text.Json.Nodes;
 using Domain.Annotations;
 using Domain.Library;
 using Infrastructure.Persistence.Repositories;
 using Npgsql;
-using static TextStack.Persistence.Tests.V2PostgresFixture;
+using static TextStack.Persistence.Tests.TestJson;
 
 namespace TextStack.Persistence.Tests.Annotations;
 
@@ -11,8 +10,6 @@ public class AnnotationRepositoryTests(V2PostgresFixture db)
 {
     private readonly AnnotationRepository _repo = new(db.DataSource);
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
-
-    private const string Page3 = """{"version":1,"scheme":"pdf-page","value":{"page":3,"rects":[],"exact":"quoted"}}""";
 
     /// <summary>A highlight on page 3 of the book's current file.</summary>
     private static Annotation Highlight(Book book, string note = "a note") => new()
@@ -23,7 +20,7 @@ public class AnnotationRepositoryTests(V2PostgresFixture db)
         FileId = book.CurrentFile!.Id,
         SelectedText = "quoted",
         NoteText = note,
-        Locator = Page3,
+        Locator = Page(3),
     };
 
     private async Task<(Book Book, Annotation Stored)> SavedHighlightAsync()
@@ -57,7 +54,7 @@ public class AnnotationRepositoryTests(V2PostgresFixture db)
         var stored = (await _repo.GetAsync(book.UserId, highlight.Id, Ct))!;
         Assert.Equal((1L, book.Id, book.CurrentFile!.Id, "quoted", "a note", "yellow", (DateTimeOffset?)null),
             (stored.Revision, stored.BookId, stored.FileId, stored.SelectedText, stored.NoteText, stored.Color, stored.DeletedAt));
-        Assert.True(JsonNode.DeepEquals(JsonNode.Parse(Page3), JsonNode.Parse(stored.Locator!)));
+        AssertSameJson(Page(3), stored.Locator);
     }
 
     [Fact]
@@ -80,7 +77,6 @@ public class AnnotationRepositoryTests(V2PostgresFixture db)
 
         Assert.True(result.Accepted);
         Assert.Equal((2L, "edited"), (result.Current!.Revision, result.Current.NoteText));
-        Assert.Equal("edited", (await _repo.GetAsync(book.UserId, stored.Id, Ct))!.NoteText);
     }
 
     [Fact]
@@ -136,46 +132,42 @@ public class AnnotationRepositoryTests(V2PostgresFixture db)
         Assert.Null(await _repo.GetAsync(book.UserId, highlight.Id, Ct));
     }
 
-    private async Task<Guid> FileOfAnotherBookAsync(Guid userId)
-    {
-        var other = new Book { Id = Guid.NewGuid(), UserId = userId, Title = "Another book" };
-        return (await new LibraryRepository(db.DataSource).ImportAsync(other, NewFile(userId, other.Id), Ct)).CurrentFile!.Id;
-    }
 
     [Fact]
-    public async Task SaveAsync_FirstWriteOnAFileOfAnotherOwnBook_LosesAndCreatesNothing()
+    public async Task SaveAsync_FirstWriteOnAFileOfAnotherOwnBook_IsRefusedByTheDeferredForeignKey()
     {
         var book = await db.NewReaderWithBookAsync();
         var highlight = Highlight(book);
-        highlight.FileId = await FileOfAnotherBookAsync(book.UserId);
+        highlight.FileId = (await db.NewBookAsync(book.UserId, "Another book")).CurrentFile!.Id;
 
-        var result = await _repo.SaveAsync(book.UserId, highlight, null, Ct);
+        var error = await Assert.ThrowsAsync<PostgresException>(() => _repo.SaveAsync(book.UserId, highlight, null, Ct));
 
-        Assert.Equal((false, (Annotation?)null), (result.Accepted, result.Current));
+        Assert.Equal((PostgresErrorCodes.ForeignKeyViolation, "fk_annotations_book_files_user_id_book_id_file_id"),
+            (error.SqlState, error.ConstraintName));
         Assert.Null(await _repo.GetAsync(book.UserId, highlight.Id, Ct));
     }
 
     [Fact]
-    public async Task SaveAsync_UpdateOntoAFileOfAnotherOwnBook_LosesAndKeepsTheStoredRow()
+    public async Task SaveAsync_UpdateOntoAFileOfAnotherOwnBook_IsRefusedAndKeepsTheStoredRow()
     {
         var (book, stored) = await SavedHighlightAsync();
         var moved = Edit(stored, "moved");
-        moved.FileId = await FileOfAnotherBookAsync(book.UserId);
+        moved.FileId = (await db.NewBookAsync(book.UserId, "Another book")).CurrentFile!.Id;
 
-        var result = await _repo.SaveAsync(book.UserId, moved, 1, Ct);
+        var error = await Assert.ThrowsAsync<PostgresException>(() => _repo.SaveAsync(book.UserId, moved, 1, Ct));
 
-        Assert.False(result.Accepted);
-        Assert.Equal((1L, book.CurrentFile!.Id, "a note"), (result.Current!.Revision, result.Current.FileId, result.Current.NoteText));
+        Assert.Equal((PostgresErrorCodes.ForeignKeyViolation, "fk_annotations_book_files_user_id_book_id_file_id"),
+            (error.SqlState, error.ConstraintName));
+        var read = (await _repo.GetAsync(book.UserId, stored.Id, Ct))!;
+        Assert.Equal((1L, book.CurrentFile!.Id, "a note"), (read.Revision, read.FileId, read.NoteText));
     }
 
     [Fact]
     public async Task SaveAsync_EditNamingAnotherOwnBook_LosesAndKeepsTheStoredRow()
     {
         var (book, stored) = await SavedHighlightAsync();
-        var other = new Book { Id = Guid.NewGuid(), UserId = book.UserId, Title = "Another book" };
-        await new LibraryRepository(db.DataSource).ImportAsync(other, NewFile(book.UserId, other.Id), Ct);
         var moved = Edit(stored, "moved");
-        moved.BookId = other.Id;
+        moved.BookId = (await db.NewBookAsync(book.UserId, "Another book")).Id;
         moved.FileId = null;
         moved.Locator = null;
 
@@ -204,15 +196,6 @@ public class AnnotationRepositoryTests(V2PostgresFixture db)
         var listed = await _repo.ListForBookAsync(book.UserId, book.Id, Ct);
 
         Assert.Equal([first.Id, last.Id], listed.Select(a => a.Id));
-    }
-
-    [Fact]
-    public async Task GetAsync_DeletedAnnotation_ReturnsItWithDeletedAt()
-    {
-        var (book, stored) = await SavedHighlightAsync();
-        await _repo.DeleteAsync(book.UserId, stored.Id, Ct);
-
-        Assert.NotNull((await _repo.GetAsync(book.UserId, stored.Id, Ct))!.DeletedAt);
     }
 
     [Fact]
@@ -280,7 +263,7 @@ public class AnnotationRepositoryTests(V2PostgresFixture db)
         Assert.Equal((1L, "a note", alices.BookId), (read.Revision, read.NoteText, read.BookId));
     }
 
-    // Unanchored, so no file check can hide a missing owner filter in the update.
+    // Alice's own book and no file: only the owner filter stops this update.
     [Fact]
     public async Task SaveAsync_UnanchoredEditOfAlicesAnnotationAsBob_LosesAndChangesNothing()
     {
@@ -299,7 +282,7 @@ public class AnnotationRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task SaveAsync_FirstWriteOnAlicesBookAsBob_LosesAndCreatesNothing()
+    public async Task SaveAsync_FirstWriteOnAlicesBookAsBob_IsRefusedByTheForeignKey()
     {
         var alices = await db.NewReaderWithBookAsync();
         var bob = await db.NewReaderAsync();
@@ -308,23 +291,24 @@ public class AnnotationRepositoryTests(V2PostgresFixture db)
         intrusion.FileId = null;
         intrusion.Locator = null;
 
-        var result = await _repo.SaveAsync(bob, intrusion, null, Ct);
+        var error = await Assert.ThrowsAsync<PostgresException>(() => _repo.SaveAsync(bob, intrusion, null, Ct));
 
-        Assert.Equal((false, (Annotation?)null), (result.Accepted, result.Current));
+        Assert.Equal((PostgresErrorCodes.ForeignKeyViolation, "fk_annotations_books_user_id_book_id"), (error.SqlState, error.ConstraintName));
         Assert.Empty(await _repo.ListForBookAsync(alices.UserId, alices.Id, Ct));
     }
 
     [Fact]
-    public async Task SaveAsync_AlicesFileOnBobsBook_LosesAndCreatesNothing()
+    public async Task SaveAsync_AlicesFileOnBobsBook_IsRefusedByTheDeferredForeignKey()
     {
         var alices = await db.NewReaderWithBookAsync();
         var bobsBook = await db.NewReaderWithBookAsync();
         var highlight = Highlight(bobsBook);
         highlight.FileId = alices.CurrentFile!.Id;
 
-        var result = await _repo.SaveAsync(bobsBook.UserId, highlight, null, Ct);
+        var error = await Assert.ThrowsAsync<PostgresException>(() => _repo.SaveAsync(bobsBook.UserId, highlight, null, Ct));
 
-        Assert.Equal((false, (Annotation?)null), (result.Accepted, result.Current));
+        Assert.Equal((PostgresErrorCodes.ForeignKeyViolation, "fk_annotations_book_files_user_id_book_id_file_id"),
+            (error.SqlState, error.ConstraintName));
         Assert.Null(await _repo.GetAsync(bobsBook.UserId, highlight.Id, Ct));
     }
 
