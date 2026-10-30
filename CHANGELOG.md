@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Docs** — V2 program plan: separate `textstack_v2` database (Dapper-only), one rehearsed cutover, catalog retired within V2, EF Core leaves with the legacy DB; reader track (foliate) in parallel; ADR-027 recorded as Proposed/deferred — docs · [details](docs/changelog-archive/2026-H2.md#2026-10-30-v2-program-plan)
 - **CI** — integration job reaches Postgres (`TEST_DB_CONNECTION`, loopback-only overlay), so 9 DB-backed tests run instead of skipping; `RateLimits:DeviceCodePermitLimit` knob (prod 5); unretire-404 test no longer skips itself — infra, tests
 - **Infra** — `book_insight` moves off EF Core to Dapper behind `IInsightRepository` (first module, ADR-028); one shared `NpgsqlDataSource` for EF, Dapper and search; repository tests on real Postgres (Testcontainers); no behavior change (#947) — backend, worker · [details](docs/changelog-archive/2026-H2.md#2026-10-28-dapper-pilot-book-insight)
 - **Infra** — migration `0016`: composite FKs — a highlight's chapter belongs to the highlight's own book, not just the same kind (#998) — infra
