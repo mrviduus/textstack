@@ -768,8 +768,8 @@ interval; the caller supplies `PayloadSha256`; `userId` first on every method.
 
 ### M1.4 as merged (shares, checkpoints) — what M2.4 adds
 
-Kept as is (no delta): `DiscussionWriteResult<T>(Created|Replayed|OperationConflict|ShareMismatch,
-Stored)`; share delete unlinks checkpoints in one transaction; `ICheckpointRepository.ListAsync(userId,
+Kept as is (no delta): the shared `WriteResult<T>(Outcome, Row)` (`Application.Common`; shares
+and checkpoints use Created|Replayed|OperationConflict|ShareMismatch); share delete unlinks checkpoints in one transaction; `ICheckpointRepository.ListAsync(userId,
 bookId, chapterKey?, limit, CheckpointCursor? after)` → `CheckpointPage(Items, Next)`; shares listed
 newest first, unpaged (a book has few); the caller supplies `PayloadSha256`. Insights and review
 questions are online-only and outside this protocol.

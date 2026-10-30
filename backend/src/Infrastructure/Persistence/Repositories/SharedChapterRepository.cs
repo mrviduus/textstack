@@ -1,3 +1,4 @@
+using Application.Common;
 using Application.Discussion;
 using Dapper;
 using Domain.Discussion;
@@ -15,7 +16,7 @@ public sealed class SharedChapterRepository(V2DataSource dataSource) : ISharedCh
     private const string Columns =
         "id, user_id, book_id, file_id, chapter_key, chapter_title, chapter_text, notes_snapshot, language, operation_id, payload_sha256, created_at";
 
-    public async Task<DiscussionWriteResult<SharedChapter>> ShareAsync(SharedChapter share, CancellationToken ct)
+    public async Task<WriteResult<SharedChapter>> ShareAsync(SharedChapter share, CancellationToken ct)
     {
         // The no-op DO UPDATE returns the stored row when the operation id is taken; xmax = 0 only
         // on a row this statement inserted.
@@ -29,9 +30,9 @@ public sealed class SharedChapterRepository(V2DataSource dataSource) : ISharedCh
         var (stored, inserted) = (await conn.QueryAsync<SharedChapter, bool, (SharedChapter, bool)>(
             new CommandDefinition(upsert, share, cancellationToken: ct), (row, isNew) => (row, isNew), splitOn: "inserted")).Single();
         return new(
-            inserted ? DiscussionWriteOutcome.Created
-            : stored.PayloadSha256 == share.PayloadSha256 ? DiscussionWriteOutcome.Replayed
-            : DiscussionWriteOutcome.OperationConflict,
+            inserted ? WriteOutcome.Created
+            : stored.PayloadSha256 == share.PayloadSha256 ? WriteOutcome.Replayed
+            : WriteOutcome.OperationConflict,
             stored);
     }
 

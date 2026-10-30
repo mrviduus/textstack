@@ -1,3 +1,4 @@
+using Application.Common;
 using Domain.Discussion;
 
 namespace Application.Discussion;
@@ -15,10 +16,10 @@ public interface ICheckpointRepository
     /// Appends <paramref name="checkpoint"/> once per <c>(UserId, OperationId)</c>: a retry with the
     /// same <c>PayloadSha256</c> returns the stored row, a different hash under that operation id is a conflict.
     /// A named share must be the user's, of the same book, chapter and file version, else
-    /// <see cref="DiscussionWriteOutcome.ShareMismatch"/>. All four sections empty is refused by the
+    /// <see cref="WriteOutcome.ShareMismatch"/>. All four sections empty is refused by the
     /// schema (<c>PostgresException</c> 23514) as a broken invariant.
     /// </summary>
-    Task<DiscussionWriteResult<DiscussionCheckpoint>> AppendAsync(DiscussionCheckpoint checkpoint, CancellationToken ct);
+    Task<WriteResult<DiscussionCheckpoint>> AppendAsync(DiscussionCheckpoint checkpoint, CancellationToken ct);
 
     /// <summary>
     /// Up to <paramref name="limit"/> of the user's checkpoints on one book, oldest first, after
