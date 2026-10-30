@@ -1,12 +1,13 @@
 # A migrator for a database nobody reads yet kept the API from starting
 
 **Date:** 2026-10-30
-**Status:** Mitigated — the API no longer waits for `migrator-v2`. `textstack_v2` still cannot be created on the server: `template1` there has a collation version mismatch (#1056).
+**Status:** Open as this is written — the API is 502 until #1057 deploys. `textstack_v2` still cannot be created on the server either way: `template1` there has a collation version mismatch (#1056).
 
 ## Impact
 
-`https://textstack.app/api/*` returned 502 from **14:01 UTC**, when the deploy of `fa136ece` (#1050)
-recreated `api` and `worker` and then refused to start them. Static pages kept serving — nginx has
+`https://textstack.app/api/*` has returned 502 since **14:01 UTC**, when the deploy of `fa136ece`
+(#1050) recreated `api` and `worker` and then refused to start them. It is still 502 at 14:27, when
+this paragraph was written; the end time is the deploy of #1057, and belongs here once it lands. Static pages kept serving — nginx has
 the SSG output on disk, so `/en` answered 200 throughout — so what broke was everything that needs
 the API: sign-in, uploads, the reader for uploaded books, vocabulary, TTS, translation, the MCP
 server and the admin panel.
@@ -64,7 +65,7 @@ outage.
 
 ## Fix
 
-#1053: `migrator-v2` moves behind the compose profile `v2` and nothing depends on it. `docker compose
+#1057: `migrator-v2` moves behind the compose profile `v2` and nothing depends on it. `docker compose
 up` no longer runs it; `make migrate-v2` does, and `docker compose run` enables the profile itself.
 The CI round trip is unaffected — it runs the migrations under `docker run`, not compose.
 
@@ -98,8 +99,8 @@ three-to-six-hour cron in practice. The check works; its schedule is fiction (#1
 
 Second gap: the deploy job reported `service "migrator-v2" didn't complete successfully: exit 1` and
 nothing else. It never asked the container why — `docker compose logs migrator-v2` was one line away
-from being in the failure output, and its absence is why the root cause above is still a hypothesis
-(#1055).
+from being in the failure output, and its absence is why the cause above needed an SSH session, and
+an interactive VPN re-auth, to find at all (#1055).
 
 ---
 
