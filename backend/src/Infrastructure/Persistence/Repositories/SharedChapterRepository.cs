@@ -29,8 +29,9 @@ public sealed class SharedChapterRepository(V2DataSource dataSource) : ISharedCh
         const string byOperation = $"SELECT {Columns} FROM shared_chapters WHERE user_id = @UserId AND operation_id = @OperationId";
 
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        // Two rounds: the row that blocked the insert may be deleted before it is read, and then the
-        // second insert goes through.
+        // Nothing inserted and nothing found means the row that blocked the insert was deleted
+        // between the two statements: one more round inserts it; a second miss is a broken
+        // invariant, not a race.
         for (var round = 1; ; round++)
         {
             var created = await conn.QuerySingleOrDefaultAsync<SharedChapter>(new CommandDefinition(insert, share, cancellationToken: ct));

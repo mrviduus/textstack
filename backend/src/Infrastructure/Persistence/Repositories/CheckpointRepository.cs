@@ -36,10 +36,17 @@ public sealed class CheckpointRepository(V2DataSource dataSource) : ICheckpointR
             RETURNING {Columns}
             """;
         const string byOperation = $"SELECT {Columns} FROM discussion_checkpoints WHERE user_id = @UserId AND operation_id = @OperationId";
+        const string shareMatches = """
+            SELECT EXISTS (
+                SELECT 1 FROM shared_chapters
+                WHERE user_id = @UserId AND book_id = @BookId AND id = @SharedChapterId
+                  AND chapter_key = @ChapterKey AND file_id IS NOT DISTINCT FROM @FileId)
+            """;
 
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        // Two rounds: a row that blocked the insert may be deleted before it is read, and then the
-        // second insert goes through. Nothing under the operation id twice is a share mismatch.
+        // Nothing inserted means the operation id is taken or the share does not match. Neither found
+        // means the row that blocked the insert was deleted between the two statements: one more
+        // round inserts it; a second miss is a broken invariant, not a race.
         for (var round = 1; ; round++)
         {
             var created = await conn.QuerySingleOrDefaultAsync<DiscussionCheckpoint>(new CommandDefinition(insert, checkpoint, cancellationToken: ct));
@@ -48,7 +55,11 @@ public sealed class CheckpointRepository(V2DataSource dataSource) : ICheckpointR
             var stored = await conn.QuerySingleOrDefaultAsync<DiscussionCheckpoint>(new CommandDefinition(byOperation, checkpoint, cancellationToken: ct));
             if (stored is not null)
                 return new(stored.PayloadSha256 == checkpoint.PayloadSha256 ? DiscussionWriteOutcome.Replayed : DiscussionWriteOutcome.OperationConflict, stored);
-            if (round == 2) return new(DiscussionWriteOutcome.ShareMismatch, null);
+            if (checkpoint.SharedChapterId is not null
+                && !await conn.ExecuteScalarAsync<bool>(new CommandDefinition(shareMatches, checkpoint, cancellationToken: ct)))
+                return new(DiscussionWriteOutcome.ShareMismatch, null);
+            if (round == 2)
+                throw new InvalidOperationException($"Operation {checkpoint.OperationId} was taken, then gone, twice.");
         }
     }
 
