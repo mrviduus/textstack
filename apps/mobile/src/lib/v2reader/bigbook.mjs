@@ -1,20 +1,23 @@
-// The ADR-029 Decision 6 large-book gate: a real EPUB padded to >= <MB> with PNG plates foliate renders (a manifest
+// The ADR-029 Decision 6 large-book gate: a real EPUB padded to about <MB> MiB with PNG plates foliate renders (a manifest
 // item + an <img> in its own spine section, interleaved from the third original section on), not random bytes. Needs `zip`/`unzip`.
-//   node bigbook.mjs <in.epub> <out.epub> [MB=88]   (88 MiB in → ~87 MB out; R4 used Project Gutenberg #28885)
-// Write it into fixtures/ (gitignored): the output is ~87 MB and its source book is not in the repo.
+//   node bigbook.mjs <in.epub> <out.epub> [MB=88]   (plates are counted before zipping, in whole plates, so the
+//   size is approximate and printed: 88 → ~95 MB today. R4's 87 MB run, Project Gutenberg #28885, predates the PRNG fix)
+// Write it into fixtures/ (gitignored): the output is large and its source book is not in the repo.
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, writeFileSync, statSync, rmSync, readdirSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync, statSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve, dirname, join } from 'node:path'
 import { deflateSync, crc32 } from 'node:zlib'
+import { zipEpub } from './fixtures.mjs'
 
 const [src, out, mb = '88'] = process.argv.slice(2)
-if (!src || !out) { console.error('usage: node bigbook.mjs <in.epub> <out.epub> [MB]'); process.exit(2) }
+if (!src || !out || !(Number(mb) > 0)) { console.error('usage: node bigbook.mjs <in.epub> <out.epub> [MB=88]'); process.exit(2) }
 const W = 1200, H = 1600
 
 function png(seed) {
   let s = (seed * 2654435761) >>> 0
-  const rnd = () => (s = (s * 1103515245 + 12345) >>> 0) >>> 24
+  // Math.imul: a plain multiply passes 2^53, loses the low bits and cycles after ~419 steps (plates compress 9×).
+  const rnd = () => (s = (Math.imul(s, 1103515245) + 12345) >>> 0) >>> 24
   const raw = Buffer.alloc((W * 3 + 1) * H)
   for (let y = 0; y < H; y++) {
     const row = y * (W * 3 + 1)
@@ -38,30 +41,43 @@ function png(seed) {
 }
 
 const dir = mkdtempSync(resolve(tmpdir(), 'bigbook-'))
-execFileSync('unzip', ['-q', resolve(src), '-d', dir])
-const opfPath = join(dir, /full-path="([^"]+)"/.exec(readFileSync(join(dir, 'META-INF/container.xml'), 'utf8'))[1])
-let opf = readFileSync(opfPath, 'utf8')
-const original = [...opf.matchAll(/<itemref\b[^>]*\/>/g)].length
-const target = Number(mb) * 1024 * 1024
-let total = statSync(resolve(src)).size, n = 0, manifest = ''
-const pads = []
-while (total < target * 1.02) {
-  n++
-  const img = png(n)
-  writeFileSync(join(dirname(opfPath), `pad-${n}.png`), img)
-  writeFileSync(join(dirname(opfPath), `pad-${n}.xhtml`), `<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Plate ${n}</title></head><body><h2>Plate ${n}</h2><p>Generated plate ${n} of the 80 MB gate book.</p><p><img src="pad-${n}.png" alt="plate ${n}" style="max-width:100%"/></p></body></html>`)
-  manifest += `<item id="pad-img-${n}" href="pad-${n}.png" media-type="image/png"/><item id="pad-${n}" href="pad-${n}.xhtml" media-type="application/xhtml+xml"/>`
-  pads.push(`<itemref idref="pad-${n}"/>`)
-  total += img.length
+/** `text.replace`, failing loud when nothing matched (a prefixed OPF such as `</opf:manifest>`). */
+const replaced = (text, what, by) => {
+  const next = text.replace(what, by)
+  if (next === text) throw new Error(`bigbook: no ${what} in the OPF`)
+  return next
 }
-opf = opf.replace('</manifest>', `${manifest}</manifest>`)
-// interleave: one plate after each original section from the 3rd on, the rest at the end
-let k = 0
-opf = opf.replace(/<itemref\b[^>]*\/>/g, (m) => (k++ >= 2 && pads.length ? m + pads.shift() : m))
-opf = opf.replace('</spine>', `${pads.join('')}</spine>`)
-writeFileSync(opfPath, opf)
-rmSync(resolve(out), { force: true })
-execFileSync('zip', ['-X0q', resolve(out), 'mimetype'], { cwd: dir })
-execFileSync('zip', ['-Xr9Dq', resolve(out), ...readdirSync(dir).filter((f) => f !== 'mimetype')], { cwd: dir })
-rmSync(dir, { recursive: true })
+// A self-closing <itemref/> or an empty <itemref …></itemref>.
+const ITEMREF = /<itemref\b[^>]*?(?:\/>|>\s*<\/itemref>)/g
+let n = 0, original = 0
+try {
+  execFileSync('unzip', ['-q', resolve(src), '-d', dir])
+  const fullPath = /full-path=["']([^"']+)["']/.exec(readFileSync(join(dir, 'META-INF/container.xml'), 'utf8'))
+  if (!fullPath) throw new Error('bigbook: no full-path in META-INF/container.xml')
+  const opfPath = join(dir, fullPath[1])
+  let opf = readFileSync(opfPath, 'utf8')
+  original = [...opf.matchAll(ITEMREF)].length
+  if (!original) throw new Error('bigbook: no <itemref> in the OPF')
+  const target = Number(mb) * 1024 * 1024
+  let total = statSync(resolve(src)).size, manifest = ''
+  const pads = []
+  while (total < target * 1.02) {
+    n++
+    const img = png(n)
+    writeFileSync(join(dirname(opfPath), `pad-${n}.png`), img)
+    writeFileSync(join(dirname(opfPath), `pad-${n}.xhtml`), `<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Plate ${n}</title></head><body><h2>Plate ${n}</h2><p>Generated plate ${n} of the 80 MB gate book.</p><p><img src="pad-${n}.png" alt="plate ${n}" style="max-width:100%"/></p></body></html>`)
+    manifest += `<item id="pad-img-${n}" href="pad-${n}.png" media-type="image/png"/><item id="pad-${n}" href="pad-${n}.xhtml" media-type="application/xhtml+xml"/>`
+    pads.push(`<itemref idref="pad-${n}"/>`)
+    total += img.length
+  }
+  opf = replaced(opf, '</manifest>', `${manifest}</manifest>`)
+  // interleave: one plate after each original section from the 3rd on, the rest at the end
+  let k = 0
+  opf = opf.replace(ITEMREF, (m) => (k++ >= 2 && pads.length ? m + pads.shift() : m))
+  opf = replaced(opf, '</spine>', `${pads.join('')}</spine>`)
+  writeFileSync(opfPath, opf)
+  zipEpub(dir, resolve(out))
+} finally {
+  rmSync(dir, { recursive: true, force: true })
+}
 console.log(`${out}: ${statSync(resolve(out)).size} bytes, ${n} plates ${W}x${H}, ${original} original sections`)
