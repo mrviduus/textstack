@@ -369,6 +369,12 @@ jobs:
         working-directory: apps/web
         run: pnpm check:mobile-engine
 
+      # ADR-029: the V2 reader page is pinned foliate-js + patches/ + page.mjs. Clones the pin, so a
+      # patch that no longer applies fails here too.
+      - name: Drift-check V2 reader page
+        working-directory: apps/web
+        run: pnpm check:v2-reader
+
       # The PDF bundle had no such guard. engineEntry.ts (+ readerEnginePdfPage.ts) is the source
       # of the page that owns the reader's position in a PDF, and an edit shipped without a
       # rebuild changes nothing at runtime — silently, past a green CI.
