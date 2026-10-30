@@ -1,7 +1,7 @@
-using System.Text.Json.Nodes;
 using Dapper;
 using Domain.Reading;
 using Infrastructure.Persistence.Repositories;
+using static TextStack.Persistence.Tests.TestJson;
 
 namespace TextStack.Persistence.Tests.Reading;
 
@@ -10,8 +10,6 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
     private readonly ReadingStateRepository _repo = new(db.DataSource);
     private readonly LibraryRepository _library = new(db.DataSource);
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
-
-    private static string Page(int page) => $$$"""{"version":1,"scheme":"pdf-page","value":{"page":{{{page}}}}}""";
 
     /// <summary>A position on page <paramref name="page"/> of 10, with no frontier offered.</summary>
     private static ReadingState At(Guid fileId, int page) => new()
@@ -27,9 +25,6 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
         var book = await db.NewReaderWithBookAsync();
         return (book.UserId, book.Id, book.CurrentFile!.Id);
     }
-
-    private static void AssertSameJson(string expected, string? actual) =>
-        Assert.True(JsonNode.DeepEquals(JsonNode.Parse(expected), JsonNode.Parse(actual!)), $"{expected} != {actual}");
 
     [Fact]
     public async Task AdvanceAsync_FirstWrite_CreatesTheRowAtRevisionOne()

@@ -56,11 +56,21 @@ public sealed class V2PostgresFixture : IAsyncLifetime
     }
 
     /// <summary>A fresh user with one imported book, titled "A book" and tagged "fiction"; it carries its current file.</summary>
-    public async Task<Book> NewReaderWithBookAsync()
+    public async Task<Book> NewReaderWithBookAsync() => await NewBookAsync(await NewReaderAsync());
+
+    /// <summary>Another imported book, tagged "fiction", in the user's library; its file hashes to <paramref name="sha256"/> when given.</summary>
+    public Task<Book> NewBookAsync(Guid userId, string title = "A book", string? sha256 = null)
     {
-        var userId = await NewReaderAsync();
-        var book = new Book { Id = Guid.NewGuid(), UserId = userId, Title = "A book", Tags = ["fiction"] };
-        return await new LibraryRepository(DataSource).ImportAsync(book, NewFile(userId, book.Id), Ct);
+        var book = new Book { Id = Guid.NewGuid(), UserId = userId, Title = title, Tags = ["fiction"] };
+        return new LibraryRepository(DataSource).ImportAsync(book, NewFile(userId, book.Id, sha256), Ct);
+    }
+
+    /// <summary>The user's rows in <paramref name="table"/>, only those of <paramref name="bookId"/> when given.</summary>
+    public async Task<long> CountAsync(string table, Guid userId, Guid? bookId = null)
+    {
+        await using var conn = await DataSource.OpenConnectionAsync(Ct);
+        var sql = $"SELECT count(*) FROM {table} WHERE user_id = @userId" + (bookId is null ? "" : " AND book_id = @bookId");
+        return await conn.ExecuteScalarAsync<long>(new CommandDefinition(sql, new { userId, bookId }, cancellationToken: Ct));
     }
 
     /// <summary>A new file version of the given book; its hash is of random bytes unless one is given.</summary>

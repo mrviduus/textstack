@@ -11,13 +11,6 @@ public class LibraryRepositoryTests(V2PostgresFixture db)
     private readonly ReadingStateRepository _reading = new(db.DataSource);
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    /// <summary>Another book in an existing user's library.</summary>
-    private async Task<Book> ImportAsync(Guid userId, string? sha256 = null)
-    {
-        var book = new Book { Id = Guid.NewGuid(), UserId = userId, Title = "Another book" };
-        return await _repo.ImportAsync(book, NewFile(userId, book.Id, sha256), Ct);
-    }
-
     [Fact]
     public async Task ImportAsync_NewBook_StoresBookWithItsCurrentFile()
     {
@@ -50,8 +43,8 @@ public class LibraryRepositoryTests(V2PostgresFixture db)
     {
         var older = await db.NewReaderWithBookAsync();
         var user = older.UserId;
-        var removed = await ImportAsync(user);
-        var newer = await ImportAsync(user);
+        var removed = await db.NewBookAsync(user);
+        var newer = await db.NewBookAsync(user);
         await _repo.RemoveAsync(user, removed.Id, Ct);
 
         var books = await _repo.ListAsync(user, Ct);
@@ -73,7 +66,7 @@ public class LibraryRepositoryTests(V2PostgresFixture db)
     public async Task FindBySha256Async_SameBytesInOwnLibrary_ReturnsTheOldestBook()
     {
         var first = await db.NewReaderWithBookAsync();
-        await ImportAsync(first.UserId, first.CurrentFile!.Sha256);
+        await db.NewBookAsync(first.UserId, sha256: first.CurrentFile!.Sha256);
 
         Assert.Equal(first.Id, (await _repo.FindBySha256Async(first.UserId, first.CurrentFile.Sha256, Ct))!.Id);
     }
@@ -109,9 +102,7 @@ public class LibraryRepositoryTests(V2PostgresFixture db)
         var read = (await _repo.GetAsync(book.UserId, book.Id, Ct))!;
         Assert.Equal(replacement.Id, read.CurrentFile!.Id);
         Assert.True(read.UpdatedAt > book.UpdatedAt);
-        await using var conn = await db.DataSource.OpenConnectionAsync(Ct);
-        Assert.Equal(2L, await conn.ExecuteScalarAsync<long>(new CommandDefinition(
-            "SELECT count(*) FROM book_files WHERE user_id = @UserId AND book_id = @Id", book, cancellationToken: Ct)));
+        Assert.Equal(2L, await db.CountAsync("book_files", book.UserId, book.Id));
     }
 
     [Fact]
