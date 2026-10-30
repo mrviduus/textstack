@@ -32,8 +32,13 @@ preserved set: `user_chapters`, 131 MB), so moving it in one event costs minutes
    the V2 schema — no `legacy_*` names, no interim history. Proposed shape: the existing migrator
    image also carries `database/v2/`, and `migrator-v2` overrides entrypoint and env, so `images.yml`
    and the digest-pull list in `deploy.yml` (`migrator api worker admin ssg-worker mcp-server`) do not
-   grow a seventh image. ADR-021 holds for both databases: only a migrator migrates; `api` and
-   `worker` wait on both with `service_completed_successfully`.
+   grow a seventh image. ADR-021 holds for both databases: only a migrator migrates.
+   **Amended 2026-10-30:** `api` and `worker` wait on the legacy migrator only. Waiting on
+   `migrator-v2` too took the site down on the day it shipped, for a database nothing read
+   ([postmortem](../../incidents/2026-10-30-migrator-v2-took-down-the-api.md)); `migrator-v2` is
+   behind compose profile `v2`. V2 readiness returns as a gate over V2 endpoints when V2 holds real
+   data (#1053) — two databases exist so that V2 can be broken while V1 serves, and a hard
+   dependency from V1's containers undoes exactly that.
 2. **V2 code is Dapper-only, against a second `NpgsqlDataSource` (`V2DataSource`).** Legacy code stays
    on EF Core and its data source until it is deleted; nothing new is added to EF. No table is ever
    half in one database and half in the other, or half EF and half Dapper (ADR-028 §3 holds

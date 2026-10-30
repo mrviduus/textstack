@@ -634,6 +634,16 @@ jobs:
         run: |
           timeout 120 bash -c 'until curl -s http://localhost:8080/health; do sleep 5; done'
 
+      # The only place migrator-v2's compose wiring runs at all: it sits behind profile `v2` and no
+      # deploy enables it (#1053), so its image tag, entrypoint path and PGDATABASE would otherwise
+      # rot unwatched. `compose run` enables the service's own profile. The migrations themselves are
+      # covered by the round trip in the backend job; this is about the service definition.
+      - name: V2 migrator runs through compose
+        run: |
+          COMPOSE="docker compose -f docker-compose.yml -f .github/docker-compose.ci-db.yml"
+          $COMPOSE run --rm migrator-v2 up
+          $COMPOSE run --rm migrator-v2 status
+
 
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
@@ -876,7 +886,7 @@ jobs:
       # one not captured.
       - name: Dump service logs on failure
         if: failure()
-        run: docker compose logs --no-color api migrator migrator-v2 worker
+        run: docker compose logs --no-color api migrator worker   # migrator-v2 is profile-gated; this job never starts it
 
       - name: Stop services
         if: always()

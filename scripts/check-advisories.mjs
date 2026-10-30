@@ -136,6 +136,16 @@ export const KNOWN = {
       'no fixed 3.x exists. The production path (puppeteer > chromium-bidi, SSG prerender) is on ' +
       'zod 4.6.7 since puppeteer 25.16. Forcing 3 -> 4 inside Expo is how a mobile build breaks.',
   },
+  'GHSA-qr28-fpjm-wq7f': {
+    since: '2026-10-30',
+    module: 'decode-uri-component',
+    needs: '>=0.5.1',
+    why:
+      'The same copy as GHSA-vcc3-ghjq-m6fr above: 0.2.2 inside Expo, reached through ' +
+      'query-string@7.1.3, which declares ^0.2.2. Build/dev tooling, never the app bundle. ' +
+      'The fix is 0.5.1, three minors past what query-string accepts, so reaching it means an ' +
+      'override inside Expo — the same trade this list already refused once.',
+  },
 }
 
 /**
