@@ -50,7 +50,14 @@ export function nonceFromUuid(uuid: string): string {
  * old target wins and that save is lost, which is acceptable because its caller never saw it succeed.
  */
 export async function writeAtomically(files: V2Files, name: string, text: string): Promise<void> {
-  await files.write(`${name}.tmp`, text)
+  try {
+    await files.write(`${name}.tmp`, text)
+  } catch (e) {
+    // A failed write (ENOSPC) leaves an empty or partial tmp: drop it. Only here — after a failed
+    // move the tmp may be the one complete copy left.
+    try { files.remove(`${name}.tmp`) } catch { /* best effort; the write's error is the one to report */ }
+    throw e
+  }
   await files.move(`${name}.tmp`, name)
 }
 

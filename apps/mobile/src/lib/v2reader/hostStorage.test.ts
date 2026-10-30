@@ -37,6 +37,20 @@ describe('v2 host storage', () => {
     expect([...data]).toEqual([['library.json', '{}']])
   })
 
+  it('writeAtomically_WriteFails_RemovesTheTmpAndRethrows', async () => {
+    const { files, data } = memoryFiles()
+    files.write = async (name) => { data.set(name, ''); throw new Error('ENOSPC') }
+    await expect(writeAtomically(files, 'library.json', '{}')).rejects.toThrow('ENOSPC')
+    expect([...data.keys()]).toEqual([])
+  })
+
+  it('writeAtomically_WriteAndTmpRemovalBothFail_TheWriteErrorPropagates', async () => {
+    const { files, data } = memoryFiles()
+    files.write = async (name) => { data.set(name, ''); throw new Error('ENOSPC') }
+    files.remove = () => { throw new Error('remove failed') }
+    await expect(writeAtomically(files, 'library.json', '{}')).rejects.toThrow('ENOSPC')
+  })
+
   it('readRecovering_TargetMissing_ReadsTheTmp_TargetPresent_TargetWins', async () => {
     const { files, data } = memoryFiles()
     data.set('store/x.json.tmp', 'new')
