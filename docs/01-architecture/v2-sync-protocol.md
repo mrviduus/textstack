@@ -291,7 +291,7 @@ JSON):
 `current` is the stored row of the aggregate the write targeted (the full read shape above); `revision`
 repeats `current.revision` (null when there is no row). Optional members: `fileId` (the book's current
 file id) and `currentFile` (its file version), on reading-state and file codes only; `field` on
-`invalid_payload`; `expectedSha256`/`actualSha256` on `content_mismatch`. 404s and 422s use the same
+`invalid_payload`; `expectedSha256`, `actualSha256`, `byteSize` on `content_mismatch`. 404s and 422s use the same
 shape.
 
 `stale_revision` — another device moved (or the state never existed for this revision). Client: ADR-019
@@ -666,7 +666,7 @@ All under `/me/v2`, `Features:V2Api`, V2 readiness filter (#1053), user or guest
 | M2.4 | `POST /books/{bookId}/shares` · `GET /books/{bookId}/shares` · `DELETE /shares/{id}` | share | 201 · 200 replay · 409 `operation_conflict` / `unknown_file` · 404 `book_not_found` / `not_found` · 204 |
 | M2.4 | `POST /books/{bookId}/checkpoints` · `GET /books/{bookId}/checkpoints?chapterKey=&cursor=&limit=` (paged as M1.4's `CheckpointPage`) · `DELETE /checkpoints/{id}` | checkpoint | 201 · 200 replay · 409 `operation_conflict` / `unknown_file` · 422 `share_mismatch` · 404 `book_not_found` / `not_found` · 204 |
 | M2.4 | `PUT /books/{bookId}/checkpoint-saving` | `{enabled}` | 200 |
-| M2.6 | `PUT /books/{bookId}/files/{fileId}/parts/{index}` | bytes, `Content-Length` ≤ `maxPartBytes` | 200 `{index, size}` · 411 · 400 · 409 `file_replaced` / `unknown_file` / `book_removed` |
+| M2.6 | `PUT /books/{bookId}/files/{fileId}/parts/{index}` | bytes, `Content-Length` ≤ `maxPartBytes` | 200 `{index, size}` · 411 · 400 `invalid_payload` (part over `maxPartBytes`) · 409 `file_replaced` / `unknown_file` / `book_removed` |
 | M2.6 | `POST /books/{bookId}/files/{fileId}/content` | `{partCount}` | 200 file · 422 `content_mismatch` · 400 `incomplete_upload` · 409 `file_replaced` / `unknown_file` / `book_removed` |
 | M2.6 | `GET /books/{bookId}/files/{fileId}/content` | `Range` | 200/206 · 404 `no_content` |
 
@@ -827,4 +827,4 @@ Default in parentheses.
 10. Concurrent offline replacements: `replacesFileId` → `file_replaced`, or LWW? (`file_replaced`)
 11. Removed book: accept state/annotations/examples/sessions, refuse file and bytes with `book_removed`? (yes)
 12. Merge: `ON UPDATE CASCADE` on composite FKs, or new ids for merged rows? (cascade, keeps client ids)
-13. Re-share of a chapter: new snapshot or replay? (new snapshot, as the schema says)
+13. MCP `operation_id`: per-call host nonce or payload-derived? (nonce: a payload-derived id would make a re-share a replay, against the schema’s "sharing again makes a new snapshot")
