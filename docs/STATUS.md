@@ -90,7 +90,9 @@ Each is a real defect, known and not yet fixed.
 
 ## Under discussion (no decision)
 
-- **Where the parser runs:** server (today), on the device, or hybrid local-first (parse on the device for instant reading, server for sync and search).
+- **[V2 architecture — start here](01-architecture/v2-architecture.md):** target boundary map, schema and next slice. [ADR-027](01-architecture/adr/ADR-027-retire-public-catalog.md) is Proposed, deferred into V2; no interim catalog migration.
+
+- **EPUB core adoption:** current ingestion is server-side; V2 targets local EPUB reading. Candidate-core production adoption and remaining runtime checks are still under discussion. PDF redesign is outside this slice.
 
 ## Deliberately not doing
 

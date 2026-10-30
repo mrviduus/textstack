@@ -93,6 +93,8 @@ sequenceDiagram
 
 ## 2. Read a chapter
 
+Detailed current behavior and evidence limits: [open a book and resume](reader-open-resume.md).
+
 ```mermaid
 sequenceDiagram
     autonumber
