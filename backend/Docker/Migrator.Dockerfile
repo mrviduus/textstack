@@ -5,6 +5,8 @@ FROM alpine:3.24@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c03
 RUN apk add --no-cache postgresql16-client
 COPY database/migrate.sh /database/migrate.sh
 COPY database/migrations/ /database/migrations/
+# textstack_v2's runner and migrations (ADR-030); migrator-v2 runs them through database/v2/run.sh.
+COPY database/v2/ /database/v2/
 # Non-root; the image needs no writable path.
 USER nobody
 # `docker compose run --rm migrator down 3` replaces CMD; a plain `up -d` runs `up`.
