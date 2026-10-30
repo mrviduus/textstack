@@ -59,7 +59,19 @@ describe('v2ReaderPageHtml', () => {
   it('bundle_OpenCancelsPendingSaves_AndNoHighlightBeforeRestored', () => {
     const html = v2ReaderPageHtml(NONCE)
     // The call sites of the two data-loss guards; the scheduler itself is unit-tested.
-    expect(html).toMatch(/async function open\(bytes, name\) \{(\s*var [^;]*;)?\s*saves\.cancel\(\);/)
+    expect(html).toMatch(/async function open\(bytes, name\) \{(\s*var [^;]*;)?\s*const mine = \+\+openSeq;\s*saves\.cancel\(\);/)
     expect(html).toMatch(/function highlightSelection\(\) \{[\s\S]{0,200}?if \(!entry\) return log\("warn"/)
+  })
+
+  it('bundle_EveryStateChangeGuarded_SoOneBadBookCannotWedgeThePage', () => {
+    const html = v2ReaderPageHtml(NONCE)
+    // A view that never rendered throws from close(); the next open must still work.
+    expect(html).toMatch(/try \{\s*view == null \? void 0 : view\.close\(\);\s*\} catch/)
+    // restoring is cleared however restore ends, or the page saves nothing for the rest of the session.
+    expect(html).toMatch(/\} finally \{[\s\S]{0,200}?restoring = false;/)
+    // The renderer exists only after view.open() resolved.
+    expect(html).toMatch(/view\.renderer\) == null \? void 0 : _a\.setStyles/)
+    // A position is reported restored only if the renderer really shows that section.
+    expect(html).toContain('result.position = landed ? "restored" : "navigation failed, stayed at start"')
   })
 })

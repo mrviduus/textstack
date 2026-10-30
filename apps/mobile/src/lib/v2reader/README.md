@@ -10,6 +10,7 @@ and its build only. No route, no WebView host, no UI yet (R2).
 | `page.mjs` | Runs in the WebView. The whole adapter: our EPUB loader (SHA-1 for obfuscated fonts), the navigation queue, word tap, translation label, highlights, save/restore by CFI + quote, `meta refresh` stripped. |
 | `store.mjs` | Reader data shape (v1), one entry per book **file** (SHA-256 + size); the quote fold; pure-JS SHA-256 / SHA-1. |
 | `saveScheduler.mjs` | The debounced `store` message: key and payload are fixed when the save is asked for, so a save can never land on the next book. |
+| `overlays.mjs` | What is drawn over a range. foliate keys an overlay by its CFI, so a highlight and a word's translation over the same range are one overlay carrying both. |
 | `library.mjs` | V2 local library (pure): identical bytes → the existing entry, never a duplicate or reset. |
 | `*.test.ts` | Unit tests for the two pure modules (mobile vitest). |
 | `patches/*.patch` | Our changes to foliate-js, applied in order on every build. |
@@ -36,7 +37,7 @@ node apps/mobile/src/lib/v2reader/build.mjs --repro   # + .vendor/v2ReaderPage.r
   the patch it was 1–5 per 6 loads in Chromium, hundreds on Android).
 - esbuild comes from `apps/web` (no new dependency). Target `chrome90`, not the engine bundle's es2017: foliate
   uses private methods, static blocks and `\p{}` regexes. PDF/MOBI/FB2/CBZ/TTS/search are stubbed out.
-- **Size:** 233,294 characters of script (unminified), ~241 KB generated file. Reader-engine's 64 KB budget does
+- **Size:** 235,367 characters of script (unminified), ~241 KB generated file. Reader-engine's 64 KB budget does
   not apply; this page's own budget is `BUDGET` in `build.mjs` (its first committed size), raised only by a
   deliberate PR.
 - **Licences** stay in the output (`legalComments: 'inline'`): foliate-js MIT © John Factotum; zip.js BSD-3-Clause.
@@ -67,13 +68,13 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.�
 
 | Call | Does |
 |---|---|
-| `openUrl(url, name)` | Reads the retained EPUB by XHR (`file://…`) and opens it. Answers `opened` or `open-failed`. |
+| `openUrl(url, name)` | Reads the retained EPUB by XHR (`file://…`) and opens it. Answers `opened` or `open-failed`. A second call supersedes the first, which then answers nothing. |
 | `restore(json \| null)` | The answer to `opened`: the JSON last sent in `store` for that `book.sha256`, or null. |
 | `highlightSelection()` | The last non-empty selection becomes a highlight; sends `store` and `highlighted`. |
 | `goTo(target)` | CFI, href or section index. Queued behind the previous navigation. |
 | `section(±1)`, `next()`, `prev()` | Section / page step, queued. |
-| `font(delta)` | Font size ±px, clamped 12–32; returns the new size. |
-| `flow('paginated' \| 'scrolled')` | foliate layout; default `paginated` (ADR-029 Decision 1). |
+| `font(delta)` | Font size ±px, clamped 12–32; returns the new size. No-op before `opened`. |
+| `flow('paginated' \| 'scrolled')` | foliate layout; default `paginated` (ADR-029 Decision 1). No-op before `opened`. |
 | `showTranslation(cfi, index, text)` | The answer to `word`: draws `text` above that word. |
 
 **Page → host** (`{ type, … }`)
@@ -83,14 +84,14 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.�
 | `ready` | — | may call `openUrl` |
 | `opened` | `book {sha256, size, name}`, `title`, `author` (either may be `''`), `sections`, `toc [{label, href}]` | calls `restore` with the stored JSON for `book.sha256` |
 | `open-failed` | `name`, `error` | must not keep the file |
-| `restored` | `found`, `rejected`, `position` (`none` / `restored` / `quote mismatch, stayed at start`), `highlights [{id, status}]` | — |
+| `restored` | `found`, `rejected`, `position` (`none` / `restored` / `quote mismatch, stayed at start` / `navigation failed, stayed at start`), `highlights [{id, status}]` | — |
 | `store` | `key` (= `book.sha256`), `json` | keeps `json` under `key`, verbatim |
 | `relocate` | `index`, `sections`, `fraction`, `toc`, `cfi` | progress UI |
 | `word` | `index`, `word`, `sentence`, `cfi`, `rect {x, y, w, h}` (host viewport) | translates, then `showTranslation` |
 | `tap` | — | a tap not on a word (chrome toggle) |
 | `highlighted` | `id`, `cfi`, `quote` | — |
 | `openLink` | `href` | an external link; the page never navigates |
-| `log` | `level`, `msg` | page errors (window errors, failed navigation / open / restore) |
+| `log` | `level`, `msg` | `error`: window errors and a failed open or restore. `warn`: a call that was ignored (a highlight or a restore before the book is ready) and a previous book that would not close. foliate logs its own navigation failures to the console, not here — a position that did not land is reported in `restored` instead. |
 
 A stored position or highlight is applied only while the text at its CFI still reads as its saved quote
 (`foldText`); otherwise it is reported in `restored` and left out, never drawn elsewhere. Stored items with no

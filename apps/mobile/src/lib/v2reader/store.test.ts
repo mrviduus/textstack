@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
-import { emptyEntry, entryFor, foldText, sha1, sha256, withHighlight, withPosition } from './store.mjs'
+import { emptyEntry, entryFor, foldText, sha1, sha256, sha256Yielding, withHighlight, withPosition } from './store.mjs'
 
 const book = { sha256: 'ab'.repeat(32), size: 1234, name: 'a.epub' }
 const pos = { cfi: 'epubcfi(/6/8!/4/2/1:5)', quote: 'Alice was beginning', index: 3, fraction: 0.1, at: 1 }
@@ -102,6 +102,30 @@ describe('v2 reader store', () => {
     for (const item of [e!.position, ...e!.highlights]) if (item) expect(() => foldText(item.quote)).not.toThrow()
     // Still the same file's entry, so the page goes on saving into it.
     expect(withPosition(e, pos).position).toEqual(pos)
+  })
+
+  it('sha256Yielding_MoreThanOneSlice_SameDigestAndGivesThePageBackBetweenSlices', async () => {
+    // The whole blocks are read in the file's own buffer; only the 64-byte tail is copied, so an 80 MB
+    // book neither freezes the page nor triples its memory.
+    const bytes = Uint8Array.from({ length: (9 << 20) + 37 }, (_, i) => (i * 97) & 255)
+    let yields = 0
+    const digest = await sha256Yielding(bytes, async () => { yields++ })
+    expect(digest).toBe(createHash('sha256').update(bytes).digest('hex'))
+    expect(digest).toBe(sha256(bytes))
+    expect(yields).toBe(3)
+  })
+
+  it('sha256Yielding_ShortAndEmptyInput_MatchesTheSyncOne', async () => {
+    for (const n of [0, 1, 55, 56, 64, 65]) {
+      const b = Uint8Array.from({ length: n }, (_, i) => (i * 13 + 5) & 255)
+      expect(await sha256Yielding(b), `length ${n}`).toBe(sha256(b))
+    }
+  })
+
+  it('sha256_ViewIntoALargerBuffer_HashesOnlyItsOwnBytes', () => {
+    const whole = Uint8Array.from({ length: 300 }, (_, i) => i & 255)
+    const part = whole.subarray(70, 270)
+    expect(sha256(part)).toBe(createHash('sha256').update(part).digest('hex'))
   })
 
   it('foldText_EmptyAndWhitespaceOnly_FoldToEmpty', () => {

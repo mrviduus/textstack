@@ -17,7 +17,7 @@ const FOLIATE_REPO = 'https://github.com/johnfactotum/foliate-js.git'
 const FOLIATE_SHA = '78914aef4466eb960965702401634c2cb348e9b1'   // 2026-05-01
 // Unminified characters of the bundled script, first committed size. Raised only by a deliberate PR
 // (ADR-029 Decision 3); not reader-engine's 64 KB budget.
-const BUDGET = 233294
+const BUDGET = 235367
 
 const here = dirname(fileURLToPath(import.meta.url))
 const out = resolve(here, 'v2ReaderPage.generated.ts')
@@ -26,14 +26,25 @@ const git = (...args) => execFileSync('git', ['-C', vendor, ...args], { stdio: '
 
 if (!existsSync(vendor)) execFileSync('git', ['clone', '-q', FOLIATE_REPO, vendor], { stdio: 'inherit' })
 git('fetch', '-q', 'origin', FOLIATE_SHA)
-git('checkout', '-q', '--detach', FOLIATE_SHA)
-// A clean tree, then every patch in order, on every build: a patch that no longer applies fails here.
+// The patched tree is dropped BEFORE the checkout: last build's patches are local modifications, and
+// a checkout onto a different SHA refuses to overwrite them — which is what a bump used to hit.
 git('checkout', '-q', '--', '.')
+git('checkout', '-q', '--detach', FOLIATE_SHA)
+// Every patch, in order, on every build: one that no longer applies fails here.
 const patches = readdirSync(resolve(here, 'patches')).filter((f) => f.endsWith('.patch')).sort()
 for (const p of patches) git('apply', '--whitespace=nowarn', resolve(here, 'patches', p))
 
-// esbuild is the one the mobile engine bundle already uses (apps/web): no new dependency.
-const { build } = createRequire(resolve(here, '../../../../web/package.json'))('esbuild')
+// esbuild is the one the mobile engine bundle already uses (apps/web): no new dependency. Resolved from
+// apps/web and version-checked, because the root has another copy — building with it produces a
+// different bundle from the committed one, which reads as drift and is not.
+const webPackage = resolve(here, '../../../../web/package.json')
+const { build, version } = createRequire(webPackage)('esbuild')
+const wanted = JSON.parse(readFileSync(webPackage, 'utf8')).devDependencies.esbuild.replace(/^[^\d]*/, '')
+const minor = (v) => v.split('.').slice(0, 2).join('.')
+if (minor(version) !== minor(wanted)) {
+  console.error(`[v2-reader] esbuild ${version} is loaded, but apps/web asks for ${wanted}. Run pnpm install.`)
+  process.exit(1)
+}
 
 // view.js's makeBook lazily imports every format; this page opens EPUB only, so the other formats
 // (and pdf.js, ~1 MB), TTS and search are stubbed out instead of shipped.

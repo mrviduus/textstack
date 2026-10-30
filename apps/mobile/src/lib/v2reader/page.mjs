@@ -8,8 +8,9 @@ import { EPUB } from './.vendor/foliate-js/epub.js'
 import { BlobReader, BlobWriter, TextWriter, ZipReader, configure } from './.vendor/foliate-js/vendor/zip.js'
 import { tokenizeVocabWords } from '../../../../../packages/shared/src/text/vocabKey'
 import { rangeToLocator } from '../../../../../packages/reader-engine/src/text'
+import { mergeOverlay } from './overlays.mjs'
 import { createSaveScheduler } from './saveScheduler.mjs'
-import { emptyEntry, entryFor, foldText, sha1, sha256, withHighlight, withPosition } from './store.mjs'
+import { emptyEntry, entryFor, foldText, sha1, sha256Yielding, withHighlight, withPosition } from './store.mjs'
 
 const post = (m) => window.ReactNativeWebView?.postMessage(JSON.stringify(m))
 const log = (level, msg) => post({ type: 'log', level, msg })
@@ -19,13 +20,15 @@ addEventListener('unhandledrejection', (e) => log('error', String(e.reason?.stac
 let view = null
 let fontPx = 18
 let flow = 'paginated'   // ADR-029 Decision 1
-/** value (cfi) → annotation; re-added when a section's overlayer is recreated (chapter navigation). */
-const annotations = new Map()
+/** cfi → what is drawn over it; re-added when a section's overlayer is recreated (chapter navigation). */
+const overlays = new Map()
 /** This file's identity and its entry. No save until the stored one is restored. */
 let book = null
 let entry = null
 let restoring = false
 let lastSelection = null
+/** The open that is allowed to finish: a second openUrl makes the first one give up silently. */
+let openSeq = 0
 const saves = createSaveScheduler(post)
 
 // Our reader's own look: generous line-height leaves room above a word for its label.
@@ -34,11 +37,11 @@ const css = () => `html, body { font-size: ${fontPx}px !important; line-height: 
 const SVG = 'http://www.w3.org/2000/svg'
 const GLOSS_COLOR = 'rgba(59, 130, 246, 0.8)'
 /**
- * Foliate draw fn: the product's inline translation — saved-word underline + italic label centred
+ * The product's inline translation — saved-word underline + italic label centred
  * above the word (reader-engine LABEL_LOOK, E44). foliate calls it again with fresh rects on every
  * expand (font size, viewport), so the label follows the word without our own layout code.
  */
-function gloss(rects, { text, el }) {
+function glossOf(rects, text, el) {
   const g = document.createElementNS(SVG, 'g')
   const first = rects[0]
   if (!first) return g
@@ -57,6 +60,18 @@ function gloss(rects, { text, el }) {
   t.setAttribute('style', `font-style: italic; font-size: ${(fs * 0.42).toFixed(1)}px; opacity: .75`)
   t.textContent = text
   g.append(t)
+  return g
+}
+
+const HIGHLIGHT_COLOR = '#facc15'
+/**
+ * Foliate draw fn, called again with fresh rects on every expand (font size, viewport), so both
+ * decorations follow the text without our own layout code. One overlay carries both: see overlays.mjs.
+ */
+function decorate(rects, { hl, gloss, el }) {
+  const g = document.createElementNS(SVG, 'g')
+  if (hl) g.append(Overlayer.highlight(rects, { color: HIGHLIGHT_COLOR }))
+  if (gloss) g.append(glossOf(rects, gloss, el))
   return g
 }
 
@@ -107,8 +122,9 @@ function onLoad({ detail: { doc, index } }) {
 
 /**
  * foliate does not serialise navigation: overlapping goTo's load a section whose blob: URL the other
- * one already revoked. Every navigation of ours runs after the previous one; a failure is reported
- * like any page error, never swallowed.
+ * one already revoked. Every navigation of ours runs after the previous one. foliate's own goTo logs
+ * its failures to the console and resolves either way, so only our own throws reach this catch; a
+ * caller that needs to know whether a navigation arrived has to look (see restore).
  */
 let navigating = Promise.resolve()
 const navigate = (fn) => (navigating = navigating.then(fn).catch((e) => log('error', `navigation: ${e?.stack ?? e}`)))
@@ -120,8 +136,10 @@ function persist(delay = 0) {
   saves.save(book.sha256, JSON.stringify(entry), delay)
 }
 
-function annotate(a) {
-  annotations.set(a.value, a)
+/** Adds or updates what is drawn over `patch.value`, keeping any other decoration already there. */
+function annotate(patch) {
+  const a = mergeOverlay(overlays.get(patch.value), patch)
+  overlays.set(a.value, a)
   return view.addAnnotation(a)
 }
 
@@ -144,15 +162,19 @@ const text = (v) => (typeof v === 'string' ? v : v && typeof v === 'object' ? St
 const firstAuthor = (m) => { const a = [].concat(m?.author ?? [])[0]; return a?.name ?? a }
 
 async function open(bytes, name) {
+  const mine = ++openSeq
   // Nothing of the previous book may land on this one; its entry is gone with the next line.
   saves.cancel()
-  book = { sha256: sha256(bytes), size: bytes.length, name }
+  book = { sha256: await sha256Yielding(bytes), size: bytes.length, name }
+  if (mine !== openSeq) return false
   entry = null
   restoring = true
   lastSelection = null
-  view?.close()
+  // A view that never rendered a section (a spine of linear="no", a book that failed to open) throws
+  // from close(); letting that through would wedge the page and fail this good book instead.
+  try { view?.close() } catch (e) { log('warn', `closing the previous book: ${e?.message ?? e}`) }
   view?.remove()
-  annotations.clear()
+  overlays.clear()
   view = document.createElement('foliate-view')
   document.body.append(view)
   view.addEventListener('load', onLoad)
@@ -165,15 +187,16 @@ async function open(bytes, name) {
     persist(400)
   })
   view.addEventListener('create-overlay', ({ detail: { index } }) => {
-    for (const a of annotations.values()) if (a.index === index) view.addAnnotation(a)
+    for (const a of overlays.values()) if (a.index === index) view.addAnnotation(a)
   })
   view.addEventListener('draw-annotation', ({ detail: { draw, annotation: a, range } }) => {
-    if (a.kind === 'hl') return draw(Overlayer.highlight, { color: '#facc15' })
     const el = range.startContainer.nodeType === Node.TEXT_NODE ? range.startContainer.parentElement : range.startContainer
-    draw(gloss, { text: a.text, el })
+    draw(decorate, { hl: a.hl, gloss: a.gloss, el })
   })
   view.addEventListener('external-link', (e) => { e.preventDefault(); post({ type: 'openLink', href: e.detail.a.href }) })
-  await view.open(await makeEpub(new File([bytes], name, { type: 'application/epub+zip' })))
+  const epub = await makeEpub(new File([bytes], name, { type: 'application/epub+zip' }))
+  if (mine !== openSeq) return false
+  await view.open(epub)
   // A book's <meta http-equiv="refresh"> navigates its own section frame away; CSP does not cover it.
   view.book.transformTarget?.addEventListener('data', ({ detail }) => {
     if (!/html/.test(detail.type)) return
@@ -188,6 +211,7 @@ async function open(bytes, name) {
   view.renderer.setAttribute('margin', '24px')
   view.renderer.setStyles(css())
   await view.init({ showTextStart: true })
+  if (mine !== openSeq) return false
   const { book: b } = view
   post({
     type: 'opened', book,
@@ -195,6 +219,7 @@ async function open(bytes, name) {
     title: text(b.metadata?.title), author: text(firstAuthor(b.metadata)),
     sections: b.sections.length, toc: flat(b.toc ?? []),
   })
+  return true
 }
 
 /** The text a CFI points at in this book's own section document (not the rendered one): verification. */
@@ -209,6 +234,16 @@ async function textAt(cfi) {
  * the saved quote; otherwise that item is reported and left out, never drawn somewhere else.
  */
 async function restore(json) {
+  if (!book) return log('warn', 'restore ignored: no book is open')
+  try {
+    return await restoreInto(json)
+  } finally {
+    // Whatever happened, the page saves again: a restore that threw used to silence every save.
+    restoring = false
+  }
+}
+
+async function restoreInto(json) {
   const stored = json ? entryFor(json, book) : null
   entry = stored ?? emptyEntry(book)
   const result = { found: !!stored, rejected: !!json && !stored, position: 'none', highlights: [] }
@@ -216,17 +251,19 @@ async function restore(json) {
     const { index, text } = await textAt(h.cfi).catch(() => ({ text: '' }))
     const ok = foldText(text) === foldText(h.quote)
     result.highlights.push({ id: h.id, status: ok ? 'restored' : 'quote mismatch, not drawn' })
-    if (ok) annotate({ value: h.cfi, index, kind: 'hl', id: h.id })
+    if (ok) annotate({ value: h.cfi, index, hl: { id: h.id } })
   }
   const p = entry.position
   if (p) {
-    const { text } = await textAt(p.cfi).catch(() => ({ text: '' }))
-    if (text && foldText(text).startsWith(foldText(p.quote))) {
+    const { index, text } = await textAt(p.cfi).catch(() => ({ text: '' }))
+    if (!text || !foldText(text).startsWith(foldText(p.quote))) result.position = 'quote mismatch, stayed at start'
+    else {
       await navigate(() => view.goTo(p.cfi))
-      result.position = 'restored'
-    } else result.position = 'quote mismatch, stayed at start'
+      // goTo reports nothing when it fails, so the renderer is asked where the book actually is.
+      const landed = view.renderer?.getContents?.().some((c) => c.index === index)
+      result.position = landed ? 'restored' : 'navigation failed, stayed at start'
+    }
   }
-  restoring = false
   post({ type: 'restored', ...result })
   return result
 }
@@ -244,7 +281,7 @@ function highlightSelection() {
   }
   entry = withHighlight(entry, h)
   persist()
-  annotate({ value: h.cfi, index: s.index, kind: 'hl', id: h.id })
+  annotate({ value: h.cfi, index: s.index, hl: { id: h.id } })
   s.doc.getSelection().removeAllRanges()
   lastSelection = null
   post({ type: 'highlighted', id: h.id, cfi: h.cfi, quote: h.quote })
@@ -253,6 +290,15 @@ function highlightSelection() {
 
 const openFailed = (name, error) => post({ type: 'open-failed', name, error })
 
+/** One `opened` or one `open-failed` per call — unless a newer openUrl took over, and then neither. */
+function openFor(bytes, name) {
+  const mine = openSeq + 1
+  return open(bytes, name).catch((e) => {
+    log('error', `open: ${e?.stack ?? e}`)
+    if (mine === openSeq) openFailed(name, String(e?.message ?? e).slice(0, 200))
+  })
+}
+
 window.__fol = {
   // The retained file, read by the page itself (file:// origin + allowFileAccessFromFileURLs): no book
   // bytes cross the bridge. `open-failed`: unreadable, or not an EPUB; the host must not keep it.
@@ -260,10 +306,7 @@ window.__fol = {
     const x = new XMLHttpRequest()
     x.responseType = 'arraybuffer'
     x.onload = () => ((x.status === 0 || x.status === 200) && x.response
-      ? open(new Uint8Array(x.response), name).catch((e) => {
-        log('error', `open: ${e?.stack ?? e}`)
-        openFailed(name, String(e?.message ?? e).slice(0, 200))
-      })
+      ? openFor(new Uint8Array(x.response), name)
       : openFailed(name, `cannot read the file (status ${x.status})`))
     x.onerror = () => openFailed(name, 'cannot read the file')
     x.open('GET', url)
@@ -280,10 +323,11 @@ window.__fol = {
   }),
   next: () => navigate(() => view?.next()),
   prev: () => navigate(() => view?.prev()),
-  font: (delta) => { fontPx = Math.max(12, Math.min(32, fontPx + delta)); view?.renderer.setStyles(css()); return fontPx },
-  flow: (f) => { flow = f; view?.renderer.setAttribute('flow', f) },
+  // The renderer exists only once view.open() has resolved: both are no-ops between openUrl and opened.
+  font: (delta) => { fontPx = Math.max(12, Math.min(32, fontPx + delta)); view?.renderer?.setStyles(css()); return fontPx },
+  flow: (f) => { flow = f; view?.renderer?.setAttribute('flow', f) },
   /** The host answers a `word` with its translation; drawn above that word. */
-  showTranslation: (cfi, index, text) => view && annotate({ value: cfi, index, text }),
+  showTranslation: (cfi, index, text) => view && annotate({ value: cfi, index, gloss: text }),
 }
 
 post({ type: 'ready' })
