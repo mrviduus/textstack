@@ -19,8 +19,9 @@ public class V2DataAccessRegistrationTests
             .AddTextStackDataAccess(Legacy, null)
             .BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true });
 
-        var error = Assert.Throws<InvalidOperationException>(() => services.GetRequiredService<ILibraryRepository>());
-        Assert.Contains("ConnectionStrings:V2", error.Message);
+        Assert.Contains("ConnectionStrings:V2", Assert.Throws<InvalidOperationException>(() => services.GetRequiredService<ILibraryRepository>()).Message);
+        Assert.Contains("ConnectionStrings:V2", Assert.Throws<InvalidOperationException>(() => services.GetRequiredService<IAnnotationRepository>()).Message);
+        Assert.Contains("ConnectionStrings:V2", Assert.Throws<InvalidOperationException>(() => services.GetRequiredService<IVocabularyRepository>()).Message);
     }
 
     [Fact]
