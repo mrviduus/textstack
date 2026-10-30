@@ -243,8 +243,8 @@ loss (Accepted = false):
       library has state.fileId as a version of book  → 409 file_replaced
       else                                           → 409 unknown_file
   stored = result.Current
-  if stored ≠ null and stored.resetRevision > (expectedRevision ?? 0)
-                                                     → 409 reset
+  if expectedRevision ≠ null and stored ≠ null and stored.resetRevision > expectedRevision
+                                                     → 409 reset   (a first writer had no frontier to lose)
   else                                               → 409 stale_revision   (stored may be null)
 ```
 
@@ -498,7 +498,7 @@ delete the guest row — never `UPDATE … SET user_id` on a parent.
 | Aggregate | Rule |
 |---|---|
 | Books | Match on **current file sha256, live books only** (the `FindBySha256Async` rule). Match → keep the account's book; the guest book's annotations, sessions, examples, shares, checkpoints, insights move onto it; the guest's file rows move as **non-current** versions of the account's book (provenance for annotations anchored in them), except a guest file with the same sha256 as the account's current file, whose references remap to that file. No match → the book is reparented with its id. |
-| Reading state | Only for matched books (unmatched ones move as is). Winner = higher `revision`, tie → newer `clientRecordedAt`. Frontier = the further of the two (same bytes, so fractions compare); `completedAt` = the earlier non-null. `fileId` = the account's current file. **Revision = max(both) + 1**, `resetRevision` null. |
+| Reading state | Only for matched books (unmatched ones move as is). Winner = higher `revision`, tie → newer `clientRecordedAt`. Frontier = the further of the two (same bytes, so fractions compare); `completedAt` = the earlier non-null. `fileId` = the account's current file. **Revision = max(both) + 1**, `resetRevision` null. Only one side has state → it moves as is. |
 | Annotations | Reparented; ids unchanged. |
 | Vocabulary | Match on `(language, wordKey)`. Survivor id = **the account's**. Fields from the live side: both live → the account's card and schedule; account tombstone + guest live → the account's row revived with the guest's fields and schedule; guest tombstone → the account's row as is. Examples and reviews of both move to the survivor. Revision = max + 1. No match → reparented with its id. |
 | Sessions | Reparented; `book_id` remapped for matched books. |
