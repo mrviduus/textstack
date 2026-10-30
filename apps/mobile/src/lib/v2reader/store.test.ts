@@ -51,4 +51,50 @@ describe('v2 reader store', () => {
   it('foldText_CurlyQuotesDashesNbspSoftHyphens_ReadAsTheAsciiText', () => {
     expect(foldText('\u201CDon\u2019t\u201D \u2014 she said\u2026\u00A0twen\u00ADty\n')).toBe('"Don\'t"-shesaid...twenty')
   })
+
+  it('entryFor_ProtoKeysInJson_DoNotPolluteObjectPrototype', () => {
+    const json = `{"__proto__":{"polluted":1},"v":1,"book":{"sha256":"${book.sha256}","size":${book.size}},"position":null,"highlights":[],"constructor":{"prototype":{"polluted":1}}}`
+    const e = entryFor(json, book)
+    expect(e).not.toBeNull()
+    expect(withHighlight(withPosition(e, pos), hl).highlights).toEqual([hl])
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined()
+  })
+
+  it('entryFor_NonObjectOrWrongTypes_ReturnsNull', () => {
+    for (const j of ['null', '[]', '1', '"x"', 'true', '{}', `{"v":1,"book":{"sha256":"${book.sha256}","size":"1234"},"highlights":[]}`])
+      expect(entryFor(j, book), j).toBeNull()
+    expect(entryFor(JSON.stringify({ ...emptyEntry(book), highlights: {} }), book)).toBeNull()
+  })
+
+  it('entryFor_UpperCaseHashOfSameBytes_IsNotTheSameFile', () => {
+    // sha256() emits lower-case hex and the key is compared verbatim: a host that changes case loses the entry.
+    expect(entryFor(JSON.stringify(emptyEntry(book)), { ...book, sha256: book.sha256.toUpperCase() })).toBeNull()
+  })
+
+  it('withPositionAndWithHighlight_AnyInput_DoNotMutateTheEntry', () => {
+    const e = emptyEntry(book)
+    withHighlight(withPosition(e, pos), hl)
+    expect(e).toEqual({ v: 1, book, position: null, highlights: [] })
+  })
+
+  it('withHighlight_WithoutIdOrQuote_IsIgnored', () => {
+    const e = emptyEntry(book)
+    expect(withHighlight(e, { ...hl, id: '' })).toBe(e)
+    expect(withHighlight(e, { ...hl, quote: '' })).toBe(e)
+    expect(withHighlight(e, null)).toBe(e)
+  })
+
+  it('sha256_EveryLengthAcrossThreeBlocks_MatchesNodeCryptoInLowerHex', () => {
+    for (let n = 0; n <= 192; n++) {
+      const b = Uint8Array.from({ length: n }, (_, i) => (i * 131 + n) & 255)
+      const h = sha256(b)
+      expect(h, `length ${n}`).toBe(createHash('sha256').update(b).digest('hex'))
+      expect(h).toMatch(/^[0-9a-f]{64}$/)
+    }
+  })
+
+  it('foldText_EmptyAndWhitespaceOnly_FoldToEmpty', () => {
+    expect(foldText('')).toBe('')
+    expect(foldText(' \n\t\u00A0\u00AD')).toBe('')
+  })
 })
