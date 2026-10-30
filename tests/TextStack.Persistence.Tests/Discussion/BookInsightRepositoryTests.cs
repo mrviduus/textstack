@@ -50,6 +50,16 @@ public class BookInsightRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
+    public async Task SaveAsync_InsightCarryingReviewJson_ThrowsAndStoresNothing()
+    {
+        var book = await db.NewReaderWithBookAsync();
+
+        await Assert.ThrowsAsync<ArgumentException>(() => _repo.SaveAsync(NewInsight(book, null, "review", "{}"), Ct));
+
+        Assert.Empty(await _repo.ListForBookAsync(book.UserId, book.Id, Ct));
+    }
+
+    [Fact]
     public async Task SaveAsync_SlotHoldsReview_ReturnsNullAndKeepsTheReview()
     {
         var book = await db.NewReaderWithBookAsync();

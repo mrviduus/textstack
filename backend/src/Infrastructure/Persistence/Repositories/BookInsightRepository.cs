@@ -43,6 +43,7 @@ public sealed class BookInsightRepository(V2DataSource dataSource) : IBookInsigh
 
     public async Task<IReadOnlyList<BookInsight>> ListByIdsAsync(Guid userId, IReadOnlyCollection<Guid> ids, CancellationToken ct)
     {
+        if (ids.Count == 0) return [];
         const string sql = $"SELECT {Columns} FROM book_insight WHERE user_id = @userId AND id = ANY(@ids)";
         await using var conn = await dataSource.OpenConnectionAsync(ct);
         var rows = await conn.QueryAsync<BookInsight>(new CommandDefinition(
@@ -52,6 +53,9 @@ public sealed class BookInsightRepository(V2DataSource dataSource) : IBookInsigh
 
     public async Task<BookInsight?> SaveAsync(BookInsight insight, CancellationToken ct)
     {
+        // Through here a review would land in a slot that only SaveReviewAsync may then write.
+        if (insight.ReviewJson is not null)
+            throw new ArgumentException("A chapter review is saved with SaveReviewAsync.", nameof(insight));
         // The WHERE turns "the slot holds a review" into no row updated, so no row returned.
         const string sql = $"""
             {InsertIntoSlot}

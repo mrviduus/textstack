@@ -30,7 +30,7 @@ public interface IBookInsightRepository
     /// Inserts <paramref name="insight"/>, or replaces text and question of the row already in its
     /// (user, book, chapter) slot. Returns the stored row (<c>Id == insight.Id</c> when inserted), or
     /// null when the slot holds a structured review: only <see cref="SaveReviewAsync"/> replaces that
-    /// (ADR-016 §3).
+    /// (ADR-016 §3). Throws <see cref="ArgumentException"/> when <c>ReviewJson</c> is set.
     /// </summary>
     Task<BookInsight?> SaveAsync(BookInsight insight, CancellationToken ct);
 
