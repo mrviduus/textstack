@@ -543,20 +543,21 @@ public class CrewOrchestratorTests
         Assert.Empty(result.State.Log);
     }
 
-    // A8. Latency is WALL-CLOCK, not the sum of sub-agent durations: two ~50ms parallel agents finish in
-    //     ~50ms, not ~100ms. (Guards the "latency = wall-clock for parallel" claim.)
+    // A8. Latency is WALL-CLOCK, not the sum of sub-agent durations: two parallel 200ms agents finish in
+    //     ~200ms, not ~400ms. (Guards the "latency = wall-clock for parallel" claim.)
     [Fact]
     public async Task RunAsync_ParallelStage_LatencyIsWallClockNotSum()
     {
         var plan = new CrewPlan<State>("latency",
         [
-            Stage("s1", Wrap("a", new DelayAgent("A", 60)), Wrap("b", new DelayAgent("B", 60))),
+            Stage("s1", Wrap("a", new DelayAgent("A", 200)), Wrap("b", new DelayAgent("B", 200))),
         ], new CrewOptions(MaxParallelism: 2));
 
         var result = await new CrewOrchestrator().RunAsync(plan, new State(), Ctx(), TestContext.Current.CancellationToken);
 
-        // Wall-clock: well under the 120ms a sequential sum would take. Generous upper bound for CI noise.
-        Assert.True(result.Usage.LatencyMs < 110, $"latency {result.Usage.LatencyMs}ms looks like a sum, not wall-clock");
+        // Sequential would be >= 400ms; the bound sits 100ms above wall-clock so scheduler jitter on a
+        // shared runner (60ms agents under a 110ms bound measured 113ms, #1074) cannot cross it.
+        Assert.True(result.Usage.LatencyMs < 300, $"latency {result.Usage.LatencyMs}ms looks like a sum, not wall-clock");
     }
 
     private sealed class DelayAgent(string tag, int ms) : IAgent<int, string>
