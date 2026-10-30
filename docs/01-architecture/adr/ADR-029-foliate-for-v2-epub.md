@@ -70,7 +70,8 @@ origin to book content, so it cannot inherit the production reader's safety argu
    directive is a change to this ADR. The `file://` base URL with direct XHR read of the retained
    file is **accepted only for the dev route** until the R4 security review decides (keep, narrow
    `connect-src file:` to the one file, or hand bytes in another way).
-   **R4 recommendation (2026-10-30), owner to decide:** hand the bytes in another way, natively — an intercepted
+   **Owner direction (2026-10-30):** the native, limited file-serving option below is the one to design (R5/R6); the `file://` base stays dev-only until it lands.
+   **R4 recommendation (2026-10-30):** hand the bytes in another way, natively — an intercepted
    https origin (`shouldInterceptRequest` / `WebViewAssetLoader`) serving only `books/<sha256>.epub`, a non-`file:`
    base URL, both `allowFileAccess*` flags off, `connect-src` path-restricted to that URL — before any non-dev route;
    `file://` stays accepted for the dev route until then. Why: behind the nonce, one script in this origin reads the

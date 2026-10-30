@@ -30,7 +30,7 @@ Decided here:
 | S3 | **The server computes SRS**; the client sends the answer, not the schedule | `SrsEngine` stays the one definition; no C#/TS twin to drift |
 | S4 | **File bytes go up in parts** over the existing parts protocol; not resumable across app kills | Cloudflare caps a request at ~100 MB; resume needs state nobody has asked for yet |
 | S5 | **409 bodies name why a write lost**: `stale_revision`, `reset`, `file_replaced`, `unknown_file`, `deleted`, `operation_conflict`, `duplicate_file`, `id_conflict`, `book_removed` | closes M1.2's QA gap: a stale device could not tell a move from a reset from a replacement |
-| S6 | **Two schema deltas** in V2 migration `0001`: `reading_state.reset_revision`, and `ON UPDATE CASCADE` on every composite `(user_id, …)` FK | the server cannot tell a reset from a move without the first; the guest merge cannot move rows without the second ([merge](#guest--account-merge)) |
+| S6 | **Schema deltas go to V2 migration `0001`** (`reading_state.reset_revision`, `ON UPDATE CASCADE` on every composite `(user_id, …)` FK, and the items the owner decisions and M1.3/M1.4 added — full list under [Changes required](#changes-required)) | the server cannot tell a reset from a move without the first; the guest merge cannot move rows without the second ([merge](#guest--account-merge)) |
 | S7 | **Shares, checkpoints, insights and reviews are not pulled**; they are online lists | they are written online (share, MCP) or are history the client does not show offline |
 | S8 | **Tombstones are kept forever** | rows are tiny; purging forces a "cursor too old" protocol nobody needs yet |
 
@@ -46,8 +46,9 @@ Decided here:
    clock.
 3. **`operation_id` per replayable append** (examples, reviews, shares, checkpoints): replay returns
    the original; a different payload under the same id is a conflict.
-4. **Last-writer-wins only where the row has no revision**: `books` metadata (no `revision` column;
-   edited through `PATCH /books/{bookId}`; owner question 5), reading sessions (first write wins).
+4. **Last-writer-wins nowhere a client edits**: `books` metadata gains `revision` in migration `0001`
+   and `PATCH /books/{bookId}` takes `expectedRevision` → `stale_revision` like every other edit (owner
+   decision 5). Reading sessions are first-write-wins by `client_session_id` (append-only facts, not edits).
 5. **Locators are opaque** beyond the ADR-031 envelope: the server checks `version`, `scheme`, `value`,
    the `quote` length and the per-column quote rule; it never parses a CFI.
 6. **Idempotency first, for `operation_id` rows only.** An example, review, share or checkpoint
@@ -77,7 +78,7 @@ server stores them as UTC.
 | `publishedYear` | int | no | |
 | `tags` | string[] | no | default `[]` |
 | `checkpointSavingEnabled` | bool | server | set only through its own endpoint |
-| `hasCover` | bool | server | `cover_key IS NOT NULL`; cover is fetched, never pushed in M2 (owner question 4) |
+| `hasCover` | bool | server | `cover_key IS NOT NULL`; the **client** extracts the cover and uploads it separately (`PUT /books/{bookId}/cover`, M2.6); the server checks size and format only — no server-side EPUB parsing for a cover (owner decision 4) |
 | `createdAt`, `updatedAt`, `removedAt` | time | server | `removedAt` is the soft-removal tombstone |
 | `currentFile` | File \| null | server on read | null = "not imported here" (catalog book, D5) |
 | `origin` | — | never | hidden provenance; server sets `{"kind":"upload"}` on client imports; never sent to clients |
@@ -200,8 +201,11 @@ accepted: two devices answering the same card offline both advance it.
 - `next_review_at` = **server receive time** + the computed interval, as legacy does today
   (`VocabularyReviewRecorder`: `now.AddDays(newInterval)` with server `UtcNow`). An answer that sat
   offline for days is scheduled from when it arrived (owner question 9).
-- An auto-retire (`SrsEngine.ShouldAutoRetire`) is a delete (ADR-031 decided item 4): it goes through
-  `DeleteWordAsync`, so it bumps `revision` and other devices see a tombstone (owner question 1).
+- An auto-retire (`SrsEngine.ShouldAutoRetire`) is **not** a delete (owner decision 1): a mastered word
+  is learned, not removed. Migration `0001` adds `vocabulary_words.retired_at`; `ListDueAsync` excludes
+  retired cards; a retire bumps `revision` and `updated_at` so other devices see it; a tap on the word
+  or a re-save never resets the schedule and never un-retires by itself. `deleted_at` stays for an
+  explicit delete only. ADR-031 decided item 4 (`is_retired` → `deleted_at`) is amended accordingly.
 
 ### Shares and checkpoints (online only)
 
@@ -602,7 +606,7 @@ keeping their client ids (ADR-031 rule 3). Order inside the transaction:
 | Annotations | Reparented; ids unchanged. |
 | Vocabulary | Match on `(language, wordKey)`. Survivor id = **the account's**. Fields from the live side: both live → the account's card and schedule; account tombstone + guest live → the account's row revived with the guest's fields and schedule; guest tombstone → the account's row as is. Examples and reviews of both move to the survivor. Revision = max + 1. No match → reparented with its id. |
 | Sessions | Reparented; `book_id` remapped for matched books. |
-| Insights | Reparented; a `(book, chapter)` clash keeps the newer `updated_at` (save_insight already replaces; owner question 7). |
+| Insights | Reparented; a `(book, chapter)` clash **loses nothing** (owner decision 7): the newer `updated_at` becomes the current `book_insight`, the other is kept as a `discussion_checkpoints` row (topic = its question or "merged insight", conclusions = its text, `language` as stored). Checkpoints merge as separate rows. |
 | Shares, checkpoints | Reparented; `book_id` remapped. Same-chapter rule still holds (shares move with their checkpoints). |
 
 **`operation_id` and `client_session_id` collisions.** The UNIQUE is per user, so moving guest rows
@@ -621,6 +625,18 @@ cached is now stale (every merged row is max + 1, every account row it never saw
 queued edits come back `stale_revision` and follow [Conflict codes](#conflict-codes): reading state
 through ADR-019 (never yank a reader who moved), annotations and words by re-applying the local change
 once. Nothing local is lost.
+
+## Sign-out, account deletion, quota (owner decisions 2, 3)
+
+- **Sign-out wipes the account's local data** (synced books' files, reading state, words, checkpoints
+  cached on the device) and **keeps guest books** — the ones imported with no account. Anything not yet
+  pushed (outbox entries, a book never uploaded) is **never deleted silently**: the client warns and
+  offers to sync first or export; only then does it wipe. Sign-out and account deletion are different
+  actions: deletion is `DELETE FROM users` on the server (ADR-031 rule 9) and the same local wipe.
+  Owner of the client work: R6 (#1070).
+- **Quota**: V2 bytes count against the same tier limits, computed over V2 `users` / `book_files`
+  (never through legacy EF, ADR-030). A file is counted once: while legacy still holds the bytes it is
+  legacy's; at cutover the ETL moves the key and the count moves with it. No double counting.
 
 ## What old clients see
 
@@ -648,7 +664,9 @@ All under `/me/v2`, `Features:V2Api`, V2 readiness filter (#1053), user or guest
 | M2.2 | `GET /library/changes` (every feed alike) | `cursor`, `limit` (default 200, max 500) | 200 feed |
 | M2.2 | `GET /books/by-sha256/{sha256}` | — | 200 book · 404 |
 | M2.2 | `PUT /books/{bookId}` | book + `file` | 201 · 200 replay · 409 `duplicate_file` / `id_conflict` |
-| M2.2 | `PATCH /books/{bookId}` | `title?`, `author?`, `language?`, `description?`, `genre?`, `publishedYear?`, `tags?` | 200 (LWW, bumps `updated_at`) · 404 |
+| M2.2 | `PATCH /books/{bookId}` | `expectedRevision`, `title?`, `author?`, `language?`, `description?`, `genre?`, `publishedYear?`, `tags?` | 200 (revision + 1, bumps `updated_at`) · 409 `stale_revision` · 404 |
+| M2.6 | `PUT /books/{bookId}/cover` · `GET /books/{bookId}/cover` | image bytes (client-extracted; server checks size and format, never parses the EPUB) | 200 · 400 `invalid_payload` · 404 |
+| M2.6 | `DELETE /books/{bookId}/files/{fileId}/content` | — | 204: server bytes deleted, `content_removed_at` set, `hasContent=false`; rows, local copies and reading data untouched; no client uploads bytes for that file again on its own |
 | M2.2 | `PUT /books/{bookId}/files/{fileId}` | file + `replacesFileId` | 200 `{current, superseded}` · 409 `file_replaced` / `book_removed` / `id_conflict` · 404 |
 | M2.2 | `DELETE /books/{bookId}` · `POST /books/{bookId}/restore` | — | 204 (idempotent) · 404 |
 | M2.2 | `GET /reading/changes` · `GET /books/{bookId}/reading-state` | — | 200 · 404 |
@@ -671,11 +689,12 @@ All under `/me/v2`, `Features:V2Api`, V2 readiness filter (#1053), user or guest
 | M2.6 | `POST /books/{bookId}/files/{fileId}/content` | `{partCount}` | 200 file · 422 `content_mismatch` · 400 `incomplete_upload` · 409 `file_replaced` / `unknown_file` / `book_removed` |
 | M2.6 | `GET /books/{bookId}/files/{fileId}/content` | `Range` | 200/206 · 404 `no_content` |
 
-MCP tools have no client outbox; how their `operation_id` is formed is M2.3/M2.4's decision. A
-payload-derived id is **not** an option: the schema says a new operation with the same sentence is a
-second example, and sharing again makes a new snapshot (`0000_baseline.up.sql`, comments on
-`vocabulary_examples` and `shared_chapters`). Recommended: a per-call nonce from the host. Owner
-question 13.
+**`operation_id` names a logical operation** (owner decision 13): a retry of the same save reuses the
+id; a new, deliberate save mints a new one. Never one per network attempt, never a hash of the payload
+(the schema says a new operation with the same sentence is a second example, and sharing again makes a
+new snapshot — `0000_baseline.up.sql`, comments on `vocabulary_examples` and `shared_chapters`). MCP
+tools have no client outbox, so the write tools take `operationId` from the host as a required
+parameter; a host that retries a tool call passes the same id.
 
 **Deferred provenance FKs.** `book_id`/`file_id` on examples, shares, checkpoints and annotations are
 `DEFERRABLE INITIALLY DEFERRED`: a bad id fails at **commit** (23503), which would surface as a 500
@@ -697,6 +716,11 @@ metadata import is M2.2's, only the bytes are M2.6's. #1067 (explicit V2 transac
    Also an index `annotations (user_id, book_id, created_at, id) WHERE deleted_at IS NULL` for
    `ListForBookAsync`'s order: today's `(user_id, book_id)` covers neither the order nor the tombstone
    filter.
+   Owner decisions of 2026-10-30 add: `vocabulary_words.retired_at timestamptz NULL` (decision 1; the
+   due index gains `AND retired_at IS NULL`); `books.revision bigint NOT NULL DEFAULT 1` with
+   `ck_books_revision` (decision 5; `UpdateMetadataAsync` guards on it); `book_files.content_removed_at
+   timestamptz NULL` (decision 6: "stop syncing this file" — bytes deleted, the row says so, clients do
+   not re-upload on their own).
    The same migration also takes three Discussion fixes found in M1.4:
    - `fk_discussion_checkpoints_shared_chapters_shared_chapter_id` gains
      `ON DELETE SET NULL (shared_chapter_id)`; `SharedChapterRepository.DeleteAsync` is then one
@@ -716,7 +740,7 @@ metadata import is M2.2's, only the bytes are M2.6's. #1067 (explicit V2 transac
    a `FileReplaced` outcome instead of a PK exception.
 - **4.** `ILibraryRepository` gains `GetFileAsync(userId, bookId, fileId)` (classify `file_replaced` vs
    `unknown_file`), `AttachContentAsync(userId, bookId, fileId, storageKey)` (`WHERE is_current`, book
-   not removed), `SetCheckpointSavingAsync(userId, bookId, enabled)`, `UpdateMetadataAsync` (LWW),
+   not removed), `SetCheckpointSavingAsync(userId, bookId, enabled)`, `UpdateMetadataAsync` (revision-guarded, owner decision 5),
    `ListChangedAsync(userId, since, afterId, limit)` (removed books included). **Every** library write
    bumps `books.updated_at` — attach and checkpoint-saving too, or `hasContent` never reaches other
    devices.
@@ -806,7 +830,7 @@ Annotations and vocabulary (M1.3, schema comments):
 
 - **Review schedule computed outside the lock** (`RecordReviewAsync`): concurrent answers to one card
   lose an SRS step. Fixed in M2.3 (M1.3 delta 4).
-- **Retired = deleted** (ADR-031 decided item 4 vs the `vocabulary_words` comment "re-saving a deleted
+- **Retired = deleted — resolved by owner decision 1 (`retired_at`, migration `0001`)** (ADR-031 decided item 4 vs the `vocabulary_words` comment "re-saving a deleted
   word needs an explicit restore" vs legacy "reader-tap unretires", `SrsEngine.ShouldAutoRetire`):
   mastered words become tombstones and lose the tap-to-resurface path. Owner question 1.
 - **`vocabulary_examples` has `deleted_at` but no `updated_at`**: an example delete is invisible to any
@@ -829,20 +853,32 @@ Clients and legacy (R2, R6, STATUS):
 - **Legacy chunked parts live in `Path.GetTempPath()`** (`ServiceCollectionExtensions.Content.cs`):
   every deploy restarts the api and drops in-flight parts; the legacy client sees "a part is missing".
 
-## Unresolved questions
+## Owner decisions (2026-10-30)
 
-Default in parentheses.
+The thirteen questions this PDD left open, answered by the owner; each is applied in the section it
+concerns and, where it touches the schema, listed under migration `0001` above.
 
-1. Mastered words: tombstone, or a separate "retired"? (tombstone, ADR-031 item 4)
-2. V2 bytes quota: tiers over V2 `users`/`book_files`, or none until cutover? (V2 tiers)
-3. Local-first books on sign-out: device's or account's (#1070)? (no default)
-4. Covers in M2: client uploads, server extracts, or none? (no default)
-5. Book metadata `PATCH`: LWW without revision? (yes)
-6. "Stop syncing this file" (delete server bytes) in M2.6? (no default)
-7. Merge insight clash: newer wins? (yes)
-8. Re-anchor old highlights into a replacement file, ever? (not in V2's first release)
-9. `next_review_at` from server receive time or `clientRecordedAt`? (receive time, as legacy)
-10. Concurrent offline replacements: `replacesFileId` → `file_replaced`, or LWW? (`file_replaced`)
-11. Removed book: accept state/annotations/examples/sessions, refuse file and bytes with `book_removed`? (yes)
-12. Merge: `ON UPDATE CASCADE` on composite FKs, or new ids for merged rows? (cascade, keeps client ids)
-13. MCP `operation_id`: per-call host nonce or payload-derived? (nonce: a payload-derived id would make a re-share a replay, against the schema’s "sharing again makes a new snapshot")
+1. **Mastered words are retired, not deleted**: `retired_at`; tombstones only for an explicit delete; a
+   tap or re-save never resets learning.
+2. **Quota = V2 tiers** over V2 tables; no byte counted twice across the cutover.
+3. **Sign-out** wipes account data, keeps guest books, never drops unsynced data silently (warn, offer
+   sync/export); sign-out ≠ account deletion.
+4. **Covers**: the client extracts and uploads; the server checks size/format; no server EPUB parsing.
+5. **Metadata edits are revision-guarded** (`books.revision`); no unguarded LWW anywhere a client edits.
+6. **"Stop syncing this file"** exists (M2.6): server bytes deleted, local copies, metadata and reading
+   data kept; `content_removed_at` stops any client from re-uploading on its own.
+7. **Merge keeps both insights**: the newer is current, the other becomes a checkpoint row; checkpoints
+   merge as separate rows.
+8. **No re-anchoring** of old highlights into a replacement file in the first release; open for later.
+9. **`next_review_at` from server receive time** — a deliberate simplification: a late offline answer
+   shifts the schedule.
+10. **Two offline replacements → 409 `file_replaced`** (`replacesFileId`).
+11. **A removed book accepts reading data** (state, annotations, examples, sessions) but is never
+    restored, nor its files, automatically.
+12. **Client ids survive the merge**; `ON UPDATE CASCADE` is allowed as the mechanism, but the merge
+    itself checks uniqueness collisions and ownership explicitly — the FK implements no merge rule.
+13. **`operation_id` per logical operation**: a retry reuses it, a new deliberate save mints a new one;
+    neither a nonce per network attempt nor a payload hash. MCP write tools take it from the host.
+
+ADR-029 Decision 4: the owner supports the direction of **limited native file serving from an https
+origin** for the reader's bytes (R4 recommendation); R5/R6 design it.
