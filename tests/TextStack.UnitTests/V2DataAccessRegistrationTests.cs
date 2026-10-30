@@ -1,3 +1,4 @@
+using Application.Discussion;
 using Application.Library;
 using Application.Reading;
 using Infrastructure.Persistence;
@@ -31,5 +32,9 @@ public class V2DataAccessRegistrationTests
 
         Assert.NotNull(services.GetService<ILibraryRepository>());
         Assert.NotNull(services.GetService<IReadingStateRepository>());
+        Assert.NotNull(services.GetService<ISharedChapterRepository>());
+        Assert.NotNull(services.GetService<ICheckpointRepository>());
+        Assert.NotNull(services.GetService<IInsightRepository>());
+        Assert.NotNull(services.GetService<IReviewQuestionRepository>());
     }
 }
