@@ -36,4 +36,17 @@ config.resolver.nodeModulesPaths = [
 // find their own dependencies by walking up from there. Cutting that walk off
 // resolves the entry point and then fails one import later, inside expo-router.
 
+// Dev-only routes (app/dev/, ADR-029 Decision 5) do not exist in a production bundle. expo-router
+// bundles every file under app/, so a route that renders nothing in release would still ship its
+// path; hidden from Metro it is not a route at all. `expo export` forces NODE_ENV=production before
+// this file loads; the release build's `export:embed` only defaults it, so a shell that exports
+// NODE_ENV=development keeps the route's path in a release bundle (the route then only redirects
+// home: the screen sits behind `__DEV__`, which a release build inlines as false).
+if (process.env.NODE_ENV === 'production') {
+  config.resolver.blockList = [
+    ...config.resolver.blockList,
+    new RegExp(`^${path.join(projectRoot, 'app', 'dev').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\\\/]`),
+  ]
+}
+
 module.exports = config

@@ -21,7 +21,7 @@ public static partial class ServiceCollectionExtensions
         services.AddSingleton<ICurrentSite>(
             sp => new CurrentSite(sp.GetRequiredService<IConfiguration>()));
 
-        services.AddTextStackDataAccess(connectionString);
+        services.AddTextStackDataAccess(connectionString, configuration.GetConnectionString("V2"));
 
         services.AddDbContext<AppDbContext>((sp, options) =>
             options.UseTextStackNpgsql(sp.GetRequiredService<Npgsql.NpgsqlDataSource>())
