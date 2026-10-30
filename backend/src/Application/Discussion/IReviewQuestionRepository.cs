@@ -26,8 +26,8 @@ public interface IReviewQuestionRepository
     /// <c>PromptHash</c>: a new hash is inserted with the initial schedule it carries (stage, interval,
     /// consecutive correct, next review; no answers yet); a known hash gets the new prompt, answer and
     /// block index and keeps its schedule and counts; a hash no longer present is deleted. Each
-    /// question's own <c>UserId</c>/<c>BookInsightId</c> are ignored. False, and nothing written, when
-    /// the insight is not the user's.
+    /// question's own <c>UserId</c>/<c>BookInsightId</c> are ignored; a hash given twice keeps the last.
+    /// False, and nothing written, when the insight is not the user's.
     /// </summary>
     Task<bool> ReplaceForInsightAsync(
         Guid userId, Guid insightId, IReadOnlyList<ReviewQuestion> questions, CancellationToken ct);

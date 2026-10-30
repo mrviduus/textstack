@@ -49,10 +49,13 @@ public sealed class ReviewQuestionRepository(V2DataSource dataSource) : IReviewQ
         // the other user's question. FOR UPDATE serializes replaces of one insight: unserialized, two
         // that share hashes in opposite order deadlock, and two disjoint ones leave their union.
         const string owned = "SELECT EXISTS (SELECT 1 FROM book_insight WHERE user_id = @userId AND id = @insightId FOR UPDATE)";
-        // A known hash keeps its schedule and counts; only what the review says changes.
+        // One statement for the whole set; a known hash keeps its schedule and counts, only what the
+        // review says changes.
         const string upsert = """
             INSERT INTO review_question (id, user_id, book_insight_id, block_index, prompt, answer, prompt_hash, stage, interval_days, consecutive_correct, next_review_at, last_reviewed_at, total_reviews, correct_reviews, is_retired, created_at, updated_at)
-            VALUES (@Id, @userId, @insightId, @BlockIndex, @Prompt, @Answer, @PromptHash, @Stage, @IntervalDays, @ConsecutiveCorrect, @NextReviewAt, NULL, 0, 0, false, now(), now())
+            SELECT q.id, @userId, @insightId, q.block_index, q.prompt, q.answer, q.prompt_hash, q.stage, q.interval_days, q.consecutive_correct, q.next_review_at, NULL, 0, 0, false, now(), now()
+            FROM unnest(@ids, @blockIndexes, @prompts, @answers, @hashes, @stages, @intervalDays, @consecutiveCorrect, @nextReviewAts)
+                AS q(id, block_index, prompt, answer, prompt_hash, stage, interval_days, consecutive_correct, next_review_at)
             ON CONFLICT (book_insight_id, prompt_hash) DO UPDATE SET
                 prompt = EXCLUDED.prompt, answer = EXCLUDED.answer, block_index = EXCLUDED.block_index, updated_at = now()
             """;
@@ -65,22 +68,24 @@ public sealed class ReviewQuestionRepository(V2DataSource dataSource) : IReviewQ
         await using var tx = await conn.BeginTransactionAsync(ct);
         if (!await conn.ExecuteScalarAsync<bool>(new CommandDefinition(owned, new { userId, insightId }, tx, cancellationToken: ct)))
             return false;
-        // Dapper runs the statement once per element.
-        await conn.ExecuteAsync(new CommandDefinition(upsert, questions.Select(q => new
+        // One statement cannot update a row twice (21000), so a hash given twice keeps its last question.
+        var set = questions.GroupBy(q => q.PromptHash).Select(g => g.Last()).ToList();
+        var hashes = set.Select(q => q.PromptHash).ToArray();
+        await conn.ExecuteAsync(new CommandDefinition(upsert, new
         {
-            q.Id,
             userId,
             insightId,
-            q.BlockIndex,
-            q.Prompt,
-            q.Answer,
-            q.PromptHash,
-            q.Stage,
-            q.IntervalDays,
-            q.ConsecutiveCorrect,
-            q.NextReviewAt,
-        }), tx, cancellationToken: ct));
-        var hashes = questions.Select(q => q.PromptHash).ToArray();
+            ids = set.Select(q => q.Id).ToArray(),
+            blockIndexes = set.Select(q => q.BlockIndex).ToArray(),
+            prompts = set.Select(q => q.Prompt).ToArray(),
+            answers = set.Select(q => q.Answer).ToArray(),
+            hashes,
+            stages = set.Select(q => q.Stage).ToArray(),
+            intervalDays = set.Select(q => q.IntervalDays).ToArray(),
+            consecutiveCorrect = set.Select(q => q.ConsecutiveCorrect).ToArray(),
+            // Arrays skip Dapper's UTC handler, and Npgsql writes timestamptz only from offset 0.
+            nextReviewAts = set.Select(q => q.NextReviewAt.ToUniversalTime()).ToArray(),
+        }, tx, cancellationToken: ct));
         await conn.ExecuteAsync(new CommandDefinition(deleteGone, new { userId, insightId, hashes }, tx, cancellationToken: ct));
         await tx.CommitAsync(ct);
         return true;

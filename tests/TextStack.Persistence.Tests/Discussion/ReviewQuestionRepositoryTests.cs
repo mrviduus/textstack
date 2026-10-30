@@ -69,6 +69,17 @@ public class ReviewQuestionRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
+    public async Task ReplaceForInsightAsync_HashGivenTwice_StoresOneQuestionTheLastOne()
+    {
+        var insight = await ReviewAsync();
+
+        Assert.True(await _repo.ReplaceForInsightAsync(insight.UserId, insight.Id,
+            [Question("aaaa", prompt: "first"), Question("aaaa", prompt: "last")], Ct));
+
+        Assert.Equal("last", Assert.Single((await _repo.ListDueAsync(insight.UserId, Now, 10, Ct)).Questions).Prompt);
+    }
+
+    [Fact]
     public async Task ReplaceForInsightAsync_EmptySet_DeletesThemAll()
     {
         var insight = await ReviewAsync();
