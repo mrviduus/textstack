@@ -22,7 +22,14 @@ import { findTextOffsets, locatorAt, matchWords, quoteAt, rangesIn, textNodes } 
 const READING_LINE = 0.25
 
 /** Inline elements share their block's box; a text node is placed by its nearest non-inline ancestor. */
-export const INLINE = new Set('A ABBR B BDI BDO BR CITE CODE DATA DEL DFN EM FONT I IMG INS KBD MARK Q S SAMP SMALL SPAN STRONG SUB SUP TIME TT U VAR'.split(' '))
+const INLINE = new Set('A ABBR B BDI BDO BR CITE CODE DATA DEL DFN EM FONT I IMG INS KBD MARK Q S SAMP SMALL SPAN STRONG SUB SUP TIME TT U VAR'.split(' '))
+
+/** The block a text node is placed by: its nearest non-inline ancestor, at most `root`. Upper-cased: XHTML keeps lower-case tags. */
+export function blockOf(node: Node, root: Element): Element {
+  let block = node.parentElement!
+  while (block !== root && INLINE.has(block.tagName.toUpperCase())) block = block.parentElement!
+  return block
+}
 
 /** ADR-019 rule 6: a webfont that never loads (captive portal) holds an open this long at most. */
 const FONTS_DEADLINE_MS = 4000
@@ -253,8 +260,7 @@ export function createEngine(root: HTMLElement, opts: EngineOptions = {}): Reade
     for (const t of nodes) {
       // Whitespace between blocks has no line of its own; a segment for it would claim the container's box.
       if (t.data.trim()) {
-        let block = t.parentElement!
-        while (block !== content && INLINE.has(block.tagName)) block = block.parentElement!
+        const block = blockOf(t, content)
         const prev = out[out.length - 1]
         if (prev?.el === block && prev.start + prev.length === at) prev.length += t.length
         else out.push({ el: block, start: at, length: t.length })

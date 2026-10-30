@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { sentenceAround } from './engine'
+import { blockOf, sentenceAround } from './engine'
 
 /**
  * E48 the sentence a selection carries is the one TR-1 pins for both apps: the shared fixture
@@ -15,5 +15,11 @@ const cases: Case[] = JSON.parse(readFileSync(resolve(__dirname, '../../shared/s
 describe('sentence', () => {
   it.each(cases.filter((c) => !c.html && !c.tag))('E48 TR-1 shared fixture: $name', (c) => {
     expect(sentenceAround(c.text, 0, c.text.length, c.offset, c.offset + c.word.length)).toBe(c.expected)
+  })
+
+  it('blockOf_XhtmlWithLowerCaseTags_SkipsInlineAncestors', () => {
+    const doc = new DOMParser().parseFromString(
+      '<html xmlns="http://www.w3.org/1999/xhtml"><body><div>One <span><em>two</em> three</span> four.</div></body></html>', 'application/xhtml+xml')
+    expect(blockOf(doc.querySelector('em')!.firstChild!, doc.body).tagName).toBe('div')
   })
 })

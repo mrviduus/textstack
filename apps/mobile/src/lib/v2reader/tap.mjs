@@ -1,20 +1,15 @@
 // What a tap in a book section hands the host: the tapped word's sentence and an external link. DOM
 // only, no foliate, so tap.test.ts runs it in jsdom.
-import { chapterText, offsetOf } from '../../../../../packages/reader-engine/src/text'
-import { INLINE, sentenceAround } from '../../../../../packages/reader-engine/src/engine'
+import { textNodes } from '../../../../../packages/reader-engine/src/text'
+import { blockOf, sentenceAround } from '../../../../../packages/reader-engine/src/engine'
 
-/**
- * The tapped word's sentence inside its block — the nearest non-inline ancestor, as the reader engine
- * places text — by the engine's sentence rule (TR-1, the other readers' too).
- */
+/** The tapped word's sentence inside its block (the engine's `blockOf`), by the engine's sentence rule (TR-1). */
 export function sentenceOf(node, start, end) {
-  let block = node.parentElement
-  // Upper-cased: a section is XHTML, where tagName keeps the source's lower case.
-  while (block.parentElement && block !== node.ownerDocument.body && INLINE.has(block.tagName.toUpperCase())) block = block.parentElement
-  const at = offsetOf(block, node, start)
-  // A line break in a book's source is a space on screen, not a sentence end: hard-wrapped XHTML
-  // would otherwise cut every sentence at its source line. One for one, so offsets still hold.
-  const text = chapterText(block).replace(/\s/g, ' ')
+  const nodes = textNodes(blockOf(node, node.ownerDocument.body ?? node.ownerDocument.documentElement))
+  const i = nodes.indexOf(node)
+  const at = nodes.slice(0, i).reduce((n, t) => n + t.length, 0) + start
+  // Source line breaks are spaces on screen, not sentence ends; one for one, so offsets hold (#1072).
+  const text = nodes.map((t) => t.data).join('').replace(/\s/g, ' ')
   return sentenceAround(text, 0, text.length, at, at + (end - start)).replace(/ +/g, ' ')
 }
 

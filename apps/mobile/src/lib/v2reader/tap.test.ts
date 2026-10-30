@@ -2,10 +2,12 @@
 import { describe, expect, it } from 'vitest'
 import { openableHref, sentenceOf } from './tap.mjs'
 
-/** Taps the first `word` in `html` the way page.mjs does: a text node and the word's offsets in it. */
-function tap(html: string, word: string): string {
-  document.body.innerHTML = html
-  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+/** Taps the first `word` the way page.mjs does: a text node and the word's offsets in it. XHTML when `mime` says so. */
+function tap(html: string, word: string, mime?: DOMParserSupportedType): string {
+  let doc: Document = document
+  if (mime) doc = new DOMParser().parseFromString(html, mime)
+  else document.body.innerHTML = html
+  const walker = doc.createTreeWalker(doc.body ?? doc.documentElement, NodeFilter.SHOW_TEXT)
   while (walker.nextNode()) {
     const node = walker.currentNode as Text
     const i = node.data.indexOf(word)
@@ -13,6 +15,8 @@ function tap(html: string, word: string): string {
   }
   throw new Error(`"${word}" not in the page`)
 }
+
+const xhtml = (body: string) => `<html xmlns="http://www.w3.org/1999/xhtml"><body>${body}</body></html>`
 
 describe('v2 reader tap', () => {
   it.each([
@@ -29,17 +33,12 @@ describe('v2 reader tap', () => {
     ['sentence crossing a span', '<p>Before. One <span>two three</span> four. After.</p>', 'three', 'One two three four.'],
     ['style inside the block', '<p>Before. <style>.x { color: red }</style>Styled word here. After.</p>', 'word', 'Styled word here.'],
     ['div paragraph with a span', '<div class="para">One <span>two three</span> four.</div>', 'three', 'One two three four.'],
-  ])('sentenceOf_%s_OffsetsHoldAndTheWordIsInTheSentence', (_, html, word, sentence) => {
-    const got = tap(html, word)
-    expect(got).toContain(word)
-    expect(got).toBe(sentence)
+  ])('sentenceOf_%s_OffsetsHold', (_, html, word, sentence) => {
+    expect(tap(html, word)).toBe(sentence)
   })
 
   it('sentenceOf_XhtmlSectionWithLowerCaseTags_SpanIsInlineToo', () => {
-    const doc = new DOMParser().parseFromString(
-      '<html xmlns="http://www.w3.org/1999/xhtml"><body><div>One <span>two three</span> four.</div></body></html>', 'application/xhtml+xml')
-    const node = doc.querySelector('span')!.firstChild as Text
-    expect(sentenceOf(node, 4, 9)).toBe('One two three four.')
+    expect(tap(xhtml('<div>One <span>two three</span> four.</div>'), 'three', 'application/xhtml+xml')).toBe('One two three four.')
   })
 
   it.each([
