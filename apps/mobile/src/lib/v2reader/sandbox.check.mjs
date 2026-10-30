@@ -143,6 +143,8 @@ async function openHostile(page, evil, dir) {
     }
   }
   evil.hits.forEach((u) => escaped.add(vectorOf(u)))
+  // openLink goes to the OS opener: a scheme the book chose is a vector that got through (#1066).
+  for (const m of messages) if (m.type === 'openLink' && !/^https?:/.test(m.href)) escaped.add(m.href.startsWith('javascript:') ? 'javascript-url' : `openLink ${m.href.slice(0, 40)}`)
   // The clicks must have reached the book, or the click vectors were never tried.
   if (!messages.some((m) => m.type === 'openLink' && m.href === `${EVIL}/link-tap`)) errors.push('no openLink for link-tap: the clicks did not reach the book')
   return { escaped, blocked, errors }

@@ -191,7 +191,13 @@ async function open(bytes, name, mine) {
     const el = range.startContainer.nodeType === Node.TEXT_NODE ? range.startContainer.parentElement : range.startContainer
     draw(decorate, { hl: a.hl, gloss: a.gloss, el })
   })
-  view.addEventListener('external-link', (e) => { e.preventDefault(); post({ type: 'openLink', href: e.detail.a.href }) })
+  view.addEventListener('external-link', (e) => {
+    e.preventDefault()
+    const { href } = e.detail.a
+    // The host hands openLink to the OS opener: a book must not pick the scheme (javascript:, intent:, file:…).
+    if (/^https?:/i.test(href)) post({ type: 'openLink', href })
+    else log('warn', `link not opened, not http(s): ${href.slice(0, 80)}`)
+  })
   const epub = await makeEpub(new File([bytes], name, { type: 'application/epub+zip' }))
   if (mine !== openSeq) return false
   await view.open(epub)
