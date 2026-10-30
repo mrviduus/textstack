@@ -26,27 +26,19 @@ public class BookInsightRepositoryTests(V2PostgresFixture db)
     [Theory]
     [InlineData("ch-1")]
     [InlineData(null)] // the book-level row: NULLS NOT DISTINCT keeps it one row too
-    public async Task SaveAsync_TakenSlot_ReplacesTextKeepsIdAndCreatedAt(string? slug)
+    public async Task SaveAsync_TakenSlot_ReplacesTextAndQuestionKeepsIdAndCreatedAt(string? slug)
     {
         var book = await db.NewReaderWithBookAsync();
         var first = (await _repo.SaveAsync(NewInsight(book, slug, "old"), Ct))!;
+        var again = NewInsight(book, slug, "new");
+        again.Question = "a new question";
 
-        var second = (await _repo.SaveAsync(NewInsight(book, slug, "new"), Ct))!;
+        var second = (await _repo.SaveAsync(again, Ct))!;
 
         Assert.Equal((first.Id, first.CreatedAt), (second.Id, second.CreatedAt));
         Assert.True(second.UpdatedAt > first.UpdatedAt);
-        Assert.Equal("new", Assert.Single(await _repo.ListForBookAsync(book.UserId, book.Id, Ct)).Text);
-    }
-
-    [Fact]
-    public async Task SaveAsync_TakenSlot_ReplacesTheQuestion()
-    {
-        var book = await db.NewReaderWithBookAsync();
-        await _repo.SaveAsync(NewInsight(book, "ch-1"), Ct);
-        var again = NewInsight(book, "ch-1");
-        again.Question = "a new question";
-
-        Assert.Equal("a new question", (await _repo.SaveAsync(again, Ct))!.Question);
+        var row = Assert.Single(await _repo.ListForBookAsync(book.UserId, book.Id, Ct));
+        Assert.Equal(("new", "a new question"), (row.Text, row.Question));
     }
 
     [Fact]

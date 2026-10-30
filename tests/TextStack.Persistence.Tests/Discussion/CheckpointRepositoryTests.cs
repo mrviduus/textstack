@@ -14,25 +14,8 @@ public class CheckpointRepositoryTests(V2PostgresFixture db)
     private readonly SharedChapterRepository _shares = new(db.DataSource);
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private async Task<long> CountAsync(Book book)
-    {
-        await using var conn = await db.DataSource.OpenConnectionAsync(Ct);
-        return await conn.ExecuteScalarAsync<long>(new CommandDefinition(
-            "SELECT count(*) FROM discussion_checkpoints WHERE user_id = @UserId AND book_id = @Id", book, cancellationToken: Ct));
-    }
-
     private async Task<IReadOnlyList<DiscussionCheckpoint>> AllAsync(Book book) =>
         (await _repo.ListAsync(book.UserId, book.Id, null, 100, null, Ct)).Items;
-
-    /// <summary>A stored share of chapter "ch-1" of the book's current file, and a checkpoint naming it.</summary>
-    private async Task<(SharedChapter Share, DiscussionCheckpoint Checkpoint)> SharedAsync(Book book)
-    {
-        var share = NewShare(book);
-        await _shares.ShareAsync(share, Ct);
-        var checkpoint = NewCheckpoint(book);
-        (checkpoint.ChapterKey, checkpoint.FileId, checkpoint.SharedChapterId) = (share.ChapterKey, share.FileId, share.Id);
-        return (share, checkpoint);
-    }
 
     [Fact]
     public async Task AppendAsync_NewOperation_StoresTheCheckpoint()
@@ -77,7 +60,7 @@ public class CheckpointRepositoryTests(V2PostgresFixture db)
         var result = await _repo.AppendAsync(retry, Ct);
 
         Assert.Equal((DiscussionWriteOutcome.Replayed, checkpoint.Id), (result.Outcome, result.Stored!.Id));
-        Assert.Equal(1L, await CountAsync(book));
+        Assert.Equal(1L, await db.CountAsync("discussion_checkpoints", book));
     }
 
     [Fact]
@@ -92,7 +75,7 @@ public class CheckpointRepositoryTests(V2PostgresFixture db)
         var result = await _repo.AppendAsync(changed, Ct);
 
         Assert.Equal((DiscussionWriteOutcome.OperationConflict, checkpoint.Id), (result.Outcome, result.Stored!.Id));
-        Assert.Equal(1L, await CountAsync(book));
+        Assert.Equal(1L, await db.CountAsync("discussion_checkpoints", book));
     }
 
     [Fact]
@@ -110,7 +93,7 @@ public class CheckpointRepositoryTests(V2PostgresFixture db)
 
         Assert.Equal(1, results.Count(r => r.Outcome == DiscussionWriteOutcome.Created));
         Assert.Equal(7, results.Count(r => r.Outcome == DiscussionWriteOutcome.Replayed));
-        Assert.Equal(1L, await CountAsync(book));
+        Assert.Equal(1L, await db.CountAsync("discussion_checkpoints", book));
     }
 
     [Fact]
@@ -129,7 +112,9 @@ public class CheckpointRepositoryTests(V2PostgresFixture db)
     public async Task AppendAsync_ShareOfTheSameChapterAndFile_StoresTheLink()
     {
         var book = await db.NewReaderWithBookAsync();
-        var (share, checkpoint) = await SharedAsync(book);
+        var share = NewShare(book);
+        await _shares.ShareAsync(share, Ct);
+        var checkpoint = NewCheckpoint(book, share);
 
         var result = await _repo.AppendAsync(checkpoint, Ct);
 
@@ -140,20 +125,24 @@ public class CheckpointRepositoryTests(V2PostgresFixture db)
     public async Task AppendAsync_ShareOfAnotherChapter_IsAShareMismatchAndStoresNothing()
     {
         var book = await db.NewReaderWithBookAsync();
-        var (_, checkpoint) = await SharedAsync(book);
+        var share = NewShare(book);
+        await _shares.ShareAsync(share, Ct);
+        var checkpoint = NewCheckpoint(book, share);
         checkpoint.ChapterKey = "ch-2";
 
         var result = await _repo.AppendAsync(checkpoint, Ct);
 
         Assert.Equal((DiscussionWriteOutcome.ShareMismatch, null), (result.Outcome, result.Stored));
-        Assert.Equal(0L, await CountAsync(book));
+        Assert.Equal(0L, await db.CountAsync("discussion_checkpoints", book));
     }
 
     [Fact]
     public async Task AppendAsync_ShareOfAnotherFileVersion_IsAShareMismatchAndStoresNothing()
     {
         var book = await db.NewReaderWithBookAsync();
-        var (_, checkpoint) = await SharedAsync(book);
+        var share = NewShare(book);
+        await _shares.ShareAsync(share, Ct);
+        var checkpoint = NewCheckpoint(book, share);
         var replaced = await new LibraryRepository(db.DataSource)
             .ReplaceFileAsync(book.UserId, book.Id, NewFile(book.UserId, book.Id), Ct);
         checkpoint.FileId = replaced!.Current.Id;
@@ -161,14 +150,16 @@ public class CheckpointRepositoryTests(V2PostgresFixture db)
         var result = await _repo.AppendAsync(checkpoint, Ct);
 
         Assert.Equal((DiscussionWriteOutcome.ShareMismatch, null), (result.Outcome, result.Stored));
-        Assert.Equal(0L, await CountAsync(book));
+        Assert.Equal(0L, await db.CountAsync("discussion_checkpoints", book));
     }
 
     [Fact]
     public async Task AppendAsync_RetryAfterItsShareWasDeleted_ReplaysTheStoredRow()
     {
         var book = await db.NewReaderWithBookAsync();
-        var (share, checkpoint) = await SharedAsync(book);
+        var share = NewShare(book);
+        await _shares.ShareAsync(share, Ct);
+        var checkpoint = NewCheckpoint(book, share);
         await _repo.AppendAsync(checkpoint, Ct);
         await _shares.DeleteAsync(book.UserId, share.Id, Ct);
 
@@ -181,7 +172,9 @@ public class CheckpointRepositoryTests(V2PostgresFixture db)
     public async Task AppendAsync_WhileItsShareIsBeingDeleted_WaitsThenIsAShareMismatch()
     {
         var book = await db.NewReaderWithBookAsync();
-        var (share, checkpoint) = await SharedAsync(book);
+        var share = NewShare(book);
+        await _shares.ShareAsync(share, Ct);
+        var checkpoint = NewCheckpoint(book, share);
         // A share delete caught mid-transaction, its statements as DeleteAsync runs them. Without the
         // append's FOR KEY SHARE the insert does not wait, and fails on the checkpoint FK at commit.
         await using var conn = await db.DataSource.OpenConnectionAsync(Ct);
@@ -198,7 +191,7 @@ public class CheckpointRepositoryTests(V2PostgresFixture db)
 
         var result = await append;
         Assert.Equal((DiscussionWriteOutcome.ShareMismatch, null), (result.Outcome, result.Stored));
-        Assert.Equal(0L, await CountAsync(book));
+        Assert.Equal(0L, await db.CountAsync("discussion_checkpoints", book));
     }
 
     [Fact]
@@ -313,13 +306,15 @@ public class CheckpointRepositoryTests(V2PostgresFixture db)
     {
         var alices = await db.NewReaderWithBookAsync();
         var bob = await db.NewReaderAsync();
-        var (_, checkpoint) = await SharedAsync(alices);
+        var share = NewShare(alices);
+        await _shares.ShareAsync(share, Ct);
+        var checkpoint = NewCheckpoint(alices, share);
         checkpoint.UserId = bob;
 
         var result = await _repo.AppendAsync(checkpoint, Ct);
 
         Assert.Equal((DiscussionWriteOutcome.ShareMismatch, null), (result.Outcome, result.Stored));
-        Assert.Equal(0L, await CountAsync(alices));
+        Assert.Equal(0L, await db.CountAsync("discussion_checkpoints", alices));
     }
 
     [Fact]

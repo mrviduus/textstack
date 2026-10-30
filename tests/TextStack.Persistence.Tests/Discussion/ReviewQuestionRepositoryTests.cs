@@ -8,6 +8,7 @@ namespace TextStack.Persistence.Tests.Discussion;
 public class ReviewQuestionRepositoryTests(V2PostgresFixture db)
 {
     private readonly ReviewQuestionRepository _repo = new(db.DataSource);
+    private readonly BookInsightRepository _insights = new(db.DataSource);
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private static readonly DateTimeOffset Now = new(2026, 10, 30, 12, 0, 0, TimeSpan.Zero);
@@ -16,7 +17,7 @@ public class ReviewQuestionRepositoryTests(V2PostgresFixture db)
     private async Task<BookInsight> ReviewAsync()
     {
         var book = await db.NewReaderWithBookAsync();
-        return await new BookInsightRepository(db.DataSource).SaveReviewAsync(NewInsight(book, "ch-1", "review", "{}"), Ct);
+        return await _insights.SaveReviewAsync(NewInsight(book, "ch-1", "review", "{}"), Ct);
     }
 
     /// <summary>A new question, due <paramref name="dueInDays"/> from <see cref="Now"/>.</summary>
@@ -94,16 +95,9 @@ public class ReviewQuestionRepositoryTests(V2PostgresFixture db)
     [Fact]
     public async Task ReplaceForInsightAsync_OneOfTwoReviews_LeavesTheOtherReviewsQuestions()
     {
-        var one = await ReviewAsync();
-        var two = await new BookInsightRepository(db.DataSource).SaveReviewAsync(new BookInsight
-        {
-            Id = Guid.NewGuid(),
-            UserId = one.UserId,
-            BookId = one.BookId,
-            ChapterSlug = "ch-2",
-            Text = "review",
-            ReviewJson = "{}",
-        }, Ct);
+        var book = await db.NewReaderWithBookAsync();
+        var one = await _insights.SaveReviewAsync(NewInsight(book, "ch-1", "review", "{}"), Ct);
+        var two = await _insights.SaveReviewAsync(NewInsight(book, "ch-2", "review", "{}"), Ct);
         var ones = Question("aaaa");
         await _repo.ReplaceForInsightAsync(one.UserId, one.Id, [ones], Ct);
 

@@ -70,7 +70,7 @@ public sealed class V2PostgresFixture : IAsyncLifetime
         Id = Guid.NewGuid(),
         UserId = userId,
         BookId = bookId,
-        Sha256 = sha256 ?? Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32)),
+        Sha256 = sha256 ?? RandomSha256(),
         ByteSize = 1024,
         OriginalName = "book." + format,
         Format = format,
@@ -88,7 +88,7 @@ public sealed class V2PostgresFixture : IAsyncLifetime
         ChapterText = "It was a dark night.",
         Language = "en",
         OperationId = Guid.NewGuid(),
-        PayloadSha256 = NewPayloadSha256(),
+        PayloadSha256 = RandomSha256(),
     };
 
     /// <summary>A book-level checkpoint with one reader thought, under a fresh operation id.</summary>
@@ -101,11 +101,30 @@ public sealed class V2PostgresFixture : IAsyncLifetime
         ReaderThoughts = """["It is a mood, not the weather."]""",
         Language = "en",
         OperationId = Guid.NewGuid(),
-        PayloadSha256 = NewPayloadSha256(),
+        PayloadSha256 = RandomSha256(),
     };
 
-    /// <summary>Any valid payload hash: the repositories store and compare it, they do not compute it.</summary>
-    public static string NewPayloadSha256() => Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
+    /// <summary>A checkpoint based on <paramref name="share"/>: its chapter and file version.</summary>
+    public static DiscussionCheckpoint NewCheckpoint(Book book, SharedChapter share)
+    {
+        var checkpoint = NewCheckpoint(book);
+        (checkpoint.ChapterKey, checkpoint.FileId, checkpoint.SharedChapterId) = (share.ChapterKey, share.FileId, share.Id);
+        return checkpoint;
+    }
+
+    /// <summary>How many rows of <paramref name="table"/> (a constant, never input) hang on the book.</summary>
+    public async Task<long> CountAsync(string table, Book book)
+    {
+        await using var conn = await DataSource.OpenConnectionAsync(Ct);
+        return await conn.ExecuteScalarAsync<long>(new CommandDefinition(
+            $"SELECT count(*) FROM {table} WHERE user_id = @UserId AND book_id = @Id", book, cancellationToken: Ct));
+    }
+
+    /// <summary>
+    /// The lowercase hex SHA-256 of random bytes: a file's hash, or any valid payload hash (the
+    /// repositories store and compare it, they do not compute it).
+    /// </summary>
+    public static string RandomSha256() => Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
 
     /// <summary>A plain insight on the book (a review when <paramref name="reviewJson"/> is given).</summary>
     public static BookInsight NewInsight(Book book, string? chapterSlug, string text = "text", string? reviewJson = null) => new()

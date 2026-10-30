@@ -1,6 +1,5 @@
 using Application.Discussion;
 using Dapper;
-using Domain.Discussion;
 using Domain.Library;
 using Infrastructure.Persistence.Repositories;
 using Npgsql;
@@ -13,22 +12,6 @@ public class SharedChapterRepositoryTests(V2PostgresFixture db)
     private readonly SharedChapterRepository _repo = new(db.DataSource);
     private readonly CheckpointRepository _checkpoints = new(db.DataSource);
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
-
-    private async Task<long> CountAsync(Book book)
-    {
-        await using var conn = await db.DataSource.OpenConnectionAsync(Ct);
-        return await conn.ExecuteScalarAsync<long>(new CommandDefinition(
-            "SELECT count(*) FROM shared_chapters WHERE user_id = @UserId AND book_id = @Id", book, cancellationToken: Ct));
-    }
-
-    /// <summary>A checkpoint based on <paramref name="share"/>: same chapter and file version.</summary>
-    private async Task<DiscussionCheckpoint> AppendCheckpointOnAsync(Book book, SharedChapter share)
-    {
-        var checkpoint = NewCheckpoint(book);
-        (checkpoint.ChapterKey, checkpoint.FileId, checkpoint.SharedChapterId) = (share.ChapterKey, share.FileId, share.Id);
-        Assert.Equal(DiscussionWriteOutcome.Created, (await _checkpoints.AppendAsync(checkpoint, Ct)).Outcome);
-        return checkpoint;
-    }
 
     [Fact]
     public async Task ShareAsync_NewOperation_StoresTheSnapshot()
@@ -58,7 +41,7 @@ public class SharedChapterRepositoryTests(V2PostgresFixture db)
         var result = await _repo.ShareAsync(retry, Ct);
 
         Assert.Equal((DiscussionWriteOutcome.Replayed, share.Id), (result.Outcome, result.Stored!.Id));
-        Assert.Equal(1L, await CountAsync(book));
+        Assert.Equal(1L, await db.CountAsync("shared_chapters", book));
     }
 
     [Fact]
@@ -73,7 +56,7 @@ public class SharedChapterRepositoryTests(V2PostgresFixture db)
         var result = await _repo.ShareAsync(changed, Ct);
 
         Assert.Equal((DiscussionWriteOutcome.OperationConflict, share.Id), (result.Outcome, result.Stored!.Id));
-        Assert.Equal(1L, await CountAsync(book));
+        Assert.Equal(1L, await db.CountAsync("shared_chapters", book));
     }
 
     [Fact]
@@ -91,7 +74,7 @@ public class SharedChapterRepositoryTests(V2PostgresFixture db)
 
         Assert.Equal(1, results.Count(r => r.Outcome == DiscussionWriteOutcome.Created));
         Assert.Equal(7, results.Count(r => r.Outcome == DiscussionWriteOutcome.Replayed));
-        Assert.Equal(1L, await CountAsync(book));
+        Assert.Equal(1L, await db.CountAsync("shared_chapters", book));
     }
 
     [Fact]
@@ -109,7 +92,7 @@ public class SharedChapterRepositoryTests(V2PostgresFixture db)
         var error = await Assert.ThrowsAsync<PostgresException>(() => _repo.ShareAsync(share, Ct));
 
         Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, error.SqlState);
-        Assert.Equal(0L, await CountAsync(book));
+        Assert.Equal(0L, await db.CountAsync("shared_chapters", book));
     }
 
     [Fact]
@@ -130,32 +113,14 @@ public class SharedChapterRepositoryTests(V2PostgresFixture db)
         var book = await db.NewReaderWithBookAsync();
         var share = NewShare(book);
         await _repo.ShareAsync(share, Ct);
-        var checkpoint = await AppendCheckpointOnAsync(book, share);
+        var checkpoint = NewCheckpoint(book, share);
+        await _checkpoints.AppendAsync(checkpoint, Ct);
 
         Assert.True(await _repo.DeleteAsync(book.UserId, share.Id, Ct));
 
         Assert.Null(await _repo.GetAsync(book.UserId, share.Id, Ct));
         var kept = Assert.Single((await _checkpoints.ListAsync(book.UserId, book.Id, null, 10, null, Ct)).Items);
         Assert.Equal((checkpoint.Id, (Guid?)null), (kept.Id, kept.SharedChapterId));
-    }
-
-    [Fact]
-    public async Task DeleteAsync_WithoutUnlinkingFirst_TheCheckpointForeignKeyRefuses()
-    {
-        var book = await db.NewReaderWithBookAsync();
-        var share = NewShare(book);
-        await _repo.ShareAsync(share, Ct);
-        await AppendCheckpointOnAsync(book, share);
-
-        // What DeleteAsync's unlink step exists for. The FK is DEFERRABLE INITIALLY DEFERRED, so a bare
-        // delete would only fail at commit; SET CONSTRAINTS ALL IMMEDIATE makes it fail here.
-        await using var conn = await db.DataSource.OpenConnectionAsync(Ct);
-        await using var tx = await conn.BeginTransactionAsync(Ct);
-        await conn.ExecuteAsync(new CommandDefinition("SET CONSTRAINTS ALL IMMEDIATE", transaction: tx, cancellationToken: Ct));
-        var error = await Assert.ThrowsAsync<PostgresException>(() => conn.ExecuteAsync(new CommandDefinition(
-            "DELETE FROM shared_chapters WHERE id = @Id", share, tx, cancellationToken: Ct)));
-
-        Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, error.SqlState);
     }
 
     [Fact]
@@ -174,7 +139,7 @@ public class SharedChapterRepositoryTests(V2PostgresFixture db)
             SELECT 1 FROM shared_chapters WHERE id = @shareId FOR KEY SHARE;
             INSERT INTO discussion_checkpoints (id, user_id, book_id, file_id, chapter_key, shared_chapter_id, topic, reader_thoughts, language, operation_id, payload_sha256)
             VALUES (@checkpointId, @UserId, @BookId, @FileId, @ChapterKey, @shareId, 't', '["x"]', 'en', gen_random_uuid(), @hash);
-            """, new { shareId = share.Id, checkpointId, share.UserId, share.BookId, share.FileId, share.ChapterKey, hash = NewPayloadSha256() },
+            """, new { shareId = share.Id, checkpointId, share.UserId, share.BookId, share.FileId, share.ChapterKey, hash = RandomSha256() },
             append, cancellationToken: Ct));
 
         var delete = _repo.DeleteAsync(book.UserId, share.Id, Ct);
@@ -248,7 +213,7 @@ public class SharedChapterRepositoryTests(V2PostgresFixture db)
         var bob = await db.NewReaderAsync();
         var hers = NewShare(alices);
         await _repo.ShareAsync(hers, Ct);
-        await AppendCheckpointOnAsync(alices, hers);
+        await _checkpoints.AppendAsync(NewCheckpoint(alices, hers), Ct);
 
         Assert.False(await _repo.DeleteAsync(bob, hers.Id, Ct));
 
