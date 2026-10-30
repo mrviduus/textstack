@@ -100,8 +100,9 @@ origin to book content, so it cannot inherit the production reader's safety argu
    - Physical device: **not run**, owner (device, pending).
    - 80 MB book: **pass** on the emulator — a real public-domain book padded with rendered PNG plates to 87 MB opens
      in 6.4–7.7 s and restores its position after a kill.
-   - ENOSPC: **partial** — never an entry without its file and `staging/` is always cleaned, but a failed
-     `library.json` write leaves an orphan retained copy and empty `.tmp` files (host fixes listed there).
+   - ENOSPC: **partial** — never an entry without its file and `staging/` is always cleaned; the orphan retained
+     copy and the empty `.tmp` files a failed `library.json` write left are both fixed in `hostStorage.ts` (R4a fix
+     PR, unit-tested; not yet re-run on the emulator) — see the gate table and its host findings 1–2.
    - Oldest WebView: **fails on WebView 66** (syntax error before `ready`; the host waits forever); real floor
      Chrome 117; recommendation in the WebView bullet above.
    - `file://` review: written; recommendation under Decision 4, owner to decide.

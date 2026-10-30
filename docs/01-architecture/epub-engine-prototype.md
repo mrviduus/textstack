@@ -233,14 +233,20 @@ route until then. The owner decides (ADR-029 Decision 4).
 
 1. **Orphan retained copy** (medium): `addOpened` moves `staging/x` → `books/<sha256>.epub`, then the `library.json`
    write fails → the copy stays with no entry, invisible, uncounted and never cleaned (point C). **Fixed in this PR
-   (`hostStorage.ts`)**: an error after this call's move removes that copy and rethrows; an adopted copy stays. A
-   kill between move and entry still leaves a copy the next import adopts (by design); no start-up sweep. Tests
+   (`hostStorage.ts`)**: an error after this call's move removes that copy and rethrows; an adopted copy stays, and
+   so does one a complete `library.json.tmp` lists (a failed move of the library keeps that tmp, which
+   `readRecovering` reads). A kill between move and entry still leaves a copy the next import adopts (by design); no
+   start-up sweep. A failed import also clears the screen's staged open. Tests
    `addOpened_LibraryWriteFailsAfterTheMove_RemovesTheRetainedCopyAndRethrows`,
-   `addOpened_LibraryWriteFailsForAnAdoptedCopy_KeepsTheCopy`.
+   `addOpened_LibraryWriteFailsForAnAdoptedCopy_KeepsTheCopy`,
+   `addOpened_FirstImportLibraryMoveFails_KeepsTheCopyTheRecoveredEntryNames`,
+   `addOpened_LibraryMoveDeletesTheTargetThenFails_KeepsTheCopyTheRecoveredEntryNames`,
+   `addOpened_FirstFailsSecondAdoptsSameBytes_OneCopyOneEntry`.
 2. **Empty `.tmp` left behind** (low): `writeAtomically` leaves its 0 B `.tmp` when the write fails. **Fixed in this
    PR (`hostStorage.ts`)**: a failed write removes its tmp best-effort and rethrows the write's error (a failed move
    keeps the tmp: it may be the one complete copy). Tests `writeAtomically_WriteFails_RemovesTheTmpAndRethrows`,
-   `writeAtomically_WriteAndTmpRemovalBothFail_TheWriteErrorPropagates`.
+   `writeAtomically_WriteAndTmpRemovalBothFail_TheWriteErrorPropagates`,
+   `writeAtomically_MoveFails_KeepsTheCompleteTmpAndTheTarget`.
 3. **No deadline on `ready` / `opened`** (medium): on WebView 66 the screen says "Pick an EPUB" forever.
 4. **Retained copies carry the cache group** (low): moved out of the picker's cache copy, so Android accounts them as
    app cache. Copying from the picked URI straight into `staging/` also removes point A's partial file.
