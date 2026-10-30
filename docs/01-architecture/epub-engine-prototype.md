@@ -112,7 +112,7 @@ ADR-029 Decision 6, run by an agent on emulators; the physical device is the own
 |---|---|---|---|---|---|
 | Physical Android device | **not run** | — | — | — | owner (device, pending) |
 | Book ≥ 80 MB | **pass** | 87,278,407 B, 117 sections, plates render. `openUrl`→`opened` 7.01 s (import), 7.65 s (re-import, same bytes adopted), 6.37 s (cold relaunch, retained copy); `opened`→`restored` 0.07–0.29 s. Renderer PSS 63.6 MB idle → 184–192 MB after open → 108–116 MB reading. Relaunch: `position: "restored"`, fraction 0.13186 → 0.13186 | [below](#gate-book--80-mb) | 2026-10-30 | agent (emulator A) |
-| ENOSPC during import | **partial** | 4 failure points made real. No library entry without its file and `staging/` clean every time; a failed `library.json` write leaves an orphan `books/<sha256>.epub` and 0 B `.tmp` files that survive relaunch (findings 1–2) | [below](#gate-enospc-during-import) | 2026-10-30 | agent (emulator A) |
+| ENOSPC during import | **partial** | 4 failure points made real. No library entry without its file and `staging/` clean every time; a failed `library.json` write leaves an orphan `books/<sha256>.epub` and 0 B `.tmp` files that survive relaunch (findings 1–2, both fixed since in `hostStorage.ts`) | [below](#gate-enospc-during-import) | 2026-10-30 | agent (emulator A) |
 | Oldest supported System WebView | **fail on WebView 66**; recommendation | `SyntaxError: Unexpected token ?` before `ready`; the host waits forever. The committed page's real floor is **Chrome 117** (`Object.groupBy`), not `chrome90` | [below](#gate-oldest-supported-system-webview) | 2026-10-30 | agent (emulator B + desktop Chromium) |
 | `file://` security review | **written**; recommendation, owner decides | one barrier (the nonce); behind it, the app's whole data dir is readable and the bridge can carry it out | [below](#gate-file-security-review) | 2026-10-30 | agent |
 | Hostile book asserts, mutations caught | **pass** | R3 in CI: `check:v2-reader-sandbox` re-run, 30/30 blocked, 9/9 mutations caught. Re-run on the emulator through the dev route: **30/30 blocked**; positive control (CSP bypassed) 21/30 escape | [below](#gate-file-security-review) | 2026-10-30 | agent (desktop + emulator A) |
@@ -232,8 +232,15 @@ route until then. The owner decides (ADR-029 Decision 4).
 ### Findings for the host (dev route: `V2ReaderScreen.tsx`, `hostStorage.ts`)
 
 1. **Orphan retained copy** (medium): `addOpened` moves `staging/x` → `books/<sha256>.epub`, then the `library.json`
-   write fails → the copy stays with no entry, invisible, uncounted and never cleaned (point C).
-2. **Empty `.tmp` left behind** (low): `writeAtomically` leaves its 0 B `.tmp` when the write fails.
+   write fails → the copy stays with no entry, invisible, uncounted and never cleaned (point C). **Fixed in this PR
+   (`hostStorage.ts`)**: an error after this call's move removes that copy and rethrows; an adopted copy stays. A
+   kill between move and entry still leaves a copy the next import adopts (by design); no start-up sweep. Tests
+   `addOpened_LibraryWriteFailsAfterTheMove_RemovesTheRetainedCopyAndRethrows`,
+   `addOpened_LibraryWriteFailsForAnAdoptedCopy_KeepsTheCopy`.
+2. **Empty `.tmp` left behind** (low): `writeAtomically` leaves its 0 B `.tmp` when the write fails. **Fixed in this
+   PR (`hostStorage.ts`)**: a failed write removes its tmp best-effort and rethrows the write's error (a failed move
+   keeps the tmp: it may be the one complete copy). Tests `writeAtomically_WriteFails_RemovesTheTmpAndRethrows`,
+   `writeAtomically_WriteAndTmpRemovalBothFail_TheWriteErrorPropagates`.
 3. **No deadline on `ready` / `opened`** (medium): on WebView 66 the screen says "Pick an EPUB" forever.
 4. **Retained copies carry the cache group** (low): moved out of the picker's cache copy, so Android accounts them as
    app cache. Copying from the picked URI straight into `staging/` also removes point A's partial file.
