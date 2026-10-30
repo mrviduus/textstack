@@ -40,7 +40,7 @@ node apps/mobile/src/lib/v2reader/build.mjs --repro   # + .vendor/v2ReaderPage.r
   the patch it was 1–5 per 6 loads in Chromium, hundreds on Android).
 - esbuild comes from `apps/web` (no new dependency). Target `chrome90`, not the engine bundle's es2017: foliate
   uses private methods, static blocks and `\p{}` regexes. PDF/MOBI/FB2/CBZ/TTS/search are stubbed out.
-- **Size:** 236,602 characters of script (unminified), ~241 KB generated file. Reader-engine's 64 KB budget does
+- **Size:** 236,666 characters of script (unminified), ~241 KB generated file. Reader-engine's 64 KB budget does
   not apply; this page's own budget is `BUDGET` in `build.mjs`, raised only by a deliberate PR.
 - `BUDGET` is a tripwire by design, not a ceiling: it equals the committed size, so any growth fails `--check`
   until the PR that grows the page says so.
@@ -61,11 +61,12 @@ font-src blob: data:; media-src blob: data:; frame-src blob:; connect-src blob: 
 **The hostile-book check** (ADR-029 Decision 6) loads the committed page as `file://` in Chromium with file access
 (the dev route's origin), opens `tshostile.epub` through `__fol.openUrl` and exits 1 if any vector gets through: a
 book script ran (`__pwned` in any frame), a request reached its logging server (a free local port), a sibling file of
-the EPUB was read, `<base>` took effect, or the section frame left the book. It then removes or widens one directive
-at a time and must catch the vectors that directive stops, so a check that cannot fail fails itself.
-Every vector in `fixtures.mjs` declares how it is observed (`mark`, `request`, `probe:<id>`, `sandbox`); the check
-refuses to start (exit 2) on one it cannot observe. Each page call is bounded (10 s; a timeout is an escape) and the
-whole check has a 3-minute deadline (exit 1 with the partial table).
+the EPUB was read, `<base>` took effect, a refresh meta survived the page's strip, or the section frame left the
+book. It then removes or widens one directive at a time and must catch the vectors that directive stops, so a check
+that cannot fail fails itself. Every vector in `fixtures.mjs` declares how it is observed (`mark`, `request`,
+`probe`, `sandbox`) and which directive `stops` it; the check refuses to start (exit 2) when the two files disagree.
+Each page call is bounded (10 s; a timeout is an escape) and the whole check has a 3-minute deadline (exit 1 with the
+partial table).
 
 **What it proves, and where:** the CSP, in desktop headless Chromium, with the page opened by `page.goto(file://…)`
 and `--allow-file-access-from-files`. Not the Android System WebView (`loadDataWithBaseURL`, Android's file-access
@@ -74,19 +75,17 @@ flags, `content:`/`intent:` URLs): R4 (#1036) runs the book on the device.
 ```bash
 pnpm -C apps/web exec playwright install chromium   # once
 pnpm -C apps/web check:v2-reader-sandbox            # real CSP holds, every mutation is caught
-node --experimental-strip-types apps/mobile/src/lib/v2reader/sandbox.check.mjs --mutate=no-base-uri   # one mutation: exits 1
+node --experimental-strip-types apps/mobile/src/lib/v2reader/sandbox.check.mjs --mutate=base-uri   # one mutation: exits 1
 ```
 
 **Blind spots** — vectors the check reports blocked but cannot show the CSP blocking:
 
 - **`form-action 'none'`**: removing it still passes. foliate's section iframe has no `allow-forms`, so the sandbox
   stops the submit first; the `form` row prints "by the iframe sandbox, not by the CSP".
-- **meta refresh**: covered by `page.mjs` stripping it before the section loads, and by Chromium's `frame-src`. No
-  mutation removes the strip.
 - **`object` / `embed`**: they reach the server only with both `default-src` (object-src) and `frame-src` opened, so no
   single-directive mutation shows them; plugin content is also stopped by the sandbox.
-- **`svg-file-script`**: an SVG in `<img>` can never run script, so that half of the row is decoration; the
-  `<object>`/`<embed>` half is stopped by object-src before script-src is asked.
+- **`svg-file-script`**: an SVG document with a script, as `<object>`/`<embed>`; stopped by object-src before
+  script-src is asked. (As `<img>` an SVG can never run script, so the fixture does not carry that half.)
 - **`link-prefetch`** escapes whenever *any* directive gains `http:` or `*`, even with `default-src 'none'`. A
   widened `connect-src` is caught only through it, because no book script runs to use `connect-src`.
 
@@ -126,7 +125,7 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.�
 | `word` | `index`, `word`, `sentence`, `cfi`, `rect {x, y, w, h}` (host viewport) | translates, then `showTranslation` |
 | `tap` | — | a tap not on a word (chrome toggle) |
 | `highlighted` | `id`, `cfi`, `quote` | — |
-| `openLink` | `href` | an external `http(s)` link; the page never navigates, and any other scheme (`mailto:` and `tel:` too, for now: #1069) is dropped with a `warn` log |
+| `openLink` | `href` | the page forwards only `http(s)` links and the host allowlists again before opening: a stated rule, not an accident. Any other scheme is dropped with a `warn` log (`mailto:`/`tel:` noted on #1069); the page never navigates |
 | `log` | `level`, `msg` | `error`: window errors and a failed open or restore. `warn`: a call that was ignored (a highlight or a restore before the book is ready) and a previous book that would not close. foliate logs its own navigation failures to the console, not here — a position that did not land is reported in `restored` instead. |
 
 A stored position or highlight is applied only while the text at its CFI still reads as its saved quote

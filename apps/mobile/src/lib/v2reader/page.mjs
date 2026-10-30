@@ -191,12 +191,15 @@ async function open(bytes, name, mine) {
   if (mine !== openSeq) return false
   await view.open(epub)
   // A book's <meta http-equiv="refresh"> navigates its own section frame away; CSP does not cover it.
+  // Parsed every time, never pre-matched on the source text: `&#x72;efresh` spells it past a text match.
   view.book.transformTarget?.addEventListener('data', ({ detail }) => {
     if (!/html/.test(detail.type)) return
     detail.data = Promise.resolve(detail.data).then((str) => {
-      if (typeof str !== 'string' || !/refresh/i.test(str)) return str
+      if (typeof str !== 'string') return str
       const doc = new DOMParser().parseFromString(str, detail.type)
-      for (const m of doc.querySelectorAll('meta[http-equiv]')) if (/refresh/i.test(m.getAttribute('http-equiv'))) m.remove()
+      const refresh = [...doc.querySelectorAll('meta[http-equiv]')].filter((m) => /refresh/i.test(m.getAttribute('http-equiv')))
+      if (!refresh.length) return str
+      refresh.forEach((m) => m.remove())
       return new XMLSerializer().serializeToString(doc)
     })
   })
