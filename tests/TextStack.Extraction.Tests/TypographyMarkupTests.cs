@@ -109,6 +109,28 @@ public class TypographyMarkupTests
     }
 
     [Fact]
+    public void Process_MarkerCharInText_RecordsSkip()
+    {
+        var reasons = RecordSkips(() => _processor.Process("<p class=\"m\">Price \uFDD0 \"x\"</p>", _context));
+
+        Assert.Equal(["marker_in_input"], reasons);
+    }
+
+    [Theory]
+    [InlineData("<p\uFDD0 x")]   // '>' after the marker eaten by a rule
+    [InlineData("<p\uFDD0")]     // marker at end of string
+    public void Unmask_MarkerWithoutClosingBracket_ReturnsNull(string html)
+    {
+        Assert.Null(TypographyProcessor.Unmask(html, ["<p class=\"a\">"]));
+    }
+
+    [Fact]
+    public void Unmask_IntactPlaceholder_Restores()
+    {
+        Assert.Equal("<p class=\"a\">x", TypographyProcessor.Unmask("<p\uFDD0>x", ["<p class=\"a\">"]));
+    }
+
+    [Fact]
     public void Process_RealBookChapters_EveryAttributedStartTagByteIdentical()
     {
         using var zip = System.IO.Compression.ZipFile.OpenRead(Path.Combine(AppContext.BaseDirectory, "Fixtures", "frankenstein.epub"));
@@ -139,6 +161,26 @@ public class TypographyMarkupTests
         Assert.Contains("title=\"&quot;a&quot; &amp; b\"", html);
         Assert.Contains("&lt;3", html);
         Assert.Equal("Tom & Jerry <3 \u00A9", plain);   // plain text collapses the nbsp
+    }
+
+    private static List<string> RecordSkips(Action act)
+    {
+        var reasons = new List<string>();
+        using var listener = new System.Diagnostics.Metrics.MeterListener();
+        listener.InstrumentPublished = (i, l) =>
+        {
+            if (ReferenceEquals(i, TypographyProcessor.SkippedCounter))
+                l.EnableMeasurementEvents(i);
+        };
+        listener.SetMeasurementEventCallback<long>((_, _, tags, _) =>
+        {
+            foreach (var t in tags)
+                if (t.Key == "reason")
+                    reasons.Add((string)t.Value!);
+        });
+        listener.Start();
+        act();
+        return reasons;
     }
 
     private static string Attrs(HtmlAgilityPack.HtmlNode n)

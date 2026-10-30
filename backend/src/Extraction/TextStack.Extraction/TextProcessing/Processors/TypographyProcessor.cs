@@ -1,3 +1,4 @@
+using System.Diagnostics.Metrics;
 using System.Text;
 using System.Text.RegularExpressions;
 using HtmlAgilityPack;
@@ -67,6 +68,13 @@ public class TypographyProcessor : ITextProcessor
     // so they still see tag boundaries (">'s", "</abbr> ") but no attribute values.
     private const char Marker = '\uFDD0';
 
+    // Same meter name as Infrastructure's TelemetryConstants.MeterName, so the OTel exporter already picks it up.
+    private static readonly Meter Meter = new("TextStack.Ingestion");
+
+    /// <summary>Chapters left untypographed by a fallback; tag "reason" = marker_in_input | restore_failed.</summary>
+    internal static readonly Counter<long> SkippedCounter = Meter.CreateCounter<long>(
+        "textstack.typography.skipped", description: "Chapters returned untypographed by a safety fallback");
+
     public string Process(string input, IProcessingContext context)
     {
         if (string.IsNullOrEmpty(input))
@@ -74,10 +82,16 @@ public class TypographyProcessor : ITextProcessor
 
         // ponytail: input already holding the marker is left untypographed rather than risk a wrong restore
         if (input.Contains(Marker))
-            return input;
+            return Skip(input, "marker_in_input");
 
         var (masked, markup) = MaskMarkup(input);
-        return Unmask(Typogrify(masked), markup) ?? input;
+        return Unmask(Typogrify(masked), markup) ?? Skip(input, "restore_failed");
+    }
+
+    private static string Skip(string input, string reason)
+    {
+        SkippedCounter.Add(1, new KeyValuePair<string, object?>("reason", reason));
+        return input;
     }
 
     /// <summary>
@@ -123,15 +137,15 @@ public class TypographyProcessor : ITextProcessor
         return gt < 0 ? html.Length : gt + 1;
     }
 
-    /// <summary>Puts the masked markup back; null if a placeholder went missing.</summary>
-    private static string? Unmask(string html, List<string> markup)
+    /// <summary>Puts the masked markup back; null if a placeholder went missing or lost its '>'.</summary>
+    internal static string? Unmask(string html, List<string> markup)
     {
         var sb = new StringBuilder(html.Length);
         int from = 0, k = 0;
         for (int at; (at = html.IndexOf(Marker, from)) >= 0; from = at + 2)
         {
             var lt = html.LastIndexOf('<', at);
-            if (k == markup.Count || lt < from)
+            if (k == markup.Count || lt < from || at + 1 >= html.Length || html[at + 1] != '>')
                 return null;
             sb.Append(html, from, lt - from).Append(markup[k++]);
         }
