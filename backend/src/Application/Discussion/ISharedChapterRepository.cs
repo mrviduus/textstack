@@ -27,7 +27,8 @@ public interface ISharedChapterRepository
 
     /// <summary>
     /// Deletes the share in one transaction, after unlinking the checkpoints based on it (their text
-    /// stays; plan §4.4). False when not the user's.
+    /// stays; plan §4.4). False when not the user's. The unlink could move into the FK
+    /// (<c>ON DELETE SET NULL (shared_chapter_id)</c>), a migration-0001 candidate; see the PR Notes.
     /// </summary>
     Task<bool> DeleteAsync(Guid userId, Guid id, CancellationToken ct);
 }
