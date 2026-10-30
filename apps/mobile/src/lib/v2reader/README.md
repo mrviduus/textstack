@@ -21,6 +21,7 @@ and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R
 | `repro.mjs` | Test-only entry: the page + `__fol.reproRenderDuringLoad` (the reproducer behind patch 0001). |
 | `fixtures.mjs` | Writes crafted EPUBs to `fixtures/` (gitignored): `tsfonts.epub` (one font plain, IDPF-, Adobe-obfuscated) and `tshostile.epub` (one row of `hostileVectors` per sandbox vector). Needs `zip`. |
 | `sandbox.check.mjs` | The hostile-book check (see Sandbox). |
+| `bigbook.mjs` | The large-book gate's fixture (ADR-029 Decision 6, R4): a real EPUB padded with PNG plates foliate renders, into `fixtures/`. |
 
 ## Build
 
