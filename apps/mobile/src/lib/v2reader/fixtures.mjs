@@ -2,8 +2,8 @@
 // committed (fixtures/ is gitignored); needs the `zip` CLI.
 //   node fixtures.mjs [siblingDir]   → fixtures/tsfonts.epub, fixtures/tshostile.epub
 // tsfonts: one font (Source Sans 3, OFL, from the app's assets) embedded three ways: plain, IDPF-obfuscated,
-// Adobe-obfuscated. tshostile: one row of HOSTILE_VECTORS each, aimed at http://127.0.0.1:9876
-// (sandbox.check.mjs serves and logs it; `adb reverse tcp:9876 tcp:9876` on Android) and at the files
+// Adobe-obfuscated. tshostile: one row of hostileVectors each, aimed at http://127.0.0.1:9876
+// (the on-device run: `adb reverse tcp:9876 tcp:9876`; sandbox.check.mjs writes its own copy against its server) and at the files
 // beside the retained EPUB (siblingDir, a file:// URL; default: the app's files on Android).
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
@@ -124,8 +124,8 @@ export const hostileVectors = (evil, siblings) => [
   ['link-tap', 'request', { body: `<p><a data-ts-click="link-tap" href="${evil}/link-tap">external link</a></p>` }],
 ]
 
-export function writeHostileEpub(out, siblings = LOCAL) {
-  const vectors = hostileVectors(EVIL, siblings)
+export function writeHostileEpub(out, siblings = LOCAL, evil = EVIL) {
+  const vectors = hostileVectors(evil, siblings)
   const part = (key) => vectors.map(([, , v]) => v[key] ?? '').filter(Boolean).join('\n')
   const files = Object.assign({}, ...vectors.map(([, , v]) => v.files))
   const items = Object.keys(files).map((f, i) => `<item id="r${i}" href="${f}" media-type="${f.endsWith('.js') ? 'application/javascript' : 'image/svg+xml'}"/>`).join('')

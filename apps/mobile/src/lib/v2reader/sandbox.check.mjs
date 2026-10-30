@@ -17,7 +17,7 @@ import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { EVIL, hostileVectors, writeHostileEpub } from './fixtures.mjs'
+import { hostileVectors, writeHostileEpub } from './fixtures.mjs'
 import { v2ReaderPageHtml } from './v2ReaderPage.generated.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -45,6 +45,8 @@ const MUTATIONS = {
   'img-src-http-file': { csp: (c) => c.replace(/img-src blob: data:/, '$& http: file:'), escapes: ['img', 'img-srcset', 'svg-image', 'css-background', 'video-poster', 'file-sibling-img'] },
   'style-src-http-file': { csp: (c) => c.replace(/style-src blob:/, '$& http: file:'), escapes: ['link-stylesheet', 'css-import', 'file-sibling-css'] },
   'frame-src-http-file': { csp: (c) => c.replace(/frame-src blob:/, '$& http: file:'), escapes: ['iframe', 'file-sibling-iframe'] },
+  'font-src-http': { csp: (c) => c.replace(/font-src blob: data:/, '$& http:'), escapes: ['css-font'] },
+  'media-src-http': { csp: (c) => c.replace(/media-src blob: data:/, '$& http:'), escapes: ['audio'] },
 }
 
 /** The `probe:<id>` observers of fixtures.mjs: run in every frame, true = the vector got through. */
@@ -52,10 +54,10 @@ const PROBES = {
   'file-sibling-img': () => (document.getElementById('file-sibling-img')?.naturalWidth ?? 0) > 0,
   'file-sibling-css': () => { const el = document.getElementById('file-sibling-css'); return !!el && getComputedStyle(el).color === 'rgb(1, 2, 3)' },
   'file-frame': () => location.protocol === 'file:' && !location.pathname.endsWith('/page.html'),
-  // The book's own frame only: an iframe that did load from EVIL has EVIL as its base too.
+  // The book's own frame only: an iframe that did load from the logging server has that as its base too.
   'base-href': (evil) => !!document.getElementById('ts-hostile') && document.baseURI.startsWith(evil),
 }
-// 'mark' and 'request' are read for every vector at once (__pwned, the EVIL log); 'sandbox' rows only print as such.
+// 'mark' and 'request' are read for every vector at once (__pwned, the logging server); 'sandbox' rows only print as such.
 const OBSERVERS = new Set(['mark', 'request', 'sandbox'])
 
 // Files beside the retained EPUB, each with content its vector can be recognised by.
@@ -66,13 +68,16 @@ const SIBLINGS = {
   'secret.png': Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64'),
 }
 
-/** Every request EVIL receives is a vector that escaped; the first path segment names it. */
+/**
+ * Every request this server receives is a vector that escaped; the first path segment names it. Any free
+ * port: the book is written against `url`, so nothing else on 9876 (the on-device default) is in the way.
+ */
 function startEvil() {
   const hits = []
   const server = createServer((req, res) => { hits.push(req.url); res.end() })
   return new Promise((ok, fail) => {
     server.on('error', fail)
-    server.listen(new URL(EVIL).port, '127.0.0.1', () => ok({ hits, close: () => server.close() }))
+    server.listen(0, '127.0.0.1', () => ok({ url: `http://127.0.0.1:${server.address().port}`, hits, close: () => server.close() }))
   })
 }
 
@@ -88,7 +93,7 @@ function frameState() {
   return { url: location.href, pwned: window.__pwned ?? [], csp: window.__csp ?? [], isBook: !!document.getElementById('ts-hostile') }
 }
 
-const vectorOf = (url) => new URL(url, EVIL).pathname.split('/')[1].replace(/\.\w+$/, '')
+const vectorOf = (url) => new URL(url, 'http://evil').pathname.split('/')[1].replace(/\.\w+$/, '')
 
 /** `promise`, or a rejection after STEP_TIMEOUT_MS: no page call can hang the check. */
 function bounded(promise, what) {
@@ -111,30 +116,30 @@ async function step(result, what, call) {
 let current = null
 
 /**
- * Opens the hostile book in the page under its own CSP, or `mutate(csp)`. A browser per run: a prefetch
- * the last run allowed must not land in this run's log.
+ * Opens the hostile book in the page under its own CSP, or `mutate(csp)`. A context per run, with its own
+ * cache: a prefetch the last run allowed must not land in this run's log.
  */
-async function run(title, evil, dir, vectors, mutate) {
+async function run(browser, title, evil, dir, vectors, mutate) {
   let html = v2ReaderPageHtml(randomBytes(18).toString('base64'))
   if (mutate) html = html.replace(/(Content-Security-Policy" content=")([^"]*)/, (_, a, csp) => a + mutate(csp))
   writeFileSync(resolve(dir, 'page.html'), html)
   evil.hits.length = 0
   const result = { escaped: new Set(), blocked: new Set(), errors: [] }
   current = { title, result, evil }
-  const browser = await chromium.launch({ args: ['--allow-file-access-from-files'] })
+  const context = await browser.newContext()
   try {
-    await openHostile(await browser.newPage(), result, dir, vectors)
+    await openHostile(await context.newPage(), result, evil.url, dir, vectors)
   } catch (e) {
     result.errors.push(`run: ${e.message.split('\n')[0]}`)
   } finally {
     // Read once more, last: a late request still counts.
     evil.hits.forEach((u) => result.escaped.add(vectorOf(u)))
-    await browser.close()
+    await context.close()
   }
   return result
 }
 
-async function openHostile(page, result, dir, vectors) {
+async function openHostile(page, result, evil, dir, vectors) {
   const { escaped, blocked, errors } = result
   const messages = []
   page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`))
@@ -178,10 +183,10 @@ async function openHostile(page, result, dir, vectors) {
       showsBook ||= state.isBook
       state.pwned.forEach((v) => escaped.add(v))
       state.csp.forEach((v) => blocked.add(v))
-      // A frame that navigated to EVIL (meta refresh, an iframe) is named by its path, like a request.
-      if (state.url.startsWith(EVIL)) escaped.add(vectorOf(state.url))
+      // A frame that navigated to the logging server (meta refresh, an iframe) is named by its path, like a request.
+      if (state.url.startsWith(evil)) escaped.add(vectorOf(state.url))
       for (const [name, observe] of probes) {
-        if (await step(result, `${name} probe`, () => f.evaluate(PROBES[observe.slice('probe:'.length)], EVIL))) escaped.add(name)
+        if (await step(result, `${name} probe`, () => f.evaluate(PROBES[observe.slice('probe:'.length)], evil))) escaped.add(name)
       }
     }
     if (!showsBook) escaped.add(`section ${i} no longer shows the book`)
@@ -189,7 +194,7 @@ async function openHostile(page, result, dir, vectors) {
   // openLink goes to the OS opener: a scheme the book chose is a vector that got through (#1066).
   for (const m of messages) if (m.type === 'openLink' && !/^https?:/.test(m.href)) escaped.add(m.href.startsWith('javascript:') ? 'javascript-url' : `openLink ${m.href.slice(0, 40)}`)
   // The clicks must have reached the book, or the click vectors were never tried.
-  if (!messages.some((m) => m.type === 'openLink' && m.href === `${EVIL}/link-tap`)) errors.push('no openLink for link-tap: the clicks did not reach the book')
+  if (!messages.some((m) => m.type === 'openLink' && m.href === `${evil}/link-tap`)) errors.push('no openLink for link-tap: the clicks did not reach the book')
 }
 
 const passes = ({ escaped, errors }) => escaped.size === 0 && errors.length === 0
@@ -218,7 +223,7 @@ if (only !== undefined && !MUTATIONS[only]) {
   console.error(`unknown mutation "${only}"; one of: ${Object.keys(MUTATIONS).join(', ')}`)
   process.exit(2)
 }
-const blind = unobservable(hostileVectors(EVIL, 'file:///'))
+const blind = unobservable(hostileVectors('http://evil', 'file:///'))
 if (blind.length) {
   console.error(`[check:v2-reader-sandbox] no observer for: ${blind.map(([n, o]) => `${n} (${o})`).join(', ')}. Add it to PROBES or fix the row in fixtures.mjs.`)
   process.exit(2)
@@ -226,11 +231,12 @@ if (blind.length) {
 
 let dir = null
 let evil = null
+let browser = null
 const deadline = setTimeout(() => {
   if (current) {
     current.evil.hits.forEach((u) => current.result.escaped.add(vectorOf(u)))
     current.result.errors.push(`deadline: the whole check ran over ${DEADLINE_MS} ms`)
-    report(`${current.title} (partial)`, hostileVectors(EVIL, 'file:///'), current.result)
+    report(`${current.title} (partial)`, hostileVectors('http://evil', 'file:///'), current.result)
   }
   console.log('\n[check:v2-reader-sandbox] FAILED (deadline)')
   if (dir) rmSync(dir, { recursive: true, force: true })
@@ -241,21 +247,22 @@ let failed = false
 try {
   dir = mkdtempSync(resolve(tmpdir(), 'ts-v2-sandbox-'))
   evil = await startEvil()
+  browser = await chromium.launch({ args: ['--allow-file-access-from-files'] })
   for (const [name, data] of Object.entries(SIBLINGS)) writeFileSync(resolve(dir, name), data)
   const siblings = pathToFileURL(dir).href
-  writeHostileEpub(resolve(dir, 'tshostile.epub'), siblings)
-  const vectors = hostileVectors(EVIL, siblings)
+  writeHostileEpub(resolve(dir, 'tshostile.epub'), siblings, evil.url)
+  const vectors = hostileVectors(evil.url, siblings)
 
   if (only) {
-    const result = await run(`mutation ${only}`, evil, dir, vectors, MUTATIONS[only].csp)
+    const result = await run(browser, `mutation ${only}`, evil, dir, vectors, MUTATIONS[only].csp)
     report(`mutation ${only}`, vectors, result)
     failed = !passes(result)
   } else {
-    const real = await run('real CSP', evil, dir, vectors)
+    const real = await run(browser, 'real CSP', evil, dir, vectors)
     report('real CSP: every vector must be blocked', vectors, real)
     failed = !passes(real)
     for (const [name, m] of Object.entries(MUTATIONS)) {
-      const result = await run(`mutation ${name}`, evil, dir, vectors, m.csp)
+      const result = await run(browser, `mutation ${name}`, evil, dir, vectors, m.csp)
       const missed = m.escapes.filter((v) => !result.escaped.has(v))
       report(`mutation ${name}: must catch ${m.escapes.join(', ')}`, vectors, result, false)
       console.log(`  → ${missed.length ? `NOT CAUGHT: ${missed.join(', ')} — the check cannot see this directive go` : 'caught: the check fails, as it must'}`)
@@ -264,6 +271,7 @@ try {
   }
 } finally {
   clearTimeout(deadline)
+  await browser?.close()
   evil?.close()
   if (dir) rmSync(dir, { recursive: true, force: true })
 }
