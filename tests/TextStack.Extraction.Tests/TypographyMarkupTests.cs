@@ -79,11 +79,56 @@ public class TypographyMarkupTests
     [InlineData("<!-- \"draft\" 1/2 ... c/o -->")]
     [InlineData("<style>p::before { content: \"...\"; width: 1/2 }</style>")]
     [InlineData("<script>var s = \"it's 10-20\";</script>")]
+    [InlineData("<![CDATA[ \"x\" 1/2 ... ]]>")]
+    [InlineData("<SCRIPT type=\"text/javascript\">var s = \"1/2\";</SCRIPT>")]
     public void Process_CommentsScriptStyleUnchanged(string raw)
     {
         var result = _processor.Process($"<p>\"a\"</p>{raw}<p>\"b\"</p>", _context);
 
         Assert.Equal($"<p>\u201Ca\u201D</p>{raw}<p>\u201Cb\u201D</p>", result);
+    }
+
+    [Theory]
+    [InlineData("<P CLASS=\"x\">\"Hi\"</P>", "<P CLASS=\"x\">\u201CHi\u201D</P>")]
+    [InlineData("<IMG SRC=\"a.png\" ALT=\"it's 1/2\"/>\"Yes\"", "<IMG SRC=\"a.png\" ALT=\"it's 1/2\"/>\u201CYes\u201D")]
+    [InlineData("<p title=\"a<b 'c'\">\"q\"</p>", "<p title=\"a<b 'c'\">\u201Cq\u201D</p>")]
+    [InlineData("<p data-x='it\"s'>\"k\"</p>", "<p data-x='it\"s'>\u201Ck\u201D</p>")]
+    [InlineData("<p>\u201E\u041F\u0440\u0438\u0432\u0456\u0442\", '\u0414\u043E\u0431\u0440\u0435'</p>", "<p>\u201E\u041F\u0440\u0438\u0432\u0456\u0442\u201D, \u2018\u0414\u043E\u0431\u0440\u0435\u2019</p>")]
+    public void Process_UppercaseQuotedAndNonLatin_OnlyTextChanged(string input, string expected)
+    {
+        Assert.Equal(expected, _processor.Process(input, _context));
+    }
+
+    [Fact]
+    public void Process_MarkerCharInText_ReturnsInputUnchanged()
+    {
+        // Documents the silent opt-out: one U+FDD0 anywhere disables typography for the whole chapter.
+        const string input = "<p class=\"m\">Price \uFDD0 \"x\" 1/2</p>";
+
+        Assert.Equal(input, _processor.Process(input, _context));
+    }
+
+    [Fact]
+    public void Process_RealBookChapters_EveryAttributedStartTagByteIdentical()
+    {
+        using var zip = System.IO.Compression.ZipFile.OpenRead(Path.Combine(AppContext.BaseDirectory, "Fixtures", "frankenstein.epub"));
+        var startTag = new System.Text.RegularExpressions.Regex(@"<[A-Za-z][^>]*\s[^>]*>");
+        var checkedTags = 0;
+        foreach (var entry in zip.Entries.Where(e => e.Name.EndsWith("html")))
+        {
+            using var reader = new StreamReader(entry.Open());
+            var doc = new HtmlAgilityPack.HtmlDocument();
+            doc.LoadHtml(reader.ReadToEnd());
+            var body = (doc.DocumentNode.SelectSingleNode("//body") ?? doc.DocumentNode).InnerHtml;
+
+            var result = _processor.Process(body, _context);
+
+            var want = startTag.Matches(body).Select(m => m.Value).ToList();
+            Assert.Equal(want, startTag.Matches(result).Select(m => m.Value).ToList());
+            Assert.DoesNotContain('\uFDD0', result);
+            checkedTags += want.Count;
+        }
+        Assert.True(checkedTags > 100, $"corpus too small: {checkedTags} tags");
     }
 
     [Fact]
