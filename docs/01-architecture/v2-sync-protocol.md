@@ -541,7 +541,7 @@ their `server_storage_key` is cleared only once the bytes are gone (schema comme
 | `library` | books incl. removed, each with `currentFile` | `books.updated_at` — bumped by **every** library write: import, replace, attach content, remove, restore, checkpoint-saving, metadata edit |
 | `reading` | `reading_state` rows | `reading_state.updated_at` |
 | `annotations` | annotations incl. tombstones | `annotations.updated_at` (bumped on delete) |
-| `vocabulary` | words incl. tombstones, each with its **live** examples | `vocabulary_words.updated_at`, bumped by every example add, review and translation fill (M1.3 does) |
+| `vocabulary` | words incl. tombstones, each with its **live** examples | `vocabulary_words.updated_at`, bumped by every example add and review (M1.3 does; a re-save never changes an existing card) |
 
 Each feed is one `ListChangedAsync(userId, since, afterId, limit)` per repository (M1.2 deltas 4–5,
 M1.3 deltas 2–3).
@@ -715,10 +715,11 @@ metadata import is M2.2's, only the bytes are M2.6's. #1067 (explicit V2 transac
 
 Reconciled against the M1.3 code. Kept as is (no delta): `SaveAnnotationResult(Accepted, Current)`;
 tombstone delete bumping `revision` + `updated_at`, and a tombstone that refuses every later write;
-`SaveWordAsync` → `SavedWord(Created|Existing|Deleted, Word, Example?)`, no example on a tombstone,
-translation/definition only filled when null; word `revision` only on update/delete/restore,
-`updated_at` on review/example/fill; `WriteResult<T>(Created|Replayed|OperationConflict|Deleted, Row)`
-with the replay check first; the caller supplies `PayloadSha256`.
+`SaveWordAsync` → `SavedWord(Created|Existing|Deleted|IdConflict, Word?, Example?)`, no example on a
+tombstone (a replay of one is still answered); a re-save never changes an existing card's
+translation/definition (only `UpdateWordAsync` does); word `revision` only on update/delete/restore,
+`updated_at` on review and example add; `WriteResult<T>(Created|Replayed|OperationConflict|Deleted|NotFound, Row?)`
+with the replay check first; the caller supplies `PayloadSha256`; `userId` first on every method.
 
 1. **Annotation codes are derived by the M2.2 endpoint**, not the repository. On `Accepted = false`:
    `Current` is a tombstone → `deleted`. Else check the book (`ILibraryRepository.GetAsync`) and the
@@ -730,7 +731,8 @@ with the replay check first; the caller supplies `PayloadSha256`.
 2. **M2.2:** `IAnnotationRepository.ListChangedAsync(userId, since, afterId, limit)`, tombstones included.
 3. **M2.3:** `IVocabularyRepository.ListChangedAsync(userId, since, afterId, limit)`, tombstones
    included, each card with its live examples (as `GetWordAsync` loads them).
-4. **M2.3 — the schedule must be computed from the locked card.** Today `RecordReviewAsync` locks the
+4. **Done in M1.3:** `RecordReviewAsync(userId, review, schedule, ct)` as below. *Was:* **M2.3 — the
+   schedule must be computed from the locked card.** Then `RecordReviewAsync` locks the
    card (`FOR UPDATE`) but applies a `ReviewSchedule` and `StageBefore` the caller computed from an
    earlier, unlocked read: two devices answering one card at once both compute from the same stage and
    the second overwrites the first. Change: `RecordReviewAsync(review, Func<VocabularyWord,
@@ -741,8 +743,9 @@ with the replay check first; the caller supplies `PayloadSha256`.
 5. **M2.3 — example hash per [Canonical JSON](#canonical-json-adr-031-decided-item-4-made-precise)**:
    `language` + `wordKey`, not `wordId` (the open point M1.3 raised). No repository change: the service
    computes `wordKey` before calling `SaveWordAsync`.
-6. **M2.3 — a word id taken by another user** throws `pk_vocabulary_words` (the create's `ON CONFLICT`
-   is on the key only): the endpoint maps that 23505 to 409 `id_conflict`.
+6. **Done in M1.3:** a word id taken by another card (any user's) with no card under the key is
+   `WordSaveOutcome.IdConflict` (the create's `ON CONFLICT DO NOTHING` has no arbiter); the endpoint
+   maps it to 409 `id_conflict`.
 7. **M2.3 — `RestoreWordAsync(userId, wordId, expectedRevision)`**, guarded like `UpdateWordAsync`.
 8. **M2.3 — example `bookId`/`fileId`** are checked before `SaveWordAsync`/`AddExampleAsync`
    (`book_not_found` / `unknown_file`): today a bad one fails at commit with 23503, pinned by M1.3's
