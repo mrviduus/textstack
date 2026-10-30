@@ -81,7 +81,8 @@ _work/
 _diag/
 config.sh
 env.sh
-run.sh
+# Anchored: the runner's own run.sh, not database/v2/run.sh.
+/run.sh
 run-helper.*
 runsvc.sh
 safe_sleep.sh

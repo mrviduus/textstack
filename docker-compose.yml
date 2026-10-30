@@ -74,6 +74,27 @@ services:
         condition: service_healthy
     restart: "no"
 
+  # textstack_v2 (ADR-030): the same image, its database/v2/ runner. run.sh creates the database
+  # if it is missing, then migrates it. `docker compose run --rm migrator-v2 down <version>`
+  # (make migrate-v2-down) rolls it back.
+  migrator-v2:
+    logging: *default-logging
+    # No build: it is the migrator's image, built by that service (one build, one cache scope).
+    image: ${IMAGE_REGISTRY:-textstack}-migrator:${IMAGE_TAG:-latest}
+    container_name: textstack_migrator_v2_prod
+    entrypoint: ["sh", "/database/v2/run.sh"]
+    command: ["up"]
+    environment:
+      PGHOST: db
+      PGPORT: "5432"
+      PGDATABASE: ${V2_POSTGRES_DB:-textstack_v2}
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
   api:
     logging: *default-logging
     image: ${IMAGE_REGISTRY:-textstack}-api:${IMAGE_TAG:-latest}
@@ -158,6 +179,8 @@ services:
         condition: service_healthy
       migrator:
         condition: service_completed_successfully
+      migrator-v2:
+        condition: service_completed_successfully
     deploy:
       resources:
         limits:
@@ -209,6 +232,8 @@ services:
       db:
         condition: service_healthy
       migrator:
+        condition: service_completed_successfully
+      migrator-v2:
         condition: service_completed_successfully
     deploy:
       resources:

@@ -260,6 +260,13 @@ jobs:
           -e PGHOST=localhost -e PGUSER=app -e PGPASSWORD=changeme -e PGDATABASE=books
           pgvector/pgvector:pg16 sh /database/tests/roundtrip.sh
 
+      # The same for textstack_v2's runner and migrations (database/v2/README.md).
+      - name: V2 migrations round trip
+        run: >-
+          docker run --rm --network host -v "$PWD/database:/database:ro"
+          -e PGHOST=localhost -e PGUSER=app -e PGPASSWORD=changeme -e PGDATABASE=books
+          pgvector/pgvector:pg16 sh /database/v2/tests/roundtrip.sh
+
       - name: Run migrations
         run: >-
           docker run --rm --network host -v "$PWD/database:/database:ro"
@@ -863,7 +870,7 @@ jobs:
       # one not captured.
       - name: Dump service logs on failure
         if: failure()
-        run: docker compose logs --no-color api migrator worker
+        run: docker compose logs --no-color api migrator migrator-v2 worker
 
       - name: Stop services
         if: always()
