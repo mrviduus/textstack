@@ -3,7 +3,7 @@
 // tsfonts: one font (Source Sans 3, OFL) plain, IDPF- and Adobe-obfuscated. tshostile: see hostileVectors.
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -35,9 +35,9 @@ function epub(out, name, { files, manifest, spine, encryption }) {
 /** `dir` (an unpacked EPUB) into `out`: `mimetype` first and stored, as OCF requires, then the rest. */
 export function zipEpub(dir, out) {
   rmSync(out, { force: true })
-  // `--`: entry names come from an untrusted EPUB, and zip reads options anywhere in argv (`-T`, `--unzip-command=…`).
-  execFileSync('zip', ['-X0q', out, '--', 'mimetype'], { cwd: dir })
-  execFileSync('zip', ['-Xr9Dq', out, '--', ...readdirSync(dir).filter((f) => f !== 'mimetype')], { cwd: dir })
+  // `.`, not the entry names: those come from an untrusted EPUB, and zip reads options anywhere in argv.
+  execFileSync('zip', ['-X0q', out, 'mimetype'], { cwd: dir })
+  execFileSync('zip', ['-Xr9Dq', out, '.', '-x', 'mimetype'], { cwd: dir })
 }
 
 const xhtml = (head, body, attrs = '') => `<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>s</title>${head}</head><body${attrs}>${body}</body></html>`

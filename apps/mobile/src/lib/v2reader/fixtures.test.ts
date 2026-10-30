@@ -12,7 +12,7 @@ describe('v2 fixtures', () => {
     try {
       mkdirSync(dir)
       writeFileSync(join(dir, 'mimetype'), 'application/epub+zip')
-      // Without `--`, zip reads these as -T plus --unzip-command="sh p" and runs `sh p` to "test" the archive.
+      // Passed in argv, zip would read these as -T plus --unzip-command="sh p" and run `sh p` to "test" the archive.
       writeFileSync(join(dir, '-T'), 'x')
       writeFileSync(join(dir, '--unzip-command=sh p'), 'x')
       writeFileSync(join(dir, 'p'), 'exit 1')
