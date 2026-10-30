@@ -210,6 +210,20 @@ public class AnnotationRepositoryTests(V2PostgresFixture db)
         Assert.Equal((2L, true), (read.Revision, read.DeletedAt is not null));
     }
 
+    // updated_at is the sync feed's watermark: every revisioned write must move it.
+    [Fact]
+    public async Task SaveAndDelete_EachMoveUpdatedAt()
+    {
+        var (book, stored) = await SavedHighlightAsync();
+
+        var edited = (await _repo.SaveAsync(book.UserId, Edit(stored, "edited"), 1, Ct)).Current!;
+        await _repo.DeleteAsync(book.UserId, stored.Id, Ct);
+        var deleted = (await _repo.GetAsync(book.UserId, stored.Id, Ct))!;
+
+        Assert.True(edited.UpdatedAt > stored.UpdatedAt, "update");
+        Assert.True(deleted.UpdatedAt > edited.UpdatedAt, "delete");
+    }
+
     // Owner isolation, one test per method: bob, holding alice's ids, never reads, changes or deletes her rows.
 
     [Fact]
@@ -247,6 +261,24 @@ public class AnnotationRepositoryTests(V2PostgresFixture db)
         Assert.Equal((false, (Annotation?)null), (result.Accepted, result.Current));
         var read = (await _repo.GetAsync(alices.UserId, alices.Id, Ct))!;
         Assert.Equal((1L, "a note", alices.BookId), (read.Revision, read.NoteText, read.BookId));
+    }
+
+    // Unanchored, so no file check can hide a missing owner filter in the update.
+    [Fact]
+    public async Task SaveAsync_UnanchoredEditOfAlicesAnnotationAsBob_LosesAndChangesNothing()
+    {
+        var (_, alices) = await SavedHighlightAsync();
+        var bob = await db.NewReaderAsync();
+        var takeover = Edit(alices, "bob's");
+        takeover.UserId = bob;
+        takeover.FileId = null;
+        takeover.Locator = null;
+
+        var result = await _repo.SaveAsync(bob, takeover, 1, Ct);
+
+        Assert.Equal((false, (Annotation?)null), (result.Accepted, result.Current));
+        var read = (await _repo.GetAsync(alices.UserId, alices.Id, Ct))!;
+        Assert.Equal((1L, "a note"), (read.Revision, read.NoteText));
     }
 
     [Fact]

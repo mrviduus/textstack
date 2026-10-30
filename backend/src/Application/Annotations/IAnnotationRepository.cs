@@ -5,7 +5,9 @@ namespace Application.Annotations;
 /// <summary>
 /// The V2 annotations (table <c>annotations</c>, ADR-031), guarded by <c>revision</c> so a stale device
 /// cannot overwrite a newer one. Every method is scoped to <c>userId</c>: another user's ids read as
-/// "not found" and change nothing (docs/01-architecture/data-access.md rule 7).
+/// "not found" and change nothing (docs/01-architecture/data-access.md rule 7). Input validation
+/// (locator JSON shape, text lengths, non-blank text, a color) is the API's job: a caller bug surfaces
+/// as a <c>PostgresException</c> from the schema (data-access.md rule 8).
 /// </summary>
 public interface IAnnotationRepository
 {
