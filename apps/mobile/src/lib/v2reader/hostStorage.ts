@@ -4,6 +4,7 @@
 //   books/<sha256>.epub   the retained copy; identical bytes are kept once
 //   library.json          library.mjs's shape
 //   store/<sha256>.json   the page's `store` payload for that file, verbatim
+import { createWriteQueue } from '../sessionWrites'
 import { addOpened, emptyLibrary, parseLibrary } from './library.mjs'
 
 /** The file operations this needs, by name relative to the v2 root: expo-file-system on a device. */
@@ -58,57 +59,46 @@ export async function readRecovering(files: V2Files, name: string): Promise<stri
   return (await files.read(name)) ?? (await files.read(`${name}.tmp`))
 }
 
+/** The retained copy of the file with this (already normalised) sha256. */
+export const bookFile = (sha256: string) => `books/${sha256}.epub`
+
 export function createV2Storage(files: V2Files) {
-  // ponytail: one in-process chain for every read and write: two imports read-modify-write
+  // ponytail: one in-process queue for every read and write: two imports read-modify-write
   // library.json in turn, two saves of one key never share a .tmp, and no read lands between a
   // move's delete and rename. Does not cover a second process or a second storage instance;
-  // per-file chains if work ever queues visibly.
-  let tail: Promise<unknown> = Promise.resolve()
-  const serially = <T>(work: () => Promise<T>): Promise<T> => {
-    const run = tail.then(work, work)
-    tail = run.catch(() => {})
-    return run
-  }
-
+  // per-file queues if work ever waits visibly. sha256Key runs inside each job, so a bad key from
+  // the page is that job's rejection, never a throw out of the message handler.
+  const queue = createWriteQueue()
   const readLibrary = async () => parseLibrary((await readRecovering(files, 'library.json')) ?? '') ?? emptyLibrary()
 
-  // Every entry point is async: a key from the page that is not a sha256 rejects instead of
-  // throwing out of the message handler before its caller's .catch is attached.
   return {
-    bookName: async (sha256: string) => `books/${sha256Key(sha256)}.epub`,
-
-    books: (): Promise<LibraryBook[]> => serially(async () => (await readLibrary()).books),
+    books: (): Promise<LibraryBook[]> => queue.run(async () => (await readLibrary()).books),
 
     /**
-     * The opened file into the library. A staged file becomes the retained copy unless those bytes are
-     * already retained. The copy lands before the entry, so a kill between the two leaves a file that
-     * the next import of the same bytes adopts, never an entry without its file.
+     * The opened file into the library; resolves to the retained file and the library's books. A
+     * staged file becomes the retained copy unless those bytes are already retained. The copy lands
+     * before the entry, so a kill between the two leaves a file that the next import of the same
+     * bytes adopts, never an entry without its file.
      */
-    async addOpened(book: { sha256: string; size: number; title: string; author: string; originalName: string }, staged: string | null) {
-      const sha256 = sha256Key(book.sha256)
-      return serially(async () => {
+    addOpened: (book: { sha256: string; size: number; title: string; author: string; originalName: string }, staged: string | null) =>
+      queue.run(async () => {
+        const sha256 = sha256Key(book.sha256)
+        const retained = bookFile(sha256)
         if (staged) {
-          if (files.exists(`books/${sha256}.epub`)) files.remove(staged)
-          else await files.move(staged, `books/${sha256}.epub`)
+          if (files.exists(retained)) files.remove(staged)
+          else await files.move(staged, retained)
         }
-        const { lib, entry, existing } = addOpened(await readLibrary(), { ...book, sha256 })
+        const { lib } = addOpened(await readLibrary(), { ...book, sha256 })
         await writeAtomically(files, 'library.json', JSON.stringify(lib))
-        return { entry: entry as LibraryBook, existing: existing as boolean }
-      })
-    },
+        return { retained, books: lib.books as LibraryBook[] }
+      }),
 
     /** A staged file the page could not open: README "open-failed — must not keep the file". */
-    dropStaged: (staged: string) => serially(async () => files.remove(staged)),
+    dropStaged: (staged: string) => queue.run(async () => files.remove(staged)),
 
-    async readStore(key: string) {
-      const name = `store/${sha256Key(key)}.json`
-      return serially(() => readRecovering(files, name))
-    },
+    readStore: (key: string) => queue.run(() => readRecovering(files, `store/${sha256Key(key)}.json`)),
 
-    async writeStore(key: string, json: string) {
-      const name = `store/${sha256Key(key)}.json`
-      return serially(() => writeAtomically(files, name, json))
-    },
+    writeStore: (key: string, json: string) => queue.run(() => writeAtomically(files, `store/${sha256Key(key)}.json`, json)),
   }
 }
 
