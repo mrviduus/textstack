@@ -1,6 +1,7 @@
 // The ADR-029 Decision 6 large-book gate: a real EPUB padded with PNG plates foliate renders (a manifest item + an <img>
 // in its own spine section, interleaved from the third original section on), not random bytes. Needs `zip`/`unzip`.
 //   node bigbook.mjs <in.epub> <out.epub> [MB=88]   pads until the raw plates reach ~MB MiB (+2 %); the real size is printed.
+// Each plate is ~0.85 MB: NOISE_ROWS sets how often its noise is fresh (88 → ~100 plates, the gate's measured shape).
 // Write it into fixtures/ (gitignored): the output is large and its source book is not in the repo.
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, readdirSync, writeFileSync, statSync, rmSync } from 'node:fs'
@@ -12,13 +13,17 @@ import { zipEpub } from './fixtures.mjs'
 const [src, out, mb = '88'] = process.argv.slice(2)
 if (!src || !out || !(Number(mb) > 0)) { console.error('usage: node bigbook.mjs <in.epub> <out.epub> [MB=88]'); process.exit(2) }
 const W = 1200, H = 1600
+// Fresh noise every NOISE_ROWS rows, repeated between: the knob for a plate's compressed size (8 → ~0.85 MB).
+const NOISE_ROWS = 8
 
 function png(seed) {
   let s = (seed * 2654435761) >>> 0
   // Math.imul: a plain multiply passes 2^53, loses the low bits and cycles after ~419 steps (plates compress 9×).
   const rnd = () => (s = (Math.imul(s, 1103515245) + 12345) >>> 0) >>> 24
   const raw = Buffer.alloc((W * 3 + 1) * H)
+  let rowSeed = 0
   for (let y = 0; y < H; y++) {
+    if (y % NOISE_ROWS === 0) rowSeed = s; else s = rowSeed
     const row = y * (W * 3 + 1)
     for (let x = 0; x < W; x++) {
       const p = row + 1 + x * 3
