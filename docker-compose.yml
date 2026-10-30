@@ -77,7 +77,15 @@ services:
   # textstack_v2 (ADR-030): the same image, its database/v2/ runner. run.sh creates the database
   # if it is missing, then migrates it. `docker compose run --rm migrator-v2 down <version>`
   # (make migrate-v2-down) rolls it back.
+  #
+  # Behind a profile, and nothing depends on it. Nothing reads textstack_v2 yet, so a migrator that
+  # cannot reach or create it is a V2 problem, not a reason for the site to be down — and on
+  # 2026-10-30 it was exactly that: `up -d` waited for this service, it exited 1, and api and worker
+  # never started (docs/incidents/2026-10-30-migrator-v2-took-down-the-api.md). `compose run` and
+  # `compose up migrator-v2` enable the profile themselves, so `make migrate-v2*` is unaffected.
+  # The dependency comes back, as a gate on V2 endpoints only, when V2 holds real data (#1053).
   migrator-v2:
+    profiles: ["v2"]
     logging: *default-logging
     # No build: it is the migrator's image, built by that service (one build, one cache scope).
     image: ${IMAGE_REGISTRY:-textstack}-migrator:${IMAGE_TAG:-latest}
@@ -179,8 +187,6 @@ services:
         condition: service_healthy
       migrator:
         condition: service_completed_successfully
-      migrator-v2:
-        condition: service_completed_successfully
     deploy:
       resources:
         limits:
@@ -232,8 +238,6 @@ services:
       db:
         condition: service_healthy
       migrator:
-        condition: service_completed_successfully
-      migrator-v2:
         condition: service_completed_successfully
     deploy:
       resources:
