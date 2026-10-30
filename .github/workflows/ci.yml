@@ -870,7 +870,7 @@ jobs:
       # one not captured.
       - name: Dump service logs on failure
         if: failure()
-        run: docker compose logs --no-color api migrator worker
+        run: docker compose logs --no-color api migrator migrator-v2 worker
 
       - name: Stop services
         if: always()
