@@ -23,10 +23,11 @@ public interface IReadingStateRepository
         Guid userId, Guid bookId, ReadingState state, long? expectedRevision, CancellationToken ct);
 
     /// <summary>
-    /// Forgets the user's state in the book, frontier included: the explicit way back to the start.
-    /// False when there was none.
+    /// The explicit way back to the start: forgets the frontier and completion, keeps the position,
+    /// and bumps the revision, so every other device's revision is now stale. Returns the new state
+    /// (the caller's next expected revision); null when there was none.
     /// </summary>
-    Task<bool> ResetAsync(Guid userId, Guid bookId, CancellationToken ct);
+    Task<ReadingState?> ResetAsync(Guid userId, Guid bookId, CancellationToken ct);
 }
 
 /// <summary>

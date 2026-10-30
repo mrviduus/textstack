@@ -101,6 +101,8 @@ public sealed class LibraryRepository(V2DataSource dataSource) : ILibraryReposit
             RETURNING {FileColumns}
             """;
         // The state's locators and fractions mean something only in the version they were taken in.
+        // A delete is safe here, unlike in a reset: a device still holding the old revision names the
+        // old file, and AdvanceAsync's file_id guard makes that write lose.
         const string resetReading = "DELETE FROM reading_state WHERE user_id = @userId AND book_id = @bookId";
 
         var args = new { userId, bookId };

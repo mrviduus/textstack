@@ -56,8 +56,8 @@ public sealed class ReadingStateRepository(V2DataSource dataSource) : IReadingSt
             """;
 
         // The offered frontier is the further of the client's frontier and its position: a client
-        // that sends none, or one behind its position, still never leaves the frontier trailing.
-        var offerFrontier = state.FrontierFraction >= state.BookFraction;
+        // that sends none, half of one, or one behind its position, never leaves the frontier trailing.
+        var offerFrontier = state.FrontierLocator is not null && state.FrontierFraction >= state.BookFraction;
         var args = new
         {
             userId,
@@ -68,8 +68,9 @@ public sealed class ReadingStateRepository(V2DataSource dataSource) : IReadingSt
             state.BookFraction,
             FrontierLocator = offerFrontier ? state.FrontierLocator : state.CurrentLocator,
             FrontierFraction = offerFrontier ? state.FrontierFraction : state.BookFraction,
-            state.CompletedAt,
-            state.ClientRecordedAt,
+            // Npgsql writes timestamptz from offset-0 values only.
+            CompletedAt = state.CompletedAt?.ToUniversalTime(),
+            ClientRecordedAt = state.ClientRecordedAt.ToUniversalTime(),
         };
         await using var conn = await dataSource.OpenConnectionAsync(ct);
         var written = await conn.QuerySingleOrDefaultAsync<ReadingState>(new CommandDefinition(
@@ -81,10 +82,22 @@ public sealed class ReadingStateRepository(V2DataSource dataSource) : IReadingSt
         return new AdvanceResult(false, current);
     }
 
-    public async Task<bool> ResetAsync(Guid userId, Guid bookId, CancellationToken ct)
+    public async Task<ReadingState?> ResetAsync(Guid userId, Guid bookId, CancellationToken ct)
     {
-        const string sql = "DELETE FROM reading_state WHERE user_id = @userId AND book_id = @bookId";
+        // An update, not a delete: a deleted row would let the next first write start at revision 1
+        // again, and a stale device holding revision 1 would then win and undo the reset.
+        const string sql = $"""
+            UPDATE reading_state SET
+                frontier_locator = NULL,
+                frontier_fraction = NULL,
+                completed_at = NULL,
+                updated_at = now(),
+                revision = revision + 1
+            WHERE user_id = @userId AND book_id = @bookId
+            RETURNING {Columns}
+            """;
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        return await conn.ExecuteAsync(new CommandDefinition(sql, new { userId, bookId }, cancellationToken: ct)) > 0;
+        return await conn.QuerySingleOrDefaultAsync<ReadingState>(
+            new CommandDefinition(sql, new { userId, bookId }, cancellationToken: ct));
     }
 }

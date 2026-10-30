@@ -116,6 +116,42 @@ public class LibraryRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
+    public async Task ReplaceFileAsync_FiveAtOnce_AllSucceedAsAChainWithOneCurrentFile()
+    {
+        var user = await db.NewReaderAsync();
+        var book = await ImportAsync(user);
+
+        var results = await Task.WhenAll(Enumerable.Range(0, 5)
+            .Select(_ => Task.Run(() => _repo.ReplaceFileAsync(user, book.Id, NewFile(), Ct))));
+
+        // Each replacement superseded a different version: none saw the same current row.
+        Assert.Equal(5, results.Select(r => r!.Superseded!.Id).Distinct().Count());
+        await using var conn = await db.DataSource.OpenConnectionAsync(Ct);
+        Assert.Equal((6L, 1L), await conn.QuerySingleAsync<(long, long)>(new CommandDefinition(
+            "SELECT count(*), count(*) FILTER (WHERE is_current) FROM book_files WHERE user_id = @user AND book_id = @Id",
+            new { user, book.Id }, cancellationToken: Ct)));
+    }
+
+    [Fact]
+    public async Task ReplaceFileAsync_BookWithNoFileYet_ReadsAsNullFileThenGetsOneWithNothingSuperseded()
+    {
+        var user = await db.NewReaderAsync();
+        var bookId = Guid.NewGuid();
+        // A catalog book (D5) has no file, and no repository method makes one yet (ETL, M3): SQL does.
+        await using (var conn = await db.DataSource.OpenConnectionAsync(Ct))
+            await conn.ExecuteAsync(new CommandDefinition(
+                """INSERT INTO books (id, user_id, title, origin) VALUES (@bookId, @user, 'A catalog book', '{"kind":"catalog"}')""",
+                new { bookId, user }, cancellationToken: Ct));
+        Assert.Null((await _repo.GetAsync(user, bookId, Ct))!.CurrentFile);
+        Assert.Null(Assert.Single(await _repo.ListAsync(user, Ct)).CurrentFile);
+
+        var result = (await _repo.ReplaceFileAsync(user, bookId, NewFile(), Ct))!;
+
+        Assert.Null(result.Superseded);
+        Assert.True(result.Current.IsCurrent);
+    }
+
+    [Fact]
     public async Task ReplaceFileAsync_BookWithReadingState_ResetsIt()
     {
         var user = await db.NewReaderAsync();

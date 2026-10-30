@@ -156,16 +156,85 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task ResetAsync_ExistingState_ForgetsItSoTheNextWriteStartsOver()
+    public async Task AdvanceAsync_TwoFirstWritesAtOnce_ExactlyOneWins()
+    {
+        for (var run = 0; run < 20; run++)
+        {
+            var (user, book, file) = await ReaderWithBookAsync();
+
+            var results = await Task.WhenAll(Enumerable.Range(1, 4)
+                .Select(page => Task.Run(() => _repo.AdvanceAsync(user, book, At(file, page), null, Ct))));
+
+            Assert.Single(results, r => r.Accepted);
+            Assert.All(results, r => Assert.NotNull(r.Current));
+        }
+    }
+
+    [Fact]
+    public async Task AdvanceAsync_ClientTimeWithAnOffset_StoresItAsUtc()
     {
         var (user, book, file) = await ReaderWithBookAsync();
-        await _repo.AdvanceAsync(user, book, At(file, 8), null, Ct);
+        var state = At(file, 3);
+        state.ClientRecordedAt = new DateTimeOffset(2026, 10, 30, 12, 0, 0, TimeSpan.FromHours(2));
+        state.CompletedAt = state.ClientRecordedAt;
 
-        Assert.True(await _repo.ResetAsync(user, book, Ct));
-        Assert.Null(await _repo.GetAsync(user, book, Ct));
-        Assert.False(await _repo.ResetAsync(user, book, Ct));
-        var restart = await _repo.AdvanceAsync(user, book, At(file, 1), null, Ct);
-        Assert.Equal((1L, 0.1m), (restart.Current!.Revision, restart.Current.FrontierFraction));
+        var result = await _repo.AdvanceAsync(user, book, state, null, Ct);
+
+        Assert.True(result.Accepted);
+        Assert.Equal(new DateTimeOffset(2026, 10, 30, 10, 0, 0, TimeSpan.Zero), result.Current!.ClientRecordedAt);
+        Assert.Equal(TimeSpan.Zero, result.Current.ClientRecordedAt.Offset);
+    }
+
+    [Fact]
+    public async Task AdvanceAsync_FrontierFractionWithoutLocator_TreatsItAsNoFrontier()
+    {
+        var (user, book, file) = await ReaderWithBookAsync();
+        var state = At(file, 3);
+        state.FrontierFraction = 0.5m;
+
+        var result = await _repo.AdvanceAsync(user, book, state, null, Ct);
+
+        Assert.True(result.Accepted);
+        Assert.Equal(0.3m, result.Current!.FrontierFraction);
+        AssertSameJson(Page(3), result.Current.FrontierLocator);
+    }
+
+    [Fact]
+    public async Task ResetAsync_ExistingState_ForgetsFrontierAndCompletionKeepsPositionAndBumpsRevision()
+    {
+        var (user, book, file) = await ReaderWithBookAsync();
+        var finished = At(file, 8);
+        finished.CompletedAt = DateTimeOffset.UtcNow;
+        await _repo.AdvanceAsync(user, book, finished, null, Ct);
+
+        var reset = (await _repo.ResetAsync(user, book, Ct))!;
+
+        Assert.Equal((2L, 0.8m, (decimal?)null, (string?)null, (DateTimeOffset?)null),
+            (reset.Revision, reset.BookFraction, reset.FrontierFraction, reset.FrontierLocator, reset.CompletedAt));
+        AssertSameJson(Page(8), reset.CurrentLocator);
+        var next = await _repo.AdvanceAsync(user, book, At(file, 1), reset.Revision, Ct);
+        Assert.Equal((3L, 0.1m), (next.Current!.Revision, next.Current.FrontierFraction));
+    }
+
+    [Fact]
+    public async Task ResetAsync_NoState_ReturnsNull()
+    {
+        var (user, book, _) = await ReaderWithBookAsync();
+
+        Assert.Null(await _repo.ResetAsync(user, book, Ct));
+    }
+
+    [Fact]
+    public async Task AdvanceAsync_AfterReset_StaleDeviceWithOldRevision_Loses()
+    {
+        var (user, book, file) = await ReaderWithBookAsync();
+        await _repo.AdvanceAsync(user, book, At(file, 8), null, Ct); // device A reads revision 1
+        await _repo.ResetAsync(user, book, Ct);                       // the reader restarts the book
+
+        var stale = await _repo.AdvanceAsync(user, book, At(file, 9), 1, Ct); // device A, still on revision 1
+
+        Assert.False(stale.Accepted);
+        Assert.Equal((2L, (decimal?)null), (stale.Current!.Revision, stale.Current.FrontierFraction));
     }
 
     // Owner isolation, one test per method: bob, holding alice's ids, never reads, changes or deletes her rows.
@@ -197,13 +266,27 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
-    public async Task ResetAsync_AlicesBookAsBob_ReturnsFalseAndKeepsHerState()
+    public async Task AdvanceAsync_FirstWriteOnAlicesBookAsBob_LosesAndCreatesNothing()
+    {
+        var (alice, book, file) = await ReaderWithBookAsync();
+        var bob = await db.NewReaderAsync();
+
+        var result = await _repo.AdvanceAsync(bob, book, At(file, 9), null, Ct);
+
+        Assert.Equal((false, (ReadingState?)null), (result.Accepted, result.Current));
+        Assert.Null(await _repo.GetAsync(alice, book, Ct));
+        Assert.Null(await _repo.GetAsync(bob, book, Ct));
+    }
+
+    [Fact]
+    public async Task ResetAsync_AlicesBookAsBob_ReturnsNullAndKeepsHerState()
     {
         var (alice, book, file) = await ReaderWithBookAsync();
         var bob = await db.NewReaderAsync();
         await _repo.AdvanceAsync(alice, book, At(file, 3), null, Ct);
 
-        Assert.False(await _repo.ResetAsync(bob, book, Ct));
-        Assert.NotNull(await _repo.GetAsync(alice, book, Ct));
+        Assert.Null(await _repo.ResetAsync(bob, book, Ct));
+        var alices = (await _repo.GetAsync(alice, book, Ct))!;
+        Assert.Equal((1L, 0.3m), (alices.Revision, alices.FrontierFraction));
     }
 }
