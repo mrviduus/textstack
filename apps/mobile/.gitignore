@@ -43,3 +43,7 @@ yarn-error.*
 
 # EAS Submit service account key — never commit
 google-service-account.json
+
+# V2 reader page: pinned foliate-js clone, generated fixtures (src/lib/v2reader/README.md)
+src/lib/v2reader/.vendor/
+src/lib/v2reader/fixtures/
