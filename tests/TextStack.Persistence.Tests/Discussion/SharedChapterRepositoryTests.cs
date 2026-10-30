@@ -77,6 +77,24 @@ public class SharedChapterRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
+    public async Task ShareAsync_EightRetriesAtOnce_OneCreatedTheRestReplayedOneRow()
+    {
+        var book = await db.NewReaderWithBookAsync();
+        var first = NewShare(book);
+
+        var results = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ =>
+        {
+            var retry = NewShare(book);
+            (retry.OperationId, retry.PayloadSha256) = (first.OperationId, first.PayloadSha256);
+            return _repo.ShareAsync(retry, Ct);
+        }));
+
+        Assert.Equal(1, results.Count(r => r.Outcome == DiscussionWriteOutcome.Created));
+        Assert.Equal(7, results.Count(r => r.Outcome == DiscussionWriteOutcome.Replayed));
+        Assert.Equal(1L, await CountAsync(book));
+    }
+
+    [Fact]
     public async Task ShareAsync_FileOfAnotherBook_IsRefusedByTheProvenanceForeignKey()
     {
         var book = await db.NewReaderWithBookAsync();
@@ -140,6 +158,34 @@ public class SharedChapterRepositoryTests(V2PostgresFixture db)
         Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, error.SqlState);
     }
 
+    [Fact]
+    public async Task DeleteAsync_WhileAnAppendLinkingTheShareIsInFlight_WaitsThenUnlinksItAndDeletes()
+    {
+        var book = await db.NewReaderWithBookAsync();
+        var share = NewShare(book);
+        await _repo.ShareAsync(share, Ct);
+        var checkpointId = Guid.NewGuid();
+        // An append caught mid-transaction: the checkpoint is inserted, linked, not yet committed,
+        // and holds the share as AppendAsync does. Without the delete's FOR UPDATE, the delete's
+        // unlink misses this row and its commit fails on the checkpoint FK.
+        await using var conn = await db.DataSource.OpenConnectionAsync(Ct);
+        await using var append = await conn.BeginTransactionAsync(Ct);
+        await conn.ExecuteAsync(new CommandDefinition("""
+            SELECT 1 FROM shared_chapters WHERE id = @shareId FOR KEY SHARE;
+            INSERT INTO discussion_checkpoints (id, user_id, book_id, file_id, chapter_key, shared_chapter_id, topic, reader_thoughts, language, operation_id, payload_sha256)
+            VALUES (@checkpointId, @UserId, @BookId, @FileId, @ChapterKey, @shareId, 't', '["x"]', 'en', gen_random_uuid(), @hash);
+            """, new { shareId = share.Id, checkpointId, share.UserId, share.BookId, share.FileId, share.ChapterKey, hash = NewPayloadSha256() },
+            append, cancellationToken: Ct));
+
+        var delete = _repo.DeleteAsync(book.UserId, share.Id, Ct);
+        await db.WaitUntilBlockedOnALockAsync(delete);
+        await append.CommitAsync(Ct);
+
+        Assert.True(await delete);
+        var kept = Assert.Single((await _checkpoints.ListAsync(book.UserId, book.Id, null, 10, null, Ct)).Items);
+        Assert.Equal((checkpointId, (Guid?)null), (kept.Id, kept.SharedChapterId));
+    }
+
     // Owner isolation, one test per method: bob, holding alice's ids, never reads, changes or deletes her rows.
 
     [Fact]
@@ -156,6 +202,22 @@ public class SharedChapterRepositoryTests(V2PostgresFixture db)
 
         Assert.Equal((DiscussionWriteOutcome.Created, his.Id), (result.Outcome, result.Stored!.Id));
         Assert.Equal(hers.Id, Assert.Single(await _repo.ListForBookAsync(alices.UserId, alices.Id, Ct)).Id);
+    }
+
+    [Fact]
+    public async Task ShareAsync_BobRetriesHisOperationIdThatAliceAlsoUsed_ReplaysHisRow()
+    {
+        var alices = await db.NewReaderWithBookAsync();
+        var bobs = await db.NewReaderWithBookAsync();
+        var hers = NewShare(alices);
+        await _repo.ShareAsync(hers, Ct);
+        var his = NewShare(bobs);
+        his.OperationId = hers.OperationId;
+        await _repo.ShareAsync(his, Ct);
+
+        var retry = await _repo.ShareAsync(his, Ct);
+
+        Assert.Equal((DiscussionWriteOutcome.Replayed, his.Id), (retry.Outcome, retry.Stored!.Id));
     }
 
     [Fact]

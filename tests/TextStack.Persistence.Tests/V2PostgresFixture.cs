@@ -118,4 +118,21 @@ public sealed class V2PostgresFixture : IAsyncLifetime
         Question = "q",
         ReviewJson = reviewJson,
     };
+
+    /// <summary>
+    /// Returns once some backend waits on a lock, or <paramref name="pending"/> finished, or 5 s
+    /// passed: how a race test knows the other side is parked before it lets go of its own lock.
+    /// </summary>
+    public async Task WaitUntilBlockedOnALockAsync(Task pending)
+    {
+        await using var observer = await DataSource.OpenConnectionAsync(Ct);
+        for (var waited = 0; waited < 5000 && !pending.IsCompleted; waited += 10)
+        {
+            if (await observer.ExecuteScalarAsync<bool>(new CommandDefinition(
+                    "SELECT EXISTS (SELECT FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock')",
+                    cancellationToken: Ct)))
+                return;
+            await Task.Delay(10, Ct);
+        }
+    }
 }

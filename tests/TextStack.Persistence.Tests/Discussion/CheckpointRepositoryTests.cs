@@ -96,6 +96,24 @@ public class CheckpointRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
+    public async Task AppendAsync_EightRetriesAtOnce_OneCreatedTheRestReplayedOneRow()
+    {
+        var book = await db.NewReaderWithBookAsync();
+        var first = NewCheckpoint(book);
+
+        var results = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ =>
+        {
+            var retry = NewCheckpoint(book);
+            (retry.OperationId, retry.PayloadSha256) = (first.OperationId, first.PayloadSha256);
+            return _repo.AppendAsync(retry, Ct);
+        }));
+
+        Assert.Equal(1, results.Count(r => r.Outcome == DiscussionWriteOutcome.Created));
+        Assert.Equal(7, results.Count(r => r.Outcome == DiscussionWriteOutcome.Replayed));
+        Assert.Equal(1L, await CountAsync(book));
+    }
+
+    [Fact]
     public async Task AppendAsync_AllSectionsEmpty_IsRefusedBySchema()
     {
         var book = await db.NewReaderWithBookAsync();
@@ -160,6 +178,30 @@ public class CheckpointRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
+    public async Task AppendAsync_WhileItsShareIsBeingDeleted_WaitsThenIsAShareMismatch()
+    {
+        var book = await db.NewReaderWithBookAsync();
+        var (share, checkpoint) = await SharedAsync(book);
+        // A share delete caught mid-transaction, its statements as DeleteAsync runs them. Without the
+        // append's FOR KEY SHARE the insert does not wait, and fails on the checkpoint FK at commit.
+        await using var conn = await db.DataSource.OpenConnectionAsync(Ct);
+        await using var delete = await conn.BeginTransactionAsync(Ct);
+        await conn.ExecuteAsync(new CommandDefinition("""
+            SELECT 1 FROM shared_chapters WHERE user_id = @UserId AND id = @Id FOR UPDATE;
+            UPDATE discussion_checkpoints SET shared_chapter_id = NULL WHERE user_id = @UserId AND shared_chapter_id = @Id;
+            DELETE FROM shared_chapters WHERE user_id = @UserId AND id = @Id;
+            """, share, delete, cancellationToken: Ct));
+
+        var append = _repo.AppendAsync(checkpoint, Ct);
+        await db.WaitUntilBlockedOnALockAsync(append);
+        await delete.CommitAsync(Ct);
+
+        var result = await append;
+        Assert.Equal((DiscussionWriteOutcome.ShareMismatch, null), (result.Outcome, result.Stored));
+        Assert.Equal(0L, await CountAsync(book));
+    }
+
+    [Fact]
     public async Task ListAsync_MoreThanAPage_ReturnsChronologicalPagesUntilNoCursor()
     {
         var book = await db.NewReaderWithBookAsync();
@@ -195,6 +237,18 @@ public class CheckpointRepositoryTests(V2PostgresFixture db)
         var page = await _repo.ListAsync(book.UserId, book.Id, "ch-1", 10, null, Ct);
 
         Assert.Equal(inChapter.Id, Assert.Single(page.Items).Id);
+        Assert.False(page.HasMore);
+    }
+
+    [Fact]
+    public async Task ListAsync_LargestLimit_ReturnsEverythingWithNoMore()
+    {
+        var book = await db.NewReaderWithBookAsync();
+        await _repo.AppendAsync(NewCheckpoint(book), Ct);
+
+        var page = await _repo.ListAsync(book.UserId, book.Id, null, int.MaxValue, null, Ct);
+
+        Assert.Single(page.Items);
         Assert.False(page.HasMore);
     }
 
@@ -236,6 +290,22 @@ public class CheckpointRepositoryTests(V2PostgresFixture db)
 
         Assert.Equal((DiscussionWriteOutcome.Created, his.Id), (result.Outcome, result.Stored!.Id));
         Assert.Equal(hers.Id, Assert.Single(await AllAsync(alices)).Id);
+    }
+
+    [Fact]
+    public async Task AppendAsync_AlicesOperationIdAsBobWithAMismatchedShare_IsAShareMismatchNotHerRow()
+    {
+        var alices = await db.NewReaderWithBookAsync();
+        var bobs = await db.NewReaderWithBookAsync();
+        var hers = NewCheckpoint(alices);
+        await _repo.AppendAsync(hers, Ct);
+        var his = NewCheckpoint(bobs);
+        (his.OperationId, his.PayloadSha256, his.ChapterKey, his.SharedChapterId) =
+            (hers.OperationId, hers.PayloadSha256, "ch-1", Guid.NewGuid());
+
+        var result = await _repo.AppendAsync(his, Ct);
+
+        Assert.Equal((DiscussionWriteOutcome.ShareMismatch, null), (result.Outcome, result.Stored));
     }
 
     [Fact]

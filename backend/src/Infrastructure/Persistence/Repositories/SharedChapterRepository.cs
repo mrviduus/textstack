@@ -29,10 +29,18 @@ public sealed class SharedChapterRepository(V2DataSource dataSource) : ISharedCh
         const string byOperation = $"SELECT {Columns} FROM shared_chapters WHERE user_id = @UserId AND operation_id = @OperationId";
 
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        var created = await conn.QuerySingleOrDefaultAsync<SharedChapter>(new CommandDefinition(insert, share, cancellationToken: ct));
-        if (created is not null) return new(DiscussionWriteOutcome.Created, created);
-        var stored = await conn.QuerySingleAsync<SharedChapter>(new CommandDefinition(byOperation, share, cancellationToken: ct));
-        return new(stored.PayloadSha256 == share.PayloadSha256 ? DiscussionWriteOutcome.Replayed : DiscussionWriteOutcome.OperationConflict, stored);
+        // Two rounds: the row that blocked the insert may be deleted before it is read, and then the
+        // second insert goes through.
+        for (var round = 1; ; round++)
+        {
+            var created = await conn.QuerySingleOrDefaultAsync<SharedChapter>(new CommandDefinition(insert, share, cancellationToken: ct));
+            if (created is not null) return new(DiscussionWriteOutcome.Created, created);
+            var stored = await conn.QuerySingleOrDefaultAsync<SharedChapter>(new CommandDefinition(byOperation, share, cancellationToken: ct));
+            if (stored is not null)
+                return new(stored.PayloadSha256 == share.PayloadSha256 ? DiscussionWriteOutcome.Replayed : DiscussionWriteOutcome.OperationConflict, stored);
+            if (round == 2)
+                throw new InvalidOperationException($"Operation {share.OperationId} was taken, then gone, twice.");
+        }
     }
 
     public async Task<SharedChapter?> GetAsync(Guid userId, Guid id, CancellationToken ct)
@@ -56,6 +64,9 @@ public sealed class SharedChapterRepository(V2DataSource dataSource) : ISharedCh
 
     public async Task<bool> DeleteAsync(Guid userId, Guid id, CancellationToken ct)
     {
+        // Waits for any append that is linking this share (it holds FOR KEY SHARE) to commit, so
+        // the unlink below sees that checkpoint too.
+        const string lockShare = "SELECT 1 FROM shared_chapters WHERE user_id = @userId AND id = @id FOR UPDATE";
         // The checkpoints keep their text and lose only the link; without this the share's delete
         // fails at commit on fk_discussion_checkpoints_shared_chapters_shared_chapter_id.
         const string unlink = """
@@ -67,6 +78,7 @@ public sealed class SharedChapterRepository(V2DataSource dataSource) : ISharedCh
         var args = new { userId, id };
         await using var conn = await dataSource.OpenConnectionAsync(ct);
         await using var tx = await conn.BeginTransactionAsync(ct);
+        await conn.ExecuteAsync(new CommandDefinition(lockShare, args, tx, cancellationToken: ct));
         await conn.ExecuteAsync(new CommandDefinition(unlink, args, tx, cancellationToken: ct));
         var deleted = await conn.ExecuteAsync(new CommandDefinition(delete, args, tx, cancellationToken: ct)) > 0;
         await tx.CommitAsync(ct);
