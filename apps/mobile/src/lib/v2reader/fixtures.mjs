@@ -35,8 +35,9 @@ function epub(out, name, { files, manifest, spine, encryption }) {
 /** `dir` (an unpacked EPUB) into `out`: `mimetype` first and stored, as OCF requires, then the rest. */
 export function zipEpub(dir, out) {
   rmSync(out, { force: true })
-  execFileSync('zip', ['-X0q', out, 'mimetype'], { cwd: dir })
-  execFileSync('zip', ['-Xr9Dq', out, ...readdirSync(dir).filter((f) => f !== 'mimetype')], { cwd: dir })
+  // `--`: entry names come from an untrusted EPUB, and zip reads options anywhere in argv (`-T`, `--unzip-command=…`).
+  execFileSync('zip', ['-X0q', out, '--', 'mimetype'], { cwd: dir })
+  execFileSync('zip', ['-Xr9Dq', out, '--', ...readdirSync(dir).filter((f) => f !== 'mimetype')], { cwd: dir })
 }
 
 const xhtml = (head, body, attrs = '') => `<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>s</title>${head}</head><body${attrs}>${body}</body></html>`

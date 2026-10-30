@@ -4,9 +4,9 @@
 //   size is approximate and printed: 88 → ~95 MB today. R4's 87 MB run, Project Gutenberg #28885, predates the PRNG fix)
 // Write it into fixtures/ (gitignored): the output is large and its source book is not in the repo.
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, writeFileSync, statSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, readdirSync, writeFileSync, statSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { resolve, dirname, join } from 'node:path'
+import { resolve, dirname, join, sep } from 'node:path'
 import { deflateSync, crc32 } from 'node:zlib'
 import { zipEpub } from './fixtures.mjs'
 
@@ -52,9 +52,18 @@ const ITEMREF = /<itemref\b[^>]*?(?:\/>|>\s*<\/itemref>)/g
 let n = 0, original = 0
 try {
   execFileSync('unzip', ['-q', resolve(src), '-d', dir])
+  // The EPUB is untrusted: a symlink would redirect plate writes or let `zip -r` pull local files into the output.
+  // (unzip has no flag that refuses symlinks; it restores them.)
+  // Own walk: readdirSync's `recursive` descends into symlinked directories.
+  const noLinks = (d) => { for (const e of readdirSync(d, { withFileTypes: true })) {
+    if (e.isSymbolicLink()) throw new Error(`bigbook: symlink in the EPUB: ${join(d, e.name)}`)
+    if (e.isDirectory()) noLinks(join(d, e.name))
+  } }
+  noLinks(dir)
   const fullPath = /full-path=["']([^"']+)["']/.exec(readFileSync(join(dir, 'META-INF/container.xml'), 'utf8'))
   if (!fullPath) throw new Error('bigbook: no full-path in META-INF/container.xml')
-  const opfPath = join(dir, fullPath[1])
+  const opfPath = resolve(dir, fullPath[1])
+  if (!opfPath.startsWith(resolve(dir) + sep)) throw new Error(`bigbook: full-path outside the book: ${fullPath[1]}`)
   let opf = readFileSync(opfPath, 'utf8')
   original = [...opf.matchAll(ITEMREF)].length
   if (!original) throw new Error('bigbook: no <itemref> in the OPF')
