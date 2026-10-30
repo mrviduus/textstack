@@ -61,7 +61,7 @@ public class CheckpointRepositoryTests(V2PostgresFixture db)
         var result = await _repo.AppendAsync(retry, Ct);
 
         Assert.Equal((WriteOutcome.Replayed, checkpoint.Id), (result.Outcome, result.Row!.Id));
-        Assert.Equal(1L, await db.CountAsync("discussion_checkpoints", book));
+        Assert.Equal(1L, await db.CountAsync("discussion_checkpoints", book.UserId, book.Id));
     }
 
     [Fact]
@@ -76,7 +76,7 @@ public class CheckpointRepositoryTests(V2PostgresFixture db)
         var result = await _repo.AppendAsync(changed, Ct);
 
         Assert.Equal((WriteOutcome.OperationConflict, checkpoint.Id), (result.Outcome, result.Row!.Id));
-        Assert.Equal(1L, await db.CountAsync("discussion_checkpoints", book));
+        Assert.Equal(1L, await db.CountAsync("discussion_checkpoints", book.UserId, book.Id));
     }
 
     [Fact]
@@ -94,7 +94,7 @@ public class CheckpointRepositoryTests(V2PostgresFixture db)
 
         Assert.Equal(1, results.Count(r => r.Outcome == WriteOutcome.Created));
         Assert.Equal(7, results.Count(r => r.Outcome == WriteOutcome.Replayed));
-        Assert.Equal(1L, await db.CountAsync("discussion_checkpoints", book));
+        Assert.Equal(1L, await db.CountAsync("discussion_checkpoints", book.UserId, book.Id));
     }
 
     [Fact]
@@ -134,7 +134,7 @@ public class CheckpointRepositoryTests(V2PostgresFixture db)
         var result = await _repo.AppendAsync(checkpoint, Ct);
 
         Assert.Equal((WriteOutcome.ShareMismatch, null), (result.Outcome, result.Row));
-        Assert.Equal(0L, await db.CountAsync("discussion_checkpoints", book));
+        Assert.Equal(0L, await db.CountAsync("discussion_checkpoints", book.UserId, book.Id));
     }
 
     [Fact]
@@ -151,7 +151,7 @@ public class CheckpointRepositoryTests(V2PostgresFixture db)
         var result = await _repo.AppendAsync(checkpoint, Ct);
 
         Assert.Equal((WriteOutcome.ShareMismatch, null), (result.Outcome, result.Row));
-        Assert.Equal(0L, await db.CountAsync("discussion_checkpoints", book));
+        Assert.Equal(0L, await db.CountAsync("discussion_checkpoints", book.UserId, book.Id));
     }
 
     [Fact]
@@ -192,7 +192,7 @@ public class CheckpointRepositoryTests(V2PostgresFixture db)
 
         var result = await append;
         Assert.Equal((WriteOutcome.ShareMismatch, null), (result.Outcome, result.Row));
-        Assert.Equal(0L, await db.CountAsync("discussion_checkpoints", book));
+        Assert.Equal(0L, await db.CountAsync("discussion_checkpoints", book.UserId, book.Id));
     }
 
     [Fact]
@@ -315,7 +315,7 @@ public class CheckpointRepositoryTests(V2PostgresFixture db)
         var result = await _repo.AppendAsync(checkpoint, Ct);
 
         Assert.Equal((WriteOutcome.ShareMismatch, null), (result.Outcome, result.Row));
-        Assert.Equal(0L, await db.CountAsync("discussion_checkpoints", alices));
+        Assert.Equal(0L, await db.CountAsync("discussion_checkpoints", alices.UserId, alices.Id));
     }
 
     [Fact]

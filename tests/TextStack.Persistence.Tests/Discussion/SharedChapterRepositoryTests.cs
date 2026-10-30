@@ -42,7 +42,7 @@ public class SharedChapterRepositoryTests(V2PostgresFixture db)
         var result = await _repo.ShareAsync(retry, Ct);
 
         Assert.Equal((WriteOutcome.Replayed, share.Id), (result.Outcome, result.Row!.Id));
-        Assert.Equal(1L, await db.CountAsync("shared_chapters", book));
+        Assert.Equal(1L, await db.CountAsync("shared_chapters", book.UserId, book.Id));
     }
 
     [Fact]
@@ -57,7 +57,7 @@ public class SharedChapterRepositoryTests(V2PostgresFixture db)
         var result = await _repo.ShareAsync(changed, Ct);
 
         Assert.Equal((WriteOutcome.OperationConflict, share.Id), (result.Outcome, result.Row!.Id));
-        Assert.Equal(1L, await db.CountAsync("shared_chapters", book));
+        Assert.Equal(1L, await db.CountAsync("shared_chapters", book.UserId, book.Id));
     }
 
     [Fact]
@@ -75,7 +75,7 @@ public class SharedChapterRepositoryTests(V2PostgresFixture db)
 
         Assert.Equal(1, results.Count(r => r.Outcome == WriteOutcome.Created));
         Assert.Equal(7, results.Count(r => r.Outcome == WriteOutcome.Replayed));
-        Assert.Equal(1L, await db.CountAsync("shared_chapters", book));
+        Assert.Equal(1L, await db.CountAsync("shared_chapters", book.UserId, book.Id));
     }
 
     [Fact]
@@ -93,7 +93,7 @@ public class SharedChapterRepositoryTests(V2PostgresFixture db)
         var error = await Assert.ThrowsAsync<PostgresException>(() => _repo.ShareAsync(share, Ct));
 
         Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, error.SqlState);
-        Assert.Equal(0L, await db.CountAsync("shared_chapters", book));
+        Assert.Equal(0L, await db.CountAsync("shared_chapters", book.UserId, book.Id));
     }
 
     [Fact]
@@ -140,7 +140,7 @@ public class SharedChapterRepositoryTests(V2PostgresFixture db)
             SELECT 1 FROM shared_chapters WHERE id = @shareId FOR KEY SHARE;
             INSERT INTO discussion_checkpoints (id, user_id, book_id, file_id, chapter_key, shared_chapter_id, topic, reader_thoughts, language, operation_id, payload_sha256)
             VALUES (@checkpointId, @UserId, @BookId, @FileId, @ChapterKey, @shareId, 't', '["x"]', 'en', gen_random_uuid(), @hash);
-            """, new { shareId = share.Id, checkpointId, share.UserId, share.BookId, share.FileId, share.ChapterKey, hash = RandomSha256() },
+            """, new { shareId = share.Id, checkpointId, share.UserId, share.BookId, share.FileId, share.ChapterKey, hash = PayloadSha256(Guid.NewGuid().ToString()) },
             append, cancellationToken: Ct));
 
         var delete = _repo.DeleteAsync(book.UserId, share.Id, Ct);

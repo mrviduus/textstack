@@ -1,11 +1,10 @@
-using System.Security.Cryptography;
-using System.Text;
 using Application.Common;
 using Application.Vocabulary;
 using Dapper;
 using Domain.Vocabulary;
 using Infrastructure.Persistence.Repositories;
 using Npgsql;
+using static TextStack.Persistence.Tests.V2PostgresFixture;
 
 namespace TextStack.Persistence.Tests.Vocabulary;
 
@@ -17,9 +16,6 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private static readonly DateTimeOffset Noon = new(2026, 10, 30, 12, 0, 0, TimeSpan.Zero);
-
-    /// <summary>Any 64-hex value will do: the repository stores and compares the hash, it does not compute it.</summary>
-    private static string Hash(string payload) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
 
     private static VocabularyWord Word(Guid userId, string? translation = null, string key = "quiver") => new()
     {
@@ -39,7 +35,7 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
         WordId = card.Id,
         Sentence = sentence,
         OperationId = operationId ?? Guid.NewGuid(),
-        PayloadSha256 = Hash(sentence),
+        PayloadSha256 = PayloadSha256(sentence),
     };
 
     /// <summary>A correct answer to the card, recorded at noon.</summary>
@@ -49,7 +45,7 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
         UserId = card.UserId,
         WordId = card.Id,
         OperationId = operationId ?? Guid.NewGuid(),
-        PayloadSha256 = Hash("correct"),
+        PayloadSha256 = PayloadSha256("correct"),
         ReviewMode = "multiple_choice",
         IsCorrect = true,
         ResponseTimeMs = 900,
@@ -352,15 +348,7 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
         var add = AddAsync(card, "Racing the delete.");
         // Commit only once the add is blocked on the card: without the card lock it would not wait,
         // would see the card live, and would store an example on a card deleted a moment later.
-        await using (var observer = await db.DataSource.OpenConnectionAsync(Ct))
-            for (var waited = 0; waited < 5000 && !add.IsCompleted; waited += 10)
-            {
-                if (await observer.ExecuteScalarAsync<bool>(new CommandDefinition(
-                        "SELECT EXISTS (SELECT FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock')",
-                        cancellationToken: Ct)))
-                    break;
-                await Task.Delay(10, Ct);
-            }
+        await db.WaitUntilBlockedByAsync(conn, add);
         await delete.CommitAsync(Ct);
 
         Assert.Equal(WriteOutcome.Deleted, (await add).Outcome);
@@ -433,7 +421,7 @@ public class VocabularyRepositoryTests(V2PostgresFixture db)
         var reviewed = (await _repo.GetWordAsync(card.UserId, card.Id, Ct))!;
         var wrong = Review(card, operation);
         wrong.IsCorrect = false;
-        wrong.PayloadSha256 = Hash("wrong");
+        wrong.PayloadSha256 = PayloadSha256("wrong");
 
         var result = await _repo.RecordReviewAsync(card.UserId, wrong, NextStage(5m), Ct);
 
