@@ -9,6 +9,7 @@ and its build only. No route, no WebView host, no UI yet (R2).
 |---|---|
 | `page.mjs` | Runs in the WebView. The whole adapter: our EPUB loader (SHA-1 for obfuscated fonts), the navigation queue, word tap, translation label, highlights, save/restore by CFI + quote, `meta refresh` stripped. |
 | `store.mjs` | Reader data shape (v1), one entry per book **file** (SHA-256 + size); the quote fold; pure-JS SHA-256 / SHA-1. |
+| `tap.mjs` | What a tap hands the host: the word's sentence (reader-engine's `sentenceAround`) and an external link, only if `http(s)`. |
 | `saveScheduler.mjs` | The debounced `store` message: key and payload are fixed when the save is asked for, so a save can never land on the next book. |
 | `overlays.mjs` | What is drawn over a range. foliate keys an overlay by its CFI, so a highlight and a word's translation over the same range are one overlay carrying both. |
 | `library.mjs` | V2 local library (pure): identical bytes → the existing entry, never a duplicate or reset. |
@@ -38,7 +39,7 @@ node apps/mobile/src/lib/v2reader/build.mjs --repro   # + .vendor/v2ReaderPage.r
   the patch it was 1–5 per 6 loads in Chromium, hundreds on Android).
 - esbuild comes from `apps/web` (no new dependency). Target `chrome90`, not the engine bundle's es2017: foliate
   uses private methods, static blocks and `\p{}` regexes. PDF/MOBI/FB2/CBZ/TTS/search are stubbed out.
-- **Size:** 236,045 characters of script (unminified), ~241 KB generated file. Reader-engine's 64 KB budget does
+- **Size:** 236,437 characters of script (unminified), ~241 KB generated file. Reader-engine's 64 KB budget does
   not apply; this page's own budget is `BUDGET` in `build.mjs`, raised only by a deliberate PR.
 - `BUDGET` is a tripwire by design, not a ceiling: it equals the committed size, so any growth fails `--check`
   until the PR that grows the page says so.
@@ -61,12 +62,32 @@ font-src blob: data:; media-src blob: data:; frame-src blob:; connect-src blob: 
 book script ran (`__pwned` in any frame), a request reached the logging server on `127.0.0.1:9876`, a sibling file of
 the EPUB was read, `<base>` took effect, or the section frame left the book. It then removes or widens one directive
 at a time and must catch the vectors that directive stops, so a check that cannot fail fails itself.
+Every vector in `fixtures.mjs` declares how it is observed (`mark`, `request`, `probe:<id>`, `sandbox`); the check
+refuses to start (exit 2) on one it cannot observe. Each page call is bounded (10 s; a timeout is an escape) and the
+whole check has a 3-minute deadline (exit 1 with the partial table).
+
+**What it proves, and where:** the CSP, in desktop headless Chromium, with the page opened by `page.goto(file://…)`
+and `--allow-file-access-from-files`. Not the Android System WebView (`loadDataWithBaseURL`, Android's file-access
+flags, `content:`/`intent:` URLs): R4 (#1036) runs the book on the device.
 
 ```bash
 pnpm -C apps/web exec playwright install chromium   # once
 pnpm -C apps/web check:v2-reader-sandbox            # real CSP holds, every mutation is caught
 node --experimental-strip-types apps/mobile/src/lib/v2reader/sandbox.check.mjs --mutate=no-base-uri   # one mutation: exits 1
 ```
+
+**Blind spots** — vectors the check reports blocked but cannot show the CSP blocking:
+
+- **`form-action 'none'`**: removing it still passes. foliate's section iframe has no `allow-forms`, so the sandbox
+  stops the submit first; the `form` row prints "by the iframe sandbox, not by the CSP".
+- **meta refresh**: covered by `page.mjs` stripping it before the section loads, and by Chromium's `frame-src`. No
+  mutation removes the strip.
+- **`object` / `embed`**: they reach the server only with both `default-src` (object-src) and `frame-src` opened, so no
+  single-directive mutation shows them; plugin content is also stopped by the sandbox.
+- **`svg-file-script`**: an SVG in `<img>` can never run script, so that half of the row is decoration; the
+  `<object>`/`<embed>` half is stopped by object-src before script-src is asked.
+- **`link-prefetch`** escapes whenever *any* directive gains `http:` or `*`, even with `default-src 'none'`. A
+  widened `connect-src` is caught only through it, because no book script runs to use `connect-src`.
 
 The artifact carries only the placeholder `__V2_READER_NONCE__` (a fixed nonce in a public repo is one a book
 can carry); `v2ReaderPageHtml(nonce)` fills the CSP and the script tag and rejects anything but base64/hex of

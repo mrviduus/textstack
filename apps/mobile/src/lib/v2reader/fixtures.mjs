@@ -71,55 +71,63 @@ function writeFontsEpub(out) {
 const mark = (v) => `(self.__pwned=self.__pwned||[]).push('${v}');try{(top.__pwned=top.__pwned||[]).push('${v}')}catch(e){}`
 
 /**
- * The hostile book, one row per vector (ADR-029 Decision 6): `[name, { head?, body?, bodyAttrs?, files? }]`. A vector
- * that gets through leaves its name: a script pushes it to `__pwned`, a request asks for EVIL/<name>/…,
- * and the DOM marks sandbox.check.mjs reads carry it too (an element id, a base URL). Elements with
- * `data-ts-click` are clicked by the check. `siblings` is the directory the retained EPUB sits in.
+ * The hostile book, one row per vector (ADR-029 Decision 6): `[name, observe, { head?, body?, bodyAttrs?, files? }]`.
+ * `observe` says how sandbox.check.mjs sees the vector get through, and the check refuses to start on a
+ * kind or probe it does not implement:
+ *   'mark'        a book script ran: it pushed `name` to `__pwned`
+ *   'request'     a request reached EVIL/<name>…
+ *   'probe:<id>'  a DOM probe in the check reads true (a sibling file loaded, <base> applied)
+ *   'sandbox'     no CSP directive is observable here: foliate's iframe sandbox stops it first (README, Blind spots)
+ * Elements with `data-ts-click="<name>"` are clicked by the check. `siblings` is the retained EPUB's directory.
  */
 export const hostileVectors = (evil, siblings) => [
   // Book scripts. The section iframes allow scripts: the CSP's nonce is the only barrier.
-  ['inline-script', { head: `<script>${mark('inline-script')}</script>` }],
-  ['script-src-in-zip', { head: '<script src="evil.js"></script>', files: { 'evil.js': mark('script-src-in-zip') } }],
-  ['body-onload', { bodyAttrs: ` onload="${mark('body-onload')}"` }],
-  ['img-onerror', { body: `<img src="missing.png" onerror="${mark('img-onerror')}" alt=""/>` }],
-  ['svg-inline-script', { body: `<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"><script>${mark('svg-inline-script')}</script></svg>` }],
-  // An SVG file with a script, as an image (never runs) and as a document (would run but for the CSP).
-  ['svg-file-script', {
+  ['inline-script', 'mark', { head: `<script>${mark('inline-script')}</script>` }],
+  ['script-src-in-zip', 'mark', { head: '<script src="evil.js"></script>', files: { 'evil.js': mark('script-src-in-zip') } }],
+  ['body-onload', 'mark', { bodyAttrs: ` onload="${mark('body-onload')}"` }],
+  ['img-onerror', 'mark', { body: `<img src="missing.png" onerror="${mark('img-onerror')}" alt=""/>` }],
+  ['svg-inline-script', 'mark', { body: `<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"><script>${mark('svg-inline-script')}</script></svg>` }],
+  // An SVG file with a script. As <img> it can never run script (decoration); as <object>/<embed> it is
+  // stopped by object-src before the CSP's script-src would be asked.
+  ['svg-file-script', 'mark', {
     body: '<img src="evil.svg" alt=""/><object data="evil.svg" type="image/svg+xml" width="10" height="10"></object><embed src="evil.svg" type="image/svg+xml" width="10" height="10"/>',
     files: { 'evil.svg': `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><script>${mark('svg-file-script')}</script></svg>` },
   }],
-  ['srcdoc-script', { body: `<iframe width="10" height="10" srcdoc="&lt;script&gt;${mark('srcdoc-script')}&lt;/script&gt;"></iframe>` }],
-  ['javascript-url', { body: `<p><a data-ts-click="" href="javascript:${mark('javascript-url')}">javascript: link</a></p>` }],
+  ['srcdoc-script', 'mark', { body: `<iframe width="10" height="10" srcdoc="&lt;script&gt;${mark('srcdoc-script')}&lt;/script&gt;"></iframe>` }],
+  // Also an escape if it reaches the host as openLink (#1066): the host hands that to the OS opener.
+  ['javascript-url', 'mark', { body: `<p><a data-ts-click="javascript-url" href="javascript:${mark('javascript-url')}">javascript: link</a></p>` }],
   // The retained EPUB's own directory: on the dev route the page's origin is file:// (ADR-029 Decision 4).
-  ['file-sibling-xhr', { head: `<script>try{var x=new XMLHttpRequest();x.open('GET','${siblings}/secret.json',false);x.send();if(/ts-sibling-secret/.test(x.responseText)){${mark('file-sibling-xhr')}}}catch(e){}</script>` }],
-  ['file-sibling-img', { body: `<img id="file-sibling-img" src="${siblings}/secret.png" alt=""/>` }],
-  ['file-sibling-css', { head: `<link rel="stylesheet" href="${siblings}/secret.css"/>`, body: '<p id="file-sibling-css">styled by a sibling file?</p>' }],
-  ['file-sibling-iframe', { body: `<iframe src="${siblings}/secret.json" width="10" height="10"></iframe>` }],
-  // Requests out of the book. A relative URL under <base> resolves to EVIL/base-href/….
-  ['base-href', { head: `<base href="${evil}/base-href/"/>`, body: '<img src="base-href.png" alt=""/>' }],
-  ['meta-refresh', { head: `<meta http-equiv="refresh" content="1;url=${evil}/meta-refresh"/>` }],
-  ['link-stylesheet', { head: `<link rel="stylesheet" href="${evil}/link-stylesheet.css"/>` }],
-  ['link-prefetch', { head: `<link rel="prefetch" href="${evil}/link-prefetch"/>` }],
-  ['css-import', { head: `<style>@import url("${evil}/css-import.css");</style>` }],
-  ['css-font', { head: `<style>@font-face { font-family: TsExt; src: url("${evil}/css-font.woff2") } h1 { font-family: TsExt }</style>` }],
-  ['css-background', { head: `<style>h1 { background: url("${evil}/css-background.png") }</style>` }],
-  ['img', { body: `<img src="${evil}/img.png" alt=""/>` }],
-  ['img-srcset', { body: `<img srcset="${evil}/img-srcset.png 1x" alt=""/>` }],
-  ['svg-image', { body: `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><image href="${evil}/svg-image.png" width="10" height="10"/></svg>` }],
-  ['audio', { body: `<audio src="${evil}/audio.mp3" autoplay="autoplay"></audio>` }],
-  ['video-poster', { body: `<video poster="${evil}/video-poster.png" width="10" height="10"></video>` }],
-  ['iframe', { body: `<iframe src="${evil}/iframe" width="10" height="10"></iframe>` }],
-  ['object', { body: `<object data="${evil}/object" width="10" height="10"></object>` }],
-  ['embed', { body: `<embed src="${evil}/embed" width="10" height="10"/>` }],
-  ['form', { body: `<form action="${evil}/form" method="get"><input name="q" value="x"/><button data-ts-click="" type="submit">send</button></form>` }],
+  ['file-sibling-xhr', 'mark', { head: `<script>try{var x=new XMLHttpRequest();x.open('GET','${siblings}/secret.json',false);x.send();if(/ts-sibling-secret/.test(x.responseText)){${mark('file-sibling-xhr')}}}catch(e){}</script>` }],
+  ['file-sibling-img', 'probe:file-sibling-img', { body: `<img id="file-sibling-img" src="${siblings}/secret.png" alt=""/>` }],
+  ['file-sibling-css', 'probe:file-sibling-css', { head: `<link rel="stylesheet" href="${siblings}/secret.css"/>`, body: '<p id="file-sibling-css">styled by a sibling file?</p>' }],
+  ['file-sibling-iframe', 'probe:file-frame', { body: `<iframe src="${siblings}/secret.json" width="10" height="10"></iframe>` }],
+  // A relative URL under <base> would resolve to EVIL/base-href/…; the probe reads the base itself.
+  ['base-href', 'probe:base-href', { head: `<base href="${evil}/base-href/"/>`, body: '<img src="base-href.png" alt=""/>' }],
+  // Stripped by page.mjs before the section loads; Chromium's frame-src would also block the navigation.
+  ['meta-refresh', 'request', { head: `<meta http-equiv="refresh" content="1;url=${evil}/meta-refresh"/>` }],
+  ['link-stylesheet', 'request', { head: `<link rel="stylesheet" href="${evil}/link-stylesheet.css"/>` }],
+  ['link-prefetch', 'request', { head: `<link rel="prefetch" href="${evil}/link-prefetch"/>` }],
+  ['css-import', 'request', { head: `<style>@import url("${evil}/css-import.css");</style>` }],
+  ['css-font', 'request', { head: `<style>@font-face { font-family: TsExt; src: url("${evil}/css-font.woff2") } h1 { font-family: TsExt }</style>` }],
+  ['css-background', 'request', { head: `<style>h1 { background: url("${evil}/css-background.png") }</style>` }],
+  ['img', 'request', { body: `<img src="${evil}/img.png" alt=""/>` }],
+  ['img-srcset', 'request', { body: `<img srcset="${evil}/img-srcset.png 1x" alt=""/>` }],
+  ['svg-image', 'request', { body: `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><image href="${evil}/svg-image.png" width="10" height="10"/></svg>` }],
+  ['audio', 'request', { body: `<audio src="${evil}/audio.mp3" autoplay="autoplay"></audio>` }],
+  ['video-poster', 'request', { body: `<video poster="${evil}/video-poster.png" width="10" height="10"></video>` }],
+  ['iframe', 'request', { body: `<iframe src="${evil}/iframe" width="10" height="10"></iframe>` }],
+  ['object', 'request', { body: `<object data="${evil}/object" width="10" height="10"></object>` }],
+  ['embed', 'request', { body: `<embed src="${evil}/embed" width="10" height="10"/>` }],
+  // The iframe sandbox has no allow-forms: with form-action removed it still cannot submit.
+  ['form', 'sandbox', { body: `<form action="${evil}/form" method="get"><input name="q" value="x"/><button data-ts-click="form" type="submit">send</button></form>` }],
   // foliate hands an external link to the host (`openLink`); the page itself never navigates.
-  ['link-tap', { body: `<p><a data-ts-click="" href="${evil}/link-tap">external link</a></p>` }],
+  ['link-tap', 'request', { body: `<p><a data-ts-click="link-tap" href="${evil}/link-tap">external link</a></p>` }],
 ]
 
 export function writeHostileEpub(out, siblings = LOCAL) {
   const vectors = hostileVectors(EVIL, siblings)
-  const part = (key) => vectors.map(([, v]) => v[key] ?? '').filter(Boolean).join('\n')
-  const files = Object.assign({}, ...vectors.map(([, v]) => v.files))
+  const part = (key) => vectors.map(([, , v]) => v[key] ?? '').filter(Boolean).join('\n')
+  const files = Object.assign({}, ...vectors.map(([, , v]) => v.files))
   const items = Object.keys(files).map((f, i) => `<item id="r${i}" href="${f}" media-type="${f.endsWith('.js') ? 'application/javascript' : 'image/svg+xml'}"/>`).join('')
   return epub(out, 'tshostile.epub', {
     files: { ...files, 's1.xhtml': xhtml(part('head'), `<h1 id="ts-hostile">Hostile</h1><p>${para}</p>\n${part('body')}\n<p>${para}</p>`, part('bodyAttrs')) },
