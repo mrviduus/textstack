@@ -17,7 +17,8 @@ and its build only. No route, no WebView host, no UI yet (R2).
 | `build.mjs` | Pinned clone → patches → esbuild IIFE → `v2ReaderPage.generated.ts`. |
 | `v2ReaderPage.generated.ts` | **Generated, committed.** `v2ReaderPageHtml(nonce)`. Never edit by hand. |
 | `repro.mjs` | Test-only entry: the page + `__fol.reproRenderDuringLoad` (the reproducer behind patch 0001). |
-| `fixtures.mjs` | Writes crafted EPUBs to `fixtures/` (gitignored): `tsfonts.epub` (one font plain, IDPF-, Adobe-obfuscated) and `tshostile.epub` (book scripts + every external request kind). Needs `zip`. |
+| `fixtures.mjs` | Writes crafted EPUBs to `fixtures/` (gitignored): `tsfonts.epub` (one font plain, IDPF-, Adobe-obfuscated) and `tshostile.epub` (one row of `hostileVectors` per sandbox vector). Needs `zip`. |
+| `sandbox.check.mjs` | The hostile-book check (see Sandbox). |
 
 ## Build
 
@@ -29,7 +30,7 @@ node apps/mobile/src/lib/v2reader/build.mjs --repro   # + .vendor/v2ReaderPage.r
 
 - **foliate-js** `https://github.com/johnfactotum/foliate-js` @ `78914aef4466eb960965702401634c2cb348e9b1`
   (2026-05-01), cloned into the gitignored `.vendor/`. Every build checks out the pin, resets the tree
-  (`git checkout -- .`) and applies `patches/*.patch`; a patch that no longer applies fails the build. A bump is a PR
+  (`git checkout -- .`, `git clean -fd`) and applies `patches/*.patch`; a patch that no longer applies fails the build. A bump is a PR
   that re-runs every ADR-029 Decision 6 check. Needs network (CI clones it too).
 - **Patch** `0001-paginator-render-while-loading.patch`: `Paginator.render()` returns while the current view has no
   `body` yet (a resize or attribute change during a section load threw). Offer it upstream; drop it on the bump
@@ -37,12 +38,13 @@ node apps/mobile/src/lib/v2reader/build.mjs --repro   # + .vendor/v2ReaderPage.r
   the patch it was 1–5 per 6 loads in Chromium, hundreds on Android).
 - esbuild comes from `apps/web` (no new dependency). Target `chrome90`, not the engine bundle's es2017: foliate
   uses private methods, static blocks and `\p{}` regexes. PDF/MOBI/FB2/CBZ/TTS/search are stubbed out.
-- **Size:** 235,367 characters of script (unminified), ~241 KB generated file. Reader-engine's 64 KB budget does
-  not apply; this page's own budget is `BUDGET` in `build.mjs` (its first committed size), raised only by a
-  deliberate PR.
+- **Size:** 235,921 characters of script (unminified), ~241 KB generated file. Reader-engine's 64 KB budget does
+  not apply; this page's own budget is `BUDGET` in `build.mjs`, raised only by a deliberate PR.
+- `BUDGET` is a tripwire by design, not a ceiling: it equals the committed size, so any growth fails `--check`
+  until the PR that grows the page says so.
 - **Licences** stay in the output (`legalComments: 'inline'`): foliate-js MIT © John Factotum; zip.js BSD-3-Clause.
 - The page imports only foliate, `packages/shared` (`tokenizeVocabWords`) and `packages/reader-engine`
-  (`rangeToLocator`). Nothing from `apps/`.
+  (`rangeToLocator`, `chapterText`, `offsetOf`, `sentenceAround`). Nothing from `apps/`.
 
 ## Sandbox
 
@@ -52,6 +54,18 @@ The section iframes are `sandbox="allow-same-origin allow-scripts"`, so the page
 ```
 default-src 'none'; script-src 'nonce-__V2_READER_NONCE__'; style-src blob: 'unsafe-inline'; img-src blob: data:;
 font-src blob: data:; media-src blob: data:; frame-src blob:; connect-src blob: data: file:; form-action 'none'; base-uri 'none'
+```
+
+**The hostile-book check** (ADR-029 Decision 6) loads the committed page as `file://` in Chromium with file access
+(the dev route's origin), opens `tshostile.epub` through `__fol.openUrl` and exits 1 if any vector gets through: a
+book script ran (`__pwned` in any frame), a request reached the logging server on `127.0.0.1:9876`, a sibling file of
+the EPUB was read, `<base>` took effect, or the section frame left the book. It then removes or widens one directive
+at a time and must catch the vectors that directive stops, so a check that cannot fail fails itself.
+
+```bash
+pnpm -C apps/web exec playwright install chromium   # once
+pnpm -C apps/web check:v2-reader-sandbox            # real CSP holds, every mutation is caught
+node --experimental-strip-types apps/mobile/src/lib/v2reader/sandbox.check.mjs --mutate=no-base-uri   # one mutation: exits 1
 ```
 
 The artifact carries only the placeholder `__V2_READER_NONCE__` (a fixed nonce in a public repo is one a book
@@ -103,7 +117,6 @@ quote at all are dropped when the entry is read. `highlightSelection()` before `
 - A **fresh random nonce per load** into `v2ReaderPageHtml(nonce)`; the length check is not an entropy check, so the host picks the source of randomness (R2).
 - **Keep every `store` payload verbatim** under its `key`, and hand the same JSON back to `restore`. Lower-case hex keys: `sha256()` emits lower case and the key is compared byte for byte.
 - **Serialise library writes.** `library.mjs` is pure; two concurrent imports writing `library.json` can still lose one (R2).
-- `build.mjs` resets tracked files in `.vendor/foliate-js` but does not prune untracked ones; delete `.vendor/` if that tree was touched by hand (R2).
 
 **WebView, dev route only** (prototype host; ADR-029 Decision 4 until the R4 security review):
 `source={{ html: v2ReaderPageHtml(nonce), baseUrl: <app documents dir> }}`, `allowFileAccess`,
