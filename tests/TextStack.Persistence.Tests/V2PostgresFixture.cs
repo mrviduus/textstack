@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using Dapper;
+using Domain.Discussion;
 using Domain.Library;
 using Infrastructure.Persistence;
 using Infrastructure.Persistence.Repositories;
@@ -69,9 +70,89 @@ public sealed class V2PostgresFixture : IAsyncLifetime
         Id = Guid.NewGuid(),
         UserId = userId,
         BookId = bookId,
-        Sha256 = sha256 ?? Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32)),
+        Sha256 = sha256 ?? RandomSha256(),
         ByteSize = 1024,
         OriginalName = "book." + format,
         Format = format,
     };
+
+    /// <summary>A share of chapter "ch-1" of the book's current file, under a fresh operation id.</summary>
+    public static SharedChapter NewShare(Book book) => new()
+    {
+        Id = Guid.NewGuid(),
+        UserId = book.UserId,
+        BookId = book.Id,
+        FileId = book.CurrentFile?.Id,
+        ChapterKey = "ch-1",
+        ChapterTitle = "One",
+        ChapterText = "It was a dark night.",
+        Language = "en",
+        OperationId = Guid.NewGuid(),
+        PayloadSha256 = RandomSha256(),
+    };
+
+    /// <summary>A book-level checkpoint with one reader thought, under a fresh operation id.</summary>
+    public static DiscussionCheckpoint NewCheckpoint(Book book) => new()
+    {
+        Id = Guid.NewGuid(),
+        UserId = book.UserId,
+        BookId = book.Id,
+        Topic = "Why the night is dark",
+        ReaderThoughts = """["It is a mood, not the weather."]""",
+        Language = "en",
+        OperationId = Guid.NewGuid(),
+        PayloadSha256 = RandomSha256(),
+    };
+
+    /// <summary>A checkpoint based on <paramref name="share"/>: its chapter and file version.</summary>
+    public static DiscussionCheckpoint NewCheckpoint(Book book, SharedChapter share)
+    {
+        var checkpoint = NewCheckpoint(book);
+        (checkpoint.ChapterKey, checkpoint.FileId, checkpoint.SharedChapterId) = (share.ChapterKey, share.FileId, share.Id);
+        return checkpoint;
+    }
+
+    /// <summary>How many rows of <paramref name="table"/> (a constant, never input) hang on the book.</summary>
+    public async Task<long> CountAsync(string table, Book book)
+    {
+        await using var conn = await DataSource.OpenConnectionAsync(Ct);
+        return await conn.ExecuteScalarAsync<long>(new CommandDefinition(
+            $"SELECT count(*) FROM {table} WHERE user_id = @UserId AND book_id = @Id", book, cancellationToken: Ct));
+    }
+
+    /// <summary>
+    /// The lowercase hex SHA-256 of random bytes: a file's hash, or any valid payload hash (the
+    /// repositories store and compare it, they do not compute it).
+    /// </summary>
+    public static string RandomSha256() => Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
+
+    /// <summary>A plain insight on the book (a review when <paramref name="reviewJson"/> is given).</summary>
+    public static BookInsight NewInsight(Book book, string? chapterSlug, string text = "text", string? reviewJson = null) => new()
+    {
+        Id = Guid.NewGuid(),
+        UserId = book.UserId,
+        BookId = book.Id,
+        ChapterSlug = chapterSlug,
+        Text = text,
+        Question = "q",
+        ReviewJson = reviewJson,
+    };
+
+    /// <summary>
+    /// Returns once some backend waits on a lock <paramref name="holder"/> holds, or
+    /// <paramref name="pending"/> finished, or 5 s passed: how a race test knows the other side is
+    /// parked before it lets go. Keyed on the holder, so another test's lock wait cannot end it early.
+    /// </summary>
+    public async Task WaitUntilBlockedByAsync(NpgsqlConnection holder, Task pending)
+    {
+        await using var observer = await DataSource.OpenConnectionAsync(Ct);
+        for (var waited = 0; waited < 5000 && !pending.IsCompleted; waited += 10)
+        {
+            if (await observer.ExecuteScalarAsync<bool>(new CommandDefinition(
+                    "SELECT EXISTS (SELECT FROM pg_stat_activity WHERE @holderPid = ANY(pg_blocking_pids(pid)))",
+                    new { holderPid = holder.ProcessID }, cancellationToken: Ct)))
+                return;
+            await Task.Delay(10, Ct);
+        }
+    }
 }

@@ -1,6 +1,7 @@
 using System.Data;
 using System.Runtime.CompilerServices;
 using Application.Common.Interfaces;
+using Application.Discussion;
 using Application.Library;
 using Application.Reading;
 using Dapper;
@@ -68,5 +69,9 @@ public static class DataSource
             .AddSingleton(_ => new V2DataSource(
                 v2ConnectionString ?? throw new InvalidOperationException("ConnectionStrings:V2 is not set")))
             .AddSingleton<ILibraryRepository, LibraryRepository>()
-            .AddSingleton<IReadingStateRepository, ReadingStateRepository>();
+            .AddSingleton<IReadingStateRepository, ReadingStateRepository>()
+            .AddSingleton<ISharedChapterRepository, SharedChapterRepository>()
+            .AddSingleton<ICheckpointRepository, CheckpointRepository>()
+            .AddSingleton<IBookInsightRepository, BookInsightRepository>()
+            .AddSingleton<IReviewQuestionRepository, ReviewQuestionRepository>();
 }
