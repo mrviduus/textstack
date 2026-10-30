@@ -17,31 +17,22 @@ public sealed class SharedChapterRepository(V2DataSource dataSource) : ISharedCh
 
     public async Task<DiscussionWriteResult<SharedChapter>> ShareAsync(SharedChapter share, CancellationToken ct)
     {
-        // A taken operation id inserts nothing, so nothing comes back; the stored row's payload hash
-        // then says whether this was a retry or a different write.
-        const string insert = $"""
+        // The no-op DO UPDATE returns the stored row when the operation id is taken; xmax = 0 only
+        // on a row this statement inserted.
+        const string upsert = $"""
             INSERT INTO shared_chapters (id, user_id, book_id, file_id, chapter_key, chapter_title, chapter_text, notes_snapshot, language, operation_id, payload_sha256, created_at)
             VALUES (@Id, @UserId, @BookId, @FileId, @ChapterKey, @ChapterTitle, @ChapterText, CAST(@NotesSnapshot AS jsonb), @Language, @OperationId, @PayloadSha256, now())
-            ON CONFLICT (user_id, operation_id) DO NOTHING
-            RETURNING {Columns}
+            ON CONFLICT (user_id, operation_id) DO UPDATE SET operation_id = EXCLUDED.operation_id
+            RETURNING {Columns}, xmax = 0 AS inserted
             """;
-        // ON CONFLICT waited for the first writer to commit, so its row is visible here.
-        const string byOperation = $"SELECT {Columns} FROM shared_chapters WHERE user_id = @UserId AND operation_id = @OperationId";
-
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        // Nothing inserted and nothing found means the row that blocked the insert was deleted
-        // between the two statements: one more round inserts it; a second miss is a broken
-        // invariant, not a race.
-        for (var round = 1; ; round++)
-        {
-            var created = await conn.QuerySingleOrDefaultAsync<SharedChapter>(new CommandDefinition(insert, share, cancellationToken: ct));
-            if (created is not null) return new(DiscussionWriteOutcome.Created, created);
-            var stored = await conn.QuerySingleOrDefaultAsync<SharedChapter>(new CommandDefinition(byOperation, share, cancellationToken: ct));
-            if (stored is not null)
-                return new(stored.PayloadSha256 == share.PayloadSha256 ? DiscussionWriteOutcome.Replayed : DiscussionWriteOutcome.OperationConflict, stored);
-            if (round == 2)
-                throw new InvalidOperationException($"Operation {share.OperationId} was taken, then gone, twice.");
-        }
+        var (stored, inserted) = (await conn.QueryAsync<SharedChapter, bool, (SharedChapter, bool)>(
+            new CommandDefinition(upsert, share, cancellationToken: ct), (row, isNew) => (row, isNew), splitOn: "inserted")).Single();
+        return new(
+            inserted ? DiscussionWriteOutcome.Created
+            : stored.PayloadSha256 == share.PayloadSha256 ? DiscussionWriteOutcome.Replayed
+            : DiscussionWriteOutcome.OperationConflict,
+            stored);
     }
 
     public async Task<SharedChapter?> GetAsync(Guid userId, Guid id, CancellationToken ct)

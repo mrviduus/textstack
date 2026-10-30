@@ -17,12 +17,12 @@ public sealed class CheckpointRepository(V2DataSource dataSource) : ICheckpointR
 
     public async Task<DiscussionWriteResult<DiscussionCheckpoint>> AppendAsync(DiscussionCheckpoint checkpoint, CancellationToken ct)
     {
-        // Inserts nothing when the named share does not match, or when the operation id is taken;
-        // the row under the operation id, or its absence, then tells the two apart. FOR KEY SHARE
-        // holds the share until this insert commits: a share delete in flight makes it wait and then
-        // find the share gone (a mismatch, not an FK error at commit), and a delete that comes later
-        // waits for this row to commit and unlinks it.
-        const string insert = $"""
+        // Inserts only when the named share (if any) matches. The no-op DO UPDATE returns the stored
+        // row when the operation id is taken; xmax = 0 only on a row this statement inserted.
+        // FOR KEY SHARE holds the share until this insert commits: a share delete in flight makes it
+        // wait and then find the share gone (a mismatch, not an FK error at commit), and a delete
+        // that comes later waits for this row to commit and unlinks it.
+        const string upsert = $"""
             INSERT INTO discussion_checkpoints (id, user_id, book_id, file_id, chapter_key, shared_chapter_id, topic, reader_thoughts, assistant_suggestions, conclusions, open_questions, language, operation_id, payload_sha256, created_at)
             SELECT @Id, @UserId, @BookId, @FileId, @ChapterKey, @SharedChapterId, @Topic,
                    CAST(@ReaderThoughts AS jsonb), CAST(@AssistantSuggestions AS jsonb), CAST(@Conclusions AS jsonb), CAST(@OpenQuestions AS jsonb),
@@ -32,35 +32,21 @@ public sealed class CheckpointRepository(V2DataSource dataSource) : ICheckpointR
                 WHERE s.user_id = @UserId AND s.book_id = @BookId AND s.id = @SharedChapterId
                   AND s.chapter_key = @ChapterKey AND s.file_id IS NOT DISTINCT FROM @FileId
                 FOR KEY SHARE)
-            ON CONFLICT (user_id, operation_id) DO NOTHING
-            RETURNING {Columns}
+            ON CONFLICT (user_id, operation_id) DO UPDATE SET operation_id = EXCLUDED.operation_id
+            RETURNING {Columns}, xmax = 0 AS inserted
             """;
         const string byOperation = $"SELECT {Columns} FROM discussion_checkpoints WHERE user_id = @UserId AND operation_id = @OperationId";
-        const string shareMatches = """
-            SELECT EXISTS (
-                SELECT 1 FROM shared_chapters
-                WHERE user_id = @UserId AND book_id = @BookId AND id = @SharedChapterId
-                  AND chapter_key = @ChapterKey AND file_id IS NOT DISTINCT FROM @FileId)
-            """;
 
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        // Nothing inserted means the operation id is taken or the share does not match. Neither found
-        // means the row that blocked the insert was deleted between the two statements: one more
-        // round inserts it; a second miss is a broken invariant, not a race.
-        for (var round = 1; ; round++)
-        {
-            var created = await conn.QuerySingleOrDefaultAsync<DiscussionCheckpoint>(new CommandDefinition(insert, checkpoint, cancellationToken: ct));
-            if (created is not null) return new(DiscussionWriteOutcome.Created, created);
-            // A retry is answered from the stored row even if its share has been deleted since.
-            var stored = await conn.QuerySingleOrDefaultAsync<DiscussionCheckpoint>(new CommandDefinition(byOperation, checkpoint, cancellationToken: ct));
-            if (stored is not null)
-                return new(stored.PayloadSha256 == checkpoint.PayloadSha256 ? DiscussionWriteOutcome.Replayed : DiscussionWriteOutcome.OperationConflict, stored);
-            if (checkpoint.SharedChapterId is not null
-                && !await conn.ExecuteScalarAsync<bool>(new CommandDefinition(shareMatches, checkpoint, cancellationToken: ct)))
-                return new(DiscussionWriteOutcome.ShareMismatch, null);
-            if (round == 2)
-                throw new InvalidOperationException($"Operation {checkpoint.OperationId} was taken, then gone, twice.");
-        }
+        var written = (await conn.QueryAsync<DiscussionCheckpoint, bool, (DiscussionCheckpoint Row, bool Inserted)>(
+            new CommandDefinition(upsert, checkpoint, cancellationToken: ct), (row, isNew) => (row, isNew), splitOn: "inserted")).SingleOrDefault();
+        if (written.Inserted) return new(DiscussionWriteOutcome.Created, written.Row);
+        // No row: the share does not match. A retry is still answered from the stored row, even
+        // if its share has been deleted since.
+        var stored = written.Row
+            ?? await conn.QuerySingleOrDefaultAsync<DiscussionCheckpoint>(new CommandDefinition(byOperation, checkpoint, cancellationToken: ct));
+        if (stored is null) return new(DiscussionWriteOutcome.ShareMismatch, null);
+        return new(stored.PayloadSha256 == checkpoint.PayloadSha256 ? DiscussionWriteOutcome.Replayed : DiscussionWriteOutcome.OperationConflict, stored);
     }
 
     public async Task<CheckpointPage> ListAsync(
