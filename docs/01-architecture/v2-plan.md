@@ -323,7 +323,7 @@ Fixed rules for every slice: English only; one PR, closes its issue; `/pr` write
 | # | Agent | Deliverable |
 |---|---|---|
 | M0.1 | tech-writer | this plan → `docs/01-architecture/v2-plan.md`; `STATUS.md` V2 section; fix stale date |
-| M0.2 | architect | **ADR-030 Two databases, one cutover** (D2, §5) — supersedes the in-place parts of ADR-027 |
+| M0.2 | architect | **[ADR-030 Two databases, one cutover](adr/ADR-030-two-databases-one-cutover.md)** (D2, §5) — supersedes the in-place parts of ADR-027 |
 | M0.3 | architect | **ADR-031 V2 schema** (§4; disposition of all 58 tables; D5–D7); `data-model.md` V2 section |
 | M0.4 | architect | **ADR-029** (reader, R0) |
 | M0.5 | product-manager | GitHub issues for every slice, labels `v2-db`, `v2-reader`, `v2-cutover` |
