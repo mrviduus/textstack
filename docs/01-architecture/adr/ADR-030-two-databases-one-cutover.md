@@ -89,7 +89,20 @@ preserved set: `user_chapters`, 131 MB), so moving it in one event costs minutes
   in `deploy.yml`, `make backup` and `restore-drill.yml` dump only the legacy database today and must
   cover `textstack_v2` before it holds anything worth keeping.
 - `migrate.sh` connects to `PGDATABASE`; it does not create it. `migrator-v2` needs a `CREATE
-  DATABASE` step against the maintenance database (idempotent), decided in M1.1.
+  DATABASE` step against the maintenance database (idempotent), decided in M1.1. On the production
+  cluster that step cannot succeed at all until `template1`'s collation version is repaired
+  (#1056) — a condition that predates V2 and that nothing had hit, because nothing had created a
+  database since initdb.
+
+**Two things the retirement step gets for free** (M6, after legacy is deleted)
+- The `vector` extension goes. V2 has no vector column and ADR-031 D6 retires the embedding,
+  cluster and tutor data; it is only the legacy `vocabulary_words.embedding` (`public.vector(1536)`)
+  that keeps the cluster on `pgvector/pgvector` — a vanilla `postgres:16` cannot even restore that
+  dump (`infra/scripts/backup-verify.sh`).
+- Collation is normalised. Leaving pgvector means a dump and restore into a fresh cluster, and a
+  restore rebuilds every index under the current OS sort rules. So the repair in #1056 and dropping
+  pgvector are one action, and the cutover plan should schedule them together rather than reindexing
+  a cluster twice.
 - The cutover is a single event. Rehearsal bounds the risk: same CLI, same validation, on real
   backups, three clean runs before production; small data keeps the freeze short.
 - Flip-back discards whatever was written to V2 after the flip — legacy never sees it. The smoke

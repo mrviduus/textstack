@@ -16,9 +16,10 @@ services:
     # pgvector image = stock postgres:16 + the `vector` extension binary.
     # Existing ./data/postgres-prod volume is compatible (no re-init); the
     # extension is activated by the AddPgVectorAndChunks migration.
-    # Pulled images are pinned by digest (tags are mutable); Dependabot's
-    # docker-compose lane bumps them. Never take a pgNN major that way — a major
-    # needs dump/restore (dependabot.yml ignores it).
+    # Pulled images are pinned by digest (tags are mutable). Dependabot bumps the other compose
+    # images; this one it ignores entirely, because a digest bump inside one major can move the base
+    # distribution and with it glibc — which changes the collation rules under a live data directory
+    # (#1056). Bump it by hand, with a plan for the reindex, and watch /health/ready's `collation`.
     image: pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a
     container_name: textstack_db_prod
     environment:

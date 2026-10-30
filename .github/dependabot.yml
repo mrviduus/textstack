@@ -104,5 +104,14 @@ updates:
         patterns: ['*']
     ignore:
       # pg16 → pg17 is a data-directory upgrade (dump/restore), never a bump.
+      #
+      # Digests are excluded too, and that is not caution for its own sake: a digest bump inside one
+      # major can move the image's base distribution, and with it glibc — which changes the OS
+      # collation version under a live data directory. Text then sorts by rules the indexes were not
+      # built with. The production cluster has been in that state since its own initdb (#1056), and
+      # it surfaced only when something finally tried to CREATE DATABASE. Bump this by hand, with a
+      # plan for the reindex, and watch /health/ready's `collation` component afterwards.
+      # No update-types: that ignores every update for this image, digest-only ones included.
+      # A digest change under the same `pg16` tag is not a semver update, so update-types cannot
+      # express it.
       - dependency-name: pgvector/pgvector
-        update-types: [version-update:semver-major]
