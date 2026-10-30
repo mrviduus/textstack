@@ -28,7 +28,7 @@ var connectionString = builder.Configuration.GetConnectionString("Default")
 builder.Services.AddSingleton<Application.Common.Interfaces.ICurrentSite>(
     sp => new Infrastructure.Persistence.CurrentSite(sp.GetRequiredService<IConfiguration>()));
 
-builder.Services.AddTextStackDataAccess(connectionString);
+builder.Services.AddTextStackDataAccess(connectionString, builder.Configuration.GetConnectionString("V2"));
 
 builder.Services.AddDbContextFactory<AppDbContext>((sp, options) =>
     options.UseTextStackNpgsql(sp.GetRequiredService<Npgsql.NpgsqlDataSource>())
