@@ -5,8 +5,8 @@ namespace Application.Vocabulary;
 /// <summary>
 /// The V2 vocabulary (tables <c>vocabulary_words</c> + <c>vocabulary_examples</c> +
 /// <c>vocabulary_reviews</c>, one aggregate; ADR-031). Every method is scoped to <c>userId</c>
-/// (docs/01-architecture/data-access.md rule 7); an entity naming another user, or a write naming a
-/// card that is not the user's, is an <see cref="ArgumentException"/>. Neither the SRS math nor the
+/// (docs/01-architecture/data-access.md rule 7): an entity whose <c>UserId</c> is not
+/// <c>userId</c> is an <see cref="ArgumentException"/>, a card that is not the user's reads as not found. Neither the SRS math nor the
 /// payload hash is here: a review arrives with the function that computes the schedule, an example or
 /// review with its <c>PayloadSha256</c> (v2-sync-protocol.md, "operation_id rules"). A card's
 /// <c>revision</c> moves only on explicit edit, delete and restore; every write the sync feed must
@@ -26,7 +26,9 @@ public interface IVocabularyRepository
     /// (<see cref="WordSaveOutcome.Deleted"/>) and takes no example, though a replay of one it took
     /// before is still answered (<see cref="WriteOutcome.Replayed"/>); <see cref="RestoreWordAsync"/>
     /// it first. The example is attached to the stored card, whatever its <c>WordId</c> says, and is
-    /// idempotent as in <see cref="AddExampleAsync"/>.
+    /// idempotent as in <see cref="AddExampleAsync"/>; adding it bumps the card's <c>updated_at</c>, and
+    /// the card returned carries it. A client id already taken by another card, with no card under the
+    /// key, is <see cref="WordSaveOutcome.IdConflict"/> and writes nothing.
     /// </summary>
     Task<SavedWord> SaveWordAsync(Guid userId, VocabularyWord word, VocabularyExample? example, CancellationToken ct);
 
@@ -51,7 +53,8 @@ public interface IVocabularyRepository
     /// Adds an example, once per <c>(UserId, OperationId)</c>. A retry with the same payload hash
     /// returns the stored row (<see cref="WriteOutcome.Replayed"/>) even when the card has been deleted
     /// since; one with a different hash is a <see cref="WriteOutcome.OperationConflict"/>. A new
-    /// operation on a deleted card is <see cref="WriteOutcome.Deleted"/>. Only a created row changes anything.
+    /// operation on a deleted card is <see cref="WriteOutcome.Deleted"/>, on a card the user does not
+    /// have <see cref="WriteOutcome.NotFound"/>. Only a created row changes anything.
     /// </summary>
     Task<WriteResult<VocabularyExample>> AddExampleAsync(Guid userId, VocabularyExample example, CancellationToken ct);
 
@@ -60,8 +63,8 @@ public interface IVocabularyRepository
     /// <see cref="AddExampleAsync"/>. In one transaction, with the card locked, <paramref name="schedule"/>
     /// computes the card's next schedule from its current row; the review stores the card's stage
     /// before and the schedule's stage after, and the card moves to the schedule. Two answers in flight
-    /// on one card therefore apply one after the other. A replay, a conflict or a deleted card never
-    /// calls <paramref name="schedule"/> and changes nothing.
+    /// on one card therefore apply one after the other. A replay, a conflict, a deleted or a missing
+    /// card never calls <paramref name="schedule"/> and changes nothing.
     /// </summary>
     Task<WriteResult<VocabularyReview>> RecordReviewAsync(
         Guid userId, VocabularyReview review, Func<VocabularyWord, ReviewSchedule> schedule, CancellationToken ct);
@@ -84,12 +87,16 @@ public enum WriteOutcome
 
     /// <summary>A new operation on a deleted card: nothing changed (409 <c>deleted</c>).</summary>
     Deleted,
+
+    /// <summary>A new operation on a card the user does not have: nothing changed (404 <c>not_found</c>).</summary>
+    NotFound,
 }
 
 /// <summary>
 /// The outcome of an idempotent write and the stored row under its operation id: the new row
 /// (<see cref="WriteOutcome.Created"/>), the one already there (<see cref="WriteOutcome.Replayed"/>,
-/// <see cref="WriteOutcome.OperationConflict"/>), or null (<see cref="WriteOutcome.Deleted"/>).
+/// <see cref="WriteOutcome.OperationConflict"/>), or null (<see cref="WriteOutcome.Deleted"/>,
+/// <see cref="WriteOutcome.NotFound"/>).
 /// </summary>
 public sealed record WriteResult<T>(WriteOutcome Outcome, T? Row);
 
@@ -104,10 +111,16 @@ public enum WordSaveOutcome
 
     /// <summary>A tombstone, returned unchanged (409 <c>deleted</c>; offer a restore).</summary>
     Deleted,
+
+    /// <summary>No card under the key, and the client's id is another card's: nothing written (409 <c>id_conflict</c>).</summary>
+    IdConflict,
 }
 
-/// <summary>The stored card (its examples not loaded), and what became of the example (null: none given, or the card is deleted).</summary>
-public sealed record SavedWord(WordSaveOutcome Outcome, VocabularyWord Word, WriteResult<VocabularyExample>? Example);
+/// <summary>
+/// The stored card, its examples not loaded (null only for <see cref="WordSaveOutcome.IdConflict"/>),
+/// and what became of the example (null: none given, or nothing stored under its operation id on a deleted card).
+/// </summary>
+public sealed record SavedWord(WordSaveOutcome Outcome, VocabularyWord? Word, WriteResult<VocabularyExample>? Example);
 
 /// <summary>
 /// <see cref="Accepted"/>: <see cref="Current"/> is the stored card with its new revision.

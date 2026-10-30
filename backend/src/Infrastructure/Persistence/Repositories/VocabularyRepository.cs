@@ -31,7 +31,7 @@ public sealed class VocabularyRepository(V2DataSource dataSource) : IVocabularyR
         """;
     private const string SelectExampleByOperation =
         $"SELECT {ExampleColumns} FROM vocabulary_examples WHERE user_id = @UserId AND operation_id = @OperationId";
-    private const string TouchWord = "UPDATE vocabulary_words SET updated_at = now() WHERE user_id = @UserId AND id = @WordId";
+    private const string TouchWord = $"UPDATE vocabulary_words SET updated_at = now() WHERE user_id = @UserId AND id = @WordId RETURNING {WordColumns}";
     // Any state: a replay is answered even on a tombstone. The lock serializes every append to one
     // card with its delete and with other appends, so each sees the last one's result.
     private const string LockWord = $"SELECT {WordColumns} FROM vocabulary_words WHERE user_id = @UserId AND id = @WordId FOR UPDATE";
@@ -40,39 +40,31 @@ public sealed class VocabularyRepository(V2DataSource dataSource) : IVocabularyR
     {
         if (word.UserId != userId || (example is not null && example.UserId != userId))
             throw new ArgumentException("The word and its example must belong to the user saving them.", nameof(word));
-        try
-        {
-            return await TrySaveWordAsync(word, example, ct);
-        }
-        // The same save retried while the first is in flight: ON CONFLICT covers the word key, not
-        // the primary key, so the retry can trip pk_vocabulary_words. Run again: the card is then stored.
-        catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.UniqueViolation && e.ConstraintName == "pk_vocabulary_words")
-        {
-            return await TrySaveWordAsync(word, example, ct);
-        }
-    }
-
-    private async Task<SavedWord> TrySaveWordAsync(VocabularyWord word, VocabularyExample? example, CancellationToken ct)
-    {
         // A new card starts on the schema's default schedule. An existing one is never changed by a
-        // save: its translation and definition change only through UpdateWordAsync.
+        // save: its translation and definition change only through UpdateWordAsync. No arbiter, so
+        // every unique key turns into "no row": the word key (the card exists), and the id, which a
+        // retry still in flight holds (it waits for it, then finds the card by key) or another card
+        // holds (no card under the key: an id conflict).
         const string create = $"""
             INSERT INTO vocabulary_words (id, user_id, language, word, word_key, translation, definition, created_at, updated_at)
             VALUES (@Id, @UserId, @Language, @Word, @WordKey, @Translation, @Definition, now(), now())
-            ON CONFLICT (user_id, language, word_key) DO NOTHING
+            ON CONFLICT DO NOTHING
             RETURNING {WordColumns}
             """;
-        // Locks the card, so a delete cannot land between this read and the example insert.
         const string selectByKey = $"""
             SELECT {WordColumns} FROM vocabulary_words
             WHERE user_id = @UserId AND language = @Language AND word_key = @WordKey
-            FOR UPDATE
             """;
+        // With an example to add, the card is locked, so a delete cannot land between this read and
+        // the insert; a plain re-save writes nothing and needs neither a lock nor a transaction.
+        const string lockByKey = selectByKey + " FOR UPDATE";
 
         await using var conn = await dataSource.OpenConnectionAsync(ct);
-        await using var tx = await conn.BeginTransactionAsync(ct);
+        await using var tx = example is null ? null : await conn.BeginTransactionAsync(ct);
         var created = await conn.QuerySingleOrDefaultAsync<VocabularyWord>(new CommandDefinition(create, word, tx, cancellationToken: ct));
-        var stored = created ?? await conn.QuerySingleAsync<VocabularyWord>(new CommandDefinition(selectByKey, word, tx, cancellationToken: ct));
+        var stored = created ?? await conn.QuerySingleOrDefaultAsync<VocabularyWord>(new CommandDefinition(
+            tx is null ? selectByKey : lockByKey, word, tx, cancellationToken: ct));
+        if (stored is null) return new SavedWord(WordSaveOutcome.IdConflict, null, null);
         var outcome = created is not null ? WordSaveOutcome.Created
             : stored.DeletedAt is null ? WordSaveOutcome.Existing
             : WordSaveOutcome.Deleted;
@@ -95,11 +87,13 @@ public sealed class VocabularyRepository(V2DataSource dataSource) : IVocabularyR
                 example.PayloadSha256,
             };
             // A tombstone takes no example, but a replay of one it took before is still answered.
+            // The touch returns the card as it now is, so the caller gets the new updated_at.
             added = outcome == WordSaveOutcome.Deleted
-                ? await ReplayAsync<VocabularyExample>(conn, tx, SelectExampleByOperation, args, example.PayloadSha256, e => e.PayloadSha256, ct)
-                : await InsertOnceAsync<VocabularyExample>(conn, tx, InsertExample, SelectExampleByOperation, args, example.PayloadSha256, e => e.PayloadSha256, TouchWord, args, ct);
+                ? await ReplayAsync<VocabularyExample>(conn, tx!, SelectExampleByOperation, args, example.PayloadSha256, e => e.PayloadSha256, ct)
+                : await InsertOnceAsync<VocabularyExample>(conn, tx!, InsertExample, SelectExampleByOperation, args, example.PayloadSha256, e => e.PayloadSha256,
+                    async () => stored = await conn.QuerySingleAsync<VocabularyWord>(new CommandDefinition(TouchWord, args, tx, cancellationToken: ct)), ct);
+            await tx!.CommitAsync(ct);
         }
-        await tx.CommitAsync(ct);
         return new SavedWord(outcome, stored, added);
     }
 
@@ -164,7 +158,8 @@ public sealed class VocabularyRepository(V2DataSource dataSource) : IVocabularyR
         var card = await conn.QuerySingleOrDefaultAsync<VocabularyWord>(new CommandDefinition(LockWord, example, tx, cancellationToken: ct));
         var result = await ReplayAsync<VocabularyExample>(conn, tx, SelectExampleByOperation, example, example.PayloadSha256, e => e.PayloadSha256, ct)
             ?? NewOperationOn<VocabularyExample>(card)
-            ?? await InsertOnceAsync<VocabularyExample>(conn, tx, InsertExample, SelectExampleByOperation, example, example.PayloadSha256, e => e.PayloadSha256, TouchWord, example, ct);
+            ?? await InsertOnceAsync<VocabularyExample>(conn, tx, InsertExample, SelectExampleByOperation, example, example.PayloadSha256, e => e.PayloadSha256,
+                () => conn.ExecuteAsync(new CommandDefinition(TouchWord, example, tx, cancellationToken: ct)), ct);
         await tx.CommitAsync(ct);
         return result;
     }
@@ -228,7 +223,8 @@ public sealed class VocabularyRepository(V2DataSource dataSource) : IVocabularyR
                 next.ConsecutiveCorrect,
                 next.NextReviewAt,
             };
-            result = await InsertOnceAsync<VocabularyReview>(conn, tx, insert, selectByOperation, args, review.PayloadSha256, r => r.PayloadSha256, applySchedule, scheduleArgs, ct);
+            result = await InsertOnceAsync<VocabularyReview>(conn, tx, insert, selectByOperation, args, review.PayloadSha256, r => r.PayloadSha256,
+                () => conn.ExecuteAsync(new CommandDefinition(applySchedule, scheduleArgs, tx, cancellationToken: ct)), ct);
         }
         await tx.CommitAsync(ct);
         return result;
@@ -249,13 +245,12 @@ public sealed class VocabularyRepository(V2DataSource dataSource) : IVocabularyR
     }
 
     /// <summary>
-    /// What a new operation on <paramref name="card"/> gets before anything is written: refused on a
-    /// tombstone; null on a live card, which takes it.
+    /// What a new operation on <paramref name="card"/> gets before anything is written: refused when
+    /// the user has no such card or it is a tombstone; null on a live card, which takes it.
     /// </summary>
-    /// <exception cref="ArgumentException">The card is not the user's.</exception>
     private static WriteResult<T>? NewOperationOn<T>(VocabularyWord? card) => card switch
     {
-        null => throw new ArgumentException("The card is not the user's."),
+        null => new WriteResult<T>(WriteOutcome.NotFound, default),
         { DeletedAt: not null } => new WriteResult<T>(WriteOutcome.Deleted, default),
         _ => null,
     };
@@ -266,12 +261,22 @@ public sealed class VocabularyRepository(V2DataSource dataSource) : IVocabularyR
     /// </summary>
     private static async Task<WriteResult<T>> InsertOnceAsync<T>(
         NpgsqlConnection conn, NpgsqlTransaction tx, string insert, string selectByOperation, object args,
-        string payloadSha256, Func<T, string> storedSha256, string onCreated, object onCreatedArgs, CancellationToken ct) where T : class
+        string payloadSha256, Func<T, string> storedSha256, Func<Task> onCreated, CancellationToken ct) where T : class
     {
-        var created = await conn.QuerySingleOrDefaultAsync<T>(new CommandDefinition(insert, args, tx, cancellationToken: ct));
-        if (created is null) return (await ReplayAsync(conn, tx, selectByOperation, args, payloadSha256, storedSha256, ct))!;
-        await conn.ExecuteAsync(new CommandDefinition(onCreated, onCreatedArgs, tx, cancellationToken: ct));
-        return new WriteResult<T>(WriteOutcome.Created, created);
+        // ON CONFLICT saw a row the read then misses only if it was deleted between the two statements
+        // (an account delete cascading): try once more. Missing it twice is a broken invariant.
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            var created = await conn.QuerySingleOrDefaultAsync<T>(new CommandDefinition(insert, args, tx, cancellationToken: ct));
+            if (created is not null)
+            {
+                await onCreated();
+                return new WriteResult<T>(WriteOutcome.Created, created);
+            }
+            if (await ReplayAsync(conn, tx, selectByOperation, args, payloadSha256, storedSha256, ct) is { } replayed)
+                return replayed;
+        }
+        throw new InvalidOperationException("The operation id conflicted twice with a row that could not be read back.");
     }
 
     /// <summary>The stored row under the operation id, told apart from a reused id by its payload hash; null when none.</summary>
