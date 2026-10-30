@@ -57,31 +57,32 @@ export async function readRecovering(files: V2Files, name: string): Promise<stri
 }
 
 export function createV2Storage(files: V2Files) {
-  // ponytail: one in-process chain for every write: two imports read-modify-write library.json in
-  // turn, and two saves of one key never share a .tmp. Does not cover a second process or a second
-  // storage instance; per-file chains if writes ever queue visibly.
+  // ponytail: one in-process chain for every read and write: two imports read-modify-write
+  // library.json in turn, two saves of one key never share a .tmp, and no read lands between a
+  // move's delete and rename. Does not cover a second process or a second storage instance;
+  // per-file chains if work ever queues visibly.
   let tail: Promise<unknown> = Promise.resolve()
-  const serially = <T>(write: () => Promise<T>): Promise<T> => {
-    const run = tail.then(write, write)
+  const serially = <T>(work: () => Promise<T>): Promise<T> => {
+    const run = tail.then(work, work)
     tail = run.catch(() => {})
     return run
   }
 
   const readLibrary = async () => parseLibrary((await readRecovering(files, 'library.json')) ?? '') ?? emptyLibrary()
 
+  // Every entry point is async: a key from the page that is not a sha256 rejects instead of
+  // throwing out of the message handler before its caller's .catch is attached.
   return {
-    bookName: (sha256: string) => `books/${sha256Key(sha256)}.epub`,
+    bookName: async (sha256: string) => `books/${sha256Key(sha256)}.epub`,
 
-    async books(): Promise<LibraryBook[]> {
-      return (await readLibrary()).books
-    },
+    books: (): Promise<LibraryBook[]> => serially(async () => (await readLibrary()).books),
 
     /**
      * The opened file into the library. A staged file becomes the retained copy unless those bytes are
      * already retained. The copy lands before the entry, so a kill between the two leaves a file that
      * the next import of the same bytes adopts, never an entry without its file.
      */
-    addOpened(book: { sha256: string; size: number; title: string; author: string; originalName: string }, staged: string | null) {
+    async addOpened(book: { sha256: string; size: number; title: string; author: string; originalName: string }, staged: string | null) {
       const sha256 = sha256Key(book.sha256)
       return serially(async () => {
         if (staged) {
@@ -90,16 +91,19 @@ export function createV2Storage(files: V2Files) {
         }
         const { lib, entry, existing } = addOpened(await readLibrary(), { ...book, sha256 })
         await writeAtomically(files, 'library.json', JSON.stringify(lib))
-        return { entry: entry as LibraryBook, existing }
+        return { entry: entry as LibraryBook, existing: existing as boolean }
       })
     },
 
     /** A staged file the page could not open: README "open-failed — must not keep the file". */
     dropStaged: (staged: string) => files.remove(staged),
 
-    readStore: (key: string) => readRecovering(files, `store/${sha256Key(key)}.json`),
+    async readStore(key: string) {
+      const name = `store/${sha256Key(key)}.json`
+      return serially(() => readRecovering(files, name))
+    },
 
-    writeStore(key: string, json: string) {
+    async writeStore(key: string, json: string) {
       const name = `store/${sha256Key(key)}.json`
       return serially(() => writeAtomically(files, name, json))
     },

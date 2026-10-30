@@ -43,6 +43,7 @@ describe('v2 host storage', () => {
     data.set('store/x.json.tmp', 'new')
     expect(await readRecovering(files, 'store/x.json')).toBe('new')
     data.set('store/x.json', 'old')
+    // A tmp beside its target never finished being written: the target wins.
     expect(await readRecovering(files, 'store/x.json')).toBe('old')
   })
 
@@ -63,6 +64,65 @@ describe('v2 host storage', () => {
     expect(existing).toBe(true)
     expect(await storage.books()).toHaveLength(1)
     expect([...data.keys()].filter((k) => k.endsWith('.epub'))).toEqual([`books/${SHA_A.toLowerCase()}.epub`])
+  })
+
+  it('addOpened_BytesAlreadyRetained_AdoptsTheFileAndDropsTheStagedCopy', async () => {
+    const { files, data, ops } = memoryFiles()
+    const sha = SHA_A.toLowerCase()
+    data.set(`books/${sha}.epub`, 'retained')
+    data.set('staging/1.epub', 'staged')
+    const { existing } = await createV2Storage(files).addOpened(book(sha), 'staging/1.epub')
+    expect(existing).toBe(false)
+    expect(data.get(`books/${sha}.epub`)).toBe('retained')
+    expect(data.has('staging/1.epub')).toBe(false)
+    expect(ops.some((o) => o.startsWith('move staging/'))).toBe(false)
+  })
+
+  it('addOpened_SameBytesConcurrently_OneEntryOneFile', async () => {
+    const { files, data } = memoryFiles()
+    const sha = SHA_A.toLowerCase()
+    data.set('staging/1.epub', 'x')
+    data.set('staging/2.epub', 'x')
+    const storage = createV2Storage(files)
+    const results = await Promise.all([storage.addOpened(book(sha), 'staging/1.epub'), storage.addOpened(book(SHA_A), 'staging/2.epub')])
+    expect(results.map((r) => r.existing)).toEqual([false, true])
+    expect(await storage.books()).toHaveLength(1)
+    expect([...data.keys()].filter((k) => k.endsWith('.epub'))).toEqual([`books/${sha}.epub`])
+  })
+
+  it('writeStore_FailedWrite_RejectsToItsCallerAndTheNextWriteRuns', async () => {
+    const { files, data } = memoryFiles()
+    const move = files.move
+    let failOnce = true
+    files.move = async (from, to) => {
+      if (failOnce) { failOnce = false; throw new Error('disk') }
+      return move(from, to)
+    }
+    const storage = createV2Storage(files)
+    const first = storage.writeStore(SHA_B, 'one')
+    const second = storage.writeStore(SHA_B, 'two')
+    await expect(first).rejects.toThrow('disk')
+    await second
+    expect(data.get(`store/${SHA_B}.json`)).toBe('two')
+  })
+
+  it('writeStore_HostileKey_RejectsAndWritesNothing', async () => {
+    const { files, ops } = memoryFiles()
+    const storage = createV2Storage(files)
+    let pending: Promise<void> | undefined
+    expect(() => { pending = storage.writeStore('../../x', '{}') }).not.toThrow()
+    await expect(pending).rejects.toThrow('not a sha256')
+    await expect(storage.addOpened(book('../x'), null)).rejects.toThrow('not a sha256')
+    expect(ops).toEqual([])
+  })
+
+  it('readStore_QueuedBehindAWrite_ReadsTheNewValue', async () => {
+    const { files, data } = memoryFiles()
+    data.set(`store/${SHA_B}.json`, 'old')
+    const storage = createV2Storage(files)
+    const write = storage.writeStore(SHA_B, 'new')
+    expect(await storage.readStore(SHA_B)).toBe('new')
+    await write
   })
 
   it('writeStore_UpperCaseKey_ReadBackUnderLowerCaseVerbatim', async () => {
