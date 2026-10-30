@@ -382,6 +382,38 @@ jobs:
         working-directory: apps/web
         run: pnpm check:v2-reader
 
+      # Chromium for the sandbox check below, installed exactly as the e2e job does (same cache key).
+      - name: Get Playwright version
+        id: pw-version
+        working-directory: apps/web
+        run: echo "version=$(pnpm exec playwright --version | awk '{print $2}')" >> $GITHUB_OUTPUT
+
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw-version.outputs.version }}
+
+      # See the e2e job: install-deps' apt-get update fails hard on these unneeded repositories.
+      - name: Drop apt repositories Playwright does not need
+        run: sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list /etc/apt/sources.list.d/azure-cli.list
+
+      - name: Install Playwright Chromium
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        working-directory: apps/web
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Install Playwright system deps
+        if: steps.pw-cache.outputs.cache-hit == 'true'
+        run: pnpm -C apps/web exec playwright install-deps chromium
+
+      # ADR-029 Decision 6: the V2 reader page's CSP holds against tshostile.epub, and the check
+      # fails when any directive is removed. Needs only Chromium (no API); ~40s.
+      - name: V2 reader sandbox — gates the PR
+        working-directory: apps/web
+        run: pnpm check:v2-reader-sandbox
+
       # The PDF bundle had no such guard. engineEntry.ts (+ readerEnginePdfPage.ts) is the source
       # of the page that owns the reader's position in a PDF, and an edit shipped without a
       # rebuild changes nothing at runtime — silently, past a green CI.
