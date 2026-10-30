@@ -18,7 +18,7 @@ public class TypographyMarkupTests
     [InlineData("<img src=\"img/1/2.png\" alt=\"Smith's 'hat' 1/2\" />")]
     [InlineData("<video controls title=\"a>'b'\" muted>x</video>")]
     [InlineData("<span class='it' data-x='a \"b\" c'>x</span>")]
-    public void Clean_AttributesUnchanged(string markup)
+    public void Clean_AttributedMarkup_AttributesUnchanged(string markup)
     {
         var (html, _) = HtmlCleaner.Clean($"<body>{markup}</body>");
 
@@ -36,7 +36,7 @@ public class TypographyMarkupTests
     [Theory]
     [InlineData("<abbr title=\"Mister\">Mr.</abbr> Darcy")]
     [InlineData("<img src=\"a.png\" alt=\"Mr. Smith's &quot;hat&quot; . . . 1/2\"><br class=\"x\"/>")]
-    public void Process_AttributesUnchanged(string markup)
+    public void Process_AttributeValuesWithProse_AttributesUnchanged(string markup)
     {
         var result = _processor.Process(markup, _context);
 
@@ -45,7 +45,7 @@ public class TypographyMarkupTests
     }
 
     [Fact]
-    public void Clean_TextStillTypographed()
+    public void Clean_AttributedParagraph_TextTypographed()
     {
         var (html, _) = HtmlCleaner.Clean("<body><p class=\"x\">\"Hello,\" she said. It's 10-20...</p></body>");
 
@@ -58,13 +58,13 @@ public class TypographyMarkupTests
     // Rules that read across tags: nbsp after </abbr>, possessive after </i>
     [InlineData("<p><abbr class=\"name\">Mr.</abbr> Darcy</p>", "<p><abbr class=\"name\">Mr.</abbr>\u00A0Darcy</p>")]
     [InlineData("<p><i class=\"t\">Emma</i>'s book</p>", "<p><i class=\"t\">Emma</i>\u2019s book</p>")]
-    public void Process_NestedInlineElements(string input, string expected)
+    public void Process_NestedInlineElements_TypographedAcrossTags(string input, string expected)
     {
         Assert.Equal(expected, _processor.Process(input, _context));
     }
 
     [Fact]
-    public void Process_NestedInline_SameAsWithoutAttributes()
+    public void Process_NestedInlineWithAttributes_SameAsWithout()
     {
         const string withAttrs = "<p class=\"a\">\"<em id=\"e\">'Tis</em> 1/2 o'clock,\" <b lang=\"en\">Bob</b>'s</p>";
         const string bare = "<p>\"<em>'Tis</em> 1/2 o'clock,\" <b>Bob</b>'s</p>";
@@ -80,8 +80,11 @@ public class TypographyMarkupTests
     [InlineData("<style>p::before { content: \"...\"; width: 1/2 }</style>")]
     [InlineData("<script>var s = \"it's 10-20\";</script>")]
     [InlineData("<![CDATA[ \"x\" 1/2 ... ]]>")]
+    [InlineData("<![CDATA[ a > b \"c\" ]]>")]
+    [InlineData("<title lang=\"en\">Mr. X</title>")]
+    [InlineData("<textarea>\"x\" 1/2</textarea>")]
     [InlineData("<SCRIPT type=\"text/javascript\">var s = \"1/2\";</SCRIPT>")]
-    public void Process_CommentsScriptStyleUnchanged(string raw)
+    public void Process_RawTextSpans_Unchanged(string raw)
     {
         var result = _processor.Process($"<p>\"a\"</p>{raw}<p>\"b\"</p>", _context);
 
@@ -114,6 +117,17 @@ public class TypographyMarkupTests
         var reasons = RecordSkips(() => _processor.Process("<p class=\"m\">Price \uFDD0 \"x\"</p>", _context));
 
         Assert.Equal(["marker_in_input"], reasons);
+    }
+
+    [Fact]
+    public void Process_UnclosedScriptWithAttributes_ProseTypographedScriptKept()
+    {
+        string? result = null;
+
+        var reasons = RecordSkips(() => result = _processor.Process("<p class=\"a\">\"x\"</p><script type=\"x\">\"s\"", _context));
+
+        Assert.Equal("<p class=\"a\">\u201Cx\u201D</p><script type=\"x\">\"s\"", result);
+        Assert.Empty(reasons);
     }
 
     [Theory]
@@ -154,7 +168,7 @@ public class TypographyMarkupTests
     }
 
     [Fact]
-    public void Clean_EntitiesKeepMeaning()
+    public void Clean_Entities_KeepMeaning()
     {
         var (html, plain) = HtmlCleaner.Clean("<body><p title=\"&quot;a&quot; &amp; b\">Tom &amp; Jerry &lt;3 &#169;</p></body>");
 
@@ -166,6 +180,7 @@ public class TypographyMarkupTests
     private static List<string> RecordSkips(Action act)
     {
         var reasons = new List<string>();
+        var thread = Environment.CurrentManagedThreadId;   // the counter fires synchronously; ignore parallel classes
         using var listener = new System.Diagnostics.Metrics.MeterListener();
         listener.InstrumentPublished = (i, l) =>
         {
@@ -174,6 +189,8 @@ public class TypographyMarkupTests
         };
         listener.SetMeasurementEventCallback<long>((_, _, tags, _) =>
         {
+            if (Environment.CurrentManagedThreadId != thread)
+                return;
             foreach (var t in tags)
                 if (t.Key == "reason")
                     reasons.Add((string)t.Value!);
