@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using Dapper;
+using Domain.Discussion;
 using Domain.Library;
 using Infrastructure.Persistence;
 using Infrastructure.Persistence.Repositories;
@@ -73,5 +74,48 @@ public sealed class V2PostgresFixture : IAsyncLifetime
         ByteSize = 1024,
         OriginalName = "book." + format,
         Format = format,
+    };
+
+    /// <summary>A share of chapter "ch-1" of the book's current file, under a fresh operation id.</summary>
+    public static SharedChapter NewShare(Book book) => new()
+    {
+        Id = Guid.NewGuid(),
+        UserId = book.UserId,
+        BookId = book.Id,
+        FileId = book.CurrentFile?.Id,
+        ChapterKey = "ch-1",
+        ChapterTitle = "One",
+        ChapterText = "It was a dark night.",
+        Language = "en",
+        OperationId = Guid.NewGuid(),
+        PayloadSha256 = NewPayloadSha256(),
+    };
+
+    /// <summary>A book-level checkpoint with one reader thought, under a fresh operation id.</summary>
+    public static DiscussionCheckpoint NewCheckpoint(Book book) => new()
+    {
+        Id = Guid.NewGuid(),
+        UserId = book.UserId,
+        BookId = book.Id,
+        Topic = "Why the night is dark",
+        ReaderThoughts = """["It is a mood, not the weather."]""",
+        Language = "en",
+        OperationId = Guid.NewGuid(),
+        PayloadSha256 = NewPayloadSha256(),
+    };
+
+    /// <summary>Any valid payload hash: the repositories store and compare it, they do not compute it.</summary>
+    public static string NewPayloadSha256() => Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
+
+    /// <summary>A plain insight on the book (a review when <paramref name="reviewJson"/> is given).</summary>
+    public static BookInsight NewInsight(Book book, string? chapterSlug, string text = "text", string? reviewJson = null) => new()
+    {
+        Id = Guid.NewGuid(),
+        UserId = book.UserId,
+        BookId = book.Id,
+        ChapterSlug = chapterSlug,
+        Text = text,
+        Question = "q",
+        ReviewJson = reviewJson,
     };
 }
