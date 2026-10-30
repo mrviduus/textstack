@@ -136,6 +136,7 @@ CREATE TABLE public.oauth_authorization_requests (
 );
 CREATE UNIQUE INDEX ix_oauth_authorization_requests_code_hash ON public.oauth_authorization_requests (code_hash);
 CREATE INDEX ix_oauth_authorization_requests_created_at ON public.oauth_authorization_requests (created_at);
+CREATE INDEX ix_oauth_authorization_requests_user_id ON public.oauth_authorization_requests (user_id);
 COMMENT ON TABLE public.oauth_authorization_requests IS
     'Identity. A pending MCP OAuth authorization (PKCE), until its code is exchanged, denied or expires.';
 
@@ -263,7 +264,6 @@ CREATE TABLE public.book_files (
     created_at timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT pk_book_files PRIMARY KEY (id),
     CONSTRAINT ak_book_files_user_id_book_id_id UNIQUE (user_id, book_id, id),
-    CONSTRAINT ak_book_files_user_id_book_id_sha256 UNIQUE (user_id, book_id, sha256),
     CONSTRAINT ck_book_files_sha256 CHECK (sha256 ~ '^[0-9a-f]{64}$'),
     CONSTRAINT ck_book_files_byte_size CHECK (byte_size > 0),
     CONSTRAINT ck_book_files_original_name CHECK (btrim(original_name) <> ''),
@@ -275,8 +275,9 @@ CREATE TABLE public.book_files (
 );
 -- One current version per book.
 CREATE UNIQUE INDEX ix_book_files_user_id_book_id ON public.book_files (user_id, book_id) WHERE is_current;
--- Duplicate detection is owner-scoped. No owner-wide UNIQUE: two library entries, or an archived
--- version, may hold the same bytes until an import policy says otherwise.
+-- Duplicate detection is owner-scoped, and no UNIQUE anywhere: two library entries, or two
+-- versions of one book, may hold the same bytes — re-uploading the file you replaced by mistake
+-- is a restore, not a duplicate. Which version is live is the partial unique index above.
 CREATE INDEX ix_book_files_user_id_sha256 ON public.book_files (user_id, sha256);
 COMMENT ON TABLE public.book_files IS
     'Library. One exact file version (epub, pdf or html clip) of a book; at most one is current.';
@@ -305,9 +306,14 @@ CREATE TABLE public.reading_state (
     CONSTRAINT ck_reading_state_current_locator_quote
         CHECK (current_locator ->> 'scheme' <> 'epub-cfi' OR current_locator ? 'quote'),
     CONSTRAINT ck_reading_state_frontier_locator CHECK (public.is_locator(frontier_locator)),
+    -- Resume and spoiler boundary both read the text at the CFI, so both need the quote.
+    CONSTRAINT ck_reading_state_frontier_locator_quote
+        CHECK (frontier_locator ->> 'scheme' <> 'epub-cfi' OR frontier_locator ? 'quote'),
     CONSTRAINT ck_reading_state_book_fraction CHECK (book_fraction BETWEEN 0 AND 1),
     CONSTRAINT ck_reading_state_frontier_fraction CHECK (frontier_fraction BETWEEN 0 AND 1),
     CONSTRAINT ck_reading_state_frontier CHECK ((frontier_locator IS NULL) = (frontier_fraction IS NULL)),
+    -- The frontier is the furthest point reached, so it never trails the current position.
+    CONSTRAINT ck_reading_state_frontier_ahead CHECK (frontier_fraction >= book_fraction),
     CONSTRAINT ck_reading_state_revision CHECK (revision > 0),
     CONSTRAINT fk_reading_state_book_files_user_id_book_id_file_id FOREIGN KEY (user_id, book_id, file_id)
         REFERENCES public.book_files (user_id, book_id, id) ON DELETE CASCADE
@@ -332,6 +338,12 @@ CREATE TABLE public.reading_sessions (
     deleted_book_sha256 varchar(64),
     created_at timestamptz NOT NULL,
     CONSTRAINT pk_reading_sessions PRIMARY KEY (id),
+    -- Fractions of the book, as everywhere else: "finished" is end_percent >= 0.99.
+    CONSTRAINT ck_reading_sessions_start_percent CHECK (start_percent BETWEEN 0 AND 1),
+    CONSTRAINT ck_reading_sessions_end_percent CHECK (end_percent BETWEEN 0 AND 1),
+    CONSTRAINT ck_reading_sessions_duration_seconds CHECK (duration_seconds >= 0),
+    CONSTRAINT ck_reading_sessions_words_read CHECK (words_read >= 0),
+    CONSTRAINT ck_reading_sessions_deleted_book_sha256 CHECK (deleted_book_sha256 ~ '^[0-9a-f]{64}$'),
     CONSTRAINT ak_reading_sessions_user_id_client_session_id UNIQUE (user_id, client_session_id),
     CONSTRAINT fk_reading_sessions_users_user_id FOREIGN KEY (user_id)
         REFERENCES public.users (id) ON DELETE CASCADE,
@@ -615,6 +627,9 @@ CREATE TABLE public.review_question (
     created_at timestamptz NOT NULL,
     updated_at timestamptz NOT NULL,
     CONSTRAINT pk_review_question PRIMARY KEY (id),
+    CONSTRAINT ck_review_question_stage CHECK (stage >= 0),
+    CONSTRAINT ck_review_question_interval_days CHECK (interval_days >= 0),
+    CONSTRAINT ck_review_question_consecutive_correct CHECK (consecutive_correct >= 0),
     CONSTRAINT fk_review_question_book_insight_user_id_book_insight_id FOREIGN KEY (user_id, book_insight_id)
         REFERENCES public.book_insight (user_id, id) ON DELETE CASCADE
 );
