@@ -2,6 +2,9 @@
 
 The TextStack schema as plain SQL files, and the script that applies them.
 
+`migrate.sh` and `tests/roundtrip.sh` also serve `database/v2/` ([its README](v2/README.md)),
+which symlinks both: one runner and one round trip, two databases (ADR-030).
+
 ```
 database/
   migrate.sh                    the runner (POSIX sh + psql)

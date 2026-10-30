@@ -6,6 +6,8 @@ RUN apk add --no-cache postgresql16-client
 COPY database/migrate.sh /database/migrate.sh
 COPY database/migrations/ /database/migrations/
 # textstack_v2's runner and migrations (ADR-030); migrator-v2 runs them through database/v2/run.sh.
+# database/v2/migrate.sh is a symlink to the file copied above. The one under v2/tests/ dangles
+# here, by design: tests run from a checkout, and the image carries no tests/.
 COPY database/v2/ /database/v2/
 # Non-root; the image needs no writable path.
 USER nobody

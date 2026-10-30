@@ -8,12 +8,17 @@ its schema as plain SQL files, and the runner that applies them. The schema itse
 ```
 database/v2/
   run.sh                        migrator-v2's entrypoint: creates the database if missing, then migrate.sh
-  migrate.sh                    the runner: database/migrate.sh without its EF Core bootstrap
+  migrate.sh                    -> ../migrate.sh (the runner resolves migrations/ next to the path it is called by)
   migrations/
     0000_baseline.up.sql        the whole V2 schema; no down, no seed rows
   tests/invariants.sql          ADR-031's schema rules, checked against a migrated database
-  tests/roundtrip.sh            CI check of the runner and every V2 migration (runs invariants.sql)
+  tests/roundtrip.sh            -> ../../tests/roundtrip.sh (its steps 1, 2, 4 plus invariants, the fixture and run.sh)
+  tests/fixtures/               a throwaway migration, so the round trip can exercise down
 ```
+
+The two symlinks keep one copy of each script: the EF Core bootstrap inside `migrate.sh` can only
+fire on a database EF Core built, which `textstack_v2` never is, and each round-trip step skips
+itself where the folder has no files for it.
 
 Commands, ledger, transactions, checksums, naming and "adding a migration" work exactly as in
 [database/README.md](../README.md), with `database/v2/` in place of `database/`. This file lists only
@@ -29,6 +34,11 @@ what differs.
 | Created by | the postgres image, on first start | `run.sh up`/`down`, if missing (`CREATE DATABASE` via `\gexec`); `status` and `verify` never create it |
 
 `api` and `worker` wait for both migrators (ADR-021). Neither connects to `textstack_v2` yet (M1.2).
+
+**There is no rollback of the baseline.** `make migrate-v2-down V=0` prints `Nothing above version 0.`
+and exits 0 — correct (nothing is applied above the baseline) but not a rollback: the baseline has
+no down file. Undoing it is `DROP DATABASE textstack_v2`, by hand; the next `migrator-v2` run
+builds it again.
 
 Without psql installed:
 
