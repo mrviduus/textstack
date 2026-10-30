@@ -25,7 +25,21 @@ function memoryFiles() {
   return { files, data, ops }
 }
 
+/** `op` on `name` (from-name for a move; any name if omitted) rejects with `error`, once or always. A
+ *  failing write first leaves the empty file ENOSPC does. */
+function failOn(m: ReturnType<typeof memoryFiles>, op: 'write' | 'move', error: string, { name, once = false }: { name?: string; once?: boolean } = {}) {
+  const real = m.files[op]
+  let armed = true
+  m.files[op] = async (a: string, b: string) => {
+    if (!armed || (name !== undefined && a !== name)) return real(a, b)
+    if (once) armed = false
+    if (op === 'write') m.data.set(a, '')
+    throw new Error(error)
+  }
+}
+
 const SHA_A = 'AB'.repeat(32)
+const SHA_A_KEY = SHA_A.toLowerCase()
 const SHA_B = 'cd'.repeat(32)
 const book = (sha256: string) => ({ sha256, size: 10, title: 'T', author: '', originalName: 'b.epub' })
 
@@ -38,23 +52,24 @@ describe('v2 host storage', () => {
   })
 
   it('writeAtomically_WriteFails_RemovesTheTmpAndRethrows', async () => {
-    const { files, data } = memoryFiles()
-    files.write = async (name) => { data.set(name, ''); throw new Error('ENOSPC') }
-    await expect(writeAtomically(files, 'library.json', '{}')).rejects.toThrow('ENOSPC')
-    expect([...data.keys()]).toEqual([])
+    const m = memoryFiles()
+    failOn(m, 'write', 'ENOSPC')
+    await expect(writeAtomically(m.files, 'library.json', '{}')).rejects.toThrow('ENOSPC')
+    expect([...m.data.keys()]).toEqual([])
   })
 
   it('writeAtomically_WriteAndTmpRemovalBothFail_TheWriteErrorPropagates', async () => {
-    const { files, data } = memoryFiles()
-    files.write = async (name) => { data.set(name, ''); throw new Error('ENOSPC') }
-    files.remove = () => { throw new Error('remove failed') }
-    await expect(writeAtomically(files, 'library.json', '{}')).rejects.toThrow('ENOSPC')
+    const m = memoryFiles()
+    failOn(m, 'write', 'ENOSPC')
+    m.files.remove = () => { throw new Error('remove failed') }
+    await expect(writeAtomically(m.files, 'library.json', '{}')).rejects.toThrow('ENOSPC')
   })
 
   it('writeAtomically_MoveFails_KeepsTheCompleteTmpAndTheTarget', async () => {
-    const { files, data } = memoryFiles()
+    const m = memoryFiles()
+    const { files, data } = m
     data.set('x.json', 'old')
-    files.move = async () => { throw new Error('EIO') }
+    failOn(m, 'move', 'EIO')
     await expect(writeAtomically(files, 'x.json', 'new')).rejects.toThrow('EIO')
     expect(data.get('x.json.tmp')).toBe('new')
     expect(data.get('x.json')).toBe('old')
@@ -73,72 +88,65 @@ describe('v2 host storage', () => {
     const { files } = memoryFiles()
     const storage = createV2Storage(files)
     await Promise.all([storage.addOpened(book(SHA_A), null), storage.addOpened(book(SHA_B), null)])
-    expect((await storage.books()).map((b) => b.sha256)).toEqual([SHA_A.toLowerCase(), SHA_B])
+    expect((await storage.books()).map((b) => b.sha256)).toEqual([SHA_A_KEY, SHA_B])
   })
 
   it('addOpened_SameBytesInUpperCase_ExistingEntryAndStagedCopyDropped', async () => {
     const { files, data } = memoryFiles()
     const storage = createV2Storage(files)
     data.set('staging/1.epub', 'bytes')
-    await storage.addOpened(book(SHA_A.toLowerCase()), 'staging/1.epub')
+    await storage.addOpened(book(SHA_A_KEY), 'staging/1.epub')
     data.set('staging/2.epub', 'bytes')
     const { books } = await storage.addOpened(book(SHA_A), 'staging/2.epub')
     expect(books).toHaveLength(1)
-    expect([...data.keys()].filter((k) => k.endsWith('.epub'))).toEqual([`books/${SHA_A.toLowerCase()}.epub`])
+    expect([...data.keys()].filter((k) => k.endsWith('.epub'))).toEqual([`books/${SHA_A_KEY}.epub`])
   })
 
   it('addOpened_BytesAlreadyRetained_AdoptsTheFileAndDropsTheStagedCopy', async () => {
     const { files, data, ops } = memoryFiles()
-    const sha = SHA_A.toLowerCase()
-    data.set(`books/${sha}.epub`, 'retained')
+    data.set(`books/${SHA_A_KEY}.epub`, 'retained')
     data.set('staging/1.epub', 'staged')
-    const { books } = await createV2Storage(files).addOpened(book(sha), 'staging/1.epub')
-    expect(books.map((b) => b.sha256)).toEqual([sha])
-    expect(data.get(`books/${sha}.epub`)).toBe('retained')
+    const { books } = await createV2Storage(files).addOpened(book(SHA_A_KEY), 'staging/1.epub')
+    expect(books.map((b) => b.sha256)).toEqual([SHA_A_KEY])
+    expect(data.get(`books/${SHA_A_KEY}.epub`)).toBe('retained')
     expect(data.has('staging/1.epub')).toBe(false)
     expect(ops.some((o) => o.startsWith('move staging/'))).toBe(false)
   })
 
   it('addOpened_LibraryWriteFailsAfterTheMove_RemovesTheRetainedCopyAndRethrows', async () => {
-    const { files, data } = memoryFiles()
-    const sha = SHA_A.toLowerCase()
+    const m = memoryFiles()
+    const { files, data } = m
     data.set('library.json', 'old')
     data.set('staging/1.epub', 'staged')
-    const write = files.write
-    files.write = async (name, text) => {
-      if (name === 'library.json.tmp') throw new Error('ENOSPC')
-      return write(name, text)
-    }
-    await expect(createV2Storage(files).addOpened(book(sha), 'staging/1.epub')).rejects.toThrow('ENOSPC')
+    failOn(m, 'write', 'ENOSPC', { name: 'library.json.tmp' })
+    await expect(createV2Storage(files).addOpened(book(SHA_A_KEY), 'staging/1.epub')).rejects.toThrow('ENOSPC')
     expect([...data]).toEqual([['library.json', 'old']])
   })
 
   it('addOpened_LibraryWriteFailsForAnAdoptedCopy_KeepsTheCopy', async () => {
-    const { files, data } = memoryFiles()
-    const sha = SHA_A.toLowerCase()
-    data.set(`books/${sha}.epub`, 'retained')
+    const m = memoryFiles()
+    const { files, data } = m
+    data.set(`books/${SHA_A_KEY}.epub`, 'retained')
     data.set('staging/1.epub', 'staged')
-    files.write = async () => { throw new Error('ENOSPC') }
-    await expect(createV2Storage(files).addOpened(book(sha), 'staging/1.epub')).rejects.toThrow('ENOSPC')
-    expect([...data]).toEqual([[`books/${sha}.epub`, 'retained']])
+    failOn(m, 'write', 'ENOSPC')
+    await expect(createV2Storage(files).addOpened(book(SHA_A_KEY), 'staging/1.epub')).rejects.toThrow('ENOSPC')
+    expect([...data]).toEqual([[`books/${SHA_A_KEY}.epub`, 'retained']])
   })
 
   it('addOpened_FirstImportLibraryMoveFails_KeepsTheCopyTheRecoveredEntryNames', async () => {
-    const { files, data } = memoryFiles()
-    const sha = SHA_A.toLowerCase()
+    const m = memoryFiles()
+    const { files, data } = m
     data.set('staging/1.epub', 's')
-    const move = files.move
-    files.move = async (from, to) => { if (from === 'library.json.tmp') throw new Error('EIO'); return move(from, to) }
+    failOn(m, 'move', 'EIO', { name: 'library.json.tmp' })
     const storage = createV2Storage(files)
-    await expect(storage.addOpened(book(sha), 'staging/1.epub')).rejects.toThrow('EIO')
+    await expect(storage.addOpened(book(SHA_A_KEY), 'staging/1.epub')).rejects.toThrow('EIO')
     // No library.json: readRecovering reads the complete tmp, which lists the book, so its file stays.
-    expect((await storage.books()).map((b) => b.sha256)).toEqual([sha])
-    expect(data.has(`books/${sha}.epub`)).toBe(true)
+    expect((await storage.books()).map((b) => b.sha256)).toEqual([SHA_A_KEY])
+    expect(data.has(`books/${SHA_A_KEY}.epub`)).toBe(true)
   })
 
   it('addOpened_LibraryMoveDeletesTheTargetThenFails_KeepsTheCopyTheRecoveredEntryNames', async () => {
     const { files, data } = memoryFiles()
-    const sha = SHA_A.toLowerCase()
     data.set('library.json', JSON.stringify({ v: 1, books: [] }))
     data.set('staging/1.epub', 's')
     const move = files.move
@@ -148,48 +156,38 @@ describe('v2 host storage', () => {
       return move(from, to)
     }
     const storage = createV2Storage(files)
-    await expect(storage.addOpened(book(sha), 'staging/1.epub')).rejects.toThrow('rename failed')
-    expect((await storage.books()).map((b) => b.sha256)).toEqual([sha])
-    expect(data.has(`books/${sha}.epub`)).toBe(true)
+    await expect(storage.addOpened(book(SHA_A_KEY), 'staging/1.epub')).rejects.toThrow('rename failed')
+    expect((await storage.books()).map((b) => b.sha256)).toEqual([SHA_A_KEY])
+    expect(data.has(`books/${SHA_A_KEY}.epub`)).toBe(true)
   })
 
   it('addOpened_FirstFailsSecondAdoptsSameBytes_OneCopyOneEntry', async () => {
-    const { files, data } = memoryFiles()
-    const sha = SHA_A.toLowerCase()
+    const m = memoryFiles()
+    const { files, data } = m
     data.set('staging/1.epub', 'x')
     data.set('staging/2.epub', 'x')
-    const write = files.write
-    let failOnce = true
-    files.write = async (name, text) => {
-      if (failOnce && name === 'library.json.tmp') { failOnce = false; throw new Error('ENOSPC') }
-      return write(name, text)
-    }
+    failOn(m, 'write', 'ENOSPC', { name: 'library.json.tmp', once: true })
     const storage = createV2Storage(files)
-    const [first, second] = await Promise.allSettled([storage.addOpened(book(sha), 'staging/1.epub'), storage.addOpened(book(sha), 'staging/2.epub')])
+    const [first, second] = await Promise.allSettled([storage.addOpened(book(SHA_A_KEY), 'staging/1.epub'), storage.addOpened(book(SHA_A_KEY), 'staging/2.epub')])
     expect([first.status, second.status]).toEqual(['rejected', 'fulfilled'])
     expect(await storage.books()).toHaveLength(1)
-    expect([...data.keys()].filter((k) => k.endsWith('.epub'))).toEqual([`books/${sha}.epub`])
+    expect([...data.keys()].filter((k) => k.endsWith('.epub'))).toEqual([`books/${SHA_A_KEY}.epub`])
   })
 
   it('addOpened_SameBytesConcurrently_OneEntryOneFile', async () => {
     const { files, data } = memoryFiles()
-    const sha = SHA_A.toLowerCase()
     data.set('staging/1.epub', 'x')
     data.set('staging/2.epub', 'x')
     const storage = createV2Storage(files)
-    await Promise.all([storage.addOpened(book(sha), 'staging/1.epub'), storage.addOpened(book(SHA_A), 'staging/2.epub')])
+    await Promise.all([storage.addOpened(book(SHA_A_KEY), 'staging/1.epub'), storage.addOpened(book(SHA_A), 'staging/2.epub')])
     expect(await storage.books()).toHaveLength(1)
-    expect([...data.keys()].filter((k) => k.endsWith('.epub'))).toEqual([`books/${sha}.epub`])
+    expect([...data.keys()].filter((k) => k.endsWith('.epub'))).toEqual([`books/${SHA_A_KEY}.epub`])
   })
 
   it('writeStore_FailedWrite_RejectsToItsCallerAndTheNextWriteRuns', async () => {
-    const { files, data } = memoryFiles()
-    const move = files.move
-    let failOnce = true
-    files.move = async (from, to) => {
-      if (failOnce) { failOnce = false; throw new Error('disk') }
-      return move(from, to)
-    }
+    const m = memoryFiles()
+    const { files, data } = m
+    failOn(m, 'move', 'disk', { once: true })
     const storage = createV2Storage(files)
     const first = storage.writeStore(SHA_B, 'one')
     const second = storage.writeStore(SHA_B, 'two')
@@ -219,8 +217,8 @@ describe('v2 host storage', () => {
     const { files, data } = memoryFiles()
     const storage = createV2Storage(files)
     await storage.writeStore(SHA_A, '{"v":1, "kept":"as sent"}')
-    expect(data.get(`store/${SHA_A.toLowerCase()}.json`)).toBe('{"v":1, "kept":"as sent"}')
-    expect(await storage.readStore(SHA_A.toLowerCase())).toBe('{"v":1, "kept":"as sent"}')
+    expect(data.get(`store/${SHA_A_KEY}.json`)).toBe('{"v":1, "kept":"as sent"}')
+    expect(await storage.readStore(SHA_A_KEY)).toBe('{"v":1, "kept":"as sent"}')
   })
 
   it('sha256Key_NotSixtyFourHex_Throws', () => {
