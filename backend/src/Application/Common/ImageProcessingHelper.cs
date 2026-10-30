@@ -1,4 +1,3 @@
-using System.Text.RegularExpressions;
 using HtmlAgilityPack;
 
 namespace Application.Common;
@@ -9,9 +8,6 @@ public static class ImageProcessingHelper
     {
         if (string.IsNullOrEmpty(html) || imageMap.Count == 0)
             return html;
-
-        // Fix curly quotes inside HTML attributes (TypographyProcessor may convert them)
-        html = NormalizeCurlyQuotesInTags(html);
 
         var doc = new HtmlDocument();
         doc.LoadHtml(html);
@@ -53,27 +49,6 @@ public static class ImageProcessingHelper
             result = result[2..];
         result = result.TrimStart('/');
         return result;
-    }
-
-    /// <summary>
-    /// Replace curly quotes (\u201C \u201D \u2018 \u2019) with straight quotes inside HTML tags.
-    /// TypographyProcessor may convert attribute quotes to curly, breaking HtmlAgilityPack parsing.
-    /// </summary>
-    internal static string NormalizeCurlyQuotesInTags(string html)
-    {
-        return Regex.Replace(html, @"<[^>]+>", match =>
-        {
-            var tag = match.Value;
-            if (tag.IndexOf('\u201C') < 0 && tag.IndexOf('\u201D') < 0 &&
-                tag.IndexOf('\u2018') < 0 && tag.IndexOf('\u2019') < 0)
-                return tag;
-
-            return tag
-                .Replace('\u201C', '"')
-                .Replace('\u201D', '"')
-                .Replace('\u2018', '\'')
-                .Replace('\u2019', '\'');
-        });
     }
 
     public static string GetExtensionFromMimeType(string mimeType)

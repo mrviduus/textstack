@@ -1,4 +1,4 @@
-.PHONY: up down restart logs status migrate migrate-down migrate-status migrator-guard backup restore backup-list backup-verify rebuild-ssg clean-ssg featured featured-show nginx-setup build rebuild fix-permissions test lint seo-publish-setup seo-publish-status seo-publish-logs seo-publish-restart seo-publish-stop quality-poll-setup quality-poll-status quality-poll-logs quality-poll-restart quality-poll-stop
+.PHONY: up down restart logs status migrate migrate-down migrate-status migrate-v2 migrate-v2-down migrate-v2-status migrator-guard backup restore backup-list backup-verify rebuild-ssg clean-ssg featured featured-show nginx-setup build rebuild fix-permissions test lint seo-publish-setup seo-publish-status seo-publish-logs seo-publish-restart seo-publish-stop quality-poll-setup quality-poll-status quality-poll-logs quality-poll-restart quality-poll-stop
 
 # ============================================================
 # Docker Services
@@ -58,6 +58,19 @@ migrate-down: migrator-guard
 
 migrate-status: migrator-guard
 	$(MIGRATOR) status
+
+# The same for textstack_v2 (database/v2/, ADR-030).
+MIGRATOR_V2 = docker compose run --rm -v "$(CURDIR)/database:/database:ro" migrator-v2
+
+migrate-v2: migrator-guard
+	$(MIGRATOR_V2) up
+
+migrate-v2-down: migrator-guard
+	@test -n "$(V)" || { echo 'usage: make migrate-v2-down V=<version>'; exit 1; }
+	$(MIGRATOR_V2) down $(V)
+
+migrate-v2-status: migrator-guard
+	$(MIGRATOR_V2) status
 
 # ============================================================
 # Deployment

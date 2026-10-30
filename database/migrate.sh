@@ -1,5 +1,7 @@
 #!/bin/sh
-# migrate.sh — applies the SQL files in database/migrations/ with psql. See database/README.md.
+# migrate.sh — applies the SQL files in migrations/ next to it with psql. See database/README.md.
+# database/v2/migrate.sh is a symlink to this file: one runner, two databases (ADR-030). The EF
+# bootstrap below only ever fires on the legacy database, which is the only one EF Core built.
 #
 #   migrate.sh up              apply every pending NNNN_<name>.up.sql, oldest first
 #   migrate.sh down <version>  revert applied versions above <version>, newest first (.down.sql)
@@ -51,10 +53,11 @@ for kind in up down; do
 done
 
 # "version|checksum" per ledger row, oldest first; nothing when the ledger does not exist yet.
-# A psql failure stops the script (set -e) instead of reading as "nothing applied".
+# A psql failure stops the runner, with its own message: an unreachable database must never read
+# as "nothing applied" (every caller below also stops when this one does).
 ledger() {
     # to_regclass is NULL for a missing table, where a plain SELECT would fail.
-    has=$(q -At -c "SELECT to_regclass('public.schema_migrations') IS NOT NULL")
+    has=$(q -At -c "SELECT to_regclass('public.schema_migrations') IS NOT NULL") || die "cannot read the ledger"
     if [ "$has" = t ]; then q -At -c "SELECT version || '|' || checksum FROM public.schema_migrations ORDER BY version"; fi
 }
 # The versions of a ledger() list.
@@ -141,7 +144,7 @@ case "${1:-}" in
 up)
     init
     # The ledger, read once: run() re-checks each version under the lock anyway.
-    L=$(ledger); APPLIED=$(versions "$L")
+    L=$(ledger) || exit 1; APPLIED=$(versions "$L")
     verify "$L" || die "checksum mismatch; nothing applied"
     # After a code rollback the database is ahead of this copy: normal, left in place.
     U=$(minus "$APPLIED" "$KNOWN")
@@ -157,7 +160,7 @@ down)
     case "$T" in '' | *[!0-9]*) die "usage: migrate.sh down <version>" ;; esac
     T=$(num "$T")
     init
-    L=$(ledger); APPLIED=$(versions "$L")
+    L=$(ledger) || exit 1; APPLIED=$(versions "$L")
     verify "$L" || die "checksum mismatch; nothing reverted"
     # Only the copy that contains a migration has its down file. An older copy (after a code
     # rollback) would skip it and report success — refuse. Roll the schema back first, with the
@@ -174,7 +177,7 @@ down)
     ;;
 status)
     # The ledger as a table, then what is missing on either side. Read-only: no ledger is created.
-    L=$(ledger); APPLIED=$(versions "$L")
+    L=$(ledger) || exit 1; APPLIED=$(versions "$L")
     if [ -n "$APPLIED" ]; then
         q -c "SELECT version, name, applied_at, execution_ms FROM public.schema_migrations ORDER BY 1"
     elif [ "$(ef_only)" = t ]; then
@@ -186,7 +189,12 @@ status)
     echo "Unknown (applied, no file here): $(words "$(minus "$APPLIED" "$KNOWN")")"
     ;;
 verify)
-    verify "$(ledger)" && echo "Checksums match."
+    L=$(ledger) || exit 1
+    if [ -z "$L" ]; then
+        echo "Nothing applied yet: no file to check."
+    else
+        verify "$L" && echo "Checksums match."
+    fi
     ;;
 *)
     die "usage: migrate.sh up | down <version> | status | verify"
