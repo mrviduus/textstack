@@ -7,7 +7,8 @@ import { Overlayer } from './.vendor/foliate-js/overlayer.js'
 import { EPUB } from './.vendor/foliate-js/epub.js'
 import { BlobReader, BlobWriter, TextWriter, ZipReader, configure } from './.vendor/foliate-js/vendor/zip.js'
 import { tokenizeVocabWords } from '../../../../../packages/shared/src/text/vocabKey'
-import { rangeToLocator } from '../../../../../packages/reader-engine/src/text'
+import { chapterText, offsetOf, rangeToLocator } from '../../../../../packages/reader-engine/src/text'
+import { sentenceAround } from '../../../../../packages/reader-engine/src/engine'
 import { mergeOverlay } from './overlays.mjs'
 import { createSaveScheduler } from './saveScheduler.mjs'
 import { emptyEntry, entryFor, foldText, sha1, sha256Yielding, withHighlight, withPosition } from './store.mjs'
@@ -75,16 +76,14 @@ function decorate(rects, { hl, gloss, el }) {
   return g
 }
 
+/** The tapped word's sentence inside its block, by the reader engine's rule (TR-1, the other readers' too). */
 function sentenceOf(node, start, end) {
   const block = node.parentElement?.closest('p, li, blockquote, td, h1, h2, h3, h4, h5, h6') ?? node.parentElement
-  const r = node.ownerDocument.createRange()
-  r.setStart(block, 0)
-  r.setEnd(node, start)
-  const at = r.toString().length
-  const text = block.textContent ?? ''
-  const from = Math.max(text.lastIndexOf('. ', at), text.lastIndexOf('! ', at), text.lastIndexOf('? ', at)) + 1
-  const ends = ['. ', '! ', '? '].map((s) => text.indexOf(s, at + (end - start))).filter((i) => i >= 0)
-  return text.slice(from, ends.length ? Math.min(...ends) + 1 : text.length).replace(/\s+/g, ' ').trim()
+  const at = offsetOf(block, node, start)
+  // A line break in a book's source is a space on screen, not a sentence end: hard-wrapped XHTML
+  // would otherwise cut every sentence at its source line. One for one, so offsets still hold.
+  const text = chapterText(block).replace(/\s/g, ' ')
+  return sentenceAround(text, 0, text.length, at, at + (end - start)).replace(/ +/g, ' ')
 }
 
 function onTap(doc, index, e) {
