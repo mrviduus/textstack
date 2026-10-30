@@ -11,10 +11,15 @@ set -eu
 
 # migrate.sh connects to PGDATABASE and never creates it. CREATE DATABASE cannot run in a
 # transaction or take IF NOT EXISTS, so it is generated only when the database is missing and run
-# by \gexec, from the maintenance database. A second run generates nothing.
-psql -X -q -v ON_ERROR_STOP=1 -v db="$PGDATABASE" -d postgres <<'SQL'
+# by \gexec, from the maintenance database. A second run generates nothing. Only the commands that
+# write the schema create it: status and verify report on what is there, and must not make it.
+case "${1:-}" in
+up | down)
+    psql -X -q -v ON_ERROR_STOP=1 -v db="$PGDATABASE" -d postgres <<'SQL'
 SELECT format('CREATE DATABASE %I', :'db')
 WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = :'db') \gexec
 SQL
+    ;;
+esac
 
 exec sh "$(dirname "$0")/migrate.sh" "$@"

@@ -2,7 +2,7 @@
 # roundtrip.sh — checks database/v2/migrate.sh and every V2 migration on throwaway databases (CI).
 # A copy of database/tests/roundtrip.sh without its EF Core checks.
 #
-#   1. fresh database: up, up again (no-op), verify
+#   1. fresh database: up, up again (no-op), verify, tests/invariants.sql
 #   2. for each applied version, newest first: down to the version below it — the schema dumps the
 #      same as a fresh database built only up to that version — then up again, back to step 1's
 #      schema. One version deeper per pass, so a broken down file is not hidden by an older one
@@ -77,6 +77,7 @@ PGDATABASE=$ADMIN createdb "$DB"
 migrate "$DB" up
 expect "$DB" "Up to date." "a second up applied something"
 migrate "$DB" verify
+psql -X -v ON_ERROR_STOP=1 -d "$DB" -f "$ROOT/tests/invariants.sql"
 FIRST=$(dump "$DB")
 
 echo "== 2. down one version deeper per pass, then up"

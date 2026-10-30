@@ -79,10 +79,8 @@ services:
   # (make migrate-v2-down) rolls it back.
   migrator-v2:
     logging: *default-logging
+    # No build: it is the migrator's image, built by that service (one build, one cache scope).
     image: ${IMAGE_REGISTRY:-textstack}-migrator:${IMAGE_TAG:-latest}
-    build:
-      context: .
-      dockerfile: backend/Docker/Migrator.Dockerfile
     container_name: textstack_migrator_v2_prod
     entrypoint: ["sh", "/database/v2/run.sh"]
     command: ["up"]
