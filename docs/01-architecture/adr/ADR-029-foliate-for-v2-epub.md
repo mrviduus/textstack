@@ -70,6 +70,14 @@ origin to book content, so it cannot inherit the production reader's safety argu
    directive is a change to this ADR. The `file://` base URL with direct XHR read of the retained
    file is **accepted only for the dev route** until the R4 security review decides (keep, narrow
    `connect-src file:` to the one file, or hand bytes in another way).
+   **R4 recommendation (2026-10-30), owner to decide:** hand the bytes in another way, natively — an intercepted
+   https origin (`shouldInterceptRequest` / `WebViewAssetLoader`) serving only `books/<sha256>.epub`, a non-`file:`
+   base URL, both `allowFileAccess*` flags off, `connect-src` path-restricted to that URL — before any non-dev route;
+   `file://` stays accepted for the dev route until then. Why: behind the nonce, one script in this origin reads the
+   app's whole data dir (listings of `files/`, `databases/`, `shared_prefs/`; AsyncStorage; the offline SQLite)
+   and the `openLink` bridge can carry it to a browser — measured on the emulator. Narrowing is not expressible
+   (Chromium rejects a `file:` path as a CSP source); bytes over the bridge would take ~68 s for an 87 MB book
+   against 6.4–7.7 s by XHR. Trade-off: native code in `react-native-webview`. Evidence: [R4 security review](../epub-engine-prototype.md#gate-file-security-review).
 5. **Dev-only first.** One `__DEV__`-gated route (R2: `app/dev/epub-v2.tsx`); the release bundle
    contains no reader page and no route to it. No production route until every gate below passes.
 6. **Gates to leave dev-only** (prototype brief + plan R3/R4), recorded as an evidence table in
@@ -79,10 +87,27 @@ origin to book content, so it cannot inherit the production reader's safety argu
    - a real out-of-space (ENOSPC) failure during import, with no half-written state;
    - the oldest supported system WebView. The `chrome90` target means stock Android 7–9 WebViews
      fail to run the page: decide between an explicit "update Android System WebView" screen and a
-     lower target;
+     lower target. **Recommendation (2026-10-30), the owner's to confirm:** the update screen, gated on
+     Chrome ≥ 117 — the page's real floor (foliate calls `Object.groupBy`), whatever the esbuild target —
+     detected without booting the page (an ES5 user-agent probe or a `ready` deadline), keeping `chrome90`.
+     A lower target alone cannot work (esbuild does not polyfill APIs); lowering plus polyfills costs ~10 %
+     bundle and a polyfill list every foliate bump can outgrow, and stock Android 7–8 stay out anyway;
    - a security review of the `file://` access (Decision 4);
    - a hostile-book check that **asserts** and exits non-zero (R3: SVG script, `<base>`, `<embed>`,
      `srcdoc`, meta refresh, `file://` sibling read), and fails when a CSP directive is removed.
+
+   **R4 evidence (2026-10-30)** — the table is in [epub-engine-prototype.md](../epub-engine-prototype.md#r4-adoption-gates--evidence-2026-10-30):
+   - Physical device: **not run**, owner (device, pending).
+   - 80 MB book: **pass** on the emulator — a real public-domain book padded with rendered PNG plates to 87 MB opens
+     in 6.4–7.7 s and restores its position after a kill.
+   - ENOSPC: **partial** — never an entry without its file and `staging/` is always cleaned; the orphan retained
+     copy and the empty `.tmp` files a failed `library.json` write left are both fixed in `hostStorage.ts` (R4a fix
+     PR, unit-tested; not yet re-run on the emulator) — see the gate table and its host findings 1–2.
+   - Oldest WebView: **fails on WebView 66** (syntax error before `ready`; the host waits forever); real floor
+     Chrome 117; recommendation in the WebView bullet above.
+   - `file://` review: written; recommendation under Decision 4, owner to decide.
+   - Hostile book: **pass** — R3 in CI (30/30 blocked, 9/9 mutations caught); re-run on the emulator's Android System
+     WebView through the dev route: 30/30 blocked, with a positive control (CSP bypassed: 21/30 escape).
 7. **Positions: legacy frozen, V2 on ADR-031.** ADR-025's stored shapes (`TextPosition` v1,
    `TextAnchor`, `PdfAnchor`, `page:<N>`, `chapter:<slug>`) stay frozen for legacy data and keep their
    byte-identical round-trip fixtures; V2 writes only ADR-031 schemes. ADR-019's rules are kept —
