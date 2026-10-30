@@ -5,13 +5,13 @@
 // (here `max-inline-size`, which calls render() synchronously; in the wild a resize) styles a
 // still-parsing XHTML document whose `body` is null and throws
 // "Cannot destructure property 'style' of 'el' as it is null". With the patch: 0 errors.
-import { currentView } from './page.mjs'
+import './page.mjs'
 
 const isTheBug = (msg) => /destructure property 'style'/.test(String(msg))
 
 /** Starts `tries` section loads and re-renders on every task until each lands. */
 async function reproRenderDuringLoad(tries = 6) {
-  const view = currentView()
+  const view = document.querySelector('foliate-view')
   let errors = 0
   const onError = (e) => { if (isTheBug(e.message)) errors++ }
   addEventListener('error', onError)

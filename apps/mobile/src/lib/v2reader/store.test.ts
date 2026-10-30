@@ -93,6 +93,17 @@ describe('v2 reader store', () => {
     }
   })
 
+  it('entryFor_StoredItemsWithoutAQuote_AreDroppedSoRestoreCannotThrow', () => {
+    // A highlight or position with no quote used to reach foldText(undefined): the page threw inside
+    // restore, never sent `restored`, and then saved nothing for the rest of the session.
+    const stored = { ...emptyEntry(book), position: { cfi: 'epubcfi(/6/8!/4/2/1:5)' }, highlights: [{ id: 'x' }, hl] }
+    const e = entryFor(JSON.stringify(stored), book)
+    expect(e).toMatchObject({ position: null, highlights: [hl] })
+    for (const item of [e!.position, ...e!.highlights]) if (item) expect(() => foldText(item.quote)).not.toThrow()
+    // Still the same file's entry, so the page goes on saving into it.
+    expect(withPosition(e, pos).position).toEqual(pos)
+  })
+
   it('foldText_EmptyAndWhitespaceOnly_FoldToEmpty', () => {
     expect(foldText('')).toBe('')
     expect(foldText(' \n\t\u00A0\u00AD')).toBe('')

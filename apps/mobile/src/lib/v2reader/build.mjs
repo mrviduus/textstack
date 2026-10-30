@@ -17,7 +17,7 @@ const FOLIATE_REPO = 'https://github.com/johnfactotum/foliate-js.git'
 const FOLIATE_SHA = '78914aef4466eb960965702401634c2cb348e9b1'   // 2026-05-01
 // Unminified characters of the bundled script, first committed size. Raised only by a deliberate PR
 // (ADR-029 Decision 3); not reader-engine's 64 KB budget.
-const BUDGET = 232848
+const BUDGET = 233294
 
 const here = dirname(fileURLToPath(import.meta.url))
 const out = resolve(here, 'v2ReaderPage.generated.ts')

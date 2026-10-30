@@ -53,5 +53,13 @@ describe('v2ReaderPageHtml', () => {
     expect(html).toContain('if (!((_b = (_a = this.#view) == null ? void 0 : _a.document) == null ? void 0 : _b.body)) return;')
     expect(html).toContain('var flow = "paginated";')
     expect(html).not.toContain('reproRenderDuringLoad')
+    expect(html).not.toContain('currentView')
+  })
+
+  it('bundle_OpenCancelsPendingSaves_AndNoHighlightBeforeRestored', () => {
+    const html = v2ReaderPageHtml(NONCE)
+    // The call sites of the two data-loss guards; the scheduler itself is unit-tested.
+    expect(html).toMatch(/async function open\(bytes, name\) \{(\s*var [^;]*;)?\s*saves\.cancel\(\);/)
+    expect(html).toMatch(/function highlightSelection\(\) \{[\s\S]{0,200}?if \(!entry\) return log\("warn"/)
   })
 })

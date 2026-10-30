@@ -8,16 +8,19 @@ export function emptyEntry(book) {
   return { v: STORE_VERSION, book, position: null, highlights: [] }
 }
 
+/** A position or highlight this code can act on: a CFI and the text that was there. */
+const isQuoted = (x) => typeof x?.cfi === 'string' && x.cfi.startsWith('epubcfi(') && typeof x.quote === 'string' && x.quote.length > 0
+
 /** The stored entry for this file, or null (missing, corrupt, another version, other bytes). */
 export function entryFor(json, book) {
   let e
   try { e = JSON.parse(json) } catch { return null }
   if (e?.v !== STORE_VERSION || e.book?.sha256 !== book.sha256 || e.book?.size !== book.size) return null
   if (!Array.isArray(e.highlights)) return null
-  return e
+  // Only items this code can use. A stored highlight or position without its quote would throw on
+  // restore, and a page that throws there never finishes restoring and never saves again.
+  return { ...e, position: isQuoted(e.position) ? e.position : null, highlights: e.highlights.filter(isQuoted) }
 }
-
-const isQuoted = (x) => typeof x?.cfi === 'string' && x.cfi.startsWith('epubcfi(') && typeof x.quote === 'string' && x.quote.length > 0
 
 export const withPosition = (e, p) => (isQuoted(p) ? { ...e, position: p } : e)
 /** Same id replaces (a re-anchored highlight), otherwise appends. */

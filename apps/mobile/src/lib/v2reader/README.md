@@ -9,6 +9,7 @@ and its build only. No route, no WebView host, no UI yet (R2).
 |---|---|
 | `page.mjs` | Runs in the WebView. The whole adapter: our EPUB loader (SHA-1 for obfuscated fonts), the navigation queue, word tap, translation label, highlights, save/restore by CFI + quote, `meta refresh` stripped. |
 | `store.mjs` | Reader data shape (v1), one entry per book **file** (SHA-256 + size); the quote fold; pure-JS SHA-256 / SHA-1. |
+| `saveScheduler.mjs` | The debounced `store` message: key and payload are fixed when the save is asked for, so a save can never land on the next book. |
 | `library.mjs` | V2 local library (pure): identical bytes → the existing entry, never a duplicate or reset. |
 | `*.test.ts` | Unit tests for the two pure modules (mobile vitest). |
 | `patches/*.patch` | Our changes to foliate-js, applied in order on every build. |
@@ -35,7 +36,7 @@ node apps/mobile/src/lib/v2reader/build.mjs --repro   # + .vendor/v2ReaderPage.r
   the patch it was 1–5 per 6 loads in Chromium, hundreds on Android).
 - esbuild comes from `apps/web` (no new dependency). Target `chrome90`, not the engine bundle's es2017: foliate
   uses private methods, static blocks and `\p{}` regexes. PDF/MOBI/FB2/CBZ/TTS/search are stubbed out.
-- **Size:** 232,848 characters of script (unminified), ~241 KB generated file. Reader-engine's 64 KB budget does
+- **Size:** 233,294 characters of script (unminified), ~241 KB generated file. Reader-engine's 64 KB budget does
   not apply; this page's own budget is `BUDGET` in `build.mjs` (its first committed size), raised only by a
   deliberate PR.
 - **Licences** stay in the output (`legalComments: 'inline'`): foliate-js MIT © John Factotum; zip.js BSD-3-Clause.
@@ -92,7 +93,16 @@ The host injects calls as fire-and-forget JS (`injectJavaScript('window.__fol.�
 | `log` | `level`, `msg` | page errors (window errors, failed navigation / open / restore) |
 
 A stored position or highlight is applied only while the text at its CFI still reads as its saved quote
-(`foldText`); otherwise it is reported in `restored` and left out, never drawn elsewhere.
+(`foldText`); otherwise it is reported in `restored` and left out, never drawn elsewhere. Stored items with no
+quote at all are dropped when the entry is read. `highlightSelection()` before `restored` is ignored with a
+`log` of level `warn`: there is no entry to add to yet, and saving then would overwrite the stored one.
+
+## Host responsibilities
+
+- A **fresh random nonce per load** into `v2ReaderPageHtml(nonce)`; the length check is not an entropy check, so the host picks the source of randomness (R2).
+- **Keep every `store` payload verbatim** under its `key`, and hand the same JSON back to `restore`. Lower-case hex keys: `sha256()` emits lower case and the key is compared byte for byte.
+- **Serialise library writes.** `library.mjs` is pure; two concurrent imports writing `library.json` can still lose one (R2).
+- `build.mjs` resets tracked files in `.vendor/foliate-js` but does not prune untracked ones; delete `.vendor/` if that tree was touched by hand (R2).
 
 **WebView, dev route only** (prototype host; ADR-029 Decision 4 until the R4 security review):
 `source={{ html: v2ReaderPageHtml(nonce), baseUrl: <app documents dir> }}`, `allowFileAccess`,

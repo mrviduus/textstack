@@ -8,6 +8,7 @@ import { EPUB } from './.vendor/foliate-js/epub.js'
 import { BlobReader, BlobWriter, TextWriter, ZipReader, configure } from './.vendor/foliate-js/vendor/zip.js'
 import { tokenizeVocabWords } from '../../../../../packages/shared/src/text/vocabKey'
 import { rangeToLocator } from '../../../../../packages/reader-engine/src/text'
+import { createSaveScheduler } from './saveScheduler.mjs'
 import { emptyEntry, entryFor, foldText, sha1, sha256, withHighlight, withPosition } from './store.mjs'
 
 const post = (m) => window.ReactNativeWebView?.postMessage(JSON.stringify(m))
@@ -25,7 +26,7 @@ let book = null
 let entry = null
 let restoring = false
 let lastSelection = null
-let saveTimer = 0
+const saves = createSaveScheduler(post)
 
 // Our reader's own look: generous line-height leaves room above a word for its label.
 const css = () => `html, body { font-size: ${fontPx}px !important; line-height: 1.7 !important; }`
@@ -114,10 +115,9 @@ const navigate = (fn) => (navigating = navigating.then(fn).catch((e) => log('err
 
 const flat = (items) => items.flatMap((t) => [{ label: t.label?.trim(), href: t.href }, ...flat(t.subitems ?? [])])
 
-/** Saves the entry through the host (debounced for positions: relocate fires on every scroll). */
+/** Saves the entry through the host. Addressed to the book it is called for, not the one open later. */
 function persist(delay = 0) {
-  clearTimeout(saveTimer)
-  saveTimer = setTimeout(() => post({ type: 'store', key: book.sha256, json: JSON.stringify(entry) }), delay)
+  saves.save(book.sha256, JSON.stringify(entry), delay)
 }
 
 function annotate(a) {
@@ -144,6 +144,8 @@ const text = (v) => (typeof v === 'string' ? v : v && typeof v === 'object' ? St
 const firstAuthor = (m) => { const a = [].concat(m?.author ?? [])[0]; return a?.name ?? a }
 
 async function open(bytes, name) {
+  // Nothing of the previous book may land on this one; its entry is gone with the next line.
+  saves.cancel()
   book = { sha256: sha256(bytes), size: bytes.length, name }
   entry = null
   restoring = true
@@ -233,6 +235,8 @@ async function restore(json) {
 function highlightSelection() {
   const s = lastSelection
   if (!s || s.range.collapsed) return null
+  // Before `restored` there is nothing to add to, and saving now would overwrite the stored entry.
+  if (!entry) return log('warn', 'highlightSelection ignored: the stored entry is not restored yet')
   const loc = rangeToLocator(s.doc.body, s.range, String(s.index))
   const h = {
     id: `h${Date.now().toString(36)}`, cfi: view.getCFI(s.index, s.range), index: s.index,
@@ -281,8 +285,5 @@ window.__fol = {
   /** The host answers a `word` with its translation; drawn above that word. */
   showTranslation: (cfi, index, text) => view && annotate({ value: cfi, index, text }),
 }
-
-/** For the test-only entry (repro.mjs); the production bundle drops this export. */
-export const currentView = () => view
 
 post({ type: 'ready' })
