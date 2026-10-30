@@ -46,8 +46,9 @@ origin to book content, so it cannot inherit the production reader's safety argu
 ## Decision
 
 1. **V2 local EPUBs render with foliate-js.** One iframe per section, paginated layout, positions as
-   CFI stored in ADR-031's `epub-cfi` envelope (`{"version":1,"scheme":"epub-cfi","value":…}`), with
-   the fraction beside it because CFIs do not sort. The schemes are defined in ADR-031 §"Locator
+   CFI stored in ADR-031's `epub-cfi` envelope (`{"version":1,"scheme":"epub-cfi","value":…}`; the
+   envelope had no field for the prototype's quote check — resolved: ADR-031 `epub-cfi` carries
+   `quote` since 2026-10-30), with the fraction beside it because CFIs do not sort. The schemes are defined in ADR-031 §"Locator
    schemes"; this ADR does not redefine them.
 2. **Pin, patch, attribute.** foliate-js is pinned by commit SHA, not a branch or tag. The bundle is
    built from that SHA with every `patches/*.patch` applied on every build; a patch that no longer

@@ -1,6 +1,6 @@
 # ADR-031 — V2 schema: textstack_v2
 
-**Status:** Proposed · **Date:** 2026-10-30 · **Plan:** [v2-plan.md](../v2-plan.md) §4 · **Builds on:** [ADR-030](ADR-030-two-databases-one-cutover.md), ADR-026, ADR-028 · **Keeps:** ADR-014 (guest sessions), ADR-016 (chapter review in book_insight) · **Adopts:** [v2-library-draft.sql](../v2-library-draft.sql) with the deltas below
+**Status:** Proposed · **Date:** 2026-10-30 (decisions appended 2026-10-30) · **Plan:** [v2-plan.md](../v2-plan.md) §4 · **Builds on:** [ADR-030](ADR-030-two-databases-one-cutover.md), ADR-026, ADR-028 · **Keeps:** ADR-014 (guest sessions), ADR-016 (chapter review in book_insight) · **Adopts:** [v2-library-draft.sql](../v2-library-draft.sql) with the deltas below
 
 ## Context
 
@@ -33,8 +33,8 @@ with a written sunset; **Q3** retire collections; **Q5** keep guest sessions (AD
    `vocabulary_words.deleted_at`. Everything else hard-deletes.
 5. **Idempotency on every replayable write**: `operation_id` unique per user; `revision` guards
    last-writer-wins (stale → 409).
-6. **Locators are envelopes** `{"version":1,"scheme":…,"value":…}` (schemes below). SQL checks the
-   shape; the application validates the content.
+6. **Locators are envelopes** `{"version":1,"scheme":…,"value":…}` (schemes below; `epub-cfi` adds
+   `quote`). SQL checks the shape; the application validates the content.
 7. **Enums are `text` + CHECK; times are `timestamptz`.** `created_at`/`updated_at` are set by the
    repository — no triggers.
 8. **No JSON for anything queried by.** JSON only for opaque client payloads (locators, checkpoint
@@ -53,7 +53,7 @@ shape minus `site_id` plus the delta shown.
 
 | Module | Table | A row is | Key / unique / FK essentials | Delta |
 |---|---|---|---|---|
-| Identity | `users` | an account: reader, guest (ADR-014) or staff | PK `id`; `email`, `google_subject`, `apple_subject`, `is_guest`, `tier`, `native_language` as legacy | legacy + **`role text NOT NULL DEFAULT 'reader' CHECK (role IN ('reader','admin'))`** |
+| Identity | `users` | an account: reader, guest (ADR-014) or staff | PK `id`; `email`, `google_subject`, `apple_subject`, `is_guest`, `tier`, `native_language` as legacy | legacy + **`role text NOT NULL DEFAULT 'reader' CHECK (role IN ('reader','admin'))`**; `admin_users` fold in by email (decided item 7) |
 | | `user_refresh_tokens` | a session | FK `user_id` → `users` CASCADE; `token_hash`, `previous_token_hash` (reuse detection) | legacy; **admin sessions are rows here** (`admin_refresh_tokens` gone) |
 | | `password_reset_tokens` | a reset code | FK `user_id` CASCADE | legacy |
 | | `oauth_clients` | a registered MCP client (ADR-017) | PK `id`, unique `client_id` | legacy; not user-owned |
@@ -61,14 +61,14 @@ shape minus `site_id` plus the delta shown.
 | | `oauth_grants` | an MCP OAuth token pair | FK `user_id` CASCADE | legacy |
 | | `device_authorizations` | a device-flow login attempt | `user_id` nullable FK CASCADE | legacy |
 | | `mcp_access_keys` | a `tsk_…` connect key | FK `user_id` CASCADE; `key_hash` | legacy minus `site_id`; kept until explicitly retired |
-| Library | `books` | a library entry | PK `id`, `UNIQUE (user_id, id)`; `removed_at`; `checkpoint_saving_enabled` | draft + **`origin jsonb NOT NULL`** (`{"kind":"upload"}` / `{"kind":"catalog","editionSlug":…}`; hidden provenance) + **`cover_key text`** (relative key on the volume) |
-| | `book_files` | an exact file version | FK `(user_id, book_id)` → `books`; `UNIQUE (user_id, book_id, id)`; one `is_current` per book (partial unique); `sha256` lowercase hex | draft + **`format CHECK (format IN ('epub','pdf'))`** (draft: epub only; 22+ PDF uploads exist); `server_storage_key` = relative path |
-| Reading | `reading_state` | the accepted state for one book | PK `(user_id, book_id)`; FK `(user_id, book_id, file_id)` → `book_files`; `revision`; frontier pair | draft |
+| Library | `books` | a library entry | PK `id`, `UNIQUE (user_id, id)`; `removed_at`; `checkpoint_saving_enabled` | draft + **`origin jsonb NOT NULL`** (`{"kind":"upload"}` / `{"kind":"catalog","editionSlug":…}` / `{"kind":"clip","sourceUrl":…}`; hidden provenance) + **`cover_key text`** (relative key on the volume) + **`tags text[] NOT NULL DEFAULT '{}'`**, **`description text`**, **`genre text`**, **`published_year int`** (carried from `user_books`, decided item 3) |
+| | `book_files` | an exact file version | FK `(user_id, book_id)` → `books`; `UNIQUE (user_id, book_id, id)`; one `is_current` per book (partial unique); `sha256` lowercase hex | draft + **`format CHECK (format IN ('epub','pdf','html'))`** (draft: epub only; 22+ PDF uploads exist; `html` = clips, decided item 1) + **`page_count int`**, **`toc jsonb`** (both nullable, from `user_books`); `server_storage_key` = relative path. A legacy file with null `sha256` is hashed from disk; a missing file means no row (decided item 2) |
+| Reading | `reading_state` | the accepted state for one book | PK `(user_id, book_id)`; FK `(user_id, book_id, file_id)` → `book_files`; `revision`; frontier pair | draft; legacy `is_read`/`read_at` → `completed_at`; scroll-only legacy progress keeps its chapter (decided item 5) |
 | | `reading_sessions` | a reading interval | FK `user_id` CASCADE; **`UNIQUE (user_id, client_session_id)`** | legacy reshaped: **`book_id` nullable** (deleted-book trail kept, still counted), replaces `edition_id`/`user_book_id`; `duration_seconds`, `words_read`, `start/end_percent` kept |
 | Annotations | `annotations` | a highlight + note, or an unanchored quotation | FK `(user_id, book_id)` CASCADE; `(user_id, book_id, file_id)` deferred; `locator` requires `file_id` | draft |
-| Vocabulary | `vocabulary_words` | one card per owner/language/word_key | `UNIQUE (user_id, language, word_key)` incl. tombstones; due index | draft — i.e. **no `embedding`, cluster, tutor, distractor or zipf columns** (D6) |
-| | `vocabulary_examples` | a source sentence for a card | FK `(user_id, word_id)` CASCADE; `UNIQUE (user_id, operation_id)`; `book_title` snapshot | draft |
-| | `vocabulary_reviews` | one answer | FK `(user_id, word_id)` CASCADE; `UNIQUE (user_id, operation_id)` | draft |
+| Vocabulary | `vocabulary_words` | one card per owner/language/word_key | `UNIQUE (user_id, language, word_key)` incl. tombstones; due index | draft — i.e. **no `embedding`, cluster, tutor, distractor or zipf columns** (D6), and no `total_reviews`/`correct_reviews` (derived from `vocabulary_reviews`). Case variants merge on `word_key`; `is_retired`/`retired_at` → `deleted_at` (decided item 4) |
+| | `vocabulary_examples` | a source sentence for a card | FK `(user_id, word_id)` CASCADE; `UNIQUE (user_id, operation_id)`; `book_title` snapshot | draft; migrated `payload_sha256` per decided item 4 |
+| | `vocabulary_reviews` | one answer | FK `(user_id, word_id)` CASCADE; `UNIQUE (user_id, operation_id)` | draft; migrated `payload_sha256` per decided item 4 |
 | Discussion | `shared_chapters` | an explicit, immutable chapter snapshot for MCP | `UNIQUE (user_id, book_id, id)`, `UNIQUE (user_id, operation_id)` | draft |
 | | `discussion_checkpoints` | one saved stage of a discussion | `UNIQUE (user_id, operation_id)`; optional share link (deferred) | draft |
 | | `book_insight` | an assistant conclusion or a chapter review (ADR-016) | one row per `(user_id, book_id, chapter_slug)` `NULLS NOT DISTINCT`; FK `(user_id, book_id)` → `books` CASCADE | legacy reshaped: **single `book_id`** replaces `edition_id`/`user_book_id` and `ck_book_insight_target`; `review_json` kept |
@@ -77,7 +77,7 @@ shape minus `site_id` plus the delta shown.
 | | `agent_run` | one agent run and its steps | `user_id` nullable FK CASCADE | legacy **minus `edition_id`** |
 | | `eval_runs` | one eval score | — | legacy |
 | | `admin_settings` | one runtime knob edited from the admin panel | PK `key` | legacy (Q6: kept; moving it to config makes every tweak a deploy) |
-| **Transitional** | `book_chapters` | a server-extracted chapter of one file version | `(id, user_id, book_id, file_id, chapter_key, chapter_number, title, html, plain_text, word_count, source_start_page, source_end_page, created_at)`; composite FK `(user_id, book_id, file_id)` → `book_files` CASCADE; `UNIQUE (user_id, file_id, chapter_key)` | from `user_chapters`, keyed by **file version**, not book. `chapter_number` orders, never displays |
+| **Transitional** | `book_chapters` | a server-extracted chapter of one file version | `(id, user_id, book_id, file_id, chapter_key, chapter_number, title, html, plain_text, word_count, source_start_page, source_end_page, created_at)`; composite FK `(user_id, book_id, file_id)` → `book_files` CASCADE; `UNIQUE (user_id, file_id, chapter_key)` | from `user_chapters`, keyed by **file version**, not book. `chapter_key = COALESCE(slug, 'ch-' \|\| chapter_number)` (decided item 6). `chapter_number` orders, never displays |
 | | `ingestion_jobs` | a server extraction job for one uploaded file | FK `(user_id, book_id, file_id)` → `book_files` CASCADE; `status text` CHECK | from `user_ingestion_jobs` (legacy `ingestion_jobs` is the catalog queue — name reused, see disposition) |
 
 Both transitional tables carry this `COMMENT ON TABLE`: *"Transitional. Dropped at M6.4 once the V2
@@ -93,13 +93,16 @@ Allowed in `reading_state.current_locator` / `frontier_locator` and `annotations
 
 | Scheme | `value` | Written by |
 |---|---|---|
-| `epub-cfi` | an `epubcfi(...)` string | the V2 EPUB reader (ADR-029, R0); CFIs are not sortable, so fractions sit beside them |
+| `epub-cfi` | an `epubcfi(...)` string, plus a sibling **`quote`**: the first ≤64 characters of text at the CFI — `{"version":1,"scheme":"epub-cfi","value":"epubcfi(...)","quote":"…"}`. `quote` is **required** in `reading_state.current_locator` (resume restores only if the text at the CFI still starts with it) and **optional** in `annotations.locator` (annotations carry `selected_text`) | the V2 EPUB reader (ADR-029, R0); CFIs are not sortable, so fractions sit beside them |
 | `pdf-page` | position: `{"page":N}` (1-based). Annotation: legacy `PdfAnchor` `{page, rects:[{x,y,w,h}], exact}`, page-relative unscaled rects (`pdfHighlightAnchor.ts`) | the PDF viewer; ETL from legacy `page:<n>` progress and `kind:'pdf'` highlights |
-| `textstack-position-v1` | legacy `TextPosition` `{chapterSlug, anchor:{prefix,exact,suffix,startOffset,endOffset}, charOffset, chapterFraction}` — a 64-char quote with 30 chars of context each side; offsets are hints (`textPosition.ts`) | ETL from `user_books.progress_position_json`; resolves only against `book_chapters` |
+| `textstack-position-v1` | legacy `TextPosition` `{chapterSlug, anchor:{prefix,exact,suffix,startOffset,endOffset}, charOffset, chapterFraction}` — a 64-char quote with 30 chars of context each side; offsets are hints (`textPosition.ts`) | ETL from `user_books.progress_position_json`, or from a scroll-only locator as `{chapterSlug, chapterFraction}` with no `anchor` (decided item 5); resolves only against `book_chapters` |
 | `textstack-anchor-v1` | legacy `TextAnchor` `{chapterKey, prefix, exact, suffix, startOffset, endOffset}` — `chapterKey` is the chapter slug (legacy `chapterId` replaced; ids change on re-ingest) (`textAnchor.ts`) | ETL from reflow `highlights.anchor_json` on uploads |
 
 The two `textstack-*` schemes exist only for migrated rows and the transitional reader; no V2
 writer produces them.
+
+`quote` on `epub-cfi` (added 2026-10-30) resolves ADR-029's contradiction 1: its position model
+verifies a 64-character quote at the CFI, which the envelope as first written could not store.
 
 ## Decision — disposition of every legacy table
 
@@ -131,7 +134,7 @@ Numbering and rows (2026-10-26) from [data-model.md](../data-model.md). "Archive
 | 21 | ~~`ssg_rebuild_results`~~ | — | already dropped (`0006`) | |
 | 22 | `users` | 357 | → `users` | every column; `role = 'reader'`; guests stay guests |
 | 23 | `user_refresh_tokens` | 170 | → `user_refresh_tokens` | sessions survive the cutover |
-| 24 | `admin_users` | 1 | → `users` (reshaped) | `role = 'admin'` (legacy int `Admin/Editor/Moderator` collapses) |
+| 24 | `admin_users` | 1 | → `users` (reshaped) | matched by email (case-insensitive) or inserted with its `password_hash`; `role = 'admin'` (legacy `Admin/Editor/Moderator` all collapse) |
 | 25 | `admin_refresh_tokens` | 0 | → `user_refresh_tokens` (reshaped) | shape folded; nothing to copy |
 | 26 | `password_reset_tokens` | 0 | → `password_reset_tokens` | |
 | 27 | `device_authorizations` | 4 | → `device_authorizations` | |
@@ -140,9 +143,9 @@ Numbering and rows (2026-10-26) from [data-model.md](../data-model.md). "Archive
 | 30 | `oauth_grants` | 3 | → `oauth_grants` | MCP connections survive |
 | 31 | `mcp_access_keys` | 1 | → `mcp_access_keys` | minus `site_id` |
 | 32 | `admin_settings` | 6 | → `admin_settings` | |
-| 33 | `user_books` | 96 | → `books` (reshaped) | same id; title, author, language, cover → `cover_key`, `origin {"kind":"upload"}`; `progress_*` → `reading_state` |
-| 34 | `user_chapters` | 2,710 | transitional → `book_chapters` | keyed to the book's one file; `slug` → `chapter_key`; generated `search_vector` not carried |
-| 35 | `user_book_files` | 96 | → `book_files` (reshaped) | same id, `sha256` kept; `storage_path` → `server_storage_key`; int `format` → text |
+| 33 | `user_books` | 96 | → `books` (reshaped) | same id; title, author, language, cover → `cover_key`, `origin {"kind":"upload"}` (clips `{"kind":"clip","sourceUrl":…}`); `tags`, `description`, `genre`, `published_year` kept; `page_count`, `toc_json` → `book_files`; `progress_*`, `is_read`/`read_at` → `reading_state` |
+| 34 | `user_chapters` | 2,710 | transitional → `book_chapters` | keyed to the book's one file; `slug` → `chapter_key` (null → `'ch-' \|\| chapter_number`); generated `search_vector` not carried |
+| 35 | `user_book_files` | 96 | → `book_files` (reshaped) | same id, `sha256` kept (null → hashed from disk; file missing → no row); `storage_path` → `server_storage_key`; int `format` → text (`Html` → `html`) |
 | 36 | `user_ingestion_jobs` | 100 | transitional → `ingestion_jobs` | int status → text |
 | 37 | `user_book_bookmarks` | 18 | retired (data archived only) | D6 |
 | 38 | `user_libraries` | 246 | → `books` (reshaped) | catalog pairs (D5): `uuid_v5` id, no file, `origin {"kind":"catalog",…}` |
@@ -157,7 +160,7 @@ Numbering and rows (2026-10-26) from [data-model.md](../data-model.md). "Archive
 | 47 | `user_achievements` | 154 | retired (data archived only) | D6 |
 | 48 | `book_insight` | 7 | → `book_insight` (reshaped) | `edition_id`/`user_book_id` → `book_id`; text, question, source, `review_json` kept |
 | 49 | `review_question` | 11 | → `review_question` | SRS state kept |
-| 50 | `vocabulary_words` | 1,824 | → `vocabulary_words` (reshaped) | word, translation, definition, stage, interval, `consecutive_correct`, next/last review; legacy `sentence` + `book_title` + book → one `vocabulary_examples` row |
+| 50 | `vocabulary_words` | 1,824 | → `vocabulary_words` (reshaped) | word, translation, definition, stage, interval, `consecutive_correct`, next/last review; legacy `sentence` + `book_title` + book → one `vocabulary_examples` row; case variants merged (decided item 4) |
 | 51 | `vocabulary_reviews` | 461 | → `vocabulary_reviews` | `operation_id = uuid_v5(legacy id)`; `client_recorded_at = created_at` |
 | 52 | `user_vocabulary_settings` | 0 | retired (never had durable data) | D6 |
 | 53 | `pending_vocabulary_words` | 0 | retired (never had durable data) | D6 |
@@ -190,6 +193,9 @@ and can be read back from it; none is silently lost.
 | `collections`, `book_collections` | Q3: 3 rows, polymorphic `book_id` with no FK |
 | `models`, `model_promotions` | D7: configuration (`Ai:Routes`) |
 | `book_quality_jobs` | catalog/PDF quality pipeline, not part of V2 |
+| `user_books.takedown_at`/`takedown_reason`, metadata-enrichment status fields, `total_word_count`, `seo_source`, `suggested_tags*` | decided item 3: catalog/SEO/enrichment machinery, not library data |
+| `vocabulary_words.total_reviews`/`correct_reviews` | decided item 4: derived from `vocabulary_reviews` |
+| The losing card of a case-variant vocabulary merge (its SRS state) | decided item 4: its examples and reviews move to the survivor |
 | All catalog, SEO and SSG content (#1–#20) | D3: the public catalog is retired within V2 |
 
 ## Consequences
@@ -237,28 +243,39 @@ Mechanical (M1.1):
 - `/health/ready`, `health-check.yml`, `backup.yml`, the pre-deploy dump, `make backup` and
   `restore-drill.yml` must cover both databases before V2 holds anything worth keeping (ADR-030).
 
-Substantive — found reading the legacy DDL; **not resolved here, owner or slice decides**:
-1. **Clips are HTML.** Clips are `user_books` with `is_clip = true` and a `user_book_files` row of
-   format `Html` (`UserBookService.ClipAsync`). `CHECK (format IN ('epub','pdf'))` rejects them.
-   Add `'html'`, or retire clips — and their `source_url` — explicitly.
-2. **`user_book_files.sha256` is nullable** in legacy; V2 is `NOT NULL` lowercase hex. The ETL must
-   hash any null row from the bytes on disk, or fail that book loudly.
-3. **`user_books` columns the draft has no home for**: `tags` (live; plan Q3 treats `books.tags`
-   as hypothetical), `takedown_at`/`takedown_reason`, `description`, `genre`, `published_year`,
-   `page_count`, `total_word_count`, `toc_json`, `is_read`/`read_at` vs `completed_at`, metadata
-   enrichment fields. Each needs carry-or-retire before M3.2.
-4. **`vocabulary_words` → `word_key` collisions.** Legacy uniqueness is `(user, site, word,
-   language)`, case-sensitive; V2 is `(user, language, word_key)` with lowercased keys. Case
-   variants must merge (which SRS state wins?). Also undecided: `is_retired`/`retired_at` (→
-   `deleted_at`, or active?), `total_reviews`/`correct_reviews` (not in draft; differ from the review
-   count?), and `vocabulary_reviews.payload_sha256` (`NOT NULL`, no legacy source; ETL must define it).
-5. **Uploads progress without `progress_position_json`** (only a `scroll:<slug>:<px>` locator) has
-   no truthful locator, and `current_locator` is `NOT NULL`: no `reading_state` row, or a
-   fraction-only envelope? Rule needed before M3.2.
-6. **`user_chapters.slug` is nullable**; `book_chapters.chapter_key` and both `textstack-*`
-   schemes depend on it. ETL needs a fallback key rule.
-7. **`admin_users` → `users`**: match by email to an existing reader (set `role`) or create a row
-   with the admin's `password_hash`; legacy Editor/Moderator roles have no V2 equivalent.
+## Decided 2026-10-30 (were open items 1–7)
+
+Owner decisions on the substantive items found reading the legacy DDL. The table rows above carry
+the schema deltas; these are the ETL rules M3 implements and validates.
+
+1. **Clips stay, as HTML.** `book_files.format CHECK (format IN ('epub','pdf','html'))`. Clips
+   (`user_books.is_clip`, `user_book_files` format `Html`, `UserBookService.ClipAsync`) migrate as
+   they are; `source_url` moves to `books.origin` as `{"kind":"clip","sourceUrl":…}`.
+2. **Null `sha256` → hash the bytes on disk.** If the file is missing, the book migrates **without a
+   `book_files` row** — the same state as a catalog book ("file not imported") — and is listed in
+   the ETL report. Never a hard failure.
+3. **Orphan `user_books` columns.** Carried: `tags` → `books.tags text[] NOT NULL DEFAULT '{}'`;
+   `description`, `genre`, `published_year` → nullable `books` columns (text, text, int);
+   `page_count` → `book_files.page_count int`; `toc_json` → `book_files.toc jsonb` (both nullable);
+   `is_read`/`read_at` fold into `reading_state.completed_at`. Retired (archive only):
+   `takedown_at`, `takedown_reason`, the metadata-enrichment status fields, `total_word_count`,
+   `seo_source`, `suggested_tags*`.
+4. **Vocabulary case merge.** Legacy cards that collapse onto one `(user_id, language, word_key)`
+   merge: the survivor is the card with the higher `total_reviews`, tie → newer `updated_at`; the
+   examples and reviews of both attach to it; `word` keeps the survivor's spelling.
+   `is_retired`/`retired_at` → `deleted_at`. `total_reviews`/`correct_reviews` are not stored —
+   derived from `vocabulary_reviews`. For migrated rows, `vocabulary_reviews.payload_sha256` and
+   `vocabulary_examples.payload_sha256` = lowercase-hex sha256 of the **canonical JSON** of the
+   migrated payload: keys sorted, UTF-8, no insignificant whitespace.
+5. **Scroll-only upload progress is kept.** A `scroll:<slug>:<px>` locator with no
+   `progress_position_json` becomes a `reading_state` row with `textstack-position-v1` carrying
+   `chapterSlug` and `chapterFraction` only, no `anchor`; the row's `book_fraction` column comes
+   from the legacy progress. The chapter is never dropped.
+6. **Chapter-key fallback.** `book_chapters.chapter_key = COALESCE(slug, 'ch-' || chapter_number)`;
+   the same fallback applies wherever a legacy chapter is referenced from annotations or examples.
+7. **`admin_users` → `users` by email.** Match case-insensitively on email to an existing user and
+   set `role = 'admin'`; no match → insert a `users` row with the admin's `password_hash`. Legacy
+   Editor/Moderator map to `admin` (production has one admin).
 
 Related: [v2-plan.md](../v2-plan.md) · [ADR-030](ADR-030-two-databases-one-cutover.md) ·
 [ADR-028](ADR-028-dapper-and-repositories.md) · [ADR-026](ADR-026-sql-first-migrations.md) ·
