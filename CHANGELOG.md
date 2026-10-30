@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Infra** — `textstack_v2` is created with the ICU collation provider (`und`) from `template0`, so a base-image bump can no longer silently re-sort its text indexes the way it did to the legacy cluster (#1056) — infra · [details](docs/changelog-archive/2026-H2.md#2026-10-30-v2-sorts-by-icu)
 - **Observability** — `/health/ready` reports a `collation` component and `health-check.yml` alarms on drift: a `db` image digest bump can move glibc under a live cluster, and Postgres only mentions the mismatch as a log WARNING; Dependabot no longer bumps that image at all (#1056) — backend, infra · [details](docs/changelog-archive/2026-H2.md#2026-10-30-collation-drift-is-visible)
 - **Mobile** — the V2 reader page: foliate-js (pinned, one patch) built into a committed, drift-checked artifact with a host-supplied CSP nonce; pure modules for the local library, store and save scheduling. No route ships it yet (#1033) — mobile, infra · [details](docs/changelog-archive/2026-H2.md#2026-10-30-v2-reader-page-core)
 - **Ops** — `migrator-v2` no longer gates `api`/`worker`: it moves behind compose profile `v2`, because nothing reads `textstack_v2` yet and a V2 migrator that cannot create its database took the API down (#1057) — infra · [**postmortem**](docs/incidents/2026-10-30-migrator-v2-took-down-the-api.md)

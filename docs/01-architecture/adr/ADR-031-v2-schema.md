@@ -43,6 +43,14 @@ with a written sunset; **Q3** retire collections; **Q5** keep guest sessions (AD
    `DEFERRABLE INITIALLY DEFERRED`; tests end with `SET CONSTRAINTS ALL IMMEDIATE`.
 10. **`database/v2/migrations/0000_baseline.up.sql` reads top to bottom**, grouped by module, each
     table preceded by a 1–3 line comment. `data-model.md` mirrors it. No `site_id` anywhere (ADR-007).
+11. **Text sorts by ICU, not by the host's glibc** (added 2026-10-30). The database is created from
+    `template0` with `LOCALE_PROVIDER icu ICU_LOCALE 'und'`. The server default would let a base-image
+    bump silently re-sort every text index — the legacy cluster has been in that state since its own
+    initdb ([#1056](https://github.com/mrviduus/textstack/issues/1056),
+    [postmortem](../../incidents/2026-10-30-migrator-v2-took-down-the-api.md)). ICU's version travels
+    with the image, which is digest-pinned and no longer bumped automatically, and `und` orders text
+    exactly as the `en_US.utf8` it replaces. Changing this later is a dump and restore, which is why
+    it is settled while V2 is empty.
 
 ## Decision — tables
 
