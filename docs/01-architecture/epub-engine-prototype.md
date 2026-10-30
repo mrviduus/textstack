@@ -125,7 +125,10 @@ ADR-029 Decision 6, run by an agent on emulators; the physical device is the own
   `apps/mobile/src/lib/v2reader/bigbook.mjs` with 102 generated PNG plates (1200×1600 RGB: diagonal bands plus 6
   noisy bits per channel so they do not compress away), each a manifest item with an `<img>` in its own spine
   section → 87,278,407 B (sha256 `314d6bff…77739f78` for R4's file; zip timestamps change the hash per run). Plate 1
-  rendered as section 4/117 (screenshot checked); the cover and the book's own plates render.
+  rendered as section 4/117 (screenshot checked); the cover and the book's own plates render. R4's run had a PRNG
+  overflow whose short noise period made a plate ~0.85 MB compressed; the committed tool fixes the PRNG and keeps
+  that shape on purpose with `NOISE_ROWS = 8` (fresh noise every 8th row), so MB=88 again gives ~100 plates of
+  ~0.85 MB (on a 1-section book: 110 plates, 93,056,601 B) rather than 17 of ~5.5 MB.
 - **Steps.** `node apps/mobile/src/lib/v2reader/bigbook.mjs pg28885.epub apps/mobile/src/lib/v2reader/fixtures/alice-80mb.epub`
   → `adb push … /sdcard/Download/` → dev route → Pick EPUB → Downloads → the book, with
   `adb logcat -v epoch -s ReactNativeJS:*`. Read to section 5 (stored `store/<sha256>.json` checked with
@@ -234,9 +237,9 @@ route until then. The owner decides (ADR-029 Decision 4).
 1. **Orphan retained copy** (medium): `addOpened` moves `staging/x` → `books/<sha256>.epub`, then the `library.json`
    write fails → the copy stays with no entry, invisible, uncounted and never cleaned (point C). **Fixed in this PR
    (`hostStorage.ts`)**: an error after this call's move removes that copy and rethrows; an adopted copy stays, and
-   so does one a complete `library.json.tmp` lists (a failed move of the library keeps that tmp, which
-   `readRecovering` reads). A kill between move and entry still leaves a copy the next import adopts (by design); no
-   start-up sweep. A failed import also clears the screen's staged open. Tests
+   so does any copy the library lists as `books()` reads it (e.g. a complete `library.json.tmp` a failed move kept). A kill between move and entry still leaves a copy the next import adopts (by design); no
+   start-up sweep here: sweeping `books/`, `store/` and `.tmp` files `library.json` does not list is #1070's (R6
+   storage accounting needs the same `list()`), not R4a's. A failed import also clears the screen's staged open. Tests
    `addOpened_LibraryWriteFailsAfterTheMove_RemovesTheRetainedCopyAndRethrows`,
    `addOpened_LibraryWriteFailsForAnAdoptedCopy_KeepsTheCopy`,
    `addOpened_FirstImportLibraryMoveFails_KeepsTheCopyTheRecoveredEntryNames`,
