@@ -143,15 +143,7 @@ public class ReadingStateRepositoryTests(V2PostgresFixture db)
         var firstWrite = _repo.AdvanceAsync(user, book, At(file, 3), null, Ct);
         // Commit only once the write is blocked on the file row: without FOR SHARE it never blocks,
         // commits on the superseded file, and the assertions below fail.
-        await using (var observer = await db.DataSource.OpenConnectionAsync(Ct))
-            for (var waited = 0; waited < 5000 && !firstWrite.IsCompleted; waited += 10)
-            {
-                if (await observer.ExecuteScalarAsync<bool>(new CommandDefinition(
-                        "SELECT EXISTS (SELECT FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock')",
-                        cancellationToken: Ct)))
-                    break;
-                await Task.Delay(10, Ct);
-            }
+        await db.WaitUntilBlockedByAsync(conn, firstWrite);
         await replacement.CommitAsync(Ct);
 
         Assert.False((await firstWrite).Accepted);

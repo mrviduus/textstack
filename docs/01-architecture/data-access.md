@@ -55,6 +55,7 @@ Dependency rule unchanged: Api → Application → Domain ← Infrastructure.
 11. **Types.** `jsonb` parameters are cast in SQL (`CAST(@x AS jsonb)`) and read back as `string`;
     `timestamptz` maps to `DateTimeOffset` (UTC). Add a type handler only when a mapping actually
     fails. One is registered (`DataSource.ConfigureDapper`): `DateTimeOffset` parameters are written
-    as UTC, because Npgsql throws on a non-zero offset and client times arrive with one.
+    as UTC, because Npgsql throws on a non-zero offset and client times arrive with one. It covers
+    scalar parameters, not arrays: convert array elements yourself (as `ReplaceForInsightAsync` does).
 12. **No EF navigation into a ported table.** A join through one becomes a second query through the
     repository.

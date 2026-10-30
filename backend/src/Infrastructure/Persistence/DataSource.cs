@@ -2,6 +2,7 @@ using System.Data;
 using System.Runtime.CompilerServices;
 using Application.Annotations;
 using Application.Common.Interfaces;
+using Application.Discussion;
 using Application.Library;
 using Application.Reading;
 using Application.Vocabulary;
@@ -72,5 +73,9 @@ public static class DataSource
             .AddSingleton<ILibraryRepository, LibraryRepository>()
             .AddSingleton<IReadingStateRepository, ReadingStateRepository>()
             .AddSingleton<IAnnotationRepository, AnnotationRepository>()
-            .AddSingleton<IVocabularyRepository, VocabularyRepository>();
+            .AddSingleton<IVocabularyRepository, VocabularyRepository>()
+            .AddSingleton<ISharedChapterRepository, SharedChapterRepository>()
+            .AddSingleton<ICheckpointRepository, CheckpointRepository>()
+            .AddSingleton<IBookInsightRepository, BookInsightRepository>()
+            .AddSingleton<IReviewQuestionRepository, ReviewQuestionRepository>();
 }

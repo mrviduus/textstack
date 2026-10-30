@@ -697,6 +697,14 @@ metadata import is M2.2's, only the bytes are M2.6's. #1067 (explicit V2 transac
    Also an index `annotations (user_id, book_id, created_at, id) WHERE deleted_at IS NULL` for
    `ListForBookAsync`'s order: today's `(user_id, book_id)` covers neither the order nor the tombstone
    filter.
+   The same migration also takes three Discussion fixes found in M1.4:
+   - `fk_discussion_checkpoints_shared_chapters_shared_chapter_id` gains
+     `ON DELETE SET NULL (shared_chapter_id)`; `SharedChapterRepository.DeleteAsync` is then one
+     `DELETE`, without the unlink and its two locks.
+   - `ix_review_question_book_insight_id_prompt_hash` is re-keyed `(user_id, book_insight_id,
+     prompt_hash)`, so ownership is in the key (ADR-031 rule 2).
+   - `book_insight` gains `CHECK (review_json IS NULL OR chapter_slug IS NOT NULL)`: a review is
+     always of one chapter (ADR-016), which today only the repository enforces.
 - **2.** `ImportAsync` replay-safe (#1065, **scope widened**): the book is the user's and the import's
    `file.id` is any version of it → return the stored book; anything else under that id →
    `id_conflict`. The sha256 check and the insert run under
