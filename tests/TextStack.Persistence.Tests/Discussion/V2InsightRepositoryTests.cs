@@ -39,6 +39,17 @@ public class V2InsightRepositoryTests(V2PostgresFixture db)
     }
 
     [Fact]
+    public async Task SaveAsync_TakenSlot_ReplacesTheQuestion()
+    {
+        var book = await db.NewReaderWithBookAsync();
+        await _repo.SaveAsync(NewInsight(book, "ch-1"), Ct);
+        var again = NewInsight(book, "ch-1");
+        again.Question = "a new question";
+
+        Assert.Equal("a new question", (await _repo.SaveAsync(again, Ct))!.Question);
+    }
+
+    [Fact]
     public async Task SaveAsync_SlotHoldsReview_ReturnsNullAndKeepsTheReview()
     {
         var book = await db.NewReaderWithBookAsync();
@@ -61,6 +72,27 @@ public class V2InsightRepositoryTests(V2PostgresFixture db)
         Assert.Equal(plain.Id, review.Id);
         var row = Assert.Single(await _repo.ListForBookAsync(book.UserId, book.Id, Ct));
         Assert.Equal((plain.Id, "review", "{}"), (row.Id, row.Text, row.ReviewJson));
+    }
+
+    [Fact]
+    public async Task SaveReviewAsync_NoReviewJson_ThrowsAndKeepsTheReview()
+    {
+        var book = await db.NewReaderWithBookAsync();
+        await _repo.SaveReviewAsync(NewInsight(book, "ch-1", "review", "{}"), Ct);
+
+        await Assert.ThrowsAsync<ArgumentNullException>(() => _repo.SaveReviewAsync(NewInsight(book, "ch-1", "plain"), Ct));
+
+        Assert.Single(await _repo.ListReviewsForBookAsync(book.UserId, book.Id, Ct));
+    }
+
+    [Fact]
+    public async Task SaveReviewAsync_BookLevelSlot_ThrowsAndStoresNothing()
+    {
+        var book = await db.NewReaderWithBookAsync();
+
+        await Assert.ThrowsAsync<ArgumentException>(() => _repo.SaveReviewAsync(NewInsight(book, null, "review", "{}"), Ct));
+
+        Assert.Empty(await _repo.ListForBookAsync(book.UserId, book.Id, Ct));
     }
 
     [Fact]
