@@ -1,7 +1,6 @@
-// The ADR-029 Decision 6 large-book gate: a real EPUB padded to about <MB> MiB with PNG plates foliate renders (a manifest
-// item + an <img> in its own spine section, interleaved from the third original section on), not random bytes. Needs `zip`/`unzip`.
-//   node bigbook.mjs <in.epub> <out.epub> [MB=88]   (plates are counted before zipping, in whole plates, so the
-//   size is approximate and printed: 88 → ~95 MB today. R4's 87 MB run, Project Gutenberg #28885, predates the PRNG fix)
+// The ADR-029 Decision 6 large-book gate: a real EPUB padded with PNG plates foliate renders (a manifest item + an <img>
+// in its own spine section, interleaved from the third original section on), not random bytes. Needs `zip`/`unzip`.
+//   node bigbook.mjs <in.epub> <out.epub> [MB=88]   pads until the raw plates reach ~MB MiB (+2 %); the real size is printed.
 // Write it into fixtures/ (gitignored): the output is large and its source book is not in the repo.
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, readdirSync, writeFileSync, statSync, rmSync } from 'node:fs'
@@ -49,7 +48,6 @@ const replaced = (text, what, by) => {
 }
 // A self-closing <itemref/> or an empty <itemref …></itemref>.
 const ITEMREF = /<itemref\b[^>]*?(?:\/>|>\s*<\/itemref>)/g
-let n = 0, original = 0
 try {
   execFileSync('unzip', ['-q', resolve(src), '-d', dir])
   // The EPUB is untrusted: a symlink would redirect plate writes or let `zip -r` pull local files into the output.
@@ -65,16 +63,17 @@ try {
   const opfPath = resolve(dir, fullPath[1])
   if (!opfPath.startsWith(resolve(dir) + sep)) throw new Error(`bigbook: full-path outside the book: ${fullPath[1]}`)
   let opf = readFileSync(opfPath, 'utf8')
-  original = [...opf.matchAll(ITEMREF)].length
+  const original = [...opf.matchAll(ITEMREF)].length
   if (!original) throw new Error('bigbook: no <itemref> in the OPF')
   const target = Number(mb) * 1024 * 1024
   let total = statSync(resolve(src)).size, manifest = ''
   const pads = []
+  let n = 0
   while (total < target * 1.02) {
     n++
     const img = png(n)
     writeFileSync(join(dirname(opfPath), `pad-${n}.png`), img)
-    writeFileSync(join(dirname(opfPath), `pad-${n}.xhtml`), `<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Plate ${n}</title></head><body><h2>Plate ${n}</h2><p>Generated plate ${n} of the 80 MB gate book.</p><p><img src="pad-${n}.png" alt="plate ${n}" style="max-width:100%"/></p></body></html>`)
+    writeFileSync(join(dirname(opfPath), `pad-${n}.xhtml`), `<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Plate ${n}</title></head><body><h2>Plate ${n}</h2><p>Generated plate ${n}.</p><p><img src="pad-${n}.png" alt="plate ${n}" style="max-width:100%"/></p></body></html>`)
     manifest += `<item id="pad-img-${n}" href="pad-${n}.png" media-type="image/png"/><item id="pad-${n}" href="pad-${n}.xhtml" media-type="application/xhtml+xml"/>`
     pads.push(`<itemref idref="pad-${n}"/>`)
     total += img.length
@@ -86,7 +85,7 @@ try {
   opf = replaced(opf, '</spine>', `${pads.join('')}</spine>`)
   writeFileSync(opfPath, opf)
   zipEpub(dir, resolve(out))
+  console.log(`${out}: ${statSync(resolve(out)).size} bytes, ${n} plates ${W}x${H}, ${original + n} sections (${original} original)`)
 } finally {
   rmSync(dir, { recursive: true, force: true })
 }
-console.log(`${out}: ${statSync(resolve(out)).size} bytes, ${n} plates ${W}x${H}, ${original} original sections`)
