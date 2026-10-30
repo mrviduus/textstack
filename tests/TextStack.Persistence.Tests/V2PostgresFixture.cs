@@ -120,17 +120,18 @@ public sealed class V2PostgresFixture : IAsyncLifetime
     };
 
     /// <summary>
-    /// Returns once some backend waits on a lock, or <paramref name="pending"/> finished, or 5 s
-    /// passed: how a race test knows the other side is parked before it lets go of its own lock.
+    /// Returns once some backend waits on a lock <paramref name="holder"/> holds, or
+    /// <paramref name="pending"/> finished, or 5 s passed: how a race test knows the other side is
+    /// parked before it lets go. Keyed on the holder, so another test's lock wait cannot end it early.
     /// </summary>
-    public async Task WaitUntilBlockedOnALockAsync(Task pending)
+    public async Task WaitUntilBlockedByAsync(NpgsqlConnection holder, Task pending)
     {
         await using var observer = await DataSource.OpenConnectionAsync(Ct);
         for (var waited = 0; waited < 5000 && !pending.IsCompleted; waited += 10)
         {
             if (await observer.ExecuteScalarAsync<bool>(new CommandDefinition(
-                    "SELECT EXISTS (SELECT FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock')",
-                    cancellationToken: Ct)))
+                    "SELECT EXISTS (SELECT FROM pg_stat_activity WHERE @holderPid = ANY(pg_blocking_pids(pid)))",
+                    new { holderPid = holder.ProcessID }, cancellationToken: Ct)))
                 return;
             await Task.Delay(10, Ct);
         }

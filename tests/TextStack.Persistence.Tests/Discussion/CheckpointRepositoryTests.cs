@@ -193,7 +193,7 @@ public class CheckpointRepositoryTests(V2PostgresFixture db)
             """, share, delete, cancellationToken: Ct));
 
         var append = _repo.AppendAsync(checkpoint, Ct);
-        await db.WaitUntilBlockedOnALockAsync(append);
+        await db.WaitUntilBlockedByAsync(conn, append);
         await delete.CommitAsync(Ct);
 
         var result = await append;

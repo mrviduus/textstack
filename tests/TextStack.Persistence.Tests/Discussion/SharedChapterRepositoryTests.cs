@@ -178,7 +178,7 @@ public class SharedChapterRepositoryTests(V2PostgresFixture db)
             append, cancellationToken: Ct));
 
         var delete = _repo.DeleteAsync(book.UserId, share.Id, Ct);
-        await db.WaitUntilBlockedOnALockAsync(delete);
+        await db.WaitUntilBlockedByAsync(conn, delete);
         await append.CommitAsync(Ct);
 
         Assert.True(await delete);
