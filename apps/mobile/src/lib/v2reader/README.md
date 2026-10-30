@@ -3,7 +3,7 @@
 The page that renders a local EPUB in the V2 reader's WebView ([ADR-029](../../../../../docs/01-architecture/adr/ADR-029-foliate-for-v2-epub.md)).
 foliate-js parses and renders the book; our code adds word tap, the inline translation label, highlights and
 the reading position. Slice R1 of [v2-plan.md](../../../../../docs/01-architecture/v2-plan.md) §7: the page
-and its build only. The dev route hosting it is `app/dev/epub-v2.tsx` → `src/components/v2reader/V2ReaderScreen.tsx` (R2): the screen is required only under `__DEV__`, and production Metro hides `app/dev/` — unless `NODE_ENV=development` is exported into a release build, which then keeps a route path that only redirects home.
+and its build only. Dev route: `app/dev/epub-v2.tsx` → `V2ReaderScreen.tsx` (R2); hidden from production Metro, see metro.config.js.
 
 | File | What |
 |---|---|
@@ -12,7 +12,7 @@ and its build only. The dev route hosting it is `app/dev/epub-v2.tsx` → `src/c
 | `saveScheduler.mjs` | The debounced `store` message: key and payload are fixed when the save is asked for, so a save can never land on the next book. |
 | `overlays.mjs` | What is drawn over a range. foliate keys an overlay by its CFI, so a highlight and a word's translation over the same range are one overlay carrying both. |
 | `library.mjs` | V2 local library (pure): identical bytes → the existing entry, never a duplicate or reset. |
-| `hostStorage.ts` | The host's files under `<documents>/v2/` (R2): staging, retained `books/<sha256>.epub`, `library.json`, `store/<sha256>.json`; tmp-then-move writes, one write chain, lower-cased keys. |
+| `hostStorage.ts` | The host's files under `<documents>/v2/` (R2): staging, retained `books/<sha256>.epub`, `library.json`, `store/<sha256>.json`; tmp-then-move writes, one queue for reads and writes, lower-cased keys. |
 | `*.test.ts` | Unit tests (mobile vitest) for the pure modules and hostStorage. |
 | `patches/*.patch` | Our changes to foliate-js, applied in order on every build. |
 | `build.mjs` | Pinned clone → patches → esbuild IIFE → `v2ReaderPage.generated.ts`. |
@@ -104,6 +104,8 @@ quote at all are dropped when the entry is read. `highlightSelection()` before `
 - A **fresh random nonce per load** into `v2ReaderPageHtml(nonce)`; the length check is not an entropy check, so the host picks the source of randomness (R2).
 - **Keep every `store` payload verbatim** under its `key`, and hand the same JSON back to `restore`. Lower-case hex keys: `sha256()` emits lower case and the key is compared byte for byte.
 - **Serialise library writes.** `library.mjs` is pure; two concurrent imports writing `library.json` can still lose one (R2).
+- The R2 host passes its file path (`staging/<ts>.epub` or `books/<sha256>.epub`) as `openUrl`'s `name` to match each answer to its open, so the page's stored `book.name` is that path until the contract gains an explicit open id (#1069).
+- `<documents>/v2/` is not yet counted in Device Storage nor wiped on sign-out (#1070, R6).
 - `build.mjs` resets tracked files in `.vendor/foliate-js` but does not prune untracked ones; delete `.vendor/` if that tree was touched by hand (#1046, left to R3).
 
 **WebView, dev route only** (prototype host; ADR-029 Decision 4 until the R4 security review):
