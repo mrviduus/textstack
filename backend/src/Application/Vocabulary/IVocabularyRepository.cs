@@ -64,9 +64,9 @@ public interface IVocabularyRepository
     /// computes the next schedule from the card's current row; the review stores the card's stage
     /// before and the schedule's stage after (set on <paramref name="review"/>), and the card moves to
     /// the schedule, due at the server's time plus the interval. Two answers in flight on one card
-    /// therefore apply one after the other. <paramref name="schedule"/> runs for every operation on a
-    /// live card, a replay included, whose result is then discarded: it must have no side effects.
-    /// A replay, a conflict, a deleted or a missing card changes nothing.
+    /// therefore apply one after the other. <paramref name="schedule"/> must be pure: it may run on a
+    /// replay or a conflict on a live card, and its result is then discarded. A replay, a conflict, a
+    /// deleted or a missing card changes nothing; the last two never call it.
     /// </summary>
     Task<WriteResult<VocabularyReview>> RecordReviewAsync(
         Guid userId, VocabularyReview review, Func<VocabularyWord, ReviewSchedule> schedule, CancellationToken ct);
