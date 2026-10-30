@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text;
 using Dapper;
 using Domain.Discussion;
 using Domain.Library;
@@ -57,20 +58,30 @@ public sealed class V2PostgresFixture : IAsyncLifetime
     }
 
     /// <summary>A fresh user with one imported book, titled "A book" and tagged "fiction"; it carries its current file.</summary>
-    public async Task<Book> NewReaderWithBookAsync()
+    public async Task<Book> NewReaderWithBookAsync() => await NewBookAsync(await NewReaderAsync());
+
+    /// <summary>Another imported book, tagged "fiction", in the user's library; its file hashes to <paramref name="sha256"/> when given.</summary>
+    public Task<Book> NewBookAsync(Guid userId, string title = "A book", string? sha256 = null)
     {
-        var userId = await NewReaderAsync();
-        var book = new Book { Id = Guid.NewGuid(), UserId = userId, Title = "A book", Tags = ["fiction"] };
-        return await new LibraryRepository(DataSource).ImportAsync(book, NewFile(userId, book.Id), Ct);
+        var book = new Book { Id = Guid.NewGuid(), UserId = userId, Title = title, Tags = ["fiction"] };
+        return new LibraryRepository(DataSource).ImportAsync(book, NewFile(userId, book.Id, sha256), Ct);
     }
 
-    /// <summary>A new file version of the given book; its hash is of random bytes unless one is given.</summary>
+    /// <summary>The user's rows in <paramref name="table"/> (a constant, never input), only those of <paramref name="bookId"/> when given.</summary>
+    public async Task<long> CountAsync(string table, Guid userId, Guid? bookId = null)
+    {
+        await using var conn = await DataSource.OpenConnectionAsync(Ct);
+        var sql = $"SELECT count(*) FROM {table} WHERE user_id = @userId" + (bookId is null ? "" : " AND book_id = @bookId");
+        return await conn.ExecuteScalarAsync<long>(new CommandDefinition(sql, new { userId, bookId }, cancellationToken: Ct));
+    }
+
+    /// <summary>A new file version of the given book; its hash is unique unless one is given.</summary>
     public static BookFile NewFile(Guid userId, Guid bookId, string? sha256 = null, string format = "epub") => new()
     {
         Id = Guid.NewGuid(),
         UserId = userId,
         BookId = bookId,
-        Sha256 = sha256 ?? RandomSha256(),
+        Sha256 = sha256 ?? PayloadSha256(Guid.NewGuid().ToString()),
         ByteSize = 1024,
         OriginalName = "book." + format,
         Format = format,
@@ -88,7 +99,7 @@ public sealed class V2PostgresFixture : IAsyncLifetime
         ChapterText = "It was a dark night.",
         Language = "en",
         OperationId = Guid.NewGuid(),
-        PayloadSha256 = RandomSha256(),
+        PayloadSha256 = PayloadSha256(Guid.NewGuid().ToString()),
     };
 
     /// <summary>A book-level checkpoint with one reader thought, under a fresh operation id.</summary>
@@ -101,7 +112,7 @@ public sealed class V2PostgresFixture : IAsyncLifetime
         ReaderThoughts = """["It is a mood, not the weather."]""",
         Language = "en",
         OperationId = Guid.NewGuid(),
-        PayloadSha256 = RandomSha256(),
+        PayloadSha256 = PayloadSha256(Guid.NewGuid().ToString()),
     };
 
     /// <summary>A checkpoint based on <paramref name="share"/>: its chapter and file version.</summary>
@@ -112,19 +123,12 @@ public sealed class V2PostgresFixture : IAsyncLifetime
         return checkpoint;
     }
 
-    /// <summary>How many rows of <paramref name="table"/> (a constant, never input) hang on the book.</summary>
-    public async Task<long> CountAsync(string table, Book book)
-    {
-        await using var conn = await DataSource.OpenConnectionAsync(Ct);
-        return await conn.ExecuteScalarAsync<long>(new CommandDefinition(
-            $"SELECT count(*) FROM {table} WHERE user_id = @UserId AND book_id = @Id", book, cancellationToken: Ct));
-    }
-
     /// <summary>
-    /// The lowercase hex SHA-256 of random bytes: a file's hash, or any valid payload hash (the
-    /// repositories store and compare it, they do not compute it).
+    /// The lowercase hex SHA-256 of <paramref name="payload"/>: a valid hash, the same for the same
+    /// text, so a test replays by reusing it (the repositories store and compare the hash, they do not
+    /// compute it). A unique one: <c>PayloadSha256(Guid.NewGuid().ToString())</c>.
     /// </summary>
-    public static string RandomSha256() => Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
+    public static string PayloadSha256(string payload) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
 
     /// <summary>A plain insight on the book (a review when <paramref name="reviewJson"/> is given).</summary>
     public static BookInsight NewInsight(Book book, string? chapterSlug, string text = "text", string? reviewJson = null) => new()

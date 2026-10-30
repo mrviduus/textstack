@@ -1,3 +1,4 @@
+using Application.Common;
 using Domain.Discussion;
 
 namespace Application.Discussion;
@@ -17,7 +18,7 @@ public interface ISharedChapterRepository
     /// conflict. A file that is not of the share's book is refused by the
     /// schema (<c>PostgresException</c> 23503), as a broken invariant.
     /// </summary>
-    Task<DiscussionWriteResult<SharedChapter>> ShareAsync(SharedChapter share, CancellationToken ct);
+    Task<WriteResult<SharedChapter>> ShareAsync(SharedChapter share, CancellationToken ct);
 
     /// <summary>One of the user's shares; null when not the user's.</summary>
     Task<SharedChapter?> GetAsync(Guid userId, Guid id, CancellationToken ct);

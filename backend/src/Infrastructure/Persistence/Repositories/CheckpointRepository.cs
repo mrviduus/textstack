@@ -1,3 +1,4 @@
+using Application.Common;
 using Application.Discussion;
 using Dapper;
 using Domain.Discussion;
@@ -15,7 +16,7 @@ public sealed class CheckpointRepository(V2DataSource dataSource) : ICheckpointR
     private const string Columns =
         "id, user_id, book_id, file_id, chapter_key, shared_chapter_id, topic, reader_thoughts, assistant_suggestions, conclusions, open_questions, language, operation_id, payload_sha256, created_at";
 
-    public async Task<DiscussionWriteResult<DiscussionCheckpoint>> AppendAsync(DiscussionCheckpoint checkpoint, CancellationToken ct)
+    public async Task<WriteResult<DiscussionCheckpoint>> AppendAsync(DiscussionCheckpoint checkpoint, CancellationToken ct)
     {
         // Inserts only when the named share (if any) matches. The no-op DO UPDATE returns the stored
         // row when the operation id is taken; xmax = 0 only on a row this statement inserted.
@@ -40,13 +41,13 @@ public sealed class CheckpointRepository(V2DataSource dataSource) : ICheckpointR
         await using var conn = await dataSource.OpenConnectionAsync(ct);
         var written = (await conn.QueryAsync<DiscussionCheckpoint, bool, (DiscussionCheckpoint Row, bool Inserted)>(
             new CommandDefinition(upsert, checkpoint, cancellationToken: ct), (row, isNew) => (row, isNew), splitOn: "inserted")).SingleOrDefault();
-        if (written.Inserted) return new(DiscussionWriteOutcome.Created, written.Row);
+        if (written.Inserted) return new(WriteOutcome.Created, written.Row);
         // No row: the share does not match. A retry is still answered from the stored row, even
         // if its share has been deleted since.
         var stored = written.Row
             ?? await conn.QuerySingleOrDefaultAsync<DiscussionCheckpoint>(new CommandDefinition(byOperation, checkpoint, cancellationToken: ct));
-        if (stored is null) return new(DiscussionWriteOutcome.ShareMismatch, null);
-        return new(stored.PayloadSha256 == checkpoint.PayloadSha256 ? DiscussionWriteOutcome.Replayed : DiscussionWriteOutcome.OperationConflict, stored);
+        if (stored is null) return new(WriteOutcome.ShareMismatch, null);
+        return new(stored.PayloadSha256 == checkpoint.PayloadSha256 ? WriteOutcome.Replayed : WriteOutcome.OperationConflict, stored);
     }
 
     public async Task<CheckpointPage> ListAsync(

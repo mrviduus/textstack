@@ -1,7 +1,9 @@
+using Application.Annotations;
 using Application.Common.Interfaces;
 using Application.Discussion;
 using Application.Library;
 using Application.Reading;
+using Application.Vocabulary;
 using Infrastructure.Persistence;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -19,7 +21,8 @@ public class V2DataAccessRegistrationTests
             .AddTextStackDataAccess(Legacy, null)
             .BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true });
 
-        Type[] v2Ports = [typeof(ILibraryRepository), typeof(ISharedChapterRepository), typeof(ICheckpointRepository),
+        Type[] v2Ports = [typeof(ILibraryRepository), typeof(IAnnotationRepository), typeof(IVocabularyRepository),
+            typeof(ISharedChapterRepository), typeof(ICheckpointRepository),
             typeof(IBookInsightRepository), typeof(IReviewQuestionRepository)];
         foreach (var port in v2Ports)
             Assert.Contains("ConnectionStrings:V2", Assert.Throws<InvalidOperationException>(() => services.GetRequiredService(port)).Message);
@@ -37,6 +40,8 @@ public class V2DataAccessRegistrationTests
 
         Assert.NotNull(services.GetService<ILibraryRepository>());
         Assert.NotNull(services.GetService<IReadingStateRepository>());
+        Assert.NotNull(services.GetService<IAnnotationRepository>());
+        Assert.NotNull(services.GetService<IVocabularyRepository>());
         Assert.NotNull(services.GetService<ISharedChapterRepository>());
         Assert.NotNull(services.GetService<ICheckpointRepository>());
         Assert.NotNull(services.GetService<IBookInsightRepository>());
