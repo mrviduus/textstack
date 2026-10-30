@@ -132,7 +132,11 @@ function V2Reader() {
     const { retained, books } = await s.addOpened(
       { ...m.book, title: m.title, author: m.author, originalName: current.name },
       isStaged(current.file) ? current.file : null,
-    )
+    ).catch((e) => {
+      // The staged path is gone once addOpened moved or dropped it: a reload must not reopen it.
+      if (!superseded()) opening.current = null
+      throw e
+    })
     setBooks(books)
     // From here on this book is the retained copy: a reloaded page reopens that, not the moved staging file.
     if (!superseded()) opening.current = { ...current, file: retained }

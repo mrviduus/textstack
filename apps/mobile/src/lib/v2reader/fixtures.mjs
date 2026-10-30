@@ -27,11 +27,17 @@ function epub(out, name, { files, manifest, spine, encryption }) {
 <manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>${manifest}</manifest><spine>${spine}</spine></package>`)
   put('OEBPS/nav.xhtml', `<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>nav</title></head><body><nav epub:type="toc"><ol><li><a href="s1.xhtml">One</a></li></ol></nav></body></html>`)
   for (const [p, data] of Object.entries(files)) put(`OEBPS/${p}`, data)
-  rmSync(out, { force: true })
-  execFileSync('zip', ['-X0q', out, 'mimetype'], { cwd: dir })
-  execFileSync('zip', ['-Xr9Dq', out, 'META-INF', 'OEBPS'], { cwd: dir })
+  zipEpub(dir, out)
   rmSync(dir, { recursive: true })
   return out
+}
+
+/** `dir` (an unpacked EPUB) into `out`: `mimetype` first and stored, as OCF requires, then the rest. */
+export function zipEpub(dir, out) {
+  rmSync(out, { force: true })
+  // `.`, not the entry names: those come from an untrusted EPUB, and zip reads options anywhere in argv.
+  execFileSync('zip', ['-X0q', out, 'mimetype'], { cwd: dir })
+  execFileSync('zip', ['-Xr9Dq', out, '.', '-x', 'mimetype'], { cwd: dir })
 }
 
 const xhtml = (head, body, attrs = '') => `<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>s</title>${head}</head><body${attrs}>${body}</body></html>`
