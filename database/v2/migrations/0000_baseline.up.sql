@@ -7,29 +7,26 @@
 -- Why:   V2 lives in its own database (ADR-030) whose baseline is the final schema: read it top to
 --          bottom to know V2's data. Rules: database/v2/README.md.
 -- Issue: https://github.com/mrviduus/textstack/issues/1014
--- Compatibility: a new, empty database. Nothing deployed reads or writes it yet; the api and the
---        worker get a connection to it in M1.2.
+-- Compatibility: a new, empty database. Nothing deployed reads or writes it yet; the api
+--                and the worker get a connection to it in M1.2.
 -- Down:  none. To start over, drop textstack_v2; migrator-v2 creates it again.
 
-SET LOCAL lock_timeout = '5s';
-
 -- A locator is an envelope {"version":1,"scheme":…,"value":…}; an epub-cfi locator may carry the
--- first ≤64 characters of text at the CFI as "quote". Only the envelope is checked here: the
--- application validates the value against the book (ADR-031 "Locator schemes"). NULL passes.
+-- first 1-64 characters of text at the CFI as "quote" (an empty one would make every resume check
+-- pass). Only the envelope is checked here: the application validates the value against the book
+-- (ADR-031 "Locator schemes"). SQL NULL passes, so a nullable locator column needs no OR IS NULL.
 CREATE FUNCTION public.is_locator(locator jsonb) RETURNS boolean
     LANGUAGE sql IMMUTABLE STRICT
     RETURN jsonb_typeof(locator) = 'object'
         AND locator -> 'version' = '1'
         AND locator ->> 'scheme' IN ('epub-cfi', 'pdf-page', 'textstack-position-v1', 'textstack-anchor-v1')
+        -- A missing value, or an explicit null: neither is a position.
         AND locator ? 'value'
+        AND jsonb_typeof(locator -> 'value') <> 'null'
         AND (NOT locator ? 'quote'
              OR (locator ->> 'scheme' = 'epub-cfi'
                  AND jsonb_typeof(locator -> 'quote') = 'string'
-                 AND length(locator ->> 'quote') <= 64));
-
--- ponytail: the enum-like columns carried from legacy (users.tier, device_authorizations.status,
--- agent_run.status, eval_runs.run_type, book_insight.source) keep their legacy varchar without a
--- CHECK; add one per column when its V2 repository pins the value set (M2).
+                 AND length(locator ->> 'quote') BETWEEN 1 AND 64));
 
 -- ===== Identity =====
 
@@ -55,9 +52,10 @@ CREATE TABLE public.users (
     promoted_at timestamptz,
     role text NOT NULL DEFAULT 'reader',
     CONSTRAINT pk_users PRIMARY KEY (id),
-    CONSTRAINT ck_users_role CHECK (role IN ('reader', 'admin'))
+    CONSTRAINT ck_users_role CHECK (role IN ('reader', 'admin')),
+    CONSTRAINT ck_users_tier CHECK (tier IN ('Guest', 'Free', 'Supporter', 'Staff'))
 );
-CREATE UNIQUE INDEX ix_users_email ON public.users (email);
+CREATE UNIQUE INDEX ix_users_email ON public.users (lower(email));
 CREATE UNIQUE INDEX ix_users_google_subject ON public.users (google_subject) WHERE google_subject IS NOT NULL;
 CREATE UNIQUE INDEX ix_users_apple_subject ON public.users (apple_subject) WHERE apple_subject IS NOT NULL;
 -- The guest sweeper's scan: inactive guests.
@@ -181,6 +179,8 @@ CREATE TABLE public.device_authorizations (
     created_at timestamptz NOT NULL,
     consumed_at timestamptz,
     CONSTRAINT pk_device_authorizations PRIMARY KEY (id),
+    CONSTRAINT ck_device_authorizations_status
+        CHECK (status IN ('pending', 'approved', 'denied', 'expired')),
     CONSTRAINT fk_device_authorizations_users_user_id FOREIGN KEY (user_id)
         REFERENCES public.users (id) ON DELETE CASCADE
 );
@@ -236,7 +236,7 @@ CREATE TABLE public.books (
     -- The target of every (user_id, book_id) FK: a row cannot point at another user's book.
     CONSTRAINT ak_books_user_id_id UNIQUE (user_id, id),
     CONSTRAINT ck_books_title CHECK (btrim(title) <> ''),
-    -- A relative key on the storage volume, never an absolute path.
+    -- Blank is refused here; that it is a relative key on the volume, not a path, is the writer's job.
     CONSTRAINT ck_books_cover_key CHECK (cover_key IS NULL OR btrim(cover_key) <> ''),
     CONSTRAINT ck_books_origin CHECK (jsonb_typeof(origin) = 'object'),
     CONSTRAINT fk_books_users_user_id FOREIGN KEY (user_id)
@@ -327,8 +327,8 @@ CREATE TABLE public.reading_sessions (
     ended_at timestamptz NOT NULL,
     duration_seconds integer NOT NULL,
     words_read integer NOT NULL,
-    start_percent double precision NOT NULL,
-    end_percent double precision NOT NULL,
+    start_percent numeric NOT NULL,
+    end_percent numeric NOT NULL,
     deleted_book_sha256 varchar(64),
     created_at timestamptz NOT NULL,
     CONSTRAINT pk_reading_sessions PRIMARY KEY (id),
@@ -464,6 +464,7 @@ CREATE TABLE public.vocabulary_reviews (
     word_id uuid NOT NULL,
     operation_id uuid NOT NULL,
     payload_sha256 text NOT NULL,
+    -- No CHECK: the clients own the review styles, so pinning them here makes a UI change a migration.
     review_mode text NOT NULL,
     is_correct boolean NOT NULL,
     response_time_ms integer,
@@ -554,10 +555,11 @@ CREATE TABLE public.discussion_checkpoints (
     CONSTRAINT ck_discussion_checkpoints_payload_sha256 CHECK (payload_sha256 ~ '^[0-9a-f]{64}$'),
     CONSTRAINT fk_discussion_checkpoints_books_user_id_book_id FOREIGN KEY (user_id, book_id)
         REFERENCES public.books (user_id, id) ON DELETE CASCADE,
-    -- Provenance: deferred (rule 9). Deleting a share first clears shared_chapter_id here, in the
-    -- same transaction; the checkpoint's own text survives.
+    -- Provenance: deferred (rule 9).
     CONSTRAINT fk_discussion_checkpoints_book_files_user_id_book_id_file_id FOREIGN KEY (user_id, book_id, file_id)
         REFERENCES public.book_files (user_id, book_id, id) DEFERRABLE INITIALLY DEFERRED,
+    -- Deleting a share first clears shared_chapter_id here, in the same transaction; the
+    -- checkpoint's own text survives. The name drops user_id_book_id: 63 characters is the limit.
     CONSTRAINT fk_discussion_checkpoints_shared_chapters_shared_chapter_id
         FOREIGN KEY (user_id, book_id, shared_chapter_id)
         REFERENCES public.shared_chapters (user_id, book_id, id) DEFERRABLE INITIALLY DEFERRED
@@ -582,6 +584,8 @@ CREATE TABLE public.book_insight (
     created_at timestamptz NOT NULL,
     updated_at timestamptz NOT NULL,
     CONSTRAINT pk_book_insight PRIMARY KEY (id),
+    -- A second source (the app itself) adds its value here, in a migration.
+    CONSTRAINT ck_book_insight_source CHECK (source IN ('mcp')),
     -- The target of review_question's ownership FK.
     CONSTRAINT ak_book_insight_user_id_id UNIQUE (user_id, id),
     CONSTRAINT fk_book_insight_books_user_id_book_id FOREIGN KEY (user_id, book_id)
@@ -667,6 +671,7 @@ CREATE TABLE public.agent_run (
     confidence double precision,
     tool_calls_count integer NOT NULL DEFAULT 0,
     CONSTRAINT pk_agent_run PRIMARY KEY (id),
+    CONSTRAINT ck_agent_run_status CHECK (status IN ('completed', 'budget_exhausted', 'error')),
     CONSTRAINT fk_agent_run_users_user_id FOREIGN KEY (user_id)
         REFERENCES public.users (id) ON DELETE CASCADE
 );
@@ -686,7 +691,8 @@ CREATE TABLE public.eval_runs (
     git_sha varchar(64),
     created_at timestamptz NOT NULL,
     run_type varchar(20) NOT NULL DEFAULT 'manual',
-    CONSTRAINT pk_eval_runs PRIMARY KEY (id)
+    CONSTRAINT pk_eval_runs PRIMARY KEY (id),
+    CONSTRAINT ck_eval_runs_run_type CHECK (run_type IN ('manual', 'scheduled'))
 );
 CREATE INDEX ix_eval_runs_feature_created_at ON public.eval_runs (feature, created_at);
 COMMENT ON TABLE public.eval_runs IS
@@ -742,12 +748,15 @@ CREATE TABLE public.ingestion_jobs (
     status text NOT NULL,
     attempt_count integer NOT NULL,
     error text,
-    source_format varchar(50),
+    -- What the extractor detected, as book_files.format plus the outcomes that are not a V2 format.
+    source_format text,
     created_at timestamptz NOT NULL,
     started_at timestamptz,
     finished_at timestamptz,
     CONSTRAINT pk_ingestion_jobs PRIMARY KEY (id),
     CONSTRAINT ck_ingestion_jobs_status CHECK (status IN ('queued', 'processing', 'succeeded', 'failed')),
+    CONSTRAINT ck_ingestion_jobs_source_format
+        CHECK (source_format IN ('epub', 'pdf', 'html', 'fb2', 'unknown')),
     CONSTRAINT fk_ingestion_jobs_book_files_user_id_book_id_file_id FOREIGN KEY (user_id, book_id, file_id)
         REFERENCES public.book_files (user_id, book_id, id) ON DELETE CASCADE
 );

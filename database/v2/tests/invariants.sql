@@ -109,6 +109,9 @@ BEGIN
         ('{"version":1,"scheme":"epub-cfi","value":"x","quote":"' || repeat('a', 64) || '"}', true),
         ('{"version":1,"scheme":"epub-cfi","value":"x","quote":"' || repeat('a', 65) || '"}', false),
         ('{"version":1,"scheme":"epub-cfi","value":"x","quote":5}', false),
+        -- An empty quote would make every resume check pass; a null value is not a position.
+        ('{"version":1,"scheme":"epub-cfi","value":"x","quote":""}', false),
+        ('{"version":1,"scheme":"pdf-page","value":null}', false),
         ('{"version":1,"scheme":"pdf-page","value":{"page":3},"quote":"q"}', false),
         ('{"version":2,"scheme":"pdf-page","value":1}', false),
         ('{"version":"1","scheme":"pdf-page","value":1}', false),
@@ -117,4 +120,14 @@ BEGIN
         ('{}', false), ('[1]', false), ('"s"', false), ('null', false)
     ) v(x, ok) WHERE public.is_locator(x::jsonb) IS DISTINCT FROM ok;
     IF bad IS NOT NULL THEN RAISE EXCEPTION 'is_locator wrong for: %', bad; END IF;
+END $$;
+
+-- Decided item 7 matches accounts by email case-insensitively, so uniqueness must be too.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_indexes
+                   WHERE schemaname = 'public' AND indexname = 'ix_users_email'
+                     AND indexdef LIKE '%UNIQUE%lower(%email%') THEN
+        RAISE EXCEPTION 'ix_users_email is not a unique index on lower(email)';
+    END IF;
 END $$;

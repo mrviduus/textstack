@@ -11,7 +11,8 @@ database/v2/
   migrate.sh                    the runner: database/migrate.sh without its EF Core bootstrap
   migrations/
     0000_baseline.up.sql        the whole V2 schema; no down, no seed rows
-  tests/roundtrip.sh            CI check of the runner and every V2 migration
+  tests/invariants.sql          ADR-031's schema rules, checked against a migrated database
+  tests/roundtrip.sh            CI check of the runner and every V2 migration (runs invariants.sql)
 ```
 
 Commands, ledger, transactions, checksums, naming and "adding a migration" work exactly as in
@@ -25,7 +26,7 @@ what differs.
 | Compose service | `migrator` | `migrator-v2` (same image, entrypoint `run.sh`) |
 | Database | `POSTGRES_DB` | `V2_POSTGRES_DB`, default `textstack_v2` |
 | Make | `migrate`, `migrate-down V=`, `migrate-status` | `migrate-v2`, `migrate-v2-down V=`, `migrate-v2-status` |
-| Created by | the postgres image, on first start | `run.sh`, on every run if missing (`CREATE DATABASE` via `\gexec`) |
+| Created by | the postgres image, on first start | `run.sh up`/`down`, if missing (`CREATE DATABASE` via `\gexec`); `status` and `verify` never create it |
 
 `api` and `worker` wait for both migrators (ADR-021). Neither connects to `textstack_v2` yet (M1.2).
 
@@ -78,5 +79,7 @@ Columns of the tables the baseline carries from legacy that it leaves out (whole
 
 Defaults dropped: `users.email` and `users.google_subject` lose legacy's `DEFAULT ''` (the code
 always writes them; with their unique indexes, an insert that omitted one would collide on `''`).
+`ix_users_email` is unique on `lower(email)`: ADR-031 decided item 7 matches accounts by email
+case-insensitively. `reading_sessions`' percents are `numeric`, like every other fraction.
 
 `oauth_clients` has no seed: legacy seeds none, so its rows come only from the ETL (M3).
