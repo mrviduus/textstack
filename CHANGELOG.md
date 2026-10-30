@@ -23,6 +23,7 @@ the archive; if it broke production, it belongs in `docs/incidents/`. See
 
 ## [Unreleased]
 
+- **Docs** — ADR-029: V2 local EPUBs render with foliate-js (pinned, patched, CSP-sandboxed), dev-only until the device/security gates pass; amends ADR-025 — docs · [details](docs/changelog-archive/2026-H2.md#2026-10-30-adr-029-foliate-for-v2-epub)
 - **Docs** — ADR-031: the V2 schema — 24 tables (+2 transitional) in `textstack_v2`, one owner module each, and the fate of all 58 legacy tables — docs · [details](docs/changelog-archive/2026-H2.md#2026-10-30-adr-031-v2-schema)
 - **Docs** — ADR-030: V2 lives in a second database `textstack_v2` (same Postgres), Dapper-only; legacy DB + EF Core retire whole after one rehearsed cutover — docs · [details](docs/changelog-archive/2026-H2.md#2026-10-30-adr-030-two-databases-one-cutover)
 - **Docs** — V2 program plan: separate `textstack_v2` database (Dapper-only), one rehearsed cutover, catalog retired within V2, EF Core leaves with the legacy DB; reader track (foliate) in parallel; ADR-027 recorded as Proposed/deferred — docs · [details](docs/changelog-archive/2026-H2.md#2026-10-30-v2-program-plan)

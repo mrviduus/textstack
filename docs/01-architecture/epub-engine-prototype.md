@@ -4,6 +4,8 @@
 core before implementing local import around the current renderer. This is not approval to replace
 the production reader or to accept the V2 schema. Implementation is a separate Code Agent task below.
 
+**Decision record:** [ADR-029 — foliate-js renders V2 EPUBs](adr/ADR-029-foliate-for-v2-epub.md) (Proposed, 2026-10-30).
+
 ## Goal
 
 Determine whether a library-owned EPUB parser and renderer can replace enough custom infrastructure

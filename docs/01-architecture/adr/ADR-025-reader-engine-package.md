@@ -6,7 +6,8 @@
 [ADR-012](ADR-012-pdf-original-first-lazy-parse.md) (PDF original-first),
 [ADR-015](ADR-015-reader-position-is-logical.md) (position = place in the text),
 [ADR-018](ADR-018-reingest-updates-chapters-in-place.md) · **Starts after:** Phase 0 (#774); no engine
-runtime code reaches users before the Play production launch (~2026-10-16)
+runtime code reaches users before the Play production launch (~2026-10-16) · **Amended by:**
+[ADR-029](ADR-029-foliate-for-v2-epub.md) (V2 local EPUBs use foliate; this ADR keeps server-chapter reflow and PDF)
 
 ## Context
 
@@ -262,7 +263,8 @@ What it changes in this ADR:
   one consumer. The package can be moved out later in an hour if the boundary holds.
 - **foliate-js or Readium ts-toolkit as the base.** Both render each section in an iframe; foliate's
   position is CFI and its API is openly unstable; Readium's WebPub does not re-anchor on resize and
-  has no PDF. We keep borrowing ideas (and the overlay already is a foliate port).
+  has no PDF. We keep borrowing ideas (and the overlay already is a foliate port). Withdrawn for V2
+  local EPUBs by ADR-029 (2026-10-30); still the reason the server-chapter reflow engine is ours.
 - **"Engine-lite"** (only extract the shared DOM anchoring). Cheaper, and the consilium's first advice;
   rejected by the owner because it leaves the reader without one owner and one boundary.
 - **Page-turn mode now.** Code, tables and wide figures break across CSS columns; our readers read tech
