@@ -129,10 +129,18 @@ function V2Reader() {
     if (superseded()) return
     call(`window.__fol.restore(${JSON.stringify(stored)})`)
     setHeading([m.title || current.name, m.author].filter(Boolean).join(' — '))
-    const { retained, books } = await s.addOpened(
-      { ...m.book, title: m.title, author: m.author, originalName: current.name },
-      isStaged(current.file) ? current.file : null,
-    )
+    let added
+    try {
+      added = await s.addOpened(
+        { ...m.book, title: m.title, author: m.author, originalName: current.name },
+        isStaged(current.file) ? current.file : null,
+      )
+    } catch (e) {
+      // The staged path is gone once addOpened moved or dropped it: a reload must not reopen it. The error stays on screen (the caller shows it).
+      if (!superseded()) opening.current = null
+      throw e
+    }
+    const { retained, books } = added
     setBooks(books)
     // From here on this book is the retained copy: a reloaded page reopens that, not the moved staging file.
     if (!superseded()) opening.current = { ...current, file: retained }

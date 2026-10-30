@@ -86,7 +86,9 @@ export function createV2Storage(files: V2Files) {
      * staged file becomes the retained copy unless those bytes are already retained. The copy lands
      * before the entry, so a kill between the two leaves a file that the next import of the same
      * bytes adopts, never an entry without its file. An error after this call's move removes that
-     * copy again (an adopted one stays), so a failed import leaves no file the library does not list.
+     * copy again (an adopted one stays, as does one a complete library.json.tmp lists), so a failed
+     * import leaves no retained copy the library does not list. The page keeps the book open and may
+     * still save its `store` payload; a later import of the same bytes reuses it.
      */
     addOpened: (book: { sha256: string; size: number; title: string; author: string; originalName: string }, staged: string | null) =>
       queue.run(async () => {
