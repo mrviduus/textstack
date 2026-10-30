@@ -11,8 +11,9 @@ legacy database.
 
 ## V2 (`textstack_v2`) — see [ADR-031](adr/ADR-031-v2-schema.md)
 
-A second database ([ADR-030](adr/ADR-030-two-databases-one-cutover.md)), not yet created (M1.1).
-24 permanent tables + 2 transitional; column truth will be `database/v2/migrations/0000_baseline.up.sql`.
+A second database ([ADR-030](adr/ADR-030-two-databases-one-cutover.md)), created and migrated by
+`migrator-v2` ([database/v2/](../../database/v2/README.md)). 24 permanent tables + 2 transitional;
+column truth: [`database/v2/migrations/0000_baseline.up.sql`](../../database/v2/migrations/0000_baseline.up.sql).
 What happens to each legacy table (the disposition column) lives in ADR-031, not here. The legacy
 inventory below stays until M6, when this page becomes V2 only.
 
